@@ -1,0 +1,70 @@
+# NAMO Standalone Configuration
+
+# Environment
+xml_path: "data/test_scene.xml"
+visualize: true
+robot_goal: [2.0, 1.5]
+
+# Planning parameters
+max_iterations: 1000
+evaluate: false
+random_seed: 42
+
+# Object strategy for NAMO planning
+# 0: random, 1: closest, 2: diffusion-based
+object_strategy: 1
+
+# Wavefront planner settings
+wavefront_planner:
+  resolution: 0.05
+
+# Control planner settings  
+control_planner:
+  distance_threshold: 0.1
+  angle_threshold: 0.1
+  mpc_steps_limit: 50
+  best_first_expansion_limit: 1000
+
+# Motion primitives
+motion_primitives:
+  control_steps: 10
+  control_scale: 1.0
+  push_steps: 50
+  visualize: false
+  base_config_path: "config"
+  primitives_path: "primitives"
+  reprocess_primitives: false
+
+# Memory limits (adjust based on your scenes)
+memory_limits:
+  max_static_objects: 20
+  max_movable_objects: 10
+  max_actions: 100
+  max_motion_primitives: 1000
+  max_planning_nodes: 10000
+  grid_max_width: 2000
+  grid_max_height: 2000
+
+# Performance tuning
+performance:
+  position_threshold: 0.0001  # 0.1mm
+  rotation_threshold: 0.001   # ~0.06 degrees
+  small_rotation_limit: 0.05  # ~3 degrees
+
+# Data collection (optional)
+data_collection:
+  enabled: false
+  output_dir: "./collected_data"
+  run_id: "experiment_1"
+
+# Results and logging
+results_folder: "results"
+smoothing_enabled: true
+one_env: true
+
+# Distributed inference (optional, requires ZMQ)
+diffusion:
+  enabled: false
+  goal_enabled: false
+
+endpoint: "tcp://localhost:5555"

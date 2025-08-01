@@ -1,0 +1,4 @@
+xml_path=data/test_scene.xml
+visualize=false
+robot_goal=[2.0, 2.0]
+wavefront_planner.resolution=0.05
