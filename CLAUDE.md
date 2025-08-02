@@ -23,6 +23,10 @@ This is a high-performance standalone implementation of NAMO planning, completel
 - ✅ NAMO environment with object management
 - ✅ Fixed-size container system (FixedVector template)
 - ✅ Build system with automatic MuJoCo dependency handling
+- ✅ **NAMO Skill System**: Complete skill-based interface for high-level planners
+- ✅ Motion primitive system with universal displacement vectors
+- ✅ MPC executor with two-stage planning architecture
+- ✅ Comprehensive testing suite (15+ test executables)
 
 ### Pending Tasks (High Priority)
 - 🔧 **CRITICAL BUG**: Parameter conversion error in main.cpp:50 - `has_key` method incorrectly returns true for non-existent keys, causing boolean conversion to fail with "bad conversion" error
@@ -30,9 +34,9 @@ This is a high-performance standalone implementation of NAMO planning, completel
 - 🧪 Test basic functionality with test scene
 
 ### Pending Tasks (Medium Priority)
-- 🤖 Implement NAMO push controller and motion primitives
 - 📊 Implement data collection and ZMQ communication features
-- ✅ Add comprehensive testing and validation
+- 🧠 Add ML integration for object selection strategies
+- 📈 Performance benchmarking against legacy PRX system
 
 ### Pending Tasks (Low Priority)
 - ⚡ Performance optimization and memory pool tuning
@@ -159,6 +163,66 @@ Uses YAML configuration with fallback to simple key=value parser:
 - **Change Detection**: Grid footprint comparison for efficient updates
 - **RAII Memory Management**: Automatic cleanup with object pools
 
+## NAMO Skill System
+
+### Overview
+The NAMO Skill System provides a standardized interface for high-level planners to control object manipulation without knowing internal NAMO details. Any planner (PDDL, behavior trees, RL policies) can use this clean abstraction.
+
+### Architecture
+**Abstract Interface** (`include/skills/manipulation_skill.hpp`):
+- Type-safe parameters using `std::variant<std::string, double, int, bool, SE2State, ...>`
+- Complete lifecycle: `is_applicable()` → `check_preconditions()` → `execute()`
+- Standardized `SkillResult` with timing, outputs, and failure reasons
+
+**NAMO Implementation** (`include/skills/namo_push_skill.hpp` + `src/skills/namo_push_skill.cpp`):
+- Dependency injection with `NAMOEnvironment&` reference
+- Configurable timeouts, tolerances, and planning attempts
+- Zero-hack implementation with proper quaternion conversion
+- Robust error handling and parameter validation
+
+### Key Features
+- **Universal Interface**: Works with any high-level planner
+- **Parameter Schema**: Self-describing parameter requirements
+- **Precondition Checking**: Detailed failure diagnosis
+- **Duration Estimation**: Temporal planning support
+- **World State Observation**: Complete environment monitoring
+- **Type Safety**: Compile-time parameter validation
+
+### Usage Example
+```cpp
+#include "skills/namo_push_skill.hpp"
+
+// Setup
+NAMOEnvironment env("scene.xml", false);
+NAMOPushSkill skill(env);
+
+// Execute manipulation
+std::map<std::string, SkillParameterValue> params = {
+    {"object_name", std::string("box_1")},
+    {"target_pose", SE2State(2.0, 1.5, 0.0)}
+};
+
+if (skill.is_applicable(params)) {
+    auto result = skill.execute(params);
+    if (result.success) {
+        std::cout << "Success!" << std::endl;
+    }
+}
+```
+
+### Integration Patterns
+- **PDDL**: Action execution with parameter mapping
+- **Behavior Trees**: ActionNode implementation with blackboard
+- **RL Policies**: Environment step function with reward computation
+- **Task Planning**: Multi-step execution with state validation
+
+### Documentation
+Complete usage guide available at: `docs/SKILL_USAGE_GUIDE.md`
+- API reference with all methods and parameters
+- Integration patterns for different planner types
+- Error handling and performance best practices
+- Advanced usage examples and common pitfalls
+
 ## File Structure
 
 ```
@@ -172,13 +236,25 @@ Uses YAML configuration with fallback to simple key=value parser:
 │   │   └── parameter_loader.hpp # YAML configuration loader
 │   ├── planning/
 │   │   └── incremental_wavefront_planner.hpp
-│   └── environment/
-│       └── namo_environment.hpp
+│   ├── environment/
+│   │   └── namo_environment.hpp
+│   └── skills/
+│       ├── manipulation_skill.hpp # Abstract skill interface
+│       └── namo_push_skill.hpp    # NAMO push skill implementation
 ├── src/
 │   ├── core/                   # Core components implementation
 │   ├── planning/               # Incremental wavefront planning
 │   ├── environment/            # NAMO environment management
+│   ├── skills/                 # Skill system implementation
 │   └── main.cpp               # Main executable with testing
+├── tests/
+│   ├── test_namo_skill.cpp     # Skill system validation tests
+│   └── test_simple_skill.cpp   # Basic skill interface tests
+├── docs/
+│   ├── SKILL_USAGE_GUIDE.md    # Complete skill usage documentation
+│   └── SKILL_SYSTEM_SUMMARY.md # Implementation summary and achievements
+├── examples/
+│   └── skill_demo.cpp          # Working demonstration with integration examples
 ├── config/
 │   ├── namo_config.yaml       # Full configuration
 │   └── simple_test.yaml       # Minimal test config

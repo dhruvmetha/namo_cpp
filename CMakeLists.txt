@@ -116,12 +116,14 @@ file(GLOB_RECURSE CORE_SOURCES "src/core/*.cpp")
 file(GLOB_RECURSE PLANNING_SOURCES "src/planning/*.cpp")
 file(GLOB_RECURSE ENVIRONMENT_SOURCES "src/environment/*.cpp")
 file(GLOB_RECURSE UTILS_SOURCES "src/utils/*.cpp")
+file(GLOB_RECURSE SKILLS_SOURCES "src/skills/*.cpp")
 
 set(ALL_SOURCES 
     ${CORE_SOURCES}
     ${PLANNING_SOURCES}
     ${ENVIRONMENT_SOURCES}
     ${UTILS_SOURCES}
+    ${SKILLS_SOURCES}
     src/main.cpp
 )
 
@@ -368,6 +370,54 @@ target_link_libraries(test_search_limits
     m  # math library
 )
 
+# NAMO Skill test
+add_executable(test_namo_skill
+    tests/test_namo_skill.cpp
+    ${CORE_SOURCES}
+    ${PLANNING_SOURCES}
+    ${ENVIRONMENT_SOURCES}
+    ${SKILLS_SOURCES}
+)
+
+target_link_libraries(test_namo_skill
+    ${MUJOCO_LIB}
+    ${OpenCV_LIBS}
+    pthread
+    m  # math library
+)
+
+# Simple skill test
+add_executable(test_simple_skill
+    tests/test_simple_skill.cpp
+    ${CORE_SOURCES}
+    ${PLANNING_SOURCES}
+    ${ENVIRONMENT_SOURCES}
+    ${SKILLS_SOURCES}
+)
+
+target_link_libraries(test_simple_skill
+    ${MUJOCO_LIB}
+    ${OpenCV_LIBS}
+    pthread
+    m  # math library
+)
+
+# Skill demonstration executable
+add_executable(skill_demo
+    examples/skill_demo.cpp
+    ${CORE_SOURCES}
+    ${PLANNING_SOURCES}
+    ${ENVIRONMENT_SOURCES}
+    ${SKILLS_SOURCES}
+)
+
+target_link_libraries(skill_demo
+    ${MUJOCO_LIB}
+    ${OpenCV_LIBS}
+    pthread
+    m  # math library
+)
+
 # Link optional libraries if available
 if(glfw3_FOUND AND OpenGL_FOUND)
     target_link_libraries(namo_standalone glfw OpenGL::GL)
@@ -392,6 +442,18 @@ if(glfw3_FOUND AND OpenGL_FOUND)
     # Also link GLFW to error analysis tool
     target_link_libraries(analyze_displacement_errors glfw OpenGL::GL)
     target_compile_definitions(analyze_displacement_errors PRIVATE HAVE_GLFW)
+    
+    # Also link GLFW to skill tests
+    target_link_libraries(test_namo_skill glfw OpenGL::GL)
+    target_compile_definitions(test_namo_skill PRIVATE HAVE_GLFW)
+    
+    # Also link GLFW to simple skill test
+    target_link_libraries(test_simple_skill glfw OpenGL::GL)
+    target_compile_definitions(test_simple_skill PRIVATE HAVE_GLFW)
+    
+    # Also link GLFW to skill demo
+    target_link_libraries(skill_demo glfw OpenGL::GL)
+    target_compile_definitions(skill_demo PRIVATE HAVE_GLFW)
     
     message(STATUS "GLFW and OpenGL found - visualization enabled")
 else()
