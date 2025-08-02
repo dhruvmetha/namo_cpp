@@ -174,6 +174,14 @@ public:
                                size_t max_objects = 20);
     
     /**
+     * @brief Get reachable edge indices for a specific object
+     * 
+     * @param object_name Name of the object to check
+     * @return Vector of reachable edge indices (0-11)
+     */
+    std::vector<int> get_reachable_edge_indices(const std::string& object_name);
+    
+    /**
      * @brief Update push state based on current object position
      */
     void update_push_state(PushState& state,

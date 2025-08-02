@@ -159,9 +159,9 @@ int main(int argc, char* argv[]) {
         bool goal_reachable = wavefront_planner.is_goal_reachable(robot_goal);
         std::cout << "Goal reachable: " << (goal_reachable ? "yes" : "no") << std::endl;
         
-        // Save wavefront for visualization
-        wavefront_planner.save_wavefront("debug_wavefront.txt");
-        std::cout << "Wavefront saved to: debug_wavefront.txt" << std::endl;
+        // Save initial wavefront for visualization
+        wavefront_planner.save_wavefront_iteration("debug_wavefront", 0);
+        std::cout << "Initial wavefront saved for debugging" << std::endl;
         
         // Test push controller
         std::array<std::string, 20> reachable_objects;
@@ -198,71 +198,38 @@ int main(int argc, char* argv[]) {
                 env.set_zero_velocity();
                 env.step_simulation();
 
-
+                std::cout << "\n--- MPC-style Push Sequence with Wavefront Debugging ---" << std::endl;
                 
-                bool push_success = push_controller.execute_push_primitive(reachable_objects[0], 0, 2);
+                // Array of edge indices to test in sequence (simulating MPC decisions)
+                int edge_indices[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11};
+                int durations[] = {2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};  // Different durations for variety
                 
-                robot_state = env.get_robot_state();
-                start_pos = {robot_state->position[0], robot_state->position[1]};  
-                std::cout << "start_pos: [" << start_pos[0] << ", " << start_pos[1] << "]" << std::endl;
-                updated = wavefront_planner.update_wavefront(env, start_pos);
-                wavefront_planner.save_wavefront("debug_wavefront_1.txt");
-
-                push_success = push_controller.execute_push_primitive(reachable_objects[0], 1, 1);
-                robot_state = env.get_robot_state();
-                start_pos = {robot_state->position[0], robot_state->position[1]};   
-                std::cout << "start_pos: [" << start_pos[0] << ", " << start_pos[1] << "]" << std::endl;
-                updated = wavefront_planner.update_wavefront(env, start_pos);
-                wavefront_planner.save_wavefront("debug_wavefront_2.txt");
-
-                push_success = push_controller.execute_push_primitive(reachable_objects[0], 2, 1);
-                robot_state = env.get_robot_state();
-                start_pos = {robot_state->position[0], robot_state->position[1]};   
-                std::cout << "start_pos: [" << start_pos[0] << ", " << start_pos[1] << "]" << std::endl;
-                updated = wavefront_planner.update_wavefront(env, start_pos);
-                wavefront_planner.save_wavefront("debug_wavefront_3.txt");
-
-                push_success = push_controller.execute_push_primitive(reachable_objects[0], 3, 1);
-
-                robot_state = env.get_robot_state();
-                start_pos = {robot_state->position[0], robot_state->position[1]};   
-                std::cout << "start_pos: [" << start_pos[0] << ", " << start_pos[1] << "]" << std::endl;
-                updated = wavefront_planner.update_wavefront(env, start_pos);
-                wavefront_planner.save_wavefront("debug_wavefront_4.txt");
-
-                push_success = push_controller.execute_push_primitive(reachable_objects[0], 4, 1);
-
-                robot_state = env.get_robot_state();
-                start_pos = {robot_state->position[0], robot_state->position[1]};   
-                std::cout << "start_pos: [" << start_pos[0] << ", " << start_pos[1] << "]" << std::endl;
-                updated = wavefront_planner.update_wavefront(env, start_pos);
-                wavefront_planner.save_wavefront("debug_wavefront_5.txt");
-
-                push_success = push_controller.execute_push_primitive(reachable_objects[0], 5, 1);
-
-                robot_state = env.get_robot_state();
-                start_pos = {robot_state->position[0], robot_state->position[1]};   
-                std::cout << "start_pos: [" << start_pos[0] << ", " << start_pos[1] << "]" << std::endl;
-                updated = wavefront_planner.update_wavefront(env, start_pos);
-                wavefront_planner.save_wavefront("debug_wavefront_6.txt");
-
-                push_success = push_controller.execute_push_primitive(reachable_objects[0], 6, 1);
-
-                robot_state = env.get_robot_state();
-                start_pos = {robot_state->position[0], robot_state->position[1]};   
-                std::cout << "start_pos: [" << start_pos[0] << ", " << start_pos[1] << "]" << std::endl;
-                updated = wavefront_planner.update_wavefront(env, start_pos);
-                wavefront_planner.save_wavefront("debug_wavefront_7.txt");
-
-                push_success = push_controller.execute_push_primitive(reachable_objects[0], 7, 1);
-
-                push_success = push_controller.execute_push_primitive(reachable_objects[0], 8, 1);
-
-                push_success = push_controller.execute_push_primitive(reachable_objects[0], 9, 1);
-
-                push_success = push_controller.execute_push_primitive(reachable_objects[0], 10, 1);
-
-                push_success = push_controller.execute_push_primitive(reachable_objects[0], 11, 1);
+                for (int i = 0; i < 12; i++) {
+                    std::cout << "\n--- MPC Iteration " << (i+1) << " ---" << std::endl;
+                    
+                    // Execute push primitive (simulating MPC control step)
+                    bool push_success = push_controller.execute_push_primitive(
+                        reachable_objects[0], edge_indices[i], durations[i]);
+                    
+                    std::cout << "Push primitive " << edge_indices[i] << " (duration=" << durations[i] 
+                              << "): " << (push_success ? "SUCCESS" : "FAILED") << std::endl;
+                    
+                    // Update robot state and position
+                    robot_state = env.get_robot_state();
+                    start_pos = {robot_state->position[0], robot_state->position[1]};
+                    std::cout << "Robot position: [" << start_pos[0] << ", " << start_pos[1] << "]" << std::endl;
+                    
+                    // Update wavefront (recompute reachability)
+                    updated = wavefront_planner.update_wavefront(env, start_pos);
+                    std::cout << "Wavefront updated: " << (updated ? "yes" : "no") << std::endl;
+                    
+                    // Save wavefront for this MPC iteration
+                    wavefront_planner.save_wavefront_iteration("mpc_wavefront", i+1);
+                    
+                    // Optional: test goal reachability after each step
+                    bool goal_still_reachable = wavefront_planner.is_goal_reachable(robot_goal);
+                    std::cout << "Goal still reachable: " << (goal_still_reachable ? "yes" : "no") << std::endl;
+                }
 
             }
         }

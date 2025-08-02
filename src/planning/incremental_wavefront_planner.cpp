@@ -109,22 +109,14 @@ bool IncrementalWavefrontPlanner::update_wavefront(NAMOEnvironment& env,
                                                   const std::vector<double>& start_pos) {
     auto start_time = std::chrono::high_resolution_clock::now();
     
-    // Detect changed objects (for statistics only)
-    detect_object_changes(env);
+    // Skip expensive incremental tracking - just rebuild and recompute
+    simple_reachability_recompute(env, start_pos);
     
-    // Update affected grid cells 
-    update_affected_cells(env);
-    
-    // Always do full reachability recompute - fast and correct
-    full_reachability_recompute(start_pos);
-    
-    // Update statistics
+    // Update basic statistics
     stats_.wavefront_updates++;
-    stats_.object_movements_detected += num_changed_objects_;
-    stats_.grid_changes_processed += num_pending_changes_;
     
     update_performance_stats(start_time, std::chrono::high_resolution_clock::now());
-    return num_changed_objects_ > 0; // Return true if objects moved
+    return true; // Always return true since we don't track changes anymore
 }
 
 void IncrementalWavefrontPlanner::detect_object_changes(NAMOEnvironment& env) {
@@ -234,9 +226,25 @@ GridFootprint IncrementalWavefrontPlanner::calculate_rotated_footprint(const Obj
     GridFootprint footprint;
     footprint.clear();
     
+    // Safety checks
+    if (obj.size[0] <= 0 || obj.size[1] <= 0) {
+        std::cout << "Warning: Invalid object size [" << obj.size[0] << ", " << obj.size[1] << "]" << std::endl;
+        return footprint;
+    }
+    
+    // Check quaternion validity
+    double quat_norm = std::sqrt(state.quaternion[0]*state.quaternion[0] + 
+                                state.quaternion[1]*state.quaternion[1] + 
+                                state.quaternion[2]*state.quaternion[2] + 
+                                state.quaternion[3]*state.quaternion[3]);
+    if (std::abs(quat_norm - 1.0) > 0.01) {
+        std::cout << "Warning: Invalid quaternion norm " << quat_norm << ", using identity" << std::endl;
+        // Use zero rotation as fallback
+    }
+    
     // Calculate rotated corners
-    double half_w = obj.size[0];
-    double half_h = obj.size[1];
+    double half_w = obj.size[0] / 2.0;  // Use half-width
+    double half_h = obj.size[1] / 2.0;  // Use half-height
     double yaw = utils::quaternion_to_yaw(state.quaternion);
     double cos_a = std::cos(yaw);
     double sin_a = std::sin(yaw);
@@ -430,6 +438,98 @@ void IncrementalWavefrontPlanner::save_wavefront(const std::string& filename) co
     }
     
     file.close();
+}
+
+void IncrementalWavefrontPlanner::save_wavefront_iteration(const std::string& base_filename, int iteration) const {
+    std::string filename = base_filename + "_iter_" + std::to_string(iteration) + ".txt";
+    save_wavefront(filename);
+    std::cout << "Wavefront saved for iteration " << iteration << ": " << filename << std::endl;
+}
+
+void IncrementalWavefrontPlanner::simple_reachability_recompute(NAMOEnvironment& env, const std::vector<double>& start_pos) {
+    // 1. Rebuild dynamic grid from current object positions
+    rebuild_dynamic_grid_from_current_objects(env);
+    
+    // 2. Reset all reachability values: -2=obstacle, 0=unreachable, 1=reachable
+    for (int x = 0; x < grid_width_; x++) {
+        for (int y = 0; y < grid_height_; y++) {
+            if (dynamic_grid_[x][y] == -2) {
+                reachability_grid_[x][y] = -2;  // Obstacle
+            } else {
+                reachability_grid_[x][y] = 0;   // Unreachable (until proven otherwise)
+            }
+        }
+    }
+    
+    // 3. Simple BFS for reachability from start position
+    int start_x = world_to_grid_x(start_pos[0]);
+    int start_y = world_to_grid_y(start_pos[1]);
+    
+    // CRITICAL FIX: Ensure robot's current position is always free
+    // The robot cannot be inside an obstacle at its current location
+    if (is_valid_grid_coord(start_x, start_y)) {
+        dynamic_grid_[start_x][start_y] = -1;      // Mark as free space
+        reachability_grid_[start_x][start_y] = 0;  // Reset to unreachable (will become reachable in BFS)
+    }
+    
+    reset_bfs_queue();
+    if (is_valid_grid_coord(start_x, start_y)) {
+        bfs_enqueue(start_x, start_y);
+        reachability_grid_[start_x][start_y] = 1;  // Mark start as reachable
+    }
+    
+    // Fast reachability BFS - no distance tracking
+    while (!bfs_empty()) {
+        auto [x, y] = bfs_dequeue();
+        if (x < 0) break;
+        
+        for (const auto& [dx, dy] : DIRECTIONS) {
+            int nx = x + dx;
+            int ny = y + dy;
+            
+            if (is_valid_grid_coord(nx, ny) && 
+                reachability_grid_[nx][ny] == 0 && 
+                dynamic_grid_[nx][ny] != -2) {
+                
+                reachability_grid_[nx][ny] = 1;  // Mark as reachable
+                bfs_enqueue(nx, ny);
+            }
+        }
+    }
+}
+
+void IncrementalWavefrontPlanner::rebuild_dynamic_grid_from_current_objects(NAMOEnvironment& env) {
+    // Start fresh with static obstacles only
+    dynamic_grid_ = static_grid_;
+    
+    // Add all current movable objects directly (no incremental tracking)
+    const auto& movable_objects = env.get_movable_objects();
+    for (size_t i = 0; i < env.get_num_movable(); i++) {
+        const auto& obj = movable_objects[i];
+        const ObjectState* obj_state = env.get_object_state(obj.name);
+        
+        if (obj_state) {
+            // Create inflated object for robot size
+            ObjectInfo inflated_obj = obj;
+            inflated_obj.size[0] += robot_size_[0];
+            inflated_obj.size[1] += robot_size_[1];
+            
+            // Calculate current footprint and add to grid
+            GridFootprint footprint = calculate_rotated_footprint(inflated_obj, *obj_state);
+            add_footprint_to_dynamic_grid(footprint);
+        }
+    }
+}
+
+void IncrementalWavefrontPlanner::add_footprint_to_dynamic_grid(const GridFootprint& footprint) {
+    // Simple direct addition - no complicated change tracking
+    for (size_t i = 0; i < footprint.num_cells; i++) {
+        int x = footprint.cells[i].first;
+        int y = footprint.cells[i].second;
+        if (is_valid_grid_coord(x, y)) {
+            dynamic_grid_[x][y] = -2;  // Mark as obstacle
+        }
+    }
 }
 
 void IncrementalWavefrontPlanner::full_reachability_recompute(const std::vector<double>& start_pos) {

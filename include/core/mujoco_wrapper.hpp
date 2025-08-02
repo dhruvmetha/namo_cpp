@@ -83,6 +83,35 @@ public:
     void step();
     
     /**
+     * @brief Add visual markers to the scene
+     * @param positions Array of marker positions [x, y, z]
+     * @param colors Array of marker colors [r, g, b, a] (0-1 range)
+     * @param sizes Array of marker sizes (radius)
+     * @param count Number of markers to add
+     */
+    void add_visual_markers(const std::array<double, 3>* positions, 
+                           const std::array<float, 4>* colors,
+                           const double* sizes,
+                           size_t count);
+                           
+    /**
+     * @brief Set a goal marker (like old MuJoCo implementation)
+     * @param position Goal position [x, y, z]
+     * @param orientation Goal orientation [w, x, y, z] quaternion
+     * @param size Goal size [x, y, z]
+     * @param geom_type MuJoCo geometry type
+     */
+    void set_goal_marker(const std::array<double, 3>& position,
+                        const std::array<double, 4>& orientation,
+                        const std::array<double, 3>& size,
+                        int geom_type);
+                        
+    /**
+     * @brief Clear the goal marker
+     */
+    void clear_goal_marker();
+    
+    /**
      * @brief Reset simulation to initial state
      */
     void reset();
@@ -176,6 +205,15 @@ public:
 private:
     void init_visualization();
     void cleanup_visualization();
+    
+    // Goal marker storage (like old MuJoCo implementation)
+    struct GoalMarker {
+        bool active = false;
+        std::array<double, 3> position = {0.0, 0.0, 0.0};
+        std::array<double, 4> orientation = {1.0, 0.0, 0.0, 0.0};
+        std::array<double, 3> size = {0.1, 0.1, 0.1};
+        int geom_type = 6; // mjGEOM_BOX
+    } goal_marker_;
     
 #ifdef HAVE_GLFW
     // Mouse interaction callbacks

@@ -68,6 +68,14 @@ public:
     void set_robot_goal(const std::array<double, 2>& goal) { robot_goal_ = goal; }
     std::array<double, 2> get_robot_goal() const { return robot_goal_; }
     
+    // Visualization
+    void visualize_edge_reachability(const std::string& object_name, 
+                                   const std::vector<int>& reachable_edges);
+                                   
+    // Visualization for goal marker (like old MuJoCo implementation)
+    void visualize_goal_marker(const std::array<double, 3>& goal_position, 
+                              const std::array<float, 4>& color = {0.0f, 1.0f, 0.0f, 1.0f});
+    
     // Collision detection
     bool is_in_collision() const { return sim_->in_collision(); }
     bool bodies_in_collision(const std::string& body1, const std::string& body2) const {

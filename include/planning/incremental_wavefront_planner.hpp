@@ -70,6 +70,13 @@ public:
     void save_wavefront(const std::string& filename) const;
     
     /**
+     * @brief Save wavefront with automatic iteration numbering for MPC debugging
+     * @param base_filename Base filename (e.g., "debug_wavefront")
+     * @param iteration MPC iteration number
+     */
+    void save_wavefront_iteration(const std::string& base_filename, int iteration) const;
+    
+    /**
      * @brief Get current reachability grid for external use
      */
     const std::vector<std::vector<int>>& get_grid() const { return reachability_grid_; }
@@ -162,6 +169,11 @@ private:
     void detect_object_changes(NAMOEnvironment& env);
     void update_affected_cells(NAMOEnvironment& env);
     void full_reachability_recompute(const std::vector<double>& start_pos);
+    
+    // Simplified algorithm methods (bypass expensive incremental tracking)
+    void simple_reachability_recompute(NAMOEnvironment& env, const std::vector<double>& start_pos);
+    void rebuild_dynamic_grid_from_current_objects(NAMOEnvironment& env);
+    void add_footprint_to_dynamic_grid(const GridFootprint& footprint);
     
     // Change detection helpers
     bool has_object_moved(const std::string& obj_name, NAMOEnvironment& env);

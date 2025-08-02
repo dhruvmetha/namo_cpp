@@ -368,6 +368,50 @@ void OptimizedMujocoWrapper::cleanup_visualization() {
     }
 }
 
+void OptimizedMujocoWrapper::add_visual_markers(const std::array<double, 3>* positions, 
+                                               const std::array<float, 4>* colors,
+                                               const double* sizes,
+                                               size_t count) {
+    if (!visualize_ || !window_ || count == 0) return;
+    
+    // Add spherical markers to the scene
+    for (size_t i = 0; i < count && scn_.ngeom < scn_.maxgeom; i++) {
+        mjvGeom* geom = &scn_.geoms[scn_.ngeom];  // Fixed: geoms instead of geom
+        
+        // Set geometry type to sphere
+        geom->type = mjGEOM_SPHERE;
+        
+        // Set position
+        geom->pos[0] = positions[i][0];
+        geom->pos[1] = positions[i][1]; 
+        geom->pos[2] = positions[i][2];
+        
+        // Set size (radius)
+        geom->size[0] = sizes[i];
+        geom->size[1] = sizes[i];
+        geom->size[2] = sizes[i];
+        
+        // Set color
+        geom->rgba[0] = colors[i][0];
+        geom->rgba[1] = colors[i][1];
+        geom->rgba[2] = colors[i][2];
+        geom->rgba[3] = colors[i][3];
+        
+        // Set identity rotation matrix (no rotation needed for sphere)
+        geom->mat[0] = 1.0; geom->mat[1] = 0.0; geom->mat[2] = 0.0;  // First row
+        geom->mat[3] = 0.0; geom->mat[4] = 1.0; geom->mat[5] = 0.0;  // Second row
+        geom->mat[6] = 0.0; geom->mat[7] = 0.0; geom->mat[8] = 1.0;  // Third row
+        
+        // Set category and other properties
+        geom->category = mjCAT_DECOR;
+        geom->segid = -1;
+        geom->objtype = mjOBJ_UNKNOWN;
+        geom->objid = -1;
+        
+        scn_.ngeom++;
+    }
+}
+
 void OptimizedMujocoWrapper::render() {
     if (!visualize_ || !window_) return;
     
@@ -375,6 +419,38 @@ void OptimizedMujocoWrapper::render() {
     glfwGetFramebufferSize(window_, &viewport.width, &viewport.height);
     
     mjv_updateScene(m_, d_, &opt_, nullptr, &cam_, mjCAT_ALL, &scn_);
+    
+    // Add goal marker after scene update (like old MuJoCo implementation)
+    if (goal_marker_.active && scn_.ngeom < scn_.maxgeom) {
+        mjvGeom* goal_geom = &scn_.geoms[scn_.ngeom];
+        mjv_initGeom(goal_geom, goal_marker_.geom_type, NULL, NULL, NULL, NULL);
+        
+        // Set green color with low opacity (matching old implementation)
+        goal_geom->rgba[0] = 0.0f;  // Red = 0
+        goal_geom->rgba[1] = 1.0f;  // Green = 1
+        goal_geom->rgba[2] = 0.0f;  // Blue = 0
+        goal_geom->rgba[3] = 0.25f; // Alpha = 0.25 (25% opacity)
+        
+        // Set size
+        goal_geom->size[0] = goal_marker_.size[0];
+        goal_geom->size[1] = goal_marker_.size[1];
+        goal_geom->size[2] = goal_marker_.size[2];
+        
+        // Set position
+        goal_geom->pos[0] = goal_marker_.position[0];
+        goal_geom->pos[1] = goal_marker_.position[1];
+        goal_geom->pos[2] = goal_marker_.position[2];
+        
+        // Set orientation (convert quaternion to matrix)
+        mjtNum mat[9];
+        mju_quat2Mat(mat, goal_marker_.orientation.data());
+        for (int i = 0; i < 9; i++) {
+            goal_geom->mat[i] = static_cast<float>(mat[i]);
+        }
+        
+        scn_.ngeom++;
+    }
+    
     mjr_render(viewport, &scn_, &con_);
     
     glfwSwapBuffers(window_);
@@ -471,6 +547,13 @@ void OptimizedMujocoWrapper::cleanup_visualization() {
     // No-op
 }
 
+void OptimizedMujocoWrapper::add_visual_markers(const std::array<double, 3>* positions, 
+                                               const std::array<float, 4>* colors,
+                                               const double* sizes,
+                                               size_t count) {
+    // No-op for non-GLFW build
+}
+
 void OptimizedMujocoWrapper::render() {
     // No-op
 }
@@ -488,5 +571,20 @@ void OptimizedMujocoWrapper::set_camera_lookat(const std::array<double, 3>& look
 }
 
 #endif
+
+void OptimizedMujocoWrapper::set_goal_marker(const std::array<double, 3>& position,
+                                           const std::array<double, 4>& orientation,
+                                           const std::array<double, 3>& size,
+                                           int geom_type) {
+    goal_marker_.active = true;
+    goal_marker_.position = position;
+    goal_marker_.orientation = orientation;
+    goal_marker_.size = size;
+    goal_marker_.geom_type = geom_type;
+}
+
+void OptimizedMujocoWrapper::clear_goal_marker() {
+    goal_marker_.active = false;
+}
 
 } // namespace namo

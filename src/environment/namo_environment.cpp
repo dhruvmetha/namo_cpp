@@ -400,11 +400,12 @@ void NAMOEnvironment::disable_logging() {
 }
 
 std::vector<double> NAMOEnvironment::get_environment_bounds() const {
+    // Start with minimum bounds of [-2,-2] to [2,2]
     std::vector<double> bounds = {
-        std::numeric_limits<double>::max(),   // x_min
-        std::numeric_limits<double>::lowest(), // x_max
-        std::numeric_limits<double>::max(),   // y_min
-        std::numeric_limits<double>::lowest()  // y_max
+        -2.0,  // x_min
+         2.0,  // x_max
+        -2.0,  // y_min
+         2.0   // y_max
     };
     
     // Include static objects
@@ -428,10 +429,10 @@ std::vector<double> NAMOEnvironment::get_environment_bounds() const {
         }};
         
         for (const auto& corner : corners) {
-            bounds[0] = std::min(bounds[0], corner.first);
-            bounds[1] = std::max(bounds[1], corner.first);
-            bounds[2] = std::min(bounds[2], corner.second);
-            bounds[3] = std::max(bounds[3], corner.second);
+            bounds[0] = std::min(bounds[0], corner.first);   // Expand x_min if needed
+            bounds[1] = std::max(bounds[1], corner.first);   // Expand x_max if needed
+            bounds[2] = std::min(bounds[2], corner.second);  // Expand y_min if needed
+            bounds[3] = std::max(bounds[3], corner.second);  // Expand y_max if needed
         }
     }
     
@@ -456,12 +457,22 @@ std::vector<double> NAMOEnvironment::get_environment_bounds() const {
         }};
         
         for (const auto& corner : corners) {
-            bounds[0] = std::min(bounds[0], corner.first);
-            bounds[1] = std::max(bounds[1], corner.first);
-            bounds[2] = std::min(bounds[2], corner.second);
-            bounds[3] = std::max(bounds[3], corner.second);
+            bounds[0] = std::min(bounds[0], corner.first);   // Expand x_min if needed
+            bounds[1] = std::max(bounds[1], corner.first);   // Expand x_max if needed
+            bounds[2] = std::min(bounds[2], corner.second);  // Expand y_min if needed
+            bounds[3] = std::max(bounds[3], corner.second);  // Expand y_max if needed
         }
     }
+    
+    // Include robot position (CRITICAL FIX for wavefront)
+    double robot_x = robot_state_.position[0];
+    double robot_y = robot_state_.position[1];
+    double robot_radius = robot_info_.size[0]; // Use robot radius for bounds
+    
+    bounds[0] = std::min(bounds[0], robot_x - robot_radius);  // Expand x_min if needed
+    bounds[1] = std::max(bounds[1], robot_x + robot_radius);  // Expand x_max if needed
+    bounds[2] = std::min(bounds[2], robot_y - robot_radius);  // Expand y_min if needed
+    bounds[3] = std::max(bounds[3], robot_y + robot_radius);  // Expand y_max if needed
     
     // Add padding
     const double PADDING = 0.5;
@@ -471,6 +482,81 @@ std::vector<double> NAMOEnvironment::get_environment_bounds() const {
     bounds[3] += PADDING;
     
     return bounds;
+}
+
+void NAMOEnvironment::visualize_edge_reachability(const std::string& object_name, 
+                                                const std::vector<int>& reachable_edges) {
+    // Get object state
+    const ObjectState* obj_state = get_object_state(object_name);
+    if (!obj_state) {
+        std::cout << "Object not found for visualization: " << object_name << std::endl;
+        return;
+    }
+    
+    // Generate all 12 edge points around the object
+    std::array<std::array<double, 2>, 12> edge_points_2d;
+    std::array<std::array<double, 2>, 12> mid_points_2d;  // Not used but required
+    
+    // Object dimensions with margin (same as push controller)
+    double yaw = 0.0; // Simplified for now - could extract from quaternion
+    double x = obj_state->position[0], y = obj_state->position[1];
+    double w = obj_state->size[0] - 0.05;  // width with margin
+    double d = obj_state->size[1] - 0.05;  // depth with margin
+    double offset = 0.15 + 0.05; // robot radius + margin
+    
+    // Generate 12 edge points (same pattern as push controller)
+    std::array<std::array<double, 2>, 12> local_edge_points = {{
+        {{x - w, y + d + offset}}, {{x - w, y - d - offset}}, 
+        {{x, y + d + offset}}, {{x, y - d - offset}}, 
+        {{x + w, y + d + offset}}, {{x + w, y - d - offset}}, 
+        {{x + w + offset, y - d}}, {{x - w - offset, y - d}}, 
+        {{x + w + offset, y}}, {{x - w - offset, y}}, 
+        {{x + w + offset, y + d}}, {{x - w - offset, y + d}}
+    }};
+    
+    // Prepare arrays for visualization
+    std::array<std::array<double, 3>, 12> positions_3d;
+    std::array<std::array<float, 4>, 12> colors;
+    std::array<double, 12> sizes;
+    
+    // Set up colors and positions for all 12 edges
+    for (int i = 0; i < 12; i++) {
+        // Position (add z=0.3 to place markers above ground)
+        positions_3d[i][0] = local_edge_points[i][0];
+        positions_3d[i][1] = local_edge_points[i][1];
+        positions_3d[i][2] = 0.3;  // Height above ground
+        
+        // Size
+        sizes[i] = 0.05;  // 5cm radius spheres
+        
+        // Color: green if reachable, red if not
+        bool is_reachable = std::find(reachable_edges.begin(), reachable_edges.end(), i) 
+                           != reachable_edges.end();
+        
+        if (is_reachable) {
+            // Green for reachable
+            colors[i][0] = 0.0f;  // R
+            colors[i][1] = 1.0f;  // G
+            colors[i][2] = 0.0f;  // B
+            colors[i][3] = 0.8f;  // A (semi-transparent)
+        } else {
+            // Red for unreachable
+            colors[i][0] = 1.0f;  // R
+            colors[i][1] = 0.0f;  // G
+            colors[i][2] = 0.0f;  // B
+            colors[i][3] = 0.8f;  // A (semi-transparent)
+        }
+    }
+    
+    // Add markers to MuJoCo scene (only if simulation is available)
+    if (sim_) {
+        sim_->add_visual_markers(positions_3d.data(), colors.data(), sizes.data(), 12);
+    } else {
+        std::cout << "Simulation not available - visual markers not displayed" << std::endl;
+    }
+    
+    std::cout << "Added visual markers: " << reachable_edges.size() << " green (reachable), " 
+              << (12 - reachable_edges.size()) << " red (unreachable)" << std::endl;
 }
 
 std::vector<double> NAMOEnvironment::get_random_state() const {
@@ -547,6 +633,18 @@ void NAMOEnvironment::save_objects_to_file(const std::string& filename) const {
     }
     
     file.close();
+}
+
+void NAMOEnvironment::visualize_goal_marker(const std::array<double, 3>& goal_position, 
+                                           const std::array<float, 4>& color) {
+    if (!sim_) return;
+    
+    // Make goal marker more visible - match typical object size
+    std::array<double, 4> orientation = {1.0, 0.0, 0.0, 0.0}; // Identity quaternion
+    std::array<double, 3> size = {0.35, 0.35, 0.05}; // Match movable object width/height, thin but visible
+    int geom_type = 6; // mjGEOM_BOX = 6 - use thin box to show goal footprint
+    
+    sim_->set_goal_marker(goal_position, orientation, size, geom_type);
 }
 
 } // namespace namo

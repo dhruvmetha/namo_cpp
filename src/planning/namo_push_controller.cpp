@@ -2,6 +2,7 @@
 #include "core/mujoco_wrapper.hpp"
 #include <cmath>
 #include <iostream>
+#include <iomanip>
 
 namespace namo {
 
@@ -387,8 +388,8 @@ size_t NAMOPushController::get_reachable_objects(std::array<std::string, 20>& re
                 
                 // Check if edge point is within grid bounds and reachable
                 if (planner_.is_valid_grid_coord(edge_x, edge_y)) {
-                    // If distance >= 0, there's a valid path to this edge point
-                    if (distance_grid[edge_x][edge_y] >= 0) {
+                    // Check for reachable (value = 1), not just non-obstacle (>= 0)
+                    if (distance_grid[edge_x][edge_y] == 1) {
                         reachable = true;
                         break;
                     }
@@ -402,6 +403,77 @@ size_t NAMOPushController::get_reachable_objects(std::array<std::string, 20>& re
     }
     
     return reachable_count;
+}
+
+std::vector<int> NAMOPushController::get_reachable_edge_indices(const std::string& object_name) {
+    std::vector<int> reachable_edges;
+    
+    try {
+        // Generate edge points for this object
+        edge_point_count_ = 0;
+        mid_point_count_ = 0;
+        
+        if (generate_edge_points(object_name, edge_point_pool_, mid_point_pool_, 
+                               edge_point_count_, mid_point_count_) == 0) {
+            std::cout << "No edge points generated for object: " << object_name << std::endl;
+            return reachable_edges; // Empty if no edge points
+        }
+        
+        std::cout << "Generated " << edge_point_count_ << " edge points for " << object_name << std::endl;
+        
+        // Update wavefront with current robot position
+        auto robot_state = env_.get_robot_state();
+        if (!robot_state) {
+            std::cout << "No robot state available for reachability check" << std::endl;
+            return reachable_edges;
+        }
+        
+        std::vector<double> robot_pos = {robot_state->position[0], robot_state->position[1]};
+        std::cout << "Robot position: [" << robot_pos[0] << ", " << robot_pos[1] << "]" << std::endl;
+        
+        // Safely update wavefront
+        try {
+            planner_.update_wavefront(env_, robot_pos);
+            std::cout << "Wavefront updated successfully" << std::endl;
+        } catch (const std::exception& e) {
+            std::cout << "Error updating wavefront: " << e.what() << std::endl;
+            return reachable_edges;
+        }
+        
+        const auto& distance_grid = planner_.get_distance_grid();
+        
+        // Check each edge index for reachability
+        for (int edge_idx = 0; edge_idx < static_cast<int>(edge_point_count_); ++edge_idx) {
+            try {
+                int edge_x = planner_.world_to_grid_x(edge_point_pool_[edge_idx][0]);
+                int edge_y = planner_.world_to_grid_y(edge_point_pool_[edge_idx][1]);
+                
+                if (planner_.is_valid_grid_coord(edge_x, edge_y)) {
+                    // Check for reachable (value = 1), not just non-obstacle (>= 0)
+                    if (distance_grid[edge_x][edge_y] == 1) {
+                        reachable_edges.push_back(edge_idx);
+                    }
+                }
+            } catch (const std::exception& e) {
+                std::cout << "Error checking edge " << edge_idx << ": " << e.what() << std::endl;
+                continue;
+            }
+        }
+        
+        std::cout << "Object " << object_name << ": " << reachable_edges.size() 
+                  << "/" << edge_point_count_ << " edges reachable: [";
+        for (size_t i = 0; i < reachable_edges.size(); ++i) {
+            std::cout << reachable_edges[i];
+            if (i < reachable_edges.size() - 1) std::cout << ", ";
+        }
+        std::cout << "]" << std::endl;
+        
+    } catch (const std::exception& e) {
+        std::cout << "Error in get_reachable_edge_indices: " << e.what() << std::endl;
+        return reachable_edges;
+    }
+    
+    return reachable_edges;
 }
 
 void NAMOPushController::get_memory_stats(size_t& primitives_used, size_t& states_used) {

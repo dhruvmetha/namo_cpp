@@ -1,0 +1,17 @@
+# Test configuration for complete planning pipeline
+
+# Scene and primitive files
+scene_path = data/nominal_primitive_scene.xml
+primitive_path = data/motion_primitives.dat
+
+# Visualization (disable for faster testing)
+visualize = false
+
+# Planning parameters
+max_expansion_limit = 5000
+
+# MPC execution parameters
+max_mpc_steps = 10
+distance_threshold = 0.02
+angle_threshold = 0.15
+max_stuck_iterations = 3
