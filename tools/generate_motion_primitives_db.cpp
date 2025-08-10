@@ -9,7 +9,7 @@
 #include "../include/core/parameter_loader.hpp"
 #include "../include/environment/namo_environment.hpp"
 #include "../include/planning/namo_push_controller.hpp"
-#include "../include/planning/incremental_wavefront_planner.hpp"
+#include "../include/wavefront/wavefront_planner.hpp"
 
 using namespace namo;
 
@@ -72,7 +72,7 @@ resolution=0.05
         std::vector<double> robot_size = {robot_info.size[0], robot_info.size[1]};
         
         // Create wavefront planner
-        IncrementalWavefrontPlanner wavefront_planner(resolution, env, robot_size);
+        WavefrontPlanner wavefront_planner(resolution, env, robot_size);
         
         // Set robot goal
         env.set_robot_goal(robot_goal);

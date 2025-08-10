@@ -12,7 +12,7 @@ namespace namo {
 
 // Forward declarations
 class NAMOEnvironment;
-class IncrementalWavefrontPlanner;
+class WavefrontPlanner;
 class NAMOPlanner;
 class PushController;
 
@@ -65,6 +65,30 @@ using Control = FixedVector<6>;       // Control inputs
 using Pose2D = std::array<double, 3>; // x, y, theta
 using Pose3D = std::array<double, 7>; // x, y, z, qw, qx, qy, qz
 
+// SE2 state representation for 2D planning
+struct SE2State {
+    double x = 0.0;
+    double y = 0.0;
+    double theta = 0.0;
+    
+    SE2State() = default;
+    SE2State(double x_, double y_, double theta_) : x(x_), y(y_), theta(theta_) {}
+    
+    // Normalize angle to [-π, π]
+    void normalize_angle() {
+        while (theta > M_PI) theta -= 2.0 * M_PI;
+        while (theta < -M_PI) theta += 2.0 * M_PI;
+    }
+    
+    // Convert to Pose2D array
+    Pose2D to_pose2d() const { return {x, y, theta}; }
+    
+    // Create from Pose2D array
+    static SE2State from_pose2d(const Pose2D& pose) {
+        return SE2State(pose[0], pose[1], pose[2]);
+    }
+};
+
 // Object information structure
 struct ObjectInfo {
     std::string name;
@@ -110,7 +134,7 @@ struct GridFootprint {
     int min_y = 0, max_y = -1;
     
     // Pre-allocated storage for occupied cells
-    static constexpr size_t MAX_CELLS = 2000;
+    static constexpr size_t MAX_CELLS = 200000;
     std::array<std::pair<int, int>, MAX_CELLS> cells;
     size_t num_cells = 0;
     

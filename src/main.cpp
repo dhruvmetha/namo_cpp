@@ -5,7 +5,7 @@
 #include "core/mujoco_wrapper.hpp"
 #include "core/memory_manager.hpp"
 #include "environment/namo_environment.hpp"
-#include "planning/incremental_wavefront_planner.hpp"
+#include "wavefront/wavefront_planner.hpp"
 #include "planning/namo_push_controller.hpp"
 
 using namespace namo;
@@ -90,9 +90,9 @@ int main(int argc, char* argv[]) {
             std::cerr << "Using default resolution: 0.1" << std::endl;
             resolution = 0.1;
         }
-        std::cout << "Creating incremental wavefront planner with resolution: " << resolution << std::endl;
+        std::cout << "Creating wavefront planner with resolution: " << resolution << std::endl;
         
-        IncrementalWavefrontPlanner wavefront_planner(resolution, env, robot_size);
+        WavefrontPlanner wavefront_planner(resolution, env, robot_size);
         std::cout << "Wavefront planner created successfully!" << std::endl;
         
         // Get goal position

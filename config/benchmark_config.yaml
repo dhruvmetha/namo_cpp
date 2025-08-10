@@ -1,0 +1,165 @@
+# Complete NAMO Configuration
+# This file contains all configurable parameters for the NAMO system
+
+# High-level planning configuration
+planning:
+  # Grid resolutions for different planning levels
+  high_level_resolution: 0.05      # 5cm grid for reachability analysis
+  skill_level_resolution: 0.02     # 2cm grid for detailed skill planning
+  
+  # Planning limits
+  max_iterations: 50               # Maximum high-level planning iterations
+  verbose: false                   # Enable verbose planning output
+  
+  # Robot physical properties
+  robot_size: [0.15, 0.15]          # [width, height] in meters for wavefront inflation
+  
+  # Grid system limits
+  max_bfs_queue: 100000            # Maximum BFS queue size
+  max_grid_width: 2000             # Maximum grid width in cells
+  max_grid_height: 2000            # Maximum grid height in cells
+  max_changes: 10000               # Maximum tracked grid changes
+  
+  # Motion detection thresholds
+  position_threshold: 0.0001       # 0.1mm - minimum position change to detect
+  rotation_threshold: 0.001        # ~0.06 degrees - minimum rotation change
+  small_rotation_limit: 0.05       # ~3 degrees - threshold for small rotations
+
+# Selection strategy configuration
+strategy:
+  # Random strategy parameters
+  random:
+    min_goal_distance: 0.3         # Minimum distance from object to goal (meters)
+    max_goal_distance: 1.0         # Maximum distance from object to goal (meters)
+    max_goal_attempts: 100         # Maximum polar coordinate sampling attempts
+    max_object_retries: 100        # Maximum object selection retries
+  
+  # ML/Diffusion strategy parameters
+  ml:
+    zmq_endpoint: "tcp://localhost:5555"  # ZMQ endpoint for ML communication
+    timeout_ms: 1000               # ZMQ communication timeout
+    fallback_to_random: true       # Use random strategy if ML fails
+
+# Skill execution configuration
+skill:
+  # Push skill parameters
+  max_push_steps: 10               # Maximum push steps per skill execution
+  control_steps_per_push: 250      # Control simulation steps per push step
+  force_scaling: 1.0               # Force scaling factor
+  robot_size: [0.15, 0.15, 0.15]  # [x, y, z] robot dimensions for skill planning
+  
+  # Execution parameters
+  execution_timeout: 30.0          # Maximum skill execution time (seconds)
+  goal_tolerance: 0.1              # Goal reaching tolerance (meters)
+  stuck_threshold: 0.01            # Minimum movement to avoid stuck detection (meters)
+  max_stuck_iterations: 3         # Maximum stuck iterations before failure
+  
+  # Object interaction parameters
+  object_clearance: 0.15            # Clearance around objects for edge point sampling (meters)
+  num_edge_points: 12              # Number of edge points around object perimeter
+  # push_force_magnitude: 10.0       # REMOVED: unused parameter (force_scaling used instead)
+
+# Environment configuration
+environment:
+  # Workspace bounds - now derived dynamically from MuJoCo XML
+  # bounds: [-5.525, 5.525, -5.525, 5.525]  # REMOVED: now calculated from environment
+  
+  # Memory allocation limits
+  max_static_objects: 20           # Maximum number of static objects
+  max_movable_objects: 10          # Maximum number of movable objects
+  max_actions: 100                 # Maximum action sequence length
+  max_motion_primitives: 1000      # Maximum motion primitives in memory
+  max_planning_nodes: 10000        # Maximum search nodes
+  
+  # Logging configuration
+  log_buffer_size: 100000          # Log buffer size (bytes)
+  enable_logging: false            # Enable state logging
+  log_directory: "logs/"           # Directory for log files
+
+# System configuration
+system:
+  # Performance options
+  enable_visualization: true       # Enable MuJoCo visualization
+  enable_profiling: false          # Enable performance profiling
+  num_threads: 1                   # Number of threads for parallel processing
+  
+  # File paths
+  motion_primitives_file: "data/motion_primitives.dat"  # Motion primitives database
+  default_scene_file: "data/benchmark_env.xml"          # Default MuJoCo scene
+  
+  # Data collection
+  collect_training_data: false     # Enable training data collection
+  training_data_directory: "training_data/"  # Directory for training data
+
+# MuJoCo simulation parameters
+simulation:
+  timestep: 0.001                  # Simulation timestep (seconds)
+  solver_iterations: 10            # Solver iterations per step
+  gravity: [0, 0, -9.81]          # Gravity vector [x, y, z]
+  
+  # Contact parameters
+  contact_softness: 0.001          # Contact softness parameter
+  contact_damping: 0.0001          # Contact damping parameter
+  
+  # Visualization
+  camera_distance: 5.0             # Default camera distance
+  camera_azimuth: 90.0             # Default camera azimuth (degrees)
+  camera_elevation: -45.0          # Default camera elevation (degrees)
+
+# Wavefront planner specific configuration
+wavefront_planner:
+  resolution: 0.05                 # Grid resolution (inherited from planning.high_level_resolution)
+  robot_inflation: 0.1             # Robot inflation radius (meters)
+  
+  # Algorithm parameters
+  max_distance: 1000               # Maximum distance value in grid
+  diagonal_cost: 1.414             # Cost multiplier for diagonal moves (sqrt(2))
+  
+  # Performance optimization
+  enable_incremental_updates: true  # Use incremental updates vs full recomputation
+  cache_static_obstacles: true     # Cache static obstacle grid
+  
+  # Debug options
+  save_debug_grids: false          # Save wavefront grids for debugging
+  debug_grid_directory: "debug_grids/"  # Directory for debug grid files
+
+# Motion primitive configuration
+motion_primitives:
+  database_file: "data/motion_primitives.dat"  # Binary database file
+  
+  # Generation parameters (for regenerating primitives)
+  num_edges: 12                    # Number of edge points around objects
+  max_push_steps: 10               # Maximum steps per primitive
+  edge_clearance: 0.1              # Clearance from object edge (meters)
+  
+  # Primitive selection
+  enable_primitive_caching: true   # Cache primitive lookups
+  validate_primitives: true        # Validate primitive physics
+
+# Performance monitoring
+monitoring:
+  enable_statistics: true          # Collect performance statistics
+  statistics_window: 100           # Rolling window for statistics
+  
+  # Timing thresholds for warnings
+  slow_planning_threshold: 1.0     # Warn if planning takes longer than this (seconds)
+  slow_skill_threshold: 5.0        # Warn if skill execution takes longer than this (seconds)
+  
+  # Memory monitoring
+  memory_check_interval: 1000      # Check memory usage every N operations
+  memory_warning_threshold: 0.8    # Warn if memory pools exceed this fraction
+
+# Development and debugging
+debug:
+  enable_debug_output: false       # Enable debug print statements
+  save_intermediate_states: false  # Save intermediate planning states
+  validate_state_consistency: false # Perform expensive state validation checks
+  
+  # Test configuration
+  use_deterministic_random: false  # Use fixed random seed for reproducible tests
+  random_seed: 42                  # Random seed when deterministic mode enabled
+  
+  # Visualization debug
+  show_wavefront_grid: false       # Overlay wavefront grid on visualization
+  show_object_edges: false         # Show object edge points
+  show_planned_paths: false        # Show planned robot paths

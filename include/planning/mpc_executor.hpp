@@ -3,7 +3,7 @@
 #include "planning/greedy_planner.hpp"
 #include "environment/namo_environment.hpp"
 #include "planning/namo_push_controller.hpp"
-#include "planning/incremental_wavefront_planner.hpp"
+#include "wavefront/wavefront_planner.hpp"
 #include <memory>
 
 namespace namo {
@@ -31,7 +31,7 @@ struct ExecutionResult {
 class MPCExecutor {
 private:
     NAMOEnvironment& env_;
-    IncrementalWavefrontPlanner planner_;
+    WavefrontPlanner planner_;
     NAMOPushController controller_;
     
     // Execution parameters
@@ -46,11 +46,24 @@ private:
     
 public:
     /**
-     * @brief Constructor
+     * @brief Constructor with default hardcoded values
      * 
      * @param env Reference to NAMO environment
      */
     MPCExecutor(NAMOEnvironment& env);
+    
+    /**
+     * @brief Constructor with ConfigManager parameters
+     * 
+     * @param env Reference to NAMO environment  
+     * @param resolution Wavefront planning resolution
+     * @param robot_size Robot size for wavefront inflation
+     * @param max_push_steps Max push steps per primitive
+     * @param control_steps_per_push Control steps per push
+     * @param force_scaling Force scaling factor
+     */
+    MPCExecutor(NAMOEnvironment& env, double resolution, const std::vector<double>& robot_size, 
+                int max_push_steps, int control_steps_per_push, double force_scaling);
     
     /**
      * @brief Set execution parameters
@@ -113,6 +126,22 @@ public:
      * @return bool True if robot goal is reachable
      */
     bool is_robot_goal_reachable();
+    
+    /**
+     * @brief Save wavefront for debugging at specific MPC iteration
+     * 
+     * @param iteration MPC iteration number
+     * @param base_filename Base filename for wavefront files
+     */
+    void save_debug_wavefront(int iteration, const std::string& base_filename = "mpc_wavefront");
+    
+    /**
+     * @brief Update wavefront and get reachable edges for object
+     * 
+     * @param object_name Name of object to check reachability for
+     * @return std::vector<int> List of reachable edge indices
+     */
+    std::vector<int> get_reachable_edges_with_wavefront(const std::string& object_name);
     
 private:
     

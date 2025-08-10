@@ -7,7 +7,7 @@
 namespace namo {
 
 NAMOPushController::NAMOPushController(NAMOEnvironment& env, 
-                                     IncrementalWavefrontPlanner& planner,
+                                     WavefrontPlanner& planner,
                                      int push_steps,
                                      int control_steps,
                                      double scaling)

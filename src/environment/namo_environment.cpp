@@ -647,4 +647,17 @@ void NAMOEnvironment::visualize_goal_marker(const std::array<double, 3>& goal_po
     sim_->set_goal_marker(goal_position, orientation, size, geom_type);
 }
 
+void NAMOEnvironment::visualize_object_goal_marker(const std::array<double, 3>& goal_position,
+                                                  const std::array<double, 3>& object_size,
+                                                  const std::array<float, 4>& color) {
+    if (!sim_) return;
+    
+    // Use the actual object size to show where it will be placed
+    std::array<double, 4> orientation = {1.0, 0.0, 0.0, 0.0}; // Identity quaternion
+    std::array<double, 3> marker_size = {object_size[0], object_size[1], 0.05}; // Match object footprint, thin but visible
+    int geom_type = 6; // mjGEOM_BOX = 6 - use thin box to show goal footprint
+    
+    sim_->set_goal_marker(goal_position, orientation, marker_size, geom_type);
+}
+
 } // namespace namo

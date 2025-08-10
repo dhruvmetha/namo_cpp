@@ -1,7 +1,7 @@
 # Benchmark environment test configuration
-xml_path=../data/benchmark_env.xml
-visualize=false
+xml_path=data/benchmark_env.xml
+visualize=true
 robot_goal=[-1.24, 1.24]
 
 [wavefront_planner]
-resolution=0.1
+resolution=0.05

@@ -30,14 +30,11 @@ private:
         std::cout << "Setting up environment..." << std::endl;
         
         std::string xml_path = "data/test_scene.xml";
-        env_ = std::make_unique<NAMOEnvironment>(xml_path, false);
+        env_ = std::make_unique<NAMOEnvironment>(xml_path, true);
         
-        // Custom config
-        NAMOPushSkill::Config config;
-        config.tolerance = 0.02;
-        config.max_planning_attempts = 2;
-        
-        skill_ = std::make_unique<NAMOPushSkill>(*env_, config);
+        // Use default ConfigManager
+        auto config = ConfigManager::create_default();
+        skill_ = std::make_unique<NAMOPushSkill>(*env_, std::shared_ptr<ConfigManager>(config.release()));
         
         std::cout << "✓ Environment and skill created" << std::endl;
     }

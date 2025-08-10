@@ -134,14 +134,37 @@ void FastParameterLoader::parse_simple_config(const std::string& filename) {
             continue;
         }
         
-        // Handle key=value pairs
+        // Handle YAML sections (key:)
+        if (line.back() == ':' && line.find(' ') == std::string::npos) {
+            current_section = line.substr(0, line.length() - 1);
+            continue;
+        }
+        
+        // Handle key=value pairs (INI format)
         size_t eq_pos = line.find('=');
-        if (eq_pos != std::string::npos) {
-            std::string key = trim(line.substr(0, eq_pos));
-            std::string value = trim(line.substr(eq_pos + 1));
+        size_t colon_pos = line.find(':');
+        
+        size_t sep_pos = std::string::npos;
+        if (eq_pos != std::string::npos && colon_pos != std::string::npos) {
+            sep_pos = std::min(eq_pos, colon_pos);
+        } else if (eq_pos != std::string::npos) {
+            sep_pos = eq_pos;
+        } else if (colon_pos != std::string::npos) {
+            sep_pos = colon_pos;
+        }
+        
+        if (sep_pos != std::string::npos) {
+            std::string key = trim(line.substr(0, sep_pos));
+            std::string value = trim(line.substr(sep_pos + 1));
             
+            // Remove YAML comments *before* quote stripping
+            size_t comment_pos = value.find('#');
+            if (comment_pos != std::string::npos) {
+                value = trim(value.substr(0, comment_pos));
+            }
+
             // Remove quotes if present
-            if (value.length() >= 2 && 
+            if (value.length() >= 2 &&
                 ((value.front() == '"' && value.back() == '"') ||
                  (value.front() == '\'' && value.back() == '\''))) {
                 value = value.substr(1, value.length() - 2);

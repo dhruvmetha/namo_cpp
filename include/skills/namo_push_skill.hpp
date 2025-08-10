@@ -4,6 +4,7 @@
 #include "planning/mpc_executor.hpp"
 #include "planning/greedy_planner.hpp"
 #include "environment/namo_environment.hpp"
+#include "config/config_manager.hpp"
 #include <optional>
 
 namespace namo {
@@ -18,25 +19,25 @@ private:
     NAMOEnvironment& env_;
     std::unique_ptr<GreedyPlanner> planner_;
     std::unique_ptr<MPCExecutor> executor_;
+    std::shared_ptr<ConfigManager> config_;
     
-public:
-    // Configuration structure
+    // Deprecated - kept for backward compatibility
     struct Config {
         double tolerance = 0.01;
         int max_planning_attempts = 3;
+        int max_mpc_iterations = 5;
         std::chrono::milliseconds planning_timeout{5000};
         std::string primitive_database_path = "data/motion_primitives.dat";
     };
-
-private:
-    Config config_;
+    Config legacy_config_;
     
 public:
     /**
      * @brief Constructor with proper dependency injection
      */
     explicit NAMOPushSkill(NAMOEnvironment& env);
-    explicit NAMOPushSkill(NAMOEnvironment& env, const Config& config);
+    explicit NAMOPushSkill(NAMOEnvironment& env, const Config& config);  // Legacy
+    explicit NAMOPushSkill(NAMOEnvironment& env, std::shared_ptr<ConfigManager> config);
 
 private:
     void initialize_skill();
@@ -66,6 +67,12 @@ private:
     bool is_object_movable(const std::string& object_name) const;
     std::optional<SE2State> get_object_current_pose(const std::string& object_name) const;
     bool is_target_within_bounds(const SE2State& target_pose) const;
+    
+    /**
+     * @brief Helper methods for iterative MPC
+     */
+    bool is_object_at_goal(const SE2State& current, const SE2State& goal, double tolerance) const;
+    std::vector<int> get_reachable_edges(const std::string& object_name) const;
 };
 
 } // namespace namo

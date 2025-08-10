@@ -104,7 +104,7 @@ std::vector<PlanStep> GreedyPlanner::plan_push_sequence(
         // If no progress made, return a single step with the best available primitive
         // This matches old implementation behavior of always returning something
         std::cout << "No improvement found. Returning single best primitive step" << std::endl;
-        return get_fallback_primitive_step(origin, local_goal, start_state);
+        return get_fallback_primitive_step(origin, local_goal, start_state, allowed_edges);
     }
 }
 
@@ -241,14 +241,18 @@ std::vector<PlanStep> GreedyPlanner::reconstruct_path(SearchNode* goal_node, con
 std::vector<PlanStep> GreedyPlanner::get_fallback_primitive_step(
     const SE2State& origin, 
     const SE2State& local_goal, 
-    const SE2State& start_state) {
+    const SE2State& start_state,
+    const std::vector<int>& allowed_edges) {
     
-    // Find the primitive that gets closest to the goal
-    // This matches old implementation behavior of always returning something
+    // Find the primitive that gets closest to the goal, but only if it makes meaningful progress
+    // Added threshold to avoid executing primitives that move object in wrong direction
     
     if (!primitive_loader_.is_loaded()) {
         return {};
     }
+    
+    // Current distance from origin to goal
+    double current_distance = distance_func_(origin, local_goal);
     
     double best_distance = std::numeric_limits<double>::max();
     LoadedPrimitive best_primitive;
@@ -256,6 +260,12 @@ std::vector<PlanStep> GreedyPlanner::get_fallback_primitive_step(
     
     // Check all available primitives to find the one that gets closest
     for (int edge = 0; edge < 12; edge++) {
+        // Skip if this edge is not allowed (respect reachable edges constraint)
+        if (!allowed_edges.empty()) {
+            bool edge_allowed = std::find(allowed_edges.begin(), allowed_edges.end(), edge) != allowed_edges.end();
+            if (!edge_allowed) continue;
+        }
+        
         for (int steps = 1; steps <= 10; steps++) {
             const LoadedPrimitive& primitive = primitive_loader_.get_primitive(edge, steps);
             
@@ -266,7 +276,9 @@ std::vector<PlanStep> GreedyPlanner::get_fallback_primitive_step(
             SE2State result_state = apply_primitive(origin, primitive);
             double distance = distance_func_(result_state, local_goal);
             
-            if (distance < best_distance) {
+            // Only consider primitives that actually improve distance to goal
+            // This prevents moving objects in wrong direction when no good path exists
+            if (distance < current_distance && distance < best_distance) {
                 best_distance = distance;
                 best_primitive = primitive;
                 found_primitive = true;
@@ -275,6 +287,7 @@ std::vector<PlanStep> GreedyPlanner::get_fallback_primitive_step(
     }
     
     if (!found_primitive) {
+        std::cout << "No primitive improves distance to goal. Returning empty plan." << std::endl;
         return {};
     }
     

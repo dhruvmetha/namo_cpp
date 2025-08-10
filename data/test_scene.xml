@@ -29,7 +29,7 @@
       <geom condim="4" friction="1.0 0.005 0.0001" mass="5.0" name="robot" pos="-2.2920343127876084 -4.228235364322694 0.15" size="0.15 0.15 0.15" type="sphere"/>
     </body>
     <body name="obstacle_1_movable">
-      <geom condim="4" euler="0 0 23" friction="0.0 0.005 0.001" mass="0.1" name="obstacle_1_movable" pos="1.0 0.5 0.3" rgba="1 1 0 1" size="0.4 0.3 0.3" type="box"/>
+      <geom condim="4" euler="0 0 45" friction="0.0 0.005 0.001" mass="0.1" name="obstacle_1_movable" pos="1.0 0.5 0.3" rgba="1 1 0 1" size="0.4 0.3 0.3" type="box"/>
       <joint type="free"/>
     </body>
     <site name="goal" pos="-1.240695909920285 1.2388021920559407 0.0" rgba="0 1 0 0.5" size="0.25 0.25 0.25" type="sphere"/>

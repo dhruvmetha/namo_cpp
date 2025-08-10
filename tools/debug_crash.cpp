@@ -8,7 +8,7 @@
 #include "planning/greedy_planner.hpp"
 #include "planning/mpc_executor.hpp"
 #include "planning/namo_push_controller.hpp"
-#include "planning/incremental_wavefront_planner.hpp"
+#include "wavefront/wavefront_planner.hpp"
 #include <iostream>
 #include <memory>
 
@@ -34,10 +34,10 @@ int main() {
         MPCExecutor executor(env);
         std::cout << "✓ MPCExecutor created" << std::endl;
         
-        std::cout << "Step 4: Creating IncrementalWavefrontPlanner..." << std::endl;
+        std::cout << "Step 4: Creating WavefrontPlanner..." << std::endl;
         std::vector<double> robot_size = {0.15, 0.15};
-        auto wavefront_planner = std::make_unique<IncrementalWavefrontPlanner>(0.02, env, robot_size);
-        std::cout << "✓ IncrementalWavefrontPlanner created" << std::endl;
+        auto wavefront_planner = std::make_unique<WavefrontPlanner>(0.02, env, robot_size);
+        std::cout << "✓ WavefrontPlanner created" << std::endl;
         
         std::cout << "Step 5: Creating NAMOPushController..." << std::endl;
         auto controller_ptr = std::make_unique<NAMOPushController>(env, *wavefront_planner, 10, 250, 1.0);

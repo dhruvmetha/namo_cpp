@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/types.hpp"
 #include "planning/primitive_loader.hpp"
 #include <vector>
 #include <array>
@@ -12,22 +13,6 @@
 #endif
 
 namespace namo {
-
-/**
- * @brief SE(2) state representation
- */
-struct SE2State {
-    double x, y, theta;
-    
-    SE2State() : x(0.0), y(0.0), theta(0.0) {}
-    SE2State(double x_, double y_, double theta_) : x(x_), y(y_), theta(theta_) {}
-    
-    // Normalize angle to [-π, π]
-    void normalize_angle() {
-        while (theta > M_PI) theta -= 2.0 * M_PI;
-        while (theta < -M_PI) theta += 2.0 * M_PI;
-    }
-};
 
 /**
  * @brief Search node for greedy best-first search
@@ -189,7 +174,8 @@ private:
     std::vector<PlanStep> get_fallback_primitive_step(
         const SE2State& origin, 
         const SE2State& local_goal, 
-        const SE2State& start_state);
+        const SE2State& start_state,
+        const std::vector<int>& allowed_edges);
 };
 
 } // namespace namo

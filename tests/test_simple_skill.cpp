@@ -63,7 +63,7 @@ private:
         std::cout << "Parameter schema (" << schema.size() << " parameters):" << std::endl;
         
         for (const auto& param : schema) {
-            std::cout << "  - " << param.first << ": " << param.second.second << std::endl;
+            std::cout << "  - " << param.first << ": " << param.second.description << std::endl;
         }
         
         // Verify required parameters exist

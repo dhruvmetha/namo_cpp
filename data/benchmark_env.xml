@@ -61,7 +61,7 @@
       <joint type="free"/>
     </body>
     <body name="obstacle_9_movable">
-      <geom condim="4" euler="0 0 303.13112124945803" friction="0.0 0.005 0.001" mass="0.1" name="obstacle_9_movable" pos="0.373400765627804 0.49412566739948716 0.3" rgba="1 1 0 1" size="0.21698389281247676 0.34772664056182756 0.3" type="box"/>
+    <geom condim="4" euler="0 0 303.13112124945803" friction="0.0 0.005 0.001" mass="0.1" name="obstacle_9_movable" pos="0.373400765627804 0.49412566739948716 0.3" rgba="1 1 0 1" size="0.23698389281247676 0.36772664056182756 0.3" type="box"/>
       <joint type="free"/>
     </body>
     <body name="obstacle_10_movable">

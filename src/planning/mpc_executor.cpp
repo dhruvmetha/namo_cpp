@@ -12,6 +12,17 @@ MPCExecutor::MPCExecutor(NAMOEnvironment& env)
     set_parameters();
 }
 
+MPCExecutor::MPCExecutor(NAMOEnvironment& env, double resolution, const std::vector<double>& robot_size, 
+                         int max_push_steps, int control_steps_per_push, double force_scaling)
+    : env_(env), 
+      planner_(resolution, env_, robot_size), 
+      controller_(env_, planner_, max_push_steps, control_steps_per_push, force_scaling), 
+      has_robot_goal_(false) {
+    
+    // Set default parameters
+    set_parameters();
+}
+
 void MPCExecutor::set_parameters(int max_mpc_steps, 
                                 double distance_threshold,
                                 double angle_threshold,
@@ -222,6 +233,108 @@ bool MPCExecutor::is_object_stuck(const std::string& object_name, const SE2State
     const double min_angle_change = 0.01;      // ~0.6 degrees
     
     return distance_moved < min_position_change && angle_change < min_angle_change;
+}
+
+void MPCExecutor::save_debug_wavefront(int iteration, const std::string& base_filename) {
+    planner_.save_wavefront_iteration(base_filename, iteration);
+}
+
+std::vector<int> MPCExecutor::get_reachable_edges_with_wavefront(const std::string& object_name) {
+    // Get robot current position
+    auto robot_state = env_.get_robot_state();
+    if (!robot_state) {
+        std::cout << "Warning: Could not get robot state for wavefront update" << std::endl;
+        return {}; 
+    }
+    
+    // Update wavefront from current robot position
+    std::vector<double> robot_pos = {robot_state->position[0], robot_state->position[1]};
+    bool wavefront_updated = planner_.update_wavefront(env_, robot_pos);
+    
+    if (!wavefront_updated) {
+        std::cout << "Warning: Wavefront update failed" << std::endl;
+    }
+    
+    // Get object current position to generate edge points
+    auto obj_pose = env_.get_object_state(object_name);
+    if (!obj_pose) {
+        std::cout << "Warning: Could not get object pose for " << object_name << std::endl;
+        return {};
+    }
+    
+    std::vector<int> reachable_edges;
+    
+    // Generate the 12 edge points around the object with proper SE(2) transformation
+    std::array<std::array<double, 2>, 12> world_edge_points;
+    
+    // Object pose (position and orientation)
+    std::array<double, 3> obj_pos = {obj_pose->position[0], obj_pose->position[1], obj_pose->position[2]};
+    
+    // Convert quaternion to yaw angle (same as get_object_se2_state)
+    double yaw = std::atan2(
+        2.0 * (obj_pose->quaternion[0] * obj_pose->quaternion[3] + 
+               obj_pose->quaternion[1] * obj_pose->quaternion[2]),
+        1.0 - 2.0 * (obj_pose->quaternion[2] * obj_pose->quaternion[2] + 
+                      obj_pose->quaternion[3] * obj_pose->quaternion[3])
+    );
+    
+    // Object size with margins
+    double w = obj_pose->size[0] - 0.05;  // width with margin
+    double d = obj_pose->size[1] - 0.05;  // depth with margin  
+    double offset = 0.15 + 0.1;         // robot radius + margin
+    
+    // Generate 12 local edge points (same pattern as push controller)
+    std::array<std::array<double, 2>, 12> local_edge_points = {{
+        {{-w, d + offset}}, {{-w, -d - offset}}, 
+        {{0, d + offset}}, {{0, -d - offset}}, 
+        {{w, d + offset}}, {{w, -d - offset}}, 
+        {{w + offset, -d}}, {{-w - offset, -d}}, 
+        {{w + offset, 0}}, {{-w - offset, 0}}, 
+        {{w + offset, d}}, {{-w - offset, d}}
+    }};
+    
+    // Transform local edge points to world coordinates using SE(2) transformation
+    for (int i = 0; i < 12; i++) {
+        double cos_theta = std::cos(yaw);
+        double sin_theta = std::sin(yaw);
+        
+        // Rotate then translate (same as push controller transform_point)
+        world_edge_points[i][0] = cos_theta * local_edge_points[i][0] - sin_theta * local_edge_points[i][1] + obj_pos[0];
+        world_edge_points[i][1] = sin_theta * local_edge_points[i][0] + cos_theta * local_edge_points[i][1] + obj_pos[1];
+    }
+    
+    // Get the mutable wavefront grid for marking edge points
+    auto& grid = planner_.get_mutable_grid();
+    
+    // Check each transformed edge point for reachability and mark in grid
+    for (int edge_idx = 0; edge_idx < 12; edge_idx++) {
+        try {
+            // Convert world edge point to grid coordinates  
+            int edge_x = planner_.world_to_grid_x(world_edge_points[edge_idx][0]);
+            int edge_y = planner_.world_to_grid_y(world_edge_points[edge_idx][1]);
+            
+            if (planner_.is_valid_grid_coord(edge_x, edge_y)) {
+                // Check if edge point is reachable (not obstacle -2, not unreachable 0)
+                // Only accept grid values > 0 (reachable positions)
+                if (grid[edge_x][edge_y] > 0) {
+                    reachable_edges.push_back(edge_idx);
+                    // Mark reachable edge points in grid as -3
+                    grid[edge_x][edge_y] = -3;
+                } else {
+                    // Mark unreachable edge points in grid as -4  
+                    grid[edge_x][edge_y] = -4;
+                }
+            }
+        } catch (const std::exception& e) {
+            std::cout << "Error checking edge " << edge_idx << ": " << e.what() << std::endl;
+            continue;
+        }
+    }
+    
+    std::cout << "Wavefront analysis: " << reachable_edges.size() 
+              << "/12 edges reachable for " << object_name << std::endl;
+    
+    return reachable_edges;
 }
 
 } // namespace namo

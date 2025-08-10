@@ -2,7 +2,7 @@
 
 #include "core/types.hpp"
 #include "environment/namo_environment.hpp"
-#include "planning/incremental_wavefront_planner.hpp"
+#include "wavefront/wavefront_planner.hpp"
 #include <array>
 #include <memory>
 
@@ -80,7 +80,7 @@ private:
     
     // Environment and planner references
     NAMOEnvironment& env_;
-    IncrementalWavefrontPlanner& planner_;
+    WavefrontPlanner& planner_;
     
     // Pre-allocated memory pools using standard containers for complex types
     std::array<PushPrimitive, MAX_PRIMITIVES> primitive_pool_;
@@ -111,7 +111,7 @@ public:
      * @param scaling Force scaling factor
      */
     NAMOPushController(NAMOEnvironment& env, 
-                      IncrementalWavefrontPlanner& planner,
+                      WavefrontPlanner& planner,
                       int push_steps = 20,
                       int control_steps = 500,
                       double scaling = 0.5);

@@ -22,10 +22,15 @@ int main() {
         return 1;
     }
     
+    // Read header (primitive count)
+    uint32_t count;
+    file.read(reinterpret_cast<char*>(&count), sizeof(count));
+    
     std::cout << "Struct size: " << sizeof(BinaryPrimitive) << " bytes" << std::endl;
+    std::cout << "Primitives in file: " << count << std::endl;
     
     BinaryPrimitive prim;
-    for (int i = 0; i < 10 && file.read(reinterpret_cast<char*>(&prim), sizeof(prim)); i++) {
+    for (int i = 0; i < 10 && i < (int)count && file.read(reinterpret_cast<char*>(&prim), sizeof(prim)); i++) {
         std::cout << "Primitive " << i << ": "
                   << "dx=" << prim.delta_x << " "
                   << "dy=" << prim.delta_y << " "

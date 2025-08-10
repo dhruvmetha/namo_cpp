@@ -75,6 +75,11 @@ public:
     // Visualization for goal marker (like old MuJoCo implementation)
     void visualize_goal_marker(const std::array<double, 3>& goal_position, 
                               const std::array<float, 4>& color = {0.0f, 1.0f, 0.0f, 1.0f});
+                              
+    // Visualization for object goal marker with object-specific size
+    void visualize_object_goal_marker(const std::array<double, 3>& goal_position,
+                                     const std::array<double, 3>& object_size,
+                                     const std::array<float, 4>& color = {0.0f, 0.8f, 1.0f, 1.0f});
     
     // Collision detection
     bool is_in_collision() const { return sim_->in_collision(); }
