@@ -229,32 +229,32 @@ void RegionBasedPlanner::reset() {
 }
 
 void RegionBasedPlanner::initialize_components() {
-    std::cout << "RegionBasedPlanner: Initializing components..." << std::endl;
+    // std::cout << "RegionBasedPlanner: Initializing components..." << std::endl;
     
     // Create region analyzer
     region_analyzer_ = std::make_unique<RegionAnalyzer>(0.05, sampling_density_, goal_tolerance_);
-    std::cout << "RegionBasedPlanner: Created region analyzer" << std::endl;
+    // std::cout << "RegionBasedPlanner: Created region analyzer" << std::endl;
     
     // Create path planner
     path_planner_ = std::make_unique<RegionPathPlanner>();
-    std::cout << "RegionBasedPlanner: Created path planner" << std::endl;
+    // std::cout << "RegionBasedPlanner: Created path planner" << std::endl;
     
     // Create goal proposal generator
     goal_generator_ = std::make_unique<GoalProposalGenerator>(env_, goal_proposals_per_object_);
-    std::cout << "RegionBasedPlanner: Created goal generator" << std::endl;
+    // std::cout << "RegionBasedPlanner: Created goal generator" << std::endl;
     
     // Create tree search with configuration
     tree_search_ = std::make_unique<RegionTreeSearch>(env_, max_depth_, goal_proposals_per_object_);
-    std::cout << "RegionBasedPlanner: Created tree search" << std::endl;
+    // std::cout << "RegionBasedPlanner: Created tree search" << std::endl;
     
     // Configure tree search
     tree_search_->set_goal_tolerance(goal_tolerance_);
     
     // Create push skill for action execution  
     push_skill_ = std::make_unique<NAMOPushSkill>(env_);  // TODO: Pass config when available
-    std::cout << "RegionBasedPlanner: Created push skill" << std::endl;
+    // std::cout << "RegionBasedPlanner: Created push skill" << std::endl;
     
-    std::cout << "RegionBasedPlanner: All components initialized successfully" << std::endl;
+    // std::cout << "RegionBasedPlanner: All components initialized successfully" << std::endl;
 }
 
 void RegionBasedPlanner::load_configuration() {
@@ -270,7 +270,7 @@ void RegionBasedPlanner::load_configuration() {
         // Adapt existing configuration values where possible
         goal_tolerance_ = std::min(goal_tolerance_, planning_config.position_threshold * 1000.0); // Convert to reasonable scale
         
-        std::cout << "RegionBasedPlanner: Using default configuration with some adapted values" << std::endl;
+        // std::cout << "RegionBasedPlanner: Using default configuration with some adapted values" << std::endl;
         
     } catch (const std::exception& e) {
         std::cerr << "RegionBasedPlanner: Warning - Failed to load configuration: " << e.what() << std::endl;

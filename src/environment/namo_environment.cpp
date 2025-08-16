@@ -70,13 +70,13 @@ NAMOEnvironment::NAMOEnvironment(const std::string& xml_path, bool visualize, bo
     // Initial state update
     update_object_states();
     
-    std::cout << "NAMO Environment initialized:" << std::endl;
-    std::cout << "  Config: " << config_name_ << std::endl;
-    std::cout << "  Static objects: " << num_static_ << std::endl;
-    std::cout << "  Movable objects: " << num_movable_ << std::endl;
-    std::cout << "  Robot ID: " << robot_id_ << std::endl;
-    std::cout << "  Visualization: " << (visualize ? "enabled" : "disabled") << std::endl;
-    std::cout << "  Logging: " << (logging_enabled_ ? "enabled" : "disabled") << std::endl;
+    // std::cout << "NAMO Environment initialized:" << std::endl;
+    // std::cout << "  Config: " << config_name_ << std::endl;
+    // std::cout << "  Static objects: " << num_static_ << std::endl;
+    // std::cout << "  Movable objects: " << num_movable_ << std::endl;
+    // std::cout << "  Robot ID: " << robot_id_ << std::endl;
+    // std::cout << "  Visualization: " << (visualize ? "enabled" : "disabled") << std::endl;
+    // std::cout << "  Logging: " << (logging_enabled_ ? "enabled" : "disabled") << std::endl;
 }
 
 NAMOEnvironment::~NAMOEnvironment() {
@@ -91,6 +91,15 @@ void NAMOEnvironment::warm_up() {
     for (int i = 0; i < 3; i++) {
         sim_->step();
     }
+    
+    // Save initial state for optimization reset
+    State initial_state;
+    sim_->get_state(initial_state);
+    initial_qpos_.resize(initial_state.size());
+    for (size_t i = 0; i < initial_state.size(); ++i) {
+        initial_qpos_[i] = initial_state[i];
+    }
+    initial_qvel_.clear();  // Not using separate velocity storage for now
 }
 
 void NAMOEnvironment::process_environment_objects() {
@@ -146,7 +155,7 @@ void NAMOEnvironment::process_environment_objects() {
                 if (obj.is_static) {
                     add_static_object(obj);
                 } else if (body_name.find("movable") != std::string::npos) {
-                    std::cout << "Adding movable object: " << obj.name << " " << obj.geom_id << " " << obj.body_id << std::endl;
+                    // std::cout << "Adding movable object: " << obj.name << " " << obj.geom_id << " " << obj.body_id << std::endl;
                     add_movable_object(obj);
                 }
             }
@@ -489,7 +498,7 @@ void NAMOEnvironment::visualize_edge_reachability(const std::string& object_name
     // Get object state
     const ObjectState* obj_state = get_object_state(object_name);
     if (!obj_state) {
-        std::cout << "Object not found for visualization: " << object_name << std::endl;
+        // std::cout << "Object not found for visualization: " << object_name << std::endl;
         return;
     }
     
@@ -552,11 +561,11 @@ void NAMOEnvironment::visualize_edge_reachability(const std::string& object_name
     if (sim_) {
         sim_->add_visual_markers(positions_3d.data(), colors.data(), sizes.data(), 12);
     } else {
-        std::cout << "Simulation not available - visual markers not displayed" << std::endl;
+        // std::cout << "Simulation not available - visual markers not displayed" << std::endl;
     }
     
-    std::cout << "Added visual markers: " << reachable_edges.size() << " green (reachable), " 
-              << (12 - reachable_edges.size()) << " red (unreachable)" << std::endl;
+    // std::cout << "Added visual markers: " << reachable_edges.size() << " green (reachable), " 
+            //   << (12 - reachable_edges.size()) << " red (unreachable)" << std::endl;
 }
 
 std::vector<double> NAMOEnvironment::get_random_state() const {
@@ -658,6 +667,59 @@ void NAMOEnvironment::visualize_object_goal_marker(const std::array<double, 3>& 
     int geom_type = 6; // mjGEOM_BOX = 6 - use thin box to show goal footprint
     
     sim_->set_goal_marker(goal_position, orientation, marker_size, geom_type);
+}
+
+//=============================================================================
+// State management for optimization
+//=============================================================================
+
+void NAMOEnvironment::save_current_state() {
+    if (!sim_) return;
+    
+    // Get current state from MuJoCo
+    State current_state;
+    sim_->get_state(current_state);
+    saved_qpos_.resize(current_state.size());
+    for (size_t i = 0; i < current_state.size(); ++i) {
+        saved_qpos_[i] = current_state[i];
+    }
+    saved_qvel_.clear();  // Not using separate velocity storage for now
+    has_saved_state_ = true;
+}
+
+void NAMOEnvironment::restore_saved_state() {
+    if (!sim_ || !has_saved_state_) return;
+    
+    // Restore state to MuJoCo
+    State state;
+    state.resize(saved_qpos_.size());
+    for (size_t i = 0; i < saved_qpos_.size(); ++i) {
+        state[i] = saved_qpos_[i];
+    }
+    sim_->set_state(state);
+    
+    // Update our object state tracking
+    update_object_states();
+}
+
+void NAMOEnvironment::reset_to_initial_state() {
+    if (!sim_) return;
+    
+    // Reset to initial state (saved during construction/warm_up)
+    if (!initial_qpos_.empty()) {
+        State state;
+        state.resize(initial_qpos_.size());
+        for (size_t i = 0; i < initial_qpos_.size(); ++i) {
+            state[i] = initial_qpos_[i];
+        }
+        sim_->set_state(state);
+        
+        // Update our object state tracking
+        update_object_states();
+    } else {
+        // Fallback to regular reset
+        reset();
+    }
 }
 
 } // namespace namo

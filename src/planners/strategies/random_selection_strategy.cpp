@@ -15,7 +15,7 @@ void RandomSelectionStrategy::configure(const std::map<std::string, double>& par
     // Legacy method for manual parameter override
     // Note: This creates a temporary override - for permanent changes, update the ConfigManager
     // TODO: Consider deprecating this method in favor of config-only approach
-    std::cout << "Warning: Using legacy configure method. Consider using ConfigManager for parameter management." << std::endl;
+    // std::cout << "Warning: Using legacy configure method. Consider using ConfigManager for parameter management." << std::endl;
 }
 
 SelectionResult RandomSelectionStrategy::selectObjectAndGoal(

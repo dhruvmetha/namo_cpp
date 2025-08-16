@@ -11,7 +11,7 @@
 using namespace namo;
 
 void test_basic_transformations() {
-    std::cout << "=== Basic Coordinate Transformation Tests ===" << std::endl;
+    // std::cout << "=== Basic Coordinate Transformation Tests ===" << std::endl;
     
     GreedyPlanner planner;
     
@@ -20,27 +20,27 @@ void test_basic_transformations() {
     SE2State goal(0.1, 0.1, 0.2);
     
     // Should be identical since start is origin
-    std::cout << "Test 1: Start at origin" << std::endl;
-    std::cout << "  Start: [" << origin.x << ", " << origin.y << ", " << origin.theta << "]" << std::endl;
-    std::cout << "  Goal:  [" << goal.x << ", " << goal.y << ", " << goal.theta << "]" << std::endl;
+    // std::cout << "Test 1: Start at origin" << std::endl;
+    // std::cout << "  Start: [" << origin.x << ", " << origin.y << ", " << origin.theta << "]" << std::endl;
+    // std::cout << "  Goal:  [" << goal.x << ", " << goal.y << ", " << goal.theta << "]" << std::endl;
     
     // Transform to local and back to global
     SE2State local = planner.transform_to_local_frame(origin, goal);
     SE2State global_back = planner.transform_to_global_frame(origin, local);
     
-    std::cout << "  Local: [" << std::fixed << std::setprecision(6) 
-              << local.x << ", " << local.y << ", " << local.theta << "]" << std::endl;
-    std::cout << "  Back:  [" << global_back.x << ", " << global_back.y << ", " << global_back.theta << "]" << std::endl;
+    // std::cout << "  Local: [" << std::fixed << std::setprecision(6) 
+              // << local.x << ", " << local.y << ", " << local.theta << "]" << std::endl;
+    // std::cout << "  Back:  [" << global_back.x << ", " << global_back.y << ", " << global_back.theta << "]" << std::endl;
     
     // Should match original goal
     double error = std::sqrt(std::pow(goal.x - global_back.x, 2) + 
                             std::pow(goal.y - global_back.y, 2) + 
                             std::pow(goal.theta - global_back.theta, 2));
-    std::cout << "  Roundtrip error: " << error << (error < 1e-10 ? " ✓" : " ✗") << std::endl;
+    // std::cout << "  Roundtrip error: " << error << (error < 1e-10 ? " ✓" : " ✗") << std::endl;
 }
 
 void test_iterative_case() {
-    std::cout << "\\n=== Iterative MPC Case Analysis ===" << std::endl;
+    // std::cout << "\\n=== Iterative MPC Case Analysis ===" << std::endl;
     
     GreedyPlanner planner;
     
@@ -49,45 +49,45 @@ void test_iterative_case() {
     SE2State goal(0.15, 0.10, 0.3);
     SE2State iter2_start(0.180, 0.059, 0.253);  // After first primitive execution
     
-    std::cout << "Original goal: [" << goal.x << ", " << goal.y << ", " << goal.theta << "]" << std::endl;
+    // std::cout << "Original goal: [" << goal.x << ", " << goal.y << ", " << goal.theta << "]" << std::endl;
     
     // Iteration 1 transformation
     SE2State local_goal_1 = planner.transform_to_local_frame(iter1_start, goal);
-    std::cout << "\\nIteration 1:" << std::endl;
-    std::cout << "  Object at: [" << iter1_start.x << ", " << iter1_start.y << ", " << iter1_start.theta << "]" << std::endl;
-    std::cout << "  Local goal: [" << std::fixed << std::setprecision(6) 
-              << local_goal_1.x << ", " << local_goal_1.y << ", " << local_goal_1.theta << "]" << std::endl;
+    // std::cout << "\\nIteration 1:" << std::endl;
+    // std::cout << "  Object at: [" << iter1_start.x << ", " << iter1_start.y << ", " << iter1_start.theta << "]" << std::endl;
+    // std::cout << "  Local goal: [" << std::fixed << std::setprecision(6) 
+              // << local_goal_1.x << ", " << local_goal_1.y << ", " << local_goal_1.theta << "]" << std::endl;
     
     // Iteration 2 transformation  
     SE2State local_goal_2 = planner.transform_to_local_frame(iter2_start, goal);
-    std::cout << "\\nIteration 2:" << std::endl;
-    std::cout << "  Object at: [" << iter2_start.x << ", " << iter2_start.y << ", " << iter2_start.theta << "]" << std::endl;
-    std::cout << "  Local goal: [" << std::fixed << std::setprecision(6)
-              << local_goal_2.x << ", " << local_goal_2.y << ", " << local_goal_2.theta << "]" << std::endl;
+    // std::cout << "\\nIteration 2:" << std::endl;
+    // std::cout << "  Object at: [" << iter2_start.x << ", " << iter2_start.y << ", " << iter2_start.theta << "]" << std::endl;
+    // std::cout << "  Local goal: [" << std::fixed << std::setprecision(6)
+              // << local_goal_2.x << ", " << local_goal_2.y << ", " << local_goal_2.theta << "]" << std::endl;
     
     // Analysis
     double distance_1 = std::sqrt(local_goal_1.x*local_goal_1.x + local_goal_1.y*local_goal_1.y);
     double distance_2 = std::sqrt(local_goal_2.x*local_goal_2.x + local_goal_2.y*local_goal_2.y);
     
-    std::cout << "\\nAnalysis:" << std::endl;
-    std::cout << "  Iteration 1 local distance: " << std::fixed << std::setprecision(3) << distance_1*1000 << "mm" << std::endl;
-    std::cout << "  Iteration 2 local distance: " << std::fixed << std::setprecision(3) << distance_2*1000 << "mm" << std::endl;
-    std::cout << "  Iteration 2 requires " << (local_goal_2.x < 0 ? "BACKWARD" : "FORWARD") << " motion" << std::endl;
+    // std::cout << "\\nAnalysis:" << std::endl;
+    // std::cout << "  Iteration 1 local distance: " << std::fixed << std::setprecision(3) << distance_1*1000 << "mm" << std::endl;
+    // std::cout << "  Iteration 2 local distance: " << std::fixed << std::setprecision(3) << distance_2*1000 << "mm" << std::endl;
+    // std::cout << "  Iteration 2 requires " << (local_goal_2.x < 0 ? "BACKWARD" : "FORWARD") << " motion" << std::endl;
     
     // Check if this explains the planning failure
     if (local_goal_2.x < 0) {
-        std::cout << "  ⚠️  Iteration 2 requires negative X movement (backing up)" << std::endl;
-        std::cout << "  ⚠️  Our primitive database may not have good backward coverage" << std::endl;
+        // std::cout << "  ⚠️  Iteration 2 requires negative X movement (backing up)" << std::endl;
+        // std::cout << "  ⚠️  Our primitive database may not have good backward coverage" << std::endl;
     }
     
     if (distance_2 < 0.05) {
-        std::cout << "  ⚠️  Iteration 2 requires very precise movement (<5cm)" << std::endl;
-        std::cout << "  ⚠️  Our primitive database may lack fine-grained primitives" << std::endl;
+        // std::cout << "  ⚠️  Iteration 2 requires very precise movement (<5cm)" << std::endl;
+        // std::cout << "  ⚠️  Our primitive database may lack fine-grained primitives" << std::endl;
     }
 }
 
 void test_transformation_correctness() {
-    std::cout << "\\n=== Transformation Mathematical Correctness ===" << std::endl;
+    // std::cout << "\\n=== Transformation Mathematical Correctness ===" << std::endl;
     
     GreedyPlanner planner;
     
@@ -102,8 +102,8 @@ void test_transformation_correctness() {
     
     SE2State target(0.2, 0.15, 0.4);
     
-    std::cout << "Target: [" << target.x << ", " << target.y << ", " << target.theta << "]" << std::endl;
-    std::cout << "\\nReference Frame Tests:" << std::endl;
+    // std::cout << "Target: [" << target.x << ", " << target.y << ", " << target.theta << "]" << std::endl;
+    // std::cout << "\\nReference Frame Tests:" << std::endl;
     
     bool all_passed = true;
     for (size_t i = 0; i < references.size(); i++) {
@@ -123,29 +123,29 @@ void test_transformation_correctness() {
         bool passed = total_error < 1e-10;
         all_passed &= passed;
         
-        std::cout << "  Ref " << (i+1) << ": [" << std::fixed << std::setprecision(3)
-                  << ref.x << ", " << ref.y << ", " << ref.theta << "]"
-                  << " → Error: " << std::scientific << std::setprecision(2) << total_error
-                  << (passed ? " ✓" : " ✗") << std::endl;
+        // std::cout << "  Ref " << (i+1) << ": [" << std::fixed << std::setprecision(3)
+                  // << ref.x << ", " << ref.y << ", " << ref.theta << "]"
+                  // << " → Error: " << std::scientific << std::setprecision(2) << total_error
+                  // << (passed ? " ✓" : " ✗") << std::endl;
     }
     
-    std::cout << "\\nOverall transformation correctness: " << (all_passed ? "✓ PASSED" : "✗ FAILED") << std::endl;
+    // std::cout << "\\nOverall transformation correctness: " << (all_passed ? "✓ PASSED" : "✗ FAILED") << std::endl;
 }
 
 int main() {
-    std::cout << "=== Coordinate Transformation Verification ===" << std::endl;
-    std::cout << "Testing GreedyPlanner coordinate transformations\\n" << std::endl;
+    // std::cout << "=== Coordinate Transformation Verification ===" << std::endl;
+    // std::cout << "Testing GreedyPlanner coordinate transformations\\n" << std::endl;
     
     try {
         test_basic_transformations();
         test_iterative_case();
         test_transformation_correctness();
         
-        std::cout << "\\n=== Conclusions ===" << std::endl;
-        std::cout << "• Coordinate transformations appear mathematically correct" << std::endl;
-        std::cout << "• Local frame planning is the right approach for universal primitives" << std::endl;
-        std::cout << "• Iterative MPC failure likely due to primitive database coverage" << std::endl;
-        std::cout << "• The algorithm matches the old implementation approach" << std::endl;
+        // std::cout << "\\n=== Conclusions ===" << std::endl;
+        // std::cout << "• Coordinate transformations appear mathematically correct" << std::endl;
+        // std::cout << "• Local frame planning is the right approach for universal primitives" << std::endl;
+        // std::cout << "• Iterative MPC failure likely due to primitive database coverage" << std::endl;
+        // std::cout << "• The algorithm matches the old implementation approach" << std::endl;
         
         return 0;
         

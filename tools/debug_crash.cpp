@@ -16,43 +16,43 @@ using namespace namo;
 
 int main() {
     try {
-        std::cout << "=== Debug Crash Test ===" << std::endl;
+        // std::cout << "=== Debug Crash Test ===" << std::endl;
         
-        std::cout << "Step 1: Creating NAMOEnvironment..." << std::endl;
+        // std::cout << "Step 1: Creating NAMOEnvironment..." << std::endl;
         NAMOEnvironment env("data/nominal_primitive_scene.xml", false);
-        std::cout << "✓ NAMOEnvironment created" << std::endl;
+        // std::cout << "✓ NAMOEnvironment created" << std::endl;
         
-        std::cout << "Step 2: Creating GreedyPlanner..." << std::endl;
+        // std::cout << "Step 2: Creating GreedyPlanner..." << std::endl;
         GreedyPlanner planner;
         if (!planner.initialize("data/motion_primitives.dat")) {
             std::cerr << "Failed to initialize planner" << std::endl;
             return 1;
         }
-        std::cout << "✓ GreedyPlanner created" << std::endl;
+        // std::cout << "✓ GreedyPlanner created" << std::endl;
         
-        std::cout << "Step 3: Creating MPCExecutor..." << std::endl;
+        // std::cout << "Step 3: Creating MPCExecutor..." << std::endl;
         MPCExecutor executor(env);
-        std::cout << "✓ MPCExecutor created" << std::endl;
+        // std::cout << "✓ MPCExecutor created" << std::endl;
         
-        std::cout << "Step 4: Creating WavefrontPlanner..." << std::endl;
+        // std::cout << "Step 4: Creating WavefrontPlanner..." << std::endl;
         std::vector<double> robot_size = {0.15, 0.15};
         auto wavefront_planner = std::make_unique<WavefrontPlanner>(0.02, env, robot_size);
-        std::cout << "✓ WavefrontPlanner created" << std::endl;
+        // std::cout << "✓ WavefrontPlanner created" << std::endl;
         
-        std::cout << "Step 5: Creating NAMOPushController..." << std::endl;
+        // std::cout << "Step 5: Creating NAMOPushController..." << std::endl;
         auto controller_ptr = std::make_unique<NAMOPushController>(env, *wavefront_planner, 10, 250, 1.0);
-        std::cout << "✓ NAMOPushController created" << std::endl;
+        // std::cout << "✓ NAMOPushController created" << std::endl;
         
-        std::cout << "Step 6: Getting movable objects..." << std::endl;
+        // std::cout << "Step 6: Getting movable objects..." << std::endl;
         auto movable_objects = env.get_movable_objects();
         std::string object_name = movable_objects[0].name;
-        std::cout << "✓ Object name: " << object_name << std::endl;
+        // std::cout << "✓ Object name: " << object_name << std::endl;
         
-        std::cout << "Step 7: Testing get_reachable_edge_indices..." << std::endl;
+        // std::cout << "Step 7: Testing get_reachable_edge_indices..." << std::endl;
         std::vector<int> reachable_edges = controller_ptr->get_reachable_edge_indices(object_name);
-        std::cout << "✓ get_reachable_edge_indices completed: " << reachable_edges.size() << " edges" << std::endl;
+        // std::cout << "✓ get_reachable_edge_indices completed: " << reachable_edges.size() << " edges" << std::endl;
         
-        std::cout << "🎉 All steps completed successfully!" << std::endl;
+        // std::cout << "🎉 All steps completed successfully!" << std::endl;
         return 0;
         
     } catch (const std::exception& e) {

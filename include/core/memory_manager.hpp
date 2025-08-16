@@ -220,17 +220,17 @@ public:
      * @brief Get memory usage statistics
      */
     void print_statistics() const {
-        std::cout << "=== Memory Pool Statistics ===" << std::endl;
-        std::cout << "States: " << state_pool_.used_count() << "/" << state_pool_.size() 
-                  << " (peak: " << peak_state_usage_ << ")" << std::endl;
-        std::cout << "Controls: " << control_pool_.used_count() << "/" << control_pool_.size() 
-                  << " (peak: " << peak_control_usage_ << ")" << std::endl;
-        std::cout << "Actions: " << action_pool_.used_count() << "/" << action_pool_.size() 
-                  << " (peak: " << peak_action_usage_ << ")" << std::endl;
-        std::cout << "Primitives: " << primitive_pool_.used_count() << "/" << primitive_pool_.size() 
-                  << " (peak: " << peak_primitive_usage_ << ")" << std::endl;
-        std::cout << "Footprints: " << footprint_pool_.used_count() << "/" << footprint_pool_.size() 
-                  << " (peak: " << peak_footprint_usage_ << ")" << std::endl;
+        // std::cout << "=== Memory Pool Statistics ===" << std::endl;
+        // std::cout << "States: " << state_pool_.used_count() << "/" << state_pool_.size() 
+        //           << " (peak: " << peak_state_usage_ << ")" << std::endl;
+        // std::cout << "Controls: " << control_pool_.used_count() << "/" << control_pool_.size() 
+        //           << " (peak: " << peak_control_usage_ << ")" << std::endl;
+        // std::cout << "Actions: " << action_pool_.used_count() << "/" << action_pool_.size() 
+        //           << " (peak: " << peak_action_usage_ << ")" << std::endl;
+        // std::cout << "Primitives: " << primitive_pool_.used_count() << "/" << primitive_pool_.size() 
+        //           << " (peak: " << peak_primitive_usage_ << ")" << std::endl;
+        // std::cout << "Footprints: " << footprint_pool_.used_count() << "/" << footprint_pool_.size() 
+        //           << " (peak: " << peak_footprint_usage_ << ")" << std::endl;
     }
     
     /**

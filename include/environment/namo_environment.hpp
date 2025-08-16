@@ -34,6 +34,11 @@ public:
     void reset();
     void update_object_states();
     
+    // State management for optimization
+    void save_current_state();
+    void restore_saved_state();
+    void reset_to_initial_state();
+    
     // State management
     void set_robot_position(const std::array<double, 2>& pos);
     void set_robot_position(const std::array<double, 3>& pos);
@@ -142,6 +147,13 @@ private:
     unsigned long frame_count_ = 0;
     int wavefront_id_ = -1;
     int state_log_idx_ = 0;
+    
+    // State management for optimization
+    bool has_saved_state_ = false;
+    std::vector<double> saved_qpos_;
+    std::vector<double> saved_qvel_;
+    std::vector<double> initial_qpos_;
+    std::vector<double> initial_qvel_;
     
     static constexpr size_t LOG_BUFFER_SIZE = 100000;
     std::array<char, LOG_BUFFER_SIZE> log_buffer_;

@@ -182,6 +182,105 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_link_libraries(high_level_planning_demo gomp)
 endif()
 
+# Optional Python bindings target
+option(BUILD_PYTHON_BINDINGS "Build Python bindings" OFF)
+
+if(BUILD_PYTHON_BINDINGS)
+    message(STATUS "Building Python bindings...")
+    
+    # Find Python3 first
+    find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
+    message(STATUS "Found Python3: ${Python3_EXECUTABLE}")
+    message(STATUS "Python3 version: ${Python3_VERSION}")
+    message(STATUS "Python3 include dir: ${Python3_INCLUDE_DIRS}")
+    message(STATUS "Python3 libraries: ${Python3_LIBRARIES}")
+    message(STATUS "Python3 SOABI: ${Python3_SOABI}")
+    
+    # Set variables that pybind11 uses for Python detection
+    set(PYTHON_EXECUTABLE ${Python3_EXECUTABLE})
+    set(PYTHON_LIBRARY ${Python3_LIBRARIES})
+    set(PYTHON_INCLUDE_DIR ${Python3_INCLUDE_DIRS})
+    set(PYTHON_VERSION_STRING ${Python3_VERSION})
+    set(PYTHON_VERSION_MAJOR ${Python3_VERSION_MAJOR})
+    set(PYTHON_VERSION_MINOR ${Python3_VERSION_MINOR})
+    
+    # Always download latest compatible pybind11 for Python 3.11 support
+    message(STATUS "Downloading compatible pybind11 for Python ${Python3_VERSION}...")
+    include(FetchContent)
+    FetchContent_Declare(
+        pybind11
+        GIT_REPOSITORY https://github.com/pybind/pybind11
+        GIT_TAG        v2.12.0  # Latest version with Python 3.11+ support
+    )
+    FetchContent_MakeAvailable(pybind11)
+    
+    # Python RL environment sources
+    set(PYTHON_RL_SOURCES
+        python/rl_env.cpp
+        python/bindings.cpp
+        ${CORE_SOURCES}
+        ${PLANNING_SOURCES}
+        ${WAVEFRONT_SOURCES}
+        ${PLANNER_SOURCES}
+        ${STRATEGY_SOURCES}
+        ${ENVIRONMENT_SOURCES}
+        ${SKILLS_SOURCES}
+        ${CONFIG_SOURCES}
+    )
+    
+    # Create Python module with explicit Python3 linking
+    pybind11_add_module(namo_rl ${PYTHON_RL_SOURCES})
+    
+    # Set include directories for Python module
+    target_include_directories(namo_rl PRIVATE 
+        ${CMAKE_CURRENT_SOURCE_DIR}  # Add project root for python/rl_env.hpp
+        include
+        ${MUJOCO_DIR}/include
+        ${OpenCV_INCLUDE_DIRS}
+        ${Python3_INCLUDE_DIRS}  # Explicitly use Python3 includes
+    )
+    
+    # Link libraries including explicit Python3 libraries
+    target_link_libraries(namo_rl PRIVATE
+        ${MUJOCO_LIB}
+        ${OpenCV_LIBS}
+        Python3::Module  # Explicitly link Python3 module target
+        pthread
+        m  # math library
+    )
+    
+    # Link optional libraries if available
+    if(glfw3_FOUND AND OpenGL_FOUND)
+        target_link_libraries(namo_rl PRIVATE glfw OpenGL::GL)
+        target_compile_definitions(namo_rl PRIVATE HAVE_GLFW)
+    endif()
+    
+    if(ZMQ_FOUND)
+        target_link_libraries(namo_rl PRIVATE ${ZMQ_LIBRARIES})
+        target_include_directories(namo_rl PRIVATE ${ZMQ_INCLUDE_DIRS})
+        target_compile_definitions(namo_rl PRIVATE HAVE_ZMQ)
+    endif()
+    
+    # Compiler-specific optimizations
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        target_compile_options(namo_rl PRIVATE -fopenmp -ffast-math)
+        target_link_libraries(namo_rl PRIVATE gomp)
+    endif()
+    
+    # Set properties for Python module to use the correct Python3 version
+    target_compile_definitions(namo_rl PRIVATE VERSION_INFO=${EXAMPLE_VERSION_INFO})
+    
+    # Force the module suffix to match the target Python version
+    set_target_properties(namo_rl PROPERTIES
+        OUTPUT_NAME "namo_rl"
+        SUFFIX ".${Python3_SOABI}${CMAKE_SHARED_MODULE_SUFFIX}"
+    )
+    
+    message(STATUS "Python bindings will be built as 'namo_rl' module")
+    message(STATUS "Target Python3 SOABI: ${Python3_SOABI}")
+    message(STATUS "Module suffix will be: ${Python3_SOABI}${CMAKE_SHARED_MODULE_SUFFIX}")
+endif()
+
 # Install targets
 install(TARGETS high_level_planning_demo DESTINATION bin)
 install(DIRECTORY config/ DESTINATION share/namo_standalone/config)

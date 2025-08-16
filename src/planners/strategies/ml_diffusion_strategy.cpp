@@ -12,8 +12,8 @@ MLDiffusionStrategy::MLDiffusionStrategy(const std::string& zmq_endpoint,
     , fallback_to_random_(fallback_to_random)
 {
     // TODO: Initialize ZMQ context and socket
-    std::cout << "MLDiffusionStrategy created with endpoint: " << zmq_endpoint_ << std::endl;
-    std::cout << "WARNING: ZMQ communication not yet implemented, will fallback to random" << std::endl;
+    // std::cout << "MLDiffusionStrategy created with endpoint: " << zmq_endpoint_ << std::endl;
+    // std::cout << "WARNING: ZMQ communication not yet implemented, will fallback to random" << std::endl;
 }
 
 void MLDiffusionStrategy::configure(const std::map<std::string, double>& params) {
@@ -47,7 +47,7 @@ SelectionResult MLDiffusionStrategy::selectObjectAndGoal(
     
     // 3. Fallback to random strategy if ML fails
     if (fallback_to_random_) {
-        std::cout << "ML strategy failed, falling back to random selection" << std::endl;
+        // std::cout << "ML strategy failed, falling back to random selection" << std::endl;
         return fallbackToRandom(env, reachable_objects, robot_goal);
     }
     
@@ -75,7 +75,7 @@ bool MLDiffusionStrategy::sendStateToML(const NAMOEnvironment& env,
     3. Return success/failure
     */
     
-    std::cout << "TODO: Sending state to ML server at " << zmq_endpoint_ << std::endl;
+    // std::cout << "TODO: Sending state to ML server at " << zmq_endpoint_ << std::endl;
     return false;  // Not implemented yet
 }
 
@@ -94,7 +94,7 @@ SelectionResult MLDiffusionStrategy::receiveMLDecision() {
     4. Return first valid goal or failure
     */
     
-    std::cout << "TODO: Receiving ML decision from server" << std::endl;
+    // std::cout << "TODO: Receiving ML decision from server" << std::endl;
     return SelectionResult::failure();  // Not implemented yet
 }
 

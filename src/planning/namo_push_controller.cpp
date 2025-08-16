@@ -23,11 +23,11 @@ NAMOPushController::NAMOPushController(NAMOEnvironment& env,
     robot_size_[2] = robot_info.size[2];
     
     // Pre-allocate memory pools (they're already initialized as empty)
-    std::cout << "NAMO Push Controller initialized:" << std::endl;
-    std::cout << "  Push steps: " << default_push_steps_ << std::endl;
-    std::cout << "  Control steps per push: " << control_steps_per_push_ << std::endl;
-    std::cout << "  Force scaling: " << force_scaling_ << std::endl;
-    std::cout << "  Robot size: [" << robot_size_[0] << ", " << robot_size_[1] << ", " << robot_size_[2] << "]" << std::endl;
+    // std::cout << "NAMO Push Controller initialized:" << std::endl;
+    // std::cout << "  Push steps: " << default_push_steps_ << std::endl;
+    // std::cout << "  Control steps per push: " << control_steps_per_push_ << std::endl;
+    // std::cout << "  Force scaling: " << force_scaling_ << std::endl;
+    // std::cout << "  Robot size: [" << robot_size_[0] << ", " << robot_size_[1] << ", " << robot_size_[2] << "]" << std::endl;
 }
 
 size_t NAMOPushController::generate_edge_points(const std::string& object_name,
@@ -155,8 +155,8 @@ double NAMOPushController::quaternion_to_yaw(const std::array<double, 4>& quater
     double yaw = std::atan2(siny_cosp, cosy_cosp);
     
     // DEBUG: Show what we got vs expected
-    std::cout << "    PRX quaternion_to_yaw: [" << x << ", " << y << ", " << z << ", " << w 
-              << "] → " << yaw << " rad (" << (yaw * 180.0 / M_PI) << "°)" << std::endl;
+    // std::cout << "    PRX quaternion_to_yaw: [" << x << ", " << y << ", " << z << ", " << w 
+              // << "] → " << yaw << " rad (" << (yaw * 180.0 / M_PI) << "°)" << std::endl;
     
     return yaw;
 }
@@ -290,11 +290,11 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
             
             // Debug output for first control step of each push step
             if (ctrl_step == 0) {
-                std::cout << "  Step " << step << ": Robot at [" 
-                          << (robot_state ? robot_state->position[0] : 0.0) << ", "
-                          << (robot_state ? robot_state->position[1] : 0.0) 
-                          << "], Object at [" << obj_state->position[0] << ", " << obj_state->position[1]
-                          << "], Control: [" << control[0] << ", " << control[1] << "]" << std::endl;
+                // std::cout << "  Step " << step << ": Robot at [" 
+                          // << (robot_state ? robot_state->position[0] : 0.0) << ", "
+                          // << (robot_state ? robot_state->position[1] : 0.0) 
+                          // << "], Object at [" << obj_state->position[0] << ", " << obj_state->position[1]
+                          // << "], Control: [" << control[0] << ", " << control[1] << "]" << std::endl;
             }
             
             // Apply control through environment dynamics system
@@ -308,8 +308,8 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
     
     auto final_obj_state = env_.get_object_state(object_name);
     if (final_obj_state) {
-        std::cout << "Push completed. Object moved to: [" 
-                  << final_obj_state->position[0] << ", " << final_obj_state->position[1] << "]" << std::endl;
+        // std::cout << "Push completed. Object moved to: [" 
+                  // << final_obj_state->position[0] << ", " << final_obj_state->position[1] << "]" << std::endl;
     }
     
     return true;
@@ -415,28 +415,28 @@ std::vector<int> NAMOPushController::get_reachable_edge_indices(const std::strin
         
         if (generate_edge_points(object_name, edge_point_pool_, mid_point_pool_, 
                                edge_point_count_, mid_point_count_) == 0) {
-            std::cout << "No edge points generated for object: " << object_name << std::endl;
+            // std::cout << "No edge points generated for object: " << object_name << std::endl;
             return reachable_edges; // Empty if no edge points
         }
         
-        std::cout << "Generated " << edge_point_count_ << " edge points for " << object_name << std::endl;
+        // std::cout << "Generated " << edge_point_count_ << " edge points for " << object_name << std::endl;
         
         // Update wavefront with current robot position
         auto robot_state = env_.get_robot_state();
         if (!robot_state) {
-            std::cout << "No robot state available for reachability check" << std::endl;
+            // std::cout << "No robot state available for reachability check" << std::endl;
             return reachable_edges;
         }
         
         std::vector<double> robot_pos = {robot_state->position[0], robot_state->position[1]};
-        std::cout << "Robot position: [" << robot_pos[0] << ", " << robot_pos[1] << "]" << std::endl;
+        // std::cout << "Robot position: [" << robot_pos[0] << ", " << robot_pos[1] << "]" << std::endl;
         
         // Safely update wavefront
         try {
             planner_.update_wavefront(env_, robot_pos);
-            std::cout << "Wavefront updated successfully" << std::endl;
+            // std::cout << "Wavefront updated successfully" << std::endl;
         } catch (const std::exception& e) {
-            std::cout << "Error updating wavefront: " << e.what() << std::endl;
+            // std::cout << "Error updating wavefront: " << e.what() << std::endl;
             return reachable_edges;
         }
         
@@ -455,21 +455,21 @@ std::vector<int> NAMOPushController::get_reachable_edge_indices(const std::strin
                     }
                 }
             } catch (const std::exception& e) {
-                std::cout << "Error checking edge " << edge_idx << ": " << e.what() << std::endl;
+                // std::cout << "Error checking edge " << edge_idx << ": " << e.what() << std::endl;
                 continue;
             }
         }
         
-        std::cout << "Object " << object_name << ": " << reachable_edges.size() 
-                  << "/" << edge_point_count_ << " edges reachable: [";
+        // std::cout << "Object " << object_name << ": " << reachable_edges.size() 
+                  // << "/" << edge_point_count_ << " edges reachable: [";
         for (size_t i = 0; i < reachable_edges.size(); ++i) {
-            std::cout << reachable_edges[i];
+            // std::cout << reachable_edges[i];
             if (i < reachable_edges.size() - 1) std::cout << ", ";
         }
-        std::cout << "]" << std::endl;
+        // std::cout << "]" << std::endl;
         
     } catch (const std::exception& e) {
-        std::cout << "Error in get_reachable_edge_indices: " << e.what() << std::endl;
+        // std::cout << "Error in get_reachable_edge_indices: " << e.what() << std::endl;
         return reachable_edges;
     }
     

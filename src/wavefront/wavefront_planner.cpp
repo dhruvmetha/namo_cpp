@@ -24,7 +24,7 @@ WavefrontPlanner::WavefrontPlanner(double resolution, NAMOEnvironment& env,
     // Initialize static obstacles
     initialize_static_grid(env);
 
-    std::cout << "robot_size: " << robot_size_[0] << ", " << robot_size_[1] << std::endl;
+    // std::cout << "robot_size: " << robot_size_[0] << ", " << robot_size_[1] << std::endl;
 
     // Add movable objects to initial dynamic grid
     const auto& movable_objects = env.get_movable_objects();
@@ -55,11 +55,11 @@ WavefrontPlanner::WavefrontPlanner(double resolution, NAMOEnvironment& env,
     }
 
     
-    std::cout << "Initialized wavefront planner:" << std::endl;
-    std::cout << "  Grid size: " << grid_width_ << "x" << grid_height_ << std::endl;
-    std::cout << "  Resolution: " << resolution_ << "m" << std::endl;
-    std::cout << "  Bounds: [" << bounds_[0] << ", " << bounds_[1] << "] x ["
-              << bounds_[2] << ", " << bounds_[3] << "]" << std::endl;
+    // std::cout << "Initialized wavefront planner:" << std::endl;
+    // std::cout << "  Grid size: " << grid_width_ << "x" << grid_height_ << std::endl;
+    // std::cout << "  Resolution: " << resolution_ << "m" << std::endl;
+    // std::cout << "  Bounds: [" << bounds_[0] << ", " << bounds_[1] << "] x ["
+    //           << bounds_[2] << ", " << bounds_[3] << "]" << std::endl;
 }
 
 void WavefrontPlanner::initialize_static_grid(NAMOEnvironment& env) {
@@ -99,7 +99,7 @@ void WavefrontPlanner::initialize_static_grid(NAMOEnvironment& env) {
     
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-    std::cout << "Static grid initialization took " << duration.count() << " ms" << std::endl;
+    // std::cout << "Static grid initialization took " << duration.count() << " ms" << std::endl;
 }
 
 bool WavefrontPlanner::update_wavefront(NAMOEnvironment& env, 
@@ -125,7 +125,7 @@ GridFootprint WavefrontPlanner::calculate_rotated_footprint(const ObjectInfo& ob
     
     // Safety checks
     if (obj.size[0] <= 0 || obj.size[1] <= 0) {
-        std::cout << "Warning: Invalid object size [" << obj.size[0] << ", " << obj.size[1] << "]" << std::endl;
+        // std::cout << "Warning: Invalid object size [" << obj.size[0] << ", " << obj.size[1] << "]" << std::endl;
         return footprint;
     }
     
@@ -135,7 +135,7 @@ GridFootprint WavefrontPlanner::calculate_rotated_footprint(const ObjectInfo& ob
                                 state.quaternion[2]*state.quaternion[2] + 
                                 state.quaternion[3]*state.quaternion[3]);
     if (std::abs(quat_norm - 1.0) > 0.01) {
-        std::cout << "Warning: Invalid quaternion norm " << quat_norm << ", using identity" << std::endl;
+        // std::cout << "Warning: Invalid quaternion norm " << quat_norm << ", using identity" << std::endl;
         // Use zero rotation as fallback
     }
     
@@ -291,7 +291,7 @@ void WavefrontPlanner::save_wavefront(const std::string& filename) const {
 void WavefrontPlanner::save_wavefront_iteration(const std::string& base_filename, int iteration) const {
     std::string filename = base_filename + "_iter_" + std::to_string(iteration) + ".txt";
     save_wavefront(filename);
-    std::cout << "Wavefront saved for iteration " << iteration << ": " << filename << std::endl;
+    // std::cout << "Wavefront saved for iteration " << iteration << ": " << filename << std::endl;
 }
 
 void WavefrontPlanner::recompute_wavefront(NAMOEnvironment& env, const std::vector<double>& start_pos) {
@@ -364,7 +364,7 @@ void WavefrontPlanner::rebuild_dynamic_grid_from_current_objects(NAMOEnvironment
             inflated_obj.size[0] += robot_size_[0];
             inflated_obj.size[1] += robot_size_[1];
 
-            std::cout << "inflated_obj.size: " << inflated_obj.size[0] << ", " << inflated_obj.size[1] << " " << robot_size_[0] << " " << robot_size_[1] << std::endl;
+            // std::cout << "inflated_obj.size: " << inflated_obj.size[0] << ", " << inflated_obj.size[1] << " " << robot_size_[0] << " " << robot_size_[1] << std::endl;
             
             // Calculate current footprint and add to grid
             GridFootprint footprint = calculate_rotated_footprint(inflated_obj, *obj_state);

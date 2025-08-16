@@ -44,7 +44,7 @@ bool PrimitiveLoader::load_primitives(const std::string& filepath) {
         return false;
     }
     
-    std::cout << "Binary file contains " << primitive_count << " primitives" << std::endl;
+    // std::cout << "Binary file contains " << primitive_count << " primitives" << std::endl;
     
     loaded_count_ = 0;
     BinaryPrimitive binary_primitive;
@@ -77,7 +77,7 @@ bool PrimitiveLoader::load_primitives(const std::string& filepath) {
     
     if (loaded_count_ > 0) {
         is_loaded_ = true;
-        std::cout << "Loaded " << loaded_count_ << " motion primitives from " << filepath << std::endl;
+        // std::cout << "Loaded " << loaded_count_ << " motion primitives from " << filepath << std::endl;
         return true;
     } else {
         std::cerr << "No primitives loaded from " << filepath << std::endl;

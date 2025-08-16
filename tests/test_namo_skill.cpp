@@ -11,14 +11,14 @@ private:
     
 public:
     void run_test() {
-        std::cout << "Testing NAMO Skill System" << std::endl;
-        std::cout << "=========================" << std::endl;
+        // std::cout << "Testing NAMO Skill System" << std::endl;
+        // std::cout << "=========================" << std::endl;
         
         try {
             setup_environment();
             test_interface();
             test_applicability();
-            std::cout << "\n✅ NAMO Skill tests passed!" << std::endl;
+            // std::cout << "\n✅ NAMO Skill tests passed!" << std::endl;
         } catch (const std::exception& e) {
             std::cerr << "\n❌ Test failed: " << e.what() << std::endl;
             throw;
@@ -27,7 +27,7 @@ public:
     
 private:
     void setup_environment() {
-        std::cout << "Setting up environment..." << std::endl;
+        // std::cout << "Setting up environment..." << std::endl;
         
         std::string xml_path = "data/test_scene.xml";
         env_ = std::make_unique<NAMOEnvironment>(xml_path, true);
@@ -36,26 +36,26 @@ private:
         auto config = ConfigManager::create_default();
         skill_ = std::make_unique<NAMOPushSkill>(*env_, std::shared_ptr<ConfigManager>(config.release()));
         
-        std::cout << "✓ Environment and skill created" << std::endl;
+        // std::cout << "✓ Environment and skill created" << std::endl;
     }
     
     void test_interface() {
-        std::cout << "\n=== Testing Interface ===" << std::endl;
+        // std::cout << "\n=== Testing Interface ===" << std::endl;
         
         // Test metadata
         assert(skill_->get_name() == "namo_push");
         assert(!skill_->get_description().empty());
         
-        std::cout << "Name: " << skill_->get_name() << std::endl;
-        std::cout << "Description: " << skill_->get_description() << std::endl;
+        // std::cout << "Name: " << skill_->get_name() << std::endl;
+        // std::cout << "Description: " << skill_->get_description() << std::endl;
         
         // Test schema
         auto schema = skill_->get_parameter_schema();
-        std::cout << "Parameters (" << schema.size() << "):" << std::endl;
+        // std::cout << "Parameters (" << schema.size() << "):" << std::endl;
         
         for (const auto& [key, spec] : schema) {
-            std::cout << "  - " << key << ": " << spec.description 
-                      << (spec.required ? " (required)" : " (optional)") << std::endl;
+            // std::cout << "  - " << key << ": " << spec.description 
+                      // << (spec.required ? " (required)" : " (optional)") << std::endl;
         }
         
         assert(schema.find("object_name") != schema.end());
@@ -64,16 +64,16 @@ private:
         assert(schema.at("target_pose").required);
         assert(!schema.at("robot_goal").required);
         
-        std::cout << "✓ Interface tests passed" << std::endl;
+        // std::cout << "✓ Interface tests passed" << std::endl;
     }
     
     void test_applicability() {
-        std::cout << "\n=== Testing Applicability ===" << std::endl;
+        // std::cout << "\n=== Testing Applicability ===" << std::endl;
         
         // Test missing parameters
         std::map<std::string, SkillParameterValue> empty_params;
         assert(!skill_->is_applicable(empty_params));
-        std::cout << "✓ Empty parameters correctly rejected" << std::endl;
+        // std::cout << "✓ Empty parameters correctly rejected" << std::endl;
         
         // Test with valid parameters
         std::map<std::string, SkillParameterValue> valid_params = {
@@ -83,29 +83,29 @@ private:
         
         // Check if this object exists
         bool applicable = skill_->is_applicable(valid_params);
-        std::cout << "Valid parameters applicable: " << (applicable ? "yes" : "no") << std::endl;
+        // std::cout << "Valid parameters applicable: " << (applicable ? "yes" : "no") << std::endl;
         
         // Test preconditions
         auto preconditions = skill_->check_preconditions(valid_params);
-        std::cout << "Preconditions (" << preconditions.size() << "):" << std::endl;
+        // std::cout << "Preconditions (" << preconditions.size() << "):" << std::endl;
         for (const auto& condition : preconditions) {
-            std::cout << "  - " << condition << std::endl;
+            // std::cout << "  - " << condition << std::endl;
         }
         
         // Test state observation
         auto state = skill_->get_world_state();
-        std::cout << "World state (" << state.size() << " items):" << std::endl;
+        // std::cout << "World state (" << state.size() << " items):" << std::endl;
         for (const auto& [key, value] : state) {
-            std::cout << "  - " << key << std::endl;
+            // std::cout << "  - " << key << std::endl;
         }
         
         // Test duration estimation
         if (applicable) {
             auto duration = skill_->estimate_duration(valid_params);
-            std::cout << "Estimated duration: " << duration.count() << "ms" << std::endl;
+            // std::cout << "Estimated duration: " << duration.count() << "ms" << std::endl;
         }
         
-        std::cout << "✓ Applicability tests passed" << std::endl;
+        // std::cout << "✓ Applicability tests passed" << std::endl;
     }
 };
 

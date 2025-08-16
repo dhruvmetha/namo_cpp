@@ -539,7 +539,7 @@ void OptimizedMujocoWrapper::scroll(double yoffset) {
 #else
 
 void OptimizedMujocoWrapper::init_visualization() {
-    std::cout << "Visualization not available (GLFW not found)" << std::endl;
+    // std::cout << "Visualization not available (GLFW not found)" << std::endl;
     visualize_ = false;
 }
 

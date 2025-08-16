@@ -102,6 +102,19 @@ public:
         bool collect_training_data = false;
         std::string training_data_directory = "training_data/";
     };
+    
+    struct OptimizationConfig {
+        // Sequence optimization
+        bool enable_sequence_optimization = false;   // Disabled by default (expensive)
+        int default_method = 1;                      // 0=Exhaustive, 1=ReverseOrder, 2=GreedyRemoval
+        double timeout_seconds = 30.0;               // Maximum time for optimization
+        int max_sequence_length = 15;                // Don't optimize sequences longer than this
+        
+        // Performance settings
+        int max_sequences_tested = 10000;           // Limit for exhaustive search
+        bool enable_optimization_logging = true;     // Log optimization results
+        bool fallback_on_timeout = true;            // Use original sequence if optimization times out
+    };
 
 private:
     std::unique_ptr<FastParameterLoader> loader_;
@@ -112,6 +125,7 @@ private:
     SkillConfig skill_;
     EnvironmentConfig environment_;
     SystemConfig system_;
+    OptimizationConfig optimization_;
     
     // Internal helpers
     void load_planning_config();
@@ -119,6 +133,7 @@ private:
     void load_skill_config();
     void load_environment_config();
     void load_system_config();
+    void load_optimization_config();
     
     void validate_configuration() const;
 
@@ -145,6 +160,7 @@ public:
     const SkillConfig& skill() const { return skill_; }
     const EnvironmentConfig& environment() const { return environment_; }
     const SystemConfig& system() const { return system_; }
+    const OptimizationConfig& optimization() const { return optimization_; }
     
     // Convenience methods for commonly used values
     double get_high_level_resolution() const { return planning_.high_level_resolution; }

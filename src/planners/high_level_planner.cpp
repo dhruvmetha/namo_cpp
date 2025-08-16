@@ -38,9 +38,9 @@ PlanningResult HighLevelPlanner::planToGoal(const SE2State& robot_goal, int max_
     int actual_max_iterations = (max_iterations > 0) ? max_iterations : config_->planning().max_planning_iterations;
     
     if (config_->planning().verbose_planning) {
-        std::cout << "Starting high-level planning to goal: (" 
-                  << robot_goal.x << ", " << robot_goal.y << ", " << robot_goal.theta << ")\n";
-        std::cout << "Max iterations: " << actual_max_iterations << std::endl;
+        // std::cout << "Starting high-level planning to goal: (" 
+                  // << robot_goal.x << ", " << robot_goal.y << ", " << robot_goal.theta << ")\n";
+        // std::cout << "Max iterations: " << actual_max_iterations << std::endl;
     }
     
     // Main planning loop (based on legacy interface_namo.cpp:303-707)
@@ -54,7 +54,7 @@ PlanningResult HighLevelPlanner::planToGoal(const SE2State& robot_goal, int max_
             result.failure_reason = "Goal reached";
             computeReachableObjects();
             if (config_->planning().verbose_planning) {
-                std::cout << "Robot goal became reachable after " << iteration << " iterations\n";
+                // std::cout << "Robot goal became reachable after " << iteration << " iterations\n";
             }
             break;
         }
@@ -65,7 +65,7 @@ PlanningResult HighLevelPlanner::planToGoal(const SE2State& robot_goal, int max_
         if (reachable_objects.empty()) {
             result.failure_reason = "No reachable objects to manipulate";
             if (config_->planning().verbose_planning) {
-                std::cout << "No reachable objects found at iteration " << iteration << "\n";
+                // std::cout << "No reachable objects found at iteration " << iteration << "\n";
             }
             break;
         }
@@ -78,7 +78,7 @@ PlanningResult HighLevelPlanner::planToGoal(const SE2State& robot_goal, int max_
         if (!selection.success) {
             result.failure_reason = "Strategy failed to select valid object and goal";
             if (config_->planning().verbose_planning) {
-                std::cout << "Selection strategy failed at iteration " << iteration << "\n";
+                // std::cout << "Selection strategy failed at iteration " << iteration << "\n";
             }
             break;
         }
@@ -129,9 +129,9 @@ PlanningResult HighLevelPlanner::planToGoal(const SE2State& robot_goal, int max_
     result.objects_pushed = execution_log_;
     
     if (config_->planning().verbose_planning) {
-        std::cout << "Planning completed. Success: " << result.success 
-                  << ", Iterations: " << result.iterations_used
-                  << ", Time: " << result.total_time << "s\n";
+        // std::cout << "Planning completed. Success: " << result.success 
+                  // << ", Iterations: " << result.iterations_used
+                  // << ", Time: " << result.total_time << "s\n";
     }
     
     return result;
@@ -261,16 +261,16 @@ void HighLevelPlanner::updateHighLevelWavefront() {
 void HighLevelPlanner::logIteration(int iteration, const SelectionResult& selection, 
                                    const SkillResult& result) {
     if (config_->planning().verbose_planning) {
-        std::cout << "Iteration " << iteration << ": "
-                  << "Object=" << selection.object_name 
-                  << ", Goal=(" << selection.target_pose.x << "," << selection.target_pose.y << ")"
-                  << ", Success=" << result.success;
+        // std::cout << "Iteration " << iteration << ": "
+                  // << "Object=" << selection.object_name 
+                  // << ", Goal=(" << selection.target_pose.x << "," << selection.target_pose.y << ")"
+                  // << ", Success=" << result.success;
         if (result.success) {
-            std::cout << ", Duration=" << result.execution_time.count() << "ms";
+            // std::cout << ", Duration=" << result.execution_time.count() << "ms";
         } else {
-            std::cout << ", Failure=" << result.failure_reason;
+            // std::cout << ", Failure=" << result.failure_reason;
         }
-        std::cout << "\n";
+        // std::cout << "\n";
     }
 }
 

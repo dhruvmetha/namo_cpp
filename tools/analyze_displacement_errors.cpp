@@ -59,9 +59,9 @@ ErrorAnalysis calculate_errors(const SE2State& target, const SE2State& achieved)
 
 int main() {
     try {
-        std::cout << "=== NAMO Displacement Error Analysis ===" << std::endl;
-        std::cout << "Universal primitives: 0.35×0.35m nominal object" << std::endl;
-        std::cout << "Testing various displacement magnitudes and directions\\n" << std::endl;
+        // std::cout << "=== NAMO Displacement Error Analysis ===" << std::endl;
+        // std::cout << "Universal primitives: 0.35×0.35m nominal object" << std::endl;
+        // std::cout << "Testing various displacement magnitudes and directions\\n" << std::endl;
         
         // Initialize system
         NAMOEnvironment env("data/nominal_primitive_scene.xml", false);
@@ -94,9 +94,9 @@ int main() {
         for (size_t i = 0; i < test_cases.size(); i++) {
             const auto& [name, target] = test_cases[i];
             
-            std::cout << "Test " << (i+1) << "/10: " << name << std::endl;
-            std::cout << "  Target: [" << std::fixed << std::setprecision(3) 
-                      << target.x << ", " << target.y << ", " << target.theta << "]" << std::endl;
+            // std::cout << "Test " << (i+1) << "/10: " << name << std::endl;
+            // std::cout << "  Target: [" << std::fixed << std::setprecision(3) 
+                      // << target.x << ", " << target.y << ", " << target.theta << "]" << std::endl;
             
             // Reset environment
             env.reset();
@@ -106,14 +106,14 @@ int main() {
             auto plan = planner.plan_push_sequence(start, target, {}, 3000);
             
             if (plan.empty()) {
-                std::cout << "  ✗ No plan found" << std::endl;
+                // std::cout << "  ✗ No plan found" << std::endl;
                 continue;
             }
             
             ExecutionResult result = executor.execute_plan(object_name, plan);
             
             if (!result.success) {
-                std::cout << "  ✗ Execution failed" << std::endl;
+                // std::cout << "  ✗ Execution failed" << std::endl;
                 continue;
             }
             
@@ -121,22 +121,22 @@ int main() {
             ErrorAnalysis error = calculate_errors(target, result.final_object_state);
             errors.push_back(error);
             
-            std::cout << "  Achieved: [" << std::fixed << std::setprecision(3)
-                      << result.final_object_state.x << ", " 
-                      << result.final_object_state.y << ", " 
-                      << result.final_object_state.theta << "]" << std::endl;
-            std::cout << "  Position Error: " << std::fixed << std::setprecision(1)
-                      << error.position_error * 1000 << "mm ("
-                      << std::setprecision(0) << error.relative_position_error * 100 << "% relative)" << std::endl;
-            std::cout << "  Rotation Error: " << std::fixed << std::setprecision(1)
-                      << error.rotation_error_deg << "° ("
-                      << std::setprecision(0) << error.relative_rotation_error * 100 << "% relative)" << std::endl;
-            std::cout << std::endl;
+            // std::cout << "  Achieved: [" << std::fixed << std::setprecision(3)
+                      // << result.final_object_state.x << ", " 
+                      // << result.final_object_state.y << ", " 
+                      // << result.final_object_state.theta << "]" << std::endl;
+            // std::cout << "  Position Error: " << std::fixed << std::setprecision(1)
+                      // << error.position_error * 1000 << "mm ("
+                      // << std::setprecision(0) << error.relative_position_error * 100 << "% relative)" << std::endl;
+            // std::cout << "  Rotation Error: " << std::fixed << std::setprecision(1)
+                      // << error.rotation_error_deg << "° ("
+                      // << std::setprecision(0) << error.relative_rotation_error * 100 << "% relative)" << std::endl;
+            // std::cout << std::endl;
         }
         
         // Statistical Summary
         if (!errors.empty()) {
-            std::cout << "=== Statistical Error Summary ===" << std::endl;
+            // std::cout << "=== Statistical Error Summary ===" << std::endl;
             
             double avg_pos_error = 0.0, max_pos_error = 0.0, min_pos_error = 1000.0;
             double avg_rot_error = 0.0, max_rot_error = 0.0, min_rot_error = 1000.0;
@@ -154,19 +154,19 @@ int main() {
             avg_pos_error /= errors.size();
             avg_rot_error /= errors.size();
             
-            std::cout << "Position Errors:" << std::endl;
-            std::cout << "  Average: " << std::fixed << std::setprecision(1) << avg_pos_error * 1000 << "mm" << std::endl;
-            std::cout << "  Range: " << min_pos_error * 1000 << "mm - " << max_pos_error * 1000 << "mm" << std::endl;
+            // std::cout << "Position Errors:" << std::endl;
+            // std::cout << "  Average: " << std::fixed << std::setprecision(1) << avg_pos_error * 1000 << "mm" << std::endl;
+            // std::cout << "  Range: " << min_pos_error * 1000 << "mm - " << max_pos_error * 1000 << "mm" << std::endl;
             
-            std::cout << "Rotation Errors:" << std::endl;
-            std::cout << "  Average: " << std::fixed << std::setprecision(1) << avg_rot_error << "°" << std::endl;
-            std::cout << "  Range: " << min_rot_error << "° - " << max_rot_error << "°" << std::endl;
+            // std::cout << "Rotation Errors:" << std::endl;
+            // std::cout << "  Average: " << std::fixed << std::setprecision(1) << avg_rot_error << "°" << std::endl;
+            // std::cout << "  Range: " << min_rot_error << "° - " << max_rot_error << "°" << std::endl;
             
-            std::cout << "\\n=== Key Insights ===" << std::endl;
-            std::cout << "• Universal primitives have significant error as expected" << std::endl;
-            std::cout << "• Errors increase with target displacement magnitude" << std::endl;
-            std::cout << "• MPC helps but cannot fully compensate for primitive mismatch" << std::endl;
-            std::cout << "• This validates the need for closed-loop control in real applications" << std::endl;
+            // std::cout << "\\n=== Key Insights ===" << std::endl;
+            // std::cout << "• Universal primitives have significant error as expected" << std::endl;
+            // std::cout << "• Errors increase with target displacement magnitude" << std::endl;
+            // std::cout << "• MPC helps but cannot fully compensate for primitive mismatch" << std::endl;
+            // std::cout << "• This validates the need for closed-loop control in real applications" << std::endl;
         }
         
     } catch (const std::exception& e) {

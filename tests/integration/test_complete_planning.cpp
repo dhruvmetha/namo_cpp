@@ -73,7 +73,7 @@ public:
      * @brief Initialize the planning system
      */
     bool initialize(const std::string& primitive_filepath) {
-        std::cout << "Initializing planning system..." << std::endl;
+        // std::cout << "Initializing planning system..." << std::endl;
         
         // Load primitives
         if (!loader_.load_primitives(primitive_filepath)) {
@@ -90,7 +90,7 @@ public:
         // Set MPC parameters
         executor_.set_parameters(10, 0.02, 0.15, 3);  // max_steps, pos_thresh, ang_thresh, stuck_limit
         
-        std::cout << "Planning system initialized successfully" << std::endl;
+        // std::cout << "Planning system initialized successfully" << std::endl;
         return true;
     }
     
@@ -98,9 +98,9 @@ public:
      * @brief Run all test cases
      */
     void run_all_tests() {
-        std::cout << "\n=== Running Complete Planning Pipeline Tests ===" << std::endl;
-        std::cout << "Test approach: Abstract Planning → MPC Execution" << std::endl;
-        std::cout << "Total test cases: " << test_cases_.size() << "\n" << std::endl;
+        // std::cout << "\n=== Running Complete Planning Pipeline Tests ===" << std::endl;
+        // std::cout << "Test approach: Abstract Planning → MPC Execution" << std::endl;
+        // std::cout << "Total test cases: " << test_cases_.size() << "\n" << std::endl;
         
         int passed = 0;
         int failed = 0;
@@ -108,30 +108,30 @@ public:
         for (size_t i = 0; i < test_cases_.size(); i++) {
             const TestCase& test = test_cases_[i];
             
-            std::cout << "--- Test " << (i+1) << "/" << test_cases_.size() 
-                      << ": " << test.name << " ---" << std::endl;
+            // std::cout << "--- Test " << (i+1) << "/" << test_cases_.size() 
+                      // << ": " << test.name << " ---" << std::endl;
             
             TestResult result = run_single_test(test);
             
             if (result.success == test.expect_success) {
-                std::cout << "✓ PASSED" << std::endl;
+                // std::cout << "✓ PASSED" << std::endl;
                 passed++;
             } else {
-                std::cout << "✗ FAILED: " << result.failure_reason << std::endl;
+                // std::cout << "✗ FAILED: " << result.failure_reason << std::endl;
                 failed++;
             }
             
             print_test_result(result);
-            std::cout << std::endl;
+            // std::cout << std::endl;
         }
         
         // Summary
-        std::cout << "=== Test Summary ===" << std::endl;
-        std::cout << "Passed: " << passed << "/" << test_cases_.size() << std::endl;
-        std::cout << "Failed: " << failed << "/" << test_cases_.size() << std::endl;
+        // std::cout << "=== Test Summary ===" << std::endl;
+        // std::cout << "Passed: " << passed << "/" << test_cases_.size() << std::endl;
+        // std::cout << "Failed: " << failed << "/" << test_cases_.size() << std::endl;
         
         if (failed == 0) {
-            std::cout << "🎉 All tests passed!" << std::endl;
+            // std::cout << "🎉 All tests passed!" << std::endl;
         }
     }
     
@@ -139,10 +139,10 @@ public:
      * @brief Test primitive loading performance
      */
     void test_primitive_loading() {
-        std::cout << "\n=== Primitive Loading Test ===" << std::endl;
+        // std::cout << "\n=== Primitive Loading Test ===" << std::endl;
         
         const auto& primitives = loader_.get_all_primitives();
-        std::cout << "Total primitives: " << loader_.size() << std::endl;
+        // std::cout << "Total primitives: " << loader_.size() << std::endl;
         
         // Test lookup performance
         auto start = std::chrono::high_resolution_clock::now();
@@ -150,26 +150,26 @@ public:
         int lookup_count = 0;
         for (int edge = 0; edge < 12; edge++) {
             auto valid_steps = loader_.get_valid_steps_for_edge(edge);
-            std::cout << "Edge " << edge << ": " << valid_steps.size() << " valid steps";
+            // std::cout << "Edge " << edge << ": " << valid_steps.size() << " valid steps";
             
             for (int step : valid_steps) {
                 const LoadedPrimitive& prim = loader_.get_primitive(edge, step);
                 lookup_count++;
                 
                 if (valid_steps.size() <= 3) {  // Print details for edges with few primitives
-                    std::cout << " [" << step << "steps: dx=" << prim.delta_x 
-                              << " dy=" << prim.delta_y << " dθ=" << prim.delta_theta << "]";
+                    // std::cout << " [" << step << "steps: dx=" << prim.delta_x 
+                              // << " dy=" << prim.delta_y << " dθ=" << prim.delta_theta << "]";
                 }
             }
-            std::cout << std::endl;
+            // std::cout << std::endl;
         }
         
         auto end = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
         
-        std::cout << "Performed " << lookup_count << " primitive lookups in " 
-                  << duration.count() << " μs" << std::endl;
-        std::cout << "Average lookup time: " << (duration.count() / lookup_count) << " μs" << std::endl;
+        // std::cout << "Performed " << lookup_count << " primitive lookups in " 
+                  // << duration.count() << " μs" << std::endl;
+        // std::cout << "Average lookup time: " << (duration.count() / lookup_count) << " μs" << std::endl;
     }
     
 private:
@@ -249,14 +249,14 @@ private:
         }
         
         std::string object_name = movable_objects[0].name;
-        std::cout << "Testing with object: " << object_name << std::endl;
+        // std::cout << "Testing with object: " << object_name << std::endl;
         
         // Set object to start state
         // Note: This would require environment API to set object pose
         // For now, we'll work with whatever the current state is
         
         // Stage 1: Abstract Planning
-        std::cout << "Stage 1: Abstract planning in empty environment..." << std::endl;
+        // std::cout << "Stage 1: Abstract planning in empty environment..." << std::endl;
         auto planning_start = std::chrono::high_resolution_clock::now();
         
         std::vector<PlanStep> plan = planner_.plan_push_sequence(
@@ -277,21 +277,21 @@ private:
             return result;
         }
         
-        std::cout << "Generated plan with " << plan.size() << " primitive steps" << std::endl;
+        // std::cout << "Generated plan with " << plan.size() << " primitive steps" << std::endl;
         
         // Print plan details
         for (size_t i = 0; i < std::min(plan.size(), size_t(5)); i++) {
             const PlanStep& step = plan[i];
-            std::cout << "  Step " << (i+1) << ": Edge " << step.edge_idx 
-                      << ", " << step.push_steps << " steps → ["
-                      << step.pose.x << ", " << step.pose.y << ", " << step.pose.theta << "]" << std::endl;
+            // std::cout << "  Step " << (i+1) << ": Edge " << step.edge_idx 
+                      // << ", " << step.push_steps << " steps → ["
+                      // << step.pose.x << ", " << step.pose.y << ", " << step.pose.theta << "]" << std::endl;
         }
         if (plan.size() > 5) {
-            std::cout << "  ... and " << (plan.size() - 5) << " more steps" << std::endl;
+            // std::cout << "  ... and " << (plan.size() - 5) << " more steps" << std::endl;
         }
         
         // Stage 2: MPC Execution  
-        std::cout << "Stage 2: MPC execution with real physics..." << std::endl;
+        // std::cout << "Stage 2: MPC execution with real physics..." << std::endl;
         auto execution_start = std::chrono::high_resolution_clock::now();
         
         ExecutionResult exec_result = executor_.execute_plan(object_name, plan);
@@ -315,11 +315,11 @@ private:
      * @brief Print detailed test result
      */
     void print_test_result(const TestResult& result) {
-        std::cout << "  Planning time: " << result.planning_time_ms << " ms" << std::endl;
-        std::cout << "  Execution time: " << result.execution_time_ms << " ms" << std::endl;
-        std::cout << "  Plan length: " << result.plan_length << " primitives" << std::endl;
-        std::cout << "  Executed steps: " << result.executed_steps << "/" << result.plan_length << std::endl;
-        std::cout << "  Robot goal reached: " << (result.robot_goal_reached ? "Yes" : "No") << std::endl;
+        // std::cout << "  Planning time: " << result.planning_time_ms << " ms" << std::endl;
+        // std::cout << "  Execution time: " << result.execution_time_ms << " ms" << std::endl;
+        // std::cout << "  Plan length: " << result.plan_length << " primitives" << std::endl;
+        // std::cout << "  Executed steps: " << result.executed_steps << "/" << result.plan_length << std::endl;
+        // std::cout << "  Robot goal reached: " << (result.robot_goal_reached ? "Yes" : "No") << std::endl;
     }
 };
 
@@ -328,7 +328,7 @@ private:
  */
 int main(int argc, char* argv[]) {
     if (argc != 2) {
-        std::cout << "Usage: " << argv[0] << " <config_file>" << std::endl;
+        // std::cout << "Usage: " << argv[0] << " <config_file>" << std::endl;
         return 1;
     }
     
@@ -340,11 +340,11 @@ int main(int argc, char* argv[]) {
         bool visualize = params.get_bool("visualize", false);
         std::string primitive_path = params.get_parameter("primitive_path", "data/motion_primitives.dat");
         
-        std::cout << "=== NAMO Complete Planning Pipeline Test ===" << std::endl;
-        std::cout << "Scene: " << scene_path << std::endl;
-        std::cout << "Primitives: " << primitive_path << std::endl;
-        std::cout << "Visualization: " << (visualize ? "enabled" : "disabled") << std::endl;
-        std::cout << std::endl;
+        // std::cout << "=== NAMO Complete Planning Pipeline Test ===" << std::endl;
+        // std::cout << "Scene: " << scene_path << std::endl;
+        // std::cout << "Primitives: " << primitive_path << std::endl;
+        // std::cout << "Visualization: " << (visualize ? "enabled" : "disabled") << std::endl;
+        // std::cout << std::endl;
         
         // Create tester
         PlanningTester tester(scene_path, visualize);

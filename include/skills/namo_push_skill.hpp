@@ -60,6 +60,12 @@ public:
     std::map<std::string, SkillParameterValue> get_world_state() const override;
     std::vector<std::string> check_preconditions(const std::map<std::string, SkillParameterValue>& parameters) const override;
     
+    /**
+     * @brief Query methods for RL environment
+     */
+    std::vector<std::string> get_reachable_objects() const;
+    bool is_object_reachable(const std::string& object_name) const;
+    
 private:
     /**
      * @brief Helper methods for skill implementation

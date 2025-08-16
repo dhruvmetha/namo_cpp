@@ -49,18 +49,18 @@ ExecutionResult MPCExecutor::execute_plan(
         return result;
     }
     
-    std::cout << "Executing plan with " << plan_sequence.size() << " primitive steps" << std::endl;
+    // std::cout << "Executing plan with " << plan_sequence.size() << " primitive steps" << std::endl;
     
     // Execute each primitive in sequence
     for (size_t i = 0; i < plan_sequence.size(); i++) {
         const PlanStep& step = plan_sequence[i];
         
-        std::cout << "Executing step " << (i+1) << "/" << plan_sequence.size() 
-                  << " - Edge:" << step.edge_idx << " Steps:" << step.push_steps << std::endl;
+        // std::cout << "Executing step " << (i+1) << "/" << plan_sequence.size() 
+                //   << " - Edge:" << step.edge_idx << " Steps:" << step.push_steps << std::endl;
         
         // Check if robot goal is reachable before executing this step
         if (has_robot_goal_ && is_robot_goal_reachable()) {
-            std::cout << "Robot goal became reachable before step " << (i+1) << std::endl;
+            // std::cout << "Robot goal became reachable before step " << (i+1) << std::endl;
             result.success = true;
             result.robot_goal_reached = true;
             result.steps_executed = i;
@@ -83,11 +83,11 @@ ExecutionResult MPCExecutor::execute_plan(
     
     // Check final state
     if (has_robot_goal_ && is_robot_goal_reachable()) {
-        std::cout << "Robot goal reachable after plan execution" << std::endl;
+        // std::cout << "Robot goal reachable after plan execution" << std::endl;
         result.success = true;
         result.robot_goal_reached = true;
     } else {
-        std::cout << "Plan executed but robot goal not reachable" << std::endl;
+        // std::cout << "Plan executed but robot goal not reachable" << std::endl;
         result.success = true;
         result.robot_goal_reached = false;
     }
@@ -102,10 +102,10 @@ bool MPCExecutor::execute_primitive_step(
     
     // For now, we'll execute the primitive directly without explicit goal setting
     // The push controller will handle the primitive execution with physics
-    std::cout << "Executing primitive: edge=" << plan_step.edge_idx 
-              << " steps=" << plan_step.push_steps
-              << " target_pose=[" << plan_step.pose.x << "," << plan_step.pose.y 
-              << "," << plan_step.pose.theta << "]" << std::endl;
+    // std::cout << "Executing primitive: edge=" << plan_step.edge_idx 
+    //           << " steps=" << plan_step.push_steps
+    //           << " target_pose=[" << plan_step.pose.x << "," << plan_step.pose.y 
+    //           << "," << plan_step.pose.theta << "]" << std::endl;
     
     // Execute MPC following old implementation approach (namo_planner.hpp:217-292)
     int stuck_counter = 0;
@@ -114,13 +114,13 @@ bool MPCExecutor::execute_primitive_step(
     for (int mpc_step = 0; mpc_step < max_mpc_steps_; mpc_step++) {
         // Check if robot goal became reachable during MPC
         if (has_robot_goal_ && is_robot_goal_reachable()) {
-            std::cout << "Robot goal became reachable during MPC step " << mpc_step << std::endl;
+            // std::cout << "Robot goal became reachable during MPC step " << mpc_step << std::endl;
             return true;
         }
         
         // Check if object reached target
         if (is_object_at_target(object_name, plan_step.pose)) {
-            std::cout << "Object reached target in MPC step " << mpc_step << std::endl;
+            // std::cout << "Object reached target in MPC step " << mpc_step << std::endl;
             return true;
         }
         
@@ -129,7 +129,7 @@ bool MPCExecutor::execute_primitive_step(
         bool push_success = controller_.execute_push_primitive(object_name, plan_step.edge_idx, 1);
         
         if (push_success) {
-            std::cout << "Push controller reached target location in MPC step " << mpc_step << std::endl;
+            // std::cout << "Push controller reached target location in MPC step " << mpc_step << std::endl;
             return true;
         }
         
@@ -138,7 +138,7 @@ bool MPCExecutor::execute_primitive_step(
         if (is_object_stuck(object_name, previous_state)) {
             stuck_counter++;
             if (stuck_counter > max_stuck_iterations_) {
-                std::cout << "Object stuck for " << stuck_counter << " iterations" << std::endl;
+                // std::cout << "Object stuck for " << stuck_counter << " iterations" << std::endl;
                 return false;
             }
         } else {
@@ -148,7 +148,7 @@ bool MPCExecutor::execute_primitive_step(
         previous_state = current_state;
     }
     
-    std::cout << "MPC reached step limit without reaching target" << std::endl;
+    // std::cout << "MPC reached step limit without reaching target" << std::endl;
     return false;
 }
 
@@ -243,7 +243,7 @@ std::vector<int> MPCExecutor::get_reachable_edges_with_wavefront(const std::stri
     // Get robot current position
     auto robot_state = env_.get_robot_state();
     if (!robot_state) {
-        std::cout << "Warning: Could not get robot state for wavefront update" << std::endl;
+        // std::cout << "Warning: Could not get robot state for wavefront update" << std::endl;
         return {}; 
     }
     
@@ -252,13 +252,13 @@ std::vector<int> MPCExecutor::get_reachable_edges_with_wavefront(const std::stri
     bool wavefront_updated = planner_.update_wavefront(env_, robot_pos);
     
     if (!wavefront_updated) {
-        std::cout << "Warning: Wavefront update failed" << std::endl;
+        // std::cout << "Warning: Wavefront update failed" << std::endl;
     }
     
     // Get object current position to generate edge points
     auto obj_pose = env_.get_object_state(object_name);
     if (!obj_pose) {
-        std::cout << "Warning: Could not get object pose for " << object_name << std::endl;
+        // std::cout << "Warning: Could not get object pose for " << object_name << std::endl;
         return {};
     }
     
@@ -326,13 +326,13 @@ std::vector<int> MPCExecutor::get_reachable_edges_with_wavefront(const std::stri
                 }
             }
         } catch (const std::exception& e) {
-            std::cout << "Error checking edge " << edge_idx << ": " << e.what() << std::endl;
+            // std::cout << "Error checking edge " << edge_idx << ": " << e.what() << std::endl;
             continue;
         }
     }
     
-    std::cout << "Wavefront analysis: " << reachable_edges.size() 
-              << "/12 edges reachable for " << object_name << std::endl;
+    // std::cout << "Wavefront analysis: " << reachable_edges.size() 
+            //   << "/12 edges reachable for " << object_name << std::endl;
     
     return reachable_edges;
 }

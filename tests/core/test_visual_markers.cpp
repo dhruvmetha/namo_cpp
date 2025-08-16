@@ -12,7 +12,7 @@ using namespace namo;
 
 int main() {
     try {
-        std::cout << "=== Visual Edge Markers Test ===" << std::endl;
+        // std::cout << "=== Visual Edge Markers Test ===" << std::endl;
         
         // Initialize system without visualization (to avoid GLFW issues)
         NAMOEnvironment env("data/nominal_primitive_scene.xml", false);
@@ -24,23 +24,23 @@ int main() {
         }
         
         std::string object_name = movable_objects[0].name;
-        std::cout << "Testing with object: " << object_name << std::endl;
+        // std::cout << "Testing with object: " << object_name << std::endl;
         
         // Test with simple simulated reachable edges instead of using NAMOPushController
         std::vector<int> reachable_edges = {1, 3, 5, 7, 9, 11};  // Simulate pattern from previous tests
-        std::cout << "Using simulated reachable edges: " << reachable_edges.size() << "/12 [";
+        // std::cout << "Using simulated reachable edges: " << reachable_edges.size() << "/12 [";
         for (size_t i = 0; i < reachable_edges.size(); ++i) {
-            std::cout << reachable_edges[i];
+            // std::cout << reachable_edges[i];
             if (i < reachable_edges.size() - 1) std::cout << ", ";
         }
-        std::cout << "]" << std::endl;
+        // std::cout << "]" << std::endl;
         
         // Test visualization call (should not crash even without GLFW)
-        std::cout << "Testing visualization call..." << std::endl;
+        // std::cout << "Testing visualization call..." << std::endl;
         env.visualize_edge_reachability(object_name, reachable_edges);
-        std::cout << "✓ Visualization call completed successfully" << std::endl;
+        // std::cout << "✓ Visualization call completed successfully" << std::endl;
         
-        std::cout << "🎉 Visual markers test completed!" << std::endl;
+        // std::cout << "🎉 Visual markers test completed!" << std::endl;
         return 0;
         
     } catch (const std::exception& e) {

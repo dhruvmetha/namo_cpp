@@ -52,7 +52,7 @@ std::vector<PlanStep> GreedyPlanner::plan_push_sequence(
         
         // Check if we reached the goal
         if (goal_check_func_(current->state, local_goal)) {
-            std::cout << "Goal reached in " << iterations << " iterations" << std::endl;
+            // std::cout << "Goal reached in " << iterations << " iterations" << std::endl;
             return reconstruct_path(current, start_state);
         }
         
@@ -97,13 +97,13 @@ std::vector<PlanStep> GreedyPlanner::plan_push_sequence(
     // Always return path to best node found (matching old implementation behavior)
     // The old implementation never returns empty - it always returns the best path found
     if (best_node != &search_nodes_[0]) {
-        std::cout << "Exact goal not reached. Returning path to closest state (distance: " 
-                  << best_cost << ")" << std::endl;
+        // std::cout << "Exact goal not reached. Returning path to closest state (distance: " 
+                  // << best_cost << ")" << std::endl;
         return reconstruct_path(best_node, start_state);
     } else {
         // If no progress made, return a single step with the best available primitive
         // This matches old implementation behavior of always returning something
-        std::cout << "No improvement found. Returning single best primitive step" << std::endl;
+        // std::cout << "No improvement found. Returning single best primitive step" << std::endl;
         return get_fallback_primitive_step(origin, local_goal, start_state, allowed_edges);
     }
 }
@@ -287,7 +287,7 @@ std::vector<PlanStep> GreedyPlanner::get_fallback_primitive_step(
     }
     
     if (!found_primitive) {
-        std::cout << "No primitive improves distance to goal. Returning empty plan." << std::endl;
+        // std::cout << "No primitive improves distance to goal. Returning empty plan." << std::endl;
         return {};
     }
     

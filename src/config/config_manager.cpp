@@ -8,7 +8,7 @@ namespace namo {
 ConfigManager::ConfigManager(const std::string& config_file) {
     try {
         loader_ = std::make_unique<FastParameterLoader>(config_file);
-        std::cout << "ConfigManager: Loading configuration from " << config_file << std::endl;
+        // std::cout << "ConfigManager: Loading configuration from " << config_file << std::endl;
         
         // Load all configuration sections
         load_planning_config();
@@ -16,14 +16,15 @@ ConfigManager::ConfigManager(const std::string& config_file) {
         load_skill_config();
         load_environment_config();
         load_system_config();
+        load_optimization_config();
         
         validate_configuration();
-        std::cout << "ConfigManager: Configuration loaded successfully" << std::endl;
+        // std::cout << "ConfigManager: Configuration loaded successfully" << std::endl;
         
     } catch (const std::exception& e) {
-        std::cerr << "ConfigManager: Failed to load config file '" << config_file 
-                  << "': " << e.what() << std::endl;
-        std::cout << "ConfigManager: Using default configuration" << std::endl;
+        // std::cerr << "ConfigManager: Failed to load config file '" << config_file 
+                  // << "': " << e.what() << std::endl;
+        // std::cout << "ConfigManager: Using default configuration" << std::endl;
         validate_configuration();
     }
 }
@@ -117,19 +118,19 @@ void ConfigManager::load_skill_config() {
     if (loader_->has_key("skill.max_push_steps")) {
         skill_.max_push_steps = loader_->get_int("skill.max_push_steps");
     }
-    std::cout << "ConfigManager: Checking for key 'skill.max_mpc_iterations'" << std::endl;
+    // std::cout << "ConfigManager: Checking for key 'skill.max_mpc_iterations'" << std::endl;
     if (loader_->has_key("skill.max_mpc_iterations")) {
         skill_.max_mpc_iterations = loader_->get_int("skill.max_mpc_iterations");
-        std::cout << "ConfigManager: Loaded skill.max_mpc_iterations = " << skill_.max_mpc_iterations << std::endl;
+        // std::cout << "ConfigManager: Loaded skill.max_mpc_iterations = " << skill_.max_mpc_iterations << std::endl;
     } else {
-        std::cout << "ConfigManager: skill.max_mpc_iterations key not found, using default = " << skill_.max_mpc_iterations << std::endl;
+        // std::cout << "ConfigManager: skill.max_mpc_iterations key not found, using default = " << skill_.max_mpc_iterations << std::endl;
         // Debug: Let's see what keys are actually available
-        std::cout << "ConfigManager: Available keys with 'skill' prefix:" << std::endl;
+        // std::cout << "ConfigManager: Available keys with 'skill' prefix:" << std::endl;
         // This is a debug hack - we'll check some known keys to see the pattern
         if (loader_->has_key("skill.max_push_steps")) {
-            std::cout << "  - skill.max_push_steps: FOUND" << std::endl;
+            // std::cout << "  - skill.max_push_steps: FOUND" << std::endl;
         } else {
-            std::cout << "  - skill.max_push_steps: NOT FOUND" << std::endl;
+            // std::cout << "  - skill.max_push_steps: NOT FOUND" << std::endl;
         }
     }
     if (loader_->has_key("skill.control_steps_per_push")) {
@@ -234,6 +235,35 @@ void ConfigManager::load_system_config() {
     }
 }
 
+void ConfigManager::load_optimization_config() {
+    if (!loader_) return;
+    
+    // Sequence optimization settings
+    if (loader_->has_key("optimization.enable_sequence_optimization")) {
+        optimization_.enable_sequence_optimization = loader_->get_bool("optimization.enable_sequence_optimization");
+    }
+    if (loader_->has_key("optimization.default_method")) {
+        optimization_.default_method = loader_->get_int("optimization.default_method");
+    }
+    if (loader_->has_key("optimization.timeout_seconds")) {
+        optimization_.timeout_seconds = loader_->get_double("optimization.timeout_seconds");
+    }
+    if (loader_->has_key("optimization.max_sequence_length")) {
+        optimization_.max_sequence_length = loader_->get_int("optimization.max_sequence_length");
+    }
+    
+    // Performance settings
+    if (loader_->has_key("optimization.max_sequences_tested")) {
+        optimization_.max_sequences_tested = loader_->get_int("optimization.max_sequences_tested");
+    }
+    if (loader_->has_key("optimization.enable_optimization_logging")) {
+        optimization_.enable_optimization_logging = loader_->get_bool("optimization.enable_optimization_logging");
+    }
+    if (loader_->has_key("optimization.fallback_on_timeout")) {
+        optimization_.fallback_on_timeout = loader_->get_bool("optimization.fallback_on_timeout");
+    }
+}
+
 void ConfigManager::validate_configuration() const {
     // Validate critical parameters
     if (planning_.high_level_resolution <= 0 || planning_.skill_level_resolution <= 0) {
@@ -260,35 +290,35 @@ void ConfigManager::validate_configuration() const {
 }
 
 void ConfigManager::print_configuration() const {
-    std::cout << "=== NAMO Configuration (Using Defaults) ===" << std::endl;
+    // std::cout << "=== NAMO Configuration (Using Defaults) ===" << std::endl;
     
-    std::cout << "\nPlanning:" << std::endl;
-    std::cout << "  High-level resolution: " << planning_.high_level_resolution << "m" << std::endl;
-    std::cout << "  Skill-level resolution: " << planning_.skill_level_resolution << "m" << std::endl;
-    std::cout << "  Max iterations: " << planning_.max_planning_iterations << std::endl;
-    std::cout << "  Robot size: [" << planning_.robot_size[0] << ", " << planning_.robot_size[1] << "]" << std::endl;
-    std::cout << "  Verbose: " << (planning_.verbose_planning ? "enabled" : "disabled") << std::endl;
+    // std::cout << "\nPlanning:" << std::endl;
+    // std::cout << "  High-level resolution: " << planning_.high_level_resolution << "m" << std::endl;
+    // std::cout << "  Skill-level resolution: " << planning_.skill_level_resolution << "m" << std::endl;
+    // std::cout << "  Max iterations: " << planning_.max_planning_iterations << std::endl;
+    // std::cout << "  Robot size: [" << planning_.robot_size[0] << ", " << planning_.robot_size[1] << "]" << std::endl;
+    // std::cout << "  Verbose: " << (planning_.verbose_planning ? "enabled" : "disabled") << std::endl;
     
-    std::cout << "\nStrategy (Random):" << std::endl;
-    std::cout << "  Goal distance: [" << strategy_.min_goal_distance << ", " << strategy_.max_goal_distance << "]m" << std::endl;
-    std::cout << "  Max goal attempts: " << strategy_.max_goal_attempts << std::endl;
-    std::cout << "  Max object retries: " << strategy_.max_object_retries << std::endl;
+    // std::cout << "\nStrategy (Random):" << std::endl;
+    // std::cout << "  Goal distance: [" << strategy_.min_goal_distance << ", " << strategy_.max_goal_distance << "]m" << std::endl;
+    // std::cout << "  Max goal attempts: " << strategy_.max_goal_attempts << std::endl;
+    // std::cout << "  Max object retries: " << strategy_.max_object_retries << std::endl;
     
-    std::cout << "\nSkill:" << std::endl;
-    std::cout << "  Max push steps: " << skill_.max_push_steps << std::endl;
-    std::cout << "  Control steps per push: " << skill_.control_steps_per_push << std::endl;
-    std::cout << "  Goal tolerance: " << skill_.goal_tolerance << "m" << std::endl;
-    std::cout << "  Execution timeout: " << skill_.execution_timeout_seconds << "s" << std::endl;
+    // std::cout << "\nSkill:" << std::endl;
+    // std::cout << "  Max push steps: " << skill_.max_push_steps << std::endl;
+    // std::cout << "  Control steps per push: " << skill_.control_steps_per_push << std::endl;
+    // std::cout << "  Goal tolerance: " << skill_.goal_tolerance << "m" << std::endl;
+    // std::cout << "  Execution timeout: " << skill_.execution_timeout_seconds << "s" << std::endl;
     
-    std::cout << "\nEnvironment:" << std::endl;
-    std::cout << "  Bounds: calculated dynamically from MuJoCo XML" << std::endl;
-    std::cout << "  Max objects: " << environment_.max_static_objects << " static, " 
-              << environment_.max_movable_objects << " movable" << std::endl;
+    // std::cout << "\nEnvironment:" << std::endl;
+    // std::cout << "  Bounds: calculated dynamically from MuJoCo XML" << std::endl;
+    // std::cout << "  Max objects: " << environment_.max_static_objects << " static, " 
+              // << environment_.max_movable_objects << " movable" << std::endl;
     
-    std::cout << "\nSystem:" << std::endl;
-    std::cout << "  Visualization: " << (system_.enable_visualization ? "enabled" : "disabled") << std::endl;
-    std::cout << "  Motion primitives: " << system_.motion_primitives_file << std::endl;
-    std::cout << "  Default scene: " << system_.default_scene_file << std::endl;
+    // std::cout << "\nSystem:" << std::endl;
+    // std::cout << "  Visualization: " << (system_.enable_visualization ? "enabled" : "disabled") << std::endl;
+    // std::cout << "  Motion primitives: " << system_.motion_primitives_file << std::endl;
+    // std::cout << "  Default scene: " << system_.default_scene_file << std::endl;
 }
 
 bool ConfigManager::validate_paths() const {
@@ -308,7 +338,7 @@ bool ConfigManager::validate_paths() const {
     
     // Check log directory
     if (environment_.enable_state_logging && !std::filesystem::exists(environment_.log_directory)) {
-        std::cout << "Creating log directory: " << environment_.log_directory << std::endl;
+        // std::cout << "Creating log directory: " << environment_.log_directory << std::endl;
         std::filesystem::create_directories(environment_.log_directory);
     }
     

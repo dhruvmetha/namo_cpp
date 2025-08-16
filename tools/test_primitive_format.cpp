@@ -23,34 +23,34 @@ int main() {
     size_t file_size = file.tellg();
     file.seekg(0, std::ios::beg);
     
-    std::cout << "File size: " << file_size << " bytes" << std::endl;
-    std::cout << "Expected struct size: " << sizeof(TestPrimitive) << " bytes" << std::endl;
-    std::cout << "Expected number of primitives: " << file_size / sizeof(TestPrimitive) << std::endl;
+    // std::cout << "File size: " << file_size << " bytes" << std::endl;
+    // std::cout << "Expected struct size: " << sizeof(TestPrimitive) << " bytes" << std::endl;
+    // std::cout << "Expected number of primitives: " << file_size / sizeof(TestPrimitive) << std::endl;
     
     // Read first few bytes to see the pattern
     char buffer[64];
     file.read(buffer, 64);
     file.seekg(0, std::ios::beg);
     
-    std::cout << "\nFirst 64 bytes in hex:" << std::endl;
+    // std::cout << "\nFirst 64 bytes in hex:" << std::endl;
     for (int i = 0; i < 64 && i < (int)file_size; i++) {
         if (i % 16 == 0) std::cout << std::hex << std::setw(4) << std::setfill('0') << i << ": ";
-        std::cout << std::hex << std::setw(2) << std::setfill('0') << (unsigned char)buffer[i] << " ";
+        // std::cout << std::hex << std::setw(2) << std::setfill('0') << (unsigned char)buffer[i] << " ";
         if ((i + 1) % 16 == 0) std::cout << std::endl;
     }
-    std::cout << std::endl;
+    // std::cout << std::endl;
     
     // Try to read as expected format
     TestPrimitive prim;
-    std::cout << "\nReading as TestPrimitive format:" << std::endl;
+    // std::cout << "\nReading as TestPrimitive format:" << std::endl;
     for (int i = 0; i < 10 && file.read(reinterpret_cast<char*>(&prim), sizeof(prim)); i++) {
-        std::cout << "Primitive " << i << ": "
-                  << std::fixed << std::setprecision(6)
-                  << "dx=" << prim.delta_x << " "
-                  << "dy=" << prim.delta_y << " "
-                  << "dtheta=" << prim.delta_theta << " "
-                  << "edge=" << (int)prim.edge_idx << " "
-                  << "steps=" << (int)prim.push_steps << std::endl;
+        // std::cout << "Primitive " << i << ": "
+                  // << std::fixed << std::setprecision(6)
+                  // << "dx=" << prim.delta_x << " "
+                  // << "dy=" << prim.delta_y << " "
+                  // << "dtheta=" << prim.delta_theta << " "
+                  // << "edge=" << (int)prim.edge_idx << " "
+                  // << "steps=" << (int)prim.push_steps << std::endl;
     }
     
     return 0;

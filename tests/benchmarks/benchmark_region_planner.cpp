@@ -37,7 +37,7 @@ class RegionPlannerBenchmark {
 public:
     RegionPlannerBenchmark() {
         // Initialize with minimal mock environment
-        std::cout << "Initializing benchmark environment..." << std::endl;
+        // std::cout << "Initializing benchmark environment..." << std::endl;
     }
     
     BenchmarkStats run_benchmark(const std::string& test_suite_name,
@@ -45,9 +45,9 @@ public:
                                 int max_depth,
                                 int iterations_per_goal = 5) {
         
-        std::cout << "\n=== Running " << test_suite_name << " Benchmark ===" << std::endl;
-        std::cout << "Goals: " << goals.size() << ", Iterations per goal: " << iterations_per_goal << std::endl;
-        std::cout << "Max depth: " << max_depth << std::endl;
+        // std::cout << "\n=== Running " << test_suite_name << " Benchmark ===" << std::endl;
+        // std::cout << "Goals: " << goals.size() << ", Iterations per goal: " << iterations_per_goal << std::endl;
+        // std::cout << "Max depth: " << max_depth << std::endl;
         
         std::vector<BenchmarkResult> all_results;
         
@@ -62,8 +62,8 @@ public:
             for (size_t goal_idx = 0; goal_idx < goals.size(); ++goal_idx) {
                 const SE2State& goal = goals[goal_idx];
                 
-                std::cout << "Testing goal " << (goal_idx + 1) << "/" << goals.size() 
-                          << " at (" << goal.x << ", " << goal.y << ", " << goal.theta << ")" << std::endl;
+                // std::cout << "Testing goal " << (goal_idx + 1) << "/" << goals.size() 
+                          // << " at (" << goal.x << ", " << goal.y << ", " << goal.theta << ")" << std::endl;
                 
                 for (int iter = 0; iter < iterations_per_goal; ++iter) {
                     BenchmarkResult result = run_single_test(goal, max_depth, config.get());
@@ -71,15 +71,15 @@ public:
                     all_results.push_back(result);
                     
                     if (iter == 0) {  // Print details for first iteration only
-                        std::cout << "  Iteration 1: " << (result.success ? "SUCCESS" : "FAILED")
-                                  << " (" << std::fixed << std::setprecision(3) << result.planning_time_ms << " ms";
+                        // std::cout << "  Iteration 1: " << (result.success ? "SUCCESS" : "FAILED")
+                                  // << " (" << std::fixed << std::setprecision(3) << result.planning_time_ms << " ms";
                         if (result.success) {
-                            std::cout << ", " << result.actions_found << " actions, " 
-                                     << result.nodes_expanded << " nodes)";
+                            // std::cout << ", " << result.actions_found << " actions, " 
+                                     // << result.nodes_expanded << " nodes)";
                         } else {
-                            std::cout << ", " << result.failure_reason << ")";
+                            // std::cout << ", " << result.failure_reason << ")";
                         }
-                        std::cout << std::endl;
+                        // std::cout << std::endl;
                     }
                 }
             }
@@ -215,20 +215,20 @@ private:
 };
 
 void print_benchmark_stats(const std::string& test_name, const BenchmarkStats& stats) {
-    std::cout << "\n--- " << test_name << " Results ---" << std::endl;
-    std::cout << std::fixed << std::setprecision(3);
-    std::cout << "Success Rate:      " << (stats.success_rate * 100.0) << "%" << std::endl;
-    std::cout << "Mean Time:         " << stats.mean_time_ms << " ms" << std::endl;
-    std::cout << "Median Time:       " << stats.median_time_ms << " ms" << std::endl;
-    std::cout << "Min Time:          " << stats.min_time_ms << " ms" << std::endl;
-    std::cout << "Max Time:          " << stats.max_time_ms << " ms" << std::endl;
-    std::cout << "Std Dev:           " << stats.std_dev_ms << " ms" << std::endl;
-    std::cout << "Mean Actions:      " << stats.mean_actions << std::endl;
-    std::cout << "Mean Nodes:        " << stats.mean_nodes_expanded << std::endl;
+    // std::cout << "\n--- " << test_name << " Results ---" << std::endl;
+    // std::cout << std::fixed << std::setprecision(3);
+    // std::cout << "Success Rate:      " << (stats.success_rate * 100.0) << "%" << std::endl;
+    // std::cout << "Mean Time:         " << stats.mean_time_ms << " ms" << std::endl;
+    // std::cout << "Median Time:       " << stats.median_time_ms << " ms" << std::endl;
+    // std::cout << "Min Time:          " << stats.min_time_ms << " ms" << std::endl;
+    // std::cout << "Max Time:          " << stats.max_time_ms << " ms" << std::endl;
+    // std::cout << "Std Dev:           " << stats.std_dev_ms << " ms" << std::endl;
+    // std::cout << "Mean Actions:      " << stats.mean_actions << std::endl;
+    // std::cout << "Mean Nodes:        " << stats.mean_nodes_expanded << std::endl;
 }
 
 int main() {
-    std::cout << "=== Region-Based Planner Performance Benchmark ===" << std::endl;
+    // std::cout << "=== Region-Based Planner Performance Benchmark ===" << std::endl;
     
     RegionPlannerBenchmark benchmark;
     
@@ -264,7 +264,7 @@ int main() {
         print_benchmark_stats("Complex Goals (Depth 2)", complex_depth2);
         
         // Benchmark 4: Scalability test with increasing depth
-        std::cout << "\n=== Scalability Analysis ===" << std::endl;
+        // std::cout << "\n=== Scalability Analysis ===" << std::endl;
         
         SE2State scalability_goal(2.5, 0.0, 0.0);
         std::vector<SE2State> single_goal = {scalability_goal};
@@ -273,21 +273,21 @@ int main() {
             BenchmarkStats scalability_stats = benchmark.run_benchmark(
                 "Scalability_Depth" + std::to_string(depth), single_goal, depth, 5);
             
-            std::cout << "Depth " << depth << ": " 
-                     << std::fixed << std::setprecision(3)
-                     << scalability_stats.mean_time_ms << " ms avg, "
-                     << (scalability_stats.success_rate * 100.0) << "% success, "
-                     << scalability_stats.mean_nodes_expanded << " nodes avg" << std::endl;
+            // std::cout << "Depth " << depth << ": " 
+                     // << std::fixed << std::setprecision(3)
+                     // << scalability_stats.mean_time_ms << " ms avg, "
+                     // << (scalability_stats.success_rate * 100.0) << "% success, "
+                     // << scalability_stats.mean_nodes_expanded << " nodes avg" << std::endl;
         }
         
         // Summary
-        std::cout << "\n=== Benchmark Summary ===" << std::endl;
-        std::cout << "✓ Algorithm performance measured across multiple scenarios" << std::endl;
-        std::cout << "✓ Scalability analyzed for different search depths" << std::endl;
-        std::cout << "✓ Success rates and timing statistics computed" << std::endl;
-        std::cout << "✓ Region-based planner core algorithms validated" << std::endl;
+        // std::cout << "\n=== Benchmark Summary ===" << std::endl;
+        // std::cout << "✓ Algorithm performance measured across multiple scenarios" << std::endl;
+        // std::cout << "✓ Scalability analyzed for different search depths" << std::endl;
+        // std::cout << "✓ Success rates and timing statistics computed" << std::endl;
+        // std::cout << "✓ Region-based planner core algorithms validated" << std::endl;
         
-        std::cout << "\n=== All Benchmarks Completed Successfully! ===" << std::endl;
+        // std::cout << "\n=== All Benchmarks Completed Successfully! ===" << std::endl;
         
         return 0;
         

@@ -16,13 +16,13 @@ private:
     
 public:
     void run_test() {
-        std::cout << "Simple Skill Interface Test" << std::endl;
-        std::cout << "===========================" << std::endl;
+        // std::cout << "Simple Skill Interface Test" << std::endl;
+        // std::cout << "===========================" << std::endl;
         
         try {
             setup_environment();
             test_basic_interface();
-            std::cout << "\n🎉 Simple skill test passed!" << std::endl;
+            // std::cout << "\n🎉 Simple skill test passed!" << std::endl;
         } catch (const std::exception& e) {
             std::cerr << "\n❌ Test failed: " << e.what() << std::endl;
             throw;
@@ -31,7 +31,7 @@ public:
     
 private:
     void setup_environment() {
-        std::cout << "Setting up test environment..." << std::endl;
+        // std::cout << "Setting up test environment..." << std::endl;
         
         std::string xml_path = "data/test_scene.xml";
         bool visualize = false;
@@ -42,35 +42,35 @@ private:
         // Initialize skill
         skill_ = std::make_unique<NAMOPushSkill>(*env_);
         
-        std::cout << "✓ Environment setup complete" << std::endl;
+        // std::cout << "✓ Environment setup complete" << std::endl;
     }
     
     void test_basic_interface() {
-        std::cout << "\n=== Testing Basic Interface ===" << std::endl;
+        // std::cout << "\n=== Testing Basic Interface ===" << std::endl;
         
         // Test skill metadata
         std::string name = skill_->get_name();
         std::string desc = skill_->get_description();
         
-        std::cout << "Skill name: " << name << std::endl;
-        std::cout << "Description: " << desc << std::endl;
+        // std::cout << "Skill name: " << name << std::endl;
+        // std::cout << "Description: " << desc << std::endl;
         
         assert(name == "namo_push");
         assert(!desc.empty());
         
         // Test parameter schema
         auto schema = skill_->get_parameter_schema();
-        std::cout << "Parameter schema (" << schema.size() << " parameters):" << std::endl;
+        // std::cout << "Parameter schema (" << schema.size() << " parameters):" << std::endl;
         
         for (const auto& param : schema) {
-            std::cout << "  - " << param.first << ": " << param.second.description << std::endl;
+            // std::cout << "  - " << param.first << ": " << param.second.description << std::endl;
         }
         
         // Verify required parameters exist
         assert(schema.find("object_name") != schema.end());
         assert(schema.find("target_pose") != schema.end());
         
-        std::cout << "✓ Basic interface tests passed" << std::endl;
+        // std::cout << "✓ Basic interface tests passed" << std::endl;
     }
 };
 

@@ -159,8 +159,8 @@ void RegionAnalyzer::generate_sample_points(const std::vector<double>& env_bound
         }
     }
     
-    std::cout << "Generated " << sample_points_.size() << " valid samples from " 
-              << last_stats_.total_samples_generated << " attempts" << std::endl;
+    // std::cout << "Generated " << sample_points_.size() << " valid samples from " 
+              // << last_stats_.total_samples_generated << " attempts" << std::endl;
 }
 
 void RegionAnalyzer::discover_regions_from_samples() {
@@ -169,7 +169,7 @@ void RegionAnalyzer::discover_regions_from_samples() {
     int max_idle_samples = 100;  // Stop if no new regions found in 100 consecutive samples
     int min_region_size = 10;    // Ignore tiny regions (noise)
     
-    std::cout << "Discovering regions from " << sample_points_.size() << " samples..." << std::endl;
+    // std::cout << "Discovering regions from " << sample_points_.size() << " samples..." << std::endl;
     
     for (size_t i = 0; i < sample_points_.size() && current_region_id < MAX_REGIONS; ++i) {
         double x = sample_points_[i].first;
@@ -191,7 +191,7 @@ void RegionAnalyzer::discover_regions_from_samples() {
             region_used_[current_region_id] = true;
             current_region_id++;
             samples_since_last_region = 0;
-            std::cout << "Found region " << (current_region_id-1) << " with " << cells_filled << " cells" << std::endl;
+            // std::cout << "Found region " << (current_region_id-1) << " with " << cells_filled << " cells" << std::endl;
         } else if (cells_filled > 0) {
             // Revert tiny region labeling
             for (int x = 0; x < grid_width_; ++x) {
@@ -208,12 +208,12 @@ void RegionAnalyzer::discover_regions_from_samples() {
         
         // Early termination: if no new regions found recently, likely discovered all components
         if (samples_since_last_region >= max_idle_samples) {
-            std::cout << "Early termination: no new regions in " << max_idle_samples << " samples" << std::endl;
+            // std::cout << "Early termination: no new regions in " << max_idle_samples << " samples" << std::endl;
             break;
         }
     }
     
-    std::cout << "Region discovery completed: found " << current_region_id << " regions" << std::endl;
+    // std::cout << "Region discovery completed: found " << current_region_id << " regions" << std::endl;
 }
 
 int RegionAnalyzer::flood_fill_from_point(int start_x, int start_y, int region_id) {
@@ -290,7 +290,7 @@ void RegionAnalyzer::merge_regions(RegionGraph& graph, int region_a_id, int regi
 }
 
 void RegionAnalyzer::build_connectivity_graph(RegionGraph& graph, NAMOEnvironment& env) {
-    std::cout << "Building connectivity graph for " << graph.regions.size() << " regions..." << std::endl;
+    // std::cout << "Building connectivity graph for " << graph.regions.size() << " regions..." << std::endl;
     
     // Find spatially adjacent regions and check if they're blocked by movable objects
     for (size_t i = 0; i < graph.regions.size(); ++i) {
@@ -309,14 +309,14 @@ void RegionAnalyzer::build_connectivity_graph(RegionGraph& graph, NAMOEnvironmen
                 // Only add edge if there are blocking objects
                 if (!blocking_objects.empty()) {
                     graph.add_blocked_edge(i, j, blocking_objects);
-                    std::cout << "Added blocked edge: regions " << i << " and " << j 
-                             << " (blocked by " << blocking_objects.size() << " objects)" << std::endl;
+                    // std::cout << "Added blocked edge: regions " << i << " and " << j 
+                             // << " (blocked by " << blocking_objects.size() << " objects)" << std::endl;
                 }
             }
         }
     }
     
-    std::cout << "Created " << graph.num_edges() << " blocked edges between regions" << std::endl;
+    // std::cout << "Created " << graph.num_edges() << " blocked edges between regions" << std::endl;
 }
 
 std::vector<int> RegionAnalyzer::find_spatially_adjacent_regions(const Region& region, const RegionGraph& graph) const {
@@ -564,7 +564,7 @@ void RegionAnalyzer::save_region_grid(const std::string& filename) const {
     }
     
     file.close();
-    std::cout << "Region grid saved to: " << filename << std::endl;
+    // std::cout << "Region grid saved to: " << filename << std::endl;
 }
 
 void RegionAnalyzer::clear_workspace() {

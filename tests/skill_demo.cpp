@@ -20,19 +20,19 @@ private:
     
 public:
     void run() {
-        std::cout << "=== NAMO Skill System Demonstration ===\n" << std::endl;
+        // std::cout << "=== NAMO Skill System Demonstration ===\n" << std::endl;
         
         setup_environment();
         demonstrate_skill_interface();
         demonstrate_planning_integration();
         demonstrate_error_handling();
         
-        std::cout << "\n=== Demonstration Complete ===\n" << std::endl;
+        // std::cout << "\n=== Demonstration Complete ===\n" << std::endl;
     }
     
 private:
     void setup_environment() {
-        std::cout << "1. Setting up environment and skill..." << std::endl;
+        // std::cout << "1. Setting up environment and skill..." << std::endl;
         
         // Initialize environment (without visualization for demo)
         env_ = std::make_unique<NAMOEnvironment>("data/test_scene.xml", true);
@@ -41,59 +41,59 @@ private:
         auto config = ConfigManager::create_default();
         skill_ = std::make_unique<NAMOPushSkill>(*env_, std::shared_ptr<ConfigManager>(config.release()));
         
-        std::cout << "   ✓ Environment loaded with " 
-                  << env_->get_num_movable() << " movable objects" << std::endl;
-        std::cout << "   ✓ Skill configured with 2cm tolerance" << std::endl;
+        // std::cout << "   ✓ Environment loaded with " 
+                  // << env_->get_num_movable() << " movable objects" << std::endl;
+        // std::cout << "   ✓ Skill configured with 2cm tolerance" << std::endl;
         
         // Debug: Show robot and object positions
         auto robot_state = env_->get_robot_state();
         if (robot_state) {
-            std::cout << "   Robot position: [" << robot_state->position[0] 
-                      << ", " << robot_state->position[1] 
-                      << ", " << robot_state->position[2] << "]" << std::endl;
+            // std::cout << "   Robot position: [" << robot_state->position[0] 
+                      // << ", " << robot_state->position[1] 
+                      // << ", " << robot_state->position[2] << "]" << std::endl;
         }
         
         auto obj_state = env_->get_object_state("obstacle_1_movable");
         if (obj_state) {
-            std::cout << "   Object position: [" << obj_state->position[0] 
-                      << ", " << obj_state->position[1] 
-                      << ", " << obj_state->position[2] << "]" << std::endl;
+            // std::cout << "   Object position: [" << obj_state->position[0] 
+                      // << ", " << obj_state->position[1] 
+                      // << ", " << obj_state->position[2] << "]" << std::endl;
         }
         
         if (robot_state && obj_state) {
             double dx = robot_state->position[0] - obj_state->position[0];
             double dy = robot_state->position[1] - obj_state->position[1];
             double distance = std::sqrt(dx*dx + dy*dy);
-            std::cout << "   Distance between robot and object: " << distance << "m" << std::endl;
+            // std::cout << "   Distance between robot and object: " << distance << "m" << std::endl;
         }
     }
     
     void demonstrate_skill_interface() {
-        std::cout << "\n2. Demonstrating skill interface..." << std::endl;
+        // std::cout << "\n2. Demonstrating skill interface..." << std::endl;
         
         // Get skill metadata
-        std::cout << "   Skill Name: " << skill_->get_name() << std::endl;
-        std::cout << "   Description: " << skill_->get_description() << std::endl;
+        // std::cout << "   Skill Name: " << skill_->get_name() << std::endl;
+        // std::cout << "   Description: " << skill_->get_description() << std::endl;
         
         // Show parameter schema
         auto schema = skill_->get_parameter_schema();
-        std::cout << "   Parameters (" << schema.size() << "):" << std::endl;
+        // std::cout << "   Parameters (" << schema.size() << "):" << std::endl;
         for (const auto& [name, spec] : schema) {
-            std::cout << "     - " << std::setw(15) << std::left << name 
-                      << ": " << spec.description 
-                      << (spec.required ? " (required)" : " (optional)") << std::endl;
+            // std::cout << "     - " << std::setw(15) << std::left << name 
+                      // << ": " << spec.description 
+                      // << (spec.required ? " (required)" : " (optional)") << std::endl;
         }
         
         // Show current world state
         auto world_state = skill_->get_world_state();
-        std::cout << "   World State (" << world_state.size() << " items):" << std::endl;
+        // std::cout << "   World State (" << world_state.size() << " items):" << std::endl;
         for (const auto& [key, value] : world_state) {
-            std::cout << "     - " << key << std::endl;
+            // std::cout << "     - " << key << std::endl;
         }
     }
     
     void demonstrate_planning_integration() {
-        std::cout << "\n3. Demonstrating high-level planner integration..." << std::endl;
+        // std::cout << "\n3. Demonstrating high-level planner integration..." << std::endl;
         
         // Example: Task planner wants to move object to (1.0, 1.0, 0.0)
         SE2State target_pose(3.0, 1.0, 0.0);
@@ -106,49 +106,49 @@ private:
         std::array<double, 3> goal_position = {target_pose.x, target_pose.y, 0.1};  // Slightly above ground
         std::array<float, 4> green_color = {0.0f, 1.0f, 0.0f, 0.8f};  // Green with transparency
         env_->visualize_goal_marker(goal_position, green_color);
-        std::cout << "   ✓ Goal visualization added at (" << target_pose.x << ", " << target_pose.y << ", " << target_pose.theta << ")" << std::endl;
+        // std::cout << "   ✓ Goal visualization added at (" << target_pose.x << ", " << target_pose.y << ", " << target_pose.theta << ")" << std::endl;
         
         // 1. Check applicability (action selection)
         bool applicable = skill_->is_applicable(task_params);
-        std::cout << "   Applicability check: " << (applicable ? "✓ Applicable" : "✗ Not applicable") << std::endl;
+        // std::cout << "   Applicability check: " << (applicable ? "✓ Applicable" : "✗ Not applicable") << std::endl;
         
         // 2. Check preconditions (detailed analysis)
         auto preconditions = skill_->check_preconditions(task_params);
         if (preconditions.empty()) {
-            std::cout << "   Preconditions: ✓ All met" << std::endl;
+            // std::cout << "   Preconditions: ✓ All met" << std::endl;
         } else {
-            std::cout << "   Preconditions: ✗ Unmet (" << preconditions.size() << "):" << std::endl;
+            // std::cout << "   Preconditions: ✗ Unmet (" << preconditions.size() << "):" << std::endl;
             for (const auto& condition : preconditions) {
-                std::cout << "     - " << condition << std::endl;
+                // std::cout << "     - " << condition << std::endl;
             }
         }
         
         // 3. Duration estimation (temporal planning)
         if (applicable) {
             auto duration = skill_->estimate_duration(task_params);
-            std::cout << "   Estimated duration: " << duration.count() << "ms" << std::endl;
+            // std::cout << "   Estimated duration: " << duration.count() << "ms" << std::endl;
         }
         
         // 4. Execution (if applicable)
         if (applicable && preconditions.empty()) {
-            std::cout << "   Executing skill..." << std::endl;
+            // std::cout << "   Executing skill..." << std::endl;
             auto result = skill_->execute(task_params);
             
             if (result.success) {
-                std::cout << "   ✓ Execution successful!" << std::endl;
-                std::cout << "     - Actual duration: " << result.execution_time.count() << "ms" << std::endl;
-                std::cout << "     - Steps executed: " << std::get<int>(result.outputs.at("steps_executed")) << std::endl;
-                std::cout << "     - Robot goal reached: " << std::get<bool>(result.outputs.at("robot_goal_reached")) << std::endl;
+                // std::cout << "   ✓ Execution successful!" << std::endl;
+                // std::cout << "     - Actual duration: " << result.execution_time.count() << "ms" << std::endl;
+                // std::cout << "     - Steps executed: " << std::get<int>(result.outputs.at("steps_executed")) << std::endl;
+                // std::cout << "     - Robot goal reached: " << std::get<bool>(result.outputs.at("robot_goal_reached")) << std::endl;
             } else {
-                std::cout << "   ✗ Execution failed: " << result.failure_reason << std::endl;
+                // std::cout << "   ✗ Execution failed: " << result.failure_reason << std::endl;
             }
         } else {
-            std::cout << "   Skipping execution due to unmet preconditions" << std::endl;
+            // std::cout << "   Skipping execution due to unmet preconditions" << std::endl;
         }
     }
     
     void demonstrate_error_handling() {
-        std::cout << "\n4. Demonstrating error handling..." << std::endl;
+        // std::cout << "\n4. Demonstrating error handling..." << std::endl;
         
         // Example: Invalid parameters
         std::map<std::string, SkillParameterValue> invalid_params = {
@@ -156,20 +156,20 @@ private:
             {"target_pose", SE2State(100.0, 100.0, 0.0)}  // Way outside bounds
         };
         
-        std::cout << "   Testing with invalid parameters..." << std::endl;
-        std::cout << "   (No goal marker added - target is outside environment bounds)" << std::endl;
+        // std::cout << "   Testing with invalid parameters..." << std::endl;
+        // std::cout << "   (No goal marker added - target is outside environment bounds)" << std::endl;
         
         bool applicable = skill_->is_applicable(invalid_params);
-        std::cout << "   Applicability: " << (applicable ? "✓" : "✗") << " (should be false)" << std::endl;
+        // std::cout << "   Applicability: " << (applicable ? "✓" : "✗") << " (should be false)" << std::endl;
         
         auto preconditions = skill_->check_preconditions(invalid_params);
-        std::cout << "   Precondition failures (" << preconditions.size() << "):" << std::endl;
+        // std::cout << "   Precondition failures (" << preconditions.size() << "):" << std::endl;
         for (const auto& condition : preconditions) {
-            std::cout << "     - " << condition << std::endl;
+            // std::cout << "     - " << condition << std::endl;
         }
         
         // Example: Graceful degradation
-        std::cout << "\n   Demonstrating graceful degradation..." << std::endl;
+        // std::cout << "\n   Demonstrating graceful degradation..." << std::endl;
         SE2State challenging_target(3.0, 3.0, M_PI);
         std::map<std::string, SkillParameterValue> challenging_params = {
             {"object_name", std::string("obstacle_1_movable")},
@@ -182,12 +182,12 @@ private:
         std::array<double, 3> challenging_goal = {challenging_target.x, challenging_target.y, 0.15};  // Higher up
         std::array<float, 4> orange_color = {1.0f, 0.5f, 0.0f, 0.8f};  // Orange for challenging goal
         env_->visualize_goal_marker(challenging_goal, orange_color);
-        std::cout << "   ✓ Challenging goal visualization added at (" << challenging_target.x << ", " << challenging_target.y << ", " << challenging_target.theta << ")" << std::endl;
+        // std::cout << "   ✓ Challenging goal visualization added at (" << challenging_target.x << ", " << challenging_target.y << ", " << challenging_target.theta << ")" << std::endl;
         
         auto result = skill_->execute(challenging_params);
         if (!result.success) {
-            std::cout << "   First attempt failed: " << result.failure_reason << std::endl;
-            std::cout << "   Trying with relaxed parameters..." << std::endl;
+            // std::cout << "   First attempt failed: " << result.failure_reason << std::endl;
+            // std::cout << "   Trying with relaxed parameters..." << std::endl;
             
             // Relax parameters
             challenging_params["tolerance"] = 0.05;  // More lenient
@@ -196,12 +196,12 @@ private:
             // Update visual marker to blue for relaxed attempt
             std::array<float, 4> blue_color = {0.0f, 0.0f, 1.0f, 0.8f};  // Blue for relaxed goal
             env_->visualize_goal_marker(challenging_goal, blue_color);
-            std::cout << "   ✓ Updated goal marker to blue for relaxed parameters" << std::endl;
+            // std::cout << "   ✓ Updated goal marker to blue for relaxed parameters" << std::endl;
             
             result = skill_->execute(challenging_params);
-            std::cout << "   Second attempt: " << (result.success ? "✓ Success" : "✗ Failed") << std::endl;
+            // std::cout << "   Second attempt: " << (result.success ? "✓ Success" : "✗ Failed") << std::endl;
         } else {
-            std::cout << "   ✓ Challenging parameters succeeded on first try!" << std::endl;
+            // std::cout << "   ✓ Challenging parameters succeeded on first try!" << std::endl;
         }
     }
 };
@@ -309,10 +309,10 @@ int main() {
         namo::SkillDemo demo;
         demo.run();
         
-        std::cout << "\nIntegration examples available in source code:" << std::endl;
-        std::cout << "  - PDDLExecutor: PDDL action execution" << std::endl;
-        std::cout << "  - PushObjectNode: Behavior tree node" << std::endl;
-        std::cout << "  - RLEnvironment: Reinforcement learning interface" << std::endl;
+        // std::cout << "\nIntegration examples available in source code:" << std::endl;
+        // std::cout << "  - PDDLExecutor: PDDL action execution" << std::endl;
+        // std::cout << "  - PushObjectNode: Behavior tree node" << std::endl;
+        // std::cout << "  - RLEnvironment: Reinforcement learning interface" << std::endl;
         
         return 0;
     } catch (const std::exception& e) {
