@@ -6,7 +6,7 @@ Test script for the clean 2-level hierarchical MCTS implementation.
 import sys
 import argparse
 import namo_rl
-from mcts_clean_hierarchical import plan_with_clean_hierarchical_mcts, CleanHierarchicalMCTS
+from mcts_hierarchical import plan_with_clean_hierarchical_mcts, CleanHierarchicalMCTS
 from mcts_config import MCTSConfig
 
 def main():
@@ -17,7 +17,7 @@ def main():
                        help="Enable live tree visualization during MCTS search")
     parser.add_argument("--budget", type=int, default=30,
                        help="MCTS simulation budget (default: 30)")
-    parser.add_argument("--rollout-steps", type=int, default=0,
+    parser.add_argument("--rollout-steps", type=int, default=3,
                        help="Maximum rollout steps (default: 5)")
     parser.add_argument("--k", type=float, default=3.0,
                        help="Progressive widening constant k (default: 3.0)")

@@ -329,7 +329,7 @@ class CleanHierarchicalMCTS:
                 self._mcts_iteration(root)
                 
                 # Update visualization every 10 iterations
-                if iteration % 1 == 0:
+                if iteration % 10 == 0:
                     tree_display = self._create_tree_display(root, iteration)
                     live.update(tree_display)
         
@@ -425,14 +425,17 @@ class CleanHierarchicalMCTS:
         if self.env.is_robot_goal_reachable():
             return 1.0
         
+        reward = 0.0
+        
         # Perform random rollout
-        for _ in range(self.config.max_rollout_steps):
-            if self.env.is_robot_goal_reachable():
-                return 1.0
+        for ct in range(self.config.max_rollout_steps):
+            # if self.env.is_robot_goal_reachable():
+            #     return 1.0
             
             # Sample random action
             reachable_objects = self.env.get_reachable_objects()
             if not reachable_objects:
+                reward += (0.99 ** (ct+1)) * -1.0
                 break
             
             # Random object selection
@@ -442,6 +445,7 @@ class CleanHierarchicalMCTS:
             obs = self.env.get_observation()
             pose_key = f"{obj_id}_pose"
             if pose_key not in obs:
+                reward += (0.99 ** (ct+1)) * -1.0
                 break
             
             obj_x, obj_y = obs[pose_key][0], obs[pose_key][1]
@@ -460,9 +464,12 @@ class CleanHierarchicalMCTS:
             
             result = self.env.step(action)
             if result.reward > 0:  # Goal reached
-                return 1.0
+                reward += (0.99 ** (ct+1)) * 1.0
+                break
+            else:
+                reward += (0.99 ** (ct+1)) * -1.0
         
-        return -1.0  # Goal not reached
+        return reward  # Goal not reached
     
     def _backpropagate(self, path: List[MCTSNode], reward: float):
         """Backpropagation phase: update statistics for all nodes in path.
