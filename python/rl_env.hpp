@@ -4,6 +4,7 @@
 #include "environment/namo_environment.hpp"
 #include "config/config_manager.hpp"
 #include <vector>
+#include <cmath>
 
 namespace namo {
 
@@ -45,6 +46,19 @@ public:
     std::vector<std::string> get_reachable_objects() const;
     bool is_object_reachable(const std::string& object_name) const;
 
+    // Robot goal management for MCTS
+    void set_robot_goal(double x, double y, double theta = 0.0);
+    bool is_robot_goal_reachable() const;
+    std::array<double, 3> get_robot_goal() const;
+    
+    // Action space constraints for MCTS progressive widening
+    struct ActionConstraints {
+        double min_distance = 0.3;  // Minimum distance from object
+        double max_distance = 1.0;  // Maximum distance from object  
+        double theta_min = -M_PI;   // Minimum theta
+        double theta_max = M_PI;    // Maximum theta
+    };
+    ActionConstraints get_action_constraints() const;
 
 private:
     std::unique_ptr<NAMOEnvironment> env_;

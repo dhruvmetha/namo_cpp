@@ -173,9 +173,9 @@ void OptimizedMujocoWrapper::set_state(const State& state) {
         d_->qpos[i] = state[idx];
     }
     
-    // Set velocities
-    for (int i = 0; i < m_->nv && idx < state.size(); i++, idx++) {
-        d_->qvel[i] = state[idx];
+    // Always zero velocities for consistent physics simulation
+    for (int i = 0; i < m_->nv; i++) {
+        d_->qvel[i] = 0.0;
     }
     
     mj_forward(m_, d_);

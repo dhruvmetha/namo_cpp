@@ -38,7 +38,13 @@ RLEnvironment::StepResult RLEnvironment::step(const Action& action) {
     
     StepResult rl_result;
     rl_result.done = result.success;
-    rl_result.reward = result.success ? 100.0 : -1.0; // Example reward scheme
+    
+    // MCTS sparse reward: +1 if robot goal reachable, -1 otherwise
+    bool goal_reached = false;
+    if (auto it = result.outputs.find("robot_goal_reached"); it != result.outputs.end()) {
+        goal_reached = std::get<bool>(it->second);
+    }
+    rl_result.reward = goal_reached ? 1.0 : -1.0;
     
     rl_result.info["failure_reason"] = result.failure_reason;
 
@@ -97,9 +103,9 @@ void RLEnvironment::set_full_state(const RLState& state) {
         d->qpos[i] = state.qpos[i];
     }
     
-    // Set qvel
-    for (int i = 0; i < m->nv && i < static_cast<int>(state.qvel.size()); i++) {
-        d->qvel[i] = state.qvel[i];
+    // Always zero qvel for consistent physics simulation
+    for (int i = 0; i < m->nv; i++) {
+        d->qvel[i] = 0.0;
     }
     
     // Apply the new state to the simulation
@@ -120,6 +126,22 @@ std::vector<std::string> RLEnvironment::get_reachable_objects() const {
 
 bool RLEnvironment::is_object_reachable(const std::string& object_name) const {
     return skill_->is_object_reachable(object_name);
+}
+
+void RLEnvironment::set_robot_goal(double x, double y, double theta) {
+    skill_->set_robot_goal(x, y, theta);
+}
+
+bool RLEnvironment::is_robot_goal_reachable() const {
+    return skill_->is_robot_goal_reachable();
+}
+
+std::array<double, 3> RLEnvironment::get_robot_goal() const {
+    return skill_->get_robot_goal();
+}
+
+RLEnvironment::ActionConstraints RLEnvironment::get_action_constraints() const {
+    return ActionConstraints{}; // Use default values: distance [0.3, 1.0], theta [-π, π]
 }
 
 } // namespace namo

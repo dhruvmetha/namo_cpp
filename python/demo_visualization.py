@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Visualization demo for NAMO RL Environment.

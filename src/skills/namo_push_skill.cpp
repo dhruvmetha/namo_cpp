@@ -143,14 +143,14 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
     // std::cout << "NAMOPushSkill: Using max_mpc_iterations = " << max_mpc_iterations << std::endl;
     
     // Set robot goal if provided
-    bool has_robot_goal = false;
-    if (auto it = parameters.find("robot_goal"); it != parameters.end()) {
-        auto robot_goal = std::get<SE2State>(it->second);
-        executor_->set_robot_goal({robot_goal.x, robot_goal.y});
-        has_robot_goal = true;
-    } else {
-        executor_->clear_robot_goal();
-    }
+    // bool has_robot_goal = false;
+    // if (auto it = parameters.find("robot_goal"); it != parameters.end()) {
+    //     auto robot_goal = std::get<SE2State>(it->second);
+    //     executor_->set_robot_goal({robot_goal.x, robot_goal.y});
+    //     has_robot_goal = true;
+    // } else {
+    //     executor_->clear_robot_goal();
+    // }
     
     // std::cout << "Starting iterative MPC execution for object: " << object_name << std::endl;
     // std::cout << "Target: [" << target_pose.x << "," << target_pose.y << "," << target_pose.theta << "]" << std::endl;
@@ -179,7 +179,7 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         //           << current_state.x << "," << current_state.y << "," << current_state.theta << "]" << std::endl;
         
         // 2. Check if robot goal is reachable (early termination)
-        if (has_robot_goal && executor_->is_robot_goal_reachable()) {
+        if (has_robot_goal_ && executor_->is_robot_goal_reachable()) {
             // std::cout << "Robot goal became reachable at iteration " << mpc_iter << std::endl;
             result.success = true;
             result.outputs["robot_goal_reached"] = true;
@@ -461,6 +461,30 @@ bool NAMOPushSkill::is_object_reachable(const std::string& object_name) const {
         // If wavefront computation fails, object is not reachable
         return false;
     }
+}
+
+void NAMOPushSkill::set_robot_goal(double x, double y, double theta) {
+    robot_goal_ = {x, y, theta};
+    has_robot_goal_ = true;
+    // Also set in executor for immediate use
+    executor_->set_robot_goal({x, y});
+}
+
+bool NAMOPushSkill::is_robot_goal_reachable() const {
+    if (!has_robot_goal_) {
+        return false;
+    }
+    // Leverage the executor's cached wavefront computation
+    return executor_->is_robot_goal_reachable();
+}
+
+std::array<double, 3> NAMOPushSkill::get_robot_goal() const {
+    return robot_goal_;
+}
+
+void NAMOPushSkill::clear_robot_goal() {
+    has_robot_goal_ = false;
+    executor_->clear_robot_goal();
 }
 
 } // namespace namo

@@ -31,6 +31,10 @@ private:
     };
     Config legacy_config_;
     
+    // Robot goal state for MCTS
+    std::array<double, 3> robot_goal_{0.0, 0.0, 0.0};
+    bool has_robot_goal_{false};
+    
 public:
     /**
      * @brief Constructor with proper dependency injection
@@ -65,6 +69,14 @@ public:
      */
     std::vector<std::string> get_reachable_objects() const;
     bool is_object_reachable(const std::string& object_name) const;
+    
+    /**
+     * @brief Robot goal management for MCTS (leverages cached wavefront)
+     */
+    void set_robot_goal(double x, double y, double theta = 0.0);
+    bool is_robot_goal_reachable() const;
+    std::array<double, 3> get_robot_goal() const;
+    void clear_robot_goal();
     
 private:
     /**

@@ -45,7 +45,7 @@ strategy:
 skill:
   # Push skill parameters
   max_push_steps: 10               # Maximum push steps per skill execution
-  max_mpc_iterations: 2           # Maximum MPC iterations per push skill execution
+  max_mpc_iterations: 5         # Maximum MPC iterations per push skill execution
   control_steps_per_push: 250      # Control simulation steps per push step
   force_scaling: 1.0               # Force scaling factor
   robot_size: [0.15, 0.15, 0.15]  # [x, y, z] robot dimensions for skill planning
