@@ -45,7 +45,7 @@ strategy:
 skill:
   # Push skill parameters
   max_push_steps: 10               # Maximum push steps per skill execution
-  max_mpc_iterations: 5         # Maximum MPC iterations per push skill execution
+  max_mpc_iterations: 10         # Maximum MPC iterations per push skill execution
   control_steps_per_push: 250      # Control simulation steps per push step
   force_scaling: 1.0               # Force scaling factor
   robot_size: [0.15, 0.15, 0.15]  # [x, y, z] robot dimensions for skill planning
@@ -67,8 +67,8 @@ environment:
   # bounds: [-5.525, 5.525, -5.525, 5.525]  # REMOVED: now calculated from environment
   
   # Memory allocation limits
-  max_static_objects: 20           # Maximum number of static objects
-  max_movable_objects: 10          # Maximum number of movable objects
+  max_static_objects: 30           # Maximum number of static objects
+  max_movable_objects: 30          # Maximum number of movable objects
   max_actions: 100                 # Maximum action sequence length
   max_motion_primitives: 1000      # Maximum motion primitives in memory
   max_planning_nodes: 10000        # Maximum search nodes
@@ -127,7 +127,7 @@ wavefront_planner:
 
 # Motion primitive configuration
 motion_primitives:
-  database_file: "data/motion_primitives.dat"  # Binary database file
+  database_file: "data/motion_primitives1.dat"  # Binary database file
   
   # Generation parameters (for regenerating primitives)
   num_edges: 12                    # Number of edge points around objects

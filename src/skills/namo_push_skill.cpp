@@ -160,16 +160,17 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
     if (obj_info) {
         std::array<double, 3> target_3d = {target_pose.x, target_pose.y, 0.1}; // Slightly above ground
         std::array<float, 4> cyan_color = {0.0f, 0.8f, 1.0f, 1.0f}; // Cyan for object target goals
-        env_.visualize_object_goal_marker(target_3d, obj_info->size, cyan_color);
+        env_.visualize_object_goal_marker(target_3d, obj_info->size, target_pose.theta, cyan_color);
     }
     
     // **ITERATIVE MPC LOOP**
     for (int mpc_iter = 0; mpc_iter < max_mpc_iterations; mpc_iter++) {
-        // std::cout << "\n--- MPC Iteration " << (mpc_iter + 1) << "/" << max_mpc_iterations << " ---" << std::endl;
+        std::cout << "\n--- MPC Iteration " << (mpc_iter + 1) << "/" << max_mpc_iterations << " ---" << std::endl;
         
         // 1. Get current object state
         auto current_pose = get_object_current_pose(object_name);
         if (!current_pose) {
+            std::cout << "Could not get current pose for object: " << object_name << " at iteration " << mpc_iter << std::endl;
             result.failure_reason = "Could not get current pose for object: " + object_name + " at iteration " + std::to_string(mpc_iter);
             return result;
         }
@@ -180,7 +181,7 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         
         // 2. Check if robot goal is reachable (early termination)
         if (has_robot_goal_ && executor_->is_robot_goal_reachable()) {
-            // std::cout << "Robot goal became reachable at iteration " << mpc_iter << std::endl;
+            std::cout << "Robot goal became reachable at iteration " << mpc_iter << std::endl;
             result.success = true;
             result.outputs["robot_goal_reached"] = true;
             result.outputs["steps_executed"] = mpc_iter;
@@ -194,7 +195,7 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         
         // 3. Check if object reached target goal
         if (is_object_at_goal(current_state, target_pose, tolerance)) {
-            // std::cout << "Object reached goal at iteration " << mpc_iter << std::endl;
+            std::cout << "Object reached goal at iteration " << mpc_iter << std::endl;
             result.success = true;
             result.outputs["robot_goal_reached"] = false;
             result.outputs["steps_executed"] = mpc_iter;
@@ -212,10 +213,10 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         
         std::vector<int> reachable_edges = executor_->get_reachable_edges_with_wavefront(object_name);
         // Save wavefront for debugging BEFORE checking reachability
-        executor_->save_debug_wavefront(mpc_iter, "mpc_wavefront");
+        // executor_->save_debug_wavefront(mpc_iter, "mpc_wavefront");
         
         if (reachable_edges.empty()) {
-            // std::cout << "No reachable edges for object " << object_name << " - stopping MPC" << std::endl;
+            std::cout << "No reachable edges for object " << object_name << " - stopping MPC" << std::endl;
             result.failure_reason = "No reachable edges at iteration " + std::to_string(mpc_iter);
             result.outputs["steps_executed"] = mpc_iter;
             result.outputs["final_pose"] = current_state;
@@ -233,7 +234,7 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         try {
             plan = planner_->plan_push_sequence(current_state, target_pose, reachable_edges);
         } catch (const std::exception& e) {
-            // std::cout << "Planning failed: " << e.what() << std::endl;
+            std::cout << "Planning failed: " << e.what() << std::endl;
             result.failure_reason = "Planning failed at iteration " + std::to_string(mpc_iter) + ": " + e.what();
             result.outputs["steps_executed"] = mpc_iter;
             result.outputs["final_pose"] = current_state;
@@ -245,7 +246,7 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         }
         
         if (plan.empty()) {
-            // std::cout << "No plan found from current state" << std::endl;
+            std::cout << "No plan found from current state" << std::endl;
             result.failure_reason = "No plan found at iteration " + std::to_string(mpc_iter);
             result.outputs["steps_executed"] = mpc_iter;
             result.outputs["final_pose"] = current_state;
@@ -264,7 +265,7 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         auto step_result = executor_->execute_plan(object_name, single_step);
         
         if (!step_result.success) {
-            // std::cout << "Failed to execute primitive step: " << step_result.failure_reason << std::endl;
+            std::cout << "Failed to execute primitive step: " << step_result.failure_reason << std::endl;
             result.failure_reason = "Primitive execution failed at iteration " + std::to_string(mpc_iter) + ": " + step_result.failure_reason;
             result.outputs["steps_executed"] = mpc_iter;
             result.outputs["final_pose"] = current_state;

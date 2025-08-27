@@ -102,10 +102,10 @@ bool MPCExecutor::execute_primitive_step(
     
     // For now, we'll execute the primitive directly without explicit goal setting
     // The push controller will handle the primitive execution with physics
-    // std::cout << "Executing primitive: edge=" << plan_step.edge_idx 
-    //           << " steps=" << plan_step.push_steps
-    //           << " target_pose=[" << plan_step.pose.x << "," << plan_step.pose.y 
-    //           << "," << plan_step.pose.theta << "]" << std::endl;
+    std::cout << "Executing primitive: edge=" << plan_step.edge_idx 
+              << " steps=" << plan_step.push_steps
+              << " target_pose=[" << plan_step.pose.x << "," << plan_step.pose.y 
+              << "," << plan_step.pose.theta << "]" << std::endl;
     
     // Execute MPC following old implementation approach (namo_planner.hpp:217-292)
     int stuck_counter = 0;
@@ -128,13 +128,15 @@ bool MPCExecutor::execute_primitive_step(
         // Use edge index and step count from the plan
         bool push_success = controller_.execute_push_primitive(object_name, plan_step.edge_idx, 1);
         
-        if (push_success) {
-            // std::cout << "Push controller reached target location in MPC step " << mpc_step << std::endl;
-            return true;
-        }
+        // if (push_success) {
+        //     // std::cout << "Push controller reached target location in MPC step " << mpc_step << std::endl;
+        //     return true;
+        // }
         
         // Check if object is stuck
         SE2State current_state = get_object_se2_state(object_name);
+        // std::cout << "current_state: " << current_state.x << ", " << current_state.y << ", " << current_state.theta << std::endl;
+        // std::cout << "previous_state: " << previous_state.x << ", " << previous_state.y << ", " << previous_state.theta << std::endl;
         if (is_object_stuck(object_name, previous_state)) {
             stuck_counter++;
             if (stuck_counter > max_stuck_iterations_) {
@@ -223,14 +225,16 @@ bool MPCExecutor::is_object_stuck(const std::string& object_name, const SE2State
     
     double dx = current_state.x - previous_state.x;
     double dy = current_state.y - previous_state.y;
+
+    // std::cout << "dx: " << dx << ", dy: " << dy << std::endl;
     double distance_moved = std::sqrt(dx*dx + dy*dy);
     
     double angle_change = std::abs(current_state.theta - previous_state.theta);
     while (angle_change > M_PI) angle_change = 2.0 * M_PI - angle_change;
     
     // Consider stuck if both position and orientation changes are very small
-    const double min_position_change = 0.001;  // 1mm
-    const double min_angle_change = 0.01;      // ~0.6 degrees
+    const double min_position_change = 0.01;  // 1mm
+    const double min_angle_change = 0.1;      // ~0.6 degrees
     
     return distance_moved < min_position_change && angle_change < min_angle_change;
 }

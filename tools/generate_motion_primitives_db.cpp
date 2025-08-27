@@ -5,6 +5,7 @@
 #include <string>
 #include <filesystem>
 #include <cstdint>
+#include <memory>
 
 #include "../include/core/parameter_loader.hpp"
 #include "../include/environment/namo_environment.hpp"
@@ -71,14 +72,14 @@ resolution=0.05
         const auto& robot_info = env.get_robot_info();
         std::vector<double> robot_size = {robot_info.size[0], robot_info.size[1]};
         
-        // Create wavefront planner
-        WavefrontPlanner wavefront_planner(resolution, env, robot_size);
+        // Create wavefront planner (heap allocation to avoid 32MB stack array)
+        auto wavefront_planner = std::make_unique<WavefrontPlanner>(resolution, env, robot_size);
         
         // Set robot goal
         env.set_robot_goal(robot_goal);
         
         // Create push controller (this has the primitive execution logic)
-        NAMOPushController push_controller(env, wavefront_planner, 10, 250, 1.0);
+        NAMOPushController push_controller(env, *wavefront_planner, 10, 250, 1.0);
         // std::cout << "Push controller created with parameters: 10 steps, 250 control_steps, 1.0 scaling" << std::endl;
         
         // Get movable objects (should be our nominal 0.35x0.35 object)

@@ -1,0 +1,39 @@
+Mon Aug 18 09:38:49 2025
+WARNING: Nan, Inf or huge value in QVEL at DOF 0. The simulation is unstable. Time = 3489.7600.
+
+Mon Aug 18 10:11:13 2025
+WARNING: Nan, Inf or huge value in QPOS at DOF 0. The simulation is unstable. Time = 19460.0800.
+
+Mon Aug 18 11:47:14 2025
+WARNING: Nan, Inf or huge value in QVEL at DOF 0. The simulation is unstable. Time = 11964.8500.
+
+Wed Aug 20 11:42:04 2025
+WARNING: Nan, Inf or huge value in QPOS at DOF 0. The simulation is unstable. Time = 437988.1803.
+
+Wed Aug 20 13:35:20 2025
+WARNING: Nan, Inf or huge value in QPOS at DOF 0. The simulation is unstable. Time = 792364.0806.
+
+Wed Aug 20 14:27:59 2025
+WARNING: Nan, Inf or huge value in QPOS at DOF 0. The simulation is unstable. Time = 923939.0307.
+
+Wed Aug 20 20:48:38 2025
+WARNING: Nan, Inf or huge value in QVEL at DOF 0. The simulation is unstable. Time = 189753.1100.
+
+Thu Aug 21 03:15:05 2025
+WARNING: Nan, Inf or huge value in QVEL at DOF 0. The simulation is unstable. Time = 345.8700.
+
+Thu Aug 21 05:28:46 2025
+WARNING: Nan, Inf or huge value in QACC at DOF 0. The simulation is unstable. Time = 7900.1600.
+
+Thu Aug 21 16:18:04 2025
+WARNING: Nan, Inf or huge value in QVEL at DOF 0. The simulation is unstable. Time = 3515.9000.
+
+Sat Aug 23 01:56:23 2025
+WARNING: Nan, Inf or huge value in QVEL at DOF 0. The simulation is unstable. Time = 4928.0700.
+
+Sun Aug 24 03:11:35 2025
+WARNING: Nan, Inf or huge value in QVEL at DOF 0. The simulation is unstable. Time = 7937.3900.
+
+Sun Aug 24 04:08:24 2025
+WARNING: Linesearch objective is not convex
+

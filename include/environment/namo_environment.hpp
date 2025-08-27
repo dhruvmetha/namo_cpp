@@ -4,6 +4,7 @@
 #include "core/mujoco_wrapper.hpp"
 #include <memory>
 #include <fstream>
+#include <map>
 
 namespace namo {
 
@@ -56,8 +57,8 @@ public:
     std::vector<double> get_random_state() const;
     
     // Object accessors
-    const std::array<ObjectInfo, 20>& get_static_objects() const { return static_objects_; }
-    const std::array<ObjectInfo, 10>& get_movable_objects() const { return movable_objects_; }
+    const std::array<ObjectInfo, 30>& get_static_objects() const { return static_objects_; }
+    const std::array<ObjectInfo, 20>& get_movable_objects() const { return movable_objects_; }
     size_t get_num_static() const { return num_static_; }
     size_t get_num_movable() const { return num_movable_; }
     
@@ -68,6 +69,9 @@ public:
     const ObjectInfo* get_object_info(const std::string& name) const;
     const ObjectState* get_object_state(const std::string& name) const;
     const std::unordered_map<std::string, ObjectState>& get_all_object_states() const { return object_states_; }
+    
+    // Batch object info for efficient access (returns all immutable object data)
+    std::map<std::string, std::map<std::string, double>> get_all_object_info() const;
     
     // Goal management
     void set_robot_goal(const std::array<double, 2>& goal) { robot_goal_ = goal; }
@@ -84,6 +88,7 @@ public:
     // Visualization for object goal marker with object-specific size
     void visualize_object_goal_marker(const std::array<double, 3>& goal_position,
                                      const std::array<double, 3>& object_size,
+                                     double theta = 0.0,
                                      const std::array<float, 4>& color = {0.0f, 0.8f, 1.0f, 1.0f});
     
     // Collision detection
@@ -119,8 +124,8 @@ private:
     std::unique_ptr<OptimizedMujocoWrapper> sim_;
     
     // Fixed-size object storage
-    static constexpr size_t MAX_STATIC_OBJECTS = 20;
-    static constexpr size_t MAX_MOVABLE_OBJECTS = 10;
+    static constexpr size_t MAX_STATIC_OBJECTS = 30;
+    static constexpr size_t MAX_MOVABLE_OBJECTS = 20;
     
     std::array<ObjectInfo, MAX_STATIC_OBJECTS> static_objects_;
     std::array<ObjectInfo, MAX_MOVABLE_OBJECTS> movable_objects_;

@@ -8,10 +8,11 @@ tree search with full state management.
 
 import sys
 import os
+import numpy as np
+from pathlib import Path
 
-# Add the build directory to Python path (adjust as needed)
-# You may need to modify this path based on your build location
-sys.path.append("../build")  
+# Add current directory to path for imports
+sys.path.append(str(Path(__file__).parent))
 
 try:
     import namo_rl
@@ -80,9 +81,9 @@ def test_state_management():
             # Use the first movable object
             obj_name = list(initial_obs.keys())[0].replace("_pose", "")
             action.object_id = obj_name
-            action.x = initial_obs[obj_name + "_pose"][0] + 0.5  # Move 0.5m in x
-            action.y = initial_obs[obj_name + "_pose"][1] + 0.5  # Move 0.5m in y
-            action.theta = 0.0
+            action.x = initial_obs[obj_name + "_pose"][0] + np.random.uniform(-0.5, 0.5)  # Move 0.5m in x
+            action.y = initial_obs[obj_name + "_pose"][1] + np.random.uniform(-0.5, 0.5)  # Move 0.5m in y
+            action.theta = np.random.uniform(-np.pi, np.pi)
             
             print(f"✓ Created action: push {action.object_id} to ({action.x:.3f}, {action.y:.3f}, {action.theta:.3f})")
             
@@ -133,79 +134,6 @@ def test_state_management():
     
     return True
 
-def test_mcts_workflow():
-    """Demonstrate a simple MCTS-like workflow."""
-    print("\n=== Testing MCTS-like Workflow ===")
-    
-    xml_path = "data/test_scene.xml"
-    config_path = "config/namo_config_complete.yaml"
-    
-    try:
-        env = namo_rl.RLEnvironment(xml_path, config_path)
-        env.reset()
-        
-        # Save root state
-        root_state = env.get_full_state()
-        initial_obs = env.get_observation()
-        
-        if len(initial_obs) == 0:
-            print("⚠ No objects found, skipping MCTS workflow test")
-            return True
-            
-        # Simulate exploring multiple actions from the same state
-        obj_name = list(initial_obs.keys())[0].replace("_pose", "")
-        base_x = initial_obs[obj_name + "_pose"][0]
-        base_y = initial_obs[obj_name + "_pose"][1]
-        
-        actions = [
-            (base_x + 0.3, base_y + 0.0),  # East
-            (base_x + 0.0, base_y + 0.3),  # North  
-            (base_x - 0.3, base_y + 0.0),  # West
-            (base_x + 0.0, base_y - 0.3),  # South
-        ]
-        
-        results = []
-        
-        for i, (target_x, target_y) in enumerate(actions):
-            print(f"\n--- Exploring action {i+1}: move to ({target_x:.3f}, {target_y:.3f}) ---")
-            
-            # Restore to root state
-            env.set_full_state(root_state)
-            
-            # Create action
-            action = namo_rl.Action()
-            action.object_id = obj_name
-            action.x = target_x
-            action.y = target_y
-            action.theta = 0.0
-            
-            # Execute action
-            result = env.step(action)
-            results.append(result)
-            
-            print(f"  Result: success={result.done}, reward={result.reward}")
-            
-            # Get final observation
-            final_obs = env.get_observation()
-            if obj_name + "_pose" in final_obs:
-                final_pos = final_obs[obj_name + "_pose"]
-                print(f"  Final position: [{final_pos[0]:.3f}, {final_pos[1]:.3f}, {final_pos[2]:.3f}]")
-        
-        # Restore to root one final time
-        env.set_full_state(root_state)
-        print("\n✓ MCTS workflow completed - environment restored to root state")
-        
-        # Summary
-        print(f"\nSummary of {len(actions)} explored actions:")
-        for i, result in enumerate(results):
-            print(f"  Action {i+1}: reward={result.reward:.1f}, success={result.done}")
-            
-    except Exception as e:
-        print(f"✗ MCTS workflow test failed: {e}")
-        return False
-    
-    return True
-
 def main():
     """Run all tests."""
     print("NAMO RL Environment Test Suite")
@@ -221,11 +149,7 @@ def main():
         print("\n✗ State management test failed")
         return 1
     
-    # # Test MCTS workflow
-    # if not test_mcts_workflow():
-    #     print("\n✗ MCTS workflow test failed")
-    #     return 1
-    
+
     print("\n" + "=" * 40)
     print("✓ All tests passed!")
     print("\nThe RL environment is ready for MCTS integration.")

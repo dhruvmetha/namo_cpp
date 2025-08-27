@@ -1,6 +1,9 @@
 build/
 debug_wavefront*.txt
 build_python/
-build_python_mjxrl/
+build_python_mjxrl*/
 __pycache__/
 .DS_Store
+*.png
+*.pkl
+*.txt

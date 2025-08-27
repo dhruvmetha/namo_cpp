@@ -92,14 +92,14 @@ void NAMOEnvironment::warm_up() {
         sim_->step();
     }
     
-    // Save initial state for optimization reset
-    State initial_state;
-    sim_->get_state(initial_state);
-    initial_qpos_.resize(initial_state.size());
-    for (size_t i = 0; i < initial_state.size(); ++i) {
-        initial_qpos_[i] = initial_state[i];
-    }
-    initial_qvel_.clear();  // Not using separate velocity storage for now
+    // // Save initial state for optimization reset
+    // State initial_state;
+    // sim_->get_state(initial_state);
+    // initial_qpos_.resize(initial_state.size());
+    // for (size_t i = 0; i < initial_state.size(); ++i) {
+    //     initial_qpos_[i] = initial_state[i];
+    // }
+    // initial_qvel_.clear();  // Not using separate velocity storage for now
 }
 
 void NAMOEnvironment::process_environment_objects() {
@@ -168,6 +168,7 @@ void NAMOEnvironment::add_static_object(const ObjectInfo& obj) {
         static_objects_[num_static_++] = obj;
     } else {
         std::cerr << "Warning: Maximum static objects exceeded. Increase MAX_STATIC_OBJECTS." << std::endl;
+        std::cout << config_name_ << std::endl;
     }
 }
 
@@ -603,6 +604,46 @@ const ObjectInfo* NAMOEnvironment::get_object_info(const std::string& name) cons
     return nullptr;
 }
 
+std::map<std::string, std::map<std::string, double>> NAMOEnvironment::get_all_object_info() const {
+    std::map<std::string, std::map<std::string, double>> all_object_info;
+    
+    // Add robot info (only size is immutable)
+    all_object_info[robot_info_.name] = {
+        {"size_x", robot_info_.size[0]},
+        {"size_y", robot_info_.size[1]},
+        {"size_z", robot_info_.size[2]}
+    };
+    
+    // Add static objects (position, orientation, AND size are all immutable)
+    for (size_t i = 0; i < num_static_; i++) {
+        const auto& obj = static_objects_[i];
+        all_object_info[obj.name] = {
+            {"size_x", obj.size[0]},
+            {"size_y", obj.size[1]},
+            {"size_z", obj.size[2]},
+            {"pos_x", obj.position[0]},
+            {"pos_y", obj.position[1]},
+            {"pos_z", obj.position[2]},
+            {"quat_w", obj.quaternion[0]},
+            {"quat_x", obj.quaternion[1]},
+            {"quat_y", obj.quaternion[2]},
+            {"quat_z", obj.quaternion[3]}
+        };
+    }
+    
+    // Add movable objects (only size is immutable)
+    for (size_t i = 0; i < num_movable_; i++) {
+        const auto& obj = movable_objects_[i];
+        all_object_info[obj.name] = {
+            {"size_x", obj.size[0]},
+            {"size_y", obj.size[1]},
+            {"size_z", obj.size[2]}
+        };
+    }
+    
+    return all_object_info;
+}
+
 const ObjectState* NAMOEnvironment::get_object_state(const std::string& name) const {
     if (name == "robot") {
         return &robot_state_;
@@ -658,11 +699,19 @@ void NAMOEnvironment::visualize_goal_marker(const std::array<double, 3>& goal_po
 
 void NAMOEnvironment::visualize_object_goal_marker(const std::array<double, 3>& goal_position,
                                                   const std::array<double, 3>& object_size,
+                                                  double theta,
                                                   const std::array<float, 4>& color) {
     if (!sim_) return;
     
-    // Use the actual object size to show where it will be placed
-    std::array<double, 4> orientation = {1.0, 0.0, 0.0, 0.0}; // Identity quaternion
+    // Convert theta (yaw angle) to quaternion
+    double half_theta = theta * 0.5;
+    std::array<double, 4> orientation = {
+        std::cos(half_theta),  // w
+        0.0,                   // x
+        0.0,                   // y
+        std::sin(half_theta)   // z
+    };
+    
     std::array<double, 3> marker_size = {object_size[0], object_size[1], 0.05}; // Match object footprint, thin but visible
     int geom_type = 6; // mjGEOM_BOX = 6 - use thin box to show goal footprint
     
@@ -704,22 +753,7 @@ void NAMOEnvironment::restore_saved_state() {
 
 void NAMOEnvironment::reset_to_initial_state() {
     if (!sim_) return;
-    
-    // Reset to initial state (saved during construction/warm_up)
-    if (!initial_qpos_.empty()) {
-        State state;
-        state.resize(initial_qpos_.size());
-        for (size_t i = 0; i < initial_qpos_.size(); ++i) {
-            state[i] = initial_qpos_[i];
-        }
-        sim_->set_state(state);
-        
-        // Update our object state tracking
-        update_object_states();
-    } else {
-        // Fallback to regular reset
-        reset();
-    }
+    reset();
 }
 
 } // namespace namo

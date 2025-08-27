@@ -71,12 +71,12 @@ public:
      * @param max_mpc_steps Maximum MPC steps per primitive (default: 10)
      * @param distance_threshold Distance threshold for goal reaching (default: 0.01)
      * @param angle_threshold Angle threshold for goal reaching (default: 0.1)
-     * @param max_stuck_iterations Max stuck iterations before failure (default: 3)
+     * @param max_stuck_iterations Max stuck iterations before failure (default: 2)
      */
     void set_parameters(int max_mpc_steps = 10, 
                        double distance_threshold = 0.01,
                        double angle_threshold = 0.1,
-                       int max_stuck_iterations = 3);
+                       int max_stuck_iterations = 2);
     
     /**
      * @brief Set robot goal for early termination checking

@@ -45,6 +45,12 @@ public:
     // Reachability queries
     std::vector<std::string> get_reachable_objects() const;
     bool is_object_reachable(const std::string& object_name) const;
+    
+    // Object geometry information (returns cached reference)
+    const std::map<std::string, std::map<std::string, double>>& get_object_info() const;
+    
+    // World bounds information
+    std::vector<double> get_world_bounds() const;
 
     // Robot goal management for MCTS
     void set_robot_goal(double x, double y, double theta = 0.0);
@@ -64,6 +70,9 @@ private:
     std::unique_ptr<NAMOEnvironment> env_;
     std::unique_ptr<NAMOPushSkill> skill_;
     std::shared_ptr<ConfigManager> config_;
+    
+    // Cached immutable object info (built once during initialization)
+    std::map<std::string, std::map<std::string, double>> cached_object_info_;
 };
 
 } // namespace namo

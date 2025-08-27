@@ -281,7 +281,46 @@ if(BUILD_PYTHON_BINDINGS)
     message(STATUS "Module suffix will be: ${Python3_SOABI}${CMAKE_SHARED_MODULE_SUFFIX}")
 endif()
 
+# Motion primitives generator tool
+add_executable(generate_motion_primitives_db
+    tools/generate_motion_primitives_db.cpp
+    ${CORE_SOURCES}
+    ${PLANNING_SOURCES}
+    ${WAVEFRONT_SOURCES}
+    ${PLANNER_SOURCES}
+    ${STRATEGY_SOURCES}
+    ${ENVIRONMENT_SOURCES}
+    ${SKILLS_SOURCES}
+    ${CONFIG_SOURCES}
+)
+
+# Link motion primitives generator
+target_link_libraries(generate_motion_primitives_db
+    ${MUJOCO_LIB}
+    ${OpenCV_LIBS}
+    pthread
+    m  # math library
+)
+
+# Link optional libraries if available
+if(glfw3_FOUND AND OpenGL_FOUND)
+    target_link_libraries(generate_motion_primitives_db glfw OpenGL::GL)
+    target_compile_definitions(generate_motion_primitives_db PRIVATE HAVE_GLFW)
+endif()
+
+if(ZMQ_FOUND)
+    target_link_libraries(generate_motion_primitives_db ${ZMQ_LIBRARIES})
+    target_include_directories(generate_motion_primitives_db PRIVATE ${ZMQ_INCLUDE_DIRS})
+    target_compile_definitions(generate_motion_primitives_db PRIVATE HAVE_ZMQ)
+endif()
+
+# Compiler-specific optimizations
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(generate_motion_primitives_db PRIVATE -fopenmp -ffast-math)
+    target_link_libraries(generate_motion_primitives_db gomp)
+endif()
+
 # Install targets
-install(TARGETS high_level_planning_demo DESTINATION bin)
+install(TARGETS high_level_planning_demo generate_motion_primitives_db DESTINATION bin)
 install(DIRECTORY config/ DESTINATION share/namo_standalone/config)
 install(DIRECTORY data/ DESTINATION share/namo_standalone/data OPTIONAL)

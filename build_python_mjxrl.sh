@@ -32,7 +32,7 @@ fi
 echo "Using MuJoCo from: ${MJ_PATH}"
 
 # Create build directory
-BUILD_DIR="build_python_mjxrl"
+BUILD_DIR="build_python_mjxrl_${HOSTNAME%%.*}"
 if [[ -d "$BUILD_DIR" ]]; then
     echo "Removing existing build directory..."
     rm -rf "$BUILD_DIR"

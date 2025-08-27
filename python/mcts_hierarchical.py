@@ -266,9 +266,10 @@ class CleanHierarchicalMCTS:
     4. Progressive Widening only for goal selection (continuous space)
     """
     
-    def __init__(self, env: namo_rl.RLEnvironment, config: MCTSConfig):
+    def __init__(self, env: namo_rl.RLEnvironment, config: MCTSConfig, verbose: bool = False):
         self.env = env
         self.config = config
+        self.verbose = verbose
         self.constraints = self._get_action_constraints()
     
     def _get_action_constraints(self) -> ActionConstraints:
@@ -289,6 +290,42 @@ class CleanHierarchicalMCTS:
         else:
             return self._search_without_visualization(robot_goal)
     
+    def search_with_root_access(self, robot_goal: Tuple[float, float, float], 
+                               visualize_tree: bool = False) -> Tuple[Optional[Action], StateNode]:
+        """Run MCTS search and return both best action and root node for data extraction."""
+        # Set robot goal
+        self.env.set_robot_goal(*robot_goal)
+        
+        # Initialize root state node
+        root_state = self.env.get_full_state()
+        root = StateNode(state=root_state)
+        
+        if visualize_tree and RICH_AVAILABLE:
+            # Run with visualization
+            from rich.console import Console
+            from rich.live import Live
+            console = Console()
+            
+            with Live(console=console, refresh_per_second=2) as live:
+                for iteration in range(self.config.simulation_budget):
+                    self._mcts_iteration(root)
+                    
+                    if iteration % 10 == 0:
+                        tree_display = self._create_tree_display(root, iteration)
+                        live.update(tree_display)
+            
+            # Show final tree
+            final_tree = self._create_tree_display(root, self.config.simulation_budget, final=True)
+            console.print(final_tree)
+        else:
+            # Run without visualization
+            for iteration in range(self.config.simulation_budget):
+                self._mcts_iteration(root)
+        
+        # Select best action and return both action and root
+        best_action = self._select_best_action(root)
+        return best_action, root
+    
     def _search_without_visualization(self, robot_goal: Tuple[float, float, float]) -> Optional[Action]:
         """Run MCTS search without visualization."""
         # Set robot goal
@@ -300,9 +337,6 @@ class CleanHierarchicalMCTS:
         
         # Run MCTS iterations
         for iteration in range(self.config.simulation_budget):
-            if self.config.verbose and iteration % 10 == 0:
-                print(f"MCTS iteration {iteration}/{self.config.simulation_budget}")
-            
             self._mcts_iteration(root)
         
         # Select best action
@@ -311,7 +345,6 @@ class CleanHierarchicalMCTS:
     def _search_with_visualization(self, robot_goal: Tuple[float, float, float]) -> Optional[Action]:
         """Run MCTS search with live tree visualization."""
         if not RICH_AVAILABLE:
-            print("Rich library not available. Running without visualization.")
             return self._search_without_visualization(robot_goal)
         
         # Set robot goal
@@ -425,7 +458,7 @@ class CleanHierarchicalMCTS:
         if self.env.is_robot_goal_reachable():
             return 1.0
         
-        reward = 0.0
+        reward = [-0.1]
         
         # Perform random rollout
         for ct in range(self.config.max_rollout_steps):
@@ -435,7 +468,7 @@ class CleanHierarchicalMCTS:
             # Sample random action
             reachable_objects = self.env.get_reachable_objects()
             if not reachable_objects:
-                reward += (0.99 ** (ct+1)) * -1.0
+                reward.append(-10.0)
                 break
             
             # Random object selection
@@ -445,7 +478,7 @@ class CleanHierarchicalMCTS:
             obs = self.env.get_observation()
             pose_key = f"{obj_id}_pose"
             if pose_key not in obs:
-                reward += (0.99 ** (ct+1)) * -1.0
+                reward.append(-10.0)
                 break
             
             obj_x, obj_y = obs[pose_key][0], obs[pose_key][1]
@@ -464,12 +497,18 @@ class CleanHierarchicalMCTS:
             
             result = self.env.step(action)
             if result.reward > 0:  # Goal reached
-                reward += (0.99 ** (ct+1)) * 1.0
+                reward.append(1.0)
                 break
             else:
-                reward += (0.99 ** (ct+1)) * -1.0
+                if ct == self.config.max_rollout_steps - 1:
+                    reward.append(-1.0)
+                else:
+                    reward.append(-0.1)
         
-        return reward  # Goal not reached
+        ret = 0.0
+        for r in reward[::-1]:
+            ret = ret * 0.99 + r
+        return ret
     
     def _backpropagate(self, path: List[MCTSNode], reward: float):
         """Backpropagation phase: update statistics for all nodes in path.
@@ -556,7 +595,8 @@ class CleanHierarchicalMCTS:
 def plan_with_clean_hierarchical_mcts(env: namo_rl.RLEnvironment,
                                      robot_goal: Tuple[float, float, float],
                                      config: MCTSConfig = None,
-                                     visualize_tree: bool = False) -> Optional[namo_rl.Action]:
+                                     visualize_tree: bool = False,
+                                     verbose: bool = False) -> Optional[namo_rl.Action]:
     """Plan single action using clean 2-level hierarchical MCTS.
     
     Args:
@@ -564,6 +604,7 @@ def plan_with_clean_hierarchical_mcts(env: namo_rl.RLEnvironment,
         robot_goal: Target robot position (x, y, theta)
         config: MCTS configuration (uses defaults if None)
         visualize_tree: Whether to show live tree visualization
+        verbose: Whether to print debug information
         
     Returns:
         Best NAMO action or None if no solution found
@@ -571,7 +612,7 @@ def plan_with_clean_hierarchical_mcts(env: namo_rl.RLEnvironment,
     if config is None:
         config = MCTSConfig()
     
-    mcts = CleanHierarchicalMCTS(env, config)
+    mcts = CleanHierarchicalMCTS(env, config, verbose=verbose)
     action = mcts.search(robot_goal, visualize_tree=visualize_tree)
     
     # Convert to namo_rl.Action if found

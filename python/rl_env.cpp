@@ -11,6 +11,10 @@ RLEnvironment::RLEnvironment(const std::string& xml_path, const std::string& con
         config_ = std::shared_ptr<ConfigManager>(ConfigManager::create_from_file(config_path).release());
         env_ = std::make_unique<NAMOEnvironment>(xml_path, visualize); // Use provided visualization parameter
         skill_ = std::make_unique<NAMOPushSkill>(*env_, config_);
+        
+        // Cache immutable object info once during initialization
+        cached_object_info_ = env_->get_all_object_info();
+        
         // std::cout << "RLEnvironment initialized successfully." << std::endl;
     } catch (const std::exception& e) {
         std::cerr << "Error during RLEnvironment initialization: " << e.what() << std::endl;
@@ -21,7 +25,7 @@ RLEnvironment::RLEnvironment(const std::string& xml_path, const std::string& con
 RLEnvironment::~RLEnvironment() = default;
 
 void RLEnvironment::reset() {
-    env_->reset_to_initial_state();
+    env_->reset(); // reset_to_initial_state();
 }
 
 RLEnvironment::StepResult RLEnvironment::step(const Action& action) {
@@ -128,6 +132,11 @@ bool RLEnvironment::is_object_reachable(const std::string& object_name) const {
     return skill_->is_object_reachable(object_name);
 }
 
+const std::map<std::string, std::map<std::string, double>>& RLEnvironment::get_object_info() const {
+    // Return cached reference - zero cost operation!
+    return cached_object_info_;
+}
+
 void RLEnvironment::set_robot_goal(double x, double y, double theta) {
     skill_->set_robot_goal(x, y, theta);
 }
@@ -138,6 +147,10 @@ bool RLEnvironment::is_robot_goal_reachable() const {
 
 std::array<double, 3> RLEnvironment::get_robot_goal() const {
     return skill_->get_robot_goal();
+}
+
+std::vector<double> RLEnvironment::get_world_bounds() const {
+    return env_->get_environment_bounds();
 }
 
 RLEnvironment::ActionConstraints RLEnvironment::get_action_constraints() const {
