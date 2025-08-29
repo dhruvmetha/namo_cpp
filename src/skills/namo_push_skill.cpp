@@ -164,8 +164,12 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
     }
     
     // **ITERATIVE MPC LOOP**
+    SE2State previous_state = *get_object_current_pose(object_name); // Initialize for stuck detection
+    int stuck_counter = 0;
+    const int max_stuck_iterations = 2; // Allow 3 stuck iterations before failure
+    
     for (int mpc_iter = 0; mpc_iter < max_mpc_iterations; mpc_iter++) {
-        std::cout << "\n--- MPC Iteration " << (mpc_iter + 1) << "/" << max_mpc_iterations << " ---" << std::endl;
+        // std::cout << "\n--- MPC Iteration " << (mpc_iter + 1) << "/" << max_mpc_iterations << " ---" << std::endl;
         
         // 1. Get current object state
         auto current_pose = get_object_current_pose(object_name);
@@ -176,10 +180,32 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         }
         
         SE2State current_state = *current_pose;
+        
+        // 2. Check if object is stuck (after first iteration)
+        if (mpc_iter > 0) {
+            if (is_object_stuck(previous_state, current_state)) {
+                stuck_counter++;
+                // std::cout << "Object stuck detection: " << stuck_counter << "/" << max_stuck_iterations << std::endl;
+                
+                if (stuck_counter >= max_stuck_iterations) {
+                    // std::cout << "Object " << object_name << " stuck for " << stuck_counter << " iterations - stopping MPC" << std::endl;
+                    // result.failure_reason = "Object stuck for " + std::to_string(stuck_counter) + " iterations at MPC iteration " + std::to_string(mpc_iter);
+                    result.outputs["steps_executed"] = mpc_iter;
+                    result.outputs["final_pose"] = current_state;
+                    result.outputs["object_name"] = object_name;
+                    
+                    auto end_time = std::chrono::high_resolution_clock::now();
+                    result.execution_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+                    return result;
+                }
+            } else {
+                stuck_counter = 0; // Reset stuck counter if object moved
+            }
+        }
         // std::cout << "Current state: [" << std::fixed << std::setprecision(3)
         //           << current_state.x << "," << current_state.y << "," << current_state.theta << "]" << std::endl;
         
-        // 2. Check if robot goal is reachable (early termination)
+        // 3. Check if robot goal is reachable (early termination)
         if (has_robot_goal_ && executor_->is_robot_goal_reachable()) {
             std::cout << "Robot goal became reachable at iteration " << mpc_iter << std::endl;
             result.success = true;
@@ -193,9 +219,9 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
             return result;
         }
         
-        // 3. Check if object reached target goal
+        // 4. Check if object reached target goal
         if (is_object_at_goal(current_state, target_pose, tolerance)) {
-            std::cout << "Object reached goal at iteration " << mpc_iter << std::endl;
+            // std::cout << "Object reached goal at iteration " << mpc_iter << std::endl;
             result.success = true;
             result.outputs["robot_goal_reached"] = false;
             result.outputs["steps_executed"] = mpc_iter;
@@ -207,16 +233,16 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
             return result;
         }
         
-        // 4. Update reachability using wavefront planner and save for debugging
+        // 5. Update reachability using wavefront planner and save for debugging
         // std::cout << "Updating wavefront and checking reachability..." << std::endl;
         
         
         std::vector<int> reachable_edges = executor_->get_reachable_edges_with_wavefront(object_name);
         // Save wavefront for debugging BEFORE checking reachability
-        // executor_->save_debug_wavefront(mpc_iter, "mpc_wavefront");
         
         if (reachable_edges.empty()) {
             std::cout << "No reachable edges for object " << object_name << " - stopping MPC" << std::endl;
+            executor_->save_debug_wavefront(mpc_iter, "mpc_wavefront_no_reachable_edges");
             result.failure_reason = "No reachable edges at iteration " + std::to_string(mpc_iter);
             result.outputs["steps_executed"] = mpc_iter;
             result.outputs["final_pose"] = current_state;
@@ -228,7 +254,7 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         }
         // std::cout << "Found " << reachable_edges.size() << " reachable edges" << std::endl;
         
-        // 5. Plan from current state to goal
+        // 6. Plan from current state to goal
         // std::cout << "Planning from current state to goal..." << std::endl;
         std::vector<PlanStep> plan;
         try {
@@ -246,7 +272,7 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         }
         
         if (plan.empty()) {
-            std::cout << "No plan found from current state" << std::endl;
+            // std::cout << "No plan found from current state" << std::endl;
             result.failure_reason = "No plan found at iteration " + std::to_string(mpc_iter);
             result.outputs["steps_executed"] = mpc_iter;
             result.outputs["final_pose"] = current_state;
@@ -260,28 +286,29 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         // std::cout << "Found plan with " << plan.size() << " steps, executing first step only" << std::endl;
         // std::cout << "First step: Edge=" << plan[0].edge_idx << " Steps=" << plan[0].push_steps << std::endl;
         
-        // 6. Execute ONLY the first primitive step (key difference from full sequence execution)
+        // 7. Execute ONLY the first primitive step (key difference from full sequence execution)
         std::vector<PlanStep> single_step = {plan[0]};
         auto step_result = executor_->execute_plan(object_name, single_step);
         
-        if (!step_result.success) {
-            std::cout << "Failed to execute primitive step: " << step_result.failure_reason << std::endl;
-            result.failure_reason = "Primitive execution failed at iteration " + std::to_string(mpc_iter) + ": " + step_result.failure_reason;
-            result.outputs["steps_executed"] = mpc_iter;
-            result.outputs["final_pose"] = current_state;
-            result.outputs["object_name"] = object_name;
+        // if (!step_result.success) {
+        //     std::cout << "Failed to execute primitive step: " << step_result.failure_reason << std::endl;
+        //     result.failure_reason = "Primitive execution failed at iteration " + std::to_string(mpc_iter) + ": " + step_result.failure_reason;
+        //     result.outputs["steps_executed"] = mpc_iter;
+        //     result.outputs["final_pose"] = current_state;
+        //     result.outputs["object_name"] = object_name;
             
-            auto end_time = std::chrono::high_resolution_clock::now();
-            result.execution_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-            return result;
-        }
+        //     auto end_time = std::chrono::high_resolution_clock::now();
+        //     result.execution_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+        //     continue;
+        // }
         
         // std::cout << "Step executed. New state: [" << std::fixed << std::setprecision(3)
         //           << step_result.final_object_state.x << "," 
         //           << step_result.final_object_state.y << ","
         //           << step_result.final_object_state.theta << "]" << std::endl;
         
-        // 7. Loop back for next iteration
+        // 8. Update previous state for stuck detection and loop back for next iteration
+        previous_state = current_state;
     }
     
     // If we reach here, we hit the iteration limit
@@ -401,6 +428,21 @@ bool NAMOPushSkill::is_object_at_goal(const SE2State& current, const SE2State& g
     rotation_error = std::abs(rotation_error);
     
     return position_error <= tolerance && rotation_error <= (tolerance * 2); // More lenient on rotation
+}
+
+bool NAMOPushSkill::is_object_stuck(const SE2State& previous_state, const SE2State& current_state) const {
+    double dx = current_state.x - previous_state.x;
+    double dy = current_state.y - previous_state.y;
+    double distance_moved = std::sqrt(dx*dx + dy*dy);
+    
+    double angle_change = std::abs(current_state.theta - previous_state.theta);
+    while (angle_change > M_PI) angle_change = 2.0 * M_PI - angle_change;
+    
+    // Consider stuck if both position and orientation changes are very small
+    const double min_position_change = 0.01;  // 1cm
+    const double min_angle_change = 0.1;      // ~0.6 degrees
+    
+    return distance_moved < min_position_change && angle_change < min_angle_change;
 }
 
 std::vector<int> NAMOPushSkill::get_reachable_edges(const std::string& object_name) const {

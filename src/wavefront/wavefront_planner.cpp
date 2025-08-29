@@ -313,11 +313,35 @@ void WavefrontPlanner::recompute_wavefront(NAMOEnvironment& env, const std::vect
     int start_x = world_to_grid_x(start_pos[0]);
     int start_y = world_to_grid_y(start_pos[1]);
     
-    // CRITICAL FIX: Ensure robot's current position is always free
-    // The robot cannot be inside an obstacle at its current location
+    // ADAPTIVE CLEARING: Check if robot is trapped and clear area accordingly
+    bool is_trapped = true;
+    
+    // Check if robot has any free neighbors (not trapped)
     if (is_valid_grid_coord(start_x, start_y)) {
-        dynamic_grid_[start_x][start_y] = -1;      // Mark as free space
-        reachability_grid_[start_x][start_y] = 0;  // Reset to unreachable (will become reachable in BFS)
+        for (const auto& [dx, dy] : DIRECTIONS) {
+            int nx = start_x + dx;
+            int ny = start_y + dy;
+            if (is_valid_grid_coord(nx, ny) && dynamic_grid_[nx][ny] != -2) {
+                is_trapped = false;
+                break;
+            }
+        }
+    }
+    
+    // Determine clearing radius: 1 if trapped, 0 if not trapped
+    int clear_radius = is_trapped ? 2 : 0;
+    
+    // Clear robot position and adaptive radius around it
+    for (int dx = -clear_radius; dx <= clear_radius; dx++) {
+        for (int dy = -clear_radius; dy <= clear_radius; dy++) {
+            int nx = start_x + dx;
+            int ny = start_y + dy;
+            
+            if (is_valid_grid_coord(nx, ny)) {
+                dynamic_grid_[nx][ny] = -1;           // Mark as free space
+                reachability_grid_[nx][ny] = 0;       // Reset to unreachable (will become reachable in BFS)
+            }
+        }
     }
     
     reset_bfs_queue();

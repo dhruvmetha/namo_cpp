@@ -68,11 +68,12 @@ std::vector<PlanStep> GreedyPlanner::plan_push_sequence(
         for (size_t i = 0; i < primitive_loader_.size(); i++) {
             const LoadedPrimitive& primitive = all_primitives[i];
             
-            // Skip if this edge is not allowed
-            if (!allowed_edges.empty()) {
+            // Only apply edge filtering for the first primitive (expanding from root)
+            bool expanding_first_primitive = (current == &search_nodes_[0]);
+            if (expanding_first_primitive && !allowed_edges.empty()) {
                 bool edge_allowed = std::find(allowed_edges.begin(), allowed_edges.end(), 
                                             primitive.edge_idx) != allowed_edges.end();
-                if (!edge_allowed) continue;
+                if (!edge_allowed) continue;  // Skip non-allowed edges for first move only
             }
             
             // Skip primitives with 0 push steps

@@ -102,16 +102,16 @@ bool MPCExecutor::execute_primitive_step(
     
     // For now, we'll execute the primitive directly without explicit goal setting
     // The push controller will handle the primitive execution with physics
-    std::cout << "Executing primitive: edge=" << plan_step.edge_idx 
-              << " steps=" << plan_step.push_steps
-              << " target_pose=[" << plan_step.pose.x << "," << plan_step.pose.y 
-              << "," << plan_step.pose.theta << "]" << std::endl;
+    // std::cout << "Executing primitive: edge=" << plan_step.edge_idx 
+    //           << " steps=" << plan_step.push_steps
+    //           << " target_pose=[" << plan_step.pose.x << "," << plan_step.pose.y 
+    //           << "," << plan_step.pose.theta << "]" << std::endl;
     
     // Execute MPC following old implementation approach (namo_planner.hpp:217-292)
     int stuck_counter = 0;
     SE2State previous_state = get_object_se2_state(object_name);
     
-    for (int mpc_step = 0; mpc_step < max_mpc_steps_; mpc_step++) {
+    for (int mpc_step = 0; mpc_step < plan_step.push_steps; mpc_step++) {
         // Check if robot goal became reachable during MPC
         if (has_robot_goal_ && is_robot_goal_reachable()) {
             // std::cout << "Robot goal became reachable during MPC step " << mpc_step << std::endl;
@@ -124,6 +124,24 @@ bool MPCExecutor::execute_primitive_step(
             return true;
         }
         
+
+        bool edge_idx_reachable = false;
+        std::vector<int> reachable_edges = get_reachable_edges_with_wavefront(object_name);
+        for (int edge_idx : reachable_edges) {
+            if (edge_idx == plan_step.edge_idx) {
+                edge_idx_reachable = true;
+                break;
+            }
+        }
+        if (!edge_idx_reachable) {
+            return false;
+        }
+
+        // std::cout << "reachable_edges: " << reachable_edges.size() << std::endl;
+        // for (int edge_idx : reachable_edges) {
+        //     std::cout << "reachable_edge: " << edge_idx << std::endl;
+        // }
+
         // Execute one push primitive using the controller
         // Use edge index and step count from the plan
         bool push_success = controller_.execute_push_primitive(object_name, plan_step.edge_idx, 1);

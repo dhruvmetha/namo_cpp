@@ -90,6 +90,7 @@ private:
      * @brief Helper methods for iterative MPC
      */
     bool is_object_at_goal(const SE2State& current, const SE2State& goal, double tolerance) const;
+    bool is_object_stuck(const SE2State& previous_state, const SE2State& current_state) const;
     std::vector<int> get_reachable_edges(const std::string& object_name) const;
 };
 

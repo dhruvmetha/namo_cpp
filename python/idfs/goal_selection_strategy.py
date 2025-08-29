@@ -94,6 +94,7 @@ class RandomGoalStrategy(GoalSelectionStrategy):
             obj_x, obj_y = obs[pose_key][0], obs[pose_key][1]
             
             goals = []
+            # random.seed(0)
             for _ in range(max_goals):
                 # Sample from continuous action space using polar coordinates
                 distance = random.uniform(self.min_distance, self.max_distance)
@@ -104,6 +105,7 @@ class RandomGoalStrategy(GoalSelectionStrategy):
                 
                 goals.append(Goal(x=target_x, y=target_y, theta=theta))
             
+            random.shuffle(goals)
             return goals
             
         finally:
