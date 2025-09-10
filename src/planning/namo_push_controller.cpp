@@ -252,9 +252,9 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
     for (size_t i = 0; i < num_static; i++) {
         const auto& static_obj = static_objects[i];
         if (env_.bodies_in_collision("robot", static_obj.name)) {
-            std::cerr << "Robot collision detected with static object '" << static_obj.name 
-                      << "' at edge point [" << robot_pos[0] << ", " << robot_pos[1] 
-                      << "] for object: " << object_name << std::endl;
+            // std::cerr << "Robot collision detected with static object '" << static_obj.name 
+            //           << "' at edge point [" << robot_pos[0] << ", " << robot_pos[1] 
+            //           << "] for object: " << object_name << std::endl;
             return false;  // Fail the primitive execution due to collision
         }
     }
@@ -267,9 +267,9 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
         const auto& movable_obj = movable_objects[i];
         // Skip collision check with the object we're trying to push (expected contact)
         if (movable_obj.name != object_name && env_.bodies_in_collision("robot", movable_obj.name)) {
-            std::cerr << "Robot collision detected with movable object '" << movable_obj.name 
-                      << "' at edge point [" << robot_pos[0] << ", " << robot_pos[1] 
-                      << "] for object: " << object_name << std::endl;
+            // std::cerr << "Robot collision detected with movable object '" << movable_obj.name 
+            //           << "' at edge point [" << robot_pos[0] << ", " << robot_pos[1] 
+            //           << "] for object: " << object_name << std::endl;
             return false;  // Fail the primitive execution due to collision
         }
     }

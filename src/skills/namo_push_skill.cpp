@@ -207,7 +207,7 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         
         // 3. Check if robot goal is reachable (early termination)
         if (has_robot_goal_ && executor_->is_robot_goal_reachable()) {
-            std::cout << "Robot goal became reachable at iteration " << mpc_iter << std::endl;
+            // std::cout << "Robot goal became reachable at iteration " << mpc_iter << std::endl;
             result.success = true;
             result.outputs["robot_goal_reached"] = true;
             result.outputs["steps_executed"] = mpc_iter;
@@ -241,7 +241,7 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         // Save wavefront for debugging BEFORE checking reachability
         
         if (reachable_edges.empty()) {
-            std::cout << "No reachable edges for object " << object_name << " - stopping MPC" << std::endl;
+            // std::cout << "No reachable edges for object " << object_name << " - stopping MPC" << std::endl;
             executor_->save_debug_wavefront(mpc_iter, "mpc_wavefront_no_reachable_edges");
             result.failure_reason = "No reachable edges at iteration " + std::to_string(mpc_iter);
             result.outputs["steps_executed"] = mpc_iter;

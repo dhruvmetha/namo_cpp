@@ -15,7 +15,8 @@ Architecture:
 - File System: Hostname-based output organization for multi-host coordination
 
 Usage:
-    python parallel_data_collection.py --output-dir ./data --start-idx 0 --end-idx 100 --workers 8 --episodes-per-env 5
+    python parallel_data_collection.py --output-dir ./data --start-idx 0 --end-idx 100 --workers 8 \
+        --episodes-per-env 5 --mcts-budget 100 --random-seed 42
 """
 
 import os
@@ -42,22 +43,48 @@ from xml_goal_parser import extract_goal_with_fallback
 
 import random
 
-random.seed(42)
+# Configuration-driven design with no hardcoded values
+
+@dataclass
+class MCTSHyperparameters:
+    """MCTS algorithm hyperparameters."""
+    simulation_budget: int = 100
+    max_rollout_steps: int = 5
+    k: float = 2.0  # UCB exploration parameter
+    alpha: float = 0.5  # Progressive widening parameter
+    c_exploration: float = 1.414  # UCB exploration constant
+    top_k_goals: int = 3  # Number of goal proposals to extract per object
+
 
 @dataclass
 class ParallelConfig:
     """Configuration for parallel data collection."""
+    # Environment and I/O
     xml_base_dir: str = "../ml4kp_ktamp/resources/models/custom_walled_envs/aug9"
     config_file: str = "config/namo_config_complete.yaml"
     output_dir: str = "./parallel_data"
+    hostname: str = None  # Auto-detected if None
+    
+    # Data collection parameters
     start_idx: int = 0
     end_idx: int = 100
     episodes_per_env: int = 3
-    num_workers: int = 8
     max_steps_per_episode: int = 10
-    mcts_budget: int = 30
-    top_k_goals: int = 3
-    hostname: str = None  # Auto-detected if None
+    
+    # Parallel processing
+    num_workers: int = 8
+    
+    # MCTS parameters
+    mcts: MCTSHyperparameters = None
+    
+    # Control parameters
+    random_seed: int = 42
+    early_termination_threshold: int = 2  # Stop after N consecutive zero-sample episodes
+    fallback_goal: tuple = (-0.5, 1.3, 0.0)  # Default robot goal if XML parsing fails
+    
+    def __post_init__(self):
+        if self.mcts is None:
+            self.mcts = MCTSHyperparameters()
     
 
 @dataclass 
@@ -86,12 +113,24 @@ class WorkerResult:
     skipped_environment: bool = False
 
 
-def discover_environment_files(base_dir: str, start_idx: int, end_idx: int) -> List[str]:
-    """Discover and filter XML environment files by index range."""
+def discover_environment_files(base_dir: str, start_idx: int, end_idx: int, 
+                              shuffle_files: bool = True) -> List[str]:
+    """Discover and filter XML environment files by index range.
+    
+    Args:
+        base_dir: Directory to search for XML files
+        start_idx: Starting index for subset selection  
+        end_idx: Ending index for subset selection (-1 for all remaining)
+        shuffle_files: Whether to shuffle files before subset selection
+    
+    Returns:
+        List of XML file paths in the specified range
+    """
     xml_pattern = os.path.join(base_dir, "**", "*.xml")
     all_xml_files = sorted(glob.glob(xml_pattern, recursive=True))
     
-    random.shuffle(all_xml_files)
+    if shuffle_files:
+        random.shuffle(all_xml_files)
     
     # Apply subset selection
     if end_idx == -1:
@@ -110,10 +149,8 @@ def generate_hostname_prefix() -> str:
     return short_hostname
 
 
-def generate_goal_for_environment(xml_file: str) -> Tuple[float, float, float]:
+def generate_goal_for_environment(xml_file: str, fallback_goal: Tuple[float, float, float]) -> Tuple[float, float, float]:
     """Extract actual goal position from XML environment file."""
-    # Extract goal from XML file with fallback to default
-    fallback_goal = (-0.5, 1.3, 0.0)
     return extract_goal_with_fallback(xml_file, fallback_goal)
 
 
@@ -144,7 +181,8 @@ def worker_process(task: WorkerTask) -> WorkerResult:
         for episode_idx in range(task.episodes_per_env):
             try:
                 # Generate goal for this episode
-                robot_goal = generate_goal_for_environment(task.xml_file)
+                fallback_goal = task.config.fallback_goal if hasattr(task, 'config') else (-0.5, 1.3, 0.0)
+                robot_goal = generate_goal_for_environment(task.xml_file, fallback_goal)
                 episode_id = f"{task.task_id}_episode_{episode_idx}"
                 
                 # Collect episode data with pickle-only saving
@@ -165,7 +203,8 @@ def worker_process(task: WorkerTask) -> WorkerResult:
                     zero_sample_episodes += 1
                 
                 # Early termination if all episodes produce 0 samples
-                if zero_sample_episodes >= 2 and total_samples == 0:
+                early_threshold = task.config.early_termination_threshold if hasattr(task, 'config') else 2
+                if zero_sample_episodes >= early_threshold and total_samples == 0:
                     break
                     
             except Exception as e:
@@ -188,7 +227,14 @@ def worker_process(task: WorkerTask) -> WorkerResult:
 
 
 class ParallelDataCollectionManager:
-    """Manager for parallel MCTS data collection across multiple processes."""
+    """Manager for parallel MCTS data collection across multiple processes.
+    
+    Coordinates distributed data collection by:
+    - Discovering and partitioning XML environment files
+    - Creating worker tasks with proper configuration
+    - Managing multiprocessing execution with progress tracking
+    - Collecting results and generating comprehensive summaries
+    """
     
     def __init__(self, config: ParallelConfig):
         self.config = config
@@ -207,7 +253,11 @@ class ParallelDataCollectionManager:
         
     
     def create_tasks(self) -> List[WorkerTask]:
-        """Create worker tasks from environment file subset."""
+        """Create worker tasks from environment file subset.
+        
+        Returns:
+            List of WorkerTask objects ready for parallel execution
+        """
         # Discover environment files
         xml_files = discover_environment_files(
             self.config.xml_base_dir, 
@@ -215,17 +265,17 @@ class ParallelDataCollectionManager:
             self.config.end_idx
         )
         
-        # Create MCTS configuration
+        # Create MCTS configuration from hyperparameters
         mcts_config = MCTSConfig(
-            simulation_budget=self.config.mcts_budget,
-            max_rollout_steps=5,
-            k=2.0,
-            alpha=0.5,
-            c_exploration=1.414
+            simulation_budget=self.config.mcts.simulation_budget,
+            max_rollout_steps=self.config.mcts.max_rollout_steps,
+            k=self.config.mcts.k,
+            alpha=self.config.mcts.alpha,
+            c_exploration=self.config.mcts.c_exploration
         )
         
         # Create data extractor configuration
-        data_extractor_config = {"top_k_goals": self.config.top_k_goals}
+        data_extractor_config = {"top_k_goals": self.config.mcts.top_k_goals}
         
         # Create tasks
         tasks = []
@@ -242,6 +292,8 @@ class ParallelDataCollectionManager:
                 mcts_config=mcts_config,
                 data_extractor_config=data_extractor_config
             )
+            # Add config reference for worker process
+            task.config = self.config
             tasks.append(task)
         
         return tasks
@@ -393,6 +445,20 @@ def main():
                         help="MCTS simulation budget per search")
     parser.add_argument("--max-steps", type=int, default=10,
                         help="Maximum steps per episode")
+    parser.add_argument("--mcts-rollout-steps", type=int, default=5,
+                        help="Maximum steps per MCTS rollout simulation")
+    parser.add_argument("--mcts-k", type=float, default=2.0,
+                        help="UCB exploration parameter for MCTS")
+    parser.add_argument("--mcts-alpha", type=float, default=0.5,
+                        help="Progressive widening parameter for MCTS")
+    parser.add_argument("--mcts-c-exploration", type=float, default=1.414,
+                        help="UCB exploration constant for MCTS")
+    parser.add_argument("--top-k-goals", type=int, default=3,
+                        help="Number of goal proposals to extract per object")
+    parser.add_argument("--early-termination-threshold", type=int, default=2,
+                        help="Stop after N consecutive zero-sample episodes")
+    parser.add_argument("--random-seed", type=int, default=42,
+                        help="Random seed for reproducibility")
     parser.add_argument("--xml-dir", type=str, 
                         default="../ml4kp_ktamp/resources/models/custom_walled_envs/aug9",
                         help="Base directory for XML environment files")
@@ -417,6 +483,16 @@ def main():
         print("❌ Error: workers must be positive")
         return 1
     
+    # Create MCTS hyperparameters
+    mcts_params = MCTSHyperparameters(
+        simulation_budget=args.mcts_budget,
+        max_rollout_steps=args.mcts_rollout_steps,
+        k=args.mcts_k,
+        alpha=args.mcts_alpha,
+        c_exploration=args.mcts_c_exploration,
+        top_k_goals=args.top_k_goals
+    )
+    
     # Create configuration
     config = ParallelConfig(
         xml_base_dir=args.xml_dir,
@@ -427,9 +503,14 @@ def main():
         episodes_per_env=args.episodes_per_env,
         num_workers=args.workers,
         max_steps_per_episode=args.max_steps,
-        mcts_budget=args.mcts_budget,
+        mcts=mcts_params,
+        random_seed=args.random_seed,
+        early_termination_threshold=args.early_termination_threshold,
         hostname=args.hostname
     )
+    
+    # Set global random seed for reproducibility
+    random.seed(config.random_seed)
     
     # Execute parallel data collection
     try:

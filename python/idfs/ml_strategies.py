@@ -6,11 +6,12 @@ using trained diffusion models from the learning package.
 
 import sys
 import os
+import random
 from typing import List, Optional, Dict, Any
 from collections import Counter
 import namo_rl
 from idfs.object_selection_strategy import ObjectSelectionStrategy
-from idfs.goal_selection_strategy import GoalSelectionStrategy, Goal
+from idfs.goal_selection_strategy import GoalSelectionStrategy, Goal, RandomGoalStrategy
 
 # Add learning package to path for imports
 learning_path = "/common/home/dm1487/robotics_research/ktamp/learning"
@@ -555,3 +556,109 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
     @property
     def strategy_name(self) -> str:
         return "ML Goal Generation"
+
+
+class EpsilonGreedyGoalStrategy(GoalSelectionStrategy):
+    """Epsilon-greedy goal selection that mixes ML and random strategies.
+    
+    For each goal slot, randomly chooses between ML and random strategy
+    based on epsilon probability. This provides exploration vs exploitation
+    balance in goal generation.
+    """
+    
+    def __init__(self,
+                 ml_strategy: MLGoalSelectionStrategy,
+                 random_strategy: RandomGoalStrategy,
+                 epsilon: float = 0.1,
+                 verbose: bool = False):
+        """Initialize epsilon-greedy goal selection strategy.
+        
+        Args:
+            ml_strategy: ML-based goal selection strategy
+            random_strategy: Random goal selection strategy
+            epsilon: Probability of selecting random goal (0.0 = pure ML, 1.0 = pure random)
+            verbose: Enable verbose logging
+        """
+        self.ml_strategy = ml_strategy
+        self.random_strategy = random_strategy
+        self.epsilon = epsilon
+        self.verbose = verbose
+        
+        if not (0.0 <= epsilon <= 1.0):
+            raise ValueError(f"Epsilon must be between 0.0 and 1.0, got {epsilon}")
+    
+    def generate_goals(self, 
+                      object_id: str,
+                      state: namo_rl.RLState,
+                      env: namo_rl.RLEnvironment,
+                      max_goals: int) -> List[Goal]:
+        """Generate goals using epsilon-greedy selection between ML and random."""
+        if max_goals <= 0:
+            return []
+        
+        # Generate full sets from both strategies
+        ml_goals = []
+        random_goals = []
+        
+        # Try ML strategy first
+        try:
+            ml_goals = self.ml_strategy.generate_goals(object_id, state, env, max_goals)
+            if self.verbose:
+                print(f"ML strategy generated {len(ml_goals)} goals for {object_id}")
+        except Exception as e:
+            if self.verbose:
+                print(f"ML strategy failed for {object_id}: {e}")
+        
+        # Generate random goals
+        try:
+            random_goals = self.random_strategy.generate_goals(object_id, state, env, max_goals)
+            if self.verbose:
+                print(f"Random strategy generated {len(random_goals)} goals for {object_id}")
+        except Exception as e:
+            if self.verbose:
+                print(f"Random strategy failed for {object_id}: {e}")
+        
+        # If both strategies failed, return empty list
+        if not ml_goals and not random_goals:
+            if self.verbose:
+                print(f"Both strategies failed for {object_id}")
+            return []
+        
+        # Mix goals based on epsilon probability
+        final_goals = []
+        
+        for i in range(max_goals):
+            use_random = random.random() < self.epsilon
+            
+            if use_random and i < len(random_goals):
+                # Use random goal
+                final_goals.append(random_goals[i])
+                if self.verbose:
+                    print(f"Goal {i+1}: Selected random goal")
+            elif not use_random and i < len(ml_goals):
+                # Use ML goal
+                final_goals.append(ml_goals[i])
+                if self.verbose:
+                    print(f"Goal {i+1}: Selected ML goal")
+            elif i < len(ml_goals):
+                # Fallback to ML if random not available
+                final_goals.append(ml_goals[i])
+                if self.verbose:
+                    print(f"Goal {i+1}: Fallback to ML goal")
+            elif i < len(random_goals):
+                # Fallback to random if ML not available
+                final_goals.append(random_goals[i])
+                if self.verbose:
+                    print(f"Goal {i+1}: Fallback to random goal")
+            else:
+                # No more goals available from either strategy
+                break
+        
+        if self.verbose:
+            print(f"Final mixed goals for {object_id}: {len(final_goals)} goals (epsilon={self.epsilon})")
+        
+        return final_goals
+    
+    @property
+    def strategy_name(self) -> str:
+        return f"Epsilon-Greedy Goal Generation (ε={self.epsilon})"

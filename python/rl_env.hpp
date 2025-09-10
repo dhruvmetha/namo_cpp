@@ -60,7 +60,7 @@ public:
     // Action space constraints for MCTS progressive widening
     struct ActionConstraints {
         double min_distance = 0.3;  // Minimum distance from object
-        double max_distance = 1.0;  // Maximum distance from object  
+        double max_distance = 2.0;  // Maximum distance from object  
         double theta_min = -M_PI;   // Minimum theta
         double theta_max = M_PI;    // Maximum theta
     };

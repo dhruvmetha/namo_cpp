@@ -458,7 +458,7 @@ class CleanHierarchicalMCTS:
         if self.env.is_robot_goal_reachable():
             return 1.0
         
-        reward = [-0.1]
+        reward = [-0.5]
         
         # Perform random rollout
         for ct in range(self.config.max_rollout_steps):
@@ -503,7 +503,7 @@ class CleanHierarchicalMCTS:
                 if ct == self.config.max_rollout_steps - 1:
                     reward.append(-1.0)
                 else:
-                    reward.append(-0.1)
+                    reward.append(-0.5)
         
         ret = 0.0
         for r in reward[::-1]:

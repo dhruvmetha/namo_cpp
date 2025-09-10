@@ -45,6 +45,9 @@ from idfs.random_sampling import RandomSamplingPlanner
 # Import strategies for validation
 from idfs.object_selection_strategy import ObjectSelectionStrategy
 
+# Import failure classification system
+from idfs.failure_codes import FailureCode, FailureClassifier, create_failure_info, get_failure_statistics
+
 import random
 random.seed(42)
 
@@ -94,6 +97,7 @@ class SequentialCollectionConfig:
     ml_goal_model_path: str = None
     ml_samples: int = 32
     ml_device: str = "cuda"
+    epsilon: float = None  # For epsilon-greedy goal strategy
     
     # Episode filtering options
     filter_minimum_length: bool = False  # Only keep episodes with minimum action sequence length per environment
@@ -120,6 +124,10 @@ class SequentialEpisodeResult:
     action_sequence: Optional[List[Dict]] = None
     algorithm_stats: Optional[Dict[str, Any]] = None
     error_message: str = ""
+    
+    # Failure classification
+    failure_code: Optional[int] = None
+    failure_description: str = ""
     
     # State information - SE(2) poses before each action
     state_observations: Optional[List[Dict[str, List[float]]]] = None
@@ -155,18 +163,29 @@ class SequentialEnvironmentResult:
 
 def discover_environment_files(base_dir: str, start_idx: int, end_idx: int) -> List[str]:
     """Discover and filter XML environment files by index range."""
-    sets = [1, 2]
-    benchmarks = [1, 2, 3, 4, 5]
+    
+    # for hard and very hard environments
     all_xml_files = []
-    for set in sets:
-        for benchmark in benchmarks:
-            xml_pattern = os.path.join(base_dir, "medium", f"set{set}", f"benchmark_{benchmark}", "*.xml")
-            sorted_xml_files = sorted(glob.glob(xml_pattern, recursive=True))
-            all_xml_files.extend(sorted_xml_files[1000:1100])
-    # Apply subset selection
-    if end_idx == -1:
-        end_idx = len(all_xml_files)
-        
+    with open('test_envs/envs_names_hard.pkl', 'rb') as f:
+        envs_names = pickle.load(f)
+    for env_name in envs_names:
+        xml_file = os.path.join(base_dir, env_name)
+        all_xml_files.append(xml_file)
+    all_xml_files = sorted(all_xml_files)
+    
+    # for testing all envs
+    # sets = [1, 2]
+    # benchmarks = [1, 2, 3, 4, 5]
+    # all_xml_files = []
+    # for set in sets:
+    #     for benchmark in benchmarks:
+    #         xml_pattern = os.path.join(base_dir, "easy", f"set{set}", f"benchmark_{benchmark}", "*.xml")
+    #         sorted_xml_files = sorted(glob.glob(xml_pattern, recursive=True))
+    #         all_xml_files.extend(sorted_xml_files[1000:1100])
+    # # Apply subset selection
+    # if end_idx == -1:
+    #     end_idx = len(all_xml_files)
+    
     subset_files = all_xml_files[start_idx:end_idx]
     return subset_files
 
@@ -207,7 +226,8 @@ class SequentialMLCollectionManager:
                     'ml_object_model_path': self.config.ml_object_model_path,
                     'ml_goal_model_path': self.config.ml_goal_model_path,
                     'ml_samples': self.config.ml_samples,
-                    'ml_device': self.config.ml_device
+                    'ml_device': self.config.ml_device,
+                    'epsilon': self.config.epsilon
                 }
             )
         else:
@@ -228,6 +248,8 @@ class SequentialMLCollectionManager:
                 params['ml_samples'] = self.config.ml_samples
             if 'ml_device' not in params:
                 params['ml_device'] = self.config.ml_device
+            if 'epsilon' not in params:
+                params['epsilon'] = self.config.epsilon
         
         # Setup output directory
         self.output_base = Path(self.config.output_dir)
@@ -347,7 +369,7 @@ class SequentialMLCollectionManager:
         
         try:
             # Initialize environment
-            env = namo_rl.RLEnvironment(xml_file, self.config.config_file, visualize=True)
+            env = namo_rl.RLEnvironment(xml_file, self.config.config_file, visualize=False)
             episode_results = []
             
             # Collect static object information once per environment (for efficiency)
@@ -388,7 +410,11 @@ class SequentialMLCollectionManager:
                     # Run planning
                     planner_result = self.planner.search(robot_goal)
                     
-                    # Create episode result
+                    # Create episode result with failure classification
+                    failure_info = None
+                    if not planner_result.success:
+                        failure_info = create_failure_info(planner_result.error_message)
+                    
                     episode_result = SequentialEpisodeResult(
                         episode_id=episode_id,
                         algorithm=self.planner.algorithm_name,
@@ -405,7 +431,9 @@ class SequentialMLCollectionManager:
                         post_action_state_observations=planner_result.post_action_state_observations,  # SE(2) poses after each action
                         static_object_info=static_object_info if planner_result.solution_found else None,  # Only store when solution found
                         xml_file=xml_file,
-                        robot_goal=robot_goal
+                        robot_goal=robot_goal,
+                        failure_code=failure_info['failure_code'] if failure_info else None,
+                        failure_description=failure_info['failure_description'] if failure_info else ""
                     )
                     
                     if planner_result.solution_found and planner_result.action_sequence:
@@ -423,7 +451,9 @@ class SequentialMLCollectionManager:
                     episode_results.append(episode_result)
                     
                 except Exception as e:
-                    # Create failed episode result
+                    # Create failed episode result with failure classification
+                    failure_info = create_failure_info(str(e), e)
+                    
                     episode_result = SequentialEpisodeResult(
                         episode_id=episode_id,
                         algorithm=self.config.algorithm,
@@ -435,7 +465,9 @@ class SequentialMLCollectionManager:
                         static_object_info=None,  # No static info for failed episodes
                         error_message=str(e),
                         xml_file=xml_file,
-                        robot_goal=robot_goal
+                        robot_goal=robot_goal,
+                        failure_code=failure_info['failure_code'],
+                        failure_description=failure_info['failure_description']
                     )
                     episode_results.append(episode_result)
                     
@@ -495,6 +527,11 @@ class SequentialMLCollectionManager:
             result.error_message = f"Environment processing failed: {str(e)}\n{traceback.format_exc()}"
             result.processing_time = time.time() - start_time
             result.episodes_collected = len(episode_results) if 'episode_results' in locals() else 0
+            
+            # Log failure classification for environment-level failures
+            failure_info = create_failure_info(str(e), e)
+            if self.config.verbose:
+                print(f"Environment failure classified as: {failure_info['failure_description']} (code: {failure_info['failure_code']})")
         
         return result
     
@@ -580,6 +617,9 @@ class SequentialMLCollectionManager:
         total_before_filtering = sum(result.episodes_before_filtering for result in results)
         total_filtered_out = sum(result.episodes_filtered_out for result in results)
         
+        # Calculate failure statistics
+        failure_stats = get_failure_statistics(all_episodes)
+        
         summary = {
             'collection_metadata': {
                 'hostname': self.config.hostname,
@@ -604,7 +644,8 @@ class SequentialMLCollectionManager:
                 'episodes_filtered_out': total_filtered_out,
                 'filtering_enabled': self.config.filter_minimum_length,
                 'filter_rate': (total_filtered_out / total_before_filtering * 100) if total_before_filtering > 0 else 0
-            }
+            },
+            'failure_analysis': failure_stats
         }
         
         # Save summary
@@ -642,6 +683,21 @@ class SequentialMLCollectionManager:
                 f.write(f"Episodes before filtering: {filter_stats['episodes_before_filtering']}\n")
                 f.write(f"Episodes filtered out: {filter_stats['episodes_filtered_out']}\n")
                 f.write(f"Filter rate: {filter_stats['filter_rate']:.1f}%\n")
+            
+            # Add failure analysis
+            failure_analysis = summary['failure_analysis']
+            f.write(f"\nFailure Analysis:\n")
+            f.write(f"Failed episodes: {failure_analysis['failed_episodes']}\n")
+            if failure_analysis['failure_breakdown']:
+                f.write(f"Top failure reasons:\n")
+                # Sort failures by count (descending)
+                sorted_failures = sorted(
+                    failure_analysis['failure_breakdown'].items(), 
+                    key=lambda x: x[1]['count'], 
+                    reverse=True
+                )
+                for failure_desc, info in sorted_failures[:5]:  # Top 5 failures
+                    f.write(f"  • {failure_desc}: {info['count']} episodes ({info['percentage']:.1f}%)\n")
 
 
 def main():
@@ -679,6 +735,8 @@ def main():
                         help="Number of ML inference samples (default: 32)")
     parser.add_argument("--ml-device", type=str, default="cuda", choices=["cuda", "cpu"],
                         help="ML inference device (default: cuda)")
+    parser.add_argument("--epsilon", type=float, default=None,
+                        help="Epsilon for epsilon-greedy goal strategy (0.0=pure ML, 1.0=pure random). If specified with --goal-strategy=ml, uses epsilon-greedy mixing.")
     
     # Optional arguments
     parser.add_argument("--episodes-per-env", type=int, default=1,
@@ -722,6 +780,15 @@ def main():
         print("❌ Error: --ml-goal-model is required when using ML goal strategy")
         return 1
     
+    # Validate epsilon parameter
+    if args.epsilon is not None:
+        if args.goal_strategy != "ml":
+            print("❌ Error: --epsilon can only be used with --goal-strategy=ml")
+            return 1
+        if not (0.0 <= args.epsilon <= 1.0):
+            print("❌ Error: --epsilon must be between 0.0 and 1.0")
+            return 1
+    
     # Validate strategy names
     if not validate_object_strategy(args.object_strategy):
         print(f"❌ Error: invalid object strategy '{args.object_strategy}'")
@@ -756,6 +823,7 @@ def main():
         ml_goal_model_path=args.ml_goal_model,
         ml_samples=args.ml_samples,
         ml_device=args.ml_device,
+        epsilon=args.epsilon,
         filter_minimum_length=args.filter_minimum_length,
         verbose=args.verbose,
         planner_config=planner_config

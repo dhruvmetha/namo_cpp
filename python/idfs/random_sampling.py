@@ -1,23 +1,28 @@
-"""Simple Random Sampling Planner for NAMO planning.
+"""Random Sampling Planner for NAMO planning with Strategy Support.
 
-This implementation provides a baseline single-stream random sampling approach:
-1. Sample random object from reachable objects
-2. Sample 1 goal for that object  
+This implementation provides a single-stream random sampling approach with configurable strategies:
+1. Select object using configurable object selection strategy
+2. Generate goals using configurable goal selection strategy  
 3. Execute action and repeat up to max-depth
 4. Report episode results
 
 Key characteristics:
 - No iterative deepening (single stream to max-depth)
-- No object selection strategy (pure random sampling)  
-- Fresh random sampling at each step
-- Simple baseline for comparison with more sophisticated algorithms
+- Configurable object selection strategies (random, nearest, goal-proximity, farthest, ML)
+- Configurable goal selection strategies (random, grid, adaptive, ML)
+- Fresh sampling at each step
+- Baseline for comparison with more sophisticated algorithms
 """
 
 import math
 import random
 import time
-from typing import List, Optional, Tuple, Dict
+from typing import List, Optional, Tuple, Dict, TYPE_CHECKING
 from dataclasses import dataclass
+
+if TYPE_CHECKING:
+    from idfs.object_selection_strategy import ObjectSelectionStrategy
+    from idfs.goal_selection_strategy import GoalSelectionStrategy
 
 import sys
 import os
@@ -26,6 +31,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import namo_rl
 from mcts_config import ActionConstraints
 from idfs.base_planner import BasePlanner, PlannerConfig, PlannerResult
+from idfs.object_selection_strategy import ObjectSelectionStrategy, NoHeuristicStrategy, NearestFirstStrategy, GoalProximityStrategy, FarthestFirstStrategy
+from idfs.goal_selection_strategy import GoalSelectionStrategy, RandomGoalStrategy, GridGoalStrategy, AdaptiveGoalStrategy
 
 
 @dataclass
@@ -53,18 +60,160 @@ class Action:
 
 
 class RandomSamplingPlanner(BasePlanner):
-    """Simple Random Sampling planner for NAMO planning.
+    """Random Sampling planner for NAMO planning with configurable strategies.
     
-    This planner provides a baseline approach that samples random objects
-    and goals in a single stream until max-depth is reached or solution found.
-    No iterative deepening or sophisticated object selection strategies.
+    This planner provides a baseline approach that uses configurable strategies for
+    object selection and goal generation in a single stream until max-depth is reached
+    or solution found. No iterative deepening, but supports various strategies.
     """
     
-    def __init__(self, env: namo_rl.RLEnvironment, config: PlannerConfig):
+    def __init__(self, env: namo_rl.RLEnvironment, config: PlannerConfig,
+                 object_selection_strategy: Optional['ObjectSelectionStrategy'] = None,
+                 goal_selection_strategy: Optional['GoalSelectionStrategy'] = None):
+        
+        # Initialize strategy attributes first (before super().__init__ calls _setup_constraints)
+        self.object_selection_strategy = None
+        self.goal_selection_strategy = None
+        
         super().__init__(env, config)
+        
+        # Object selection strategy - can come from config or parameter
+        if object_selection_strategy is not None:
+            # Explicit strategy parameter takes precedence
+            self.object_selection_strategy = object_selection_strategy
+        elif config.algorithm_params and 'object_selection_strategy' in config.algorithm_params:
+            # Get strategy from config with proper error handling
+            strategy_name = config.algorithm_params['object_selection_strategy']
+            try:
+                self.object_selection_strategy = self._create_object_strategy_from_name(strategy_name)
+            except Exception as e:
+                if self.config.verbose:
+                    print(f"Warning: Failed to create object strategy '{strategy_name}': {e}")
+                    print("Falling back to default no heuristic strategy")
+                # Fall back to default strategy
+                self.object_selection_strategy = NoHeuristicStrategy()
+        else:
+            # Default to no heuristic (pure random)
+            self.object_selection_strategy = NoHeuristicStrategy()
+        
+        # Goal selection strategy - can come from config or parameter
+        if goal_selection_strategy is not None:
+            # Explicit strategy parameter takes precedence
+            self.goal_selection_strategy = goal_selection_strategy
+        elif config.algorithm_params and 'goal_selection_strategy' in config.algorithm_params:
+            # Get strategy from config with proper error handling
+            strategy_name = config.algorithm_params['goal_selection_strategy']
+            try:
+                self.goal_selection_strategy = self._create_goal_strategy_from_name(strategy_name)
+            except Exception as e:
+                if self.config.verbose:
+                    print(f"Warning: Failed to create goal strategy '{strategy_name}': {e}")
+                    print("Falling back to default random strategy")
+                # Fall back to default strategy
+                self.goal_selection_strategy = RandomGoalStrategy(
+                    min_distance=self.constraints.min_distance,
+                    max_distance=self.constraints.max_distance,
+                    theta_min=self.constraints.theta_min,
+                    theta_max=self.constraints.theta_max
+                )
+        else:
+            # Default to random strategy
+            self.goal_selection_strategy = RandomGoalStrategy(
+                min_distance=self.constraints.min_distance,
+                max_distance=self.constraints.max_distance,
+                theta_min=self.constraints.theta_min,
+                theta_max=self.constraints.theta_max
+            )
         
         # Statistics tracking
         self.stats = {}
+    
+    def _create_object_strategy_from_name(self, strategy_name: str) -> 'ObjectSelectionStrategy':
+        """Create object selection strategy from string name."""
+        if strategy_name == "no_heuristic":
+            return NoHeuristicStrategy()
+        elif strategy_name == "nearest_first":
+            return NearestFirstStrategy()
+        elif strategy_name == "goal_proximity":
+            return GoalProximityStrategy()
+        elif strategy_name == "farthest_first":
+            return FarthestFirstStrategy()
+        elif strategy_name == "ml":
+            # Import ML strategy
+            from idfs.ml_strategies import MLObjectSelectionStrategy
+            
+            # Get ML parameters from config
+            ml_object_model_path = self.config.algorithm_params.get('ml_object_model_path')
+            ml_samples = self.config.algorithm_params.get('ml_samples', 32)
+            ml_device = self.config.algorithm_params.get('ml_device', 'cuda')
+            xml_file = self.config.algorithm_params.get('xml_file', '')
+            preloaded_model = self.config.algorithm_params.get('preloaded_object_model')
+            
+            if not ml_object_model_path and not preloaded_model:
+                raise ValueError("ML object strategy requires ml_object_model_path or preloaded_object_model")
+            
+            return MLObjectSelectionStrategy(
+                object_model_path=ml_object_model_path or "",
+                samples=ml_samples,
+                device=ml_device,
+                xml_path_relative=xml_file,
+                verbose=self.config.verbose,
+                preloaded_model=preloaded_model
+            )
+        else:
+            raise ValueError(f"Unknown object selection strategy: {strategy_name}")
+    
+    def _create_goal_strategy_from_name(self, strategy_name: str) -> 'GoalSelectionStrategy':
+        """Create goal selection strategy from string name."""
+        if strategy_name == "random":
+            return RandomGoalStrategy(
+                min_distance=self.constraints.min_distance,
+                max_distance=self.constraints.max_distance,
+                theta_min=self.constraints.theta_min,
+                theta_max=self.constraints.theta_max
+            )
+        elif strategy_name == "grid":
+            return GridGoalStrategy(
+                min_distance=self.constraints.min_distance,
+                max_distance=self.constraints.max_distance
+            )
+        elif strategy_name == "adaptive":
+            return AdaptiveGoalStrategy(
+                min_distance=self.constraints.min_distance,
+                max_distance=self.constraints.max_distance
+            )
+        elif strategy_name == "ml":
+            # Import ML strategy
+            from idfs.ml_strategies import MLGoalSelectionStrategy
+            
+            # Get ML parameters from config
+            ml_goal_model_path = self.config.algorithm_params.get('ml_goal_model_path')
+            ml_samples = self.config.algorithm_params.get('ml_samples', 32)
+            ml_device = self.config.algorithm_params.get('ml_device', 'cuda')
+            xml_file = self.config.algorithm_params.get('xml_file', '')
+            epsilon = self.config.algorithm_params.get('epsilon')
+            preloaded_model = self.config.algorithm_params.get('preloaded_goal_model')
+            
+            if not ml_goal_model_path and not preloaded_model:
+                raise ValueError("ML goal strategy requires ml_goal_model_path or preloaded_goal_model")
+            
+            return MLGoalSelectionStrategy(
+                goal_model_path=ml_goal_model_path or "",
+                samples=ml_samples,
+                device=ml_device,
+                xml_path_relative=xml_file,
+                epsilon=epsilon,
+                fallback_strategy=RandomGoalStrategy(
+                    min_distance=self.constraints.min_distance,
+                    max_distance=self.constraints.max_distance,
+                    theta_min=self.constraints.theta_min,
+                    theta_max=self.constraints.theta_max
+                ),
+                verbose=self.config.verbose,
+                preloaded_model=preloaded_model
+            )
+        else:
+            raise ValueError(f"Unknown goal selection strategy: {strategy_name}")
     
     def _setup_constraints(self):
         """Setup action constraints from environment."""
@@ -95,16 +244,21 @@ class RandomSamplingPlanner(BasePlanner):
     
     @property
     def algorithm_name(self) -> str:
-        return "Simple Random Sampling"
+        obj_strategy = self.object_selection_strategy.strategy_name if self.object_selection_strategy else "Unknown"
+        goal_strategy = self.goal_selection_strategy.strategy_name if self.goal_selection_strategy else "Unknown"
+        return f"Random Sampling ({obj_strategy} + {goal_strategy})"
     
     @property
     def algorithm_version(self) -> str:
-        return "random_sampling_v1.0"
+        return "random_sampling_v2.0_with_strategies"
     
     def search(self, robot_goal: Tuple[float, float, float]) -> PlannerResult:
         """Run single-stream random sampling to find action sequence."""
         start_time = time.time()
         timeout_seconds = self.config.max_search_time_seconds
+        
+        # Reset planner state for new search
+        self.reset()
         
         # Set robot goal
         self.env.set_robot_goal(*robot_goal)
@@ -201,26 +355,6 @@ class RandomSamplingPlanner(BasePlanner):
         self.env.set_full_state(state)
         return self.env.get_observation()
     
-    def _sample_goal_for_object(self, state: namo_rl.RLState, object_id: str) -> Optional[Goal]:
-        """Sample a random goal for the given object."""
-        self.env.set_full_state(state)
-        obs = self.env.get_observation()
-        
-        # Get object position
-        pose_key = f"{object_id}_pose"
-        if pose_key not in obs:
-            return None
-        
-        obj_x, obj_y = obs[pose_key][0], obs[pose_key][1]
-        
-        # Sample from continuous action space using polar coordinates
-        distance = random.uniform(self.constraints.min_distance, self.constraints.max_distance)
-        theta = random.uniform(self.constraints.theta_min, self.constraints.theta_max)
-        
-        target_x = obj_x + distance * math.cos(theta)
-        target_y = obj_y + distance * math.sin(theta)
-        
-        return Goal(x=target_x, y=target_y, theta=theta)
     
     def _execute_action(self, state: namo_rl.RLState, action: Action) -> namo_rl.RLState:
         """Execute action and return resulting state."""
@@ -270,15 +404,30 @@ class RandomSamplingPlanner(BasePlanner):
                     print(f"No reachable objects at depth {current_depth}")
                 break
             
-            # Sample random object (key difference from IDFS - pure random)
-            object_id = random.choice(reachable_objects)
-            
-            # Sample goal for this object
-            goal = self._sample_goal_for_object(current_state, object_id)
-            if not goal:
+            # Select object using configured strategy
+            selected_objects = self.object_selection_strategy.select_objects(
+                reachable_objects, current_state, self.env
+            )
+            if not selected_objects:
                 if self.config.verbose:
-                    print(f"Failed to sample goal for {object_id} at depth {current_depth}")
+                    print(f"Object selection strategy returned no objects at depth {current_depth}")
                 break
+            
+            # For random sampling, just take the first object from strategy's ordered list
+            object_id = selected_objects[0]
+            
+            # Generate goals for this object using configured strategy
+            goals = self.goal_selection_strategy.generate_goals(
+                object_id, current_state, self.env, max_goals=1
+            )
+            if not goals:
+                if self.config.verbose:
+                    print(f"Goal selection strategy generated no goals for {object_id} at depth {current_depth}")
+                break
+            
+            # Convert from goal_selection_strategy.Goal to our Goal class
+            strategy_goal = goals[0]
+            goal = Goal(x=strategy_goal.x, y=strategy_goal.y, theta=strategy_goal.theta)
             
             action = Action(object_id=object_id, goal=goal)
             
@@ -322,17 +471,37 @@ PlannerFactory.register_planner("random_sampling", RandomSamplingPlanner)
 def plan_with_random_sampling(env: namo_rl.RLEnvironment,
                              robot_goal: Tuple[float, float, float],
                              max_depth: int = 5,
+                             object_strategy: str = "no_heuristic",
+                             goal_strategy: str = "random",
                              random_seed: Optional[int] = None,
                              verbose: bool = False,
                              collect_stats: bool = True) -> Optional[List[namo_rl.Action]]:
-    """Plan action sequence using simple random sampling."""
+    """Plan action sequence using random sampling with configurable strategies.
+    
+    Args:
+        env: NAMO environment
+        robot_goal: Target robot position (x, y, theta)
+        max_depth: Maximum search depth
+        object_strategy: Object selection strategy ("no_heuristic", "nearest_first", "goal_proximity", "farthest_first", "ml")
+        goal_strategy: Goal selection strategy ("random", "grid", "adaptive", "ml")
+        random_seed: Random seed for reproducibility
+        verbose: Enable verbose output
+        collect_stats: Collect algorithm statistics
+        
+    Returns:
+        List of actions if solution found, None otherwise
+    """
     
     config = PlannerConfig(
         max_depth=max_depth,
         max_goals_per_object=1,  # Always 1 for random sampling
         random_seed=random_seed,
         verbose=verbose,
-        collect_stats=collect_stats
+        collect_stats=collect_stats,
+        algorithm_params={
+            'object_selection_strategy': object_strategy,
+            'goal_selection_strategy': goal_strategy
+        }
     )
     
     planner = RandomSamplingPlanner(env, config)

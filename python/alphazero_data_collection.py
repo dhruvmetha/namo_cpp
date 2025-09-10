@@ -61,6 +61,9 @@ class MCTSTrainingData:
     step_in_episode: int
     reachable_objects: List[str]
     total_objects: int
+    
+    # Static environment information for mask generation (same format as IDFS)
+    static_object_info: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass
@@ -118,6 +121,12 @@ class MCTSDataExtractor:
         object_q_values = self._extract_object_q_values(root_node)
         goal_q_values = self._extract_goal_q_values(root_node)
         
+        # Extract static environment information for mask generation (same as IDFS)
+        try:
+            static_object_info = env.get_object_info()
+        except:
+            static_object_info = {}
+
         return MCTSTrainingData(
             root_state=root_node.state,
             scene_observation=scene_obs,
@@ -130,7 +139,8 @@ class MCTSDataExtractor:
             mcts_iterations=mcts_iterations,
             step_in_episode=step_in_episode,
             reachable_objects=reachable_objects,
-            total_objects=total_objects
+            total_objects=total_objects,
+            static_object_info=static_object_info
         )
     
     def _extract_object_proposals(self, root_node: StateNode) -> List[ObjectProposal]:
@@ -348,12 +358,23 @@ class SingleEnvironmentDataCollector:
                 namo_action = best_action.to_namo_action()
                 result = self.execution_env.step(namo_action)
                 
-                # Store action info
+                # Capture post-action SE(2) poses (only what we need for training)
+                post_action_observation = self.execution_env.get_observation()
+                
+                # Extract only SE(2) poses for movable objects and robot
+                post_action_poses = {}
+                for key, value in post_action_observation.items():
+                    if key == 'robot_pose' or key.endswith('_movable_pose'):
+                        # Keep SE(2) pose: [x, y, theta]
+                        post_action_poses[key] = list(value)
+                
+                # Store action info with post-action poses
                 action_info = {
                     'step': step,
                     'object_id': best_action.object_id,
                     'target': (best_action.goal.x, best_action.goal.y, best_action.goal.theta),
-                    'reward': result.reward
+                    'reward': result.reward,
+                    'post_action_poses': post_action_poses
                 }
                 action_sequence.append(action_info)
             else:
@@ -430,7 +451,8 @@ class SingleEnvironmentDataCollector:
                 'mcts_iterations': step_data.mcts_iterations,
                 'step_in_episode': step_data.step_in_episode,
                 'reachable_objects': step_data.reachable_objects,
-                'total_objects': step_data.total_objects
+                'total_objects': step_data.total_objects,
+                'static_object_info': step_data.static_object_info
             }
             pickleable_step_data.append(pickleable_step)
         

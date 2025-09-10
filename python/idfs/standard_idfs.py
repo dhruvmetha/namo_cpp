@@ -187,21 +187,60 @@ class StandardIterativeDeepeningDFS(BasePlanner):
         if not goal_model_path:
             raise ValueError("ML goal strategy requires 'ml_goal_model_path' in algorithm_params")
         
-        # Import ML strategies
-        MLGoalSelectionStrategy = self._import_and_create('idfs.ml_strategies', 'MLGoalSelectionStrategy')
+        # Check if epsilon is specified for epsilon-greedy strategy
+        epsilon = params.get('epsilon')
         
-        print("ml samples", params.get('ml_samples', 32))
-        # Use preloaded model if available
-        preloaded_model = params.get('preloaded_goal_model')
+        if epsilon is not None:
+            # Create epsilon-greedy strategy
+            from idfs.ml_strategies import EpsilonGreedyGoalStrategy, MLGoalSelectionStrategy
+            from idfs.goal_selection_strategy import RandomGoalStrategy
+            
+            # Create ML strategy
+            preloaded_model = params.get('preloaded_goal_model')
+            ml_strategy = MLGoalSelectionStrategy(
+                goal_model_path=goal_model_path,
+                samples=params.get('ml_samples', 32),
+                device=params.get('ml_device', 'cuda'),
+                xml_path_relative=params.get('xml_file'),
+                verbose=self.config.verbose,
+                preloaded_model=preloaded_model
+            )
+            
+            # Create random strategy with same constraints
+            random_strategy = RandomGoalStrategy(
+                min_distance=self.constraints.min_distance,
+                max_distance=self.constraints.max_distance,
+                theta_min=self.constraints.theta_min,
+                theta_max=self.constraints.theta_max
+            )
+            
+            if self.config.verbose:
+                print(f"Using epsilon-greedy goal strategy with epsilon={epsilon}")
+            
+            return EpsilonGreedyGoalStrategy(
+                ml_strategy=ml_strategy,
+                random_strategy=random_strategy,
+                epsilon=epsilon,
+                verbose=self.config.verbose
+            )
         
-        return MLGoalSelectionStrategy(
-            goal_model_path=goal_model_path,
-            samples=params.get('ml_samples', 32),
-            device=params.get('ml_device', 'cuda'),
-            xml_path_relative=params.get('xml_file'),
-            verbose=self.config.verbose,
-            preloaded_model=preloaded_model
-        )
+        else:
+            # Create pure ML strategy (original behavior)
+            MLGoalSelectionStrategy = self._import_and_create('idfs.ml_strategies', 'MLGoalSelectionStrategy')
+            
+            if self.config.verbose:
+                print("ml samples", params.get('ml_samples', 32))
+            # Use preloaded model if available
+            preloaded_model = params.get('preloaded_goal_model')
+            
+            return MLGoalSelectionStrategy(
+                goal_model_path=goal_model_path,
+                samples=params.get('ml_samples', 32),
+                device=params.get('ml_device', 'cuda'),
+                xml_path_relative=params.get('xml_file'),
+                verbose=self.config.verbose,
+                preloaded_model=preloaded_model
+            )
     
     def _setup_constraints(self):
         """Setup action constraints from environment."""
@@ -259,7 +298,7 @@ class StandardIterativeDeepeningDFS(BasePlanner):
             print(f"Starting standard IDFS (depths 1-{self.config.max_depth})")
         
         # Iterative deepening: try each depth limit
-        for depth_limit in range(1, self.config.max_depth + 1):
+        for depth_limit in range(self.config.max_depth, self.config.max_depth + 1):
             # Check timeout before starting new depth
             if timeout_seconds and (time.time() - start_time) > timeout_seconds:
                 if self.config.verbose:
@@ -417,18 +456,25 @@ class StandardIterativeDeepeningDFS(BasePlanner):
         
         # Get reachable objects from current state
         reachable_objects = self._get_reachable_objects(state)
+        # print(f"DEBUG: depth {current_depth}, reachable_objects: {len(reachable_objects)} = {reachable_objects}", flush=True)
         
         # Apply object selection strategy to order objects
         ordered_objects = self.object_selection_strategy.select_objects(
             reachable_objects, state, self.env
         )
+        # print(f"DEBUG: ordered_objects: {len(ordered_objects)} = {ordered_objects}", flush=True)
         
         # Try each reachable object in strategy-determined order
         for object_id in ordered_objects:
+            # Check timeout before trying each object
+            if timeout_seconds and (time.time() - start_time) > timeout_seconds:
+                return None  # Timeout reached - propagate immediately
+            
             # Generate goals for this object using goal selection strategy
             goals = self.goal_selection_strategy.generate_goals(
                 object_id, state, self.env, self.config.max_goals_per_object
             )
+            # print(f"DEBUG: object {object_id} generated {len(goals)} goals (max={self.config.max_goals_per_object})", flush=True)
             
             # print(goals)
             
@@ -446,8 +492,16 @@ class StandardIterativeDeepeningDFS(BasePlanner):
                     post_action_state_obs = self._get_state_observation(new_state)
                 except Exception:
                     continue  # Skip failed actions
+                # Check timeout before expensive recursive call
+                if timeout_seconds and (time.time() - start_time) > timeout_seconds:
+                    return None  # Timeout reached - propagate immediately
+                
                 # Recursively search from new state
                 sub_solution = self._depth_limited_dfs(new_state, depth_limit, current_depth + 1, start_time, timeout_seconds)
+                
+                # Check if we got timeout (None) vs no solution found
+                if timeout_seconds and (time.time() - start_time) > timeout_seconds:
+                    return None  # Timeout occurred during recursive call - propagate immediately
                 
                 if sub_solution is not None:
                     # Found solution! Unpack sub-solution
