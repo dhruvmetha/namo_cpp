@@ -24,6 +24,15 @@ from abc import ABC, abstractmethod
 import namo_rl
 from mcts_config import MCTSConfig, ActionConstraints
 
+# Import object selection strategies from IDFS
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from idfs.object_selection_strategy import (
+    ObjectSelectionStrategy, NoHeuristicStrategy, NearestFirstStrategy, 
+    GoalProximityStrategy, FarthestFirstStrategy
+)
+
 # Rich library for tree visualization
 try:
     from rich.tree import Tree
@@ -139,12 +148,22 @@ class StateNode(MCTSNode):
         # Deterministic expansion: one ObjectNode per reachable object
         return len(self.object_children) < len(reachable_objects)
     
-    def expand(self, env: 'namo_rl.RLEnvironment') -> Optional['ObjectNode']:
+    def expand(self, env: 'namo_rl.RLEnvironment', 
+               object_selection_strategy: Optional[ObjectSelectionStrategy] = None) -> Optional['ObjectNode']:
         """Create a new ObjectNode child for an untried reachable object."""
         reachable_objects = self.get_reachable_objects(env)
         
-        # Find first reachable object without an ObjectNode
-        for obj_id in reachable_objects:
+        if object_selection_strategy is not None:
+            # Use strategy to order objects
+            ordered_objects = object_selection_strategy.select_objects(
+                reachable_objects, self.state, env
+            )
+        else:
+            # Default order (original behavior)
+            ordered_objects = reachable_objects
+        
+        # Find first ordered object without an ObjectNode
+        for obj_id in ordered_objects:
             if obj_id not in self.object_children:
                 obj_node = ObjectNode(self.state, obj_id, parent=self)
                 self.object_children[obj_id] = obj_node
@@ -266,11 +285,23 @@ class CleanHierarchicalMCTS:
     4. Progressive Widening only for goal selection (continuous space)
     """
     
-    def __init__(self, env: namo_rl.RLEnvironment, config: MCTSConfig, verbose: bool = False):
+    def __init__(self, env: namo_rl.RLEnvironment, config: MCTSConfig, verbose: bool = False,
+                 object_selection_strategy: Optional[ObjectSelectionStrategy] = None):
         self.env = env
         self.config = config
         self.verbose = verbose
         self.constraints = self._get_action_constraints()
+        
+        # Set up object selection strategy
+        if object_selection_strategy is not None:
+            self.object_selection_strategy = object_selection_strategy
+        else:
+            self.object_selection_strategy = self._create_object_strategy_from_name(
+                config.object_selection_strategy
+            )
+        
+        # Store robot goal for reward calculations
+        self.robot_goal: Optional[Tuple[float, float, float]] = None
     
     def _get_action_constraints(self) -> ActionConstraints:
         """Get action constraints from environment."""
@@ -281,6 +312,45 @@ class CleanHierarchicalMCTS:
             theta_min=env_constraints.theta_min,
             theta_max=env_constraints.theta_max
         )
+    
+    def _create_object_strategy_from_name(self, strategy_name: str) -> ObjectSelectionStrategy:
+        """Create object selection strategy from string name."""
+        if strategy_name == 'no_heuristic':
+            return NoHeuristicStrategy()
+        elif strategy_name == 'nearest_first':
+            return NearestFirstStrategy()
+        elif strategy_name == 'goal_proximity':
+            return GoalProximityStrategy()
+        elif strategy_name == 'farthest_first':
+            return FarthestFirstStrategy()
+        else:
+            available = ['no_heuristic', 'nearest_first', 'goal_proximity', 'farthest_first']
+            raise ValueError(f"Unknown object strategy '{strategy_name}'. Available: {available}")
+    
+    def _get_min_distance_to_goal(self, reachable_objects: List[str]) -> float:
+        """Calculate minimum distance from any reachable object to robot goal.
+        
+        Args:
+            reachable_objects: List of object IDs that are reachable
+            
+        Returns:
+            Minimum distance from any reachable object to goal, or infinity if no objects
+        """
+        if not reachable_objects or self.robot_goal is None:
+            return float('inf')
+        
+        obs = self.env.get_observation()
+        goal_x, goal_y = self.robot_goal[0], self.robot_goal[1]
+        
+        min_distance = float('inf')
+        for obj_id in reachable_objects:
+            pose_key = f"{obj_id}_pose"
+            if pose_key in obs:
+                obj_x, obj_y = obs[pose_key][0], obs[pose_key][1]
+                distance = math.sqrt((obj_x - goal_x)**2 + (obj_y - goal_y)**2)
+                min_distance = min(min_distance, distance)
+        
+        return min_distance
     
     def search(self, robot_goal: Tuple[float, float, float], 
               visualize_tree: bool = False) -> Optional[Action]:
@@ -294,6 +364,7 @@ class CleanHierarchicalMCTS:
                                visualize_tree: bool = False) -> Tuple[Optional[Action], StateNode]:
         """Run MCTS search and return both best action and root node for data extraction."""
         # Set robot goal
+        self.robot_goal = robot_goal
         self.env.set_robot_goal(*robot_goal)
         
         # Initialize root state node
@@ -329,6 +400,7 @@ class CleanHierarchicalMCTS:
     def _search_without_visualization(self, robot_goal: Tuple[float, float, float]) -> Optional[Action]:
         """Run MCTS search without visualization."""
         # Set robot goal
+        self.robot_goal = robot_goal
         self.env.set_robot_goal(*robot_goal)
         
         # Initialize root state node
@@ -348,6 +420,7 @@ class CleanHierarchicalMCTS:
             return self._search_without_visualization(robot_goal)
         
         # Set robot goal
+        self.robot_goal = robot_goal
         self.env.set_robot_goal(*robot_goal)
         
         # Initialize root state node
@@ -441,7 +514,7 @@ class CleanHierarchicalMCTS:
     def _expand(self, node: MCTSNode) -> Optional[MCTSNode]:
         """Expansion phase: add new child based on node type."""
         if isinstance(node, StateNode):
-            return node.expand(self.env)
+            return node.expand(self.env, self.object_selection_strategy)
         elif isinstance(node, ObjectNode):
             return node.expand(self.env, self.constraints)
         return None
@@ -466,13 +539,20 @@ class CleanHierarchicalMCTS:
             #     return 1.0
             
             # Sample random action
-            reachable_objects = self.env.get_reachable_objects()
-            if not reachable_objects:
+            reachable_objects_before = self.env.get_reachable_objects()
+            if not reachable_objects_before:
                 reward.append(-10.0)
                 break
             
-            # Random object selection
-            obj_id = random.choice(reachable_objects)
+            # Calculate minimum distance to goal from current reachable set
+            min_dist_before = self._get_min_distance_to_goal(reachable_objects_before)
+            
+            # Use object selection strategy instead of random selection
+            ordered_objects = self.object_selection_strategy.select_objects(
+                reachable_objects_before, self.env.get_full_state(), self.env
+            )
+            # Take first object from strategy ordering (could add randomness here if desired)
+            obj_id = ordered_objects[0] if ordered_objects else random.choice(reachable_objects_before)
             
             # Random goal sampling
             obs = self.env.get_observation()
@@ -496,14 +576,38 @@ class CleanHierarchicalMCTS:
             action.theta = theta
             
             result = self.env.step(action)
+            
             if result.reward > 0:  # Goal reached
                 reward.append(1.0)
                 break
             else:
+                # Check if we opened access to new objects closer to goal
+                reachable_objects_after = self.env.get_reachable_objects()
+                
+                # Find newly reachable objects (not in the previous set)
+                newly_reachable = [obj for obj in reachable_objects_after 
+                                 if obj not in reachable_objects_before]
+                
+                step_reward = -0.5  # Default negative reward for push
+                
+                if newly_reachable:
+                    # Calculate minimum distance from newly reachable objects to goal
+                    min_dist_new_objects = self._get_min_distance_to_goal(newly_reachable)
+                    
+                    # Check if any newly reachable object is closer than all previously reachable ones
+                    if min_dist_new_objects < min_dist_before:
+                        # Found a newly reachable object closer to goal!
+                        step_reward = -0.1 + self.config.reachability_reward  # Net positive reward
+                        if self.config.verbose:
+                            print(f"  🎯 New reachable object closer to goal! "
+                                  f"Previous best: {min_dist_before:.3f}, "
+                                  f"New best: {min_dist_new_objects:.3f} (+{self.config.reachability_reward})")
+                            print(f"    Newly reachable: {newly_reachable}")
+                
                 if ct == self.config.max_rollout_steps - 1:
-                    reward.append(-1.0)
-                else:
-                    reward.append(-0.5)
+                    step_reward = min(step_reward, -1.0)  # Final step penalty overrides if worse
+                    
+                reward.append(step_reward)
         
         ret = 0.0
         for r in reward[::-1]:
@@ -596,7 +700,8 @@ def plan_with_clean_hierarchical_mcts(env: namo_rl.RLEnvironment,
                                      robot_goal: Tuple[float, float, float],
                                      config: MCTSConfig = None,
                                      visualize_tree: bool = False,
-                                     verbose: bool = False) -> Optional[namo_rl.Action]:
+                                     verbose: bool = False,
+                                     object_selection_strategy: Optional[ObjectSelectionStrategy] = None) -> Optional[namo_rl.Action]:
     """Plan single action using clean 2-level hierarchical MCTS.
     
     Args:
@@ -612,7 +717,8 @@ def plan_with_clean_hierarchical_mcts(env: namo_rl.RLEnvironment,
     if config is None:
         config = MCTSConfig()
     
-    mcts = CleanHierarchicalMCTS(env, config, verbose=verbose)
+    mcts = CleanHierarchicalMCTS(env, config, verbose=verbose, 
+                                object_selection_strategy=object_selection_strategy)
     action = mcts.search(robot_goal, visualize_tree=visualize_tree)
     
     # Convert to namo_rl.Action if found

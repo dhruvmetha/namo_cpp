@@ -1,11 +1,24 @@
 #!/usr/bin/env python3
 """Visual Single-Run IDFS Tester
 
-A simplified script for running single IDFS planning iterations with visualization.
-Perfect for visual testing and debugging different algorithms and strategies.
+A script for running single IDFS planning iterations with flexible visualization controls.
+Supports separate control over planning visualization and solution visualization.
 
-Usage:
-    python visual_test_single.py --xml-file ../data/test_scene.xml --algorithm idfs --object-strategy no_heuristic
+Usage Examples:
+    # Show only solution (no planning visualization)
+    python visual_test_single.py --xml-file ../data/test_scene.xml --show-solution auto
+    
+    # Show only search tree visualization (no solution visualization)
+    python visual_test_single.py --xml-file ../data/test_scene.xml --visualize-search --show-solution none
+    
+    # Show search tree + solution (no general planning visualization)
+    python visual_test_single.py --xml-file ../data/test_scene.xml --visualize-search --show-solution auto
+    
+    # Show all visualizations with step-by-step controls
+    python visual_test_single.py --xml-file ../data/test_scene.xml --show-planning --visualize-search --planning-step-mode --show-solution step
+    
+    # Completely silent run
+    python visual_test_single.py --xml-file ../data/test_scene.xml --show-solution none
 """
 
 import os
@@ -84,6 +97,12 @@ def preload_ml_models(object_model_path: Optional[str],
     return object_model, goal_model
 
 
+def reset_environment_for_visualization(env: namo_rl.RLEnvironment, robot_goal: Tuple[float, float, float]):
+    """Reset environment to initial state for visualization."""
+    env.reset()
+    env.set_robot_goal(*robot_goal)
+
+
 def print_solution_summary(result: PlannerResult):
     """Print a formatted summary of the planning result."""
     print("\n" + "="*60)
@@ -119,7 +138,7 @@ def print_solution_summary(result: PlannerResult):
             print(f"   {key}: {value}")
 
 
-def visualize_solution(env: namo_rl.RLEnvironment, result: PlannerResult, step_mode: bool = False):
+def visualize_solution(env: namo_rl.RLEnvironment, result: PlannerResult, step_mode: bool = False, delay: float = 1.0):
     """Visualize the solution by executing actions in the environment."""
     if not result.solution_found or not result.action_sequence:
         print("❌ No solution to visualize")
@@ -154,8 +173,8 @@ def visualize_solution(env: namo_rl.RLEnvironment, result: PlannerResult, step_m
             if user_input == 'q':
                 break
         else:
-            # Automatic mode - wait a bit between steps
-            time.sleep(1.0)
+            # Automatic mode - wait specified delay between steps
+            time.sleep(delay)
     
     print("🎉 Solution visualization complete!")
 
@@ -209,13 +228,25 @@ def main():
     parser.add_argument("--robot-goal", type=float, nargs=3, metavar=('X', 'Y', 'THETA'),
                         help="Custom robot goal (x, y, theta). If not provided, extracts from XML")
     
-    # Visualization settings
-    parser.add_argument("--step-mode", action="store_true",
-                        help="Enable step-by-step visualization (press Enter to advance)")
-    parser.add_argument("--no-visualization", action="store_true",
-                        help="Disable solution visualization (search only)")
-    parser.add_argument("--auto-visualize", action="store_true",
-                        help="Automatically visualize solution without prompting")
+    # Planning visualization settings
+    planning_group = parser.add_argument_group('Planning Visualization')
+    planning_group.add_argument("--show-planning", action="store_true",
+                        help="Show real-time search visualization during planning")
+    planning_group.add_argument("--planning-delay", type=float, default=0.5,
+                        help="Delay between planning visualization steps in seconds (default: 0.5)")
+    planning_group.add_argument("--planning-step-mode", action="store_true",
+                        help="Step-by-step planning visualization (press Enter to advance)")
+    planning_group.add_argument("--visualize-search", action="store_true",
+                        help="Enable search tree visualization (shows search state exploration)")
+    
+    # Solution visualization settings  
+    solution_group = parser.add_argument_group('Solution Visualization')
+    solution_group.add_argument("--show-solution", choices=["auto", "prompt", "step", "none"], default="prompt",
+                        help="Solution visualization mode: auto (automatic), prompt (ask user), step (step-by-step), none (disable)")
+    solution_group.add_argument("--solution-delay", type=float, default=1.0,
+                        help="Delay between solution steps in auto mode (default: 1.0)")
+    
+    # General settings
     parser.add_argument("--verbose", action="store_true",
                         help="Enable verbose algorithm output")
     
@@ -245,12 +276,31 @@ def main():
         print(f"🎯 Goal Strategy: {args.goal_strategy}")
         print(f"🔍 Max Depth: {args.max_depth}")
         print(f"⏰ Timeout: {args.search_timeout}s")
+        if args.show_planning:
+            planning_mode = "step-through" if args.planning_step_mode else f"auto ({args.planning_delay}s delay)"
+            print(f"🔍 Planning Visualization: {planning_mode}")
+        if args.visualize_search:
+            search_mode = "step-through" if args.planning_step_mode else f"auto ({args.planning_delay}s delay)"
+            print(f"🌳 Search Tree Visualization: {search_mode}")
+        print(f"🎬 Solution Visualization: {args.show_solution}")
         print("="*50)
         
-        # Initialize environment with visualization
-        print("🌍 Initializing environment...")
-        env = namo_rl.RLEnvironment(args.xml_file, args.config_file, visualize=True)
-        env.reset()
+        # Initialize environment for planning (with visualization if needed)
+        print("🌍 Initializing planning environment...")
+        needs_planning_viz = args.show_planning or args.visualize_search
+        if needs_planning_viz:
+            viz_reason = []
+            if args.show_planning:
+                viz_reason.append("planning")
+            if args.visualize_search:
+                viz_reason.append("search tree")
+            print(f"   (With visualization for {' + '.join(viz_reason)})")
+            planning_env = namo_rl.RLEnvironment(args.xml_file, args.config_file, visualize=True)
+        else:
+            print("   (Headless mode for planning)")
+            planning_env = namo_rl.RLEnvironment(args.xml_file, args.config_file, visualize=False)
+        
+        planning_env.reset()
         
         # Extract or use custom robot goal
         if args.robot_goal:
@@ -260,8 +310,8 @@ def main():
             robot_goal = extract_goal_with_fallback(args.xml_file, (-0.5, 1.3, 0.0))
             print(f"🎯 Extracted robot goal: ({robot_goal[0]:.2f}, {robot_goal[1]:.2f}, {robot_goal[2]:.2f})")
         
-        # Set robot goal in environment
-        env.set_robot_goal(*robot_goal)
+        # Set robot goal in planning environment
+        planning_env.set_robot_goal(*robot_goal)
         
         # Preload ML models if needed
         preloaded_object_model = None
@@ -314,13 +364,28 @@ def main():
             algorithm_params=algorithm_params
         )
         
-        # Create planner
+        # Create planner using planning environment
         print(f"🧠 Creating {args.algorithm} planner...")
-        planner = PlannerFactory.create_planner(args.algorithm, env, planner_config)
+        planner = PlannerFactory.create_planner(args.algorithm, planning_env, planner_config)
         
-        # Initial render to show starting state
-        print("📸 Initial state:")
-        env.render()
+        # Configure planner visualization parameters
+        if hasattr(planner, 'visualize_search'):
+            # Enable search visualization if either show-planning or visualize-search is requested
+            planner.visualize_search = args.show_planning or args.visualize_search
+            planner.search_delay = args.planning_delay
+            planner.step_mode = args.planning_step_mode
+            
+            if args.visualize_search:
+                print("🌳 Search tree visualization enabled (shows search state exploration)")
+            elif args.show_planning:
+                print("🔍 Planning visualization enabled")
+            else:
+                print("🔍 Planning visualization disabled (search will run silently)")
+        
+        # Initial render to show starting state (only if planning visualization is enabled)
+        if args.show_planning:
+            print("📸 Initial state:")
+            planning_env.render()
         
         # Run planning
         print(f"\n🔍 Running {args.algorithm} search...")
@@ -332,25 +397,27 @@ def main():
         print_solution_summary(result)
         print(f"⏱️  Total Runtime: {search_duration:.2f}s")
         
-        # Visualize solution if found and not disabled
-        if not args.no_visualization and result.solution_found:
-            if args.auto_visualize:
-                visualize_requested = True
+        # Visualize solution based on mode
+        if result.solution_found and args.show_solution != "none":
+            # Create separate visualization environment for solution
+            print("🌍 Creating visualization environment for solution...")
+            solution_env = namo_rl.RLEnvironment(args.xml_file, args.config_file, visualize=True)
+            reset_environment_for_visualization(solution_env, robot_goal)
+            
+            if args.show_solution == "auto":
                 print("\n🎬 Auto-visualizing solution...")
-            else:
+                visualize_solution(solution_env, result, step_mode=False, delay=args.solution_delay)
+            elif args.show_solution == "step":
+                print("\n🎬 Step-by-step solution visualization...")
+                visualize_solution(solution_env, result, step_mode=True, delay=0)
+            elif args.show_solution == "prompt":
                 try:
                     print(f"\n🎬 Would you like to visualize the solution? (y/N): ", end="")
                     user_input = input().strip().lower()
-                    visualize_requested = user_input in ['y', 'yes']
+                    if user_input in ['y', 'yes']:
+                        visualize_solution(solution_env, result, step_mode=False, delay=1.0)
                 except (EOFError, KeyboardInterrupt):
                     print("N")  # Default to no visualization
-                    visualize_requested = False
-            
-            if visualize_requested:
-                # Reset environment to initial state
-                env.reset()
-                env.set_robot_goal(*robot_goal)
-                visualize_solution(env, result, args.step_mode)
         
         return 0
         

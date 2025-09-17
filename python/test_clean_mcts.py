@@ -23,6 +23,11 @@ def main():
                        help="Progressive widening constant k (default: 3.0)")
     parser.add_argument("--alpha", type=float, default=0.5,
                        help="Progressive widening exponent alpha (default: 0.5)")
+    parser.add_argument("--object-strategy", type=str, default="no_heuristic",
+                       choices=["no_heuristic", "nearest_first", "goal_proximity", "farthest_first"],
+                       help="Object selection strategy (default: no_heuristic)")
+    parser.add_argument("--reachability-reward", type=float, default=0.5,
+                       help="Bonus reward for improving object reachability (default: 0.5)")
     parser.add_argument("--xml", type=str, default="../ml4kp_ktamp/resources/models/custom_walled_envs/aug9/easy/set2/benchmark_4/env_config_4258a.xml",
                        help="XML environment file (default: data/benchmark_env.xml)")
     parser.add_argument("--config", type=str, default="config/namo_config_complete.yaml",
@@ -39,6 +44,8 @@ def main():
     print(f"  Simulation budget: {args.budget}")
     print(f"  Max rollout steps: {args.rollout_steps}")
     print(f"  Progressive Widening: k={args.k}, alpha={args.alpha}")
+    print(f"  Object Strategy: {args.object_strategy}")
+    print(f"  Reachability Reward: {args.reachability_reward}")
     print(f"  Tree visualization: {'enabled' if args.visualize_tree else 'disabled'}")
     
     # Initialize environment
@@ -51,7 +58,8 @@ def main():
         return 1
     
     # Set robot goal
-    robot_goal = (-1.1, 2.1, .0)
+    # robot_goal = (-1.1, 2.1, .0)
+    robot_goal = (0.49, -4.05, .0)
     env.set_robot_goal(*robot_goal)
     print(f"🎯 Robot goal: {robot_goal}")
     
@@ -75,18 +83,21 @@ def main():
         simulation_budget=args.budget,
         max_rollout_steps=args.rollout_steps,
         c_exploration=1.414,
+        object_selection_strategy=args.object_strategy,
+        reachability_reward=args.reachability_reward,
         verbose=True
     )
     
     print(f"\n🧠 Clean 2-Level MCTS Configuration:")
     print(f"  Tree Structure: StateNode → ObjectNode → StateNode")
-    print(f"  Object Selection: Deterministic (finite branching)")
+    print(f"  Object Selection: {args.object_strategy} strategy")
     print(f"  Goal Selection: Progressive Widening k * N^α = {mcts_config.k} * N^{mcts_config.alpha}")
     print(f"  Simulation Rule: ONLY from StateNodes (post-action)")
     print(f"  ObjectNode Updates: ONLY via backpropagation from children")
     print(f"  UCB1 exploration: {mcts_config.c_exploration}")
     print(f"  Simulation budget: {mcts_config.simulation_budget}")
     print(f"  Max rollout steps: {mcts_config.max_rollout_steps}")
+    print(f"  Reachability reward: {mcts_config.reachability_reward} (encourages task solvability)")
     
     # Test Progressive Widening calculation for goals
     print(f"\n📊 Progressive Widening Examples (ObjectNode goal selection):")

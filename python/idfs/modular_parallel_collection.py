@@ -43,6 +43,7 @@ from xml_goal_parser import extract_goal_with_fallback
 from idfs.standard_idfs import StandardIterativeDeepeningDFS
 from idfs.tree_idfs import TreeIterativeDeepeningDFS
 from idfs.random_sampling import RandomSamplingPlanner
+from idfs.optimal_idfs import OptimalIterativeDeepeningDFS
 
 # Import strategies for validation
 from idfs.object_selection_strategy import ObjectSelectionStrategy
@@ -50,8 +51,25 @@ from idfs.object_selection_strategy import ObjectSelectionStrategy
 # Import failure classification system
 from idfs.failure_codes import FailureCode, FailureClassifier, create_failure_info, get_failure_statistics
 
+# Import solution smoothing system
+from idfs.solution_smoother import SolutionSmoother
+
 import random
 random.seed(42)
+
+def create_goal_checker(robot_goal):
+    """Create a goal checker function for the smoother."""
+    def check_goal(env):
+        current_state = env.get_observation()
+        robot_pos = current_state.get("robot", [0.0, 0.0, 0.0])
+        
+        # Simple distance-based goal check
+        dx = robot_pos[0] - robot_goal[0]
+        dy = robot_pos[1] - robot_goal[1]
+        distance = (dx*dx + dy*dy)**0.5
+        
+        return distance < 0.1  # 10cm tolerance
+    return check_goal
 
 
 def get_available_object_strategies() -> List[str]:
@@ -97,6 +115,10 @@ class ModularCollectionConfig:
     
     # ML-specific parameters (only used when strategies are "ml")
     ml_object_model_path: str = None
+    
+    # Solution smoothing
+    smooth_solutions: bool = False
+    max_smooth_actions: int = 20
     ml_goal_model_path: str = None
     ml_samples: int = 32
     ml_device: str = "cuda"
@@ -124,6 +146,9 @@ class ModularWorkerTask:
     ml_goal_model_path: Optional[str] = None
     # Filtering options
     filter_minimum_length: bool = False
+    # Solution smoothing options
+    smooth_solutions: bool = False
+    max_smooth_actions: int = 20
 
 
 @dataclass
@@ -148,6 +173,10 @@ class ModularEpisodeResult:
     failure_description: str = ""
     
     # State information - SE(2) poses before each action
+    
+    # Solution smoothing results
+    original_action_sequence: Optional[List[Dict]] = None  # Original solution before smoothing
+    smoothing_stats: Optional[Dict[str, Any]] = None  # Smoothing statistics
     state_observations: Optional[List[Dict[str, List[float]]]] = None
     
     # State information - SE(2) poses after each action is executed
@@ -184,27 +213,37 @@ class ModularWorkerResult:
 
 def discover_environment_files(base_dir: str, start_idx: int, end_idx: int) -> List[str]:
     """Discover and filter XML environment files by index range."""
-    
-    folder = "train_envs"
+   
+   
     all_xml_files = []
-    for d in ['very_hard', 'hard']:
-        with open(f'{folder}/envs_names_{d}.pkl', 'rb') as f:
-            envs_names = pickle.load(f)
-        for env_name in envs_names:
-            xml_file = os.path.join(base_dir, env_name)
-            all_xml_files.append(xml_file)
+    with open('./notebooks/unsolved_envs.pkl', 'rb') as f:
+        unsolved_envs = pickle.load(f)
+    for env_name in unsolved_envs:
+        xml_file = os.path.join(base_dir, env_name)
+        all_xml_files.append(xml_file)
     all_xml_files = sorted(all_xml_files)
+    
+
+    # folder = "train_envs"
+    # all_xml_files = []
+    # for d in ['very_hard', 'hard']:
+    #     with open(f'{folder}/envs_names_{d}.pkl', 'rb') as f:
+    #         envs_names = pickle.load(f)
+    #     for env_name in envs_names:
+    #         xml_file = os.path.join(base_dir, env_name)
+    #         all_xml_files.append(xml_file)
+    # all_xml_files = sorted(all_xml_files)
     
     # sets = [1, 2]
     # benchmarks = [1, 2, 3, 4, 5]
     # all_xml_files = []
     # for set in sets:
     #     for benchmark in benchmarks:
-    #         xml_pattern = os.path.join(base_dir, "medium", f"set{set}", f"benchmark_{benchmark}", "*.xml")
+    #         xml_pattern = os.path.join(base_dir, "easy", f"set{set}", f"benchmark_{benchmark}", "*.xml")
     #         sorted_xml_files = sorted(glob.glob(xml_pattern, recursive=True))
     #         all_xml_files.extend(sorted_xml_files[:1000]) # train
-            # all_xml_files.extend(sorted_xml_files[1000:1100]) # test
-    # Apply subset selection
+    #         # all_xml_files.extend(sorted_xml_files[1000:1100]) # test
+    # # Apply subset selection
     if end_idx == -1:
         end_idx = len(all_xml_files)
         
@@ -379,45 +418,168 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                 # Run planning
                 planner_result = planner.search(robot_goal)
                 
-                # Create episode result with failure classification
-                failure_info = None
-                if not planner_result.success:
-                    failure_info = create_failure_info(planner_result.error_message)
+                # Special handling for optimal planner: save all minimum solutions as separate episodes
+                # This provides more training data while maintaining backward compatibility
+                is_optimal_planner = hasattr(planner, 'get_all_minimum_solutions')
                 
-                episode_result = ModularEpisodeResult(
-                    episode_id=episode_id,
-                    algorithm=planner.algorithm_name,
-                    algorithm_version=planner.algorithm_version,
-                    success=planner_result.success,
-                    solution_found=planner_result.solution_found,
-                    solution_depth=planner_result.solution_depth,
-                    search_time_ms=planner_result.search_time_ms,
-                    nodes_expanded=planner_result.nodes_expanded,
-                    terminal_checks=planner_result.terminal_checks,
-                    max_depth_reached=planner_result.max_depth_reached,
-                    algorithm_stats=planner_result.algorithm_stats,
-                    state_observations=planner_result.state_observations,  # SE(2) poses before each action
-                    post_action_state_observations=planner_result.post_action_state_observations,  # SE(2) poses after each action
-                    static_object_info=static_object_info if planner_result.solution_found else None,  # Only store when solution found
-                    xml_file=task.xml_file,
-                    robot_goal=robot_goal,
-                    failure_code=failure_info['failure_code'] if failure_info else None,
-                    failure_description=failure_info['failure_description'] if failure_info else ""
-                )
-                
-                if planner_result.solution_found and planner_result.action_sequence:
-                    episode_result.action_sequence = [
-                        {
-                            "object_id": action.object_id,
-                            "target": (action.x, action.y, action.theta)
-                        }
-                        for action in planner_result.action_sequence
-                    ]
-                
-                if not planner_result.success:
-                    episode_result.error_message = planner_result.error_message
-                
-                episode_results.append(episode_result)
+                if (is_optimal_planner and planner_result.solution_found and 
+                    planner_result.algorithm_stats and 
+                    planner_result.algorithm_stats.get('num_minimum_solutions', 0) > 1):
+                    
+                    # Get all minimum solutions for optimal planner
+                    all_solutions = planner.get_all_minimum_solutions()
+                    
+                    # Create a separate episode for each minimum solution
+                    for solution_idx, (actions, states, post_states) in enumerate(all_solutions):
+                        solution_episode_id = f"{episode_id}_solution_{solution_idx}"
+                        
+                        # Create episode result for this solution
+                        episode_result = ModularEpisodeResult(
+                            episode_id=solution_episode_id,
+                            algorithm=planner.algorithm_name,
+                            algorithm_version=planner.algorithm_version,
+                            success=planner_result.success,
+                            solution_found=True,  # This solution exists
+                            solution_depth=len(actions),  # Depth of this specific solution
+                            search_time_ms=planner_result.search_time_ms,
+                            nodes_expanded=planner_result.nodes_expanded,
+                            terminal_checks=planner_result.terminal_checks,
+                            max_depth_reached=planner_result.max_depth_reached,
+                            algorithm_stats={
+                                **planner_result.algorithm_stats,
+                                'solution_index': solution_idx,  # Track which solution this is
+                                'total_minimum_solutions': len(all_solutions)
+                            },
+                            state_observations=states,  # This solution's states
+                            post_action_state_observations=post_states,  # This solution's post-action states
+                            static_object_info=static_object_info,
+                            xml_file=task.xml_file,
+                            robot_goal=robot_goal,
+                            failure_code=None,
+                            failure_description=""
+                        )
+                        
+                        # Add action sequence for this solution
+                        original_action_sequence = [
+                            {
+                                "object_id": action.object_id,
+                                "target": (action.x, action.y, action.theta)
+                            }
+                            for action in actions
+                        ]
+                        
+                        # Apply solution smoothing if enabled
+                        if task.smooth_solutions and original_action_sequence:
+                            smoother = SolutionSmoother(max_search_actions=task.max_smooth_actions)
+                            goal_checker = create_goal_checker(robot_goal)
+                            
+                            # Convert to format expected by smoother
+                            smoother_actions = [
+                                {
+                                    "object_name": act["object_id"],
+                                    "target_pose": {"x": act["target"][0], "y": act["target"][1], "theta": act["target"][2]}
+                                }
+                                for act in original_action_sequence
+                            ]
+                            
+                            smooth_result = smoother.smooth_solution(env, smoother_actions, goal_checker)
+                            
+                            # Convert back to standard format
+                            if smooth_result["smoothed_solution"] != smooth_result["original_solution"]:
+                                episode_result.action_sequence = [
+                                    {
+                                        "object_id": act["object_name"],
+                                        "target": (act["target_pose"]["x"], act["target_pose"]["y"], act["target_pose"]["theta"])
+                                    }
+                                    for act in smooth_result["smoothed_solution"]
+                                ]
+                                episode_result.original_action_sequence = original_action_sequence
+                                episode_result.smoothing_stats = smooth_result["smoothing_stats"]
+                            else:
+                                # No improvement found - still record original sequence for metadata
+                                episode_result.action_sequence = original_action_sequence
+                                episode_result.original_action_sequence = original_action_sequence
+                                episode_result.smoothing_stats = smooth_result["smoothing_stats"]
+                        else:
+                            episode_result.action_sequence = original_action_sequence
+                        
+                        episode_results.append(episode_result)
+                else:
+                    # Standard behavior for non-optimal planners or single solutions
+                    # Create episode result with failure classification
+                    failure_info = None
+                    if not planner_result.success:
+                        failure_info = create_failure_info(planner_result.error_message)
+                    
+                    episode_result = ModularEpisodeResult(
+                        episode_id=episode_id,
+                        algorithm=planner.algorithm_name,
+                        algorithm_version=planner.algorithm_version,
+                        success=planner_result.success,
+                        solution_found=planner_result.solution_found,
+                        solution_depth=planner_result.solution_depth,
+                        search_time_ms=planner_result.search_time_ms,
+                        nodes_expanded=planner_result.nodes_expanded,
+                        terminal_checks=planner_result.terminal_checks,
+                        max_depth_reached=planner_result.max_depth_reached,
+                        algorithm_stats=planner_result.algorithm_stats,
+                        state_observations=planner_result.state_observations,  # SE(2) poses before each action
+                        post_action_state_observations=planner_result.post_action_state_observations,  # SE(2) poses after each action
+                        static_object_info=static_object_info if planner_result.solution_found else None,  # Only store when solution found
+                        xml_file=task.xml_file,
+                        robot_goal=robot_goal,
+                        failure_code=failure_info['failure_code'] if failure_info else None,
+                        failure_description=failure_info['failure_description'] if failure_info else ""
+                    )
+                    
+                    if planner_result.solution_found and planner_result.action_sequence:
+                        original_action_sequence = [
+                            {
+                                "object_id": action.object_id,
+                                "target": (action.x, action.y, action.theta)
+                            }
+                            for action in planner_result.action_sequence
+                        ]
+                        
+                        # Apply solution smoothing if enabled
+                        if task.smooth_solutions and original_action_sequence:
+                            smoother = SolutionSmoother(max_search_actions=task.max_smooth_actions)
+                            goal_checker = create_goal_checker(robot_goal)
+                            
+                            # Convert to format expected by smoother
+                            smoother_actions = [
+                                {
+                                    "object_name": act["object_id"],
+                                    "target_pose": {"x": act["target"][0], "y": act["target"][1], "theta": act["target"][2]}
+                                }
+                                for act in original_action_sequence
+                            ]
+                            
+                            smooth_result = smoother.smooth_solution(env, smoother_actions, goal_checker)
+                            
+                            # Convert back to standard format
+                            if smooth_result["smoothed_solution"] != smooth_result["original_solution"]:
+                                episode_result.action_sequence = [
+                                    {
+                                        "object_id": act["object_name"],
+                                        "target": (act["target_pose"]["x"], act["target_pose"]["y"], act["target_pose"]["theta"])
+                                    }
+                                    for act in smooth_result["smoothed_solution"]
+                                ]
+                                episode_result.original_action_sequence = original_action_sequence
+                                episode_result.smoothing_stats = smooth_result["smoothing_stats"]
+                            else:
+                                # No improvement found - still record original sequence for metadata
+                                episode_result.action_sequence = original_action_sequence
+                                episode_result.original_action_sequence = original_action_sequence
+                                episode_result.smoothing_stats = smooth_result["smoothing_stats"]
+                        else:
+                            episode_result.action_sequence = original_action_sequence
+                    
+                    if not planner_result.success:
+                        episode_result.error_message = planner_result.error_message
+                    
+                    episode_results.append(episode_result)
                 
             except Exception as e:
                 # Create failed episode result with failure classification
@@ -480,6 +642,83 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
         output_file = Path(task.output_dir) / f"{task.task_id}_results.pkl"
         with open(output_file, 'wb') as f:
             pickle.dump(worker_result_data, f)
+        
+        # Save additional smoothed file if smoothing was enabled and successful
+        if task.smooth_solutions:
+            smoothed_episodes = []
+            print(f"[DEBUG] Checking {len(episode_results)} episodes for smoothing...")
+            for ep in episode_results:
+                print(f"[DEBUG] Episode {ep.episode_id}: solution_found={ep.solution_found}, has_action_seq={ep.action_sequence is not None}")
+                if ep.action_sequence:
+                    print(f"[DEBUG]   Action sequence length: {len(ep.action_sequence)}")
+                
+                has_original = hasattr(ep, 'original_action_sequence') and ep.original_action_sequence is not None
+                print(f"[DEBUG]   Has original_action_sequence: {has_original}")
+                if has_original:
+                    print(f"[DEBUG]   Original sequence length: {len(ep.original_action_sequence)}")
+                    print(f"[DEBUG]   Sequences equal? {ep.action_sequence == ep.original_action_sequence}")
+                
+                if hasattr(ep, 'smoothing_stats') and ep.smoothing_stats:
+                    print(f"[DEBUG]   Smoothing stats: {ep.smoothing_stats}")
+                    
+                # Include ALL episodes where smoothing was attempted (has smoothing_stats)
+                if (ep.solution_found and ep.action_sequence and 
+                    hasattr(ep, 'smoothing_stats') and ep.smoothing_stats is not None):
+                    # This episode had smoothing attempted - create smoothed version
+                    was_improved = (hasattr(ep, 'original_action_sequence') and ep.original_action_sequence is not None and
+                                  len(ep.action_sequence) < len(ep.original_action_sequence))
+                    print(f"[DEBUG] ✅ Episode {ep.episode_id} had smoothing attempted (improved: {was_improved})")
+                    smoothed_ep = type(ep)(
+                        episode_id=ep.episode_id,
+                        algorithm=ep.algorithm,
+                        algorithm_version=ep.algorithm_version,
+                        success=ep.success,
+                        solution_found=ep.solution_found,
+                        solution_depth=len(ep.action_sequence),  # Use smoothed length
+                        search_time_ms=ep.search_time_ms,
+                        nodes_expanded=ep.nodes_expanded,
+                        terminal_checks=ep.terminal_checks,
+                        max_depth_reached=ep.max_depth_reached,
+                        action_sequence=ep.action_sequence,  # Smoothed sequence
+                        algorithm_stats=ep.algorithm_stats,
+                        error_message=ep.error_message,
+                        failure_code=ep.failure_code,
+                        failure_description=ep.failure_description,
+                        # Keep only states/observations for the smoothed sequence
+                        state_observations=ep.state_observations[:len(ep.action_sequence)] if ep.state_observations else None,
+                        post_action_state_observations=ep.post_action_state_observations[:len(ep.action_sequence)] if ep.post_action_state_observations else None,
+                        static_object_info=ep.static_object_info,
+                        xml_file=ep.xml_file,
+                        robot_goal=ep.robot_goal,
+                        # Include smoothing metadata
+                        original_action_sequence=ep.original_action_sequence,
+                        smoothing_stats=ep.smoothing_stats
+                    )
+                    smoothed_episodes.append(smoothed_ep)
+            
+            print(f"[DEBUG] Found {len(smoothed_episodes)} episodes that were successfully smoothed")
+            if smoothed_episodes:
+                print(f"[DEBUG] Saving smoothed results file...")
+                # Create smoothed result data
+                smoothed_result_data = {
+                    "task_id": task.task_id,
+                    "success": True,
+                    "episodes_collected": len(smoothed_episodes),
+                    "episodes_before_filtering": len(smoothed_episodes),
+                    "episodes_filtered_out": 0,
+                    "processing_time": worker_result_data["processing_time"],
+                    "episode_results": [asdict(ep) for ep in smoothed_episodes],
+                    "smoothing_metadata": {
+                        "original_episodes_count": len(episode_results),
+                        "smoothed_episodes_count": len(smoothed_episodes),
+                        "smoothing_enabled": True
+                    }
+                }
+                
+                # Save smoothed file
+                smoothed_file = Path(task.output_dir) / f"{task.task_id}_smoothed_results.pkl"
+                with open(smoothed_file, 'wb') as f:
+                    pickle.dump(smoothed_result_data, f)
         
         # Set result for return
         result.success = True
@@ -580,7 +819,9 @@ class ModularParallelCollectionManager:
                 planner_config=self.config.planner_config,
                 ml_object_model_path=self.config.ml_object_model_path,
                 ml_goal_model_path=self.config.ml_goal_model_path,
-                filter_minimum_length=self.config.filter_minimum_length
+                filter_minimum_length=self.config.filter_minimum_length,
+                smooth_solutions=self.config.smooth_solutions,
+                max_smooth_actions=self.config.max_smooth_actions
             )
             tasks.append(task)
         
@@ -852,6 +1093,10 @@ def main():
                         help="Enable verbose algorithm output")
     parser.add_argument("--filter-minimum-length", action="store_true",
                         help="Only keep episodes with minimum action sequence length per environment")
+    parser.add_argument("--smooth-solutions", action="store_true",
+                        help="Apply exhaustive smoothing to find minimal subsequences")
+    parser.add_argument("--max-smooth-actions", type=int, default=20,
+                        help="Maximum solution length to attempt smoothing on (default: 20)")
     
     args = parser.parse_args()
     
@@ -922,6 +1167,8 @@ def main():
         ml_samples=args.ml_samples,
         ml_device=args.ml_device,
         epsilon=args.epsilon,
+        smooth_solutions=args.smooth_solutions,
+        max_smooth_actions=args.max_smooth_actions,
         filter_minimum_length=args.filter_minimum_length,
         planner_config=planner_config
     )

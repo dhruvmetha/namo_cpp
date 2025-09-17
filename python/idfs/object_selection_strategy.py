@@ -9,7 +9,7 @@ import math
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any
 import namo_rl
-
+import random
 
 class ObjectSelectionStrategy(ABC):
     """Abstract base class for object selection strategies."""
@@ -50,6 +50,8 @@ class NoHeuristicStrategy(ObjectSelectionStrategy):
                       state: namo_rl.RLState,
                       env: namo_rl.RLEnvironment) -> List[str]:
         """Return objects in original order without modification."""
+        
+        random.shuffle(reachable_objects)
         return reachable_objects.copy()
     
     @property

@@ -1,8 +1,8 @@
-"""Standard Iterative Deepening DFS adapted for modular planner interface.
+"""Optimal Iterative Deepening DFS that finds all minimum-depth solutions.
 
-This implementation wraps the original IDFS algorithm to work with the
-abstract planner interface, providing a clean native implementation
-rather than a legacy adapter.
+This implementation extends the standard IDFS to find ALL solutions at the
+minimum depth, with intelligent pruning to avoid exploring branches that
+exceed the best solution depth found so far.
 """
 
 import math
@@ -50,12 +50,14 @@ class Action:
         return action
 
 
-class StandardIterativeDeepeningDFS(BasePlanner):
-    """Standard Iterative Deepening DFS planner using modular interface.
+class OptimalIterativeDeepeningDFS(BasePlanner):
+    """Optimal Iterative Deepening DFS planner that finds all minimum-depth solutions.
     
-    This is the original IDFS algorithm that restarts from root for each
-    depth limit, adapted to work with the abstract planner interface.
-    Supports different object selection strategies via the strategy pattern.
+    This planner extends the standard IDFS by:
+    1. Continuing search after finding the first solution
+    2. Pruning branches that exceed the best solution depth found so far
+    3. Returning all solutions at the minimum depth
+    4. Providing access to all minimum solutions via get_all_minimum_solutions()
     """
     
     def __init__(self, env: namo_rl.RLEnvironment, config: PlannerConfig,
@@ -120,6 +122,9 @@ class StandardIterativeDeepeningDFS(BasePlanner):
             'terminal_checks': 0,
             'max_depth_reached': 0,
         } if self.config.collect_stats else {}
+        
+        # Store all minimum solutions from last search
+        self.last_all_minimum_solutions = []
     
     def _create_object_strategy_from_name(self, strategy_name: str) -> 'ObjectSelectionStrategy':
         """Create object strategy instance from string name."""
@@ -285,14 +290,17 @@ class StandardIterativeDeepeningDFS(BasePlanner):
         # Reset random seed for consistency
         if self.config.random_seed is not None:
             random.seed(self.config.random_seed)
+        
+        # Reset solution tracking
+        self.last_all_minimum_solutions = []
     
     @property
     def algorithm_name(self) -> str:
-        return f"Standard Iterative Deepening DFS ({self.object_selection_strategy.strategy_name}, {self.goal_selection_strategy.strategy_name})"
+        return f"Optimal Iterative Deepening DFS ({self.object_selection_strategy.strategy_name}, {self.goal_selection_strategy.strategy_name})"
     
     @property
     def algorithm_version(self) -> str:
-        return "standard_idfs_v1.0"
+        return "optimal_idfs_v1.0"
     
     def _visualize_search_state(self, state: namo_rl.RLState, depth: int, message: str):
         """Visualize current state during search process."""
@@ -316,7 +324,7 @@ class StandardIterativeDeepeningDFS(BasePlanner):
                 time.sleep(self.search_delay)
     
     def search(self, robot_goal: Tuple[float, float, float]) -> PlannerResult:
-        """Run standard iterative deepening DFS to find action sequence."""
+        """Run optimal iterative deepening DFS to find all minimum-depth solutions."""
         start_time = time.time()
         timeout_seconds = self.config.max_search_time_seconds
         
@@ -324,17 +332,26 @@ class StandardIterativeDeepeningDFS(BasePlanner):
         self.env.set_robot_goal(*robot_goal)
         
         if self.config.verbose:
-            print(f"Starting standard IDFS (depths 1-{self.config.max_depth})")
+            print(f"Starting optimal IDFS (depths 1-{self.config.max_depth}) - finding all minimum solutions")
         
         if self.visualize_search and self.step_mode:
             print("👆 STEP MODE: Press Enter to advance through search steps")
         
+        all_minimum_solutions = []  # Store all solutions at minimum depth
+        best_depth = None  # Track the best (minimum) solution depth found
+        
         # Iterative deepening: try each depth limit
-        for depth_limit in range(self.config.max_depth, self.config.max_depth + 1):
+        for depth_limit in range(1, self.config.max_depth + 1):
             # Check timeout before starting new depth
             if timeout_seconds and (time.time() - start_time) > timeout_seconds:
                 if self.config.verbose:
                     print(f"Search timed out after {timeout_seconds}s")
+                break
+            
+            # If we already found solutions and this depth exceeds the best depth, stop
+            if best_depth is not None and depth_limit > best_depth:
+                if self.config.verbose:
+                    print(f"Stopping search: depth {depth_limit} > best depth {best_depth}")
                 break
                 
             if self.config.verbose:
@@ -352,7 +369,9 @@ class StandardIterativeDeepeningDFS(BasePlanner):
                 if self.config.collect_stats:
                     self.stats['terminal_checks'] += 1
                 
+                # Root is terminal - this is the best possible solution (depth 0)
                 search_time_ms = (time.time() - start_time) * 1000
+                self.last_all_minimum_solutions = [([], [], [])]  # Store for access
                 return PlannerResult(
                     success=True,
                     solution_found=True,
@@ -364,50 +383,92 @@ class StandardIterativeDeepeningDFS(BasePlanner):
                     nodes_expanded=self.stats.get('nodes_expanded', 0),
                     terminal_checks=self.stats.get('terminal_checks', 0),
                     max_depth_reached=self.stats.get('max_depth_reached', 0),
-                    algorithm_stats={'restart_based': True}
+                    algorithm_stats={'optimal_search': True, 'num_minimum_solutions': 1}
                 )
             
             # Depth-limited DFS (restarting from root each time)
-            solution_result = self._depth_limited_dfs(root_state, depth_limit, 0, start_time, timeout_seconds)
-            if solution_result is not None:
-                solution_actions, solution_states, post_action_states = solution_result
+            solutions_at_depth = self._depth_limited_dfs(root_state, depth_limit, 0, start_time, timeout_seconds, best_depth)
+            
+            # Process solutions found at this depth
+            for solution_actions, solution_states, post_action_states in solutions_at_depth:
+                solution_depth = len(solution_actions)
+                
+                # Update best depth if this is the first solution or better than previous
+                if best_depth is None or solution_depth < best_depth:
+                    # Found solutions at a better (shallower) depth
+                    best_depth = solution_depth
+                    all_minimum_solutions = [(solution_actions, solution_states, post_action_states)]
+                    if self.config.verbose:
+                        print(f"New minimum depth found: {best_depth}")
+                elif solution_depth == best_depth:
+                    # Found another solution at the same minimum depth
+                    all_minimum_solutions.append((solution_actions, solution_states, post_action_states))
+                    if self.config.verbose:
+                        print(f"Additional solution found at minimum depth {best_depth}")
+                
                 if self.config.verbose:
                     actions_str = [f'{a.object_id}->({a.goal.x:.2f},{a.goal.y:.2f})' for a in solution_actions]
-                    print(f"Solution found at depth {len(solution_actions)}: {actions_str}")
-                
-                # Convert to namo_rl.Action list
-                namo_actions = [action.to_namo_action() for action in solution_actions]
-                
-                search_time_ms = (time.time() - start_time) * 1000
-                return PlannerResult(
-                    success=True,
-                    solution_found=True,
-                    action_sequence=namo_actions,
-                    solution_depth=len(solution_actions),
-                    state_observations=solution_states,
-                    post_action_state_observations=post_action_states,
-                    search_time_ms=search_time_ms,
-                    nodes_expanded=self.stats.get('nodes_expanded', 0),
-                    terminal_checks=self.stats.get('terminal_checks', 0),
-                    max_depth_reached=self.stats.get('max_depth_reached', 0),
-                    algorithm_stats={'restart_based': True}
-                )
+                    print(f"Solution {len(all_minimum_solutions)} found at depth {solution_depth}: {actions_str}")
         
-        if self.config.verbose:
-            print("No solution found within depth limits")
+        # Store all minimum solutions for potential access later
+        self.last_all_minimum_solutions = all_minimum_solutions
         
-        search_time_ms = (time.time() - start_time) * 1000
-        return PlannerResult(
-            success=True,
-            solution_found=False,
-            state_observations=None,  # No state observations when no solution found
-            post_action_state_observations=None,  # No post-action state observations when no solution found
-            search_time_ms=search_time_ms,
-            nodes_expanded=self.stats.get('nodes_expanded', 0),
-            terminal_checks=self.stats.get('terminal_checks', 0),
-            max_depth_reached=self.stats.get('max_depth_reached', 0),
-            algorithm_stats={'restart_based': True}
-        )
+        # Return results
+        if all_minimum_solutions:
+            if self.config.verbose:
+                print(f"Search completed: found {len(all_minimum_solutions)} solutions at minimum depth {best_depth}")
+            
+            # Return the first minimum solution (could be extended to return all)
+            solution_actions, solution_states, post_action_states = all_minimum_solutions[0]
+            
+            # Convert to namo_rl.Action list
+            namo_actions = [action.to_namo_action() for action in solution_actions]
+            
+            search_time_ms = (time.time() - start_time) * 1000
+            return PlannerResult(
+                success=True,
+                solution_found=True,
+                action_sequence=namo_actions,
+                solution_depth=best_depth,
+                state_observations=solution_states,
+                post_action_state_observations=post_action_states,
+                search_time_ms=search_time_ms,
+                nodes_expanded=self.stats.get('nodes_expanded', 0),
+                terminal_checks=self.stats.get('terminal_checks', 0),
+                max_depth_reached=self.stats.get('max_depth_reached', 0),
+                algorithm_stats={'optimal_search': True, 'num_minimum_solutions': len(all_minimum_solutions)}
+            )
+        else:
+            if self.config.verbose:
+                print("No solution found within depth limits")
+            
+            search_time_ms = (time.time() - start_time) * 1000
+            return PlannerResult(
+                success=True,
+                solution_found=False,
+                state_observations=None,  # No state observations when no solution found
+                post_action_state_observations=None,  # No post-action state observations when no solution found
+                search_time_ms=search_time_ms,
+                nodes_expanded=self.stats.get('nodes_expanded', 0),
+                terminal_checks=self.stats.get('terminal_checks', 0),
+                max_depth_reached=self.stats.get('max_depth_reached', 0),
+                algorithm_stats={'optimal_search': True, 'num_minimum_solutions': 0}
+            )
+    
+    def get_all_minimum_solutions(self) -> List[Tuple[List[namo_rl.Action], List[Dict[str, List[float]]], List[Dict[str, List[float]]]]]:
+        """Return all solutions found at the minimum depth from the last search.
+        
+        Returns:
+            List of tuples, each containing:
+            - action_sequence: List of namo_rl.Action objects
+            - state_observations: List of state observations 
+            - post_action_state_observations: List of post-action state observations
+        """
+        result = []
+        for solution_actions, solution_states, post_action_states in self.last_all_minimum_solutions:
+            namo_actions = [action.to_namo_action() for action in solution_actions]
+            result.append((namo_actions, solution_states, post_action_states))
+        return result
     
     def _is_terminal_state(self, state: namo_rl.RLState) -> bool:
         """Check if robot goal is reachable from given state."""
@@ -469,12 +530,17 @@ class StandardIterativeDeepeningDFS(BasePlanner):
     
     def _depth_limited_dfs(self, state: namo_rl.RLState, depth_limit: int, 
                           current_depth: int, start_time: float, 
-                          timeout_seconds: Optional[float]) -> Optional[Tuple[List[Action], List[Dict[str, List[float]]], List[Dict[str, List[float]]]]]:
-        """Perform depth-limited DFS from given state."""
+                          timeout_seconds: Optional[float], best_depth: Optional[int] = None) -> List[Tuple[List[Action], List[Dict[str, List[float]]], List[Dict[str, List[float]]]]]:
+        """Perform depth-limited DFS from given state, returning all solutions at minimum depth."""
         
         # Check timeout
         if timeout_seconds and (time.time() - start_time) > timeout_seconds:
-            return None  # Timeout reached
+            return []  # Timeout reached
+        
+        # Prune if current depth already exceeds best solution depth found so far
+        if best_depth is not None and current_depth >= best_depth:
+            self._visualize_search_state(state, current_depth, f"✂️ Pruning: depth {current_depth} >= best depth {best_depth}")
+            return []  # Prune this branch
         
         # Update max depth reached
         if self.config.collect_stats:
@@ -488,12 +554,12 @@ class StandardIterativeDeepeningDFS(BasePlanner):
         # Check if current state is terminal
         if self._is_terminal_state(state):
             self._visualize_search_state(state, current_depth, "🎉 GOAL REACHABLE! Terminal state found")
-            return ([], [], [])  # Empty action sequence, state sequence, and post-action state sequence - goal already reachable
+            return [([], [], [])]  # Return list with one empty solution
         
         # Check depth limit
         if current_depth >= depth_limit:
             self._visualize_search_state(state, current_depth, f"❌ Depth limit {depth_limit} reached")
-            return None  # Depth limit reached
+            return []  # Depth limit reached
         
         # Get reachable objects from current state
         reachable_objects = self._get_reachable_objects(state)
@@ -504,11 +570,13 @@ class StandardIterativeDeepeningDFS(BasePlanner):
             reachable_objects, state, self.env
         )
         
+        all_solutions = []  # Collect all solutions found at this level
+        
         # Try each reachable object in strategy-determined order
         for obj_idx, object_id in enumerate(ordered_objects):
             # Check timeout before trying each object
             if timeout_seconds and (time.time() - start_time) > timeout_seconds:
-                return None  # Timeout reached - propagate immediately
+                return all_solutions  # Return solutions found so far
             
             self._visualize_search_state(state, current_depth, f"Trying object {obj_idx+1}/{len(ordered_objects)}: {object_id}")
             
@@ -539,28 +607,34 @@ class StandardIterativeDeepeningDFS(BasePlanner):
                 except Exception as e:
                     self._visualize_search_state(state, current_depth, f"❌ Action failed: {e}")
                     continue  # Skip failed actions
+                
                 # Check timeout before expensive recursive call
                 if timeout_seconds and (time.time() - start_time) > timeout_seconds:
-                    return None  # Timeout reached - propagate immediately
+                    return all_solutions  # Return solutions found so far
                 
                 # Recursively search from new state
-                sub_solution = self._depth_limited_dfs(new_state, depth_limit, current_depth + 1, start_time, timeout_seconds)
+                sub_solutions = self._depth_limited_dfs(new_state, depth_limit, current_depth + 1, start_time, timeout_seconds, best_depth)
                 
-                # Check if we got timeout (None) vs no solution found
+                # Check if we got timeout vs no solutions found
                 if timeout_seconds and (time.time() - start_time) > timeout_seconds:
-                    return None  # Timeout occurred during recursive call - propagate immediately
+                    return all_solutions  # Return solutions found so far
                 
-                if sub_solution is not None:
-                    # Found solution! Unpack sub-solution
-                    sub_actions, sub_states, sub_post_action_states = sub_solution
+                # Process all solutions found in recursive call
+                for sub_actions, sub_states, sub_post_action_states in sub_solutions:
                     self._visualize_search_state(state, current_depth, f"🎉 Solution found via {object_id}!")
                     # Prepend current action, state observation, and post-action state observation
-                    return ([action] + sub_actions, [state_obs] + sub_states, [post_action_state_obs] + sub_post_action_states)
-                else:
+                    complete_solution = ([action] + sub_actions, [state_obs] + sub_states, [post_action_state_obs] + sub_post_action_states)
+                    all_solutions.append(complete_solution)
+                
+                if not sub_solutions:
                     self._visualize_search_state(state, current_depth, f"⏪ Backtracking from {object_id} goal {goal_idx+1}")
         
-        self._visualize_search_state(state, current_depth, f"❌ No solution found at depth {current_depth}")
-        return None  # No solution found at this branch
+        if not all_solutions:
+            self._visualize_search_state(state, current_depth, f"❌ No solution found at depth {current_depth}")
+        else:
+            self._visualize_search_state(state, current_depth, f"✅ Found {len(all_solutions)} solutions at depth {current_depth}")
+        
+        return all_solutions
 
 
 # Import dataclass after other imports to avoid circular dependencies
@@ -568,23 +642,20 @@ from dataclasses import dataclass
 
 # Register the planner with the factory
 from idfs.base_planner import PlannerFactory
-PlannerFactory.register_planner("standard_idfs", StandardIterativeDeepeningDFS)
-
-# Register as "idfs" as the primary name
-PlannerFactory.register_planner("idfs", StandardIterativeDeepeningDFS)
+PlannerFactory.register_planner("optimal_idfs", OptimalIterativeDeepeningDFS)
 
 
-# Convenience function
-def plan_with_idfs(env: namo_rl.RLEnvironment,
-                  robot_goal: Tuple[float, float, float],
-                  max_depth: int = 5,
-                  max_goals_per_object: int = 5,
-                  random_seed: Optional[int] = None,
-                  verbose: bool = False,
-                  collect_stats: bool = True,
-                  object_selection_strategy: Optional['ObjectSelectionStrategy'] = None,
-                  goal_selection_strategy: Optional['GoalSelectionStrategy'] = None) -> Optional[List[namo_rl.Action]]:
-    """Plan action sequence using iterative deepening DFS."""
+# Convenience function for optimal IDFS
+def plan_with_optimal_idfs(env: namo_rl.RLEnvironment,
+                          robot_goal: Tuple[float, float, float],
+                          max_depth: int = 5,
+                          max_goals_per_object: int = 5,
+                          random_seed: Optional[int] = None,
+                          verbose: bool = False,
+                          collect_stats: bool = True,
+                          object_selection_strategy: Optional['ObjectSelectionStrategy'] = None,
+                          goal_selection_strategy: Optional['GoalSelectionStrategy'] = None) -> Optional[List[namo_rl.Action]]:
+    """Plan action sequence using optimal iterative deepening DFS (finds all minimum solutions)."""
     
     config = PlannerConfig(
         max_depth=max_depth,
@@ -594,9 +665,7 @@ def plan_with_idfs(env: namo_rl.RLEnvironment,
         collect_stats=collect_stats
     )
     
-    planner = StandardIterativeDeepeningDFS(env, config, object_selection_strategy, goal_selection_strategy)
+    planner = OptimalIterativeDeepeningDFS(env, config, object_selection_strategy, goal_selection_strategy)
     result = planner.search(robot_goal)
     
     return result.action_sequence if result.solution_found else None
-
-

@@ -22,6 +22,12 @@ class MCTSConfig:
     # Termination
     max_tree_depth: int = 50        # Maximum search depth
     
+    # Object selection strategy
+    object_selection_strategy: str = "no_heuristic"  # Strategy for ordering objects
+    
+    # Reward shaping
+    reachability_reward: float = 0.5  # Bonus reward for improving object reachability
+    
     # Debug
     verbose: bool = False           # Print search progress
 
