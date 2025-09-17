@@ -23,7 +23,7 @@ Collect MCTS episode data containing:
 **Small Test Collection (10 environments):**
 ```bash
 PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_westeros \
-/common/users/dm1487/envs/mjxrl/bin/python python/parallel_data_collection.py \
+/common/users/dm1487/envs/mjxrl/bin/python python/namo/data_collection/parallel_data_collection.py \
 --output-dir ./test_mcts_data \
 --start-idx 0 \
 --end-idx 10 \
@@ -36,7 +36,7 @@ PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_w
 **Medium Production Collection (100 environments):**
 ```bash
 PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_westeros \
-/common/users/dm1487/envs/mjxrl/bin/python python/parallel_data_collection.py \
+/common/users/dm1487/envs/mjxrl/bin/python python/namo/data_collection/parallel_data_collection.py \
 --output-dir ./mcts_episodes \
 --start-idx 0 \
 --end-idx 100 \
@@ -49,7 +49,7 @@ PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_w
 **Large Scale Collection (1000+ environments):**
 ```bash
 PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_westeros \
-/common/users/dm1487/envs/mjxrl/bin/python python/parallel_data_collection.py \
+/common/users/dm1487/envs/mjxrl/bin/python python/namo/data_collection/parallel_data_collection.py \
 --output-dir ./large_mcts_dataset \
 --start-idx 0 \
 --end-idx 1000 \
@@ -155,7 +155,7 @@ Convert MCTS episode data to mask-based training datasets:
 
 **Generate All Mask Types:**
 ```bash
-python run_mcts_mask_generation.py batch \
+python python/namo/visualization/run_mask_generation.py batch \
   --input-dir ./mcts_episodes/data_westeros \
   --output-dir ./mcts_training_masks \
   --workers 8
@@ -163,7 +163,7 @@ python run_mcts_mask_generation.py batch \
 
 **Goal Proposal Data Only (for diffusion models):**
 ```bash
-python run_mcts_mask_generation.py batch \
+python python/namo/visualization/run_mask_generation.py batch \
   --input-dir ./mcts_episodes/data_westeros \
   --output-dir ./diffusion_training_data \
   --goal-proposal-only \
@@ -172,7 +172,7 @@ python run_mcts_mask_generation.py batch \
 
 **Value Network Data Only:**
 ```bash
-python run_mcts_mask_generation.py batch \
+python python/namo/visualization/run_mask_generation.py batch \
   --input-dir ./mcts_episodes/data_westeros \
   --output-dir ./value_network_data \
   --value-network-only \
@@ -181,7 +181,7 @@ python run_mcts_mask_generation.py batch \
 
 **Debug Mode (single-threaded):**
 ```bash
-python run_mcts_mask_generation.py batch \
+python python/namo/visualization/run_mask_generation.py batch \
   --input-dir ./mcts_episodes/data_westeros \
   --output-dir ./debug_masks \
   --serial
@@ -355,7 +355,7 @@ print(f"Loaded {len(value_data)} value network samples")
 ```bash
 # Step 1: Generate MCTS episodes (100 environments)
 PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_westeros \
-/common/users/dm1487/envs/mjxrl/bin/python python/parallel_data_collection.py \
+/common/users/dm1487/envs/mjxrl/bin/python python/namo/data_collection/parallel_data_collection.py \
 --output-dir ./my_mcts_dataset \
 --start-idx 0 \
 --end-idx 100 \
@@ -364,7 +364,7 @@ PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_w
 --mcts-budget 150
 
 # Step 2: Generate training masks for diffusion model
-python run_mcts_mask_generation.py batch \
+python python/namo/visualization/run_mask_generation.py batch \
   --input-dir ./my_mcts_dataset/data_westeros \
   --output-dir ./diffusion_training_masks \
   --goal-proposal-only \
@@ -418,8 +418,9 @@ project_root/
 │   └── generation_stats.txt           # Generation statistics
 │
 └── Scripts
-    ├── python/parallel_data_collection.py  # Stage 1: MCTS data collection
-    ├── python/run_mcts_mask_generation.py  # Stage 2: Mask generation
+    ├── python/namo/data_collection/parallel_data_collection.py  # Stage 1: MCTS data collection
+    ├── python/namo/visualization/run_mask_generation.py  # Stage 2: Mask generation
+    ├── python/scripts/test_clean_mcts.py  # Single trial testing
     └── MCTS_DATA_PIPELINE.md               # This documentation
 ```
 
@@ -434,7 +435,7 @@ For debugging, understanding MCTS behavior, or demonstrating the system, you can
 **Basic visualization:**
 ```bash
 PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_westeros \
-/common/users/dm1487/envs/mjxrl/bin/python python/test_clean_mcts.py \
+/common/users/dm1487/envs/mjxrl/bin/python python/scripts/test_clean_mcts.py \
 --visualize-tree \
 --budget 50
 ```
@@ -442,7 +443,7 @@ PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_w
 **With custom parameters:**
 ```bash
 PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_westeros \
-/common/users/dm1487/envs/mjxrl/bin/python python/test_clean_mcts.py \
+/common/users/dm1487/envs/mjxrl/bin/python python/scripts/test_clean_mcts.py \
 --visualize-tree \
 --budget 100 \
 --k 2.0 \
@@ -455,7 +456,7 @@ PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_w
 **Complete episode with visualization:**
 ```bash
 PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_westeros \
-/common/users/dm1487/envs/mjxrl/bin/python python/test_multi_step_mcts.py \
+/common/users/dm1487/envs/mjxrl/bin/python python/scripts/test_multi_step_mcts.py \
 --visualize-tree \
 --budget 50 \
 --max-steps 10

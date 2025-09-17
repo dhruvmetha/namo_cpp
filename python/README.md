@@ -1,6 +1,6 @@
-# NAMO Python Bindings for MCTS
+# NAMO Python Package
 
-This directory contains Python bindings for the NAMO (Navigation Among Movable Objects) environment, specifically designed for Monte Carlo Tree Search (MCTS) applications.
+This directory contains the complete NAMO (Navigation Among Movable Objects) Python package, providing a comprehensive framework for planning, data collection, and visualization.
 
 ## Overview
 
@@ -301,4 +301,89 @@ The key insight is that each action corresponds to a high-level decision (which 
 - No memory leaks in state management
 - Suitable for thousands of MCTS simulations
 
-This interface provides everything needed to implement sophisticated MCTS algorithms for navigation among movable objects, with the convenience of Python and the performance of the underlying C++ implementation.
+## Package Structure
+
+The NAMO package is organized into logical modules:
+
+```
+python/
+├── namo/                    # Main NAMO package
+│   ├── core/               # Core interfaces and utilities
+│   │   ├── base_planner.py         # Abstract planner interface
+│   │   └── xml_goal_parser.py      # Scene parsing utilities
+│   ├── config/             # Configuration systems
+│   │   └── mcts_config.py          # MCTS parameters
+│   ├── strategies/         # Selection strategies (shared)
+│   │   ├── object_selection_strategy.py
+│   │   ├── goal_selection_strategy.py
+│   │   └── ml_strategies.py        # ML-based strategies
+│   ├── planners/           # Planning algorithms
+│   │   ├── idfs/           # Iterative Deepening algorithms
+│   │   │   ├── standard_idfs.py
+│   │   │   ├── tree_idfs.py
+│   │   │   ├── optimal_idfs.py
+│   │   │   └── solution_smoother.py
+│   │   ├── mcts/           # Monte Carlo Tree Search
+│   │   │   └── hierarchical_mcts.py
+│   │   └── sampling/       # Sampling-based planners
+│   │       └── random_sampling.py
+│   ├── data_collection/    # Data collection workflows
+│   │   ├── modular_parallel_collection.py
+│   │   ├── sequential_ml_collection.py
+│   │   ├── parallel_data_collection.py
+│   │   └── alphazero_data_collection.py
+│   ├── visualization/      # Image processing & visualization
+│   │   ├── run_mask_generation.py
+│   │   ├── mask_generation/
+│   │   └── mcts_mask_generation/
+│   └── cpp_bindings/       # C++ interface files
+└── scripts/                # Standalone executables
+    └── test_clean_mcts.py
+```
+
+## Import Examples
+
+```python
+# Core C++ environment
+import namo_rl
+
+# Planning algorithms
+from namo.planners.idfs import StandardIterativeDeepeningDFS
+from namo.planners.mcts import CleanHierarchicalMCTS
+from namo.planners.sampling import RandomSamplingPlanner
+
+# Selection strategies
+from namo.strategies import ObjectSelectionStrategy, MLObjectSelectionStrategy
+
+# Data collection
+from namo.data_collection import modular_parallel_collection
+from namo.data_collection import sequential_ml_collection
+
+# Visualization and mask generation
+from namo.visualization import run_mask_generation
+
+# Core utilities
+from namo.core import BasePlanner, PlannerConfig
+from namo.config import MCTSConfig
+```
+
+## Quick Start
+
+```python
+# 1. Environment setup
+import namo_rl
+env = namo_rl.RLEnvironment("scene.xml", "config.yaml")
+
+# 2. MCTS planning
+from namo.planners.mcts import CleanHierarchicalMCTS
+from namo.config import MCTSConfig
+
+config = MCTSConfig(budget=100, k=2.0, alpha=0.5)
+mcts = CleanHierarchicalMCTS(config)
+
+# 3. Data collection
+from namo.data_collection import modular_parallel_collection
+# See MCTS_DATA_PIPELINE.md for complete examples
+```
+
+This package provides everything needed to implement sophisticated planning algorithms for navigation among movable objects, with the convenience of Python and the performance of the underlying C++ implementation.

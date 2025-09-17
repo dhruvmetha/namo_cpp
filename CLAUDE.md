@@ -175,6 +175,20 @@ if (skill.is_applicable(params)) {
 │   └── SKILL_SYSTEM_SUMMARY.md # Implementation summary and achievements
 ├── examples/
 │   └── skill_demo.cpp          # Working demonstration with integration examples
+├── python/                     # Python package and bindings
+│   ├── namo/                  # Main NAMO Python package
+│   │   ├── core/              # Core interfaces (BasePlanner, xml_goal_parser)
+│   │   ├── config/            # Configuration systems (MCTSConfig)
+│   │   ├── strategies/        # Selection strategies (shared)
+│   │   ├── planners/          # Planning algorithms
+│   │   │   ├── idfs/         # Iterative Deepening algorithms
+│   │   │   ├── mcts/         # Monte Carlo Tree Search
+│   │   │   └── sampling/     # Sampling-based planners
+│   │   ├── data_collection/   # Data collection workflows
+│   │   ├── visualization/     # Image/mask processing
+│   │   └── cpp_bindings/      # C++ interface files
+│   ├── scripts/               # Standalone executables
+│   └── README.md             # Python package documentation
 ├── config/
 │   ├── namo_config.yaml       # Full configuration
 │   └── simple_test.yaml       # Minimal test config
