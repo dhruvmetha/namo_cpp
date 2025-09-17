@@ -82,11 +82,11 @@ void NAMOPushController::generate_rectangular_edge_points(const std::array<doubl
     
     // Generate 12 edge points exactly like older implementation
     std::array<std::array<double, 2>, 12> local_edge_points = {{
-        {{x - w, y + d + offset}}, {{x - w, y - d - offset}}, 
-        {{x, y + d + offset}}, {{x, y - d - offset}}, 
-        {{x + w, y + d + offset}}, {{x + w, y - d - offset}}, 
-        {{x + w + offset, y - d}}, {{x - w - offset, y - d}}, 
-        {{x + w + offset, y}}, {{x - w - offset, y}}, 
+        {{x - w, y + d + offset}}, {{x - w, y - d - offset}},
+        {{x, y + d + offset}}, {{x, y - d - offset}},
+        {{x + w, y + d + offset}}, {{x + w, y - d - offset}},
+        {{x + w + offset, y - d}}, {{x - w - offset, y - d}},
+        {{x + w + offset, y}}, {{x - w - offset, y}},
         {{x + w + offset, y + d}}, {{x - w - offset, y + d}}
     }};
 
@@ -94,7 +94,7 @@ void NAMOPushController::generate_rectangular_edge_points(const std::array<doubl
     // for (size_t i = 0; i < 12; ++i) {
     //     std::cout << "  " << local_edge_points[i][0] << ", " << local_edge_points[i][1] << std::endl;
     // }
-    
+
     // Transform edge points from local to world coordinates
     edge_count = 12;
     for (size_t i = 0; i < 12; ++i) {
@@ -105,7 +105,7 @@ void NAMOPushController::generate_rectangular_edge_points(const std::array<doubl
     // for (size_t i = 0; i < 12; ++i) {
     //     std::cout << "  " << edge_points[i][0] << ", " << edge_points[i][1] << std::endl;
     // }
-    
+
     // Calculate mid points between consecutive edge points (matching original implementation)
     std::array<std::array<double, 2>, 12> local_mid_points;
     for (size_t i = 0; i < 12; ++i) {
@@ -115,13 +115,13 @@ void NAMOPushController::generate_rectangular_edge_points(const std::array<doubl
             local_mid_points[i][0] = (local_edge_points[i][0] + local_edge_points[next_idx][0]) / 2.0;
             local_mid_points[i][1] = (local_edge_points[i][1] + local_edge_points[next_idx][1]) / 2.0;
         } else {
-            // Odd indices: mid point between current and previous edge point  
+            // Odd indices: mid point between current and previous edge point
             size_t prev_idx = (i - 1);
             local_mid_points[i][0] = (local_edge_points[i][0] + local_edge_points[prev_idx][0]) / 2.0;
             local_mid_points[i][1] = (local_edge_points[i][1] + local_edge_points[prev_idx][1]) / 2.0;
         }
     }
-    
+
     // std::cout << "Local mid points: " << std::endl;
     // for (size_t i = 0; i < 12; ++i) {
     //     std::cout << "  " << local_mid_points[i][0] << ", " << local_mid_points[i][1] << std::endl;
