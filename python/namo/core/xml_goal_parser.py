@@ -7,7 +7,7 @@ Each XML file contains a <site name="goal" ... pos="x y z"/> element that
 defines the target location for the robot to reach.
 
 Usage:
-    from xml_goal_parser import extract_goal_from_xml
+    from namo.core.xml_goal_parser import extract_goal_from_xml
     goal = extract_goal_from_xml("path/to/env_config.xml")  # Returns (x, y, theta)
 """
 

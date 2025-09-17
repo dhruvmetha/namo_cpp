@@ -18,7 +18,7 @@ import pickle
 from pathlib import Path
 
 import namo_rl
-from mcts_hierarchical import CleanHierarchicalMCTS, StateNode, ObjectNode, Action
+from namo.planners.mcts.hierarchical_mcts import CleanHierarchicalMCTS, StateNode, ObjectNode, Action
 
 @dataclass
 class ObjectProposal:
@@ -504,7 +504,7 @@ class SingleEnvironmentDataCollector:
 
 if __name__ == "__main__":
     # Example usage
-    from mcts_config import MCTSConfig
+    from namo.config.mcts_config import MCTSConfig
     
     # Configuration
     xml_file = "../ml4kp_ktamp/resources/models/custom_walled_envs/aug9/easy/set2/benchmark_3/env_config_1375a.xml"

@@ -21,18 +21,14 @@ from typing import List, Optional, Tuple, Dict, TYPE_CHECKING
 from dataclasses import dataclass
 
 if TYPE_CHECKING:
-    from idfs.object_selection_strategy import ObjectSelectionStrategy
-    from idfs.goal_selection_strategy import GoalSelectionStrategy
-
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from namo.strategies import ObjectSelectionStrategy
+    from namo.strategies import GoalSelectionStrategy
 
 import namo_rl
-from mcts_config import ActionConstraints
-from idfs.base_planner import BasePlanner, PlannerConfig, PlannerResult
-from idfs.object_selection_strategy import ObjectSelectionStrategy, NoHeuristicStrategy, NearestFirstStrategy, GoalProximityStrategy, FarthestFirstStrategy
-from idfs.goal_selection_strategy import GoalSelectionStrategy, RandomGoalStrategy, GridGoalStrategy, AdaptiveGoalStrategy
+from namo.config import ActionConstraints
+from namo.core import BasePlanner, PlannerConfig, PlannerResult
+from namo.strategies import ObjectSelectionStrategy, NoHeuristicStrategy, NearestFirstStrategy, GoalProximityStrategy, FarthestFirstStrategy
+from namo.strategies import GoalSelectionStrategy, RandomGoalStrategy, GridGoalStrategy, AdaptiveGoalStrategy
 
 
 @dataclass
@@ -140,7 +136,7 @@ class RandomSamplingPlanner(BasePlanner):
             return FarthestFirstStrategy()
         elif strategy_name == "ml":
             # Import ML strategy
-            from idfs.ml_strategies import MLObjectSelectionStrategy
+            from namo.strategies.ml_strategies import MLObjectSelectionStrategy
             
             # Get ML parameters from config
             ml_object_model_path = self.config.algorithm_params.get('ml_object_model_path')
@@ -184,7 +180,7 @@ class RandomSamplingPlanner(BasePlanner):
             )
         elif strategy_name == "ml":
             # Import ML strategy
-            from idfs.ml_strategies import MLGoalSelectionStrategy
+            from namo.strategies.ml_strategies import MLGoalSelectionStrategy
             
             # Get ML parameters from config
             ml_goal_model_path = self.config.algorithm_params.get('ml_goal_model_path')
@@ -463,7 +459,7 @@ class RandomSamplingPlanner(BasePlanner):
 
 
 # Register the planner with the factory
-from idfs.base_planner import PlannerFactory
+from namo.core import PlannerFactory
 PlannerFactory.register_planner("random_sampling", RandomSamplingPlanner)
 
 

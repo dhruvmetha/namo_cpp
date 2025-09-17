@@ -33,13 +33,13 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # NAMO imports
 import namo_rl
-from idfs.base_planner import BasePlanner, PlannerConfig, PlannerResult, PlannerFactory
-from xml_goal_parser import extract_goal_with_fallback
+from namo.core import BasePlanner, PlannerConfig, PlannerResult, PlannerFactory
+from namo.core.xml_goal_parser import extract_goal_with_fallback
 
 # Import and register all available planners
-from idfs.standard_idfs import StandardIterativeDeepeningDFS
-from idfs.tree_idfs import TreeIterativeDeepeningDFS
-from idfs.random_sampling import RandomSamplingPlanner
+from namo.planners.idfs.standard_idfs import StandardIterativeDeepeningDFS
+from namo.planners.idfs.tree_idfs import TreeIterativeDeepeningDFS
+from namo.planners.sampling.random_sampling import RandomSamplingPlanner
 
 
 def get_available_algorithms() -> List[str]:

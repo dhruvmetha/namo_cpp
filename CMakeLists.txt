@@ -216,8 +216,8 @@ if(BUILD_PYTHON_BINDINGS)
     
     # Python RL environment sources
     set(PYTHON_RL_SOURCES
-        python/rl_env.cpp
-        python/bindings.cpp
+        python/namo/cpp_bindings/rl_env.cpp
+        python/namo/cpp_bindings/bindings.cpp
         ${CORE_SOURCES}
         ${PLANNING_SOURCES}
         ${WAVEFRONT_SOURCES}

@@ -1,4 +1,4 @@
-#include "python/rl_env.hpp"
+#include "python/namo/cpp_bindings/rl_env.hpp"
 #include "core/types.hpp"
 #include <iostream>
 #include <mujoco/mujoco.h>

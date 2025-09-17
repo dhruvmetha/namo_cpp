@@ -21,8 +21,8 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import namo_rl
-from mcts_config import ActionConstraints
-from idfs.base_planner import BasePlanner, PlannerConfig, PlannerResult
+from namo.config.mcts_config import ActionConstraints
+from namo.core import BasePlanner, PlannerConfig, PlannerResult
 
 
 @dataclass
@@ -359,7 +359,7 @@ class TreeIterativeDeepeningDFS(BasePlanner):
 
 
 # Register the planner with the factory
-from idfs.base_planner import PlannerFactory
+from namo.core import PlannerFactory
 PlannerFactory.register_planner("tree_idfs", TreeIterativeDeepeningDFS)
 
 

@@ -22,13 +22,13 @@ from dataclasses import dataclass
 from abc import ABC, abstractmethod
 
 import namo_rl
-from mcts_config import MCTSConfig, ActionConstraints
+from namo.config.mcts_config import MCTSConfig, ActionConstraints
 
 # Import object selection strategies from IDFS
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from idfs.object_selection_strategy import (
+from namo.strategies.object_selection_strategy import (
     ObjectSelectionStrategy, NoHeuristicStrategy, NearestFirstStrategy, 
     GoalProximityStrategy, FarthestFirstStrategy
 )

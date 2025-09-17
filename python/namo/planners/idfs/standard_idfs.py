@@ -12,17 +12,13 @@ from typing import List, Optional, Tuple, Dict
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from idfs.object_selection_strategy import ObjectSelectionStrategy
-
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from namo.strategies import ObjectSelectionStrategy
 
 import namo_rl
-from mcts_config import ActionConstraints
-from idfs.base_planner import BasePlanner, PlannerConfig, PlannerResult
-from idfs.object_selection_strategy import ObjectSelectionStrategy, NoHeuristicStrategy, NearestFirstStrategy, GoalProximityStrategy, FarthestFirstStrategy
-from idfs.goal_selection_strategy import GoalSelectionStrategy, RandomGoalStrategy
+from namo.config import ActionConstraints
+from namo.core import BasePlanner, PlannerConfig, PlannerResult
+from namo.strategies import ObjectSelectionStrategy, NoHeuristicStrategy, NearestFirstStrategy, GoalProximityStrategy, FarthestFirstStrategy
+from namo.strategies import GoalSelectionStrategy, RandomGoalStrategy
 
 from dataclasses import dataclass
 
@@ -200,8 +196,8 @@ class StandardIterativeDeepeningDFS(BasePlanner):
         
         if epsilon is not None:
             # Create epsilon-greedy strategy
-            from idfs.ml_strategies import EpsilonGreedyGoalStrategy, MLGoalSelectionStrategy
-            from idfs.goal_selection_strategy import RandomGoalStrategy
+            from namo.strategies import EpsilonGreedyGoalStrategy, MLGoalSelectionStrategy
+            from namo.strategies import RandomGoalStrategy
             
             # Create ML strategy
             preloaded_model = params.get('preloaded_goal_model')
@@ -567,7 +563,7 @@ class StandardIterativeDeepeningDFS(BasePlanner):
 from dataclasses import dataclass
 
 # Register the planner with the factory
-from idfs.base_planner import PlannerFactory
+from namo.core import PlannerFactory
 PlannerFactory.register_planner("standard_idfs", StandardIterativeDeepeningDFS)
 
 # Register as "idfs" as the primary name

@@ -10,8 +10,8 @@ import random
 from typing import List, Optional, Dict, Any
 from collections import Counter
 import namo_rl
-from idfs.object_selection_strategy import ObjectSelectionStrategy
-from idfs.goal_selection_strategy import GoalSelectionStrategy, Goal, RandomGoalStrategy
+from .object_selection_strategy import ObjectSelectionStrategy
+from .goal_selection_strategy import GoalSelectionStrategy, Goal, RandomGoalStrategy
 
 # Add learning package to path for imports
 learning_path = "/common/home/dm1487/robotics_research/ktamp/learning"

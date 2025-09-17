@@ -36,10 +36,10 @@ from tqdm import tqdm
 
 # NAMO imports
 import namo_rl
-from mcts_hierarchical import CleanHierarchicalMCTS
-from mcts_config import MCTSConfig
-from alphazero_data_collection import MCTSDataExtractor, SingleEnvironmentDataCollector, EpisodeData
-from xml_goal_parser import extract_goal_with_fallback
+from namo.planners.mcts.hierarchical_mcts import CleanHierarchicalMCTS
+from namo.config.mcts_config import MCTSConfig
+from namo.data_collection.alphazero_data_collection import MCTSDataExtractor, SingleEnvironmentDataCollector, EpisodeData
+from namo.core.xml_goal_parser import extract_goal_with_fallback
 
 import random
 

@@ -1,6 +1,6 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
-#include "python/rl_env.hpp"
+#include "python/namo/cpp_bindings/rl_env.hpp"
 
 namespace py = pybind11;
 
