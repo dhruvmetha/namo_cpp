@@ -2,6 +2,7 @@
 #include <cmath>
 #include <iostream>
 #include <algorithm>
+#include <limits>
 
 namespace namo {
 
@@ -259,31 +260,30 @@ std::vector<PlanStep> GreedyPlanner::get_fallback_primitive_step(
     LoadedPrimitive best_primitive;
     bool found_primitive = false;
     
-    // Check all available primitives to find the one that gets closest
-    for (int edge = 0; edge < 12; edge++) {
+    // Check all loaded primitives to find the one that gets closest
+    const auto& all_primitives = primitive_loader_.get_all_primitives();
+    for (size_t i = 0; i < primitive_loader_.size(); i++) {
+        const LoadedPrimitive& primitive = all_primitives[i];
+        
+        // Skip invalid primitives
+        if (primitive.push_steps <= 0) continue;
+        
         // Skip if this edge is not allowed (respect reachable edges constraint)
         if (!allowed_edges.empty()) {
-            bool edge_allowed = std::find(allowed_edges.begin(), allowed_edges.end(), edge) != allowed_edges.end();
+            bool edge_allowed = std::find(allowed_edges.begin(), allowed_edges.end(), primitive.edge_idx) != allowed_edges.end();
             if (!edge_allowed) continue;
         }
         
-        for (int steps = 1; steps <= 10; steps++) {
-            const LoadedPrimitive& primitive = primitive_loader_.get_primitive(edge, steps);
-            
-            // Skip invalid primitives
-            if (primitive.push_steps <= 0) continue;
-            
-            // Apply primitive to origin and see how close we get to goal
-            SE2State result_state = apply_primitive(origin, primitive);
-            double distance = distance_func_(result_state, local_goal);
-            
-            // Only consider primitives that actually improve distance to goal
-            // This prevents moving objects in wrong direction when no good path exists
-            if (distance < current_distance && distance < best_distance) {
-                best_distance = distance;
-                best_primitive = primitive;
-                found_primitive = true;
-            }
+        // Apply primitive to origin and see how close we get to goal
+        SE2State result_state = apply_primitive(origin, primitive);
+        double distance = distance_func_(result_state, local_goal);
+        
+        // Only consider primitives that actually improve distance to goal
+        // This prevents moving objects in wrong direction when no good path exists
+        if (distance < current_distance && distance < best_distance) {
+            best_distance = distance;
+            best_primitive = primitive;
+            found_primitive = true;
         }
     }
     

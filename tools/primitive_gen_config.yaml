@@ -1,0 +1,7 @@
+visualize=false
+
+[data_collection]
+enabled=false
+
+[wavefront_planner]
+resolution=0.05

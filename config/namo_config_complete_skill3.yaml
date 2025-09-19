@@ -80,12 +80,12 @@ environment:
 # System configuration
 system:
   # Performance options
-  enable_visualization: true       # Enable MuJoCo visualization
+  enable_visualization: false       # Enable MuJoCo visualization
   enable_profiling: false          # Enable performance profiling
   num_threads: 1                   # Number of threads for parallel processing
   
   # File paths
-  motion_primitives_file: "data/motion_primitives.dat"  # Motion primitives database
+  motion_primitives_file: "data/motion_primitives_3.dat"  # Motion primitives database
   default_scene_file: "/common/home/dm1487/robotics_research/ktamp/ml4kp_ktamp/resources/models/custom_walled_envs/aug9/easy/set1/benchmark_1/env_config_7b.xml"         # Default MuJoCo scene
   
   # Data collection

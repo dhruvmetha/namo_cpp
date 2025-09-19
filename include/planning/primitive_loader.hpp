@@ -15,7 +15,7 @@ struct LoadedPrimitive {
     double delta_x;      // Position displacement in x
     double delta_y;      // Position displacement in y  
     double delta_theta;  // Orientation displacement (radians)
-    int edge_idx;        // Edge index (0-11)
+    int edge_idx;        // Edge index (0-63)
     int push_steps;      // Number of push steps (1-10)
     
     LoadedPrimitive() : delta_x(0.0), delta_y(0.0), delta_theta(0.0), edge_idx(-1), push_steps(0) {}
@@ -32,9 +32,9 @@ struct LoadedPrimitive {
  */
 class PrimitiveLoader {
 private:
-    static constexpr size_t MAX_PRIMITIVES = 120;  // 12 edges × 10 step variants
-    static constexpr size_t MAX_EDGES = 12;
+    static constexpr size_t MAX_EDGES = 64;        // Up to 16 points per face × 4 faces
     static constexpr size_t MAX_STEPS = 10;
+    static constexpr size_t MAX_PRIMITIVES = MAX_EDGES * MAX_STEPS;  // 64 edges × 10 step variants = 640
     
     std::array<LoadedPrimitive, MAX_PRIMITIVES> primitives_;
     std::array<std::array<int, MAX_STEPS>, MAX_EDGES> lookup_table_;  // [edge][step-1] -> primitive_index
@@ -55,7 +55,7 @@ public:
     /**
      * @brief Get primitive by edge index and push steps
      * 
-     * @param edge_idx Edge index (0-11)
+     * @param edge_idx Edge index (0-63)
      * @param push_steps Number of push steps (1-10)
      * @return const LoadedPrimitive& Reference to primitive
      */
@@ -87,7 +87,7 @@ public:
     /**
      * @brief Get valid primitive indices for a given edge
      * 
-     * @param edge_idx Edge index (0-11)
+     * @param edge_idx Edge index (0-63)
      * @return std::vector<int> Valid push step values for this edge
      */
     std::vector<int> get_valid_steps_for_edge(int edge_idx) const;

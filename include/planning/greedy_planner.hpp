@@ -60,8 +60,8 @@ struct PlanStep {
  */
 class GreedyPlanner {
 private:
-    static constexpr size_t MAX_SEARCH_NODES = 10000;
-    static constexpr int DEFAULT_EXPANSION_LIMIT = 5000;
+    static constexpr size_t MAX_SEARCH_NODES = 50000;     // Increased from 10000
+    static constexpr int DEFAULT_EXPANSION_LIMIT = 25000;  // Increased from 5000
     
     PrimitiveLoader primitive_loader_;
     

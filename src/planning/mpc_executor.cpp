@@ -1,4 +1,5 @@
 #include "planning/mpc_executor.hpp"
+#include "planning/namo_push_controller.hpp"
 #include "core/types.hpp"
 #include <iostream>
 #include <cmath>
@@ -273,6 +274,8 @@ std::vector<int> MPCExecutor::get_reachable_edges_with_wavefront(const std::stri
     std::vector<double> robot_pos = {robot_state->position[0], robot_state->position[1]};
     bool wavefront_updated = planner_.update_wavefront(env_, robot_pos);
     
+    
+
     if (!wavefront_updated) {
         // std::cout << "Warning: Wavefront update failed" << std::endl;
     }
@@ -287,8 +290,8 @@ std::vector<int> MPCExecutor::get_reachable_edges_with_wavefront(const std::stri
     std::vector<int> reachable_edges;
 
     // Use controller to generate edge points (supports dynamic n points per edge)
-    std::array<std::array<double, 2>, 64> edge_points;  // Use MAX_EDGE_POINTS from controller
-    std::array<std::array<double, 2>, 64> mid_points;   // Not used but required
+    std::array<std::array<double, 2>, NAMOPushController::MAX_EDGE_POINTS> edge_points;
+    std::array<std::array<double, 2>, NAMOPushController::MAX_EDGE_POINTS> mid_points;   // Not used but required
     size_t edge_count, mid_count;
 
     if (controller_.generate_edge_points(object_name, edge_points, mid_points, edge_count, mid_count) == 0) {
@@ -323,6 +326,8 @@ std::vector<int> MPCExecutor::get_reachable_edges_with_wavefront(const std::stri
             continue;
         }
     }
+
+    planner_.save_wavefront_iteration("mpc_wavefront", 0);
     
     // std::cout << "Wavefront analysis: " << reachable_edges.size() 
             //   << "/" << edge_count << " edges reachable for " << object_name << std::endl;

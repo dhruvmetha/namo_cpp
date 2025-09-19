@@ -73,9 +73,11 @@ struct NAMOAction {
  * - Incremental wavefront integration
  */
 class NAMOPushController {
+public:
+    static constexpr size_t MAX_EDGE_POINTS = 64;  // Public for external use
+    
 private:
     static constexpr size_t MAX_PRIMITIVES = 1000;
-    static constexpr size_t MAX_EDGE_POINTS = 64;
     static constexpr size_t MAX_TRAJECTORY_POINTS = 100;
     
     // Environment and planner references
@@ -180,7 +182,7 @@ public:
      * @brief Get reachable edge indices for a specific object
      * 
      * @param object_name Name of the object to check
-     * @return Vector of reachable edge indices (0-11)
+     * @return Vector of reachable edge indices (0-63)
      */
     std::vector<int> get_reachable_edge_indices(const std::string& object_name);
     

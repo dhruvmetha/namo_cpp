@@ -2,6 +2,7 @@
 #include <chrono>
 #include <iomanip>
 #include <cmath>
+#include <unordered_set>
 
 namespace namo {
 
@@ -167,7 +168,9 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
     // **ITERATIVE MPC LOOP**
     SE2State previous_state = *get_object_current_pose(object_name); // Initialize for stuck detection
     int stuck_counter = 0;
+    int previous_edge_idx = -1;
     const int max_stuck_iterations = config_ ? config_->skill().max_stuck_iterations : 2;
+    std::unordered_set<int> stuck_edges;  // edges that caused a stuck outcome recently
     
     for (int mpc_iter = 0; mpc_iter < max_mpc_iterations; mpc_iter++) {
         // std::cout << "\n--- MPC Iteration " << (mpc_iter + 1) << "/" << max_mpc_iterations << " ---" << std::endl;
@@ -186,6 +189,11 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         if (mpc_iter > 0) {
             if (is_object_stuck(previous_state, current_state)) {
                 stuck_counter++;
+                // Add the previously executed edge to stuck edges list
+                if (previous_edge_idx >= 0) {
+                    stuck_edges.insert(previous_edge_idx);
+                    // std::cout << "Edge " << previous_edge_idx << " led to stuck state, adding to blacklist" << std::endl;
+                }
                 // std::cout << "Object stuck detection: " << stuck_counter << "/" << max_stuck_iterations << std::endl;
                 
                 if (stuck_counter >= max_stuck_iterations) {
@@ -201,6 +209,8 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
                 }
             } else {
                 stuck_counter = 0; // Reset stuck counter if object moved
+                stuck_edges.clear(); // Object moved → forgive all previously stuck edges
+                // std::cout << "Object moved, clearing stuck edges blacklist" << std::endl;
             }
         }
         // std::cout << "Current state: [" << std::fixed << std::setprecision(3)
@@ -236,15 +246,34 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         
         // 5. Update reachability using wavefront planner and save for debugging
         // std::cout << "Updating wavefront and checking reachability..." << std::endl;
-        
+        executor_->save_debug_wavefront(mpc_iter, "mpc_wavefront_reachability");
         
         std::vector<int> reachable_edges = executor_->get_reachable_edges_with_wavefront(object_name);
+        std::cout << "reachable_edges: " << reachable_edges.size() << std::endl;
+        for (int edge : reachable_edges) {
+            std::cout << "reachable edge idx: " << edge << std::endl;
+        }
+        
+        // Filter out edges that previously led to a stuck outcome
+        std::vector<int> filtered_edges;
+        filtered_edges.reserve(reachable_edges.size());
+        for (int edge : reachable_edges) {
+            if (stuck_edges.count(edge) == 0) {
+                filtered_edges.push_back(edge);
+            }
+            else {
+                std::cout << "edge idx: " << edge << " is a stuck edge" << std::endl;
+            }
+        }
+        
+        // std::cout << "Reachable edges: " << reachable_edges.size() << ", after filtering stuck edges: " << filtered_edges.size() << std::endl;
+        
         // Save wavefront for debugging BEFORE checking reachability
         
-        if (reachable_edges.empty()) {
-            // std::cout << "No reachable edges for object " << object_name << " - stopping MPC" << std::endl;
-            executor_->save_debug_wavefront(mpc_iter, "mpc_wavefront_no_reachable_edges");
-            result.failure_reason = "No reachable edges at iteration " + std::to_string(mpc_iter);
+        if (filtered_edges.empty()) {
+            // std::cout << "No reachable edges for object " << object_name << " after filtering stuck edges - stopping MPC" << std::endl;
+            executor_->save_debug_wavefront(mpc_iter, "mpc_wavefront_no_reachable_edges_after_filter");
+            result.failure_reason = "No reachable edges after filtering stuck edges at iteration " + std::to_string(mpc_iter);
             result.outputs["steps_executed"] = mpc_iter;
             result.outputs["final_pose"] = current_state;
             result.outputs["object_name"] = object_name;
@@ -253,13 +282,14 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
             result.execution_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
             return result;
         }
-        // std::cout << "Found " << reachable_edges.size() << " reachable edges" << std::endl;
+        // std::cout << "Found " << filtered_edges.size() << " filtered reachable edges" << std::endl;
         
         // 6. Plan from current state to goal
         // std::cout << "Planning from current state to goal..." << std::endl;
         std::vector<PlanStep> plan;
         try {
-            plan = planner_->plan_push_sequence(current_state, target_pose, reachable_edges);
+            plan = planner_->plan_push_sequence(current_state, target_pose, filtered_edges, 25000);
+            std::cout << "filtered_edges: " << filtered_edges.size() << std::endl;
         } catch (const std::exception& e) {
             std::cout << "Planning failed: " << e.what() << std::endl;
             result.failure_reason = "Planning failed at iteration " + std::to_string(mpc_iter) + ": " + e.what();
@@ -289,6 +319,9 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         
         // 7. Execute ONLY the first primitive step (key difference from full sequence execution)
         std::vector<PlanStep> single_step = {plan[0]};
+        
+        previous_edge_idx = single_step[0].edge_idx;  // Remember which edge we're executing for next iteration's stuck check
+        std::cout << "pushing on edge idx: " << previous_edge_idx << std::endl;
         auto step_result = executor_->execute_plan(object_name, single_step);
         
         // if (!step_result.success) {

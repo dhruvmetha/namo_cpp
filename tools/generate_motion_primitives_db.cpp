@@ -20,7 +20,7 @@ struct __attribute__((packed)) NominalPrimitive {
     float delta_x;        // Position change in x
     float delta_y;        // Position change in y  
     float delta_theta;    // Rotation change (yaw)
-    uint8_t edge_idx;     // Push direction (0-11)
+    uint8_t edge_idx;     // Push direction (0-63)
     uint8_t push_steps;   // Push step number (1-10)
 };
 
@@ -34,7 +34,7 @@ int main() {
     
     try {
         // Prefer unified config if present, fallback to minimal local config
-        std::string config_path = "config/namo_config_complete.yaml";
+        std::string config_path = "config/namo_config_complete_skill15.yaml";
         bool using_unified_config = std::filesystem::exists(config_path);
         
         if (!using_unified_config) {
@@ -178,9 +178,9 @@ resolution=0.05
         
         // Generate primitives for each edge
         for (size_t edge_idx = 0; edge_idx < num_edges; edge_idx++) {
-            // std::cout << "\n--- Generating primitives for edge " << edge_idx << " ---" << std::endl;
-            // std::cout << "Edge point: [" << edge_points[edge_idx][0] << ", " << edge_points[edge_idx][1] << "]" << std::endl;
-            // std::cout << "Mid point: [" << mid_points[edge_idx][0] << ", " << mid_points[edge_idx][1] << "]" << std::endl;
+            std::cout << "\n--- Generating primitives for edge " << edge_idx << " ---" << std::endl;
+            std::cout << "Edge point: [" << edge_points[edge_idx][0] << ", " << edge_points[edge_idx][1] << "]" << std::endl;
+            std::cout << "Mid point: [" << mid_points[edge_idx][0] << ", " << mid_points[edge_idx][1] << "]" << std::endl;
             
             // Reset environment to initial state
             env.reset();
@@ -248,7 +248,7 @@ resolution=0.05
             std::cerr << "Failed to create output file: " << output_file << std::endl;
             return 1;
         }
-        
+        std::cout << "Saving primitives to: " << output_file << std::endl;
         // Write header
         uint32_t count = all_primitives.size();
         file.write(reinterpret_cast<const char*>(&count), sizeof(count));

@@ -78,9 +78,10 @@ void NAMOPushController::generate_rectangular_edge_points(const std::array<doubl
     double x = 0.0, y = 0.0;
     double w = obj_size[0] - 0.05;  // width with margin
     double d = obj_size[1] - 0.05;  // depth with margin
+
     
     // Robot offset for close contact pushing
-    double offset = robot_size_[0] + 0.05;
+    double offset = robot_size_[0] + 0.055;
     
     int n = points_per_edge_;
     double eps_u = std::min(0.05, 0.25 * w);  // margin from corners
@@ -97,14 +98,14 @@ void NAMOPushController::generate_rectangular_edge_points(const std::array<doubl
     
     // Top/Bottom pairs: sample along x-direction
     for (int j = 0; j < n; ++j) {
-        double u = sample_lin(-w + eps_u, w - eps_u, n, j);
+        double u = sample_lin(-w, w, n, j);
         local_edge_points.push_back({x + u, y + d + offset});    // Top(j)
         local_edge_points.push_back({x + u, y - d - offset});    // Bottom(j)
     }
     
     // Right/Left pairs: sample along y-direction
     for (int k = 0; k < n; ++k) {
-        double v = sample_lin(-d + eps_v, d - eps_v, n, k);
+        double v = sample_lin(-d , d , n, k);
         local_edge_points.push_back({x + w + offset, y + v});    // Right(k)
         local_edge_points.push_back({x - w - offset, y + v});    // Left(k)
     }

@@ -78,8 +78,8 @@ void WavefrontPlanner::initialize_static_grid(NAMOEnvironment& env) {
                 
                 // Create inflated object for robot size
                 ObjectInfo inflated_obj = obj;
-                inflated_obj.size[0] += robot_size_[0];
-                inflated_obj.size[1] += robot_size_[1];
+                inflated_obj.size[0] += robot_size_[0] + 0.06;
+                inflated_obj.size[1] += robot_size_[1] + 0.06;
                 
                 // Use object info directly for static objects (no state)
                 ObjectState static_state;
