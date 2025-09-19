@@ -75,7 +75,7 @@ struct NAMOAction {
 class NAMOPushController {
 private:
     static constexpr size_t MAX_PRIMITIVES = 1000;
-    static constexpr size_t MAX_EDGE_POINTS = 16;
+    static constexpr size_t MAX_EDGE_POINTS = 64;
     static constexpr size_t MAX_TRAJECTORY_POINTS = 100;
     
     // Environment and planner references
@@ -98,6 +98,7 @@ private:
     int default_push_steps_;
     int control_steps_per_push_;
     double force_scaling_;
+    int points_per_edge_;
     std::array<double, 3> robot_size_;
     
 public:
@@ -109,12 +110,14 @@ public:
      * @param push_steps Default number of push steps
      * @param control_steps Control steps per push step
      * @param scaling Force scaling factor
+     * @param points_per_edge Number of approach points per edge (default 3)
      */
     NAMOPushController(NAMOEnvironment& env, 
                       WavefrontPlanner& planner,
                       int push_steps = 20,
                       int control_steps = 500,
-                      double scaling = 0.5);
+                      double scaling = 0.5,
+                      int points_per_edge = 3);
     
     /**
      * @brief Generate edge points for pushing an object

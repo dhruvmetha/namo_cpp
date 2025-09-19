@@ -61,9 +61,10 @@ public:
      * @param max_push_steps Max push steps per primitive
      * @param control_steps_per_push Control steps per push
      * @param force_scaling Force scaling factor
+     * @param points_per_face Number of edge points per object face
      */
     MPCExecutor(NAMOEnvironment& env, double resolution, const std::vector<double>& robot_size, 
-                int max_push_steps, int control_steps_per_push, double force_scaling);
+                int max_push_steps, int control_steps_per_push, double force_scaling, int points_per_face = 3);
     
     /**
      * @brief Set execution parameters

@@ -10,11 +10,13 @@ NAMOPushController::NAMOPushController(NAMOEnvironment& env,
                                      WavefrontPlanner& planner,
                                      int push_steps,
                                      int control_steps,
-                                     double scaling)
+                                     double scaling,
+                                     int points_per_edge)
     : env_(env), planner_(planner), 
       default_push_steps_(push_steps),
       control_steps_per_push_(control_steps),
-      force_scaling_(scaling) {
+      force_scaling_(scaling),
+      points_per_edge_(points_per_edge) {
     
     // Initialize robot size from environment
     auto robot_info = env_.get_robot_info();
@@ -69,74 +71,70 @@ void NAMOPushController::generate_rectangular_edge_points(const std::array<doubl
                                                         size_t& edge_count,
                                                         size_t& mid_count) {
     
-    // Convert quaternion to rotation angle (yaw) - matching older implementation
+    // Convert quaternion to rotation angle (yaw)
     double yaw = utils::quaternion_to_yaw(obj_quat);
     
-    // Object dimensions - subtract margin like older implementation
+    // Object dimensions - subtract margin
     double x = 0.0, y = 0.0;
-    double w = obj_size[0] - 0.05;  // width with margin (MuJoCo size is half-extent, so this is (half_width - 0.05))
-    double d = obj_size[1] - 0.05;  // depth with margin (MuJoCo size is half-extent, so this is (half_depth - 0.05))
+    double w = obj_size[0] - 0.05;  // width with margin
+    double d = obj_size[1] - 0.05;  // depth with margin
     
-    // Robot offset for close contact pushing (matching original implementation)
+    // Robot offset for close contact pushing
     double offset = robot_size_[0] + 0.05;
     
-    // Generate 12 edge points exactly like older implementation
-    std::array<std::array<double, 2>, 12> local_edge_points = {{
-        {{x - w, y + d + offset}}, {{x - w, y - d - offset}},
-        {{x, y + d + offset}}, {{x, y - d - offset}},
-        {{x + w, y + d + offset}}, {{x + w, y - d - offset}},
-        {{x + w + offset, y - d}}, {{x - w - offset, y - d}},
-        {{x + w + offset, y}}, {{x - w - offset, y}},
-        {{x + w + offset, y + d}}, {{x - w - offset, y + d}}
-    }};
-
-    // std::cout << "Local edge points: " << std::endl;
-    // for (size_t i = 0; i < 12; ++i) {
-    //     std::cout << "  " << local_edge_points[i][0] << ", " << local_edge_points[i][1] << std::endl;
-    // }
-
-    // Transform edge points from local to world coordinates
-    edge_count = 12;
-    for (size_t i = 0; i < 12; ++i) {
+    int n = points_per_edge_;
+    double eps_u = std::min(0.05, 0.25 * w);  // margin from corners
+    double eps_v = std::min(0.05, 0.25 * d);
+    
+    // Helper function for linear sampling
+    auto sample_lin = [](double a, double b, int n, int i) {
+        if (n <= 1) return (a + b) * 0.5;
+        return a + (b - a) * (double(i) / double(n - 1));
+    };
+    
+    std::vector<std::array<double, 2>> local_edge_points;
+    local_edge_points.reserve(4 * n);
+    
+    // Top/Bottom pairs: sample along x-direction
+    for (int j = 0; j < n; ++j) {
+        double u = sample_lin(-w + eps_u, w - eps_u, n, j);
+        local_edge_points.push_back({x + u, y + d + offset});    // Top(j)
+        local_edge_points.push_back({x + u, y - d - offset});    // Bottom(j)
+    }
+    
+    // Right/Left pairs: sample along y-direction
+    for (int k = 0; k < n; ++k) {
+        double v = sample_lin(-d + eps_v, d - eps_v, n, k);
+        local_edge_points.push_back({x + w + offset, y + v});    // Right(k)
+        local_edge_points.push_back({x - w - offset, y + v});    // Left(k)
+    }
+    
+    // Capacity check
+    edge_count = std::min<size_t>(local_edge_points.size(), MAX_EDGE_POINTS);
+    
+    // Transform edge points to world coordinates
+    for (size_t i = 0; i < edge_count; ++i) {
         edge_points[i] = transform_point(local_edge_points[i], obj_pos, yaw);
     }
-
-    // std::cout << "Edge points: " << std::endl;
-    // for (size_t i = 0; i < 12; ++i) {
-    //     std::cout << "  " << edge_points[i][0] << ", " << edge_points[i][1] << std::endl;
-    // }
-
-    // Calculate mid points between consecutive edge points (matching original implementation)
-    std::array<std::array<double, 2>, 12> local_mid_points;
-    for (size_t i = 0; i < 12; ++i) {
-        if (i % 2 == 0) {
-            // Even indices: mid point between current and next edge point
-            size_t next_idx = (i + 1) % 12;
-            local_mid_points[i][0] = (local_edge_points[i][0] + local_edge_points[next_idx][0]) / 2.0;
-            local_mid_points[i][1] = (local_edge_points[i][1] + local_edge_points[next_idx][1]) / 2.0;
-        } else {
-            // Odd indices: mid point between current and previous edge point
-            size_t prev_idx = (i - 1);
-            local_mid_points[i][0] = (local_edge_points[i][0] + local_edge_points[prev_idx][0]) / 2.0;
-            local_mid_points[i][1] = (local_edge_points[i][1] + local_edge_points[prev_idx][1]) / 2.0;
-        }
+    
+    // Calculate mid points using consecutive pairing (preserves existing logic)
+    std::vector<std::array<double, 2>> local_mid_points;
+    local_mid_points.reserve(edge_count);
+    
+    for (size_t i = 0; i < edge_count; ++i) {
+        size_t mate = (i % 2 == 0) ? i + 1 : i - 1;
+        std::array<double, 2> mid_local = {
+            0.5 * (local_edge_points[i][0] + local_edge_points[mate][0]),
+            0.5 * (local_edge_points[i][1] + local_edge_points[mate][1])
+        };
+        local_mid_points.push_back(mid_local);
     }
-
-    // std::cout << "Local mid points: " << std::endl;
-    // for (size_t i = 0; i < 12; ++i) {
-    //     std::cout << "  " << local_mid_points[i][0] << ", " << local_mid_points[i][1] << std::endl;
-    // }
-
+    
     // Transform mid points to world coordinates
-    mid_count = 12;
-    for (size_t i = 0; i < 12; ++i) {
+    mid_count = edge_count;
+    for (size_t i = 0; i < mid_count; ++i) {
         mid_points[i] = transform_point(local_mid_points[i], obj_pos, yaw);
     }
-
-    // std::cout << "Mid points: " << std::endl;
-    // for (size_t i = 0; i < 12; ++i) {
-    //     std::cout << "  " << mid_points[i][0] << ", " << mid_points[i][1] << std::endl;
-    // }
 }
 
 double NAMOPushController::quaternion_to_yaw(const std::array<double, 4>& quaternion) {

@@ -9,7 +9,7 @@ This implementation provides a single-stream random sampling approach with confi
 Key characteristics:
 - No iterative deepening (single stream to max-depth)
 - Configurable object selection strategies (random, nearest, goal-proximity, farthest, ML)
-- Configurable goal selection strategies (random, grid, adaptive, ML)
+- Configurable goal selection strategies (random, ML)
 - Fresh sampling at each step
 - Baseline for comparison with more sophisticated algorithms
 """
@@ -28,7 +28,7 @@ import namo_rl
 from namo.config import ActionConstraints
 from namo.core import BasePlanner, PlannerConfig, PlannerResult
 from namo.strategies import ObjectSelectionStrategy, NoHeuristicStrategy, NearestFirstStrategy, GoalProximityStrategy, FarthestFirstStrategy
-from namo.strategies import GoalSelectionStrategy, RandomGoalStrategy, GridGoalStrategy, AdaptiveGoalStrategy
+from namo.strategies import GoalSelectionStrategy, RandomGoalStrategy
 
 
 @dataclass
@@ -167,16 +167,6 @@ class RandomSamplingPlanner(BasePlanner):
                 max_distance=self.constraints.max_distance,
                 theta_min=self.constraints.theta_min,
                 theta_max=self.constraints.theta_max
-            )
-        elif strategy_name == "grid":
-            return GridGoalStrategy(
-                min_distance=self.constraints.min_distance,
-                max_distance=self.constraints.max_distance
-            )
-        elif strategy_name == "adaptive":
-            return AdaptiveGoalStrategy(
-                min_distance=self.constraints.min_distance,
-                max_distance=self.constraints.max_distance
             )
         elif strategy_name == "ml":
             # Import ML strategy
@@ -479,7 +469,7 @@ def plan_with_random_sampling(env: namo_rl.RLEnvironment,
         robot_goal: Target robot position (x, y, theta)
         max_depth: Maximum search depth
         object_strategy: Object selection strategy ("no_heuristic", "nearest_first", "goal_proximity", "farthest_first", "ml")
-        goal_strategy: Goal selection strategy ("random", "grid", "adaptive", "ml")
+        goal_strategy: Goal selection strategy ("random", "ml")
         random_seed: Random seed for reproducibility
         verbose: Enable verbose output
         collect_stats: Collect algorithm statistics

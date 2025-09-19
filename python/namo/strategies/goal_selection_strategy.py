@@ -117,83 +117,6 @@ class RandomGoalStrategy(GoalSelectionStrategy):
         return "Random Goal Generation"
 
 
-class GridGoalStrategy(GoalSelectionStrategy):
-    """Grid-based goal generation strategy.
-    
-    Generates goals in a systematic grid pattern around the object,
-    which can provide more thorough exploration compared to random sampling.
-    """
-    
-    def __init__(self, min_distance: float = 0.2, max_distance: float = 0.8,
-                 num_angles: int = 8, num_distances: int = 2):
-        """Initialize with grid parameters.
-        
-        Args:
-            min_distance: Minimum push distance
-            max_distance: Maximum push distance
-            num_angles: Number of angles to sample uniformly
-            num_distances: Number of distances to sample uniformly  
-        """
-        self.min_distance = min_distance
-        self.max_distance = max_distance
-        self.num_angles = num_angles
-        self.num_distances = num_distances
-    
-    def generate_goals(self, 
-                      object_id: str,
-                      state: namo_rl.RLState,
-                      env: namo_rl.RLEnvironment,
-                      max_goals: int) -> List[Goal]:
-        """Generate goals in grid pattern around object."""
-        # Save current environment state to restore later
-        original_state = env.get_full_state()
-        
-        try:
-            # Set state to get object position
-            env.set_full_state(state)
-            obs = env.get_observation()
-            
-            # Get object position
-            pose_key = f"{object_id}_pose"
-            if pose_key not in obs:
-                return []  # Object not found
-            
-            obj_x, obj_y = obs[pose_key][0], obs[pose_key][1]
-            
-            goals = []
-            
-            # Generate grid of angles and distances
-            angles = [2 * math.pi * i / self.num_angles for i in range(self.num_angles)]
-            if self.num_distances == 1:
-                distances = [(self.min_distance + self.max_distance) / 2]
-            else:
-                distances = [self.min_distance + (self.max_distance - self.min_distance) * i / (self.num_distances - 1) 
-                           for i in range(self.num_distances)]
-            
-            # Generate all combinations
-            for distance in distances:
-                for theta in angles:
-                    if len(goals) >= max_goals:
-                        break
-                    
-                    target_x = obj_x + distance * math.cos(theta)
-                    target_y = obj_y + distance * math.sin(theta)
-                    
-                    goals.append(Goal(x=target_x, y=target_y, theta=theta))
-                
-                if len(goals) >= max_goals:
-                    break
-            
-            return goals
-            
-        finally:
-            # Always restore original state to avoid corrupting search
-            env.set_full_state(original_state)
-    
-    @property
-    def strategy_name(self) -> str:
-        return f"Grid Goal Generation ({self.num_angles}x{self.num_distances})"
-
 
 class AdaptiveGoalStrategy(GoalSelectionStrategy):
     """Adaptive goal generation that adjusts based on environment constraints.
@@ -302,3 +225,78 @@ class AdaptiveGoalStrategy(GoalSelectionStrategy):
     @property
     def strategy_name(self) -> str:
         return "Adaptive Goal Generation"
+
+
+class DiscretizedGridGoalStrategy(GoalSelectionStrategy):
+    """Discretized grid goal generation strategy with per-cell sampling.
+
+    Generates goals in a grid around the object's current position (including center),
+    then samples multiple orientations per selected grid cell. This provides both
+    spatial diversity (different cells) and orientational diversity (multiple samples per cell).
+    """
+
+    def __init__(self, cell_size: float = 0.3, grid_size: int = 5,
+                 samples_per_cell: int = 1, use_nominal_orientation: bool = False):
+        """Initialize with grid parameters.
+
+        Args:
+            cell_size: Size of each grid cell in meters
+            grid_size: Size of the grid (grid_size x grid_size)
+            samples_per_cell: Number of orientation samples per grid cell
+            use_nominal_orientation: If True, use zero orientation (θ = 0);
+                                   If False, use random orientations
+        """
+        self.cell_size = cell_size
+        self.grid_size = grid_size
+        self.samples_per_cell = samples_per_cell
+        self.use_nominal_orientation = use_nominal_orientation
+
+        # Calculate grid offset from center
+        self.grid_offset = (grid_size - 1) // 2
+
+    def generate_goals(self,
+                      object_id: str,
+                      state: namo_rl.RLState,
+                      env: namo_rl.RLEnvironment,
+                      max_goals: int) -> List[Goal]:
+        """Generate goals by sampling from discretized grid around object."""
+        # Get current object positions from environment
+        obs = env.get_observation()
+
+        # Get object position
+        pose_key = f"{object_id}_pose"
+        if pose_key not in obs:
+            return []  # Object not found
+
+        obj_x, obj_y = obs[pose_key][0], obs[pose_key][1]
+
+        # Generate all grid cell positions (including center)
+        grid_cells = []
+        for i in range(self.grid_size):
+            for j in range(self.grid_size):
+                # Calculate grid cell center relative to object
+                grid_x = obj_x + (i - self.grid_offset) * self.cell_size
+                grid_y = obj_y + (j - self.grid_offset) * self.cell_size
+                grid_cells.append((grid_x, grid_y))
+
+        # Generate multiple orientation samples for each grid cell
+        goals = []
+        for grid_x, grid_y in grid_cells:
+            for _ in range(self.samples_per_cell):
+                if self.use_nominal_orientation:
+                    # Use nominal orientation (zero rotation)
+                    theta = 0.0
+                else:
+                    # Use random orientation
+                    theta = random.uniform(0, 2 * math.pi)
+                goals.append(Goal(x=grid_x, y=grid_y, theta=theta))
+
+        # Respect max_goals limit
+        if len(goals) > max_goals:
+            goals = random.sample(goals, max_goals)
+
+        return goals
+
+    @property
+    def strategy_name(self) -> str:
+        return f"Discretized Grid ({self.grid_size}x{self.grid_size}, {self.samples_per_cell} samples/cell)"

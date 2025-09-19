@@ -1,0 +1,428 @@
+Metadata-Version: 2.4
+Name: namo
+Version: 0.1.0
+Summary: Navigation Among Movable Obstacles (NAMO) Planning Framework
+Author: NAMO Team
+License: MIT
+Project-URL: Repository, https://github.com/your-org/namo
+Project-URL: Documentation, https://namo.readthedocs.io
+Keywords: robotics,planning,navigation,manipulation
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Developers
+Classifier: Intended Audience :: Science/Research
+Classifier: Topic :: Scientific/Engineering :: Artificial Intelligence
+Classifier: Topic :: Scientific/Engineering :: Physics
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+Requires-Dist: numpy
+Requires-Dist: pyyaml
+Provides-Extra: visualization
+Requires-Dist: matplotlib; extra == "visualization"
+Requires-Dist: opencv-python; extra == "visualization"
+Provides-Extra: ml
+Requires-Dist: torch; extra == "ml"
+Requires-Dist: torchvision; extra == "ml"
+Provides-Extra: data
+Requires-Dist: pandas; extra == "data"
+Requires-Dist: scipy; extra == "data"
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: black; extra == "dev"
+Requires-Dist: flake8; extra == "dev"
+Requires-Dist: mypy; extra == "dev"
+Dynamic: requires-python
+
+# NAMO Python Package
+
+This directory contains the complete NAMO (Navigation Among Movable Objects) Python package, providing a comprehensive framework for planning, data collection, and visualization.
+
+## Overview
+
+The Python bindings expose a clean RL-style interface that wraps the complete NAMO system:
+- **NAMOEnvironment**: MuJoCo simulation environment
+- **NAMOPushSkill**: MPC-based object pushing skill
+- **Complete state management**: Save/restore simulation states for tree search
+
+## Key Features
+
+### 1. **Standard RL Interface**
+```python
+env = namo_rl.RLEnvironment(xml_path, config_path)
+env.reset()                    # Reset to initial state
+result = env.step(action)      # Execute push skill
+obs = env.get_observation()    # Get object poses
+```
+
+### 2. **Complete State Management (Perfect for MCTS)**
+```python
+# Save current simulation state
+state = env.get_full_state()   # RLState with qpos, qvel
+
+# ... explore different actions ...
+
+# Restore to exact previous state
+env.set_full_state(state)      # Perfect restoration
+```
+
+### 3. **Action Space**
+Each action represents pushing a specific object to a target SE(2) pose:
+```python
+action = namo_rl.Action()
+action.object_id = "obstacle_1_movable"  # Object to push
+action.x = 2.0          # Target x position
+action.y = 1.5          # Target y position  
+action.theta = 0.0      # Target orientation (radians)
+```
+
+## What You Can Control
+
+### **Actions**: 
+- **Object Selection**: Choose any movable object in the scene
+- **Target Pose**: Specify exact SE(2) target (x, y, θ)
+- **Automatic Execution**: Single `step()` call executes entire MPC push sequence
+
+### **State Branching** (Perfect for MCTS):
+- **Save States**: Capture complete simulation state at any point
+- **Restore States**: Return to any previously saved state with perfect accuracy
+- **Tree Exploration**: Explore different action sequences from same starting state
+
+### **Observations**:
+- **Object Poses**: Get current SE(2) pose of all objects
+- **Robot State**: Access robot position and status
+- **Execution Info**: Get feedback on skill execution (steps, success, etc.)
+
+## Building
+
+### Prerequisites
+- MuJoCo (set `MJ_PATH` environment variable)
+- Python 3.6+
+- pybind11 (automatically downloaded if not found)
+- OpenCV
+- GLFW (optional, for visualization)
+
+### Build Commands
+```bash
+# Set MuJoCo path
+export MJ_PATH=/path/to/mujoco
+
+# Option 1: Use the build script (recommended)
+./build_python_bindings.sh
+
+# Option 2: Manual build
+mkdir build_python && cd build_python
+cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_PYTHON_BINDINGS=ON
+make -j$(nproc) namo_rl
+```
+
+## Usage Examples
+
+### Basic Usage
+```python
+import namo_rl
+
+# Initialize environment (no visualization)
+env = namo_rl.RLEnvironment("data/scene.xml", "config/config.yaml")
+env.reset()
+
+# Create action
+action = namo_rl.Action()
+action.object_id = "obstacle_1_movable"
+action.x = 2.0
+action.y = 1.5
+action.theta = 0.0
+
+# Execute action
+result = env.step(action)
+print(f"Success: {result.done}, Reward: {result.reward}")
+```
+
+### Visualization Support
+```python
+import namo_rl
+
+# Initialize environment with visualization
+env = namo_rl.RLEnvironment("data/scene.xml", "config/config.yaml", visualize=True)
+env.reset()
+
+# Render initial state
+env.render()
+
+# Execute actions and render states
+action = namo_rl.Action()
+action.object_id = "obstacle_1_movable"
+action.x = 2.0
+action.y = 1.5
+action.theta = 0.0
+
+result = env.step(action)
+env.render()  # Show result of action
+
+# Visualization requires GLFW and OpenGL
+# Will automatically disable on headless systems
+```
+
+### MCTS Integration
+```python
+import namo_rl
+
+class MCTSNode:
+    def __init__(self, state, parent=None):
+        self.state = state      # RLState object
+        self.parent = parent
+        self.children = []
+        self.visits = 0
+        self.value = 0.0
+    
+    def expand(self, env, possible_actions):
+        """Expand this node by trying different actions."""
+        for action in possible_actions:
+            # Restore environment to this node's state
+            env.set_full_state(self.state)
+            
+            # Execute action
+            result = env.step(action)
+            
+            # Save resulting state
+            child_state = env.get_full_state()
+            
+            # Create child node
+            child = MCTSNode(child_state, parent=self)
+            child.action = action
+            child.reward = result.reward
+            self.children.append(child)
+    
+    def simulate(self, env, policy):
+        """Run simulation from this node's state."""
+        env.set_full_state(self.state)
+        
+        total_reward = 0.0
+        for _ in range(max_sim_steps):
+            action = policy.select_action(env)
+            result = env.step(action)
+            total_reward += result.reward
+            if result.done:
+                break
+        
+        return total_reward
+
+# MCTS main loop
+env = namo_rl.RLEnvironment("data/scene.xml", "config/config.yaml")
+env.reset()
+
+root_state = env.get_full_state()
+root = MCTSNode(root_state)
+
+for iteration in range(mcts_iterations):
+    # Selection, expansion, simulation, backpropagation...
+    # Each phase can restore environment state as needed
+    pass
+```
+
+### State Management Example
+```python
+import namo_rl
+
+env = namo_rl.RLEnvironment("data/scene.xml", "config/config.yaml")
+env.reset()
+
+# Save initial state
+initial_state = env.get_full_state()
+print(f"Initial state: {initial_state}")
+
+# Try multiple actions from same starting point
+for i, action in enumerate(possible_actions):
+    # Restore to initial state
+    env.set_full_state(initial_state)
+    
+    # Try action
+    result = env.step(action)
+    print(f"Action {i}: reward={result.reward}")
+    
+    # Environment is now in different state
+    # Next iteration will restore back to initial_state
+```
+
+## API Reference
+
+### Classes
+
+#### `RLEnvironment`
+Main environment class that wraps the complete NAMO system.
+
+**Constructor:**
+```python
+RLEnvironment(xml_path: str, config_path: str, visualize: bool = False)
+```
+
+**Methods:**
+- `reset()`: Reset environment to initial configuration
+- `step(action: Action) -> StepResult`: Execute push skill action
+- `get_observation() -> Dict[str, List[float]]`: Get object poses
+- `get_full_state() -> RLState`: Save complete simulation state
+- `set_full_state(state: RLState)`: Restore simulation state
+- `render()`: Render current simulation state (requires visualization=True)
+
+#### `Action`
+Represents a push action.
+
+**Attributes:**
+- `object_id: str`: Name of object to push
+- `x: float`: Target x position
+- `y: float`: Target y position
+- `theta: float`: Target orientation (radians)
+
+#### `StepResult`
+Result of executing an action.
+
+**Attributes:**
+- `done: bool`: Whether the action succeeded
+- `reward: float`: Reward value
+- `info: Dict[str, str]`: Additional information
+
+#### `RLState`
+Complete simulation state snapshot.
+
+**Attributes:**
+- `qpos: List[float]`: Generalized positions
+- `qvel: List[float]`: Generalized velocities
+
+## Testing
+
+Run the test suite to verify functionality:
+
+```bash
+cd python
+PYTHONPATH=../build_python python test_rl_env.py
+```
+
+The test suite covers:
+1. **Basic functionality**: Environment creation, reset, actions
+2. **State management**: Save/restore state accuracy
+3. **MCTS workflow**: Multiple action exploration from same state
+
+## Integration with Your MCTS
+
+This environment is specifically designed for MCTS algorithms that need:
+
+1. **Perfect State Restoration**: Essential for tree search backtracking
+2. **Action Simulation**: Each `step()` executes a complete push sequence
+3. **Flexible Exploration**: Try different actions from any saved state
+4. **Rich Feedback**: Get detailed information about action execution
+
+The key insight is that each action corresponds to a high-level decision (which object to push where), and the underlying MPC system handles the low-level motion planning automatically.
+
+## Troubleshooting
+
+### Build Issues
+- Ensure `MJ_PATH` is set correctly
+- Check that MuJoCo library is compiled and accessible
+- Install required dependencies (OpenCV, etc.)
+
+### Runtime Issues  
+- Verify XML scene file exists and is valid
+- Check YAML configuration file format
+- Ensure movable objects exist in the scene for actions
+
+### Python Import Issues
+- Add build directory to `PYTHONPATH`
+- Check that `namo_rl.so` was built successfully
+- Verify Python version compatibility
+
+## Performance Notes
+
+- State save/restore operations are very fast (< 1ms)
+- Action execution time depends on MPC complexity (typically 100-1000ms)
+- No memory leaks in state management
+- Suitable for thousands of MCTS simulations
+
+## Package Structure
+
+The NAMO package is organized into logical modules:
+
+```
+python/
+├── namo/                    # Main NAMO package
+│   ├── core/               # Core interfaces and utilities
+│   │   ├── base_planner.py         # Abstract planner interface
+│   │   └── xml_goal_parser.py      # Scene parsing utilities
+│   ├── config/             # Configuration systems
+│   │   └── mcts_config.py          # MCTS parameters
+│   ├── strategies/         # Selection strategies (shared)
+│   │   ├── object_selection_strategy.py
+│   │   ├── goal_selection_strategy.py
+│   │   └── ml_strategies.py        # ML-based strategies
+│   ├── planners/           # Planning algorithms
+│   │   ├── idfs/           # Iterative Deepening algorithms
+│   │   │   ├── standard_idfs.py
+│   │   │   ├── tree_idfs.py
+│   │   │   ├── optimal_idfs.py
+│   │   │   └── solution_smoother.py
+│   │   ├── mcts/           # Monte Carlo Tree Search
+│   │   │   └── hierarchical_mcts.py
+│   │   └── sampling/       # Sampling-based planners
+│   │       └── random_sampling.py
+│   ├── data_collection/    # Data collection workflows
+│   │   ├── modular_parallel_collection.py
+│   │   ├── sequential_ml_collection.py
+│   │   ├── parallel_data_collection.py
+│   │   └── alphazero_data_collection.py
+│   ├── visualization/      # Image processing & visualization
+│   │   ├── run_mask_generation.py
+│   │   ├── mask_generation/
+│   │   └── mcts_mask_generation/
+│   └── cpp_bindings/       # C++ interface files
+└── scripts/                # Standalone executables
+    └── test_clean_mcts.py
+```
+
+## Import Examples
+
+```python
+# Core C++ environment
+import namo_rl
+
+# Planning algorithms
+from namo.planners.idfs import StandardIterativeDeepeningDFS
+from namo.planners.mcts import CleanHierarchicalMCTS
+from namo.planners.sampling import RandomSamplingPlanner
+
+# Selection strategies
+from namo.strategies import ObjectSelectionStrategy, MLObjectSelectionStrategy
+
+# Data collection
+from namo.data_collection import modular_parallel_collection
+from namo.data_collection import sequential_ml_collection
+
+# Visualization and mask generation
+from namo.visualization import run_mask_generation
+
+# Core utilities
+from namo.core import BasePlanner, PlannerConfig
+from namo.config import MCTSConfig
+```
+
+## Quick Start
+
+```python
+# 1. Environment setup
+import namo_rl
+env = namo_rl.RLEnvironment("scene.xml", "config.yaml")
+
+# 2. MCTS planning
+from namo.planners.mcts import CleanHierarchicalMCTS
+from namo.config import MCTSConfig
+
+config = MCTSConfig(budget=100, k=2.0, alpha=0.5)
+mcts = CleanHierarchicalMCTS(config)
+
+# 3. Data collection
+from namo.data_collection import modular_parallel_collection
+# See MCTS_DATA_PIPELINE.md for complete examples
+```
+
+This package provides everything needed to implement sophisticated planning algorithms for navigation among movable objects, with the convenience of Python and the performance of the underlying C++ implementation.

@@ -40,7 +40,8 @@ void NAMOPushSkill::initialize_skill() {
             config_->planning().robot_size,
             config_->skill().max_push_steps,
             config_->skill().control_steps_per_push,
-            config_->skill().force_scaling
+            config_->skill().force_scaling,
+            config_->skill().points_per_face
         );
     } else {
         // Use legacy hardcoded values
@@ -166,7 +167,7 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
     // **ITERATIVE MPC LOOP**
     SE2State previous_state = *get_object_current_pose(object_name); // Initialize for stuck detection
     int stuck_counter = 0;
-    const int max_stuck_iterations = 2; // Allow 3 stuck iterations before failure
+    const int max_stuck_iterations = config_ ? config_->skill().max_stuck_iterations : 2;
     
     for (int mpc_iter = 0; mpc_iter < max_mpc_iterations; mpc_iter++) {
         // std::cout << "\n--- MPC Iteration " << (mpc_iter + 1) << "/" << max_mpc_iterations << " ---" << std::endl;
@@ -439,8 +440,8 @@ bool NAMOPushSkill::is_object_stuck(const SE2State& previous_state, const SE2Sta
     while (angle_change > M_PI) angle_change = 2.0 * M_PI - angle_change;
     
     // Consider stuck if both position and orientation changes are very small
-    const double min_position_change = 0.01;  // 1cm
-    const double min_angle_change = 0.1;      // ~0.6 degrees
+    const double min_position_change = config_ ? config_->skill().stuck_threshold : 0.01;  // From config or 1cm default
+    const double min_angle_change = 0.1;      // ~0.6 degrees (no config parameter for this)
     
     return distance_moved < min_position_change && angle_change < min_angle_change;
 }

@@ -125,41 +125,5 @@ wavefront_planner:
 
 # Motion primitive configuration
 motion_primitives:
-  database_file: "data/motion_primitives.dat"  # Binary database file
-  
   # Generation parameters (for regenerating primitives)
-  num_edges: 12                    # Number of edge points around objects
   max_push_steps: 10               # Maximum steps per primitive
-  edge_clearance: 0.1              # Clearance from object edge (meters)
-  
-  # Primitive selection
-  enable_primitive_caching: true   # Cache primitive lookups
-  validate_primitives: true        # Validate primitive physics
-
-# Performance monitoring
-monitoring:
-  enable_statistics: true          # Collect performance statistics
-  statistics_window: 100           # Rolling window for statistics
-  
-  # Timing thresholds for warnings
-  slow_planning_threshold: 1.0     # Warn if planning takes longer than this (seconds)
-  slow_skill_threshold: 5.0        # Warn if skill execution takes longer than this (seconds)
-  
-  # Memory monitoring
-  memory_check_interval: 1000      # Check memory usage every N operations
-  memory_warning_threshold: 0.8    # Warn if memory pools exceed this fraction
-
-# Development and debugging
-debug:
-  enable_debug_output: false       # Enable debug print statements
-  save_intermediate_states: false  # Save intermediate planning states
-  validate_state_consistency: false # Perform expensive state validation checks
-  
-  # Test configuration
-  use_deterministic_random: false  # Use fixed random seed for reproducible tests
-  random_seed: 42                  # Random seed when deterministic mode enabled
-  
-  # Visualization debug
-  show_wavefront_grid: false       # Overlay wavefront grid on visualization
-  show_object_edges: false         # Show object edge points
-  show_planned_paths: false        # Show planned robot paths

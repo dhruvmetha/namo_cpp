@@ -2,6 +2,7 @@
 #include <iostream>
 #include <filesystem>
 #include <stdexcept>
+#include <algorithm>
 
 namespace namo {
 
@@ -140,15 +141,7 @@ void ConfigManager::load_skill_config() {
         skill_.force_scaling = loader_->get_double("skill.force_scaling");
     }
     
-    // Robot size for skill planning (3D)
-    if (loader_->has_key("skill.robot_size")) {
-        skill_.robot_size = loader_->get_vector("skill.robot_size");
-    }
-    
     // Execution parameters
-    if (loader_->has_key("skill.execution_timeout")) {
-        skill_.execution_timeout_seconds = loader_->get_double("skill.execution_timeout");
-    }
     if (loader_->has_key("skill.goal_tolerance")) {
         skill_.goal_tolerance = loader_->get_double("skill.goal_tolerance");
     }
@@ -163,8 +156,15 @@ void ConfigManager::load_skill_config() {
     if (loader_->has_key("skill.object_clearance")) {
         skill_.object_clearance = loader_->get_double("skill.object_clearance");
     }
-    if (loader_->has_key("skill.num_edge_points")) {
+    
+    // Edge point sampling - prefer points_per_face, fallback to num_edge_points
+    if (loader_->has_key("skill.points_per_face")) {
+        skill_.points_per_face = loader_->get_int("skill.points_per_face");
+        skill_.points_per_face = std::clamp(skill_.points_per_face, 1, 16); // Respect capacity limits
+        skill_.num_edge_points = 4 * skill_.points_per_face; // Derive total for backward compatibility
+    } else if (loader_->has_key("skill.num_edge_points")) {
         skill_.num_edge_points = loader_->get_int("skill.num_edge_points");
+        skill_.points_per_face = std::max(1, skill_.num_edge_points / 4); // Derive per-face
     }
     // push_force_magnitude parameter removed - unused (force_scaling used instead)
 }
@@ -282,8 +282,8 @@ void ConfigManager::validate_configuration() const {
         throw std::invalid_argument("Push and control steps must be positive");
     }
     
-    if (planning_.robot_size.size() != 2 || skill_.robot_size.size() != 3) {
-        throw std::invalid_argument("Robot size vectors have incorrect dimensions");
+    if (planning_.robot_size.size() != 2) {
+        throw std::invalid_argument("Planning robot size vector must have 2 dimensions");
     }
     
     // Environment bounds validation removed - bounds now calculated dynamically

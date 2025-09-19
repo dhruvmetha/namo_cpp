@@ -79,7 +79,7 @@ def get_available_object_strategies() -> List[str]:
 
 def get_available_goal_strategies() -> List[str]:
     """Get list of available goal selection strategies."""
-    return ["random", "grid", "adaptive", "ml"]
+    return ["random", "grid", "adaptive", "discretized", "ml"]
 
 
 def validate_object_strategy(strategy_name: str) -> bool:
@@ -215,31 +215,31 @@ def discover_environment_files(base_dir: str, start_idx: int, end_idx: int) -> L
     """Discover and filter XML environment files by index range."""
    
    
-    all_xml_files = []
-    with open('./notebooks/unsolved_envs.pkl', 'rb') as f:
-        unsolved_envs = pickle.load(f)
-    for env_name in unsolved_envs:
-        xml_file = os.path.join(base_dir, env_name)
-        all_xml_files.append(xml_file)
-    all_xml_files = sorted(all_xml_files)
+    # all_xml_files = []
+    # with open('./notebooks/unsolved_envs.pkl', 'rb') as f:
+    #     unsolved_envs = pickle.load(f)
+    # for env_name in unsolved_envs:
+    #     xml_file = os.path.join(base_dir, env_name)
+    #     all_xml_files.append(xml_file)
+    # all_xml_files = sorted(all_xml_files)
     
 
-    # folder = "train_envs"
-    # all_xml_files = []
-    # for d in ['very_hard', 'hard']:
-    #     with open(f'{folder}/envs_names_{d}.pkl', 'rb') as f:
-    #         envs_names = pickle.load(f)
-    #     for env_name in envs_names:
-    #         xml_file = os.path.join(base_dir, env_name)
-    #         all_xml_files.append(xml_file)
-    # all_xml_files = sorted(all_xml_files)
+    folder = "train_envs"
+    all_xml_files = []
+    for d in ['very_hard']:
+        with open(f'{folder}/envs_names_{d}.pkl', 'rb') as f:
+            envs_names = pickle.load(f)
+        for env_name in envs_names:
+            xml_file = os.path.join(base_dir, env_name)
+            all_xml_files.append(xml_file)
+    all_xml_files = sorted(all_xml_files)
     
     # sets = [1, 2]
     # benchmarks = [1, 2, 3, 4, 5]
     # all_xml_files = []
     # for set in sets:
     #     for benchmark in benchmarks:
-    #         xml_pattern = os.path.join(base_dir, "easy", f"set{set}", f"benchmark_{benchmark}", "*.xml")
+    #         xml_pattern = os.path.join(base_dir, "medium", f"set{set}", f"benchmark_{benchmark}", "*.xml")
     #         sorted_xml_files = sorted(glob.glob(xml_pattern, recursive=True))
     #         all_xml_files.extend(sorted_xml_files[:1000]) # train
     #         # all_xml_files.extend(sorted_xml_files[1000:1100]) # test

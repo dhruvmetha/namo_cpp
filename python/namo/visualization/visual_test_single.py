@@ -54,7 +54,7 @@ def get_available_object_strategies() -> List[str]:
 
 def get_available_goal_strategies() -> List[str]:
     """Get list of available goal selection strategies."""
-    return ["random", "grid", "adaptive", "ml"]
+    return ["random", "grid", "adaptive", "discretized", "ml"]
 
 
 def preload_ml_models(object_model_path: Optional[str], 

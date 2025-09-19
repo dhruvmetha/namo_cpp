@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "namo"
+version = "0.1.0"
+description = "Navigation Among Movable Obstacles (NAMO) Planning Framework"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "NAMO Team"},
+]
+keywords = ["robotics", "planning", "navigation", "manipulation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+dependencies = [
+    "numpy",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+visualization = ["matplotlib", "opencv-python"]
+ml = ["torch", "torchvision"]
+data = ["pandas", "scipy"]
+dev = ["pytest", "black", "flake8", "mypy"]
+
+[project.scripts]
+namo-collect = "namo.data_collection.modular_parallel_collection:main"
+namo-visualize = "namo.visualization.visual_test_single:main"
+
+[project.urls]
+Repository = "https://github.com/your-org/namo"
+Documentation = "https://namo.readthedocs.io"
+
+[tool.setuptools.packages.find]
+include = ["namo*"]
+
+[tool.black]
+line-length = 100
+target-version = ['py38']
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true

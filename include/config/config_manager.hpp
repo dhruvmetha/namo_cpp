@@ -58,18 +58,16 @@ public:
         int max_mpc_iterations = 10;
         int control_steps_per_push = 250;
         double force_scaling = 1.0;
-        std::vector<double> robot_size = {0.15, 0.15, 0.15};  // [x, y, z]
         
         // Skill execution
-        double execution_timeout_seconds = 30.0;
         double goal_tolerance = 0.1;             // meters
         double stuck_threshold = 0.01;           // meters - minimum movement to avoid stuck detection
         int max_stuck_iterations = 3;
         
         // Object interaction
         double object_clearance = 0.1;           // meters around objects for edge point sampling
-        int num_edge_points = 12;               // points around object perimeter
-        // push_force_magnitude removed - unused parameter (force_scaling used instead)
+        int points_per_face = 3;                // points per object face (4 faces total)
+        int num_edge_points = 12;               // points around object perimeter (backward compatibility)
     };
     
     struct EnvironmentConfig {

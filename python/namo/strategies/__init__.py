@@ -10,7 +10,6 @@ from .object_selection_strategy import (
 from .goal_selection_strategy import (
     GoalSelectionStrategy,
     RandomGoalStrategy,
-    GridGoalStrategy,
     AdaptiveGoalStrategy
 )
 from .ml_strategies import (
@@ -26,7 +25,6 @@ __all__ = [
     "FarthestFirstStrategy",
     "GoalSelectionStrategy",
     "RandomGoalStrategy",
-    "GridGoalStrategy",
     "AdaptiveGoalStrategy",
     "MLObjectSelectionStrategy",
     "MLGoalSelectionStrategy"

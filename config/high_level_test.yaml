@@ -80,27 +80,4 @@ wavefront_planner:
   debug_grid_directory: "debug_grids/"
 
 motion_primitives:
-  database_file: "data/motion_primitives.dat"
-  num_edges: 12
   max_push_steps: 10
-  edge_clearance: 0.1
-  enable_primitive_caching: true
-  validate_primitives: true
-
-monitoring:
-  enable_statistics: true
-  statistics_window: 100
-  slow_planning_threshold: 1.0
-  slow_skill_threshold: 5.0
-  memory_check_interval: 1000
-  memory_warning_threshold: 0.8
-
-debug:
-  enable_debug_output: false
-  save_intermediate_states: false
-  validate_state_consistency: false
-  use_deterministic_random: false
-  random_seed: 42
-  show_wavefront_grid: false
-  show_object_edges: false
-  show_planned_paths: false

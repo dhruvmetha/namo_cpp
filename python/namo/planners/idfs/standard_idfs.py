@@ -142,16 +142,16 @@ class StandardIterativeDeepeningDFS(BasePlanner):
                 theta_min=self.constraints.theta_min,
                 theta_max=self.constraints.theta_max
             )
-        elif strategy_name == 'grid':
-            GridGoalStrategy = self._import_and_create('idfs.goal_selection_strategy', 'GridGoalStrategy')
-            return GridGoalStrategy()
         elif strategy_name == 'adaptive':
             AdaptiveGoalStrategy = self._import_and_create('idfs.goal_selection_strategy', 'AdaptiveGoalStrategy')
             return AdaptiveGoalStrategy()
+        elif strategy_name == 'discretized':
+            DiscretizedGridGoalStrategy = self._import_and_create('namo.strategies.goal_selection_strategy', 'DiscretizedGridGoalStrategy')
+            return DiscretizedGridGoalStrategy(cell_size=0.5, grid_size=3, samples_per_cell=3, use_nominal_orientation=False)
         elif strategy_name == 'ml':
             return self._create_ml_goal_strategy()
         else:
-            available = ['random', 'grid', 'adaptive', 'ml']
+            available = ['random', 'adaptive', 'discretized', 'ml']
             raise ValueError(f"Unknown goal strategy '{strategy_name}'. Available: {available}")
     
     def _import_and_create(self, module_name: str, class_name: str):
@@ -430,27 +430,6 @@ class StandardIterativeDeepeningDFS(BasePlanner):
         """Get SE(2) pose observation from given state."""
         self.env.set_full_state(state)
         return self.env.get_observation()
-    
-    def _sample_goal_for_object(self, state: namo_rl.RLState, object_id: str) -> Optional[Goal]:
-        """Sample a random goal for the given object."""
-        self.env.set_full_state(state)
-        obs = self.env.get_observation()
-        
-        # Get object position
-        pose_key = f"{object_id}_pose"
-        if pose_key not in obs:
-            return None
-        
-        obj_x, obj_y = obs[pose_key][0], obs[pose_key][1]
-        
-        # Sample from continuous action space using polar coordinates
-        distance = random.uniform(self.constraints.min_distance, self.constraints.max_distance)
-        theta = random.uniform(self.constraints.theta_min, self.constraints.theta_max)
-        
-        target_x = obj_x + distance * math.cos(theta)
-        target_y = obj_y + distance * math.sin(theta)
-        
-        return Goal(x=target_x, y=target_y, theta=theta)
     
     def _execute_action(self, state: namo_rl.RLState, action: Action) -> namo_rl.RLState:
         """Execute action and return resulting state."""

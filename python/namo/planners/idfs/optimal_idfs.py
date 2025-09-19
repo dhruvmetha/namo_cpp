@@ -151,16 +151,16 @@ class OptimalIterativeDeepeningDFS(BasePlanner):
                 theta_min=self.constraints.theta_min,
                 theta_max=self.constraints.theta_max
             )
-        elif strategy_name == 'grid':
-            GridGoalStrategy = self._import_and_create('idfs.goal_selection_strategy', 'GridGoalStrategy')
-            return GridGoalStrategy()
         elif strategy_name == 'adaptive':
             AdaptiveGoalStrategy = self._import_and_create('idfs.goal_selection_strategy', 'AdaptiveGoalStrategy')
             return AdaptiveGoalStrategy()
+        elif strategy_name == 'discretized':
+            DiscretizedGridGoalStrategy = self._import_and_create('namo.strategies.goal_selection_strategy', 'DiscretizedGridGoalStrategy')
+            return DiscretizedGridGoalStrategy(cell_size=0.5, grid_size=3, samples_per_cell=3, use_nominal_orientation=False)
         elif strategy_name == 'ml':
             return self._create_ml_goal_strategy()
         else:
-            available = ['random', 'grid', 'adaptive', 'ml']
+            available = ['random', 'adaptive', 'discretized', 'ml']
             raise ValueError(f"Unknown goal strategy '{strategy_name}'. Available: {available}")
     
     def _import_and_create(self, module_name: str, class_name: str):
@@ -341,7 +341,7 @@ class OptimalIterativeDeepeningDFS(BasePlanner):
         best_depth = None  # Track the best (minimum) solution depth found
         
         # Iterative deepening: try each depth limit
-        for depth_limit in range(1, self.config.max_depth + 1):
+        for depth_limit in range(self.config.max_depth, self.config.max_depth + 1):
             # Check timeout before starting new depth
             if timeout_seconds and (time.time() - start_time) > timeout_seconds:
                 if self.config.verbose:
@@ -558,6 +558,7 @@ class OptimalIterativeDeepeningDFS(BasePlanner):
         
         # Check depth limit
         if current_depth >= depth_limit:
+            print("current_depth", current_depth, depth_limit)
             self._visualize_search_state(state, current_depth, f"❌ Depth limit {depth_limit} reached")
             return []  # Depth limit reached
         

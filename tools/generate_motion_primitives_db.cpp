@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <cstdint>
 #include <memory>
+#include <algorithm>
 
 #include "../include/core/parameter_loader.hpp"
 #include "../include/environment/namo_environment.hpp"
@@ -32,10 +33,13 @@ int main() {
     // std::cout << "Generating 12 directions × 10 step variants = 120 primitives (pyramid approach)" << std::endl;
     
     try {
-        // Create simple config for nominal scene
-        std::string config_content = R"(xml_path=data/nominal_primitive_scene.xml
-visualize=false
-robot_goal=[0.0, 0.0]
+        // Prefer unified config if present, fallback to minimal local config
+        std::string config_path = "config/namo_config_complete.yaml";
+        bool using_unified_config = std::filesystem::exists(config_path);
+        
+        if (!using_unified_config) {
+            // Fallback: create minimal config for standalone use
+            std::string config_content = R"(visualize=false
 
 [data_collection]
 enabled=false
@@ -43,21 +47,65 @@ enabled=false
 [wavefront_planner]
 resolution=0.05
 )";
-        
-        // Write temporary config file
-        std::ofstream config_file("tools/primitive_gen_config.yaml");
-        config_file << config_content;
-        config_file.close();
+            
+            // Write temporary config file
+            std::ofstream config_file("tools/primitive_gen_config.yaml");
+            config_file << config_content;
+            config_file.close();
+            config_path = "tools/primitive_gen_config.yaml";
+        }
         
         // Load configuration using our parameter loader
-        FastParameterLoader params("tools/primitive_gen_config.yaml");
+        FastParameterLoader params(config_path);
         // std::cout << "Configuration loaded!" << std::endl;
         
-        // Get settings
-        std::string xml_path = params.get_string("xml_path");
-        bool visualize = params.get_bool("visualize");
-        double resolution = params.get_double("wavefront_planner.resolution");
-        std::array<double, 2> robot_goal = params.get_array<2>("robot_goal");
+        // Get settings (unified config with fallbacks)
+        // XML path is fixed for nominal primitive generation
+        std::string xml_path = "data/nominal_primitive_scene.xml";
+        
+        bool visualize = false;
+        if (params.has_key("visualize")) {
+            visualize = params.get_bool("visualize");
+        } else if (params.has_key("system.enable_visualization")) {
+            visualize = params.get_bool("system.enable_visualization");
+        }
+        
+        double resolution = 0.05;
+        if (params.has_key("wavefront_planner.resolution")) {
+            resolution = params.get_double("wavefront_planner.resolution");
+        }
+        
+        // Robot goal is fixed for nominal primitive generation
+        std::array<double, 2> robot_goal = {0.0, 0.0};
+        
+        // Edge sampling density (points per object face)
+        int points_per_face = 3; // Default fallback
+        if (params.has_key("skill.points_per_face")) {
+            points_per_face = params.get_int("skill.points_per_face");
+        } else if (params.has_key("skill.num_edge_points")) {
+            int total = params.get_int("skill.num_edge_points");
+            points_per_face = std::max(1, total / 4);
+        }
+        // Clamp to respect MAX_EDGE_POINTS capacity (4 faces * 16 points = 64 max)
+        points_per_face = std::clamp(points_per_face, 1, 16);
+        
+        // Push controller parameters
+        int control_steps = 250;
+        if (params.has_key("skill.control_steps_per_push")) {
+            control_steps = params.get_int("skill.control_steps_per_push");
+        }
+        
+        int max_push_steps = 10;
+        if (params.has_key("motion_primitives.max_push_steps")) {
+            max_push_steps = params.get_int("motion_primitives.max_push_steps");
+        } else if (params.has_key("skill.max_push_steps")) {
+            max_push_steps = params.get_int("skill.max_push_steps");
+        }
+        
+        double force_scaling = 1.0;
+        if (params.has_key("skill.force_scaling")) {
+            force_scaling = params.get_double("skill.force_scaling");
+        }
         
         // std::cout << "Settings:" << std::endl;
         // std::cout << "  XML: " << xml_path << std::endl;
@@ -79,8 +127,8 @@ resolution=0.05
         env.set_robot_goal(robot_goal);
         
         // Create push controller (this has the primitive execution logic)
-        NAMOPushController push_controller(env, *wavefront_planner, 10, 250, 1.0);
-        // std::cout << "Push controller created with parameters: 10 steps, 250 control_steps, 1.0 scaling" << std::endl;
+        NAMOPushController push_controller(env, *wavefront_planner, max_push_steps, control_steps, force_scaling, points_per_face);
+        // std::cout << "Push controller created with parameters: " << max_push_steps << " steps, " << control_steps << " control_steps, " << force_scaling << " scaling" << std::endl;
         
         // Get movable objects (should be our nominal 0.35x0.35 object)
         std::array<std::string, 20> reachable_objects;
@@ -96,8 +144,8 @@ resolution=0.05
         // std::cout << "Using object: " << target_object << std::endl;
         
         // Get edge points for this object
-        std::array<std::array<double, 2>, 16> edge_points;
-        std::array<std::array<double, 2>, 16> mid_points;
+        std::array<std::array<double, 2>, 64> edge_points;
+        std::array<std::array<double, 2>, 64> mid_points;
         size_t edge_count, mid_count;
         size_t num_edges = push_controller.generate_edge_points(target_object, edge_points, mid_points, edge_count, mid_count);
         
@@ -129,7 +177,7 @@ resolution=0.05
         // std::cout << "Initial object position: [" << initial_pos[0] << ", " << initial_pos[1] << ", " << initial_pos[2] << "]" << std::endl;
         
         // Generate primitives for each edge
-        for (size_t edge_idx = 0; edge_idx < num_edges && edge_idx < 12; edge_idx++) {
+        for (size_t edge_idx = 0; edge_idx < num_edges; edge_idx++) {
             // std::cout << "\n--- Generating primitives for edge " << edge_idx << " ---" << std::endl;
             // std::cout << "Edge point: [" << edge_points[edge_idx][0] << ", " << edge_points[edge_idx][1] << "]" << std::endl;
             // std::cout << "Mid point: [" << mid_points[edge_idx][0] << ", " << mid_points[edge_idx][1] << "]" << std::endl;
@@ -138,8 +186,8 @@ resolution=0.05
             env.reset();
             env.step_simulation();
             
-            // Generate primitives for all step counts (1 to 10) - pyramid approach
-            for (int push_steps = 1; push_steps <= 10; push_steps++) {
+            // Generate primitives for all step counts (1 to max_push_steps) - pyramid approach
+            for (int push_steps = 1; push_steps <= max_push_steps; push_steps++) {
                 // Reset environment to initial state for each primitive
                 env.reset();
                 env.step_simulation();
@@ -178,7 +226,7 @@ resolution=0.05
                           // << (success ? " [SUCCESS]" : " [FAILED]") << std::endl;
                 
                 // Render final state if visualizing (only for last step to avoid too much output)
-                if (visualize && push_steps == 10) {
+                if (visualize && push_steps == max_push_steps) {
                     env.render();
                 }
             }
@@ -192,6 +240,9 @@ resolution=0.05
         
         // Save primitives to binary file
         std::string output_file = "data/motion_primitives.dat";
+        if (params.has_key("system.motion_primitives_file")) {
+            output_file = params.get_string("system.motion_primitives_file");
+        }
         std::ofstream file(output_file, std::ios::binary);
         if (!file) {
             std::cerr << "Failed to create output file: " << output_file << std::endl;
@@ -213,8 +264,10 @@ resolution=0.05
         // std::cout << "Saved to: " << output_file << std::endl;
         // std::cout << "File size: " << std::filesystem::file_size(output_file) << " bytes" << std::endl;
         
-        // Clean up temporary config
-        std::filesystem::remove("tools/primitive_gen_config.yaml");
+        // Clean up temporary config if we created one
+        if (!using_unified_config) {
+            std::filesystem::remove("tools/primitive_gen_config.yaml");
+        }
         
         return 0;
         
