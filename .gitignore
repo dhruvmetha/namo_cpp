@@ -5,5 +5,4 @@ build_python_mjxrl*/
 __pycache__/
 .DS_Store
 *.png
-*.pkl
 *.txt
