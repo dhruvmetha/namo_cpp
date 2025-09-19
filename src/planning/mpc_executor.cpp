@@ -274,7 +274,6 @@ std::vector<int> MPCExecutor::get_reachable_edges_with_wavefront(const std::stri
     std::vector<double> robot_pos = {robot_state->position[0], robot_state->position[1]};
     bool wavefront_updated = planner_.update_wavefront(env_, robot_pos);
     
-    
 
     if (!wavefront_updated) {
         // std::cout << "Warning: Wavefront update failed" << std::endl;

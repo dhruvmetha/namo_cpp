@@ -52,7 +52,7 @@ skill:
   # Execution parameters
   goal_tolerance: 0.1              # Goal reaching tolerance (meters)
   stuck_threshold: 0.01            # Minimum movement to avoid stuck detection (meters)
-  max_stuck_iterations: 3         # Maximum stuck iterations before failure
+  max_stuck_iterations: 2         # Maximum stuck iterations before failure
   
   # Object interaction parameters
   object_clearance: 0.1            # Clearance around objects for edge point sampling (meters)

@@ -76,12 +76,12 @@ void NAMOPushController::generate_rectangular_edge_points(const std::array<doubl
     
     // Object dimensions - subtract margin
     double x = 0.0, y = 0.0;
-    double w = obj_size[0] - 0.05;  // width with margin
-    double d = obj_size[1] - 0.05;  // depth with margin
+    double w = obj_size[0];  // width with margin
+    double d = obj_size[1];  // depth with margin
 
     
     // Robot offset for close contact pushing
-    double offset = robot_size_[0] + 0.055;
+    double offset = robot_size_[0] + 0.02;
     
     int n = points_per_edge_;
     double eps_u = std::min(0.05, 0.25 * w);  // margin from corners
@@ -241,9 +241,9 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
     // Position robot at the edge point
     std::array<double, 2> robot_pos = {push_state.initial_edge_point[0], push_state.initial_edge_point[1]};
     env_.set_robot_position(robot_pos);
-    env_.set_zero_velocity();
+    // env_.set_zero_velocity();
     env_.step_simulation();
-    
+
     // Check for robot collision with static objects (walls) after positioning
     const auto& static_objects = env_.get_static_objects();
     size_t num_static = env_.get_num_static();
@@ -251,9 +251,9 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
     for (size_t i = 0; i < num_static; i++) {
         const auto& static_obj = static_objects[i];
         if (env_.bodies_in_collision("robot", static_obj.name)) {
-            // std::cerr << "Robot collision detected with static object '" << static_obj.name 
-            //           << "' at edge point [" << robot_pos[0] << ", " << robot_pos[1] 
-            //           << "] for object: " << object_name << std::endl;
+            std::cerr << "Robot collision detected with static object '" << static_obj.name 
+                      << "' at edge point [" << robot_pos[0] << ", " << robot_pos[1] 
+                      << "] for object: " << object_name << std::endl;
             return false;  // Fail the primitive execution due to collision
         }
     }
