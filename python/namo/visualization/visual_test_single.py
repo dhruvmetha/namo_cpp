@@ -41,6 +41,9 @@ from namo.planners.idfs.standard_idfs import StandardIterativeDeepeningDFS
 from namo.planners.idfs.tree_idfs import TreeIterativeDeepeningDFS
 from namo.planners.sampling.random_sampling import RandomSamplingPlanner
 
+# Import solution smoothing system
+from namo.planners.idfs.solution_smoother import SolutionSmoother
+
 
 def get_available_algorithms() -> List[str]:
     """Get list of available planning algorithms."""
@@ -55,6 +58,15 @@ def get_available_object_strategies() -> List[str]:
 def get_available_goal_strategies() -> List[str]:
     """Get list of available goal selection strategies."""
     return ["random", "grid", "adaptive", "discretized", "ml"]
+
+
+def create_goal_checker(robot_goal):
+    """Create a goal checker function for the smoother."""
+    def check_goal(env):
+        # Use the environment's built-in reachability checking
+        # which uses wavefront planning to determine if robot can reach goal
+        return env.is_robot_goal_reachable()
+    return check_goal
 
 
 def preload_ml_models(object_model_path: Optional[str], 
@@ -246,6 +258,12 @@ def main():
     solution_group.add_argument("--solution-delay", type=float, default=1.0,
                         help="Delay between solution steps in auto mode (default: 1.0)")
     
+    # Solution smoothing settings
+    parser.add_argument("--smooth-solutions", action="store_true",
+                        help="Apply exhaustive smoothing to find minimal subsequences")
+    parser.add_argument("--max-smooth-actions", type=int, default=20,
+                        help="Maximum solution length to attempt smoothing on (default: 20)")
+
     # General settings
     parser.add_argument("--verbose", action="store_true",
                         help="Enable verbose algorithm output")
@@ -283,6 +301,8 @@ def main():
             search_mode = "step-through" if args.planning_step_mode else f"auto ({args.planning_delay}s delay)"
             print(f"🌳 Search Tree Visualization: {search_mode}")
         print(f"🎬 Solution Visualization: {args.show_solution}")
+        if args.smooth_solutions:
+            print(f"✨ Solution Smoothing: enabled (max {args.max_smooth_actions} actions)")
         print("="*50)
         
         # Initialize environment for planning (with visualization if needed)
@@ -392,7 +412,51 @@ def main():
         start_time = time.time()
         result = planner.search(robot_goal)
         search_duration = time.time() - start_time
-        
+
+        # Apply solution smoothing if enabled and solution found
+        if args.smooth_solutions and result.solution_found and result.action_sequence:
+            if len(result.action_sequence) <= args.max_smooth_actions:
+                print(f"\n🎯 Applying solution smoothing (original length: {len(result.action_sequence)})...")
+
+                # Create smoother and goal checker
+                smoother = SolutionSmoother(max_search_actions=args.max_smooth_actions)
+                goal_checker = create_goal_checker(robot_goal)
+
+                # Convert action sequence to format expected by smoother
+                smoother_actions = [
+                    {
+                        "object_name": action.object_id,
+                        "target_pose": {"x": action.x, "y": action.y, "theta": action.theta}
+                    }
+                    for action in result.action_sequence
+                ]
+
+                # Apply smoothing using planning environment
+                smooth_result = smoother.smooth_solution(planning_env, smoother_actions, goal_checker)
+
+                # Update result if improvement found
+                if smooth_result["smoothed_solution"] != smooth_result["original_solution"]:
+                    # Convert back to original format
+                    smoothed_actions = []
+                    for act in smooth_result["smoothed_solution"]:
+                        action = namo_rl.Action()
+                        action.object_id = act["object_name"]
+                        action.x = act["target_pose"]["x"]
+                        action.y = act["target_pose"]["y"]
+                        action.theta = act["target_pose"]["theta"]
+                        smoothed_actions.append(action)
+
+                    result.action_sequence = smoothed_actions
+                    result.solution_depth = len(smoothed_actions)
+
+                    print(f"✨ Solution improved! New length: {len(smoothed_actions)} (saved {len(smoother_actions) - len(smoothed_actions)} actions)")
+                    if smooth_result["smoothing_stats"]:
+                        print(f"📊 Smoothing stats: {smooth_result['smoothing_stats']}")
+                else:
+                    print("💡 No improvement found - solution is already optimal")
+            else:
+                print(f"⚠️  Solution too long for smoothing ({len(result.action_sequence)} > {args.max_smooth_actions}), skipping")
+
         # Print results
         print_solution_summary(result)
         print(f"⏱️  Total Runtime: {search_duration:.2f}s")

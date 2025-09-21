@@ -81,7 +81,7 @@ void NAMOPushController::generate_rectangular_edge_points(const std::array<doubl
 
     
     // Robot offset for close contact pushing
-    double offset = robot_size_[0] + 0.02;
+    double offset = robot_size_[0] + 0.02; // offset = 0.02
     
     int n = points_per_edge_;
     double eps_u = std::min(0.05, 0.25 * w);  // margin from corners
@@ -242,18 +242,18 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
     std::array<double, 2> robot_pos = {push_state.initial_edge_point[0], push_state.initial_edge_point[1]};
     env_.set_robot_position(robot_pos);
     // env_.set_zero_velocity();
-    env_.step_simulation();
-
+    
     // Check for robot collision with static objects (walls) after positioning
     const auto& static_objects = env_.get_static_objects();
     size_t num_static = env_.get_num_static();
     
     for (size_t i = 0; i < num_static; i++) {
         const auto& static_obj = static_objects[i];
-        if (env_.bodies_in_collision("robot", static_obj.name)) {
-            std::cerr << "Robot collision detected with static object '" << static_obj.name 
-                      << "' at edge point [" << robot_pos[0] << ", " << robot_pos[1] 
-                      << "] for object: " << object_name << std::endl;
+        // std::string body_name = env_.get_body_name(static_obj.body_id);
+        if (env_.bodies_in_collision("robot", static_obj.body_name)) {
+            // std::cerr << "Robot collision detected with static object '" << static_obj.body_name
+            // << "' at edge point [" << robot_pos[0] << ", " << robot_pos[1] 
+            // << "] for object: " << object_name << std::endl;
             return false;  // Fail the primitive execution due to collision
         }
     }
@@ -264,15 +264,17 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
     
     for (size_t i = 0; i < num_movable; i++) {
         const auto& movable_obj = movable_objects[i];
+        // std::string body_name = env_.get_body_name(movable_obj.body_id);
+        
         // Skip collision check with the object we're trying to push (expected contact)
-        if (movable_obj.name != object_name && env_.bodies_in_collision("robot", movable_obj.name)) {
-            // std::cerr << "Robot collision detected with movable object '" << movable_obj.name 
+        if (movable_obj.name != object_name && env_.bodies_in_collision("robot", movable_obj.body_name)) {
+            // std::cerr << "Robot collision detected with movable object '" << movable_obj.body_name 
             //           << "' at edge point [" << robot_pos[0] << ", " << robot_pos[1] 
             //           << "] for object: " << object_name << std::endl;
             return false;  // Fail the primitive execution due to collision
         }
     }
-    
+    env_.step_simulation();
     
     // auto obj_state_initial = env_.get_object_state(object_name);
     // auto robot_state_initial = env_.get_robot_state();

@@ -76,47 +76,46 @@ std::map<std::string, std::vector<double>> RLEnvironment::get_observation() cons
 }
 
 RLState RLEnvironment::get_full_state() const {
-    auto* sim = env_->get_mujoco_wrapper();
-    const mjData* d = sim->data();
-    const mjModel* m = sim->model();
+    // Use NAMOEnvironment's zero-allocation method, then convert to RLState
+    auto full_state = env_->get_full_state();
     
-    RLState state;
+    RLState rl_state;
     
     // Copy qpos
-    state.qpos.resize(m->nq);
-    for (int i = 0; i < m->nq; i++) {
-        state.qpos[i] = d->qpos[i];
+    rl_state.qpos.resize(full_state.nq);
+    for (int i = 0; i < full_state.nq; i++) {
+        rl_state.qpos[i] = full_state.qpos[i];
     }
     
     // Copy qvel
-    state.qvel.resize(m->nv);
-    for (int i = 0; i < m->nv; i++) {
-        state.qvel[i] = d->qvel[i];
+    rl_state.qvel.resize(full_state.nv);
+    for (int i = 0; i < full_state.nv; i++) {
+        rl_state.qvel[i] = full_state.qvel[i];
     }
     
-    return state;
+    return rl_state;
 }
 
 void RLEnvironment::set_full_state(const RLState& state) {
-    auto* sim = env_->get_mujoco_wrapper();
-    mjData* d = sim->data();
-    mjModel* m = sim->model();
+    // Convert RLState to NAMOEnvironment::FullSimState, then use zero-allocation method
+    NAMOEnvironment::FullSimState full_state;
     
-    // Set qpos
-    for (int i = 0; i < m->nq && i < static_cast<int>(state.qpos.size()); i++) {
-        d->qpos[i] = state.qpos[i];
+    // Copy qpos
+    full_state.nq = std::min(static_cast<int>(state.qpos.size()), 
+                            static_cast<int>(NAMOEnvironment::FullSimState::MAX_QPOS));
+    for (int i = 0; i < full_state.nq; i++) {
+        full_state.qpos[i] = state.qpos[i];
     }
     
-    // Always zero qvel for consistent physics simulation
-    for (int i = 0; i < m->nv; i++) {
-        d->qvel[i] = 0.0;
+    // Always zero qvel for consistent physics simulation (matching original RL behavior)
+    full_state.nv = std::min(static_cast<int>(state.qvel.size()), 
+                            static_cast<int>(NAMOEnvironment::FullSimState::MAX_QVEL));
+    for (int i = 0; i < full_state.nv; i++) {
+        full_state.qvel[i] = 0.0;  // Zero qvel for consistent physics
     }
     
-    // Apply the new state to the simulation
-    mj_forward(m, d);
-    
-    // Update the environment's internal state tracking
-    env_->update_object_states();
+    // Use NAMOEnvironment's centralized state setting
+    env_->set_full_state(full_state);
 }
 
 void RLEnvironment::render() {

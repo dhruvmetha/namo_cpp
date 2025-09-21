@@ -1,0 +1,36 @@
+<?xml version="1.0" ?>
+<mujoco model="nominal_primitive_generation">
+  <option cone="elliptic" integrator="RK4" timestep="0.01"/>
+  <default>
+    <geom density="1"/>
+  </default>
+  <asset>
+    <texture builtin="gradient" height="3072" rgb1="0.3 0.5 0.7" rgb2="0 0 0" type="skybox" width="512"/>
+    <texture builtin="checker" height="300" mark="edge" markrgb="0.8 0.8 0.8" name="groundplane" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3" type="2d" width="300"/>
+    <material name="groundplane" reflectance="0.2" texrepeat="5 5" texture="groundplane" texuniform="true"/>
+    <material name="robot" rgba="1.0 1.0 0.0 1.0"/>
+  </asset>
+  <worldbody>
+    <light dir="0 0 -1" directional="true" pos="0 0 1.5"/>
+    <geom condim="4" friction="0.5 0.005 0.001" material="groundplane" name="floor" size="0 0 0.05" type="plane"/>
+    
+    <!-- Robot positioned away from origin for primitive generation -->
+    <body name="robot">
+      <joint axis="1 0 0" name="joint_x" pos="0 0 0" type="slide"/>
+      <joint axis="0 1 0" name="joint_y" pos="0 0 0" type="slide"/>
+      <geom condim="4" friction="1.0 0.005 0.0001" mass="5.0" name="robot" pos="-2.0 0.0 0.15" size="0.15 0.15 0.15" type="sphere"/>
+    </body>
+    
+    <!-- Wide object: 0.45x0.25m (width > depth) -->
+    <body name="obstacle_1_movable">
+      <geom condim="4" euler="0 0 0" friction="0.0 0.005 0.001" mass="0.1" name="obstacle_1_movable" pos="0.0 0.0 0.2" rgba="1 0 0 1" size="0.45 0.25 0.2" type="box"/>
+      <joint type="free"/>
+    </body>
+  </worldbody>
+  
+  <actuator>
+    <motor ctrlrange="-1 1" gear="1" joint="joint_x" name="actuator_x"/>
+    <motor ctrlrange="-1 1" gear="1" joint="joint_y" name="actuator_y"/>
+  </actuator>
+</mujoco>
+

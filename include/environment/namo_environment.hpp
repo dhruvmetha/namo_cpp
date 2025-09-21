@@ -40,6 +40,25 @@ public:
     void restore_saved_state();
     void reset_to_initial_state();
     
+    // Full simulation state for zero-allocation save/restore
+    struct FullSimState {
+        static constexpr size_t MAX_QPOS = 100;  // Adjust based on model complexity
+        static constexpr size_t MAX_QVEL = 100;
+        
+        std::array<double, MAX_QPOS> qpos;
+        std::array<double, MAX_QVEL> qvel;
+        int nq = 0;  // Actual size used
+        int nv = 0;
+        
+        FullSimState() { qpos.fill(0.0); qvel.fill(0.0); }
+    };
+    
+    // Full state management (zero-allocation)
+    FullSimState get_full_state() const;
+    void set_full_state(const FullSimState& state);
+    void save_full_state();
+    void restore_full_state();
+    
     // State management
     void set_robot_position(const std::array<double, 2>& pos);
     void set_robot_position(const std::array<double, 3>& pos);
@@ -159,6 +178,10 @@ private:
     std::vector<double> saved_qvel_;
     std::vector<double> initial_qpos_;
     std::vector<double> initial_qvel_;
+    
+    // Full state management (zero-allocation)
+    FullSimState saved_full_state_;
+    bool has_saved_full_state_ = false;
     
     static constexpr size_t LOG_BUFFER_SIZE = 100000;
     std::array<char, LOG_BUFFER_SIZE> log_buffer_;

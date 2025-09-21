@@ -145,8 +145,19 @@ bool MPCExecutor::execute_primitive_step(
 
         // Execute one push primitive using the controller
         // Use edge index and step count from the plan
+        
+        // Save full simulation state before attempting push (zero-allocation)
+        env_.save_full_state();
+        
         bool push_success = controller_.execute_push_primitive(object_name, plan_step.edge_idx, 1);
         
+        if (!push_success) {
+            // Restore full simulation state on push failure (e.g., collision during robot placement)
+            env_.restore_full_state();
+            env_.set_zero_velocity();
+            return false;
+        }
+
         // if (push_success) {
         //     // std::cout << "Push controller reached target location in MPC step " << mpc_step << std::endl;
         //     return true;
@@ -170,7 +181,7 @@ bool MPCExecutor::execute_primitive_step(
     }
     
     // std::cout << "MPC reached step limit without reaching target" << std::endl;
-    return false;
+    return true;
 }
 
 bool MPCExecutor::is_robot_goal_reachable() {
@@ -326,7 +337,7 @@ std::vector<int> MPCExecutor::get_reachable_edges_with_wavefront(const std::stri
         }
     }
 
-    planner_.save_wavefront_iteration("mpc_wavefront", 0);
+    // planner_.save_wavefront_iteration("mpc_wavefront", 0);
     
     // std::cout << "Wavefront analysis: " << reachable_edges.size() 
             //   << "/" << edge_count << " edges reachable for " << object_name << std::endl;

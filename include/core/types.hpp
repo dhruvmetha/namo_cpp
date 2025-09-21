@@ -92,6 +92,7 @@ struct SE2State {
 // Object information structure
 struct ObjectInfo {
     std::string name;
+    std::string body_name;
     int body_id = -1;
     int geom_id = -1;
     bool is_static = false;

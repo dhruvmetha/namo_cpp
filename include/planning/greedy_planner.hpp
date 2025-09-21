@@ -64,6 +64,7 @@ private:
     static constexpr int DEFAULT_EXPANSION_LIMIT = 25000;  // Increased from 5000
     
     PrimitiveLoader primitive_loader_;
+    std::string planner_name_;  // Name identifier for debugging
     
     // Pre-allocated search structures
     std::array<SearchNode, MAX_SEARCH_NODES> search_nodes_;
@@ -84,6 +85,20 @@ public:
      * @return bool True if initialization succeeded
      */
     bool initialize(const std::string& primitive_filepath);
+    
+    /**
+     * @brief Set planner name for debugging
+     * 
+     * @param name Name identifier for this planner instance
+     */
+    void set_name(const std::string& name) { planner_name_ = name; }
+    
+    /**
+     * @brief Get planner name
+     * 
+     * @return const std::string& Name of this planner instance
+     */
+    const std::string& get_name() const { return planner_name_; }
     
     /**
      * @brief Set distance function for heuristic

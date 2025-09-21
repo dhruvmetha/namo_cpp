@@ -15,6 +15,13 @@
 
 using namespace namo;
 
+// Scene configuration for primitive generation
+struct SceneConfig {
+    std::string name;
+    std::string xml_path;
+    std::string description;
+};
+
 // Primitive data structure for binary storage
 struct __attribute__((packed)) NominalPrimitive {
     float delta_x;        // Position change in x
@@ -27,10 +34,173 @@ struct __attribute__((packed)) NominalPrimitive {
 // Verify struct size
 static_assert(sizeof(NominalPrimitive) == 14, "NominalPrimitive must be 14 bytes");
 
+// Helper function to add suffix to filename
+std::string add_suffix_to_filename(const std::string& base_path, const std::string& suffix) {
+    auto dot_pos = base_path.find_last_of('.');
+    if (dot_pos == std::string::npos) {
+        return base_path + "_" + suffix;
+    }
+    return base_path.substr(0, dot_pos) + "_" + suffix + base_path.substr(dot_pos);
+}
+
+// Generate primitives for a single scene
+std::vector<NominalPrimitive> generate_primitives_for_scene(
+    const SceneConfig& scene_config,
+    bool visualize,
+    double resolution,
+    int points_per_face,
+    int control_steps,
+    int max_push_steps,
+    double force_scaling
+) {
+    std::cout << "\n=== Generating primitives for " << scene_config.name << " ===" << std::endl;
+    std::cout << "XML: " << scene_config.xml_path << std::endl;
+    std::cout << "Description: " << scene_config.description << std::endl;
+    
+    // Create NAMO environment for this scene
+    NAMOEnvironment env(scene_config.xml_path, visualize, false);
+    
+    // Get robot info
+    const auto& robot_info = env.get_robot_info();
+    std::vector<double> robot_size = {robot_info.size[0], robot_info.size[1]};
+    
+    // Create wavefront planner (heap allocation to avoid 32MB stack array)
+    auto wavefront_planner = std::make_unique<WavefrontPlanner>(resolution, env, robot_size);
+    
+    // Set robot goal (fixed for nominal primitive generation)
+    std::array<double, 2> robot_goal = {0.0, 0.0};
+    env.set_robot_goal(robot_goal);
+    
+    // Create push controller
+    NAMOPushController push_controller(env, *wavefront_planner, max_push_steps, control_steps, force_scaling, points_per_face);
+    
+    // Get movable objects (should be our nominal object)
+    std::array<std::string, 20> reachable_objects;
+    size_t reachable_count;
+    size_t num_reachable = push_controller.get_reachable_objects(reachable_objects, reachable_count);
+    
+    if (num_reachable == 0) {
+        throw std::runtime_error("No reachable objects found in scene: " + scene_config.xml_path);
+    }
+    
+    std::string target_object = reachable_objects[0];
+    std::cout << "Using object: " << target_object << std::endl;
+    
+    // Get edge points for this object
+    std::array<std::array<double, 2>, 64> edge_points;
+    std::array<std::array<double, 2>, 64> mid_points;
+    size_t edge_count, mid_count;
+    size_t num_edges = push_controller.generate_edge_points(target_object, edge_points, mid_points, edge_count, mid_count);
+    
+    std::cout << "Generated " << num_edges << " edge points" << std::endl;
+    
+    // Position camera for good view if visualizing
+    if (visualize) {
+        auto obj_state = env.get_object_state(target_object);
+        if (obj_state) {
+            std::array<double, 3> focus_point = {obj_state->position[0], obj_state->position[1], 0.0};
+            env.set_camera_lookat(focus_point);
+            env.set_camera_position(6.0, 0.0, -45.0);
+        }
+    }
+    
+    // Get initial object state
+    auto initial_obj_state = env.get_object_state(target_object);
+    if (!initial_obj_state) {
+        throw std::runtime_error("Failed to get initial object state!");
+    }
+    
+    std::array<double, 3> initial_pos = initial_obj_state->position;
+    std::array<double, 4> initial_quat = initial_obj_state->quaternion;
+    
+    std::cout << "Initial object position: [" << initial_pos[0] << ", " << initial_pos[1] << ", " << initial_pos[2] << "]" << std::endl;
+    
+    // Generate primitives for each edge
+    std::vector<NominalPrimitive> all_primitives;
+    all_primitives.reserve(num_edges * max_push_steps);
+    
+    for (size_t edge_idx = 0; edge_idx < num_edges; edge_idx++) {
+        std::cout << "Generating primitives for edge " << edge_idx << " / " << num_edges << std::endl;
+        
+        // Reset environment to initial state
+        env.reset();
+        env.step_simulation();
+        
+        // Generate primitives for all step counts (1 to max_push_steps) - pyramid approach
+        for (int push_steps = 1; push_steps <= max_push_steps; push_steps++) {
+            // Reset environment to initial state for each primitive
+            env.reset();
+            env.step_simulation();
+            
+            // Execute push primitive for this number of steps
+            bool success = push_controller.execute_push_primitive(target_object, edge_idx, push_steps);
+            
+            // Get object state after push sequence
+            auto final_obj_state = env.get_object_state(target_object);
+            if (!final_obj_state) {
+                continue;
+            }
+            
+            // Calculate displacement from initial position
+            NominalPrimitive primitive;
+            primitive.delta_x = final_obj_state->position[0] - initial_pos[0];
+            primitive.delta_y = final_obj_state->position[1] - initial_pos[1];
+            
+            // Calculate rotation change (simple yaw extraction)
+            auto quat_to_yaw = [](const std::array<double, 4>& q) -> double {
+                return std::atan2(2.0 * (q[0] * q[3] + q[1] * q[2]), 
+                                1.0 - 2.0 * (q[2] * q[2] + q[3] * q[3]));
+            };
+            
+            primitive.delta_theta = quat_to_yaw(final_obj_state->quaternion) - quat_to_yaw(initial_quat);
+            primitive.edge_idx = edge_idx;
+            primitive.push_steps = push_steps;
+            
+            all_primitives.push_back(primitive);
+            
+            // Render final state if visualizing (only for last step to avoid too much output)
+            if (visualize && push_steps == max_push_steps) {
+                env.render();
+            }
+        }
+        
+        // Pause between edges for observation
+        if (visualize) {
+            std::cout << "Press Enter to continue to next edge..." << std::endl;
+            std::cin.get();
+        }
+    }
+    
+    std::cout << "Generated " << all_primitives.size() << " primitives for " << scene_config.name << std::endl;
+    return all_primitives;
+}
+
+// Save primitives to binary file
+void save_primitives_to_file(const std::string& output_file, const std::vector<NominalPrimitive>& primitives) {
+    std::ofstream file(output_file, std::ios::binary);
+    if (!file) {
+        throw std::runtime_error("Failed to create output file: " + output_file);
+    }
+    
+    std::cout << "Saving primitives to: " << output_file << std::endl;
+    
+    // Write header
+    uint32_t count = primitives.size();
+    file.write(reinterpret_cast<const char*>(&count), sizeof(count));
+    
+    // Write primitives
+    file.write(reinterpret_cast<const char*>(primitives.data()), 
+              count * sizeof(NominalPrimitive));
+    
+    file.close();
+    
+    std::cout << "Saved " << count << " primitives to: " << output_file << std::endl;
+    std::cout << "File size: " << std::filesystem::file_size(output_file) << " bytes" << std::endl;
+}
+
 int main() {
-    // std::cout << "=== Nominal Motion Primitive Generator ===" << std::endl;
-    // std::cout << "Using existing NAMO infrastructure" << std::endl;
-    // std::cout << "Generating 12 directions × 10 step variants = 120 primitives (pyramid approach)" << std::endl;
+    std::cout << "=== Multi-Scene Nominal Motion Primitive Generator ===" << std::endl;
+    std::cout << "Generating primitives for multiple object shapes" << std::endl;
     
     try {
         // Prefer unified config if present, fallback to minimal local config
@@ -57,12 +227,40 @@ resolution=0.05
         
         // Load configuration using our parameter loader
         FastParameterLoader params(config_path);
-        // std::cout << "Configuration loaded!" << std::endl;
+        std::cout << "Configuration loaded from: " << config_path << std::endl;
         
-        // Get settings (unified config with fallbacks)
-        // XML path is fixed for nominal primitive generation
-        std::string xml_path = "data/nominal_primitive_scene.xml";
+        // Define the three scenes to generate primitives for
+        std::vector<SceneConfig> scenes = {
+            {"square", "data/nominal_primitive_scene_square.xml", "Square object (0.35x0.35m)"},
+            {"wide", "data/nominal_primitive_scene_wide.xml", "Wide object (0.45x0.25m)"},
+            {"tall", "data/nominal_primitive_scene_tall.xml", "Tall object (0.25x0.45m)"}
+        };
         
+        // Filter to only existing files, with fallback to legacy
+        std::vector<SceneConfig> existing_scenes;
+        for (const auto& scene : scenes) {
+            if (std::filesystem::exists(scene.xml_path)) {
+                existing_scenes.push_back(scene);
+                std::cout << "Found scene: " << scene.name << " -> " << scene.xml_path << std::endl;
+            } else {
+                std::cout << "Scene XML not found, skipping: " << scene.xml_path << std::endl;
+            }
+        }
+        
+        // Fallback to legacy file if no variants found
+        if (existing_scenes.empty()) {
+            std::string legacy_xml = "data/nominal_primitive_scene.xml";
+            if (std::filesystem::exists(legacy_xml)) {
+                std::cout << "Using legacy single scene: " << legacy_xml << std::endl;
+                existing_scenes.push_back({"square", legacy_xml, "Legacy single scene"});
+            } else {
+                throw std::runtime_error("No valid scene XML files found!");
+            }
+        }
+        
+        std::cout << "Found " << existing_scenes.size() << " scene(s) to process" << std::endl;
+        
+        // Get generation parameters with fallbacks
         bool visualize = false;
         if (params.has_key("visualize")) {
             visualize = params.get_bool("visualize");
@@ -74,9 +272,6 @@ resolution=0.05
         if (params.has_key("wavefront_planner.resolution")) {
             resolution = params.get_double("wavefront_planner.resolution");
         }
-        
-        // Robot goal is fixed for nominal primitive generation
-        std::array<double, 2> robot_goal = {0.0, 0.0};
         
         // Edge sampling density (points per object face)
         int points_per_face = 3; // Default fallback
@@ -107,167 +302,57 @@ resolution=0.05
             force_scaling = params.get_double("skill.force_scaling");
         }
         
-        // std::cout << "Settings:" << std::endl;
-        // std::cout << "  XML: " << xml_path << std::endl;
-        // std::cout << "  Visualize: " << (visualize ? "true" : "false") << std::endl;
-        // std::cout << "  Resolution: " << resolution << std::endl;
-        
-        // Create NAMO environment (this handles MuJoCo setup and visualization)
-        NAMOEnvironment env(xml_path, visualize, false);
-        // std::cout << "Environment created successfully!" << std::endl;
-        
-        // Get robot info
-        const auto& robot_info = env.get_robot_info();
-        std::vector<double> robot_size = {robot_info.size[0], robot_info.size[1]};
-        
-        // Create wavefront planner (heap allocation to avoid 32MB stack array)
-        auto wavefront_planner = std::make_unique<WavefrontPlanner>(resolution, env, robot_size);
-        
-        // Set robot goal
-        env.set_robot_goal(robot_goal);
-        
-        // Create push controller (this has the primitive execution logic)
-        NAMOPushController push_controller(env, *wavefront_planner, max_push_steps, control_steps, force_scaling, points_per_face);
-        // std::cout << "Push controller created with parameters: " << max_push_steps << " steps, " << control_steps << " control_steps, " << force_scaling << " scaling" << std::endl;
-        
-        // Get movable objects (should be our nominal 0.35x0.35 object)
-        std::array<std::string, 20> reachable_objects;
-        size_t reachable_count;
-        size_t num_reachable = push_controller.get_reachable_objects(reachable_objects, reachable_count);
-        
-        if (num_reachable == 0) {
-            std::cerr << "No reachable objects found!" << std::endl;
-            return 1;
-        }
-        
-        std::string target_object = reachable_objects[0];
-        // std::cout << "Using object: " << target_object << std::endl;
-        
-        // Get edge points for this object
-        std::array<std::array<double, 2>, 64> edge_points;
-        std::array<std::array<double, 2>, 64> mid_points;
-        size_t edge_count, mid_count;
-        size_t num_edges = push_controller.generate_edge_points(target_object, edge_points, mid_points, edge_count, mid_count);
-        
-        // std::cout << "Generated " << num_edges << " edge points" << std::endl;
-        
-        // Position camera for good view if visualizing
-        if (visualize) {
-            auto obj_state = env.get_object_state(target_object);
-            if (obj_state) {
-                std::array<double, 3> focus_point = {obj_state->position[0], obj_state->position[1], 0.0};
-                env.set_camera_lookat(focus_point);
-                env.set_camera_position(6.0, 0.0, -45.0);
-            }
-        }
-        
-        // Generate primitives using existing push controller
-        std::vector<NominalPrimitive> all_primitives;
-        
-        // Get initial object state
-        auto initial_obj_state = env.get_object_state(target_object);
-        if (!initial_obj_state) {
-            std::cerr << "Failed to get initial object state!" << std::endl;
-            return 1;
-        }
-        
-        std::array<double, 3> initial_pos = initial_obj_state->position;
-        std::array<double, 4> initial_quat = initial_obj_state->quaternion;
-        
-        // std::cout << "Initial object position: [" << initial_pos[0] << ", " << initial_pos[1] << ", " << initial_pos[2] << "]" << std::endl;
-        
-        // Generate primitives for each edge
-        for (size_t edge_idx = 0; edge_idx < num_edges; edge_idx++) {
-            std::cout << "\n--- Generating primitives for edge " << edge_idx << " ---" << std::endl;
-            std::cout << "Edge point: [" << edge_points[edge_idx][0] << ", " << edge_points[edge_idx][1] << "]" << std::endl;
-            std::cout << "Mid point: [" << mid_points[edge_idx][0] << ", " << mid_points[edge_idx][1] << "]" << std::endl;
-            
-            // Reset environment to initial state
-            env.reset();
-            env.step_simulation();
-            
-            // Generate primitives for all step counts (1 to max_push_steps) - pyramid approach
-            for (int push_steps = 1; push_steps <= max_push_steps; push_steps++) {
-                // Reset environment to initial state for each primitive
-                env.reset();
-                env.step_simulation();
-                
-                // Execute push primitive for this number of steps
-                bool success = push_controller.execute_push_primitive(target_object, edge_idx, push_steps);
-                
-                // Get object state after push sequence
-                auto final_obj_state = env.get_object_state(target_object);
-                if (!final_obj_state) {
-                    // std::cout << "Edge " << edge_idx << ", Steps " << push_steps << ": Failed to get final object state [FAILED]" << std::endl;
-                    continue;
-                }
-                
-                // Calculate displacement from initial position
-                NominalPrimitive primitive;
-                primitive.delta_x = final_obj_state->position[0] - initial_pos[0];
-                primitive.delta_y = final_obj_state->position[1] - initial_pos[1];
-                
-                // Calculate rotation change (simple yaw extraction)
-                auto quat_to_yaw = [](const std::array<double, 4>& q) -> double {
-                    return std::atan2(2.0 * (q[0] * q[3] + q[1] * q[2]), 
-                                    1.0 - 2.0 * (q[2] * q[2] + q[3] * q[3]));
-                };
-                
-                primitive.delta_theta = quat_to_yaw(final_obj_state->quaternion) - quat_to_yaw(initial_quat);
-                primitive.edge_idx = edge_idx;
-                primitive.push_steps = push_steps;
-                
-                all_primitives.push_back(primitive);
-                
-                // std::cout << "Edge " << edge_idx << ", Steps " << push_steps 
-                          // << ": dx=" << primitive.delta_x 
-                          // << ", dy=" << primitive.delta_y
-                          // << ", dθ=" << primitive.delta_theta
-                          // << (success ? " [SUCCESS]" : " [FAILED]") << std::endl;
-                
-                // Render final state if visualizing (only for last step to avoid too much output)
-                if (visualize && push_steps == max_push_steps) {
-                    env.render();
-                }
-            }
-            
-            // Pause between edges for observation
-            if (visualize) {
-                // std::cout << "Press Enter to continue to next edge..." << std::endl;
-                std::cin.get();
-            }
-        }
-        
-        // Save primitives to binary file
-        std::string output_file = "data/motion_primitives.dat";
+        // Determine base output file
+        std::string base_output = "data/motion_primitives.dat";
         if (params.has_key("system.motion_primitives_file")) {
-            output_file = params.get_string("system.motion_primitives_file");
+            base_output = params.get_string("system.motion_primitives_file");
         }
-        std::ofstream file(output_file, std::ios::binary);
-        if (!file) {
-            std::cerr << "Failed to create output file: " << output_file << std::endl;
-            return 1;
+        
+        std::cout << "Generation parameters:" << std::endl;
+        std::cout << "  Visualize: " << (visualize ? "true" : "false") << std::endl;
+        std::cout << "  Resolution: " << resolution << std::endl;
+        std::cout << "  Points per face: " << points_per_face << std::endl;
+        std::cout << "  Control steps: " << control_steps << std::endl;
+        std::cout << "  Max push steps: " << max_push_steps << std::endl;
+        std::cout << "  Force scaling: " << force_scaling << std::endl;
+        std::cout << "  Base output: " << base_output << std::endl;
+        
+        // Generate primitives for each scene
+        for (const auto& scene : existing_scenes) {
+            try {
+                auto primitives = generate_primitives_for_scene(
+                    scene, visualize, resolution, points_per_face, 
+                    control_steps, max_push_steps, force_scaling
+                );
+                
+                // Save to suffixed output file
+                std::string output_file = add_suffix_to_filename(base_output, scene.name);
+                save_primitives_to_file(output_file, primitives);
+                
+                // For backward compatibility: if this is the square scene, also write to base file
+                if (scene.name == "square" && output_file != base_output) {
+                    try {
+                        save_primitives_to_file(base_output, primitives);
+                        std::cout << "Also saved square primitives to base file: " << base_output << std::endl;
+                    } catch (const std::exception& e) {
+                        std::cout << "Warning: Failed to write base file: " << e.what() << std::endl;
+                        // Continue - the suffixed file is the primary output
+                    }
+                }
+                
+            } catch (const std::exception& e) {
+                std::cerr << "Failed to generate primitives for scene " << scene.name << ": " << e.what() << std::endl;
+                // Continue with other scenes
+            }
         }
-        std::cout << "Saving primitives to: " << output_file << std::endl;
-        // Write header
-        uint32_t count = all_primitives.size();
-        file.write(reinterpret_cast<const char*>(&count), sizeof(count));
-        
-        // Write primitives
-        file.write(reinterpret_cast<const char*>(all_primitives.data()), 
-                  count * sizeof(NominalPrimitive));
-        
-        file.close();
-        
-        // std::cout << "\n=== Generation Complete ===" << std::endl;
-        // std::cout << "Generated " << all_primitives.size() << " primitives" << std::endl;
-        // std::cout << "Saved to: " << output_file << std::endl;
-        // std::cout << "File size: " << std::filesystem::file_size(output_file) << " bytes" << std::endl;
         
         // Clean up temporary config if we created one
         if (!using_unified_config) {
             std::filesystem::remove("tools/primitive_gen_config.yaml");
         }
+        
+        std::cout << "\n=== Generation Complete ===" << std::endl;
+        std::cout << "Processed " << existing_scenes.size() << " scene(s)" << std::endl;
         
         return 0;
         

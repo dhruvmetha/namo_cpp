@@ -6,6 +6,7 @@
 #include "environment/namo_environment.hpp"
 #include "config/config_manager.hpp"
 #include <optional>
+#include <filesystem>
 
 namespace namo {
 
@@ -17,7 +18,12 @@ namespace namo {
 class NAMOPushSkill : public ManipulationSkill {
 private:
     NAMOEnvironment& env_;
-    std::unique_ptr<GreedyPlanner> planner_;
+    
+    // Three primitive planners by shape
+    std::unique_ptr<GreedyPlanner> planner_square_;
+    std::unique_ptr<GreedyPlanner> planner_wide_;
+    std::unique_ptr<GreedyPlanner> planner_tall_;
+    
     std::unique_ptr<MPCExecutor> executor_;
     std::shared_ptr<ConfigManager> config_;
     
@@ -45,6 +51,16 @@ public:
 
 private:
     void initialize_skill();
+    
+    /**
+     * @brief Select planner based on object size ratio
+     * 
+     * Uses the same 5% tolerance as ObjectInfo symmetry detection:
+     * - If x/y ratio < 1.05 -> square planner
+     * - If x > y -> wide planner  
+     * - If y > x -> tall planner
+     */
+    GreedyPlanner* get_planner_for_object(const std::string& object_name) const;
 
 public:
     
