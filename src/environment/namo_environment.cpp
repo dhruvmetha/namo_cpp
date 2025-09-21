@@ -129,7 +129,13 @@ void NAMOEnvironment::process_environment_objects() {
                 
                 const char* geom_name_ptr = mj_id2name(model, mjOBJ_GEOM, j);
                 obj.name = geom_name_ptr ? std::string(geom_name_ptr) : ("geom_" + std::to_string(j));
-                
+
+
+                const char* body_name_ptr = mj_id2name(model, mjOBJ_BODY, i);
+                obj.body_name = body_name_ptr ? std::string(body_name_ptr) : ("body_" + std::to_string(i));
+
+                // std::cout << "obj.name: " << obj.name << std::endl;
+                // std::cout << "obj.body_name: " << obj.body_name << std::endl;
                 // Get size
                 for (int k = 0; k < 3; k++) {
                     obj.size[k] = model->geom_size[j * 3 + k];
@@ -754,6 +760,81 @@ void NAMOEnvironment::restore_saved_state() {
 void NAMOEnvironment::reset_to_initial_state() {
     if (!sim_) return;
     reset();
+}
+
+//=============================================================================
+// Full state management (zero-allocation)
+//=============================================================================
+
+NAMOEnvironment::FullSimState NAMOEnvironment::get_full_state() const {
+    FullSimState state;
+    if (!sim_) return state;
+    
+    auto* sim = get_mujoco_wrapper();
+    const mjData* d = sim->data();
+    const mjModel* m = sim->model();
+    
+    // Store actual sizes
+    state.nq = m->nq;
+    state.nv = m->nv;
+    
+    // Safety check against MAX sizes
+    if (state.nq > static_cast<int>(FullSimState::MAX_QPOS)) {
+        std::cerr << "Warning: Model nq (" << state.nq << ") exceeds MAX_QPOS (" 
+                  << FullSimState::MAX_QPOS << "). Truncating." << std::endl;
+        state.nq = FullSimState::MAX_QPOS;
+    }
+    if (state.nv > static_cast<int>(FullSimState::MAX_QVEL)) {
+        std::cerr << "Warning: Model nv (" << state.nv << ") exceeds MAX_QVEL (" 
+                  << FullSimState::MAX_QVEL << "). Truncating." << std::endl;
+        state.nv = FullSimState::MAX_QVEL;
+    }
+    
+    // Copy qpos
+    for (int i = 0; i < state.nq; i++) {
+        state.qpos[i] = d->qpos[i];
+    }
+    
+    // Copy qvel
+    for (int i = 0; i < state.nv; i++) {
+        state.qvel[i] = d->qvel[i];
+    }
+    
+    return state;
+}
+
+void NAMOEnvironment::set_full_state(const FullSimState& state) {
+    if (!sim_) return;
+    
+    auto* sim = get_mujoco_wrapper();
+    mjData* d = sim->data();
+    mjModel* m = sim->model();
+    
+    // Apply qpos (up to model limits)
+    int qpos_to_copy = std::min(state.nq, m->nq);
+    for (int i = 0; i < qpos_to_copy; i++) {
+        d->qpos[i] = state.qpos[i];
+    }
+    
+    // Apply qvel (up to model limits)
+    int qvel_to_copy = std::min(state.nv, m->nv);
+    for (int i = 0; i < qvel_to_copy; i++) {
+        d->qvel[i] = state.qvel[i];
+    }
+    
+    // Forward kinematics and update tracking
+    mj_forward(m, d);
+    update_object_states();
+}
+
+void NAMOEnvironment::save_full_state() {
+    saved_full_state_ = get_full_state();
+    has_saved_full_state_ = true;
+}
+
+void NAMOEnvironment::restore_full_state() {
+    if (!has_saved_full_state_) return;
+    set_full_state(saved_full_state_);
 }
 
 } // namespace namo

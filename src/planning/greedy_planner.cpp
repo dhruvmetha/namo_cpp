@@ -6,7 +6,7 @@
 
 namespace namo {
 
-GreedyPlanner::GreedyPlanner() : node_count_(0) {
+GreedyPlanner::GreedyPlanner() : node_count_(0), planner_name_("unnamed") {
     // Set default distance and goal check functions
     distance_func_ = default_distance;
     goal_check_func_ = default_goal_check;

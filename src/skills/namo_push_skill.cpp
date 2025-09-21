@@ -2,6 +2,7 @@
 #include <chrono>
 #include <iomanip>
 #include <cmath>
+#include <algorithm>
 #include <unordered_set>
 
 namespace namo {
@@ -22,15 +23,65 @@ NAMOPushSkill::NAMOPushSkill(NAMOEnvironment& env, std::shared_ptr<ConfigManager
 }
 
 void NAMOPushSkill::initialize_skill() {
-    // Get primitive database path
-    std::string db_path = config_ ? config_->system().motion_primitives_file 
-                                  : legacy_config_.primitive_database_path;
+    // Get base primitive database path
+    std::string base_db_path = config_ ? config_->system().motion_primitives_file 
+                                       : legacy_config_.primitive_database_path;
     
-    // Initialize planner with proper error checking
-    planner_ = std::make_unique<GreedyPlanner>();
-    if (!planner_->initialize(db_path)) {
-        throw std::runtime_error("Failed to initialize motion primitive database from: " + db_path);
-    }
+    // Helper function to add suffix to filename
+    auto add_suffix_to_filename = [](const std::string& base_path, const std::string& suffix) {
+        auto dot_pos = base_path.find_last_of('.');
+        if (dot_pos == std::string::npos) {
+            return base_path + "_" + suffix;
+        }
+        return base_path.substr(0, dot_pos) + "_" + suffix + base_path.substr(dot_pos);
+    };
+    
+    // Helper function to try loading a planner with fallback
+    auto try_load_planner = [&](const std::string& preferred_path, const std::string& shape_name) -> std::unique_ptr<GreedyPlanner> {
+        auto planner = std::make_unique<GreedyPlanner>();
+        
+        // Try preferred path first
+        if (std::filesystem::exists(preferred_path)) {
+            if (planner->initialize(preferred_path)) {
+                return planner;
+            }
+        }
+        
+        // Fallback to base path
+        if (std::filesystem::exists(base_db_path)) {
+            if (planner->initialize(base_db_path)) {
+                return planner;
+            }
+        }
+        
+        // Last resort: try default path
+        std::string default_path = "data/motion_primitives.dat";
+        if (std::filesystem::exists(default_path)) {
+            if (planner->initialize(default_path)) {
+                return planner;
+            }
+        }
+        
+        throw std::runtime_error("Failed to initialize " + shape_name + " planner. Tried: " + 
+                                preferred_path + ", " + base_db_path + ", " + default_path);
+    };
+    
+    // Initialize all three planners with their respective databases
+    std::string square_path = add_suffix_to_filename(base_db_path, "square");
+    std::string wide_path = add_suffix_to_filename(base_db_path, "wide");
+    std::string tall_path = add_suffix_to_filename(base_db_path, "tall");
+    
+    planner_square_ = try_load_planner(square_path, "square");
+    planner_square_->set_name("square");
+    // std::cout << "Initialized square planner" << std::endl;
+    
+    planner_wide_ = try_load_planner(wide_path, "wide");
+    planner_wide_->set_name("wide");
+    // std::cout << "Initialized wide planner" << std::endl;
+    
+    planner_tall_ = try_load_planner(tall_path, "tall");
+    planner_tall_->set_name("tall");
+    // std::cout << "Initialized tall planner" << std::endl;
     
     // Initialize executor with configuration parameters
     if (config_) {
@@ -246,13 +297,13 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         
         // 5. Update reachability using wavefront planner and save for debugging
         // std::cout << "Updating wavefront and checking reachability..." << std::endl;
-        executor_->save_debug_wavefront(mpc_iter, "mpc_wavefront_reachability");
+        // executor_->save_debug_wavefront(mpc_iter, "mpc_wavefront_reachability");
         
         std::vector<int> reachable_edges = executor_->get_reachable_edges_with_wavefront(object_name);
-        std::cout << "reachable_edges: " << reachable_edges.size() << std::endl;
-        for (int edge : reachable_edges) {
-            std::cout << "reachable edge idx: " << edge << std::endl;
-        }
+        // std::cout << "reachable_edges: " << reachable_edges.size() << std::endl;
+        // for (int edge : reachable_edges) {
+        //     std::cout << "reachable edge idx: " << edge << std::endl;
+        // }
         
         // Filter out edges that previously led to a stuck outcome
         std::vector<int> filtered_edges;
@@ -261,9 +312,9 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
             if (stuck_edges.count(edge) == 0) {
                 filtered_edges.push_back(edge);
             }
-            else {
-                std::cout << "edge idx: " << edge << " is a stuck edge" << std::endl;
-            }
+            // else {
+            //     std::cout << "edge idx: " << edge << " is a stuck edge" << std::endl;
+            // }
         }
         
         // std::cout << "Reachable edges: " << reachable_edges.size() << ", after filtering stuck edges: " << filtered_edges.size() << std::endl;
@@ -272,7 +323,7 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         
         if (filtered_edges.empty()) {
             // std::cout << "No reachable edges for object " << object_name << " after filtering stuck edges - stopping MPC" << std::endl;
-            executor_->save_debug_wavefront(mpc_iter, "mpc_wavefront_no_reachable_edges_after_filter");
+            // executor_->save_debug_wavefront(mpc_iter, "mpc_wavefront_no_reachable_edges_after_filter");
             result.failure_reason = "No reachable edges after filtering stuck edges at iteration " + std::to_string(mpc_iter);
             result.outputs["steps_executed"] = mpc_iter;
             result.outputs["final_pose"] = current_state;
@@ -288,8 +339,11 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         // std::cout << "Planning from current state to goal..." << std::endl;
         std::vector<PlanStep> plan;
         try {
-            plan = planner_->plan_push_sequence(current_state, target_pose, filtered_edges, 25000);
-            std::cout << "filtered_edges: " << filtered_edges.size() << std::endl;
+            GreedyPlanner* planner = get_planner_for_object(object_name);
+            // std::cout << "Selected planner: " << planner->get_name() << " for object: " << object_name << std::endl;
+            
+            plan = planner->plan_push_sequence(current_state, target_pose, filtered_edges, 25000);
+            // std::cout << "filtered_edges: " << filtered_edges.size() << std::endl;
         } catch (const std::exception& e) {
             std::cout << "Planning failed: " << e.what() << std::endl;
             result.failure_reason = "Planning failed at iteration " + std::to_string(mpc_iter) + ": " + e.what();
@@ -321,27 +375,12 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         std::vector<PlanStep> single_step = {plan[0]};
         
         previous_edge_idx = single_step[0].edge_idx;  // Remember which edge we're executing for next iteration's stuck check
-        std::cout << "pushing on edge idx: " << previous_edge_idx << std::endl;
+        // std::cout << "pushing on edge idx: " << previous_edge_idx << std::endl;
         auto step_result = executor_->execute_plan(object_name, single_step);
-        
-        // if (!step_result.success) {
-        //     std::cout << "Failed to execute primitive step: " << step_result.failure_reason << std::endl;
-        //     result.failure_reason = "Primitive execution failed at iteration " + std::to_string(mpc_iter) + ": " + step_result.failure_reason;
-        //     result.outputs["steps_executed"] = mpc_iter;
-        //     result.outputs["final_pose"] = current_state;
-        //     result.outputs["object_name"] = object_name;
-            
-        //     auto end_time = std::chrono::high_resolution_clock::now();
-        //     result.execution_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-        //     continue;
-        // }
-        
-        // std::cout << "Step executed. New state: [" << std::fixed << std::setprecision(3)
-        //           << step_result.final_object_state.x << "," 
-        //           << step_result.final_object_state.y << ","
-        //           << step_result.final_object_state.theta << "]" << std::endl;
-        
-        // 8. Update previous state for stuck detection and loop back for next iteration
+
+        if (!step_result.success) {
+            stuck_edges.insert(previous_edge_idx);
+        }
         previous_state = current_state;
     }
     
@@ -562,6 +601,39 @@ std::array<double, 3> NAMOPushSkill::get_robot_goal() const {
 void NAMOPushSkill::clear_robot_goal() {
     has_robot_goal_ = false;
     executor_->clear_robot_goal();
+}
+
+GreedyPlanner* NAMOPushSkill::get_planner_for_object(const std::string& object_name) const {
+    const ObjectInfo* info = env_.get_object_info(object_name);
+    if (!info) {
+        // std::cout << "Object info not available for " << object_name << ", defaulting to square planner" << std::endl;
+        return planner_square_.get();
+    }
+
+    double x = info->size[0];
+    double y = info->size[1];
+    if (x <= 0.0 || y <= 0.0) {
+        // std::cout << "Invalid dimensions for " << object_name << " [" << x << "x" << y << "], defaulting to square planner" << std::endl;
+        return planner_square_.get();
+    }
+
+    // Use same 5% tolerance as ObjectInfo symmetry detection
+    double ratio = std::max(x, y) / std::min(x, y);
+    // std::cout << "Object " << object_name << " dimensions: [" << x << "x" << y << "], ratio: " << ratio << std::endl;
+    
+    if (ratio < 1.05) {
+        // std::cout << "Ratio < 1.05, selecting square planner" << std::endl;
+        return planner_square_.get();
+    }
+    
+    // Determine wide vs tall based on which dimension is larger
+    if (x > y) {
+        // std::cout << "x > y, selecting wide planner" << std::endl;
+        return planner_wide_.get();
+    } else {
+        // std::cout << "y > x, selecting tall planner" << std::endl;
+        return planner_tall_.get();
+    }
 }
 
 } // namespace namo

@@ -60,15 +60,9 @@ random.seed(42)
 def create_goal_checker(robot_goal):
     """Create a goal checker function for the smoother."""
     def check_goal(env):
-        current_state = env.get_observation()
-        robot_pos = current_state.get("robot", [0.0, 0.0, 0.0])
-        
-        # Simple distance-based goal check
-        dx = robot_pos[0] - robot_goal[0]
-        dy = robot_pos[1] - robot_goal[1]
-        distance = (dx*dx + dy*dy)**0.5
-        
-        return distance < 0.1  # 10cm tolerance
+        # Use the environment's built-in reachability checking
+        # which uses wavefront planning to determine if robot can reach goal
+        return env.is_robot_goal_reachable()
     return check_goal
 
 
@@ -224,29 +218,28 @@ def discover_environment_files(base_dir: str, start_idx: int, end_idx: int) -> L
     # all_xml_files = sorted(all_xml_files)
     
 
-    folder = "train_envs"
-    all_xml_files = []
-    for d in ['very_hard']:
-        with open(f'{folder}/envs_names_{d}.pkl', 'rb') as f:
-            envs_names = pickle.load(f)
-        for env_name in envs_names:
-            xml_file = os.path.join(base_dir, env_name)
-            all_xml_files.append(xml_file)
-    all_xml_files = sorted(all_xml_files)
-    
-    # sets = [1, 2]
-    # benchmarks = [1, 2, 3, 4, 5]
+    # folder = "train_envs"
     # all_xml_files = []
-    # for set in sets:
-    #     for benchmark in benchmarks:
-    #         xml_pattern = os.path.join(base_dir, "medium", f"set{set}", f"benchmark_{benchmark}", "*.xml")
-    #         sorted_xml_files = sorted(glob.glob(xml_pattern, recursive=True))
-    #         all_xml_files.extend(sorted_xml_files[:1000]) # train
-    #         # all_xml_files.extend(sorted_xml_files[1000:1100]) # test
-    # # Apply subset selection
+    # for d in ['hard']:
+    #     with open(f'{folder}/envs_names_{d}.pkl', 'rb') as f:
+    #         envs_names = pickle.load(f)
+    #     for env_name in envs_names:
+    #         xml_file = os.path.join(base_dir, env_name)
+    #         all_xml_files.append(xml_file)
+    # all_xml_files = sorted(all_xml_files)
+    
+    sets = [1, 2]
+    benchmarks = [1, 2, 3, 4, 5]
+    all_xml_files = []
+    for set in sets:
+        for benchmark in benchmarks:
+            xml_pattern = os.path.join(base_dir, "medium", f"set{set}", f"benchmark_{benchmark}", "*.xml")
+            sorted_xml_files = sorted(glob.glob(xml_pattern, recursive=True))
+            all_xml_files.extend(sorted_xml_files[:1000]) # train
+            # all_xml_files.extend(sorted_xml_files[1000:1100]) # test
+    # Apply subset selection
     if end_idx == -1:
         end_idx = len(all_xml_files)
-        
         
     subset_files = all_xml_files[start_idx:end_idx]
   
@@ -281,12 +274,10 @@ def _worker_preload_object_model(model_path: str, config: PlannerConfig) -> Opti
         if config.algorithm_params and 'ml_device' in config.algorithm_params:
             device = config.algorithm_params['ml_device']
         
-        print(f"[Worker] Loading ObjectInferenceModel from {model_path}")
         object_model = ObjectInferenceModel(
             model_path=model_path,
             device=device
         )
-        print(f"[Worker] ✅ Object model loaded successfully")
         return object_model
         
     except Exception as e:
@@ -309,12 +300,10 @@ def _worker_preload_goal_model(model_path: str, config: PlannerConfig) -> Option
         if config.algorithm_params and 'ml_device' in config.algorithm_params:
             device = config.algorithm_params['ml_device']
         
-        print(f"[Worker] Loading GoalInferenceModel from {model_path}")
         goal_model = GoalInferenceModel(
             model_path=model_path,
             device=device
         )
-        print(f"[Worker] ✅ Goal model loaded successfully")
         return goal_model
         
     except Exception as e:
@@ -646,28 +635,11 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
         # Save additional smoothed file if smoothing was enabled and successful
         if task.smooth_solutions:
             smoothed_episodes = []
-            print(f"[DEBUG] Checking {len(episode_results)} episodes for smoothing...")
             for ep in episode_results:
-                print(f"[DEBUG] Episode {ep.episode_id}: solution_found={ep.solution_found}, has_action_seq={ep.action_sequence is not None}")
-                if ep.action_sequence:
-                    print(f"[DEBUG]   Action sequence length: {len(ep.action_sequence)}")
-                
-                has_original = hasattr(ep, 'original_action_sequence') and ep.original_action_sequence is not None
-                print(f"[DEBUG]   Has original_action_sequence: {has_original}")
-                if has_original:
-                    print(f"[DEBUG]   Original sequence length: {len(ep.original_action_sequence)}")
-                    print(f"[DEBUG]   Sequences equal? {ep.action_sequence == ep.original_action_sequence}")
-                
-                if hasattr(ep, 'smoothing_stats') and ep.smoothing_stats:
-                    print(f"[DEBUG]   Smoothing stats: {ep.smoothing_stats}")
-                    
                 # Include ALL episodes where smoothing was attempted (has smoothing_stats)
-                if (ep.solution_found and ep.action_sequence and 
+                if (ep.solution_found and ep.action_sequence and
                     hasattr(ep, 'smoothing_stats') and ep.smoothing_stats is not None):
                     # This episode had smoothing attempted - create smoothed version
-                    was_improved = (hasattr(ep, 'original_action_sequence') and ep.original_action_sequence is not None and
-                                  len(ep.action_sequence) < len(ep.original_action_sequence))
-                    print(f"[DEBUG] ✅ Episode {ep.episode_id} had smoothing attempted (improved: {was_improved})")
                     smoothed_ep = type(ep)(
                         episode_id=ep.episode_id,
                         algorithm=ep.algorithm,
@@ -695,10 +667,8 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                         smoothing_stats=ep.smoothing_stats
                     )
                     smoothed_episodes.append(smoothed_ep)
-            
-            print(f"[DEBUG] Found {len(smoothed_episodes)} episodes that were successfully smoothed")
+
             if smoothed_episodes:
-                print(f"[DEBUG] Saving smoothed results file...")
                 # Create smoothed result data
                 smoothed_result_data = {
                     "task_id": task.task_id,
@@ -735,7 +705,6 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
         
         # Log failure classification for worker-level failures
         failure_info = create_failure_info(str(e), e)
-        print(f"[Worker] Failure classified as: {failure_info['failure_description']} (code: {failure_info['failure_code']})")
     
     return result
 
@@ -826,10 +795,8 @@ class ModularParallelCollectionManager:
             tasks.append(task)
         
         # Pass ML model paths to workers (models will be preloaded within each worker)
-        if (self.config.object_selection_strategy == "ml" or 
+        if (self.config.object_selection_strategy == "ml" or
             self.config.goal_selection_strategy == "ml"):
-            print("📋 Preparing ML model paths for worker-side preloading...")
-            
             # Inject model paths into tasks for worker-side loading
             for task in tasks:
                 if self.config.object_selection_strategy == "ml":
