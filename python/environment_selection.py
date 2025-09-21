@@ -12,6 +12,7 @@ import time
 import signal
 import sys
 import pickle
+import argparse
 
 def visualize_environment(xml_file_path, resolution=800, wall_color="white"):
     """
@@ -254,10 +255,9 @@ def get_envs_from_pickle(pickle_file_path: str) -> list[str]:
 # Web interface
 class EnvironmentHandler(SimpleHTTPRequestHandler):
 
-    def __init__(self, *args, input_pickle=None, accept_pickle=None, reject_pickle=None, **kwargs):
-        self.input_pickle = input_pickle or "xml_file_locations.pkl"
-        self.accept_pickle = accept_pickle or "accepted_environments.pkl" 
-        self.reject_pickle = reject_pickle or "rejected_environments.pkl"
+    def __init__(self, *args, input_pickle=None, accept_pickle=None, **kwargs):
+        self.input_pickle = input_pickle
+        self.accept_pickle = accept_pickle
         super().__init__(*args, **kwargs)
 
     def do_GET(self):
@@ -394,30 +394,26 @@ class EnvironmentHandler(SimpleHTTPRequestHandler):
             filename = data['filename']
             choice = data['choice']
             
-            # Create directories
-            os.makedirs("XmlEnvironmentsApproved", exist_ok=True)
-            os.makedirs("XmlEnvironmentsRejected", exist_ok=True)
-            
-            # Save file path to appropriate pickle file
             basename = os.path.basename(filename)
+            
+            # Only handle accept - ignore reject completely
             if choice == 'accept':
-                pickle_file = self.accept_pickle
                 print(f"✓ Accepted: {basename}")
+                
+                # Load existing accepted environments or create new list
+                try:
+                    with open(self.accept_pickle, 'rb') as f:
+                        file_list = pickle.load(f)
+                except (FileNotFoundError, EOFError):
+                    file_list = []
+
+                # Add current file and save back
+                file_list.append(filename)
+                with open(self.accept_pickle, 'wb') as f:
+                    pickle.dump(file_list, f)
             else:
-                pickle_file = self.reject_pickle
+                # For reject, just print and do nothing else
                 print(f"✗ Rejected: {basename}")
-
-            # Load existing list or create new one
-            try:
-                with open(pickle_file, 'rb') as f:
-                    file_list = pickle.load(f)
-            except (FileNotFoundError, EOFError):
-                file_list = []
-
-            # Add current file and save back
-            file_list.append(filename)
-            with open(pickle_file, 'wb') as f:
-                pickle.dump(file_list, f)
             
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
@@ -433,9 +429,7 @@ class EnvironmentHandler(SimpleHTTPRequestHandler):
             # Shutdown the server after a brief delay
             threading.Timer(1.0, lambda: os.kill(os.getpid(), signal.SIGTERM)).start()
 
-def start_web_interface(input_pickle="xml_file_locations.pkl", 
-                       accept_pickle="accepted_environments.pkl",
-                       reject_pickle="rejected_environments.pkl"):
+def start_web_interface(input_pickle: str, accept_pickle: str):
     """Start the web interface"""
     def signal_handler(sig, frame):
         print('\nShutting down...')
@@ -451,8 +445,7 @@ def start_web_interface(input_pickle="xml_file_locations.pkl",
     try:
         handler = lambda *args, **kwargs: EnvironmentHandler(*args, 
                                                      input_pickle=input_pickle,
-                                                     accept_pickle=accept_pickle, 
-                                                     reject_pickle=reject_pickle,
+                                                     accept_pickle=accept_pickle,
                                                      **kwargs)
         server = HTTPServer(('localhost', 8000), handler)
         server.serve_forever()
@@ -461,19 +454,19 @@ def start_web_interface(input_pickle="xml_file_locations.pkl",
         sys.exit(0)
 
 if __name__ == "__main__":
-    import sys
+
+    # input command from namo_cpp folder should look like: "python python/environment_selection.py train_envs_new_path/envs_names_hard.pkl"
+    parser = argparse.ArgumentParser(description='Environment selection web interface')
+    parser.add_argument('input_pickle', help='Path to input pickle file (e.g., train_envs_new_path/envs_names_very_hard.pkl)')
     
-    # Default pickle file paths
-    input_pickle = "/common/users/tdn39/Robotics/Mujoco/namo_cpp/train_envs_new_path/envs_names_very_hard.pkl"
-    accept_pickle = "accepted_environments.pkl" # change this
-    reject_pickle = "rejected_environments.pkl" # change this
+    args = parser.parse_args()
+
+    # Extract filename from input path and create output path
+    # Will save to the coresponding level of difficulty dir in /common/users/tdn39/Robotics/Mujoco/namo_cpp/train_envs_accepted
+    input_filename = os.path.basename(args.input_pickle)
+    accept_pickle = os.path.join("train_envs_accepted", input_filename)
+
+    # Create output directory if it doesn't exist
+    os.makedirs("train_envs_accepted", exist_ok=True)
     
-    # Parse command line arguments (optional)
-    if len(sys.argv) >= 2:
-        input_pickle = sys.argv[1]
-    if len(sys.argv) >= 3:
-        accept_pickle = sys.argv[2]
-    if len(sys.argv) >= 4:
-        reject_pickle = sys.argv[3]
-        
-    start_web_interface(input_pickle, accept_pickle, reject_pickle)
+    start_web_interface(args.input_pickle, accept_pickle)
