@@ -181,14 +181,71 @@ bool GreedyPlanner::default_goal_check(const SE2State& state, const SE2State& go
     // Much tighter thresholds to match old implementation behavior
     const double position_threshold = 0.005;  // 5mm (was 5cm)
     const double angle_threshold = 0.05;      // ~3 degrees (was ~6 degrees)
-    
+
     double dx = state.x - goal.x;
     double dy = state.y - goal.y;
     double pos_dist = std::sqrt(dx*dx + dy*dy);
-    
+
     double angle_diff = std::abs(normalize_angle(state.theta - goal.theta));
-    
+
     return pos_dist < position_threshold && angle_diff < angle_threshold;
+}
+
+double GreedyPlanner::symmetric_distance(const SE2State& state, const SE2State& goal, int symmetry_rotations) {
+    // Position distance (unchanged)
+    double dx = state.x - goal.x;
+    double dy = state.y - goal.y;
+    double pos_dist = std::sqrt(dx*dx + dy*dy);
+
+    // Symmetry-aware angular distance
+    double angle_diff = normalize_angle(state.theta - goal.theta);
+    double ang_dist;
+
+    if (symmetry_rotations == 4) {
+        // Square: 4-way symmetry (π/2 intervals)
+        // Find minimum angular distance considering all equivalent orientations
+        double symmetric_angle = std::fmod(std::abs(angle_diff), M_PI/2.0);
+        ang_dist = std::min(symmetric_angle, M_PI/2.0 - symmetric_angle);
+    } else if (symmetry_rotations == 2) {
+        // Rectangle: 2-way symmetry (π intervals)
+        double symmetric_angle = std::fmod(std::abs(angle_diff), M_PI);
+        ang_dist = std::min(symmetric_angle, M_PI - symmetric_angle);
+    } else {
+        // No symmetry: use original calculation
+        ang_dist = std::abs(angle_diff);
+    }
+
+    // Weight rotation in the distance calculation (same as original)
+    return pos_dist + 1.0 * ang_dist;
+}
+
+bool GreedyPlanner::symmetric_goal_check(const SE2State& state, const SE2State& goal, int symmetry_rotations) {
+    // Same thresholds as default goal check
+    const double position_threshold = 0.005;  // 5mm
+    const double angle_threshold = 0.05;      // ~3 degrees
+
+    double dx = state.x - goal.x;
+    double dy = state.y - goal.y;
+    double pos_dist = std::sqrt(dx*dx + dy*dy);
+
+    // Symmetry-aware angle check
+    double angle_diff = normalize_angle(state.theta - goal.theta);
+    double min_angle_diff;
+
+    if (symmetry_rotations == 4) {
+        // Square: check against all 4 equivalent orientations
+        double symmetric_angle = std::fmod(std::abs(angle_diff), M_PI/2.0);
+        min_angle_diff = std::min(symmetric_angle, M_PI/2.0 - symmetric_angle);
+    } else if (symmetry_rotations == 2) {
+        // Rectangle: check against both equivalent orientations
+        double symmetric_angle = std::fmod(std::abs(angle_diff), M_PI);
+        min_angle_diff = std::min(symmetric_angle, M_PI - symmetric_angle);
+    } else {
+        // No symmetry: use original calculation
+        min_angle_diff = std::abs(angle_diff);
+    }
+
+    return pos_dist < position_threshold && min_angle_diff < angle_threshold;
 }
 
 double GreedyPlanner::normalize_angle(double angle) {

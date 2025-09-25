@@ -605,35 +605,55 @@ void NAMOPushSkill::clear_robot_goal() {
 
 GreedyPlanner* NAMOPushSkill::get_planner_for_object(const std::string& object_name) const {
     const ObjectInfo* info = env_.get_object_info(object_name);
+    GreedyPlanner* selected_planner = nullptr;
+    int symmetry_rotations = 1;  // Default: no symmetry
+
     if (!info) {
         // std::cout << "Object info not available for " << object_name << ", defaulting to square planner" << std::endl;
-        return planner_square_.get();
-    }
-
-    double x = info->size[0];
-    double y = info->size[1];
-    if (x <= 0.0 || y <= 0.0) {
-        // std::cout << "Invalid dimensions for " << object_name << " [" << x << "x" << y << "], defaulting to square planner" << std::endl;
-        return planner_square_.get();
-    }
-
-    // Use same 5% tolerance as ObjectInfo symmetry detection
-    double ratio = std::max(x, y) / std::min(x, y);
-    // std::cout << "Object " << object_name << " dimensions: [" << x << "x" << y << "], ratio: " << ratio << std::endl;
-    
-    if (ratio < 1.05) {
-        // std::cout << "Ratio < 1.05, selecting square planner" << std::endl;
-        return planner_square_.get();
-    }
-    
-    // Determine wide vs tall based on which dimension is larger
-    if (x > y) {
-        // std::cout << "x > y, selecting wide planner" << std::endl;
-        return planner_wide_.get();
+        selected_planner = planner_square_.get();
+        symmetry_rotations = 4;  // Assume square symmetry for unknown objects
     } else {
-        // std::cout << "y > x, selecting tall planner" << std::endl;
-        return planner_tall_.get();
+        double x = info->size[0];
+        double y = info->size[1];
+
+        if (x <= 0.0 || y <= 0.0) {
+            // std::cout << "Invalid dimensions for " << object_name << " [" << x << "x" << y << "], defaulting to square planner" << std::endl;
+            selected_planner = planner_square_.get();
+            symmetry_rotations = 4;
+        } else {
+            // Use same 5% tolerance as ObjectInfo symmetry detection
+            double ratio = std::max(x, y) / std::min(x, y);
+            // std::cout << "Object " << object_name << " dimensions: [" << x << "x" << y << "], ratio: " << ratio << std::endl;
+
+            if (ratio < 1.05) {
+                // Square object: 4-way rotational symmetry
+                // std::cout << "Ratio < 1.05, selecting square planner with 4-way symmetry" << std::endl;
+                selected_planner = planner_square_.get();
+                symmetry_rotations = 4;
+            } else {
+                // Rectangle object: 2-way rotational symmetry
+                symmetry_rotations = 2;
+
+                if (x > y) {
+                    // std::cout << "x > y, selecting wide planner with 2-way symmetry" << std::endl;
+                    selected_planner = planner_wide_.get();
+                } else {
+                    // std::cout << "y > x, selecting tall planner with 2-way symmetry" << std::endl;
+                    selected_planner = planner_tall_.get();
+                }
+            }
+        }
+
+        // Use the ObjectInfo's computed symmetry if available (should match our calculation)
+        if (info->symmetry_rotations > 0) {
+            symmetry_rotations = info->symmetry_rotations;
+        }
     }
+
+    // Set symmetry information on the selected planner
+    selected_planner->set_object_symmetry(symmetry_rotations);
+
+    return selected_planner;
 }
 
 } // namespace namo
