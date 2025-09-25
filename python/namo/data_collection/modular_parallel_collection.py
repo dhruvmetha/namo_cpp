@@ -122,6 +122,49 @@ def apply_solution_smoothing(episode_result, env, original_action_sequence, orig
     episode_result.smoothing_stats = smooth_result["smoothing_stats"]
 
 
+def apply_action_refinement(episode_result, env, robot_goal, task):
+    """
+    Apply action refinement to replace action targets with actual achieved positions.
+    Only accepts refinements that pass validation (still solve the navigation task).
+
+    Args:
+        episode_result: Episode result with smoothed data
+        env: Environment instance
+        robot_goal: Robot goal position
+        task: Worker task configuration
+    """
+    if not task.refine_actions or not episode_result.action_sequence:
+        # No refinement requested or no actions to refine
+        episode_result.refinement_accepted = False
+        episode_result.refinement_stats = {"attempted": False, "reason": "not_requested"}
+        return
+
+    if not episode_result.post_action_state_observations:
+        # Need post-action states for refinement
+        episode_result.refinement_accepted = False
+        episode_result.refinement_stats = {"attempted": False, "reason": "missing_post_action_states"}
+        return
+
+    from namo.planners.idfs.solution_refiner import SolutionRefiner
+
+    refiner = SolutionRefiner()
+    goal_checker = create_goal_checker(robot_goal)
+
+    # Attempt refinement with validation
+    refinement_result = refiner.refine_with_validation(env, episode_result, goal_checker)
+
+    # Update episode result with refinement data
+    episode_result.refinement_accepted = refinement_result['refinement_accepted']
+    episode_result.refinement_stats = refinement_result['refinement_stats']
+
+    if refinement_result['refinement_accepted']:
+        # Accept refined actions
+        episode_result.refined_action_sequence = refinement_result['refined_action_sequence']
+    else:
+        # Keep refined_action_sequence as None to indicate rejection
+        episode_result.refined_action_sequence = None
+
+
 
 
 def get_available_object_strategies() -> List[str]:
@@ -171,6 +214,10 @@ class ModularCollectionConfig:
     # Solution smoothing
     smooth_solutions: bool = False
     max_smooth_actions: int = 20
+
+    # Action refinement (post-smoothing step)
+    refine_actions: bool = False
+    validate_refinement: bool = True
     ml_goal_model_path: str = None
     ml_samples: int = 32
     ml_device: str = "cuda"
@@ -201,6 +248,9 @@ class ModularWorkerTask:
     # Solution smoothing options
     smooth_solutions: bool = False
     max_smooth_actions: int = 20
+    # Action refinement options (post-smoothing step)
+    refine_actions: bool = False
+    validate_refinement: bool = True
 
 
 @dataclass
@@ -237,7 +287,12 @@ class ModularEpisodeResult:
     # Smoothed trajectory (newly computed for smoothed sequence)
     state_observations: Optional[List[Dict[str, List[float]]]] = None  # Smoothed states before each action
     post_action_state_observations: Optional[List[Dict[str, List[float]]]] = None  # Smoothed states after each action
-    
+
+    # Action refinement results (post-smoothing step)
+    refined_action_sequence: Optional[List[Dict]] = None  # Refined action sequence with actual achieved positions
+    refinement_accepted: Optional[bool] = None  # Whether refinement passed validation
+    refinement_stats: Optional[Dict[str, Any]] = None  # Refinement statistics and metrics
+
     # Static object information (sizes, types) - stored once per environment
     static_object_info: Optional[Dict[str, Dict[str, Any]]] = None
     
@@ -525,6 +580,9 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                             robot_goal, task
                         )
 
+                        # Apply action refinement if enabled (post-smoothing step)
+                        apply_action_refinement(episode_result, env, robot_goal, task)
+
                         episode_results.append(episode_result)
                 else:
                     # Standard behavior for non-optimal planners or single solutions
@@ -569,7 +627,10 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                             planner_result.state_observations, planner_result.post_action_state_observations,
                             robot_goal, task
                         )
-                    
+
+                        # Apply action refinement if enabled (post-smoothing step)
+                        apply_action_refinement(episode_result, env, robot_goal, task)
+
                     if not planner_result.success:
                         episode_result.error_message = planner_result.error_message
                     
@@ -744,7 +805,9 @@ class ModularParallelCollectionManager:
                 ml_goal_model_path=self.config.ml_goal_model_path,
                 filter_minimum_length=self.config.filter_minimum_length,
                 smooth_solutions=self.config.smooth_solutions,
-                max_smooth_actions=self.config.max_smooth_actions
+                max_smooth_actions=self.config.max_smooth_actions,
+                refine_actions=self.config.refine_actions,
+                validate_refinement=self.config.validate_refinement
             )
             tasks.append(task)
         
@@ -1018,6 +1081,10 @@ def main():
                         help="Apply exhaustive smoothing to find minimal subsequences")
     parser.add_argument("--max-smooth-actions", type=int, default=20,
                         help="Maximum solution length to attempt smoothing on (default: 20)")
+    parser.add_argument("--refine-actions", action="store_true",
+                        help="Apply action refinement using actual achieved positions (post-smoothing step)")
+    parser.add_argument("--validate-refinement", action="store_true", default=True,
+                        help="Validate that refined actions still solve the task (default: True)")
     
     args = parser.parse_args()
     
@@ -1090,6 +1157,8 @@ def main():
         epsilon=args.epsilon,
         smooth_solutions=args.smooth_solutions,
         max_smooth_actions=args.max_smooth_actions,
+        refine_actions=args.refine_actions,
+        validate_refinement=args.validate_refinement,
         filter_minimum_length=args.filter_minimum_length,
         planner_config=planner_config
     )
