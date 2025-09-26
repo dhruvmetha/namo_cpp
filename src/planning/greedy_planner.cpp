@@ -298,43 +298,43 @@ std::vector<PlanStep> GreedyPlanner::reconstruct_path(SearchNode* goal_node, con
 }
 
 std::vector<PlanStep> GreedyPlanner::get_fallback_primitive_step(
-    const SE2State& origin, 
-    const SE2State& local_goal, 
+    const SE2State& origin,
+    const SE2State& local_goal,
     const SE2State& start_state,
     const std::vector<int>& allowed_edges) {
-    
+
     // Find the primitive that gets closest to the goal, but only if it makes meaningful progress
     // Added threshold to avoid executing primitives that move object in wrong direction
-    
+
     if (!primitive_loader_.is_loaded()) {
         return {};
     }
-    
+
     // Current distance from origin to goal
     double current_distance = distance_func_(origin, local_goal);
-    
+
     double best_distance = std::numeric_limits<double>::max();
     LoadedPrimitive best_primitive;
     bool found_primitive = false;
-    
+
     // Check all loaded primitives to find the one that gets closest
     const auto& all_primitives = primitive_loader_.get_all_primitives();
     for (size_t i = 0; i < primitive_loader_.size(); i++) {
         const LoadedPrimitive& primitive = all_primitives[i];
-        
+
         // Skip invalid primitives
         if (primitive.push_steps <= 0) continue;
-        
+
         // Skip if this edge is not allowed (respect reachable edges constraint)
         if (!allowed_edges.empty()) {
             bool edge_allowed = std::find(allowed_edges.begin(), allowed_edges.end(), primitive.edge_idx) != allowed_edges.end();
             if (!edge_allowed) continue;
         }
-        
+
         // Apply primitive to origin and see how close we get to goal
         SE2State result_state = apply_primitive(origin, primitive);
         double distance = distance_func_(result_state, local_goal);
-        
+
         // Only consider primitives that actually improve distance to goal
         // This prevents moving objects in wrong direction when no good path exists
         if (distance < current_distance && distance < best_distance) {
@@ -343,20 +343,85 @@ std::vector<PlanStep> GreedyPlanner::get_fallback_primitive_step(
             found_primitive = true;
         }
     }
-    
+
     if (!found_primitive) {
         // std::cout << "No primitive improves distance to goal. Returning empty plan." << std::endl;
         return {};
     }
-    
+
     // Create a single-step plan with the best primitive
     SE2State result_state = apply_primitive(origin, best_primitive);
     SE2State global_pose = transform_to_global_frame(start_state, result_state);
-    
+
     std::vector<PlanStep> fallback_plan;
     fallback_plan.emplace_back(best_primitive.edge_idx, best_primitive.push_steps, global_pose);
-    
+
     return fallback_plan;
+}
+
+void GreedyPlanner::visualize_transformed_primitives(const std::vector<PlanStep>& plan, const SE2State& start_state) {
+    if (!primitive_loader_.is_loaded()) {
+        std::cout << "Primitives not loaded - cannot visualize" << std::endl;
+        return;
+    }
+
+    std::cout << "\n=== GEOMETRIC PRIMITIVE TRANSFORMATIONS ===" << std::endl;
+    std::cout << "Start pose: (" << start_state.x << ", " << start_state.y << ", " << start_state.theta << " rad)" << std::endl;
+
+    SE2State current_pose = start_state;
+
+    for (size_t i = 0; i < plan.size(); i++) {
+        const PlanStep& step = plan[i];
+
+        // Get the raw primitive from database
+        const auto& all_primitives = primitive_loader_.get_all_primitives();
+        LoadedPrimitive raw_primitive;
+        bool found_primitive = false;
+
+        // Find the primitive with matching edge_idx and push_steps
+        for (size_t j = 0; j < primitive_loader_.size(); j++) {
+            const LoadedPrimitive& prim = all_primitives[j];
+            if (prim.edge_idx == step.edge_idx && prim.push_steps == step.push_steps) {
+                raw_primitive = prim;
+                found_primitive = true;
+                break;
+            }
+        }
+
+        if (!found_primitive) {
+            std::cout << "Step " << (i+1) << ": ERROR - primitive not found" << std::endl;
+            continue;
+        }
+
+        // Show raw primitive vector
+        std::cout << "\nStep " << (i+1) << " - Edge " << step.edge_idx << ", Push " << step.push_steps << std::endl;
+        std::cout << "  Raw primitive vector: [" << raw_primitive.delta_x << ", " << raw_primitive.delta_y << ", " << raw_primitive.delta_theta << "]" << std::endl;
+
+        // Show transformation based on current object orientation
+        double cos_theta = std::cos(current_pose.theta);
+        double sin_theta = std::sin(current_pose.theta);
+
+        double transformed_dx = raw_primitive.delta_x * cos_theta - raw_primitive.delta_y * sin_theta;
+        double transformed_dy = raw_primitive.delta_x * sin_theta + raw_primitive.delta_y * cos_theta;
+
+        std::cout << "  Transformed vector (rotated by " << current_pose.theta << " rad): ["
+                  << transformed_dx << ", " << transformed_dy << ", " << raw_primitive.delta_theta << "]" << std::endl;
+
+        // Apply transformation to get new pose
+        SE2State new_pose(
+            current_pose.x + transformed_dx,
+            current_pose.y + transformed_dy,
+            normalize_angle(current_pose.theta + raw_primitive.delta_theta)
+        );
+
+        std::cout << "  Result pose: (" << new_pose.x << ", " << new_pose.y << ", " << new_pose.theta << " rad)" << std::endl;
+        std::cout << "  Displacement from start: [" << (new_pose.x - start_state.x) << ", " << (new_pose.y - start_state.y) << ", " << (new_pose.theta - start_state.theta) << "]" << std::endl;
+
+        current_pose = new_pose;
+    }
+
+    std::cout << "\nFinal cumulative displacement: [" << (current_pose.x - start_state.x) << ", " << (current_pose.y - start_state.y) << ", " << (current_pose.theta - start_state.theta) << "]" << std::endl;
+    std::cout << "=== END VISUALIZATION ===" << std::endl;
 }
 
 } // namespace namo

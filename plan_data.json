@@ -1,0 +1,26 @@
+{
+  "start_state": [0, 0, 0],
+  "goal_state": [0.3, 0.25, 1.2],
+  "selected_primitives": [
+    {
+      "edge_idx": 31,
+      "push_steps": 4,
+      "primitive": [0.592755, 0.540735, 1.06612]
+    },
+    {
+      "edge_idx": 48,
+      "push_steps": 1,
+      "primitive": [-0.305195, -0.0368397, 0.1342]
+    },
+    {
+      "edge_idx": 15,
+      "push_steps": 1,
+      "primitive": [7.52191e-18, 0.272014, 1.08386e-17]
+    }
+  ],
+  "primitive_steps": [
+    [31, 4],
+    [48, 1],
+    [15, 1]
+  ]
+}

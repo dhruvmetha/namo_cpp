@@ -167,6 +167,19 @@ public:
      * @brief Transform coordinates to global frame (public for testing)
      */
     SE2State transform_to_global_frame(const SE2State& reference, const SE2State& local);
+
+    /**
+     * @brief Visualize plan showing geometric transformations of primitives
+     *
+     * Shows how each primitive vector gets transformed based on current object orientation
+     * and how they chain together to form the complete path
+     */
+    void visualize_transformed_primitives(const std::vector<PlanStep>& plan, const SE2State& start_state);
+
+    /**
+     * @brief Get primitive loader for accessing raw primitive data
+     */
+    const PrimitiveLoader& get_primitive_loader() const { return primitive_loader_; }
     
 private:
     
