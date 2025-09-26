@@ -320,7 +320,48 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_link_libraries(generate_motion_primitives_db gomp)
 endif()
 
+# Test executable for planner output with visualization
+add_executable(test_planner_output
+    tests/planning/test_planner_output.cpp
+    ${CORE_SOURCES}
+    ${PLANNING_SOURCES}
+    ${WAVEFRONT_SOURCES}
+    ${PLANNER_SOURCES}
+    ${STRATEGY_SOURCES}
+    ${ENVIRONMENT_SOURCES}
+    ${SKILLS_SOURCES}
+    ${CONFIG_SOURCES}
+)
+
+target_link_libraries(test_planner_output
+    ${MUJOCO_LIB}
+    pthread
+    m  # math library
+    yaml-cpp
+)
+
+target_include_directories(test_planner_output PRIVATE
+    include
+    ${MUJOCO_DIR}/include
+)
+
+if(glfw3_FOUND AND OpenGL_FOUND)
+    target_link_libraries(test_planner_output glfw OpenGL::GL)
+    target_compile_definitions(test_planner_output PRIVATE HAVE_GLFW)
+endif()
+
+if(ZMQ_FOUND)
+    target_link_libraries(test_planner_output ${ZMQ_LIBRARIES})
+    target_include_directories(test_planner_output PRIVATE ${ZMQ_INCLUDE_DIRS})
+    target_compile_definitions(test_planner_output PRIVATE HAVE_ZMQ)
+endif()
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(test_planner_output PRIVATE -fopenmp -ffast-math)
+    target_link_libraries(test_planner_output gomp)
+endif()
+
 # Install targets
-install(TARGETS high_level_planning_demo generate_motion_primitives_db DESTINATION bin)
+install(TARGETS high_level_planning_demo generate_motion_primitives_db test_planner_output DESTINATION bin)
 install(DIRECTORY config/ DESTINATION share/namo_standalone/config)
 install(DIRECTORY data/ DESTINATION share/namo_standalone/data OPTIONAL)

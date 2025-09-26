@@ -7,6 +7,8 @@
 #include "planning/greedy_planner.hpp"
 #include <iostream>
 #include <iomanip>
+#include <fstream>
+#include <algorithm>
 
 using namespace namo;
 
@@ -17,7 +19,7 @@ int main() {
         
         // Initialize planner
         GreedyPlanner planner;
-        if (!planner.initialize("data/motion_primitives.dat")) {
+        if (!planner.initialize("data/motion_primitives_15_square.dat")) {
             std::cerr << "Failed to initialize planner" << std::endl;
             return 1;
         }
@@ -25,10 +27,10 @@ int main() {
         
         // Test cases with different complexities
         std::vector<std::pair<std::string, std::pair<SE2State, SE2State>>> test_cases = {
-            {"Simple move", {SE2State(0.0, 0.0, 0.0), SE2State(0.05, 0.05, 0.1)}},
+            {"Challenging move", {SE2State(0.0, 0.0, 0.0), SE2State(0.30, 0.25, 1.2)}},  // Further + large rotation
             {"Medium move", {SE2State(0.0, 0.0, 0.0), SE2State(0.15, 0.10, 0.3)}},
-            {"Pure rotation", {SE2State(0.0, 0.0, 0.0), SE2State(0.0, 0.0, 0.5)}},
-            {"Complex move", {SE2State(0.0, 0.0, 0.0), SE2State(0.20, 0.15, 0.4)}}
+            {"Pure rotation", {SE2State(0.0, 0.0, 0.0), SE2State(0.0, 0.0, 0.8)}},  // Larger rotation
+            {"Complex move", {SE2State(0.0, 0.0, 0.0), SE2State(0.35, 0.20, 0.9)}}   // Even further + rotation
         };
         
         for (size_t i = 0; i < test_cases.size(); i++) {
@@ -41,10 +43,62 @@ int main() {
             
             // Plan the sequence
             std::vector<PlanStep> plan = planner.plan_push_sequence(start, goal, {}, 2000);
-            
+
             if (plan.empty()) {
                 // std::cout << "  ✗ No plan found" << std::endl;
                 continue;
+            }
+
+            // Save plan data to JSON file for visualization
+            if (i == 0) {
+                std::string filename = "plan_data.json";
+                std::ofstream file(filename);
+
+                if (file.is_open()) {
+                    file << "{" << std::endl;
+                    file << "  \"start_state\": [" << start.x << ", " << start.y << ", " << start.theta << "]," << std::endl;
+                    file << "  \"goal_state\": [" << goal.x << ", " << goal.y << ", " << goal.theta << "]," << std::endl;
+                    file << "  \"selected_primitives\": [" << std::endl;
+
+                    // Just save the primitives that were actually selected in the plan
+                    const auto& all_primitives = planner.get_primitive_loader().get_all_primitives();
+                    for (size_t j = 0; j < plan.size(); j++) {
+                        const PlanStep& step = plan[j];
+
+                        // Find the exact primitive that was used
+                        for (size_t k = 0; k < planner.get_primitive_loader().size(); k++) {
+                            const LoadedPrimitive& prim = all_primitives[k];
+                            if (prim.edge_idx == step.edge_idx && prim.push_steps == step.push_steps) {
+                                file << "    {" << std::endl;
+                                file << "      \"edge_idx\": " << step.edge_idx << "," << std::endl;
+                                file << "      \"push_steps\": " << step.push_steps << "," << std::endl;
+                                file << "      \"primitive\": [" << prim.delta_x << ", " << prim.delta_y << ", " << prim.delta_theta << "]" << std::endl;
+                                file << "    }";
+                                if (j < plan.size() - 1) file << ",";
+                                file << std::endl;
+                                break;
+                            }
+                        }
+                    }
+
+                    file << "  ]," << std::endl;
+                    file << "  \"primitive_steps\": [" << std::endl;
+                    for (size_t j = 0; j < plan.size(); j++) {
+                        const PlanStep& step = plan[j];
+                        file << "    [" << step.edge_idx << ", " << step.push_steps << "]";
+                        if (j < plan.size() - 1) file << ",";
+                        file << std::endl;
+                    }
+                    file << "  ]" << std::endl;
+                    file << "}" << std::endl;
+
+                    file.close();
+                    std::cout << "Plan data saved to: " << filename << std::endl;
+                } else {
+                    std::cout << "Error: Could not open " << filename << " for writing" << std::endl;
+                }
+
+                planner.visualize_transformed_primitives(plan, start);
             }
             
             // std::cout << "  ✓ Plan found with " << plan.size() << " steps:" << std::endl;

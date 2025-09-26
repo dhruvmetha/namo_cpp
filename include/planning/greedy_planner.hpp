@@ -74,6 +74,9 @@ private:
     // Distance and goal check functions
     std::function<double(const SE2State&, const SE2State&)> distance_func_;
     std::function<bool(const SE2State&, const SE2State&)> goal_check_func_;
+
+    // Object symmetry information
+    int object_symmetry_rotations_ = 1;  // Default: no symmetry
     
 public:
     GreedyPlanner();
@@ -111,11 +114,27 @@ public:
     
     /**
      * @brief Set goal check function
-     * 
+     *
      * @param func Function that checks if a state is close enough to goal
      */
     void set_goal_check_function(std::function<bool(const SE2State&, const SE2State&)> func) {
         goal_check_func_ = func;
+    }
+
+    /**
+     * @brief Set object symmetry information for symmetry-aware planning
+     *
+     * @param symmetry_rotations Number of equivalent rotational states (2 for rectangles, 4 for squares)
+     */
+    void set_object_symmetry(int symmetry_rotations) {
+        object_symmetry_rotations_ = symmetry_rotations;
+        // Update distance and goal functions to be symmetry-aware
+        distance_func_ = [this](const SE2State& state, const SE2State& goal) {
+            return symmetric_distance(state, goal, object_symmetry_rotations_);
+        };
+        goal_check_func_ = [this](const SE2State& state, const SE2State& goal) {
+            return symmetric_goal_check(state, goal, object_symmetry_rotations_);
+        };
     }
     
     /**
@@ -148,6 +167,19 @@ public:
      * @brief Transform coordinates to global frame (public for testing)
      */
     SE2State transform_to_global_frame(const SE2State& reference, const SE2State& local);
+
+    /**
+     * @brief Visualize plan showing geometric transformations of primitives
+     *
+     * Shows how each primitive vector gets transformed based on current object orientation
+     * and how they chain together to form the complete path
+     */
+    void visualize_transformed_primitives(const std::vector<PlanStep>& plan, const SE2State& start_state);
+
+    /**
+     * @brief Get primitive loader for accessing raw primitive data
+     */
+    const PrimitiveLoader& get_primitive_loader() const { return primitive_loader_; }
     
 private:
     
@@ -166,6 +198,16 @@ private:
      * @brief Default goal check function - within distance and angle thresholds
      */
     static bool default_goal_check(const SE2State& state, const SE2State& goal);
+
+    /**
+     * @brief Symmetry-aware distance function
+     */
+    static double symmetric_distance(const SE2State& state, const SE2State& goal, int symmetry_rotations);
+
+    /**
+     * @brief Symmetry-aware goal check function
+     */
+    static bool symmetric_goal_check(const SE2State& state, const SE2State& goal, int symmetry_rotations);
     
     /**
      * @brief Normalize angle to [-π, π]

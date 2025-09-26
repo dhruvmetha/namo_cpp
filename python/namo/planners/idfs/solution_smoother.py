@@ -8,7 +8,7 @@ always be preserved as it's what achieved the goal.
 
 from itertools import combinations
 import logging
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Callable, Tuple
 import time
 
 logger = logging.getLogger(__name__)
@@ -107,7 +107,10 @@ class SolutionSmoother:
         try:
             # Start with shortest possible subsequence: just the final action
             subsequences_tested += 1
-            if self.validate_subsequence(env, [final_action], goal_checker):
+            goal_achieved, states, post_states = self.validate_subsequence_with_states(
+                env, [final_action], goal_checker, collect_states=True
+            )
+            if goal_achieved:
                 smoothing_time = time.time() - start_time
 
                 # Update global stats
@@ -118,10 +121,11 @@ class SolutionSmoother:
 
                 reduction_ratio = (len(solution) - 1) / len(solution)
 
-
                 return {
                     'original_solution': solution,
                     'smoothed_solution': [final_action],
+                    'smoothed_state_observations': states,
+                    'smoothed_post_action_state_observations': post_states,
                     'smoothing_stats': {
                         'original_length': len(solution),
                         'smoothed_length': 1,
@@ -145,8 +149,11 @@ class SolutionSmoother:
                     subsequences_tested += 1
 
 
-                    # Test if this subsequence works
-                    if self.validate_subsequence(env, subsequence, goal_checker):
+                    # Test if this subsequence works and collect state observations
+                    goal_achieved, states, post_states = self.validate_subsequence_with_states(
+                        env, subsequence, goal_checker, collect_states=True
+                    )
+                    if goal_achieved:
                         smoothing_time = time.time() - start_time
 
                         # Update global stats
@@ -157,10 +164,11 @@ class SolutionSmoother:
 
                         reduction_ratio = (len(solution) - len(subsequence)) / len(solution)
 
-
                         return {
                             'original_solution': solution,
                             'smoothed_solution': subsequence,
+                            'smoothed_state_observations': states,
+                            'smoothed_post_action_state_observations': post_states,
                             'smoothing_stats': {
                                 'original_length': len(solution),
                                 'smoothed_length': len(subsequence),
@@ -190,52 +198,84 @@ class SolutionSmoother:
             }
         }
     
-    def validate_subsequence(self, env, subsequence: List[Dict[str, Any]], 
+    def validate_subsequence(self, env, subsequence: List[Dict[str, Any]],
                            goal_checker: Callable[[Any], bool]) -> bool:
         """
         Test if a subsequence of actions still achieves the goal.
-        
+
         Args:
             env: The environment instance
             subsequence: List of action dictionaries to test
             goal_checker: Function that returns True if goal is achieved
-            
+
         Returns:
             True if the subsequence achieves the goal, False otherwise
+        """
+        goal_achieved, _, _ = self.validate_subsequence_with_states(env, subsequence, goal_checker, collect_states=False)
+        return goal_achieved
+
+    def validate_subsequence_with_states(self, env, subsequence: List[Dict[str, Any]],
+                                       goal_checker: Callable[[Any], bool],
+                                       collect_states: bool = False) -> Tuple[bool, Optional[List], Optional[List]]:
+        """
+        Test if a subsequence achieves the goal and optionally collect state observations.
+
+        Args:
+            env: The environment instance
+            subsequence: List of action dictionaries to test
+            goal_checker: Function that returns True if goal is achieved
+            collect_states: Whether to collect state observations during execution
+
+        Returns:
+            tuple: (goal_achieved, state_observations, post_action_state_observations)
+                  - goal_achieved: True if the subsequence achieves the goal
+                  - state_observations: List of observations before each action (if collect_states=True)
+                  - post_action_state_observations: List of observations after each action (if collect_states=True)
         """
         try:
             # Reset environment to initial episode state
             env.reset()
-            
-            
-            # Execute subsequence actions  
+
+            state_observations = [] if collect_states else None
+            post_action_state_observations = [] if collect_states else None
+
+            # Execute subsequence actions
             import namo_rl
             for i, action in enumerate(subsequence):
-                
+
                 # Check if object is reachable before attempting action
                 if not env.is_object_reachable(action['object_name']):
-                    return False
-                
+                    return False, None, None
+
+                # Collect pre-action state observation if requested
+                if collect_states:
+                    pre_state = env.get_observation()
+                    state_observations.append(pre_state)
+
                 # Create namo_rl.Action object
                 rl_action = namo_rl.Action()
                 rl_action.object_id = action['object_name']
                 rl_action.x = action['target_pose']['x']
                 rl_action.y = action['target_pose']['y']
                 rl_action.theta = action['target_pose']['theta']
-                
+
                 step_result = env.step(rl_action)
                 if not step_result.done and "error" in step_result.info:
                     # Action failed - subsequence invalid
-                    return False
-            
+                    return False, None, None
+
+                # Collect post-action state observation if requested
+                if collect_states:
+                    post_state = env.get_observation()
+                    post_action_state_observations.append(post_state)
+
             # Check if goal is achieved
             goal_achieved = goal_checker(env)
-            
-            # No need to restore state - each test starts fresh with env.reset()
-            return goal_achieved
-            
+
+            return goal_achieved, state_observations, post_action_state_observations
+
         except Exception as e:
-            return False
+            return False, None, None
     
     def get_stats(self) -> Dict[str, Any]:
         """Get overall smoothing statistics."""
