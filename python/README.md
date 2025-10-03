@@ -127,6 +127,40 @@ env.render()  # Show result of action
 # Will automatically disable on headless systems
 ```
 
+### Wavefront Grid Snapshots & Visualizations
+
+These helper scripts rebuild the wavefront occupancy grids in Python, export them alongside metadata, and generate a composite figure (environment render, inflated grid heatmap, region connectivity graph).
+
+**Prerequisites:**
+- Activate the MuJoCo virtualenv (`workon mujoco`), which already bundles Pillow (PIL).
+- Install the visualization extras (Matplotlib, OpenCV, NetworkX):
+
+```bash
+pip install .[visualization]
+```
+
+**1. Export grids and metadata**
+
+```bash
+python scripts/export_wavefront_snapshot.py \
+    --xml data/benchmark_env.xml \
+    --config config/namo_config.yaml \
+    --output-dir wavefront_snapshots \
+    --snapshot-prefix demo
+```
+
+This produces `.npy` grids, a metadata JSON file, and (optionally) a MuJoCo top-down render in `wavefront_snapshots/`.
+
+**2. Generate the composite visualisation**
+
+```bash
+python scripts/visualize_wavefront_snapshot.py \
+    --input-dir wavefront_snapshots \
+    --prefix demo
+```
+
+The script writes `<prefix>_summary.png` (and opens an interactive window unless `--no-show` is supplied).
+
 ### MCTS Integration
 ```python
 import namo_rl

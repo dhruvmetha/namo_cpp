@@ -53,5 +53,13 @@ PYBIND11_MODULE(namo_rl, m) {
         .def("set_robot_goal", &namo::RLEnvironment::set_robot_goal, py::arg("x"), py::arg("y"), py::arg("theta") = 0.0, "Set robot goal for MCTS planning.")
         .def("is_robot_goal_reachable", &namo::RLEnvironment::is_robot_goal_reachable, "Check if robot goal is reachable from current state.")
         .def("get_robot_goal", &namo::RLEnvironment::get_robot_goal, "Get current robot goal.")
-        .def("get_action_constraints", &namo::RLEnvironment::get_action_constraints, "Get action space constraints for MCTS.");
+        .def("get_action_constraints", &namo::RLEnvironment::get_action_constraints, "Get action space constraints for MCTS.")
+       .def("get_region_connectivity", &namo::RLEnvironment::get_region_connectivity,
+           "Return region adjacency, boundary objects, and region labels from the wavefront grid.")
+       .def("get_xml_path", &namo::RLEnvironment::get_xml_path,
+           py::return_value_policy::reference_internal,
+           "Return the XML scene path used to create this environment.")
+       .def("get_config_path", &namo::RLEnvironment::get_config_path,
+           py::return_value_policy::reference_internal,
+           "Return the NAMO configuration path used to create this environment.");
 }
