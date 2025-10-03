@@ -39,7 +39,7 @@ import namo_rl
 from namo.core import BasePlanner, PlannerConfig, PlannerResult, PlannerFactory
 from namo.core.xml_goal_parser import extract_goal_with_fallback
 
-# Import and register all available planners
+# Import all available planners (self-register on import)
 from namo.planners.idfs.standard_idfs import StandardIterativeDeepeningDFS
 from namo.planners.idfs.tree_idfs import TreeIterativeDeepeningDFS
 from namo.planners.sampling.random_sampling import RandomSamplingPlanner
