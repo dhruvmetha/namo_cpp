@@ -4,11 +4,24 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional, Set, Tuple
 
-from namo.visualization.wavefront_snapshot import WavefrontSnapshot, WavefrontSnapshotExporter
+from namo.visualization.wavefront_snapshot import (
+    RegionGoalBundle,
+    RegionGoalSample,
+    WavefrontSnapshot,
+    WavefrontSnapshotExporter,
+)
 
 RegionAdjacency = Dict[str, Set[str]]
 RegionEdgeObjects = Dict[str, Dict[str, Set[str]]]
 RegionLabels = Dict[int, str]
+RegionGoalSamples = Dict[str, RegionGoalBundle]
+
+
+def clone_goal_bundle(bundle: Any) -> RegionGoalBundle:
+    return RegionGoalBundle(
+        goals=[RegionGoalSample(sample.x, sample.y, sample.theta) for sample in bundle.goals],
+        blocking_objects=set(bundle.blocking_objects),
+    )
 
 
 def snapshot_region_connectivity(
@@ -19,7 +32,14 @@ def snapshot_region_connectivity(
     resolution: Optional[float] = None,
     goal_radius: float = 0.15,
     include_snapshot: bool = False,
-) -> Tuple[RegionAdjacency, RegionEdgeObjects, RegionLabels, Optional[WavefrontSnapshot]]:
+    goals_per_region: int = 0,
+) -> Tuple[
+    RegionAdjacency,
+    RegionEdgeObjects,
+    RegionLabels,
+    RegionGoalSamples,
+    Optional[WavefrontSnapshot],
+]:
     """Compute region connectivity using the snapshot exporter.
 
     Args:
@@ -32,8 +52,8 @@ def snapshot_region_connectivity(
             callers that need raw grids or metadata.
 
     Returns:
-        Tuple containing ``(adjacency, edge_objects, region_labels, snapshot_or_none)``. The
-        snapshot entry is ``None`` unless ``include_snapshot`` is set.
+    Tuple containing ``(adjacency, edge_objects, region_labels, region_goals, snapshot_or_none)``.
+    The snapshot entry is ``None`` unless ``include_snapshot`` is set.
 
     Notes:
         This helper mirrors the data returned by the C++ ``WavefrontGrid`` connectivity logic but
@@ -47,6 +67,7 @@ def snapshot_region_connectivity(
         xml_path=xml_path,
         config_path=config_path,
         goal_radius=goal_radius,
+        goals_per_region=goals_per_region,
     )
 
     adjacency: RegionAdjacency = {
@@ -58,4 +79,15 @@ def snapshot_region_connectivity(
     }
     region_labels: RegionLabels = dict(snapshot.region_labels)
 
-    return adjacency, edge_objects, region_labels, snapshot if include_snapshot else None
+    region_goals: RegionGoalSamples = {
+        region: clone_goal_bundle(bundle)
+        for region, bundle in snapshot.region_goals.items()
+    }
+
+    return (
+        adjacency,
+        edge_objects,
+        region_labels,
+        region_goals,
+        snapshot if include_snapshot else None,
+    )

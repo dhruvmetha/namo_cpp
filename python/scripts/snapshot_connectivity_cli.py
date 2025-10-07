@@ -57,6 +57,26 @@ def _print_region_summary(
         print(f"... ({total - max_regions} additional region(s) omitted; use --max-regions -1 to show all)")
 
 
+def _print_goal_samples(region_goals: Mapping[str, Any]) -> None:
+    if not region_goals:
+        print("[goals] no samples generated.")
+        return
+
+    print("[goals] sampled positions per region:")
+    for region in sorted(region_goals.keys()):
+        bundle = region_goals[region]
+        samples = getattr(bundle, "goals", [])
+        blocking_default: Set[str] = set()
+        blockers = cast(Iterable[str], getattr(bundle, "blocking_objects", blocking_default))
+        formatted_samples = ", ".join(
+            f"({getattr(sample, 'x', 0.0):.3f}, {getattr(sample, 'y', 0.0):.3f})"
+            for sample in samples
+        )
+        if not formatted_samples:
+            formatted_samples = "<none>"
+        print(f"  - {region}: goals -> [{formatted_samples}] blockers -> [{_format_set(blockers)}]")
+
+
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Inspect wavefront region connectivity.")
     parser.add_argument(
@@ -97,6 +117,12 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         action="store_true",
         help="Print blocking objects for each edge as well",
     )
+    parser.add_argument(
+        "--goal-samples",
+        type=int,
+        default=0,
+        help="Number of random goal samples per region to compute (default: %(default)s)",
+    )
     return parser.parse_args(argv)
 
 
@@ -108,13 +134,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     env = env_cls(args.xml, args.config, args.render)
 
     print("[info] exporting region connectivity via snapshot helper")
-    adjacency, edge_objects, region_labels, _ = snapshot_region_connectivity(
+    adjacency, edge_objects, region_labels, region_goals, _ = snapshot_region_connectivity(
         env,
         args.xml,
         args.config,
         resolution=args.resolution,
         goal_radius=args.goal_radius,
         include_snapshot=False,
+        goals_per_region=args.goal_samples,
     )
 
     print(f"[result] regions discovered: {len(region_labels)}")
@@ -124,6 +151,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         max_regions=args.max_regions,
         verbose=args.verbose,
     )
+
+    if args.goal_samples > 0:
+        _print_goal_samples(region_goals)
 
     if hasattr(env, "close"):
         env.close()

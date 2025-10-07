@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <chrono>
 #include <queue>
+#include <random>
 
 namespace namo {
 
@@ -854,6 +855,93 @@ WavefrontGrid::build_region_connectivity_graph(NAMOEnvironment& env) {
     }
     
     return adjacency_list;
+}
+
+std::unordered_map<std::string, RegionGoalBundle> WavefrontGrid::sample_region_goals(int goals_per_region) const {
+    std::unordered_map<std::string, RegionGoalBundle> result;
+    if (goals_per_region <= 0) {
+        return result;
+    }
+
+    if (!regions_valid_) {
+        find_connected_components();
+    }
+
+    if (cached_regions_.empty()) {
+        return result;
+    }
+
+    std::string robot_label = "robot";
+    for (const auto& entry : cached_region_labels_) {
+        if (entry.second.find("robot") != std::string::npos) {
+            robot_label = entry.second;
+            break;
+        }
+    }
+
+    static thread_local std::mt19937 rng(std::random_device{}());
+
+    for (const auto& region_entry : cached_regions_) {
+        const int region_id = region_entry.first;
+        const auto label_it = cached_region_labels_.find(region_id);
+        if (label_it == cached_region_labels_.end()) {
+            continue;
+        }
+
+        const std::string& region_label = label_it->second;
+        std::string key = region_label;
+        if (region_label.find("robot") != std::string::npos) {
+            key = "robot_region";
+        }
+
+        const auto& cell_set = region_entry.second;
+        std::vector<std::pair<int, int>> cells(cell_set.begin(), cell_set.end());
+        if (cells.empty()) {
+            result.emplace(key, RegionGoalBundle{});
+            continue;
+        }
+
+        std::shuffle(cells.begin(), cells.end(), rng);
+        const size_t sample_count = std::min(static_cast<size_t>(goals_per_region), cells.size());
+
+        RegionGoalBundle bundle;
+        bundle.goals.reserve(sample_count);
+
+        for (size_t idx = 0; idx < sample_count; ++idx) {
+            const auto& cell = cells[idx];
+            const double wx = grid_to_world_x(cell.first) + 0.5 * resolution_;
+            const double wy = grid_to_world_y(cell.second) + 0.5 * resolution_;
+            bundle.goals.push_back({wx, wy, 0.0});
+        }
+
+        if (region_label.find("robot") == std::string::npos) {
+            using NeighborMap = std::unordered_map<std::string, std::unordered_set<std::string>>;
+            const NeighborMap* robot_neighbors = [&]() -> const NeighborMap* {
+                auto primary = adjacency_object_map_.find(robot_label);
+                if (primary != adjacency_object_map_.end()) {
+                    return &primary->second;
+                }
+                if (robot_label != "robot") {
+                    auto fallback = adjacency_object_map_.find("robot");
+                    if (fallback != adjacency_object_map_.end()) {
+                        return &fallback->second;
+                    }
+                }
+                return nullptr;
+            }();
+
+            if (robot_neighbors) {
+                auto neighbor_it = robot_neighbors->find(region_label);
+                if (neighbor_it != robot_neighbors->end()) {
+                    bundle.blocking_objects.insert(neighbor_it->second.begin(), neighbor_it->second.end());
+                }
+            }
+        }
+
+        result[key] = std::move(bundle);
+    }
+
+    return result;
 }
 
 } // namespace namo

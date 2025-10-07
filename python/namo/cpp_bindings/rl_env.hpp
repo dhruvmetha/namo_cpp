@@ -3,6 +3,7 @@
 #include "skills/namo_push_skill.hpp"
 #include "environment/namo_environment.hpp"
 #include "config/config_manager.hpp"
+#include "wavefront/wavefront_grid.hpp"
 #include <vector>
 #include <cmath>
 #include <tuple>
@@ -73,8 +74,10 @@ public:
     using RegionAdjacency = std::unordered_map<std::string, std::unordered_set<std::string>>;
     using RegionEdgeObjects = std::unordered_map<std::string, std::unordered_map<std::string, std::unordered_set<std::string>>>;
     using RegionLabels = std::unordered_map<int, std::string>;
+    using RegionGoalSamples = std::unordered_map<std::string, RegionGoalBundle>;
 
     std::tuple<RegionAdjacency, RegionEdgeObjects, RegionLabels> get_region_connectivity() const;
+    RegionGoalSamples sample_region_goals(int goals_per_region) const;
 
     const std::string& get_xml_path() const { return xml_path_; }
     const std::string& get_config_path() const { return config_path_; }

@@ -187,4 +187,33 @@ RLEnvironment::get_region_connectivity() const {
     return {std::move(adjacency), std::move(edge_objects), std::move(region_labels)};
 }
 
+RLEnvironment::RegionGoalSamples RLEnvironment::sample_region_goals(int goals_per_region) const {
+    if (goals_per_region <= 0) {
+        return {};
+    }
+
+    std::vector<double> robot_size = {0.15, 0.15};
+    if (config_) {
+        const auto& cfg_size = config_->planning().robot_size;
+        if (cfg_size.size() >= 2) {
+            robot_size[0] = cfg_size[0];
+            robot_size[1] = cfg_size[1];
+        }
+    }
+
+    WavefrontGrid grid(*env_, robot_size);
+    grid.update_dynamic_grid(*env_);
+
+    struct CoutSilencer {
+        std::streambuf* original_buf;
+        std::ostringstream null_stream;
+
+        CoutSilencer() : original_buf(std::cout.rdbuf(null_stream.rdbuf())) {}
+        ~CoutSilencer() { std::cout.rdbuf(original_buf); }
+    } silencer;
+
+    grid.build_region_connectivity_graph(*env_);
+    return grid.sample_region_goals(goals_per_region);
+}
+
 } // namespace namo

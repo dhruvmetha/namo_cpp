@@ -35,6 +35,28 @@ class MovableObjectRecord:
         }
 
 
+@dataclass
+class RegionGoalSample:
+    x: float
+    y: float
+    theta: float = 0.0
+
+
+@dataclass
+class RegionGoalBundle:
+    goals: List[RegionGoalSample]
+    blocking_objects: Set[str]
+
+    def to_json(self) -> Dict[str, object]:
+        return {
+            "goals": [
+                {"x": sample.x, "y": sample.y, "theta": sample.theta}
+                for sample in self.goals
+            ],
+            "blocking_objects": sorted(self.blocking_objects),
+        }
+
+
 @dataclass(frozen=True)
 class ObjectTemplate:
     """Immutable geometric information for an object."""
@@ -77,6 +99,7 @@ class WavefrontSnapshot:
     xml_path: str
     config_path: str
     robot_half_extent: Tuple[float, float]
+    region_goals: Dict[str, RegionGoalBundle]
     movable_objects: List[MovableObjectRecord]
 
     def metadata(self) -> Dict[str, object]:
@@ -100,6 +123,10 @@ class WavefrontSnapshot:
             },
             "xml_path": self.xml_path,
             "config_path": self.config_path,
+            "region_goals": {
+                region: bundle.to_json()
+                for region, bundle in self.region_goals.items()
+            },
             "movable_objects": [record.to_json() for record in self.movable_objects],
         }
 
@@ -133,6 +160,11 @@ class WavefrontSnapshotExporter:
     # Match the fixed resolution used by the C++ implementation
     DEFAULT_RESOLUTION: float = 0.01
     INFLATION_EPSILON: float = 0.005
+    NEIGHBOR_OFFSETS: Tuple[Tuple[int, int], ...] = (
+        (-1, -1), (-1, 0), (-1, 1),
+        (0, -1),            (0, 1),
+        (1, -1),  (1, 0),   (1, 1),
+    )
 
     def __init__(self, env: Any, resolution: Optional[float] = None) -> None:
         self._env = env
@@ -171,6 +203,8 @@ class WavefrontSnapshotExporter:
         xml_path: str,
         config_path: str,
         goal_radius: float = 0.15,
+        goals_per_region: int = 0,
+        rng: Optional[np.random.Generator] = None,
     ) -> WavefrontSnapshot:
         """Construct grids, regions, and adjacency information."""
 
@@ -201,6 +235,16 @@ class WavefrontSnapshotExporter:
             movable_instances,
         )
 
+        region_goals: Dict[str, RegionGoalBundle] = {}
+        if goals_per_region > 0:
+            region_goals = self._sample_region_goals(
+                region_map,
+                region_labels,
+                edge_objects,
+                goals_per_region,
+                rng,
+            )
+
         movable_metadata: List[MovableObjectRecord] = [
             MovableObjectRecord(
                 name=inst.name,
@@ -228,6 +272,7 @@ class WavefrontSnapshotExporter:
             xml_path=xml_path,
             config_path=config_path,
             robot_half_extent=self.robot_half_extent,
+            region_goals=region_goals,
             movable_objects=movable_metadata,
         )
 
@@ -368,27 +413,35 @@ class WavefrontSnapshotExporter:
     ) -> Tuple[GridArray, Dict[int, str]]:
         region_map = np.zeros_like(dynamic_grid, dtype=np.int32)
         visited = np.zeros_like(dynamic_grid, dtype=bool)
+        width, height = dynamic_grid.shape
+        neighbor_offsets = self.NEIGHBOR_OFFSETS
 
-        def bfs(seed: Tuple[int, int]) -> Set[Tuple[int, int]]:
-            queue: deque[Tuple[int, int]] = deque()
-            cells: Set[Tuple[int, int]] = set()
-            queue.append(seed)
-            visited[seed] = True
-            cells.add(seed)
+        def bfs(seed: Tuple[int, int]) -> List[Tuple[int, int]]:
+            sx, sy = seed
+            if visited[sx, sy] or dynamic_grid[sx, sy] == -2:
+                return []
+
+            queue: deque[Tuple[int, int]] = deque([seed])
+            visited[sx, sy] = True
+            cells: List[Tuple[int, int]] = []
 
             while queue:
                 x, y = queue.popleft()
-                for nx, ny in self._neighbors(x, y):
-                    if not self._valid_coord(nx, ny):
+                cells.append((x, y))
+
+                for dx, dy in neighbor_offsets:
+                    nx = x + dx
+                    ny = y + dy
+                    if nx < 0 or nx >= width or ny < 0 or ny >= height:
                         continue
                     if visited[nx, ny] or dynamic_grid[nx, ny] == -2:
                         continue
                     visited[nx, ny] = True
                     queue.append((nx, ny))
-                    cells.add((nx, ny))
+
             return cells
 
-        def touches_border(cells: Set[Tuple[int, int]]) -> bool:
+        def touches_border(cells: Sequence[Tuple[int, int]]) -> bool:
             if not cells:
                 return False
             max_x = self.grid_width - 1
@@ -415,7 +468,7 @@ class WavefrontSnapshotExporter:
         blocked_goal_cells: Set[Tuple[int, int]] = set()
 
         for gx, gy in goal_cells:
-            if not self._valid_coord(gx, gy):
+            if gx < 0 or gx >= width or gy < 0 or gy >= height:
                 continue
             cell = (gx, gy)
             valid_goal_cells.add(cell)
@@ -427,24 +480,27 @@ class WavefrontSnapshotExporter:
         region_labels: Dict[int, str] = {}
         region_id = 1
 
-        robot_region: Set[Tuple[int, int]] = set()
+        robot_region: List[Tuple[int, int]] = []
+        robot_region_set: Set[Tuple[int, int]] = set()
         if dynamic_grid[robot_cell] != -2:
             robot_region = bfs(robot_cell)
+            robot_region_set = set(robot_region)
             for gx, gy in robot_region:
                 region_map[gx, gy] = region_id
 
-            if valid_goal_cells and any(cell in robot_region for cell in free_goal_cells):
+            if valid_goal_cells and any(cell in robot_region_set for cell in free_goal_cells):
                 region_labels[region_id] = "robot_goal"
             else:
                 region_labels[region_id] = "robot"
             region_id += 1
 
-        goal_region_cells: Set[Tuple[int, int]] = set()
-        if valid_goal_cells and free_goal_cells and not (robot_region & free_goal_cells):
+        goal_region_cells: List[Tuple[int, int]] = []
+        if valid_goal_cells and free_goal_cells and not (robot_region_set & free_goal_cells):
             for cell in free_goal_cells:
                 if visited[cell]:
                     continue
-                goal_region_cells |= bfs(cell)
+                component = bfs(cell)
+                goal_region_cells.extend(component)
 
             if goal_region_cells:
                 for gx, gy in goal_region_cells:
@@ -453,7 +509,6 @@ class WavefrontSnapshotExporter:
                 region_id += 1
 
         # Remaining free space regions (excluding border-touching components)
-        width, height = dynamic_grid.shape
         for gx in range(width):
             for gy in range(height):
                 if visited[gx, gy] or dynamic_grid[gx, gy] == -2:
@@ -484,6 +539,7 @@ class WavefrontSnapshotExporter:
         }
         inflate_x = self.robot_half_extent[0] + self.INFLATION_EPSILON
         inflate_y = self.robot_half_extent[1] + self.INFLATION_EPSILON
+        neighbor_offsets = self.NEIGHBOR_OFFSETS
 
         for instance in movable_objects:
             inflated_extent = (
@@ -511,8 +567,12 @@ class WavefrontSnapshotExporter:
 
             while queue:
                 x, y = queue.popleft()
-                for nx, ny in self._neighbors(x, y):
-                    if not self._valid_coord(nx, ny) or dynamic_grid[nx, ny] == -2:
+                for dx, dy in neighbor_offsets:
+                    nx = x + dx
+                    ny = y + dy
+                    if nx < 0 or nx >= self.grid_width or ny < 0 or ny >= self.grid_height:
+                        continue
+                    if dynamic_grid[nx, ny] == -2:
                         continue
                     neighbor = (nx, ny)
                     if neighbor in visited:
@@ -541,6 +601,58 @@ class WavefrontSnapshotExporter:
                 dynamic_grid[cell] = -2
 
         return adjacency, edge_objects
+
+    def _sample_region_goals(
+        self,
+        region_map: GridArray,
+        region_labels: Dict[int, str],
+        edge_objects: Dict[str, Dict[str, Set[str]]],
+        goals_per_region: int,
+        rng: Optional[np.random.Generator],
+    ) -> Dict[str, RegionGoalBundle]:
+        if goals_per_region <= 0:
+            return {}
+
+        generator = rng or np.random.default_rng()
+        result: Dict[str, RegionGoalBundle] = {}
+        robot_label = next(
+            (label for label in region_labels.values() if "robot" in label),
+            "robot",
+        )
+
+        for region_id, label in region_labels.items():
+            key = "robot_region" if "robot" in label else label
+            cells = np.argwhere(region_map == region_id)
+            if cells.size == 0:
+                result[key] = RegionGoalBundle([], set())
+                continue
+
+            sample_count = min(goals_per_region, cells.shape[0])
+            if sample_count == 0:
+                result[key] = RegionGoalBundle([], set())
+                continue
+
+            choices = generator.choice(cells.shape[0], size=sample_count, replace=False)
+            choices = np.atleast_1d(choices)
+
+            goals: List[RegionGoalSample] = []
+            for idx in choices:
+                gx = int(cells[int(idx)][0])
+                gy = int(cells[int(idx)][1])
+                wx = self._grid_to_world_x(gx) + 0.5 * self.resolution
+                wy = self._grid_to_world_y(gy) + 0.5 * self.resolution
+                goals.append(RegionGoalSample(x=wx, y=wy, theta=0.0))
+
+            if "robot" in label:
+                blocking: Set[str] = set()
+            else:
+                blocking = set(edge_objects.get(robot_label, {}).get(label, set()))
+                if not blocking and robot_label != "robot":
+                    blocking = set(edge_objects.get("robot", {}).get(label, set()))
+
+            result[key] = RegionGoalBundle(goals=goals, blocking_objects=blocking)
+
+        return result
 
     # ------------------------------------------------------------------
     # Object collection
@@ -679,13 +791,6 @@ class WavefrontSnapshotExporter:
 
     def _clamp_grid_y(self, grid_y: int) -> int:
         return max(0, min(self.grid_height - 1, grid_y))
-
-    def _neighbors(self, x: int, y: int) -> Iterable[Tuple[int, int]]:
-        for dx in (-1, 0, 1):
-            for dy in (-1, 0, 1):
-                if dx == 0 and dy == 0:
-                    continue
-                yield x + dx, y + dy
 
     def _neighbors_including_center(self, x: int, y: int) -> Iterable[Tuple[int, int]]:
         for dx in (-1, 0, 1):

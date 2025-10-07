@@ -7,6 +7,17 @@ namespace py = pybind11;
 PYBIND11_MODULE(namo_rl, m) {
     m.doc() = "Python bindings for the NAMO RL environment";
 
+    py::class_<namo::RegionGoalSample>(m, "RegionGoalSample")
+        .def(py::init<>())
+        .def_readwrite("x", &namo::RegionGoalSample::x)
+        .def_readwrite("y", &namo::RegionGoalSample::y)
+        .def_readwrite("theta", &namo::RegionGoalSample::theta);
+
+    py::class_<namo::RegionGoalBundle>(m, "RegionGoalBundle")
+        .def(py::init<>())
+        .def_readwrite("goals", &namo::RegionGoalBundle::goals)
+        .def_readwrite("blocking_objects", &namo::RegionGoalBundle::blocking_objects);
+
     py::class_<namo::RLState>(m, "RLState")
         .def(py::init<>())
         .def_readwrite("qpos", &namo::RLState::qpos)
@@ -56,6 +67,9 @@ PYBIND11_MODULE(namo_rl, m) {
         .def("get_action_constraints", &namo::RLEnvironment::get_action_constraints, "Get action space constraints for MCTS.")
        .def("get_region_connectivity", &namo::RLEnvironment::get_region_connectivity,
            "Return region adjacency, boundary objects, and region labels from the wavefront grid.")
+       .def("sample_region_goals", &namo::RLEnvironment::sample_region_goals,
+            py::arg("goals_per_region"),
+            "Sample random goal poses for each region, including blocking objects shared with the robot region.")
        .def("get_xml_path", &namo::RLEnvironment::get_xml_path,
            py::return_value_policy::reference_internal,
            "Return the XML scene path used to create this environment.")

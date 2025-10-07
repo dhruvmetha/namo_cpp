@@ -21,6 +21,17 @@ struct CoordinateHash {
     }
 };
 
+struct RegionGoalSample {
+    double x;
+    double y;
+    double theta;
+};
+
+struct RegionGoalBundle {
+    std::vector<RegionGoalSample> goals;
+    std::unordered_set<std::string> blocking_objects;
+};
+
 /**
  * @brief Grid discretization utility for spatial planning
  * 
@@ -168,6 +179,8 @@ public:
 
     const std::unordered_map<std::string, std::unordered_map<std::string, std::unordered_set<std::string>>>&
     get_region_edge_objects() const { return adjacency_object_map_; }
+
+    std::unordered_map<std::string, RegionGoalBundle> sample_region_goals(int goals_per_region) const;
 
 private:
     // Grid parameters

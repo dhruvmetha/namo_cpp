@@ -10,7 +10,11 @@ except ImportError:  # pragma: no cover
 from . import idfs
 from . import mcts
 from . import sampling
-from .connectivity_snapshot import snapshot_region_connectivity
+from .connectivity_snapshot import (
+	RegionGoalSamples,
+	snapshot_region_connectivity,
+	clone_goal_bundle,
+)
 
 
 def get_region_connectivity(
@@ -56,7 +60,7 @@ def get_region_connectivity(
 	if xml_value and config_value:
 		xml_str = str(xml_value)
 		config_str = str(config_value)
-		adjacency, edge_objects, region_labels, _ = snapshot_region_connectivity(
+		adjacency, edge_objects, region_labels, _, _ = snapshot_region_connectivity(
 			env,
 			xml_str,
 			config_str,
@@ -73,10 +77,46 @@ def get_region_connectivity(
 	return adjacency_py, edge_objects_py, dict(region_labels)
 
 
+def get_region_goal_samples(env: Any, goals_per_region: int) -> RegionGoalSamples:
+	"""Sample goal poses for each region, including blocking objects to clear."""
+
+	if goals_per_region <= 0:
+		return {}
+
+	if namo_rl is None:  # pragma: no cover - defensive fallback
+		raise RuntimeError("namo_rl bindings are not available on the PYTHONPATH")
+
+	xml_path = getattr(env, "get_xml_path", None)
+	config_path = getattr(env, "get_config_path", None)
+	try:
+		xml_value = xml_path() if callable(xml_path) else None
+		config_value = config_path() if callable(config_path) else None
+	except Exception:  # pragma: no cover - defensive
+		xml_value = None
+		config_value = None
+
+	if xml_value and config_value:
+		xml_str = str(xml_value)
+		config_str = str(config_value)
+		_, _, _, region_goals, _ = snapshot_region_connectivity(
+			env,
+			xml_str,
+			config_str,
+			include_snapshot=False,
+			goals_per_region=goals_per_region,
+		)
+		return {region: clone_goal_bundle(bundle) for region, bundle in region_goals.items()}
+
+	region_goals_cpp = env.sample_region_goals(goals_per_region)
+	return {region: clone_goal_bundle(bundle) for region, bundle in region_goals_cpp.items()}
+
+
 __all__ = [
 	"idfs",
 	"mcts",
 	"sampling",
 	"get_region_connectivity",
+	"get_region_goal_samples",
 	"snapshot_region_connectivity",
+	"clone_goal_bundle",
 ]
