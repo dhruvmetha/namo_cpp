@@ -102,7 +102,12 @@ private:
     double force_scaling_;
     int points_per_edge_;
     std::array<double, 3> robot_size_;
-    
+    bool check_object_collision_ = true;
+
+    // Failure tracking
+    std::string last_failure_reason_;
+    std::string last_collision_object_;
+
 public:
     /**
      * @brief Constructor
@@ -203,7 +208,22 @@ public:
      * @brief Get statistics about memory usage
      */
     void get_memory_stats(size_t& primitives_used, size_t& states_used);
-    
+
+    /**
+     * @brief Get last failure reason from controller
+     */
+    const std::string& get_last_failure_reason() const { return last_failure_reason_; }
+
+    /**
+     * @brief Get object that caused collision (if any)
+     */
+    const std::string& get_last_collision_object() const { return last_collision_object_; }
+
+    /**
+     * @brief Set collision checking mode
+     */
+    void set_collision_checking(bool enabled) { check_object_collision_ = enabled; }
+
 private:
     /**
      * @brief Generate edge points around a rectangular object

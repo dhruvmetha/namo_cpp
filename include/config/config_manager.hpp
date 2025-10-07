@@ -63,6 +63,7 @@ public:
         double goal_tolerance = 0.1;             // meters
         double stuck_threshold = 0.01;           // meters - minimum movement to avoid stuck detection
         int max_stuck_iterations = 3;
+        bool check_object_collision = true;      // Check pushed object collisions during execution
         
         // Object interaction
         double object_clearance = 0.1;           // meters around objects for edge point sampling

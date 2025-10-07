@@ -93,7 +93,8 @@ void NAMOPushSkill::initialize_skill() {
             config_->skill().max_push_steps,
             config_->skill().control_steps_per_push,
             config_->skill().force_scaling,
-            config_->skill().points_per_face
+            config_->skill().points_per_face,
+            config_->skill().check_object_collision
         );
     } else {
         // Use legacy hardcoded values
@@ -325,6 +326,7 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
             // std::cout << "No reachable edges for object " << object_name << " after filtering stuck edges - stopping MPC" << std::endl;
             // executor_->save_debug_wavefront(mpc_iter, "mpc_wavefront_no_reachable_edges_after_filter");
             result.failure_reason = "No reachable edges after filtering stuck edges at iteration " + std::to_string(mpc_iter);
+            result.failure_type = FailureType::NO_REACHABLE_EDGES;
             result.outputs["steps_executed"] = mpc_iter;
             result.outputs["final_pose"] = current_state;
             result.outputs["object_name"] = object_name;
@@ -359,6 +361,7 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         if (plan.empty()) {
             // std::cout << "No plan found from current state" << std::endl;
             result.failure_reason = "No plan found at iteration " + std::to_string(mpc_iter);
+            result.failure_type = FailureType::NO_PLAN_FOUND;
             result.outputs["steps_executed"] = mpc_iter;
             result.outputs["final_pose"] = current_state;
             result.outputs["object_name"] = object_name;
@@ -379,6 +382,7 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         auto step_result = executor_->execute_plan(object_name, single_step);
 
         if (!step_result.success) {
+            // Blacklist this edge and continue trying other edges
             stuck_edges.insert(previous_edge_idx);
         }
         previous_state = current_state;
@@ -388,6 +392,7 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
     auto final_pose = get_object_current_pose(object_name);
     // std::cout << "MPC reached iteration limit without reaching goal" << std::endl;
     result.failure_reason = "MPC reached iteration limit (" + std::to_string(max_mpc_iterations) + ") without reaching goal";
+    result.failure_type = FailureType::ITERATION_LIMIT_REACHED;
     result.outputs["steps_executed"] = max_mpc_iterations;
     result.outputs["final_pose"] = final_pose ? *final_pose : SE2State();
     result.outputs["object_name"] = object_name;

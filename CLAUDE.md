@@ -1,217 +1,205 @@
-# CLAUDE.md - NAMO Standalone Project
+# CLAUDE.md - NAMO Project Guide
 
-This file provides guidance to Claude Code (claude.ai/code) when working with the NAMO (Navigation Among Movable Obstacles) standalone codebase.
+Context for Claude Code when working with NAMO (Navigation Among Movable Obstacles) codebase.
 
-## Project Overview
+## Core Architecture
 
-This is a high-performance standalone implementation of NAMO planning, completely disconnected from the PRX library. The system focuses on wavefront planning with zero-allocation runtime performance for robotic navigation among movable rectangular objects.
+### C++ Backend (High-Performance Physics & Planning)
+- **WavefrontPlanner** ([wavefront_planner.hpp:1](include/wavefront/wavefront_planner.hpp#L1)): BFS-based reachability computation, rebuilds from scratch each update
+- **NAMOPushSkill** ([namo_push_skill.hpp:1](include/skills/namo_push_skill.hpp#L1)): Push skill with shape-based planner selection (square/wide/tall)
+- **RLEnvironment** ([rl_env.cpp:1](python/namo/cpp_bindings/rl_env.cpp#L1)): Python bindings exposing C++ environment to planners
 
-## Key Features
+### Python Planning Layer (Search Algorithms)
+- **StandardIterativeDeepeningDFS** ([standard_idfs.py:1](python/namo/planners/idfs/standard_idfs.py#L1)): Restart-based IDFS with pluggable object/goal strategies
+- **ReachabilityExpandingIDFS** ([reachability_expanding_idfs.py:1](python/namo/planners/idfs/reachability_expanding_idfs.py#L1)): Succeeds when new objects become reachable (exploration-focused)
+- **ModularParallelCollection** ([modular_parallel_collection.py:1](python/namo/data_collection/modular_parallel_collection.py#L1)): Multi-worker data collection with smoothing/refinement
+- **VisualTestSingle** ([visual_test_single.py:1](python/namo/visualization/visual_test_single.py#L1)): Single-run planner testing with visualization
 
-- **Wavefront Planning**: Fast BFS-based reachability computation from robot position
-- **Zero-Allocation Runtime**: Pre-allocated memory pools and fixed-size containers
-- **MuJoCo Integration**: Direct MuJoCo API without abstraction layers
-- **Region-Based Planning**: Multi-step global optimization with spatial reasoning
-- **Skill System**: Universal interface for high-level planners
+## Key Design Patterns
 
-## Current Status
+### Two-Tier Success Conditions
+- **Standard**: Robot goal reachable (WavefrontPlanner checks via BFS)
+- **Reachability-Expanding**: Robot goal reachable OR new objects reachable (line 229 in [reachability_expanding_idfs.py:229](python/namo/planners/idfs/reachability_expanding_idfs.py#L229))
 
-### Completed Components
-- ✅ Core infrastructure (MuJoCo wrapper, parameter loader, memory manager)
-- ✅ Wavefront planner with full recomputation approach
-- ✅ Motion primitive system with universal displacement vectors
-- ✅ MPC executor with two-stage planning architecture
-- ✅ **NAMO Skill System**: Complete skill-based interface for high-level planners
-- ✅ **Region-Based High-Level Planner**: Sophisticated spatial reasoning with global optimization
-- ✅ Comprehensive testing suite (15+ test executables)
+### Robot Goal Management
+- Set via `skill.set_robot_goal(x, y, theta)` (line 92 in [namo_push_skill.hpp:92](include/skills/namo_push_skill.hpp#L92))
+- Checked via `skill.is_robot_goal_reachable()` (line 93 in [namo_push_skill.hpp:93](include/skills/namo_push_skill.hpp#L93))
+- Leverages cached wavefront from last skill execution
 
-### Pending Tasks (High Priority)
-- 🔧 **CRITICAL BUG**: Parameter conversion error in main.cpp:50 - `has_key` method incorrectly returns true for non-existent keys, causing boolean conversion to fail with "bad conversion" error
-- 📁 Create minimal test scene XML file (data/test_scene.xml)
-- 🧪 Test basic functionality with test scene
+### Planner-Skill Integration
+```python
+# Python planner → C++ skill execution
+env.set_robot_goal(x, y, theta)  # Set target
+result = skill.execute(params)    # Push object
+reached = env.is_robot_goal_reachable()  # Check success
+```
 
-### Pending Tasks (Medium Priority)
-- 📊 Implement data collection and ZMQ communication features
-- 🧠 Add ML integration for object selection strategies
-- 📈 Performance benchmarking against legacy PRX system
+### Shape-Based Planner Selection
+NAMOPushSkill uses object size ratio (5% tolerance) to select specialized planners:
+- `x/y < 1.05` → square planner
+- `x > y` → wide planner
+- `y > x` → tall planner
+(lines 55-63 in [namo_push_skill.hpp:55-63](include/skills/namo_push_skill.hpp#L55-63))
 
-### Pending Tasks (Low Priority)
-- ⚡ Performance optimization and memory pool tuning
+## Common Workflows
 
-## Key Commands
-
-### Build System
+### Running Data Collection
 ```bash
-# Configure build (auto-detects MuJoCo)
+python python/namo/data_collection/modular_parallel_collection.py \
+  --algorithm reachability_expanding_idfs \
+  --output-dir ./data --start-idx 0 --end-idx 100
+```
+
+### Visual Testing
+```bash
+python python/namo/visualization/visual_test_single.py \
+  --xml-file path/to/env.xml \
+  --algorithm standard_idfs \
+  --visualize-search --show-solution auto
+```
+
+### Build C++ Components
+```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
-
-# Build project
 cmake --build build --parallel 8
-
-# Run basic test
-./build/namo_standalone config/simple_test.yaml
 ```
 
-### Environment Setup
-```bash
-# MuJoCo path (auto-detected)
-export MJ_PATH=/path/to/mujoco
+## Critical Implementation Details
 
-# Required packages (no sudo needed)
-# - cmake, build-essential, libyaml-cpp-dev, libglfw3-dev, libgl1-mesa-dev
-```
+### Wavefront Updates
+- Full grid rebuild on each `update_wavefront()` call (line 39 in [wavefront_planner.hpp:39](include/wavefront/wavefront_planner.hpp#L39))
+- BFS queue pre-allocated: 4M elements for 1410x2210 grids (line 142 in [wavefront_planner.hpp:142](include/wavefront/wavefront_planner.hpp#L142))
+- 8-connected grid with obstacle inflation
 
-## Architecture Overview
+### Terminal State Checks
+- Standard IDFS: `env.is_robot_goal_reachable()` (line 417 in [standard_idfs.py:417](python/namo/planners/idfs/standard_idfs.py#L417))
+- Reachability-expanding: Two conditions checked (lines 218-239 in [reachability_expanding_idfs.py:218-239](python/namo/planners/idfs/reachability_expanding_idfs.py#L218-239))
+- Respects `max_terminal_checks` limit (line 411 in [standard_idfs.py:411](python/namo/planners/idfs/standard_idfs.py#L411))
 
-Detailed architecture documentation available in: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+### State Management
+- `get_full_state()` / `set_full_state()` for search backtracking (lines 78-119 in [rl_env.cpp:78-119](python/namo/cpp_bindings/rl_env.cpp#L78-119))
+- qvel always zeroed for physics consistency (line 114 in [rl_env.cpp:114](python/namo/cpp_bindings/rl_env.cpp#L114))
+- SE(2) observations cached before/after actions (lines 502-509 in [standard_idfs.py:502-509](python/namo/planners/idfs/standard_idfs.py#L502-509))
 
-## Configuration System
-
-Uses YAML configuration with fallback to simple key=value parser:
-
-**Main Config (`config/namo_config.yaml`)**
-- Environment settings (XML path, visualization)
-- Planning parameters (resolution, thresholds)
-- Memory limits and performance tuning
-- Data collection and ZMQ settings
-
-**Simple Test Config (`config/simple_test.yaml`)**
-- Minimal configuration for basic testing
-- Currently missing visualize key (causes parameter bug)
-
-## Critical Issues
-
-### Parameter Loader Bug
-**Location**: `src/core/parameter_loader.cpp:91` (`has_key` method)
-**Symptom**: "bad conversion" error when loading boolean values
-**Cause**: `has_key` returns true for non-existent keys, causing `get_bool` to fail
-**Impact**: Prevents executable from running
-**Priority**: CRITICAL - blocks all testing
-
-### Missing Test Scene
-**Location**: `data/test_scene.xml`
-**Status**: File referenced in config but doesn't exist
-**Impact**: Environment initialization will fail after parameter bug is fixed
-**Priority**: HIGH - needed for basic testing
-
-## Performance Targets
-
-- **Zero Runtime Allocation**: All memory pre-allocated during initialization
-- **Fast Recomputation**: Efficient BFS algorithm for each wavefront update
-- **Grid Resolution**: Configurable (default 0.05m for high precision)
-- **Object Limits**: 20 static + 10 movable objects per scene
-
-## Development Notes
-
-- **MuJoCo API Compliance**: All MuJoCo function calls verified against official documentation
-- **No PRX Dependencies**: Completely standalone implementation
-- **Fixed-Size Containers**: Template-based for compile-time optimization
-- **Full Wavefront Rebuild**: Simple and reliable approach for each update
-- **RAII Memory Management**: Automatic cleanup with object pools
-
-## Development Workflow
-
-- Always build in debug mode
-
-## NAMO Skill System
-
-Complete skill system documentation available in: `docs/SKILL_USAGE_GUIDE.md`
-
-### Key Features
-- **Universal Interface**: Works with any high-level planner
-- **Type Safety**: Compile-time parameter validation
-- **Complete Lifecycle**: `is_applicable()` → `check_preconditions()` → `execute()`
-- **Integration Patterns**: PDDL, Behavior Trees, RL Policies, Task Planning
-
-### Usage Example
-```cpp
-#include "skills/namo_push_skill.hpp"
-
-NAMOEnvironment env("scene.xml", false);
-NAMOPushSkill skill(env);
-
-std::map<std::string, SkillParameterValue> params = {
-    {"object_name", std::string("box_1")},
-    {"target_pose", SE2State(2.0, 1.5, 0.0)}
-};
-
-if (skill.is_applicable(params)) {
-    auto result = skill.execute(params);
-    if (result.success) {
-        std::cout << "Success!" << std::endl;
-    }
-}
-```
-
-## File Structure
+## File Organization
 
 ```
-/common/home/dm1487/robotics_research/ktamp/namo/
-├── CMakeLists.txt              # Main build configuration
+namo/
 ├── include/
-│   ├── core/
-│   │   ├── types.hpp           # Fixed-size containers and core types
-│   │   ├── memory_manager.hpp  # Zero-allocation memory pools
-│   │   ├── mujoco_wrapper.hpp  # Direct MuJoCo API wrapper
-│   │   └── parameter_loader.hpp # YAML configuration loader
-│   ├── planning/
-│   │   └── incremental_wavefront_planner.hpp
-│   ├── environment/
-│   │   └── namo_environment.hpp
-│   └── skills/
-│       ├── manipulation_skill.hpp # Abstract skill interface
-│       └── namo_push_skill.hpp    # NAMO push skill implementation
-├── src/
-│   ├── core/                   # Core components implementation
-│   ├── planning/               # Incremental wavefront planning
-│   ├── environment/            # NAMO environment management
-│   ├── skills/                 # Skill system implementation
-│   └── main.cpp               # Main executable with testing
-├── tests/
-│   ├── test_namo_skill.cpp     # Skill system validation tests
-│   └── test_simple_skill.cpp   # Basic skill interface tests
-├── docs/
-│   ├── SKILL_USAGE_GUIDE.md    # Complete skill usage documentation
-│   └── SKILL_SYSTEM_SUMMARY.md # Implementation summary and achievements
-├── examples/
-│   └── skill_demo.cpp          # Working demonstration with integration examples
-├── python/                     # Python package and bindings
-│   ├── namo/                  # Main NAMO Python package
-│   │   ├── core/              # Core interfaces (BasePlanner, xml_goal_parser)
-│   │   ├── config/            # Configuration systems (MCTSConfig)
-│   │   ├── strategies/        # Selection strategies (shared)
-│   │   ├── planners/          # Planning algorithms
-│   │   │   ├── idfs/         # Iterative Deepening algorithms
-│   │   │   ├── mcts/         # Monte Carlo Tree Search
-│   │   │   └── sampling/     # Sampling-based planners
-│   │   ├── data_collection/   # Data collection workflows
-│   │   ├── visualization/     # Image/mask processing
-│   │   └── cpp_bindings/      # C++ interface files
-│   ├── scripts/               # Standalone executables
-│   └── README.md             # Python package documentation
-├── config/
-│   ├── namo_config.yaml       # Full configuration
-│   └── simple_test.yaml       # Minimal test config
-└── build/                     # Build output directory
+│   ├── skills/namo_push_skill.hpp        # Shape-based skill execution
+│   └── wavefront/wavefront_planner.hpp   # BFS reachability computation
+├── python/namo/
+│   ├── cpp_bindings/rl_env.cpp           # C++ ↔ Python interface
+│   ├── planners/idfs/
+│   │   ├── standard_idfs.py              # Restart-based IDFS
+│   │   └── reachability_expanding_idfs.py # Exploration-focused IDFS
+│   ├── data_collection/modular_parallel_collection.py
+│   └── visualization/visual_test_single.py
+└── config/
+    ├── namo_config_complete.yaml         # Full config
+    └── headless_test.yaml                # Testing config
 ```
 
-## Documentation References
+## API Reference
 
-**Detailed Technical Documentation:**
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) - Complete architecture overview and component details
-- [`docs/LEGACY_ANALYSIS.md`](docs/LEGACY_ANALYSIS.md) - Analysis of PRX-based original implementation
-- [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md) - Current implementation status and capabilities
-- [`docs/REGION_PLANNER.md`](docs/REGION_PLANNER.md) - Region-based high-level planner documentation
+### C++ NAMOPushSkill ([namo_push_skill.hpp](include/skills/namo_push_skill.hpp))
+```cpp
+// Reachability queries (uses cached wavefront from last skill execution)
+std::vector<std::string> get_reachable_objects() const;
+bool is_object_reachable(const std::string& object_name) const;
 
-**Skill System Documentation:**
-- `docs/SKILL_USAGE_GUIDE.md` - Complete skill usage guide with API reference
-- `docs/SKILL_SYSTEM_SUMMARY.md` - Implementation summary and achievements
+// Robot goal management (for planners to check termination)
+void set_robot_goal(double x, double y, double theta = 0.0);
+bool is_robot_goal_reachable() const;  // Uses cached wavefront - zero cost!
+std::array<double, 3> get_robot_goal() const;
+void clear_robot_goal();
 
-## Next Steps
+// Skill execution (ManipulationSkill interface)
+SkillResult execute(const std::map<std::string, SkillParameterValue>& params);
+bool is_applicable(const std::map<std::string, SkillParameterValue>& params) const;
+```
 
-1. **Fix Parameter Loader Bug**: Debug `has_key` method returning incorrect results (CRITICAL)
-2. **Integration Testing**: Validate full system with complex multi-object scenes (including region-based planner)
-3. **Performance Benchmarking**: Systematic comparison between region-based planner and legacy implementation
-4. **ML Integration**: Implement ZMQ communication for distributed inference  
-5. **Action Optimization**: Add exhaustive subset search for minimal sequences
-6. **Region Planner Enhancement**: Add configuration section to ConfigManager for region planner parameters
+### C++ WavefrontPlanner ([wavefront_planner.hpp](include/wavefront/wavefront_planner.hpp))
+```cpp
+// Update wavefront (rebuilds from scratch via BFS)
+bool update_wavefront(NAMOEnvironment& env, const std::vector<double>& start_pos);
+
+// Reachability queries
+bool is_goal_reachable(const std::array<double, 2>& goal_pos, double goal_size = 0.05) const;
+
+// Grid access
+const std::vector<std::vector<int>>& get_grid() const;  // -2=obstacle, 0=unreachable, 1=reachable
+int get_grid_width() const;
+int get_grid_height() const;
+double get_resolution() const;
+```
+
+### Python RLEnvironment ([rl_env.cpp](python/namo/cpp_bindings/rl_env.cpp))
+```python
+# State management (for search backtracking)
+state = env.get_full_state()          # Returns RLState with qpos/qvel
+env.set_full_state(state)              # Restores state (qvel always zeroed)
+
+# Action execution
+result = env.step(action)              # Returns StepResult(done, reward, info)
+
+# Observations
+obs = env.get_observation()            # Dict[str, List[float]] - SE(2) poses
+reachable = env.get_reachable_objects()  # List[str] - object names
+is_reach = env.is_object_reachable(name) # bool
+
+# Robot goal (for termination checks)
+env.set_robot_goal(x, y, theta)
+reached = env.is_robot_goal_reachable()  # bool - uses cached wavefront
+
+# Environment info
+bounds = env.get_world_bounds()        # [xmin, xmax, ymin, ymax]
+obj_info = env.get_object_info()       # Dict[str, Dict[str, float]] - cached geometry
+```
+
+### Python BasePlanner Interface ([standard_idfs.py](python/namo/planners/idfs/standard_idfs.py))
+```python
+# Main planner methods
+result = planner.search(robot_goal)    # Returns PlannerResult
+
+# Common workflow pattern in DFS implementations:
+state = env.get_full_state()           # Save state
+env.set_full_state(state)              # Restore state for queries
+reachable = env.get_reachable_objects() # Check reachability
+is_done = env.is_robot_goal_reachable() # Check termination
+result = env.step(action)               # Execute action
+new_state = env.get_full_state()       # Capture result
+```
+
+### Common Usage Patterns
+
+**Standard Terminal Check (StandardIDFS):**
+```python
+def _is_terminal_state(self, state):
+    self.env.set_full_state(state)
+    return self.env.is_robot_goal_reachable()
+```
+
+**Reachability-Expanding Terminal Check (ReachabilityExpandingIDFS):**
+```python
+def _is_terminal_state(self, state):
+    self.env.set_full_state(state)
+    # Two conditions: goal reached OR new objects reachable
+    return (self.env.is_robot_goal_reachable() or
+            self._has_reachability_expanded(state))
+```
+
+**Action Execution with State Capture:**
+```python
+def _execute_action(self, state, action):
+    self.env.set_full_state(state)
+    self.env.step(action.to_namo_action())
+    return self.env.get_full_state()
+```
+
+## Coding Guidelines
+
+- **No Defensive Programming**: Trust design patterns (e.g., self-registration)
+- **Single Responsibility**: Avoid redundant validation layers
+- **Prefer Editing**: Always edit existing files over creating new ones
+- **No Unsolicited Docs**: Only create documentation when explicitly requested

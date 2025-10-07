@@ -51,12 +51,16 @@ RLEnvironment::StepResult RLEnvironment::step(const Action& action) {
     rl_result.reward = goal_reached ? 1.0 : -1.0;
     
     rl_result.info["failure_reason"] = result.failure_reason;
+    rl_result.info["failure_type"] = std::to_string(static_cast<int>(result.failure_type));
 
     if (auto it = result.outputs.find("steps_executed"); it != result.outputs.end()) {
         rl_result.info["steps_executed"] = std::to_string(std::get<int>(it->second));
     }
     if (auto it = result.outputs.find("robot_goal_reached"); it != result.outputs.end()) {
         rl_result.info["robot_goal_reached"] = std::get<bool>(it->second) ? "true" : "false";
+    }
+    if (auto it = result.outputs.find("collision_object"); it != result.outputs.end()) {
+        rl_result.info["collision_object"] = std::get<std::string>(it->second);
     }
 
     return rl_result;
