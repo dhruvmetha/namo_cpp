@@ -319,7 +319,7 @@ void WavefrontPlanner::recompute_wavefront(NAMOEnvironment& env, const std::vect
     // Check if robot has any free neighbors (not trapped)
     if (is_valid_grid_coord(start_x, start_y)) {
         for (const auto& [dx, dy] : DIRECTIONS) {
-            int nx = start_x + dx;
+            int nx = start_x + dx; 
             int ny = start_y + dy;
             if (is_valid_grid_coord(nx, ny) && dynamic_grid_[nx][ny] != -2) {
                 is_trapped = false;
