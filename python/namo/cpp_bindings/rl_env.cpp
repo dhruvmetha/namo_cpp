@@ -1,11 +1,13 @@
 #include "python/namo/cpp_bindings/rl_env.hpp"
 #include "core/types.hpp"
+#include "wavefront/wavefront_grid.hpp"
 #include <iostream>
-#include <mujoco/mujoco.h>
+#include <sstream>
 
 namespace namo {
 
-RLEnvironment::RLEnvironment(const std::string& xml_path, const std::string& config_path, bool visualize) {
+RLEnvironment::RLEnvironment(const std::string& xml_path, const std::string& config_path, bool visualize)
+    : xml_path_(xml_path), config_path_(config_path) {
     // std::cout << "Initializing RLEnvironment..." << std::endl;
     try {
         config_ = std::shared_ptr<ConfigManager>(ConfigManager::create_from_file(config_path).release());
@@ -154,6 +156,64 @@ std::vector<double> RLEnvironment::get_world_bounds() const {
 
 RLEnvironment::ActionConstraints RLEnvironment::get_action_constraints() const {
     return ActionConstraints{}; // Use default values: distance [0.3, 1.0], theta [-π, π]
+}
+
+std::tuple<RLEnvironment::RegionAdjacency, RLEnvironment::RegionEdgeObjects, RLEnvironment::RegionLabels>
+RLEnvironment::get_region_connectivity() const {
+    std::vector<double> robot_size = {0.15, 0.15};
+    if (config_) {
+        const auto& cfg_size = config_->planning().robot_size;
+        if (cfg_size.size() >= 2) {
+            robot_size[0] = cfg_size[0];
+            robot_size[1] = cfg_size[1];
+        }
+    }
+
+    WavefrontGrid grid(*env_, robot_size);
+    grid.update_dynamic_grid(*env_);
+
+    struct CoutSilencer {
+        std::streambuf* original_buf;
+        std::ostringstream null_stream;
+
+        CoutSilencer() : original_buf(std::cout.rdbuf(null_stream.rdbuf())) {}
+        ~CoutSilencer() { std::cout.rdbuf(original_buf); }
+    } silencer;
+
+    auto adjacency = grid.build_region_connectivity_graph(*env_);
+    auto edge_objects = grid.get_region_edge_objects();
+    auto region_labels = grid.get_region_labels();
+
+    return {std::move(adjacency), std::move(edge_objects), std::move(region_labels)};
+}
+
+RLEnvironment::RegionGoalSamples RLEnvironment::sample_region_goals(int goals_per_region) const {
+    if (goals_per_region <= 0) {
+        return {};
+    }
+
+    std::vector<double> robot_size = {0.15, 0.15};
+    if (config_) {
+        const auto& cfg_size = config_->planning().robot_size;
+        if (cfg_size.size() >= 2) {
+            robot_size[0] = cfg_size[0];
+            robot_size[1] = cfg_size[1];
+        }
+    }
+
+    WavefrontGrid grid(*env_, robot_size);
+    grid.update_dynamic_grid(*env_);
+
+    struct CoutSilencer {
+        std::streambuf* original_buf;
+        std::ostringstream null_stream;
+
+        CoutSilencer() : original_buf(std::cout.rdbuf(null_stream.rdbuf())) {}
+        ~CoutSilencer() { std::cout.rdbuf(original_buf); }
+    } silencer;
+
+    grid.build_region_connectivity_graph(*env_);
+    return grid.sample_region_goals(goals_per_region);
 }
 
 } // namespace namo

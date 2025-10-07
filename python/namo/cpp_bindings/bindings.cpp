@@ -7,6 +7,17 @@ namespace py = pybind11;
 PYBIND11_MODULE(namo_rl, m) {
     m.doc() = "Python bindings for the NAMO RL environment";
 
+    py::class_<namo::RegionGoalSample>(m, "RegionGoalSample")
+        .def(py::init<>())
+        .def_readwrite("x", &namo::RegionGoalSample::x)
+        .def_readwrite("y", &namo::RegionGoalSample::y)
+        .def_readwrite("theta", &namo::RegionGoalSample::theta);
+
+    py::class_<namo::RegionGoalBundle>(m, "RegionGoalBundle")
+        .def(py::init<>())
+        .def_readwrite("goals", &namo::RegionGoalBundle::goals)
+        .def_readwrite("blocking_objects", &namo::RegionGoalBundle::blocking_objects);
+
     py::class_<namo::RLState>(m, "RLState")
         .def(py::init<>())
         .def_readwrite("qpos", &namo::RLState::qpos)
@@ -53,5 +64,16 @@ PYBIND11_MODULE(namo_rl, m) {
         .def("set_robot_goal", &namo::RLEnvironment::set_robot_goal, py::arg("x"), py::arg("y"), py::arg("theta") = 0.0, "Set robot goal for MCTS planning.")
         .def("is_robot_goal_reachable", &namo::RLEnvironment::is_robot_goal_reachable, "Check if robot goal is reachable from current state.")
         .def("get_robot_goal", &namo::RLEnvironment::get_robot_goal, "Get current robot goal.")
-        .def("get_action_constraints", &namo::RLEnvironment::get_action_constraints, "Get action space constraints for MCTS.");
+        .def("get_action_constraints", &namo::RLEnvironment::get_action_constraints, "Get action space constraints for MCTS.")
+       .def("get_region_connectivity", &namo::RLEnvironment::get_region_connectivity,
+           "Return region adjacency, boundary objects, and region labels from the wavefront grid.")
+       .def("sample_region_goals", &namo::RLEnvironment::sample_region_goals,
+            py::arg("goals_per_region"),
+            "Sample random goal poses for each region, including blocking objects shared with the robot region.")
+       .def("get_xml_path", &namo::RLEnvironment::get_xml_path,
+           py::return_value_policy::reference_internal,
+           "Return the XML scene path used to create this environment.")
+       .def("get_config_path", &namo::RLEnvironment::get_config_path,
+           py::return_value_policy::reference_internal,
+           "Return the NAMO configuration path used to create this environment.");
 }

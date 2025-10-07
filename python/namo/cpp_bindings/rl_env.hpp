@@ -3,8 +3,13 @@
 #include "skills/namo_push_skill.hpp"
 #include "environment/namo_environment.hpp"
 #include "config/config_manager.hpp"
+#include "wavefront/wavefront_grid.hpp"
 #include <vector>
 #include <cmath>
+#include <tuple>
+#include <unordered_map>
+#include <unordered_set>
+#include <string>
 
 namespace namo {
 
@@ -66,10 +71,24 @@ public:
     };
     ActionConstraints get_action_constraints() const;
 
+    using RegionAdjacency = std::unordered_map<std::string, std::unordered_set<std::string>>;
+    using RegionEdgeObjects = std::unordered_map<std::string, std::unordered_map<std::string, std::unordered_set<std::string>>>;
+    using RegionLabels = std::unordered_map<int, std::string>;
+    using RegionGoalSamples = std::unordered_map<std::string, RegionGoalBundle>;
+
+    std::tuple<RegionAdjacency, RegionEdgeObjects, RegionLabels> get_region_connectivity() const;
+    RegionGoalSamples sample_region_goals(int goals_per_region) const;
+
+    const std::string& get_xml_path() const { return xml_path_; }
+    const std::string& get_config_path() const { return config_path_; }
+
 private:
     std::unique_ptr<NAMOEnvironment> env_;
     std::unique_ptr<NAMOPushSkill> skill_;
     std::shared_ptr<ConfigManager> config_;
+
+    std::string xml_path_;
+    std::string config_path_;
     
     // Cached immutable object info (built once during initialization)
     std::map<std::string, std::map<std::string, double>> cached_object_info_;

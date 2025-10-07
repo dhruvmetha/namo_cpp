@@ -31,7 +31,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-visualization = ["matplotlib", "opencv-python"]
+visualization = ["matplotlib", "opencv-python", "networkx"]
 ml = ["torch", "torchvision"]
 data = ["pandas", "scipy"]
 dev = ["pytest", "black", "flake8", "mypy"]
