@@ -249,12 +249,10 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
     
     for (size_t i = 0; i < num_static; i++) {
         const auto& static_obj = static_objects[i];
-        // std::string body_name = env_.get_body_name(static_obj.body_id);
         if (env_.bodies_in_collision("robot", static_obj.body_name)) {
-            // std::cerr << "Robot collision detected with static object '" << static_obj.body_name
-            // << "' at edge point [" << robot_pos[0] << ", " << robot_pos[1] 
-            // << "] for object: " << object_name << std::endl;
-            return false;  // Fail the primitive execution due to collision
+            last_failure_reason_ = "Robot placement collision with static object: " + static_obj.body_name;
+            last_collision_object_ = static_obj.body_name;
+            return false;
         }
     }
     
@@ -264,14 +262,12 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
     
     for (size_t i = 0; i < num_movable; i++) {
         const auto& movable_obj = movable_objects[i];
-        // std::string body_name = env_.get_body_name(movable_obj.body_id);
-        
+
         // Skip collision check with the object we're trying to push (expected contact)
         if (movable_obj.name != object_name && env_.bodies_in_collision("robot", movable_obj.body_name)) {
-            // std::cerr << "Robot collision detected with movable object '" << movable_obj.body_name 
-            //           << "' at edge point [" << robot_pos[0] << ", " << robot_pos[1] 
-            //           << "] for object: " << object_name << std::endl;
-            return false;  // Fail the primitive execution due to collision
+            last_failure_reason_ = "Robot placement collision with movable object: " + movable_obj.body_name;
+            last_collision_object_ = movable_obj.body_name;
+            return false;
         }
     }
     env_.step_simulation();
@@ -329,8 +325,31 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
             
             // Apply control through environment dynamics system
             env_.apply_control(control[0], control[1], 0.01);  // 0.01 second timestep
+
+            // Check if pushed object collides with non-robot objects (if enabled)
+            if (check_object_collision_) {
+                // Check collision with static objects
+                for (size_t i = 0; i < num_static; i++) {
+                    const auto& static_obj = static_objects[i];
+                    if (env_.bodies_in_collision(object_name, static_obj.body_name)) {
+                        last_failure_reason_ = "Object collision during push with static object: " + static_obj.body_name;
+                        last_collision_object_ = static_obj.body_name;
+                        return false;
+                    }
+                }
+
+                // Check collision with OTHER movable objects
+                for (size_t i = 0; i < num_movable; i++) {
+                    const auto& movable_obj = movable_objects[i];
+                    if (movable_obj.name != object_name && env_.bodies_in_collision(object_name, movable_obj.body_name)) {
+                        last_failure_reason_ = "Object collision during push with movable object: " + movable_obj.body_name;
+                        last_collision_object_ = movable_obj.body_name;
+                        return false;
+                    }
+                }
+            }
         }
-        
+
         // Reset velocities between push steps
         env_.set_zero_velocity();
         env_.step_simulation();

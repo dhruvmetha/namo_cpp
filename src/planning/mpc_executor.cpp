@@ -13,15 +13,19 @@ MPCExecutor::MPCExecutor(NAMOEnvironment& env)
     set_parameters();
 }
 
-MPCExecutor::MPCExecutor(NAMOEnvironment& env, double resolution, const std::vector<double>& robot_size, 
-                         int max_push_steps, int control_steps_per_push, double force_scaling, int points_per_face)
-    : env_(env), 
-      planner_(resolution, env_, robot_size), 
-      controller_(env_, planner_, max_push_steps, control_steps_per_push, force_scaling, points_per_face), 
+MPCExecutor::MPCExecutor(NAMOEnvironment& env, double resolution, const std::vector<double>& robot_size,
+                         int max_push_steps, int control_steps_per_push, double force_scaling, int points_per_face,
+                         bool check_object_collision)
+    : env_(env),
+      planner_(resolution, env_, robot_size),
+      controller_(env_, planner_, max_push_steps, control_steps_per_push, force_scaling, points_per_face),
       has_robot_goal_(false) {
-    
+
     // Set default parameters
     set_parameters();
+
+    // Configure collision checking
+    controller_.set_collision_checking(check_object_collision);
 }
 
 void MPCExecutor::set_parameters(int max_mpc_steps, 
@@ -111,7 +115,7 @@ bool MPCExecutor::execute_primitive_step(
     // Execute MPC following old implementation approach (namo_planner.hpp:217-292)
     int stuck_counter = 0;
     SE2State previous_state = get_object_se2_state(object_name);
-    
+    std::cout << "plan push steps: " << plan_step.push_steps << std::endl;
     for (int mpc_step = 0; mpc_step < plan_step.push_steps; mpc_step++) {
         // Check if robot goal became reachable during MPC
         if (has_robot_goal_ && is_robot_goal_reachable()) {

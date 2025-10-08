@@ -54,17 +54,19 @@ public:
     
     /**
      * @brief Constructor with ConfigManager parameters
-     * 
-     * @param env Reference to NAMO environment  
+     *
+     * @param env Reference to NAMO environment
      * @param resolution Wavefront planning resolution
      * @param robot_size Robot size for wavefront inflation
      * @param max_push_steps Max push steps per primitive
      * @param control_steps_per_push Control steps per push
      * @param force_scaling Force scaling factor
      * @param points_per_face Number of edge points per object face
+     * @param check_object_collision Enable object collision checking during push
      */
-    MPCExecutor(NAMOEnvironment& env, double resolution, const std::vector<double>& robot_size, 
-                int max_push_steps, int control_steps_per_push, double force_scaling, int points_per_face = 3);
+    MPCExecutor(NAMOEnvironment& env, double resolution, const std::vector<double>& robot_size,
+                int max_push_steps, int control_steps_per_push, double force_scaling, int points_per_face = 3,
+                bool check_object_collision = true);
     
     /**
      * @brief Set execution parameters
@@ -137,8 +139,15 @@ public:
     void save_debug_wavefront(int iteration, const std::string& base_filename = "mpc_wavefront");
     
     /**
+     * @brief Get controller for configuration access
+     *
+     * @return Reference to push controller
+     */
+    NAMOPushController& get_controller() { return controller_; }
+
+    /**
      * @brief Update wavefront and get reachable edges for object
-     * 
+     *
      * @param object_name Name of object to check reachability for
      * @return std::vector<int> List of reachable edge indices
      */

@@ -151,7 +151,10 @@ void ConfigManager::load_skill_config() {
     if (loader_->has_key("skill.max_stuck_iterations")) {
         skill_.max_stuck_iterations = loader_->get_int("skill.max_stuck_iterations");
     }
-    
+    if (loader_->has_key("skill.check_object_collision")) {
+        skill_.check_object_collision = loader_->get_bool("skill.check_object_collision");
+    }
+
     // Object interaction
     if (loader_->has_key("skill.object_clearance")) {
         skill_.object_clearance = loader_->get_double("skill.object_clearance");

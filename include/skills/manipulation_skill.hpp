@@ -27,6 +27,21 @@ using SkillParameterValue = std::variant<
 >;
 
 /**
+ * @brief Categorized failure types for programmatic error handling
+ */
+enum class FailureType {
+    NONE = 0,
+    ROBOT_PLACEMENT_COLLISION,      // Robot collided when placed at edge point
+    OBJECT_COLLISION_DURING_PUSH,   // Pushed object collided with non-robot object
+    OBJECT_STUCK,                   // Object not moving (position/angle unchanged)
+    NO_REACHABLE_EDGES,             // Wavefront found no reachable edge points
+    NO_PLAN_FOUND,                  // Shape planner couldn't find push sequence
+    ITERATION_LIMIT_REACHED,        // MPC loop exhausted max iterations
+    INVALID_PARAMETERS,             // Action parameters invalid
+    UNKNOWN                         // Unclassified failure
+};
+
+/**
  * @brief Skill execution result with proper error handling
  */
 struct SkillResult {
@@ -34,6 +49,7 @@ struct SkillResult {
     std::string skill_name;
     std::map<std::string, SkillParameterValue> outputs;
     std::string failure_reason;
+    FailureType failure_type = FailureType::NONE;
     std::chrono::milliseconds execution_time{0};
     
     // Type-safe output access
