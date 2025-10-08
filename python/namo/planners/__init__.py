@@ -11,14 +11,26 @@ from . import idfs
 from . import mcts
 from . import sampling
 from .connectivity_snapshot import (
+	RegionGoalBundle,
 	RegionGoalSamples,
+	RegionGoalSample,
 	snapshot_region_connectivity,
-	clone_goal_bundle,
+	find_robot_label,
+	restrict_to_local_regions,
 )
+
+
+def _clone_goal_bundle(bundle: Any) -> RegionGoalBundle:
+	return RegionGoalBundle(
+		goals=[RegionGoalSample(sample.x, sample.y, sample.theta) for sample in bundle.goals],
+		blocking_objects=set(bundle.blocking_objects),
+	)
 
 
 def get_region_connectivity(
 	env: Any,
+	*,
+	local_info_only: bool = False,
 ) -> Tuple[
 	Dict[str, Set[str]],
 	Dict[str, Dict[str, Set[str]]],
@@ -29,6 +41,8 @@ def get_region_connectivity(
 	Args:
 		env: Active NAMO RL environment instance. The environment state is used directly;
 			callers should ensure it reflects the desired snapshot (e.g., robot/object poses).
+		local_info_only: When ``True``, restrict the output to the robot region and its immediate
+			neighbours.
 
 	Returns:
 		A tuple ``(adjacency, edge_objects, region_labels)`` where:
@@ -65,6 +79,7 @@ def get_region_connectivity(
 			xml_str,
 			config_str,
 			include_snapshot=False,
+			local_info_only=local_info_only,
 		)
 		return adjacency, edge_objects, region_labels
 
@@ -74,11 +89,20 @@ def get_region_connectivity(
 		region: {neighbor: set(objs) for neighbor, objs in neighbor_map.items()}
 		for region, neighbor_map in edge_objects.items()
 	}
-	return adjacency_py, edge_objects_py, dict(region_labels)
+	labels_py = dict(region_labels)
+	if local_info_only:
+		robot_label = find_robot_label(labels_py)
+		adjacency_py, edge_objects_py, labels_py = restrict_to_local_regions(
+			adjacency_py,
+			edge_objects_py,
+			labels_py,
+			robot_label,
+		)
+	return adjacency_py, edge_objects_py, labels_py
 
 
 def get_region_goal_samples(env: Any, goals_per_region: int) -> RegionGoalSamples:
-	"""Sample goal poses for each region, including blocking objects to clear."""
+	"""Sample goal poses for each non-robot region, including blocking objects to clear."""
 
 	if goals_per_region <= 0:
 		return {}
@@ -104,11 +128,19 @@ def get_region_goal_samples(env: Any, goals_per_region: int) -> RegionGoalSample
 			config_str,
 			include_snapshot=False,
 			goals_per_region=goals_per_region,
+			generate_training_data=True,
 		)
-		return {region: clone_goal_bundle(bundle) for region, bundle in region_goals.items()}
+		return {
+			region: _clone_goal_bundle(bundle)
+			for region, bundle in region_goals.items()
+		}
 
 	region_goals_cpp = env.sample_region_goals(goals_per_region)
-	return {region: clone_goal_bundle(bundle) for region, bundle in region_goals_cpp.items()}
+	return {
+		region: _clone_goal_bundle(bundle)
+		for region, bundle in region_goals_cpp.items()
+		if "robot" not in region.lower()
+	}
 
 
 __all__ = [
@@ -118,5 +150,4 @@ __all__ = [
 	"get_region_connectivity",
 	"get_region_goal_samples",
 	"snapshot_region_connectivity",
-	"clone_goal_bundle",
 ]
