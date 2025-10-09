@@ -121,7 +121,17 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         "--goal-samples",
         type=int,
         default=0,
-        help="Number of random goal samples per region to compute (default: %(default)s)",
+        help="Number of random goal samples per region to compute when --generate-training-data is set (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--generate-training-data",
+        action="store_true",
+        help="Return training goal bundles for non-robot regions (requires --goal-samples > 0)",
+    )
+    parser.add_argument(
+        "--local-only",
+        action="store_true",
+        help="Limit adjacency output to the robot region and its immediate neighbours",
     )
     return parser.parse_args(argv)
 
@@ -134,6 +144,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     env = env_cls(args.xml, args.config, args.render)
 
     print("[info] exporting region connectivity via snapshot helper")
+    generate_training_data = args.generate_training_data or args.goal_samples > 0
+
     adjacency, edge_objects, region_labels, region_goals, _ = snapshot_region_connectivity(
         env,
         args.xml,
@@ -142,6 +154,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         goal_radius=args.goal_radius,
         include_snapshot=False,
         goals_per_region=args.goal_samples,
+        generate_training_data=generate_training_data,
+        local_info_only=args.local_only,
     )
 
     print(f"[result] regions discovered: {len(region_labels)}")
@@ -152,7 +166,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         verbose=args.verbose,
     )
 
-    if args.goal_samples > 0:
+    if generate_training_data:
         _print_goal_samples(region_goals)
 
     if hasattr(env, "close"):

@@ -621,7 +621,10 @@ class WavefrontSnapshotExporter:
         )
 
         for region_id, label in region_labels.items():
-            key = "robot_region" if "robot" in label else label
+            if "robot" in label:
+                continue
+
+            key = label
             cells = np.argwhere(region_map == region_id)
             if cells.size == 0:
                 result[key] = RegionGoalBundle([], set())
@@ -643,12 +646,9 @@ class WavefrontSnapshotExporter:
                 wy = self._grid_to_world_y(gy) + 0.5 * self.resolution
                 goals.append(RegionGoalSample(x=wx, y=wy, theta=0.0))
 
-            if "robot" in label:
-                blocking: Set[str] = set()
-            else:
-                blocking = set(edge_objects.get(robot_label, {}).get(label, set()))
-                if not blocking and robot_label != "robot":
-                    blocking = set(edge_objects.get("robot", {}).get(label, set()))
+            blocking = set(edge_objects.get(robot_label, {}).get(label, set()))
+            if not blocking and robot_label != "robot":
+                blocking = set(edge_objects.get("robot", {}).get(label, set()))
 
             result[key] = RegionGoalBundle(goals=goals, blocking_objects=blocking)
 
