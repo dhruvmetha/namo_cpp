@@ -77,6 +77,7 @@ def snapshot_region_connectivity(
     goals_per_region: int = 0,
     generate_training_data: bool = False,
     local_info_only: bool = False,
+    use_current_state: bool = False,
 ) -> Tuple[
     RegionAdjacency,
     RegionEdgeObjects,
@@ -118,6 +119,7 @@ def snapshot_region_connectivity(
         config_path=config_path,
         goal_radius=goal_radius,
         goals_per_region=goals_per_region if generate_training_data else 0,
+        use_current_state=use_current_state,
     )
 
     adjacency: RegionAdjacency = {

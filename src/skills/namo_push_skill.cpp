@@ -247,14 +247,16 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
                     // std::cout << "Edge " << previous_edge_idx << " led to stuck state, adding to blacklist" << std::endl;
                 }
                 // std::cout << "Object stuck detection: " << stuck_counter << "/" << max_stuck_iterations << std::endl;
-                
+
                 if (stuck_counter >= max_stuck_iterations) {
                     // std::cout << "Object " << object_name << " stuck for " << stuck_counter << " iterations - stopping MPC" << std::endl;
-                    // result.failure_reason = "Object stuck for " + std::to_string(stuck_counter) + " iterations at MPC iteration " + std::to_string(mpc_iter);
+                    result.outputs["stuck"] = "true";
+                    result.failure_reason = "Object stuck for " + std::to_string(stuck_counter) + " iterations at MPC iteration " + std::to_string(mpc_iter);
+                    result.failure_type = FailureType::OBJECT_STUCK;
                     result.outputs["steps_executed"] = mpc_iter;
                     result.outputs["final_pose"] = current_state;
                     result.outputs["object_name"] = object_name;
-                    
+
                     auto end_time = std::chrono::high_resolution_clock::now();
                     result.execution_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
                     return result;
@@ -268,15 +270,15 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         // std::cout << "Current state: [" << std::fixed << std::setprecision(3)
         //           << current_state.x << "," << current_state.y << "," << current_state.theta << "]" << std::endl;
         
-        // 3. Check if robot goal is reachable (early termination)
-        if (has_robot_goal_ && executor_->is_robot_goal_reachable()) {
+        // 3. Check if robot goal is reachable (early termination) - only if enabled
+        if (enable_robot_goal_termination_ && has_robot_goal_ && executor_->is_robot_goal_reachable()) {
             // std::cout << "Robot goal became reachable at iteration " << mpc_iter << std::endl;
             result.success = true;
             result.outputs["robot_goal_reached"] = true;
             result.outputs["steps_executed"] = mpc_iter;
             result.outputs["final_pose"] = current_state;
             result.outputs["object_name"] = object_name;
-            
+
             auto end_time = std::chrono::high_resolution_clock::now();
             result.execution_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
             return result;
@@ -384,23 +386,50 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         if (!step_result.success) {
             // Blacklist this edge and continue trying other edges
             stuck_edges.insert(previous_edge_idx);
+
+            // Propagate collision info if present
+            if (!step_result.collision_object.empty()) {
+                result.outputs["collision_object"] = step_result.collision_object;
+                result.failure_reason = "Collision with " + step_result.collision_object;
+                result.failure_type = FailureType::OBJECT_COLLISION_DURING_PUSH;
+                result.outputs["steps_executed"] = mpc_iter;
+                result.outputs["final_pose"] = current_state;
+                result.outputs["object_name"] = object_name;
+                return result;
+            }
         }
         previous_state = current_state;
     }
     
     // If we reach here, we hit the iteration limit
     auto final_pose = get_object_current_pose(object_name);
-    // std::cout << "MPC reached iteration limit without reaching goal" << std::endl;
-    result.failure_reason = "MPC reached iteration limit (" + std::to_string(max_mpc_iterations) + ") without reaching goal";
-    result.failure_type = FailureType::ITERATION_LIMIT_REACHED;
-    result.outputs["steps_executed"] = max_mpc_iterations;
-    result.outputs["final_pose"] = final_pose ? *final_pose : SE2State();
-    result.outputs["object_name"] = object_name;
-    result.outputs["robot_goal_reached"] = false;
-    
+
+    // Check if robot goal is reachable even though we hit iteration limit (only if enabled)
+    bool robot_goal_reachable = false;
+    if (enable_robot_goal_termination_ && has_robot_goal_ && executor_->is_robot_goal_reachable()) {
+        robot_goal_reachable = true;
+    }
+
+    // If robot goal termination is enabled and goal is reachable, treat as success despite iteration limit
+    if (robot_goal_reachable) {
+        result.success = true;
+        result.outputs["robot_goal_reached"] = true;
+        result.outputs["steps_executed"] = max_mpc_iterations;
+        result.outputs["final_pose"] = final_pose ? *final_pose : SE2State();
+        result.outputs["object_name"] = object_name;
+    } else {
+        // Robot goal not reachable or termination disabled - treat as failure
+        result.failure_reason = "MPC reached iteration limit (" + std::to_string(max_mpc_iterations) + ") without reaching goal";
+        result.failure_type = FailureType::ITERATION_LIMIT_REACHED;
+        result.outputs["steps_executed"] = max_mpc_iterations;
+        result.outputs["final_pose"] = final_pose ? *final_pose : SE2State();
+        result.outputs["object_name"] = object_name;
+        result.outputs["robot_goal_reached"] = false;
+    }
+
     auto end_time = std::chrono::high_resolution_clock::now();
     result.execution_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-    
+
     return result;
 }
 
@@ -524,26 +553,13 @@ bool NAMOPushSkill::is_object_stuck(const SE2State& previous_state, const SE2Sta
 }
 
 std::vector<int> NAMOPushSkill::get_reachable_edges(const std::string& object_name) const {
-    // Get robot current position
-    auto robot_state = env_.get_robot_state();
-    if (!robot_state) {
-        return {}; // No reachable edges if can't get robot state
+    // Use executor's wavefront-based reachability analysis
+    if (!executor_) {
+        return {};
     }
-    
-    // Get object current position
-    auto obj_pose = get_object_current_pose(object_name);
-    if (!obj_pose) {
-        return {}; // No reachable edges if can't get object pose
-    }
-    
-    // This method is deprecated - the skill system now uses wavefront-based reachability
-    // All edges are considered potentially reachable; actual reachability is determined
-    // by the wavefront planner during execution
-    std::vector<int> reachable_edges;
-    for (int i = 0; i < 12; i++) {
-        reachable_edges.push_back(i);
-    }
-    return reachable_edges;
+
+    // Note: executor_->get_reachable_edges_with_wavefront() is non-const, so we need to cast
+    return const_cast<MPCExecutor*>(executor_.get())->get_reachable_edges_with_wavefront(object_name);
 }
 
 std::vector<std::string> NAMOPushSkill::get_reachable_objects() const {
@@ -606,6 +622,21 @@ std::array<double, 3> NAMOPushSkill::get_robot_goal() const {
 void NAMOPushSkill::clear_robot_goal() {
     has_robot_goal_ = false;
     executor_->clear_robot_goal();
+}
+
+void NAMOPushSkill::set_collision_checking(bool enabled) {
+    // Propagate collision checking setting to the executor's controller
+    if (executor_) {
+        executor_->set_collision_checking(enabled);
+    }
+}
+
+void NAMOPushSkill::set_robot_goal_termination(bool enabled) {
+    enable_robot_goal_termination_ = enabled;
+}
+
+bool NAMOPushSkill::get_robot_goal_termination() const {
+    return enable_robot_goal_termination_;
 }
 
 GreedyPlanner* NAMOPushSkill::get_planner_for_object(const std::string& object_name) const {

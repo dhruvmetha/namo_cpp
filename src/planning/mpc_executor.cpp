@@ -75,9 +75,10 @@ ExecutionResult MPCExecutor::execute_plan(
         
         // Execute this primitive step
         bool step_success = execute_primitive_step(object_name, step);
-        
+
         if (!step_success) {
             result.failure_reason = "Primitive step " + std::to_string(i+1) + " failed";
+            result.collision_object = controller_.get_last_collision_object();
             result.steps_executed = i;
             result.final_object_state = get_object_se2_state(object_name);
             return result;
@@ -115,7 +116,7 @@ bool MPCExecutor::execute_primitive_step(
     // Execute MPC following old implementation approach (namo_planner.hpp:217-292)
     int stuck_counter = 0;
     SE2State previous_state = get_object_se2_state(object_name);
-    std::cout << "plan push steps: " << plan_step.push_steps << std::endl;
+    // std::cout << "plan push steps: " << plan_step.push_steps << std::endl;
     for (int mpc_step = 0; mpc_step < plan_step.push_steps; mpc_step++) {
         // Check if robot goal became reachable during MPC
         if (has_robot_goal_ && is_robot_goal_reachable()) {

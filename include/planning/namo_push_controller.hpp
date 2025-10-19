@@ -222,7 +222,9 @@ public:
     /**
      * @brief Set collision checking mode
      */
-    void set_collision_checking(bool enabled) { check_object_collision_ = enabled; }
+    void set_collision_checking(bool enabled) {
+        check_object_collision_ = enabled;
+    }
 
 private:
     /**

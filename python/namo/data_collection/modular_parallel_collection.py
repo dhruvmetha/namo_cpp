@@ -44,6 +44,7 @@ from namo.planners.idfs.standard_idfs import StandardIterativeDeepeningDFS
 from namo.planners.idfs.tree_idfs import TreeIterativeDeepeningDFS
 from namo.planners.sampling.random_sampling import RandomSamplingPlanner
 from namo.planners.idfs.optimal_idfs import OptimalIterativeDeepeningDFS
+from namo.planners.opening.region_opening import RegionOpeningPlanner
 
 # Import strategies for validation
 from namo.strategies.object_selection_strategy import ObjectSelectionStrategy
@@ -523,13 +524,78 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                 
                 # Run planning
                 planner_result = planner.search(robot_goal)
-                
+
+                # Special handling for region_opening planner: convert AttemptResults to episodes
+                is_region_opening = task.algorithm == "region_opening"
+
+                if is_region_opening and planner_result.algorithm_stats and 'attempt_results' in planner_result.algorithm_stats:
+                    # Process each AttemptResult as a separate episode
+                    for attempt_idx, attempt in enumerate(planner_result.algorithm_stats['attempt_results']):
+                        attempt_episode_id = f"{episode_id}_neighbour_{attempt_idx}_{attempt.neighbour_region_label}"
+
+                        # Build action sequence from attempt (handle both single push and multi-push chains)
+                        action_sequence = []
+                        solution_depth = 0
+                        if attempt.success:
+                            if attempt.goal_chain:
+                                # Multi-push chain
+                                for goal in attempt.goal_chain:
+                                    action_sequence.append({
+                                        "object_id": attempt.chosen_object_id,
+                                        "target": (goal.x, goal.y, goal.theta)
+                                    })
+                                solution_depth = len(attempt.goal_chain)
+                            elif attempt.chosen_goal:
+                                # Single push
+                                action_sequence = [{
+                                    "object_id": attempt.chosen_object_id,
+                                    "target": attempt.chosen_goal
+                                }]
+                                solution_depth = 1
+
+                        # Create episode result for this attempt
+                        episode_result = ModularEpisodeResult(
+                            episode_id=attempt_episode_id,
+                            algorithm=planner.algorithm_name,
+                            algorithm_version=planner.algorithm_version,
+                            success=attempt.success,
+                            solution_found=attempt.success,
+                            solution_depth=solution_depth,
+                            search_time_ms=attempt.timing_ms,
+                            nodes_expanded=None,
+                            terminal_checks=None,
+                            max_depth_reached=solution_depth,
+                            algorithm_stats={
+                                'neighbour_region_label': attempt.neighbour_region_label,
+                                'validation_method': attempt.validation_method,
+                                'connectivity_before': attempt.connectivity_before,
+                                'connectivity_after': attempt.connectivity_after,
+                                'region_goal_used': attempt.region_goal_used,
+                                'chosen_object_id': attempt.chosen_object_id,
+                                'chain_depth': attempt.chain_depth,
+                            },
+                            action_sequence=action_sequence,
+                            state_observations=attempt.state_observations,
+                            post_action_state_observations=attempt.post_action_state_observations,
+                            static_object_info=static_object_info,
+                            xml_file=task.xml_file,
+                            robot_goal=robot_goal,
+                            error_message=attempt.error_message or "",
+                            failure_code=None,
+                            failure_description=attempt.error_message or ""
+                        )
+
+                        episode_results.append(episode_result)
+
+                    # Continue to next episode
+                    continue
+
                 # Special handling for optimal planner: save all minimum solutions as separate episodes
                 # This provides more training data while maintaining backward compatibility
                 is_optimal_planner = hasattr(planner, 'get_all_minimum_solutions')
-                
-                if (is_optimal_planner and planner_result.solution_found and 
-                    planner_result.algorithm_stats and 
+
+                if (is_optimal_planner and planner_result.solution_found and
+                    planner_result.algorithm_stats and
                     planner_result.algorithm_stats.get('num_minimum_solutions', 0) > 1):
                     
                     # Get all minimum solutions for optimal planner
@@ -1067,6 +1133,30 @@ def main():
                         help="Maximum terminal checks before stopping search (default: 5000)")
     parser.add_argument("--search-timeout", type=float, default=300.0,
                         help="Search timeout in seconds (default: 300.0 = 5 minutes)")
+
+    # Region opening planner arguments
+    parser.add_argument("--region-local-only", action="store_true", default=True,
+                        help="Restrict region connectivity to local neighbourhood (default: True)")
+    parser.add_argument("--region-goal-radius", type=float, default=0.15,
+                        help="Goal sampling radius for region goals (default: 0.15)")
+    parser.add_argument("--region-goals-per-region", type=int, default=8,
+                        help="Number of goals to sample per region (default: 8)")
+    parser.add_argument("--region-sampler", type=str, default="random", choices=["random", "primitive"],
+                        help="Goal sampler for region opening (default: random)")
+    parser.add_argument("--region-allow-collisions", action="store_true",
+                        help="Allow object collisions during region opening pushes (default: False, terminate on collision)")
+    parser.add_argument("--region-max-chain-depth", type=int, default=1,
+                        help="Maximum chain depth for region opening: 1=single push, 2=2-push chains, 3=3-push chains (default: 1)")
+    parser.add_argument("--region-max-object-tries", type=int, default=5,
+                        help="Maximum objects to try per neighbour (default: 5)")
+    parser.add_argument("--region-max-goals-per-object", type=int, default=8,
+                        help="Maximum goals to try per object (default: 8)")
+    parser.add_argument("--region-max-solutions-per-neighbor", type=int, default=2,
+                        help="Maximum solutions to keep per neighbor region (default: 2)")
+    parser.add_argument("--region-max-explorations", type=int, default=20,
+                        help="Maximum total states to queue for multi-level exploration (default: 20)")
+    parser.add_argument("--validate-via", type=str, default="connectivity", choices=["connectivity", "reachability"],
+                        help="Validation method for region opening (default: connectivity)")
     parser.add_argument("--xml-dir", type=str, 
                         default="../ml4kp_ktamp/resources/models/custom_walled_envs/aug9",
                         help="Base directory for XML environment files")
@@ -1129,13 +1219,31 @@ def main():
         return 1
     
     # Create planner configuration (strategy will be added by manager)
+    # Build algorithm_params with region opening parameters
+    algorithm_params = {}
+    if args.algorithm == "region_opening":
+        algorithm_params.update({
+            "region_local_only": args.region_local_only,
+            "region_goal_radius": args.region_goal_radius,
+            "region_goals_per_region": args.region_goals_per_region,
+            "region_sampler": args.region_sampler,
+            "region_allow_collisions": args.region_allow_collisions,
+            "region_max_chain_depth": args.region_max_chain_depth,
+            "region_max_object_tries": args.region_max_object_tries,
+            "region_max_goals_per_object": args.region_max_goals_per_object,
+            "region_max_solutions_per_neighbor": args.region_max_solutions_per_neighbor,
+            "region_max_explorations": args.region_max_explorations,
+            "region_validate_via": args.validate_via,
+        })
+
     planner_config = PlannerConfig(
         max_depth=args.max_depth,
         max_goals_per_object=args.max_goals_per_object,
         max_terminal_checks=args.max_terminal_checks,
         max_search_time_seconds=args.search_timeout,
         verbose=args.verbose,
-        collect_stats=True
+        collect_stats=True,
+        algorithm_params=algorithm_params if algorithm_params else None
     )
     
     # Create configuration

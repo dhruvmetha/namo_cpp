@@ -40,6 +40,7 @@ from namo.core.xml_goal_parser import extract_goal_with_fallback
 from namo.planners.idfs.standard_idfs import StandardIterativeDeepeningDFS
 from namo.planners.idfs.tree_idfs import TreeIterativeDeepeningDFS
 from namo.planners.sampling.random_sampling import RandomSamplingPlanner
+from namo.planners.opening.region_opening import RegionOpeningPlanner
 
 # Import solution smoothing system
 from namo.planners.idfs.solution_smoother import SolutionSmoother
@@ -162,9 +163,13 @@ def visualize_solution(env: namo_rl.RLEnvironment, result: PlannerResult, step_m
         print("👆 STEP MODE: Press Enter to advance to next action, 'q' to quit")
         input("Press Enter to start...")
     
+    # Print the robot goal being used for this visualization
+    robot_goal = env.get_robot_goal()
+    print(f"🎯 Robot goal for visualization: ({robot_goal[0]:.2f}, {robot_goal[1]:.2f}, {robot_goal[2]:.2f})")
+
     for i, action in enumerate(result.action_sequence):
         print(f"Step {i+1}/{len(result.action_sequence)}: Moving object {action.object_id} to ({action.x:.2f}, {action.y:.2f}, {action.theta:.2f})")
-        
+
         # Execute the action using the proper step() method
         namo_action = namo_rl.Action()
         namo_action.object_id = action.object_id
@@ -176,7 +181,7 @@ def visualize_solution(env: namo_rl.RLEnvironment, result: PlannerResult, step_m
             print(f"   Action result: {step_result.info}")
         else:
             print(f"   Action executed (done: {step_result.done if hasattr(step_result, 'done') else 'unknown'})")
-        
+
         # Render the current state
         env.render()
         
@@ -232,7 +237,17 @@ def main():
                         help="Maximum terminal checks before stopping search (default: 5000)")
     parser.add_argument("--search-timeout", type=float, default=60.0,
                         help="Search timeout in seconds (default: 60.0)")
-    
+    parser.add_argument("--region-search-strategy", type=str, default="bfs", choices=["bfs", "dfs"],
+                        help="Search strategy for region opening: bfs (breadth-first) or dfs (depth-first) (default: bfs)")
+    parser.add_argument("--region-allow-collisions", action="store_true",
+                        help="Allow object collisions during region opening pushes (default: False, terminate on collision)")
+    parser.add_argument("--region-max-chain-depth", type=int, default=1,
+                        help="Maximum chain depth for region opening: 1=single push, 2=2-push chains, 3=3-push chains (default: 1)")
+    parser.add_argument("--region-max-solutions-per-neighbor", type=int, default=2,
+                        help="Maximum solutions to keep per neighbor region (default: 2)")
+    parser.add_argument("--region-max-explorations", type=int, default=20,
+                        help="Maximum total states to queue for multi-level exploration (default: 20)")
+
     # Environment settings
     parser.add_argument("--config-file", type=str, 
                         default="config/namo_config_complete.yaml",
@@ -348,7 +363,12 @@ def main():
             'object_selection_strategy': args.object_strategy,
             'goal_selection_strategy': args.goal_strategy,
             'ml_samples': args.ml_samples,
-            'ml_device': args.ml_device
+            'ml_device': args.ml_device,
+            'region_search_strategy': args.region_search_strategy,
+            'region_allow_collisions': args.region_allow_collisions,
+            'region_max_chain_depth': args.region_max_chain_depth,
+            'region_max_solutions_per_neighbor': args.region_max_solutions_per_neighbor,
+            'region_max_explorations': args.region_max_explorations
         }
         
         # Add ML model paths and preloaded models to parameters
@@ -467,21 +487,102 @@ def main():
             print("🌍 Creating visualization environment for solution...")
             solution_env = namo_rl.RLEnvironment(args.xml_file, args.config_file, visualize=True)
             reset_environment_for_visualization(solution_env, robot_goal)
-            
-            if args.show_solution == "auto":
-                print("\n🎬 Auto-visualizing solution...")
-                visualize_solution(solution_env, result, step_mode=False, delay=args.solution_delay)
-            elif args.show_solution == "step":
-                print("\n🎬 Step-by-step solution visualization...")
-                visualize_solution(solution_env, result, step_mode=True, delay=0)
-            elif args.show_solution == "prompt":
-                try:
-                    print(f"\n🎬 Would you like to visualize the solution? (y/N): ", end="")
-                    user_input = input().strip().lower()
-                    if user_input in ['y', 'yes']:
-                        visualize_solution(solution_env, result, step_mode=False, delay=1.0)
-                except (EOFError, KeyboardInterrupt):
-                    print("N")  # Default to no visualization
+
+            # Apply collision checking settings for region_opening
+            if args.algorithm == "region_opening" and args.region_allow_collisions:
+                solution_env.set_collision_checking(False)
+
+            # Check if region_opening planner returned multiple solutions
+            # Use attempt_results instead of all_solutions to get exploration_state
+            attempt_results = None
+            if result.algorithm_stats and "attempt_results" in result.algorithm_stats:
+                attempt_results = [a for a in result.algorithm_stats["attempt_results"] if a.success]
+
+            if attempt_results and len(attempt_results) > 1:
+                # Region opening found multiple solutions - visualize each one
+                print(f"\n🎯 Found {len(attempt_results)} successful openings! Visualizing each one...\n")
+
+                for i, attempt in enumerate(attempt_results, 1):
+                    print(f"\n{'='*60}")
+                    print(f"Solution {i}/{len(attempt_results)}: Opening to '{attempt.neighbour_region_label}' by pushing {attempt.chosen_object_id}")
+                    if attempt.exploration_level > 0:
+                        print(f"  [Exploration level {attempt.exploration_level}]")
+                    print(f"{'='*60}")
+
+                    # Reset environment to the exploration state (state from which this opening was found)
+                    if attempt.exploration_state is not None:
+                        solution_env.set_full_state(attempt.exploration_state)
+                    else:
+                        # Fallback to baseline if no exploration state stored
+                        reset_environment_for_visualization(solution_env, robot_goal)
+
+                    # Build action sequence from attempt
+                    action_sequence = []
+                    if attempt.goal_chain and len(attempt.goal_chain) > 1:
+                        # Multi-push chain
+                        for goal in attempt.goal_chain:
+                            action = namo_rl.Action()
+                            action.object_id = attempt.chosen_object_id
+                            action.x = goal.x
+                            action.y = goal.y
+                            action.theta = goal.theta
+                            action_sequence.append(action)
+                    elif attempt.chosen_goal:
+                        # Single push
+                        action = namo_rl.Action()
+                        action.object_id = attempt.chosen_object_id
+                        action.x = attempt.chosen_goal[0]
+                        action.y = attempt.chosen_goal[1]
+                        action.theta = attempt.chosen_goal[2]
+                        action_sequence.append(action)
+
+                    # Create a temporary result with this solution's actions
+                    temp_result = PlannerResult(
+                        success=True,
+                        solution_found=True,
+                        action_sequence=action_sequence,
+                        solution_depth=len(action_sequence),
+                        search_time_ms=result.search_time_ms,
+                        algorithm_stats=result.algorithm_stats
+                    )
+
+                    if args.show_solution == "auto":
+                        visualize_solution(solution_env, temp_result, step_mode=False, delay=args.solution_delay)
+                    elif args.show_solution == "step":
+                        visualize_solution(solution_env, temp_result, step_mode=True, delay=0)
+                    elif args.show_solution == "prompt":
+                        try:
+                            print(f"\n🎬 Visualize this solution? (y/N): ", end="")
+                            user_input = input().strip().lower()
+                            if user_input in ['y', 'yes']:
+                                visualize_solution(solution_env, temp_result, step_mode=False, delay=1.0)
+                        except (EOFError, KeyboardInterrupt):
+                            print("N")
+                            break
+
+                    # Pause between solutions (except after last one)
+                    if i < len(attempt_results):
+                        try:
+                            input("\nPress Enter to see next solution (or Ctrl+C to stop)...")
+                        except (EOFError, KeyboardInterrupt):
+                            print("\n🛑 Stopping visualization")
+                            break
+            else:
+                # Single solution - use original visualization logic
+                if args.show_solution == "auto":
+                    print("\n🎬 Auto-visualizing solution...")
+                    visualize_solution(solution_env, result, step_mode=False, delay=args.solution_delay)
+                elif args.show_solution == "step":
+                    print("\n🎬 Step-by-step solution visualization...")
+                    visualize_solution(solution_env, result, step_mode=True, delay=0)
+                elif args.show_solution == "prompt":
+                    try:
+                        print(f"\n🎬 Would you like to visualize the solution? (y/N): ", end="")
+                        user_input = input().strip().lower()
+                        if user_input in ['y', 'yes']:
+                            visualize_solution(solution_env, result, step_mode=False, delay=1.0)
+                    except (EOFError, KeyboardInterrupt):
+                        print("N")  # Default to no visualization
         
         return 0
         

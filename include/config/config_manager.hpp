@@ -171,7 +171,8 @@ public:
     void set_verbose_planning(bool enabled) { planning_.verbose_planning = enabled; }
     void set_max_iterations(int max_iter) { planning_.max_planning_iterations = max_iter; }
     void set_visualization(bool enabled) { system_.enable_visualization = enabled; }
-    
+    void set_collision_checking(bool enabled) { skill_.check_object_collision = enabled; }
+
     // Configuration validation and diagnostics
     void print_configuration() const;
     bool validate_paths() const;
