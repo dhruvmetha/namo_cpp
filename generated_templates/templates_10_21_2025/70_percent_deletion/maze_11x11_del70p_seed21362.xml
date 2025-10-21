@@ -1,0 +1,78 @@
+<?xml version="1.0" ?>
+<mujoco model="generated_maze_environment">
+  <option timestep="0.01" integrator="RK4" cone="elliptic"/>
+  <default>
+    <geom density="1"/>
+  </default>
+  <asset>
+    <texture builtin="gradient" height="3072" rgb1="0.3 0.5 0.7" rgb2="0 0 0" type="skybox" width="512"/>
+    <texture builtin="checker" height="300" mark="edge" markrgb="0.8 0.8 0.8" name="groundplane" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3" type="2d" width="300"/>
+    <material name="groundplane" reflectance="0.2" texrepeat="5 5" texture="groundplane" texuniform="true"/>
+    <material name="robot" rgba="0.0 1.0 0.0 1"/>
+  </asset>
+  <worldbody>
+    <light dir="0 0 -1" directional="true" pos="0 0 1.5"/>
+    <geom condim="4" friction="0.5 0.005 0.001" material="groundplane" name="floor" size="0 0 0.05" type="plane"/>
+    <site name="origin_x" pos="0.1 0 0.0" rgba="1 0 0 1" size="0.05" type="sphere"/>
+    <site name="origin_y" pos="0 0.1 0" rgba="0 1 0 1" size="0.05" type="sphere"/>
+    <site name="origin_z" pos="0 0 0.1" rgba="0 0 1 1" size="0.05" type="sphere"/>
+    <body name="walls">
+      <geom name="boundary_top" condim="4" pos="0 5.525 0.3" rgba="0.8 0.8 0.8 1" size="5.55 0.025 0.3" type="box"/>
+      <geom name="boundary_bottom" condim="4" pos="0 -5.525 0.3" rgba="0.8 0.8 0.8 1" size="5.55 0.025 0.3" type="box"/>
+      <geom name="boundary_left" condim="4" pos="-5.525 0 0.3" rgba="0.8 0.8 0.8 1" size="0.025 5.5 0.3" type="box"/>
+      <geom name="boundary_right" condim="4" pos="5.525 0 0.3" rgba="0.8 0.8 0.8 1" size="0.025 5.5 0.3" type="box"/>
+      <geom name="hwall_1" condim="4" pos="-4.0 4.5 0.3" rgba="0.8 0.8 0.8 1" size="0.5 0.025 0.3" type="box"/>
+      <geom name="hwall_2" condim="4" pos="1.0 4.5 0.3" rgba="0.8 0.8 0.8 1" size="0.5 0.025 0.3" type="box"/>
+      <geom name="hwall_3" condim="4" pos="2.0 4.5 0.3" rgba="0.8 0.8 0.8 1" size="0.5 0.025 0.3" type="box"/>
+      <geom name="hwall_4" condim="4" pos="-2.0 2.5 0.3" rgba="0.8 0.8 0.8 1" size="0.5 0.025 0.3" type="box"/>
+      <geom name="hwall_5" condim="4" pos="2.0 2.5 0.3" rgba="0.8 0.8 0.8 1" size="0.5 0.025 0.3" type="box"/>
+      <geom name="hwall_6" condim="4" pos="4.0 2.5 0.3" rgba="0.8 0.8 0.8 1" size="0.5 0.025 0.3" type="box"/>
+      <geom name="hwall_7" condim="4" pos="3.0 1.5 0.3" rgba="0.8 0.8 0.8 1" size="0.5 0.025 0.3" type="box"/>
+      <geom name="hwall_8" condim="4" pos="4.0 1.5 0.3" rgba="0.8 0.8 0.8 1" size="0.5 0.025 0.3" type="box"/>
+      <geom name="hwall_9" condim="4" pos="2.0 0.5 0.3" rgba="0.8 0.8 0.8 1" size="0.5 0.025 0.3" type="box"/>
+      <geom name="hwall_10" condim="4" pos="0.0 -0.5 0.3" rgba="0.8 0.8 0.8 1" size="0.5 0.025 0.3" type="box"/>
+      <geom name="hwall_11" condim="4" pos="2.0 -0.5 0.3" rgba="0.8 0.8 0.8 1" size="0.5 0.025 0.3" type="box"/>
+      <geom name="hwall_12" condim="4" pos="0.0 -1.5 0.3" rgba="0.8 0.8 0.8 1" size="0.5 0.025 0.3" type="box"/>
+      <geom name="hwall_13" condim="4" pos="-2.0 -2.5 0.3" rgba="0.8 0.8 0.8 1" size="0.5 0.025 0.3" type="box"/>
+      <geom name="hwall_14" condim="4" pos="0.0 -2.5 0.3" rgba="0.8 0.8 0.8 1" size="0.5 0.025 0.3" type="box"/>
+      <geom name="hwall_15" condim="4" pos="4.0 -2.5 0.3" rgba="0.8 0.8 0.8 1" size="0.5 0.025 0.3" type="box"/>
+      <geom name="hwall_16" condim="4" pos="-3.0 -3.5 0.3" rgba="0.8 0.8 0.8 1" size="0.5 0.025 0.3" type="box"/>
+      <geom name="hwall_17" condim="4" pos="-2.0 -3.5 0.3" rgba="0.8 0.8 0.8 1" size="0.5 0.025 0.3" type="box"/>
+      <geom name="hwall_18" condim="4" pos="2.0 -4.5 0.3" rgba="0.8 0.8 0.8 1" size="0.5 0.025 0.3" type="box"/>
+      <geom name="hwall_19" condim="4" pos="4.0 -4.5 0.3" rgba="0.8 0.8 0.8 1" size="0.5 0.025 0.3" type="box"/>
+      <geom name="vwall_20" condim="4" pos="-1.5 5.0 0.3" rgba="0.8 0.8 0.8 1" size="0.025 0.5 0.3" type="box"/>
+      <geom name="vwall_21" condim="4" pos="-1.5 4.0 0.3" rgba="0.8 0.8 0.8 1" size="0.025 0.5 0.3" type="box"/>
+      <geom name="vwall_22" condim="4" pos="-0.5 4.0 0.3" rgba="0.8 0.8 0.8 1" size="0.025 0.5 0.3" type="box"/>
+      <geom name="vwall_23" condim="4" pos="4.5 4.0 0.3" rgba="0.8 0.8 0.8 1" size="0.025 0.5 0.3" type="box"/>
+      <geom name="vwall_24" condim="4" pos="-4.5 3.0 0.3" rgba="0.8 0.8 0.8 1" size="0.025 0.5 0.3" type="box"/>
+      <geom name="vwall_25" condim="4" pos="4.5 3.0 0.3" rgba="0.8 0.8 0.8 1" size="0.025 0.5 0.3" type="box"/>
+      <geom name="vwall_26" condim="4" pos="-2.5 2.0 0.3" rgba="0.8 0.8 0.8 1" size="0.025 0.5 0.3" type="box"/>
+      <geom name="vwall_27" condim="4" pos="-0.5 2.0 0.3" rgba="0.8 0.8 0.8 1" size="0.025 0.5 0.3" type="box"/>
+      <geom name="vwall_28" condim="4" pos="1.5 2.0 0.3" rgba="0.8 0.8 0.8 1" size="0.025 0.5 0.3" type="box"/>
+      <geom name="vwall_29" condim="4" pos="0.5 1.0 0.3" rgba="0.8 0.8 0.8 1" size="0.025 0.5 0.3" type="box"/>
+      <geom name="vwall_30" condim="4" pos="1.5 1.0 0.3" rgba="0.8 0.8 0.8 1" size="0.025 0.5 0.3" type="box"/>
+      <geom name="vwall_31" condim="4" pos="0.5 0.0 0.3" rgba="0.8 0.8 0.8 1" size="0.025 0.5 0.3" type="box"/>
+      <geom name="vwall_32" condim="4" pos="-2.5 -1.0 0.3" rgba="0.8 0.8 0.8 1" size="0.025 0.5 0.3" type="box"/>
+      <geom name="vwall_33" condim="4" pos="4.5 -1.0 0.3" rgba="0.8 0.8 0.8 1" size="0.025 0.5 0.3" type="box"/>
+      <geom name="vwall_34" condim="4" pos="-3.5 -2.0 0.3" rgba="0.8 0.8 0.8 1" size="0.025 0.5 0.3" type="box"/>
+      <geom name="vwall_35" condim="4" pos="-2.5 -2.0 0.3" rgba="0.8 0.8 0.8 1" size="0.025 0.5 0.3" type="box"/>
+      <geom name="vwall_36" condim="4" pos="-1.5 -2.0 0.3" rgba="0.8 0.8 0.8 1" size="0.025 0.5 0.3" type="box"/>
+      <geom name="vwall_37" condim="4" pos="1.5 -2.0 0.3" rgba="0.8 0.8 0.8 1" size="0.025 0.5 0.3" type="box"/>
+      <geom name="vwall_38" condim="4" pos="-3.5 -3.0 0.3" rgba="0.8 0.8 0.8 1" size="0.025 0.5 0.3" type="box"/>
+      <geom name="vwall_39" condim="4" pos="4.5 -3.0 0.3" rgba="0.8 0.8 0.8 1" size="0.025 0.5 0.3" type="box"/>
+      <geom name="vwall_40" condim="4" pos="-2.5 -4.0 0.3" rgba="0.8 0.8 0.8 1" size="0.025 0.5 0.3" type="box"/>
+      <geom name="vwall_41" condim="4" pos="4.5 -4.0 0.3" rgba="0.8 0.8 0.8 1" size="0.025 0.5 0.3" type="box"/>
+    </body>
+    <body name="robot">
+      <joint name="joint_x" type="slide" pos="0 0 0" axis="1 0 0"/>
+      <joint name="joint_y" type="slide" pos="0 0 0" axis="0 1 0"/>
+      <geom name="robot" type="sphere" pos="-3.0 5.0 0.2" size="0.15" mass="5.0" friction="1.0 0.005 0.001" condim="4"/>
+      <site name="sensor_ball"/>
+    </body>
+    <site name="goal" pos="4.0 -5.0 0.0" rgba="0 1 0 0.2" size="0.3" type="sphere"/>
+  </worldbody>
+  <actuator>
+    <motor name="actuator_x" joint="joint_x" gear="1" ctrlrange="-1 1"/>
+    <motor name="actuator_y" joint="joint_y" gear="1" ctrlrange="-1 1"/>
+  </actuator>
+</mujoco>

@@ -554,7 +554,7 @@ class MuJoCoMazeGenerator:
             f.write(xml_content)
         print(f"Generated maze environment: {filepath}")
     
-    def generate_multiple_mazes(self, height: int, width: int, deletion_rate: float, num_mazes: int) -> None:
+    def generate_multiple_mazes(self, height: int, width: int, deletion_rate: float, num_mazes: int, output_dir: str = "../generated_templates") -> None:
         """Generate multiple maze environments with specified parameters.
         
         Args:
@@ -586,7 +586,7 @@ class MuJoCoMazeGenerator:
                     generator = MuJoCoMazeGenerator(wall_deletion_prob=current_deletion_rate)
                     
                     filename = f"maze_{height}x{width}_del{int(current_deletion_rate*100)}p_seed{seed}.xml"
-                    generator.save_xml(maze, env, filename)
+                    generator.save_xml(maze, env, filename, output_dir=output_dir)
                     generated_count += 1
                     print(f"Generated maze {generated_count}/{num_mazes}: {filename}")
         else:
@@ -600,7 +600,7 @@ class MuJoCoMazeGenerator:
                 generator = MuJoCoMazeGenerator(wall_deletion_prob=deletion_rate)
                 
                 filename = f"maze_{height}x{width}_del{int(deletion_rate*100)}p_seed{seed}.xml"
-                generator.save_xml(maze, env, filename)
+                generator.save_xml(maze, env, filename, output_dir=output_dir)
                 print(f"Generated maze {i + 1}/{num_mazes}: {filename}")
         
         print(f"\nCompleted generation of {num_mazes} mazes ({height}x{width})")
@@ -613,6 +613,7 @@ def main():
     parser.add_argument('--deletion_rate', type=float, default=-1, 
                        help='Wall deletion probability 0.0-1.0. If negative, generates incremental rates (default: -1)')
     parser.add_argument('--num_mazes', type=int, default=1, help='Number of mazes to generate (default: 1)')
+    parser.add_argument('--output_dir', type=str, default='../generated_templates', help='Output directory for generated XML files')
     
     args = parser.parse_args()
     
@@ -639,7 +640,7 @@ def main():
     
     # Create generator and generate the requested mazes
     generator = MuJoCoMazeGenerator()  # We'll create specific generators inside the method
-    generator.generate_multiple_mazes(args.height, args.width, args.deletion_rate, args.num_mazes)
+    generator.generate_multiple_mazes(args.height, args.width, args.deletion_rate, args.num_mazes, args.output_dir)
 
 
 if __name__ == "__main__":
