@@ -190,6 +190,45 @@ std::array<double, 2> NAMOPushController::compute_push_control(const PushState& 
         scaling * std::sin(angle)
     };
 }
+void NAMOPushController::print_stuck_ctrl_diag(int, int, double, double, int) {}
+
+bool NAMOPushController::update_stuck_counter_and_check_abort(const std::array<double, 3>& prev_pos,
+                                                             const std::array<double, 4>& prev_quat,
+                                                             const std::array<double, 3>& curr_pos,
+                                                             const std::array<double, 4>& curr_quat,
+                                                             int step,
+                                                             int ctrl_step) {
+    double dx = curr_pos[0] - prev_pos[0];
+    double dy = curr_pos[1] - prev_pos[1];
+    double dist = std::sqrt(dx * dx + dy * dy);
+
+    double yaw_prev = std::atan2(
+        2.0 * (prev_quat[0] * prev_quat[3] + prev_quat[1] * prev_quat[2]),
+        1.0 - 2.0 * (prev_quat[2] * prev_quat[2] + prev_quat[3] * prev_quat[3])
+    );
+    double yaw_curr = std::atan2(
+        2.0 * (curr_quat[0] * curr_quat[3] + curr_quat[1] * curr_quat[2]),
+        1.0 - 2.0 * (curr_quat[2] * curr_quat[2] + curr_quat[3] * curr_quat[3])
+    );
+    double dtheta = std::abs(yaw_curr - yaw_prev);
+    while (dtheta > M_PI) dtheta = 2.0 * M_PI - dtheta;
+
+    bool is_stuck_now = (dist < min_position_change_) && (dtheta < min_angle_change_);
+    if (is_stuck_now) {
+        last_stuck_counter_ += 1;
+        print_stuck_ctrl_diag(step, ctrl_step, dist, dtheta, last_stuck_counter_);
+        if (last_stuck_counter_ >= stuck_ctrl_iterations_threshold_) {
+            // debug disabled
+            return true;
+        }
+    } else {
+        if (last_stuck_counter_ > 0) {
+            print_stuck_ctrl_diag(step, ctrl_step, dist, dtheta, 0);
+        }
+        last_stuck_counter_ = 0;
+    }
+    return false;
+}
 
 void NAMOPushController::update_push_state(PushState& state,
                                           const std::array<double, 3>& obj_pos,
@@ -214,6 +253,8 @@ void NAMOPushController::update_push_state(PushState& state,
 bool NAMOPushController::execute_push_primitive(const std::string& object_name,
                                                int edge_idx,
                                                int push_steps) {
+    // Reset controller-level stuck counter at the start of every primitive execution
+    last_stuck_counter_ = 0;
     
     // Generate edge points for the object
     edge_point_count_ = 0;
@@ -285,6 +326,11 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
     // }
     
     // Execute push steps
+    // Local stuck diagnostics for controller loop
+    int stuck_counter_ctrl = 0;
+    bool has_prev_sample = false;
+    std::array<double, 3> prev_pos_sample = {0.0, 0.0, 0.0};
+    std::array<double, 4> prev_quat_sample = {0.0, 0.0, 0.0, 1.0};
     for (int step = 0; step < push_steps; ++step) {
         // Get current object state
         auto obj_state = env_.get_object_state(object_name);
@@ -325,6 +371,36 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
             
             // Apply control through environment dynamics system
             env_.apply_control(control[0], control[1], 0.01);  // 0.01 second timestep
+
+            // Fetch updated object state AFTER applying control
+            auto obj_state_after = env_.get_object_state(object_name);
+            if (!obj_state_after) {
+                std::cerr << "Lost object state after control application" << std::endl;
+                return false;
+            }
+
+            // ---- Stuck diagnostics (controller-level) ----
+            // Check only every N control steps using snapshot copies (avoid aliasing same internal state)
+            if (ctrl_step % stuck_check_stride_ == 0) {
+                if (!has_prev_sample) {
+                    prev_pos_sample = obj_state_after->position;
+                    prev_quat_sample = obj_state_after->quaternion;
+                    has_prev_sample = true;
+                } else {
+                    // debug disabled
+                    bool abort = update_stuck_counter_and_check_abort(
+                        prev_pos_sample, prev_quat_sample,
+                        obj_state_after->position, obj_state_after->quaternion,
+                        step, ctrl_step
+                    );
+                    if (abort) {
+                        return false;
+                    }
+                    // Advance prev snapshot to current
+                    prev_pos_sample = obj_state_after->position;
+                    prev_quat_sample = obj_state_after->quaternion;
+                }
+            }
 
             // Check if pushed object collides with non-robot objects (if enabled)
             if (check_object_collision_) {

@@ -289,6 +289,10 @@ class ModularEpisodeResult:
     state_observations: Optional[List[Dict[str, List[float]]]] = None  # Smoothed states before each action
     post_action_state_observations: Optional[List[Dict[str, List[float]]]] = None  # Smoothed states after each action
 
+    # Reachable objects information (for mask generation)
+    reachable_objects_before_action: Optional[List[List[str]]] = None  # Reachable objects before each action
+    reachable_objects_after_action: Optional[List[List[str]]] = None  # Reachable objects after each action
+
     # Action refinement results (post-smoothing step)
     refined_action_sequence: Optional[List[Dict]] = None  # Refined action sequence with actual achieved positions
     refinement_accepted: Optional[bool] = None  # Whether refinement passed validation
@@ -336,25 +340,25 @@ def discover_environment_files(base_dir: str, start_idx: int, end_idx: int) -> L
     # all_xml_files = sorted(all_xml_files)
     
 
-    all_xml_files = []
-    folder = 'medium_train_envs'
-    for d in ['very_hard']:
-        with open(f'{folder}/envs_names_{d}.pkl', 'rb') as f:
-            envs_names = pickle.load(f)
-        for env_name in envs_names:
-            xml_file = os.path.join(base_dir, env_name)
-            all_xml_files.append(xml_file)
-    all_xml_files = sorted(all_xml_files)
-    
-    # sets = [1, 2]
-    # benchmarks = [1, 2, 3, 4, 5]
     # all_xml_files = []
-    # for set in sets:
-    #     for benchmark in benchmarks:
-    #         xml_pattern = os.path.join(base_dir, "medium", f"set{set}", f"benchmark_{benchmark}", "*.xml")
-    #         sorted_xml_files = sorted(glob.glob(xml_pattern, recursive=True))
-    #         all_xml_files.extend(sorted_xml_files[:1000]) # train
-    #         # all_xml_files.extend(sorted_xml_files[1000:1100]) # test
+    # folder = 'medium_train_envs'
+    # for d in ['very_hard']:
+    #     with open(f'{folder}/envs_names_{d}.pkl', 'rb') as f:
+    #         envs_names = pickle.load(f)
+    #     for env_name in envs_names:
+    #         xml_file = os.path.join(base_dir, env_name)
+    #         all_xml_files.append(xml_file)
+    # all_xml_files = sorted(all_xml_files)
+    
+    sets = [1, 2]
+    benchmarks = [1, 2, 3, 4, 5]
+    all_xml_files = []
+    for set in sets:
+        for benchmark in benchmarks:
+            xml_pattern = os.path.join(base_dir, "medium", f"set{set}", f"benchmark_{benchmark}", "*.xml")
+            sorted_xml_files = sorted(glob.glob(xml_pattern, recursive=True))
+            all_xml_files.extend(sorted_xml_files[:1000]) # train
+            # all_xml_files.extend(sorted_xml_files[1000:1100]) # test
     # Apply subset selection
     if end_idx == -1:
         end_idx = len(all_xml_files)
@@ -554,6 +558,10 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                                 solution_depth = 1
 
                         # Create episode result for this attempt
+                        # For region opening, use the actual region_goal_used instead of XML goal
+                        # This ensures the goal mask matches what the planner validated
+                        actual_goal = attempt.region_goal_used if attempt.region_goal_used else robot_goal
+
                         episode_result = ModularEpisodeResult(
                             episode_id=attempt_episode_id,
                             algorithm=planner.algorithm_name,
@@ -573,13 +581,16 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                                 'region_goal_used': attempt.region_goal_used,
                                 'chosen_object_id': attempt.chosen_object_id,
                                 'chain_depth': attempt.chain_depth,
+                                'total_cost': getattr(attempt, 'total_cost', None),
                             },
                             action_sequence=action_sequence,
                             state_observations=attempt.state_observations,
                             post_action_state_observations=attempt.post_action_state_observations,
+                            reachable_objects_before_action=attempt.reachable_objects_before_action,
+                            reachable_objects_after_action=attempt.reachable_objects_after_action,
                             static_object_info=static_object_info,
                             xml_file=task.xml_file,
-                            robot_goal=robot_goal,
+                            robot_goal=actual_goal,
                             error_message=attempt.error_message or "",
                             failure_code=None,
                             failure_description=attempt.error_message or ""
@@ -1084,15 +1095,20 @@ class ModularParallelCollectionManager:
 
 def main():
     """Main entry point for modular parallel data collection."""
-    parser = argparse.ArgumentParser(description="Modular Parallel Data Collection")
+    # Pre-parse only --config-yaml to allow YAML defaults with CLI overrides
+    pre_parser = argparse.ArgumentParser(add_help=False)
+    pre_parser.add_argument("--config-yaml", type=str, help="Path to YAML config file for defaults")
+    pre_args, remaining_argv = pre_parser.parse_known_args()
+
+    parser = argparse.ArgumentParser(description="Modular Parallel Data Collection", parents=[pre_parser])
     
-    # Required arguments
-    parser.add_argument("--output-dir", type=str, required=True,
-                        help="Output directory for collected data")
-    parser.add_argument("--start-idx", type=int, required=True,
-                        help="Starting index for environment file subset")
-    parser.add_argument("--end-idx", type=int, required=True,
-                        help="Ending index for environment file subset (exclusive)")
+    # Core arguments (YAML may provide defaults; CLI can override)
+    parser.add_argument("--output-dir", type=str, default=None,
+                        help="Output directory for collected data (required if not provided via YAML)")
+    parser.add_argument("--start-idx", type=int, default=None,
+                        help="Starting index for environment file subset (required if not provided via YAML)")
+    parser.add_argument("--end-idx", type=int, default=None,
+                        help="Ending index for environment file subset (exclusive) (required if not provided via YAML)")
     
     # Algorithm selection
     available_algorithms = PlannerFactory.list_available_planners()
@@ -1134,29 +1150,15 @@ def main():
     parser.add_argument("--search-timeout", type=float, default=300.0,
                         help="Search timeout in seconds (default: 300.0 = 5 minutes)")
 
-    # Region opening planner arguments
-    parser.add_argument("--region-local-only", action="store_true", default=True,
-                        help="Restrict region connectivity to local neighbourhood (default: True)")
-    parser.add_argument("--region-goal-radius", type=float, default=0.15,
-                        help="Goal sampling radius for region goals (default: 0.15)")
-    parser.add_argument("--region-goals-per-region", type=int, default=8,
-                        help="Number of goals to sample per region (default: 8)")
-    parser.add_argument("--region-sampler", type=str, default="random", choices=["random", "primitive"],
-                        help="Goal sampler for region opening (default: random)")
+    # Region opening planner arguments (only those used by RegionOpeningPlanner)
     parser.add_argument("--region-allow-collisions", action="store_true",
                         help="Allow object collisions during region opening pushes (default: False, terminate on collision)")
     parser.add_argument("--region-max-chain-depth", type=int, default=1,
                         help="Maximum chain depth for region opening: 1=single push, 2=2-push chains, 3=3-push chains (default: 1)")
-    parser.add_argument("--region-max-object-tries", type=int, default=5,
-                        help="Maximum objects to try per neighbour (default: 5)")
-    parser.add_argument("--region-max-goals-per-object", type=int, default=8,
-                        help="Maximum goals to try per object (default: 8)")
-    parser.add_argument("--region-max-solutions-per-neighbor", type=int, default=2,
-                        help="Maximum solutions to keep per neighbor region (default: 2)")
-    parser.add_argument("--region-max-explorations", type=int, default=20,
-                        help="Maximum total states to queue for multi-level exploration (default: 20)")
-    parser.add_argument("--validate-via", type=str, default="connectivity", choices=["connectivity", "reachability"],
-                        help="Validation method for region opening (default: connectivity)")
+    parser.add_argument("--region-max-solutions-per-neighbor", type=int, default=10,
+                        help="Maximum solutions to keep per neighbor region (default: 10)")
+    parser.add_argument("--region-frontier-beam-width", type=int, default=None,
+                        help="Optional beam width (K) to cap frontier per chain depth; None/<=0 disables")
     parser.add_argument("--xml-dir", type=str, 
                         default="../ml4kp_ktamp/resources/models/custom_walled_envs/aug9",
                         help="Base directory for XML environment files")
@@ -1176,8 +1178,26 @@ def main():
     parser.add_argument("--validate-refinement", action="store_true", default=True,
                         help="Validate that refined actions still solve the task (default: True)")
     
-    args = parser.parse_args()
+    # If YAML provided, load and set parser defaults before final parse
+    if pre_args.config_yaml:
+        try:
+            import yaml  # Requires PyYAML
+            with open(pre_args.config_yaml, 'r') as f:
+                yaml_cfg = yaml.safe_load(f) or {}
+            if not isinstance(yaml_cfg, dict):
+                yaml_cfg = {}
+            # Only pass known keys; argparse will ignore unknown via set_defaults
+            parser.set_defaults(**yaml_cfg)
+        except Exception as e:
+            print(f"⚠️  Warning: could not load YAML config '{pre_args.config_yaml}': {e}")
+
+    args = parser.parse_args(remaining_argv)
     
+    # Validate required arguments presence (after YAML + CLI merge)
+    if args.output_dir is None or args.start_idx is None or args.end_idx is None:
+        print("❌ Error: --output-dir, --start-idx, and --end-idx are required (via CLI or YAML)")
+        return 1
+
     # Validate arguments
     if args.start_idx < 0:
         print("❌ Error: start-idx must be non-negative")
@@ -1219,22 +1239,16 @@ def main():
         return 1
     
     # Create planner configuration (strategy will be added by manager)
-    # Build algorithm_params with region opening parameters
+    # Build algorithm_params with only the region opening parameters that are actually used
     algorithm_params = {}
     if args.algorithm == "region_opening":
         algorithm_params.update({
-            "region_local_only": args.region_local_only,
-            "region_goal_radius": args.region_goal_radius,
-            "region_goals_per_region": args.region_goals_per_region,
-            "region_sampler": args.region_sampler,
             "region_allow_collisions": args.region_allow_collisions,
             "region_max_chain_depth": args.region_max_chain_depth,
-            "region_max_object_tries": args.region_max_object_tries,
-            "region_max_goals_per_object": args.region_max_goals_per_object,
             "region_max_solutions_per_neighbor": args.region_max_solutions_per_neighbor,
-            "region_max_explorations": args.region_max_explorations,
-            "region_validate_via": args.validate_via,
         })
+        if args.region_frontier_beam_width is not None:
+            algorithm_params["region_frontier_beam_width"] = args.region_frontier_beam_width
 
     planner_config = PlannerConfig(
         max_depth=args.max_depth,

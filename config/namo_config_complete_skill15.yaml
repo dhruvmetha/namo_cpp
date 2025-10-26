@@ -54,6 +54,11 @@ skill:
   stuck_threshold: 0.01            # Minimum movement to avoid stuck detection (meters)
   max_stuck_iterations: 2         # Maximum stuck iterations before failure
   check_object_collision: true     # Terminate push if pushed object collides with non-robot objects
+  # Controller-level stuck detection (push controller)
+  stuck_check_stride: 30           # Control steps between stuck checks
+  controller_stuck_threshold: 3    # Checks before aborting due to stuck
+  controller_min_position_change: 0.001  # Min movement per check (meters)
+  controller_min_angle_change: 0.05      # Min yaw change per check (radians)
   
   # Object interaction parameters
   object_clearance: 0.1            # Clearance around objects for edge point sampling (meters)

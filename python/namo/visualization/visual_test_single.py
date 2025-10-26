@@ -198,10 +198,15 @@ def visualize_solution(env: namo_rl.RLEnvironment, result: PlannerResult, step_m
 
 def main():
     """Main entry point for visual single-run IDFS testing."""
-    parser = argparse.ArgumentParser(description="Visual Single-Run IDFS Tester")
+    # Pre-parse only --config-yaml to allow YAML defaults with CLI overrides
+    pre_parser = argparse.ArgumentParser(add_help=False)
+    pre_parser.add_argument("--config-yaml", type=str, help="Path to YAML config file for defaults")
+    pre_args, remaining_argv = pre_parser.parse_known_args()
+
+    parser = argparse.ArgumentParser(description="Visual Single-Run IDFS Tester", parents=[pre_parser])
     
     # Required arguments
-    parser.add_argument("--xml-file", type=str, required=True,
+    parser.add_argument("--xml-file", type=str, required=False,
                         help="Path to XML environment file to test")
     
     # Algorithm selection
@@ -237,16 +242,12 @@ def main():
                         help="Maximum terminal checks before stopping search (default: 5000)")
     parser.add_argument("--search-timeout", type=float, default=60.0,
                         help="Search timeout in seconds (default: 60.0)")
-    parser.add_argument("--region-search-strategy", type=str, default="bfs", choices=["bfs", "dfs"],
-                        help="Search strategy for region opening: bfs (breadth-first) or dfs (depth-first) (default: bfs)")
     parser.add_argument("--region-allow-collisions", action="store_true",
                         help="Allow object collisions during region opening pushes (default: False, terminate on collision)")
     parser.add_argument("--region-max-chain-depth", type=int, default=1,
                         help="Maximum chain depth for region opening: 1=single push, 2=2-push chains, 3=3-push chains (default: 1)")
-    parser.add_argument("--region-max-solutions-per-neighbor", type=int, default=2,
-                        help="Maximum solutions to keep per neighbor region (default: 2)")
-    parser.add_argument("--region-max-explorations", type=int, default=20,
-                        help="Maximum total states to queue for multi-level exploration (default: 20)")
+    parser.add_argument("--region-max-solutions-per-neighbor", type=int, default=10,
+                        help="Maximum solutions to keep per neighbor region (default: 10)")
 
     # Environment settings
     parser.add_argument("--config-file", type=str, 
@@ -283,7 +284,18 @@ def main():
     parser.add_argument("--verbose", action="store_true",
                         help="Enable verbose algorithm output")
     
-    args = parser.parse_args()
+    # If YAML provided, load and set parser defaults before final parse
+    if pre_args.config_yaml:
+        try:
+            import yaml
+            with open(pre_args.config_yaml, 'r') as f:
+                yaml_cfg = yaml.safe_load(f) or {}
+            if isinstance(yaml_cfg, dict):
+                parser.set_defaults(**yaml_cfg)
+        except Exception as e:
+            print(f"⚠️  Warning: could not load YAML config '{pre_args.config_yaml}': {e}")
+
+    args = parser.parse_args(remaining_argv)
     
     # Validate ML strategy requirements
     if args.object_strategy == "ml" and not args.ml_object_model:
@@ -294,7 +306,10 @@ def main():
         print("❌ Error: --ml-goal-model is required when using ML goal strategy")
         return 1
     
-    # Check if XML file exists
+    # Ensure XML file is provided (via CLI or YAML) and exists
+    if not args.xml_file:
+        print("❌ Error: --xml-file is required (or provide 'xml_file' in the YAML)")
+        return 1
     if not os.path.exists(args.xml_file):
         print(f"❌ Error: XML file not found: {args.xml_file}")
         return 1
@@ -364,11 +379,9 @@ def main():
             'goal_selection_strategy': args.goal_strategy,
             'ml_samples': args.ml_samples,
             'ml_device': args.ml_device,
-            'region_search_strategy': args.region_search_strategy,
             'region_allow_collisions': args.region_allow_collisions,
             'region_max_chain_depth': args.region_max_chain_depth,
-            'region_max_solutions_per_neighbor': args.region_max_solutions_per_neighbor,
-            'region_max_explorations': args.region_max_explorations
+            'region_max_solutions_per_neighbor': args.region_max_solutions_per_neighbor
         }
         
         # Add ML model paths and preloaded models to parameters
@@ -493,7 +506,6 @@ def main():
                 solution_env.set_collision_checking(False)
 
             # Check if region_opening planner returned multiple solutions
-            # Use attempt_results instead of all_solutions to get exploration_state
             attempt_results = None
             if result.algorithm_stats and "attempt_results" in result.algorithm_stats:
                 attempt_results = [a for a in result.algorithm_stats["attempt_results"] if a.success]
@@ -505,16 +517,10 @@ def main():
                 for i, attempt in enumerate(attempt_results, 1):
                     print(f"\n{'='*60}")
                     print(f"Solution {i}/{len(attempt_results)}: Opening to '{attempt.neighbour_region_label}' by pushing {attempt.chosen_object_id}")
-                    if attempt.exploration_level > 0:
-                        print(f"  [Exploration level {attempt.exploration_level}]")
                     print(f"{'='*60}")
 
-                    # Reset environment to the exploration state (state from which this opening was found)
-                    if attempt.exploration_state is not None:
-                        solution_env.set_full_state(attempt.exploration_state)
-                    else:
-                        # Fallback to baseline if no exploration state stored
-                        reset_environment_for_visualization(solution_env, robot_goal)
+                    # Reset environment to initial state before visualizing this solution
+                    reset_environment_for_visualization(solution_env, robot_goal)
 
                     # Build action sequence from attempt
                     action_sequence = []

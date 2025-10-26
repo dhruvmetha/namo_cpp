@@ -26,6 +26,9 @@ class ChainNode:
     depth: int  # Chain depth (1, 2, or 3)
     parent: Optional['ChainNode'] = None  # Parent node in chain
     collided_edges: Set[int] = field(default_factory=set)  # Edges that collided at this state
+    # Cost of this step within its inner BFS call (primitive depth, 1-based)
+    # For root node (no action), this remains 0
+    step_cost: int = 0
 
 
 @dataclass
@@ -46,10 +49,14 @@ class AttemptResult:
     actions_executed: List[namo_rl.Action] = field(default_factory=list)
     state_observations: Optional[List[Dict[str, List[float]]]] = None  # State before each action
     post_action_state_observations: Optional[List[Dict[str, List[float]]]] = None  # State after each action
+    reachable_objects_before_action: Optional[List[List[str]]] = None  # Reachable objects before each action
+    reachable_objects_after_action: Optional[List[List[str]]] = None  # Reachable objects after each action
     exploration_state: Optional['namo_rl.RLState'] = None  # State we were exploring from when this opening was found
     resulting_state: Optional['namo_rl.RLState'] = None  # Full state after executing this opening (for multi-level exploration)
     exploration_level: int = 0  # Which exploration level this opening was found at (0 = initial state)
     timing_ms: Optional[float] = None
+    # Total additive cost of the chain (sum of inner primitive depths)
+    total_cost: int = 0
 
 
 class RegionOpeningPlanner(BasePlanner):
@@ -81,15 +88,17 @@ class RegionOpeningPlanner(BasePlanner):
         if self.max_chain_depth < 1 or self.max_chain_depth > 10:
             raise ValueError(f"Invalid max_chain_depth: {self.max_chain_depth}. Must be between 1 and 10")
 
-        # Get max solutions per neighbor from config.algorithm_params (default: 2)
-        self.max_solutions_per_neighbor = config.algorithm_params.get("region_max_solutions_per_neighbor", 2)
+        # Get max solutions per neighbor from config.algorithm_params (default: 10)
+        self.max_solutions_per_neighbor = config.algorithm_params.get("region_max_solutions_per_neighbor", 10)
         if self.max_solutions_per_neighbor < 1:
             raise ValueError(f"Invalid max_solutions_per_neighbor: {self.max_solutions_per_neighbor}. Must be at least 1")
 
-        # Get max explorations (total states queued for multi-level exploration) (default: 20)
-        self.max_explorations = config.algorithm_params.get("region_max_explorations", 20)
-        if self.max_explorations < 1:
-            raise ValueError(f"Invalid max_explorations: {self.max_explorations}. Must be at least 1")
+        # Optional: cap number of frontier nodes per chain level (beam width)
+        # None or 0 => unbounded frontier (complete)
+        beam_width = config.algorithm_params.get("region_frontier_beam_width", None)
+        if isinstance(beam_width, int) and beam_width <= 0:
+            beam_width = None
+        self.frontier_beam_width = beam_width
 
         super().__init__(env, config)
 
@@ -125,18 +134,17 @@ class RegionOpeningPlanner(BasePlanner):
         self.attempt_results = []
 
     def search(self, robot_goal: Tuple[float, float, float]) -> PlannerResult:
-        """Execute multi-level region opening planner with BFS exploration.
+        """Execute region opening planner (single-level exploration from initial state only).
 
-        This method explores region openings across multiple levels:
-        - Level 0: Find openings from initial state
-        - Level 1+: For each successful opening, explore further openings from resulting state
-        - Continue until no new openings are found
+        This method explores region openings from the initial state only:
+        - Find all possible openings from the initial environment configuration
+        - No multi-level exploration (no queueing of resulting states)
 
         Args:
             robot_goal: Target robot position (x, y, theta) - stored but not directly used
 
         Returns:
-            PlannerResult with all attempt results across all exploration levels
+            PlannerResult with all attempt results from initial state
         """
         start_time = time.time()
         self.attempt_results = []
@@ -148,62 +156,19 @@ class RegionOpeningPlanner(BasePlanner):
         # Save baseline state
         baseline = self.env.get_full_state()
 
-        # Multi-level BFS exploration queue: list of (state, level) tuples
-        exploration_queue = [(baseline, 0)]
-        level_statistics = {}  # Track statistics per level
-        total_explorations_queued = 0  # Track total states added to queue (excluding initial state)
-
         if self.config.verbose:
             print(f"\n{'='*60}")
-            print(f"Region Opening Planner - Multi-Level BFS Exploration")
-            print(f"Max explorations: {self.max_explorations} | Max chain depth: {self.max_chain_depth} | Collision checking: {'ON' if collision_checking_enabled else 'OFF'}")
+            print(f"Region Opening Planner - Single-Level Exploration")
+            print(f"Max chain depth: {self.max_chain_depth} | Collision checking: {'ON' if collision_checking_enabled else 'OFF'}")
             print(f"{'='*60}\n")
 
-        # BFS loop: explore states level-by-level
-        while exploration_queue:
-            current_state, current_level = exploration_queue.pop(0)
-
-            if self.config.verbose:
-                print(f"\n[Level {current_level}] Exploring state (queue: {len(exploration_queue)} remaining)")
-
-            # Explore from this state
-            level_attempts = self._explore_from_state(current_state, current_level)
-
-            # Track statistics for this level
-            if current_level not in level_statistics:
-                level_statistics[current_level] = {'total_attempts': 0, 'successful_openings': 0}
-            level_statistics[current_level]['total_attempts'] += len(level_attempts)
-
-            # Process results and queue successful openings for next level
-            for attempt in level_attempts:
-                self.attempt_results.append(attempt)
-
-                if attempt.success and attempt.resulting_state is not None:
-                    # Check if we've reached the exploration limit
-                    if total_explorations_queued < self.max_explorations:
-                        # Queue this resulting state for exploration at next level
-                        exploration_queue.append((attempt.resulting_state, current_level + 1))
-                        total_explorations_queued += 1
-                        level_statistics[current_level]['successful_openings'] += 1
-
-                        if self.config.verbose:
-                            chain_info = f"chain={len(attempt.goal_chain)}" if attempt.goal_chain else "single"
-                            print(f"  ✓ Queued '{attempt.neighbour_region_label}' opening (obj={attempt.chosen_object_id}, {chain_info}) → Level {current_level + 1} [Total queued: {total_explorations_queued}/{self.max_explorations}]")
-                    else:
-                        if self.config.verbose:
-                            print(f"  ⊗ Skipped '{attempt.neighbour_region_label}' (exploration limit reached)")
-
-            if self.config.verbose:
-                successful = level_statistics[current_level]['successful_openings']
-                total = level_statistics[current_level]['total_attempts']
-                print(f"  Level {current_level} complete: {successful}/{total} successful")
+        # Explore from initial state only (Level 0)
+        self.attempt_results = self._explore_from_state(baseline, level=0)
 
         if self.config.verbose:
+            successful_attempts = sum(1 for a in self.attempt_results if a.success)
             print(f"\n{'='*60}")
-            print(f"Exploration Complete | Levels: {len(level_statistics)} | Queued states: {total_explorations_queued}/{self.max_explorations}")
-            total_successful = sum(stats['successful_openings'] for stats in level_statistics.values())
-            total_attempts = sum(stats['total_attempts'] for stats in level_statistics.values())
-            print(f"Overall: {total_successful} successful openings from {total_attempts} attempts")
+            print(f"Exploration Complete: {successful_attempts}/{len(self.attempt_results)} successful openings")
             print(f"{'='*60}\n")
 
         # Calculate statistics
@@ -259,13 +224,9 @@ class RegionOpeningPlanner(BasePlanner):
             search_time_ms=total_time,
             algorithm_stats={
                 "attempt_results": self.attempt_results,
-                "all_solutions": all_solutions,  # ALL successful openings across all levels
+                "all_solutions": all_solutions,  # ALL successful openings from initial state
                 "successful_openings": successful_attempts,
-                "total_levels_explored": len(level_statistics),
-                "level_statistics": level_statistics,
-                "total_explorations_queued": total_explorations_queued,
-                "max_explorations": self.max_explorations,
-                "exploration_limit_reached": total_explorations_queued >= self.max_explorations
+                "total_attempts": len(self.attempt_results)
             }
         )
 
@@ -299,7 +260,7 @@ class RegionOpeningPlanner(BasePlanner):
             config_path,
             include_snapshot=False,
             local_info_only=True,
-            goals_per_region=8,
+            goals_per_region=5,
             generate_training_data=True,
             use_current_state=True,
         )
@@ -411,9 +372,9 @@ class RegionOpeningPlanner(BasePlanner):
                 timing_ms=(time.time() - attempt_start) * 1000
             )]
 
-        # Intersect with reachable objects (try up to 5 objects)
+        # Intersect with reachable objects
         reachable = set(self.env.get_reachable_objects())
-        candidates = [obj for obj in candidates if obj in reachable][:5]
+        candidates = [obj for obj in candidates if obj in reachable]
 
         if not candidates:
             if self.config.verbose:
@@ -433,11 +394,14 @@ class RegionOpeningPlanner(BasePlanner):
         # Snapshot connectivity before (for validation)
         conn_before = {"adjacency": dict(adjacency), "robot_label": robot_label}
 
-        # Collect attempts from ALL candidate objects (not just first successful one)
+        # Collect attempts from candidate objects, capped per-neighbour
         all_goal_attempts = []
+        solutions_remaining = self.max_solutions_per_neighbor
 
         # Try each candidate object with BFS search (already filtered for reachability)
         for obj_idx, object_id in enumerate(candidates, 1):
+            if solutions_remaining <= 0:
+                break
             # CRITICAL: Reset to exploration_state before trying each object
             # This ensures each object is tried from the same starting configuration
             self.env.set_full_state(exploration_state)
@@ -447,7 +411,8 @@ class RegionOpeningPlanner(BasePlanner):
                 object_id,
                 exploration_state,
                 neighbour_label,
-                region_goals
+                region_goals,
+                max_solutions_to_collect=solutions_remaining
             )
 
             if successful_goals:
@@ -458,7 +423,9 @@ class RegionOpeningPlanner(BasePlanner):
                 # State observations were already captured during BFS search
 
                 # Limit to max_solutions per object
-                for goal_idx, (goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used) in enumerate(successful_goals[:max_solutions]):
+                # Respect global per-neighbour cap
+                per_object_limit = min(max_solutions, solutions_remaining)
+                for goal_idx, (goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used, reachable_before, reachable_after, total_cost) in enumerate(successful_goals[:per_object_limit]):
 
                     # Create AttemptResult
                     if len(goal_chain) == 1:
@@ -476,11 +443,20 @@ class RegionOpeningPlanner(BasePlanner):
                             actions_executed=[],
                             state_observations=state_obs,
                             post_action_state_observations=post_state_obs,
+                            reachable_objects_before_action=reachable_before,
+                            reachable_objects_after_action=reachable_after,
                             exploration_state=exploration_state,
                             resulting_state=resulting_state,
                             exploration_level=exploration_level,
-                            timing_ms=(time.time() - attempt_start) * 1000
+                            timing_ms=(time.time() - attempt_start) * 1000,
+                            total_cost=total_cost
                         ))
+                        # Verbose: print running count of solutions for this neighbour
+                        if self.config.verbose:
+                            print(f"        → Solutions so far: {len(all_goal_attempts)}/{self.max_solutions_per_neighbor}")
+                        solutions_remaining -= 1
+                        if solutions_remaining <= 0:
+                            break
                     else:
                         # Multi-push chain
                         all_goal_attempts.append(AttemptResult(
@@ -497,11 +473,20 @@ class RegionOpeningPlanner(BasePlanner):
                             actions_executed=[],
                             state_observations=state_obs,
                             post_action_state_observations=post_state_obs,
+                            reachable_objects_before_action=reachable_before,
+                            reachable_objects_after_action=reachable_after,
                             exploration_state=exploration_state,
                             resulting_state=resulting_state,
                             exploration_level=exploration_level,
-                            timing_ms=(time.time() - attempt_start) * 1000
+                            timing_ms=(time.time() - attempt_start) * 1000,
+                            total_cost=total_cost
                         ))
+                        # Verbose: print running count of solutions for this neighbour
+                        if self.config.verbose:
+                            print(f"        → Solutions so far: {len(all_goal_attempts)}/{self.max_solutions_per_neighbor}")
+                        solutions_remaining -= 1
+                        if solutions_remaining <= 0:
+                            break
 
         # After trying all objects, return results
         if all_goal_attempts:
@@ -523,7 +508,7 @@ class RegionOpeningPlanner(BasePlanner):
         object_id: str,
         goal_chain: List[Goal],
         baseline_state: namo_rl.RLState
-    ) -> Tuple[List, List]:
+    ) -> Tuple[List, List, List, List]:
         """Execute a goal chain and collect state observations for each push.
 
         Args:
@@ -532,16 +517,21 @@ class RegionOpeningPlanner(BasePlanner):
             baseline_state: Starting state
 
         Returns:
-            Tuple of (state_observations, post_action_state_observations)
+            Tuple of (state_observations, post_action_state_observations,
+                     reachable_before, reachable_after)
         """
         self.env.set_full_state(baseline_state)
         state_obs = []
         post_state_obs = []
+        reachable_before = []
+        reachable_after = []
 
         for goal in goal_chain:
-            # Capture state before action
+            # Capture state and reachable objects before action
             pre_obs = self.env.get_observation()
+            pre_reachable = self.env.get_reachable_objects()
             state_obs.append(pre_obs)
+            reachable_before.append(pre_reachable)
 
             # Execute action
             action = namo_rl.Action()
@@ -551,18 +541,21 @@ class RegionOpeningPlanner(BasePlanner):
             action.theta = goal.theta
             self.env.step(action)
 
-            # Capture state after action
+            # Capture state and reachable objects after action
             post_obs = self.env.get_observation()
+            post_reachable = self.env.get_reachable_objects()
             post_state_obs.append(post_obs)
+            reachable_after.append(post_reachable)
 
-        return state_obs, post_state_obs
+        return state_obs, post_state_obs, reachable_before, reachable_after
 
     def _search_minimum_depth_goals(
         self,
         object_id: str,
         baseline_state: namo_rl.RLState,
         neighbour_label: str,
-        region_goals: Dict[str, Any]
+        region_goals: Dict[str, Any],
+        max_solutions_to_collect: Optional[int] = None
     ) -> Tuple[List[Tuple[List[Goal], List, List, 'namo_rl.RLState', Optional[Tuple]]], int]:
         """Search for minimum-depth goals using BFS through push steps.
 
@@ -596,8 +589,15 @@ class RegionOpeningPlanner(BasePlanner):
             return [], 0
 
         # Search with chaining (outer BFS over chain depth)
-        return self._search_with_chaining_bfs(goals_per_edge, reachable_edge_indices, baseline_state,
-                                             neighbour_label, region_goals, object_id)
+        return self._search_with_chaining_bfs(
+            goals_per_edge,
+            reachable_edge_indices,
+            baseline_state,
+            neighbour_label,
+            region_goals,
+            object_id,
+            max_solutions_to_collect=max_solutions_to_collect
+        )
 
     def _search_with_chaining_bfs(
         self,
@@ -606,12 +606,15 @@ class RegionOpeningPlanner(BasePlanner):
         baseline_state: namo_rl.RLState,
         neighbour_label: str,
         region_goals: Dict[str, Any],
-        object_id: str
+        object_id: str,
+        max_solutions_to_collect: Optional[int] = None
     ) -> Tuple[List[Tuple[List[Goal], List, List, 'namo_rl.RLState', Optional[Tuple]]], int]:
         """Outer BFS over chain depth: Try single pushes, then 2-push chains, then 3-push chains.
 
+        Collects ALL successful chains across all depths instead of stopping early.
+
         Returns:
-            Tuple of (all_chains, depth) where all_chains is a list of tuples:
+            Tuple of (all_chains, min_depth) where all_chains is a list of tuples:
             (goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used).
             Returns ([], 0) if no solution found.
         """
@@ -622,15 +625,38 @@ class RegionOpeningPlanner(BasePlanner):
             goal=None,
             edge_idx=-1,
             depth=0,
-            parent=None
+            parent=None,
+            step_cost=0
         )
         frontier = [root_node]
+
+        # Collect all successful chains across all depths
+        all_chains_across_depths = []
+        min_chain_depth_found = None
+
+        # Track best cumulative cost found so far; use for pruning
+        best_total_cost = None
 
         # Try chain depths 1, 2, 3, ...
         for chain_depth in range(1, self.max_chain_depth + 1):
             next_frontier = []
+            processed_frontiers = 0
+            total_frontier_time_ms = 0.0
+            orig_frontier_len = len(frontier)
+            reached_cap = False
+
+            # Verbose: indicate which chain-depth search level we are at
+            if self.config.verbose:
+                chain_label = f"{chain_depth}-chain"
+                print(f"    ▶ Searching {chain_label} (frontier={len(frontier)})")
 
             for node in frontier:
+                node_start_time = time.time()
+                # Cost-based node prune: if cost so far already meets/exceeds best, skip
+                if best_total_cost is not None:
+                    chain_cost_so_far = self._compute_chain_cost(node)
+                    if chain_cost_so_far >= best_total_cost:
+                        continue
                 # Restore to this node's state
                 self.env.set_full_state(node.state)
 
@@ -653,6 +679,13 @@ class RegionOpeningPlanner(BasePlanner):
 
                 # Run inner BFS (single-skill search)
                 collect_frontier = (chain_depth < self.max_chain_depth)
+                # Compute remaining budget if we already have a best cost
+                if 'best_total_cost' in locals() and best_total_cost is not None:
+                    chain_cost_so_far = self._compute_chain_cost(node)
+                    remaining_budget = max(0, best_total_cost - chain_cost_so_far)
+                else:
+                    remaining_budget = None
+
                 successful_results, primitive_depth, new_frontier_nodes = self._search_bfs(
                     goals_per_edge,
                     reachable_edge_indices,
@@ -662,16 +695,16 @@ class RegionOpeningPlanner(BasePlanner):
                     object_id,
                     parent_node=node,
                     current_chain_depth=chain_depth,
-                    collect_frontier=collect_frontier
+                    collect_frontier=collect_frontier,
+                    remaining_budget=remaining_budget
                 )
 
                 # If we found success, reconstruct ALL goal chains with their state observations
                 if successful_results:
-                    all_chains = []
                     for (final_goal, final_state_obs, final_post_state_obs, resulting_state, region_goal_used, success_node) in successful_results:
                         # For multi-push chains, reconstruct full chain with observations
                         if chain_depth > 1:
-                            goal_chain, state_obs, post_state_obs = self._reconstruct_chain_with_observations(
+                            goal_chain, state_obs, post_state_obs, reachable_before, reachable_after, total_cost = self._reconstruct_chain_with_observations(
                                 success_node, object_id, baseline_state
                             )
                         else:
@@ -679,23 +712,90 @@ class RegionOpeningPlanner(BasePlanner):
                             goal_chain = [final_goal]
                             state_obs = final_state_obs
                             post_state_obs = final_post_state_obs
+                            # For single push, we don't have reachable objects captured during BFS
+                            # So collect them now
+                            self.env.set_full_state(baseline_state)
+                            reachable_before = [self.env.get_reachable_objects()]
+                            # Execute the action to get reachable after
+                            action = namo_rl.Action()
+                            action.object_id = object_id
+                            action.x = final_goal.x
+                            action.y = final_goal.y
+                            action.theta = final_goal.theta
+                            self.env.step(action)
+                            reachable_after = [self.env.get_reachable_objects()]
+                            # For single push, total_cost equals the primitive depth at which success occurred
+                            total_cost = max(1, getattr(success_node, "step_cost", 1))
 
-                        all_chains.append((goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used))
+                        # Verbose: print each solution found at this chain depth
+                        if self.config.verbose:
+                            print(f"      ✓ Found solution at {chain_depth}-chain (total_cost={total_cost})")
 
-                    # Return all chains at this minimum depth
-                    return all_chains, chain_depth
+                        # Entry layout: (goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used, reachable_before, reachable_after, total_cost)
+                        # Maintain only min-cost solutions so far; reset when a new lower cost is found
+                        if best_total_cost is None or total_cost <= best_total_cost:
+                            # If strictly better cost, reset collection to only keep new best-cost solutions
+                            if best_total_cost is None or total_cost < best_total_cost:
+                                best_total_cost = total_cost
+                                all_chains_across_depths = [entry for entry in all_chains_across_depths if entry[7] == best_total_cost]
+
+                            all_chains_across_depths.append((goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used, reachable_before, reachable_after, total_cost))
+                            if self.config.verbose:
+                                # Running count of min-cost solutions so far (object scope)
+                                print(f"        → Solutions so far (object, best_cost={best_total_cost}): {len(all_chains_across_depths)}")
+
+                            # Early stop if we reached the per-object cap
+                            if max_solutions_to_collect is not None and len(all_chains_across_depths) >= max_solutions_to_collect:
+                                reached_cap = True
+                                break
+
+                    # Track minimum chain depth where we found a solution
+                    if min_chain_depth_found is None:
+                        min_chain_depth_found = chain_depth
 
                 # Add new frontier nodes for next chain level
                 next_frontier.extend(new_frontier_nodes)
 
-            # Move to next chain depth
-            frontier = next_frontier
+                if reached_cap:
+                    break
+
+                # Per-frontier timing
+                processed_frontiers += 1
+                node_elapsed_ms = (time.time() - node_start_time) * 1000.0
+                total_frontier_time_ms += node_elapsed_ms
+                if self.config.verbose:
+                    print(f"      • Frontier {processed_frontiers}/{orig_frontier_len} took {node_elapsed_ms:.1f} ms")
+
+            # Apply beam width pruning on next_frontier if configured
+            if self.frontier_beam_width is not None:
+                # Sort by cumulative chain cost (ascending), then by step_cost (ascending)
+                next_frontier.sort(key=lambda n: (self._compute_chain_cost(n), getattr(n, "step_cost", 0)))
+                # Keep top-K
+                frontier = next_frontier[: self.frontier_beam_width]
+            else:
+                # Move to next chain depth
+                frontier = next_frontier
+
+            if reached_cap:
+                break
+
+            # After this chain depth, report completion stats
+            if self.config.verbose and processed_frontiers > 0:
+                avg_ms = total_frontier_time_ms / processed_frontiers
+                print(f"    ◼ Completed {processed_frontiers}/{orig_frontier_len} frontiers | avg {avg_ms:.1f} ms | total {total_frontier_time_ms:.1f} ms")
 
             if not frontier:
                 break
 
-        # No solution found at any chain depth
-        return [], 0
+        # If we found any chains, filter to keep only minimum-cost ones
+        if all_chains_across_depths:
+            best_cost = min(entry[7] for entry in all_chains_across_depths)
+            min_cost_chains = [entry for entry in all_chains_across_depths if entry[7] == best_cost]
+            if self.config.verbose:
+                print(f"    ✔ Returning {len(min_cost_chains)} min-cost solution(s) with cost={best_cost}")
+            return min_cost_chains, min_chain_depth_found if min_chain_depth_found else 0
+        else:
+            return all_chains_across_depths, 0
 
     def _reconstruct_chain(self, final_node: ChainNode, final_goal: Goal) -> List[Goal]:
         """Reconstruct the chain of goals from root to final goal."""
@@ -720,7 +820,7 @@ class RegionOpeningPlanner(BasePlanner):
         success_node: ChainNode,
         object_id: str,
         baseline_state: namo_rl.RLState
-    ) -> Tuple[List[Goal], List, List]:
+    ) -> Tuple[List[Goal], List, List, List, List, int]:
         """Reconstruct goal chain and collect observations by re-executing.
 
         This is only called for multi-push chains (chain_depth > 1).
@@ -731,7 +831,7 @@ class RegionOpeningPlanner(BasePlanner):
             baseline_state: Starting state for re-execution
 
         Returns:
-            Tuple of (goal_chain, state_obs, post_state_obs)
+            Tuple of (goal_chain, state_obs, post_state_obs, reachable_before, reachable_after)
         """
         # Reconstruct goal chain from parent nodes
         goal_chain = []
@@ -742,11 +842,30 @@ class RegionOpeningPlanner(BasePlanner):
         goal_chain.reverse()
 
         # Re-execute chain to collect observations
-        state_obs, post_state_obs = self._collect_chain_observations(
+        state_obs, post_state_obs, reachable_before, reachable_after = self._collect_chain_observations(
             object_id, goal_chain, baseline_state
         )
 
-        return goal_chain, state_obs, post_state_obs
+        # Compute cumulative cost along the reconstructed chain
+        total_cost = 0
+        node = success_node
+        while node.parent is not None:
+            total_cost += max(0, getattr(node, "step_cost", 0))
+            node = node.parent
+
+        return goal_chain, state_obs, post_state_obs, reachable_before, reachable_after, total_cost
+
+    def _compute_chain_cost(self, node: ChainNode) -> int:
+        """Compute cumulative additive cost from root to the given node.
+
+        Root node has cost 0. Each edge contributes its inner primitive depth (1-based).
+        """
+        total = 0
+        cursor = node
+        while cursor is not None and cursor.parent is not None:
+            total += max(0, getattr(cursor, "step_cost", 0))
+            cursor = cursor.parent
+        return total
 
     def _search_bfs(
         self,
@@ -758,16 +877,18 @@ class RegionOpeningPlanner(BasePlanner):
         object_id: str,
         parent_node: Optional[ChainNode] = None,
         current_chain_depth: int = 1,
-        collect_frontier: bool = False
+        collect_frontier: bool = False,
+        remaining_budget: Optional[int] = None
     ) -> Tuple[List[Tuple[Goal, List, List, 'namo_rl.RLState', Optional[Tuple], ChainNode]], int, List[ChainNode]]:
-        """BFS: Try all edges at depth 1, then all at depth 2, etc.
+        """BFS: Try all edges at ALL depths to collect all possible solutions.
 
         Args:
             collect_frontier: If True, collect valid but unsuccessful states as frontier nodes
 
         Returns:
-            Tuple of (successful_results, primitive_depth, frontier_nodes) where successful_results
-            is a list of (goal, state_obs, post_state_obs, resulting_state, region_goal_used, chain_node) tuples.
+            Tuple of (all_successful_results, min_depth, frontier_nodes) where all_successful_results
+            is a list of (goal, state_obs, post_state_obs, resulting_state, region_goal_used, chain_node) tuples
+            from ALL depths. min_depth is the minimum depth at which a solution was found.
             The chain_node contains the full parent chain for observation reconstruction.
         """
         max_depth = len(goals_per_edge[0]) if goals_per_edge else 10
@@ -776,12 +897,27 @@ class RegionOpeningPlanner(BasePlanner):
         # Once an edge collides or gets stuck, we blacklist it for all remaining primitive depths
         blacklisted_edges_this_skill = set()
 
+        # Track edges that have already yielded a successful opening in THIS skill execution
+        # Once an edge succeeds at any primitive depth, we do not explore deeper depths on that edge
+        solved_edges_this_skill = set()
+
         # Frontier nodes for chaining
         frontier_nodes = []
 
-        for depth in range(max_depth):  # depth 0 = step 1, depth 1 = step 2, etc.
-            successful_results = []
+        # Collect ALL successful results across all depths
+        all_successful_results = []
+        min_depth_found = None
 
+        for depth in range(max_depth):  # depth 0 = step 1, depth 1 = step 2, etc.
+            # Global prune: once any success is found at depth D (1-based),
+            # do not explore deeper depths (> D)
+            if min_depth_found is not None and depth >= min_depth_found:
+                break
+
+            # Budget prune: if an outer remaining budget is provided, skip depths whose
+            # step cost (depth+1) would exceed it
+            if remaining_budget is not None and (depth + 1) > remaining_budget:
+                break
             # Try only reachable edge points at this depth
             for edge_idx, edge_goals in enumerate(goals_per_edge):
                 # Filter: only try reachable edges
@@ -790,6 +926,10 @@ class RegionOpeningPlanner(BasePlanner):
 
                 # Filter: skip blacklisted edges (collided or stuck earlier in this skill execution)
                 if edge_idx in blacklisted_edges_this_skill:
+                    continue
+
+                # Filter: skip edges that have already produced a successful opening at a shallower depth
+                if edge_idx in solved_edges_this_skill:
                     continue
 
                 if depth >= len(edge_goals):
@@ -828,6 +968,7 @@ class RegionOpeningPlanner(BasePlanner):
                     # Check for stuck condition (propagated from C++ skill execution)
                     if "stuck" in step_result.info and step_result.info["stuck"] == "true":
                         # Blacklist this edge for all remaining depths
+                        # print(f"Blacklisting edge {edge_idx} for all remaining depths")
                         blacklisted_edges_this_skill.add(edge_idx)
                         continue
 
@@ -849,29 +990,36 @@ class RegionOpeningPlanner(BasePlanner):
                         edge_idx=edge_idx,
                         depth=current_chain_depth,
                         parent=parent_node,
-                        collided_edges=set()
+                        collided_edges=set(),
+                        step_cost=depth + 1
                     )
 
-                    # Return the node along with single-step observations
-                    successful_results.append((goal, [pre_state_obs], [post_state_obs], resulting_state, region_goal_used, success_node))
+                    # Add to all results instead of returning early
+                    all_successful_results.append((goal, [pre_state_obs], [post_state_obs], resulting_state, region_goal_used, success_node))
+
+                    # Track minimum depth where we found a solution
+                    if min_depth_found is None:
+                        min_depth_found = depth + 1
+
+                    # Prevent exploring deeper depths for this edge in this BFS call
+                    solved_edges_this_skill.add(edge_idx)
+
                 elif collect_frontier:
-                    # Valid push but didn't create opening - add to frontier for next chain level
-                    new_node = ChainNode(
-                        state=self.env.get_full_state(),
-                        goal=goal,
-                        edge_idx=edge_idx,
-                        depth=current_chain_depth,
-                        parent=parent_node,
-                        collided_edges=set()  # Reset blacklist for next chain level
-                    )
-                    frontier_nodes.append(new_node)
+                    # Valid push but didn't create opening - add to frontier only if within budget
+                    if remaining_budget is None or (depth + 1) <= remaining_budget:
+                        new_node = ChainNode(
+                            state=self.env.get_full_state(),
+                            goal=goal,
+                            edge_idx=edge_idx,
+                            depth=current_chain_depth,
+                            parent=parent_node,
+                            collided_edges=set(),
+                            step_cost=depth + 1
+                        )
+                        frontier_nodes.append(new_node)
 
-            # If we found any successes at this depth, return them all
-            if successful_results:
-                return successful_results, depth + 1, frontier_nodes
-
-        # No successful goals found at any depth
-        return [], 0, frontier_nodes
+        # Return all successful results found across all depths
+        return all_successful_results, min_depth_found if min_depth_found else 0, frontier_nodes
 
     def _validate_opening(
         self,

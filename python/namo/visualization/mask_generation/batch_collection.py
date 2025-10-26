@@ -117,19 +117,79 @@ def filter_episodes_by_minimum_length(episodes: List[Dict[str, Any]],
     return filtered_episodes, episodes_before_filtering, episodes_filtered_out
 
 
+def split_episode_into_trajectory_suffixes(episode: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Split a multi-step episode into trajectory suffix training examples.
+
+    For an n-push episode with states [S0, S1, ..., Sn-1] and actions [A0, A1, ..., An-1],
+    creates n training examples:
+      - (S0, [A0, A1, ..., An-1])
+      - (S1, [A1, A2, ..., An-1])
+      - ...
+      - (Sn-1, [An-1])
+
+    Args:
+        episode: Original episode data
+
+    Returns:
+        List of episode dictionaries, one per step
+    """
+    action_sequence = episode.get('action_sequence', [])
+    state_observations = episode.get('state_observations', [])
+    post_action_state_observations = episode.get('post_action_state_observations', [])
+    reachable_before = episode.get('reachable_objects_before_action', [])
+    reachable_after = episode.get('reachable_objects_after_action', [])
+
+    n_steps = len(action_sequence)
+
+    # Single-step episode - return as-is
+    if n_steps <= 1:
+        return [episode]
+
+    # Multi-step episode - create trajectory suffixes
+    suffix_episodes = []
+    base_episode_id = episode.get('episode_id', '')
+
+    for step_i in range(n_steps):
+        # Create new episode for this step
+        suffix_episode = episode.copy()
+
+        # Update episode_id to indicate step
+        suffix_episode['episode_id'] = f"{base_episode_id}_step_{step_i}"
+
+        # Use state at step i
+        suffix_episode['state_observations'] = [state_observations[step_i]] if step_i < len(state_observations) else state_observations[-1:]
+        suffix_episode['post_action_state_observations'] = [post_action_state_observations[step_i]] if step_i < len(post_action_state_observations) else post_action_state_observations[-1:]
+
+        # Use reachable objects at step i
+        if reachable_before and step_i < len(reachable_before):
+            suffix_episode['reachable_objects_before_action'] = [reachable_before[step_i]]
+        if reachable_after and step_i < len(reachable_after):
+            suffix_episode['reachable_objects_after_action'] = [reachable_after[step_i]]
+
+        # Use remaining actions from step i onwards
+        suffix_episode['action_sequence'] = action_sequence[step_i:]
+
+        # Update solution depth to reflect remaining actions
+        suffix_episode['solution_depth'] = len(action_sequence[step_i:])
+
+        suffix_episodes.append(suffix_episode)
+
+    return suffix_episodes
+
+
 def process_episode(episode: Dict[str, Any], visualizer: NAMODataVisualizer) -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
     """Process a single episode to generate masks and metadata.
-    
+
     Args:
         episode: Episode data dictionary
         visualizer: NAMODataVisualizer instance
-        
+
     Returns:
         Tuple of (masks_dict, metadata_dict)
     """
     # Generate 9 masks (excluding combined distance field)
     masks = visualizer.generate_episode_masks_batch(episode)
-    
+
     # Extract metadata
     metadata = {
         'episode_id': episode.get('episode_id', ''),
@@ -142,7 +202,7 @@ def process_episode(episode: Dict[str, Any], visualizer: NAMODataVisualizer) -> 
         'robot_goal': episode.get('robot_goal', [0, 0, 0]),
         'xml_file': episode.get('xml_file', '')
     }
-    
+
     return masks, metadata
 
 
@@ -163,11 +223,19 @@ def save_episode_data(masks: Dict[str, np.ndarray], metadata: Dict[str, Any],
     
     # Add metadata as separate fields (avoiding object arrays)
     save_dict['episode_id'] = np.array([metadata['episode_id']], dtype='U')
-    save_dict['task_id'] = np.array([metadata['task_id']], dtype='U')  
+    save_dict['task_id'] = np.array([metadata['task_id']], dtype='U')
     save_dict['algorithm'] = np.array([metadata['algorithm']], dtype='U')
-    save_dict['solution_depth'] = np.array([metadata.get('solution_depth', -1)], dtype=np.int32)
-    save_dict['search_time_ms'] = np.array([metadata.get('search_time_ms', -1.0)], dtype=np.float32)
-    save_dict['nodes_expanded'] = np.array([metadata.get('nodes_expanded', -1)], dtype=np.int32)
+
+    # Handle None values explicitly (region opening planner sets these to None)
+    solution_depth = metadata.get('solution_depth')
+    save_dict['solution_depth'] = np.array([solution_depth if solution_depth is not None else -1], dtype=np.int32)
+
+    search_time = metadata.get('search_time_ms')
+    save_dict['search_time_ms'] = np.array([search_time if search_time is not None else -1.0], dtype=np.float32)
+
+    nodes_expanded = metadata.get('nodes_expanded')
+    save_dict['nodes_expanded'] = np.array([nodes_expanded if nodes_expanded is not None else -1], dtype=np.int32)
+
     save_dict['robot_goal'] = np.array(metadata.get('robot_goal', [0, 0, 0]), dtype=np.float32)
     save_dict['xml_file'] = np.array([metadata.get('xml_file', '')], dtype='U')
     
@@ -220,18 +288,23 @@ def process_pkl_file_worker(pkl_file: str, output_dir: str, filter_minimum_lengt
     for episode in filtered_episodes:
         if is_valid_episode(episode):
             try:
-                # Generate masks and metadata
-                masks, metadata = process_episode(episode, visualizer)
-                
-                # Create output path: output_dir/task_id/episode_id.npz
-                task_id = metadata['task_id']
-                episode_id = metadata['episode_id']
-                output_path = os.path.join(output_dir, task_id, f"{episode_id}.npz")
-                
-                # Save data
-                save_episode_data(masks, metadata, output_path)
-                processed_episodes += 1
-                
+                # Split multi-step episodes into trajectory suffix examples
+                suffix_episodes = split_episode_into_trajectory_suffixes(episode)
+
+                # Process each suffix as a separate training example
+                for suffix_episode in suffix_episodes:
+                    # Generate masks and metadata
+                    masks, metadata = process_episode(suffix_episode, visualizer)
+
+                    # Create output path: output_dir/task_id/episode_id.npz
+                    task_id = metadata['task_id']
+                    episode_id = metadata['episode_id']
+                    output_path = os.path.join(output_dir, task_id, f"{episode_id}.npz")
+
+                    # Save data
+                    save_episode_data(masks, metadata, output_path)
+                    processed_episodes += 1
+
             except Exception as e:
                 # Suppress individual episode errors for cleaner parallel output
                 continue

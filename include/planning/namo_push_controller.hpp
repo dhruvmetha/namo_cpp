@@ -103,6 +103,11 @@ private:
     int points_per_edge_;
     std::array<double, 3> robot_size_;
     bool check_object_collision_ = true;
+    int stuck_ctrl_iterations_threshold_ = 3;   // controller-level stuck threshold (checks)
+    int last_stuck_counter_ = 0;             // last observed stuck counter (for diagnostics)
+    int stuck_check_stride_ = 20;            // check every N control steps
+    double min_position_change_ = 0.001;     // meters
+    double min_angle_change_ = 0.05;         // radians
 
     // Failure tracking
     std::string last_failure_reason_;
@@ -226,6 +231,35 @@ public:
         check_object_collision_ = enabled;
     }
 
+    /**
+     * @brief Set controller-level stuck detection threshold (control steps)
+     */
+    void set_stuck_threshold(int iterations) { stuck_ctrl_iterations_threshold_ = iterations; }
+
+    /**
+     * @brief Get last observed controller stuck counter (for diagnostics/propagation)
+     */
+    int get_last_stuck_counter() const { return last_stuck_counter_; }
+
+    /**
+     * @brief Get controller-level stuck threshold
+     */
+    int get_stuck_threshold() const { return stuck_ctrl_iterations_threshold_; }
+
+    /**
+     * @brief Set/get controller-level stuck check stride (control steps between checks)
+     */
+    void set_stuck_check_stride(int stride) { stuck_check_stride_ = stride; }
+    int get_stuck_check_stride() const { return stuck_check_stride_; }
+
+    /**
+     * @brief Set/get controller-level minimum deltas for stuck detection
+     */
+    void set_min_position_change(double v) { min_position_change_ = v; }
+    void set_min_angle_change(double v) { min_angle_change_ = v; }
+    double get_min_position_change() const { return min_position_change_; }
+    double get_min_angle_change() const { return min_angle_change_; }
+
 private:
     /**
      * @brief Generate edge points around a rectangular object
@@ -249,6 +283,21 @@ private:
     std::array<double, 2> transform_point(const std::array<double, 2>& point,
                                          const std::array<double, 3>& translation,
                                          double rotation_angle);
+
+    /**
+     * @brief Controller-level stuck diagnostics printer
+     */
+    void print_stuck_ctrl_diag(int step, int ctrl_step, double dist, double dtheta, int counter);
+
+    /**
+     * @brief Update controller stuck counter from prev/curr states; return true if threshold reached
+     */
+    bool update_stuck_counter_and_check_abort(const std::array<double, 3>& prev_pos,
+                                             const std::array<double, 4>& prev_quat,
+                                             const std::array<double, 3>& curr_pos,
+                                             const std::array<double, 4>& curr_quat,
+                                             int step,
+                                             int ctrl_step);
 };
 
 } // namespace namo
