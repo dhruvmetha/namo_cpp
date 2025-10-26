@@ -673,9 +673,29 @@ class NAMODataVisualizer:
                                 )
         
         # Generate reachable objects mask
-        # For now, we'll mark all movable objects as potentially reachable
-        # This could be enhanced with actual reachability computation
-        masks['reachable'] = masks['movable'].copy()
+        # Use reachable objects from episode data if available
+        reachable_objects_list = episode_data.get('reachable_objects_before_action')
+        if reachable_objects_list and len(reachable_objects_list) > 0:
+            # Use reachable objects from first state observation
+            reachable_objects = set(reachable_objects_list[0])
+
+            # Draw only reachable objects
+            if state_observations and len(state_observations) > 0:
+                final_state = state_observations[-1]
+                for obj_name, pose in final_state.items():
+                    if obj_name != 'robot_pose':
+                        obj_base_name = obj_name.replace('_pose', '')
+                        if obj_base_name in reachable_objects:
+                            obj_info = static_object_info.get(obj_base_name, {})
+                            if obj_info:
+                                self._draw_rotated_box_mask(
+                                    masks['reachable'], pose[0], pose[1],
+                                    obj_info['size_x'], obj_info['size_y'], pose[2],
+                                    world_bounds, 1.0
+                                )
+        else:
+            # Fallback: mark all movable objects as potentially reachable
+            masks['reachable'] = masks['movable'].copy()
         
         # Generate distance field masks
         robot_radius = 0.15  # Robot radius in meters

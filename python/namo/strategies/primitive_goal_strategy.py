@@ -7,6 +7,7 @@ and organized by edge points and push steps.
 
 import struct
 import os
+import math
 from dataclasses import dataclass
 from typing import List, Dict, Optional
 from abc import ABC
@@ -149,8 +150,8 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
             # Load primitives (use cache)
             if primitive_file not in self._primitive_cache:
                 filepath = os.path.join(self.data_dir, primitive_file)
-                if self.verbose:
-                    print(f"Loading primitives from {filepath}")
+                # if self.verbose:
+                #     print(f"Loading primitives from {filepath}")
                 self._primitive_cache[primitive_file] = MotionPrimitiveLoader.load_primitives(filepath)
 
             primitives = self._primitive_cache[primitive_file]
@@ -167,20 +168,28 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
                 edge_primitives.sort(key=lambda p: p.push_steps)
 
                 # Convert to absolute goals
+                # Transform primitive deltas through object's current orientation
+                # Follows C++ implementation in greedy_planner.cpp:148-164
                 edge_goals = []
+                cos_theta = math.cos(obj_theta)
+                sin_theta = math.sin(obj_theta)
+
                 for primitive in edge_primitives:
+                    dx = primitive.delta_x
+                    dy = primitive.delta_y
+
                     goal = Goal(
-                        x=obj_x + primitive.delta_x,
-                        y=obj_y + primitive.delta_y,
+                        x=obj_x + dx * cos_theta - dy * sin_theta,
+                        y=obj_y + dx * sin_theta + dy * cos_theta,
                         theta=obj_theta + primitive.delta_theta
                     )
                     edge_goals.append(goal)
 
                 goals_per_edge.append(edge_goals)
 
-            if self.verbose:
-                print(f"Generated {len(goals_per_edge)} edge groups with "
-                      f"{len(goals_per_edge[0]) if goals_per_edge else 0} goals each")
+            # if self.verbose:
+            #     print(f"Generated {len(goals_per_edge)} edge groups with "
+            #           f"{len(goals_per_edge[0]) if goals_per_edge else 0} goals each")
 
             return goals_per_edge
 
@@ -213,8 +222,11 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
 
         info = object_info[object_name]
 
-        # Get width and height (size is [x, y, z])
-        if 'width' in info and 'height' in info:
+        # Get width and height from object_info (uses size_x, size_y, size_z keys)
+        if 'size_x' in info and 'size_y' in info:
+            x = info['size_x']
+            y = info['size_y']
+        elif 'width' in info and 'height' in info:
             x = info['width']
             y = info['height']
         elif 'size' in info:
@@ -235,18 +247,18 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
 
         if ratio < 1.05:
             # Square: nearly equal dimensions
-            if self.verbose:
-                print(f"Object {object_name} [{x:.3f}×{y:.3f}] ratio={ratio:.3f} → square")
+            # if self.verbose:
+            #     print(f"Object {object_name} [{x:.3f}×{y:.3f}] ratio={ratio:.3f} → square")
             return "motion_primitives_15_square.dat"
         elif x > y:
             # Wide: width > height
-            if self.verbose:
-                print(f"Object {object_name} [{x:.3f}×{y:.3f}] ratio={ratio:.3f} → wide")
+            # if self.verbose:
+            #     print(f"Object {object_name} [{x:.3f}×{y:.3f}] ratio={ratio:.3f} → wide")
             return "motion_primitives_15_wide.dat"
         else:
             # Tall: height > width
-            if self.verbose:
-                print(f"Object {object_name} [{x:.3f}×{y:.3f}] ratio={ratio:.3f} → tall")
+            # if self.verbose:
+            #     print(f"Object {object_name} [{x:.3f}×{y:.3f}] ratio={ratio:.3f} → tall")
             return "motion_primitives_15_tall.dat"
 
     def _group_by_edge(self, primitives: List[Primitive]) -> Dict[int, List[Primitive]]:

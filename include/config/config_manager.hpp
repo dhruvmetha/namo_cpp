@@ -64,6 +64,11 @@ public:
         double stuck_threshold = 0.01;           // meters - minimum movement to avoid stuck detection
         int max_stuck_iterations = 3;
         bool check_object_collision = true;      // Check pushed object collisions during execution
+        // Controller-level stuck detection tuning
+        int stuck_check_stride = 20;            // control steps between checks
+        int controller_stuck_threshold = 3;     // number of stuck detections before abort
+        double controller_min_position_change = 0.001; // meters
+        double controller_min_angle_change = 0.05;     // radians
         
         // Object interaction
         double object_clearance = 0.1;           // meters around objects for edge point sampling
@@ -171,7 +176,8 @@ public:
     void set_verbose_planning(bool enabled) { planning_.verbose_planning = enabled; }
     void set_max_iterations(int max_iter) { planning_.max_planning_iterations = max_iter; }
     void set_visualization(bool enabled) { system_.enable_visualization = enabled; }
-    
+    void set_collision_checking(bool enabled) { skill_.check_object_collision = enabled; }
+
     // Configuration validation and diagnostics
     void print_configuration() const;
     bool validate_paths() const;

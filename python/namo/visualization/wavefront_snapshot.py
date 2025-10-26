@@ -205,22 +205,28 @@ class WavefrontSnapshotExporter:
         goal_radius: float = 0.15,
         goals_per_region: int = 0,
         rng: Optional[np.random.Generator] = None,
+        use_current_state: bool = False,
     ) -> WavefrontSnapshot:
-        """Construct grids, regions, and adjacency information."""
+        """Construct grids, regions, and adjacency information.
 
-        self._env.reset()
+        Args:
+            use_current_state: If True, use current env state instead of resetting.
+                              Useful for multi-level exploration where state was set via set_full_state().
+        """
+
+        if not use_current_state:
+            self._env.reset()
         observation = self._env.get_observation()
         robot_pose = tuple(observation.get("robot_pose", [0.0, 0.0, 0.0]))  # type: ignore
 
-        goal_pose_env = tuple(self._env.get_robot_goal()) if hasattr(self._env, "get_robot_goal") else None
+        # Always use XML goal for consistency across snapshots
         goal_pose_xml = self._extract_goal_pose_from_xml(xml_path)
-        goal_pose = goal_pose_env
-
-        if goal_pose_xml is not None and self._should_override_env_goal(goal_pose_env):
-            goal_pose = goal_pose_xml
+        goal_pose = goal_pose_xml
 
         if goal_pose is None:
-            goal_pose = goal_pose_xml
+            # Fallback to env goal only if XML goal not found
+            goal_pose_env = tuple(self._env.get_robot_goal()) if hasattr(self._env, "get_robot_goal") else None
+            goal_pose = goal_pose_env
 
         movable_instances = self._instantiate_movable_objects(observation)
 

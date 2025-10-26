@@ -155,6 +155,20 @@ void ConfigManager::load_skill_config() {
         skill_.check_object_collision = loader_->get_bool("skill.check_object_collision");
     }
 
+    // Controller-level stuck detection tuning
+    if (loader_->has_key("skill.stuck_check_stride")) {
+        skill_.stuck_check_stride = loader_->get_int("skill.stuck_check_stride");
+    }
+    if (loader_->has_key("skill.controller_stuck_threshold")) {
+        skill_.controller_stuck_threshold = loader_->get_int("skill.controller_stuck_threshold");
+    }
+    if (loader_->has_key("skill.controller_min_position_change")) {
+        skill_.controller_min_position_change = loader_->get_double("skill.controller_min_position_change");
+    }
+    if (loader_->has_key("skill.controller_min_angle_change")) {
+        skill_.controller_min_angle_change = loader_->get_double("skill.controller_min_angle_change");
+    }
+
     // Object interaction
     if (loader_->has_key("skill.object_clearance")) {
         skill_.object_clearance = loader_->get_double("skill.object_clearance");

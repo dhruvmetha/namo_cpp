@@ -50,7 +50,8 @@ public:
     // Reachability queries
     std::vector<std::string> get_reachable_objects() const;
     bool is_object_reachable(const std::string& object_name) const;
-    
+    std::vector<int> get_reachable_edges(const std::string& object_name) const;
+
     // Object geometry information (returns cached reference)
     const std::map<std::string, std::map<std::string, double>>& get_object_info() const;
     
@@ -61,7 +62,16 @@ public:
     void set_robot_goal(double x, double y, double theta = 0.0);
     bool is_robot_goal_reachable() const;
     std::array<double, 3> get_robot_goal() const;
-    
+    void clear_robot_goal();
+
+    // Collision checking control (for region opening planner)
+    void set_collision_checking(bool enable);
+    bool get_collision_checking() const;
+
+    // Robot goal termination control (defaults to false)
+    void set_robot_goal_termination(bool enable);
+    bool get_robot_goal_termination() const;
+
     // Action space constraints for MCTS progressive widening
     struct ActionConstraints {
         double min_distance = 0.3;  // Minimum distance from object

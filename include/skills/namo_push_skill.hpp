@@ -40,6 +40,7 @@ private:
     // Robot goal state for MCTS
     std::array<double, 3> robot_goal_{0.0, 0.0, 0.0};
     bool has_robot_goal_{false};
+    bool enable_robot_goal_termination_{false};  // Default: robot goal termination disabled
     
 public:
     /**
@@ -85,7 +86,8 @@ public:
      */
     std::vector<std::string> get_reachable_objects() const;
     bool is_object_reachable(const std::string& object_name) const;
-    
+    std::vector<int> get_reachable_edges(const std::string& object_name) const;
+
     /**
      * @brief Robot goal management for MCTS (leverages cached wavefront)
      */
@@ -93,7 +95,19 @@ public:
     bool is_robot_goal_reachable() const;
     std::array<double, 3> get_robot_goal() const;
     void clear_robot_goal();
-    
+
+    /**
+     * @brief Enable/disable robot goal termination during MPC execution
+     * @param enabled If true, MPC will terminate early when robot goal becomes reachable
+     */
+    void set_robot_goal_termination(bool enabled);
+    bool get_robot_goal_termination() const;
+
+    /**
+     * @brief Runtime configuration for collision checking
+     */
+    void set_collision_checking(bool enabled);
+
 private:
     /**
      * @brief Helper methods for skill implementation
@@ -101,13 +115,12 @@ private:
     bool is_object_movable(const std::string& object_name) const;
     std::optional<SE2State> get_object_current_pose(const std::string& object_name) const;
     bool is_target_within_bounds(const SE2State& target_pose) const;
-    
+
     /**
      * @brief Helper methods for iterative MPC
      */
     bool is_object_at_goal(const SE2State& current, const SE2State& goal, double tolerance) const;
     bool is_object_stuck(const SE2State& previous_state, const SE2State& current_state) const;
-    std::vector<int> get_reachable_edges(const std::string& object_name) const;
 };
 
 } // namespace namo

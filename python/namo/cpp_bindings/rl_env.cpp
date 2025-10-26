@@ -64,6 +64,9 @@ RLEnvironment::StepResult RLEnvironment::step(const Action& action) {
     if (auto it = result.outputs.find("collision_object"); it != result.outputs.end()) {
         rl_result.info["collision_object"] = std::get<std::string>(it->second);
     }
+    if (auto it = result.outputs.find("stuck"); it != result.outputs.end()) {
+        rl_result.info["stuck"] = std::get<std::string>(it->second);
+    }
 
     return rl_result;
 }
@@ -137,6 +140,10 @@ bool RLEnvironment::is_object_reachable(const std::string& object_name) const {
     return skill_->is_object_reachable(object_name);
 }
 
+std::vector<int> RLEnvironment::get_reachable_edges(const std::string& object_name) const {
+    return skill_->get_reachable_edges(object_name);
+}
+
 const std::map<std::string, std::map<std::string, double>>& RLEnvironment::get_object_info() const {
     // Return cached reference - zero cost operation!
     return cached_object_info_;
@@ -152,6 +159,24 @@ bool RLEnvironment::is_robot_goal_reachable() const {
 
 std::array<double, 3> RLEnvironment::get_robot_goal() const {
     return skill_->get_robot_goal();
+}
+
+void RLEnvironment::clear_robot_goal() {
+    skill_->clear_robot_goal();
+}
+
+void RLEnvironment::set_collision_checking(bool enable) {
+    if (config_) {
+        config_->set_collision_checking(enable);
+    }
+    // Propagate to the skill's controller
+    if (skill_) {
+        skill_->set_collision_checking(enable);
+    }
+}
+
+bool RLEnvironment::get_collision_checking() const {
+    return config_ ? config_->skill().check_object_collision : true;
 }
 
 std::vector<double> RLEnvironment::get_world_bounds() const {
@@ -218,6 +243,19 @@ RLEnvironment::RegionGoalSamples RLEnvironment::sample_region_goals(int goals_pe
 
     grid.build_region_connectivity_graph(*env_);
     return grid.sample_region_goals(goals_per_region);
+}
+
+void RLEnvironment::set_robot_goal_termination(bool enable) {
+    if (skill_) {
+        skill_->set_robot_goal_termination(enable);
+    }
+}
+
+bool RLEnvironment::get_robot_goal_termination() const {
+    if (skill_) {
+        return skill_->get_robot_goal_termination();
+    }
+    return false;
 }
 
 } // namespace namo

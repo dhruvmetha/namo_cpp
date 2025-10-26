@@ -75,11 +75,19 @@ ExecutionResult MPCExecutor::execute_plan(
         
         // Execute this primitive step
         bool step_success = execute_primitive_step(object_name, step);
-        
+
         if (!step_success) {
             result.failure_reason = "Primitive step " + std::to_string(i+1) + " failed";
+            result.collision_object = controller_.get_last_collision_object();
             result.steps_executed = i;
             result.final_object_state = get_object_se2_state(object_name);
+            // Propagate controller-level stuck reason if threshold was hit
+            int ctrl_stuck = controller_.get_last_stuck_counter();
+            if (ctrl_stuck >= controller_.get_stuck_threshold()) {
+                result.failure_reason = "Controller-level stuck (counter=" + std::to_string(ctrl_stuck) + ")";
+                // Surface a stuck marker via outputs channel by mapping to collision_object as empty and reason text
+                // The skill will translate this into outputs["stuck"]="true" semantics if desired.
+            }
             return result;
         }
         
@@ -115,7 +123,7 @@ bool MPCExecutor::execute_primitive_step(
     // Execute MPC following old implementation approach (namo_planner.hpp:217-292)
     int stuck_counter = 0;
     SE2State previous_state = get_object_se2_state(object_name);
-    std::cout << "plan push steps: " << plan_step.push_steps << std::endl;
+    // std::cout << "plan push steps: " << plan_step.push_steps << std::endl;
     for (int mpc_step = 0; mpc_step < plan_step.push_steps; mpc_step++) {
         // Check if robot goal became reachable during MPC
         if (has_robot_goal_ && is_robot_goal_reachable()) {
@@ -267,8 +275,8 @@ bool MPCExecutor::is_object_stuck(const std::string& object_name, const SE2State
     while (angle_change > M_PI) angle_change = 2.0 * M_PI - angle_change;
     
     // Consider stuck if both position and orientation changes are very small
-    const double min_position_change = 0.01;  // 1mm
-    const double min_angle_change = 0.1;      // ~0.6 degrees
+    const double min_position_change = 0.001;  // 1mm
+    const double min_angle_change = 0.05;      // tighter yaw threshold
     
     return distance_moved < min_position_change && angle_change < min_angle_change;
 }

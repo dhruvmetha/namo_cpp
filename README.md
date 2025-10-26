@@ -1,3 +1,64 @@
+# Region Opening Scripts
+
+These helper scripts run the Region Opening algorithm from the Python tooling, either for quick visual inspection or for batch data collection. Both scripts forward any extra CLI arguments directly to the underlying Python entrypoints, so you can use all options those tools support.
+
+## run_region_opening_visual.sh
+
+- **Purpose**: Launch an interactive visualization for a single problem using the Region Opening algorithm.
+- **Entrypoint**: `python/namo/visualization/visual_test_single.py`
+- **Default config**: `python/namo/data_collection/region_opening_collection.yaml`
+
+Usage:
+```bash
+./scripts/run_region_opening_visual.sh --xml-file /path/to/env.xml [extra-args]
+```
+
+Examples:
+```bash
+# Minimal (visualize a specific scene)
+./scripts/run_region_opening_visual.sh --xml-file /absolute/path/to/env.xml
+
+# With additional visualization options (forwarded to visual_test_single.py)
+./scripts/run_region_opening_visual.sh \
+  --xml-file /absolute/path/to/env.xml \
+  --show-solution auto \
+  --region-max-chain-depth 2 \
+  --region-max-solutions-per-neighbor 5
+```
+
+Notes:
+- `--config-yaml` is set by the script; override by passing your own `--config-yaml` after it if needed.
+- All additional flags after `--xml-file` are passed through to `visual_test_single.py`.
+
+## run_region_opening_collection.sh
+
+- **Purpose**: Run batch data collection of Region Opening episodes (parallel-friendly).
+- **Entrypoint**: `python/namo/data_collection/modular_parallel_collection.py`
+- **Default config**: `python/namo/data_collection/region_opening_collection.yaml`
+
+Usage:
+```bash
+./scripts/run_region_opening_collection.sh [extra-args]
+```
+
+Common examples:
+```bash
+# Collect a range of indices with 4 workers
+./scripts/run_region_opening_collection.sh --start-idx 0 --end-idx 20 --workers 4
+
+# Override defaults in the YAML (pass-through to modular_parallel_collection.py)
+./scripts/run_region_opening_collection.sh \
+  --output-dir /absolute/path/to/out \
+  --workers 8 \
+  --start-idx 100 --end-idx 200
+```
+
+Notes:
+- The script fixes `--algorithm region_opening`. You can still override other parameters via CLI.
+- For large runs, ensure your output directory has sufficient space and that your YAML points to valid scenes.
+
+---
+
 # NAMO Standalone
 
 A C++ implementation of Navigation Among Movable Obstacles (NAMO) planning for robotic systems. This codebase provides path planning for robots that need to navigate environments containing objects they can push or move to reach their goals.

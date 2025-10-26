@@ -16,8 +16,9 @@ struct ExecutionResult {
     bool robot_goal_reached;         // True if robot goal became reachable during execution
     int steps_executed;              // Number of primitive steps executed
     SE2State final_object_state;     // Final object pose after execution
-    std::string failure_reason;     // Description of failure if success=false
-    
+    std::string failure_reason;      // Description of failure if success=false
+    std::string collision_object;    // Name of object that caused collision (if any)
+
     ExecutionResult() : success(false), robot_goal_reached(false), steps_executed(0) {}
 };
 
@@ -92,7 +93,14 @@ public:
      * @brief Clear robot goal (disable early termination)
      */
     void clear_robot_goal() { has_robot_goal_ = false; }
-    
+
+    /**
+     * @brief Set collision checking mode for push controller
+     */
+    void set_collision_checking(bool enabled) {
+        controller_.set_collision_checking(enabled);
+    }
+
     /**
      * @brief Execute a sequence of primitive plans with MPC
      * 
