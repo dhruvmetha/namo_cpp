@@ -383,7 +383,7 @@ class MuJoCoMazeGenerator:
         
         # Top wall
         SubElement(walls_body, "geom", 
-                  name="boundary_top",
+                  name="wall_boundary_top",
                   condim="4",
                   pos=f"0 {half_height + self.wall_thickness/2} {self.wall_z_pos}",
                   rgba="0.8 0.8 0.8 1",
@@ -392,7 +392,7 @@ class MuJoCoMazeGenerator:
         
         # Bottom wall
         SubElement(walls_body, "geom", 
-                  name="boundary_bottom",
+                  name="wall_boundary_bottom",
                   condim="4",
                   pos=f"0 {-half_height - self.wall_thickness/2} {self.wall_z_pos}",
                   rgba="0.8 0.8 0.8 1",
@@ -401,7 +401,7 @@ class MuJoCoMazeGenerator:
         
         # Left wall
         SubElement(walls_body, "geom", 
-                  name="boundary_left",
+                  name="wall_boundary_left",
                   condim="4",
                   pos=f"{-half_width - self.wall_thickness/2} 0 {self.wall_z_pos}",
                   rgba="0.8 0.8 0.8 1",
@@ -410,7 +410,7 @@ class MuJoCoMazeGenerator:
         
         # Right wall
         SubElement(walls_body, "geom", 
-                  name="boundary_right",
+                  name="wall_boundary_right",
                   condim="4",
                   pos=f"{half_width + self.wall_thickness/2} 0 {self.wall_z_pos}",
                   rgba="0.8 0.8 0.8 1",
@@ -440,7 +440,7 @@ class MuJoCoMazeGenerator:
                         world_y = (height/2 - y - 1) * self.cell_size  # Between y and y+1
                         
                         SubElement(walls_body, "geom",
-                                  name=f"hwall_{wall_count}",
+                                  name=f"wall_{wall_count}",
                                   condim="4",
                                   pos=f"{world_x} {world_y} {self.wall_z_pos}",
                                   rgba="0.8 0.8 0.8 1",
@@ -464,7 +464,7 @@ class MuJoCoMazeGenerator:
                         world_y = (height/2 - y - 0.5) * self.cell_size
                         
                         SubElement(walls_body, "geom",
-                                  name=f"vwall_{wall_count}",
+                                  name=f"wall_{wall_count}",
                                   condim="4",
                                   pos=f"{world_x} {world_y} {self.wall_z_pos}",
                                   rgba="0.8 0.8 0.8 1",
