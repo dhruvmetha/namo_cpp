@@ -232,6 +232,19 @@ class WavefrontSnapshotExporter:
 
         grids = self._build_grids(self.static_objects, movable_instances)
 
+        robot_cell = (
+            self._clamp_grid_x(self._world_to_grid_x(robot_pose[0])),
+            self._clamp_grid_y(self._world_to_grid_y(robot_pose[1])),
+        )
+
+        for nx, ny in self._neighbors_including_center(*robot_cell):
+            if not self._valid_coord(nx, ny):
+                continue
+            if grids["dynamic"][nx, ny] == -2:
+                grids["dynamic"][nx, ny] = -1
+            if grids["static"][nx, ny] == -2:
+                grids["static"][nx, ny] = -1
+
         goal_cells = self._goal_cells(goal_pose, goal_radius)
         region_map, region_labels = self._compute_regions(grids["dynamic"], robot_pose, goal_cells)
         adjacency, edge_objects = self._build_connectivity(
@@ -246,6 +259,7 @@ class WavefrontSnapshotExporter:
             region_goals = self._sample_region_goals(
                 region_map,
                 region_labels,
+                adjacency,
                 edge_objects,
                 goals_per_region,
                 rng,
@@ -396,10 +410,10 @@ class WavefrontSnapshotExporter:
         max_y = min(self.grid_height - 1, self._world_to_grid_y(max(pt[1] for pt in corners)))
 
         for gx in range(min_x, max_x + 1):
-            world_x = self._grid_to_world_x(gx)
+            world_x = self._grid_to_world_x(gx) + 0.5 * self.resolution
             dx = world_x - center_x
             for gy in range(min_y, max_y + 1):
-                world_y = self._grid_to_world_y(gy)
+                world_y = self._grid_to_world_y(gy) + 0.5 * self.resolution
                 dy = world_y - center_y
 
                 local_x = dx * cos_a + dy * sin_a
@@ -456,17 +470,6 @@ class WavefrontSnapshotExporter:
                 if gx == 0 or gy == 0 or gx == max_x or gy == max_y:
                     return True
             return False
-
-        robot_cell = (
-            self._clamp_grid_x(self._world_to_grid_x(robot_pose[0])),
-            self._clamp_grid_y(self._world_to_grid_y(robot_pose[1])),
-        )
-
-        # Clear inflated collisions around robot cell if necessary
-        if dynamic_grid[robot_cell] == -2:
-            for nx, ny in self._neighbors_including_center(*robot_cell):
-                if self._valid_coord(nx, ny):
-                    dynamic_grid[nx, ny] = -1
 
         # Classify goal cells based on current occupancy
         valid_goal_cells: Set[Tuple[int, int]] = set()
@@ -612,6 +615,7 @@ class WavefrontSnapshotExporter:
         self,
         region_map: GridArray,
         region_labels: Dict[int, str],
+        adjacency: Dict[str, Set[str]],
         edge_objects: Dict[str, Dict[str, Set[str]]],
         goals_per_region: int,
         rng: Optional[np.random.Generator],
@@ -623,13 +627,35 @@ class WavefrontSnapshotExporter:
         result: Dict[str, RegionGoalBundle] = {}
         robot_label = next(
             (label for label in region_labels.values() if "robot" in label),
-            "robot",
+            None,
         )
+        
+        # If no robot region, don't sample any goals
+        if robot_label is None:
+            return {}
 
-        for region_id, label in region_labels.items():
+        # Find all regions reachable from the robot via BFS on the adjacency graph
+        from collections import deque as collections_deque
+        reachable_regions: Set[str] = {robot_label}
+        queue: collections_deque[str] = collections_deque([robot_label])
+
+        # Use precomputed adjacency directly - no need to rebuild!
+        while queue:
+            current = queue.popleft()
+            for neighbor in adjacency.get(current, set()):
+                if neighbor not in reachable_regions:
+                    reachable_regions.add(neighbor)
+                    queue.append(neighbor)
+
+        # Create reverse lookup from label to region_id
+        label_to_id: Dict[str, int] = {label: region_id for region_id, label in region_labels.items()}
+
+        # Only sample goals for regions reachable from the robot (excluding robot itself)
+        for label in reachable_regions:
             if "robot" in label:
                 continue
 
+            region_id = label_to_id[label]
             key = label
             cells = np.argwhere(region_map == region_id)
             if cells.size == 0:

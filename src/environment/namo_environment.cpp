@@ -616,8 +616,8 @@ std::map<std::string, std::map<std::string, double>> NAMOEnvironment::get_all_ob
     // Add robot info (only size is immutable)
     all_object_info[robot_info_.name] = {
         {"size_x", robot_info_.size[0]},
-        {"size_y", robot_info_.size[1]},
-        {"size_z", robot_info_.size[2]}
+        {"size_y", robot_info_.size[0]},
+        {"size_z", robot_info_.size[0]}
     };
     
     // Add static objects (position, orientation, AND size are all immutable)
@@ -672,7 +672,7 @@ void NAMOEnvironment::save_objects_to_file(const std::string& filename) const {
     // Write robot information (type 2)
     file << "2," << robot_info_.name << "," 
          << std::fixed << std::setprecision(6)
-         << robot_info_.size[0] << "," << robot_info_.size[1] << "\n";
+         << robot_info_.size[0] << "," << robot_info_.size[0] << "\n";
     
     // Write static objects (type 0)
     for (size_t i = 0; i < num_static_; i++) {
