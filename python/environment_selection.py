@@ -462,7 +462,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Extract filename from input path and create output path
-    # Will save to the coresponding level of difficulty dir in /common/users/tdn39/Robotics/Mujoco/namo_cpp/train_envs_accepted
     input_filename = os.path.basename(args.input_pickle)
     accept_pickle = os.path.join("train_envs_accepted", input_filename)
 

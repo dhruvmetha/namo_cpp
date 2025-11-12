@@ -6,17 +6,13 @@ This test validates the mask reversal system by:
 1. Converting XML to NPZ masks (forward)
 2. Converting NPZ back to XML (reverse)
 3. Comparing the generated XML with the original
-
-Test file: /common/users/shared/robot_learning/dm1487/namo/mj_env_configs/aug9/easy/set1/benchmark_1/env_config_9982e.xml
 """
 
 import sys
 import os
 from pathlib import Path
 import numpy as np
-
-# Add paths for imports
-sys.path.insert(0, '/common/users/tdn39/Robotics/Mujoco/namo_cpp/python')
+import argparse
 
 import namo_rl
 from namo.visualization.namo_image_converter import NAMOImageConverter
@@ -29,13 +25,7 @@ from namo.visualization.mask_reversal import (
 )
 
 
-# Test paths
-TEST_DIR = Path(__file__).parent / "test_output"
-INPUT_XML = "/common/users/shared/robot_learning/dm1487/namo/mj_env_configs/aug9/easy/set1/benchmark_1/env_config_9982e.xml"
-CONFIG_PATH = "/common/users/tdn39/Robotics/Mujoco/namo_cpp/config/namo_config_complete.yaml"
-
-
-def step1_xml_to_npz():
+def step1_xml_to_npz(TEST_DIR, INPUT_XML, CONFIG_PATH):
     """Step 1: Convert XML to NPZ masks (forward process)."""
     print("="*70)
     print("STEP 1: XML → NPZ (Forward)")
@@ -136,7 +126,7 @@ def step1_xml_to_npz():
     return output_npz, robot_goal
 
 
-def step2_npz_to_xml(npz_path, original_robot_goal):
+def step2_npz_to_xml(TEST_DIR, INPUT_XML, CONFIG_PATH, npz_path, original_robot_goal):
     """Step 2: Convert NPZ back to XML (reverse process)."""
     print("\n" + "="*70)
     print("STEP 2: NPZ → XML (Reverse)")
@@ -210,7 +200,8 @@ def step2_npz_to_xml(npz_path, original_robot_goal):
         return None
 
 
-def step3_compare_xmls(original_xml, reconstructed_xml):
+def step3_compare_xmls(TEST_DIR, INPUT_XML, CONFIG_PATH, reconstructed_xml):
+    original_xml = INPUT_XML
     """Step 3: Compare original and reconstructed XML files."""
     print("\n" + "="*70)
     print("STEP 3: Validation (Compare XMLs)")
@@ -361,6 +352,25 @@ def step3_compare_xmls(original_xml, reconstructed_xml):
 
 
 def main():
+    _default_test_dir = Path(__file__).parent / "test_output"
+    _default_input_xml = "/common/users/shared/robot_learning/dm1487/namo/mj_env_configs/aug9/easy/set1/benchmark_1/env_config_9982e.xml"
+    _default_config = "/common/users/tdn39/Robotics/Mujoco/namo_cpp/config/namo_config_complete.yaml"
+    parser = argparse.ArgumentParser(description="Round-trip mask reversal test")
+    parser.add_argument("-i", "--input-xml", dest="input_xml", type=str,
+                        default=os.environ.get("TEST_INPUT_XML", _default_input_xml),
+                        help="Path to input XML to run the round-trip on")
+    parser.add_argument("-c", "--config", dest="config_path", type=str,
+                        default=os.environ.get("NAMO_CONFIG_PATH", _default_config),
+                        help="Path to NAMO config YAML")
+    parser.add_argument("-o", "--test-dir", dest="test_dir", type=str,
+                        default=os.environ.get("TEST_OUTPUT_DIR", str(_default_test_dir)),
+                        help="Output directory for round-trip artifacts")
+    args = parser.parse_args()
+    
+    TEST_DIR = Path(args.test_dir)
+    INPUT_XML = str(args.input_xml)
+    CONFIG_PATH = str(args.config_path)
+
     """Run complete round-trip test."""
     print("\n" + "="*70)
     print("ROUND-TRIP TEST: XML → NPZ → XML")
@@ -371,17 +381,17 @@ def main():
     
     try:
         # Step 1: XML → NPZ
-        npz_path, robot_goal = step1_xml_to_npz()
+        npz_path, robot_goal = step1_xml_to_npz(TEST_DIR, INPUT_XML, CONFIG_PATH)
         
         # Step 2: NPZ → XML
-        reconstructed_xml = step2_npz_to_xml(npz_path, robot_goal)
+        reconstructed_xml = step2_npz_to_xml(TEST_DIR, INPUT_XML, CONFIG_PATH, npz_path, robot_goal)
         
         if reconstructed_xml is None:
             print("\n❌ TEST FAILED: Could not reconstruct XML")
             return False
         
         # Step 3: Compare
-        match = step3_compare_xmls(INPUT_XML, reconstructed_xml)
+        match = step3_compare_xmls(TEST_DIR, INPUT_XML, CONFIG_PATH, reconstructed_xml)
         
         # Final summary
         print("\n" + "="*70)
