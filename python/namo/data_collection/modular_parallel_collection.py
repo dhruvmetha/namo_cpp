@@ -331,6 +331,7 @@ def discover_environment_files(base_dir: str, start_idx: int, end_idx: int) -> L
     """Discover and filter XML environment files by index range."""
    
    
+
     # all_xml_files = []
     # with open('./notebooks/unsolved_envs.pkl', 'rb') as f:
     #     unsolved_envs = pickle.load(f)
@@ -364,9 +365,39 @@ def discover_environment_files(base_dir: str, start_idx: int, end_idx: int) -> L
         end_idx = len(all_xml_files)
         
     subset_files = all_xml_files[start_idx:end_idx]
-  
+    
     return subset_files
 
+    # solved_envs = []
+    # with open('1_push_solved.pkl', 'rb') as f:
+    #     solved_envs = pickle.load(f)
+    # solved_envs = set(solved_envs)
+    # print("solved_envs", len(solved_envs))
+    # sets = [1, 2]
+    # benchmarks = [1, 2, 3, 4, 5]
+    # all_xml_files = []
+    
+    # for set_idx in sets:
+    #     for benchmark_idx in benchmarks:
+    #         xml_pattern = os.path.join(base_dir, "medium", f"set{set_idx}", f"benchmark_{benchmark_idx}", "*.xml")
+    #         sorted_xml_files = sorted(glob.glob(xml_pattern, recursive=True))
+    #         for xml_file in sorted_xml_files[:1000]:
+    #                 all_xml_files.append(xml_file.split(f'{base_dir}/')[-1])
+    #         # all_xml_files.extend(sorted_xml_files[1000:1100]) # test
+    # # Apply subset selection
+    # subset_files = all_xml_files[start_idx:end_idx]
+    # subset_files = set(subset_files) - solved_envs
+    # subset_files = list(subset_files)
+    # if end_idx == -1:
+    #     end_idx = len(all_xml_files)
+    # subset_files = sorted(subset_files)
+    # print("unsolved envs", len(subset_files))
+    # final_subset_files = []
+    # for subset_file in subset_files:
+    #     xml_file = os.path.join(base_dir, subset_file)
+    #     final_subset_files.append(xml_file)
+    # final_subset_files = sorted(final_subset_files)
+    # return final_subset_files
 
 def generate_hostname_prefix() -> str:
     """Generate hostname-based prefix for output files."""
@@ -1157,6 +1188,8 @@ def main():
                         help="Maximum chain depth for region opening: 1=single push, 2=2-push chains, 3=3-push chains (default: 1)")
     parser.add_argument("--region-max-solutions-per-neighbor", type=int, default=10,
                         help="Maximum solutions to keep per neighbor region (default: 10)")
+    parser.add_argument("--region-max-recorded-solutions-per-neighbor", type=int, default=2,
+                        help="Maximum solutions to record/save per neighbor (subset of found, default: 2)")
     parser.add_argument("--region-frontier-beam-width", type=int, default=None,
                         help="Optional beam width (K) to cap frontier per chain depth; None/<=0 disables")
     parser.add_argument("--xml-dir", type=str, 
@@ -1247,6 +1280,8 @@ def main():
             "region_max_chain_depth": args.region_max_chain_depth,
             "region_max_solutions_per_neighbor": args.region_max_solutions_per_neighbor,
         })
+        # Optionally cap how many of the found solutions are recorded/saved per neighbor
+        algorithm_params["region_max_recorded_solutions_per_neighbor"] = args.region_max_recorded_solutions_per_neighbor
         if args.region_frontier_beam_width is not None:
             algorithm_params["region_frontier_beam_width"] = args.region_frontier_beam_width
 

@@ -57,6 +57,9 @@ class AttemptResult:
     timing_ms: Optional[float] = None
     # Total additive cost of the chain (sum of inner primitive depths)
     total_cost: int = 0
+    # Neighbour-level solution accounting
+    solutions_found_for_neighbour: int = 0
+    solutions_cap_for_neighbour: int = 0
 
 
 class RegionOpeningPlanner(BasePlanner):
@@ -92,6 +95,15 @@ class RegionOpeningPlanner(BasePlanner):
         self.max_solutions_per_neighbor = config.algorithm_params.get("region_max_solutions_per_neighbor", 10)
         if self.max_solutions_per_neighbor < 1:
             raise ValueError(f"Invalid max_solutions_per_neighbor: {self.max_solutions_per_neighbor}. Must be at least 1")
+
+        # Get max recorded solutions per neighbor (subset of found solutions to keep), default: 2
+        self.max_recorded_solutions_per_neighbor = config.algorithm_params.get(
+            "region_max_recorded_solutions_per_neighbor", 2
+        )
+        if self.max_recorded_solutions_per_neighbor < 1:
+            raise ValueError(
+                f"Invalid region_max_recorded_solutions_per_neighbor: {self.max_recorded_solutions_per_neighbor}. Must be at least 1"
+            )
 
         # Optional: cap number of frontier nodes per chain level (beam width)
         # None or 0 => unbounded frontier (complete)
@@ -397,6 +409,7 @@ class RegionOpeningPlanner(BasePlanner):
         # Collect attempts from candidate objects, capped per-neighbour
         all_goal_attempts = []
         solutions_remaining = self.max_solutions_per_neighbor
+        total_solutions_collected = 0
 
         # Try each candidate object with BFS search (already filtered for reachability)
         for obj_idx, object_id in enumerate(candidates, 1):
@@ -431,6 +444,7 @@ class RegionOpeningPlanner(BasePlanner):
                     if len(goal_chain) == 1:
                         # Single push
                         goal = goal_chain[0]
+                        total_solutions_collected += 1
                         all_goal_attempts.append(AttemptResult(
                             success=True,
                             neighbour_region_label=neighbour_label,
@@ -449,7 +463,9 @@ class RegionOpeningPlanner(BasePlanner):
                             resulting_state=resulting_state,
                             exploration_level=exploration_level,
                             timing_ms=(time.time() - attempt_start) * 1000,
-                            total_cost=total_cost
+                            total_cost=total_cost,
+                            solutions_found_for_neighbour=total_solutions_collected,
+                            solutions_cap_for_neighbour=self.max_solutions_per_neighbor
                         ))
                         # Verbose: print running count of solutions for this neighbour
                         if self.config.verbose:
@@ -459,6 +475,7 @@ class RegionOpeningPlanner(BasePlanner):
                             break
                     else:
                         # Multi-push chain
+                        total_solutions_collected += 1
                         all_goal_attempts.append(AttemptResult(
                             success=True,
                             neighbour_region_label=neighbour_label,
@@ -479,7 +496,9 @@ class RegionOpeningPlanner(BasePlanner):
                             resulting_state=resulting_state,
                             exploration_level=exploration_level,
                             timing_ms=(time.time() - attempt_start) * 1000,
-                            total_cost=total_cost
+                            total_cost=total_cost,
+                            solutions_found_for_neighbour=total_solutions_collected,
+                            solutions_cap_for_neighbour=self.max_solutions_per_neighbor
                         ))
                         # Verbose: print running count of solutions for this neighbour
                         if self.config.verbose:
@@ -490,6 +509,9 @@ class RegionOpeningPlanner(BasePlanner):
 
         # After trying all objects, return results
         if all_goal_attempts:
+            # Keep at most configured number of solutions for this neighbour (min-cost by design)
+            if len(all_goal_attempts) > self.max_recorded_solutions_per_neighbor:
+                all_goal_attempts = all_goal_attempts[: self.max_recorded_solutions_per_neighbor]
             return all_goal_attempts
         else:
             # No successful opening found from any object
