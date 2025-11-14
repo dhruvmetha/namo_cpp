@@ -731,20 +731,94 @@ class NAMODataVisualizer:
     
     def generate_episode_masks_batch(self, episode_data: Dict[str, Any]) -> Dict[str, np.ndarray]:
         """Generate only the 9 masks needed for batch processing (excludes combined distance).
-        
+
         Args:
             episode_data: Episode data dictionary
-            
+
         Returns:
-            Dictionary containing 9 masks: robot, goal, movable, static, reachable, 
+            Dictionary containing 9 masks: robot, goal, movable, static, reachable,
             target_object, target_goal, robot_distance, goal_distance
         """
         masks = self.generate_episode_masks(episode_data)
-        
+
         # Remove combined distance field if present
         if 'combined_distance' in masks:
             del masks['combined_distance']
-        
+
+        return masks
+
+    def generate_episode_masks_multihorizon(self, episode_data: Dict[str, Any]) -> Dict[str, np.ndarray]:
+        """Generate masks with multi-horizon target goal masks.
+
+        For an episode with n remaining actions, generates:
+        - Standard masks: robot, movable, static, reachable, target_object, target_goal,
+          robot_distance, goal_distance (all based on current state)
+        - Multi-horizon target goal masks: goal_mask_a1, goal_mask_a2, ..., goal_mask_a{n}
+          Each shows the target object drawn at the corresponding action's target position
+
+        Example for 2-push chain from S0:
+          goal_mask_a1: target object at action[0].target (e.g., target_1)
+          goal_mask_a2: target object at action[1].target (e.g., target_2)
+
+        Args:
+            episode_data: Episode data with 'action_sequence' containing remaining actions
+
+        Returns:
+            Dictionary containing base masks + variable number of goal_mask_a{i} channels
+        """
+        # Generate base masks from current state
+        masks = self.generate_episode_masks(episode_data)
+
+        # Remove combined distance (keep goal_distance for compatibility)
+        if 'combined_distance' in masks:
+            del masks['combined_distance']
+
+        # Extract environment info
+        env_info = self._extract_env_info_from_episode(episode_data)
+        world_bounds = env_info.world_bounds
+        static_object_info = episode_data.get('static_object_info') or {}
+
+        # Get action sequence
+        action_sequence = episode_data.get('action_sequence', [])
+
+        if not action_sequence:
+            # No actions, no multi-horizon masks
+            return masks
+
+        # Get target object info (same for all actions in the sequence)
+        target_object_id = action_sequence[0].get('object_id')
+        if not target_object_id:
+            return masks
+
+        # Get object size
+        obj_base_name = target_object_id
+        obj_info = static_object_info.get(obj_base_name, {})
+        if 'size_x' not in obj_info or 'size_y' not in obj_info:
+            return masks
+
+        size_x = obj_info['size_x']
+        size_y = obj_info['size_y']
+
+        # Generate goal_mask_a{i} for each action in the sequence
+        for action_idx, action in enumerate(action_sequence, start=1):
+            target_pose = action.get('target')
+            if not target_pose or len(target_pose) < 3:
+                continue
+
+            goal_x, goal_y, goal_theta = target_pose[0], target_pose[1], target_pose[2]
+
+            # Create mask for this action's target goal
+            goal_mask = np.zeros((self.IMG_SIZE, self.IMG_SIZE), dtype=np.float32)
+
+            # Draw target object at goal position
+            self._draw_rotated_box_mask(
+                goal_mask, goal_x, goal_y, size_x, size_y,
+                goal_theta, world_bounds, 1.0
+            )
+
+            # Store as goal_mask_a{action_idx}
+            masks[f'goal_mask_a{action_idx}'] = goal_mask
+
         return masks
     
     def save_masks(self, masks: Dict[str, np.ndarray], output_dir: str, 

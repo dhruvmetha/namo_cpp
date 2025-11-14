@@ -168,26 +168,6 @@ def apply_action_refinement(episode_result, env, robot_goal, task):
 
 
 
-def get_available_object_strategies() -> List[str]:
-    """Get list of available object selection strategies."""
-    return ["no_heuristic", "nearest_first", "goal_proximity", "farthest_first", "ml"]
-
-
-def get_available_goal_strategies() -> List[str]:
-    """Get list of available goal selection strategies."""
-    return ["random", "grid", "adaptive", "discretized", "ml"]
-
-
-def validate_object_strategy(strategy_name: str) -> bool:
-    """Validate if object selection strategy name is supported."""
-    return strategy_name in get_available_object_strategies()
-
-
-def validate_goal_strategy(strategy_name: str) -> bool:
-    """Validate if goal selection strategy name is supported."""
-    return strategy_name in get_available_goal_strategies()
-
-
 @dataclass
 class ModularCollectionConfig:
     """Configuration for modular parallel data collection."""
@@ -202,16 +182,9 @@ class ModularCollectionConfig:
     num_workers: int = 8
     
     # Algorithm selection
-    algorithm: str = "idfs"  # Default algorithm
+    algorithm: str = "region_opening"  # Default algorithm
     planner_config: PlannerConfig = None  # Will use default if None
-    
-    # Strategy selection (for algorithms that support it)
-    object_selection_strategy: str = "no_heuristic"  # Default object strategy
-    goal_selection_strategy: str = "random"  # Default goal strategy
-    
-    # ML-specific parameters (only used when strategies are "ml")
-    ml_object_model_path: str = None
-    
+
     # Solution smoothing
     smooth_solutions: bool = False
     max_smooth_actions: int = 20
@@ -219,11 +192,7 @@ class ModularCollectionConfig:
     # Action refinement (post-smoothing step)
     refine_actions: bool = False
     validate_refinement: bool = True
-    ml_goal_model_path: str = None
-    ml_samples: int = 32
-    ml_device: str = "cuda"
-    epsilon: float = None  # For epsilon-greedy goal strategy
-    
+
     # Episode filtering options
     filter_minimum_length: bool = False  # Only keep episodes with minimum action sequence length per environment
     
@@ -241,9 +210,6 @@ class ModularWorkerTask:
     episodes_per_env: int
     algorithm: str
     planner_config: PlannerConfig
-    # Model paths for worker-side preloading (models can't be pickled)
-    ml_object_model_path: Optional[str] = None
-    ml_goal_model_path: Optional[str] = None
     # Filtering options
     filter_minimum_length: bool = False
     # Solution smoothing options
@@ -412,78 +378,6 @@ def generate_goal_for_environment(xml_file: str) -> Tuple[float, float, float]:
     return extract_goal_with_fallback(xml_file, fallback_goal)
 
 
-def _worker_preload_object_model(model_path: str, config: PlannerConfig) -> Optional[Any]:
-    """Preload object model within worker process."""
-    try:
-        # Add learning package to path
-        learning_path = "/common/home/dm1487/robotics_research/ktamp/learning"
-        if learning_path not in sys.path:
-            sys.path.append(learning_path)
-        
-        from ktamp_learning.object_inference_model import ObjectInferenceModel
-        
-        # Get device from config
-        device = "cuda"
-        if config.algorithm_params and 'ml_device' in config.algorithm_params:
-            device = config.algorithm_params['ml_device']
-        
-        object_model = ObjectInferenceModel(
-            model_path=model_path,
-            device=device
-        )
-        return object_model
-        
-    except Exception as e:
-        print(f"[Worker] ❌ Failed to load object model: {e}")
-        return None
-
-
-def _worker_preload_goal_model(model_path: str, config: PlannerConfig) -> Optional[Any]:
-    """Preload goal model within worker process."""
-    try:
-        # Add learning package to path  
-        learning_path = "/common/home/dm1487/robotics_research/ktamp/learning"
-        if learning_path not in sys.path:
-            sys.path.append(learning_path)
-        
-        from ktamp_learning.goal_inference_model import GoalInferenceModel
-        
-        # Get device from config
-        device = "cuda"
-        if config.algorithm_params and 'ml_device' in config.algorithm_params:
-            device = config.algorithm_params['ml_device']
-        
-        goal_model = GoalInferenceModel(
-            model_path=model_path,
-            device=device
-        )
-        return goal_model
-        
-    except Exception as e:
-        print(f"[Worker] ❌ Failed to load goal model: {e}")
-        return None
-
-
-def _inject_preloaded_models(planner_config: PlannerConfig, 
-                           preloaded_object_model: Optional[Any],
-                           preloaded_goal_model: Optional[Any]) -> PlannerConfig:
-    """Create a copy of planner config with preloaded ML models injected."""
-    import copy
-    config_copy = copy.deepcopy(planner_config)
-    
-    if config_copy.algorithm_params is None:
-        config_copy.algorithm_params = {}
-    
-    # Inject preloaded models into parameters
-    if preloaded_object_model is not None:
-        config_copy.algorithm_params['preloaded_object_model'] = preloaded_object_model
-    
-    if preloaded_goal_model is not None:
-        config_copy.algorithm_params['preloaded_goal_model'] = preloaded_goal_model
-    
-    return config_copy
-
-
 def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
     """Worker process function for modular parallel data collection."""
     start_time = time.time()
@@ -500,25 +394,9 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
         except AttributeError:
             # Fallback for environments without get_object_info method
             static_object_info = {}
-        
-        # Preload ML models within worker process to avoid repeated loading
+
+        # Create planner once per worker
         planner = None
-        preloaded_object_model = None
-        preloaded_goal_model = None
-        
-        # Preload models if using ML strategies
-        if task.ml_object_model_path:
-            preloaded_object_model = _worker_preload_object_model(task.ml_object_model_path, task.planner_config)
-        if task.ml_goal_model_path:
-            preloaded_goal_model = _worker_preload_goal_model(task.ml_goal_model_path, task.planner_config)
-        
-        # Inject preloaded models into config
-        if preloaded_object_model is not None or preloaded_goal_model is not None:
-            config_with_models = _inject_preloaded_models(task.planner_config, 
-                                                         preloaded_object_model, 
-                                                         preloaded_goal_model)
-        else:
-            config_with_models = task.planner_config
         
         # Collect episodes for this environment
         for episode_idx in range(task.episodes_per_env):
@@ -532,23 +410,7 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                 
                 # Create planner only once per worker (not per episode)
                 if planner is None:
-                    # Add XML file path to planner config for ML strategies
-                    if config_with_models.algorithm_params is None:
-                        config_with_models.algorithm_params = {}
-                    # ML models seem to have base path "/common/home/dm1487/robotics_research/ktamp/ml4kp_ktamp/resources/models/"
-                    # Extract the relative path from that base directory
-                    import os
-                    xml_path = task.xml_file
-                    if xml_path.startswith('../ml4kp_ktamp/resources/models/'):
-                        # Remove the base part to get relative path from the ML models' base directory
-                        xml_relative_path = xml_path.replace('../ml4kp_ktamp/resources/models/', '')
-                        config_with_models.algorithm_params['xml_file'] = xml_relative_path
-                    else:
-                        # Fallback to filename
-                        config_with_models.algorithm_params['xml_file'] = os.path.basename(xml_path)
-                    
-                    # Create planner with models already injected
-                    planner = PlannerFactory.create_planner(task.algorithm, env, config_with_models)
+                    planner = PlannerFactory.create_planner(task.algorithm, env, task.planner_config)
                 
                 # Reset planner for this episode (but don't recreate it)
                 planner.reset()
@@ -842,42 +704,6 @@ class ModularParallelCollectionManager:
         # Auto-detect hostname if not provided
         if self.config.hostname is None:
             self.config.hostname = generate_hostname_prefix()
-        # Setup default planner config if not provided
-        if self.config.planner_config is None:
-            self.config.planner_config = PlannerConfig(
-                max_depth=5,
-                max_goals_per_object=5,
-                collect_stats=True,
-                verbose=self.config.verbose,
-                algorithm_params={
-                    'object_selection_strategy': self.config.object_selection_strategy,
-                    'goal_selection_strategy': self.config.goal_selection_strategy,
-                    'ml_object_model_path': self.config.ml_object_model_path,
-                    'ml_goal_model_path': self.config.ml_goal_model_path,
-                    'ml_samples': self.config.ml_samples,
-                    'ml_device': self.config.ml_device
-                }
-            )
-        else:
-            # Add strategies to existing config if not already present
-            if self.config.planner_config.algorithm_params is None:
-                self.config.planner_config.algorithm_params = {}
-            
-            params = self.config.planner_config.algorithm_params
-            if 'object_selection_strategy' not in params:
-                params['object_selection_strategy'] = self.config.object_selection_strategy
-            if 'goal_selection_strategy' not in params:
-                params['goal_selection_strategy'] = self.config.goal_selection_strategy
-            if 'ml_object_model_path' not in params:
-                params['ml_object_model_path'] = self.config.ml_object_model_path
-            if 'ml_goal_model_path' not in params:
-                params['ml_goal_model_path'] = self.config.ml_goal_model_path
-            if 'ml_samples' not in params:
-                params['ml_samples'] = self.config.ml_samples
-            if 'ml_device' not in params:
-                params['ml_device'] = self.config.ml_device
-            if 'epsilon' not in params:
-                params['epsilon'] = self.config.epsilon
         
         # Setup output directory
         self.output_base = Path(self.config.output_dir)
@@ -909,8 +735,6 @@ class ModularParallelCollectionManager:
                 episodes_per_env=self.config.episodes_per_env,
                 algorithm=self.config.algorithm,
                 planner_config=self.config.planner_config,
-                ml_object_model_path=self.config.ml_object_model_path,
-                ml_goal_model_path=self.config.ml_goal_model_path,
                 filter_minimum_length=self.config.filter_minimum_length,
                 smooth_solutions=self.config.smooth_solutions,
                 max_smooth_actions=self.config.max_smooth_actions,
@@ -918,16 +742,6 @@ class ModularParallelCollectionManager:
                 validate_refinement=self.config.validate_refinement
             )
             tasks.append(task)
-        
-        # Pass ML model paths to workers (models will be preloaded within each worker)
-        if (self.config.object_selection_strategy == "ml" or
-            self.config.goal_selection_strategy == "ml"):
-            # Inject model paths into tasks for worker-side loading
-            for task in tasks:
-                if self.config.object_selection_strategy == "ml":
-                    task.ml_object_model_path = self.config.ml_object_model_path
-                if self.config.goal_selection_strategy == "ml":
-                    task.ml_goal_model_path = self.config.ml_goal_model_path
         
         return tasks
     
@@ -1143,30 +957,9 @@ def main():
     
     # Algorithm selection
     available_algorithms = PlannerFactory.list_available_planners()
-    parser.add_argument("--algorithm", type=str, default="idfs", choices=available_algorithms,
+    parser.add_argument("--algorithm", type=str, default="region_opening", choices=available_algorithms,
                         help=f"Planning algorithm to use. Options: {available_algorithms}")
-    
-    # Strategy selection (for algorithms that support it)
-    available_obj_strategies = get_available_object_strategies()
-    parser.add_argument("--object-strategy", type=str, default="no_heuristic", choices=available_obj_strategies,
-                        help=f"Object selection strategy. Options: {available_obj_strategies}")
-    
-    available_goal_strategies = get_available_goal_strategies()
-    parser.add_argument("--goal-strategy", type=str, default="random", choices=available_goal_strategies,
-                        help=f"Goal selection strategy. Options: {available_goal_strategies}")
-    
-    # ML-specific arguments (only needed when using ML strategies)
-    parser.add_argument("--ml-object-model", type=str,
-                        help="Path to ML object inference model (required for ML object strategy)")
-    parser.add_argument("--ml-goal-model", type=str,
-                        help="Path to ML goal inference model (required for ML goal strategy)")
-    parser.add_argument("--ml-samples", type=int, default=32,
-                        help="Number of ML inference samples (default: 32)")
-    parser.add_argument("--ml-device", type=str, default="cuda", choices=["cuda", "cpu"],
-                        help="ML inference device (default: cuda)")
-    parser.add_argument("--epsilon", type=float, default=None,
-                        help="Epsilon for epsilon-greedy goal strategy (0.0=pure ML, 1.0=pure random). If specified with --goal-strategy=ml, uses epsilon-greedy mixing.")
-    
+
     # Optional arguments
     parser.add_argument("--workers", type=int, default=8,
                         help="Number of parallel worker processes")
@@ -1244,34 +1037,7 @@ def main():
         print("❌ Error: workers must be positive")
         return 1
     
-    # Validate ML strategy requirements
-    if args.object_strategy == "ml" and not args.ml_object_model:
-        print("❌ Error: --ml-object-model is required when using ML object strategy")
-        return 1
-    
-    if args.goal_strategy == "ml" and not args.ml_goal_model:
-        print("❌ Error: --ml-goal-model is required when using ML goal strategy")
-        return 1
-    
-    # Validate epsilon parameter
-    if args.epsilon is not None:
-        if args.goal_strategy != "ml":
-            print("❌ Error: --epsilon can only be used with --goal-strategy=ml")
-            return 1
-        if not (0.0 <= args.epsilon <= 1.0):
-            print("❌ Error: --epsilon must be between 0.0 and 1.0")
-            return 1
-    
-    # Validate strategy names
-    if not validate_object_strategy(args.object_strategy):
-        print(f"❌ Error: invalid object strategy '{args.object_strategy}'")
-        return 1
-    
-    if not validate_goal_strategy(args.goal_strategy):
-        print(f"❌ Error: invalid goal strategy '{args.goal_strategy}'")
-        return 1
-    
-    # Create planner configuration (strategy will be added by manager)
+    # Create planner configuration
     # Build algorithm_params with only the region opening parameters that are actually used
     algorithm_params = {}
     if args.algorithm == "region_opening":
@@ -1305,13 +1071,6 @@ def main():
         episodes_per_env=args.episodes_per_env,
         num_workers=args.workers,
         algorithm=args.algorithm,
-        object_selection_strategy=args.object_strategy,
-        goal_selection_strategy=args.goal_strategy,
-        ml_object_model_path=args.ml_object_model,
-        ml_goal_model_path=args.ml_goal_model,
-        ml_samples=args.ml_samples,
-        ml_device=args.ml_device,
-        epsilon=args.epsilon,
         smooth_solutions=args.smooth_solutions,
         max_smooth_actions=args.max_smooth_actions,
         refine_actions=args.refine_actions,

@@ -172,6 +172,18 @@ def split_episode_into_trajectory_suffixes(episode: Dict[str, Any]) -> List[Dict
         # Update solution depth to reflect remaining actions
         suffix_episode['solution_depth'] = len(action_sequence[step_i:])
 
+        # NEW: Store ALL remaining states for multi-horizon goal mask generation
+        # all_future_states[0] = current state Si (before action i)
+        # all_future_states[1] = state Si+1 (after action i)
+        # all_future_states[2] = state Si+2 (after action i+1)
+        # ... etc
+        all_future_states = [state_observations[step_i]] if step_i < len(state_observations) else []
+        # Add all post-action states from step_i onwards
+        if post_action_state_observations:
+            all_future_states.extend(post_action_state_observations[step_i:])
+
+        suffix_episode['all_future_states'] = all_future_states
+
         suffix_episodes.append(suffix_episode)
 
     return suffix_episodes
@@ -187,8 +199,13 @@ def process_episode(episode: Dict[str, Any], visualizer: NAMODataVisualizer) -> 
     Returns:
         Tuple of (masks_dict, metadata_dict)
     """
-    # Generate 9 masks (excluding combined distance field)
-    masks = visualizer.generate_episode_masks_batch(episode)
+    # Generate masks with multi-horizon goal predictions
+    # If episode has 'all_future_states', use multihorizon generation
+    # Otherwise fall back to standard batch generation
+    if 'all_future_states' in episode and episode['all_future_states']:
+        masks = visualizer.generate_episode_masks_multihorizon(episode)
+    else:
+        masks = visualizer.generate_episode_masks_batch(episode)
 
     # Extract metadata
     metadata = {
@@ -238,7 +255,11 @@ def save_episode_data(masks: Dict[str, np.ndarray], metadata: Dict[str, Any],
 
     save_dict['robot_goal'] = np.array(metadata.get('robot_goal', [0, 0, 0]), dtype=np.float32)
     save_dict['xml_file'] = np.array([metadata.get('xml_file', '')], dtype='U')
-    
+
+    # Count number of goal mask horizons (goal_mask_a1, goal_mask_a2, etc.)
+    num_goal_horizons = sum(1 for key in masks.keys() if key.startswith('goal_mask_a'))
+    save_dict['num_goal_horizons'] = np.array([num_goal_horizons], dtype=np.int32)
+
     # Save action sequence as separate arrays for object_ids and targets
     action_seq = metadata.get('action_sequence', [])
     if action_seq:
