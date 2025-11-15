@@ -1,0 +1,39 @@
+## Visual Test Single + Region Opening + ML Goal Sampler Defaults
+## Use with:
+##   python namo/python/namo/visualization/visual_test_single.py \
+##     --config-yaml namo/python/namo/visualization/visual_test_single_ml.yaml
+
+# Required inputs
+xml_file: /common/home/dm1487/robotics_research/ktamp/ml4kp_ktamp/resources/models/custom_walled_envs/aug9/medium/set1/benchmark_1/env_config_1017a.xml
+algorithm: region_opening
+
+# Selection strategies
+object_strategy: no_heuristic
+goal_strategy: ml
+
+# ML models
+ml_goal_model: /common/users/dm1487/ktamp/outputs/oct26_1push_diffusion_only_goal
+ml_device: cuda
+ml_samples: 32
+
+# Region opening parameters
+region_allow_collisions: true
+region_max_chain_depth: 2
+region_max_solutions_per_neighbor: 5
+
+# Planner limits
+max_depth: 5
+max_goals_per_object: 5
+max_terminal_checks: 5000
+search_timeout: 60.0
+
+# Visualization options
+show_planning: false
+visualize_search: false
+show_solution: auto
+solution_delay: 1.0
+
+# Misc
+smooth_solutions: false
+verbose: false
+
