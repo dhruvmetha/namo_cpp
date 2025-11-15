@@ -14,7 +14,7 @@ from typing import List, Optional, Tuple, Dict, Any, Set
 import namo_rl
 from namo.core import BasePlanner, PlannerConfig, PlannerResult
 from namo.planners import snapshot_region_connectivity, find_robot_label
-from namo.strategies import PrimitiveGoalStrategy, Goal
+from namo.strategies import PrimitiveGoalStrategy, Goal, MLPrimitiveGoalStrategy
 
 
 @dataclass
@@ -29,6 +29,7 @@ class ChainNode:
     # Cost of this step within its inner BFS call (primitive depth, 1-based)
     # For root node (no action), this remains 0
     step_cost: int = 0
+    skill_calls_before_success: int = 0
 
 
 @dataclass
@@ -60,6 +61,7 @@ class AttemptResult:
     # Neighbour-level solution accounting
     solutions_found_for_neighbour: int = 0
     solutions_cap_for_neighbour: int = 0
+    skill_calls_before_success: int = 0
 
 
 class RegionOpeningPlanner(BasePlanner):
@@ -80,24 +82,27 @@ class RegionOpeningPlanner(BasePlanner):
         """
         self.attempt_results: List[AttemptResult] = []
 
+        algo_params = config.algorithm_params or {}
+        self.algorithm_params = algo_params
+
         # Get collision termination flag from config.algorithm_params
         # region_allow_collisions=True means ALLOW collisions (don't terminate)
         # We invert it: terminate_on_collision=True means TERMINATE on collision
-        allow_collisions = config.algorithm_params.get("region_allow_collisions", False)
+        allow_collisions = algo_params.get("region_allow_collisions", False)
         self.terminate_on_collision = not allow_collisions
 
         # Get max chain depth from config.algorithm_params (default: 1, no chaining)
-        self.max_chain_depth = config.algorithm_params.get("region_max_chain_depth", 1)
+        self.max_chain_depth = algo_params.get("region_max_chain_depth", 1)
         if self.max_chain_depth < 1 or self.max_chain_depth > 10:
             raise ValueError(f"Invalid max_chain_depth: {self.max_chain_depth}. Must be between 1 and 10")
 
         # Get max solutions per neighbor from config.algorithm_params (default: 10)
-        self.max_solutions_per_neighbor = config.algorithm_params.get("region_max_solutions_per_neighbor", 10)
+        self.max_solutions_per_neighbor = algo_params.get("region_max_solutions_per_neighbor", 10)
         if self.max_solutions_per_neighbor < 1:
             raise ValueError(f"Invalid max_solutions_per_neighbor: {self.max_solutions_per_neighbor}. Must be at least 1")
 
         # Get max recorded solutions per neighbor (subset of found solutions to keep), default: 2
-        self.max_recorded_solutions_per_neighbor = config.algorithm_params.get(
+        self.max_recorded_solutions_per_neighbor = algo_params.get(
             "region_max_recorded_solutions_per_neighbor", 2
         )
         if self.max_recorded_solutions_per_neighbor < 1:
@@ -107,7 +112,7 @@ class RegionOpeningPlanner(BasePlanner):
 
         # Optional: cap number of frontier nodes per chain level (beam width)
         # None or 0 => unbounded frontier (complete)
-        beam_width = config.algorithm_params.get("region_frontier_beam_width", None)
+        beam_width = algo_params.get("region_frontier_beam_width", None)
         if isinstance(beam_width, int) and beam_width <= 0:
             beam_width = None
         self.frontier_beam_width = beam_width
@@ -125,11 +130,38 @@ class RegionOpeningPlanner(BasePlanner):
         if self.config.random_seed is not None:
             random.seed(self.config.random_seed)
 
-        # Use primitive goal strategy for push goals
-        self.goal_sampler = PrimitiveGoalStrategy(
-            data_dir="data",
-            verbose=self.config.verbose
+        algo_params = getattr(self, "algorithm_params", {}) or {}
+        primitive_data_dir = algo_params.get("primitive_data_dir", "data")
+        sampler_name = (
+            algo_params.get("goal_sampler")
+            or algo_params.get("goal_selection_strategy")
         )
+
+        if sampler_name and sampler_name.lower() in {"ml", "ml_primitive"}:
+            ml_path = algo_params.get("ml_goal_model_path")
+            if not ml_path:
+                raise ValueError("ML primitive goal sampler requires 'ml_goal_model_path'")
+
+            self.goal_sampler = MLPrimitiveGoalStrategy(
+                goal_model_path=ml_path,
+                primitive_data_dir=primitive_data_dir,
+                samples=algo_params.get("ml_samples", 32),
+                device=algo_params.get("ml_device", "cuda"),
+                match_position_tolerance=algo_params.get("ml_match_position_tolerance", 0.2),
+                match_angle_tolerance=algo_params.get("ml_match_angle_tolerance", 0.35),
+                angle_weight=algo_params.get("ml_match_angle_weight", 0.5),
+                max_matches=algo_params.get("ml_match_max_per_call", 8),
+                verbose=self.config.verbose,
+                min_goals_threshold=algo_params.get("ml_min_goals", 1),
+            )
+            if self.config.verbose:
+                print("▶ Using ML-aligned primitive goal sampler")
+        else:
+            # Use primitive goal strategy for push goals
+            self.goal_sampler = PrimitiveGoalStrategy(
+                data_dir=primitive_data_dir,
+                verbose=self.config.verbose
+            )
 
     @property
     def algorithm_name(self) -> str:
@@ -438,7 +470,7 @@ class RegionOpeningPlanner(BasePlanner):
                 # Limit to max_solutions per object
                 # Respect global per-neighbour cap
                 per_object_limit = min(max_solutions, solutions_remaining)
-                for goal_idx, (goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used, reachable_before, reachable_after, total_cost) in enumerate(successful_goals[:per_object_limit]):
+                for goal_idx, (goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used, reachable_before, reachable_after, total_cost, skill_calls_before_success) in enumerate(successful_goals[:per_object_limit]):
 
                     # Create AttemptResult
                     if len(goal_chain) == 1:
@@ -464,6 +496,7 @@ class RegionOpeningPlanner(BasePlanner):
                             exploration_level=exploration_level,
                             timing_ms=(time.time() - attempt_start) * 1000,
                             total_cost=total_cost,
+                            skill_calls_before_success=skill_calls_before_success,
                             solutions_found_for_neighbour=total_solutions_collected,
                             solutions_cap_for_neighbour=self.max_solutions_per_neighbor
                         ))
@@ -497,6 +530,7 @@ class RegionOpeningPlanner(BasePlanner):
                             exploration_level=exploration_level,
                             timing_ms=(time.time() - attempt_start) * 1000,
                             total_cost=total_cost,
+                            skill_calls_before_success=skill_calls_before_success,
                             solutions_found_for_neighbour=total_solutions_collected,
                             solutions_cap_for_neighbour=self.max_solutions_per_neighbor
                         ))
@@ -658,6 +692,7 @@ class RegionOpeningPlanner(BasePlanner):
 
         # Track best cumulative cost found so far; use for pruning
         best_total_cost = None
+        skill_call_counter = {"count": 0}
 
         # Try chain depths 1, 2, 3, ...
         for chain_depth in range(1, self.max_chain_depth + 1):
@@ -718,7 +753,8 @@ class RegionOpeningPlanner(BasePlanner):
                     parent_node=node,
                     current_chain_depth=chain_depth,
                     collect_frontier=collect_frontier,
-                    remaining_budget=remaining_budget
+                    remaining_budget=remaining_budget,
+                    skill_call_counter=skill_call_counter
                 )
 
                 # If we found success, reconstruct ALL goal chains with their state observations
@@ -749,6 +785,8 @@ class RegionOpeningPlanner(BasePlanner):
                             # For single push, total_cost equals the primitive depth at which success occurred
                             total_cost = max(1, getattr(success_node, "step_cost", 1))
 
+                        skill_calls_before_success = getattr(success_node, "skill_calls_before_success", None)
+
                         # Verbose: print each solution found at this chain depth
                         if self.config.verbose:
                             print(f"      ✓ Found solution at {chain_depth}-chain (total_cost={total_cost})")
@@ -761,7 +799,7 @@ class RegionOpeningPlanner(BasePlanner):
                                 best_total_cost = total_cost
                                 all_chains_across_depths = [entry for entry in all_chains_across_depths if entry[7] == best_total_cost]
 
-                            all_chains_across_depths.append((goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used, reachable_before, reachable_after, total_cost))
+                            all_chains_across_depths.append((goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used, reachable_before, reachable_after, total_cost, skill_calls_before_success))
                             if self.config.verbose:
                                 # Running count of min-cost solutions so far (object scope)
                                 print(f"        → Solutions so far (object, best_cost={best_total_cost}): {len(all_chains_across_depths)}")
@@ -900,7 +938,8 @@ class RegionOpeningPlanner(BasePlanner):
         parent_node: Optional[ChainNode] = None,
         current_chain_depth: int = 1,
         collect_frontier: bool = False,
-        remaining_budget: Optional[int] = None
+        remaining_budget: Optional[int] = None,
+        skill_call_counter: Optional[Dict[str, int]] = None
     ) -> Tuple[List[Tuple[Goal, List, List, 'namo_rl.RLState', Optional[Tuple], ChainNode]], int, List[ChainNode]]:
         """BFS: Try all edges at ALL depths to collect all possible solutions.
 
@@ -958,6 +997,8 @@ class RegionOpeningPlanner(BasePlanner):
                     continue  # This edge doesn't have this many steps
 
                 goal = edge_goals[depth]
+                if goal is None:
+                    continue
 
                 # Reset to baseline before each attempt
                 self.env.set_full_state(baseline_state)
@@ -974,6 +1015,9 @@ class RegionOpeningPlanner(BasePlanner):
                 action.x = goal.x
                 action.y = goal.y
                 action.theta = goal.theta
+
+                if skill_call_counter is not None:
+                    skill_call_counter["count"] += 1
 
                 try:
                     step_result = self.env.step(action)
@@ -1015,6 +1059,8 @@ class RegionOpeningPlanner(BasePlanner):
                         collided_edges=set(),
                         step_cost=depth + 1
                     )
+                    if skill_call_counter is not None:
+                        success_node.skill_calls_before_success = skill_call_counter["count"]
 
                     # Add to all results instead of returning early
                     all_successful_results.append((goal, [pre_state_obs], [post_state_obs], resulting_state, region_goal_used, success_node))

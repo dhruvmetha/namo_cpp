@@ -475,6 +475,9 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                                 'chosen_object_id': attempt.chosen_object_id,
                                 'chain_depth': attempt.chain_depth,
                                 'total_cost': getattr(attempt, 'total_cost', None),
+                            'skill_calls_before_success': getattr(attempt, 'skill_calls_before_success', None),
+                            'solutions_found_for_neighbour': getattr(attempt, 'solutions_found_for_neighbour', None),
+                            'solutions_cap_for_neighbour': getattr(attempt, 'solutions_cap_for_neighbour', None),
                             },
                             action_sequence=action_sequence,
                             state_observations=attempt.state_observations,
@@ -985,10 +988,31 @@ def main():
                         help="Maximum solutions to record/save per neighbor (subset of found, default: 2)")
     parser.add_argument("--region-frontier-beam-width", type=int, default=None,
                         help="Optional beam width (K) to cap frontier per chain depth; None/<=0 disables")
-    parser.add_argument("--xml-dir", type=str, 
+    parser.add_argument("--goal-sampler", type=str, default=None,
+                        choices=["primitive", "ml", "ml_primitive"],
+                        help="Goal sampler override for region opening (primitive default)")
+    parser.add_argument("--ml-goal-model", type=str,
+                        help="Hydra output directory containing diffusion goal model")
+    parser.add_argument("--ml-device", type=str, default="cuda",
+                        help="Device to load diffusion goal model on")
+    parser.add_argument("--ml-samples", type=int, default=32,
+                        help="Number of diffusion samples per inference")
+    parser.add_argument("--ml-min-goals", type=int, default=1,
+                        help="Minimum ML goals required before accepting inference")
+    parser.add_argument("--ml-match-position-tolerance", type=float, default=0.2,
+                        help="Max positional error (m) between ML pose and primitive slot")
+    parser.add_argument("--ml-match-angle-tolerance", type=float, default=0.35,
+                        help="Max angular error (rad) between ML pose and primitive slot")
+    parser.add_argument("--ml-match-angle-weight", type=float, default=0.5,
+                        help="Weight applied to angular error in matching score")
+    parser.add_argument("--ml-match-max-per-call", type=int, default=8,
+                        help="Maximum ML goals to align per sampler call")
+    parser.add_argument("--primitive-data-dir", type=str, default="data",
+                        help="Directory containing primitive motion databases")
+    parser.add_argument("--xml-dir", type=str,
                         default="../ml4kp_ktamp/resources/models/custom_walled_envs/aug9",
                         help="Base directory for XML environment files")
-    parser.add_argument("--config-file", type=str, 
+    parser.add_argument("--config-file", type=str,
                         default="config/namo_config_complete.yaml",
                         help="NAMO configuration file")
     parser.add_argument("--verbose", action="store_true",
@@ -1050,6 +1074,37 @@ def main():
         algorithm_params["region_max_recorded_solutions_per_neighbor"] = args.region_max_recorded_solutions_per_neighbor
         if args.region_frontier_beam_width is not None:
             algorithm_params["region_frontier_beam_width"] = args.region_frontier_beam_width
+
+        if args.goal_sampler:
+            algorithm_params["goal_sampler"] = args.goal_sampler
+        if args.goal_sampler and args.goal_sampler.lower() in {"ml", "ml_primitive"}:
+            if not args.ml_goal_model:
+                parser.error("--ml-goal-model is required when goal sampler is set to 'ml'")
+            algorithm_params.update({
+                "ml_goal_model_path": args.ml_goal_model,
+                "ml_device": args.ml_device,
+                "ml_samples": args.ml_samples,
+                "ml_min_goals": args.ml_min_goals,
+                "ml_match_position_tolerance": args.ml_match_position_tolerance,
+                "ml_match_angle_tolerance": args.ml_match_angle_tolerance,
+                "ml_match_angle_weight": args.ml_match_angle_weight,
+                "ml_match_max_per_call": args.ml_match_max_per_call,
+                "primitive_data_dir": args.primitive_data_dir,
+            })
+        elif args.ml_goal_model:
+            # Allow users to specify ML params even without explicit sampler flag
+            algorithm_params.update({
+                "goal_sampler": "ml",
+                "ml_goal_model_path": args.ml_goal_model,
+                "ml_device": args.ml_device,
+                "ml_samples": args.ml_samples,
+                "ml_min_goals": args.ml_min_goals,
+                "ml_match_position_tolerance": args.ml_match_position_tolerance,
+                "ml_match_angle_tolerance": args.ml_match_angle_tolerance,
+                "ml_match_angle_weight": args.ml_match_angle_weight,
+                "ml_match_max_per_call": args.ml_match_max_per_call,
+                "primitive_data_dir": args.primitive_data_dir,
+            })
 
     planner_config = PlannerConfig(
         max_depth=args.max_depth,

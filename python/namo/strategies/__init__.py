@@ -20,7 +20,8 @@ from .ml_strategies import (
 from .primitive_goal_strategy import (
     PrimitiveGoalStrategy,
     MotionPrimitiveLoader,
-    Primitive
+    Primitive,
+    MLPrimitiveGoalStrategy
 )
 
 __all__ = [
@@ -37,5 +38,6 @@ __all__ = [
     "MLGoalSelectionStrategy",
     "PrimitiveGoalStrategy",
     "MotionPrimitiveLoader",
-    "Primitive"
+    "Primitive",
+    "MLPrimitiveGoalStrategy"
 ]

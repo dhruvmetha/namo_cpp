@@ -9,11 +9,12 @@ import struct
 import os
 import math
 from dataclasses import dataclass
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from abc import ABC
 
 import namo_rl
 from .goal_selection_strategy import GoalSelectionStrategy, Goal
+from .ml_strategies import MLGoalSelectionStrategy
 
 
 @dataclass
@@ -284,3 +285,151 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
     def strategy_name(self) -> str:
         """Return human-readable name of this strategy."""
         return "Primitive-Based Goal Generation"
+
+
+class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
+    """Align diffusion goal samples with discrete primitive slots."""
+
+    def __init__(
+        self,
+        goal_model_path: str,
+        primitive_data_dir: str = "data",
+        samples: int = 32,
+        device: str = "cuda",
+        match_position_tolerance: float = 0.2,
+        match_angle_tolerance: float = 0.35,
+        angle_weight: float = 0.5,
+        max_matches: int = 8,
+        verbose: bool = False,
+        min_goals_threshold: int = 1,
+    ):
+        """
+        Args:
+            goal_model_path: Path to Hydra output directory that contains a trained diffusion model.
+            primitive_data_dir: Directory with primitive lookup files.
+            samples: Number of diffusion samples to request per inference.
+            device: Torch device for the loaded model.
+            match_position_tolerance: Maximum positional error (meters) allowed between ML goal and primitive.
+            match_angle_tolerance: Maximum angular error (radians) allowed between ML goal and primitive.
+            angle_weight: Weight used when ranking candidate slots by angular error.
+            max_matches: Maximum number of ML goals to align per call.
+            verbose: Enable debug output.
+            min_goals_threshold: Minimum ML goals required before accepting the inference result.
+        """
+        self.verbose = verbose
+        self.max_matches = max_matches
+        self.match_position_tolerance = match_position_tolerance
+        self.match_angle_tolerance = match_angle_tolerance
+        self.angle_weight = angle_weight
+
+        self._primitive_strategy = PrimitiveGoalStrategy(
+            data_dir=primitive_data_dir,
+            verbose=verbose
+        )
+        self._ml_strategy = MLGoalSelectionStrategy(
+            goal_model_path=goal_model_path,
+            samples=samples,
+            device=device,
+            min_goals_threshold=min_goals_threshold,
+            verbose=verbose
+        )
+        self._default_ml_samples = samples
+
+    def generate_goals(
+        self,
+        object_id: str,
+        state: namo_rl.RLState,
+        env: namo_rl.RLEnvironment,
+        max_goals: int
+    ) -> List[List[Goal]]:
+        primitive_goals = self._primitive_strategy.generate_goals(
+            object_id,
+            state,
+            env,
+            max_goals
+        )
+
+        if not primitive_goals:
+            return []
+
+        max_depth = len(primitive_goals[0]) if primitive_goals and primitive_goals[0] else 0
+        aligned_goals: List[List[Optional[Goal]]] = [
+            [None for _ in range(max_depth)]
+            for _ in range(len(primitive_goals))
+        ]
+
+        ml_goal_budget = max_goals if max_goals > 0 else self._default_ml_samples
+        ml_goals = self._ml_strategy.generate_goals(
+            object_id,
+            state,
+            env,
+            ml_goal_budget
+        )
+
+        if not ml_goals:
+            return aligned_goals
+
+        slot_metadata = self._build_slot_metadata(primitive_goals)
+        used_slots = set()
+        matches = 0
+
+        for ml_goal in ml_goals:
+            if matches >= self.max_matches:
+                break
+
+            best_slot = None
+            best_score = None
+            for slot_id, (edge_idx, depth_idx, primitive_goal) in enumerate(slot_metadata):
+                if slot_id in used_slots:
+                    continue
+
+                pos_err, ang_err = self._goal_error(primitive_goal, ml_goal)
+                if pos_err > self.match_position_tolerance or ang_err > self.match_angle_tolerance:
+                    continue
+
+                score = pos_err + self.angle_weight * ang_err
+                if best_score is None or score < best_score:
+                    best_score = score
+                    best_slot = (slot_id, edge_idx, depth_idx)
+
+            if best_slot is None:
+                continue
+
+            slot_id, edge_idx, depth_idx = best_slot
+            aligned_goals[edge_idx][depth_idx] = Goal(
+                x=ml_goal.x,
+                y=ml_goal.y,
+                theta=ml_goal.theta
+            )
+            used_slots.add(slot_id)
+            matches += 1
+
+        return aligned_goals
+
+    def _build_slot_metadata(self, primitive_goals: List[List[Goal]]) -> List[Tuple[int, int, Goal]]:
+        slots: List[Tuple[int, int, Goal]] = []
+        for edge_idx, edge_goals in enumerate(primitive_goals):
+            for depth_idx, goal in enumerate(edge_goals):
+                slots.append((edge_idx, depth_idx, goal))
+        return slots
+
+    @staticmethod
+    def _goal_error(primitive_goal: Goal, ml_goal: Goal) -> Tuple[float, float]:
+        pos_err = math.hypot(
+            primitive_goal.x - ml_goal.x,
+            primitive_goal.y - ml_goal.y
+        )
+        ang_err = abs(MLPrimitiveGoalStrategy._wrap_angle(primitive_goal.theta - ml_goal.theta))
+        return pos_err, ang_err
+
+    @staticmethod
+    def _wrap_angle(theta: float) -> float:
+        while theta > math.pi:
+            theta -= 2 * math.pi
+        while theta < -math.pi:
+            theta += 2 * math.pi
+        return theta
+
+    @property
+    def strategy_name(self) -> str:
+        return "ML Primitive Aligned Goal Generation"

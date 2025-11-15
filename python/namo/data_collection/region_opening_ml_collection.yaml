@@ -1,0 +1,50 @@
+## Region Opening + Diffusion Goal Sampler Defaults
+## Use with:
+##   python modular_parallel_collection.py \
+##     --config-yaml python/namo/data_collection/region_opening_ml_collection.yaml
+
+# Core execution
+output_dir: /common/users/dm1487/namo_data/oct26/2_push_ml
+start_idx: 0
+end_idx: 50
+algorithm: region_opening
+workers: 8
+episodes_per_env: 1
+
+# Generic planner limits (compatibility placeholders)
+max_depth: 5
+max_goals_per_object: 5
+max_terminal_checks: 5000
+search_timeout: 300.0
+
+# Region opening parameters
+region_allow_collisions: true
+region_max_chain_depth: 2
+region_max_solutions_per_neighbor: 5
+region_frontier_beam_width: 200
+region_max_recorded_solutions_per_neighbor: 2
+
+# Goal sampler configuration
+goal_sampler: ml
+ml_goal_model_path: /common/home/dm1487/robotics_research/ktamp/sage_learning/outputs/oct26_1push_diffusion_only_goal
+ml_device: cuda
+ml_samples: 32
+ml_min_goals: 1
+ml_match_position_tolerance: 0.2   # meters
+ml_match_angle_tolerance: 0.35     # radians (~20 degrees)
+ml_match_angle_weight: 0.5
+ml_match_max_per_call: 8
+primitive_data_dir: data
+
+# Paths
+xml_dir: ../ml4kp_ktamp/resources/models/custom_walled_envs/aug9
+config_file: config/namo_config_complete_skill15.yaml
+
+# Optional pipeline features
+verbose: false
+filter_minimum_length: false
+smooth_solutions: false
+max_smooth_actions: 20
+refine_actions: false
+validate_refinement: false
+
