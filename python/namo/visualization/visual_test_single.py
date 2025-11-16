@@ -226,6 +226,12 @@ def main():
                         help="Number of ML inference samples (default: 32)")
     parser.add_argument("--ml-device", type=str, default="cuda", choices=["cuda", "cpu"],
                         help="ML inference device (default: cuda)")
+    parser.add_argument("--ml-match-max-per-call", type=int, default=8,
+                        help="Maximum number of ML goals to align to primitives per inference (default: 8)")
+    parser.add_argument("--ml-match-position-tolerance", type=float, default=0.2,
+                        help="Position tolerance for ML-primitive alignment in meters (default: 0.2)")
+    parser.add_argument("--ml-match-angle-tolerance", type=float, default=0.35,
+                        help="Angle tolerance for ML-primitive alignment in radians (default: 0.35)")
     parser.add_argument("--preview-ml-goal-masks", type=int, default=0,
                         help="Number of ML goal masks to preview via matplotlib before planning (0 disables)")
     
@@ -244,6 +250,10 @@ def main():
                         help="Maximum chain depth for region opening: 1=single push, 2=2-push chains, 3=3-push chains (default: 1)")
     parser.add_argument("--region-max-solutions-per-neighbor", type=int, default=10,
                         help="Maximum solutions to keep per neighbor region (default: 10)")
+    parser.add_argument("--region-frontier-beam-width", type=int, default=None,
+                        help="Prune frontier to top N nodes by cost (None = no pruning)")
+    parser.add_argument("--region-max-recorded-solutions-per-neighbor", type=int, default=2,
+                        help="Maximum solutions to record per neighbor region (default: 2)")
 
     # Environment settings
     parser.add_argument("--config-file", type=str, 
@@ -379,9 +389,14 @@ def main():
             'goal_selection_strategy': args.goal_strategy,
             'ml_samples': args.ml_samples,
             'ml_device': args.ml_device,
+            'ml_match_max_per_call': args.ml_match_max_per_call,
+            'ml_match_position_tolerance': args.ml_match_position_tolerance,
+            'ml_match_angle_tolerance': args.ml_match_angle_tolerance,
             'region_allow_collisions': args.region_allow_collisions,
             'region_max_chain_depth': args.region_max_chain_depth,
             'region_max_solutions_per_neighbor': args.region_max_solutions_per_neighbor,
+            'region_frontier_beam_width': args.region_frontier_beam_width,
+            'region_max_recorded_solutions_per_neighbor': args.region_max_recorded_solutions_per_neighbor,
             'preview_ml_goal_masks': args.preview_ml_goal_masks
         }
         

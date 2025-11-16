@@ -964,6 +964,7 @@ class RegionOpeningPlanner(BasePlanner):
 
                 # Check reachability BEFORE push
                 is_accessible_before, reachable_count_before, _ = self._validate_opening(neighbour_label, region_goals)
+                print(f"        🔍 BEFORE push edge {edge_idx} depth {depth+1}: is_accessible={is_accessible_before}, reachable={reachable_count_before}")
 
                 # Capture state observation before action
                 pre_state_obs = self.env.get_observation()
@@ -981,33 +982,44 @@ class RegionOpeningPlanner(BasePlanner):
                 action.y = goal.y
                 action.theta = goal.theta
 
+                print(f"        🚀 EXECUTING PUSH edge {edge_idx} depth {depth+1}:")
+                print(f"           object_id={object_id}, goal=({goal.x:.3f}, {goal.y:.3f}, {goal.theta:.3f})")
+
                 if skill_call_counter is not None:
                     skill_call_counter["count"] += 1
 
                 try:
+                    print(f"        ⏳ Calling env.step()...")
                     step_result = self.env.step(action)
-
-                    # Capture state observation after action
-                    post_state_obs = self.env.get_observation()
-
-                    # Check for collision (only if we should terminate on collision)
-                    if self.terminate_on_collision and "collision_object" in step_result.info:
-                        # Blacklist this edge for all remaining depths in this skill execution
-                        blacklisted_edges_this_skill.add(edge_idx)
-                        continue
-
-                    # Check for stuck condition (propagated from C++ skill execution)
-                    if "stuck" in step_result.info and step_result.info["stuck"] == "true":
-                        # Blacklist this edge for all remaining depths
-                        # print(f"Blacklisting edge {edge_idx} for all remaining depths")
-                        blacklisted_edges_this_skill.add(edge_idx)
-                        continue
+                    print(f"        ✓ env.step() returned successfully")
 
                 except Exception as e:
+                    print(f"        ❌ EXCEPTION during env.step(): {type(e).__name__}: {e}")
+                    import traceback
+                    traceback.print_exc()
                     continue
 
-                # Check reachability AFTER push
+                # We have a post-action state - ALWAYS capture observation and check goal condition
+                post_state_obs = self.env.get_observation()
+
+                # Check reachability AFTER push (ALWAYS - this is the goal check for post-action state)
                 is_accessible_after, reachable_count_after, region_goal_used = self._validate_opening(neighbour_label, region_goals)
+                print(f"        🔍 AFTER push edge {edge_idx} depth {depth+1}: is_accessible={is_accessible_after}, reachable={reachable_count_after}")
+
+                # Detect error conditions (but don't skip goal check - already done above)
+                collision_detected = False
+                if self.terminate_on_collision and "collision_object" in step_result.info:
+                    print(f"        ⚠️  COLLISION detected: {step_result.info.get('collision_object', 'unknown')}")
+                    collision_detected = True
+                    # Blacklist this edge for all remaining depths in this skill execution
+                    blacklisted_edges_this_skill.add(edge_idx)
+
+                stuck_detected = False
+                if "stuck" in step_result.info and step_result.info["stuck"] == "true":
+                    print(f"        ⚠️  STUCK condition detected")
+                    stuck_detected = True
+                    # Blacklist this edge for all remaining depths
+                    blacklisted_edges_this_skill.add(edge_idx)
 
                 total_region_goals = len(region_goals[neighbour_label].goals) if neighbour_label in region_goals else 0
                 if is_accessible_after and not is_accessible_before:
@@ -1015,9 +1027,9 @@ class RegionOpeningPlanner(BasePlanner):
                 elif depth == 0 and goal is not None:  # Show failures only for first depth and only ML-aligned goals
                     print(f"        ✗ Failed edge {edge_idx} depth {depth+1}: {reachable_count_before}/{total_region_goals} → {reachable_count_after}/{total_region_goals}")
 
-                # Only count as success if we IMPROVED accessibility
+                # Check if we IMPROVED accessibility (goal condition for opening creation)
                 if is_accessible_after and not is_accessible_before:
-                    # Created NEW opening! ✓
+                    # Created NEW opening! ✓ (even if stuck/collision - object moved enough)
                     resulting_state = self.env.get_full_state()
 
                     # Create a ChainNode for this successful goal (stores observations)
@@ -1043,8 +1055,9 @@ class RegionOpeningPlanner(BasePlanner):
                     # Prevent exploring deeper depths for this edge in this BFS call
                     solved_edges_this_skill.add(edge_idx)
 
-                elif collect_frontier:
-                    # Valid push but didn't create opening - add to frontier only if within budget
+                elif not (collision_detected or stuck_detected) and collect_frontier:
+                    # Valid push but didn't create opening - add to frontier
+                    # (Don't add stuck/collision states to frontier - they're already blacklisted)
                     if remaining_budget is None or (depth + 1) <= remaining_budget:
                         new_node = ChainNode(
                             state=self.env.get_full_state(),

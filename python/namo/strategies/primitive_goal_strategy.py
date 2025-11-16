@@ -377,6 +377,8 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
         print(f"🎯 ML-Primitive Alignment for {object_id}:")
         print(f"  Primitive slots: {len(primitive_goals)} edges × {max_depth} depths = {len(primitive_goals) * max_depth} total")
         print(f"  ML goals received: {len(ml_goals)}")
+        print(f"  Max matches allowed: {self.max_matches}")
+        print(f"  Position tolerance: {self.match_position_tolerance}m, Angle tolerance: {self.match_angle_tolerance} rad")
 
         if not ml_goals:
             print(f"  ⚠️ No ML goals - returning empty aligned structure")
@@ -385,27 +387,38 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
         slot_metadata = self._build_slot_metadata(primitive_goals)
         used_slots = set()
         matches = 0
+        skipped_due_to_tolerance = 0
 
-        for ml_goal in ml_goals:
+        for ml_goal_idx, ml_goal in enumerate(ml_goals):
             if matches >= self.max_matches:
+                print(f"  ⚠️  Stopped at {matches} matches (reached max_matches limit)")
                 break
 
             best_slot = None
             best_score = None
+            candidates_checked = 0
+            candidates_within_tolerance = 0
+
             for slot_id, (edge_idx, depth_idx, primitive_goal) in enumerate(slot_metadata):
                 if slot_id in used_slots:
                     continue
 
+                candidates_checked += 1
                 pos_err, ang_err = self._goal_error(primitive_goal, ml_goal)
+
                 if pos_err > self.match_position_tolerance or ang_err > self.match_angle_tolerance:
                     continue
 
+                candidates_within_tolerance += 1
                 score = pos_err + self.angle_weight * ang_err
                 if best_score is None or score < best_score:
                     best_score = score
                     best_slot = (slot_id, edge_idx, depth_idx)
 
             if best_slot is None:
+                skipped_due_to_tolerance += 1
+                if self.verbose and ml_goal_idx < 5:  # Show first 5 skipped goals
+                    print(f"    ⊗ ML goal {ml_goal_idx}: ({ml_goal.x:.3f}, {ml_goal.y:.3f}, {ml_goal.theta:.3f}) - No slot within tolerance (checked {candidates_checked} slots)")
                 continue
 
             slot_id, edge_idx, depth_idx = best_slot
@@ -417,20 +430,35 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             used_slots.add(slot_id)
             matches += 1
 
+            if self.verbose and matches <= 10:  # Show first 10 matches
+                print(f"    ✓ ML goal {ml_goal_idx}: ({ml_goal.x:.3f}, {ml_goal.y:.3f}, {ml_goal.theta:.3f}) → edge {edge_idx}, depth {depth_idx+1} (score: {best_score:.4f}, checked {candidates_within_tolerance} candidates)")
+
         print(f"  ✅ Aligned {matches}/{len(ml_goals)} ML goals to primitive slots")
+        print(f"     Skipped due to tolerance: {skipped_due_to_tolerance}")
+
         if matches == 0:
             print(f"  ⚠️ WARNING: NO ML goals matched any primitive slots!")
             print(f"     Position tolerance: {self.match_position_tolerance}m, Angle tolerance: {self.match_angle_tolerance} rad")
         else:
             # Show which edges/depths got ML goals
             aligned_edges = set()
+            edge_depth_counts = {}
             for edge_idx, edge_goals in enumerate(aligned_goals):
                 for depth_idx, goal in enumerate(edge_goals):
                     if goal is not None:
                         aligned_edges.add(edge_idx)
+                        if edge_idx not in edge_depth_counts:
+                            edge_depth_counts[edge_idx] = []
+                        edge_depth_counts[edge_idx].append(depth_idx + 1)
+
             if aligned_edges:
                 sorted_edges = sorted(list(aligned_edges))
                 print(f"     Aligned to edges: {sorted_edges}")
+                if self.verbose:
+                    print(f"     Edge → Depth mapping:")
+                    for edge_idx in sorted(edge_depth_counts.keys())[:10]:  # Show first 10
+                        depths = sorted(edge_depth_counts[edge_idx])
+                        print(f"       Edge {edge_idx}: depths {depths}")
 
         return aligned_goals
 

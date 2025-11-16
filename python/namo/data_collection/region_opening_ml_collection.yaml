@@ -28,12 +28,12 @@ region_max_recorded_solutions_per_neighbor: 2
 goal_sampler: ml
 ml_goal_model_path: /common/home/dm1487/robotics_research/ktamp/sage_learning/outputs/oct26_1push_diffusion_only_goal
 ml_device: cuda
-ml_samples: 32
+ml_samples: 128  # Increased from 32 for better ML goal coverage
 ml_min_goals: 1
-ml_match_position_tolerance: 0.2   # meters
-ml_match_angle_tolerance: 0.35     # radians (~20 degrees)
+ml_match_position_tolerance: 0.05   # meters (tightened from 0.2)
+ml_match_angle_tolerance: 0.1       # radians ~5.7° (tightened from 0.35)
 ml_match_angle_weight: 0.5
-ml_match_max_per_call: 8
+ml_match_max_per_call: 999  # Allow all ML goals to be aligned (was 8)
 primitive_data_dir: data
 
 # Paths
