@@ -153,6 +153,9 @@ class RegionOpeningPlanner(BasePlanner):
                 max_matches=algo_params.get("ml_match_max_per_call", 8),
                 verbose=self.config.verbose,
                 min_goals_threshold=algo_params.get("ml_min_goals", 1),
+                xml_path=algo_params.get("xml_file"),
+                preview_mask_count=algo_params.get("preview_ml_goal_masks", 0),
+                preloaded_model=algo_params.get("preloaded_goal_model"),
             )
             if self.config.verbose:
                 print("▶ Using ML-aligned primitive goal sampler")
@@ -336,6 +339,8 @@ class RegionOpeningPlanner(BasePlanner):
             # Restore state before trying this neighbour
             self.env.set_full_state(state)
 
+            print(f"\n🌟 [_explore_from_state] Attempting to open path to neighbour: '{neighbour_label}'")
+
             # Attempt to open path to this neighbour
             attempts = self._attempt_opening_to_neighbour(
                 robot_label,
@@ -451,8 +456,10 @@ class RegionOpeningPlanner(BasePlanner):
             # This ensures each object is tried from the same starting configuration
             self.env.set_full_state(exploration_state)
 
-            # BFS search for minimum-depth goals (pass exploration_state directly)
-            successful_goals, min_depth = self._search_minimum_depth_goals(
+            print(f"  🎯 [_attempt_opening_to_neighbour] Trying object {obj_idx}/{len(candidates)}: {object_id} for neighbour '{neighbour_label}'")
+
+            # BFS search with chaining
+            successful_goals, min_depth = self._search_with_chaining_bfs(
                 object_id,
                 exploration_state,
                 neighbour_label,
@@ -605,64 +612,12 @@ class RegionOpeningPlanner(BasePlanner):
 
         return state_obs, post_state_obs, reachable_before, reachable_after
 
-    def _search_minimum_depth_goals(
-        self,
-        object_id: str,
-        baseline_state: namo_rl.RLState,
-        neighbour_label: str,
-        region_goals: Dict[str, Any],
-        max_solutions_to_collect: Optional[int] = None
-    ) -> Tuple[List[Tuple[List[Goal], List, List, 'namo_rl.RLState', Optional[Tuple]]], int]:
-        """Search for minimum-depth goals using BFS through push steps.
-
-        Args:
-            object_id: Object to push
-            baseline_state: State to reset to before each push
-            neighbour_label: Neighbour region to validate opening to
-            region_goals: Region goals for validation
-
-        Returns:
-            Tuple of (successful_chains, depth) where successful_chains is a list of tuples:
-            (goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used).
-            Returns ([], 0) if no goals succeed.
-        """
-        # Generate all primitive goals (60 edges × 10 steps)
-        goals_per_edge = self.goal_sampler.generate_goals(
-            object_id,
-            baseline_state,
-            self.env,
-            max_goals=0  # Ignored by primitive strategy
-        )
-
-        if not goals_per_edge:
-            return [], 0
-
-        # Get reachable edge indices using wavefront analysis
-        self.env.set_full_state(baseline_state)
-        reachable_edge_indices = set(self.env.get_reachable_edges(object_id))
-
-        if not reachable_edge_indices:
-            return [], 0
-
-        # Search with chaining (outer BFS over chain depth)
-        return self._search_with_chaining_bfs(
-            goals_per_edge,
-            reachable_edge_indices,
-            baseline_state,
-            neighbour_label,
-            region_goals,
-            object_id,
-            max_solutions_to_collect=max_solutions_to_collect
-        )
-
     def _search_with_chaining_bfs(
         self,
-        initial_goals_per_edge: List[List[Goal]],
-        initial_reachable_edges: Set[int],
+        object_id: str,
         baseline_state: namo_rl.RLState,
         neighbour_label: str,
         region_goals: Dict[str, Any],
-        object_id: str,
         max_solutions_to_collect: Optional[int] = None
     ) -> Tuple[List[Tuple[List[Goal], List, List, 'namo_rl.RLState', Optional[Tuple]]], int]:
         """Outer BFS over chain depth: Try single pushes, then 2-push chains, then 3-push chains.
@@ -674,7 +629,6 @@ class RegionOpeningPlanner(BasePlanner):
             (goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used).
             Returns ([], 0) if no solution found.
         """
-
         # Initial frontier for chain depth 1
         root_node = ChainNode(
             state=baseline_state,
@@ -717,7 +671,8 @@ class RegionOpeningPlanner(BasePlanner):
                 # Restore to this node's state
                 self.env.set_full_state(node.state)
 
-                # Generate primitive goals for object at THIS state
+                # Generate goals for this node's state
+                print(f"      🔮 [_search_with_chaining_bfs] Chain depth {chain_depth}, node {frontier.index(node)+1}/{len(frontier)}: Generating goals for {object_id}")
                 goals_per_edge = self.goal_sampler.generate_goals(
                     object_id,
                     node.state,
@@ -726,12 +681,16 @@ class RegionOpeningPlanner(BasePlanner):
                 )
 
                 if not goals_per_edge:
+                    print(f"      ⚠️ No goals generated, skipping node")
                     continue
 
-                # Get reachable edges from this state (state already set above)
+                # Get reachable edges from this state
                 reachable_edge_indices = set(self.env.get_reachable_edges(object_id))
 
+                print(f"      📍 Reachable edges: {sorted(list(reachable_edge_indices))[:15]}{'...' if len(reachable_edge_indices) > 15 else ''} (total: {len(reachable_edge_indices)})")
+
                 if not reachable_edge_indices:
+                    print(f"      ⚠️ No reachable edges, skipping node")
                     continue
 
                 # Run inner BFS (single-skill search)
@@ -1009,6 +968,12 @@ class RegionOpeningPlanner(BasePlanner):
                 # Capture state observation before action
                 pre_state_obs = self.env.get_observation()
 
+                # Check if this slot has an ML-aligned goal
+                if depth == 0:  # Only print for first depth to reduce noise
+                    total_region_goals = len(region_goals[neighbour_label].goals) if neighbour_label in region_goals else 0
+                    goal_type = "ML-aligned" if goal is not None else "empty"
+                    print(f"      Testing edge {edge_idx} depth {depth+1} ({goal_type}): {neighbour_label} ({reachable_count_before}/{total_region_goals} reachable before)")
+
                 # Execute push
                 action = namo_rl.Action()
                 action.object_id = object_id
@@ -1043,6 +1008,12 @@ class RegionOpeningPlanner(BasePlanner):
 
                 # Check reachability AFTER push
                 is_accessible_after, reachable_count_after, region_goal_used = self._validate_opening(neighbour_label, region_goals)
+
+                total_region_goals = len(region_goals[neighbour_label].goals) if neighbour_label in region_goals else 0
+                if is_accessible_after and not is_accessible_before:
+                    print(f"        ✅ SUCCESS! edge {edge_idx} depth {depth+1}: {reachable_count_before}/{total_region_goals} → {reachable_count_after}/{total_region_goals} reachable")
+                elif depth == 0 and goal is not None:  # Show failures only for first depth and only ML-aligned goals
+                    print(f"        ✗ Failed edge {edge_idx} depth {depth+1}: {reachable_count_before}/{total_region_goals} → {reachable_count_after}/{total_region_goals}")
 
                 # Only count as success if we IMPROVED accessibility
                 if is_accessible_after and not is_accessible_before:

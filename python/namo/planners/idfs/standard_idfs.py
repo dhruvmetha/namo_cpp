@@ -180,7 +180,7 @@ class StandardIterativeDeepeningDFS(BasePlanner):
             object_model_path=object_model_path,
             samples=params.get('ml_samples', 32),
             device= params.get('ml_device', 'cuda'),
-            xml_path_relative=params.get('xml_file'),
+            xml_path=params.get('xml_file'),
             verbose=self.config.verbose,
             preloaded_model=preloaded_model
         )
@@ -208,9 +208,10 @@ class StandardIterativeDeepeningDFS(BasePlanner):
                 goal_model_path=goal_model_path,
                 samples=params.get('ml_samples', 32),
                 device=params.get('ml_device', 'cuda'),
-                xml_path_relative=params.get('xml_file'),
+                xml_path=params.get('xml_file'),
                 verbose=self.config.verbose,
-                preloaded_model=preloaded_model
+                preloaded_model=preloaded_model,
+                preview_mask_count=params.get('preview_ml_goal_masks', 0)
             )
             
             # Create random strategy with same constraints
@@ -244,9 +245,10 @@ class StandardIterativeDeepeningDFS(BasePlanner):
                 goal_model_path=goal_model_path,
                 samples=params.get('ml_samples', 32),
                 device=params.get('ml_device', 'cuda'),
-                xml_path_relative=params.get('xml_file'),
+                xml_path=params.get('xml_file'),
                 verbose=self.config.verbose,
-                preloaded_model=preloaded_model
+                preloaded_model=preloaded_model,
+                preview_mask_count=params.get('preview_ml_goal_masks', 0)
             )
     
     def _setup_constraints(self):

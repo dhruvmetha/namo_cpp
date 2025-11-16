@@ -152,7 +152,7 @@ class RandomSamplingPlanner(BasePlanner):
                 object_model_path=ml_object_model_path or "",
                 samples=ml_samples,
                 device=ml_device,
-                xml_path_relative=xml_file,
+                xml_path=xml_file,
                 verbose=self.config.verbose,
                 preloaded_model=preloaded_model
             )
@@ -187,7 +187,7 @@ class RandomSamplingPlanner(BasePlanner):
                 goal_model_path=ml_goal_model_path or "",
                 samples=ml_samples,
                 device=ml_device,
-                xml_path_relative=xml_file,
+                xml_path=xml_file,
                 epsilon=epsilon,
                 fallback_strategy=RandomGoalStrategy(
                     min_distance=self.constraints.min_distance,
@@ -196,7 +196,8 @@ class RandomSamplingPlanner(BasePlanner):
                     theta_max=self.constraints.theta_max
                 ),
                 verbose=self.config.verbose,
-                preloaded_model=preloaded_model
+                preloaded_model=preloaded_model,
+                preview_mask_count=self.config.algorithm_params.get('preview_ml_goal_masks', 0)
             )
         else:
             raise ValueError(f"Unknown goal selection strategy: {strategy_name}")

@@ -77,13 +77,12 @@ def preload_ml_models(object_model_path: Optional[str],
     object_model = None
     goal_model = None
     
+    ktamp_learning_path = "/common/home/dm1487/robotics_research/ktamp/sage_learning"
+    if os.path.isdir(ktamp_learning_path) and ktamp_learning_path not in sys.path:
+        sys.path.insert(0, ktamp_learning_path)
+    
     if object_model_path:
         try:
-            # Add learning package to path
-            learning_path = "/common/home/dm1487/robotics_research/ktamp/learning"
-            if learning_path not in sys.path:
-                sys.path.append(learning_path)
-            
             from ktamp_learning.object_inference_model import ObjectInferenceModel
             print(f"🔮 Loading ObjectInferenceModel from {object_model_path}")
             object_model = ObjectInferenceModel(model_path=object_model_path, device=device)
@@ -94,11 +93,6 @@ def preload_ml_models(object_model_path: Optional[str],
     
     if goal_model_path:
         try:
-            # Add learning package to path
-            learning_path = "/common/home/dm1487/robotics_research/ktamp/learning"
-            if learning_path not in sys.path:
-                sys.path.append(learning_path)
-            
             from ktamp_learning.goal_inference_model import GoalInferenceModel
             print(f"🎯 Loading GoalInferenceModel from {goal_model_path}")
             goal_model = GoalInferenceModel(model_path=goal_model_path, device=device)
@@ -232,6 +226,8 @@ def main():
                         help="Number of ML inference samples (default: 32)")
     parser.add_argument("--ml-device", type=str, default="cuda", choices=["cuda", "cpu"],
                         help="ML inference device (default: cuda)")
+    parser.add_argument("--preview-ml-goal-masks", type=int, default=0,
+                        help="Number of ML goal masks to preview via matplotlib before planning (0 disables)")
     
     # Planning parameters
     parser.add_argument("--max-depth", type=int, default=5,
@@ -305,6 +301,8 @@ def main():
     if args.goal_strategy == "ml" and not args.ml_goal_model:
         print("❌ Error: --ml-goal-model is required when using ML goal strategy")
         return 1
+    if args.preview_ml_goal_masks > 0 and args.goal_strategy != "ml":
+        print("⚠️  Warning: --preview-ml-goal-masks is only used with the 'ml' goal strategy")
     
     # Ensure XML file is provided (via CLI or YAML) and exists
     if not args.xml_file:
@@ -333,6 +331,8 @@ def main():
         print(f"🎬 Solution Visualization: {args.show_solution}")
         if args.smooth_solutions:
             print(f"✨ Solution Smoothing: enabled (max {args.max_smooth_actions} actions)")
+        if args.preview_ml_goal_masks > 0 and args.goal_strategy == "ml":
+            print(f"🖼️ Previewing first {args.preview_ml_goal_masks} ML goal masks (close figure to continue)")
         print("="*50)
         
         # Initialize environment for planning (with visualization if needed)
@@ -381,7 +381,8 @@ def main():
             'ml_device': args.ml_device,
             'region_allow_collisions': args.region_allow_collisions,
             'region_max_chain_depth': args.region_max_chain_depth,
-            'region_max_solutions_per_neighbor': args.region_max_solutions_per_neighbor
+            'region_max_solutions_per_neighbor': args.region_max_solutions_per_neighbor,
+            'preview_ml_goal_masks': args.preview_ml_goal_masks
         }
         
         # Add ML model paths and preloaded models to parameters
@@ -395,17 +396,9 @@ def main():
         if preloaded_goal_model is not None:
             algorithm_params['preloaded_goal_model'] = preloaded_goal_model
         
-        # Add XML file path for ML strategies
+        # Add XML file path for ML strategies (use absolute path directly)
         if args.object_strategy == "ml" or args.goal_strategy == "ml":
-            xml_path = args.xml_file
-            # Convert absolute path to relative path expected by ML models
-            if '/ml4kp_ktamp/resources/models/' in xml_path:
-                # Extract the relative path after 'resources/models/'
-                xml_relative_path = xml_path.split('/ml4kp_ktamp/resources/models/')[1]
-                algorithm_params['xml_file'] = xml_relative_path
-            else:
-                # For other paths, use the full path
-                algorithm_params['xml_file'] = xml_path
+            algorithm_params['xml_file'] = args.xml_file
         
         planner_config = PlannerConfig(
             max_depth=args.max_depth,

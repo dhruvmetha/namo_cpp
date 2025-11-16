@@ -296,12 +296,15 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
         primitive_data_dir: str = "data",
         samples: int = 32,
         device: str = "cuda",
-        match_position_tolerance: float = 0.2,
-        match_angle_tolerance: float = 0.35,
+        match_position_tolerance: float = 0.05,
+        match_angle_tolerance: float = 0.1,
         angle_weight: float = 0.5,
         max_matches: int = 8,
         verbose: bool = False,
         min_goals_threshold: int = 1,
+        xml_path: str = None,
+        preview_mask_count: int = 0,
+        preloaded_model = None,
     ):
         """
         Args:
@@ -309,12 +312,14 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             primitive_data_dir: Directory with primitive lookup files.
             samples: Number of diffusion samples to request per inference.
             device: Torch device for the loaded model.
-            match_position_tolerance: Maximum positional error (meters) allowed between ML goal and primitive.
-            match_angle_tolerance: Maximum angular error (radians) allowed between ML goal and primitive.
+            match_position_tolerance: Maximum positional error (meters) allowed between ML goal and primitive. Default: 0.05m.
+            match_angle_tolerance: Maximum angular error (radians) allowed between ML goal and primitive. Default: 0.1 rad (~5.7°).
             angle_weight: Weight used when ranking candidate slots by angular error.
             max_matches: Maximum number of ML goals to align per call.
             verbose: Enable debug output.
             min_goals_threshold: Minimum ML goals required before accepting the inference result.
+            preview_mask_count: Number of ML goal masks to preview (0 disables).
+            preloaded_model: Optional preloaded GoalInferenceModel to avoid reloading.
         """
         self.verbose = verbose
         self.max_matches = max_matches
@@ -331,7 +336,10 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             samples=samples,
             device=device,
             min_goals_threshold=min_goals_threshold,
-            verbose=verbose
+            verbose=verbose,
+            xml_path=xml_path,
+            preview_mask_count=preview_mask_count,
+            preloaded_model=preloaded_model
         )
         self._default_ml_samples = samples
 
@@ -366,7 +374,12 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             ml_goal_budget
         )
 
+        print(f"🎯 ML-Primitive Alignment for {object_id}:")
+        print(f"  Primitive slots: {len(primitive_goals)} edges × {max_depth} depths = {len(primitive_goals) * max_depth} total")
+        print(f"  ML goals received: {len(ml_goals)}")
+
         if not ml_goals:
+            print(f"  ⚠️ No ML goals - returning empty aligned structure")
             return aligned_goals
 
         slot_metadata = self._build_slot_metadata(primitive_goals)
@@ -403,6 +416,21 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             )
             used_slots.add(slot_id)
             matches += 1
+
+        print(f"  ✅ Aligned {matches}/{len(ml_goals)} ML goals to primitive slots")
+        if matches == 0:
+            print(f"  ⚠️ WARNING: NO ML goals matched any primitive slots!")
+            print(f"     Position tolerance: {self.match_position_tolerance}m, Angle tolerance: {self.match_angle_tolerance} rad")
+        else:
+            # Show which edges/depths got ML goals
+            aligned_edges = set()
+            for edge_idx, edge_goals in enumerate(aligned_goals):
+                for depth_idx, goal in enumerate(edge_goals):
+                    if goal is not None:
+                        aligned_edges.add(edge_idx)
+            if aligned_edges:
+                sorted_edges = sorted(list(aligned_edges))
+                print(f"     Aligned to edges: {sorted_edges}")
 
         return aligned_goals
 
