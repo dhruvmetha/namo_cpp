@@ -189,6 +189,29 @@ def split_episode_into_trajectory_suffixes(episode: Dict[str, Any]) -> List[Dict
     return suffix_episodes
 
 
+def assign_difficulty_annotation(episode: Dict[str, Any]) -> None:
+    """Annotate an episode with difficulty score and label."""
+    stats = episode.get('algorithm_stats') or {}
+    pushes = stats.get('pushes_total_for_neighbour')
+    solutions = stats.get('solutions_total_for_neighbour')
+
+    score = None
+    if pushes is not None and pushes > 0 and solutions is not None:
+        score = float(solutions) / float(pushes)
+
+    if score is None:
+        label = 'unknown'
+    elif score > 0.9:
+        label = 'easy'
+    elif score > 0.1:
+        label = 'medium'
+    else:
+        label = 'hard'
+
+    episode['difficulty_score'] = score
+    episode['difficulty_label'] = label
+
+
 def process_episode(episode: Dict[str, Any], visualizer: NAMODataVisualizer) -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
     """Process a single episode to generate masks and metadata.
 
@@ -219,6 +242,10 @@ def process_episode(episode: Dict[str, Any], visualizer: NAMODataVisualizer) -> 
         'robot_goal': episode.get('robot_goal', [0, 0, 0]),
         'xml_file': episode.get('xml_file', '')
     }
+
+    if 'difficulty_label' in episode:
+        metadata['difficulty_label'] = episode.get('difficulty_label', 'unknown')
+        metadata['difficulty_score'] = episode.get('difficulty_score')
 
     return masks, metadata
 
@@ -256,6 +283,11 @@ def save_episode_data(masks: Dict[str, np.ndarray], metadata: Dict[str, Any],
     save_dict['robot_goal'] = np.array(metadata.get('robot_goal', [0, 0, 0]), dtype=np.float32)
     save_dict['xml_file'] = np.array([metadata.get('xml_file', '')], dtype='U')
 
+    if 'difficulty_label' in metadata:
+        save_dict['difficulty_label'] = np.array([metadata.get('difficulty_label', 'unknown')], dtype='U')
+        score = metadata.get('difficulty_score')
+        save_dict['difficulty_score'] = np.array([score if score is not None else -1.0], dtype=np.float32)
+
     # Count number of goal mask horizons (goal_mask_a1, goal_mask_a2, etc.)
     num_goal_horizons = sum(1 for key in masks.keys() if key.startswith('goal_mask_a'))
     save_dict['num_goal_horizons'] = np.array([num_goal_horizons], dtype=np.int32)
@@ -275,7 +307,8 @@ def save_episode_data(masks: Dict[str, np.ndarray], metadata: Dict[str, Any],
     np.savez_compressed(output_path, **save_dict)
 
 
-def process_pkl_file_worker(pkl_file: str, output_dir: str, filter_minimum_length: bool = False) -> Tuple[int, int, str]:
+def process_pkl_file_worker(pkl_file: str, output_dir: str, filter_minimum_length: bool = False,
+                            split_difficulty: bool = False) -> Tuple[int, int, str]:
     """Worker function to process a single pickle file.
     
     This function is designed to be called by multiprocessing workers.
@@ -285,6 +318,7 @@ def process_pkl_file_worker(pkl_file: str, output_dir: str, filter_minimum_lengt
         pkl_file: Path to pickle file
         output_dir: Base output directory
         filter_minimum_length: Whether to filter episodes by minimum action sequence length
+        split_difficulty: Whether to compute difficulty labels and split outputs
         
     Returns:
         Tuple of (total_episodes, processed_episodes, pkl_file)
@@ -309,6 +343,9 @@ def process_pkl_file_worker(pkl_file: str, output_dir: str, filter_minimum_lengt
     for episode in filtered_episodes:
         if is_valid_episode(episode):
             try:
+                if split_difficulty:
+                    assign_difficulty_annotation(episode)
+
                 # Split multi-step episodes into trajectory suffix examples
                 suffix_episodes = split_episode_into_trajectory_suffixes(episode)
 
@@ -320,7 +357,11 @@ def process_pkl_file_worker(pkl_file: str, output_dir: str, filter_minimum_lengt
                     # Create output path: output_dir/task_id/episode_id.npz
                     task_id = metadata['task_id']
                     episode_id = metadata['episode_id']
-                    output_path = os.path.join(output_dir, task_id, f"{episode_id}.npz")
+                    base_dir = output_dir
+                    if split_difficulty:
+                        label = metadata.get('difficulty_label', 'unknown') or 'unknown'
+                        base_dir = os.path.join(base_dir, label)
+                    output_path = os.path.join(base_dir, task_id, f"{episode_id}.npz")
 
                     # Save data
                     save_episode_data(masks, metadata, output_path)
@@ -334,7 +375,8 @@ def process_pkl_file_worker(pkl_file: str, output_dir: str, filter_minimum_lengt
 
 
 def process_pkl_file(pkl_file: str, visualizer: NAMODataVisualizer, 
-                    output_dir: str, filter_minimum_length: bool = False) -> Tuple[int, int]:
+                    output_dir: str, filter_minimum_length: bool = False,
+                    split_difficulty: bool = False) -> Tuple[int, int]:
     """Legacy single-threaded processing function for compatibility.
     
     Args:
@@ -342,11 +384,13 @@ def process_pkl_file(pkl_file: str, visualizer: NAMODataVisualizer,
         visualizer: NAMODataVisualizer instance
         output_dir: Base output directory
         filter_minimum_length: Whether to filter episodes by minimum action sequence length
+        split_difficulty: Whether to compute difficulty labels and split outputs
         
     Returns:
         Tuple of (total_episodes, processed_episodes)
     """
-    total_episodes, processed_episodes, _ = process_pkl_file_worker(pkl_file, output_dir, filter_minimum_length)
+    total_episodes, processed_episodes, _ = process_pkl_file_worker(
+        pkl_file, output_dir, filter_minimum_length, split_difficulty)
     return total_episodes, processed_episodes
 
 
@@ -362,6 +406,8 @@ def main():
     parser.add_argument('--visualize', action='store_true', help='Enable visualization (slower)')
     parser.add_argument('--filter-minimum-length', action='store_true',
                        help='Only process episodes with minimum action sequence length per environment')
+    parser.add_argument('--split-difficulty', action='store_true',
+                       help='Split outputs into easy/medium/hard folders and store difficulty metadata')
     
     args = parser.parse_args()
     
@@ -407,7 +453,9 @@ def main():
         # Serial processing (original behavior)
         visualizer = NAMODataVisualizer(figsize=(10, 8))
         for pkl_file in tqdm(pkl_files, desc="Processing files"):
-            file_episodes, file_processed = process_pkl_file(pkl_file, visualizer, args.output_dir, args.filter_minimum_length)
+            file_episodes, file_processed = process_pkl_file(
+                pkl_file, visualizer, args.output_dir,
+                args.filter_minimum_length, args.split_difficulty)
             total_episodes += file_episodes
             total_processed += file_processed
     else:
@@ -416,7 +464,11 @@ def main():
         
         with mp.Pool(num_workers) as pool:
             # Create partial function with fixed output_dir and filter setting
-            worker_func = partial(process_pkl_file_worker, output_dir=args.output_dir, filter_minimum_length=args.filter_minimum_length)
+            worker_func = partial(
+                process_pkl_file_worker,
+                output_dir=args.output_dir,
+                filter_minimum_length=args.filter_minimum_length,
+                split_difficulty=args.split_difficulty)
             
             # Process files with progress bar
             results = []

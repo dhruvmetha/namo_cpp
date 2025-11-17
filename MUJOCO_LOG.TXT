@@ -28,3 +28,6 @@ WARNING: Linesearch objective is not convex
 Mon Oct 27 08:26:32 2025
 WARNING: Linesearch objective is not convex
 
+Mon Nov 17 02:51:16 2025
+WARNING: Linesearch objective is not convex
+

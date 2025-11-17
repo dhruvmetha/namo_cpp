@@ -3,11 +3,11 @@
 # CLI flags can override any value here.
 
 # Core execution
-output_dir: /common/users/dm1487/namo_data/oct26/2_push
-start_idx: 0
-end_idx: 50
+output_dir: /common/users/dm1487/namo_data/nov17/1_push/test
+start_idx: 6000
+end_idx: 7000
 algorithm: region_opening
-workers: 8
+workers: 48
 episodes_per_env: 1
 
 # Generic planner limits (not used by region opening, but required for compatibility)
@@ -18,13 +18,13 @@ search_timeout: 300.0
 
 # Region opening specific parameters
 region_allow_collisions: true
-region_max_chain_depth: 2      # 1=single push, 2=two pushes, 3=three pushes
-region_max_solutions_per_neighbor: 5
-region_frontier_beam_width: 200  # null or 0 = unbounded; positive integer caps frontier per depth
-region_max_recorded_solutions_per_neighbor: 2
+region_max_chain_depth: 1      # 1=single push, 2=two pushes, 3=three pushes
+region_max_solutions_per_neighbor: 600
+region_frontier_beam_width: 1000  # null or 0 = unbounded; positive integer caps frontier per depth
+region_max_recorded_solutions_per_neighbor: 10
 
 # Paths
-xml_dir: ../ml4kp_ktamp/resources/models/custom_walled_envs/aug9
+xml_dir: /common/home/dm1487/robotics_research/ktamp/ml4kp_ktamp/resources/models/custom_walled_envs/aug9
 config_file: config/namo_config_complete_skill15.yaml
 
 # Optional pipeline features

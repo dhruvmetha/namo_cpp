@@ -27,7 +27,7 @@ primitive_data_dir: data  # Directory containing motion primitive .dat files
 region_allow_collisions: true
 region_max_chain_depth: 2
 region_max_solutions_per_neighbor: 5
-region_frontier_beam_width: 200  # Prune frontier to top 200 nodes by cost (None = no pruning)
+region_frontier_beam_width: 500  # Prune frontier to top 200 nodes by cost (None = no pruning)
 region_max_recorded_solutions_per_neighbor: 2  # Max solutions to record per neighbor
 
 # Planner limits

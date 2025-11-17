@@ -26,7 +26,7 @@ import traceback
 import signal
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Any, TYPE_CHECKING
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, replace
 from multiprocessing import Pool
 import glob
 from tqdm import tqdm
@@ -330,6 +330,8 @@ def discover_environment_files(base_dir: str, start_idx: int, end_idx: int) -> L
     if end_idx == -1:
         end_idx = len(all_xml_files)
         
+    random.seed(42)
+    random.shuffle(all_xml_files)
     subset_files = all_xml_files[start_idx:end_idx]
     
     return subset_files
@@ -475,9 +477,11 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                                 'chosen_object_id': attempt.chosen_object_id,
                                 'chain_depth': attempt.chain_depth,
                                 'total_cost': getattr(attempt, 'total_cost', None),
-                            'skill_calls_before_success': getattr(attempt, 'skill_calls_before_success', None),
-                            'solutions_found_for_neighbour': getattr(attempt, 'solutions_found_for_neighbour', None),
-                            'solutions_cap_for_neighbour': getattr(attempt, 'solutions_cap_for_neighbour', None),
+                                'skill_calls_before_success': getattr(attempt, 'skill_calls_before_success', None),
+                                'solutions_found_for_neighbour': getattr(attempt, 'solutions_found_for_neighbour', None),
+                                'solutions_cap_for_neighbour': getattr(attempt, 'solutions_cap_for_neighbour', None),
+                                'solutions_total_for_neighbour': getattr(attempt, 'solutions_total_for_neighbour', None),
+                                'pushes_total_for_neighbour': getattr(attempt, 'pushes_total_for_neighbour', None),
                             },
                             action_sequence=action_sequence,
                             state_observations=attempt.state_observations,
@@ -729,6 +733,16 @@ class ModularParallelCollectionManager:
         tasks = []
         for i, xml_file in enumerate(xml_files):
             task_id = f"{self.config.hostname}_env_{self.config.start_idx + i:06d}"
+
+            task_planner_config = self.config.planner_config
+            if task_planner_config is not None:
+                base_algorithm_params = task_planner_config.algorithm_params or {}
+                task_algorithm_params = dict(base_algorithm_params)
+                task_algorithm_params['xml_file'] = xml_file
+                task_planner_config = replace(
+                    task_planner_config,
+                    algorithm_params=task_algorithm_params
+                )
             
             task = ModularWorkerTask(
                 task_id=task_id,
@@ -737,7 +751,7 @@ class ModularParallelCollectionManager:
                 output_dir=str(self.output_dir),
                 episodes_per_env=self.config.episodes_per_env,
                 algorithm=self.config.algorithm,
-                planner_config=self.config.planner_config,
+                planner_config=task_planner_config,
                 filter_minimum_length=self.config.filter_minimum_length,
                 smooth_solutions=self.config.smooth_solutions,
                 max_smooth_actions=self.config.max_smooth_actions,
@@ -1065,6 +1079,7 @@ def main():
     # Build algorithm_params with only the region opening parameters that are actually used
     algorithm_params = {}
     if args.algorithm == "region_opening":
+        algorithm_params["primitive_data_dir"] = args.primitive_data_dir
         algorithm_params.update({
             "region_allow_collisions": args.region_allow_collisions,
             "region_max_chain_depth": args.region_max_chain_depth,

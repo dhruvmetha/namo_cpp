@@ -232,6 +232,8 @@ def main():
                         help="Position tolerance for ML-primitive alignment in meters (default: 0.2)")
     parser.add_argument("--ml-match-angle-tolerance", type=float, default=0.35,
                         help="Angle tolerance for ML-primitive alignment in radians (default: 0.35)")
+    parser.add_argument("--ml-match-angle-weight", type=float, default=0.5,
+                        help="Weight for angle error in alignment scoring (default: 0.5)")
     parser.add_argument("--preview-ml-goal-masks", type=int, default=0,
                         help="Number of ML goal masks to preview via matplotlib before planning (0 disables)")
     
@@ -392,6 +394,7 @@ def main():
             'ml_match_max_per_call': args.ml_match_max_per_call,
             'ml_match_position_tolerance': args.ml_match_position_tolerance,
             'ml_match_angle_tolerance': args.ml_match_angle_tolerance,
+            'ml_match_angle_weight': args.ml_match_angle_weight,
             'region_allow_collisions': args.region_allow_collisions,
             'region_max_chain_depth': args.region_max_chain_depth,
             'region_max_solutions_per_neighbor': args.region_max_solutions_per_neighbor,
