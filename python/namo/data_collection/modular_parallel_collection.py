@@ -24,6 +24,7 @@ import pickle
 import time
 import traceback
 import signal
+import re
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Any, TYPE_CHECKING
 from dataclasses import dataclass, asdict, replace
@@ -57,6 +58,12 @@ from namo.planners.idfs.solution_smoother import SolutionSmoother
 
 import random
 random.seed(42)
+
+
+def _sanitize_run_name(name: str) -> str:
+    """Collapse run labels to filesystem-safe tokens."""
+    sanitized = re.sub(r"[^0-9A-Za-z._-]", "_", name.strip())
+    return sanitized or "run"
 
 def create_goal_checker(robot_goal):
     """Create a goal checker function for the smoother."""
@@ -198,6 +205,8 @@ class ModularCollectionConfig:
     
     
     hostname: str = None  # Auto-detected if None
+    run_name: Optional[str] = None  # Optional suffix for per-run directories
+    unique_run_dir: bool = False  # Auto-generate per-run subdirectory suffix when True
 
 
 @dataclass
@@ -317,16 +326,11 @@ def discover_environment_files(base_dir: str, start_idx: int, end_idx: int) -> L
     #         all_xml_files.append(xml_file)
     # all_xml_files = sorted(all_xml_files)
     
-    sets = [1, 2]
-    benchmarks = [1, 2, 3, 4, 5]
-    all_xml_files = []
-    for set in sets:
-        for benchmark in benchmarks:
-            xml_pattern = os.path.join(base_dir, "medium", f"set{set}", f"benchmark_{benchmark}", "*.xml")
-            sorted_xml_files = sorted(glob.glob(xml_pattern, recursive=True))
-            all_xml_files.extend(sorted_xml_files[:1000]) # train
-            # all_xml_files.extend(sorted_xml_files[1000:1100]) # test
-    # Apply subset selection
+    xml_pattern = os.path.join(base_dir, "**", "*.xml")
+    
+    all_xml_files = sorted(glob.glob(xml_pattern, recursive=True))
+    
+    # 3. Apply subset selection (same as your original code)
     if end_idx == -1:
         end_idx = len(all_xml_files)
         
@@ -714,8 +718,23 @@ class ModularParallelCollectionManager:
         
         # Setup output directory
         self.output_base = Path(self.config.output_dir)
-        self.output_dir = self.output_base / f"modular_data_{self.config.hostname}"
+        base_dir_name = f"modular_data_{self.config.hostname}"
+        run_suffix = None
+
+        if self.config.run_name:
+            run_suffix = _sanitize_run_name(self.config.run_name)
+        elif self.config.unique_run_dir:
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            run_suffix = f"start{self.config.start_idx:06d}_end{self.config.end_idx:06d}_{timestamp}"
+
+        if run_suffix:
+            final_dir_name = f"{base_dir_name}_{run_suffix}"
+        else:
+            final_dir_name = base_dir_name
+
+        self.output_dir = self.output_base / final_dir_name
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        print(f"🗂️  Run directory: {self.output_dir}")
         
         # Setup progress tracking
         self.progress_file = self.output_dir / "collection_progress.txt"
@@ -1041,6 +1060,10 @@ def main():
                         help="Apply action refinement using actual achieved positions (post-smoothing step)")
     parser.add_argument("--validate-refinement", action="store_true", default=True,
                         help="Validate that refined actions still solve the task (default: True)")
+    parser.add_argument("--run-name", type=str, default=None,
+                        help="Optional suffix appended to the per-host output directory to separate runs")
+    parser.add_argument("--unique-run-dir", action="store_true",
+                        help="Automatically append start/end indices and timestamp to output directory for each run")
     
     # If YAML provided, load and set parser defaults before final parse
     if pre_args.config_yaml:
@@ -1146,7 +1169,9 @@ def main():
         refine_actions=args.refine_actions,
         validate_refinement=args.validate_refinement,
         filter_minimum_length=args.filter_minimum_length,
-        planner_config=planner_config
+        planner_config=planner_config,
+        run_name=args.run_name,
+        unique_run_dir=args.unique_run_dir
     )
     
     # Execute parallel data collection
