@@ -1,39 +1,30 @@
-# YAML defaults for modular_parallel_collection.py
+# YAML defaults for modular_parallel_collection.py (Region Opening)
 # Use with: python modular_parallel_collection.py --config-yaml python/namo/data_collection/region_opening_collection.yaml
 # CLI flags can override any value here.
 
 # Core execution
-output_dir: ./modular_data
-start_idx: 0
-end_idx: 50
+output_dir: /common/users/dm1487/namo_data/nov17/1_push/test
+start_idx: 6000
+end_idx: 7000
 algorithm: region_opening
-workers: 8
+workers: 48
 episodes_per_env: 1
 
-# Generic planner limits
+# Generic planner limits (not used by region opening, but required for compatibility)
 max_depth: 5
 max_goals_per_object: 5
 max_terminal_checks: 5000
 search_timeout: 300.0
 
-# Strategy selection
-object_strategy: no_heuristic  # [no_heuristic, nearest_first, goal_proximity, farthest_first, ml]
-goal_strategy: random          # [random, grid, adaptive, discretized, ml]
-ml_object_model: null          # required if object_strategy==ml
-ml_goal_model: null            # required if goal_strategy==ml
-ml_samples: 32
-ml_device: cuda                # [cuda, cpu]
-# only valid with goal_strategy=ml; 0.0..1.0
-epsilon: null
-
-# Region opening specific (only those used by the planner)
+# Region opening specific parameters
 region_allow_collisions: true
-region_max_chain_depth: 3      # 1=single push, 2=two pushes, 3=three pushes
-region_max_solutions_per_neighbor: 5
-region_frontier_beam_width: 500  # null or 0 = unbounded; positive integer caps frontier per depth
+region_max_chain_depth: 1      # 1=single push, 2=two pushes, 3=three pushes
+region_max_solutions_per_neighbor: 600
+region_frontier_beam_width: 1000  # null or 0 = unbounded; positive integer caps frontier per depth
+region_max_recorded_solutions_per_neighbor: 10
 
 # Paths
-xml_dir: ../ml4kp_ktamp/resources/models/custom_walled_envs/aug9
+xml_dir: /common/home/dm1487/robotics_research/ktamp/ml4kp_ktamp/resources/models/custom_walled_envs/aug9
 config_file: config/namo_config_complete_skill15.yaml
 
 # Optional pipeline features

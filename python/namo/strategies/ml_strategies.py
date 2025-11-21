@@ -26,21 +26,21 @@ class MLObjectSelectionStrategy(ObjectSelectionStrategy):
     from visual scene analysis and robot goal context.
     """
     
-    def __init__(self, 
+    def __init__(self,
                  object_model_path: str,
                  samples: int = 32,
                  device: str = "cuda",
-                 xml_path_relative: Optional[str] = None,
+                 xml_path: Optional[str] = None,
                  min_valid_samples: int = 1,
                  verbose: bool = False,
                  preloaded_model: Optional[Any] = None):
         """Initialize ML object selection strategy.
-        
+
         Args:
             object_model_path: Path to trained object inference model
             samples: Number of diffusion samples for inference
-            device: PyTorch device ("cuda" or "cpu") 
-            xml_path_relative: Relative XML path for image conversion (if different from env)
+            device: PyTorch device ("cuda" or "cpu")
+            xml_path: XML file path (absolute or relative). If None, uses env.get_xml_path()
             min_valid_samples: Minimum valid samples before considering result reliable
             verbose: Enable verbose logging
             preloaded_model: Optional pre-loaded model to avoid repeated loading
@@ -48,7 +48,7 @@ class MLObjectSelectionStrategy(ObjectSelectionStrategy):
         self.object_model_path = object_model_path
         self.samples = samples
         self.device = device
-        self.xml_path_relative = xml_path_relative
+        self.xml_path = xml_path
         self.min_valid_samples = min_valid_samples
         self.verbose = False # verbose
         
@@ -169,17 +169,15 @@ class MLObjectSelectionStrategy(ObjectSelectionStrategy):
             if not objects_dict:
                 return None
             
-            # Get XML path - use provided relative path or try to infer from environment
-            xml_path = self.xml_path_relative
+            # Get XML path - use provided path or get from environment
+            xml_path = self.xml_path
             if xml_path is None:
-                # Try to get from environment if possible
-                if hasattr(env, '_xml_path'):
-                    xml_path = getattr(env, '_xml_path')
-                elif hasattr(env, 'xml_path'):
-                    xml_path = getattr(env, 'xml_path')
+                # Try to get from environment
+                if hasattr(env, 'get_xml_path'):
+                    xml_path = env.get_xml_path()
                 else:
-                    # Use a default/placeholder - the model might still work
-                    xml_path = "data/test_scene.xml"
+                    print(f"  ⚠️ JSON creation failed: No XML path provided and env.get_xml_path() not available")
+                    return None
             
             # Create message in expected format
             json_message = {
@@ -295,27 +293,35 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
                  goal_model_path: str,
                  samples: int = 32,
                  device: str = "cuda",
-                 xml_path_relative: Optional[str] = None,
+                 xml_path: Optional[str] = None,
                  min_goals_threshold: int = 1,
                  verbose: bool = False,
-                 preloaded_model: Optional[Any] = None):
+                 preloaded_model: Optional[Any] = None,
+                 preview_mask_count: int = 0,
+                 **unused_kwargs):
         """Initialize ML goal selection strategy.
-        
+
         Args:
             goal_model_path: Path to trained goal inference model
             samples: Number of diffusion samples for inference
             device: PyTorch device ("cuda" or "cpu")
-            xml_path_relative: Relative XML path for image conversion
+            xml_path: XML file path (absolute or relative). If None, uses env.get_xml_path()
             min_goals_threshold: Minimum goals before considering result reliable
             verbose: Enable verbose logging
             preloaded_model: Optional pre-loaded model to avoid repeated loading
+            preview_mask_count: Number of ML goal masks to preview (0 disables)
+            **unused_kwargs: Compatibility placeholder for legacy keyword args
         """
         self.goal_model_path = goal_model_path
         self.samples = samples
         self.device = device
-        self.xml_path_relative = xml_path_relative
+        self.xml_path = xml_path
         self.min_goals_threshold = min_goals_threshold
         self.verbose = verbose
+        self.preview_mask_count = max(0, preview_mask_count)
+        self._preview_shown = False
+        if unused_kwargs and self.verbose:
+            print(f"Warning: Unused MLGoalSelectionStrategy kwargs: {list(unused_kwargs.keys())}")
         
         # Use preloaded model if available, otherwise lazy load
         if preloaded_model is not None:
@@ -372,7 +378,7 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
             print("ML goal generation failed, skipping this object")
         return []
     
-    def _generate_goals_ml(self, 
+    def _generate_goals_ml(self,
                           object_id: str,
                           state: namo_rl.RLState,
                           env: namo_rl.RLEnvironment,
@@ -380,15 +386,19 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
         """Attempt ML-based goal generation."""
         # Load model if needed
         if not self._load_model():
+            print(f"❌ ML model loading failed for {object_id}")
             return None
-        
+
         # Create input data for goal generation
+        print(f"📝 Creating JSON message for {object_id}...")
         json_message = self._create_json_message_for_goals(object_id, state, env)
         if json_message is None:
-            if self.verbose:
-                print("Failed to create JSON message for ML goal inference")
+            print(f"❌ Failed to create JSON message for {object_id}")
             return None
-        
+
+        print(f"✅ JSON message created for {object_id}, calling infer()...")
+        print(f"   Using XML path: {json_message.get('xml_path', 'MISSING')}")
+
         try:
             # Run goal model directly with new independent API
             if self.verbose:
@@ -401,10 +411,18 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
                 selected_object=object_id,
                 samples=self.samples
             )
+
+            print(f"🔍 ML INFERENCE RESULT for {object_id}: {len(goals) if goals else 0} goals generated")
+            if goals:
+                for i, g in enumerate(goals[:5]):
+                    print(f"  Goal {i}: x={g.get('x', 0):.3f}, y={g.get('y', 0):.3f}, theta={g.get('theta', 0):.3f}")
+
             if not goals or len(goals) < self.min_goals_threshold:
                 if self.verbose:
                     print(f"Too few goals generated: {len(goals)} < {self.min_goals_threshold}")
                 return None
+            
+            self._preview_goal_inference(goals, object_id)
             
             # Convert to our Goal format
             converted_goals = []
@@ -422,28 +440,133 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
             return converted_goals
             
         except Exception as e:
-            if self.verbose:
-                print(f"ML goal inference failed: {e}")
+            print(f"❌ ML goal inference failed for {object_id}: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
-    def _create_json_message_for_goals(self, 
+    def _preview_goal_inference(self, goals: List[Dict[str, Any]], object_id: str):
+        """Display ML input channels and goal mask predictions using matplotlib."""
+        if self.preview_mask_count <= 0 or self._preview_shown:
+            return
+
+        try:
+            import numpy as np
+        except Exception as e:
+            if self.verbose:
+                print(f"Unable to import numpy for mask preview: {e}")
+            self.preview_mask_count = 0
+            return
+
+        mask_entries = []
+        input_channels = None
+
+        for goal in goals:
+            sample = goal.get('goal_sample')
+            if sample is None:
+                continue
+            sample_np = np.asarray(sample)
+            if sample_np.ndim == 3:
+                mask = sample_np[:, :, 0]
+            elif sample_np.ndim == 2:
+                mask = sample_np
+            else:
+                continue
+
+            # Get input channels from first goal (same for all goals in this batch)
+            if input_channels is None and 'input_channels' in goal:
+                input_channels = goal['input_channels']
+
+            mask_entries.append((goal.get('index', len(mask_entries)), mask))
+
+        if not mask_entries:
+            return
+
+        count = min(self.preview_mask_count, len(mask_entries))
+
+        try:
+            import matplotlib.pyplot as plt
+        except Exception as e:
+            if self.verbose:
+                print(f"Matplotlib not available for goal mask preview: {e}")
+            self.preview_mask_count = 0
+            return
+
+        try:
+            # Create figure with 2 rows: input visualization (top), output predictions (bottom)
+            fig = plt.figure(figsize=(4 * (count + 1), 8))
+            gs = fig.add_gridspec(2, count + 1, height_ratios=[1, 1])
+
+            # Top row: Input visualization
+            if input_channels is not None:
+                # Denormalize from [-1, 1] to [0, 1]
+                inp = (input_channels + 1) / 2
+
+                # Create combined scene visualization
+                ax_input = fig.add_subplot(gs[0, :])
+
+                # Combine channels: robot (0) + goal (1) + movable (2) + static (3)
+                combined_scene = np.clip(
+                    inp[0, :, :] +      # robot
+                    inp[1, :, :] +      # robot goal
+                    inp[2, :, :] +      # movable objects
+                    inp[3, :, :],       # static objects
+                    0, 1
+                )
+
+                # Get selected object mask (channel 5)
+                selected_mask = inp[5, :, :]
+
+                # Create RGB visualization: scene in grayscale, selected object in red
+                rgb_img = np.stack([
+                    combined_scene + selected_mask,  # Red channel: scene + selected object
+                    combined_scene,                   # Green channel: just scene
+                    combined_scene                    # Blue channel: just scene
+                ], axis=-1)
+                rgb_img = np.clip(rgb_img, 0, 1)
+
+                ax_input.imshow(rgb_img)
+                ax_input.set_title(f"Input: Scene + Selected Object ({object_id}) in Red", fontsize=12, fontweight='bold')
+                ax_input.axis('off')
+
+            # Bottom row: Output goal predictions
+            for i, (idx, mask) in enumerate(mask_entries[:count]):
+                ax = fig.add_subplot(gs[1, i])
+                ax.imshow(mask, cmap='viridis')
+                ax.set_title(f"Goal #{idx}", fontsize=10)
+                ax.axis('off')
+
+            fig.suptitle(f"ML Goal Inference: {object_id}", fontsize=14, fontweight='bold')
+            fig.tight_layout()
+            print("🖼️ Close the ML goal visualization window to continue planning...")
+            plt.show(block=True)
+        except Exception as e:
+            if self.verbose:
+                print(f"Failed to render ML goal mask preview: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            self._preview_shown = True
+    
+    def _create_json_message_for_goals(self,
                                      object_id: str,
-                                     state: namo_rl.RLState, 
+                                     state: namo_rl.RLState,
                                      env: namo_rl.RLEnvironment) -> Optional[Dict[str, Any]]:
         """Create JSON message format expected by GoalInferenceModel."""
         # Save original state to restore later
         original_state = env.get_full_state()
-        
+
         try:
             # Set state to get observations
             env.set_full_state(state)
             obs = env.get_observation()
-            
+
             # Get robot position and goal
             robot_pose = obs.get('robot_pose')
             if robot_pose is None or len(robot_pose) < 3:
+                print(f"  ⚠️ JSON creation failed: No valid robot_pose in observations")
                 return None
-            
+
             # Get robot goal
             robot_goal = None
             if hasattr(env, '_robot_goal'):
@@ -455,8 +578,9 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
                     robot_goal = env.get_robot_goal()
                 except:
                     pass
-            
+
             if robot_goal is None or len(robot_goal) < 2:
+                print(f"  ⚠️ JSON creation failed: No valid robot_goal (robot_goal={robot_goal})")
                 return None
             
             # Get reachable objects from environment
@@ -526,15 +650,15 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
                 else:
                     return None  # Can't find target object
             
-            # Get XML path
-            xml_path = self.xml_path_relative
+            # Get XML path - use provided path or get from environment
+            xml_path = self.xml_path
             if xml_path is None:
-                if hasattr(env, '_xml_path'):
-                    xml_path = getattr(env, '_xml_path')
-                elif hasattr(env, 'xml_path'):
-                    xml_path = getattr(env, 'xml_path')
+                # Try to get from environment
+                if hasattr(env, 'get_xml_path'):
+                    xml_path = env.get_xml_path()
                 else:
-                    xml_path = "data/test_scene.xml"
+                    print(f"  ⚠️ JSON creation failed: No XML path provided and env.get_xml_path() not available")
+                    return None
             
             # Create message in expected format
             json_message = {

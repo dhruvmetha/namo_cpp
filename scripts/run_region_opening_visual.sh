@@ -15,6 +15,7 @@ YAML_CONFIG="$REPO_DIR/python/namo/data_collection/region_opening_collection.yam
 
 exec "$PYTHON_BIN" "$VIS_SCRIPT" \
   --config-yaml "$YAML_CONFIG" \
+  --verbose \
   --algorithm region_opening \
   "$@"
 

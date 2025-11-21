@@ -24,9 +24,10 @@ import pickle
 import time
 import traceback
 import signal
+import re
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Any, TYPE_CHECKING
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, replace
 from multiprocessing import Pool
 import glob
 from tqdm import tqdm
@@ -57,6 +58,12 @@ from namo.planners.idfs.solution_smoother import SolutionSmoother
 
 import random
 random.seed(42)
+
+
+def _sanitize_run_name(name: str) -> str:
+    """Collapse run labels to filesystem-safe tokens."""
+    sanitized = re.sub(r"[^0-9A-Za-z._-]", "_", name.strip())
+    return sanitized or "run"
 
 def create_goal_checker(robot_goal):
     """Create a goal checker function for the smoother."""
@@ -168,26 +175,6 @@ def apply_action_refinement(episode_result, env, robot_goal, task):
 
 
 
-def get_available_object_strategies() -> List[str]:
-    """Get list of available object selection strategies."""
-    return ["no_heuristic", "nearest_first", "goal_proximity", "farthest_first", "ml"]
-
-
-def get_available_goal_strategies() -> List[str]:
-    """Get list of available goal selection strategies."""
-    return ["random", "grid", "adaptive", "discretized", "ml"]
-
-
-def validate_object_strategy(strategy_name: str) -> bool:
-    """Validate if object selection strategy name is supported."""
-    return strategy_name in get_available_object_strategies()
-
-
-def validate_goal_strategy(strategy_name: str) -> bool:
-    """Validate if goal selection strategy name is supported."""
-    return strategy_name in get_available_goal_strategies()
-
-
 @dataclass
 class ModularCollectionConfig:
     """Configuration for modular parallel data collection."""
@@ -202,16 +189,9 @@ class ModularCollectionConfig:
     num_workers: int = 8
     
     # Algorithm selection
-    algorithm: str = "idfs"  # Default algorithm
+    algorithm: str = "region_opening"  # Default algorithm
     planner_config: PlannerConfig = None  # Will use default if None
-    
-    # Strategy selection (for algorithms that support it)
-    object_selection_strategy: str = "no_heuristic"  # Default object strategy
-    goal_selection_strategy: str = "random"  # Default goal strategy
-    
-    # ML-specific parameters (only used when strategies are "ml")
-    ml_object_model_path: str = None
-    
+
     # Solution smoothing
     smooth_solutions: bool = False
     max_smooth_actions: int = 20
@@ -219,16 +199,14 @@ class ModularCollectionConfig:
     # Action refinement (post-smoothing step)
     refine_actions: bool = False
     validate_refinement: bool = True
-    ml_goal_model_path: str = None
-    ml_samples: int = 32
-    ml_device: str = "cuda"
-    epsilon: float = None  # For epsilon-greedy goal strategy
-    
+
     # Episode filtering options
     filter_minimum_length: bool = False  # Only keep episodes with minimum action sequence length per environment
     
     
     hostname: str = None  # Auto-detected if None
+    run_name: Optional[str] = None  # Optional suffix for per-run directories
+    unique_run_dir: bool = False  # Auto-generate per-run subdirectory suffix when True
 
 
 @dataclass
@@ -241,9 +219,6 @@ class ModularWorkerTask:
     episodes_per_env: int
     algorithm: str
     planner_config: PlannerConfig
-    # Model paths for worker-side preloading (models can't be pickled)
-    ml_object_model_path: Optional[str] = None
-    ml_goal_model_path: Optional[str] = None
     # Filtering options
     filter_minimum_length: bool = False
     # Solution smoothing options
@@ -331,6 +306,7 @@ def discover_environment_files(base_dir: str, start_idx: int, end_idx: int) -> L
     """Discover and filter XML environment files by index range."""
    
    
+
     # all_xml_files = []
     # with open('./notebooks/unsolved_envs.pkl', 'rb') as f:
     #     unsolved_envs = pickle.load(f)
@@ -350,23 +326,50 @@ def discover_environment_files(base_dir: str, start_idx: int, end_idx: int) -> L
     #         all_xml_files.append(xml_file)
     # all_xml_files = sorted(all_xml_files)
     
-    sets = [1, 2]
-    benchmarks = [1, 2, 3, 4, 5]
-    all_xml_files = []
-    for set in sets:
-        for benchmark in benchmarks:
-            xml_pattern = os.path.join(base_dir, "medium", f"set{set}", f"benchmark_{benchmark}", "*.xml")
-            sorted_xml_files = sorted(glob.glob(xml_pattern, recursive=True))
-            all_xml_files.extend(sorted_xml_files[:1000]) # train
-            # all_xml_files.extend(sorted_xml_files[1000:1100]) # test
-    # Apply subset selection
+    xml_pattern = os.path.join(base_dir, "**", "*.xml")
+    
+    all_xml_files = sorted(glob.glob(xml_pattern, recursive=True))
+    
+    # 3. Apply subset selection (same as your original code)
     if end_idx == -1:
         end_idx = len(all_xml_files)
         
+    random.seed(42)
+    random.shuffle(all_xml_files)
     subset_files = all_xml_files[start_idx:end_idx]
-  
+    
     return subset_files
 
+    # solved_envs = []
+    # with open('1_push_solved.pkl', 'rb') as f:
+    #     solved_envs = pickle.load(f)
+    # solved_envs = set(solved_envs)
+    # print("solved_envs", len(solved_envs))
+    # sets = [1, 2]
+    # benchmarks = [1, 2, 3, 4, 5]
+    # all_xml_files = []
+    
+    # for set_idx in sets:
+    #     for benchmark_idx in benchmarks:
+    #         xml_pattern = os.path.join(base_dir, "medium", f"set{set_idx}", f"benchmark_{benchmark_idx}", "*.xml")
+    #         sorted_xml_files = sorted(glob.glob(xml_pattern, recursive=True))
+    #         for xml_file in sorted_xml_files[:1000]:
+    #                 all_xml_files.append(xml_file.split(f'{base_dir}/')[-1])
+    #         # all_xml_files.extend(sorted_xml_files[1000:1100]) # test
+    # # Apply subset selection
+    # subset_files = all_xml_files[start_idx:end_idx]
+    # subset_files = set(subset_files) - solved_envs
+    # subset_files = list(subset_files)
+    # if end_idx == -1:
+    #     end_idx = len(all_xml_files)
+    # subset_files = sorted(subset_files)
+    # print("unsolved envs", len(subset_files))
+    # final_subset_files = []
+    # for subset_file in subset_files:
+    #     xml_file = os.path.join(base_dir, subset_file)
+    #     final_subset_files.append(xml_file)
+    # final_subset_files = sorted(final_subset_files)
+    # return final_subset_files
 
 def generate_hostname_prefix() -> str:
     """Generate hostname-based prefix for output files."""
@@ -379,78 +382,6 @@ def generate_goal_for_environment(xml_file: str) -> Tuple[float, float, float]:
     """Extract goal position from XML environment file."""
     fallback_goal = (-0.5, 1.3, 0.0)
     return extract_goal_with_fallback(xml_file, fallback_goal)
-
-
-def _worker_preload_object_model(model_path: str, config: PlannerConfig) -> Optional[Any]:
-    """Preload object model within worker process."""
-    try:
-        # Add learning package to path
-        learning_path = "/common/home/dm1487/robotics_research/ktamp/learning"
-        if learning_path not in sys.path:
-            sys.path.append(learning_path)
-        
-        from ktamp_learning.object_inference_model import ObjectInferenceModel
-        
-        # Get device from config
-        device = "cuda"
-        if config.algorithm_params and 'ml_device' in config.algorithm_params:
-            device = config.algorithm_params['ml_device']
-        
-        object_model = ObjectInferenceModel(
-            model_path=model_path,
-            device=device
-        )
-        return object_model
-        
-    except Exception as e:
-        print(f"[Worker] ❌ Failed to load object model: {e}")
-        return None
-
-
-def _worker_preload_goal_model(model_path: str, config: PlannerConfig) -> Optional[Any]:
-    """Preload goal model within worker process."""
-    try:
-        # Add learning package to path  
-        learning_path = "/common/home/dm1487/robotics_research/ktamp/learning"
-        if learning_path not in sys.path:
-            sys.path.append(learning_path)
-        
-        from ktamp_learning.goal_inference_model import GoalInferenceModel
-        
-        # Get device from config
-        device = "cuda"
-        if config.algorithm_params and 'ml_device' in config.algorithm_params:
-            device = config.algorithm_params['ml_device']
-        
-        goal_model = GoalInferenceModel(
-            model_path=model_path,
-            device=device
-        )
-        return goal_model
-        
-    except Exception as e:
-        print(f"[Worker] ❌ Failed to load goal model: {e}")
-        return None
-
-
-def _inject_preloaded_models(planner_config: PlannerConfig, 
-                           preloaded_object_model: Optional[Any],
-                           preloaded_goal_model: Optional[Any]) -> PlannerConfig:
-    """Create a copy of planner config with preloaded ML models injected."""
-    import copy
-    config_copy = copy.deepcopy(planner_config)
-    
-    if config_copy.algorithm_params is None:
-        config_copy.algorithm_params = {}
-    
-    # Inject preloaded models into parameters
-    if preloaded_object_model is not None:
-        config_copy.algorithm_params['preloaded_object_model'] = preloaded_object_model
-    
-    if preloaded_goal_model is not None:
-        config_copy.algorithm_params['preloaded_goal_model'] = preloaded_goal_model
-    
-    return config_copy
 
 
 def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
@@ -469,25 +400,9 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
         except AttributeError:
             # Fallback for environments without get_object_info method
             static_object_info = {}
-        
-        # Preload ML models within worker process to avoid repeated loading
+
+        # Create planner once per worker
         planner = None
-        preloaded_object_model = None
-        preloaded_goal_model = None
-        
-        # Preload models if using ML strategies
-        if task.ml_object_model_path:
-            preloaded_object_model = _worker_preload_object_model(task.ml_object_model_path, task.planner_config)
-        if task.ml_goal_model_path:
-            preloaded_goal_model = _worker_preload_goal_model(task.ml_goal_model_path, task.planner_config)
-        
-        # Inject preloaded models into config
-        if preloaded_object_model is not None or preloaded_goal_model is not None:
-            config_with_models = _inject_preloaded_models(task.planner_config, 
-                                                         preloaded_object_model, 
-                                                         preloaded_goal_model)
-        else:
-            config_with_models = task.planner_config
         
         # Collect episodes for this environment
         for episode_idx in range(task.episodes_per_env):
@@ -501,23 +416,7 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                 
                 # Create planner only once per worker (not per episode)
                 if planner is None:
-                    # Add XML file path to planner config for ML strategies
-                    if config_with_models.algorithm_params is None:
-                        config_with_models.algorithm_params = {}
-                    # ML models seem to have base path "/common/home/dm1487/robotics_research/ktamp/ml4kp_ktamp/resources/models/"
-                    # Extract the relative path from that base directory
-                    import os
-                    xml_path = task.xml_file
-                    if xml_path.startswith('../ml4kp_ktamp/resources/models/'):
-                        # Remove the base part to get relative path from the ML models' base directory
-                        xml_relative_path = xml_path.replace('../ml4kp_ktamp/resources/models/', '')
-                        config_with_models.algorithm_params['xml_file'] = xml_relative_path
-                    else:
-                        # Fallback to filename
-                        config_with_models.algorithm_params['xml_file'] = os.path.basename(xml_path)
-                    
-                    # Create planner with models already injected
-                    planner = PlannerFactory.create_planner(task.algorithm, env, config_with_models)
+                    planner = PlannerFactory.create_planner(task.algorithm, env, task.planner_config)
                 
                 # Reset planner for this episode (but don't recreate it)
                 planner.reset()
@@ -582,6 +481,11 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                                 'chosen_object_id': attempt.chosen_object_id,
                                 'chain_depth': attempt.chain_depth,
                                 'total_cost': getattr(attempt, 'total_cost', None),
+                                'skill_calls_before_success': getattr(attempt, 'skill_calls_before_success', None),
+                                'solutions_found_for_neighbour': getattr(attempt, 'solutions_found_for_neighbour', None),
+                                'solutions_cap_for_neighbour': getattr(attempt, 'solutions_cap_for_neighbour', None),
+                                'solutions_total_for_neighbour': getattr(attempt, 'solutions_total_for_neighbour', None),
+                                'pushes_total_for_neighbour': getattr(attempt, 'pushes_total_for_neighbour', None),
                             },
                             action_sequence=action_sequence,
                             state_observations=attempt.state_observations,
@@ -811,47 +715,26 @@ class ModularParallelCollectionManager:
         # Auto-detect hostname if not provided
         if self.config.hostname is None:
             self.config.hostname = generate_hostname_prefix()
-        # Setup default planner config if not provided
-        if self.config.planner_config is None:
-            self.config.planner_config = PlannerConfig(
-                max_depth=5,
-                max_goals_per_object=5,
-                collect_stats=True,
-                verbose=self.config.verbose,
-                algorithm_params={
-                    'object_selection_strategy': self.config.object_selection_strategy,
-                    'goal_selection_strategy': self.config.goal_selection_strategy,
-                    'ml_object_model_path': self.config.ml_object_model_path,
-                    'ml_goal_model_path': self.config.ml_goal_model_path,
-                    'ml_samples': self.config.ml_samples,
-                    'ml_device': self.config.ml_device
-                }
-            )
-        else:
-            # Add strategies to existing config if not already present
-            if self.config.planner_config.algorithm_params is None:
-                self.config.planner_config.algorithm_params = {}
-            
-            params = self.config.planner_config.algorithm_params
-            if 'object_selection_strategy' not in params:
-                params['object_selection_strategy'] = self.config.object_selection_strategy
-            if 'goal_selection_strategy' not in params:
-                params['goal_selection_strategy'] = self.config.goal_selection_strategy
-            if 'ml_object_model_path' not in params:
-                params['ml_object_model_path'] = self.config.ml_object_model_path
-            if 'ml_goal_model_path' not in params:
-                params['ml_goal_model_path'] = self.config.ml_goal_model_path
-            if 'ml_samples' not in params:
-                params['ml_samples'] = self.config.ml_samples
-            if 'ml_device' not in params:
-                params['ml_device'] = self.config.ml_device
-            if 'epsilon' not in params:
-                params['epsilon'] = self.config.epsilon
         
         # Setup output directory
         self.output_base = Path(self.config.output_dir)
-        self.output_dir = self.output_base / f"modular_data_{self.config.hostname}"
+        base_dir_name = f"modular_data_{self.config.hostname}"
+        run_suffix = None
+
+        if self.config.run_name:
+            run_suffix = _sanitize_run_name(self.config.run_name)
+        elif self.config.unique_run_dir:
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            run_suffix = f"start{self.config.start_idx:06d}_end{self.config.end_idx:06d}_{timestamp}"
+
+        if run_suffix:
+            final_dir_name = f"{base_dir_name}_{run_suffix}"
+        else:
+            final_dir_name = base_dir_name
+
+        self.output_dir = self.output_base / final_dir_name
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        print(f"🗂️  Run directory: {self.output_dir}")
         
         # Setup progress tracking
         self.progress_file = self.output_dir / "collection_progress.txt"
@@ -869,6 +752,16 @@ class ModularParallelCollectionManager:
         tasks = []
         for i, xml_file in enumerate(xml_files):
             task_id = f"{self.config.hostname}_env_{self.config.start_idx + i:06d}"
+
+            task_planner_config = self.config.planner_config
+            if task_planner_config is not None:
+                base_algorithm_params = task_planner_config.algorithm_params or {}
+                task_algorithm_params = dict(base_algorithm_params)
+                task_algorithm_params['xml_file'] = xml_file
+                task_planner_config = replace(
+                    task_planner_config,
+                    algorithm_params=task_algorithm_params
+                )
             
             task = ModularWorkerTask(
                 task_id=task_id,
@@ -877,9 +770,7 @@ class ModularParallelCollectionManager:
                 output_dir=str(self.output_dir),
                 episodes_per_env=self.config.episodes_per_env,
                 algorithm=self.config.algorithm,
-                planner_config=self.config.planner_config,
-                ml_object_model_path=self.config.ml_object_model_path,
-                ml_goal_model_path=self.config.ml_goal_model_path,
+                planner_config=task_planner_config,
                 filter_minimum_length=self.config.filter_minimum_length,
                 smooth_solutions=self.config.smooth_solutions,
                 max_smooth_actions=self.config.max_smooth_actions,
@@ -887,16 +778,6 @@ class ModularParallelCollectionManager:
                 validate_refinement=self.config.validate_refinement
             )
             tasks.append(task)
-        
-        # Pass ML model paths to workers (models will be preloaded within each worker)
-        if (self.config.object_selection_strategy == "ml" or
-            self.config.goal_selection_strategy == "ml"):
-            # Inject model paths into tasks for worker-side loading
-            for task in tasks:
-                if self.config.object_selection_strategy == "ml":
-                    task.ml_object_model_path = self.config.ml_object_model_path
-                if self.config.goal_selection_strategy == "ml":
-                    task.ml_goal_model_path = self.config.ml_goal_model_path
         
         return tasks
     
@@ -1112,30 +993,9 @@ def main():
     
     # Algorithm selection
     available_algorithms = PlannerFactory.list_available_planners()
-    parser.add_argument("--algorithm", type=str, default="idfs", choices=available_algorithms,
+    parser.add_argument("--algorithm", type=str, default="region_opening", choices=available_algorithms,
                         help=f"Planning algorithm to use. Options: {available_algorithms}")
-    
-    # Strategy selection (for algorithms that support it)
-    available_obj_strategies = get_available_object_strategies()
-    parser.add_argument("--object-strategy", type=str, default="no_heuristic", choices=available_obj_strategies,
-                        help=f"Object selection strategy. Options: {available_obj_strategies}")
-    
-    available_goal_strategies = get_available_goal_strategies()
-    parser.add_argument("--goal-strategy", type=str, default="random", choices=available_goal_strategies,
-                        help=f"Goal selection strategy. Options: {available_goal_strategies}")
-    
-    # ML-specific arguments (only needed when using ML strategies)
-    parser.add_argument("--ml-object-model", type=str,
-                        help="Path to ML object inference model (required for ML object strategy)")
-    parser.add_argument("--ml-goal-model", type=str,
-                        help="Path to ML goal inference model (required for ML goal strategy)")
-    parser.add_argument("--ml-samples", type=int, default=32,
-                        help="Number of ML inference samples (default: 32)")
-    parser.add_argument("--ml-device", type=str, default="cuda", choices=["cuda", "cpu"],
-                        help="ML inference device (default: cuda)")
-    parser.add_argument("--epsilon", type=float, default=None,
-                        help="Epsilon for epsilon-greedy goal strategy (0.0=pure ML, 1.0=pure random). If specified with --goal-strategy=ml, uses epsilon-greedy mixing.")
-    
+
     # Optional arguments
     parser.add_argument("--workers", type=int, default=8,
                         help="Number of parallel worker processes")
@@ -1157,12 +1017,35 @@ def main():
                         help="Maximum chain depth for region opening: 1=single push, 2=2-push chains, 3=3-push chains (default: 1)")
     parser.add_argument("--region-max-solutions-per-neighbor", type=int, default=10,
                         help="Maximum solutions to keep per neighbor region (default: 10)")
+    parser.add_argument("--region-max-recorded-solutions-per-neighbor", type=int, default=2,
+                        help="Maximum solutions to record/save per neighbor (subset of found, default: 2)")
     parser.add_argument("--region-frontier-beam-width", type=int, default=None,
                         help="Optional beam width (K) to cap frontier per chain depth; None/<=0 disables")
-    parser.add_argument("--xml-dir", type=str, 
+    parser.add_argument("--goal-sampler", type=str, default=None,
+                        choices=["primitive", "ml", "ml_primitive"],
+                        help="Goal sampler override for region opening (primitive default)")
+    parser.add_argument("--ml-goal-model", type=str,
+                        help="Hydra output directory containing diffusion goal model")
+    parser.add_argument("--ml-device", type=str, default="cuda",
+                        help="Device to load diffusion goal model on")
+    parser.add_argument("--ml-samples", type=int, default=32,
+                        help="Number of diffusion samples per inference")
+    parser.add_argument("--ml-min-goals", type=int, default=1,
+                        help="Minimum ML goals required before accepting inference")
+    parser.add_argument("--ml-match-position-tolerance", type=float, default=0.2,
+                        help="Max positional error (m) between ML pose and primitive slot")
+    parser.add_argument("--ml-match-angle-tolerance", type=float, default=0.35,
+                        help="Max angular error (rad) between ML pose and primitive slot")
+    parser.add_argument("--ml-match-angle-weight", type=float, default=0.5,
+                        help="Weight applied to angular error in matching score")
+    parser.add_argument("--ml-match-max-per-call", type=int, default=8,
+                        help="Maximum ML goals to align per sampler call")
+    parser.add_argument("--primitive-data-dir", type=str, default="data",
+                        help="Directory containing primitive motion databases")
+    parser.add_argument("--xml-dir", type=str,
                         default="../ml4kp_ktamp/resources/models/custom_walled_envs/aug9",
                         help="Base directory for XML environment files")
-    parser.add_argument("--config-file", type=str, 
+    parser.add_argument("--config-file", type=str,
                         default="config/namo_config_complete.yaml",
                         help="NAMO configuration file")
     parser.add_argument("--verbose", action="store_true",
@@ -1177,6 +1060,10 @@ def main():
                         help="Apply action refinement using actual achieved positions (post-smoothing step)")
     parser.add_argument("--validate-refinement", action="store_true", default=True,
                         help="Validate that refined actions still solve the task (default: True)")
+    parser.add_argument("--run-name", type=str, default=None,
+                        help="Optional suffix appended to the per-host output directory to separate runs")
+    parser.add_argument("--unique-run-dir", action="store_true",
+                        help="Automatically append start/end indices and timestamp to output directory for each run")
     
     # If YAML provided, load and set parser defaults before final parse
     if pre_args.config_yaml:
@@ -1211,44 +1098,51 @@ def main():
         print("❌ Error: workers must be positive")
         return 1
     
-    # Validate ML strategy requirements
-    if args.object_strategy == "ml" and not args.ml_object_model:
-        print("❌ Error: --ml-object-model is required when using ML object strategy")
-        return 1
-    
-    if args.goal_strategy == "ml" and not args.ml_goal_model:
-        print("❌ Error: --ml-goal-model is required when using ML goal strategy")
-        return 1
-    
-    # Validate epsilon parameter
-    if args.epsilon is not None:
-        if args.goal_strategy != "ml":
-            print("❌ Error: --epsilon can only be used with --goal-strategy=ml")
-            return 1
-        if not (0.0 <= args.epsilon <= 1.0):
-            print("❌ Error: --epsilon must be between 0.0 and 1.0")
-            return 1
-    
-    # Validate strategy names
-    if not validate_object_strategy(args.object_strategy):
-        print(f"❌ Error: invalid object strategy '{args.object_strategy}'")
-        return 1
-    
-    if not validate_goal_strategy(args.goal_strategy):
-        print(f"❌ Error: invalid goal strategy '{args.goal_strategy}'")
-        return 1
-    
-    # Create planner configuration (strategy will be added by manager)
+    # Create planner configuration
     # Build algorithm_params with only the region opening parameters that are actually used
     algorithm_params = {}
     if args.algorithm == "region_opening":
+        algorithm_params["primitive_data_dir"] = args.primitive_data_dir
         algorithm_params.update({
             "region_allow_collisions": args.region_allow_collisions,
             "region_max_chain_depth": args.region_max_chain_depth,
             "region_max_solutions_per_neighbor": args.region_max_solutions_per_neighbor,
         })
+        # Optionally cap how many of the found solutions are recorded/saved per neighbor
+        algorithm_params["region_max_recorded_solutions_per_neighbor"] = args.region_max_recorded_solutions_per_neighbor
         if args.region_frontier_beam_width is not None:
             algorithm_params["region_frontier_beam_width"] = args.region_frontier_beam_width
+
+        if args.goal_sampler:
+            algorithm_params["goal_sampler"] = args.goal_sampler
+        if args.goal_sampler and args.goal_sampler.lower() in {"ml", "ml_primitive"}:
+            if not args.ml_goal_model:
+                parser.error("--ml-goal-model is required when goal sampler is set to 'ml'")
+            algorithm_params.update({
+                "ml_goal_model_path": args.ml_goal_model,
+                "ml_device": args.ml_device,
+                "ml_samples": args.ml_samples,
+                "ml_min_goals": args.ml_min_goals,
+                "ml_match_position_tolerance": args.ml_match_position_tolerance,
+                "ml_match_angle_tolerance": args.ml_match_angle_tolerance,
+                "ml_match_angle_weight": args.ml_match_angle_weight,
+                "ml_match_max_per_call": args.ml_match_max_per_call,
+                "primitive_data_dir": args.primitive_data_dir,
+            })
+        elif args.ml_goal_model:
+            # Allow users to specify ML params even without explicit sampler flag
+            algorithm_params.update({
+                "goal_sampler": "ml",
+                "ml_goal_model_path": args.ml_goal_model,
+                "ml_device": args.ml_device,
+                "ml_samples": args.ml_samples,
+                "ml_min_goals": args.ml_min_goals,
+                "ml_match_position_tolerance": args.ml_match_position_tolerance,
+                "ml_match_angle_tolerance": args.ml_match_angle_tolerance,
+                "ml_match_angle_weight": args.ml_match_angle_weight,
+                "ml_match_max_per_call": args.ml_match_max_per_call,
+                "primitive_data_dir": args.primitive_data_dir,
+            })
 
     planner_config = PlannerConfig(
         max_depth=args.max_depth,
@@ -1270,19 +1164,14 @@ def main():
         episodes_per_env=args.episodes_per_env,
         num_workers=args.workers,
         algorithm=args.algorithm,
-        object_selection_strategy=args.object_strategy,
-        goal_selection_strategy=args.goal_strategy,
-        ml_object_model_path=args.ml_object_model,
-        ml_goal_model_path=args.ml_goal_model,
-        ml_samples=args.ml_samples,
-        ml_device=args.ml_device,
-        epsilon=args.epsilon,
         smooth_solutions=args.smooth_solutions,
         max_smooth_actions=args.max_smooth_actions,
         refine_actions=args.refine_actions,
         validate_refinement=args.validate_refinement,
         filter_minimum_length=args.filter_minimum_length,
-        planner_config=planner_config
+        planner_config=planner_config,
+        run_name=args.run_name,
+        unique_run_dir=args.unique_run_dir
     )
     
     # Execute parallel data collection

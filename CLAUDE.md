@@ -2,6 +2,8 @@
 
 Context for Claude Code when working with NAMO (Navigation Among Movable Obstacles) codebase.
 
+**→ For data collection instructions, see [DATA_COLLECTION_GUIDE.md](DATA_COLLECTION_GUIDE.md)**
+
 ## Core Architecture
 
 ### C++ Backend (High-Performance Physics & Planning)
