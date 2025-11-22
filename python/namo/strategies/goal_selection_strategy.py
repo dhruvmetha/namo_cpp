@@ -19,6 +19,7 @@ class Goal:
     x: float
     y: float 
     theta: float
+    score: float = 0.0
 
 
 class GoalSelectionStrategy(ABC):

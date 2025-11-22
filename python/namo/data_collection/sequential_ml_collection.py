@@ -123,6 +123,7 @@ def process_single_environment(
 
     try:
         # Initialize environment
+        print(f"\n📁 Processing environment: {task.xml_file}")
         env = namo_rl.RLEnvironment(task.xml_file, task.config_file, visualize=False)
         episode_results = []
         

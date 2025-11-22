@@ -6,7 +6,7 @@
 # Core execution
 output_dir: /common/users/dm1487/namo_data/outputs/diffusion_only_goal/nov20_1push_diffusion_only_goal/2025-11-20_09-41-46/results
 start_idx: 0
-end_idx: 10
+end_idx: 1
 algorithm: region_opening
 workers: 1
 episodes_per_env: 1

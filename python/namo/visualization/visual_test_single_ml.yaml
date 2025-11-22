@@ -21,7 +21,7 @@ ml_match_angle_weight: 0.5
 # Region Opening Specifics
 region_allow_collisions: true  # Important: allow "soft" collisions for opening
 region_max_chain_depth: 1
-region_max_solutions_per_neighbor: 1
+region_max_solutions_per_neighbor: 10
 region_max_recorded_solutions_per_neighbor: 1
 region_frontier_beam_width: 1000
 
