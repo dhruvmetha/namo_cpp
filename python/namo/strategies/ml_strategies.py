@@ -505,17 +505,23 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
             return
 
         try:
-            # Create figure with 2 rows: input visualization (top), output predictions (bottom)
-            fig = plt.figure(figsize=(4 * (count + 1), 8))
-            gs = fig.add_gridspec(2, count + 1, height_ratios=[1, 1])
-
-            # Top row: Input visualization
+            # Create figure with better layout: Input on left (larger), Goal Grid on right
+            count = min(self.preview_mask_count, len(mask_entries))
+            
+            # Calculate grid dimensions for goals
+            cols = int(np.ceil(np.sqrt(count)))
+            rows = int(np.ceil(count / cols))
+            
+            fig = plt.figure(figsize=(16, 8))
+            gs = fig.add_gridspec(1, 2, width_ratios=[1, 1])  # Split 50/50 left/right
+            
+            # Left side: Input visualization
             if input_channels is not None:
                 # Denormalize from [-1, 1] to [0, 1]
                 inp = (input_channels + 1) / 2
 
                 # Create combined scene visualization
-                ax_input = fig.add_subplot(gs[0, :])
+                ax_input = fig.add_subplot(gs[0])
 
                 # Combine channels: robot (0) + goal (1) + movable (2) + static (3)
                 combined_scene = np.clip(
@@ -526,8 +532,18 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
                     0, 1
                 )
 
-                # Get selected object mask (channel 5)
-                selected_mask = inp[5, :, :]
+                # Determine selected object mask channel
+                # Typically at index 5 if available, otherwise fallback or use index 4 if size allows
+                selected_mask_idx = 5
+                if selected_mask_idx >= inp.shape[0]:
+                    # Fallback: try index 4 (sometimes used for selection if 5-channel input)
+                    selected_mask_idx = 4
+                
+                if selected_mask_idx < inp.shape[0]:
+                    selected_mask = inp[selected_mask_idx, :, :]
+                else:
+                    # No mask channel available
+                    selected_mask = np.zeros_like(combined_scene)
 
                 # Create RGB visualization: scene in grayscale, selected object in red
                 rgb_img = np.stack([
@@ -538,18 +554,27 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
                 rgb_img = np.clip(rgb_img, 0, 1)
 
                 ax_input.imshow(rgb_img)
-                ax_input.set_title(f"Input: Scene + Selected Object ({object_id}) in Red", fontsize=12, fontweight='bold')
+                ax_input.set_title(f"Input: Scene + Selected Object ({object_id}) in Red", fontsize=14, fontweight='bold')
                 ax_input.axis('off')
 
-            # Bottom row: Output goal predictions
+            # Right side: Grid of Goal Predictions
+            # Create a sub-gridspec for the right panel
+            gs_right = gs[1].subgridspec(rows, cols, wspace=0.1, hspace=0.1)
+            
             for i, (idx, mask) in enumerate(mask_entries[:count]):
-                ax = fig.add_subplot(gs[1, i])
+                r, c = divmod(i, cols)
+                ax = fig.add_subplot(gs_right[r, c])
                 ax.imshow(mask, cmap='viridis')
-                ax.set_title(f"Goal #{idx}", fontsize=10)
+                # ax.set_title(f"Goal #{idx}", fontsize=8)
                 ax.axis('off')
+                # Add border to make separate plots distinct
+                for spine in ax.spines.values():
+                    spine.set_visible(True)
+                    spine.set_edgecolor('gray')
+                    spine.set_linewidth(0.5)
 
-            fig.suptitle(f"ML Goal Inference: {object_id}", fontsize=14, fontweight='bold')
-            fig.tight_layout()
+            fig.suptitle(f"ML Goal Inference: {object_id} (Top {count} predictions)", fontsize=16, fontweight='bold', y=0.98)
+            # fig.tight_layout() # Removed tight_layout as it can mess with custom gs
             print("🖼️ Close the ML goal visualization window to continue planning...")
             plt.show(block=True)
         except Exception as e:

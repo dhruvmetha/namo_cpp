@@ -10,6 +10,7 @@ import os
 import math
 from dataclasses import dataclass
 from typing import List, Dict, Optional, Tuple
+from collections import defaultdict
 from abc import ABC
 
 import namo_rl
@@ -387,32 +388,22 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             return aligned_goals
 
         slot_metadata = self._build_slot_metadata(primitive_goals)
-        used_slots = set()
+        slot_accumulators = defaultdict(lambda: {"x": 0.0, "y": 0.0, "sin": 0.0, "cos": 0.0, "count": 0})
         matches = 0
         skipped_due_to_tolerance = 0
 
         for ml_goal_idx, ml_goal in enumerate(ml_goals):
-            if matches >= self.max_matches:
-                if self.verbose:
-                    print(f"  ⚠️  Stopped at {matches} matches (reached max_matches limit)")
-                break
-
             best_slot = None
             best_score = None
             candidates_checked = 0
-            candidates_within_tolerance = 0
 
             for slot_id, (edge_idx, depth_idx, primitive_goal) in enumerate(slot_metadata):
-                if slot_id in used_slots:
-                    continue
-
                 candidates_checked += 1
                 pos_err, ang_err = self._goal_error(primitive_goal, ml_goal)
 
                 if pos_err > self.match_position_tolerance or ang_err > self.match_angle_tolerance:
                     continue
 
-                candidates_within_tolerance += 1
                 score = pos_err + self.angle_weight * ang_err
                 if best_score is None or score < best_score:
                     best_score = score
@@ -425,16 +416,33 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
                 continue
 
             slot_id, edge_idx, depth_idx = best_slot
-            aligned_goals[edge_idx][depth_idx] = Goal(
-                x=ml_goal.x,
-                y=ml_goal.y,
-                theta=ml_goal.theta
-            )
-            used_slots.add(slot_id)
-            matches += 1
+            
+            # Accumulate votes
+            acc = slot_accumulators[slot_id]
+            acc["count"] += 1
+            
+            if "goal" not in acc:
+                 # Retrieve the correct primitive goal from metadata using slot_id
+                 # (Do not use the loop variable 'primitive_goal' which is stale/incorrect here)
+                 _, _, correct_primitive_goal = slot_metadata[slot_id]
+                 acc["goal"] = correct_primitive_goal
 
-            if self.verbose and matches <= 10:  # Show first 10 matches
-                print(f"    ✓ ML goal {ml_goal_idx}: ({ml_goal.x:.3f}, {ml_goal.y:.3f}, {ml_goal.theta:.3f}) → edge {edge_idx}, depth {depth_idx+1} (score: {best_score:.4f}, checked {candidates_within_tolerance} candidates)")
+        # Construct aligned goals from accumulators
+        for slot_id, data in slot_accumulators.items():
+            edge_idx, depth_idx, _ = slot_metadata[slot_id]
+            count = data["count"]
+            stored_goal = data["goal"]
+            
+            aligned_goals[edge_idx][depth_idx] = Goal(
+                x=stored_goal.x,
+                y=stored_goal.y,
+                theta=stored_goal.theta,
+                score=count  # Store vote count as score
+            )
+            matches += 1
+            
+            if self.verbose and matches <= 10:
+                print(f"    ✓ Slot edge {edge_idx} depth {depth_idx+1}: {count} votes")
 
         if self.verbose or matches == 0:
             print(f"  ✅ Aligned {matches}/{len(ml_goals)} ML goals to primitive slots for {object_id}")

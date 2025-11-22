@@ -735,7 +735,7 @@ class RegionOpeningPlanner(BasePlanner):
                 # Get reachable edges from this state
                 reachable_edge_indices = set(self.env.get_reachable_edges(object_id))
 
-                print(f"      📍 Reachable edges: {sorted(list(reachable_edge_indices))[:15]}{'...' if len(reachable_edge_indices) > 15 else ''} (total: {len(reachable_edge_indices)})")
+                print(f"      📍 Reachable edges: {sorted(list(reachable_edge_indices))} (total: {len(reachable_edge_indices)})")
 
                 if not reachable_edge_indices:
                     print(f"      ⚠️ No reachable edges, skipping node")
@@ -750,6 +750,19 @@ class RegionOpeningPlanner(BasePlanner):
                 else:
                     remaining_budget = None
 
+                # Calculate how many more solutions we need to collect
+                # If we have already collected some solutions in previous iterations (best_total_cost is set),
+                # we need to account for them.
+                # However, all_chains_across_depths is defined outside this loop and contains all valid solutions found so far.
+                current_solutions_count = len(all_chains_across_depths)
+                
+                inner_max_solutions = None
+                if max_solutions_to_collect is not None:
+                    if current_solutions_count >= max_solutions_to_collect:
+                        reached_cap = True
+                        break
+                    inner_max_solutions = max_solutions_to_collect - current_solutions_count
+
                 successful_results, primitive_depth, new_frontier_nodes = self._search_bfs(
                     goals_per_edge,
                     reachable_edge_indices,
@@ -763,6 +776,7 @@ class RegionOpeningPlanner(BasePlanner):
                     remaining_budget=remaining_budget,
                     skill_call_counter=skill_call_counter,
                     push_counter=push_counter,
+                    max_solutions_to_collect=inner_max_solutions
                 )
 
                 # If we found success, reconstruct ALL goal chains with their state observations
@@ -962,11 +976,13 @@ class RegionOpeningPlanner(BasePlanner):
         remaining_budget: Optional[int] = None,
         skill_call_counter: Optional[Dict[str, int]] = None,
         push_counter: Optional[Dict[str, int]] = None,
+        max_solutions_to_collect: Optional[int] = None,
     ) -> Tuple[List[Tuple[Goal, List, List, 'namo_rl.RLState', Optional[Tuple], ChainNode, float]], int, List[ChainNode]]:
         """BFS: Try all edges at ALL depths to collect all possible solutions.
 
         Args:
             collect_frontier: If True, collect valid but unsuccessful states as frontier nodes
+            max_solutions_to_collect: If provided, stop searching once this many successful solutions are found.
 
         Returns:
             Tuple of (all_successful_results, min_depth, frontier_nodes) where all_successful_results
@@ -992,126 +1008,167 @@ class RegionOpeningPlanner(BasePlanner):
         all_successful_results = []
         min_depth_found = None
 
-        for depth in range(max_depth):  # depth 0 = step 1, depth 1 = step 2, etc.
-            # Global prune: once any success is found at depth D (1-based),
-            # do not explore deeper depths (> D)
-            if min_depth_found is not None and depth >= min_depth_found:
-                break
+        # Flatten goals into candidates for prioritized iteration
+        candidates = []
+        for edge_idx, edge_goals in enumerate(goals_per_edge):
+            # Filter: only try reachable edges
+            if edge_idx not in reachable_edge_indices:
+                continue
+            
+            for depth, goal in enumerate(edge_goals):
+                if goal is not None:
+                    candidates.append((edge_idx, depth, goal))
+        
+        # Sort candidates: Primary = Score (descending), Secondary = Depth (ascending)
+        # High votes first. If ties, shorter pushes first.
+        candidates.sort(key=lambda x: (-getattr(x[2], 'score', 0.0), x[1]))
 
-            # Budget prune: if an outer remaining budget is provided, skip depths whose
-            # step cost (depth+1) would exceed it
+        for edge_idx, depth, goal in candidates:
+            # Stop if we've reached the solution cap
+            if max_solutions_to_collect is not None and len(all_successful_results) >= max_solutions_to_collect:
+                if self.config.verbose:
+                    print(f"        🛑 Reached max solutions ({len(all_successful_results)}/{max_solutions_to_collect}), stopping search")
+                break
+            # Global prune: once any success is found at depth D, skip candidates with depth > D
+            if min_depth_found is not None and depth > min_depth_found:
+                continue
+
+            # Budget prune
             if remaining_budget is not None and (depth + 1) > remaining_budget:
-                break
-            # Try only reachable edge points at this depth
-            for edge_idx, edge_goals in enumerate(goals_per_edge):
-                # Filter: only try reachable edges
-                if edge_idx not in reachable_edge_indices:
-                    continue
+                continue
 
-                # Filter: skip blacklisted edges (collided or stuck earlier in this skill execution)
-                if edge_idx in blacklisted_edges_this_skill:
-                    continue
+            # Filter: skip blacklisted edges (collided or stuck earlier in this skill execution)
+            if edge_idx in blacklisted_edges_this_skill:
+                continue
 
-                # Filter: skip edges that have already produced a successful opening at a shallower depth
-                if edge_idx in solved_edges_this_skill:
-                    continue
+            # Filter: skip edges that have already produced a successful opening
+            if edge_idx in solved_edges_this_skill:
+                continue
 
-                if depth >= len(edge_goals):
-                    continue  # This edge doesn't have this many steps
+            self.env.set_full_state(baseline_state)
 
-                goal = edge_goals[depth]
-                if goal is None:
-                    continue
+            # Check reachability BEFORE push
+            is_accessible_before, reachable_count_before, _ = self._validate_opening(neighbour_label, region_goals)
+            if self.config.verbose:
+                print(f"        🔍 BEFORE push edge {edge_idx} depth {depth+1}: is_accessible={is_accessible_before}, reachable={reachable_count_before}")
 
-                # Reset to baseline before each attempt
-                self.env.set_full_state(baseline_state)
+            # Capture state observation before action
+            pre_state_obs = self.env.get_observation()
 
-                # Check reachability BEFORE push
-                is_accessible_before, reachable_count_before, _ = self._validate_opening(neighbour_label, region_goals)
-                if self.config.verbose:
-                    print(f"        🔍 BEFORE push edge {edge_idx} depth {depth+1}: is_accessible={is_accessible_before}, reachable={reachable_count_before}")
-
-                # Capture state observation before action
-                pre_state_obs = self.env.get_observation()
-
-                # Check if this slot has an ML-aligned goal
-                if depth == 0 and self.config.verbose:  # Only print for first depth to reduce noise, and only in verbose
-                    total_region_goals = len(region_goals[neighbour_label].goals) if neighbour_label in region_goals else 0
-                    goal_type = "ML-aligned" if goal is not None else "empty"
-                    print(f"      Testing edge {edge_idx} depth {depth+1} ({goal_type}): {neighbour_label} ({reachable_count_before}/{total_region_goals} reachable before)")
-
-                # Execute push
-                action = namo_rl.Action()
-                action.object_id = object_id
-                action.x = goal.x
-                action.y = goal.y
-                action.theta = goal.theta
-
-                if self.config.verbose:
-                    print(f"        🚀 EXECUTING PUSH edge {edge_idx} depth {depth+1}:")
-                    print(f"           object_id={object_id}, goal=({goal.x:.3f}, {goal.y:.3f}, {goal.theta:.3f})")
-
-                if skill_call_counter is not None:
-                    skill_call_counter["count"] += 1
-                if push_counter is not None:
-                    push_counter["count"] += 1
-
-                try:
-                    if self.config.verbose:
-                        print(f"        ⏳ Calling env.step()...")
-                    step_result = self.env.step(action)
-                    if self.config.verbose:
-                        print(f"        ✓ env.step() returned successfully")
-
-                except Exception as e:
-                    if self.config.verbose:
-                        print(f"        ❌ EXCEPTION during env.step(): {type(e).__name__}: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    continue
-
-                # We have a post-action state - ALWAYS capture observation and check goal condition
-                post_state_obs = self.env.get_observation()
-
-                # Check reachability AFTER push (ALWAYS - this is the goal check for post-action state)
-                is_accessible_after, reachable_count_after, region_goal_used = self._validate_opening(neighbour_label, region_goals)
-                
-                if self.config.verbose:
-                    print(f"        🔍 AFTER push edge {edge_idx} depth {depth+1}: is_accessible={is_accessible_after}, reachable={reachable_count_after}")
-
-                # Detect error conditions (but don't skip goal check - already done above)
-                collision_detected = False
-                if self.terminate_on_collision and "collision_object" in step_result.info:
-                    if self.config.verbose:
-                        print(f"        ⚠️  COLLISION detected: {step_result.info.get('collision_object', 'unknown')}")
-                    collision_detected = True
-                    # Blacklist this edge for all remaining depths in this skill execution
-                    blacklisted_edges_this_skill.add(edge_idx)
-
-                stuck_detected = False
-                if "stuck" in step_result.info and step_result.info["stuck"] == "true":
-                    if self.config.verbose:
-                        print(f"        ⚠️  STUCK condition detected")
-                    stuck_detected = True
-                    # Blacklist this edge for all remaining depths
-                    blacklisted_edges_this_skill.add(edge_idx)
-
+            # Check if this slot has an ML-aligned goal
+            if depth == 0 and self.config.verbose:  # Only print for first depth to reduce noise, and only in verbose
                 total_region_goals = len(region_goals[neighbour_label].goals) if neighbour_label in region_goals else 0
-                if is_accessible_after and not is_accessible_before:
-                    print(f"      ✅ SUCCESS! {object_id} edge {edge_idx} depth {depth+1}: {reachable_count_before}/{total_region_goals} → {reachable_count_after}/{total_region_goals} reachable")
-                elif depth == 0 and goal is not None:  # Show failures only for first depth and only ML-aligned goals
-                    if self.config.verbose:
-                        print(f"        ✗ Failed edge {edge_idx} depth {depth+1}: {reachable_count_before}/{total_region_goals} → {reachable_count_after}/{total_region_goals}")
+                goal_type = "ML-aligned" if goal is not None else "empty"
+                print(f"      Testing edge {edge_idx} depth {depth+1} ({goal_type}): {neighbour_label} ({reachable_count_before}/{total_region_goals} reachable before)")
 
-                # Check if we IMPROVED accessibility (goal condition for opening creation)
-                if is_accessible_after and not is_accessible_before:
-                    # Created NEW opening! ✓ (even if stuck/collision - object moved enough)
-                    success_timestamp = time.time()
-                    resulting_state = self.env.get_full_state()
+            # Execute push
+            action = namo_rl.Action()
+            action.object_id = object_id
+            action.x = goal.x
+            action.y = goal.y
+            action.theta = goal.theta
 
-                    # Create a ChainNode for this successful goal (stores observations)
-                    success_node = ChainNode(
-                        state=resulting_state,
+            if self.config.verbose:
+                print(f"        🚀 EXECUTING PUSH edge {edge_idx} depth {depth+1}:")
+                print(f"           object_id={object_id}, goal=({goal.x:.3f}, {goal.y:.3f}, {goal.theta:.3f})")
+
+            if skill_call_counter is not None:
+                skill_call_counter["count"] += 1
+            if push_counter is not None:
+                push_counter["count"] += 1
+
+            try:
+                if self.config.verbose:
+                    print(f"        ⏳ Calling env.step()...")
+                step_result = self.env.step(action)
+                if self.config.verbose:
+                    print(f"        ✓ env.step() returned successfully")
+
+            except Exception as e:
+                if self.config.verbose:
+                    print(f"        ❌ EXCEPTION during env.step(): {type(e).__name__}: {e}")
+                import traceback
+                traceback.print_exc()
+                continue
+
+            # We have a post-action state - ALWAYS capture observation and check goal condition
+            post_state_obs = self.env.get_observation()
+
+            # Check reachability AFTER push (ALWAYS - this is the goal check for post-action state)
+            is_accessible_after, reachable_count_after, region_goal_used = self._validate_opening(neighbour_label, region_goals)
+                
+            if self.config.verbose:
+                print(f"        🔍 AFTER push edge {edge_idx} depth {depth+1}: is_accessible={is_accessible_after}, reachable={reachable_count_after}")
+
+            # Detect error conditions (but don't skip goal check - already done above)
+            collision_detected = False
+            if self.terminate_on_collision and "collision_object" in step_result.info:
+                if self.config.verbose:
+                    print(f"        ⚠️  COLLISION detected: {step_result.info.get('collision_object', 'unknown')}")
+                collision_detected = True
+                # Blacklist this edge for all remaining depths in this skill execution
+                blacklisted_edges_this_skill.add(edge_idx)
+
+            stuck_detected = False
+            if "stuck" in step_result.info and step_result.info["stuck"] == "true":
+                if self.config.verbose:
+                    print(f"        ⚠️  STUCK condition detected")
+                stuck_detected = True
+                # Blacklist this edge for all remaining depths
+                blacklisted_edges_this_skill.add(edge_idx)
+
+            total_region_goals = len(region_goals[neighbour_label].goals) if neighbour_label in region_goals else 0
+            if is_accessible_after and not is_accessible_before:
+                print(f"      ✅ SUCCESS! {object_id} edge {edge_idx} depth {depth+1}: {reachable_count_before}/{total_region_goals} → {reachable_count_after}/{total_region_goals} reachable")
+            elif depth == 0 and goal is not None:  # Show failures only for first depth and only ML-aligned goals
+                if self.config.verbose:
+                    print(f"        ✗ Failed edge {edge_idx} depth {depth+1}: {reachable_count_before}/{total_region_goals} → {reachable_count_after}/{total_region_goals}")
+
+            # Check if we IMPROVED accessibility (goal condition for opening creation)
+            if is_accessible_after and not is_accessible_before:
+                # Created NEW opening! ✓ (even if stuck/collision - object moved enough)
+                success_timestamp = time.time()
+                resulting_state = self.env.get_full_state()
+
+                # Create a ChainNode for this successful goal (stores observations)
+                success_node = ChainNode(
+                    state=resulting_state,
+                    goal=goal,
+                    edge_idx=edge_idx,
+                    depth=current_chain_depth,
+                    parent=parent_node,
+                    collided_edges=set(),
+                    step_cost=depth + 1
+                )
+                if skill_call_counter is not None:
+                    success_node.skill_calls_before_success = skill_call_counter["count"]
+
+                # Add to all results instead of returning early
+                all_successful_results.append(
+                    (
+                        goal,
+                        [pre_state_obs],
+                        [post_state_obs],
+                        resulting_state,
+                        region_goal_used,
+                        success_node,
+                        success_timestamp,
+                    )
+                )
+
+                # Track minimum depth where we found a solution
+                if min_depth_found is None:
+                    min_depth_found = depth + 1
+
+                # Prevent exploring deeper depths for this edge in this BFS call
+                solved_edges_this_skill.add(edge_idx)
+
+            elif not (collision_detected or stuck_detected) and collect_frontier:
+                # Valid push but didn't create opening - add to frontier
+                # (Don't add stuck/collision states to frontier - they're already blacklisted)
+                if remaining_budget is None or (depth + 1) <= remaining_budget:
+                    new_node = ChainNode(
+                        state=self.env.get_full_state(),
                         goal=goal,
                         edge_idx=edge_idx,
                         depth=current_chain_depth,
@@ -1119,43 +1176,7 @@ class RegionOpeningPlanner(BasePlanner):
                         collided_edges=set(),
                         step_cost=depth + 1
                     )
-                    if skill_call_counter is not None:
-                        success_node.skill_calls_before_success = skill_call_counter["count"]
-
-                    # Add to all results instead of returning early
-                    all_successful_results.append(
-                        (
-                            goal,
-                            [pre_state_obs],
-                            [post_state_obs],
-                            resulting_state,
-                            region_goal_used,
-                            success_node,
-                            success_timestamp,
-                        )
-                    )
-
-                    # Track minimum depth where we found a solution
-                    if min_depth_found is None:
-                        min_depth_found = depth + 1
-
-                    # Prevent exploring deeper depths for this edge in this BFS call
-                    solved_edges_this_skill.add(edge_idx)
-
-                elif not (collision_detected or stuck_detected) and collect_frontier:
-                    # Valid push but didn't create opening - add to frontier
-                    # (Don't add stuck/collision states to frontier - they're already blacklisted)
-                    if remaining_budget is None or (depth + 1) <= remaining_budget:
-                        new_node = ChainNode(
-                            state=self.env.get_full_state(),
-                            goal=goal,
-                            edge_idx=edge_idx,
-                            depth=current_chain_depth,
-                            parent=parent_node,
-                            collided_edges=set(),
-                            step_cost=depth + 1
-                        )
-                        frontier_nodes.append(new_node)
+                    frontier_nodes.append(new_node)
 
         # Return all successful results found across all depths
         return all_successful_results, min_depth_found if min_depth_found else 0, frontier_nodes
