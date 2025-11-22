@@ -31,6 +31,12 @@ from typing import List, Dict, Tuple, Optional
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Add visualization directory to path for ML adapters (CRITICAL FIX)
+# This directory contains ml_image_converter_adapter.py which ML models import as 'ml_image_converter_adapter'
+namo_viz_path = os.path.dirname(os.path.abspath(__file__))
+if namo_viz_path not in sys.path:
+    sys.path.append(namo_viz_path)
+
 # NAMO imports
 import namo_rl
 from namo.core import BasePlanner, PlannerConfig, PlannerResult, PlannerFactory

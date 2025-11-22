@@ -69,6 +69,7 @@ class MLObjectSelectionStrategy(ObjectSelectionStrategy):
         
         self._load_attempted = True
         
+        print(f"Loading ObjectInferenceModel from {self.object_model_path}...")
         try:
             from ktamp_learning.object_inference_model import ObjectInferenceModel
             
@@ -80,12 +81,14 @@ class MLObjectSelectionStrategy(ObjectSelectionStrategy):
                 device=self.device
             )
             
+            print("ObjectInferenceModel loaded successfully")
             if self.verbose:
                 print("ObjectInferenceModel loaded successfully")
             
             return True
             
         except Exception as e:
+            print(f"Failed to load ObjectInferenceModel: {e}")
             if self.verbose:
                 print(f"Failed to load ObjectInferenceModel: {e}")
             self._object_model = None
@@ -340,6 +343,7 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
         
         self._load_attempted = True
         
+        print(f"Loading GoalInferenceModel from {self.goal_model_path}...")
         try:
             from ktamp_learning.goal_inference_model import GoalInferenceModel
             
@@ -351,12 +355,14 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
                 device=self.device
             )
             
+            print("Goal ML model loaded successfully")
             if self.verbose:
                 print("Goal ML model loaded successfully")
             
             return True
             
         except Exception as e:
+            print(f"Failed to load goal ML model: {e}")
             if self.verbose:
                 print(f"Failed to load goal ML model: {e}")
             self._goal_model = None
@@ -390,14 +396,16 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
             return None
 
         # Create input data for goal generation
-        print(f"📝 Creating JSON message for {object_id}...")
+        if self.verbose:
+            print(f"📝 Creating JSON message for {object_id}...")
         json_message = self._create_json_message_for_goals(object_id, state, env)
         if json_message is None:
             print(f"❌ Failed to create JSON message for {object_id}")
             return None
 
-        print(f"✅ JSON message created for {object_id}, calling infer()...")
-        print(f"   Using XML path: {json_message.get('xml_path', 'MISSING')}")
+        if self.verbose:
+            print(f"✅ JSON message created for {object_id}, calling infer()...")
+            print(f"   Using XML path: {json_message.get('xml_path', 'MISSING')}")
 
         try:
             # Run goal model directly with new independent API
@@ -412,10 +420,14 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
                 samples=self.samples
             )
 
-            print(f"🔍 ML INFERENCE RESULT for {object_id}: {len(goals) if goals else 0} goals generated")
-            if goals:
-                for i, g in enumerate(goals[:5]):
-                    print(f"  Goal {i}: x={g.get('x', 0):.3f}, y={g.get('y', 0):.3f}, theta={g.get('theta', 0):.3f}")
+            if self.verbose:
+                print(f"🔍 ML INFERENCE RESULT for {object_id}: {len(goals) if goals else 0} goals generated")
+                if goals:
+                    for i, g in enumerate(goals[:5]):
+                        print(f"  Goal {i}: x={g.get('x', 0):.3f}, y={g.get('y', 0):.3f}, theta={g.get('theta', 0):.3f}")
+            else:
+                 # Concise summary in non-verbose mode
+                 pass 
 
             if not goals or len(goals) < self.min_goals_threshold:
                 if self.verbose:

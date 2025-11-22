@@ -340,7 +340,21 @@ def create_converter_from_xml(xml_path: str) -> UnifiedImageConverter:
     
     # Handle relative paths by prepending the ML4KP resources path
     if not os.path.isabs(xml_path):
-        full_xml_path = os.path.join("/common/home/dm1487/robotics_research/ktamp/ml4kp_ktamp/resources/models", xml_path)
+        # Check if the path starts with ../ and we can resolve it properly
+        if xml_path.startswith("../ml4kp_ktamp"):
+            # It's a relative path from the namo/python dir that has been passed as is.
+            # We need to resolve it relative to the current working directory or repo root
+            # But wait, `xml_path` here comes from `env.get_xml_path()`, which might already be a relative path that works from the repo root.
+            # Let's try to resolve it directly first.
+            if os.path.exists(xml_path):
+                full_xml_path = os.path.abspath(xml_path)
+            else:
+                # Fallback: try prepending ML4KP resources path (only if not already starting with ..)
+                full_xml_path = os.path.join("/common/home/dm1487/robotics_research/ktamp/ml4kp_ktamp/resources/models", xml_path)
+        elif os.path.exists(xml_path):
+             full_xml_path = os.path.abspath(xml_path)
+        else:
+            full_xml_path = os.path.join("/common/home/dm1487/robotics_research/ktamp/ml4kp_ktamp/resources/models", xml_path)
     else:
         full_xml_path = xml_path
     

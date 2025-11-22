@@ -37,6 +37,11 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # NAMO imports
 import namo_rl
+# Add namo visualization directory to path for ML adapters
+namo_viz_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "visualization")
+if namo_viz_path not in sys.path:
+    sys.path.append(namo_viz_path)
+
 from namo.core import BasePlanner, PlannerConfig, PlannerResult, PlannerFactory
 from namo.core.xml_goal_parser import extract_goal_with_fallback
 

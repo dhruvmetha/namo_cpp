@@ -11,12 +11,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PYTHON_BIN="python"
 VIS_SCRIPT="$REPO_DIR/python/namo/visualization/visual_test_single.py"
-YAML_CONFIG="$REPO_DIR/python/namo/data_collection/region_opening_collection.yaml"
+YAML_CONFIG="$REPO_DIR/python/namo/visualization/visual_test_single_ml.yaml"
 
-exec "$PYTHON_BIN" "$VIS_SCRIPT" \
-  --config-yaml "$YAML_CONFIG" \
-  --verbose \
-  --algorithm region_opening \
-  "$@"
-
-
+exec "$PYTHON_BIN" "$VIS_SCRIPT" --config-yaml "$YAML_CONFIG" --verbose "$@"

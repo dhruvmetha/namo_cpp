@@ -56,7 +56,17 @@ class MLImageConverterAdapter:
         
         # Handle relative paths
         if not os.path.isabs(xml_path):
-            full_xml_path = os.path.join("/common/home/dm1487/robotics_research/ktamp/ml4kp_ktamp/resources/models", xml_path)
+            # Check if path starts with ../ and can be resolved directly first
+            if xml_path.startswith("../ml4kp_ktamp"):
+                if os.path.exists(xml_path):
+                    full_xml_path = os.path.abspath(xml_path)
+                else:
+                    # Fallback to hardcoded resource path
+                    full_xml_path = os.path.join("/common/home/dm1487/robotics_research/ktamp/ml4kp_ktamp/resources/models", xml_path)
+            elif os.path.exists(xml_path):
+                full_xml_path = os.path.abspath(xml_path)
+            else:
+                full_xml_path = os.path.join("/common/home/dm1487/robotics_research/ktamp/ml4kp_ktamp/resources/models", xml_path)
         else:
             full_xml_path = xml_path
         

@@ -489,6 +489,11 @@ class WavefrontSnapshotExporter:
         region_labels: Dict[int, str] = {}
         region_id = 1
 
+        robot_cell = (
+            self._clamp_grid_x(self._world_to_grid_x(robot_pose[0])),
+            self._clamp_grid_y(self._world_to_grid_y(robot_pose[1])),
+        )
+
         robot_region: List[Tuple[int, int]] = []
         robot_region_set: Set[Tuple[int, int]] = set()
         if dynamic_grid[robot_cell] != -2:

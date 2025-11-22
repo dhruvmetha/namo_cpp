@@ -1028,13 +1028,14 @@ class RegionOpeningPlanner(BasePlanner):
 
                 # Check reachability BEFORE push
                 is_accessible_before, reachable_count_before, _ = self._validate_opening(neighbour_label, region_goals)
-                print(f"        🔍 BEFORE push edge {edge_idx} depth {depth+1}: is_accessible={is_accessible_before}, reachable={reachable_count_before}")
+                if self.config.verbose:
+                    print(f"        🔍 BEFORE push edge {edge_idx} depth {depth+1}: is_accessible={is_accessible_before}, reachable={reachable_count_before}")
 
                 # Capture state observation before action
                 pre_state_obs = self.env.get_observation()
 
                 # Check if this slot has an ML-aligned goal
-                if depth == 0:  # Only print for first depth to reduce noise
+                if depth == 0 and self.config.verbose:  # Only print for first depth to reduce noise, and only in verbose
                     total_region_goals = len(region_goals[neighbour_label].goals) if neighbour_label in region_goals else 0
                     goal_type = "ML-aligned" if goal is not None else "empty"
                     print(f"      Testing edge {edge_idx} depth {depth+1} ({goal_type}): {neighbour_label} ({reachable_count_before}/{total_region_goals} reachable before)")
@@ -1046,8 +1047,9 @@ class RegionOpeningPlanner(BasePlanner):
                 action.y = goal.y
                 action.theta = goal.theta
 
-                print(f"        🚀 EXECUTING PUSH edge {edge_idx} depth {depth+1}:")
-                print(f"           object_id={object_id}, goal=({goal.x:.3f}, {goal.y:.3f}, {goal.theta:.3f})")
+                if self.config.verbose:
+                    print(f"        🚀 EXECUTING PUSH edge {edge_idx} depth {depth+1}:")
+                    print(f"           object_id={object_id}, goal=({goal.x:.3f}, {goal.y:.3f}, {goal.theta:.3f})")
 
                 if skill_call_counter is not None:
                     skill_call_counter["count"] += 1
@@ -1055,12 +1057,15 @@ class RegionOpeningPlanner(BasePlanner):
                     push_counter["count"] += 1
 
                 try:
-                    print(f"        ⏳ Calling env.step()...")
+                    if self.config.verbose:
+                        print(f"        ⏳ Calling env.step()...")
                     step_result = self.env.step(action)
-                    print(f"        ✓ env.step() returned successfully")
+                    if self.config.verbose:
+                        print(f"        ✓ env.step() returned successfully")
 
                 except Exception as e:
-                    print(f"        ❌ EXCEPTION during env.step(): {type(e).__name__}: {e}")
+                    if self.config.verbose:
+                        print(f"        ❌ EXCEPTION during env.step(): {type(e).__name__}: {e}")
                     import traceback
                     traceback.print_exc()
                     continue
@@ -1070,28 +1075,33 @@ class RegionOpeningPlanner(BasePlanner):
 
                 # Check reachability AFTER push (ALWAYS - this is the goal check for post-action state)
                 is_accessible_after, reachable_count_after, region_goal_used = self._validate_opening(neighbour_label, region_goals)
-                print(f"        🔍 AFTER push edge {edge_idx} depth {depth+1}: is_accessible={is_accessible_after}, reachable={reachable_count_after}")
+                
+                if self.config.verbose:
+                    print(f"        🔍 AFTER push edge {edge_idx} depth {depth+1}: is_accessible={is_accessible_after}, reachable={reachable_count_after}")
 
                 # Detect error conditions (but don't skip goal check - already done above)
                 collision_detected = False
                 if self.terminate_on_collision and "collision_object" in step_result.info:
-                    print(f"        ⚠️  COLLISION detected: {step_result.info.get('collision_object', 'unknown')}")
+                    if self.config.verbose:
+                        print(f"        ⚠️  COLLISION detected: {step_result.info.get('collision_object', 'unknown')}")
                     collision_detected = True
                     # Blacklist this edge for all remaining depths in this skill execution
                     blacklisted_edges_this_skill.add(edge_idx)
 
                 stuck_detected = False
                 if "stuck" in step_result.info and step_result.info["stuck"] == "true":
-                    print(f"        ⚠️  STUCK condition detected")
+                    if self.config.verbose:
+                        print(f"        ⚠️  STUCK condition detected")
                     stuck_detected = True
                     # Blacklist this edge for all remaining depths
                     blacklisted_edges_this_skill.add(edge_idx)
 
                 total_region_goals = len(region_goals[neighbour_label].goals) if neighbour_label in region_goals else 0
                 if is_accessible_after and not is_accessible_before:
-                    print(f"        ✅ SUCCESS! edge {edge_idx} depth {depth+1}: {reachable_count_before}/{total_region_goals} → {reachable_count_after}/{total_region_goals} reachable")
+                    print(f"      ✅ SUCCESS! {object_id} edge {edge_idx} depth {depth+1}: {reachable_count_before}/{total_region_goals} → {reachable_count_after}/{total_region_goals} reachable")
                 elif depth == 0 and goal is not None:  # Show failures only for first depth and only ML-aligned goals
-                    print(f"        ✗ Failed edge {edge_idx} depth {depth+1}: {reachable_count_before}/{total_region_goals} → {reachable_count_after}/{total_region_goals}")
+                    if self.config.verbose:
+                        print(f"        ✗ Failed edge {edge_idx} depth {depth+1}: {reachable_count_before}/{total_region_goals} → {reachable_count_after}/{total_region_goals}")
 
                 # Check if we IMPROVED accessibility (goal condition for opening creation)
                 if is_accessible_after and not is_accessible_before:

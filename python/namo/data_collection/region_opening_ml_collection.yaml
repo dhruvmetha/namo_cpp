@@ -4,11 +4,11 @@
 ##     --config-yaml python/namo/data_collection/region_opening_ml_collection.yaml
 
 # Core execution
-output_dir: /common/users/dm1487/namo_data/oct26/2_push_ml
+output_dir: /common/users/dm1487/namo_data/outputs/diffusion_only_goal/nov20_1push_diffusion_only_goal/2025-11-20_09-41-46/results
 start_idx: 0
-end_idx: 50
+end_idx: 10
 algorithm: region_opening
-workers: 8
+workers: 1
 episodes_per_env: 1
 
 # Generic planner limits (compatibility placeholders)
@@ -19,14 +19,14 @@ search_timeout: 300.0
 
 # Region opening parameters
 region_allow_collisions: true
-region_max_chain_depth: 2
-region_max_solutions_per_neighbor: 5
-region_frontier_beam_width: 200
-region_max_recorded_solutions_per_neighbor: 2
+region_max_chain_depth: 1
+region_max_solutions_per_neighbor: 1
+region_frontier_beam_width: 1000
+region_max_recorded_solutions_per_neighbor: 1
 
 # Goal sampler configuration
 goal_sampler: ml
-ml_goal_model_path: /common/home/dm1487/robotics_research/ktamp/sage_learning/outputs/oct26_1push_diffusion_only_goal
+ml_goal_model: /common/users/dm1487/namo_data/outputs/diffusion_only_goal/nov20_1push_diffusion_only_goal/2025-11-20_09-41-46
 ml_device: cuda
 ml_samples: 128  # Increased from 32 for better ML goal coverage
 ml_min_goals: 1
@@ -37,7 +37,7 @@ ml_match_max_per_call: 999  # Allow all ML goals to be aligned (was 8)
 primitive_data_dir: data
 
 # Paths
-xml_dir: ../ml4kp_ktamp/resources/models/custom_walled_envs/aug9
+xml_dir: ../ml4kp_ktamp/resources/models/custom_walled_envs/aug9/medium
 config_file: config/namo_config_complete_skill15.yaml
 
 # Optional pipeline features
