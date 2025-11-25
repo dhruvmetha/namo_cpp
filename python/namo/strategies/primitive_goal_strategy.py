@@ -401,8 +401,9 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
                 candidates_checked += 1
                 pos_err, ang_err = self._goal_error(primitive_goal, ml_goal)
 
-                if pos_err > self.match_position_tolerance or ang_err > self.match_angle_tolerance:
-                    continue
+                # Removed tolerance check: always find the closest primitive
+                # if pos_err > self.match_position_tolerance or ang_err > self.match_angle_tolerance:
+                #     continue
 
                 score = pos_err + self.angle_weight * ang_err
                 if best_score is None or score < best_score:
@@ -410,9 +411,10 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
                     best_slot = (slot_id, edge_idx, depth_idx)
 
             if best_slot is None:
+                # Should theoretically not happen if slots exist
                 skipped_due_to_tolerance += 1
                 if self.verbose and ml_goal_idx < 5:  # Show first 5 skipped goals
-                    print(f"    ⊗ ML goal {ml_goal_idx}: ({ml_goal.x:.3f}, {ml_goal.y:.3f}, {ml_goal.theta:.3f}) - No slot within tolerance (checked {candidates_checked} slots)")
+                    print(f"    ⊗ ML goal {ml_goal_idx}: ({ml_goal.x:.3f}, {ml_goal.y:.3f}, {ml_goal.theta:.3f}) - No slot found (unexpected)")
                 continue
 
             slot_id, edge_idx, depth_idx = best_slot

@@ -1,12 +1,16 @@
 ## Region Opening + Diffusion Goal Sampler Defaults
 ## Use with:
-##   python modular_parallel_collection.py \
+##   python sequential_ml_collection.py \
 ##     --config-yaml python/namo/data_collection/region_opening_ml_collection.yaml
+##
+## Or via script:
+##   CUDA_VISIBLE_DEVICES=2 ./scripts/run_region_opening_ml_sequential.sh \
+##     --start-idx 0 --end-idx 100
 
 # Core execution
-output_dir: /common/users/dm1487/namo_data/outputs/diffusion_only_goal/nov20_1push_diffusion_only_goal/2025-11-20_09-41-46/results
+output_dir: /common/users/dm1487/namo_data/outputs/diffusion_only_goal/nov20_1push_diffusion_only_goal/2025-11-20_09-41-46/results_test/4
 start_idx: 0
-end_idx: 1
+end_idx: 6000
 algorithm: region_opening
 workers: 1
 episodes_per_env: 1
@@ -27,7 +31,7 @@ region_max_recorded_solutions_per_neighbor: 1
 # Goal sampler configuration
 goal_sampler: ml
 ml_goal_model: /common/users/dm1487/namo_data/outputs/diffusion_only_goal/nov20_1push_diffusion_only_goal/2025-11-20_09-41-46
-ml_device: cuda
+ml_device: cuda  # Use "cuda" (respects CUDA_VISIBLE_DEVICES) or "cuda:0", "cuda:1", etc.
 ml_samples: 128  # Increased from 32 for better ML goal coverage
 ml_min_goals: 1
 ml_match_position_tolerance: 0.05   # meters (tightened from 0.2)
@@ -37,7 +41,7 @@ ml_match_max_per_call: 999  # Allow all ML goals to be aligned (was 8)
 primitive_data_dir: data
 
 # Paths
-xml_dir: ../ml4kp_ktamp/resources/models/custom_walled_envs/aug9/medium
+xml_dir: /common/home/dm1487/robotics_research/ktamp/ml4kp_ktamp/resources/models/custom_walled_envs/aug9/medium
 config_file: config/namo_config_complete_skill15.yaml
 
 # Optional pipeline features

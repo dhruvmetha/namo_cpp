@@ -3,7 +3,7 @@
 # CLI flags can override any value here.
 
 # Core execution
-output_dir: /common/users/dm1487/namo_data/nov17/1_push/test
+output_dir: /common/users/dm1487/namo_data/nov24/1_push_test/all_solutions/1
 start_idx: 6000
 end_idx: 7000
 algorithm: region_opening
@@ -24,7 +24,7 @@ region_frontier_beam_width: 1000  # null or 0 = unbounded; positive integer caps
 region_max_recorded_solutions_per_neighbor: 10
 
 # Paths
-xml_dir: /common/home/dm1487/robotics_research/ktamp/ml4kp_ktamp/resources/models/custom_walled_envs/aug9
+xml_dir: /common/home/dm1487/robotics_research/ktamp/ml4kp_ktamp/resources/models/custom_walled_envs/aug9/medium
 config_file: config/namo_config_complete_skill15.yaml
 
 # Optional pipeline features
