@@ -51,9 +51,9 @@ from namo.data_collection.modular_parallel_collection import (
     ModularWorkerTask,
     ModularWorkerResult,
     ModularEpisodeResult,
-    discover_environment_files,
     generate_hostname_prefix,
     generate_goal_for_environment,
+    discover_environment_files,
     create_failure_info,
     apply_solution_smoothing,
     apply_action_refinement,
@@ -65,14 +65,27 @@ def preload_ml_models(config: ModularCollectionConfig) -> Tuple[Optional[Any], O
     """Preload ML models based on configuration."""
     object_model = None
     goal_model = None
-    
+
     # Extract params from planner config
     algo_params = config.planner_config.algorithm_params or {}
     device = algo_params.get("ml_device", "cuda")
-    
+
+    # Debug: Show GPU configuration
+    import torch
+    print(f"🎮 GPU Configuration:")
+    print(f"   CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES', 'not set')}")
+    print(f"   Requested device: {device}")
+    print(f"   PyTorch CUDA available: {torch.cuda.is_available()}")
+    if torch.cuda.is_available():
+        print(f"   PyTorch visible GPU count: {torch.cuda.device_count()}")
+        if torch.cuda.device_count() > 0:
+            actual_device = torch.device(device)
+            print(f"   Actual device to use: {actual_device}")
+            print(f"   GPU name: {torch.cuda.get_device_name(actual_device)}")
+
     # Check if ML is used
     use_ml_object = algo_params.get("object_selection_strategy") == "ml"
-    use_ml_goal = (algo_params.get("goal_sampler") in ["ml", "ml_primitive"] or 
+    use_ml_goal = (algo_params.get("goal_sampler") in ["ml", "ml_primitive"] or
                    algo_params.get("goal_selection_strategy") == "ml")
     
     if use_ml_object:
@@ -277,9 +290,13 @@ def process_single_environment(
         # Filtering logic (same as parallel)
         episodes_before_filtering = len(episode_results)
         episodes_filtered_out = 0
-        if task.filter_minimum_length and episode_results:
-             # (Simplified filtering for brevity)
-             pass
+
+        # Filter out episodes with empty action sequences (robot already at goal)
+        # These episodes are successful but provide no useful training data
+        initial_count = len(episode_results)
+        episode_results = [ep for ep in episode_results if not (ep.solution_found and (not ep.action_sequence or len(ep.action_sequence) == 0))]
+        empty_action_filtered = initial_count - len(episode_results)
+        episodes_filtered_out += empty_action_filtered
 
         # Save results immediately
         worker_result_data = {
@@ -334,15 +351,32 @@ class SequentialCollectionManager:
         self.output_dir = self.output_base / final_dir_name
         self.output_dir.mkdir(parents=True, exist_ok=True)
         print(f"🗂️  Run directory: {self.output_dir}")
+        
+    def discover_environment_files(self) -> List[str]:
+        
+        # all_xml_files = []
+        # with open("/common/home/dm1487/robotics_research/ktamp/namo/all_xml_files.pkl", "rb") as f:
+        #     all_xml_files = pickle.load(f)
+            
+        # all_files = set(all_xml_files['easy'] + all_xml_files['medium'] + all_xml_files['hard'])
+        # all_files = list(all_files)
+        
+        # random.seed(42)
+        # random.shuffle(all_files)
+        
+        # print(f"Found {len(all_files)} environments")
+        # all_files = all_files[self.config.start_idx:self.config.end_idx]
+        
+        # return all_files
+        
+        xml_files = discover_environment_files(self.config.xml_base_dir, self.config.start_idx, self.config.end_idx)
+        return xml_files
 
     def create_tasks(self) -> List[ModularWorkerTask]:
-        # Same as parallel manager
-        xml_files = discover_environment_files(
-            self.config.xml_base_dir, 
-            self.config.start_idx, 
-            self.config.end_idx
-        )
+        # Discover environment files
+        xml_files = self.discover_environment_files()
         
+        # Create tasks
         tasks = []
         for i, xml_file in enumerate(xml_files):
             task_id = f"{self.config.hostname}_env_{self.config.start_idx + i:06d}"

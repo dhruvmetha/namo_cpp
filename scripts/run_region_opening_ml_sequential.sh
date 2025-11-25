@@ -18,6 +18,7 @@ export PYTHONPATH="${REPO_DIR}/python:${PYTHONPATH:-}"
 echo "🚀 Running Sequential ML Data Collection"
 echo "📜 Script: $COLLECT_SCRIPT"
 echo "⚙️  Config: $YAML_CONFIG"
+echo "🎮 CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES:-not set}"
 echo "=================================================="
 
 exec "$PYTHON_BIN" "$COLLECT_SCRIPT" \
