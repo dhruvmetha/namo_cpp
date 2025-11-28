@@ -8,7 +8,7 @@
 ##     --start-idx 0 --end-idx 100
 
 # Core execution
-output_dir: /common/users/dm1487/namo_data/outputs/flow_matching/2025-11-26/14-50-24/results/2
+output_dir: /common/home/dm1487/robotics_research/ktamp/sage_learning/outputs/2025-11-26/14-50-24/results/1
 start_idx: 0
 end_idx: 6000
 algorithm: region_opening
@@ -30,7 +30,7 @@ region_max_recorded_solutions_per_neighbor: 1
 
 # Goal sampler configuration
 goal_sampler: ml
-ml_goal_model: /common/home/dm1487/robotics_research/ktamp/sage_learning/outputs/2025-11-26/15-04-18
+ml_goal_model: /common/home/dm1487/robotics_research/ktamp/sage_learning/outputs/2025-11-26/14-50-24
 ml_device: cuda  # Use "cuda" (respects CUDA_VISIBLE_DEVICES) or "cuda:0", "cuda:1", etc.
 ml_samples: 128  # Increased from 32 for better ML goal coverage
 ml_min_goals: 1
@@ -38,6 +38,8 @@ ml_match_position_tolerance: 0.05   # meters (tightened from 0.2)
 ml_match_angle_tolerance: 0.1       # radians ~5.7° (tightened from 0.35)
 ml_match_angle_weight: 0.5
 ml_match_max_per_call: 999  # Allow all ML goals to be aligned (was 8)
+ml_sampler_method: euler  # Override sampler: flow_matching=[euler, midpoint, rk4, dopri5], diffusion=[ddpm, ddim] (null = use training config)
+ml_num_steps: 20      # Override integration steps (null = use default 20)
 primitive_data_dir: data
 
 # Paths
