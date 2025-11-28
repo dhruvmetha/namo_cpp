@@ -76,17 +76,27 @@ def create_goal_checker(robot_goal):
     return check_goal
 
 
-def preload_ml_models(object_model_path: Optional[str], 
+def preload_ml_models(object_model_path: Optional[str],
                      goal_model_path: Optional[str],
-                     device: str = "cuda") -> Tuple[Optional[any], Optional[any]]:
-    """Preload ML models if paths are provided."""
+                     device: str = "cuda",
+                     sampler_method: Optional[str] = None,
+                     num_steps: Optional[int] = None) -> Tuple[Optional[any], Optional[any]]:
+    """Preload ML models if paths are provided.
+
+    Args:
+        object_model_path: Path to object inference model
+        goal_model_path: Path to goal inference model
+        device: Device to load models on
+        sampler_method: Override sampler method (euler, midpoint, rk4, dopri5 for flow matching)
+        num_steps: Override number of sampling steps
+    """
     object_model = None
     goal_model = None
-    
+
     ktamp_learning_path = "/common/home/dm1487/robotics_research/ktamp/sage_learning"
     if os.path.isdir(ktamp_learning_path) and ktamp_learning_path not in sys.path:
         sys.path.insert(0, ktamp_learning_path)
-    
+
     if object_model_path:
         try:
             from ktamp_learning.object_inference_model import ObjectInferenceModel
@@ -96,12 +106,17 @@ def preload_ml_models(object_model_path: Optional[str],
         except Exception as e:
             print(f"❌ Failed to load object model: {e}")
             return None, None
-    
+
     if goal_model_path:
         try:
             from ktamp_learning.goal_inference_model import GoalInferenceModel
             print(f"🎯 Loading GoalInferenceModel from {goal_model_path}")
-            goal_model = GoalInferenceModel(model_path=goal_model_path, device=device)
+            goal_model = GoalInferenceModel(
+                model_path=goal_model_path,
+                device=device,
+                sampler_method=sampler_method,
+                num_steps=num_steps
+            )
             print(f"✅ Goal model loaded successfully")
         except Exception as e:
             print(f"❌ Failed to load goal model: {e}")

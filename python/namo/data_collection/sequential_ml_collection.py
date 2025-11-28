@@ -106,7 +106,16 @@ def preload_ml_models(config: ModularCollectionConfig) -> Tuple[Optional[Any], O
             try:
                 from ktamp_learning.goal_inference_model import GoalInferenceModel
                 print(f"🎯 Loading GoalInferenceModel from {model_path}")
-                goal_model = GoalInferenceModel(model_path=model_path, device=device)
+                # Get optional sampler overrides from config
+                sampler_method = algo_params.get("ml_sampler_method")  # euler, midpoint, rk4, dopri5
+                num_steps = algo_params.get("ml_num_steps")  # number of integration steps
+                print(f"   Sampler override: method={sampler_method}, num_steps={num_steps}")
+                goal_model = GoalInferenceModel(
+                    model_path=model_path,
+                    device=device,
+                    sampler_method=sampler_method,
+                    num_steps=num_steps
+                )
                 print(f"✅ Goal model loaded successfully")
             except Exception as e:
                 print(f"❌ Failed to load goal model: {e}")
@@ -530,6 +539,8 @@ def main():
     parser.add_argument("--ml-match-angle-tolerance", type=float, default=0.35)
     parser.add_argument("--ml-match-angle-weight", type=float, default=0.5)
     parser.add_argument("--ml-match-max-per-call", type=int, default=8)
+    parser.add_argument("--ml-sampler-method", type=str, default=None, help="Override sampler: euler, midpoint, rk4, dopri5 (flow matching) or ddpm, ddim (diffusion)")
+    parser.add_argument("--ml-num-steps", type=int, default=None, help="Override number of integration steps")
     
     # Other
     parser.add_argument("--primitive-data-dir", type=str, default="data")
@@ -587,6 +598,8 @@ def main():
                 "ml_match_angle_tolerance": args.ml_match_angle_tolerance,
                 "ml_match_angle_weight": args.ml_match_angle_weight,
                 "ml_match_max_per_call": args.ml_match_max_per_call,
+                "ml_sampler_method": args.ml_sampler_method,
+                "ml_num_steps": args.ml_num_steps,
                 "primitive_data_dir": args.primitive_data_dir,
             })
 
