@@ -248,6 +248,163 @@ class MLImageConverterAdapter:
         final_quat = R.from_euler('xyz', [0, 0, current_angle + angle], degrees=True).as_quat(scalar_first=True)
         return final_quat
 
+    def _convert_datapoint_to_episode_format(self, data_point: Dict[str, Any],
+                                              selected_object: str,
+                                              robot_goal_pos: Tuple[float, float],
+                                              region_goals_sampled: List[Tuple[float, float, float]] = None) -> Dict[str, Any]:
+        """Convert JSON data_point format to episode_data format for visualizer.
+
+        This allows us to use the SAME generate_all_masks_highres() method
+        for both training and inference.
+
+        Args:
+            data_point: JSON message from planning system
+            selected_object: Name of the object to use as target
+            robot_goal_pos: Robot goal position [x, y]
+            region_goals_sampled: List of (x, y, theta) goal samples
+
+        Returns:
+            episode_data dict compatible with visualizer.generate_all_masks_highres()
+        """
+        # Build state_observations from data_point
+        state_obs = {}
+        for obj_name, obj_info in data_point['objects'].items():
+            pos = obj_info['position']
+            quat = obj_info['quaternion']
+            theta = R.from_quat(quat, scalar_first=True).as_euler('xyz', degrees=False)[2]
+            state_obs[f'{obj_name}_pose'] = [pos[0], pos[1], theta]
+
+        # Add robot pose
+        if 'robot' in data_point:
+            robot_pos = data_point['robot']['position']
+            state_obs['robot_pose'] = [robot_pos[0], robot_pos[1], 0.0]
+
+        # Build static_object_info from object_sizes
+        static_object_info = {}
+        for obj_name in data_point['objects'].keys():
+            if obj_name in self.object_sizes:
+                static_object_info[obj_name] = {
+                    'size_x': self.object_sizes[obj_name][0],
+                    'size_y': self.object_sizes[obj_name][1],
+                }
+
+        # Get selected object's current pose for target (inference doesn't have target_goal)
+        # We'll use a dummy target - the local_target_goal won't be used at inference
+        selected_pos = data_point['objects'][selected_object]['position']
+        selected_quat = data_point['objects'][selected_object]['quaternion']
+        selected_theta = R.from_quat(selected_quat, scalar_first=True).as_euler('xyz', degrees=False)[2]
+
+        # Build episode_data dict
+        episode_data = {
+            'state_observations': [state_obs],
+            'static_object_info': static_object_info,
+            'action_sequence': [{
+                'object_id': selected_object,
+                'target': (selected_pos[0], selected_pos[1], selected_theta)  # Dummy target
+            }],
+            'robot_goal': (robot_goal_pos[0], robot_goal_pos[1], 0.0),
+            'world_bounds': self.world_bounds,
+            'algorithm_stats': {
+                'region_goals_sampled': region_goals_sampled,
+                'region_goal_used': (robot_goal_pos[0], robot_goal_pos[1], 0.0) if not region_goals_sampled else None
+            }
+        }
+
+        return episode_data
+
+    def create_local_masks(self, data_point: Dict[str, Any],
+                           selected_object: str,
+                           robot_goal_pos: Tuple[float, float],
+                           region_goals_sampled: List[Tuple[float, float, float]] = None,
+                           crop_size_meters: float = 5.0,
+                           highres_size: int = 2048,
+                           output_size: int = 224,
+                           goal_circle_radius: float = 0.1) -> Dict[str, Any]:
+        """Create local masks centered on selected object using the SAME method as training.
+
+        This method converts the data_point to episode format and calls
+        visualizer.generate_all_masks_highres() to ensure identical mask generation.
+
+        Args:
+            data_point: JSON message from planning system
+            selected_object: Name of the object to center on
+            robot_goal_pos: Robot goal position [x, y]
+            region_goals_sampled: List of (x, y, theta) goal samples for goal_region mask
+            crop_size_meters: Size of local crop in meters (default: 5.0)
+            highres_size: High-res render size (default: 2048)
+            output_size: Output mask size (default: 224)
+            goal_circle_radius: Radius of goal region circles in meters (default: 0.1)
+
+        Returns:
+            Dictionary containing:
+            - 'local_static': Static obstacles mask (H, W, 1)
+            - 'local_movable': Other movable objects mask (H, W, 1)
+            - 'local_target_object': Selected object mask (H, W, 1)
+            - 'local_goal_region': Goal region circles mask (H, W, 1)
+            - 'object_center': (x, y) of selected object
+            - 'object_theta': Rotation of selected object
+            - 'crop_size_meters': Crop size used
+            - 'resolution': Meters per pixel
+        """
+        from namo.visualization.mask_generation.visualizer import NAMODataVisualizer
+
+        # Store data_point for compatibility
+        self.data_point = data_point
+
+        # Convert to episode format
+        episode_data = self._convert_datapoint_to_episode_format(
+            data_point, selected_object, robot_goal_pos, region_goals_sampled
+        )
+
+        # Use the SAME visualizer method as training
+        visualizer = NAMODataVisualizer()
+        result = visualizer.generate_all_masks_highres(
+            episode_data,
+            highres_size=highres_size,
+            global_output_size=output_size,
+            local_output_size=output_size,
+            local_crop_size_meters=crop_size_meters,
+            goal_circle_radius=goal_circle_radius
+        )
+
+        # Extract local masks and convert to (H, W, 1) format for inference compatibility
+        local_masks = {}
+        if result['local'] is not None:
+            for name, mask in result['local'].items():
+                local_masks[name] = mask[:, :, np.newaxis]
+
+        # Add metadata
+        if result['local_metadata'] is not None:
+            local_masks['object_center'] = result['local_metadata']['object_center']
+            local_masks['object_theta'] = result['local_metadata']['object_theta']
+            local_masks['crop_size_meters'] = result['local_metadata']['crop_size_meters']
+            local_masks['resolution'] = result['local_metadata']['resolution']
+
+        return local_masks
+
+    def pixel_to_world_local(self, px: int, py: int,
+                             object_center: Tuple[float, float],
+                             crop_size_meters: float = 5.0,
+                             output_size: int = 224) -> Tuple[float, float]:
+        """Convert local pixel coordinates to world coordinates.
+
+        Args:
+            px, py: Pixel coordinates in local mask
+            object_center: (x, y) of the object the mask is centered on
+            crop_size_meters: Size of crop in meters
+            output_size: Size of output mask in pixels
+
+        Returns:
+            (world_x, world_y) coordinates
+        """
+        resolution = crop_size_meters / output_size
+        center_px = output_size / 2  # 112 for 224x224
+
+        world_x = object_center[0] + (px - center_px) * resolution
+        world_y = object_center[1] + (py - center_px) * resolution
+
+        return world_x, world_y
+
 
 # For backward compatibility, create an alias
 ImageConverter = MLImageConverterAdapter

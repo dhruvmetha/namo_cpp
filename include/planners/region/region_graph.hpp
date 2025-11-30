@@ -365,10 +365,10 @@ struct LightweightState {
     SE2State robot_pose;
     
     // Movable object poses (indices match environment's movable object array)
-    std::array<SE2State, 10> movable_object_poses;  // MAX_MOVABLE_OBJECTS = 10
-    
+    std::array<SE2State, 100> movable_object_poses;  // MAX_MOVABLE_OBJECTS = 100
+
     // Object names for mapping (must match environment)
-    GenericFixedVector<std::string, 10> object_names;
+    GenericFixedVector<std::string, 100> object_names;
     
     LightweightState() = default;
     

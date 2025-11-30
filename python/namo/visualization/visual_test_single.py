@@ -267,6 +267,8 @@ def main():
                         help="Maximum terminal checks before stopping search (default: 5000)")
     parser.add_argument("--search-timeout", type=float, default=60.0,
                         help="Search timeout in seconds (default: 60.0)")
+    parser.add_argument("--goals-per-region", type=int, default=5,
+                        help="Number of robot goal samples per region for validation (default: 5)")
     parser.add_argument("--region-allow-collisions", action="store_true",
                         help="Allow object collisions during region opening pushes (default: False, terminate on collision)")
     parser.add_argument("--region-max-chain-depth", type=int, default=1,
@@ -444,6 +446,7 @@ def main():
             max_goals_per_object=args.max_goals_per_object,
             max_terminal_checks=args.max_terminal_checks,
             max_search_time_seconds=args.search_timeout,
+            goals_per_region=args.goals_per_region,
             verbose=args.verbose,
             collect_stats=True,
             algorithm_params=algorithm_params

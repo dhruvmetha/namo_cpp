@@ -219,6 +219,7 @@ def process_single_environment(
                                 'connectivity_before': attempt.connectivity_before,
                                 'connectivity_after': attempt.connectivity_after,
                                 'region_goal_used': attempt.region_goal_used,
+                                'region_goals_sampled': attempt.region_goals_sampled,
                                 'chosen_object_id': attempt.chosen_object_id,
                                 'chain_depth': attempt.chain_depth,
                                 'total_cost': getattr(attempt, 'total_cost', None),
@@ -378,7 +379,12 @@ class SequentialCollectionManager:
         
         # return all_files
         
-        xml_files = discover_environment_files(self.config.xml_base_dir, self.config.start_idx, self.config.end_idx)
+        xml_files = discover_environment_files(
+            self.config.xml_base_dir,
+            self.config.start_idx,
+            self.config.end_idx,
+            manifest_file=self.config.manifest_file
+        )
         return xml_files
 
     def create_tasks(self) -> List[ModularWorkerTask]:
@@ -521,6 +527,8 @@ def main():
     parser.add_argument("--max-goals-per-object", type=int, default=5)
     parser.add_argument("--max-terminal-checks", type=int, default=5000)
     parser.add_argument("--search-timeout", type=float, default=300.0)
+    parser.add_argument("--goals-per-region", type=int, default=5,
+                        help="Number of robot goal samples per region for validation (default: 5)")
     
     # Region opening params
     parser.add_argument("--region-allow-collisions", action="store_true")
@@ -554,6 +562,7 @@ def main():
     parser.add_argument("--validate-refinement", action="store_true", default=True)
     parser.add_argument("--run-name", type=str, default=None)
     parser.add_argument("--unique-run-dir", action="store_true")
+    parser.add_argument("--manifest", type=str, default=None, help="Path to manifest file listing XML files")
 
     # Load YAML
     if pre_args.config_yaml:
@@ -608,6 +617,7 @@ def main():
         max_goals_per_object=args.max_goals_per_object,
         max_terminal_checks=args.max_terminal_checks,
         max_search_time_seconds=args.search_timeout,
+        goals_per_region=args.goals_per_region,
         verbose=args.verbose,
         collect_stats=True,
         algorithm_params=algorithm_params
@@ -629,7 +639,8 @@ def main():
         filter_minimum_length=args.filter_minimum_length,
         planner_config=planner_config,
         run_name=args.run_name,
-        unique_run_dir=args.unique_run_dir
+        unique_run_dir=args.unique_run_dir,
+        manifest_file=args.manifest
     )
     
     manager = SequentialCollectionManager(config)

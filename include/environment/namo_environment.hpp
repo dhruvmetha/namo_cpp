@@ -42,8 +42,8 @@ public:
     
     // Full simulation state for zero-allocation save/restore
     struct FullSimState {
-        static constexpr size_t MAX_QPOS = 100;  // Adjust based on model complexity
-        static constexpr size_t MAX_QVEL = 100;
+        static constexpr size_t MAX_QPOS = 500;  // Adjust based on model complexity
+        static constexpr size_t MAX_QVEL = 500;
         
         std::array<double, MAX_QPOS> qpos;
         std::array<double, MAX_QVEL> qvel;
@@ -77,7 +77,7 @@ public:
     
     // Object accessors
     const std::array<ObjectInfo, 100>& get_static_objects() const { return static_objects_; }
-    const std::array<ObjectInfo, 30>& get_movable_objects() const { return movable_objects_; }
+    const std::array<ObjectInfo, 100>& get_movable_objects() const { return movable_objects_; }
     size_t get_num_static() const { return num_static_; }
     size_t get_num_movable() const { return num_movable_; }
     
@@ -144,7 +144,7 @@ private:
     
     // Fixed-size object storage
     static constexpr size_t MAX_STATIC_OBJECTS = 100;
-    static constexpr size_t MAX_MOVABLE_OBJECTS = 30;
+    static constexpr size_t MAX_MOVABLE_OBJECTS = 100;
     
     std::array<ObjectInfo, MAX_STATIC_OBJECTS> static_objects_;
     std::array<ObjectInfo, MAX_MOVABLE_OBJECTS> movable_objects_;

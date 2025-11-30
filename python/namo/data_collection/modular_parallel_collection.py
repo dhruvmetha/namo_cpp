@@ -207,8 +207,10 @@ class ModularCollectionConfig:
 
     # Episode filtering options
     filter_minimum_length: bool = False  # Only keep episodes with minimum action sequence length per environment
-    
-    
+
+    # Manifest file for fast loading (pre-generated list of XML files)
+    manifest_file: Optional[str] = None
+
     hostname: str = None  # Auto-detected if None
     run_name: Optional[str] = None  # Optional suffix for per-run directories
     unique_run_dir: bool = False  # Auto-generate per-run subdirectory suffix when True
@@ -307,74 +309,47 @@ class ModularWorkerResult:
 # Planners are registered automatically when imported
 
 
-def discover_environment_files(base_dir: str, start_idx: int, end_idx: int) -> List[str]:
-    """Discover and filter XML environment files by index range."""
-   
-   
+def discover_environment_files(base_dir: str, start_idx: int, end_idx: int, manifest_file: str = None) -> List[str]:
+    """Discover and filter XML environment files by index range.
 
-    # all_xml_files = []
-    # with open('./notebooks/unsolved_envs.pkl', 'rb') as f:
-    #     unsolved_envs = pickle.load(f)
-    # for env_name in unsolved_envs:
-    #     xml_file = os.path.join(base_dir, env_name)
-    #     all_xml_files.append(xml_file)
-    # all_xml_files = sorted(all_xml_files)
-    
+    Args:
+        base_dir: Base directory containing XML files (used if no manifest)
+        start_idx: Starting index for subset selection
+        end_idx: Ending index for subset selection (exclusive)
+        manifest_file: Optional path to pre-generated manifest file for fast loading
 
-    # all_xml_files = []
-    # folder = 'medium_train_envs'
-    # for d in ['very_hard']:
-    #     with open(f'{folder}/envs_names_{d}.pkl', 'rb') as f:
-    #         envs_names = pickle.load(f)
-    #     for env_name in envs_names:
-    #         xml_file = os.path.join(base_dir, env_name)
-    #         all_xml_files.append(xml_file)
-    # all_xml_files = sorted(all_xml_files)
-    
+    Returns:
+        List of XML file paths for the requested index range
+    """
+    if manifest_file and os.path.exists(manifest_file):
+        # Fast path: read from pre-generated manifest
+        print(f"Loading from manifest: {manifest_file}")
+        with open(manifest_file, 'r') as f:
+            # Read only the lines we need for memory efficiency
+            all_xml_files = []
+            for i, line in enumerate(f):
+                if i >= end_idx:
+                    break
+                if i >= start_idx:
+                    all_xml_files.append(line.strip())
+        print(f"Loaded {len(all_xml_files)} environments from manifest (indices {start_idx}:{end_idx})")
+        return all_xml_files
+
+    # Fallback: discover files directly (slow for millions of files)
+    print(f"No manifest provided, scanning directory: {base_dir}")
+    print("  (For faster loading with millions of files, generate a manifest first)")
+    print("  (Run: python scripts/generate_xml_manifest.py --input-dir <dir> --output manifest.txt)")
+
     xml_pattern = os.path.join(base_dir, "**", "*.xml")
-    
-    all_xml_files = sorted(glob.glob(xml_pattern, recursive=True))
-    
-    # 3. Apply subset selection (same as your original code)
-    if end_idx == -1:
-        end_idx = len(all_xml_files)
-        
+    all_xml_files = glob.glob(xml_pattern, recursive=True)
+    print(f"Found {len(all_xml_files)} environments before subset selection")
+    all_xml_files = [file for file in tqdm(all_xml_files) if not file.endswith('_temp.xml')]
+    all_xml_files = sorted(all_xml_files)
     random.seed(42)
     random.shuffle(all_xml_files)
     subset_files = all_xml_files[start_idx:end_idx]
-    
-    return subset_files
 
-    # solved_envs = []
-    # with open('1_push_solved.pkl', 'rb') as f:
-    #     solved_envs = pickle.load(f)
-    # solved_envs = set(solved_envs)
-    # print("solved_envs", len(solved_envs))
-    # sets = [1, 2]
-    # benchmarks = [1, 2, 3, 4, 5]
-    # all_xml_files = []
-    
-    # for set_idx in sets:
-    #     for benchmark_idx in benchmarks:
-    #         xml_pattern = os.path.join(base_dir, "medium", f"set{set_idx}", f"benchmark_{benchmark_idx}", "*.xml")
-    #         sorted_xml_files = sorted(glob.glob(xml_pattern, recursive=True))
-    #         for xml_file in sorted_xml_files[:1000]:
-    #                 all_xml_files.append(xml_file.split(f'{base_dir}/')[-1])
-    #         # all_xml_files.extend(sorted_xml_files[1000:1100]) # test
-    # # Apply subset selection
-    # subset_files = all_xml_files[start_idx:end_idx]
-    # subset_files = set(subset_files) - solved_envs
-    # subset_files = list(subset_files)
-    # if end_idx == -1:
-    #     end_idx = len(all_xml_files)
-    # subset_files = sorted(subset_files)
-    # print("unsolved envs", len(subset_files))
-    # final_subset_files = []
-    # for subset_file in subset_files:
-    #     xml_file = os.path.join(base_dir, subset_file)
-    #     final_subset_files.append(xml_file)
-    # final_subset_files = sorted(final_subset_files)
-    # return final_subset_files
+    return subset_files
 
 def generate_hostname_prefix() -> str:
     """Generate hostname-based prefix for output files."""
@@ -483,6 +458,7 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                                 'connectivity_before': attempt.connectivity_before,
                                 'connectivity_after': attempt.connectivity_after,
                                 'region_goal_used': attempt.region_goal_used,
+                                'region_goals_sampled': attempt.region_goals_sampled,
                                 'chosen_object_id': attempt.chosen_object_id,
                                 'chain_depth': attempt.chain_depth,
                                 'total_cost': getattr(attempt, 'total_cost', None),
@@ -748,9 +724,10 @@ class ModularParallelCollectionManager:
         """Create worker tasks from environment file subset."""
         # Discover environment files
         xml_files = discover_environment_files(
-            self.config.xml_base_dir, 
-            self.config.start_idx, 
-            self.config.end_idx
+            self.config.xml_base_dir,
+            self.config.start_idx,
+            self.config.end_idx,
+            manifest_file=self.config.manifest_file
         )
         
         # Create tasks
@@ -1014,6 +991,8 @@ def main():
                         help="Maximum terminal checks before stopping search (default: 5000)")
     parser.add_argument("--search-timeout", type=float, default=300.0,
                         help="Search timeout in seconds (default: 300.0 = 5 minutes)")
+    parser.add_argument("--goals-per-region", type=int, default=5,
+                        help="Number of robot goal samples per region for validation (default: 5)")
 
     # Region opening planner arguments (only those used by RegionOpeningPlanner)
     parser.add_argument("--region-allow-collisions", action="store_true",
@@ -1069,7 +1048,9 @@ def main():
                         help="Optional suffix appended to the per-host output directory to separate runs")
     parser.add_argument("--unique-run-dir", action="store_true",
                         help="Automatically append start/end indices and timestamp to output directory for each run")
-    
+    parser.add_argument("--manifest", type=str, default=None,
+                        help="Path to pre-generated manifest file for fast loading (use generate_xml_manifest.py to create)")
+
     # If YAML provided, load and set parser defaults before final parse
     if pre_args.config_yaml:
         try:
@@ -1154,6 +1135,7 @@ def main():
         max_goals_per_object=args.max_goals_per_object,
         max_terminal_checks=args.max_terminal_checks,
         max_search_time_seconds=args.search_timeout,
+        goals_per_region=args.goals_per_region,
         verbose=args.verbose,
         collect_stats=True,
         algorithm_params=algorithm_params if algorithm_params else None
@@ -1175,6 +1157,7 @@ def main():
         validate_refinement=args.validate_refinement,
         filter_minimum_length=args.filter_minimum_length,
         planner_config=planner_config,
+        manifest_file=args.manifest,
         run_name=args.run_name,
         unique_run_dir=args.unique_run_dir
     )

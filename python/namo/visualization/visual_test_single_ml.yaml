@@ -7,7 +7,7 @@
 # Algorithm Selection
 algorithm: region_opening
 object_strategy: no_heuristic  # Region opening picks objects based on connectivity, not heuristics
-goal_strategy: ml
+goal_strategy: primitive
 
 # ML Model Configuration
 ml_goal_model: /common/users/dm1487/namo_data/outputs/diffusion_only_goal/nov20_1push_diffusion_only_goal/2025-11-20_09-41-46
@@ -20,7 +20,7 @@ ml_match_angle_weight: 0.5
 
 # Region Opening Specifics
 region_allow_collisions: true  # Important: allow "soft" collisions for opening
-region_max_chain_depth: 1
+region_max_chain_depth: 2
 region_max_solutions_per_neighbor: 10
 region_max_recorded_solutions_per_neighbor: 1
 region_frontier_beam_width: 1000
@@ -28,10 +28,11 @@ region_frontier_beam_width: 1000
 # General Planning Parameters
 max_depth: 5
 search_timeout: 300.0
+goals_per_region: 10  # Number of robot goal samples per region for validation
 config_file: config/namo_config_complete_skill15.yaml
 
 # Visualization Defaults
-show_planning: true
+show_planning: false
 planning_delay: 0.1
 show_solution: prompt
 verbose: true  # Useful for debugging single runs

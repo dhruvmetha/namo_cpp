@@ -820,18 +820,441 @@ class NAMODataVisualizer:
             masks[f'goal_mask_a{action_idx}'] = goal_mask
 
         return masks
-    
-    def save_masks(self, masks: Dict[str, np.ndarray], output_dir: str, 
+
+    def generate_local_episode_masks(self, episode_data: Dict[str, Any],
+                                     crop_size_meters: float = 2.0,
+                                     goal_circle_radius: float = 0.2,
+                                     highres_size: int = 2048,
+                                     output_size: int = 224) -> Optional[Dict[str, np.ndarray]]:
+        """Generate local object-centered masks by rendering at high resolution and cropping.
+
+        Approach: Render full scene at high resolution (2048x2048), then crop a window
+        centered on the target object and resize to output size (224x224).
+
+        Args:
+            episode_data: Episode data dictionary (must have action_sequence with target object)
+            crop_size_meters: Size of the square crop region in meters (default: 2.0m)
+            goal_circle_radius: Radius of goal region circles in meters (default: 0.1m)
+            highres_size: Size of high-resolution render (default: 2048)
+            output_size: Size of output masks (default: 224)
+
+        Returns:
+            Dictionary containing local masks:
+            - 'local_target_object': Target object at center
+            - 'local_target_goal': Push target position
+            - 'local_goal_region': Circles at region_goals_sampled points
+            - 'local_static': Static obstacles (walls)
+            - 'local_movable': Other movable objects
+            - 'local_metadata': Dict with object_center, local_bounds for inference
+            Returns None if episode doesn't have required data (e.g., no action_sequence)
+        """
+        import cv2
+
+        # Get action sequence to find target object
+        action_sequence = episode_data.get('action_sequence', [])
+        if not action_sequence or len(action_sequence) == 0:
+            return None
+
+        first_action = action_sequence[0]
+        target_object_id = first_action.get('object_id')
+        target_pose = first_action.get('target')  # (x, y, theta)
+
+        if not target_object_id or not target_pose:
+            return None
+
+        # Get state observations to find object positions
+        state_observations = episode_data.get('state_observations', [])
+        if not state_observations or len(state_observations) == 0:
+            return None
+
+        # Use first state observation (before any action)
+        first_state = state_observations[0]
+
+        # Find target object pose
+        target_obj_pose_key = f"{target_object_id}_pose"
+        if target_obj_pose_key not in first_state:
+            target_obj_pose_key = target_object_id
+            if target_obj_pose_key not in first_state:
+                return None
+
+        obj_pose = first_state[target_obj_pose_key]
+        obj_x, obj_y, obj_theta = obj_pose[0], obj_pose[1], obj_pose[2]
+
+        # Get environment info and world bounds
+        env_info = self._extract_env_info_from_episode(episode_data)
+        world_bounds = env_info.world_bounds
+        x_min_w, x_max_w, y_min_w, y_max_w = world_bounds
+
+        # Get static object info for sizes
+        static_object_info = episode_data.get('static_object_info') or {}
+
+        # Get target object size
+        obj_info = static_object_info.get(target_object_id, {})
+        if 'size_x' not in obj_info or 'size_y' not in obj_info:
+            return None
+
+        target_size_x = obj_info['size_x']
+        target_size_y = obj_info['size_y']
+
+        # Helper: world to highres pixel
+        world_width = x_max_w - x_min_w
+        world_height = y_max_w - y_min_w
+        world_size = max(world_width, world_height)
+        scale = highres_size / world_size
+        world_center_x = (x_min_w + x_max_w) / 2
+        world_center_y = (y_min_w + y_max_w) / 2
+        img_center = highres_size / 2
+
+        def world_to_highres(x, y):
+            px = int((x - world_center_x) * scale + img_center)
+            py = int((y - world_center_y) * scale + img_center)
+            return px, py
+
+        def size_to_pixels(size):
+            return int(size * scale * 2)  # full size, not half
+
+        # Initialize high-res masks
+        highres_masks = {
+            'target_object': np.zeros((highres_size, highres_size), dtype=np.float32),
+            'target_goal': np.zeros((highres_size, highres_size), dtype=np.float32),
+            'goal_region': np.zeros((highres_size, highres_size), dtype=np.float32),
+            'static': np.zeros((highres_size, highres_size), dtype=np.float32),
+            'movable': np.zeros((highres_size, highres_size), dtype=np.float32),
+        }
+
+        # Draw rotated box on highres mask
+        def draw_rotated_box_highres(mask, cx, cy, size_x, size_y, angle):
+            px, py = world_to_highres(cx, cy)
+            w, h = size_to_pixels(size_x), size_to_pixels(size_y)
+            rect = ((px, py), (w, h), np.degrees(angle))
+            box = cv2.boxPoints(rect)
+            box = np.int32(box)
+            cv2.fillPoly(mask, [box], 1.0)
+
+        # Draw circle on highres mask
+        def draw_circle_highres(mask, cx, cy, radius):
+            px, py = world_to_highres(cx, cy)
+            r_px = int(radius * scale)
+            cv2.circle(mask, (px, py), max(1, r_px), 1.0, -1)
+
+        # 1. Draw target object
+        draw_rotated_box_highres(highres_masks['target_object'], obj_x, obj_y,
+                                  target_size_x, target_size_y, obj_theta)
+
+        # 2. Draw target goal
+        goal_x, goal_y, goal_theta = target_pose[0], target_pose[1], target_pose[2]
+        draw_rotated_box_highres(highres_masks['target_goal'], goal_x, goal_y,
+                                  target_size_x, target_size_y, goal_theta)
+
+        # 3. Draw goal region circles
+        algorithm_stats = episode_data.get('algorithm_stats') or {}
+        region_goals_sampled = episode_data.get('region_goals_sampled')
+        if region_goals_sampled is None:
+            region_goals_sampled = algorithm_stats.get('region_goals_sampled')
+        if not region_goals_sampled:
+            region_goal_used = episode_data.get('region_goal_used') or algorithm_stats.get('region_goal_used')
+            if region_goal_used:
+                region_goals_sampled = [region_goal_used]
+
+        if region_goals_sampled:
+            for goal in region_goals_sampled:
+                gx, gy = goal[0], goal[1]
+                draw_circle_highres(highres_masks['goal_region'], gx, gy, goal_circle_radius)
+
+        # 4. Draw static objects (walls)
+        for obj in env_info.static_objects:
+            qw, qx, qy, qz = obj.quat_w, obj.quat_x, obj.quat_y, obj.quat_z
+            angle = np.arctan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz))
+            draw_rotated_box_highres(highres_masks['static'], obj.x, obj.y,
+                                      obj.size_x, obj.size_y, angle)
+
+        # 5. Draw other movable objects
+        for obj_name, pose in first_state.items():
+            if obj_name == 'robot_pose':
+                continue
+            obj_base_name = obj_name.replace('_pose', '')
+            if obj_base_name == target_object_id:
+                continue
+
+            mov_obj_info = static_object_info.get(obj_base_name, {})
+            if 'size_x' in mov_obj_info and 'size_y' in mov_obj_info:
+                mx, my, mtheta = pose[0], pose[1], pose[2]
+                draw_rotated_box_highres(highres_masks['movable'], mx, my,
+                                          mov_obj_info['size_x'], mov_obj_info['size_y'], mtheta)
+
+        # Compute crop window in highres pixels
+        obj_px, obj_py = world_to_highres(obj_x, obj_y)
+        crop_size_px = int(crop_size_meters * scale)
+        half_crop = crop_size_px // 2
+
+        # Crop boundaries (with clamping)
+        y1 = max(0, obj_py - half_crop)
+        y2 = min(highres_size, obj_py + half_crop)
+        x1 = max(0, obj_px - half_crop)
+        x2 = min(highres_size, obj_px + half_crop)
+
+        # Crop and resize each mask
+        masks = {}
+        for name, highres_mask in highres_masks.items():
+            cropped = highres_mask[y1:y2, x1:x2]
+            # Handle edge cases where crop is smaller than expected
+            if cropped.shape[0] == 0 or cropped.shape[1] == 0:
+                masks[f'local_{name}'] = np.zeros((output_size, output_size), dtype=np.float32)
+            else:
+                resized = cv2.resize(cropped, (output_size, output_size), interpolation=cv2.INTER_AREA)
+                masks[f'local_{name}'] = resized.astype(np.float32)
+
+        # Compute local bounds for metadata
+        half_size = crop_size_meters / 2.0
+        local_bounds = (
+            obj_x - half_size,
+            obj_x + half_size,
+            obj_y - half_size,
+            obj_y + half_size
+        )
+
+        # Store metadata for inference coordinate recovery
+        masks['local_metadata'] = {
+            'object_center': (obj_x, obj_y),
+            'object_theta': obj_theta,
+            'local_bounds': local_bounds,
+            'crop_size_meters': crop_size_meters,
+            'resolution': crop_size_meters / output_size  # meters per pixel
+        }
+
+        return masks
+
+    def generate_all_masks_highres(self, episode_data: Dict[str, Any],
+                                   highres_size: int = 2048,
+                                   global_output_size: int = 224,
+                                   local_output_size: int = 224,
+                                   local_crop_size_meters: float = 5.0,
+                                   goal_circle_radius: float = 0.2) -> Dict[str, Any]:
+        """Generate both global and local masks from a single high-resolution render.
+
+        This is more efficient than calling generate_episode_masks and
+        generate_local_episode_masks separately, as it renders once at high resolution
+        and then creates both global (full resize) and local (crop + resize) masks.
+
+        Args:
+            episode_data: Episode data dictionary
+            highres_size: Size of high-resolution render (default: 2048)
+            global_output_size: Size of global output masks (default: 224)
+            local_output_size: Size of local output masks (default: 224)
+            local_crop_size_meters: Size of local crop region in meters (default: 4.0)
+            goal_circle_radius: Radius of goal region circles in meters (default: 0.1)
+
+        Returns:
+            Dictionary containing:
+            - 'global': Dict of global masks (resized from full highres)
+            - 'local': Dict of local masks (cropped around target object) or None
+            - 'local_metadata': Dict with object_center, local_bounds for inference
+        """
+        import cv2
+
+        # Extract environment info
+        env_info = self._extract_env_info_from_episode(episode_data)
+        world_bounds = env_info.world_bounds
+        x_min_w, x_max_w, y_min_w, y_max_w = world_bounds
+
+        # Get data
+        state_observations = episode_data.get('state_observations', [])
+        static_object_info = episode_data.get('static_object_info') or {}
+        action_sequence = episode_data.get('action_sequence', [])
+        robot_goal = episode_data.get('robot_goal', (0.0, 0.0, 0.0))
+
+        # Helper: world to highres pixel
+        world_width = x_max_w - x_min_w
+        world_height = y_max_w - y_min_w
+        world_size = max(world_width, world_height)
+        scale = highres_size / world_size
+        world_center_x = (x_min_w + x_max_w) / 2
+        world_center_y = (y_min_w + y_max_w) / 2
+        img_center = highres_size / 2
+
+        def world_to_highres(x, y):
+            px = int((x - world_center_x) * scale + img_center)
+            py = int((y - world_center_y) * scale + img_center)
+            return px, py
+
+        def size_to_pixels(size):
+            return int(size * scale * 2)
+
+        # Draw rotated box on highres mask
+        def draw_rotated_box(mask, cx, cy, size_x, size_y, angle):
+            px, py = world_to_highres(cx, cy)
+            w, h = size_to_pixels(size_x), size_to_pixels(size_y)
+            if w <= 0 or h <= 0:
+                return
+            rect = ((px, py), (w, h), np.degrees(angle))
+            box = cv2.boxPoints(rect)
+            box = np.int32(box)
+            cv2.fillPoly(mask, [box], 1.0)
+
+        # Draw circle on highres mask
+        def draw_circle(mask, cx, cy, radius):
+            px, py = world_to_highres(cx, cy)
+            r_px = int(radius * scale)
+            cv2.circle(mask, (px, py), max(1, r_px), 1.0, -1)
+
+        # Initialize high-res masks
+        highres = {
+            'robot': np.zeros((highres_size, highres_size), dtype=np.float32),
+            'goal': np.zeros((highres_size, highres_size), dtype=np.float32),
+            'movable': np.zeros((highres_size, highres_size), dtype=np.float32),
+            'static': np.zeros((highres_size, highres_size), dtype=np.float32),
+            'reachable': np.zeros((highres_size, highres_size), dtype=np.float32),
+            'target_object': np.zeros((highres_size, highres_size), dtype=np.float32),
+            'target_goal': np.zeros((highres_size, highres_size), dtype=np.float32),
+            'goal_region': np.zeros((highres_size, highres_size), dtype=np.float32),
+        }
+
+        # 1. Draw static objects (walls)
+        for obj in env_info.static_objects:
+            qw, qx, qy, qz = obj.quat_w, obj.quat_x, obj.quat_y, obj.quat_z
+            angle = np.arctan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz))
+            draw_rotated_box(highres['static'], obj.x, obj.y, obj.size_x, obj.size_y, angle)
+
+        # 2. Draw robot goal
+        draw_circle(highres['goal'], robot_goal[0], robot_goal[1], 0.25)
+
+        # Get target object info
+        target_object_id = None
+        target_pose = None
+        target_size_x, target_size_y = None, None
+        obj_x, obj_y, obj_theta = None, None, None
+
+        if action_sequence and len(action_sequence) > 0:
+            first_action = action_sequence[0]
+            target_object_id = first_action.get('object_id')
+            target_pose = first_action.get('target')
+
+        # 3. Process state observations - draw movable objects
+        if state_observations and len(state_observations) > 0:
+            first_state = state_observations[0]
+
+            # Draw robot position
+            if 'robot_pose' in first_state:
+                robot_pose = first_state['robot_pose']
+                draw_circle(highres['robot'], robot_pose[0], robot_pose[1], 0.2)
+
+            # Draw movable objects
+            for obj_name, pose in first_state.items():
+                if obj_name == 'robot_pose':
+                    continue
+                obj_base_name = obj_name.replace('_pose', '')
+                obj_info = static_object_info.get(obj_base_name, {})
+
+                if 'size_x' in obj_info and 'size_y' in obj_info:
+                    x, y, theta = pose[0], pose[1], pose[2]
+                    size_x = obj_info['size_x']
+                    size_y = obj_info['size_y']
+
+                    # Draw in movable mask
+                    draw_rotated_box(highres['movable'], x, y, size_x, size_y, theta)
+
+                    # Check if target object
+                    if target_object_id and obj_base_name == target_object_id:
+                        obj_x, obj_y, obj_theta = x, y, theta
+                        target_size_x, target_size_y = size_x, size_y
+                        draw_rotated_box(highres['target_object'], x, y, size_x, size_y, theta)
+
+                        if target_pose:
+                            goal_x, goal_y, goal_theta = target_pose[0], target_pose[1], target_pose[2]
+                            draw_rotated_box(highres['target_goal'], goal_x, goal_y, size_x, size_y, goal_theta)
+
+        # 4. Draw reachable objects
+        reachable_list = episode_data.get('reachable_objects_before_action')
+        if reachable_list and len(reachable_list) > 0 and state_observations:
+            first_state = state_observations[0]
+            reachable_objects = reachable_list[0] if reachable_list[0] else []
+            for obj_name in reachable_objects:
+                pose_key = f"{obj_name}_pose"
+                if pose_key in first_state:
+                    pose = first_state[pose_key]
+                    obj_info = static_object_info.get(obj_name, {})
+                    if 'size_x' in obj_info and 'size_y' in obj_info:
+                        draw_rotated_box(highres['reachable'], pose[0], pose[1],
+                                        obj_info['size_x'], obj_info['size_y'], pose[2])
+
+        # 5. Draw goal region circles
+        algorithm_stats = episode_data.get('algorithm_stats') or {}
+        region_goals_sampled = episode_data.get('region_goals_sampled')
+        if region_goals_sampled is None:
+            region_goals_sampled = algorithm_stats.get('region_goals_sampled')
+        if not region_goals_sampled:
+            region_goal_used = episode_data.get('region_goal_used') or algorithm_stats.get('region_goal_used')
+            if region_goal_used:
+                region_goals_sampled = [region_goal_used]
+
+        if region_goals_sampled:
+            for goal in region_goals_sampled:
+                gx, gy = goal[0], goal[1]
+                draw_circle(highres['goal_region'], gx, gy, goal_circle_radius)
+
+        # === Create global masks (resize full highres to output size) ===
+        global_masks = {}
+        for name, hr_mask in highres.items():
+            resized = cv2.resize(hr_mask, (global_output_size, global_output_size),
+                                interpolation=cv2.INTER_AREA)
+            global_masks[name] = resized.astype(np.float32)
+
+        # === Create local masks (crop around target object, then resize) ===
+        local_masks = None
+        local_metadata = None
+
+        if obj_x is not None and obj_y is not None:
+            # Compute crop window
+            obj_px, obj_py = world_to_highres(obj_x, obj_y)
+            crop_size_px = int(local_crop_size_meters * scale)
+            half_crop = crop_size_px // 2
+
+            y1 = max(0, obj_py - half_crop)
+            y2 = min(highres_size, obj_py + half_crop)
+            x1 = max(0, obj_px - half_crop)
+            x2 = min(highres_size, obj_px + half_crop)
+
+            local_masks = {}
+            # For local, we want: target_object, target_goal, goal_region, static, movable
+            local_mask_names = ['target_object', 'target_goal', 'goal_region', 'static', 'movable']
+            for name in local_mask_names:
+                hr_mask = highres[name]
+                cropped = hr_mask[y1:y2, x1:x2]
+                if cropped.shape[0] == 0 or cropped.shape[1] == 0:
+                    local_masks[f'local_{name}'] = np.zeros((local_output_size, local_output_size), dtype=np.float32)
+                else:
+                    resized = cv2.resize(cropped, (local_output_size, local_output_size),
+                                        interpolation=cv2.INTER_AREA)
+                    local_masks[f'local_{name}'] = resized.astype(np.float32)
+
+            # Local metadata
+            half_size = local_crop_size_meters / 2.0
+            local_bounds = (obj_x - half_size, obj_x + half_size, obj_y - half_size, obj_y + half_size)
+            local_metadata = {
+                'object_center': (obj_x, obj_y),
+                'object_theta': obj_theta,
+                'local_bounds': local_bounds,
+                'crop_size_meters': local_crop_size_meters,
+                'resolution': local_crop_size_meters / local_output_size
+            }
+
+        return {
+            'global': global_masks,
+            'local': local_masks,
+            'local_metadata': local_metadata
+        }
+
+    def save_masks(self, masks: Dict[str, np.ndarray], output_dir: str,
                   episode_id: str) -> None:
         """Save masks as PNG files and create a composite visualization.
-        
+
         Args:
             masks: Dictionary of masks from generate_episode_masks
             output_dir: Directory to save masks
             episode_id: Episode identifier for filenames
         """
         os.makedirs(output_dir, exist_ok=True)
-        
+
         # Save individual masks
         for mask_name, mask in masks.items():
             # Handle special values for distance fields

@@ -45,7 +45,8 @@ class AttemptResult:
     validation_method: str = "connectivity"
     connectivity_before: Optional[Dict] = None
     connectivity_after: Optional[Dict] = None
-    region_goal_used: Optional[Tuple[float, float, float]] = None
+    region_goal_used: Optional[Tuple[float, float, float]] = None  # First reachable goal (for validation)
+    region_goals_sampled: Optional[List[Tuple[float, float, float]]] = None  # All goal samples for the neighbor region
     error_message: Optional[str] = None
     actions_executed: List[namo_rl.Action] = field(default_factory=list)
     state_observations: Optional[List[Dict[str, List[float]]]] = None  # State before each action
@@ -120,6 +121,13 @@ class RegionOpeningPlanner(BasePlanner):
         if isinstance(beam_width, int) and beam_width <= 0:
             beam_width = None
         self.frontier_beam_width = beam_width
+
+        # Timeout per neighbour in seconds (default: None = no timeout)
+        # e.g., region_timeout_per_neighbour_sec=1200 for 20 minutes
+        timeout_sec = algo_params.get("region_timeout_per_neighbour_sec", None)
+        if timeout_sec is not None and timeout_sec <= 0:
+            timeout_sec = None
+        self.timeout_per_neighbour_sec = timeout_sec
 
         super().__init__(env, config)
 
@@ -316,7 +324,7 @@ class RegionOpeningPlanner(BasePlanner):
             config_path,
             include_snapshot=False,
             local_info_only=True,
-            goals_per_region=5,
+            goals_per_region=self.config.goals_per_region,
             generate_training_data=True,
             use_current_state=True,
         )
@@ -406,7 +414,7 @@ class RegionOpeningPlanner(BasePlanner):
         self.env.set_full_state(exploration_state)
 
         # Pre-check: Is this neighbor already accessible?
-        is_already_accessible, reachable_count_before, precheck_region_goal = self._validate_opening(
+        is_already_accessible, reachable_count_before, precheck_region_goal, all_region_goals = self._validate_opening(
             neighbour_label,
             region_goals
         )
@@ -429,6 +437,7 @@ class RegionOpeningPlanner(BasePlanner):
                 connectivity_before=conn_before,
                 connectivity_after=conn_before,
                 region_goal_used=precheck_region_goal,
+                region_goals_sampled=all_region_goals,
                 actions_executed=[],
                 state_observations=[],
                 post_action_state_observations=[],
@@ -483,9 +492,20 @@ class RegionOpeningPlanner(BasePlanner):
         total_solutions_collected = 0
 
         # Try each candidate object with BFS search (already filtered for reachability)
+        timed_out = False
         for obj_idx, object_id in enumerate(candidates, 1):
             if solutions_remaining <= 0:
                 break
+
+            # Check timeout before trying next object
+            if self.timeout_per_neighbour_sec is not None:
+                elapsed_sec = time.time() - attempt_start
+                if elapsed_sec >= self.timeout_per_neighbour_sec:
+                    if self.config.verbose:
+                        print(f"    ⏱ TIMEOUT after {elapsed_sec:.1f}s (limit: {self.timeout_per_neighbour_sec}s) - stopping search for '{neighbour_label}'")
+                    timed_out = True
+                    break
+
             # CRITICAL: Reset to exploration_state before trying each object
             # This ensures each object is tried from the same starting configuration
             self.env.set_full_state(exploration_state)
@@ -513,7 +533,7 @@ class RegionOpeningPlanner(BasePlanner):
                 # Limit to max_solutions per object
                 # Respect global per-neighbour cap
                 per_object_limit = min(max_solutions, solutions_remaining)
-                for goal_idx, (goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used, reachable_before, reachable_after, total_cost, skill_calls_before_success, success_timestamp) in enumerate(successful_goals[:per_object_limit]):
+                for goal_idx, (goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used, region_goals_sampled, reachable_before, reachable_after, total_cost, skill_calls_before_success, success_timestamp) in enumerate(successful_goals[:per_object_limit]):
 
                     per_goal_timing_ms = max(0.0, (success_timestamp - object_attempt_start) * 1000.0)
 
@@ -531,6 +551,7 @@ class RegionOpeningPlanner(BasePlanner):
                             connectivity_before=conn_before,
                             connectivity_after=None,
                             region_goal_used=region_goal_used,
+                            region_goals_sampled=region_goals_sampled,
                             actions_executed=[],
                             state_observations=state_obs,
                             post_action_state_observations=post_state_obs,
@@ -565,6 +586,7 @@ class RegionOpeningPlanner(BasePlanner):
                             connectivity_before=conn_before,
                             connectivity_after=None,
                             region_goal_used=region_goal_used,
+                            region_goals_sampled=region_goals_sampled,
                             actions_executed=[],
                             state_observations=state_obs,
                             post_action_state_observations=post_state_obs,
@@ -599,12 +621,16 @@ class RegionOpeningPlanner(BasePlanner):
             return all_goal_attempts
         else:
             # No successful opening found from any object
+            if timed_out:
+                error_msg = f"Timeout after {self.timeout_per_neighbour_sec}s"
+            else:
+                error_msg = f"Tried {len(candidates)} objects, none succeeded"
             if self.config.verbose:
-                print(f"      ✗ No solutions found from {len(candidates)} objects")
+                print(f"      ✗ {error_msg}")
             return [AttemptResult(
                 success=False,
                 neighbour_region_label=neighbour_label,
-                error_message=f"Tried {len(candidates)} objects, none succeeded",
+                error_message=error_msg,
                 connectivity_before=conn_before,
                 timing_ms=(time.time() - attempt_start) * 1000,
                 solutions_total_for_neighbour=total_solutions_collected,
@@ -665,7 +691,7 @@ class RegionOpeningPlanner(BasePlanner):
         region_goals: Dict[str, Any],
         max_solutions_to_collect: Optional[int] = None,
         push_counter: Optional[Dict[str, int]] = None,
-    ) -> Tuple[List[Tuple[List[Goal], List, List, 'namo_rl.RLState', Optional[Tuple], List, List, int, Optional[int], float]], int]:
+    ) -> Tuple[List[Tuple[List[Goal], List, List, 'namo_rl.RLState', Optional[Tuple], Optional[List[Tuple]], List, List, int, Optional[int], float]], int]:
         """Outer BFS over chain depth: Try single pushes, then 2-push chains, then 3-push chains.
 
         Collects ALL successful chains across all depths instead of stopping early.
@@ -673,8 +699,8 @@ class RegionOpeningPlanner(BasePlanner):
         Returns:
             Tuple of (all_chains, min_depth) where all_chains is a list of tuples:
             (goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used,
-             reachable_before, reachable_after, total_cost, skill_calls_before_success,
-             success_time). Returns ([], 0) if no solution found.
+             region_goals_sampled, reachable_before, reachable_after, total_cost,
+             skill_calls_before_success, success_time). Returns ([], 0) if no solution found.
         """
         print = self._debug
         # Initial frontier for chain depth 1
@@ -781,7 +807,7 @@ class RegionOpeningPlanner(BasePlanner):
 
                 # If we found success, reconstruct ALL goal chains with their state observations
                 if successful_results:
-                    for (final_goal, final_state_obs, final_post_state_obs, resulting_state, region_goal_used, success_node, success_time) in successful_results:
+                    for (final_goal, final_state_obs, final_post_state_obs, resulting_state, region_goal_used, all_region_goals, success_node, success_time) in successful_results:
                         # For multi-push chains, reconstruct full chain with observations
                         if chain_depth > 1:
                             goal_chain, state_obs, post_state_obs, reachable_before, reachable_after, total_cost = self._reconstruct_chain_with_observations(
@@ -813,13 +839,13 @@ class RegionOpeningPlanner(BasePlanner):
                         if self.config.verbose:
                             print(f"      ✓ Found solution at {chain_depth}-chain (total_cost={total_cost})")
 
-                        # Entry layout: (goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used, reachable_before, reachable_after, total_cost, skill_calls, success_time)
+                        # Entry layout: (goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used, region_goals_sampled, reachable_before, reachable_after, total_cost, skill_calls, success_time)
                         # Maintain only min-cost solutions so far; reset when a new lower cost is found
                         if best_total_cost is None or total_cost <= best_total_cost:
                             # If strictly better cost, reset collection to only keep new best-cost solutions
                             if best_total_cost is None or total_cost < best_total_cost:
                                 best_total_cost = total_cost
-                                all_chains_across_depths = [entry for entry in all_chains_across_depths if entry[7] == best_total_cost]
+                                all_chains_across_depths = [entry for entry in all_chains_across_depths if entry[8] == best_total_cost]
 
                             all_chains_across_depths.append(
                                 (
@@ -828,6 +854,7 @@ class RegionOpeningPlanner(BasePlanner):
                                     post_state_obs,
                                     resulting_state,
                                     region_goal_used,
+                                    all_region_goals,
                                     reachable_before,
                                     reachable_after,
                                     total_cost,
@@ -884,8 +911,8 @@ class RegionOpeningPlanner(BasePlanner):
 
         # If we found any chains, filter to keep only minimum-cost ones
         if all_chains_across_depths:
-            best_cost = min(entry[7] for entry in all_chains_across_depths)
-            min_cost_chains = [entry for entry in all_chains_across_depths if entry[7] == best_cost]
+            best_cost = min(entry[8] for entry in all_chains_across_depths)
+            min_cost_chains = [entry for entry in all_chains_across_depths if entry[8] == best_cost]
             if self.config.verbose:
                 print(f"    ✔ Returning {len(min_cost_chains)} min-cost solution(s) with cost={best_cost}")
             return min_cost_chains, min_chain_depth_found if min_chain_depth_found else 0
@@ -1048,7 +1075,7 @@ class RegionOpeningPlanner(BasePlanner):
             self.env.set_full_state(baseline_state)
 
             # Check reachability BEFORE push
-            is_accessible_before, reachable_count_before, _ = self._validate_opening(neighbour_label, region_goals)
+            is_accessible_before, reachable_count_before, _, _ = self._validate_opening(neighbour_label, region_goals)
             if self.config.verbose:
                 print(f"        🔍 BEFORE push edge {edge_idx} depth {depth+1}: is_accessible={is_accessible_before}, reachable={reachable_count_before}")
 
@@ -1095,7 +1122,7 @@ class RegionOpeningPlanner(BasePlanner):
             post_state_obs = self.env.get_observation()
 
             # Check reachability AFTER push (ALWAYS - this is the goal check for post-action state)
-            is_accessible_after, reachable_count_after, region_goal_used = self._validate_opening(neighbour_label, region_goals)
+            is_accessible_after, reachable_count_after, region_goal_used, all_region_goals = self._validate_opening(neighbour_label, region_goals)
                 
             if self.config.verbose:
                 print(f"        🔍 AFTER push edge {edge_idx} depth {depth+1}: is_accessible={is_accessible_after}, reachable={reachable_count_after}")
@@ -1151,6 +1178,7 @@ class RegionOpeningPlanner(BasePlanner):
                         [post_state_obs],
                         resulting_state,
                         region_goal_used,
+                        all_region_goals,
                         success_node,
                         success_timestamp,
                     )
@@ -1185,7 +1213,7 @@ class RegionOpeningPlanner(BasePlanner):
         self,
         neighbour_label: str,
         region_goals: Dict[str, Any]
-    ) -> Tuple[bool, int, Optional[Tuple[float, float, float]]]:
+    ) -> Tuple[bool, int, Optional[Tuple[float, float, float]], Optional[List[Tuple[float, float, float]]]]:
         """Validate that opening to neighbour was created using reachability.
 
         Success criterion: At least half of the region goals must be reachable.
@@ -1195,38 +1223,41 @@ class RegionOpeningPlanner(BasePlanner):
             region_goals: Region goal samples from snapshot
 
         Returns:
-            Tuple of (success, reachable_count, region_goal_used):
+            Tuple of (success, reachable_count, first_reachable_goal, all_region_goals):
                 - success: True if at least half of region goals are reachable
                 - reachable_count: Number of reachable goals
-                - region_goal_used: The first reachable goal found
+                - first_reachable_goal: First reachable goal found (for validation)
+                - all_region_goals: All goal samples for this region (for visualization)
         """
         # Get region goals for this neighbour
         if neighbour_label not in region_goals:
-            return False, 0, None
+            return False, 0, None, None
 
         bundle = region_goals[neighbour_label]
         if not bundle.goals:
-            return False, 0, None
+            return False, 0, None, None
 
         total_goals = len(bundle.goals)
         reachable_count = 0
         first_reachable_goal = None
+
+        # Collect all goal samples for visualization
+        all_goals = [(g.x, g.y, g.theta) for g in bundle.goals]
 
         # Check ALL goals and count how many are reachable
         for goal_sample in bundle.goals:
             self.env.set_robot_goal(goal_sample.x, goal_sample.y, goal_sample.theta)
             if self.env.is_robot_goal_reachable():
                 reachable_count += 1
-                # Store the first reachable goal
                 if first_reachable_goal is None:
                     first_reachable_goal = (goal_sample.x, goal_sample.y, goal_sample.theta)
 
         # Success if at least half of the goals are reachable
         required_count = (total_goals + 1) // 2  # Ceiling division
         if reachable_count >= required_count:
-            return True, reachable_count, first_reachable_goal
+            return True, reachable_count, first_reachable_goal, all_goals
         else:
-            return False, reachable_count, None
+            return False, reachable_count, None, all_goals
 
 
 # Register the planner with the factory

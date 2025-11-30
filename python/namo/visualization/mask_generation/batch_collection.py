@@ -212,23 +212,47 @@ def assign_difficulty_annotation(episode: Dict[str, Any]) -> None:
     episode['difficulty_label'] = label
 
 
-def process_episode(episode: Dict[str, Any], visualizer: NAMODataVisualizer) -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
+def process_episode(episode: Dict[str, Any], visualizer: NAMODataVisualizer,
+                    generate_local: bool = True,
+                    local_crop_size: float = 5.0,
+                    use_highres: bool = True) -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
     """Process a single episode to generate masks and metadata.
 
     Args:
         episode: Episode data dictionary
         visualizer: NAMODataVisualizer instance
+        generate_local: Whether to generate local object-centered masks (default: True)
+        local_crop_size: Size of local crop region in meters (default: 5.0)
+        use_highres: Use unified highres rendering for both global and local (default: True)
 
     Returns:
         Tuple of (masks_dict, metadata_dict)
     """
-    # Generate masks with multi-horizon goal predictions
-    # If episode has 'all_future_states', use multihorizon generation
-    # Otherwise fall back to standard batch generation
-    if 'all_future_states' in episode and episode['all_future_states']:
-        masks = visualizer.generate_episode_masks_multihorizon(episode)
+    local_metadata = None
+
+    if use_highres:
+        # Use unified high-res rendering (renders once, creates both global and local)
+        result = visualizer.generate_all_masks_highres(
+            episode, local_crop_size_meters=local_crop_size
+        )
+        masks = result['global']
+        if generate_local and result['local'] is not None:
+            masks.update(result['local'])
+            local_metadata = result['local_metadata']
     else:
-        masks = visualizer.generate_episode_masks_batch(episode)
+        # Legacy path: separate generation
+        if 'all_future_states' in episode and episode['all_future_states']:
+            masks = visualizer.generate_episode_masks_multihorizon(episode)
+        else:
+            masks = visualizer.generate_episode_masks_batch(episode)
+
+        if generate_local:
+            local_masks = visualizer.generate_local_episode_masks(
+                episode, crop_size_meters=local_crop_size
+            )
+            if local_masks is not None:
+                local_metadata = local_masks.pop('local_metadata', None)
+                masks.update(local_masks)
 
     # Extract metadata
     metadata = {
@@ -246,6 +270,10 @@ def process_episode(episode: Dict[str, Any], visualizer: NAMODataVisualizer) -> 
     if 'difficulty_label' in episode:
         metadata['difficulty_label'] = episode.get('difficulty_label', 'unknown')
         metadata['difficulty_score'] = episode.get('difficulty_score')
+
+    # Add local mask metadata if available
+    if local_metadata is not None:
+        metadata['local_metadata'] = local_metadata
 
     return masks, metadata
 
@@ -302,7 +330,19 @@ def save_episode_data(masks: Dict[str, np.ndarray], metadata: Dict[str, Any],
     else:
         save_dict['action_object_ids'] = np.array([], dtype='U')
         save_dict['action_targets'] = np.array([[]], dtype=np.float32)
-    
+
+    # Save local mask metadata if present
+    local_meta = metadata.get('local_metadata')
+    if local_meta is not None:
+        save_dict['local_object_center'] = np.array(local_meta['object_center'], dtype=np.float32)
+        save_dict['local_object_theta'] = np.array([local_meta['object_theta']], dtype=np.float32)
+        save_dict['local_bounds'] = np.array(local_meta['local_bounds'], dtype=np.float32)
+        save_dict['local_crop_size_meters'] = np.array([local_meta['crop_size_meters']], dtype=np.float32)
+        save_dict['local_resolution'] = np.array([local_meta['resolution']], dtype=np.float32)
+        save_dict['has_local_masks'] = np.array([True], dtype=bool)
+    else:
+        save_dict['has_local_masks'] = np.array([False], dtype=bool)
+
     # Save as compressed npz
     np.savez_compressed(output_path, **save_dict)
 
