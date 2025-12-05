@@ -266,7 +266,7 @@ class NAMODataVisualizer:
                     quat_z=info.get('quat_z', 0.0)
                 )
                 static_objects.append(static_obj)
-            elif 'size_x' in info and 'size_y' in info:  # Movable object with just size
+            elif 'size_x' in info and 'size_y' in info:  # Static object with just size
                 movable_obj = MovableObject(
                     name=obj_name,
                     size_x=info['size_x'],
@@ -377,6 +377,82 @@ class NAMODataVisualizer:
         world_size = max(world_width, world_height)
         return self.IMG_SIZE / world_size
     
+    def compute_box_corners_world(self, center_x: float, center_y: float, 
+                                 half_width: float, half_height: float, 
+                                 angle_rad: float) -> np.ndarray:
+        """Compute the 4 corners of a rotated rectangle in world coordinates.
+        
+        Args:
+            center_x, center_y: Center position
+            half_width, half_height: Half-extents
+            angle_rad: Rotation angle in radians
+            
+        Returns:
+            Array of shape (4, 2) containing (x, y) coordinates of corners
+            Order: bottom-left, bottom-right, top-right, top-left (CCW)
+        """
+        # Corners relative to center (counter-clockwise)
+        corners = np.array([
+            [-half_width, -half_height],
+            [ half_width, -half_height],
+            [ half_width,  half_height],
+            [-half_width,  half_height]
+        ], dtype=float)
+
+        c = np.cos(angle_rad)
+        s = np.sin(angle_rad)
+        R = np.array([[c, -s],
+                      [s,  c]])
+
+        rotated = corners.dot(R.T)  # rotate each corner
+        world_corners = rotated + np.array([center_x, center_y])
+        return world_corners
+
+    def compute_box_corners_pixel(self, center_x: float, center_y: float, 
+                                 half_width: float, half_height: float, 
+                                 angle_rad: float, 
+                                 world_bounds: Tuple[float, float, float, float]) -> np.ndarray:
+        """Compute the 4 corners of a rotated rectangle in pixel coordinates.
+        
+        Args:
+            center_x, center_y: Center position
+            half_width, half_height: Half-extents
+            angle_rad: Rotation angle in radians
+            world_bounds: World coordinate bounds
+            
+        Returns:
+            Array of shape (4, 2) containing (pixel_x, pixel_y) coordinates
+        """
+        world_corners = self.compute_box_corners_world(center_x, center_y, half_width, half_height, angle_rad)
+        pixel_corners = np.array([self._world_to_pixel(x, y, world_bounds) for x, y in world_corners], dtype=int)
+        return pixel_corners
+
+    def compute_pose_deltas(self, goal_pose: Tuple[float, float, float], 
+                           obj_pose: Tuple[float, float, float]) -> Tuple[np.ndarray, np.ndarray]:
+        """Compute pose deltas between goal and object in world and object frames.
+        
+        Args:
+            goal_pose: (x, y, theta) of goal
+            obj_pose: (x, y, theta) of object
+            
+        Returns:
+            Tuple of (delta_world, delta_object_frame)
+            Each is an array [dx, dy, dtheta]
+        """
+        # World frame delta
+        dx = goal_pose[0] - obj_pose[0]
+        dy = goal_pose[1] - obj_pose[1]
+        dtheta = (goal_pose[2] - obj_pose[2] + np.pi) % (2*np.pi) - np.pi
+        delta_world = np.array([dx, dy, dtheta], dtype=np.float32)
+        
+        # Object frame delta: rotate (dx, dy) by -obj_theta
+        c = np.cos(-obj_pose[2])
+        s = np.sin(-obj_pose[2])
+        dx_obj = c * dx - s * dy
+        dy_obj = s * dx + c * dy
+        delta_obj = np.array([dx_obj, dy_obj, dtheta], dtype=np.float32)
+        
+        return delta_world, delta_obj
     
     def _draw_rotated_box_mask(self, mask: np.ndarray, center_x: float, center_y: float,
                               half_width: float, half_height: float, angle_rad: float,

@@ -243,6 +243,153 @@ def process_episode(episode: Dict[str, Any], visualizer: NAMODataVisualizer) -> 
         'xml_file': episode.get('xml_file', '')
     }
 
+    # --- Add Robot State (Pose + Radius) ---
+    state_observations = episode.get('state_observations', [])
+    robot_pose = [0.0, 0.0, 0.0]
+    if state_observations and len(state_observations) > 0:
+        # Use final state (same as used for masks)
+        final_state = state_observations[-1]
+        if 'robot_pose' in final_state:
+            robot_pose = final_state['robot_pose']
+    
+    # Combine pose [x, y, theta] and radius [r] into single array [x, y, theta, r]
+    robot_radius = 0.15  # Constant used in visualizer
+    metadata['robot_state'] = np.array(list(robot_pose) + [robot_radius], dtype=np.float32)
+
+    # --- Add Target Object Pose and Corners ---
+    # Extract environment info to get bounds and object sizes
+    env_info = visualizer._extract_env_info_from_episode(episode)
+    static_object_info = episode.get('static_object_info') or {}
+    action_sequence = episode.get('action_sequence', [])
+    
+    target_object_id = None
+    if action_sequence and len(action_sequence) > 0:
+        target_object_id = action_sequence[0].get('object_id')
+    
+    if target_object_id and state_observations:
+        final_state = state_observations[-1]
+        # Find object pose in final state
+        # Note: object_id might be "obstacle_1_movable" but state key is "obstacle_1_movable_pose"
+        # Or sometimes they match. Visualizer logic handles suffix stripping.
+        
+        # Try to find the object pose
+        obj_pose = None
+        obj_base_name = target_object_id
+        
+        # Check direct match or with _pose suffix
+        for key, pose in final_state.items():
+            if key == target_object_id or key == f"{target_object_id}_pose":
+                obj_pose = pose
+                obj_base_name = key.replace('_pose', '')
+                break
+        
+        if obj_pose is not None:
+            metadata['target_object_pose'] = obj_pose
+            
+            # Get object size
+            obj_info = static_object_info.get(obj_base_name, {})
+            if 'size_x' in obj_info and 'size_y' in obj_info:
+                size_x = obj_info['size_x']
+                size_y = obj_info['size_y']
+                theta = obj_pose[2]
+                
+                # Compute corners
+                corners_world = visualizer.compute_box_corners_world(
+                    obj_pose[0], obj_pose[1], size_x, size_y, theta)
+                corners_px = visualizer.compute_box_corners_pixel(
+                    obj_pose[0], obj_pose[1], size_x, size_y, theta, env_info.world_bounds)
+                
+                metadata['target_object_corners_world'] = corners_world
+                metadata['target_object_corners_px'] = corners_px
+
+    # --- Add Target Goal Poses, Corners, and Deltas (Multi-horizon) ---
+    if action_sequence and target_object_id:
+        # Get object size (needed for goal corners)
+        obj_base_name = target_object_id
+        obj_info = static_object_info.get(obj_base_name, {})
+        
+        if 'size_x' in obj_info and 'size_y' in obj_info:
+            size_x = obj_info['size_x']
+            size_y = obj_info['size_y']
+            
+            current_obj_pose = metadata.get('target_object_pose')
+            current_obj_corners_w = metadata.get('target_object_corners_world')
+            current_obj_corners_px = metadata.get('target_object_corners_px')
+            
+            # Initialize lists for per-action data
+            target_goal_poses = []
+            target_goal_corners_world = []
+            target_goal_corners_px = []
+            target_goal_pose_deltas_world = []
+            target_goal_pose_deltas_obj = []
+            target_goal_corner_deltas_world = []
+            target_goal_corner_deltas_px = []
+            target_goal_corner_deltas_obj = []
+            
+            for action in action_sequence:
+                target_pose = action.get('target')
+                if target_pose and len(target_pose) >= 3:
+                    target_goal_poses.append(target_pose)
+                    
+                    # Compute corners for goal pose
+                    g_corners_w = visualizer.compute_box_corners_world(
+                        target_pose[0], target_pose[1], size_x, size_y, target_pose[2])
+                    g_corners_px = visualizer.compute_box_corners_pixel(
+                        target_pose[0], target_pose[1], size_x, size_y, target_pose[2], env_info.world_bounds)
+                    
+                    target_goal_corners_world.append(g_corners_w)
+                    target_goal_corners_px.append(g_corners_px)
+                    
+                    # Compute deltas if we have current object pose
+                    if current_obj_pose is not None:
+                        # Pose Deltas
+                        d_pose_world, d_pose_obj = visualizer.compute_pose_deltas(target_pose, current_obj_pose)
+                        target_goal_pose_deltas_world.append(d_pose_world)
+                        target_goal_pose_deltas_obj.append(d_pose_obj)
+                        
+                        # Corner Deltas
+                        if current_obj_corners_w is not None:
+                            # World frame corner delta
+                            d_corners_world = g_corners_w - current_obj_corners_w
+                            target_goal_corner_deltas_world.append(d_corners_world.astype(np.float32))
+                            
+                            # Object frame corner delta: Rotate world delta by -obj_theta
+                            # R(-theta) = [[cos(-theta), -sin(-theta)], [sin(-theta), cos(-theta)]]
+                            theta = current_obj_pose[2]
+                            c, s = np.cos(-theta), np.sin(-theta)
+                            R_inv = np.array([[c, -s], [s, c]])
+                            d_corners_obj = d_corners_world @ R_inv.T
+                            target_goal_corner_deltas_obj.append(d_corners_obj.astype(np.float32))
+                        else:
+                            target_goal_corner_deltas_world.append(np.zeros((4,2), dtype=np.float32))
+                            target_goal_corner_deltas_obj.append(np.zeros((4,2), dtype=np.float32))
+                            
+                        if current_obj_corners_px is not None:
+                            # Pixel frame corner delta
+                            d_corners_px = g_corners_px - current_obj_corners_px
+                            target_goal_corner_deltas_px.append(d_corners_px.astype(np.int32))
+                        else:
+                            target_goal_corner_deltas_px.append(np.zeros((4,2), dtype=np.int32))
+                            
+                    else:
+                        # Fallback if object pose missing
+                        target_goal_pose_deltas_world.append(np.zeros(3, dtype=np.float32))
+                        target_goal_pose_deltas_obj.append(np.zeros(3, dtype=np.float32))
+                        target_goal_corner_deltas_world.append(np.zeros((4,2), dtype=np.float32))
+                        target_goal_corner_deltas_px.append(np.zeros((4,2), dtype=np.int32))
+                        target_goal_corner_deltas_obj.append(np.zeros((4,2), dtype=np.float32))
+            
+            # Store in metadata
+            if target_goal_poses:
+                metadata['target_goal_poses'] = np.array(target_goal_poses, dtype=np.float32)
+                metadata['target_goal_corners_world'] = np.array(target_goal_corners_world, dtype=np.float32)
+                metadata['target_goal_corners_px'] = np.array(target_goal_corners_px, dtype=np.int32)
+                metadata['target_goal_pose_deltas_world'] = np.array(target_goal_pose_deltas_world, dtype=np.float32)
+                metadata['target_goal_pose_deltas_obj'] = np.array(target_goal_pose_deltas_obj, dtype=np.float32)
+                metadata['target_goal_corner_deltas_world'] = np.array(target_goal_corner_deltas_world, dtype=np.float32)
+                metadata['target_goal_corner_deltas_px'] = np.array(target_goal_corner_deltas_px, dtype=np.int32)
+                metadata['target_goal_corner_deltas_obj'] = np.array(target_goal_corner_deltas_obj, dtype=np.float32)
+
     if 'difficulty_label' in episode:
         metadata['difficulty_label'] = episode.get('difficulty_label', 'unknown')
         metadata['difficulty_score'] = episode.get('difficulty_score')
@@ -303,6 +450,46 @@ def save_episode_data(masks: Dict[str, np.ndarray], metadata: Dict[str, Any],
         save_dict['action_object_ids'] = np.array([], dtype='U')
         save_dict['action_targets'] = np.array([[]], dtype=np.float32)
     
+    # --- Save New Metadata Fields ---
+    # Robot State (Pose + Radius)
+    if 'robot_state' in metadata:
+        save_dict['robot_state'] = np.array(metadata['robot_state'], dtype=np.float32)
+    
+    # Target Object Pose and Corners
+    if 'target_object_pose' in metadata:
+        save_dict['target_object_pose'] = np.array(metadata['target_object_pose'], dtype=np.float32)
+    
+    if 'target_object_corners_world' in metadata:
+        save_dict['target_object_corners_world'] = np.array(metadata['target_object_corners_world'], dtype=np.float32)
+        
+    if 'target_object_corners_px' in metadata:
+        save_dict['target_object_corners_px'] = np.array(metadata['target_object_corners_px'], dtype=np.int32)
+        
+    # Target Goal Poses, Corners, and Deltas (Multi-horizon)
+    if 'target_goal_poses' in metadata:
+        save_dict['target_goal_poses'] = np.array(metadata['target_goal_poses'], dtype=np.float32)
+        
+    if 'target_goal_corners_world' in metadata:
+        save_dict['target_goal_corners_world'] = np.array(metadata['target_goal_corners_world'], dtype=np.float32)
+        
+    if 'target_goal_corners_px' in metadata:
+        save_dict['target_goal_corners_px'] = np.array(metadata['target_goal_corners_px'], dtype=np.int32)
+        
+    if 'target_goal_pose_deltas_world' in metadata:
+        save_dict['target_goal_pose_deltas_world'] = np.array(metadata['target_goal_pose_deltas_world'], dtype=np.float32)
+        
+    if 'target_goal_pose_deltas_obj' in metadata:
+        save_dict['target_goal_pose_deltas_obj'] = np.array(metadata['target_goal_pose_deltas_obj'], dtype=np.float32)
+
+    if 'target_goal_corner_deltas_world' in metadata:
+        save_dict['target_goal_corner_deltas_world'] = np.array(metadata['target_goal_corner_deltas_world'], dtype=np.float32)
+
+    if 'target_goal_corner_deltas_px' in metadata:
+        save_dict['target_goal_corner_deltas_px'] = np.array(metadata['target_goal_corner_deltas_px'], dtype=np.int32)
+
+    if 'target_goal_corner_deltas_obj' in metadata:
+        save_dict['target_goal_corner_deltas_obj'] = np.array(metadata['target_goal_corner_deltas_obj'], dtype=np.float32)
+
     # Save as compressed npz
     np.savez_compressed(output_path, **save_dict)
 

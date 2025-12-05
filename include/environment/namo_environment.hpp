@@ -76,8 +76,8 @@ public:
     std::vector<double> get_random_state() const;
     
     // Object accessors
-    const std::array<ObjectInfo, 100>& get_static_objects() const { return static_objects_; }
-    const std::array<ObjectInfo, 30>& get_movable_objects() const { return movable_objects_; }
+    const std::array<ObjectInfo, 500>& get_static_objects() const { return static_objects_; }
+    const std::array<ObjectInfo, 100>& get_movable_objects() const { return movable_objects_; }
     size_t get_num_static() const { return num_static_; }
     size_t get_num_movable() const { return num_movable_; }
     
@@ -143,8 +143,8 @@ private:
     std::unique_ptr<OptimizedMujocoWrapper> sim_;
     
     // Fixed-size object storage
-    static constexpr size_t MAX_STATIC_OBJECTS = 100;
-    static constexpr size_t MAX_MOVABLE_OBJECTS = 30;
+    static constexpr size_t MAX_STATIC_OBJECTS = 500;
+    static constexpr size_t MAX_MOVABLE_OBJECTS = 100;
     
     std::array<ObjectInfo, MAX_STATIC_OBJECTS> static_objects_;
     std::array<ObjectInfo, MAX_MOVABLE_OBJECTS> movable_objects_;
