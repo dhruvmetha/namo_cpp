@@ -6,21 +6,131 @@ This script processes directories of NAMO planning data (.pkl files) and generat
 compressed mask datasets for machine learning. It filters for non-trivial successful
 episodes and creates 224x224 masks for each valid episode.
 
-Usage:
-    python -m mask_generation.batch_collection --input-dir /path/to/pkl/files --output-dir /path/to/output --workers 8
-    # or
-    python batch_collection.py --input-dir /path/to/pkl/files --output-dir /path/to/output --workers 8
-    
-    # For debugging (single-threaded)
-    python -m mask_generation.batch_collection --input-dir /path/to/pkl/files --output-dir /path/to/output --serial
+================================================================================
+USAGE EXAMPLES
+================================================================================
 
-Generated Masks (9 total, 224x224 each):
-- Binary masks: robot, goal, movable, static, reachable, target_object, target_goal
-- Distance fields: robot_distance, goal_distance (with cost model: 1 for free, 4 for movable)
+FASTEST: NPZ then convert to HDF5 (recommended for large datasets):
+    # Step 1: Generate NPZ files (fast parallel disk writes)
+    python -m namo.visualization.mask_generation.batch_collection \\
+        --input-dir /path/to/pkl/files \\
+        --output-dir /path/to/npz \\
+        --local-only \\
+        --workers 48
 
-Output Format:
-- Compressed .npz files: output_dir/task_id/episode_id.npz
-- Each .npz contains all 9 masks plus metadata
+    # Step 2: Convert to HDF5 (in sage_learning repo)
+    python scripts/convert_to_hdf5.py /path/to/npz /path/to/data.h5
+
+Direct HDF5 Output (slower due to IPC overhead):
+    # Local masks only (for training with use_local: true)
+    python -m namo.visualization.mask_generation.batch_collection \\
+        --input-dir /path/to/pkl/files \\
+        --output-dir /unused \\
+        --hdf5 /path/to/output.h5 \\
+        --local-only \\
+        --workers 16
+
+    # Global masks only
+    python -m namo.visualization.mask_generation.batch_collection \\
+        --input-dir /path/to/pkl/files \\
+        --output-dir /unused \\
+        --hdf5 /path/to/output.h5 \\
+        --global-only \\
+        --workers 16
+
+    # Both global and local masks (largest output)
+    python -m namo.visualization.mask_generation.batch_collection \\
+        --input-dir /path/to/pkl/files \\
+        --output-dir /unused \\
+        --hdf5 /path/to/output.h5 \\
+        --workers 16
+
+NPZ Output (legacy, slower for training):
+    python -m namo.visualization.mask_generation.batch_collection \\
+        --input-dir /path/to/pkl/files \\
+        --output-dir /path/to/output \\
+        --workers 8
+
+Serial mode (for debugging):
+    python -m namo.visualization.mask_generation.batch_collection \\
+        --input-dir /path/to/pkl/files \\
+        --output-dir /unused \\
+        --hdf5 /path/to/output.h5 \\
+        --serial
+
+================================================================================
+COMMAND LINE OPTIONS
+================================================================================
+
+Required:
+    --input-dir         Directory containing .pkl files from data collection
+    --output-dir        Output directory for .npz files (ignored if --hdf5 is set)
+
+Output format:
+    --hdf5 PATH         Output to single HDF5 file (RECOMMENDED for 100k+ samples)
+                        Much faster training startup vs many .npz files
+
+Mask selection:
+    --local-only        Generate only local (object-centered) masks
+    --global-only       Generate only global masks
+    (default)           Generate both global and local masks
+
+Performance:
+    --workers N         Number of parallel workers (default: auto-detect CPU count)
+    --serial            Use single-threaded processing (for debugging)
+
+Filtering:
+    --filter-minimum-length   Only keep episodes with shortest action sequence per env
+    --split-difficulty        Split outputs by difficulty (easy/medium/hard folders)
+
+Other:
+    --pattern GLOB      File pattern to match (default: *_results.pkl)
+    --visualize         Enable visualization (slower)
+
+================================================================================
+GENERATED MASKS (224x224 each)
+================================================================================
+
+Global masks (--global-only or default):
+    robot           Robot position mask
+    goal            Robot goal position mask
+    static          Static obstacles mask
+    movable         Movable objects mask
+    reachable       Reachable area mask
+    target_object   The object being pushed
+    target_goal     Where the object should go
+    goal_region     Goal region mask
+
+Local masks (--local-only or default):
+    local_static             Static obstacles (object-centered crop)
+    local_movable            Movable objects (object-centered crop)
+    local_target_object      Target object (object-centered crop)
+    local_target_goal        Target goal position (object-centered crop)
+    local_robot_region       Robot reachability (BFS from robot position on inflated obstacles)
+    local_goal_sample_region Goal sample reachability (BFS from first goal sample on inflated obstacles)
+
+================================================================================
+OUTPUT FORMAT
+================================================================================
+
+NPZ mode: output_dir/task_id/episode_id.npz
+    - One file per training sample
+    - Slow to load during training (100k file opens)
+
+HDF5 mode: single .h5 file
+    - All samples in one file
+    - Fast training startup (single file handle)
+    - Auto-detected by sage_learning data loader
+    - Place as: data_dir.h5 next to data_dir/ folder
+
+================================================================================
+PROCESSING PIPELINE (HDF5 mode)
+================================================================================
+
+Step 1/2: Collecting valid episodes        (serial, fast - loads .pkl files)
+Step 2/2: Generating masks & writing HDF5  (parallel generation, streaming writes)
+          - Workers generate masks in parallel
+          - Results streamed to HDF5 as they complete (low memory usage)
 """
 
 import argparse
@@ -29,13 +139,147 @@ import sys
 import pickle
 import glob
 from pathlib import Path
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any, Tuple, Optional
 import numpy as np
 from tqdm import tqdm
 import multiprocessing as mp
 from functools import partial
 
+try:
+    import h5py
+    HAS_H5PY = True
+except ImportError:
+    HAS_H5PY = False
+
 from .visualizer import NAMODataVisualizer
+
+
+class HDF5Writer:
+    """Incremental HDF5 writer for streaming mask data."""
+
+    def __init__(self, output_path: str, chunk_size: int = 1000, resize_increment: int = 10000):
+        if not HAS_H5PY:
+            raise ImportError("h5py required for HDF5 output. Install with: pip install h5py")
+        self.output_path = output_path
+        self.chunk_size = chunk_size
+        self.resize_increment = resize_increment  # Pre-allocate this many slots at a time
+        self.h5_file: Optional[h5py.File] = None
+        self.datasets: Dict[str, h5py.Dataset] = {}
+        self.current_idx = 0
+        self.current_capacity = 0  # Track allocated capacity
+        self.initialized = False
+
+    def _init_datasets(self, masks: Dict[str, np.ndarray], metadata: Dict[str, Any]):
+        """Initialize HDF5 datasets based on first sample."""
+        os.makedirs(os.path.dirname(self.output_path) or '.', exist_ok=True)
+        self.h5_file = h5py.File(self.output_path, 'w')
+
+        # Create resizable datasets for each mask
+        for key, arr in masks.items():
+            shape = (0,) + arr.shape
+            maxshape = (None,) + arr.shape
+            chunks = (self.chunk_size,) + arr.shape
+            self.datasets[key] = self.h5_file.create_dataset(
+                key, shape=shape, maxshape=maxshape, dtype=arr.dtype,
+                chunks=chunks, compression='gzip', compression_opts=4
+            )
+
+        # Create string datasets for metadata (variable length)
+        dt_str = h5py.special_dtype(vlen=str)
+        for str_key in ['episode_id', 'task_id', 'algorithm', 'xml_file', 'difficulty_label']:
+            self.datasets[str_key] = self.h5_file.create_dataset(
+                str_key, shape=(0,), maxshape=(None,), dtype=dt_str
+            )
+
+        # Create numeric metadata datasets
+        self.datasets['solution_depth'] = self.h5_file.create_dataset(
+            'solution_depth', shape=(0,), maxshape=(None,), dtype=np.int32
+        )
+        self.datasets['search_time_ms'] = self.h5_file.create_dataset(
+            'search_time_ms', shape=(0,), maxshape=(None,), dtype=np.float32
+        )
+        self.datasets['nodes_expanded'] = self.h5_file.create_dataset(
+            'nodes_expanded', shape=(0,), maxshape=(None,), dtype=np.int32
+        )
+        self.datasets['robot_goal'] = self.h5_file.create_dataset(
+            'robot_goal', shape=(0, 3), maxshape=(None, 3), dtype=np.float32
+        )
+        self.datasets['difficulty_score'] = self.h5_file.create_dataset(
+            'difficulty_score', shape=(0,), maxshape=(None,), dtype=np.float32
+        )
+
+        self.initialized = True
+
+    def add_sample(self, masks: Dict[str, np.ndarray], metadata: Dict[str, Any]):
+        """Add a single sample to the HDF5 file."""
+        if not self.initialized:
+            self._init_datasets(masks, metadata)
+
+        # Resize and add mask data
+        for key, arr in masks.items():
+            if key in self.datasets:
+                ds = self.datasets[key]
+                ds.resize(self.current_idx + 1, axis=0)
+                ds[self.current_idx] = arr
+
+        # Add string metadata
+        for str_key in ['episode_id', 'task_id', 'algorithm', 'xml_file']:
+            if str_key in self.datasets:
+                ds = self.datasets[str_key]
+                ds.resize(self.current_idx + 1, axis=0)
+                ds[self.current_idx] = metadata.get(str_key, '')
+
+        # Add difficulty label
+        if 'difficulty_label' in self.datasets:
+            ds = self.datasets['difficulty_label']
+            ds.resize(self.current_idx + 1, axis=0)
+            ds[self.current_idx] = metadata.get('difficulty_label', 'unknown')
+
+        # Add numeric metadata
+        if 'solution_depth' in self.datasets:
+            ds = self.datasets['solution_depth']
+            ds.resize(self.current_idx + 1, axis=0)
+            val = metadata.get('solution_depth')
+            ds[self.current_idx] = val if val is not None else -1
+
+        if 'search_time_ms' in self.datasets:
+            ds = self.datasets['search_time_ms']
+            ds.resize(self.current_idx + 1, axis=0)
+            val = metadata.get('search_time_ms')
+            ds[self.current_idx] = val if val is not None else -1.0
+
+        if 'nodes_expanded' in self.datasets:
+            ds = self.datasets['nodes_expanded']
+            ds.resize(self.current_idx + 1, axis=0)
+            val = metadata.get('nodes_expanded')
+            ds[self.current_idx] = val if val is not None else -1
+
+        if 'robot_goal' in self.datasets:
+            ds = self.datasets['robot_goal']
+            ds.resize(self.current_idx + 1, axis=0)
+            ds[self.current_idx] = metadata.get('robot_goal', [0, 0, 0])
+
+        if 'difficulty_score' in self.datasets:
+            ds = self.datasets['difficulty_score']
+            ds.resize(self.current_idx + 1, axis=0)
+            val = metadata.get('difficulty_score')
+            ds[self.current_idx] = val if val is not None else -1.0
+
+        self.current_idx += 1
+
+    def close(self):
+        """Close the HDF5 file and store final sample count."""
+        if self.h5_file is not None:
+            self.h5_file.attrs['n_samples'] = self.current_idx
+            self.h5_file.close()
+            self.h5_file = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
 
 
 def is_valid_episode(episode: Dict[str, Any]) -> bool:
@@ -214,6 +458,7 @@ def assign_difficulty_annotation(episode: Dict[str, Any]) -> None:
 
 def process_episode(episode: Dict[str, Any], visualizer: NAMODataVisualizer,
                     generate_local: bool = True,
+                    local_only: bool = False,
                     local_crop_size: float = 5.0,
                     use_highres: bool = True) -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
     """Process a single episode to generate masks and metadata.
@@ -222,6 +467,7 @@ def process_episode(episode: Dict[str, Any], visualizer: NAMODataVisualizer,
         episode: Episode data dictionary
         visualizer: NAMODataVisualizer instance
         generate_local: Whether to generate local object-centered masks (default: True)
+        local_only: If True, only generate local masks (skip global) (default: False)
         local_crop_size: Size of local crop region in meters (default: 5.0)
         use_highres: Use unified highres rendering for both global and local (default: True)
 
@@ -235,24 +481,43 @@ def process_episode(episode: Dict[str, Any], visualizer: NAMODataVisualizer,
         result = visualizer.generate_all_masks_highres(
             episode, local_crop_size_meters=local_crop_size
         )
-        masks = result['global']
-        if generate_local and result['local'] is not None:
-            masks.update(result['local'])
-            local_metadata = result['local_metadata']
+
+        if local_only:
+            # Only local masks
+            if result['local'] is not None:
+                masks = result['local']
+                local_metadata = result['local_metadata']
+            else:
+                masks = {}  # No local masks available
+        else:
+            # Global masks, optionally with local
+            masks = result['global']
+            if generate_local and result['local'] is not None:
+                masks.update(result['local'])
+                local_metadata = result['local_metadata']
     else:
         # Legacy path: separate generation
-        if 'all_future_states' in episode and episode['all_future_states']:
-            masks = visualizer.generate_episode_masks_multihorizon(episode)
-        else:
-            masks = visualizer.generate_episode_masks_batch(episode)
-
-        if generate_local:
+        if local_only:
+            masks = {}
             local_masks = visualizer.generate_local_episode_masks(
                 episode, crop_size_meters=local_crop_size
             )
             if local_masks is not None:
                 local_metadata = local_masks.pop('local_metadata', None)
-                masks.update(local_masks)
+                masks = local_masks
+        else:
+            if 'all_future_states' in episode and episode['all_future_states']:
+                masks = visualizer.generate_episode_masks_multihorizon(episode)
+            else:
+                masks = visualizer.generate_episode_masks_batch(episode)
+
+            if generate_local:
+                local_masks = visualizer.generate_local_episode_masks(
+                    episode, crop_size_meters=local_crop_size
+                )
+                if local_masks is not None:
+                    local_metadata = local_masks.pop('local_metadata', None)
+                    masks.update(local_masks)
 
     # Extract metadata
     metadata = {
@@ -348,38 +613,42 @@ def save_episode_data(masks: Dict[str, np.ndarray], metadata: Dict[str, Any],
 
 
 def process_pkl_file_worker(pkl_file: str, output_dir: str, filter_minimum_length: bool = False,
-                            split_difficulty: bool = False) -> Tuple[int, int, str]:
+                            split_difficulty: bool = False,
+                            generate_local: bool = True,
+                            local_only: bool = False) -> Tuple[int, int, str]:
     """Worker function to process a single pickle file.
-    
+
     This function is designed to be called by multiprocessing workers.
     Each worker gets its own NAMODataVisualizer instance to avoid sharing issues.
-    
+
     Args:
         pkl_file: Path to pickle file
         output_dir: Base output directory
         filter_minimum_length: Whether to filter episodes by minimum action sequence length
         split_difficulty: Whether to compute difficulty labels and split outputs
-        
+        generate_local: Whether to generate local (object-centered) masks
+        local_only: If True, only generate local masks (skip global)
+
     Returns:
         Tuple of (total_episodes, processed_episodes, pkl_file)
     """
     # Create visualizer instance for this worker
     visualizer = NAMODataVisualizer(figsize=(10, 8))
-    
+
     try:
         with open(pkl_file, 'rb') as f:
             data = pickle.load(f)
-    except Exception as e:
+    except Exception:
         return 0, 0, pkl_file
-    
+
     episodes = data.get('episode_results', [])
     total_episodes = len(episodes)
-    
+
     # Apply minimum length filtering if requested
     filtered_episodes, _, _ = filter_episodes_by_minimum_length(episodes, filter_minimum_length)
-    
+
     processed_episodes = 0
-    
+
     for episode in filtered_episodes:
         if is_valid_episode(episode):
             try:
@@ -392,7 +661,10 @@ def process_pkl_file_worker(pkl_file: str, output_dir: str, filter_minimum_lengt
                 # Process each suffix as a separate training example
                 for suffix_episode in suffix_episodes:
                     # Generate masks and metadata
-                    masks, metadata = process_episode(suffix_episode, visualizer)
+                    masks, metadata = process_episode(
+                        suffix_episode, visualizer,
+                        generate_local=generate_local, local_only=local_only
+                    )
 
                     # Create output path: output_dir/task_id/episode_id.npz
                     task_id = metadata['task_id']
@@ -407,10 +679,10 @@ def process_pkl_file_worker(pkl_file: str, output_dir: str, filter_minimum_lengt
                     save_episode_data(masks, metadata, output_path)
                     processed_episodes += 1
 
-            except Exception as e:
+            except Exception:
                 # Suppress individual episode errors for cleaner parallel output
                 continue
-    
+
     return total_episodes, processed_episodes, pkl_file
 
 
@@ -434,47 +706,245 @@ def process_pkl_file(pkl_file: str, visualizer: NAMODataVisualizer,
     return total_episodes, processed_episodes
 
 
+def _process_pkl_file_for_hdf5(args: Tuple[str, bool, bool, bool, bool]) -> List[Tuple[Dict[str, np.ndarray], Dict[str, Any]]]:
+    """Worker function to process an entire pkl file for HDF5 output.
+
+    Args:
+        args: Tuple of (pkl_file, filter_minimum_length, split_difficulty, generate_local, local_only)
+
+    Returns:
+        List of (masks, metadata) tuples for all episodes in the file
+    """
+    pkl_file, filter_minimum_length, split_difficulty, generate_local, local_only = args
+    results = []
+
+    # One visualizer per pkl file (reused for all episodes in file)
+    visualizer = NAMODataVisualizer(figsize=(10, 8))
+
+    try:
+        with open(pkl_file, 'rb') as f:
+            data = pickle.load(f)
+    except Exception:
+        return results
+
+    episodes = data.get('episode_results', [])
+
+    # Apply filtering
+    filtered_episodes, _, _ = filter_episodes_by_minimum_length(episodes, filter_minimum_length)
+
+    for episode in filtered_episodes:
+        if is_valid_episode(episode):
+            try:
+                if split_difficulty:
+                    assign_difficulty_annotation(episode)
+
+                suffix_episodes = split_episode_into_trajectory_suffixes(episode)
+
+                for suffix_episode in suffix_episodes:
+                    masks, metadata = process_episode(
+                        suffix_episode, visualizer,
+                        generate_local=generate_local, local_only=local_only
+                    )
+                    if masks:
+                        results.append((masks, metadata))
+            except Exception:
+                continue
+
+    return results
+
+
+def _collect_valid_episodes(pkl_files: List[str],
+                            filter_minimum_length: bool) -> Tuple[List[Dict[str, Any]], int]:
+    """Collect all valid episodes from pkl files.
+
+    Returns:
+        Tuple of (list of valid episodes, total episode count)
+    """
+    all_episodes = []
+    total_episodes = 0
+
+    for pkl_file in tqdm(pkl_files, desc="Loading pkl files"):
+        try:
+            with open(pkl_file, 'rb') as f:
+                data = pickle.load(f)
+        except Exception:
+            continue
+
+        episodes = data.get('episode_results', [])
+        total_episodes += len(episodes)
+
+        filtered_episodes, _, _ = filter_episodes_by_minimum_length(
+            episodes, filter_minimum_length)
+
+        for episode in filtered_episodes:
+            if is_valid_episode(episode):
+                all_episodes.append(episode)
+
+    return all_episodes, total_episodes
+
+
+def process_to_hdf5(pkl_files: List[str], output_path: str,
+                    filter_minimum_length: bool = False,
+                    split_difficulty: bool = False,
+                    num_workers: int = None,
+                    generate_local: bool = True,
+                    local_only: bool = False) -> Tuple[int, int]:
+    """Process all pkl files and write directly to a single HDF5 file.
+
+    Args:
+        pkl_files: List of pickle file paths
+        output_path: Output HDF5 file path
+        filter_minimum_length: Whether to filter by minimum action sequence length
+        split_difficulty: Whether to compute difficulty annotations
+        num_workers: Number of parallel workers (None = auto-detect)
+        generate_local: Whether to generate local (object-centered) masks
+        local_only: If True, only generate local masks (skip global)
+
+    Returns:
+        Tuple of (total_episodes, processed_episodes)
+    """
+    if local_only:
+        mask_desc = "local only"
+    elif generate_local:
+        mask_desc = "global + local"
+    else:
+        mask_desc = "global only"
+
+    print(f"Processing {len(pkl_files)} pkl files -> HDF5")
+    print(f"  Mask type: {mask_desc}")
+
+    if num_workers is None:
+        num_workers = mp.cpu_count()
+    num_workers = min(num_workers, len(pkl_files))
+    print(f"  Using {num_workers} workers")
+
+    # Prepare args for workers - process whole pkl files (like NPZ mode)
+    worker_args = [
+        (pkl_file, filter_minimum_length, split_difficulty, generate_local, local_only)
+        for pkl_file in pkl_files
+    ]
+
+    total_processed = 0
+
+    with HDF5Writer(output_path) as h5_writer:
+        if num_workers == 1:
+            # Serial processing
+            for args in tqdm(pkl_files, desc="Processing pkl files"):
+                results = _process_pkl_file_for_hdf5(
+                    (args, filter_minimum_length, split_difficulty, generate_local, local_only)
+                )
+                for masks, metadata in results:
+                    h5_writer.add_sample(masks, metadata)
+                    total_processed += 1
+        else:
+            # Parallel processing - process pkl files in parallel (like NPZ mode)
+            with mp.Pool(num_workers) as pool:
+                with tqdm(total=len(pkl_files), desc="Processing pkl files") as pbar:
+                    for results in pool.imap_unordered(_process_pkl_file_for_hdf5, worker_args, chunksize=1):
+                        for masks, metadata in results:
+                            h5_writer.add_sample(masks, metadata)
+                            total_processed += 1
+                        pbar.update(1)
+
+    print(f"  Total samples written: {total_processed}")
+    return len(pkl_files), total_processed
+
+
 def main():
     parser = argparse.ArgumentParser(description='Batch NAMO mask collection pipeline')
     parser.add_argument('--input-dir', required=True, help='Directory containing .pkl files')
     parser.add_argument('--output-dir', required=True, help='Output directory for .npz files')
     parser.add_argument('--pattern', default='*_results.pkl', help='File pattern to match (default: *_results.pkl)')
-    parser.add_argument('--workers', type=int, default=None, 
+    parser.add_argument('--workers', type=int, default=None,
                        help='Number of parallel workers (default: auto-detect CPU count)')
-    parser.add_argument('--serial', action='store_true', 
+    parser.add_argument('--serial', action='store_true',
                        help='Use serial processing instead of parallel (for debugging)')
+    parser.add_argument('--hdf5', type=str, default=None,
+                       help='Output to single HDF5 file instead of many .npz files (much faster for training)')
     parser.add_argument('--visualize', action='store_true', help='Enable visualization (slower)')
     parser.add_argument('--filter-minimum-length', action='store_true',
                        help='Only process episodes with minimum action sequence length per environment')
     parser.add_argument('--split-difficulty', action='store_true',
                        help='Split outputs into easy/medium/hard folders and store difficulty metadata')
-    
+    parser.add_argument('--local-only', action='store_true',
+                       help='Generate only local (object-centered) masks, skip global masks')
+    parser.add_argument('--global-only', action='store_true',
+                       help='Generate only global masks, skip local masks')
+
     args = parser.parse_args()
-    
+
+    # Validate mutually exclusive options
+    if args.local_only and args.global_only:
+        print("Error: --local-only and --global-only are mutually exclusive")
+        sys.exit(1)
+
+    # Determine mask generation mode
+    generate_local = not args.global_only  # True unless --global-only is set
+
     # Validate input directory
     if not os.path.exists(args.input_dir):
         print(f"Error: Input directory does not exist: {args.input_dir}")
         sys.exit(1)
-    
+
     # Find all pickle files - support recursive pattern from run_mask_generation.py
     if '**' in args.pattern:
         pkl_files = glob.glob(os.path.join(args.input_dir, args.pattern), recursive=True)
     else:
         pkl_files = glob.glob(os.path.join(args.input_dir, args.pattern))
-    
+
     if not pkl_files:
         print(f"Error: No files found matching pattern: {os.path.join(args.input_dir, args.pattern)}")
         sys.exit(1)
-    
+
     print(f"Found {len(pkl_files)} pickle files to process")
     if args.filter_minimum_length:
-        print("🔍 Minimum length filtering ENABLED - only episodes with shortest action sequences per environment will be processed")
+        print("Minimum length filtering ENABLED - only episodes with shortest action sequences per environment will be processed")
     else:
-        print("🔍 Minimum length filtering DISABLED - all valid episodes will be processed")
-    
-    # Create output directory
+        print("Minimum length filtering DISABLED - all valid episodes will be processed")
+
+    # HDF5 output mode
+    if args.hdf5:
+        if not HAS_H5PY:
+            print("Error: h5py required for HDF5 output. Install with: pip install h5py")
+            sys.exit(1)
+
+        # Determine number of workers
+        if args.serial:
+            num_workers = 1
+        else:
+            num_workers = args.workers if args.workers is not None else mp.cpu_count()
+
+        mask_mode = "local only" if args.local_only else ("global only" if args.global_only else "global + local")
+        print(f"Output mode: Single HDF5 file -> {args.hdf5}")
+        print(f"Mask mode: {mask_mode}")
+        print(f"Using {num_workers} workers for parallel mask generation")
+
+        total_episodes, total_processed = process_to_hdf5(
+            pkl_files, args.hdf5,
+            args.filter_minimum_length, args.split_difficulty,
+            num_workers=num_workers,
+            generate_local=generate_local,
+            local_only=args.local_only
+        )
+
+        # Print summary
+        print(f"\n=== Processing Complete ===")
+        print(f"Files processed: {len(pkl_files)}")
+        print(f"Total episodes found: {total_episodes}")
+        print(f"Valid episodes processed: {total_processed}")
+        if total_episodes > 0:
+            print(f"Success rate: {total_processed/total_episodes*100:.1f}%")
+        print(f"Output HDF5 file: {args.hdf5}")
+
+        # Report file size
+        if os.path.exists(args.hdf5):
+            size_gb = os.path.getsize(args.hdf5) / (1024**3)
+            print(f"File size: {size_gb:.2f} GB")
+        return
+
+    # NPZ output mode (original behavior)
     os.makedirs(args.output_dir, exist_ok=True)
-    
+
     # Determine number of workers
     if args.serial:
         num_workers = 1
@@ -482,34 +952,39 @@ def main():
         num_workers = args.workers if args.workers is not None else mp.cpu_count()
         # Limit workers to avoid overwhelming the system
         num_workers = min(num_workers, len(pkl_files), mp.cpu_count())
-    
+
+    mask_mode = "local only" if args.local_only else ("global only" if args.global_only else "global + local")
     print(f"Using {num_workers} workers for processing")
-    
+    print(f"Mask mode: {mask_mode}")
+
     # Process all files
     total_episodes = 0
     total_processed = 0
-    
+
     if num_workers == 1:
         # Serial processing (original behavior)
         visualizer = NAMODataVisualizer(figsize=(10, 8))
         for pkl_file in tqdm(pkl_files, desc="Processing files"):
-            file_episodes, file_processed = process_pkl_file(
-                pkl_file, visualizer, args.output_dir,
-                args.filter_minimum_length, args.split_difficulty)
+            file_episodes, file_processed, _ = process_pkl_file_worker(
+                pkl_file, args.output_dir,
+                args.filter_minimum_length, args.split_difficulty,
+                generate_local, args.local_only)
             total_episodes += file_episodes
             total_processed += file_processed
     else:
         # Parallel processing
         print("Starting parallel processing...")
-        
+
         with mp.Pool(num_workers) as pool:
             # Create partial function with fixed output_dir and filter setting
             worker_func = partial(
                 process_pkl_file_worker,
                 output_dir=args.output_dir,
                 filter_minimum_length=args.filter_minimum_length,
-                split_difficulty=args.split_difficulty)
-            
+                split_difficulty=args.split_difficulty,
+                generate_local=generate_local,
+                local_only=args.local_only)
+
             # Process files with progress bar
             results = []
             with tqdm(total=len(pkl_files), desc="Processing files") as pbar:
@@ -517,18 +992,18 @@ def main():
                 for pkl_file in pkl_files:
                     result = pool.apply_async(worker_func, (pkl_file,))
                     results.append(result)
-                
+
                 # Collect results as they complete
                 for result in results:
                     try:
-                        file_episodes, file_processed, pkl_file = result.get()
+                        file_episodes, file_processed, _ = result.get()
                         total_episodes += file_episodes
                         total_processed += file_processed
                         pbar.update(1)
                     except Exception as e:
                         print(f"Error processing file: {e}")
                         pbar.update(1)
-    
+
     # Print summary statistics
     print(f"\n=== Processing Complete ===")
     print(f"Files processed: {len(pkl_files)}")

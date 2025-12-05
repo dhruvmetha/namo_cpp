@@ -3,10 +3,10 @@
 # CLI flags can override any value here.
 
 # Core execution
-output_dir: /common/users/dm1487/namo_data/dec1/aug9_envs/1_push_no_heuristic
+output_dir: /common/users/dm1487/namo_data/dec2/aug9_envs/2_push_train/2
 end_idx: 7000
 algorithm: region_opening
-workers: 48
+workers: 48 
 episodes_per_env: 1
 
 # Generic planner limits (not used by region opening, but required for compatibility)
@@ -18,16 +18,16 @@ goals_per_region: 10  # Number of robot goal samples per region for validation
 
 # Region opening specific parameters
 region_allow_collisions: true
-region_max_chain_depth: 1      # 1=single push, 2=two pushes, 3=three pushes
-region_max_solutions_per_neighbor: 1
+region_max_chain_depth: 2      # 1=single push, 2=two pushes, 3=three pushes
+region_max_solutions_per_neighbor: 1000
 region_frontier_beam_width: 1000  # null or 0 = unbounded; positive integer caps frontier per depth
-region_max_recorded_solutions_per_neighbor: 1
+region_max_recorded_solutions_per_neighbor: 10
 
 # Paths
 # xml_dir: /common/home/dm1487/robotics_research/ktamp/ml4kp_ktamp/resources/models/custom_walled_envs/aug9/medium
 xml_dir: /common/users/shared/robot_learning/dm1487/namo/mj_env_configs/nov28/11_11_07deletion/maze_11x11_del70p_seed25188
 config_file: config/namo_config_complete_skill15.yaml
-manifest: /common/users/shared/robot_learning/dm1487/namo/manifests/aug9_medium/manifest.txt  # Pre-generated file list for fast loading (use generate_xml_manifest.py)
+manifest: /common/users/shared/robot_learning/dm1487/namo/manifests/aug9_medium/manifest_2push_train.txt  # Pre-generated file list for fast loading (use generate_xml_manifest.py)
 
 # Optional pipeline features
 verbose: false

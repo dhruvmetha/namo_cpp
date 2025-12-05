@@ -104,6 +104,7 @@ from typing import Dict, List, Tuple, Any, Optional
 from pathlib import Path
 import glob
 from dataclasses import dataclass
+from collections import deque
 
 
 @dataclass
@@ -1025,11 +1026,10 @@ class NAMODataVisualizer:
         return masks
 
     def generate_all_masks_highres(self, episode_data: Dict[str, Any],
-                                   highres_size: int = 2048,
+                                   highres_size: int = 1024,
                                    global_output_size: int = 224,
                                    local_output_size: int = 224,
-                                   local_crop_size_meters: float = 5.0,
-                                   goal_circle_radius: float = 0.2) -> Dict[str, Any]:
+                                   local_crop_size_meters: float = 5.0) -> Dict[str, Any]:
         """Generate both global and local masks from a single high-resolution render.
 
         This is more efficient than calling generate_episode_masks and
@@ -1041,14 +1041,22 @@ class NAMODataVisualizer:
             highres_size: Size of high-resolution render (default: 2048)
             global_output_size: Size of global output masks (default: 224)
             local_output_size: Size of local output masks (default: 224)
-            local_crop_size_meters: Size of local crop region in meters (default: 4.0)
-            goal_circle_radius: Radius of goal region circles in meters (default: 0.1)
+            local_crop_size_meters: Size of local crop region in meters (default: 5.0)
 
         Returns:
             Dictionary containing:
             - 'global': Dict of global masks (resized from full highres)
+                - robot, goal, movable, static, reachable, target_object, target_goal,
+                  robot_region, goal_sample_region
             - 'local': Dict of local masks (cropped around target object) or None
+                - local_target_object, local_target_goal, local_static, local_movable,
+                  local_robot_region, local_goal_sample_region
             - 'local_metadata': Dict with object_center, local_bounds for inference
+
+            robot_region: Binary mask of cells reachable by robot (computed via BFS on
+                inflated obstacle map). 1 = reachable from robot position, 0 = blocked.
+            goal_sample_region: Binary mask of cells reachable from first goal sample
+                position (computed via BFS on inflated obstacle map).
         """
         import cv2
 
@@ -1106,7 +1114,8 @@ class NAMODataVisualizer:
             'reachable': np.zeros((highres_size, highres_size), dtype=np.float32),
             'target_object': np.zeros((highres_size, highres_size), dtype=np.float32),
             'target_goal': np.zeros((highres_size, highres_size), dtype=np.float32),
-            'goal_region': np.zeros((highres_size, highres_size), dtype=np.float32),
+            'robot_region': np.zeros((highres_size, highres_size), dtype=np.float32),
+            'goal_sample_region': np.zeros((highres_size, highres_size), dtype=np.float32),
         }
 
         # 1. Draw static objects (walls)
@@ -1177,7 +1186,7 @@ class NAMODataVisualizer:
                         draw_rotated_box(highres['reachable'], pose[0], pose[1],
                                         obj_info['size_x'], obj_info['size_y'], pose[2])
 
-        # 5. Draw goal region circles
+        # 5. Get region_goals_sampled for goal_sample_region computation
         algorithm_stats = episode_data.get('algorithm_stats') or {}
         region_goals_sampled = episode_data.get('region_goals_sampled')
         if region_goals_sampled is None:
@@ -1187,10 +1196,74 @@ class NAMODataVisualizer:
             if region_goal_used:
                 region_goals_sampled = [region_goal_used]
 
-        if region_goals_sampled:
-            for goal in region_goals_sampled:
-                gx, gy = goal[0], goal[1]
-                draw_circle(highres['goal_region'], gx, gy, goal_circle_radius)
+        # 6. Compute robot_region (reachable cells from robot position)
+        # Get robot position
+        robot_px, robot_py = None, None
+        if state_observations and len(state_observations) > 0:
+            first_state = state_observations[0]
+            if 'robot_pose' in first_state:
+                robot_pose = first_state['robot_pose']
+                robot_px, robot_py = world_to_highres(robot_pose[0], robot_pose[1])
+
+        if robot_px is not None and robot_py is not None:
+            # Inflate obstacles by robot radius for reachability computation
+            robot_radius_m = 0.15  # Robot radius in meters
+            robot_radius_px = max(1, int(robot_radius_m * scale))
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,
+                                               (2 * robot_radius_px + 1, 2 * robot_radius_px + 1))
+
+            # Combine and inflate static + movable obstacles
+            combined_obstacles = np.clip(highres['static'] + highres['movable'], 0, 1)
+            inflated_obstacles = cv2.dilate(combined_obstacles.astype(np.uint8), kernel, iterations=1)
+
+            # BFS flood fill from robot position
+            visited = np.zeros((highres_size, highres_size), dtype=np.uint8)
+            queue = deque([(robot_px, robot_py)])
+
+            # Check if starting position is valid
+            if (0 <= robot_px < highres_size and 0 <= robot_py < highres_size and
+                inflated_obstacles[robot_py, robot_px] == 0):
+                visited[robot_py, robot_px] = 1
+
+                # 4-connected BFS
+                while queue:
+                    cx, cy = queue.popleft()
+                    for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                        nx, ny = cx + dx, cy + dy
+                        if (0 <= nx < highres_size and 0 <= ny < highres_size and
+                            visited[ny, nx] == 0 and inflated_obstacles[ny, nx] == 0):
+                            visited[ny, nx] = 1
+                            queue.append((nx, ny))
+
+            highres['robot_region'] = visited.astype(np.float32)
+
+            # 7. Compute goal_sample_region (reachable cells from first goal sample)
+            # Reuse the inflated_obstacles from robot_region computation
+            if region_goals_sampled and len(region_goals_sampled) > 0:
+                # Use first goal sample
+                goal_sample = region_goals_sampled[0]
+                goal_sample_px, goal_sample_py = world_to_highres(goal_sample[0], goal_sample[1])
+
+                # BFS flood fill from goal sample position
+                visited_goal = np.zeros((highres_size, highres_size), dtype=np.uint8)
+                queue_goal = deque([(goal_sample_px, goal_sample_py)])
+
+                # Check if starting position is valid
+                if (0 <= goal_sample_px < highres_size and 0 <= goal_sample_py < highres_size and
+                    inflated_obstacles[goal_sample_py, goal_sample_px] == 0):
+                    visited_goal[goal_sample_py, goal_sample_px] = 1
+
+                    # 4-connected BFS
+                    while queue_goal:
+                        cx, cy = queue_goal.popleft()
+                        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                            nx, ny = cx + dx, cy + dy
+                            if (0 <= nx < highres_size and 0 <= ny < highres_size and
+                                visited_goal[ny, nx] == 0 and inflated_obstacles[ny, nx] == 0):
+                                visited_goal[ny, nx] = 1
+                                queue_goal.append((nx, ny))
+
+                highres['goal_sample_region'] = visited_goal.astype(np.float32)
 
         # === Create global masks (resize full highres to output size) ===
         global_masks = {}
@@ -1215,8 +1288,8 @@ class NAMODataVisualizer:
             x2 = min(highres_size, obj_px + half_crop)
 
             local_masks = {}
-            # For local, we want: target_object, target_goal, goal_region, static, movable
-            local_mask_names = ['target_object', 'target_goal', 'goal_region', 'static', 'movable']
+            # For local, we want: target_object, target_goal, static, movable, robot_region, goal_sample_region
+            local_mask_names = ['target_object', 'target_goal', 'static', 'movable', 'robot_region', 'goal_sample_region']
             for name in local_mask_names:
                 hr_mask = highres[name]
                 cropped = hr_mask[y1:y2, x1:x2]
