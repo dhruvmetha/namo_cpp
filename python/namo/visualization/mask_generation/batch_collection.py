@@ -92,22 +92,30 @@ GENERATED MASKS (224x224 each)
 ================================================================================
 
 Global masks (--global-only or default):
-    robot           Robot position mask
-    goal            Robot goal position mask
-    static          Static obstacles mask
-    movable         Movable objects mask
-    reachable       Reachable area mask
-    target_object   The object being pushed
-    target_goal     Where the object should go
-    goal_region     Goal region mask
+    robot                               Robot position mask
+    goal                                Robot goal position mask
+    static                              Static obstacles mask
+    movable                             Movable objects mask
+    reachable                           Reachable area mask
+    target_object                       The object being pushed
+    target_goal                         Where the object should go
+    goal_region                         Goal region mask
+    target_goal_poses                   Where the object should go as se2 pose
+    target_goal_corners_world           Where the object should go as corners in world coordinates
+    target_goal_corners_px              Where the object should go as corners in pixel coordinates
+    target_goal_pose_deltas_world       How to move the object as se2 pose in world coordinates
+    target_goal_corner_deltas_world     How to move the object as corners in world coordinates
+    target_goal_corner_deltas_px        How to move the object as corners in pixel coordinates
 
 Local masks (--local-only or default):
-    local_static             Static obstacles (object-centered crop)
-    local_movable            Movable objects (object-centered crop)
-    local_target_object      Target object (object-centered crop)
-    local_target_goal        Target goal position (object-centered crop)
-    local_robot_region       Robot reachability (BFS from robot position on inflated obstacles)
-    local_goal_sample_region Goal sample reachability (BFS from first goal sample on inflated obstacles)
+    local_static                        Static obstacles (object-centered crop)
+    local_movable                       Movable objects (object-centered crop)
+    local_target_object                 Target object (object-centered crop)
+    local_target_goal                   Target goal position (object-centered crop)
+    local_robot_region                  Robot reachability (BFS from robot position on inflated obstacles)
+    local_goal_sample_region            Goal sample reachability (BFS from first goal sample on inflated obstacles)
+    target_goal_pose_deltas_obj         How to move the object as se2 pose from object coordinates
+    target_goal_corner_deltas_obj       How to move the object as corners in pixel coordinates
 
 ================================================================================
 OUTPUT FORMAT
@@ -568,6 +576,10 @@ def process_episode(episode: Dict[str, Any], visualizer: NAMODataVisualizer,
     if local_metadata is not None:
         metadata['local_metadata'] = local_metadata
 
+    # --- Compute additional pose and corner metadata ---
+    pose_metadata = visualizer.generate_pose_metadata(episode, local_only=local_only)
+    metadata.update(pose_metadata)
+
     return masks, metadata
 
 
@@ -635,6 +647,24 @@ def save_episode_data(masks: Dict[str, np.ndarray], metadata: Dict[str, Any],
         save_dict['has_local_masks'] = np.array([True], dtype=bool)
     else:
         save_dict['has_local_masks'] = np.array([False], dtype=bool)
+
+    # Save additional pose and corner data
+    pose_keys = [
+        'target_goal_poses',
+        'target_object_corners_world',
+        'target_object_corners_px',
+        'target_goal_corners_world',
+        'target_goal_corners_px',
+        'target_goal_pose_deltas_world',
+        'target_goal_pose_deltas_obj',
+        'target_goal_corner_deltas_world',
+        'target_goal_corner_deltas_px',
+        'target_goal_corner_deltas_obj'
+    ]
+    
+    for key in pose_keys:
+        if key in metadata:
+            save_dict[key] = np.array(metadata[key], dtype=np.float32)
 
     # Save as compressed npz
     np.savez_compressed(output_path, **save_dict)

@@ -335,6 +335,190 @@ class NAMODataVisualizer:
             robot_goal=robot_goal,
             world_bounds=world_bounds
         )
+
+    def compute_box_corners_world(self, x: float, y: float, size_x: float, size_y: float, theta: float) -> np.ndarray:
+        """Compute the 4 corners of a box in world coordinates."""
+        c, s = np.cos(theta), np.sin(theta)
+        R = np.array([[c, -s], [s, c]])
+        corners_local = np.array([[size_x, size_y], [-size_x, size_y], [-size_x, -size_y], [size_x, -size_y]])
+        corners_world = corners_local @ R.T + np.array([x, y])
+        return corners_world.astype(np.float32)
+
+    def compute_box_corners_pixel(self, x: float, y: float, size_x: float, size_y: float, theta: float, 
+                                 world_bounds: Tuple[float, float, float, float]) -> np.ndarray:
+        """Compute the 4 corners of a box in pixel coordinates."""
+        corners_world = self.compute_box_corners_world(x, y, size_x, size_y, theta)
+        corners_px = []
+        for cx, cy in corners_world:
+            px, py = self._world_to_pixel(cx, cy, world_bounds)
+            corners_px.append([px, py])
+        return np.array(corners_px, dtype=np.float32)
+
+    def compute_pose_deltas(self, target_pose: Tuple[float, float, float], 
+                           current_pose: Tuple[float, float, float]) -> Tuple[np.ndarray, np.ndarray]:
+        """Compute pose deltas in world and object frames."""
+        dx = target_pose[0] - current_pose[0]
+        dy = target_pose[1] - current_pose[1]
+        dtheta = target_pose[2] - current_pose[2]
+        dtheta = (dtheta + np.pi) % (2 * np.pi) - np.pi
+        delta_world = np.array([dx, dy, dtheta], dtype=np.float32)
+        
+        theta = current_pose[2]
+        c, s = np.cos(-theta), np.sin(-theta)
+        dx_obj = dx * c - dy * s
+        dy_obj = dx * s + dy * c
+        delta_obj = np.array([dx_obj, dy_obj, dtheta], dtype=np.float32)
+        return delta_world, delta_obj
+
+    def generate_pose_metadata(self, episode: Dict[str, Any], local_only: bool = False) -> Dict[str, Any]:
+        """Generate pose and corner metadata for the episode.
+        
+        Args:
+            episode: Episode data dictionary
+            local_only: If True, only generate object-centric (local) metadata
+            
+        Returns:
+            Dictionary containing pose and corner metadata
+        """
+        metadata = {}
+        
+        env_info = self._extract_env_info_from_episode(episode)
+        static_object_info = episode.get('static_object_info') or {}
+        state_observations = episode.get('state_observations', [])
+        action_sequence = episode.get('action_sequence', [])
+        
+        target_goal_poses = []
+        target_goal_corners_world = []
+        target_goal_corners_px = []
+        target_goal_pose_deltas_world = []
+        target_goal_pose_deltas_obj = []
+        target_goal_corner_deltas_world = []
+        target_goal_corner_deltas_px = []
+        target_goal_corner_deltas_obj = []
+        
+        # Get current object pose
+        current_obj_pose = None
+        current_obj_corners_w = None
+        obj_base_name = None
+        size_x, size_y = 0.0, 0.0
+        
+        if action_sequence and len(action_sequence) > 0:
+            first_action = action_sequence[0]
+            target_object_id = first_action.get('object_id')
+            
+            if target_object_id and state_observations:
+                first_state = state_observations[0]
+                # Try to find object pose
+                pose_key = f"{target_object_id}_pose"
+                if pose_key in first_state:
+                    current_obj_pose = first_state[pose_key]
+                elif target_object_id in first_state:
+                    current_obj_pose = first_state[target_object_id]
+                
+                if current_obj_pose is not None:
+                    obj_base_name = target_object_id
+                    obj_info = static_object_info.get(obj_base_name, {})
+                    if 'size_x' in obj_info and 'size_y' in obj_info:
+                        size_x = obj_info['size_x']
+                        size_y = obj_info['size_y']
+                        theta = current_obj_pose[2]
+                        
+                        # Compute current corners
+                        current_obj_corners_w = self.compute_box_corners_world(
+                            current_obj_pose[0], current_obj_pose[1], size_x, size_y, theta)
+                        
+                        # Store current object corners if not local_only
+                        if not local_only:
+                            corners_px = self.compute_box_corners_pixel(
+                                current_obj_pose[0], current_obj_pose[1], size_x, size_y, theta, env_info.world_bounds)
+                            metadata['target_object_corners_world'] = current_obj_corners_w
+                            metadata['target_object_corners_px'] = corners_px
+
+        # Process actions
+        for action in action_sequence:
+            target_pose = action.get('target')
+            if target_pose and len(target_pose) >= 3:
+                # Global data (only if not local_only)
+                g_corners_w = None
+                g_corners_px = None
+                
+                if not local_only:
+                    target_goal_poses.append(target_pose)
+                    
+                    # Compute corners for goal pose
+                    g_corners_w = self.compute_box_corners_world(
+                        target_pose[0], target_pose[1], size_x, size_y, target_pose[2])
+                    g_corners_px = self.compute_box_corners_pixel(
+                        target_pose[0], target_pose[1], size_x, size_y, target_pose[2], env_info.world_bounds)
+                    
+                    target_goal_corners_world.append(g_corners_w)
+                    target_goal_corners_px.append(g_corners_px)
+                
+                # Deltas (Global and Local)
+                if current_obj_pose is not None:
+                    # Pose Deltas
+                    d_pose_world, d_pose_obj = self.compute_pose_deltas(target_pose, current_obj_pose)
+                    
+                    if not local_only:
+                        target_goal_pose_deltas_world.append(d_pose_world)
+                    
+                    target_goal_pose_deltas_obj.append(d_pose_obj)
+                    
+                    # Corner Deltas
+                    if current_obj_corners_w is not None:
+                        # World frame corner delta
+                        # Recompute goal corners world if we skipped it above (local_only case)
+                        if g_corners_w is None:
+                            g_corners_w = self.compute_box_corners_world(
+                                target_pose[0], target_pose[1], size_x, size_y, target_pose[2])
+                        
+                        d_corners_world = g_corners_w - current_obj_corners_w
+                        
+                        if not local_only:
+                            target_goal_corner_deltas_world.append(d_corners_world.astype(np.float32))
+                            
+                            # Pixel delta
+                            if 'target_object_corners_px' in metadata and g_corners_px is not None:
+                                curr_px = metadata['target_object_corners_px']
+                                d_corners_px = g_corners_px - curr_px
+                                target_goal_corner_deltas_px.append(d_corners_px.astype(np.int32))
+                            else:
+                                target_goal_corner_deltas_px.append(np.zeros((4,2), dtype=np.int32))
+
+                        # Object frame corner delta: Rotate world delta by -obj_theta
+                        theta = current_obj_pose[2]
+                        c, s = np.cos(-theta), np.sin(-theta)
+                        R_inv = np.array([[c, -s], [s, c]])
+                        d_corners_obj = d_corners_world @ R_inv.T
+                        target_goal_corner_deltas_obj.append(d_corners_obj.astype(np.float32))
+                    else:
+                        if not local_only:
+                            target_goal_corner_deltas_world.append(np.zeros((4,2), dtype=np.float32))
+                            target_goal_corner_deltas_px.append(np.zeros((4,2), dtype=np.float32))
+                        target_goal_corner_deltas_obj.append(np.zeros((4,2), dtype=np.float32))
+                else:
+                    # No current object pose, fill with zeros
+                    if not local_only:
+                        target_goal_pose_deltas_world.append(np.zeros(3, dtype=np.float32))
+                        target_goal_corner_deltas_world.append(np.zeros((4,2), dtype=np.float32))
+                        target_goal_corner_deltas_px.append(np.zeros((4,2), dtype=np.int32))
+                    
+                    target_goal_pose_deltas_obj.append(np.zeros(3, dtype=np.float32))
+                    target_goal_corner_deltas_obj.append(np.zeros((4,2), dtype=np.float32))
+
+        # Store in metadata
+        if not local_only:
+            metadata['target_goal_poses'] = target_goal_poses
+            metadata['target_goal_corners_world'] = target_goal_corners_world
+            metadata['target_goal_corners_px'] = target_goal_corners_px
+            metadata['target_goal_pose_deltas_world'] = target_goal_pose_deltas_world
+            metadata['target_goal_corner_deltas_world'] = target_goal_corner_deltas_world
+            metadata['target_goal_corner_deltas_px'] = target_goal_corner_deltas_px
+        
+        metadata['target_goal_pose_deltas_obj'] = target_goal_pose_deltas_obj
+        metadata['target_goal_corner_deltas_obj'] = target_goal_corner_deltas_obj
+        
+        return metadata
     
     def _world_to_pixel(self, x: float, y: float, world_bounds: Tuple[float, float, float, float]) -> Tuple[int, int]:
         """Convert world coordinates to pixel coordinates for masks.
@@ -561,6 +745,88 @@ class NAMODataVisualizer:
         # If no reachable cells or max_dist is 0, return as-is
         return dist_field
     
+    def compute_box_corners_world(self, x: float, y: float, size_x: float, size_y: float, theta: float) -> np.ndarray:
+        """Compute the 4 corners of a rotated box in world coordinates.
+        
+        Args:
+            x, y: Center position
+            size_x, size_y: Half-extents
+            theta: Rotation angle in radians
+            
+        Returns:
+            4x2 numpy array of corner coordinates (x, y)
+        """
+        c, s = np.cos(theta), np.sin(theta)
+        R = np.array([[c, -s], [s, c]])
+        
+        # Corners relative to center (counter-clockwise from top-right)
+        # Note: size_x is half-width, size_y is half-height
+        corners_rel = np.array([
+            [size_x, size_y],   # Top-right
+            [-size_x, size_y],  # Top-left
+            [-size_x, -size_y], # Bottom-left
+            [size_x, -size_y]   # Bottom-right
+        ])
+        
+        # Rotate and translate
+        corners_world = (corners_rel @ R.T) + np.array([x, y])
+        return corners_world.astype(np.float32)
+
+    def compute_box_corners_pixel(self, x: float, y: float, size_x: float, size_y: float, theta: float, 
+                                 world_bounds: Tuple[float, float, float, float]) -> np.ndarray:
+        """Compute the 4 corners of a rotated box in pixel coordinates.
+        
+        Args:
+            x, y: Center position
+            size_x, size_y: Half-extents
+            theta: Rotation angle in radians
+            world_bounds: World coordinate bounds
+            
+        Returns:
+            4x2 numpy array of corner coordinates (px, py)
+        """
+        corners_world = self.compute_box_corners_world(x, y, size_x, size_y, theta)
+        corners_px = []
+        for cx, cy in corners_world:
+            px, py = self._world_to_pixel(cx, cy, world_bounds)
+            corners_px.append([px, py])
+        return np.array(corners_px, dtype=np.float32)
+
+    def compute_pose_deltas(self, target_pose: Tuple[float, float, float], 
+                           current_pose: Tuple[float, float, float]) -> Tuple[np.ndarray, np.ndarray]:
+        """Compute pose deltas in world and object frames.
+        
+        Args:
+            target_pose: Target pose (x, y, theta)
+            current_pose: Current pose (x, y, theta)
+            
+        Returns:
+            Tuple of (delta_world, delta_obj)
+            delta_world: [dx, dy, dtheta] in world frame
+            delta_obj: [dx, dy, dtheta] in object frame
+        """
+        tx, ty, ttheta = target_pose
+        cx, cy, ctheta = current_pose
+        
+        # World frame delta
+        dx = tx - cx
+        dy = ty - cy
+        dtheta = ttheta - ctheta
+        # Normalize angle to [-pi, pi]
+        dtheta = (dtheta + np.pi) % (2 * np.pi) - np.pi
+        
+        delta_world = np.array([dx, dy, dtheta], dtype=np.float32)
+        
+        # Object frame delta
+        # Rotate translation by -ctheta
+        c, s = np.cos(-ctheta), np.sin(-ctheta)
+        dx_obj = dx * c - dy * s
+        dy_obj = dx * s + dy * c
+        
+        delta_obj = np.array([dx_obj, dy_obj, dtheta], dtype=np.float32)
+        
+        return delta_world, delta_obj
+
     def generate_episode_masks(self, episode_data: Dict[str, Any], 
                               env_info: Optional[EnvironmentInfo] = None) -> Dict[str, np.ndarray]:
         """Generate 224x224 masks for different object types in the episode.
