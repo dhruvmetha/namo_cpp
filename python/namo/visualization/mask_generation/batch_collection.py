@@ -153,6 +153,34 @@ except ImportError:
 
 from .visualizer import NAMODataVisualizer
 
+# Global list to collect skipped episodes (for multiprocessing)
+_skipped_episodes_lock = None
+_skipped_episodes_file = None
+
+
+def has_region_overlap(masks: Dict[str, np.ndarray]) -> bool:
+    """Check if robot_region and goal_sample_region have any overlapping pixels.
+
+    Args:
+        masks: Dictionary of mask arrays
+
+    Returns:
+        True if there is overlap (regions are connected), False otherwise
+    """
+    # Check local masks first (preferred for local-only mode)
+    robot_key = 'local_robot_region' if 'local_robot_region' in masks else 'robot_region'
+    goal_key = 'local_goal_sample_region' if 'local_goal_sample_region' in masks else 'goal_sample_region'
+
+    if robot_key not in masks or goal_key not in masks:
+        return False  # Can't check, assume no overlap
+
+    robot_region = masks[robot_key]
+    goal_region = masks[goal_key]
+
+    # Check for overlap (both masks have value > 0.5 at same pixel)
+    overlap = np.logical_and(robot_region > 0.5, goal_region > 0.5)
+    return np.any(overlap)
+
 
 class HDF5Writer:
     """Incremental HDF5 writer for streaming mask data."""
@@ -615,7 +643,8 @@ def save_episode_data(masks: Dict[str, np.ndarray], metadata: Dict[str, Any],
 def process_pkl_file_worker(pkl_file: str, output_dir: str, filter_minimum_length: bool = False,
                             split_difficulty: bool = False,
                             generate_local: bool = True,
-                            local_only: bool = False) -> Tuple[int, int, str]:
+                            local_only: bool = False,
+                            filter_overlaps: bool = False) -> Tuple[int, int, str, List[str]]:
     """Worker function to process a single pickle file.
 
     This function is designed to be called by multiprocessing workers.
@@ -628,18 +657,21 @@ def process_pkl_file_worker(pkl_file: str, output_dir: str, filter_minimum_lengt
         split_difficulty: Whether to compute difficulty labels and split outputs
         generate_local: Whether to generate local (object-centered) masks
         local_only: If True, only generate local masks (skip global)
+        filter_overlaps: If True, skip episodes where robot_region and goal_region overlap
 
     Returns:
-        Tuple of (total_episodes, processed_episodes, pkl_file)
+        Tuple of (total_episodes, processed_episodes, pkl_file, skipped_episodes)
+        skipped_episodes is a list of "pkl_file:episode_id" strings for overlapping episodes
     """
     # Create visualizer instance for this worker
     visualizer = NAMODataVisualizer(figsize=(10, 8))
+    skipped_episodes = []
 
     try:
         with open(pkl_file, 'rb') as f:
             data = pickle.load(f)
     except Exception:
-        return 0, 0, pkl_file
+        return 0, 0, pkl_file, []
 
     episodes = data.get('episode_results', [])
     total_episodes = len(episodes)
@@ -666,6 +698,12 @@ def process_pkl_file_worker(pkl_file: str, output_dir: str, filter_minimum_lengt
                         generate_local=generate_local, local_only=local_only
                     )
 
+                    # Check for region overlap if filtering is enabled
+                    if filter_overlaps and has_region_overlap(masks):
+                        episode_id = metadata.get('episode_id', 'unknown')
+                        skipped_episodes.append(f"{pkl_file}:{episode_id}")
+                        continue  # Skip this episode
+
                     # Create output path: output_dir/task_id/episode_id.npz
                     task_id = metadata['task_id']
                     episode_id = metadata['episode_id']
@@ -683,7 +721,7 @@ def process_pkl_file_worker(pkl_file: str, output_dir: str, filter_minimum_lengt
                 # Suppress individual episode errors for cleaner parallel output
                 continue
 
-    return total_episodes, processed_episodes, pkl_file
+    return total_episodes, processed_episodes, pkl_file, skipped_episodes
 
 
 def process_pkl_file(pkl_file: str, visualizer: NAMODataVisualizer, 
@@ -870,6 +908,10 @@ def main():
                        help='Generate only local (object-centered) masks, skip global masks')
     parser.add_argument('--global-only', action='store_true',
                        help='Generate only global masks, skip local masks')
+    parser.add_argument('--max-files', type=int, default=None,
+                       help='Maximum number of pkl files to process (for testing)')
+    parser.add_argument('--filter-overlaps', action='store_true',
+                       help='Skip episodes where robot_region and goal_region overlap (connected regions)')
 
     args = parser.parse_args()
 
@@ -896,7 +938,12 @@ def main():
         print(f"Error: No files found matching pattern: {os.path.join(args.input_dir, args.pattern)}")
         sys.exit(1)
 
-    print(f"Found {len(pkl_files)} pickle files to process")
+    # Limit number of files if --max-files specified
+    if args.max_files is not None and args.max_files < len(pkl_files):
+        print(f"Found {len(pkl_files)} pickle files, limiting to {args.max_files}")
+        pkl_files = pkl_files[:args.max_files]
+    else:
+        print(f"Found {len(pkl_files)} pickle files to process")
     if args.filter_minimum_length:
         print("Minimum length filtering ENABLED - only episodes with shortest action sequences per environment will be processed")
     else:
@@ -956,21 +1003,24 @@ def main():
     mask_mode = "local only" if args.local_only else ("global only" if args.global_only else "global + local")
     print(f"Using {num_workers} workers for processing")
     print(f"Mask mode: {mask_mode}")
+    if args.filter_overlaps:
+        print("Overlap filtering ENABLED - skipping episodes with connected robot/goal regions")
 
     # Process all files
     total_episodes = 0
     total_processed = 0
+    all_skipped_episodes = []
 
     if num_workers == 1:
         # Serial processing (original behavior)
-        visualizer = NAMODataVisualizer(figsize=(10, 8))
         for pkl_file in tqdm(pkl_files, desc="Processing files"):
-            file_episodes, file_processed, _ = process_pkl_file_worker(
+            file_episodes, file_processed, _, skipped = process_pkl_file_worker(
                 pkl_file, args.output_dir,
                 args.filter_minimum_length, args.split_difficulty,
-                generate_local, args.local_only)
+                generate_local, args.local_only, args.filter_overlaps)
             total_episodes += file_episodes
             total_processed += file_processed
+            all_skipped_episodes.extend(skipped)
     else:
         # Parallel processing
         print("Starting parallel processing...")
@@ -983,7 +1033,8 @@ def main():
                 filter_minimum_length=args.filter_minimum_length,
                 split_difficulty=args.split_difficulty,
                 generate_local=generate_local,
-                local_only=args.local_only)
+                local_only=args.local_only,
+                filter_overlaps=args.filter_overlaps)
 
             # Process files with progress bar
             results = []
@@ -996,19 +1047,33 @@ def main():
                 # Collect results as they complete
                 for result in results:
                     try:
-                        file_episodes, file_processed, _ = result.get()
+                        file_episodes, file_processed, _, skipped = result.get()
                         total_episodes += file_episodes
                         total_processed += file_processed
+                        all_skipped_episodes.extend(skipped)
                         pbar.update(1)
                     except Exception as e:
                         print(f"Error processing file: {e}")
                         pbar.update(1)
+
+    # Write skipped episodes to file if overlap filtering was enabled
+    if args.filter_overlaps and all_skipped_episodes:
+        skipped_log_path = os.path.join(args.output_dir, "skipped_overlapping_episodes.txt")
+        with open(skipped_log_path, 'w') as f:
+            f.write(f"# Episodes skipped due to robot_region/goal_region overlap\n")
+            f.write(f"# Total skipped: {len(all_skipped_episodes)}\n")
+            f.write(f"# Format: pkl_file:episode_id\n\n")
+            for entry in all_skipped_episodes:
+                f.write(f"{entry}\n")
+        print(f"Skipped {len(all_skipped_episodes)} overlapping episodes (logged to {skipped_log_path})")
 
     # Print summary statistics
     print(f"\n=== Processing Complete ===")
     print(f"Files processed: {len(pkl_files)}")
     print(f"Total episodes found: {total_episodes}")
     print(f"Valid episodes processed: {total_processed}")
+    if args.filter_overlaps:
+        print(f"Episodes skipped (overlap): {len(all_skipped_episodes)}")
     if total_episodes > 0:
         print(f"Success rate: {total_processed/total_episodes*100:.1f}%")
     else:

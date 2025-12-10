@@ -1025,6 +1025,16 @@ class NAMODataVisualizer:
 
         return masks
 
+    # Constants matching C++ WavefrontGrid and WavefrontSnapshotExporter
+    INFLATION_EPSILON = 0.005  # Same as WavefrontSnapshotExporter.INFLATION_EPSILON
+
+    # 8-connected neighbor offsets (matching C++ WavefrontGrid and WavefrontSnapshotExporter)
+    NEIGHBOR_OFFSETS_8 = (
+        (-1, -1), (-1, 0), (-1, 1),
+        (0, -1),           (0, 1),
+        (1, -1),  (1, 0),  (1, 1),
+    )
+
     def generate_all_masks_highres(self, episode_data: Dict[str, Any],
                                    highres_size: int = 1024,
                                    global_output_size: int = 224,
@@ -1059,6 +1069,13 @@ class NAMODataVisualizer:
                 inflated obstacle map). 1 = reachable from robot position, 0 = blocked.
             goal_sample_region: Binary mask of cells reachable from first goal sample
                 position (computed via BFS on inflated obstacle map).
+
+        Note:
+            Wavefront parameters match C++ WavefrontGrid and Python WavefrontSnapshotExporter:
+            - 8-connected BFS (not 4-connected)
+            - Inflation: robot_half_extent + INFLATION_EPSILON (0.005m) per axis
+            - Rotated box inflation (not circular morphological dilation)
+            - 3x3 neighborhood clearance around robot/goal positions
         """
         import cv2
 
@@ -1215,8 +1232,18 @@ class NAMODataVisualizer:
             region_goals_sampled = [(robot_goal[0], robot_goal[1], robot_goal[2] if len(robot_goal) > 2 else 0.0)]
 
         # 6. Compute robot_region (reachable cells from robot position)
-        # Get robot position
+        # Get robot position and robot half-extent for inflation
         robot_px, robot_py = None, None
+        robot_half_extent_x = 0.15  # Default fallback
+        robot_half_extent_y = 0.15  # Default fallback
+
+        # Get robot half-extent from static_object_info (matching WavefrontSnapshotExporter)
+        robot_info = static_object_info.get('robot', {})
+        if 'size_x' in robot_info:
+            robot_half_extent_x = robot_info['size_x']
+        if 'size_y' in robot_info:
+            robot_half_extent_y = robot_info['size_y']
+
         if state_observations and len(state_observations) > 0:
             first_state = state_observations[0]
             if 'robot_pose' in first_state:
@@ -1224,17 +1251,48 @@ class NAMODataVisualizer:
                 robot_px, robot_py = world_to_highres(robot_pose[0], robot_pose[1])
 
         if robot_px is not None and robot_py is not None:
-            # Inflate obstacles by robot radius for reachability computation
-            robot_radius_m = 0.15  # Robot radius in meters
-            robot_radius_px = max(1, int(robot_radius_m * scale))
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,
-                                               (2 * robot_radius_px + 1, 2 * robot_radius_px + 1))
+            # Compute inflation amounts matching WavefrontSnapshotExporter
+            inflate_x = robot_half_extent_x + self.INFLATION_EPSILON
+            inflate_y = robot_half_extent_y + self.INFLATION_EPSILON
 
-            # Combine and inflate static + movable obstacles
-            combined_obstacles = np.clip(highres['static'] + highres['movable'], 0, 1)
-            inflated_obstacles = cv2.dilate(combined_obstacles.astype(np.uint8), kernel, iterations=1)
+            # Build inflated obstacle grid by drawing each obstacle with inflated size
+            # This matches the WavefrontSnapshotExporter approach (rotated box inflation)
+            inflated_obstacles = np.zeros((highres_size, highres_size), dtype=np.uint8)
 
-            # BFS flood fill from robot position
+            # Helper to draw inflated rotated box
+            def draw_inflated_box(mask, cx, cy, half_x, half_y, angle):
+                """Draw obstacle inflated by robot half-extent + epsilon."""
+                inflated_half_x = half_x + inflate_x
+                inflated_half_y = half_y + inflate_y
+                px, py = world_to_highres(cx, cy)
+                w = int(inflated_half_x * 2 * scale)
+                h = int(inflated_half_y * 2 * scale)
+                if w <= 0 or h <= 0:
+                    return
+                rect = ((px, py), (w, h), np.degrees(angle))
+                box = cv2.boxPoints(rect)
+                box = np.int32(box)
+                cv2.fillPoly(mask, [box], 1)
+
+            # Draw inflated static obstacles
+            for obj in env_info.static_objects:
+                qw, qx, qy, qz = obj.quat_w, obj.quat_x, obj.quat_y, obj.quat_z
+                angle = np.arctan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz))
+                draw_inflated_box(inflated_obstacles, obj.x, obj.y, obj.size_x, obj.size_y, angle)
+
+            # Draw inflated movable obstacles
+            if state_observations and len(state_observations) > 0:
+                first_state = state_observations[0]
+                for obj_name, pose in first_state.items():
+                    if obj_name == 'robot_pose':
+                        continue
+                    obj_base_name = obj_name.replace('_pose', '')
+                    obj_info = static_object_info.get(obj_base_name, {})
+                    if 'size_x' in obj_info and 'size_y' in obj_info:
+                        x, y, theta = pose[0], pose[1], pose[2]
+                        draw_inflated_box(inflated_obstacles, x, y, obj_info['size_x'], obj_info['size_y'], theta)
+
+            # BFS flood fill from robot position using 8-connected neighbors
             visited = np.zeros((highres_size, highres_size), dtype=np.uint8)
             queue = deque([(robot_px, robot_py)])
 
@@ -1253,10 +1311,10 @@ class NAMODataVisualizer:
                 inflated_obstacles[robot_py, robot_px] == 0):
                 visited[robot_py, robot_px] = 1
 
-                # 4-connected BFS
+                # 8-connected BFS (matching C++ WavefrontGrid and WavefrontSnapshotExporter)
                 while queue:
                     cx, cy = queue.popleft()
-                    for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                    for dx, dy in self.NEIGHBOR_OFFSETS_8:
                         nx, ny = cx + dx, cy + dy
                         if (0 <= nx < highres_size and 0 <= ny < highres_size and
                             visited[ny, nx] == 0 and inflated_obstacles[ny, nx] == 0):
@@ -1272,7 +1330,7 @@ class NAMODataVisualizer:
                 goal_sample = region_goals_sampled[0]
                 goal_sample_px, goal_sample_py = world_to_highres(goal_sample[0], goal_sample[1])
 
-                # BFS flood fill from goal sample position
+                # BFS flood fill from goal sample position using 8-connected neighbors
                 visited_goal = np.zeros((highres_size, highres_size), dtype=np.uint8)
                 queue_goal = deque([(goal_sample_px, goal_sample_py)])
 
@@ -1290,10 +1348,10 @@ class NAMODataVisualizer:
                     inflated_obstacles[goal_sample_py, goal_sample_px] == 0):
                     visited_goal[goal_sample_py, goal_sample_px] = 1
 
-                    # 4-connected BFS
+                    # 8-connected BFS (matching C++ WavefrontGrid and WavefrontSnapshotExporter)
                     while queue_goal:
                         cx, cy = queue_goal.popleft()
-                        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                        for dx, dy in self.NEIGHBOR_OFFSETS_8:
                             nx, ny = cx + dx, cy + dy
                             if (0 <= nx < highres_size and 0 <= ny < highres_size and
                                 visited_goal[ny, nx] == 0 and inflated_obstacles[ny, nx] == 0):
