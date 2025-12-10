@@ -306,6 +306,7 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
         xml_path: str = None,
         preview_mask_count: int = 0,
         preloaded_model = None,
+        preview_aligned_primitives: bool = False,
     ):
         """
         Args:
@@ -321,12 +322,14 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             min_goals_threshold: Minimum ML goals required before accepting the inference result.
             preview_mask_count: Number of ML goal masks to preview (0 disables).
             preloaded_model: Optional preloaded GoalInferenceModel to avoid reloading.
+            preview_aligned_primitives: If True, save visualization of aligned primitives.
         """
         self.verbose = verbose
         self.max_matches = max_matches
         self.match_position_tolerance = match_position_tolerance
         self.match_angle_tolerance = match_angle_tolerance
         self.angle_weight = angle_weight
+        self.preview_aligned_primitives = preview_aligned_primitives
 
         self._primitive_strategy = PrimitiveGoalStrategy(
             data_dir=primitive_data_dir,
@@ -343,6 +346,9 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             preloaded_model=preloaded_model
         )
         self._default_ml_samples = samples
+
+        # Store last alignment result for visualization
+        self._last_alignment_info = None
 
     def generate_goals(
         self,
@@ -471,7 +477,218 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
                     sorted_edges = sorted(list(aligned_edges))
                     print(f"     Aligned to edges: {sorted_edges}")
 
+        # Store alignment info for visualization
+        aligned_primitives_info = []
+        for edge_idx, edge_goals in enumerate(aligned_goals):
+            for depth_idx, goal in enumerate(edge_goals):
+                if goal is not None:
+                    aligned_primitives_info.append({
+                        'edge_idx': edge_idx,
+                        'depth_idx': depth_idx,
+                        'goal': goal,
+                        'votes': goal.score if hasattr(goal, 'score') else 1
+                    })
+
+        # Sort by votes (descending) to get execution order
+        aligned_primitives_info.sort(key=lambda x: x['votes'], reverse=True)
+
+        # Get reachable edges for visualization
+        reachable_edges = set()
+        try:
+            env.set_full_state(state)
+            reachable_edges = set(env.get_reachable_edges(object_id))
+        except Exception as e:
+            if self.verbose:
+                print(f"  ⚠️ Could not get reachable edges: {e}")
+
+        self._last_alignment_info = {
+            'object_id': object_id,
+            'object_pose': self._get_object_pose(state, env, object_id),
+            'aligned_primitives': aligned_primitives_info,
+            'ml_goals': ml_goals,
+            'total_ml_goals': len(ml_goals),
+            'total_aligned': len(aligned_primitives_info),
+            'reachable_edges': reachable_edges
+        }
+
+        # Save visualization if enabled
+        if self.preview_aligned_primitives and aligned_primitives_info:
+            self._save_alignment_preview()
+
         return aligned_goals
+
+    def _get_object_pose(self, state, env, object_id: str) -> Tuple[float, float, float]:
+        """Get the current pose of an object."""
+        original_state = env.get_full_state()
+        try:
+            env.set_full_state(state)
+            obs = env.get_observation()
+            pose_key = f"{object_id}_pose"
+            if pose_key in obs:
+                pose = obs[pose_key]
+                return (pose[0], pose[1], pose[2])
+            return (0.0, 0.0, 0.0)
+        finally:
+            env.set_full_state(original_state)
+
+    def _save_alignment_preview(self):
+        """Save visualization of aligned primitives."""
+        import numpy as np
+
+        try:
+            import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as plt
+            from matplotlib.patches import FancyArrow, Rectangle
+            from matplotlib.transforms import Affine2D
+        except ImportError:
+            print("   ⚠️ matplotlib not available for alignment preview")
+            return
+
+        info = self._last_alignment_info
+        if not info or not info['aligned_primitives']:
+            return
+
+        object_id = info['object_id']
+        obj_x, obj_y, obj_theta = info['object_pose']
+        aligned = info['aligned_primitives']
+        reachable_edges = info.get('reachable_edges', set())
+        ml_goals = info.get('ml_goals', [])
+
+        fig, ax = plt.subplots(1, 1, figsize=(12, 10))
+
+        # Draw object at current position
+        obj_size = 0.3  # Approximate object size for visualization
+        rect = Rectangle(
+            (obj_x - obj_size/2, obj_y - obj_size/2),
+            obj_size, obj_size,
+            angle=np.degrees(obj_theta),
+            rotation_point='center',
+            fill=True, facecolor='cyan', edgecolor='black', linewidth=2,
+            label='Current Position'
+        )
+        ax.add_patch(rect)
+
+        # Draw ML predicted goals first (dashed magenta boxes, in background)
+        for i, ml_goal in enumerate(ml_goals):
+            ml_rect = Rectangle(
+                (ml_goal.x - obj_size/2, ml_goal.y - obj_size/2),
+                obj_size, obj_size,
+                angle=np.degrees(ml_goal.theta),
+                rotation_point='center',
+                fill=False, edgecolor='magenta', linewidth=1.5, linestyle='--', alpha=0.7
+            )
+            ax.add_patch(ml_rect)
+            # Small label
+            ax.text(ml_goal.x, ml_goal.y - obj_size/2 - 0.05, f'ML{i}', fontsize=6,
+                   ha='center', va='top', color='magenta', alpha=0.8)
+
+        # Separate aligned primitives by reachability
+        reachable_aligned = [p for p in aligned if p['edge_idx'] in reachable_edges]
+        unreachable_aligned = [p for p in aligned if p['edge_idx'] not in reachable_edges]
+
+        # Color map for priority (higher votes = more red, lower = more blue)
+        max_votes = max(p['votes'] for p in aligned) if aligned else 1
+
+        # Draw UNREACHABLE primitives first (gray, in background)
+        for prim_info in unreachable_aligned:
+            goal = prim_info['goal']
+            edge_idx = prim_info['edge_idx']
+            depth_idx = prim_info['depth_idx']
+            votes = prim_info['votes']
+
+            # Gray for unreachable
+            goal_rect = Rectangle(
+                (goal.x - obj_size/2, goal.y - obj_size/2),
+                obj_size, obj_size,
+                angle=np.degrees(goal.theta),
+                rotation_point='center',
+                fill=True, facecolor='lightgray', edgecolor='gray', linewidth=1, alpha=0.4
+            )
+            ax.add_patch(goal_rect)
+
+            # Add edge/depth info (smaller, grayed out)
+            ax.text(goal.x, goal.y, f'E{edge_idx}', fontsize=6, ha='center', va='center',
+                   color='gray', alpha=0.6)
+
+        # Draw REACHABLE primitives with execution order (colored, in foreground)
+        # Re-rank only reachable ones
+        reachable_aligned_sorted = sorted(reachable_aligned, key=lambda x: x['votes'], reverse=True)
+
+        for rank, prim_info in enumerate(reachable_aligned_sorted):
+            goal = prim_info['goal']
+            votes = prim_info['votes']
+            edge_idx = prim_info['edge_idx']
+            depth_idx = prim_info['depth_idx']
+
+            # Color based on votes (normalized) - green to red
+            cmap = plt.cm.RdYlGn_r
+            color = cmap(votes / max_votes) if max_votes > 0 else 'blue'
+
+            # Draw goal position as rectangle
+            goal_rect = Rectangle(
+                (goal.x - obj_size/2, goal.y - obj_size/2),
+                obj_size, obj_size,
+                angle=np.degrees(goal.theta),
+                rotation_point='center',
+                fill=True, facecolor=color, edgecolor='black', linewidth=1.5, alpha=0.8
+            )
+            ax.add_patch(goal_rect)
+
+            # Draw arrow from current position to goal
+            ax.annotate('', xy=(goal.x, goal.y), xytext=(obj_x, obj_y),
+                       arrowprops=dict(arrowstyle='->', color=color, lw=1.5, alpha=0.6))
+
+            # Add rank number at goal position (rank among REACHABLE only)
+            ax.text(goal.x, goal.y, f'{rank+1}', fontsize=10, fontweight='bold',
+                   ha='center', va='center', color='white',
+                   bbox=dict(boxstyle='circle', facecolor='black', alpha=0.8))
+
+            # Add edge/depth info near the goal
+            ax.text(goal.x + obj_size/2 + 0.05, goal.y, f'E{edge_idx}D{depth_idx+1}\n({votes}v)',
+                   fontsize=7, ha='left', va='center', alpha=0.9)
+
+        # Set axis limits with padding (include ML goals)
+        all_x = [obj_x] + [p['goal'].x for p in aligned] + [g.x for g in ml_goals]
+        all_y = [obj_y] + [p['goal'].y for p in aligned] + [g.y for g in ml_goals]
+        margin = 1.0
+        ax.set_xlim(min(all_x) - margin, max(all_x) + margin)
+        ax.set_ylim(min(all_y) - margin, max(all_y) + margin)
+        ax.set_aspect('equal')
+        ax.grid(True, alpha=0.3)
+        ax.set_xlabel('World X (m)')
+        ax.set_ylabel('World Y (m)')
+
+        # Title with summary including reachability info
+        reachable_count = len(reachable_aligned)
+        unreachable_count = len(unreachable_aligned)
+        ax.set_title(f'ML-Primitive Alignment: {object_id}\n'
+                    f'{info["total_aligned"]} primitives from {info["total_ml_goals"]} ML goals | '
+                    f'Reachable edges: {sorted(list(reachable_edges))}\n'
+                    f'✓ {reachable_count} reachable (numbered) | ✗ {unreachable_count} unreachable (gray)',
+                    fontsize=11, fontweight='bold')
+
+        # Add legend
+        legend_elements = [
+            plt.Line2D([0], [0], marker='s', color='w', markerfacecolor='cyan',
+                      markersize=15, label='Current Position'),
+            plt.Line2D([0], [0], marker='s', color='w', markerfacecolor='none',
+                      markersize=15, markeredgecolor='magenta', linestyle='--',
+                      label=f'ML Predictions ({len(ml_goals)})'),
+            plt.Line2D([0], [0], marker='s', color='w', markerfacecolor='green',
+                      markersize=15, markeredgecolor='black', label='Reachable (low votes)'),
+            plt.Line2D([0], [0], marker='s', color='w', markerfacecolor='red',
+                      markersize=15, markeredgecolor='black', label='Reachable (high votes)'),
+            plt.Line2D([0], [0], marker='s', color='w', markerfacecolor='lightgray',
+                      markersize=15, markeredgecolor='gray', label='Unreachable'),
+        ]
+        ax.legend(handles=legend_elements, loc='upper right')
+
+        # Save
+        save_path = os.path.join(os.getcwd(), f"ml_primitive_alignment_{object_id}.png")
+        fig.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"   📁 Saved primitive alignment preview: {save_path}")
+        plt.close(fig)
 
     def _build_slot_metadata(self, primitive_goals: List[List[Goal]]) -> List[Tuple[int, int, Goal]]:
         slots: List[Tuple[int, int, Goal]] = []

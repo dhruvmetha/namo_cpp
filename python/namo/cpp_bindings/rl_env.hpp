@@ -46,6 +46,8 @@ public:
 
     // Visualization methods
     void render();
+    void set_camera_position(double distance, double azimuth, double elevation);
+    void set_camera_lookat(double x, double y, double z);
     
     // Reachability queries
     std::vector<std::string> get_reachable_objects() const;

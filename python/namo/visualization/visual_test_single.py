@@ -257,6 +257,8 @@ def main():
                         help="Weight for angle error in alignment scoring (default: 0.5)")
     parser.add_argument("--preview-ml-goal-masks", type=int, default=0,
                         help="Number of ML goal masks to preview via matplotlib before planning (0 disables)")
+    parser.add_argument("--preview-aligned-primitives", action="store_true",
+                        help="Save visualization of ML-to-primitive alignment showing execution order")
     
     # Planning parameters
     parser.add_argument("--max-depth", type=int, default=5,
@@ -423,7 +425,8 @@ def main():
             'region_max_solutions_per_neighbor': args.region_max_solutions_per_neighbor,
             'region_frontier_beam_width': args.region_frontier_beam_width,
             'region_max_recorded_solutions_per_neighbor': args.region_max_recorded_solutions_per_neighbor,
-            'preview_ml_goal_masks': args.preview_ml_goal_masks
+            'preview_ml_goal_masks': args.preview_ml_goal_masks,
+            'preview_aligned_primitives': args.preview_aligned_primitives
         }
         
         # Add ML model paths and preloaded models to parameters

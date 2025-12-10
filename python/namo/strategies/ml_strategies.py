@@ -13,10 +13,11 @@ import namo_rl
 from .object_selection_strategy import ObjectSelectionStrategy
 from .goal_selection_strategy import GoalSelectionStrategy, Goal, RandomGoalStrategy
 
-# Add learning package to path for imports
-learning_path = "/common/home/dm1487/robotics_research/ktamp/learning"
-if learning_path not in sys.path:
-    sys.path.append(learning_path)
+# Add sage_learning package to path for imports (has proper local mask support)
+# Use insert(0, ...) to ensure sage_learning's 'src' module is found before any other 'src'
+sage_learning_path = "/common/home/dm1487/robotics_research/ktamp/sage_learning"
+if sage_learning_path not in sys.path:
+    sys.path.insert(0, sage_learning_path)
 
 
 class MLObjectSelectionStrategy(ObjectSelectionStrategy):
@@ -314,6 +315,10 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
             preloaded_model: Optional pre-loaded model to avoid repeated loading
             preview_mask_count: Number of ML goal masks to preview (0 disables)
             **unused_kwargs: Compatibility placeholder for legacy keyword args
+
+        Note:
+            The model automatically detects whether to use local (object-centered) or
+            global masks based on its training config (use_local in data config).
         """
         self.goal_model_path = goal_model_path
         self.samples = samples
@@ -322,7 +327,7 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
         self.min_goals_threshold = min_goals_threshold
         self.verbose = verbose
         self.preview_mask_count = max(0, preview_mask_count)
-        self._preview_shown = False
+        self._pending_preview = None  # Store preview data to save later (before push)
         if unused_kwargs and self.verbose:
             print(f"Warning: Unused MLGoalSelectionStrategy kwargs: {list(unused_kwargs.keys())}")
         
@@ -408,10 +413,10 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
             print(f"   Using XML path: {json_message.get('xml_path', 'MISSING')}")
 
         try:
-            # Run goal model directly with new independent API
+            # Run goal model - auto-routes to local or global based on model's training config
             if self.verbose:
                 print(f"Running goal inference for object {object_id} with {self.samples} samples")
-            
+
             goals = self._goal_model.infer(
                 json_message=json_message,
                 xml_path=json_message["xml_path"],
@@ -458,15 +463,16 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
             return None
     
     def _preview_goal_inference(self, goals: List[Dict[str, Any]], object_id: str):
-        """Display ML input channels and goal mask predictions using matplotlib."""
-        if self.preview_mask_count <= 0 or self._preview_shown:
+        """Store ML goal preview data to be saved later (before push).
+
+        Call save_pending_preview() to actually save the image.
+        """
+        if self.preview_mask_count <= 0:
             return
 
         try:
             import numpy as np
         except Exception as e:
-            if self.verbose:
-                print(f"Unable to import numpy for mask preview: {e}")
             self.preview_mask_count = 0
             return
 
@@ -485,7 +491,6 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
             else:
                 continue
 
-            # Get input channels from first goal (same for all goals in this batch)
             if input_channels is None and 'input_channels' in goal:
                 input_channels = goal['input_channels']
 
@@ -494,96 +499,176 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
         if not mask_entries:
             return
 
-        count = min(self.preview_mask_count, len(mask_entries))
+        # Store preview data and save immediately
+        self._pending_preview = {
+            'object_id': object_id,
+            'mask_entries': mask_entries,
+            'input_channels': input_channels,
+            'count': min(self.preview_mask_count, len(mask_entries))
+        }
+        self.save_pending_preview()  # Save immediately during goal generation
+
+    def _render_mask_overlay(self, shape, layers, threshold=0.3):
+        """Render multiple mask layers with colors.
+
+        Args:
+            shape: Output shape (H, W)
+            layers: List of (mask, color) tuples. Later layers overwrite earlier ones.
+                    color is (R, G, B) tuple with values 0-1.
+            threshold: Threshold for binary mask detection.
+
+        Returns:
+            RGB image as numpy array (H, W, 3)
+        """
+        import numpy as np
+        rgb = np.zeros((*shape, 3), dtype=np.float32)
+        for mask, color in layers:
+            if mask is None:
+                continue
+            pixels = mask > threshold
+            rgb[pixels, 0] = color[0]
+            rgb[pixels, 1] = color[1]
+            rgb[pixels, 2] = color[2]
+        return rgb
+
+    def save_pending_preview(self):
+        """Save the pending preview image."""
+        if self._pending_preview is None or self.preview_mask_count <= 0:
+            self._pending_preview = None
+            return
+
+        import numpy as np
+        data = self._pending_preview
+        self._pending_preview = None
+
+        object_id = data['object_id']
+        mask_entries = data['mask_entries']
+        input_channels = data['input_channels']
+        count = data['count']
 
         try:
+            import matplotlib
             import matplotlib.pyplot as plt
-        except Exception as e:
-            if self.verbose:
-                print(f"Matplotlib not available for goal mask preview: {e}")
+        except Exception:
             self.preview_mask_count = 0
             return
 
+        # Define colors
+        GRAY = (0.5, 0.5, 0.5)
+        YELLOW = (1.0, 1.0, 0.0)
+        CYAN = (0.0, 1.0, 1.0)
+        GREEN = (0.0, 1.0, 0.0)
+        RED = (1.0, 0.0, 0.0)
+        BLUE = (0.0, 0.0, 1.0)
+
         try:
-            # Create figure with better layout: Input on left (larger), Goal Grid on right
-            count = min(self.preview_mask_count, len(mask_entries))
-            
-            # Calculate grid dimensions for goals
             cols = int(np.ceil(np.sqrt(count)))
             rows = int(np.ceil(count / cols))
-            
-            fig = plt.figure(figsize=(16, 8))
-            gs = fig.add_gridspec(1, 2, width_ratios=[1, 1])  # Split 50/50 left/right
-            
-            # Left side: Input visualization
+
+            fig = plt.figure(figsize=(20, 8))
+            gs = fig.add_gridspec(1, 3, width_ratios=[1, 1, 1.5])
+
+            is_local_format = False
+            static_mask = movable_mask = target_mask = robot_region = goal_region = None
+
             if input_channels is not None:
-                # Denormalize from [-1, 1] to [0, 1]
                 inp = (input_channels + 1) / 2
+                is_local_format = inp.shape[1] <= 128
+                h, w = inp.shape[1], inp.shape[2]
 
-                # Create combined scene visualization
-                ax_input = fig.add_subplot(gs[0])
+                if is_local_format:
+                    static_mask = inp[0, :, :] if inp.shape[0] > 0 else np.zeros((h, w))
+                    movable_mask = inp[1, :, :] if inp.shape[0] > 1 else np.zeros((h, w))
+                    target_mask = inp[2, :, :] if inp.shape[0] > 2 else np.zeros((h, w))
+                    robot_region = inp[3, :, :] if inp.shape[0] > 3 else np.zeros((h, w))
+                    goal_region = inp[4, :, :] if inp.shape[0] > 4 else np.zeros((h, w))
 
-                # Combine channels: robot (0) + goal (1) + movable (2) + static (3)
-                combined_scene = np.clip(
-                    inp[0, :, :] +      # robot
-                    inp[1, :, :] +      # robot goal
-                    inp[2, :, :] +      # movable objects
-                    inp[3, :, :],       # static objects
-                    0, 1
-                )
+                    # Panel 1: Objects - movable(yellow), static(gray), target(cyan)
+                    ax1 = fig.add_subplot(gs[0])
+                    rgb1 = self._render_mask_overlay((h, w), [
+                        (movable_mask, YELLOW),
+                        (static_mask, GRAY),
+                        (target_mask, CYAN),
+                    ])
+                    ax1.imshow(np.flipud(rgb1))  # Flip Y to match world coordinates
+                    ax1.set_title("Objects: Static=Gray, Movable=Yellow, Target=Cyan", fontsize=10, fontweight='bold')
+                    ax1.axis('off')
 
-                # Determine selected object mask channel
-                # Typically at index 5 if available, otherwise fallback or use index 4 if size allows
-                selected_mask_idx = 5
-                if selected_mask_idx >= inp.shape[0]:
-                    # Fallback: try index 4 (sometimes used for selection if 5-channel input)
-                    selected_mask_idx = 4
-                
-                if selected_mask_idx < inp.shape[0]:
-                    selected_mask = inp[selected_mask_idx, :, :]
+                    # Panel 2: Regions - goal(green), robot(red), target(blue)
+                    ax2 = fig.add_subplot(gs[1])
+                    rgb2 = self._render_mask_overlay((h, w), [
+                        (goal_region, GREEN),
+                        (robot_region, RED),
+                        (target_mask, BLUE),
+                    ])
+                    ax2.imshow(np.flipud(rgb2))  # Flip Y to match world coordinates
+                    ax2.set_title("Regions: Goal=Green, Robot=Red, Target=Blue", fontsize=10, fontweight='bold')
+                    ax2.axis('off')
                 else:
-                    # No mask channel available
-                    selected_mask = np.zeros_like(combined_scene)
+                    # Global format
+                    ax1 = fig.add_subplot(gs[0])
+                    combined = np.clip(inp[0] + inp[1] + inp[2] + inp[3], 0, 1)
+                    sel_idx = 5 if inp.shape[0] > 5 else 4
+                    sel_mask = inp[sel_idx] if sel_idx < inp.shape[0] else np.zeros_like(combined)
+                    rgb1 = np.stack([combined + sel_mask, combined, combined], axis=-1)
+                    ax1.imshow(np.clip(rgb1, 0, 1))
+                    ax1.set_title(f"Global: Selected={object_id}", fontsize=10, fontweight='bold')
+                    ax1.axis('off')
 
-                # Create RGB visualization: scene in grayscale, selected object in red
-                rgb_img = np.stack([
-                    combined_scene + selected_mask,  # Red channel: scene + selected object
-                    combined_scene,                   # Green channel: just scene
-                    combined_scene                    # Blue channel: just scene
-                ], axis=-1)
-                rgb_img = np.clip(rgb_img, 0, 1)
+            # Panel 3: Goal predictions grid
+            gs_right = gs[2].subgridspec(rows, cols, wspace=0.1, hspace=0.1)
 
-                ax_input.imshow(rgb_img)
-                ax_input.set_title(f"Input: Scene + Selected Object ({object_id}) in Red", fontsize=14, fontweight='bold')
-                ax_input.axis('off')
-
-            # Right side: Grid of Goal Predictions
-            # Create a sub-gridspec for the right panel
-            gs_right = gs[1].subgridspec(rows, cols, wspace=0.1, hspace=0.1)
-            
             for i, (idx, mask) in enumerate(mask_entries[:count]):
                 r, c = divmod(i, cols)
                 ax = fig.add_subplot(gs_right[r, c])
-                ax.imshow(mask, cmap='viridis')
-                # ax.set_title(f"Goal #{idx}", fontsize=8)
+
+                if is_local_format and target_mask is not None:
+                    # Resize if needed
+                    if target_mask.shape != mask.shape:
+                        from scipy.ndimage import zoom
+                        sy, sx = mask.shape[0] / target_mask.shape[0], mask.shape[1] / target_mask.shape[1]
+                        target_r = zoom(target_mask, (sy, sx), order=1)
+                        static_r = zoom(static_mask, (sy, sx), order=1) if static_mask is not None else None
+                    else:
+                        target_r, static_r = target_mask, static_mask
+
+                    # Predictions: static(gray), target(blue), goal(yellow)
+                    rgb_pred = self._render_mask_overlay(mask.shape, [
+                        (static_r, GRAY),
+                        (target_r, BLUE),
+                        (mask, YELLOW),
+                    ])
+                    ax.imshow(np.flipud(rgb_pred))  # Flip Y to match world coordinates
+                else:
+                    ax.imshow(np.flipud(mask), cmap='viridis')  # Flip Y to match world coordinates
+
                 ax.axis('off')
-                # Add border to make separate plots distinct
                 for spine in ax.spines.values():
                     spine.set_visible(True)
                     spine.set_edgecolor('gray')
                     spine.set_linewidth(0.5)
 
             fig.suptitle(f"ML Goal Inference: {object_id} (Top {count} predictions)", fontsize=16, fontweight='bold', y=0.98)
-            # fig.tight_layout() # Removed tight_layout as it can mess with custom gs
-            print("🖼️ Close the ML goal visualization window to continue planning...")
-            plt.show(block=True)
+
+            import os
+            save_path = os.path.join(os.getcwd(), f"ml_goal_preview_{object_id}.png")
+            fig.savefig(save_path, dpi=150, bbox_inches='tight')
+            print(f"   📁 Saved preview: {save_path}")
+            plt.close(fig)
+
+            try:
+                response = input("   Continue saving previews? [y/N]: ").strip().lower()
+                if response != 'y':
+                    print("   ⏹️ Stopping further previews")
+                    self.preview_mask_count = 0
+            except (EOFError, KeyboardInterrupt):
+                print("\n   ⏹️ Stopping further previews")
+                self.preview_mask_count = 0
+
         except Exception as e:
-            if self.verbose:
-                print(f"Failed to render ML goal mask preview: {e}")
+            print(f"   ❌ Failed to save preview: {e}")
             import traceback
             traceback.print_exc()
-        finally:
-            self._preview_shown = True
     
     def _create_json_message_for_goals(self,
                                      object_id: str,
@@ -647,23 +732,19 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
             # Add static objects from get_object_info()
             try:
                 static_info = env.get_object_info()
-                # print(f"DEBUG: Found {len(static_info)} static objects: {list(static_info.keys())}")
                 for obj_name, obj_data in static_info.items():
-                    # print(f"DEBUG: Static object {obj_name}: {obj_data}")
                     if obj_name not in objects_dict:  # Don't override movable objects
                         # Only add objects that have position data and are actually static walls
                         pos_x = obj_data.get('pos_x', None)
                         pos_y = obj_data.get('pos_y', None)
-                        
+
                         # Skip objects without position data (like movable objects that only have size info)
                         # Also skip the robot since it's not a static obstacle
                         if pos_x is None or pos_y is None or obj_name == 'robot':
                             continue
-                            
+
                         angle_deg = obj_data.get('angle_deg', 0.0)
-                        
-                        # print(f"DEBUG: Adding static object {obj_name} at ({pos_x}, {pos_y}) with angle {angle_deg}°")
-                        
+
                         # Convert angle from degrees to quaternion
                         quat = R.from_euler('xyz', [0, 0, angle_deg], degrees=True).as_quat(scalar_first=True)
                         objects_dict[obj_name] = {
@@ -671,7 +752,6 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
                             "quaternion": [float(quat[0]), float(quat[1]), float(quat[2]), float(quat[3])]
                         }
             except Exception as e:
-                # print(f"DEBUG: Failed to get static objects: {e}")
                 # If get_object_info fails, continue without static objects
                 pass
             

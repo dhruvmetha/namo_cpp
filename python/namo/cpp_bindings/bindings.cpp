@@ -57,6 +57,12 @@ PYBIND11_MODULE(namo_rl, m) {
         .def("get_full_state", &namo::RLEnvironment::get_full_state, "Returns a full snapshot of the simulation state (qpos, qvel).")
         .def("set_full_state", &namo::RLEnvironment::set_full_state, py::arg("state"), "Sets the simulation to a specific state snapshot.")
         .def("render", &namo::RLEnvironment::render, "Renders the current simulation state (requires visualization=True).")
+        .def("set_camera_position", &namo::RLEnvironment::set_camera_position,
+             py::arg("distance"), py::arg("azimuth"), py::arg("elevation"),
+             "Set camera position: distance from lookat, azimuth (horizontal angle), elevation (vertical angle, -90=top-down)")
+        .def("set_camera_lookat", &namo::RLEnvironment::set_camera_lookat,
+             py::arg("x"), py::arg("y"), py::arg("z"),
+             "Set camera lookat point (where camera looks at)")
         .def("get_reachable_objects", &namo::RLEnvironment::get_reachable_objects, "Returns a list of object names that are reachable through push actions.")
         .def("is_object_reachable", &namo::RLEnvironment::is_object_reachable, py::arg("object_name"), "Returns true if the specified object is reachable through push actions.")
         .def("get_reachable_edges", &namo::RLEnvironment::get_reachable_edges, py::arg("object_name"), "Returns list of reachable edge indices (0-59) for the specified object using wavefront analysis.")

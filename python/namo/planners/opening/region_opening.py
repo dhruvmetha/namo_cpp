@@ -12,6 +12,11 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Tuple, Dict, Any, Set
 
 import namo_rl
+
+# Default camera settings for top-down view
+DEFAULT_CAMERA_DISTANCE = 15.0
+DEFAULT_CAMERA_AZIMUTH = 0.0
+DEFAULT_CAMERA_ELEVATION = -90.0
 from namo.core import BasePlanner, PlannerConfig, PlannerResult
 from namo.planners import snapshot_region_connectivity, find_robot_label
 from namo.strategies import PrimitiveGoalStrategy, Goal, MLPrimitiveGoalStrategy
@@ -129,6 +134,11 @@ class RegionOpeningPlanner(BasePlanner):
             timeout_sec = None
         self.timeout_per_neighbour_sec = timeout_sec
 
+        # Visualization settings (can be set after init, like IDFS planners)
+        self.visualize_search = False
+        self.search_delay = 0.5
+        self.step_mode = False
+
         super().__init__(env, config)
 
     def _setup_constraints(self):
@@ -168,6 +178,7 @@ class RegionOpeningPlanner(BasePlanner):
                 xml_path=algo_params.get("xml_file"),
                 preview_mask_count=algo_params.get("preview_ml_goal_masks", 0),
                 preloaded_model=algo_params.get("preloaded_goal_model"),
+                preview_aligned_primitives=algo_params.get("preview_aligned_primitives", False),
             )
             self._debug("▶ Using ML-aligned primitive goal sampler")
         else:
@@ -194,6 +205,35 @@ class RegionOpeningPlanner(BasePlanner):
     def _debug(self, message: str):
         if getattr(self.config, "verbose", False):
             print(message)
+
+    def _focus_camera_on_object(self, object_id: str):
+        """Focus camera on the specified object from above and render.
+
+        Only does something if visualize_search is enabled.
+        """
+        if not self.visualize_search:
+            return
+
+        try:
+            obs = self.env.get_observation()
+            if object_id in obs:
+                pos = obs[object_id]
+                self.env.set_camera_lookat(pos[0], pos[1], 0.0)
+                self.env.set_camera_position(
+                    DEFAULT_CAMERA_DISTANCE,
+                    DEFAULT_CAMERA_AZIMUTH,
+                    DEFAULT_CAMERA_ELEVATION
+                )
+            self.env.render()
+
+            if self.step_mode:
+                input(f"[Step mode] Focused on {object_id}. Press Enter to continue...")
+            elif self.search_delay > 0:
+                time.sleep(self.search_delay)
+        except Exception as e:
+            # Don't let visualization errors break the search
+            if self.config.verbose:
+                self._debug(f"Camera focus error: {e}")
 
     def search(self, robot_goal: Tuple[float, float, float]) -> PlannerResult:
         """Execute region opening planner (single-level exploration from initial state only).
@@ -1110,6 +1150,9 @@ class RegionOpeningPlanner(BasePlanner):
                 step_result = self.env.step(action)
                 if self.config.verbose:
                     print(f"        ✓ env.step() returned successfully")
+
+                # Visualize after action if enabled
+                self._focus_camera_on_object(object_id)
 
             except Exception as e:
                 if self.config.verbose:

@@ -280,13 +280,27 @@ class MLImageConverterAdapter:
             state_obs['robot_pose'] = [robot_pos[0], robot_pos[1], 0.0]
 
         # Build static_object_info from object_sizes
+        # Include position info for static objects so they're correctly identified
         static_object_info = {}
-        for obj_name in data_point['objects'].keys():
+        for obj_name, obj_info in data_point['objects'].items():
             if obj_name in self.object_sizes:
-                static_object_info[obj_name] = {
+                info = {
                     'size_x': self.object_sizes[obj_name][0],
                     'size_y': self.object_sizes[obj_name][1],
                 }
+                # Add position for static objects (walls, non-movable obstacles)
+                is_static = "movable" not in obj_name
+                if is_static:
+                    pos = obj_info['position']
+                    quat = obj_info['quaternion']
+                    info['pos_x'] = pos[0]
+                    info['pos_y'] = pos[1]
+                    info['pos_z'] = pos[2] if len(pos) > 2 else 0.0
+                    info['quat_w'] = quat[0]
+                    info['quat_x'] = quat[1]
+                    info['quat_y'] = quat[2]
+                    info['quat_z'] = quat[3] if len(quat) > 3 else 0.0
+                static_object_info[obj_name] = info
 
         # Get selected object's current pose for target (inference doesn't have target_goal)
         # We'll use a dummy target - the local_target_goal won't be used at inference
@@ -317,7 +331,7 @@ class MLImageConverterAdapter:
                            robot_goal_pos: Tuple[float, float],
                            region_goals_sampled: List[Tuple[float, float, float]] = None,
                            crop_size_meters: float = 5.0,
-                           highres_size: int = 2048,
+                           highres_size: int = 1024,
                            output_size: int = 224,
                            goal_circle_radius: float = 0.1) -> Dict[str, Any]:
         """Create local masks centered on selected object using the SAME method as training.
@@ -401,6 +415,8 @@ class MLImageConverterAdapter:
         center_px = output_size / 2  # 112 for 224x224
 
         world_x = object_center[0] + (px - center_px) * resolution
+        # No Y-flip needed: in this mask generation, world_to_highres maps
+        # higher world Y to higher py (row index). So the inverse is the same.
         world_y = object_center[1] + (py - center_px) * resolution
 
         return world_x, world_y

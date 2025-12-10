@@ -132,6 +132,14 @@ void RLEnvironment::render() {
     sim->render();
 }
 
+void RLEnvironment::set_camera_position(double distance, double azimuth, double elevation) {
+    env_->set_camera_position(distance, azimuth, elevation);
+}
+
+void RLEnvironment::set_camera_lookat(double x, double y, double z) {
+    env_->set_camera_lookat({x, y, z});
+}
+
 std::vector<std::string> RLEnvironment::get_reachable_objects() const {
     return skill_->get_reachable_objects();
 }

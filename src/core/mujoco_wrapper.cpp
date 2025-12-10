@@ -349,10 +349,10 @@ void OptimizedMujocoWrapper::init_visualization() {
     mjv_makeScene(m_, &scn_, 2000);
     mjr_makeContext(m_, &con_, mjFONTSCALE_150);
     
-    // Set reasonable default camera position
-    cam_.distance = 5.0;
-    cam_.azimuth = 90.0;
-    cam_.elevation = -20.0;
+    // Set reasonable default camera position (top-down view)
+    cam_.distance = 15.0;
+    cam_.azimuth = 0.0;
+    cam_.elevation = -90.0;
     cam_.lookat[0] = 0.0;
     cam_.lookat[1] = 0.0;
     cam_.lookat[2] = 0.0;

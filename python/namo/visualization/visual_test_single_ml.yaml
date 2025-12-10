@@ -7,20 +7,20 @@
 # Algorithm Selection
 algorithm: region_opening
 object_strategy: no_heuristic  # Region opening picks objects based on connectivity, not heuristics
-goal_strategy: primitive
+goal_strategy: ml
 
 # ML Model Configuration
-ml_goal_model: /common/users/dm1487/namo_data/outputs/diffusion_only_goal/nov20_1push_diffusion_only_goal/2025-11-20_09-41-46
+ml_goal_model: /common/users/dm1487/namo_data/outputs/diffusion/2025-12-04/12-13-17
 ml_device: cuda
-ml_samples: 128          # Match collection config (high sample count)
+ml_samples: 4          # Match collection config (high sample count)
 ml_match_max_per_call: 999  # Allow all valid ML goals
 ml_match_position_tolerance: 0.05  # 5cm
 ml_match_angle_tolerance: 0.1      # ~5.7 degrees
-ml_match_angle_weight: 0.5
+ml_match_angle_weight: 1.0
 
 # Region Opening Specifics
 region_allow_collisions: true  # Important: allow "soft" collisions for opening
-region_max_chain_depth: 2
+region_max_chain_depth: 1
 region_max_solutions_per_neighbor: 10
 region_max_recorded_solutions_per_neighbor: 1
 region_frontier_beam_width: 1000
@@ -36,4 +36,5 @@ show_planning: false
 planning_delay: 0.1
 show_solution: prompt
 verbose: true  # Useful for debugging single runs
-preview_ml_goal_masks: 0  # Set to >0 to see ML output images
+preview_ml_goal_masks: 4  # Set to >0 to see ML output images
+preview_aligned_primitives: true  # Save visualization of ML-to-primitive alignment with execution order

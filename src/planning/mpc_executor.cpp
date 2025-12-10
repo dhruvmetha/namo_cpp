@@ -127,16 +127,13 @@ bool MPCExecutor::execute_primitive_step(
     for (int mpc_step = 0; mpc_step < plan_step.push_steps; mpc_step++) {
         // Check if robot goal became reachable during MPC
         if (has_robot_goal_ && is_robot_goal_reachable()) {
-            // std::cout << "Robot goal became reachable during MPC step " << mpc_step << std::endl;
             return true;
         }
-        
+
         // Check if object reached target
         if (is_object_at_target(object_name, plan_step.pose)) {
-            // std::cout << "Object reached target in MPC step " << mpc_step << std::endl;
             return true;
         }
-        
 
         bool edge_idx_reachable = false;
         std::vector<int> reachable_edges = get_reachable_edges_with_wavefront(object_name);
@@ -182,7 +179,6 @@ bool MPCExecutor::execute_primitive_step(
         if (is_object_stuck(object_name, previous_state)) {
             stuck_counter++;
             if (stuck_counter > max_stuck_iterations_) {
-                // std::cout << "Object stuck for " << stuck_counter << " iterations" << std::endl;
                 return false;
             }
         } else {
@@ -192,7 +188,6 @@ bool MPCExecutor::execute_primitive_step(
         previous_state = current_state;
     }
     
-    // std::cout << "MPC reached step limit without reaching target" << std::endl;
     return true;
 }
 

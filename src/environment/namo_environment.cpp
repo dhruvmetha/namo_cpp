@@ -18,9 +18,9 @@ NAMOEnvironment::NAMOEnvironment(const std::string& xml_path, bool visualize, bo
     sim_ = std::make_unique<OptimizedMujocoWrapper>(xml_path, visualize);
     sim_->initialize();
     
-    // Set reasonable camera defaults
+    // Set reasonable camera defaults (top-down view)
     sim_->set_camera_lookat({0.0, 0.0, 0.0});
-    sim_->set_camera_position(5.0, 90.0, -20.0);
+    sim_->set_camera_position(15.0, 0.0, -90.0);
     
     // Warm up simulation
     warm_up();
