@@ -72,6 +72,31 @@ class AttemptResult:
     solutions_total_for_neighbour: int = 0
     # Total pushes executed (env.step calls) for this neighbour during search
     pushes_total_for_neighbour: int = 0
+    # Failure tracking: categorize WHY there were 0 solutions/pushes
+    # Values:
+    #   "success"              - Found a valid opening (not a failure)
+    #   "already_accessible"   - Neighbor was already reachable (0 pushes needed)
+    #   "no_blocking_objects"  - No objects identified on the region edge
+    #   "no_reachable_objects" - Blocking objects exist but robot can't reach them
+    #   "ml_no_goals_extracted"- ML model produced 0 goals (mask extraction failed)
+    #   "ml_goals_not_aligned" - ML produced goals but none matched primitive slots
+    #   "no_reachable_edges"   - Goals aligned but none on edges robot can reach
+    #   "no_valid_goals"       - Fallback: goals existed but weren't tried
+    #   "all_pushes_failed"    - N pushes executed but none created opening
+    #   "timeout"              - Search timed out
+    failure_reason: Optional[str] = None
+    # ML goal generation stats (for debugging ML model quality)
+    ml_goals_generated: int = 0  # Raw ML goals before primitive alignment
+    ml_goals_aligned: int = 0    # ML goals that matched a primitive slot
+    reachable_edges_count: int = 0  # Number of reachable edges for the object
+    candidate_objects_count: int = 0  # Number of candidate blocking objects
+    # Detailed ML goal info (for analysis/visualization)
+    # Each entry: {'edge_idx': int, 'depth_idx': int, 'x': float, 'y': float, 'theta': float, 'votes': int}
+    aligned_primitives: Optional[List[Dict]] = None
+    # Raw ML goals before alignment: [{'x': float, 'y': float, 'theta': float}, ...]
+    ml_goals_raw: Optional[List[Dict]] = None
+    # List of reachable edge indices
+    reachable_edges: Optional[List[int]] = None
 
 
 class RegionOpeningPlanner(BasePlanner):
@@ -490,7 +515,8 @@ class RegionOpeningPlanner(BasePlanner):
                 total_cost=0,
                 skill_calls_before_success=0,
                 solutions_found_for_neighbour=0,
-                solutions_cap_for_neighbour=self.max_solutions_per_neighbor
+                solutions_cap_for_neighbour=self.max_solutions_per_neighbor,
+                failure_reason="already_accessible",
             )
             return [already_result]
 
@@ -504,21 +530,26 @@ class RegionOpeningPlanner(BasePlanner):
                 success=False,
                 neighbour_region_label=neighbour_label,
                 error_message="No blocking objects found",
-                timing_ms=(time.time() - attempt_start) * 1000
+                timing_ms=(time.time() - attempt_start) * 1000,
+                failure_reason="no_blocking_objects",
+                candidate_objects_count=0,
             )]
 
         # Intersect with reachable objects
         reachable = set(self.env.get_reachable_objects())
+        original_candidates_count = len(candidates)
         candidates = [obj for obj in candidates if obj in reachable]
 
         if not candidates:
             if self.config.verbose:
-                print(f"    ✗ '{neighbour_label}' - no reachable blocking objects")
+                print(f"    ✗ '{neighbour_label}' - no reachable blocking objects (had {original_candidates_count} blocking objects)")
             return [AttemptResult(
                 success=False,
                 neighbour_region_label=neighbour_label,
-                error_message="No reachable blocking objects",
-                timing_ms=(time.time() - attempt_start) * 1000
+                error_message=f"No reachable blocking objects (had {original_candidates_count} blocking)",
+                timing_ms=(time.time() - attempt_start) * 1000,
+                failure_reason="no_reachable_objects",
+                candidate_objects_count=original_candidates_count,
             )]
 
         # Print what we're attempting
@@ -530,6 +561,15 @@ class RegionOpeningPlanner(BasePlanner):
         all_goal_attempts = []
         solutions_remaining = self.max_solutions_per_neighbor
         total_solutions_collected = 0
+
+        # Track ML goal stats across all objects for failure analysis
+        total_ml_goals_generated = 0
+        total_ml_goals_aligned = 0
+        total_reachable_edges = 0
+        # Detailed info for analysis (accumulated across all objects)
+        all_aligned_primitives = []
+        all_ml_goals_raw = []
+        all_reachable_edges = set()
 
         # Try each candidate object with BFS search (already filtered for reachability)
         timed_out = False
@@ -562,6 +602,23 @@ class RegionOpeningPlanner(BasePlanner):
                 max_solutions_to_collect=solutions_remaining,
                 push_counter=neighbour_push_counter,
             )
+
+            # Accumulate ML goal stats from goal_sampler (if it supports get_last_goal_stats)
+            if hasattr(self.goal_sampler, 'get_last_goal_stats'):
+                stats = self.goal_sampler.get_last_goal_stats()
+                total_ml_goals_generated += stats.get('ml_goals_generated', 0)
+                total_ml_goals_aligned += stats.get('ml_goals_aligned', 0)
+                total_reachable_edges += stats.get('reachable_edges_count', 0)
+                # Accumulate detailed info (tag with object_id for multi-object analysis)
+                for p in stats.get('aligned_primitives', []):
+                    p_with_obj = dict(p)
+                    p_with_obj['object_id'] = object_id
+                    all_aligned_primitives.append(p_with_obj)
+                for g in stats.get('ml_goals_raw', []):
+                    g_with_obj = dict(g)
+                    g_with_obj['object_id'] = object_id
+                    all_ml_goals_raw.append(g_with_obj)
+                all_reachable_edges.update(stats.get('reachable_edges', []))
 
             if successful_goals:
                 if self.config.verbose:
@@ -600,11 +657,19 @@ class RegionOpeningPlanner(BasePlanner):
                             exploration_state=exploration_state,
                             resulting_state=resulting_state,
                             exploration_level=exploration_level,
-                                timing_ms=per_goal_timing_ms,
+                            timing_ms=per_goal_timing_ms,
                             total_cost=total_cost,
                             skill_calls_before_success=skill_calls_before_success,
                             solutions_found_for_neighbour=total_solutions_collected,
-                            solutions_cap_for_neighbour=self.max_solutions_per_neighbor
+                            solutions_cap_for_neighbour=self.max_solutions_per_neighbor,
+                            failure_reason="success",
+                            candidate_objects_count=len(candidates),
+                            ml_goals_generated=total_ml_goals_generated,
+                            ml_goals_aligned=total_ml_goals_aligned,
+                            reachable_edges_count=total_reachable_edges,
+                            aligned_primitives=all_aligned_primitives if all_aligned_primitives else None,
+                            ml_goals_raw=all_ml_goals_raw if all_ml_goals_raw else None,
+                            reachable_edges=sorted(list(all_reachable_edges)) if all_reachable_edges else None,
                         ))
                         # Verbose: print running count of solutions for this neighbour
                         if self.config.verbose:
@@ -635,11 +700,19 @@ class RegionOpeningPlanner(BasePlanner):
                             exploration_state=exploration_state,
                             resulting_state=resulting_state,
                             exploration_level=exploration_level,
-                                timing_ms=per_goal_timing_ms,
+                            timing_ms=per_goal_timing_ms,
                             total_cost=total_cost,
                             skill_calls_before_success=skill_calls_before_success,
                             solutions_found_for_neighbour=total_solutions_collected,
-                            solutions_cap_for_neighbour=self.max_solutions_per_neighbor
+                            solutions_cap_for_neighbour=self.max_solutions_per_neighbor,
+                            failure_reason="success",
+                            candidate_objects_count=len(candidates),
+                            ml_goals_generated=total_ml_goals_generated,
+                            ml_goals_aligned=total_ml_goals_aligned,
+                            reachable_edges_count=total_reachable_edges,
+                            aligned_primitives=all_aligned_primitives if all_aligned_primitives else None,
+                            ml_goals_raw=all_ml_goals_raw if all_ml_goals_raw else None,
+                            reachable_edges=sorted(list(all_reachable_edges)) if all_reachable_edges else None,
                         ))
                         # Verbose: print running count of solutions for this neighbour
                         if self.config.verbose:
@@ -661,10 +734,30 @@ class RegionOpeningPlanner(BasePlanner):
             return all_goal_attempts
         else:
             # No successful opening found from any object
+            pushes_executed = neighbour_push_counter.get("count", 0)
             if timed_out:
                 error_msg = f"Timeout after {self.timeout_per_neighbour_sec}s"
+                failure_reason = "timeout"
+            elif pushes_executed > 0:
+                # Pushes were executed but all failed to create opening
+                error_msg = f"Tried {len(candidates)} objects, {pushes_executed} pushes, none succeeded"
+                failure_reason = "all_pushes_failed"
+            elif total_ml_goals_generated == 0:
+                # ML model produced no goals at all (extraction failed)
+                error_msg = f"Tried {len(candidates)} objects, ML produced 0 goals"
+                failure_reason = "ml_no_goals_extracted"
+            elif total_ml_goals_aligned == 0:
+                # ML produced goals but none aligned to any primitives
+                error_msg = f"Tried {len(candidates)} objects, ML produced {total_ml_goals_generated} goals but 0 aligned to primitives"
+                failure_reason = "ml_goals_not_aligned"
+            elif total_reachable_edges == 0:
+                # Goals aligned but none on reachable edges
+                error_msg = f"Tried {len(candidates)} objects, {total_ml_goals_aligned} aligned but 0 reachable edges"
+                failure_reason = "no_reachable_edges"
             else:
-                error_msg = f"Tried {len(candidates)} objects, none succeeded"
+                # Fallback: goals existed but weren't tried for some other reason
+                error_msg = f"Tried {len(candidates)} objects, no valid goals found (0 pushes, {total_ml_goals_generated} ML, {total_ml_goals_aligned} aligned)"
+                failure_reason = "no_valid_goals"
             if self.config.verbose:
                 print(f"      ✗ {error_msg}")
             return [AttemptResult(
@@ -674,7 +767,15 @@ class RegionOpeningPlanner(BasePlanner):
                 connectivity_before=conn_before,
                 timing_ms=(time.time() - attempt_start) * 1000,
                 solutions_total_for_neighbour=total_solutions_collected,
-                pushes_total_for_neighbour=neighbour_push_counter.get("count", 0),
+                pushes_total_for_neighbour=pushes_executed,
+                failure_reason=failure_reason,
+                candidate_objects_count=len(candidates),
+                ml_goals_generated=total_ml_goals_generated,
+                ml_goals_aligned=total_ml_goals_aligned,
+                reachable_edges_count=total_reachable_edges,
+                aligned_primitives=all_aligned_primitives if all_aligned_primitives else None,
+                ml_goals_raw=all_ml_goals_raw if all_ml_goals_raw else None,
+                reachable_edges=sorted(list(all_reachable_edges)) if all_reachable_edges else None,
             )]
 
     def _collect_chain_observations(

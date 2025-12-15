@@ -350,6 +350,59 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
         # Store last alignment result for visualization
         self._last_alignment_info = None
 
+    def get_last_goal_stats(self) -> dict:
+        """Return stats from the last generate_goals call for failure tracking.
+
+        Returns:
+            dict with:
+                - ml_goals_generated: number of raw ML goals before alignment
+                - ml_goals_aligned: number of unique primitive slots that got votes
+                - reachable_edges_count: number of edges robot can reach (if available)
+                - aligned_primitives: list of dicts with edge_idx, depth_idx, x, y, theta, votes
+                - ml_goals_raw: list of dicts with x, y, theta for each ML goal
+                - reachable_edges: list of reachable edge indices
+        """
+        if self._last_alignment_info is None:
+            return {
+                'ml_goals_generated': 0,
+                'ml_goals_aligned': 0,
+                'reachable_edges_count': 0,
+                'aligned_primitives': [],
+                'ml_goals_raw': [],
+                'reachable_edges': [],
+            }
+
+        # Convert aligned primitives to serializable format
+        aligned_primitives = []
+        for p in self._last_alignment_info.get('aligned_primitives', []):
+            goal = p.get('goal')
+            aligned_primitives.append({
+                'edge_idx': p.get('edge_idx'),
+                'depth_idx': p.get('depth_idx'),
+                'x': goal.x if goal else None,
+                'y': goal.y if goal else None,
+                'theta': goal.theta if goal else None,
+                'votes': p.get('votes', 0),
+            })
+
+        # Convert ML goals to serializable format
+        ml_goals_raw = []
+        for g in self._last_alignment_info.get('ml_goals', []):
+            ml_goals_raw.append({
+                'x': g.x,
+                'y': g.y,
+                'theta': g.theta,
+            })
+
+        return {
+            'ml_goals_generated': self._last_alignment_info.get('total_ml_goals', 0),
+            'ml_goals_aligned': self._last_alignment_info.get('total_aligned', 0),
+            'reachable_edges_count': len(self._last_alignment_info.get('reachable_edges', set())),
+            'aligned_primitives': aligned_primitives,
+            'ml_goals_raw': ml_goals_raw,
+            'reachable_edges': sorted(list(self._last_alignment_info.get('reachable_edges', set()))),
+        }
+
     def generate_goals(
         self,
         object_id: str,

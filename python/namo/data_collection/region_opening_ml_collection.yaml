@@ -8,7 +8,7 @@
 ##     --start-idx 0 --end-idx 100
 
 # Core execution
-output_dir: /common/users/dm1487/namo_data/outputs/diffusion/2025-12-04/12-13-17/results_64samples_1
+output_dir: /common/users/dm1487/namo_data/outputs/diffusion_corrected_overlaps/2025-12-10/14-18-57/results_32samples_train_with_ml_goals
 start_idx: 0
 end_idx: 6000
 algorithm: region_opening
@@ -31,9 +31,9 @@ region_max_recorded_solutions_per_neighbor: 1
 
 # Goal sampler configuration
 goal_sampler: ml
-ml_goal_model: /common/users/dm1487/namo_data/outputs/diffusion/2025-12-04/12-13-17
+ml_goal_model: /common/users/dm1487/namo_data/outputs/diffusion_corrected_overlaps/2025-12-10/14-18-57
 ml_device: cuda  # Use "cuda" (respects CUDA_VISIBLE_DEVICES) or "cuda:0", "cuda:1", etc.
-ml_samples: 64  # Increased from 32 for better ML goal coverage
+ml_samples: 32  # Increased from 32 for better ML goal coverage
 ml_min_goals: 1
 ml_match_position_tolerance: 0.05   # meters (tightened from 0.2)
 ml_match_angle_tolerance: 0.1       # radians ~5.7° (tightened from 0.35)
@@ -47,7 +47,7 @@ preview_aligned_primitives: false  # Save visualization of ML-to-primitive align
 # Paths
 xml_dir: /common/home/dm1487/robotics_research/ktamp/ml4kp_ktamp/resources/models/custom_walled_envs/aug9/medium
 config_file: config/namo_config_complete_skill15.yaml
-manifest: /common/users/shared/robot_learning/dm1487/namo/manifests/aug9_medium/manifest.txt  # Pre-generated file list for fast loading (use generate_xml_manifest.py)
+manifest: /common/users/shared/robot_learning/dm1487/namo/manifests/aug9_medium/manifest_1push_train_hard.txt  # Pre-generated file list for fast loading (use generate_xml_manifest.py)
 
 # Optional pipeline features
 verbose: false

@@ -228,6 +228,19 @@ def process_single_environment(
                                 'solutions_cap_for_neighbour': getattr(attempt, 'solutions_cap_for_neighbour', None),
                                 'solutions_total_for_neighbour': getattr(attempt, 'solutions_total_for_neighbour', None),
                                 'pushes_total_for_neighbour': getattr(attempt, 'pushes_total_for_neighbour', None),
+                                # Failure tracking for counting different failure modes
+                                'failure_reason': getattr(attempt, 'failure_reason', None),
+                                'candidate_objects_count': getattr(attempt, 'candidate_objects_count', None),
+                                'ml_goals_generated': getattr(attempt, 'ml_goals_generated', None),
+                                'ml_goals_aligned': getattr(attempt, 'ml_goals_aligned', None),
+                                'reachable_edges_count': getattr(attempt, 'reachable_edges_count', None),
+                                # Detailed ML goal info for analysis/visualization
+                                # aligned_primitives: [{'object_id', 'edge_idx', 'depth_idx', 'x', 'y', 'theta', 'votes'}, ...]
+                                'aligned_primitives': getattr(attempt, 'aligned_primitives', None),
+                                # ml_goals_raw: [{'object_id', 'x', 'y', 'theta'}, ...]
+                                'ml_goals_raw': getattr(attempt, 'ml_goals_raw', None),
+                                # reachable_edges: [edge_idx, ...]
+                                'reachable_edges': getattr(attempt, 'reachable_edges', None),
                             },
                             action_sequence=action_sequence,
                             state_observations=attempt.state_observations,
@@ -301,10 +314,29 @@ def process_single_environment(
         episodes_before_filtering = len(episode_results)
         episodes_filtered_out = 0
 
-        # Filter out episodes with empty action sequences (robot already at goal)
-        # These episodes are successful but provide no useful training data
+        # Filter out episodes with empty action sequences EXCEPT for trackable failure cases
+        # We keep:
+        #   - "already_accessible": neighbor was reachable before any push (0 pushes, 0 solutions - trackable)
+        #   - "no_blocking_objects", "no_reachable_objects", "no_valid_goals": failure modes we want to count
+        #   - Any failure (solution_found=False): always keep for analysis
+        # We filter out:
+        #   - Only true "trivial successes" that have no failure_reason tracking
+        def should_keep_episode(ep):
+            # Always keep failures
+            if not ep.solution_found:
+                return True
+            # Always keep if there's an actual action sequence
+            if ep.action_sequence and len(ep.action_sequence) > 0:
+                return True
+            # Keep if it has a tracked failure_reason (for counting later)
+            failure_reason = ep.algorithm_stats.get('failure_reason') if ep.algorithm_stats else None
+            if failure_reason is not None:
+                return True
+            # Filter out true trivial successes (no action, no failure_reason)
+            return False
+
         initial_count = len(episode_results)
-        episode_results = [ep for ep in episode_results if not (ep.solution_found and (not ep.action_sequence or len(ep.action_sequence) == 0))]
+        episode_results = [ep for ep in episode_results if should_keep_episode(ep)]
         empty_action_filtered = initial_count - len(episode_results)
         episodes_filtered_out += empty_action_filtered
 

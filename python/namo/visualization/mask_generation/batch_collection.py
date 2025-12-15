@@ -1073,7 +1073,13 @@ def main():
     print(f"Total episodes found: {total_episodes}")
     print(f"Valid episodes processed: {total_processed}")
     if args.filter_overlaps:
-        print(f"Episodes skipped (overlap): {len(all_skipped_episodes)}")
+        num_skipped = len(all_skipped_episodes)
+        total_before_filter = total_processed + num_skipped
+        if total_before_filter > 0:
+            skip_pct = num_skipped / total_before_filter * 100
+            print(f"Episodes skipped (overlap): {num_skipped} ({skip_pct:.1f}%)")
+        else:
+            print(f"Episodes skipped (overlap): {num_skipped}")
     if total_episodes > 0:
         print(f"Success rate: {total_processed/total_episodes*100:.1f}%")
     else:

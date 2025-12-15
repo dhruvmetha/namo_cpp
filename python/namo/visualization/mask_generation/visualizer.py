@@ -820,6 +820,12 @@ class NAMODataVisualizer:
             # Store as goal_mask_a{action_idx}
             masks[f'goal_mask_a{action_idx}'] = goal_mask
 
+        # Always generate at least 2 goal horizons for consistent dataset schema
+        min_goal_horizons = 2
+        for action_idx in range(1, min_goal_horizons + 1):
+            if f'goal_mask_a{action_idx}' not in masks:
+                masks[f'goal_mask_a{action_idx}'] = np.zeros((self.IMG_SIZE, self.IMG_SIZE), dtype=np.float32)
+
         return masks
 
     def generate_local_episode_masks(self, episode_data: Dict[str, Any],
@@ -1138,7 +1144,10 @@ class NAMODataVisualizer:
         }
 
         # Initialize multi-horizon goal masks (goal_mask_a1, goal_mask_a2, ...)
-        for action_idx in range(1, len(action_sequence) + 1):
+        # Always generate at least 2 goal horizons for consistent dataset schema
+        min_goal_horizons = 2
+        num_goal_horizons = max(min_goal_horizons, len(action_sequence))
+        for action_idx in range(1, num_goal_horizons + 1):
             highres[f'goal_mask_a{action_idx}'] = np.zeros((highres_size, highres_size), dtype=np.float32)
 
         # 1. Draw static objects (walls)
@@ -1397,7 +1406,10 @@ class NAMODataVisualizer:
             # For local, we want: target_object, target_goal, static, movable, robot_region, goal_sample_region
             local_mask_names = ['target_object', 'target_goal', 'static', 'movable', 'robot_region', 'goal_sample_region']
             # Add multi-horizon goal masks (goal_mask_a1, goal_mask_a2, ...)
-            for action_idx in range(1, len(action_sequence) + 1):
+            # Always include at least 2 goal horizons for consistent dataset schema
+            min_goal_horizons = 2
+            num_goal_horizons = max(min_goal_horizons, len(action_sequence))
+            for action_idx in range(1, num_goal_horizons + 1):
                 local_mask_names.append(f'goal_mask_a{action_idx}')
             for name in local_mask_names:
                 hr_mask = highres[name]
