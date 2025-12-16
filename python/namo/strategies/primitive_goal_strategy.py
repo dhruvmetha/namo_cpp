@@ -297,7 +297,7 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
         primitive_data_dir: str = "data",
         samples: int = 32,
         device: str = "cuda",
-        match_position_tolerance: float = 0.05,
+        match_position_tolerance: float = 0.1,
         match_angle_tolerance: float = 0.1,
         angle_weight: float = 0.5,
         max_matches: int = 8,
@@ -307,6 +307,7 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
         preview_mask_count: int = 0,
         preloaded_model = None,
         preview_aligned_primitives: bool = False,
+        k_nearest: int = 1,
     ):
         """
         Args:
@@ -323,6 +324,7 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             preview_mask_count: Number of ML goal masks to preview (0 disables).
             preloaded_model: Optional preloaded GoalInferenceModel to avoid reloading.
             preview_aligned_primitives: If True, save visualization of aligned primitives.
+            k_nearest: Number of nearest primitive slots to vote for per ML goal (within tolerance). Default: 1.
         """
         self.verbose = verbose
         self.max_matches = max_matches
@@ -330,6 +332,7 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
         self.match_angle_tolerance = match_angle_tolerance
         self.angle_weight = angle_weight
         self.preview_aligned_primitives = preview_aligned_primitives
+        self.k_nearest = k_nearest
 
         self._primitive_strategy = PrimitiveGoalStrategy(
             data_dir=primitive_data_dir,
@@ -440,6 +443,7 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             print(f"  ML goals received: {len(ml_goals)}")
             print(f"  Max matches allowed: {self.max_matches}")
             print(f"  Position tolerance: {self.match_position_tolerance}m, Angle tolerance: {self.match_angle_tolerance} rad")
+            print(f"  K-nearest neighbors: {self.k_nearest}")
 
         if not ml_goals:
             if self.verbose:
@@ -452,41 +456,40 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
         skipped_due_to_tolerance = 0
 
         for ml_goal_idx, ml_goal in enumerate(ml_goals):
-            best_slot = None
-            best_score = None
-            candidates_checked = 0
+            # Collect all slots within tolerance with their scores
+            candidates_within_tolerance = []
 
             for slot_id, (edge_idx, depth_idx, primitive_goal) in enumerate(slot_metadata):
-                candidates_checked += 1
                 pos_err, ang_err = self._goal_error(primitive_goal, ml_goal)
 
-                # Removed tolerance check: always find the closest primitive
-                # if pos_err > self.match_position_tolerance or ang_err > self.match_angle_tolerance:
-                #     continue
+                # Filter by tolerance - only consider slots within both thresholds
+                if pos_err > self.match_position_tolerance or ang_err > self.match_angle_tolerance:
+                    continue
 
                 score = pos_err + self.angle_weight * ang_err
-                if best_score is None or score < best_score:
-                    best_score = score
-                    best_slot = (slot_id, edge_idx, depth_idx)
+                candidates_within_tolerance.append((score, slot_id, edge_idx, depth_idx))
 
-            if best_slot is None:
-                # Should theoretically not happen if slots exist
+            if not candidates_within_tolerance:
                 skipped_due_to_tolerance += 1
                 if self.verbose and ml_goal_idx < 5:  # Show first 5 skipped goals
-                    print(f"    ⊗ ML goal {ml_goal_idx}: ({ml_goal.x:.3f}, {ml_goal.y:.3f}, {ml_goal.theta:.3f}) - No slot found (unexpected)")
+                    print(f"    ⊗ ML goal {ml_goal_idx}: ({ml_goal.x:.3f}, {ml_goal.y:.3f}, {ml_goal.theta:.3f}) - No slots within tolerance")
                 continue
 
-            slot_id, edge_idx, depth_idx = best_slot
-            
-            # Accumulate votes
-            acc = slot_accumulators[slot_id]
-            acc["count"] += 1
-            
-            if "goal" not in acc:
-                 # Retrieve the correct primitive goal from metadata using slot_id
-                 # (Do not use the loop variable 'primitive_goal' which is stale/incorrect here)
-                 _, _, correct_primitive_goal = slot_metadata[slot_id]
-                 acc["goal"] = correct_primitive_goal
+            # Sort by score (ascending) and take top-k
+            candidates_within_tolerance.sort(key=lambda x: x[0])
+            top_k_candidates = candidates_within_tolerance[:self.k_nearest]
+
+            # Vote for each of the k-nearest slots
+            for score, slot_id, edge_idx, depth_idx in top_k_candidates:
+                acc = slot_accumulators[slot_id]
+                acc["count"] += 1
+
+                if "goal" not in acc:
+                    # Retrieve the correct primitive goal from metadata using slot_id
+                    _, _, correct_primitive_goal = slot_metadata[slot_id]
+                    acc["goal"] = correct_primitive_goal
+
+            matches += 1  # Count ML goals that had at least one match
 
         # Construct aligned goals from accumulators
         for slot_id, data in slot_accumulators.items():
@@ -770,3 +773,294 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
     @property
     def strategy_name(self) -> str:
         return "ML Primitive Aligned Goal Generation"
+
+
+class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
+    """ML-first goal selection with full primitive fallback.
+
+    This strategy combines ML goal prediction with complete primitive coverage:
+    1. Generate ALL primitives (60 edges × 10 depths = 600 goals)
+    2. Run ML inference to get goal samples
+    3. Align ML goals to primitives, accumulating votes
+    4. Return FULL grid where:
+       - ML-aligned slots have score = vote_count (tried first)
+       - Non-ML slots have score = 0 (fallback, tried after ML goals)
+
+    Execution order: sorted by (-score, depth) so high-confidence ML goals
+    are tried first, then fallback primitives ordered by depth.
+    """
+
+    def __init__(
+        self,
+        goal_model_path: str,
+        primitive_data_dir: str = "data",
+        samples: int = 32,
+        device: str = "cuda",
+        match_position_tolerance: float = 0.1,
+        match_angle_tolerance: float = 0.1,
+        angle_weight: float = 0.5,
+        max_matches: int = 8,
+        verbose: bool = False,
+        min_goals_threshold: int = 1,
+        xml_path: str = None,
+        preview_mask_count: int = 0,
+        preloaded_model=None,
+        preview_aligned_primitives: bool = False,
+        k_nearest: int = 1,
+    ):
+        """
+        Args:
+            goal_model_path: Path to Hydra output directory with trained diffusion model.
+            primitive_data_dir: Directory with primitive lookup files.
+            samples: Number of diffusion samples to request per inference.
+            device: Torch device for the loaded model.
+            match_position_tolerance: Max positional error (meters) for ML-to-primitive matching.
+            match_angle_tolerance: Max angular error (radians) for ML-to-primitive matching.
+            angle_weight: Weight for angular error when ranking candidate slots.
+            max_matches: Maximum number of ML goals to align per call.
+            verbose: Enable debug output.
+            min_goals_threshold: Minimum ML goals required before accepting inference result.
+            xml_path: XML file path for ML model context.
+            preview_mask_count: Number of ML goal masks to preview (0 disables).
+            preloaded_model: Optional preloaded GoalInferenceModel to avoid reloading.
+            preview_aligned_primitives: If True, save visualization of aligned primitives.
+            k_nearest: Number of nearest primitive slots to vote for per ML goal.
+        """
+        self.verbose = verbose
+        self.max_matches = max_matches
+        self.match_position_tolerance = match_position_tolerance
+        self.match_angle_tolerance = match_angle_tolerance
+        self.angle_weight = angle_weight
+        self.preview_aligned_primitives = preview_aligned_primitives
+        self.k_nearest = k_nearest
+
+        self._primitive_strategy = PrimitiveGoalStrategy(
+            data_dir=primitive_data_dir,
+            verbose=verbose
+        )
+        self._ml_strategy = MLGoalSelectionStrategy(
+            goal_model_path=goal_model_path,
+            samples=samples,
+            device=device,
+            min_goals_threshold=min_goals_threshold,
+            verbose=verbose,
+            xml_path=xml_path,
+            preview_mask_count=preview_mask_count,
+            preloaded_model=preloaded_model
+        )
+        self._default_ml_samples = samples
+
+        # Store last alignment result for stats/visualization
+        self._last_alignment_info = None
+
+    def get_last_goal_stats(self) -> dict:
+        """Return stats from the last generate_goals call for failure tracking."""
+        if self._last_alignment_info is None:
+            return {
+                'ml_goals_generated': 0,
+                'ml_goals_aligned': 0,
+                'reachable_edges_count': 0,
+                'aligned_primitives': [],
+                'ml_goals_raw': [],
+                'reachable_edges': [],
+                'fallback_primitives_count': 0,
+            }
+
+        aligned_primitives = []
+        for p in self._last_alignment_info.get('aligned_primitives', []):
+            goal = p.get('goal')
+            aligned_primitives.append({
+                'edge_idx': p.get('edge_idx'),
+                'depth_idx': p.get('depth_idx'),
+                'x': goal.x if goal else None,
+                'y': goal.y if goal else None,
+                'theta': goal.theta if goal else None,
+                'votes': p.get('votes', 0),
+            })
+
+        ml_goals_raw = []
+        for g in self._last_alignment_info.get('ml_goals', []):
+            ml_goals_raw.append({
+                'x': g.x,
+                'y': g.y,
+                'theta': g.theta,
+            })
+
+        return {
+            'ml_goals_generated': self._last_alignment_info.get('total_ml_goals', 0),
+            'ml_goals_aligned': self._last_alignment_info.get('total_aligned', 0),
+            'reachable_edges_count': len(self._last_alignment_info.get('reachable_edges', set())),
+            'aligned_primitives': aligned_primitives,
+            'ml_goals_raw': ml_goals_raw,
+            'reachable_edges': sorted(list(self._last_alignment_info.get('reachable_edges', set()))),
+            'fallback_primitives_count': self._last_alignment_info.get('fallback_count', 0),
+        }
+
+    def generate_goals(
+        self,
+        object_id: str,
+        state: namo_rl.RLState,
+        env: namo_rl.RLEnvironment,
+        max_goals: int
+    ) -> List[List[Goal]]:
+        """Generate goals with ML prioritization and full primitive fallback.
+
+        Returns a full grid (60 edges × 10 depths) where:
+        - ML-aligned slots have score = vote_count (positive)
+        - Non-ML slots have score = 0 (fallback)
+        """
+        # Phase 1: Generate ALL primitives
+        primitive_goals = self._primitive_strategy.generate_goals(
+            object_id, state, env, max_goals
+        )
+
+        if not primitive_goals:
+            return []
+
+        num_edges = len(primitive_goals)
+        max_depth = len(primitive_goals[0]) if primitive_goals[0] else 0
+
+        # Phase 2: Initialize output grid with all primitives (score=0)
+        # Copy primitive goals with score=0 as fallback
+        output_goals: List[List[Goal]] = []
+        for edge_idx, edge_goals in enumerate(primitive_goals):
+            edge_output = []
+            for depth_idx, goal in enumerate(edge_goals):
+                # Create new Goal with score=0 (fallback)
+                fallback_goal = Goal(
+                    x=goal.x,
+                    y=goal.y,
+                    theta=goal.theta,
+                    score=0.0  # Fallback priority
+                )
+                edge_output.append(fallback_goal)
+            output_goals.append(edge_output)
+
+        # Phase 3: Run ML inference
+        ml_goal_budget = max_goals if max_goals > 0 else self._default_ml_samples
+        ml_goals = self._ml_strategy.generate_goals(
+            object_id, state, env, ml_goal_budget
+        )
+
+        if self.verbose:
+            print(f"🎯 ML-Primitive Fallback for {object_id}:")
+            print(f"   Primitive grid: {num_edges} edges × {max_depth} depths = {num_edges * max_depth} total")
+            print(f"   ML goals received: {len(ml_goals)}")
+
+        # Phase 4: Align ML goals to primitives and update scores
+        slot_metadata = self._build_slot_metadata(primitive_goals)
+        slot_votes: Dict[int, int] = defaultdict(int)  # slot_id -> vote count
+        aligned_count = 0
+        skipped_tolerance = 0
+
+        for ml_goal in ml_goals:
+            # Find slots within tolerance
+            candidates_within_tolerance = []
+
+            for slot_id, (edge_idx, depth_idx, primitive_goal) in enumerate(slot_metadata):
+                pos_err, ang_err = self._goal_error(primitive_goal, ml_goal)
+
+                if pos_err > self.match_position_tolerance or ang_err > self.match_angle_tolerance:
+                    continue
+
+                score = pos_err + self.angle_weight * ang_err
+                candidates_within_tolerance.append((score, slot_id, edge_idx, depth_idx))
+
+            if not candidates_within_tolerance:
+                skipped_tolerance += 1
+                continue
+
+            # Vote for top-k nearest slots
+            candidates_within_tolerance.sort(key=lambda x: x[0])
+            top_k = candidates_within_tolerance[:self.k_nearest]
+
+            for score, slot_id, edge_idx, depth_idx in top_k:
+                slot_votes[slot_id] += 1
+
+            aligned_count += 1
+
+        # Phase 5: Update output grid with ML vote scores
+        ml_aligned_slots = 0
+        for slot_id, votes in slot_votes.items():
+            edge_idx, depth_idx, _ = slot_metadata[slot_id]
+            # Update the goal's score to vote count
+            old_goal = output_goals[edge_idx][depth_idx]
+            output_goals[edge_idx][depth_idx] = Goal(
+                x=old_goal.x,
+                y=old_goal.y,
+                theta=old_goal.theta,
+                score=float(votes)  # ML priority based on votes
+            )
+            ml_aligned_slots += 1
+
+        fallback_count = num_edges * max_depth - ml_aligned_slots
+
+        if self.verbose:
+            print(f"   ML-aligned slots: {ml_aligned_slots} (score > 0)")
+            print(f"   Fallback slots: {fallback_count} (score = 0)")
+            if skipped_tolerance > 0:
+                print(f"   ML goals outside tolerance: {skipped_tolerance}")
+
+        # Store alignment info for stats
+        aligned_primitives_info = []
+        for slot_id, votes in slot_votes.items():
+            edge_idx, depth_idx, _ = slot_metadata[slot_id]
+            goal = output_goals[edge_idx][depth_idx]
+            aligned_primitives_info.append({
+                'edge_idx': edge_idx,
+                'depth_idx': depth_idx,
+                'goal': goal,
+                'votes': votes
+            })
+        aligned_primitives_info.sort(key=lambda x: x['votes'], reverse=True)
+
+        # Get reachable edges for stats
+        reachable_edges = set()
+        try:
+            env.set_full_state(state)
+            reachable_edges = set(env.get_reachable_edges(object_id))
+        except Exception:
+            pass
+
+        self._last_alignment_info = {
+            'object_id': object_id,
+            'aligned_primitives': aligned_primitives_info,
+            'ml_goals': ml_goals,
+            'total_ml_goals': len(ml_goals),
+            'total_aligned': ml_aligned_slots,
+            'reachable_edges': reachable_edges,
+            'fallback_count': fallback_count,
+        }
+
+        return output_goals
+
+    def _build_slot_metadata(self, primitive_goals: List[List[Goal]]) -> List[Tuple[int, int, Goal]]:
+        """Build flat list of (edge_idx, depth_idx, goal) for all primitive slots."""
+        slots = []
+        for edge_idx, edge_goals in enumerate(primitive_goals):
+            for depth_idx, goal in enumerate(edge_goals):
+                slots.append((edge_idx, depth_idx, goal))
+        return slots
+
+    @staticmethod
+    def _goal_error(primitive_goal: Goal, ml_goal: Goal) -> Tuple[float, float]:
+        """Compute position and angle error between primitive and ML goal."""
+        pos_err = math.hypot(
+            primitive_goal.x - ml_goal.x,
+            primitive_goal.y - ml_goal.y
+        )
+        ang_err = abs(MLPrimitiveFallbackStrategy._wrap_angle(primitive_goal.theta - ml_goal.theta))
+        return pos_err, ang_err
+
+    @staticmethod
+    def _wrap_angle(theta: float) -> float:
+        """Wrap angle to [-pi, pi]."""
+        while theta > math.pi:
+            theta -= 2 * math.pi
+        while theta < -math.pi:
+            theta += 2 * math.pi
+        return theta
+
+    @property
+    def strategy_name(self) -> str:
+        return "ML Primitive Fallback Goal Generation"

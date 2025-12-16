@@ -19,7 +19,7 @@ DEFAULT_CAMERA_AZIMUTH = 0.0
 DEFAULT_CAMERA_ELEVATION = -90.0
 from namo.core import BasePlanner, PlannerConfig, PlannerResult
 from namo.planners import snapshot_region_connectivity, find_robot_label
-from namo.strategies import PrimitiveGoalStrategy, Goal, MLPrimitiveGoalStrategy
+from namo.strategies import PrimitiveGoalStrategy, Goal, MLPrimitiveGoalStrategy, MLPrimitiveFallbackStrategy
 
 
 @dataclass
@@ -194,8 +194,8 @@ class RegionOpeningPlanner(BasePlanner):
                 primitive_data_dir=primitive_data_dir,
                 samples=algo_params.get("ml_samples", 32),
                 device=algo_params.get("ml_device", "cuda"),
-                match_position_tolerance=algo_params.get("ml_match_position_tolerance", 0.2),
-                match_angle_tolerance=algo_params.get("ml_match_angle_tolerance", 0.35),
+                match_position_tolerance=algo_params.get("ml_match_position_tolerance", 0.1),
+                match_angle_tolerance=algo_params.get("ml_match_angle_tolerance", 0.1),
                 angle_weight=algo_params.get("ml_match_angle_weight", 0.5),
                 max_matches=algo_params.get("ml_match_max_per_call", 8),
                 verbose=self.config.verbose,
@@ -204,8 +204,32 @@ class RegionOpeningPlanner(BasePlanner):
                 preview_mask_count=algo_params.get("preview_ml_goal_masks", 0),
                 preloaded_model=algo_params.get("preloaded_goal_model"),
                 preview_aligned_primitives=algo_params.get("preview_aligned_primitives", False),
+                k_nearest=algo_params.get("ml_k_nearest", 1),
             )
             self._debug("▶ Using ML-aligned primitive goal sampler")
+        elif sampler_name and sampler_name.lower() in {"ml_fallback", "ml_primitive_fallback"}:
+            ml_path = algo_params.get("ml_goal_model_path")
+            if not ml_path:
+                raise ValueError("ML fallback goal sampler requires 'ml_goal_model_path'")
+
+            self.goal_sampler = MLPrimitiveFallbackStrategy(
+                goal_model_path=ml_path,
+                primitive_data_dir=primitive_data_dir,
+                samples=algo_params.get("ml_samples", 32),
+                device=algo_params.get("ml_device", "cuda"),
+                match_position_tolerance=algo_params.get("ml_match_position_tolerance", 0.1),
+                match_angle_tolerance=algo_params.get("ml_match_angle_tolerance", 0.1),
+                angle_weight=algo_params.get("ml_match_angle_weight", 0.5),
+                max_matches=algo_params.get("ml_match_max_per_call", 8),
+                verbose=self.config.verbose,
+                min_goals_threshold=algo_params.get("ml_min_goals", 1),
+                xml_path=algo_params.get("xml_file"),
+                preview_mask_count=algo_params.get("preview_ml_goal_masks", 0),
+                preloaded_model=algo_params.get("preloaded_goal_model"),
+                preview_aligned_primitives=algo_params.get("preview_aligned_primitives", False),
+                k_nearest=algo_params.get("ml_k_nearest", 1),
+            )
+            self._debug("▶ Using ML-first with primitive fallback goal sampler")
         else:
             # Use primitive goal strategy for push goals
             self.goal_sampler = PrimitiveGoalStrategy(

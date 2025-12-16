@@ -85,7 +85,7 @@ def preload_ml_models(config: ModularCollectionConfig) -> Tuple[Optional[Any], O
 
     # Check if ML is used
     use_ml_object = algo_params.get("object_selection_strategy") == "ml"
-    use_ml_goal = (algo_params.get("goal_sampler") in ["ml", "ml_primitive"] or
+    use_ml_goal = (algo_params.get("goal_sampler") in ["ml", "ml_primitive", "ml_fallback", "ml_primitive_fallback"] or
                    algo_params.get("goal_selection_strategy") == "ml")
     
     if use_ml_object:
@@ -575,12 +575,13 @@ def main():
     parser.add_argument("--ml-device", type=str, default="cuda")
     parser.add_argument("--ml-samples", type=int, default=32)
     parser.add_argument("--ml-min-goals", type=int, default=1)
-    parser.add_argument("--ml-match-position-tolerance", type=float, default=0.2)
-    parser.add_argument("--ml-match-angle-tolerance", type=float, default=0.35)
+    parser.add_argument("--ml-match-position-tolerance", type=float, default=0.1)
+    parser.add_argument("--ml-match-angle-tolerance", type=float, default=0.1)
     parser.add_argument("--ml-match-angle-weight", type=float, default=0.5)
     parser.add_argument("--ml-match-max-per-call", type=int, default=8)
     parser.add_argument("--ml-sampler-method", type=str, default=None, help="Override sampler: euler, midpoint, rk4, dopri5 (flow matching) or ddpm, ddim (diffusion)")
     parser.add_argument("--ml-num-steps", type=int, default=None, help="Override number of integration steps")
+    parser.add_argument("--ml-k-nearest", type=int, default=1, help="Number of nearest primitive slots to vote for per ML goal (within tolerance)")
     
     # Other
     parser.add_argument("--primitive-data-dir", type=str, default="data")
@@ -629,8 +630,10 @@ def main():
         
         # Pass ML params even if goal_sampler is not explicitly set (allows auto-detection)
         if args.ml_goal_model:
+            # Only set goal_sampler to "ml" if not already set (preserve ml_fallback, etc.)
+            if "goal_sampler" not in algorithm_params:
+                algorithm_params["goal_sampler"] = "ml"
             algorithm_params.update({
-                "goal_sampler": "ml", # Force ML if model provided
                 "ml_goal_model_path": args.ml_goal_model,
                 "ml_device": args.ml_device,
                 "ml_samples": args.ml_samples,
@@ -641,6 +644,7 @@ def main():
                 "ml_match_max_per_call": args.ml_match_max_per_call,
                 "ml_sampler_method": args.ml_sampler_method,
                 "ml_num_steps": args.ml_num_steps,
+                "ml_k_nearest": args.ml_k_nearest,
                 "primitive_data_dir": args.primitive_data_dir,
             })
 

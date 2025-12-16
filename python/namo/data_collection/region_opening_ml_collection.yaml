@@ -8,7 +8,7 @@
 ##     --start-idx 0 --end-idx 100
 
 # Core execution
-output_dir: /common/users/dm1487/namo_data/outputs/diffusion_corrected_overlaps/2025-12-10/14-18-57/results_32samples_train_with_ml_goals
+output_dir: /common/users/dm1487/namo_data/outputs/diffusion_corrected_overlaps/2025-12-10/14-18-57/results_32samples_hybrid_sequential
 start_idx: 0
 end_idx: 6000
 algorithm: region_opening
@@ -30,17 +30,18 @@ region_frontier_beam_width: 1000
 region_max_recorded_solutions_per_neighbor: 1
 
 # Goal sampler configuration
-goal_sampler: ml
+goal_sampler: ml_fallback
 ml_goal_model: /common/users/dm1487/namo_data/outputs/diffusion_corrected_overlaps/2025-12-10/14-18-57
 ml_device: cuda  # Use "cuda" (respects CUDA_VISIBLE_DEVICES) or "cuda:0", "cuda:1", etc.
 ml_samples: 32  # Increased from 32 for better ML goal coverage
 ml_min_goals: 1
-ml_match_position_tolerance: 0.05   # meters (tightened from 0.2)
-ml_match_angle_tolerance: 0.1       # radians ~5.7° (tightened from 0.35)
+ml_match_position_tolerance: 0.2    # meters - max position error for voting
+ml_match_angle_tolerance: 0.2      # radians (~2.9°) - max angle error for voting
 ml_match_angle_weight: 1.0
 ml_match_max_per_call: 999  # Allow all ML goals to be aligned (was 8)
 ml_sampler_method: ddim  # Override sampler: flow_matching=[euler, midpoint, rk4, dopri5], diffusion=[ddpm, ddim] (null = use training config)
 ml_num_steps: 20      # Override integration steps (null = use default 20)
+ml_k_nearest: 1       # Number of nearest primitive slots to vote for per ML goal (within tolerance). Default: 1
 primitive_data_dir: data
 preview_aligned_primitives: false  # Save visualization of ML-to-primitive alignment
 
