@@ -8,14 +8,19 @@ and organized by edge points and push steps.
 import struct
 import os
 import math
-from dataclasses import dataclass
-from typing import List, Dict, Optional, Tuple
+import threading
+from concurrent.futures import ThreadPoolExecutor, Future
+from dataclasses import dataclass, field
+from typing import List, Dict, Optional, Tuple, Union, Any, TYPE_CHECKING
 from collections import defaultdict
 from abc import ABC
 
 import namo_rl
 from .goal_selection_strategy import GoalSelectionStrategy, Goal
 from .ml_strategies import MLGoalSelectionStrategy
+
+if TYPE_CHECKING:
+    from .primitive_goal_strategy import MLPrimitiveAsyncStrategy
 
 
 @dataclass
@@ -1064,3 +1069,432 @@ class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
     @property
     def strategy_name(self) -> str:
         return "ML Primitive Fallback Goal Generation"
+
+
+@dataclass
+class AsyncGoalResult:
+    """Result from async goal generation with ML inference running in background.
+
+    This allows primitive execution to start immediately while ML inference
+    runs in parallel. Caller polls for ML completion and merges scores dynamically.
+    """
+    # Immediate: all primitives with score=0 (fallback)
+    primitive_goals: List[List[Goal]]
+
+    # Async: ML inference future (None if no ML)
+    ml_future: Optional[Future] = None
+
+    # Reference to strategy for alignment callback
+    _strategy_ref: Optional['MLPrimitiveAsyncStrategy'] = None
+
+    # Captured data for ML alignment
+    _object_id: Optional[str] = None
+
+    # Track merge state
+    ml_merged: bool = False
+    ml_aligned_slots: Optional[Dict[Tuple[int, int], float]] = None
+
+    # Stats
+    ml_goals_count: int = 0
+    ml_inference_time_ms: float = 0.0
+
+    def poll_ml_ready(self) -> bool:
+        """Check if ML inference is complete (non-blocking).
+
+        Returns:
+            True if ML is ready to merge, False otherwise.
+        """
+        if self.ml_future is None or self.ml_merged:
+            return False
+        return self.ml_future.done()
+
+    def get_ml_scores(self) -> Dict[Tuple[int, int], float]:
+        """Get ML scores mapping (edge_idx, depth_idx) -> vote_count.
+
+        Blocks if ML not ready. Call only after poll_ml_ready() returns True
+        for non-blocking behavior.
+
+        Returns:
+            Dict mapping (edge_idx, depth_idx) to vote count (float).
+        """
+        if self.ml_merged:
+            return self.ml_aligned_slots or {}
+
+        if self.ml_future is None:
+            self.ml_merged = True
+            self.ml_aligned_slots = {}
+            return {}
+
+        try:
+            # Get ML goals (blocks if not ready)
+            ml_result = self.ml_future.result()
+            ml_goals = ml_result.get('goals', [])
+            self.ml_inference_time_ms = ml_result.get('inference_time_ms', 0.0)
+            self.ml_goals_count = len(ml_goals)
+
+            # Align to primitives and get scores
+            if self._strategy_ref and ml_goals:
+                self.ml_aligned_slots = self._strategy_ref._align_ml_to_primitives(
+                    ml_goals,
+                    self.primitive_goals,
+                    self._object_id
+                )
+            else:
+                self.ml_aligned_slots = {}
+
+        except Exception as e:
+            # ML failed, continue with primitives only
+            print(f"⚠️ ML inference failed: {e}")
+            self.ml_aligned_slots = {}
+
+        self.ml_merged = True
+        return self.ml_aligned_slots
+
+    def cancel_if_pending(self) -> bool:
+        """Attempt to cancel pending ML inference.
+
+        Returns:
+            True if successfully cancelled, False if already running/completed.
+        """
+        if self.ml_future is None or self.ml_merged:
+            return False
+
+        return self.ml_future.cancel()
+
+
+class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
+    """Async ML inference with primitive pre-execution.
+
+    This strategy enables parallel execution:
+    1. Generate primitives immediately (sync, ~1ms)
+    2. Capture env state for ML (sync, ~5ms)
+    3. Submit ML inference to background thread (async, ~1-2s)
+    4. Return AsyncGoalResult for immediate primitive execution
+    5. Caller polls for ML completion and merges scores dynamically
+
+    Benefits:
+    - Primitives start executing immediately (no ML wait)
+    - If primitive finds solution before ML ready, we're done faster
+    - If ML ready, its high-confidence goals get priority
+    - Pruning from primitive phase applies to ML goals too
+    """
+
+    # Shared executor for ML inference (reuse across calls)
+    _executor: Optional[ThreadPoolExecutor] = None
+    _executor_lock = threading.Lock()
+
+    def __init__(
+        self,
+        goal_model_path: str,
+        primitive_data_dir: str = "data",
+        samples: int = 32,
+        device: str = "cuda",
+        match_position_tolerance: float = 0.1,
+        match_angle_tolerance: float = 0.1,
+        angle_weight: float = 0.5,
+        verbose: bool = False,
+        min_goals_threshold: int = 1,
+        xml_path: str = None,
+        preloaded_model=None,
+        k_nearest: int = 1,
+        max_workers: int = 1,
+        **kwargs,  # Accept extra kwargs for compatibility
+    ):
+        """Initialize async ML primitive strategy.
+
+        Args:
+            goal_model_path: Path to trained goal inference model.
+            primitive_data_dir: Directory with primitive lookup files.
+            samples: Number of diffusion samples for ML inference.
+            device: Torch device for ML model.
+            match_position_tolerance: Max position error for ML-to-primitive matching.
+            match_angle_tolerance: Max angle error for ML-to-primitive matching.
+            angle_weight: Weight for angle error in matching score.
+            verbose: Enable debug output.
+            min_goals_threshold: Minimum ML goals required.
+            xml_path: XML file path for ML model context.
+            preloaded_model: Optional preloaded GoalInferenceModel.
+            k_nearest: Number of nearest slots to vote for per ML goal.
+            max_workers: Thread pool size for async ML inference.
+        """
+        self.verbose = verbose
+        self.match_position_tolerance = match_position_tolerance
+        self.match_angle_tolerance = match_angle_tolerance
+        self.angle_weight = angle_weight
+        self.k_nearest = k_nearest
+        self._default_ml_samples = samples
+
+        # Initialize primitive strategy (sync, fast)
+        self._primitive_strategy = PrimitiveGoalStrategy(
+            data_dir=primitive_data_dir,
+            verbose=verbose
+        )
+
+        # Initialize ML strategy (will capture JSON, inference runs async)
+        self._ml_strategy = MLGoalSelectionStrategy(
+            goal_model_path=goal_model_path,
+            samples=samples,
+            device=device,
+            min_goals_threshold=min_goals_threshold,
+            verbose=verbose,
+            xml_path=xml_path,
+            preloaded_model=preloaded_model
+        )
+
+        # Initialize thread pool
+        self._init_executor(max_workers)
+
+        # Stats tracking
+        self._last_alignment_info = None
+
+    @classmethod
+    def _init_executor(cls, max_workers: int):
+        """Initialize shared thread pool executor (singleton)."""
+        with cls._executor_lock:
+            if cls._executor is None:
+                cls._executor = ThreadPoolExecutor(
+                    max_workers=max_workers,
+                    thread_name_prefix="ml_goal_async"
+                )
+
+    def generate_goals(
+        self,
+        object_id: str,
+        state: namo_rl.RLState,
+        env: namo_rl.RLEnvironment,
+        max_goals: int
+    ) -> AsyncGoalResult:
+        """Generate primitives immediately, start ML inference async.
+
+        Returns:
+            AsyncGoalResult that can be polled for ML completion.
+            primitive_goals are ready immediately (all score=0).
+            Call poll_ml_ready() and get_ml_scores() to merge ML results.
+        """
+        import time
+        start_time = time.time()
+
+        # Phase 1: Generate ALL primitives (sync, ~1ms)
+        primitive_goals = self._primitive_strategy.generate_goals(
+            object_id, state, env, max_goals
+        )
+
+        if not primitive_goals:
+            return AsyncGoalResult(primitive_goals=[], ml_future=None)
+
+        # Initialize all primitives with score=0 (fallback priority)
+        output_goals: List[List[Goal]] = []
+        for edge_goals in primitive_goals:
+            edge_output = []
+            for goal in edge_goals:
+                edge_output.append(Goal(
+                    x=goal.x,
+                    y=goal.y,
+                    theta=goal.theta,
+                    score=0.0
+                ))
+            output_goals.append(edge_output)
+
+        primitive_time_ms = (time.time() - start_time) * 1000
+
+        # Phase 2: Capture env state for ML (sync, main thread, ~5ms)
+        # This must happen in main thread since env is not thread-safe
+        json_capture_start = time.time()
+        try:
+            json_message = self._ml_strategy._create_json_message_for_goals(
+                object_id, state, env
+            )
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Failed to create JSON for ML: {e}")
+            json_message = None
+
+        json_time_ms = (time.time() - json_capture_start) * 1000
+
+        if json_message is None:
+            # Can't run ML, return primitives only
+            if self.verbose:
+                print(f"🎯 Async goals for {object_id}: primitives only (JSON creation failed)")
+            return AsyncGoalResult(
+                primitive_goals=output_goals,
+                ml_future=None,
+                _strategy_ref=self,
+                _object_id=object_id
+            )
+
+        # Phase 3: Submit ML inference to background thread (async)
+        ml_budget = max_goals if max_goals > 0 else self._default_ml_samples
+
+        ml_future = self._executor.submit(
+            self._run_ml_inference_only,
+            json_message,
+            object_id,
+            ml_budget
+        )
+
+        total_setup_ms = (time.time() - start_time) * 1000
+
+        if self.verbose:
+            num_edges = len(output_goals)
+            num_depths = len(output_goals[0]) if output_goals else 0
+            print(f"🚀 Async ML started for {object_id}:")
+            print(f"   Primitives ready: {num_edges} edges × {num_depths} depths")
+            print(f"   Setup time: {total_setup_ms:.1f}ms (primitives: {primitive_time_ms:.1f}ms, JSON: {json_time_ms:.1f}ms)")
+            print(f"   ML inference running in background...")
+
+        return AsyncGoalResult(
+            primitive_goals=output_goals,
+            ml_future=ml_future,
+            _strategy_ref=self,
+            _object_id=object_id,
+            ml_merged=False,
+            ml_aligned_slots=None
+        )
+
+    def _run_ml_inference_only(
+        self,
+        json_message: Dict[str, Any],
+        object_id: str,
+        ml_budget: int
+    ) -> Dict[str, Any]:
+        """Run ML inference in background thread (no env access).
+
+        This is thread-safe as it only uses the pre-captured JSON data
+        and the ML model (which handles its own CUDA context).
+
+        Returns:
+            Dict with 'goals' list and 'inference_time_ms'.
+        """
+        import time
+        start_time = time.time()
+
+        try:
+            # Run model inference (pure computation, no env access)
+            goals = self._ml_strategy._goal_model.infer(
+                json_message=json_message,
+                xml_path=json_message["xml_path"],
+                robot_goal=json_message["robot_goal"],
+                selected_object=object_id,
+                samples=ml_budget
+            )
+
+            inference_time_ms = (time.time() - start_time) * 1000
+
+            # Convert to Goal objects
+            goal_objects = []
+            for goal_data in (goals or []):
+                if 'x' in goal_data and 'y' in goal_data and 'theta' in goal_data:
+                    goal_objects.append(Goal(
+                        x=float(goal_data['x']),
+                        y=float(goal_data['y']),
+                        theta=float(goal_data['theta'])
+                    ))
+
+            if self.verbose:
+                print(f"   ✅ ML inference complete: {len(goal_objects)} goals in {inference_time_ms:.0f}ms")
+
+            return {
+                'goals': goal_objects,
+                'inference_time_ms': inference_time_ms
+            }
+
+        except Exception as e:
+            if self.verbose:
+                print(f"   ❌ ML inference failed: {e}")
+            return {
+                'goals': [],
+                'inference_time_ms': (time.time() - start_time) * 1000,
+                'error': str(e)
+            }
+
+    def _align_ml_to_primitives(
+        self,
+        ml_goals: List[Goal],
+        primitive_goals: List[List[Goal]],
+        object_id: str
+    ) -> Dict[Tuple[int, int], float]:
+        """Align ML goals to primitive slots, return score mapping.
+
+        Args:
+            ml_goals: List of ML-generated goals.
+            primitive_goals: Full primitive grid.
+            object_id: Object ID (for logging).
+
+        Returns:
+            Dict mapping (edge_idx, depth_idx) -> vote_count (float).
+        """
+        if not ml_goals:
+            return {}
+
+        slot_votes: Dict[Tuple[int, int], int] = defaultdict(int)
+
+        # Build flat slot list for matching
+        slot_metadata: List[Tuple[int, int, Goal]] = []
+        for edge_idx, edge_goals in enumerate(primitive_goals):
+            for depth_idx, goal in enumerate(edge_goals):
+                slot_metadata.append((edge_idx, depth_idx, goal))
+
+        # Align each ML goal to nearest primitive slots
+        aligned_count = 0
+        skipped_tolerance = 0
+
+        for ml_goal in ml_goals:
+            candidates = []
+
+            for edge_idx, depth_idx, prim_goal in slot_metadata:
+                pos_err = math.hypot(prim_goal.x - ml_goal.x, prim_goal.y - ml_goal.y)
+                ang_err = abs(self._wrap_angle(prim_goal.theta - ml_goal.theta))
+
+                if pos_err > self.match_position_tolerance:
+                    continue
+                if ang_err > self.match_angle_tolerance:
+                    continue
+
+                score = pos_err + self.angle_weight * ang_err
+                candidates.append((score, edge_idx, depth_idx))
+
+            if not candidates:
+                skipped_tolerance += 1
+                continue
+
+            # Vote for top-k nearest slots
+            candidates.sort(key=lambda x: x[0])
+            for _, edge_idx, depth_idx in candidates[:self.k_nearest]:
+                slot_votes[(edge_idx, depth_idx)] += 1
+
+            aligned_count += 1
+
+        if self.verbose:
+            print(f"   🎯 ML alignment: {aligned_count}/{len(ml_goals)} goals → {len(slot_votes)} slots")
+            if skipped_tolerance > 0:
+                print(f"      Skipped (tolerance): {skipped_tolerance}")
+
+        # Store stats
+        self._last_alignment_info = {
+            'object_id': object_id,
+            'total_ml_goals': len(ml_goals),
+            'aligned_count': aligned_count,
+            'slots_with_votes': len(slot_votes),
+            'skipped_tolerance': skipped_tolerance,
+        }
+
+        return {k: float(v) for k, v in slot_votes.items()}
+
+    @staticmethod
+    def _wrap_angle(theta: float) -> float:
+        """Wrap angle to [-pi, pi]."""
+        while theta > math.pi:
+            theta -= 2 * math.pi
+        while theta < -math.pi:
+            theta += 2 * math.pi
+        return theta
+
+    def get_last_goal_stats(self) -> dict:
+        """Return stats from the last alignment."""
+        if self._last_alignment_info is None:
+            return {}
+        return self._last_alignment_info.copy()
+
+    @property
+    def strategy_name(self) -> str:
+        return "ML Primitive Async Goal Generation"

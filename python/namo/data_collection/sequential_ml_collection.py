@@ -85,8 +85,10 @@ def preload_ml_models(config: ModularCollectionConfig) -> Tuple[Optional[Any], O
 
     # Check if ML is used
     use_ml_object = algo_params.get("object_selection_strategy") == "ml"
-    use_ml_goal = (algo_params.get("goal_sampler") in ["ml", "ml_primitive", "ml_fallback", "ml_primitive_fallback"] or
-                   algo_params.get("goal_selection_strategy") == "ml")
+    use_ml_goal = (algo_params.get("goal_sampler") in [
+        "ml", "ml_primitive", "ml_fallback", "ml_primitive_fallback",
+        "ml_async", "ml_primitive_async"
+    ] or algo_params.get("goal_selection_strategy") == "ml")
     
     if use_ml_object:
         model_path = algo_params.get("ml_object_model_path")

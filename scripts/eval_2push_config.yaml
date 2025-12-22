@@ -1,0 +1,22 @@
+# 2-Push Evaluation Configuration
+# Usage: python eval_2push.py --config eval_2push_config.yaml
+
+# Reference model - determines problem categorization (1-push vs 2-push)
+# This is typically the exhaustive search results
+reference:
+  name: "Search"
+  dir: /common/users/dm1487/namo_data/dec2/aug9_envs/2_push_test_first_solution
+
+# Learned models to compare
+learned:
+  - name: "2 Push Learned"
+    dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/results_32samples_diffusion_only
+    success_dir: learned_success  # optional: custom folder name for success-filtered plots
+  - name: "1 Push Learned"
+    dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn/2025-12-16/04-45-01/results_32samples_2push_test
+    success_dir: 1push_learned_success
+
+settings:
+  output_dir: ./eval_2push_plots_1push_test
+  time_cutoff_max: 100000
+  time_step: 500

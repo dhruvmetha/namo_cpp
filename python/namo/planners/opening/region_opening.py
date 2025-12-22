@@ -9,7 +9,7 @@ the next neighbour.
 import random
 import time
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple, Dict, Any, Set
+from typing import List, Optional, Tuple, Dict, Any, Set, Union
 
 import namo_rl
 
@@ -19,7 +19,14 @@ DEFAULT_CAMERA_AZIMUTH = 0.0
 DEFAULT_CAMERA_ELEVATION = -90.0
 from namo.core import BasePlanner, PlannerConfig, PlannerResult
 from namo.planners import snapshot_region_connectivity, find_robot_label
-from namo.strategies import PrimitiveGoalStrategy, Goal, MLPrimitiveGoalStrategy, MLPrimitiveFallbackStrategy
+from namo.strategies import (
+    PrimitiveGoalStrategy,
+    Goal,
+    MLPrimitiveGoalStrategy,
+    MLPrimitiveFallbackStrategy,
+    MLPrimitiveAsyncStrategy,
+    AsyncGoalResult
+)
 
 
 @dataclass
@@ -159,6 +166,17 @@ class RegionOpeningPlanner(BasePlanner):
             timeout_sec = None
         self.timeout_per_neighbour_sec = timeout_sec
 
+        # ML blacklist override: when True, ML-scored primitives bypass the
+        # edge blacklist built during pre-ML exhaustive phase. This allows
+        # ML suggestions to be tried even if earlier depth-first exploration
+        # caused collisions on that edge. (default: False for backward compat)
+        self.ml_ignore_blacklist = algo_params.get("region_ml_ignore_blacklist", False)
+
+        # Chain link cost: additional cost added per chain link beyond the first push.
+        # With chain_link_cost=0 (default), a 2-push chain at depths [0,0] costs 2.
+        # With chain_link_cost=5, the same chain costs 2 + 5 = 7.
+        self.chain_link_cost = algo_params.get("region_chain_link_cost", 0)
+
         # Visualization settings (can be set after init, like IDFS planners)
         self.visualize_search = False
         self.search_delay = 0.5
@@ -230,6 +248,27 @@ class RegionOpeningPlanner(BasePlanner):
                 k_nearest=algo_params.get("ml_k_nearest", 1),
             )
             self._debug("▶ Using ML-first with primitive fallback goal sampler")
+        elif sampler_name and sampler_name.lower() in {"ml_async", "ml_primitive_async"}:
+            ml_path = algo_params.get("ml_goal_model_path")
+            if not ml_path:
+                raise ValueError("ML async goal sampler requires 'ml_goal_model_path'")
+
+            self.goal_sampler = MLPrimitiveAsyncStrategy(
+                goal_model_path=ml_path,
+                primitive_data_dir=primitive_data_dir,
+                samples=algo_params.get("ml_samples", 32),
+                device=algo_params.get("ml_device", "cuda"),
+                match_position_tolerance=algo_params.get("ml_match_position_tolerance", 0.1),
+                match_angle_tolerance=algo_params.get("ml_match_angle_tolerance", 0.1),
+                angle_weight=algo_params.get("ml_match_angle_weight", 0.5),
+                verbose=self.config.verbose,
+                min_goals_threshold=algo_params.get("ml_min_goals", 1),
+                xml_path=algo_params.get("xml_file"),
+                preloaded_model=algo_params.get("preloaded_goal_model"),
+                k_nearest=algo_params.get("ml_k_nearest", 1),
+                max_workers=algo_params.get("ml_async_workers", 1),
+            )
+            self._debug("▶ Using async ML with primitive pre-execution goal sampler")
         else:
             # Use primitive goal strategy for push goals
             self.goal_sampler = PrimitiveGoalStrategy(
@@ -1135,10 +1174,15 @@ class RegionOpeningPlanner(BasePlanner):
 
         # Compute cumulative cost along the reconstructed chain
         total_cost = 0
+        num_pushes = 0
         node = success_node
         while node.parent is not None:
             total_cost += max(0, getattr(node, "step_cost", 0))
+            num_pushes += 1
             node = node.parent
+        # Add chain link cost for multi-push chains (flat cost, not per-link)
+        if num_pushes > 1:
+            total_cost += self.chain_link_cost
 
         return goal_chain, state_obs, post_state_obs, reachable_before, reachable_after, total_cost
 
@@ -1146,17 +1190,25 @@ class RegionOpeningPlanner(BasePlanner):
         """Compute cumulative additive cost from root to the given node.
 
         Root node has cost 0. Each edge contributes its inner primitive depth (1-based).
+        Additionally, chain_link_cost is added once if this is a multi-push chain.
+
+        Total cost = sum(step_costs) + chain_link_cost (if num_pushes > 1)
         """
         total = 0
+        num_pushes = 0
         cursor = node
         while cursor is not None and cursor.parent is not None:
             total += max(0, getattr(cursor, "step_cost", 0))
+            num_pushes += 1
             cursor = cursor.parent
+        # Add chain link cost for multi-push chains (flat cost, not per-link)
+        if num_pushes > 1:
+            total += self.chain_link_cost
         return total
 
     def _search_bfs(
         self,
-        goals_per_edge: List[List[Goal]],
+        goals_or_async: Union[List[List[Goal]], AsyncGoalResult],
         reachable_edge_indices: Set[int],
         baseline_state: namo_rl.RLState,
         neighbour_label: str,
@@ -1172,7 +1224,12 @@ class RegionOpeningPlanner(BasePlanner):
     ) -> Tuple[List[Tuple[Goal, List, List, 'namo_rl.RLState', Optional[Tuple], ChainNode, float]], int, List[ChainNode]]:
         """BFS: Try all edges at ALL depths to collect all possible solutions.
 
+        Supports async ML inference: if goals_or_async is an AsyncGoalResult,
+        primitives start executing immediately while ML runs in background.
+        When ML completes, remaining candidates are re-sorted by ML scores.
+
         Args:
+            goals_or_async: Either List[List[Goal]] (sync) or AsyncGoalResult (async).
             collect_frontier: If True, collect valid but unsuccessful states as frontier nodes
             max_solutions_to_collect: If provided, stop searching once this many successful solutions are found.
 
@@ -1183,11 +1240,20 @@ class RegionOpeningPlanner(BasePlanner):
             The chain_node contains the full parent chain for observation reconstruction.
         """
         print = self._debug
+
+        # Handle both sync and async goal results
+        if isinstance(goals_or_async, AsyncGoalResult):
+            async_result = goals_or_async
+            goals_per_edge = async_result.primitive_goals
+        else:
+            async_result = None
+            goals_per_edge = goals_or_async
+
         max_depth = len(goals_per_edge[0]) if goals_per_edge else 10
 
-        # Track edges that have collided or gotten stuck during THIS skill execution
-        # Once an edge collides or gets stuck, we blacklist it for all remaining primitive depths
-        blacklisted_edges_this_skill = set()
+        # Track minimum depth at which each edge got stuck/collided during THIS skill execution
+        # Only skip depths >= the stuck depth (shallower depths might still work)
+        edge_min_stuck_depth: Dict[int, int] = {}  # edge_idx -> min depth that got stuck
 
         # Track edges that have already yielded a successful opening in THIS skill execution
         # Once an edge succeeds at any primitive depth, we do not explore deeper depths on that edge
@@ -1200,22 +1266,77 @@ class RegionOpeningPlanner(BasePlanner):
         all_successful_results = []
         min_depth_found = None
 
+        # Track async ML merge state
+        ml_merged = False
+        ml_scores: Dict[Tuple[int, int], float] = {}
+        ml_scored_slots: Set[Tuple[int, int]] = set()  # Track which (edge, depth) have ML scores
+
+
         # Flatten goals into candidates for prioritized iteration
+        # Use list of lists to allow mutation during re-sort
         candidates = []
         for edge_idx, edge_goals in enumerate(goals_per_edge):
             # Filter: only try reachable edges
             if edge_idx not in reachable_edge_indices:
                 continue
-            
+
             for depth, goal in enumerate(edge_goals):
                 if goal is not None:
-                    candidates.append((edge_idx, depth, goal))
-        
-        # Sort candidates: Primary = Score (descending), Secondary = Depth (ascending)
-        # High votes first. If ties, shorter pushes first.
-        candidates.sort(key=lambda x: (-getattr(x[2], 'score', 0.0), x[1]))
+                    candidates.append([edge_idx, depth, goal])  # Use list for mutability
 
-        for edge_idx, depth, goal in candidates:
+        # Initial sort depends on whether we have async ML
+        if async_result is not None and async_result.ml_future is not None:
+            # Async mode: sort by (depth, edge) initially - shortest pushes first while waiting for ML
+            candidates.sort(key=lambda x: (x[1], x[0]))
+            if self.config.verbose:
+                print(f"      📋 Async mode: {len(candidates)} candidates sorted by depth (ML running in background)")
+        else:
+            # Sync mode: sort by (-score, depth) - high votes first, then shortest
+            candidates.sort(key=lambda x: (-getattr(x[2], 'score', 0.0), x[1]))
+
+        # Track position for re-sorting remaining candidates
+        candidate_idx = 0
+
+        while candidate_idx < len(candidates):
+            # ══════════════════════════════════════════════════════════════════
+            # ASYNC ML POLLING: Check if ML inference is ready (non-blocking)
+            # ══════════════════════════════════════════════════════════════════
+            if async_result is not None and not ml_merged and async_result.poll_ml_ready():
+                ml_scores = async_result.get_ml_scores()
+                ml_merged = True
+                ml_scored_slots = set(ml_scores.keys())  # Track all ML-scored slots
+
+                if self.config.verbose:
+                    print(f"      🎯 ML ready! {len(ml_scores)} slots with votes (after {candidate_idx} primitive pushes)")
+
+                # Update scores for remaining candidates
+                for i in range(candidate_idx, len(candidates)):
+                    edge_idx_i, depth_i, goal_i = candidates[i]
+                    key = (edge_idx_i, depth_i)
+                    if key in ml_scores:
+                        # Update goal with ML score
+                        candidates[i][2] = Goal(
+                            x=goal_i.x,
+                            y=goal_i.y,
+                            theta=goal_i.theta,
+                            score=ml_scores[key]
+                        )
+
+                # Re-sort remaining candidates: score DESC, depth ASC
+                remaining = candidates[candidate_idx:]
+                remaining.sort(key=lambda x: (-getattr(x[2], 'score', 0.0), x[1]))
+                candidates[candidate_idx:] = remaining
+
+                if self.config.verbose:
+                    # Show top candidates after re-sort
+                    top_5 = candidates[candidate_idx:candidate_idx+5]
+                    top_info = [(c[0], c[1], getattr(c[2], 'score', 0.0)) for c in top_5]
+                    print(f"      📊 Re-sorted remaining {len(remaining)} candidates. Top 5: {top_info}")
+
+            # Get current candidate
+            edge_idx, depth, goal = candidates[candidate_idx]
+            candidate_idx += 1
+
             # Stop if we've reached the solution cap
             if max_solutions_to_collect is not None and len(all_successful_results) >= max_solutions_to_collect:
                 if self.config.verbose:
@@ -1229,9 +1350,22 @@ class RegionOpeningPlanner(BasePlanner):
             if remaining_budget is not None and (depth + 1) > remaining_budget:
                 continue
 
-            # Filter: skip blacklisted edges (collided or stuck earlier in this skill execution)
-            if edge_idx in blacklisted_edges_this_skill:
-                continue
+            # Filter: skip if this edge got stuck/collided at a shallower or equal depth
+            # (shallower depths than the stuck depth are still worth trying)
+            # Exception: if ml_ignore_blacklist is enabled, we disable blacklist during pre-ML phase
+            # entirely, and bypass for ML-scored slots after ML merges
+            is_blacklisted = edge_idx in edge_min_stuck_depth and depth >= edge_min_stuck_depth[edge_idx]
+            if is_blacklisted:
+                # During pre-ML phase: disable blacklist entirely if ml_ignore_blacklist is enabled
+                if not ml_merged and self.ml_ignore_blacklist:
+                    if self.config.verbose:
+                        print(f"        🔓 Ignoring blacklist during pre-ML phase (edge {edge_idx}, depth {depth+1})")
+                # After ML merge: bypass only for ML-scored slots
+                elif ml_merged and self.ml_ignore_blacklist and (edge_idx, depth) in ml_scored_slots:
+                    if self.config.verbose:
+                        print(f"        🔓 Bypassing blacklist for ML-scored slot (edge {edge_idx}, depth {depth+1})")
+                else:
+                    continue
 
             # Filter: skip edges that have already produced a successful opening
             if edge_idx in solved_edges_this_skill:
@@ -1301,16 +1435,22 @@ class RegionOpeningPlanner(BasePlanner):
                 if self.config.verbose:
                     print(f"        ⚠️  COLLISION detected: {step_result.info.get('collision_object', 'unknown')}")
                 collision_detected = True
-                # Blacklist this edge for all remaining depths in this skill execution
-                blacklisted_edges_this_skill.add(edge_idx)
+                # Record this depth as stuck - shallower depths might still work
+                if edge_idx not in edge_min_stuck_depth or depth < edge_min_stuck_depth[edge_idx]:
+                    edge_min_stuck_depth[edge_idx] = depth
+                    if self.config.verbose:
+                        print(f"        📍 Edge {edge_idx} stuck at depth {depth+1}, depths 1-{depth} still valid")
 
             stuck_detected = False
             if "stuck" in step_result.info and step_result.info["stuck"] == "true":
                 if self.config.verbose:
                     print(f"        ⚠️  STUCK condition detected")
                 stuck_detected = True
-                # Blacklist this edge for all remaining depths
-                blacklisted_edges_this_skill.add(edge_idx)
+                # Record this depth as stuck - shallower depths might still work
+                if edge_idx not in edge_min_stuck_depth or depth < edge_min_stuck_depth[edge_idx]:
+                    edge_min_stuck_depth[edge_idx] = depth
+                    if self.config.verbose:
+                        print(f"        📍 Edge {edge_idx} stuck at depth {depth+1}, depths 1-{depth} still valid")
 
             total_region_goals = len(region_goals[neighbour_label].goals) if neighbour_label in region_goals else 0
             if is_accessible_after and not is_accessible_before:
@@ -1373,6 +1513,17 @@ class RegionOpeningPlanner(BasePlanner):
                         step_cost=depth + 1
                     )
                     frontier_nodes.append(new_node)
+
+        # ══════════════════════════════════════════════════════════════════
+        # CLEANUP: Cancel pending ML inference if not yet merged
+        # ══════════════════════════════════════════════════════════════════
+        if async_result is not None and not ml_merged:
+            cancelled = async_result.cancel_if_pending()
+            if self.config.verbose:
+                if cancelled:
+                    print(f"      🚫 Cancelled pending ML inference (solution found before ML ready)")
+                else:
+                    print(f"      ⏳ ML inference still running (will complete in background)")
 
         # Return all successful results found across all depths
         return all_successful_results, min_depth_found if min_depth_found else 0, frontier_nodes

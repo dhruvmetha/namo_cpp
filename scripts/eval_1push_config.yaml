@@ -1,0 +1,53 @@
+# 1-Push Evaluation Configuration
+# Usage: python eval_1push.py --config eval_1push_config.yaml
+
+# Reference model - determines easy/medium/hard categorization
+# This is typically the exhaustive search (oracle) results
+reference:
+  name: "Search (Oracle)"
+  dir: /common/users/dm1487/namo_data/dec2/aug9_envs/1_push_test_all_solutions
+
+# Non-learned baselines
+baselines:
+  - name: "No Heuristic"
+    dir: /common/users/dm1487/namo_data/dec2/aug9_envs/1_push_test_first_solution
+
+# Learned models to compare
+learned:
+  - name: "Diffusion"
+    dir: /common/users/dm1487/namo_data/outputs/diffusion_corrected_overlaps/2025-12-10/14-18-57/results_32samples_1
+  - name: "Diffusion CrossAttn"
+    dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn/2025-12-16/04-45-01/results_32samples_diffusion_only
+  # - name: "Hybrid"
+  #   dir: /common/users/dm1487/namo_data/outputs/diffusion_corrected_overlaps/2025-12-10/14-18-57/results_32samples_hybrid_complete
+  # - name: "Hybrid CrossAttn"
+  #   dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn/2025-12-16/04-45-01/results_32samples_hybrid_fallback_test
+  # # - name: "Hybrid Async"
+  # #   dir: /common/users/dm1487/namo_data/outputs/diffusion_corrected_overlaps/2025-12-10/14-18-57/results_32samples_hybrid_async_complete
+  # # - name: "Hybrid Async Ignore Blacklist"
+  # #   dir: /common/users/dm1487/namo_data/outputs/diffusion_corrected_overlaps/2025-12-10/14-18-57/results_32samples_hybrid_async_complete_ignore_blacklist
+  # - name: "Hybrid Async"
+  #   dir: /common/users/dm1487/namo_data/outputs/diffusion_corrected_overlaps/2025-12-10/14-18-57/results_32samples_hybrid_async_complete_ignore_blacklist_full
+  # - name: "Hybrid Async CrossAttn"
+  #   dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn/2025-12-16/04-45-01/results_32samples_hybrid_async_test
+  # Add more models here:
+  # - name: "Diffusion (CrossAttn)"
+  #   dir: /path/to/crossattn/results
+  # - name: "Flow Matching"
+  #   dir: /path/to/flow_matching/results
+
+# Optional settings (these are the defaults)
+settings:
+  # Exclude environments with 'easy' in the name
+  exclude_easy: true
+
+  # Thresholds for difficulty categorization (based on reference success ratio)
+  easy_threshold: 0.75    # ratio > 0.75 = easy
+  hard_threshold: 0.25    # ratio <= 0.25 = hard, else medium
+
+  # Output directory for plots
+  output_dir: ./eval_plots_crossattn
+
+  # Time-based success rate plot settings
+  time_cutoff_max: 10000   # max time in ms
+  time_step: 50          # step size in ms
