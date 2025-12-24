@@ -3,7 +3,7 @@
 # CLI flags can override any value here.
 
 # Core execution
-output_dir: /common/users/dm1487/namo_data/dec2/aug9_envs/3_push_train_3
+output_dir: /common/users/dm1487/namo_data/dec2/aug9_envs/2_push_train_3
 end_idx: 7000
 algorithm: region_opening
 workers: 48 
@@ -19,10 +19,10 @@ goals_per_region: 10  # Number of robot goal samples per region for validation
 # Region opening specific parameters
 points_per_face: 3           # 3 or 15 - must match config_file (skill3 or skill15)
 region_allow_collisions: true
-region_max_chain_depth: 3     # 1=single push, 2=two pushes, 3=three pushes
-region_max_solutions_per_neighbor: 1
+region_max_chain_depth: 2     # 1=single push, 2=two pushes, 3=three pushes
+region_max_solutions_per_neighbor: 3
 region_frontier_beam_width: 5000  # null or 0 = unbounded; positive integer caps frontier per depth
-region_max_recorded_solutions_per_neighbor: 1
+region_max_recorded_solutions_per_neighbor: 3
 region_chain_link_cost: 11  # Additional cost per chain link beyond first push (0=no extra cost, e.g. 5 makes 2-push cost +5)
 
 # Paths
