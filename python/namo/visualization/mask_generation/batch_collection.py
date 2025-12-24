@@ -236,6 +236,17 @@ class HDF5Writer:
             'difficulty_score', shape=(0,), maxshape=(None,), dtype=np.float32
         )
 
+        # Solution counts for sample weighting
+        self.datasets['solutions_found'] = self.h5_file.create_dataset(
+            'solutions_found', shape=(0,), maxshape=(None,), dtype=np.int32
+        )
+        self.datasets['solutions_total'] = self.h5_file.create_dataset(
+            'solutions_total', shape=(0,), maxshape=(None,), dtype=np.int32
+        )
+        self.datasets['pushes_total'] = self.h5_file.create_dataset(
+            'pushes_total', shape=(0,), maxshape=(None,), dtype=np.int32
+        )
+
         self.initialized = True
 
     def add_sample(self, masks: Dict[str, np.ndarray], metadata: Dict[str, Any]):
@@ -292,6 +303,25 @@ class HDF5Writer:
             ds.resize(self.current_idx + 1, axis=0)
             val = metadata.get('difficulty_score')
             ds[self.current_idx] = val if val is not None else -1.0
+
+        # Add solution counts for sample weighting
+        if 'solutions_found' in self.datasets:
+            ds = self.datasets['solutions_found']
+            ds.resize(self.current_idx + 1, axis=0)
+            val = metadata.get('solutions_found')
+            ds[self.current_idx] = val if val is not None else -1
+
+        if 'solutions_total' in self.datasets:
+            ds = self.datasets['solutions_total']
+            ds.resize(self.current_idx + 1, axis=0)
+            val = metadata.get('solutions_total')
+            ds[self.current_idx] = val if val is not None else -1
+
+        if 'pushes_total' in self.datasets:
+            ds = self.datasets['pushes_total']
+            ds.resize(self.current_idx + 1, axis=0)
+            val = metadata.get('pushes_total')
+            ds[self.current_idx] = val if val is not None else -1
 
         self.current_idx += 1
 
@@ -560,6 +590,12 @@ def process_episode(episode: Dict[str, Any], visualizer: NAMODataVisualizer,
         'xml_file': episode.get('xml_file', '')
     }
 
+    # Extract solution counts from algorithm_stats (for sample weighting)
+    alg_stats = episode.get('algorithm_stats') or {}
+    metadata['solutions_found'] = alg_stats.get('solutions_found_for_neighbour')
+    metadata['solutions_total'] = alg_stats.get('solutions_total_for_neighbour')
+    metadata['pushes_total'] = alg_stats.get('pushes_total_for_neighbour')
+
     if 'difficulty_label' in episode:
         metadata['difficulty_label'] = episode.get('difficulty_label', 'unknown')
         metadata['difficulty_score'] = episode.get('difficulty_score')
@@ -609,6 +645,16 @@ def save_episode_data(masks: Dict[str, np.ndarray], metadata: Dict[str, Any],
         score = metadata.get('difficulty_score')
         save_dict['difficulty_score'] = np.array([score if score is not None else -1.0], dtype=np.float32)
 
+    # Save solution counts for sample weighting
+    solutions_found = metadata.get('solutions_found')
+    save_dict['solutions_found'] = np.array([solutions_found if solutions_found is not None else -1], dtype=np.int32)
+
+    solutions_total = metadata.get('solutions_total')
+    save_dict['solutions_total'] = np.array([solutions_total if solutions_total is not None else -1], dtype=np.int32)
+
+    pushes_total = metadata.get('pushes_total')
+    save_dict['pushes_total'] = np.array([pushes_total if pushes_total is not None else -1], dtype=np.int32)
+
     # Count number of goal mask horizons (goal_mask_a1, goal_mask_a2, etc.)
     num_goal_horizons = sum(1 for key in masks.keys() if key.startswith('goal_mask_a'))
     save_dict['num_goal_horizons'] = np.array([num_goal_horizons], dtype=np.int32)
@@ -638,6 +684,29 @@ def save_episode_data(masks: Dict[str, np.ndarray], metadata: Dict[str, Any],
 
     # Save as compressed npz
     np.savez_compressed(output_path, **save_dict)
+
+
+def _count_solutions_per_region(episodes: List[Dict[str, Any]]) -> Dict[str, int]:
+    """Count the number of successful episodes per neighbour region.
+
+    Args:
+        episodes: List of episode dictionaries from a pickle file
+
+    Returns:
+        Dictionary mapping neighbour_region_label to count of successful episodes
+    """
+    from collections import defaultdict
+    counts = defaultdict(int)
+
+    for ep in episodes:
+        if not ep.get('solution_found', False):
+            continue
+        alg_stats = ep.get('algorithm_stats') or {}
+        region_label = alg_stats.get('neighbour_region_label')
+        if region_label:
+            counts[region_label] += 1
+
+    return dict(counts)
 
 
 def process_pkl_file_worker(pkl_file: str, output_dir: str, filter_minimum_length: bool = False,
@@ -674,6 +743,9 @@ def process_pkl_file_worker(pkl_file: str, output_dir: str, filter_minimum_lengt
         return 0, 0, pkl_file, []
 
     episodes = data.get('episode_results', [])
+
+    # Count solutions per region (for sample weighting)
+    solutions_per_region = _count_solutions_per_region(episodes)
     total_episodes = len(episodes)
 
     # Apply minimum length filtering if requested
@@ -684,6 +756,15 @@ def process_pkl_file_worker(pkl_file: str, output_dir: str, filter_minimum_lengt
     for episode in filtered_episodes:
         if is_valid_episode(episode):
             try:
+                # Inject correct solutions_found count from episode counting
+                # (solutions_found_for_neighbour is broken in existing data)
+                alg_stats = episode.get('algorithm_stats') or {}
+                region_label = alg_stats.get('neighbour_region_label')
+                if region_label and region_label in solutions_per_region:
+                    if 'algorithm_stats' not in episode:
+                        episode['algorithm_stats'] = {}
+                    episode['algorithm_stats']['solutions_found_for_neighbour'] = solutions_per_region[region_label]
+
                 if split_difficulty:
                     assign_difficulty_annotation(episode)
 
@@ -767,12 +848,24 @@ def _process_pkl_file_for_hdf5(args: Tuple[str, bool, bool, bool, bool]) -> List
 
     episodes = data.get('episode_results', [])
 
+    # Count solutions per region (for sample weighting)
+    solutions_per_region = _count_solutions_per_region(episodes)
+
     # Apply filtering
     filtered_episodes, _, _ = filter_episodes_by_minimum_length(episodes, filter_minimum_length)
 
     for episode in filtered_episodes:
         if is_valid_episode(episode):
             try:
+                # Inject correct solutions_found count from episode counting
+                # (solutions_found_for_neighbour is broken in existing data)
+                alg_stats = episode.get('algorithm_stats') or {}
+                region_label = alg_stats.get('neighbour_region_label')
+                if region_label and region_label in solutions_per_region:
+                    if 'algorithm_stats' not in episode:
+                        episode['algorithm_stats'] = {}
+                    episode['algorithm_stats']['solutions_found_for_neighbour'] = solutions_per_region[region_label]
+
                 if split_difficulty:
                     assign_difficulty_annotation(episode)
 

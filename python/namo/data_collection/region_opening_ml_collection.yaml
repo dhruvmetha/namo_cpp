@@ -23,6 +23,7 @@ search_timeout: 300.0
 goals_per_region: 10  # Number of robot goal samples per region for validation
 
 # Region opening parameters
+points_per_face: 15           # 3 or 15 - must match config_file (skill3 or skill15)
 region_allow_collisions: true
 region_max_chain_depth: 2
 region_max_solutions_per_neighbor: 1
@@ -59,5 +60,5 @@ filter_minimum_length: false
 smooth_solutions: false
 max_smooth_actions: 20
 refine_actions: false
-validate_refinement: false
+validate_refinement: false /common/users/dm1487/namo_data/images_local/dec2/aug9_envs/1_push_train_corrected_overlaps
 

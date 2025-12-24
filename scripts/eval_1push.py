@@ -156,7 +156,8 @@ class RegionResult:
     """Results for a single env+region pair."""
     success: bool = False
     pushes: int = 0
-    solutions: int = 0
+    solutions: int = 0  # solutions_total_for_neighbour (for ratio/categorization)
+    solutions_found: int = 0  # solutions_found_for_neighbour (for distribution)
     ratio: float = 0.0
     time_taken: float = 0.0
     failure_reason: str = ""
@@ -233,6 +234,7 @@ def load_pickle_data(
                 # Extract stats
                 pushes = alg_stats.get('pushes_total_for_neighbour', 0)
                 solutions = alg_stats.get('solutions_total_for_neighbour', 0)
+                solutions_found = alg_stats.get('solutions_found_for_neighbour', 0)
                 solution_found = ep.get('solution_found', False)
                 time_taken = ep.get('search_time_ms', 0)
 
@@ -240,6 +242,7 @@ def load_pickle_data(
                     success=solution_found and pushes > 0,
                     pushes=pushes,
                     solutions=solutions,
+                    solutions_found=solutions_found,
                     ratio=solutions / pushes if pushes > 0 else 0.0,
                     time_taken=time_taken,
                     failure_reason=failure_reason,
@@ -265,6 +268,8 @@ class CategoryStats:
     """Statistics for a difficulty category."""
     pushes: List[int] = field(default_factory=list)
     times: List[float] = field(default_factory=list)
+    solutions: List[int] = field(default_factory=list)  # solutions_total (for stats)
+    solutions_found: List[int] = field(default_factory=list)  # solutions_found (for distribution)
     successes: int = 0
     total: int = 0
 
@@ -287,6 +292,14 @@ class CategoryStats:
     @property
     def mean_time(self) -> float:
         return float(np.mean(self.times)) if self.times else 0.0
+
+    @property
+    def total_solutions(self) -> int:
+        return int(np.sum(self.solutions)) if self.solutions else 0
+
+    @property
+    def mean_solutions(self) -> float:
+        return float(np.mean(self.solutions)) if self.solutions else 0.0
 
 
 @dataclass
@@ -356,6 +369,8 @@ def compute_stats(
                 category.successes += 1
                 category.pushes.append(model_result.pushes)
                 category.times.append(model_result.time_taken)
+                category.solutions.append(model_result.solutions)
+                category.solutions_found.append(model_result.solutions_found)
 
     return stats
 
@@ -572,6 +587,67 @@ def plot_time_boxplot(
     return fig
 
 
+def plot_solutions_distribution(
+    model_stats: List[ModelStats],
+    config: EvalConfig,
+    output_path: Optional[str] = None,
+):
+    """Plot distribution of solution counts per category (histogram)."""
+    categories = ['easy', 'medium', 'hard']
+
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+
+    for idx, cat in enumerate(categories):
+        ax = axes[idx]
+
+        for model_idx, stats in enumerate(model_stats):
+            solutions_list = stats.get_category(cat).solutions  # solutions_total_for_neighbour
+            if not solutions_list:
+                continue
+
+            # Count frequency of each solution count
+            from collections import Counter
+            counts = Counter(solutions_list)
+
+            # Get sorted solution values and their frequencies
+            sol_values = sorted(counts.keys())
+            frequencies = [counts[v] for v in sol_values]
+
+            # Bar plot
+            x_pos = np.arange(len(sol_values))
+            width = 0.8 / len(model_stats)
+            offset = (model_idx - len(model_stats)/2 + 0.5) * width
+
+            bars = ax.bar(x_pos + offset, frequencies, width,
+                         label=stats.name, color=get_model_color(model_idx, config),
+                         edgecolor='black')
+
+            # Add count labels on bars
+            for bar, freq in zip(bars, frequencies):
+                if freq > 0:
+                    ax.annotate(f'{freq}',
+                               xy=(bar.get_x() + bar.get_width()/2, bar.get_height()),
+                               xytext=(0, 2), textcoords="offset points",
+                               ha='center', va='bottom', fontsize=8)
+
+            ax.set_xticks(x_pos)
+            ax.set_xticklabels(sol_values)
+
+        ax.set_xlabel('Number of Solutions Found')
+        ax.set_ylabel('Count (env+region pairs)')
+        ax.set_title(f'{cat.capitalize()} Category')
+        ax.grid(True, axis='y', linestyle='--', alpha=0.6)
+        ax.legend()
+
+    plt.suptitle('Distribution of Total Solutions per Category (Oracle Search)', fontsize=14)
+    plt.tight_layout()
+
+    if output_path:
+        plt.savefig(output_path, dpi=150, bbox_inches='tight')
+        print(f"Saved: {output_path}")
+    return fig
+
+
 def plot_time_vs_success(
     time_data: Dict[str, Dict[str, Dict[str, List[float]]]],  # {model_name: {category: {cutoffs, rates}}}
     config: EvalConfig,
@@ -631,6 +707,8 @@ def print_summary(model_stats: List[ModelStats]):
                 print(f"    Pushes:  median={cat_stats.median_pushes:.1f}, mean={cat_stats.mean_pushes:.1f}")
             if cat_stats.times:
                 print(f"    Time:    median={cat_stats.median_time:.1f}ms, mean={cat_stats.mean_time:.1f}ms")
+            if cat_stats.solutions:
+                print(f"    Solutions: total={cat_stats.total_solutions}, mean={cat_stats.mean_solutions:.1f}")
 
         if stats.failure_reasons:
             print(f"\n  Failure Reasons:")
@@ -788,6 +866,12 @@ def main():
             filtered_data[name], reference_data, config
         )
 
+    # Compute stats for reference (oracle) - for solutions plot
+    reference_stats = compute_stats(
+        reference_data, reference_data, config,
+        config.reference.name, {}
+    )
+
     # Print summary
     print_summary(all_stats)
 
@@ -811,6 +895,12 @@ def main():
             all_stats,
             config,
             f"{config.output_dir}/time_boxplot.png"
+        )
+
+        plot_solutions_distribution(
+            [reference_stats],  # Only oracle/reference
+            config,
+            f"{config.output_dir}/solutions_distribution.png"
         )
 
     if time_data:

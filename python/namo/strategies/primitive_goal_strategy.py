@@ -106,15 +106,17 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
     - Inner list (10 items): push steps 1-10 for that edge point
     """
 
-    def __init__(self, data_dir: str = "data", verbose: bool = False):
+    def __init__(self, data_dir: str = "data", verbose: bool = False, points_per_face: int = 15):
         """Initialize primitive goal strategy.
 
         Args:
-            data_dir: Directory containing motion_primitives_15_*.dat files
+            data_dir: Directory containing motion_primitives_*.dat files
             verbose: Enable verbose output
+            points_per_face: Number of edge points per face (3 or 15)
         """
         self.data_dir = data_dir
         self.verbose = verbose
+        self.points_per_face = points_per_face
         self._primitive_cache: Dict[str, List[Primitive]] = {}
 
     def generate_goals(self,
@@ -222,10 +224,13 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
         # Get object dimensions
         object_info = env.get_object_info()
 
+        # Determine primitive file prefix based on points_per_face
+        prefix = f"motion_primitives_{self.points_per_face}"
+
         if object_name not in object_info:
             if self.verbose:
                 print(f"Object {object_name} not in object_info, defaulting to square")
-            return "motion_primitives_15_square.dat"
+            return f"{prefix}_square.dat"
 
         info = object_info[object_name]
 
@@ -242,12 +247,12 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
         else:
             if self.verbose:
                 print(f"Could not get dimensions for {object_name}, defaulting to square")
-            return "motion_primitives_15_square.dat"
+            return f"{prefix}_square.dat"
 
         if x <= 0.0 or y <= 0.0:
             if self.verbose:
                 print(f"Invalid dimensions for {object_name}: [{x}×{y}], defaulting to square")
-            return "motion_primitives_15_square.dat"
+            return f"{prefix}_square.dat"
 
         # Calculate aspect ratio
         ratio = max(x, y) / min(x, y)
@@ -256,17 +261,17 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
             # Square: nearly equal dimensions
             # if self.verbose:
             #     print(f"Object {object_name} [{x:.3f}×{y:.3f}] ratio={ratio:.3f} → square")
-            return "motion_primitives_15_square.dat"
+            return f"{prefix}_square.dat"
         elif x > y:
             # Wide: width > height
             # if self.verbose:
             #     print(f"Object {object_name} [{x:.3f}×{y:.3f}] ratio={ratio:.3f} → wide")
-            return "motion_primitives_15_wide.dat"
+            return f"{prefix}_wide.dat"
         else:
             # Tall: height > width
             # if self.verbose:
             #     print(f"Object {object_name} [{x:.3f}×{y:.3f}] ratio={ratio:.3f} → tall")
-            return "motion_primitives_15_tall.dat"
+            return f"{prefix}_tall.dat"
 
     def _group_by_edge(self, primitives: List[Primitive]) -> Dict[int, List[Primitive]]:
         """Group primitives by edge index.
@@ -313,6 +318,7 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
         preloaded_model = None,
         preview_aligned_primitives: bool = False,
         k_nearest: int = 1,
+        points_per_face: int = 15,
     ):
         """
         Args:
@@ -341,7 +347,8 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
 
         self._primitive_strategy = PrimitiveGoalStrategy(
             data_dir=primitive_data_dir,
-            verbose=verbose
+            verbose=verbose,
+            points_per_face=points_per_face
         )
         self._ml_strategy = MLGoalSelectionStrategy(
             goal_model_path=goal_model_path,
@@ -812,6 +819,7 @@ class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
         preloaded_model=None,
         preview_aligned_primitives: bool = False,
         k_nearest: int = 1,
+        points_per_face: int = 15,
     ):
         """
         Args:
@@ -830,6 +838,7 @@ class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
             preloaded_model: Optional preloaded GoalInferenceModel to avoid reloading.
             preview_aligned_primitives: If True, save visualization of aligned primitives.
             k_nearest: Number of nearest primitive slots to vote for per ML goal.
+            points_per_face: Number of edge points per face (3 or 15).
         """
         self.verbose = verbose
         self.max_matches = max_matches
@@ -841,7 +850,8 @@ class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
 
         self._primitive_strategy = PrimitiveGoalStrategy(
             data_dir=primitive_data_dir,
-            verbose=verbose
+            verbose=verbose,
+            points_per_face=points_per_face
         )
         self._ml_strategy = MLGoalSelectionStrategy(
             goal_model_path=goal_model_path,
@@ -1198,6 +1208,7 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
         preloaded_model=None,
         k_nearest: int = 1,
         max_workers: int = 1,
+        points_per_face: int = 15,
         **kwargs,  # Accept extra kwargs for compatibility
     ):
         """Initialize async ML primitive strategy.
@@ -1216,6 +1227,7 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
             preloaded_model: Optional preloaded GoalInferenceModel.
             k_nearest: Number of nearest slots to vote for per ML goal.
             max_workers: Thread pool size for async ML inference.
+            points_per_face: Number of edge points per face (3 or 15).
         """
         self.verbose = verbose
         self.match_position_tolerance = match_position_tolerance
@@ -1227,7 +1239,8 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
         # Initialize primitive strategy (sync, fast)
         self._primitive_strategy = PrimitiveGoalStrategy(
             data_dir=primitive_data_dir,
-            verbose=verbose
+            verbose=verbose,
+            points_per_face=points_per_face
         )
 
         # Initialize ML strategy (will capture JSON, inference runs async)

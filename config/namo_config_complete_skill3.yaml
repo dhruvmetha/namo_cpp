@@ -45,7 +45,7 @@ strategy:
 skill:
   # Push skill parameters
   max_push_steps: 10               # Maximum push steps per skill execution
-  max_mpc_iterations: 10         # Maximum MPC iterations per push skill execution
+  max_mpc_iterations: 1         # Maximum MPC iterations per push skill execution
   control_steps_per_push: 250      # Control simulation steps per push step
   force_scaling: 1.0               # Force scaling factor
   
@@ -53,7 +53,13 @@ skill:
   goal_tolerance: 0.1              # Goal reaching tolerance (meters)
   stuck_threshold: 0.01            # Minimum movement to avoid stuck detection (meters)
   max_stuck_iterations: 2         # Maximum stuck iterations before failure
-  
+  check_object_collision: true     # Terminate push if pushed object collides with non-robot objects
+  # Controller-level stuck detection (push controller)
+  stuck_check_stride: 30           # Control steps between stuck checks
+  controller_stuck_threshold: 3    # Checks before aborting due to stuck
+  controller_min_position_change: 0.001  # Min movement per check (meters)
+  controller_min_angle_change: 0.05      # Min yaw change per check (radians)
+
   # Object interaction parameters
   object_clearance: 0.1            # Clearance around objects for edge point sampling (meters)
   points_per_face: 3               # Number of edge points per object face (4 faces total)

@@ -271,9 +271,12 @@ class RegionOpeningPlanner(BasePlanner):
             self._debug("▶ Using async ML with primitive pre-execution goal sampler")
         else:
             # Use primitive goal strategy for push goals
+            # Get points_per_face from algorithm_params (default: 15 for backward compat)
+            points_per_face = algo_params.get("points_per_face", 15)
             self.goal_sampler = PrimitiveGoalStrategy(
                 data_dir=primitive_data_dir,
-                verbose=self.config.verbose
+                verbose=self.config.verbose,
+                points_per_face=points_per_face
             )
 
     @property
@@ -794,6 +797,12 @@ class RegionOpeningPlanner(BasePlanner):
             # Keep at most configured number of solutions for this neighbour (min-cost by design)
             if len(all_goal_attempts) > self.max_recorded_solutions_per_neighbor:
                 all_goal_attempts = all_goal_attempts[: self.max_recorded_solutions_per_neighbor]
+
+            # Update solutions_found_for_neighbour to reflect final recorded count (after truncation)
+            final_recorded_count = len(all_goal_attempts)
+            for attempt in all_goal_attempts:
+                attempt.solutions_found_for_neighbour = final_recorded_count
+
             return all_goal_attempts
         else:
             # No successful opening found from any object
