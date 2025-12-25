@@ -19,7 +19,11 @@ struct ExecutionResult {
     std::string failure_reason;      // Description of failure if success=false
     std::string collision_object;    // Name of object that caused collision (if any)
 
-    ExecutionResult() : success(false), robot_goal_reached(false), steps_executed(0) {}
+    // Collision tracking for hardness metrics (accumulated during push)
+    bool wall_collision_during_push;                      // Did object hit any wall during push?
+    std::vector<std::string> movable_collisions_during_push;  // Unique movable objects hit during push
+
+    ExecutionResult() : success(false), robot_goal_reached(false), steps_executed(0), wall_collision_during_push(false) {}
 };
 
 /**

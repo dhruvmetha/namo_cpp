@@ -282,10 +282,14 @@ class ModularEpisodeResult:
 
     # Static object information (sizes, types) - stored once per environment
     static_object_info: Optional[Dict[str, Dict[str, Any]]] = None
-    
+
     # Meta information
     xml_file: str = ""
     robot_goal: Optional[Tuple[float, float, float]] = None
+
+    # Collision tracking for hardness metrics (aggregated across all pushes in chain)
+    any_wall_collision: bool = False  # Did any push hit a wall?
+    unique_movable_collision_count: int = 0  # Number of unique movable objects hit across all pushes
 
 
 @dataclass
@@ -478,7 +482,9 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                             robot_goal=actual_goal,
                             error_message=attempt.error_message or "",
                             failure_code=None,
-                            failure_description=attempt.error_message or ""
+                            failure_description=attempt.error_message or "",
+                            any_wall_collision=getattr(attempt, 'any_wall_collision', False),
+                            unique_movable_collision_count=getattr(attempt, 'unique_movable_collision_count', 0),
                         )
 
                         episode_results.append(episode_result)

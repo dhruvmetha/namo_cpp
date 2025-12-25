@@ -105,6 +105,9 @@ class AttemptResult:
     ml_goals_raw: Optional[List[Dict]] = None
     # List of reachable edge indices
     reachable_edges: Optional[List[int]] = None
+    # Collision tracking for hardness metrics (aggregated across all pushes in chain)
+    any_wall_collision: bool = False  # Did any push hit a wall?
+    unique_movable_collision_count: int = 0  # Number of unique movable objects hit across all pushes
 
 
 class RegionOpeningPlanner(BasePlanner):
@@ -299,7 +302,7 @@ class RegionOpeningPlanner(BasePlanner):
                 xml_path=algo_params.get("xml_file"),
                 preloaded_model=algo_params.get("preloaded_goal_model"),
                 k_nearest=algo_params.get("ml_k_nearest", 1),
-                max_workers=algo_params.get("ml_async_workers", 1),
+                max_workers=1,  # Always 1 - GPU runs 1 ML inference at a time
             )
             # Set goal_sampler to primitive for compatibility (MLDrivenAsyncSearch handles ML internally)
             self.goal_sampler = self._primitive_strategy
@@ -742,7 +745,7 @@ class RegionOpeningPlanner(BasePlanner):
                 # Limit to max_solutions per object
                 # Respect global per-neighbour cap
                 per_object_limit = min(max_solutions, solutions_remaining)
-                for goal_idx, (goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used, region_goals_sampled, reachable_before, reachable_after, total_cost, skill_calls_before_success, success_timestamp) in enumerate(successful_goals[:per_object_limit]):
+                for goal_idx, (goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used, region_goals_sampled, reachable_before, reachable_after, total_cost, skill_calls_before_success, success_timestamp, any_wall_collision, unique_movable_collision_count) in enumerate(successful_goals[:per_object_limit]):
 
                     per_goal_timing_ms = max(0.0, (success_timestamp - object_attempt_start) * 1000.0)
 
@@ -782,6 +785,8 @@ class RegionOpeningPlanner(BasePlanner):
                             aligned_primitives=all_aligned_primitives if all_aligned_primitives else None,
                             ml_goals_raw=all_ml_goals_raw if all_ml_goals_raw else None,
                             reachable_edges=sorted(list(all_reachable_edges)) if all_reachable_edges else None,
+                            any_wall_collision=any_wall_collision,
+                            unique_movable_collision_count=unique_movable_collision_count,
                         ))
                         # Verbose: print running count of solutions for this neighbour
                         if self.config.verbose:
@@ -825,6 +830,8 @@ class RegionOpeningPlanner(BasePlanner):
                             aligned_primitives=all_aligned_primitives if all_aligned_primitives else None,
                             ml_goals_raw=all_ml_goals_raw if all_ml_goals_raw else None,
                             reachable_edges=sorted(list(all_reachable_edges)) if all_reachable_edges else None,
+                            any_wall_collision=any_wall_collision,
+                            unique_movable_collision_count=unique_movable_collision_count,
                         ))
                         # Verbose: print running count of solutions for this neighbour
                         if self.config.verbose:
@@ -901,7 +908,7 @@ class RegionOpeningPlanner(BasePlanner):
         object_id: str,
         goal_chain: List[Goal],
         baseline_state: namo_rl.RLState
-    ) -> Tuple[List, List, List, List]:
+    ) -> Tuple[List, List, List, List, bool, int]:
         """Execute a goal chain and collect state observations for each push.
 
         Args:
@@ -911,13 +918,18 @@ class RegionOpeningPlanner(BasePlanner):
 
         Returns:
             Tuple of (state_observations, post_action_state_observations,
-                     reachable_before, reachable_after)
+                     reachable_before, reachable_after, any_wall_collision,
+                     unique_movable_collision_count)
         """
         self.env.set_full_state(baseline_state)
         state_obs = []
         post_state_obs = []
         reachable_before = []
         reachable_after = []
+
+        # Collision tracking - accumulate across all pushes
+        any_wall_collision = False
+        all_movable_collisions: Set[str] = set()
 
         for goal in goal_chain:
             # Capture state and reachable objects before action
@@ -932,7 +944,16 @@ class RegionOpeningPlanner(BasePlanner):
             action.x = goal.x
             action.y = goal.y
             action.theta = goal.theta
-            self.env.step(action)
+            step_result = self.env.step(action)
+
+            # Extract collision info from step result
+            if step_result.info.get("wall_collision", "false") == "true":
+                any_wall_collision = True
+            movable_str = step_result.info.get("movable_collisions", "")
+            if movable_str:
+                for obj_name in movable_str.split(","):
+                    if obj_name:
+                        all_movable_collisions.add(obj_name)
 
             # Capture state and reachable objects after action
             post_obs = self.env.get_observation()
@@ -940,7 +961,8 @@ class RegionOpeningPlanner(BasePlanner):
             post_state_obs.append(post_obs)
             reachable_after.append(post_reachable)
 
-        return state_obs, post_state_obs, reachable_before, reachable_after
+        unique_movable_collision_count = len(all_movable_collisions)
+        return state_obs, post_state_obs, reachable_before, reachable_after, any_wall_collision, unique_movable_collision_count
 
     def _search_with_chaining_bfs(
         self,
@@ -1069,7 +1091,7 @@ class RegionOpeningPlanner(BasePlanner):
                     for (final_goal, final_state_obs, final_post_state_obs, resulting_state, region_goal_used, all_region_goals, success_node, success_time) in successful_results:
                         # For multi-push chains, reconstruct full chain with observations
                         if chain_depth > 1:
-                            goal_chain, state_obs, post_state_obs, reachable_before, reachable_after, total_cost = self._reconstruct_chain_with_observations(
+                            goal_chain, state_obs, post_state_obs, reachable_before, reachable_after, total_cost, any_wall_collision, unique_movable_collision_count = self._reconstruct_chain_with_observations(
                                 success_node, object_id, baseline_state
                             )
                         else:
@@ -1078,17 +1100,21 @@ class RegionOpeningPlanner(BasePlanner):
                             state_obs = final_state_obs
                             post_state_obs = final_post_state_obs
                             # For single push, we don't have reachable objects captured during BFS
-                            # So collect them now
+                            # So collect them now with collision tracking
                             self.env.set_full_state(baseline_state)
                             reachable_before = [self.env.get_reachable_objects()]
-                            # Execute the action to get reachable after
+                            # Execute the action to get reachable after and collision info
                             action = namo_rl.Action()
                             action.object_id = object_id
                             action.x = final_goal.x
                             action.y = final_goal.y
                             action.theta = final_goal.theta
-                            self.env.step(action)
+                            step_result = self.env.step(action)
                             reachable_after = [self.env.get_reachable_objects()]
+                            # Extract collision info from step result
+                            any_wall_collision = step_result.info.get("wall_collision", "false") == "true"
+                            movable_str = step_result.info.get("movable_collisions", "")
+                            unique_movable_collision_count = len([s for s in movable_str.split(",") if s]) if movable_str else 0
                             # For single push, total_cost equals the primitive depth at which success occurred
                             total_cost = max(1, getattr(success_node, "step_cost", 1))
 
@@ -1098,7 +1124,7 @@ class RegionOpeningPlanner(BasePlanner):
                         if self.config.verbose:
                             print(f"      ✓ Found solution at {chain_depth}-chain (total_cost={total_cost})")
 
-                        # Entry layout: (goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used, region_goals_sampled, reachable_before, reachable_after, total_cost, skill_calls, success_time)
+                        # Entry layout: (goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used, region_goals_sampled, reachable_before, reachable_after, total_cost, skill_calls, success_time, any_wall_collision, unique_movable_collision_count)
                         # Maintain only min-cost solutions so far; reset when a new lower cost is found
                         if best_total_cost is None or total_cost <= best_total_cost:
                             # If strictly better cost, reset collection to only keep new best-cost solutions
@@ -1119,6 +1145,8 @@ class RegionOpeningPlanner(BasePlanner):
                                     total_cost,
                                     skill_calls_before_success,
                                     success_time,
+                                    any_wall_collision,
+                                    unique_movable_collision_count,
                                 )
                             )
                             if self.config.verbose:
@@ -1201,7 +1229,7 @@ class RegionOpeningPlanner(BasePlanner):
         success_node: ChainNode,
         object_id: str,
         baseline_state: namo_rl.RLState
-    ) -> Tuple[List[Goal], List, List, List, List, int]:
+    ) -> Tuple[List[Goal], List, List, List, List, int, bool, int]:
         """Reconstruct goal chain and collect observations by re-executing.
 
         This is only called for multi-push chains (chain_depth > 1).
@@ -1212,7 +1240,8 @@ class RegionOpeningPlanner(BasePlanner):
             baseline_state: Starting state for re-execution
 
         Returns:
-            Tuple of (goal_chain, state_obs, post_state_obs, reachable_before, reachable_after)
+            Tuple of (goal_chain, state_obs, post_state_obs, reachable_before, reachable_after,
+                     total_cost, any_wall_collision, unique_movable_collision_count)
         """
         # Reconstruct goal chain from parent nodes
         goal_chain = []
@@ -1223,7 +1252,7 @@ class RegionOpeningPlanner(BasePlanner):
         goal_chain.reverse()
 
         # Re-execute chain to collect observations
-        state_obs, post_state_obs, reachable_before, reachable_after = self._collect_chain_observations(
+        state_obs, post_state_obs, reachable_before, reachable_after, any_wall_collision, unique_movable_collision_count = self._collect_chain_observations(
             object_id, goal_chain, baseline_state
         )
 
@@ -1239,7 +1268,7 @@ class RegionOpeningPlanner(BasePlanner):
         if num_pushes > 1:
             total_cost += self.chain_link_cost
 
-        return goal_chain, state_obs, post_state_obs, reachable_before, reachable_after, total_cost
+        return goal_chain, state_obs, post_state_obs, reachable_before, reachable_after, total_cost, any_wall_collision, unique_movable_collision_count
 
     def _compute_chain_cost(self, node: ChainNode) -> int:
         """Compute cumulative additive cost from root to the given node.

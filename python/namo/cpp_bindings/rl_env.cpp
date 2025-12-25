@@ -67,6 +67,13 @@ RLEnvironment::StepResult RLEnvironment::step(const Action& action) {
     if (auto it = result.outputs.find("stuck"); it != result.outputs.end()) {
         rl_result.info["stuck"] = std::get<std::string>(it->second);
     }
+    // Collision tracking outputs for hardness metrics
+    if (auto it = result.outputs.find("wall_collision"); it != result.outputs.end()) {
+        rl_result.info["wall_collision"] = std::get<bool>(it->second) ? "true" : "false";
+    }
+    if (auto it = result.outputs.find("movable_collisions"); it != result.outputs.end()) {
+        rl_result.info["movable_collisions"] = std::get<std::string>(it->second);
+    }
 
     return rl_result;
 }

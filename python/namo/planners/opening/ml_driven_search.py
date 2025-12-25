@@ -520,8 +520,8 @@ class MLDrivenAsyncSearch:
                         path_ml_score=new_score,
                     )
 
-            # Update queue priority if needed
-            self.work_queue.update_priority(entry.state_id)
+            # Note: priority update happens in _harvest_ml_results when ML arrives
+            # No need to update here - entry stays at same priority
 
         total_time_ms = (time.time() - start_time) * 1000
         self._debug(f"🏁 Search complete: {len(self.solutions)} solutions, "
