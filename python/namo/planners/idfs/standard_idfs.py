@@ -152,9 +152,7 @@ class StandardIterativeDeepeningDFS(BasePlanner):
             return self._create_ml_goal_strategy()
         elif strategy_name == 'primitive':
             PrimitiveGoalStrategy = self._import_and_create('namo.strategies.primitive_goal_strategy', 'PrimitiveGoalStrategy')
-            algo_params = self.config.algorithm_params or {}
-            points_per_face = algo_params.get('points_per_face', 15)
-            return PrimitiveGoalStrategy(verbose=self.config.verbose, points_per_face=points_per_face)
+            return PrimitiveGoalStrategy(verbose=self.config.verbose)
         else:
             available = ['random', 'adaptive', 'discretized', 'ml', 'primitive']
             raise ValueError(f"Unknown goal strategy '{strategy_name}'. Available: {available}")

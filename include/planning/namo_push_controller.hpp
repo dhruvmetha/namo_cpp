@@ -5,6 +5,7 @@
 #include "wavefront/wavefront_planner.hpp"
 #include <array>
 #include <memory>
+// #include <unordered_set>
 
 namespace namo {
 

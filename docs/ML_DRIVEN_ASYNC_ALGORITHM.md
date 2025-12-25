@@ -897,20 +897,55 @@ STEP 5: Testing (1 day)
 ```yaml
 # region_opening_collection.yaml
 
-goal_sampler: ml_driven_async    # Enable ML-driven async search
+# Enable ML-driven async search (zero idle time, ML priority)
+goal_sampler: ml_driven_async
 
-# ML settings
-ml_goal_model: /path/to/model
-ml_samples: 32
-ml_device: cuda
+# ML model settings
+ml_goal_model: /path/to/model     # Hydra output directory with trained model
+ml_samples: 32                     # Diffusion samples per inference
+ml_device: cuda                    # GPU device
+ml_min_goals: 1                    # Minimum ML goals before accepting
 
 # Search settings
-region_max_chain_depth: 3        # Max pushes (works for 2, 3, 4, 5, ...)
-max_solutions_per_neighbor: 1    # Stop after finding N solutions
+region_max_chain_depth: 3          # Max pushes (works for 1, 2, 3, 4, 5, ...)
+region_max_solutions_per_neighbor: 1  # Stop after finding N solutions
+region_allow_collisions: true      # Whether to allow collision detection
 
-# Tolerance for ML-to-primitive alignment
-ml_match_position_tolerance: 0.2
-ml_match_angle_tolerance: 0.2
+# Primitive settings
+points_per_face: 15                # 3 or 15 edge points per face
+primitive_data_dir: data           # Directory with motion_primitives_*.dat files
+
+# ML-to-primitive alignment tolerances
+ml_match_position_tolerance: 0.2   # meters - max position error for voting
+ml_match_angle_tolerance: 0.2      # radians - max angle error for voting
+ml_match_angle_weight: 1.0         # Weight for angle error in matching score
+ml_k_nearest: 1                    # K-nearest slots to vote per ML goal
+
+# Async settings
+ml_async_workers: 1                # Thread pool size for async ML inference
+```
+
+### Usage Example
+
+```python
+# Using RegionOpeningPlanner with ml_driven_async
+from namo.core import PlannerFactory, PlannerConfig
+
+config = PlannerConfig(
+    algorithm_params={
+        "goal_sampler": "ml_driven_async",
+        "ml_goal_model_path": "/path/to/model",
+        "ml_samples": 32,
+        "ml_device": "cuda",
+        "region_max_chain_depth": 3,
+        "region_max_solutions_per_neighbor": 1,
+        "ml_match_position_tolerance": 0.2,
+        "ml_match_angle_tolerance": 0.2,
+    }
+)
+
+planner = PlannerFactory.create_planner("region_opening", env, config)
+result = planner.search(robot_goal)
 ```
 
 ---
