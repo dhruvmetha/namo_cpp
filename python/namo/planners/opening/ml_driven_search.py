@@ -312,6 +312,9 @@ class SearchSolution:
     state_observations: List[Dict[str, Any]] = field(default_factory=list)
     post_action_observations: List[Dict[str, Any]] = field(default_factory=list)
     timing_ms: float = 0.0
+    # Collision tracking for hardness metrics
+    any_wall_collision: bool = False  # Did any push hit a wall?
+    unique_movable_collision_count: int = 0  # Unique movable objects hit across chain
 
 
 class MLDrivenAsyncSearch:
@@ -481,12 +484,16 @@ class MLDrivenAsyncSearch:
 
                 # For multi-push chains, re-execute to collect all observations
                 if len(new_chain) > 1:
-                    state_obs, post_obs_list = self._collect_chain_observations(
+                    state_obs, post_obs_list, any_wall_collision, unique_movable_collision_count = self._collect_chain_observations(
                         object_id, new_chain, self._baseline_state
                     )
                 else:
+                    # Single push - extract collision info from current step_result
                     state_obs = [pre_obs]
                     post_obs_list = [post_obs]
+                    any_wall_collision = step_result.info.get("wall_collision", "false") == "true"
+                    movable_str = step_result.info.get("movable_collisions", "")
+                    unique_movable_collision_count = len([s for s in movable_str.split(",") if s.strip()]) if movable_str else 0
 
                 solution = SearchSolution(
                     chain=new_chain,
@@ -498,6 +505,8 @@ class MLDrivenAsyncSearch:
                     state_observations=state_obs,
                     post_action_observations=post_obs_list,
                     timing_ms=(time.time() - start_time) * 1000,
+                    any_wall_collision=any_wall_collision,
+                    unique_movable_collision_count=unique_movable_collision_count,
                 )
                 self.solutions.append(solution)
 
@@ -673,8 +682,8 @@ class MLDrivenAsyncSearch:
         object_id: str,
         chain: List[Goal],
         baseline_state: namo_rl.RLState,
-    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-        """Re-execute chain to collect all observations.
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], bool, int]:
+        """Re-execute chain to collect all observations and collision info.
 
         Args:
             object_id: Object being pushed.
@@ -682,10 +691,15 @@ class MLDrivenAsyncSearch:
             baseline_state: Starting state before first push.
 
         Returns:
-            Tuple of (state_observations, post_action_observations) lists.
+            Tuple of (state_observations, post_action_observations,
+                     any_wall_collision, unique_movable_collision_count).
         """
         state_observations = []
         post_action_observations = []
+
+        # Collision tracking - accumulate across all pushes
+        any_wall_collision = False
+        all_movable_collisions: Set[str] = set()
 
         # Start from baseline
         self.env.set_full_state(baseline_state)
@@ -703,7 +717,17 @@ class MLDrivenAsyncSearch:
             action.theta = goal.theta
 
             try:
-                self.env.step(action)
+                step_result = self.env.step(action)
+
+                # Extract collision info from step result
+                if step_result.info.get("wall_collision", "false") == "true":
+                    any_wall_collision = True
+                movable_str = step_result.info.get("movable_collisions", "")
+                if movable_str:
+                    for obj_name in movable_str.split(","):
+                        obj_name = obj_name.strip()
+                        if obj_name:
+                            all_movable_collisions.add(obj_name)
             except Exception:
                 # Push failed during replay - shouldn't happen for valid chains
                 pass
@@ -712,4 +736,5 @@ class MLDrivenAsyncSearch:
             post_obs = self.env.get_observation()
             post_action_observations.append(post_obs)
 
-        return state_observations, post_action_observations
+        unique_movable_collision_count = len(all_movable_collisions)
+        return state_observations, post_action_observations, any_wall_collision, unique_movable_collision_count

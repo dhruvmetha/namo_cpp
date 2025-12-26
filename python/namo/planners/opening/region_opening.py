@@ -1710,7 +1710,8 @@ class RegionOpeningPlanner(BasePlanner):
         # Convert solutions to expected format
         # Format: (goal_chain, state_obs, post_state_obs, resulting_state,
         #          region_goal_used, region_goals_sampled, reachable_before,
-        #          reachable_after, total_cost, skill_calls, success_time)
+        #          reachable_after, total_cost, skill_calls, success_time,
+        #          any_wall_collision, unique_movable_collision_count)
         results = []
         min_depth = None
 
@@ -1721,7 +1722,7 @@ class RegionOpeningPlanner(BasePlanner):
                 neighbour_label, region_goals
             )
 
-            # Build result tuple
+            # Build result tuple (13 elements to match _search_with_chaining_bfs)
             result = (
                 sol.chain,                                  # goal_chain
                 sol.state_observations,                     # state_obs
@@ -1734,6 +1735,8 @@ class RegionOpeningPlanner(BasePlanner):
                 sol.num_pushes,                             # total_cost
                 None,                                       # skill_calls_before_success
                 time.time(),                                # success_timestamp
+                sol.any_wall_collision,                     # any_wall_collision
+                sol.unique_movable_collision_count,         # unique_movable_collision_count
             )
             results.append(result)
 
