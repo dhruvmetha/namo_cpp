@@ -115,7 +115,7 @@ Local masks (--local-only or default):
     local_robot_region                  Robot reachability (BFS from robot position on inflated obstacles)
     local_goal_sample_region            Goal sample reachability (BFS from first goal sample on inflated obstacles)
     target_goal_pose_deltas_obj         How to move the object as se2 pose from object coordinates
-    target_goal_corner_deltas_obj       How to move the object as corners in pixel coordinates
+    target_goal_corner_deltas_obj       How to move the object as corners from object coordinates
 
 ================================================================================
 OUTPUT FORMAT
