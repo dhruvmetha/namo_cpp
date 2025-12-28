@@ -164,7 +164,21 @@ public:
      * @return std::vector<int> List of reachable edge indices
      */
     std::vector<int> get_reachable_edges_with_wavefront(const std::string& object_name);
-    
+
+    /**
+     * @brief Evaluate geometric transport priorities for primitive target poses
+     * @param env Environment reference
+     * @param object_name Object to evaluate
+     * @param target_poses Vector of target poses [x, y, theta]
+     * @param robot_goal Robot goal position [x, y]
+     * @return Vector of priorities (1=best, 4=worst) for each target pose
+     */
+    std::vector<int> evaluate_primitive_priorities(
+        NAMOEnvironment& env,
+        const std::string& object_name,
+        const std::vector<std::array<double, 3>>& target_poses,
+        const std::array<double, 2>& robot_goal);
+
 private:
     
     /**

@@ -363,11 +363,20 @@ std::vector<int> MPCExecutor::get_reachable_edges_with_wavefront(const std::stri
     }
 
     // planner_.save_wavefront_iteration("mpc_wavefront", 0);
-    
-    // std::cout << "Wavefront analysis: " << reachable_edges.size() 
+
+    // std::cout << "Wavefront analysis: " << reachable_edges.size()
             //   << "/" << edge_count << " edges reachable for " << object_name << std::endl;
-    
+
     return reachable_edges;
+}
+
+std::vector<int> MPCExecutor::evaluate_primitive_priorities(
+    NAMOEnvironment& env,
+    const std::string& object_name,
+    const std::vector<std::array<double, 3>>& target_poses,
+    const std::array<double, 2>& robot_goal) {
+    // Delegate to wavefront planner
+    return planner_.evaluate_primitive_priorities(env, object_name, target_poses, robot_goal);
 }
 
 } // namespace namo

@@ -76,6 +76,9 @@ PYBIND11_MODULE(namo_rl, m) {
         .def("get_collision_checking", &namo::RLEnvironment::get_collision_checking, "Get current collision checking state.")
         .def("set_robot_goal_termination", &namo::RLEnvironment::set_robot_goal_termination, py::arg("enable"), "Enable or disable robot goal termination during MPC execution.")
         .def("get_robot_goal_termination", &namo::RLEnvironment::get_robot_goal_termination, "Get current robot goal termination state.")
+        .def("evaluate_primitive_priorities", &namo::RLEnvironment::evaluate_primitive_priorities,
+             py::arg("object_name"), py::arg("target_poses"), py::arg("robot_goal"),
+             "Evaluate geometric transport priorities for primitive targets. Returns priorities 1-4 (1=best, 4=worst).")
         .def("get_action_constraints", &namo::RLEnvironment::get_action_constraints, "Get action space constraints for MCTS.")
        .def("get_region_connectivity", &namo::RLEnvironment::get_region_connectivity,
            "Return region adjacency, boundary objects, and region labels from the wavefront grid.")

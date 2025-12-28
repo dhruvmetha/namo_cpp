@@ -26,6 +26,7 @@ from .primitive_goal_strategy import (
     MLPrimitiveAsyncStrategy,
     AsyncGoalResult
 )
+from .geometric_transport_strategy import GeometricTransportStrategy
 
 __all__ = [
     "ObjectSelectionStrategy",

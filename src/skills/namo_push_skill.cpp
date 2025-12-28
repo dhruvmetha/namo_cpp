@@ -690,6 +690,14 @@ bool NAMOPushSkill::get_robot_goal_termination() const {
     return enable_robot_goal_termination_;
 }
 
+std::vector<int> NAMOPushSkill::evaluate_primitive_priorities(
+    const std::string& object_name,
+    const std::vector<std::array<double, 3>>& target_poses,
+    const std::array<double, 2>& robot_goal) {
+    // Delegate to executor's wavefront planner
+    return executor_->evaluate_primitive_priorities(env_, object_name, target_poses, robot_goal);
+}
+
 GreedyPlanner* NAMOPushSkill::get_planner_for_object(const std::string& object_name) const {
     const ObjectInfo* info = env_.get_object_info(object_name);
     GreedyPlanner* selected_planner = nullptr;

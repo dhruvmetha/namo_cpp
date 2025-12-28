@@ -74,6 +74,12 @@ public:
     void set_robot_goal_termination(bool enable);
     bool get_robot_goal_termination() const;
 
+    // Geometric transport heuristic for primitive prioritization
+    std::vector<int> evaluate_primitive_priorities(
+        const std::string& object_name,
+        const std::vector<std::array<double, 3>>& target_poses,
+        const std::array<double, 2>& robot_goal);
+
     // Action space constraints for MCTS progressive widening
     struct ActionConstraints {
         double min_distance = 0.3;  // Minimum distance from object

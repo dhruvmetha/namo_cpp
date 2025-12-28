@@ -273,4 +273,14 @@ bool RLEnvironment::get_robot_goal_termination() const {
     return false;
 }
 
+std::vector<int> RLEnvironment::evaluate_primitive_priorities(
+    const std::string& object_name,
+    const std::vector<std::array<double, 3>>& target_poses,
+    const std::array<double, 2>& robot_goal) {
+    if (skill_) {
+        return skill_->evaluate_primitive_priorities(object_name, target_poses, robot_goal);
+    }
+    return std::vector<int>(target_poses.size(), 3);  // Default to priority 3
+}
+
 } // namespace namo

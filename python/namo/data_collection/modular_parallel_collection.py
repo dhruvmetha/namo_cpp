@@ -1011,9 +1011,11 @@ def main():
                         help="Maximum solutions to record/save per neighbor (subset of found, default: 2)")
     parser.add_argument("--region-frontier-beam-width", type=int, default=None,
                         help="Optional beam width (K) to cap frontier per chain depth; None/<=0 disables")
-    parser.add_argument("--goal-sampler", type=str, default=None,
-                        choices=["primitive", "ml", "ml_primitive"],
-                        help="Goal sampler override for region opening (primitive default)")
+    parser.add_argument("--goal-strategy", type=str, default=None,
+                        choices=["primitive", "ml", "ml_primitive", "ml_fallback", "ml_primitive_fallback",
+                                 "ml_async", "ml_primitive_async", "ml_driven_async",
+                                 "geometric", "geometric_transport"],
+                        help="Goal strategy for region opening (primitive default)")
     parser.add_argument("--ml-goal-model", type=str,
                         help="Hydra output directory containing diffusion goal model")
     parser.add_argument("--ml-device", type=str, default="cuda",
@@ -1105,11 +1107,11 @@ def main():
         if args.region_frontier_beam_width is not None:
             algorithm_params["region_frontier_beam_width"] = args.region_frontier_beam_width
 
-        if args.goal_sampler:
-            algorithm_params["goal_sampler"] = args.goal_sampler
-        if args.goal_sampler and args.goal_sampler.lower() in {"ml", "ml_primitive"}:
+        if args.goal_strategy:
+            algorithm_params["goal_strategy"] = args.goal_strategy
+        if args.goal_strategy and args.goal_strategy.lower() in {"ml", "ml_primitive"}:
             if not args.ml_goal_model:
-                parser.error("--ml-goal-model is required when goal sampler is set to 'ml'")
+                parser.error("--ml-goal-model is required when goal strategy is 'ml'")
             algorithm_params.update({
                 "ml_goal_model_path": args.ml_goal_model,
                 "ml_device": args.ml_device,
@@ -1122,9 +1124,9 @@ def main():
                 "primitive_data_dir": args.primitive_data_dir,
             })
         elif args.ml_goal_model:
-            # Allow users to specify ML params even without explicit sampler flag
+            # Allow users to specify ML params even without explicit strategy flag
             algorithm_params.update({
-                "goal_sampler": "ml",
+                "goal_strategy": "ml",
                 "ml_goal_model_path": args.ml_goal_model,
                 "ml_device": args.ml_device,
                 "ml_samples": args.ml_samples,

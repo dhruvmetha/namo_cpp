@@ -104,6 +104,79 @@ public:
      * @brief Get reachability grid (same as get_grid for compatibility)
      */
     const std::vector<std::vector<int>>& get_distance_grid() const { return reachability_grid_; }
+
+    // ========== Geometric Transport Heuristic Methods ==========
+
+    /**
+     * @brief Compute grid with a specific object removed
+     * @param env Environment
+     * @param object_name Object to exclude from grid
+     * @param output_grid Output grid (will be resized and filled)
+     */
+    void compute_grid_without_object(
+        NAMOEnvironment& env,
+        const std::string& object_name,
+        std::vector<std::vector<int>>& output_grid);
+
+    /**
+     * @brief Run BFS and return path cells from start to goal
+     * @param grid Grid to search on
+     * @param start_pos Start position [x, y] in world coordinates
+     * @param goal_pos Goal position [x, y] in world coordinates
+     * @return Vector of (grid_x, grid_y) pairs on the path, empty if unreachable
+     */
+    std::vector<std::pair<int, int>> get_path_cells(
+        const std::vector<std::vector<int>>& grid,
+        const std::array<double, 2>& start_pos,
+        const std::array<double, 2>& goal_pos);
+
+    /**
+     * @brief Check if footprint overlaps with path cells
+     * @param footprint Object footprint cells
+     * @param path_cells Path cells from get_path_cells
+     * @return True if any footprint cell overlaps with path
+     */
+    bool footprint_blocks_path(
+        const GridFootprint& footprint,
+        const std::vector<std::pair<int, int>>& path_cells) const;
+
+    /**
+     * @brief Check if target pose collides with static obstacles
+     * @param target_pose Target pose [x, y, theta]
+     * @param object_size Object size [width, height, depth]
+     * @return True if collision with static obstacle
+     */
+    bool check_static_collision(
+        const std::array<double, 3>& target_pose,
+        const std::array<double, 3>& object_size);
+
+    /**
+     * @brief Check if target pose collides with other movable objects
+     * @param object_name Object being moved (excluded from check)
+     * @param target_pose Target pose [x, y, theta]
+     * @param object_size Object size [width, height, depth]
+     * @param env Environment
+     * @return List of colliding movable object names
+     */
+    std::vector<std::string> check_movable_collision(
+        const std::string& object_name,
+        const std::array<double, 3>& target_pose,
+        const std::array<double, 3>& object_size,
+        NAMOEnvironment& env);
+
+    /**
+     * @brief Evaluate priorities for multiple primitive target poses
+     * @param env Environment
+     * @param object_name Object to evaluate
+     * @param target_poses Vector of target poses [x, y, theta]
+     * @param robot_goal Robot goal position [x, y]
+     * @return Vector of priorities (1=best, 4=worst) for each target pose
+     */
+    std::vector<int> evaluate_primitive_priorities(
+        NAMOEnvironment& env,
+        const std::string& object_name,
+        const std::vector<std::array<double, 3>>& target_poses,
+        const std::array<double, 2>& robot_goal);
     
     /**
      * @brief Convert world coordinates to grid coordinates

@@ -104,6 +104,18 @@ public:
     bool get_robot_goal_termination() const;
 
     /**
+     * @brief Evaluate geometric transport priorities for primitive target poses
+     * @param object_name Object to evaluate
+     * @param target_poses Vector of target poses [x, y, theta]
+     * @param robot_goal Robot goal position [x, y]
+     * @return Vector of priorities (1=best, 4=worst) for each target pose
+     */
+    std::vector<int> evaluate_primitive_priorities(
+        const std::string& object_name,
+        const std::vector<std::array<double, 3>>& target_poses,
+        const std::array<double, 2>& robot_goal);
+
+    /**
      * @brief Runtime configuration for collision checking
      */
     void set_collision_checking(bool enabled);

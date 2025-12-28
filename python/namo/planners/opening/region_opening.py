@@ -25,7 +25,8 @@ from namo.strategies import (
     MLPrimitiveGoalStrategy,
     MLPrimitiveFallbackStrategy,
     MLPrimitiveAsyncStrategy,
-    AsyncGoalResult
+    AsyncGoalResult,
+    GeometricTransportStrategy
 )
 from namo.planners.opening.ml_driven_search import MLDrivenAsyncSearch
 
@@ -206,17 +207,14 @@ class RegionOpeningPlanner(BasePlanner):
 
         algo_params = getattr(self, "algorithm_params", {}) or {}
         primitive_data_dir = algo_params.get("primitive_data_dir", "data")
-        sampler_name = (
-            algo_params.get("goal_sampler")
-            or algo_params.get("goal_selection_strategy")
-        )
+        strategy_name = algo_params.get("goal_strategy")
 
-        if sampler_name and sampler_name.lower() in {"ml", "ml_primitive"}:
+        if strategy_name and strategy_name.lower() in {"ml", "ml_primitive"}:
             ml_path = algo_params.get("ml_goal_model_path")
             if not ml_path:
                 raise ValueError("ML primitive goal sampler requires 'ml_goal_model_path'")
 
-            self.goal_sampler = MLPrimitiveGoalStrategy(
+            self.goal_strategy = MLPrimitiveGoalStrategy(
                 goal_model_path=ml_path,
                 primitive_data_dir=primitive_data_dir,
                 samples=algo_params.get("ml_samples", 32),
@@ -233,13 +231,13 @@ class RegionOpeningPlanner(BasePlanner):
                 preview_aligned_primitives=algo_params.get("preview_aligned_primitives", False),
                 k_nearest=algo_params.get("ml_k_nearest", 1),
             )
-            self._debug("▶ Using ML-aligned primitive goal sampler")
-        elif sampler_name and sampler_name.lower() in {"ml_fallback", "ml_primitive_fallback"}:
+            self._debug("▶ Using ML-aligned primitive goal strategy")
+        elif strategy_name and strategy_name.lower() in {"ml_fallback", "ml_primitive_fallback"}:
             ml_path = algo_params.get("ml_goal_model_path")
             if not ml_path:
                 raise ValueError("ML fallback goal sampler requires 'ml_goal_model_path'")
 
-            self.goal_sampler = MLPrimitiveFallbackStrategy(
+            self.goal_strategy = MLPrimitiveFallbackStrategy(
                 goal_model_path=ml_path,
                 primitive_data_dir=primitive_data_dir,
                 samples=algo_params.get("ml_samples", 32),
@@ -256,13 +254,13 @@ class RegionOpeningPlanner(BasePlanner):
                 preview_aligned_primitives=algo_params.get("preview_aligned_primitives", False),
                 k_nearest=algo_params.get("ml_k_nearest", 1),
             )
-            self._debug("▶ Using ML-first with primitive fallback goal sampler")
-        elif sampler_name and sampler_name.lower() in {"ml_async", "ml_primitive_async"}:
+            self._debug("▶ Using ML-first with primitive fallback goal strategy")
+        elif strategy_name and strategy_name.lower() in {"ml_async", "ml_primitive_async"}:
             ml_path = algo_params.get("ml_goal_model_path")
             if not ml_path:
                 raise ValueError("ML async goal sampler requires 'ml_goal_model_path'")
 
-            self.goal_sampler = MLPrimitiveAsyncStrategy(
+            self.goal_strategy = MLPrimitiveAsyncStrategy(
                 goal_model_path=ml_path,
                 primitive_data_dir=primitive_data_dir,
                 samples=algo_params.get("ml_samples", 32),
@@ -277,8 +275,8 @@ class RegionOpeningPlanner(BasePlanner):
                 k_nearest=algo_params.get("ml_k_nearest", 1),
                 max_workers=algo_params.get("ml_async_workers", 1),
             )
-            self._debug("▶ Using async ML with primitive pre-execution goal sampler")
-        elif sampler_name and sampler_name.lower() in {"ml_driven_async"}:
+            self._debug("▶ Using async ML with primitive pre-execution goal strategy")
+        elif strategy_name and strategy_name.lower() in {"ml_driven_async"}:
             # ML-Driven Async: uses MLDrivenAsyncSearch with zero idle time guarantee
             ml_path = algo_params.get("ml_goal_model_path")
             if not ml_path:
@@ -304,13 +302,20 @@ class RegionOpeningPlanner(BasePlanner):
                 k_nearest=algo_params.get("ml_k_nearest", 1),
                 max_workers=1,  # Always 1 - GPU runs 1 ML inference at a time
             )
-            # Set goal_sampler to primitive for compatibility (MLDrivenAsyncSearch handles ML internally)
-            self.goal_sampler = self._primitive_strategy
+            # Set goal_strategy to primitive for compatibility (MLDrivenAsyncSearch handles ML internally)
+            self.goal_strategy = self._primitive_strategy
             self._use_ml_driven_async = True
             self._debug("▶ Using ML-driven async search (zero idle time, ML priority)")
+        elif strategy_name and strategy_name.lower() in {"geometric", "geometric_transport"}:
+            # Use geometric transport heuristic for goal prioritization
+            self.goal_strategy = GeometricTransportStrategy(
+                primitive_data_dir=primitive_data_dir,
+                verbose=self.config.verbose
+            )
+            self._debug("▶ Using geometric transport goal strategy")
         else:
             # Use primitive goal strategy for push goals
-            self.goal_sampler = PrimitiveGoalStrategy(
+            self.goal_strategy = PrimitiveGoalStrategy(
                 data_dir=primitive_data_dir,
                 verbose=self.config.verbose
             )
@@ -718,9 +723,9 @@ class RegionOpeningPlanner(BasePlanner):
                     push_counter=neighbour_push_counter,
                 )
 
-            # Accumulate ML goal stats from goal_sampler (if it supports get_last_goal_stats)
-            if hasattr(self.goal_sampler, 'get_last_goal_stats'):
-                stats = self.goal_sampler.get_last_goal_stats()
+            # Accumulate ML goal stats from goal_strategy (if it supports get_last_goal_stats)
+            if hasattr(self.goal_strategy, 'get_last_goal_stats'):
+                stats = self.goal_strategy.get_last_goal_stats()
                 total_ml_goals_generated += stats.get('ml_goals_generated', 0)
                 total_ml_goals_aligned += stats.get('ml_goals_aligned', 0)
                 total_reachable_edges += stats.get('reachable_edges_count', 0)
@@ -1028,7 +1033,7 @@ class RegionOpeningPlanner(BasePlanner):
 
                 # Generate goals for this node's state
                 print(f"      🔮 [_search_with_chaining_bfs] Chain depth {chain_depth}, node {frontier.index(node)+1}/{len(frontier)}: Generating goals for {object_id}")
-                goals_per_edge = self.goal_sampler.generate_goals(
+                goals_per_edge = self.goal_strategy.generate_goals(
                     object_id,
                     node.state,
                     self.env,
@@ -1375,8 +1380,8 @@ class RegionOpeningPlanner(BasePlanner):
             if self.config.verbose:
                 print(f"      📋 Async mode: {len(candidates)} candidates sorted by depth (ML running in background)")
         else:
-            # Sync mode: sort by (-score, depth) - high votes first, then shortest
-            candidates.sort(key=lambda x: (-getattr(x[2], 'score', 0.0), x[1]))
+            # Sync mode: sort by (depth, -score) - shortest first, then high priority within same depth
+            candidates.sort(key=lambda x: (x[1], -getattr(x[2], 'score', 0.0)))
 
         # Track position for re-sorting remaining candidates
         candidate_idx = 0

@@ -3,7 +3,7 @@
 # CLI flags can override any value here.
 
 # Core execution
-output_dir: /common/users/dm1487/namo_data/dec25/aug9_envs/2_push_test
+output_dir: /common/users/dm1487/namo_data/dec25/aug9_envs/1_push_test_first_solution_geometric_heuristic
 end_idx: 7000
 algorithm: region_opening
 workers: 48 
@@ -19,18 +19,21 @@ goals_per_region: 10  # Number of robot goal samples per region for validation
 # Region opening specific parameters
 points_per_face: 15           # 3 or 15 - must match config_file (skill3 or skill15)
 region_allow_collisions: true
-region_max_chain_depth: 2    # 1=single push, 2=two pushes, 3=three pushes
-region_max_solutions_per_neighbor: 100
+region_max_chain_depth: 1    # 1=single push, 2=two pushes, 3=three pushes
+region_max_solutions_per_neighbor: 1
 region_frontier_beam_width: 5000  # null or 0 = unbounded; positive integer caps frontier per depth
-region_max_recorded_solutions_per_neighbor: 5
+region_max_recorded_solutions_per_neighbor: 1
 region_chain_link_cost: 11  # Additional cost per chain link beyond first push (0=no extra cost, e.g. 5 makes 2-push cost +5)
+
+# Goal strategy: primitive | geometric | ml | ml_fallback | ml_async | ml_driven_async
+goal_strategy: geometric
 
 # Paths
 # xml_dir: /common/home/dm1487/robotics_research/ktamp/ml4kp_ktamp/resources/models/custom_walled_envs/aug9/medium
 xml_dir: /common/users/shared/robot_learning/dm1487/namo/mj_env_configs/nov28/11_11_07deletion/maze_11x11_del70p_seed25188
 config_file: config/namo_config_complete_skill15.yaml
 # manifest: /common/users/shared/robot_learning/dm1487/namo/manifests/aug9_medium/manifest.txt  # Pre-generated file list for fast loading (use generate_xml_manifest.py)
-manifest: /common/users/shared/robot_learning/dm1487/namo/manifests/aug9_medium/manifest_test_2push.txt  # Pre-generated file list for fast loading (use generate_xml_manifest.py)
+manifest: /common/users/shared/robot_learning/dm1487/namo/manifests/aug9_medium/manifest_test.txt  # Pre-generated file list for fast loading (use generate_xml_manifest.py)
 # _2push_test_minus_1push_test
 # Optional pipeline features
 verbose: false

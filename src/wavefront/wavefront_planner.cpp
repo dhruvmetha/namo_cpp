@@ -4,6 +4,7 @@
 #include <fstream>
 #include <cmath>
 #include <algorithm>
+#include <unordered_set>
 
 namespace namo {
 
@@ -413,10 +414,363 @@ void WavefrontPlanner::add_footprint_to_dynamic_grid(const GridFootprint& footpr
 void WavefrontPlanner::update_performance_stats(
     const std::chrono::high_resolution_clock::time_point& start,
     const std::chrono::high_resolution_clock::time_point& end) const {
-        
+
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
     stats_.wavefront_time += duration.count() / 1000.0; // Convert to ms
     stats_.total_planning_time += duration.count() / 1000.0;
+}
+
+// ========== Geometric Transport Heuristic Implementation ==========
+
+void WavefrontPlanner::compute_grid_without_object(
+    NAMOEnvironment& env,
+    const std::string& object_name,
+    std::vector<std::vector<int>>& output_grid) {
+
+    // Resize and copy static grid
+    output_grid = static_grid_;
+
+    // Add all movable objects EXCEPT the specified one
+    const auto& movable_objects = env.get_movable_objects();
+    for (size_t i = 0; i < env.get_num_movable(); i++) {
+        const auto& obj = movable_objects[i];
+
+        // Skip the object we want to remove
+        if (obj.name == object_name) continue;
+
+        const ObjectState* obj_state = env.get_object_state(obj.name);
+        if (!obj_state) continue;
+
+        // Create inflated object for robot size
+        ObjectInfo inflated_obj = obj;
+        inflated_obj.size[0] += robot_size_[0] + 0.005;
+        inflated_obj.size[1] += robot_size_[1] + 0.005;
+
+        // Calculate footprint and add to grid
+        GridFootprint footprint = calculate_rotated_footprint(inflated_obj, *obj_state);
+        for (size_t j = 0; j < footprint.num_cells; j++) {
+            int x = footprint.cells[j].first;
+            int y = footprint.cells[j].second;
+            if (is_valid_grid_coord(x, y)) {
+                output_grid[x][y] = -2;  // Obstacle
+            }
+        }
+    }
+}
+
+std::vector<std::pair<int, int>> WavefrontPlanner::get_path_cells(
+    const std::vector<std::vector<int>>& grid,
+    const std::array<double, 2>& start_pos,
+    const std::array<double, 2>& goal_pos) {
+
+    std::vector<std::pair<int, int>> path;
+
+    // Convert to grid coordinates
+    int start_x = world_to_grid_x(start_pos[0]);
+    int start_y = world_to_grid_y(start_pos[1]);
+    int goal_x = world_to_grid_x(goal_pos[0]);
+    int goal_y = world_to_grid_y(goal_pos[1]);
+
+    if (!is_valid_grid_coord(start_x, start_y) || !is_valid_grid_coord(goal_x, goal_y)) {
+        return path;  // Empty path
+    }
+
+    // Check if start or goal is in obstacle
+    if (grid[start_x][start_y] == -2 || grid[goal_x][goal_y] == -2) {
+        return path;  // Empty path
+    }
+
+    // BFS with parent tracking
+    // Use a separate grid to track parents: -1 = unvisited, -2 = start, otherwise encodes parent direction
+    std::vector<std::vector<int>> parent(grid_width_, std::vector<int>(grid_height_, -1));
+
+    // Direction encoding: 0-7 maps to DIRECTIONS indices
+    reset_bfs_queue();
+    bfs_enqueue(start_x, start_y);
+    parent[start_x][start_y] = -2;  // Mark start
+
+    bool found = false;
+
+    while (!bfs_empty() && !found) {
+        auto [x, y] = bfs_dequeue();
+        if (x < 0) break;
+
+        // Check if we reached the goal
+        if (x == goal_x && y == goal_y) {
+            found = true;
+            break;
+        }
+
+        for (int dir = 0; dir < 8; dir++) {
+            int nx = x + DIRECTIONS[dir].first;
+            int ny = y + DIRECTIONS[dir].second;
+
+            if (is_valid_grid_coord(nx, ny) &&
+                grid[nx][ny] != -2 &&      // Not obstacle
+                parent[nx][ny] == -1) {    // Not visited
+
+                parent[nx][ny] = dir;  // Store direction we came from
+                bfs_enqueue(nx, ny);
+
+                if (nx == goal_x && ny == goal_y) {
+                    found = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (!found) {
+        return path;  // Empty path - goal unreachable
+    }
+
+    // Backtrack from goal to start
+    int cx = goal_x, cy = goal_y;
+    while (parent[cx][cy] != -2) {  // Until we reach start
+        path.push_back({cx, cy});
+
+        int dir = parent[cx][cy];
+        // Reverse the direction to go back
+        cx -= DIRECTIONS[dir].first;
+        cy -= DIRECTIONS[dir].second;
+    }
+    path.push_back({start_x, start_y});  // Add start
+
+    // Reverse to get start->goal order
+    std::reverse(path.begin(), path.end());
+
+    return path;
+}
+
+bool WavefrontPlanner::footprint_blocks_path(
+    const GridFootprint& footprint,
+    const std::vector<std::pair<int, int>>& path_cells) const {
+
+    if (path_cells.empty() || footprint.num_cells == 0) {
+        return false;
+    }
+
+    // Build set of path cells for O(1) lookup
+    std::unordered_set<int64_t> path_set;
+    for (const auto& [px, py] : path_cells) {
+        // Encode (x, y) as single int64 for set lookup
+        int64_t key = static_cast<int64_t>(px) * grid_height_ + py;
+        path_set.insert(key);
+    }
+
+    // Check if any footprint cell is in the path
+    for (size_t i = 0; i < footprint.num_cells; i++) {
+        int x = footprint.cells[i].first;
+        int y = footprint.cells[i].second;
+        int64_t key = static_cast<int64_t>(x) * grid_height_ + y;
+
+        if (path_set.count(key) > 0) {
+            return true;  // Footprint blocks the path
+        }
+    }
+
+    return false;
+}
+
+bool WavefrontPlanner::check_static_collision(
+    const std::array<double, 3>& target_pose,
+    const std::array<double, 3>& object_size) {
+
+    // Create temporary object state and info for footprint calculation
+    ObjectState target_state;
+    target_state.position = {target_pose[0], target_pose[1], 0.0};
+    target_state.quaternion = utils::yaw_to_quaternion(target_pose[2]);
+
+    ObjectInfo obj_info;
+    obj_info.size = object_size;
+
+    // Inflate for robot size
+    ObjectInfo inflated_obj = obj_info;
+    inflated_obj.size[0] += robot_size_[0] + 0.005;
+    inflated_obj.size[1] += robot_size_[1] + 0.005;
+
+    // Calculate footprint at target pose
+    GridFootprint footprint = calculate_rotated_footprint(inflated_obj, target_state);
+
+    // Check if any footprint cell overlaps with static obstacles
+    for (size_t i = 0; i < footprint.num_cells; i++) {
+        int x = footprint.cells[i].first;
+        int y = footprint.cells[i].second;
+
+        if (is_valid_grid_coord(x, y) && static_grid_[x][y] == -2) {
+            return true;  // Collision with static obstacle
+        }
+    }
+
+    return false;
+}
+
+std::vector<std::string> WavefrontPlanner::check_movable_collision(
+    const std::string& object_name,
+    const std::array<double, 3>& target_pose,
+    const std::array<double, 3>& object_size,
+    NAMOEnvironment& env) {
+
+    std::vector<std::string> colliding_objects;
+
+    // Create target object state
+    ObjectState target_state;
+    target_state.position = {target_pose[0], target_pose[1], 0.0};
+    target_state.quaternion = utils::yaw_to_quaternion(target_pose[2]);
+
+    ObjectInfo target_info;
+    target_info.size = object_size;
+
+    // Calculate footprint at target pose (no inflation needed for movable-movable check)
+    GridFootprint target_footprint = calculate_rotated_footprint(target_info, target_state);
+
+    // Build set of target footprint cells
+    std::unordered_set<int64_t> target_cells;
+    for (size_t i = 0; i < target_footprint.num_cells; i++) {
+        int x = target_footprint.cells[i].first;
+        int y = target_footprint.cells[i].second;
+        int64_t key = static_cast<int64_t>(x) * grid_height_ + y;
+        target_cells.insert(key);
+    }
+
+    // Check against all other movable objects
+    const auto& movable_objects = env.get_movable_objects();
+    for (size_t i = 0; i < env.get_num_movable(); i++) {
+        const auto& obj = movable_objects[i];
+
+        // Skip self
+        if (obj.name == object_name) continue;
+
+        const ObjectState* obj_state = env.get_object_state(obj.name);
+        if (!obj_state) continue;
+
+        // Calculate footprint of other object (no inflation)
+        GridFootprint other_footprint = calculate_rotated_footprint(obj, *obj_state);
+
+        // Check for overlap
+        bool overlaps = false;
+        for (size_t j = 0; j < other_footprint.num_cells && !overlaps; j++) {
+            int x = other_footprint.cells[j].first;
+            int y = other_footprint.cells[j].second;
+            int64_t key = static_cast<int64_t>(x) * grid_height_ + y;
+
+            if (target_cells.count(key) > 0) {
+                overlaps = true;
+            }
+        }
+
+        if (overlaps) {
+            colliding_objects.push_back(obj.name);
+        }
+    }
+
+    return colliding_objects;
+}
+
+std::vector<int> WavefrontPlanner::evaluate_primitive_priorities(
+    NAMOEnvironment& env,
+    const std::string& object_name,
+    const std::vector<std::array<double, 3>>& target_poses,
+    const std::array<double, 2>& robot_goal) {
+
+    std::vector<int> priorities(target_poses.size(), 3);  // Default to priority 3
+
+    if (target_poses.empty()) {
+        return priorities;
+    }
+
+    // 1. Get object info
+    const ObjectState* obj_state = env.get_object_state(object_name);
+    if (!obj_state) {
+        return priorities;
+    }
+
+    // Get object size from movable objects
+    std::array<double, 3> object_size = {0.1, 0.1, 0.1};  // Default
+    const auto& movable_objects = env.get_movable_objects();
+    for (size_t i = 0; i < env.get_num_movable(); i++) {
+        if (movable_objects[i].name == object_name) {
+            object_size = movable_objects[i].size;
+            break;
+        }
+    }
+
+    // 2. Compute grid without this object (ONE grid computation)
+    std::vector<std::vector<int>> base_grid;
+    compute_grid_without_object(env, object_name, base_grid);
+
+    // 3. Get robot position
+    const auto* robot_state = env.get_robot_state();
+    std::array<double, 2> robot_pos = {
+        robot_state->position[0],
+        robot_state->position[1]
+    };
+
+    // 4. Get path cells from robot to goal (ONE BFS)
+    auto path_cells = get_path_cells(base_grid, robot_pos, robot_goal);
+
+    // 5. If goal not reachable without object, all priorities = 3 (object isn't only blocker)
+    if (path_cells.empty()) {
+        std::fill(priorities.begin(), priorities.end(), 3);
+        return priorities;
+    }
+
+    // 6. Evaluate each target pose
+    for (size_t i = 0; i < target_poses.size(); i++) {
+        const auto& pose = target_poses[i];
+
+        // Get footprint at target pose (with robot inflation)
+        ObjectState target_state;
+        target_state.position = {pose[0], pose[1], 0.0};
+        target_state.quaternion = utils::yaw_to_quaternion(pose[2]);
+
+        ObjectInfo inflated_info;
+        inflated_info.size = object_size;
+        inflated_info.size[0] += robot_size_[0] + 0.005;
+        inflated_info.size[1] += robot_size_[1] + 0.005;
+
+        GridFootprint footprint = calculate_rotated_footprint(inflated_info, target_state);
+
+        // Check if blocks path
+        bool blocks = footprint_blocks_path(footprint, path_cells);
+
+        // Check static collision
+        bool static_collision = check_static_collision(pose, object_size);
+
+        // Check movable collision
+        auto movable_hits = check_movable_collision(object_name, pose, object_size, env);
+
+        // Assign priority based on heuristic:
+        // OPENINGS FIRST (clean -> movable -> static):
+        // Priority 1: No collision, creates opening
+        // Priority 2: Movable collision, creates opening
+        // Priority 3: Static collision, creates opening
+        // NO OPENINGS (clean -> movable -> static):
+        // Priority 4: No collision, no opening
+        // Priority 5: Movable collision, no opening
+        // Priority 6: Static collision, no opening
+        if (!blocks) {
+            // Creates opening
+            if (static_collision) {
+                priorities[i] = 3;
+            } else if (movable_hits.empty()) {
+                priorities[i] = 1;
+            } else {
+                priorities[i] = 2;
+            }
+        } else {
+            // No opening
+            if (static_collision) {
+                priorities[i] = 6;
+            } else if (movable_hits.empty()) {
+                priorities[i] = 4;
+            } else {
+                priorities[i] = 5;
+            }
+        }
+    }
+
+    return priorities;
 }
 
 } // namespace namo

@@ -85,7 +85,7 @@ def preload_ml_models(config: ModularCollectionConfig) -> Tuple[Optional[Any], O
 
     # Check if ML is used
     use_ml_object = algo_params.get("object_selection_strategy") == "ml"
-    use_ml_goal = (algo_params.get("goal_sampler") in [
+    use_ml_goal = (algo_params.get("goal_strategy") in [
         "ml", "ml_primitive", "ml_fallback", "ml_primitive_fallback",
         "ml_async", "ml_primitive_async"
     ] or algo_params.get("goal_selection_strategy") == "ml")
@@ -572,7 +572,7 @@ def main():
     parser.add_argument("--region-frontier-beam-width", type=int, default=None)
     
     # ML params
-    parser.add_argument("--goal-sampler", type=str, default=None)
+    parser.add_argument("--goal-strategy", type=str, default=None)
     parser.add_argument("--ml-goal-model", type=str)
     parser.add_argument("--ml-device", type=str, default="cuda")
     parser.add_argument("--ml-samples", type=int, default=32)
@@ -627,14 +627,14 @@ def main():
         if args.region_frontier_beam_width is not None:
             algorithm_params["region_frontier_beam_width"] = args.region_frontier_beam_width
 
-        if args.goal_sampler:
-            algorithm_params["goal_sampler"] = args.goal_sampler
-        
-        # Pass ML params even if goal_sampler is not explicitly set (allows auto-detection)
+        if args.goal_strategy:
+            algorithm_params["goal_strategy"] = args.goal_strategy
+
+        # Pass ML params even if goal_strategy is not explicitly set (allows auto-detection)
         if args.ml_goal_model:
-            # Only set goal_sampler to "ml" if not already set (preserve ml_fallback, etc.)
-            if "goal_sampler" not in algorithm_params:
-                algorithm_params["goal_sampler"] = "ml"
+            # Only set goal_strategy to "ml" if not already set (preserve ml_fallback, etc.)
+            if "goal_strategy" not in algorithm_params:
+                algorithm_params["goal_strategy"] = "ml"
             algorithm_params.update({
                 "ml_goal_model_path": args.ml_goal_model,
                 "ml_device": args.ml_device,
