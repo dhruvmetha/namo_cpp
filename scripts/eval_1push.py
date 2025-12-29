@@ -163,6 +163,9 @@ class RegionResult:
     failure_reason: str = ""
     ml_goals_raw: List[Any] = field(default_factory=list)
     search_solutions: List[Any] = field(default_factory=list)
+    # Interaction types
+    wall_collision: bool = False
+    movable_collisions: int = 0
 
 
 def load_pickle_data(
@@ -238,6 +241,10 @@ def load_pickle_data(
                 solution_found = ep.get('solution_found', False)
                 time_taken = ep.get('search_time_ms', 0)
 
+                # Extract interaction types
+                wall_collision = ep.get('any_wall_collision', False)
+                movable_collisions = ep.get('unique_movable_collision_count', 0)
+
                 result = RegionResult(
                     success=solution_found and pushes > 0,
                     pushes=pushes,
@@ -248,6 +255,8 @@ def load_pickle_data(
                     failure_reason=failure_reason,
                     ml_goals_raw=alg_stats.get('ml_goals_raw', []),
                     search_solutions=ep.get('search_solutions', []),
+                    wall_collision=wall_collision,
+                    movable_collisions=movable_collisions,
                 )
 
                 per_env_per_region[xml_file_name][region_label] = result
@@ -272,6 +281,9 @@ class CategoryStats:
     solutions_found: List[int] = field(default_factory=list)  # solutions_found (for distribution)
     successes: int = 0
     total: int = 0
+    # Interaction tracking
+    wall_collisions: int = 0  # count of successful runs with wall collisions
+    movable_collisions_list: List[int] = field(default_factory=list)  # movable collision counts per success
 
     @property
     def success_rate(self) -> float:
@@ -300,6 +312,23 @@ class CategoryStats:
     @property
     def mean_solutions(self) -> float:
         return float(np.mean(self.solutions)) if self.solutions else 0.0
+
+    @property
+    def wall_collision_rate(self) -> float:
+        """Rate of successful runs that had wall collisions."""
+        return self.wall_collisions / self.successes if self.successes > 0 else 0.0
+
+    @property
+    def mean_movable_collisions(self) -> float:
+        """Mean number of movable object collisions per successful run."""
+        return float(np.mean(self.movable_collisions_list)) if self.movable_collisions_list else 0.0
+
+    @property
+    def any_movable_collision_rate(self) -> float:
+        """Rate of successful runs that had any movable collisions."""
+        if not self.movable_collisions_list:
+            return 0.0
+        return sum(1 for c in self.movable_collisions_list if c > 0) / len(self.movable_collisions_list)
 
 
 @dataclass
@@ -371,6 +400,10 @@ def compute_stats(
                 category.times.append(model_result.time_taken)
                 category.solutions.append(model_result.solutions)
                 category.solutions_found.append(model_result.solutions_found)
+                # Track interactions
+                if model_result.wall_collision:
+                    category.wall_collisions += 1
+                category.movable_collisions_list.append(model_result.movable_collisions)
 
     return stats
 
@@ -685,6 +718,74 @@ def plot_time_vs_success(
     return fig
 
 
+def plot_interactions(
+    model_stats: List[ModelStats],
+    config: EvalConfig,
+    output_path: Optional[str] = None,
+):
+    """Plot interaction statistics (wall and movable collisions)."""
+    categories = ['easy', 'medium', 'hard']
+    n_models = len(model_stats)
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+
+    # Plot 1: Wall collision rate
+    ax1 = axes[0]
+    x = np.arange(len(categories))
+    width = 0.8 / n_models
+
+    for i, stats in enumerate(model_stats):
+        rates = [stats.get_category(cat).wall_collision_rate for cat in categories]
+        offset = (i - n_models/2 + 0.5) * width
+        bars = ax1.bar(x + offset, rates, width, label=stats.name,
+                      color=get_model_color(i, config), edgecolor='black')
+
+        for bar, rate in zip(bars, rates):
+            if rate > 0:
+                ax1.annotate(f'{rate:.0%}',
+                           xy=(bar.get_x() + bar.get_width()/2, bar.get_height()),
+                           xytext=(0, 3), textcoords="offset points",
+                           ha='center', va='bottom', fontsize=9)
+
+    ax1.set_xticks(x)
+    ax1.set_xticklabels([c.capitalize() for c in categories])
+    ax1.set_ylim(0, 1.15)
+    ax1.set_ylabel('Wall Collision Rate')
+    ax1.set_title('Wall Collision Rate by Category\n(among successful runs)')
+    ax1.legend(loc='upper right')
+    ax1.grid(True, axis='y', linestyle='--', alpha=0.6)
+
+    # Plot 2: Movable collision rate (any collision)
+    ax2 = axes[1]
+
+    for i, stats in enumerate(model_stats):
+        rates = [stats.get_category(cat).any_movable_collision_rate for cat in categories]
+        offset = (i - n_models/2 + 0.5) * width
+        bars = ax2.bar(x + offset, rates, width, label=stats.name,
+                      color=get_model_color(i, config), edgecolor='black')
+
+        for bar, rate in zip(bars, rates):
+            if rate > 0:
+                ax2.annotate(f'{rate:.0%}',
+                           xy=(bar.get_x() + bar.get_width()/2, bar.get_height()),
+                           xytext=(0, 3), textcoords="offset points",
+                           ha='center', va='bottom', fontsize=9)
+
+    ax2.set_xticks(x)
+    ax2.set_xticklabels([c.capitalize() for c in categories])
+    ax2.set_ylim(0, 1.15)
+    ax2.set_ylabel('Movable Collision Rate')
+    ax2.set_title('Movable Object Collision Rate by Category\n(among successful runs)')
+    ax2.legend(loc='upper right')
+    ax2.grid(True, axis='y', linestyle='--', alpha=0.6)
+
+    plt.tight_layout()
+    if output_path:
+        plt.savefig(output_path, dpi=150, bbox_inches='tight')
+        print(f"Saved: {output_path}")
+    return fig
+
+
 def print_summary(model_stats: List[ModelStats]):
     """Print summary statistics."""
     print("\n" + "=" * 80)
@@ -709,11 +810,222 @@ def print_summary(model_stats: List[ModelStats]):
                 print(f"    Time:    median={cat_stats.median_time:.1f}ms, mean={cat_stats.mean_time:.1f}ms")
             if cat_stats.solutions:
                 print(f"    Solutions: total={cat_stats.total_solutions}, mean={cat_stats.mean_solutions:.1f}")
+            if cat_stats.successes > 0:
+                print(f"    Interactions: wall_col={cat_stats.wall_collision_rate:.1%}, movable_col={cat_stats.any_movable_collision_rate:.1%}")
 
         if stats.failure_reasons:
             print(f"\n  Failure Reasons:")
             for reason, count in sorted(stats.failure_reasons.items(), key=lambda x: -x[1]):
                 print(f"    {reason}: {count}")
+
+
+def generate_markdown_report(
+    model_stats: List[ModelStats],
+    config: EvalConfig,
+    category_counts: Dict[str, int],
+    output_path: str,
+):
+    """Generate a markdown report with comparison tables."""
+    categories = ['easy', 'medium', 'hard']
+
+    lines = []
+    lines.append("# 1-Push Evaluation Results\n")
+    lines.append(f"Generated from evaluation config.\n")
+
+    # Dataset overview
+    lines.append("## Dataset Overview\n")
+    total_pairs = sum(category_counts.values())
+    lines.append(f"Total env+region pairs evaluated: **{total_pairs}**\n")
+    lines.append("| Category | Count | Percentage |")
+    lines.append("|----------|-------|------------|")
+    for cat in categories:
+        count = category_counts[cat]
+        pct = count / total_pairs * 100 if total_pairs > 0 else 0
+        lines.append(f"| {cat.capitalize()} | {count} | {pct:.1f}% |")
+    lines.append("")
+
+    # Overall success rates
+    lines.append("## Overall Success Rates\n")
+    lines.append("| Model | Successes | Total | Success Rate |")
+    lines.append("|-------|-----------|-------|--------------|")
+    for stats in model_stats:
+        lines.append(f"| {stats.name} | {stats.total_successes} | {stats.total_trials} | **{stats.overall_success_rate:.1%}** |")
+    lines.append("")
+
+    # Success rates by category
+    lines.append("## Success Rates by Category\n")
+    header = "| Model |"
+    separator = "|-------|"
+    for cat in categories:
+        header += f" {cat.capitalize()} |"
+        separator += "--------|"
+    lines.append(header)
+    lines.append(separator)
+
+    for stats in model_stats:
+        row = f"| {stats.name} |"
+        for cat in categories:
+            cat_stats = stats.get_category(cat)
+            row += f" {cat_stats.success_rate:.1%} ({cat_stats.successes}/{cat_stats.total}) |"
+        lines.append(row)
+    lines.append("")
+
+    # Pushes statistics (successful runs only)
+    lines.append("## Pushes to Success (Successful Runs Only)\n")
+    lines.append("### Median Pushes\n")
+    header = "| Model |"
+    separator = "|-------|"
+    for cat in categories:
+        header += f" {cat.capitalize()} |"
+        separator += "--------|"
+    lines.append(header)
+    lines.append(separator)
+
+    for stats in model_stats:
+        row = f"| {stats.name} |"
+        for cat in categories:
+            cat_stats = stats.get_category(cat)
+            if cat_stats.pushes:
+                row += f" {cat_stats.median_pushes:.1f} |"
+            else:
+                row += " - |"
+        lines.append(row)
+    lines.append("")
+
+    lines.append("### Mean Pushes\n")
+    lines.append(header)
+    lines.append(separator)
+
+    for stats in model_stats:
+        row = f"| {stats.name} |"
+        for cat in categories:
+            cat_stats = stats.get_category(cat)
+            if cat_stats.pushes:
+                row += f" {cat_stats.mean_pushes:.1f} |"
+            else:
+                row += " - |"
+        lines.append(row)
+    lines.append("")
+
+    # Time statistics (successful runs only)
+    lines.append("## Time to Success in ms (Successful Runs Only)\n")
+    lines.append("### Median Time\n")
+    lines.append(header)
+    lines.append(separator)
+
+    for stats in model_stats:
+        row = f"| {stats.name} |"
+        for cat in categories:
+            cat_stats = stats.get_category(cat)
+            if cat_stats.times:
+                row += f" {cat_stats.median_time:.0f} |"
+            else:
+                row += " - |"
+        lines.append(row)
+    lines.append("")
+
+    lines.append("### Mean Time\n")
+    lines.append(header)
+    lines.append(separator)
+
+    for stats in model_stats:
+        row = f"| {stats.name} |"
+        for cat in categories:
+            cat_stats = stats.get_category(cat)
+            if cat_stats.times:
+                row += f" {cat_stats.mean_time:.0f} |"
+            else:
+                row += " - |"
+        lines.append(row)
+    lines.append("")
+
+    # Interaction statistics
+    lines.append("## Interaction Statistics (Successful Runs Only)\n")
+    lines.append("These metrics show collision rates among successful runs.\n")
+
+    lines.append("### Wall Collision Rate\n")
+    lines.append("Percentage of successful runs that had collisions with walls.\n")
+    lines.append(header)
+    lines.append(separator)
+
+    for stats in model_stats:
+        row = f"| {stats.name} |"
+        for cat in categories:
+            cat_stats = stats.get_category(cat)
+            if cat_stats.successes > 0:
+                row += f" {cat_stats.wall_collision_rate:.1%} ({cat_stats.wall_collisions}/{cat_stats.successes}) |"
+            else:
+                row += " - |"
+        lines.append(row)
+    lines.append("")
+
+    lines.append("### Movable Object Collision Rate\n")
+    lines.append("Percentage of successful runs that collided with other movable objects.\n")
+    lines.append(header)
+    lines.append(separator)
+
+    for stats in model_stats:
+        row = f"| {stats.name} |"
+        for cat in categories:
+            cat_stats = stats.get_category(cat)
+            if cat_stats.successes > 0:
+                any_mov = sum(1 for c in cat_stats.movable_collisions_list if c > 0)
+                row += f" {cat_stats.any_movable_collision_rate:.1%} ({any_mov}/{cat_stats.successes}) |"
+            else:
+                row += " - |"
+        lines.append(row)
+    lines.append("")
+
+    lines.append("### Mean Movable Collisions\n")
+    lines.append("Average number of unique movable objects collided with per successful run.\n")
+    lines.append(header)
+    lines.append(separator)
+
+    for stats in model_stats:
+        row = f"| {stats.name} |"
+        for cat in categories:
+            cat_stats = stats.get_category(cat)
+            if cat_stats.movable_collisions_list:
+                row += f" {cat_stats.mean_movable_collisions:.2f} |"
+            else:
+                row += " - |"
+        lines.append(row)
+    lines.append("")
+
+    # Detailed per-model breakdown
+    lines.append("## Detailed Per-Model Statistics\n")
+
+    for stats in model_stats:
+        lines.append(f"### {stats.name}\n")
+        lines.append("| Category | Success Rate | Med Pushes | Mean Pushes | Med Time | Mean Time | Wall Col | Mov Col |")
+        lines.append("|----------|--------------|------------|-------------|----------|-----------|----------|---------|")
+
+        for cat in categories:
+            cat_stats = stats.get_category(cat)
+            success_str = f"{cat_stats.success_rate:.1%} ({cat_stats.successes}/{cat_stats.total})"
+            med_push = f"{cat_stats.median_pushes:.1f}" if cat_stats.pushes else "-"
+            mean_push = f"{cat_stats.mean_pushes:.1f}" if cat_stats.pushes else "-"
+            med_time = f"{cat_stats.median_time:.0f}" if cat_stats.times else "-"
+            mean_time = f"{cat_stats.mean_time:.0f}" if cat_stats.times else "-"
+            wall_col = f"{cat_stats.wall_collision_rate:.0%}" if cat_stats.successes > 0 else "-"
+            mov_col = f"{cat_stats.any_movable_collision_rate:.0%}" if cat_stats.successes > 0 else "-"
+            lines.append(f"| {cat.capitalize()} | {success_str} | {med_push} | {mean_push} | {med_time} | {mean_time} | {wall_col} | {mov_col} |")
+
+        # Add failure reasons if available
+        if stats.failure_reasons:
+            lines.append("")
+            lines.append("**Failure Reasons:**\n")
+            lines.append("| Reason | Count |")
+            lines.append("|--------|-------|")
+            for reason, count in sorted(stats.failure_reasons.items(), key=lambda x: -x[1]):
+                lines.append(f"| {reason} | {count} |")
+        lines.append("")
+
+    # Write to file
+    with open(output_path, 'w') as f:
+        f.write('\n'.join(lines))
+
+    print(f"Saved: {output_path}")
 
 
 # =============================================================================
@@ -909,6 +1221,21 @@ def main():
             config,
             f"{config.output_dir}/time_vs_success.png"
         )
+
+    if all_stats:
+        plot_interactions(
+            all_stats,
+            config,
+            f"{config.output_dir}/interactions.png"
+        )
+
+    # Generate markdown report
+    generate_markdown_report(
+        all_stats,
+        config,
+        category_counts,
+        f"{config.output_dir}/results.md"
+    )
 
     print(f"\nPlots saved to: {config.output_dir}")
 

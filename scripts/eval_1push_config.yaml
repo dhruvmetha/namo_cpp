@@ -15,7 +15,14 @@ baselines:
     dir: /common/users/dm1487/namo_data/dec25/aug9_envs/1_push_test_first_solution_geometric_heuristic
 
 # Learned models to compare
-# learned:
+learned:
+  - name: "Diffusion 5 Steps"
+    dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_balanced_solutions/2025-12-26/12-32-32/results_32samples_int5/modular_data_1spring-303-desktop-08
+  - name: "Diffusion 2 Steps"
+    dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_balanced_solutions/2025-12-26/12-32-32/results_32samples_int2/modular_data_1spring-303-desktop-08
+   # - name: "Diffusion"
+  #   dir: /common/users/dm1487/namo_data/outputs/diffusion_corrected_overlaps/2025-12-10/14-18-57/results_32samples_1
+  # - name: "Diffusion CrossAttn"
   # - name: "Diffusion"
   #   dir: /common/users/dm1487/namo_data/outputs/diffusion_corrected_overlaps/2025-12-10/14-18-57/results_32samples_1
   # - name: "Diffusion CrossAttn"
@@ -51,5 +58,5 @@ settings:
   output_dir: ./dec25/eval_plots_crossattn
 
   # Time-based success rate plot settings
-  time_cutoff_max: 10000   # max time in ms
-  time_step: 100          # step size in ms
+  time_cutoff_max: 6000   # max time in ms
+  time_step: 50          # step size in ms
