@@ -302,6 +302,7 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
                  verbose: bool = False,
                  preloaded_model: Optional[Any] = None,
                  preview_mask_count: int = 0,
+                 seed: Optional[int] = None,
                  **unused_kwargs):
         """Initialize ML goal selection strategy.
 
@@ -314,6 +315,7 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
             verbose: Enable verbose logging
             preloaded_model: Optional pre-loaded model to avoid repeated loading
             preview_mask_count: Number of ML goal masks to preview (0 disables)
+            seed: Random seed for diffusion noise (None = random each time)
             **unused_kwargs: Compatibility placeholder for legacy keyword args
 
         Note:
@@ -327,6 +329,7 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
         self.min_goals_threshold = min_goals_threshold
         self.verbose = verbose
         self.preview_mask_count = max(0, preview_mask_count)
+        self.seed = seed
         self._pending_preview = None  # Store preview data to save later (before push)
         if unused_kwargs and self.verbose:
             print(f"Warning: Unused MLGoalSelectionStrategy kwargs: {list(unused_kwargs.keys())}")
@@ -422,7 +425,8 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
                 xml_path=json_message["xml_path"],
                 robot_goal=json_message["robot_goal"],
                 selected_object=object_id,
-                samples=self.samples
+                samples=self.samples,
+                seed=self.seed
             )
 
             if self.verbose:

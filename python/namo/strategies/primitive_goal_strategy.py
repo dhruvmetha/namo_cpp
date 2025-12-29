@@ -313,6 +313,7 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
         preloaded_model = None,
         preview_aligned_primitives: bool = False,
         k_nearest: int = 1,
+        seed: int = None,
     ):
         """
         Args:
@@ -330,6 +331,7 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             preloaded_model: Optional preloaded GoalInferenceModel to avoid reloading.
             preview_aligned_primitives: If True, save visualization of aligned primitives.
             k_nearest: Number of nearest primitive slots to vote for per ML goal (within tolerance). Default: 1.
+            seed: Random seed for diffusion noise (None = random each time).
         """
         self.verbose = verbose
         self.max_matches = max_matches
@@ -351,7 +353,8 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             verbose=verbose,
             xml_path=xml_path,
             preview_mask_count=preview_mask_count,
-            preloaded_model=preloaded_model
+            preloaded_model=preloaded_model,
+            seed=seed
         )
         self._default_ml_samples = samples
 
@@ -812,6 +815,7 @@ class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
         preloaded_model=None,
         preview_aligned_primitives: bool = False,
         k_nearest: int = 1,
+        seed: int = None,
     ):
         """
         Args:
@@ -830,6 +834,7 @@ class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
             preloaded_model: Optional preloaded GoalInferenceModel to avoid reloading.
             preview_aligned_primitives: If True, save visualization of aligned primitives.
             k_nearest: Number of nearest primitive slots to vote for per ML goal.
+            seed: Random seed for diffusion noise (None = random each time).
         """
         self.verbose = verbose
         self.max_matches = max_matches
@@ -851,7 +856,8 @@ class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
             verbose=verbose,
             xml_path=xml_path,
             preview_mask_count=preview_mask_count,
-            preloaded_model=preloaded_model
+            preloaded_model=preloaded_model,
+            seed=seed
         )
         self._default_ml_samples = samples
 
@@ -1198,6 +1204,7 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
         preloaded_model=None,
         k_nearest: int = 1,
         max_workers: int = 1,
+        seed: int = None,
         **kwargs,  # Accept extra kwargs for compatibility
     ):
         """Initialize async ML primitive strategy.
@@ -1216,6 +1223,7 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
             preloaded_model: Optional preloaded GoalInferenceModel.
             k_nearest: Number of nearest slots to vote for per ML goal.
             max_workers: Thread pool size for async ML inference.
+            seed: Random seed for diffusion noise (None = random each time).
         """
         self.verbose = verbose
         self.match_position_tolerance = match_position_tolerance
@@ -1238,7 +1246,8 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
             min_goals_threshold=min_goals_threshold,
             verbose=verbose,
             xml_path=xml_path,
-            preloaded_model=preloaded_model
+            preloaded_model=preloaded_model,
+            seed=seed
         )
 
         # Initialize thread pool

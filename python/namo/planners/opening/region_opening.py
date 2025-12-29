@@ -230,6 +230,7 @@ class RegionOpeningPlanner(BasePlanner):
                 preloaded_model=algo_params.get("preloaded_goal_model"),
                 preview_aligned_primitives=algo_params.get("preview_aligned_primitives", False),
                 k_nearest=algo_params.get("ml_k_nearest", 1),
+                seed=algo_params.get("ml_seed"),
             )
             self._debug("▶ Using ML-aligned primitive goal strategy")
         elif strategy_name and strategy_name.lower() in {"ml_fallback", "ml_primitive_fallback"}:
@@ -253,6 +254,7 @@ class RegionOpeningPlanner(BasePlanner):
                 preloaded_model=algo_params.get("preloaded_goal_model"),
                 preview_aligned_primitives=algo_params.get("preview_aligned_primitives", False),
                 k_nearest=algo_params.get("ml_k_nearest", 1),
+                seed=algo_params.get("ml_seed"),
             )
             self._debug("▶ Using ML-first with primitive fallback goal strategy")
         elif strategy_name and strategy_name.lower() in {"ml_async", "ml_primitive_async"}:
@@ -274,6 +276,7 @@ class RegionOpeningPlanner(BasePlanner):
                 preloaded_model=algo_params.get("preloaded_goal_model"),
                 k_nearest=algo_params.get("ml_k_nearest", 1),
                 max_workers=algo_params.get("ml_async_workers", 1),
+                seed=algo_params.get("ml_seed"),
             )
             self._debug("▶ Using async ML with primitive pre-execution goal strategy")
         elif strategy_name and strategy_name.lower() in {"ml_driven_async"}:
@@ -301,6 +304,7 @@ class RegionOpeningPlanner(BasePlanner):
                 preloaded_model=algo_params.get("preloaded_goal_model"),
                 k_nearest=algo_params.get("ml_k_nearest", 1),
                 max_workers=1,  # Always 1 - GPU runs 1 ML inference at a time
+                seed=algo_params.get("ml_seed"),
             )
             # Set goal_strategy to primitive for compatibility (MLDrivenAsyncSearch handles ML internally)
             self.goal_strategy = self._primitive_strategy
