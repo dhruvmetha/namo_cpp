@@ -80,6 +80,20 @@ public:
     SkillResult execute(const std::map<std::string, SkillParameterValue>& parameters) override;
     std::map<std::string, SkillParameterValue> get_world_state() const override;
     std::vector<std::string> check_preconditions(const std::map<std::string, SkillParameterValue>& parameters) const override;
+
+    /**
+     * @brief Execute a single primitive step directly (bypasses greedy planning).
+     *
+     * This uses the MPC executor + push controller to execute the specified
+     * primitive at the provided target pose.
+     */
+    bool execute_primitive_step(const std::string& object_name,
+                                int edge_idx,
+                                int push_steps,
+                                const SE2State& target_pose,
+                                std::string* failure_reason = nullptr,
+                                std::string* collision_object = nullptr,
+                                bool* stuck = nullptr);
     
     /**
      * @brief Query methods for RL environment

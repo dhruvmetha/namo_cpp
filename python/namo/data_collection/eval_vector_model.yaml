@@ -1,0 +1,47 @@
+# Vector Model (Flow Matching) Evaluation Configuration
+# Usage:
+#   cd /common/users/tdn39/Robotics/Mujoco/namo_cpp
+#   python python/namo/data_collection/sequential_ml_collection.py \
+#     --config-yaml python/namo/data_collection/eval_vector_model.yaml \
+#     --start-idx 0 --end-idx 100
+
+# Core execution
+output_dir: /common/users/tdn39/Robotics/Mujoco/namo_cpp/eval_results/vector_model_test
+start_idx: 0
+end_idx: 100
+algorithm: region_opening
+workers: 1
+episodes_per_env: 1
+
+# Generic planner limits
+max_depth: 5
+max_goals_per_object: 5
+max_terminal_checks: 5000
+search_timeout: 300.0
+goals_per_region: 10
+
+# Region opening parameters
+region_allow_collisions: true
+region_max_chain_depth: 1
+region_max_solutions_per_neighbor: 1
+region_frontier_beam_width: 1000
+region_max_recorded_solutions_per_neighbor: 1
+
+# Goal sampler configuration - auto-detects vector vs mask model
+goal_sampler: ml
+ml_goal_model: /common/users/tdn39/Robotics/Mujoco/sage_learning/outputs/2025-12-27/12-30-23
+ml_device: cuda
+ml_samples: 32
+ml_min_goals: 1
+ml_sampler_method: euler  # For flow matching: euler, midpoint, rk4, dopri5
+ml_num_steps: 20
+
+# Paths - update these to your test environments
+xml_dir: /common/home/dm1487/robotics_research/ktamp/ml4kp_ktamp/resources/models/custom_walled_envs/aug9/medium
+config_file: config/namo_config_complete_skill15.yaml
+manifest: null  # Or path to manifest.txt
+
+# Options
+verbose: true
+filter_minimum_length: false
+smooth_solutions: false

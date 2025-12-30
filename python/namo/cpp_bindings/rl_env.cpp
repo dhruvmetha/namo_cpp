@@ -71,6 +71,50 @@ RLEnvironment::StepResult RLEnvironment::step(const Action& action) {
     return rl_result;
 }
 
+RLEnvironment::StepResult RLEnvironment::execute_push_primitive(const std::string& object_id,
+                                                                int edge_idx,
+                                                                int push_steps,
+                                                                double x,
+                                                                double y,
+                                                                double theta) {
+    StepResult rl_result;
+    rl_result.done = false;
+    rl_result.reward = -1.0;
+
+    if (!skill_) {
+        rl_result.info["failure_reason"] = "Push skill not initialized";
+        return rl_result;
+    }
+
+    std::string failure_reason;
+    std::string collision_object;
+    bool stuck = false;
+    bool success = skill_->execute_primitive_step(
+        object_id,
+        edge_idx,
+        push_steps,
+        SE2State(x, y, theta),
+        &failure_reason,
+        &collision_object,
+        &stuck
+    );
+
+    rl_result.done = success;
+    rl_result.reward = success ? 1.0 : -1.0;
+
+    if (!failure_reason.empty()) {
+        rl_result.info["failure_reason"] = failure_reason;
+    }
+    if (!collision_object.empty()) {
+        rl_result.info["collision_object"] = collision_object;
+    }
+    if (stuck) {
+        rl_result.info["stuck"] = "true";
+    }
+
+    return rl_result;
+}
+
 std::map<std::string, std::vector<double>> RLEnvironment::get_observation() const {
     auto world_state = skill_->get_world_state();
     std::map<std::string, std::vector<double>> state_map;

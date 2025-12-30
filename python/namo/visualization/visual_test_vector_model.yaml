@@ -1,0 +1,39 @@
+# Vector Model (Flow Matching) Visual Test Configuration
+# Usage:
+#   cd /common/users/tdn39/Robotics/Mujoco/namo_cpp
+#   python python/namo/visualization/visual_test_single.py \
+#     --config-yaml python/namo/visualization/visual_test_vector_model.yaml \
+#     --xml-file <path_to_xml>
+
+# Algorithm Selection
+algorithm: region_opening
+object_strategy: no_heuristic
+goal_strategy: ml
+
+# ML Model Configuration - Point to your trained vector/flow matching model
+# The system auto-detects vector vs mask models based on config
+ml_goal_model: /common/users/tdn39/Robotics/Mujoco/sage_learning/outputs/2025-12-27/12-30-23
+ml_device: cuda
+ml_samples: 32          # Number of samples to generate
+ml_min_goals: 1
+
+# Region Opening Specifics
+region_allow_collisions: true
+region_max_chain_depth: 1
+region_max_solutions_per_neighbor: 10
+region_max_recorded_solutions_per_neighbor: 1
+region_frontier_beam_width: 1000
+
+# General Planning Parameters
+max_depth: 5
+search_timeout: 300.0
+goals_per_region: 10
+config_file: config/namo_config_complete_skill15.yaml
+
+# Visualization Options
+show_planning: false
+planning_delay: 0.1
+show_solution: prompt  # 'auto', 'prompt', or 'none'
+verbose: true
+preview_ml_goal_masks: 0  # Vector models don't produce masks, set to 0
+preview_aligned_primitives: true

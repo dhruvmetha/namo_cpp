@@ -152,18 +152,27 @@ class MLObjectSelectionStrategy(ObjectSelectionStrategy):
                         # Only add objects that have position data and are actually static walls
                         pos_x = obj_data.get('pos_x', None)
                         pos_y = obj_data.get('pos_y', None)
+                        pos_z = obj_data.get('pos_z', 0.0)
                         
                         # Skip objects without position data (like movable objects that only have size info)
                         # Also skip the robot since it's not a static obstacle
                         if pos_x is None or pos_y is None or obj_name == 'robot':
                             continue
-                            
-                        angle_deg = obj_data.get('angle_deg', 0.0)
-                        
-                        # Convert angle from degrees to quaternion
-                        quat = R.from_euler('xyz', [0, 0, angle_deg], degrees=True).as_quat(scalar_first=True)
+
+                        has_quat = all(k in obj_data for k in ('quat_w', 'quat_x', 'quat_y', 'quat_z'))
+                        if has_quat:
+                            quat = [
+                                float(obj_data.get('quat_w', 1.0)),
+                                float(obj_data.get('quat_x', 0.0)),
+                                float(obj_data.get('quat_y', 0.0)),
+                                float(obj_data.get('quat_z', 0.0))
+                            ]
+                        else:
+                            angle_deg = obj_data.get('angle_deg', 0.0)
+                            quat = R.from_euler('xyz', [0, 0, angle_deg], degrees=True).as_quat(scalar_first=True)
+
                         objects_dict[obj_name] = {
-                            "position": [float(pos_x), float(pos_y), float(angle_deg * np.pi / 180.0)],  # Keep theta in position for compatibility
+                            "position": [float(pos_x), float(pos_y), float(pos_z)],
                             "quaternion": [float(quat[0]), float(quat[1]), float(quat[2]), float(quat[3])]
                         }
             except Exception as e:
@@ -302,6 +311,7 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
                  verbose: bool = False,
                  preloaded_model: Optional[Any] = None,
                  preview_mask_count: int = 0,
+                 goals_per_region: Optional[int] = None,
                  **unused_kwargs):
         """Initialize ML goal selection strategy.
 
@@ -314,6 +324,7 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
             verbose: Enable verbose logging
             preloaded_model: Optional pre-loaded model to avoid repeated loading
             preview_mask_count: Number of ML goal masks to preview (0 disables)
+            goals_per_region: Number of region goal samples to include (vector models only)
             **unused_kwargs: Compatibility placeholder for legacy keyword args
 
         Note:
@@ -327,6 +338,8 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
         self.min_goals_threshold = min_goals_threshold
         self.verbose = verbose
         self.preview_mask_count = max(0, preview_mask_count)
+        self.goals_per_region = goals_per_region
+        self._model_type = None
         self._pending_preview = None  # Store preview data to save later (before push)
         if unused_kwargs and self.verbose:
             print(f"Warning: Unused MLGoalSelectionStrategy kwargs: {list(unused_kwargs.keys())}")
@@ -335,6 +348,7 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
         if preloaded_model is not None:
             self._goal_model = preloaded_model
             self._load_attempted = True
+            self._model_type = self._detect_model_type()
             if self.verbose:
                 print("Using preloaded GoalInferenceModel")
         else:
@@ -342,36 +356,92 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
             self._load_attempted = False
     
     def _load_model(self):
-        """Lazy load the goal inference model."""
+        """Lazy load the goal inference model.
+        
+        Auto-detects whether to use GoalVectorInferenceModel (for flow matching/
+        vector prediction models) or legacy GoalInferenceModel (for mask diffusion)
+        based on the model's config.
+        """
         if self._load_attempted:
             return self._goal_model is not None
         
         self._load_attempted = True
         
-        print(f"Loading GoalInferenceModel from {self.goal_model_path}...")
+        print(f"Loading goal model from {self.goal_model_path}...")
+        
+        # Check model type by reading its config
+        model_type = self._detect_model_type()
+        self._model_type = model_type
+        
         try:
-            from ktamp_learning.goal_inference_model import GoalInferenceModel
+            if model_type == "vector":
+                from ktamp_learning.goal_vector_inference_model import GoalVectorInferenceModel
+                
+                if self.verbose:
+                    print(f"Loading GoalVectorInferenceModel (vector/flow matching) from {self.goal_model_path}")
+                
+                self._goal_model = GoalVectorInferenceModel(
+                    model_path=self.goal_model_path,
+                    device=self.device
+                )
+            else:
+                from ktamp_learning.goal_inference_model import GoalInferenceModel
+                
+                if self.verbose:
+                    print(f"Loading GoalInferenceModel (mask diffusion) from {self.goal_model_path}")
+                
+                self._goal_model = GoalInferenceModel(
+                    model_path=self.goal_model_path,
+                    device=self.device
+                )
             
-            if self.verbose:
-                print(f"Loading GoalInferenceModel from {self.goal_model_path}")
-            
-            self._goal_model = GoalInferenceModel(
-                model_path=self.goal_model_path,
-                device=self.device
-            )
-            
-            print("Goal ML model loaded successfully")
-            if self.verbose:
-                print("Goal ML model loaded successfully")
-            
+            print(f"Goal ML model loaded successfully ({model_type} type)")
             return True
             
         except Exception as e:
             print(f"Failed to load goal ML model: {e}")
-            if self.verbose:
-                print(f"Failed to load goal ML model: {e}")
+            import traceback
+            traceback.print_exc()
             self._goal_model = None
             return False
+    
+    def _detect_model_type(self) -> str:
+        """Detect whether model is vector-based or mask-based from its config.
+        
+        Returns:
+            "vector" for flow matching/vector prediction models
+            "mask" for legacy mask diffusion models
+        """
+        import os
+        from omegaconf import OmegaConf
+        
+        config_path = os.path.join(self.goal_model_path, ".hydra", "config.yaml")
+        
+        if not os.path.exists(config_path):
+            if self.verbose:
+                print(f"Config not found at {config_path}, defaulting to mask model")
+            return "mask"
+        
+        try:
+            cfg = OmegaConf.load(config_path)
+            
+            # Check for vector model indicators
+            network_target = cfg.get("model", {}).get("network", {}).get("_target_", "")
+            vector_dim = cfg.get("model", {}).get("vector_dim", None)
+            
+            if "vector_denoiser" in network_target.lower() or vector_dim is not None:
+                if self.verbose:
+                    print(f"Detected vector model (network={network_target}, vector_dim={vector_dim})")
+                return "vector"
+            
+            if self.verbose:
+                print(f"Detected mask model (network={network_target})")
+            return "mask"
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"Failed to parse config, defaulting to mask model: {e}")
+            return "mask"
     
     def generate_goals(self, 
                       object_id: str,
@@ -417,13 +487,37 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
             if self.verbose:
                 print(f"Running goal inference for object {object_id} with {self.samples} samples")
 
-            goals = self._goal_model.infer(
-                json_message=json_message,
-                xml_path=json_message["xml_path"],
-                robot_goal=json_message["robot_goal"],
-                selected_object=object_id,
-                samples=self.samples
-            )
+            region_goals_sampled = None
+            if self._model_type == "vector" and self.goals_per_region and self.goals_per_region > 0:
+                try:
+                    from namo.planners import get_region_goal_samples
+                    region_goals = get_region_goal_samples(env, self.goals_per_region)
+                    region_goals_sampled = [
+                        (sample.x, sample.y, sample.theta)
+                        for bundle in region_goals.values()
+                        for sample in bundle.goals
+                    ]
+                except Exception as e:
+                    if self.verbose:
+                        print(f"Warning: failed to sample region goals: {e}")
+
+            if self._model_type == "vector" and region_goals_sampled is not None:
+                goals = self._goal_model.infer(
+                    json_message=json_message,
+                    xml_path=json_message["xml_path"],
+                    robot_goal=json_message["robot_goal"],
+                    selected_object=object_id,
+                    samples=self.samples,
+                    region_goals_sampled=region_goals_sampled
+                )
+            else:
+                goals = self._goal_model.infer(
+                    json_message=json_message,
+                    xml_path=json_message["xml_path"],
+                    robot_goal=json_message["robot_goal"],
+                    selected_object=object_id,
+                    samples=self.samples
+                )
 
             if self.verbose:
                 print(f"🔍 ML INFERENCE RESULT for {object_id}: {len(goals) if goals else 0} goals generated")
@@ -737,18 +831,27 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
                         # Only add objects that have position data and are actually static walls
                         pos_x = obj_data.get('pos_x', None)
                         pos_y = obj_data.get('pos_y', None)
+                        pos_z = obj_data.get('pos_z', 0.0)
 
                         # Skip objects without position data (like movable objects that only have size info)
                         # Also skip the robot since it's not a static obstacle
                         if pos_x is None or pos_y is None or obj_name == 'robot':
                             continue
 
-                        angle_deg = obj_data.get('angle_deg', 0.0)
+                        has_quat = all(k in obj_data for k in ('quat_w', 'quat_x', 'quat_y', 'quat_z'))
+                        if has_quat:
+                            quat = [
+                                float(obj_data.get('quat_w', 1.0)),
+                                float(obj_data.get('quat_x', 0.0)),
+                                float(obj_data.get('quat_y', 0.0)),
+                                float(obj_data.get('quat_z', 0.0))
+                            ]
+                        else:
+                            angle_deg = obj_data.get('angle_deg', 0.0)
+                            quat = R.from_euler('xyz', [0, 0, angle_deg], degrees=True).as_quat(scalar_first=True)
 
-                        # Convert angle from degrees to quaternion
-                        quat = R.from_euler('xyz', [0, 0, angle_deg], degrees=True).as_quat(scalar_first=True)
                         objects_dict[obj_name] = {
-                            "position": [float(pos_x), float(pos_y), float(angle_deg * np.pi / 180.0)],  # Keep theta in position for compatibility
+                            "position": [float(pos_x), float(pos_y), float(pos_z)],
                             "quaternion": [float(quat[0]), float(quat[1]), float(quat[2]), float(quat[3])]
                         }
             except Exception as e:

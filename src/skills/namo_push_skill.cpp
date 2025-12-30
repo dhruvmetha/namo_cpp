@@ -453,6 +453,64 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
     return result;
 }
 
+bool NAMOPushSkill::execute_primitive_step(const std::string& object_name,
+                                          int edge_idx,
+                                          int push_steps,
+                                          const SE2State& target_pose,
+                                          std::string* failure_reason,
+                                          std::string* collision_object,
+                                          bool* stuck) {
+    if (!executor_) {
+        if (failure_reason) {
+            *failure_reason = "MPC executor not initialized";
+        }
+        return false;
+    }
+
+    if (!is_object_movable(object_name)) {
+        if (failure_reason) {
+            *failure_reason = "Object is not movable or not found";
+        }
+        return false;
+    }
+
+    if (!is_target_within_bounds(target_pose)) {
+        if (failure_reason) {
+            *failure_reason = "Target pose is outside environment bounds";
+        }
+        return false;
+    }
+
+    PlanStep step(edge_idx, push_steps, target_pose);
+    bool success = executor_->execute_primitive_step(object_name, step);
+
+    if (!success) {
+        auto& controller = executor_->get_controller();
+        if (failure_reason && failure_reason->empty()) {
+            const auto& reason = controller.get_last_failure_reason();
+            *failure_reason = reason.empty() ? "Primitive execution failed" : reason;
+        }
+        if (collision_object) {
+            *collision_object = controller.get_last_collision_object();
+        }
+        if (stuck) {
+            *stuck = controller.get_last_stuck_counter() >= controller.get_stuck_threshold();
+        }
+    } else {
+        if (failure_reason) {
+            failure_reason->clear();
+        }
+        if (collision_object) {
+            collision_object->clear();
+        }
+        if (stuck) {
+            *stuck = false;
+        }
+    }
+
+    return success;
+}
+
 std::map<std::string, SkillParameterValue> NAMOPushSkill::get_world_state() const {
     std::map<std::string, SkillParameterValue> state;
     

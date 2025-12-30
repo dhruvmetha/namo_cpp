@@ -306,6 +306,7 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
         xml_path: str = None,
         preview_mask_count: int = 0,
         preloaded_model = None,
+        goals_per_region: int = None,
         preview_aligned_primitives: bool = False,
     ):
         """
@@ -322,6 +323,7 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             min_goals_threshold: Minimum ML goals required before accepting the inference result.
             preview_mask_count: Number of ML goal masks to preview (0 disables).
             preloaded_model: Optional preloaded GoalInferenceModel to avoid reloading.
+            goals_per_region: Number of region goal samples to include (vector models only).
             preview_aligned_primitives: If True, save visualization of aligned primitives.
         """
         self.verbose = verbose
@@ -343,7 +345,8 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             verbose=verbose,
             xml_path=xml_path,
             preview_mask_count=preview_mask_count,
-            preloaded_model=preloaded_model
+            preloaded_model=preloaded_model,
+            goals_per_region=goals_per_region
         )
         self._default_ml_samples = samples
 

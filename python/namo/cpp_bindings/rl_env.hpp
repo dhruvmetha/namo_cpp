@@ -38,6 +38,12 @@ public:
     // Standard RL methods
     void reset();
     StepResult step(const Action& action);
+    StepResult execute_push_primitive(const std::string& object_id,
+                                      int edge_idx,
+                                      int push_steps,
+                                      double x,
+                                      double y,
+                                      double theta);
     std::map<std::string, std::vector<double>> get_observation() const;
 
     // State management for MCTS

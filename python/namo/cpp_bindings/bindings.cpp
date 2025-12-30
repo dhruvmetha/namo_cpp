@@ -53,6 +53,10 @@ PYBIND11_MODULE(namo_rl, m) {
              py::arg("xml_path"), py::arg("config_path"), py::arg("visualize") = false)
         .def("reset", &namo::RLEnvironment::reset)
         .def("step", &namo::RLEnvironment::step, py::arg("action"))
+        .def("execute_push_primitive", &namo::RLEnvironment::execute_push_primitive,
+             py::arg("object_id"), py::arg("edge_idx"), py::arg("push_steps"),
+             py::arg("x"), py::arg("y"), py::arg("theta"),
+             "Execute a single push primitive directly using the controller.")
         .def("get_observation", &namo::RLEnvironment::get_observation, "Returns a map of object names to their SE(2) poses.")
         .def("get_full_state", &namo::RLEnvironment::get_full_state, "Returns a full snapshot of the simulation state (qpos, qvel).")
         .def("set_full_state", &namo::RLEnvironment::set_full_state, py::arg("state"), "Sets the simulation to a specific state snapshot.")
