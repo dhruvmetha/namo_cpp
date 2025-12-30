@@ -471,6 +471,7 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                                 'solutions_cap_for_neighbour': getattr(attempt, 'solutions_cap_for_neighbour', None),
                                 'solutions_total_for_neighbour': getattr(attempt, 'solutions_total_for_neighbour', None),
                                 'pushes_total_for_neighbour': getattr(attempt, 'pushes_total_for_neighbour', None),
+                                'failure_reason': getattr(attempt, 'failure_reason', None),
                             },
                             action_sequence=action_sequence,
                             state_observations=attempt.state_observations,

@@ -8,7 +8,7 @@
 ##     --start-idx 0 --end-idx 100
 
 # Core execution
-output_dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_balanced_solutions/2025-12-26/12-32-32/results_32samples_int5_fasterbfs_hybrid
+output_dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_balanced_solutions/2025-12-26/12-32-32/results_32samples_int5_fasterbfs_seed42_triplets
 start_idx: 0
 end_idx: 6000
 algorithm: region_opening
@@ -30,14 +30,14 @@ region_max_solutions_per_neighbor: 1
 region_frontier_beam_width: 5000
 region_max_recorded_solutions_per_neighbor: 1
 region_chain_link_cost: 11  # Additional cost per chain link beyond first push (0=no extra cost, e.g. 5 makes 2-push cost +5)
-region_ml_ignore_blacklist: true  # Allow ML-scored primitives to bypass edge blacklist from pre-ML phase
+region_ml_ignore_blacklist: false  # Allow ML-scored primitives to bypass edge blacklist from pre-ML phase
 
 # Goal strategy: primitive | geometric | ml | ml_fallback | ml_async | ml_driven_async
-goal_strategy: ml_fallback
+goal_strategy: ml
 ml_goal_model: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_balanced_solutions/2025-12-26/12-32-32
 ml_device: cuda  # Use "cuda" (respects CUDA_VISIBLE_DEVICES) or "cuda:0", "cuda:1", etc.
 ml_samples: 32  # Increased from 32 for better ML goal coverage
-ml_seed: null   # Random seed for diffusion noise (null = random each time, integer = reproducible)
+ml_seed: 42   # Random seed for diffusion noise (null = random each time, integer = reproducible)
 ml_min_goals: 1
 ml_match_position_tolerance: 0.2    # meters - max position error for voting
 ml_match_angle_tolerance: 0.2      # radians (~2.9°) - max angle error for voting

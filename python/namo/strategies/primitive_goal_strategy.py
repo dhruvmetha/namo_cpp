@@ -553,8 +553,8 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
                         'votes': goal.score if hasattr(goal, 'score') else 1
                     })
 
-        # Sort by votes (descending) to get execution order
-        aligned_primitives_info.sort(key=lambda x: x['votes'], reverse=True)
+        # Sort by votes (descending), then edge_idx and depth_idx (ascending) for deterministic ordering
+        aligned_primitives_info.sort(key=lambda x: (-x['votes'], x['edge_idx'], x['depth_idx']))
 
         # Get reachable edges for visualization
         reachable_edges = set()
@@ -1023,7 +1023,8 @@ class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
                 'goal': goal,
                 'votes': votes
             })
-        aligned_primitives_info.sort(key=lambda x: x['votes'], reverse=True)
+        # Sort by votes (descending), then edge_idx and depth_idx (ascending) for deterministic ordering
+        aligned_primitives_info.sort(key=lambda x: (-x['votes'], x['edge_idx'], x['depth_idx']))
 
         # Get reachable edges for stats
         reachable_edges = set()

@@ -668,9 +668,8 @@ class RegionOpeningPlanner(BasePlanner):
             total_goals = len(region_goals[neighbour_label].goals) if neighbour_label in region_goals else 0
             print(f"    → '{neighbour_label}' ({reachable_count_before}/{total_goals} reachable) - trying {len(candidates)} objects: {candidates}")
 
-        # Collect attempts from candidate objects, capped per-neighbour
+        # Collect attempts from candidate objects (per-object limits applied)
         all_goal_attempts = []
-        solutions_remaining = self.max_solutions_per_neighbor
         total_solutions_collected = 0
 
         # Track ML goal stats across all objects for failure analysis
@@ -683,11 +682,9 @@ class RegionOpeningPlanner(BasePlanner):
         all_reachable_edges = set()
 
         # Try each candidate object with BFS search (already filtered for reachability)
+        # NOTE: We try ALL objects (no early termination) to record per-object triplets for eval
         timed_out = False
         for obj_idx, object_id in enumerate(candidates, 1):
-            if solutions_remaining <= 0:
-                break
-
             # Check timeout before trying next object
             if self.timeout_per_neighbour_sec is not None:
                 elapsed_sec = time.time() - attempt_start
@@ -705,6 +702,10 @@ class RegionOpeningPlanner(BasePlanner):
 
             # BFS search with chaining (or ML-driven async if enabled)
             object_attempt_start = time.time()
+            pushes_before_object = neighbour_push_counter.get("count", 0)
+
+            # Use per-object solution limit (not global remaining)
+            max_solutions_for_object = self.max_solutions_per_neighbor
 
             if self._use_ml_driven_async:
                 # Use ML-driven async search
@@ -713,7 +714,7 @@ class RegionOpeningPlanner(BasePlanner):
                     exploration_state,
                     neighbour_label,
                     region_goals,
-                    max_solutions_to_collect=solutions_remaining,
+                    max_solutions_to_collect=max_solutions_for_object,
                     push_counter=neighbour_push_counter,
                 )
             else:
@@ -723,26 +724,44 @@ class RegionOpeningPlanner(BasePlanner):
                     exploration_state,
                     neighbour_label,
                     region_goals,
-                    max_solutions_to_collect=solutions_remaining,
+                    max_solutions_to_collect=max_solutions_for_object,
                     push_counter=neighbour_push_counter,
                 )
 
-            # Accumulate ML goal stats from goal_strategy (if it supports get_last_goal_stats)
+            pushes_for_this_object = neighbour_push_counter.get("count", 0) - pushes_before_object
+
+            # Get per-object ML goal stats from goal_strategy (if it supports get_last_goal_stats)
+            # Capture per-object values BEFORE accumulating into totals
+            obj_ml_goals = 0
+            obj_ml_aligned = 0
+            obj_reachable_edges = 0
+            obj_aligned_primitives = []
+            obj_ml_goals_raw = []
+            obj_reachable_edges_set = set()
+
             if hasattr(self.goal_strategy, 'get_last_goal_stats'):
                 stats = self.goal_strategy.get_last_goal_stats()
-                total_ml_goals_generated += stats.get('ml_goals_generated', 0)
-                total_ml_goals_aligned += stats.get('ml_goals_aligned', 0)
-                total_reachable_edges += stats.get('reachable_edges_count', 0)
+                obj_ml_goals = stats.get('ml_goals_generated', 0)
+                obj_ml_aligned = stats.get('ml_goals_aligned', 0)
+                obj_reachable_edges = stats.get('reachable_edges_count', 0)
+                obj_aligned_primitives = stats.get('aligned_primitives', [])
+                obj_ml_goals_raw = stats.get('ml_goals_raw', [])
+                obj_reachable_edges_set = set(stats.get('reachable_edges', []))
+
+                # Accumulate into totals (for neighbor-level stats if needed)
+                total_ml_goals_generated += obj_ml_goals
+                total_ml_goals_aligned += obj_ml_aligned
+                total_reachable_edges += obj_reachable_edges
                 # Accumulate detailed info (tag with object_id for multi-object analysis)
-                for p in stats.get('aligned_primitives', []):
+                for p in obj_aligned_primitives:
                     p_with_obj = dict(p)
                     p_with_obj['object_id'] = object_id
                     all_aligned_primitives.append(p_with_obj)
-                for g in stats.get('ml_goals_raw', []):
+                for g in obj_ml_goals_raw:
                     g_with_obj = dict(g)
                     g_with_obj['object_id'] = object_id
                     all_ml_goals_raw.append(g_with_obj)
-                all_reachable_edges.update(stats.get('reachable_edges', []))
+                all_reachable_edges.update(obj_reachable_edges_set)
 
             if successful_goals:
                 if self.config.verbose:
@@ -751,9 +770,8 @@ class RegionOpeningPlanner(BasePlanner):
                 # Create AttemptResults directly from successful goal chains
                 # State observations were already captured during BFS search
 
-                # Limit to max_solutions per object
-                # Respect global per-neighbour cap
-                per_object_limit = min(max_solutions, solutions_remaining)
+                # Limit to max_solutions per object (now per-object, not global)
+                per_object_limit = max_solutions
                 for goal_idx, (goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used, region_goals_sampled, reachable_before, reachable_after, total_cost, skill_calls_before_success, success_timestamp, any_wall_collision, unique_movable_collision_count) in enumerate(successful_goals[:per_object_limit]):
 
                     per_goal_timing_ms = max(0.0, (success_timestamp - object_attempt_start) * 1000.0)
@@ -786,23 +804,21 @@ class RegionOpeningPlanner(BasePlanner):
                             skill_calls_before_success=skill_calls_before_success,
                             solutions_found_for_neighbour=total_solutions_collected,
                             solutions_cap_for_neighbour=self.max_solutions_per_neighbor,
+                            pushes_total_for_neighbour=pushes_for_this_object,  # Per-object pushes
                             failure_reason="success",
                             candidate_objects_count=len(candidates),
-                            ml_goals_generated=total_ml_goals_generated,
-                            ml_goals_aligned=total_ml_goals_aligned,
-                            reachable_edges_count=total_reachable_edges,
-                            aligned_primitives=all_aligned_primitives if all_aligned_primitives else None,
-                            ml_goals_raw=all_ml_goals_raw if all_ml_goals_raw else None,
-                            reachable_edges=sorted(list(all_reachable_edges)) if all_reachable_edges else None,
+                            ml_goals_generated=obj_ml_goals,  # Per-object
+                            ml_goals_aligned=obj_ml_aligned,  # Per-object
+                            reachable_edges_count=obj_reachable_edges,  # Per-object
+                            aligned_primitives=obj_aligned_primitives if obj_aligned_primitives else None,
+                            ml_goals_raw=obj_ml_goals_raw if obj_ml_goals_raw else None,
+                            reachable_edges=sorted(list(obj_reachable_edges_set)) if obj_reachable_edges_set else None,
                             any_wall_collision=any_wall_collision,
                             unique_movable_collision_count=unique_movable_collision_count,
                         ))
-                        # Verbose: print running count of solutions for this neighbour
+                        # Verbose: print running count of solutions for this object
                         if self.config.verbose:
-                            print(f"        → Solutions so far: {len(all_goal_attempts)}/{self.max_solutions_per_neighbor}")
-                        solutions_remaining -= 1
-                        if solutions_remaining <= 0:
-                            break
+                            print(f"        → Object {object_id} solutions: {goal_idx + 1}/{per_object_limit}")
                     else:
                         # Multi-push chain
                         total_solutions_collected += 1
@@ -831,39 +847,105 @@ class RegionOpeningPlanner(BasePlanner):
                             skill_calls_before_success=skill_calls_before_success,
                             solutions_found_for_neighbour=total_solutions_collected,
                             solutions_cap_for_neighbour=self.max_solutions_per_neighbor,
+                            pushes_total_for_neighbour=pushes_for_this_object,  # Per-object pushes
                             failure_reason="success",
                             candidate_objects_count=len(candidates),
-                            ml_goals_generated=total_ml_goals_generated,
-                            ml_goals_aligned=total_ml_goals_aligned,
-                            reachable_edges_count=total_reachable_edges,
-                            aligned_primitives=all_aligned_primitives if all_aligned_primitives else None,
-                            ml_goals_raw=all_ml_goals_raw if all_ml_goals_raw else None,
-                            reachable_edges=sorted(list(all_reachable_edges)) if all_reachable_edges else None,
+                            ml_goals_generated=obj_ml_goals,  # Per-object
+                            ml_goals_aligned=obj_ml_aligned,  # Per-object
+                            reachable_edges_count=obj_reachable_edges,  # Per-object
+                            aligned_primitives=obj_aligned_primitives if obj_aligned_primitives else None,
+                            ml_goals_raw=obj_ml_goals_raw if obj_ml_goals_raw else None,
+                            reachable_edges=sorted(list(obj_reachable_edges_set)) if obj_reachable_edges_set else None,
                             any_wall_collision=any_wall_collision,
                             unique_movable_collision_count=unique_movable_collision_count,
                         ))
-                        # Verbose: print running count of solutions for this neighbour
+                        # Verbose: print running count of solutions for this object
                         if self.config.verbose:
-                            print(f"        → Solutions so far: {len(all_goal_attempts)}/{self.max_solutions_per_neighbor}")
-                        solutions_remaining -= 1
-                        if solutions_remaining <= 0:
-                            break
+                            print(f"        → Object {object_id} solutions: {goal_idx + 1}/{per_object_limit}")
+            else:
+                # Record per-object failure for eval triplet tracking
+                # This ensures we can measure success rates per (env, region, object) triplet
+                object_timing_ms = (time.time() - object_attempt_start) * 1000.0
+
+                # Determine per-object failure reason
+                if hasattr(self.goal_strategy, 'get_last_goal_stats'):
+                    obj_stats = self.goal_strategy.get_last_goal_stats()
+                    obj_ml_goals = obj_stats.get('ml_goals_generated', 0)
+                    obj_ml_aligned = obj_stats.get('ml_goals_aligned', 0)
+                    obj_reachable_edges = obj_stats.get('reachable_edges_count', 0)
+                else:
+                    obj_ml_goals = 0
+                    obj_ml_aligned = 0
+                    obj_reachable_edges = 0
+
+                if pushes_for_this_object > 0:
+                    obj_failure_reason = "all_pushes_failed"
+                elif obj_ml_goals == 0:
+                    obj_failure_reason = "ml_no_goals_extracted"
+                elif obj_ml_aligned == 0:
+                    obj_failure_reason = "ml_goals_not_aligned"
+                elif obj_reachable_edges == 0:
+                    obj_failure_reason = "no_reachable_edges"
+                else:
+                    obj_failure_reason = "no_valid_goals"
+
+                if self.config.verbose:
+                    print(f"      ✗ {object_id}: No solutions found ({obj_failure_reason}, {pushes_for_this_object} pushes)")
+
+                all_goal_attempts.append(AttemptResult(
+                    success=False,
+                    neighbour_region_label=neighbour_label,
+                    chosen_object_id=object_id,  # KEY: Include object_id for triplet tracking
+                    chosen_goal=None,
+                    validation_method="failed",
+                    connectivity_before=conn_before,
+                    connectivity_after=None,
+                    exploration_state=exploration_state,
+                    exploration_level=exploration_level,
+                    timing_ms=object_timing_ms,
+                    solutions_found_for_neighbour=0,
+                    solutions_cap_for_neighbour=self.max_solutions_per_neighbor,
+                    pushes_total_for_neighbour=pushes_for_this_object,
+                    failure_reason=obj_failure_reason,
+                    candidate_objects_count=len(candidates),
+                    ml_goals_generated=obj_ml_goals,
+                    ml_goals_aligned=obj_ml_aligned,
+                    reachable_edges_count=obj_reachable_edges,
+                ))
 
         # After trying all objects, return results
         if all_goal_attempts:
-            # Record the total number of successful solutions and pushes for this neighbour
-            for attempt in all_goal_attempts:
+            # Separate successes and failures
+            successes = [a for a in all_goal_attempts if a.success]
+            failures = [a for a in all_goal_attempts if not a.success]
+
+            # Set solutions_total for all attempts (successes and failures)
+            # pushes_total_for_neighbour is already set per-object during creation
+            for attempt in successes + failures:
                 attempt.solutions_total_for_neighbour = total_solutions_collected
-                attempt.pushes_total_for_neighbour = neighbour_push_counter.get("count", 0)
 
-            # Keep at most configured number of solutions for this neighbour (min-cost by design)
-            if len(all_goal_attempts) > self.max_recorded_solutions_per_neighbor:
-                all_goal_attempts = all_goal_attempts[: self.max_recorded_solutions_per_neighbor]
+            # Truncate successes PER OBJECT (not globally)
+            # Group by object_id and keep max_recorded per object
+            from collections import defaultdict
+            successes_by_object = defaultdict(list)
+            for s in successes:
+                successes_by_object[s.chosen_object_id].append(s)
 
-            # Update solutions_found_for_neighbour to reflect final recorded count (after truncation)
-            final_recorded_count = len(all_goal_attempts)
+            truncated_successes = []
+            for obj_id, obj_successes in successes_by_object.items():
+                # Truncate to max_recorded_solutions_per_neighbor per object
+                truncated_successes.extend(obj_successes[:self.max_recorded_solutions_per_neighbor])
+
+            # Combine: successes first, then failures (both per-object)
+            all_goal_attempts = truncated_successes + failures
+
+            # Update solutions_found_for_neighbour per object
+            solutions_by_object = defaultdict(int)
+            for s in truncated_successes:
+                solutions_by_object[s.chosen_object_id] += 1
+
             for attempt in all_goal_attempts:
-                attempt.solutions_found_for_neighbour = final_recorded_count
+                attempt.solutions_found_for_neighbour = solutions_by_object.get(attempt.chosen_object_id, 0)
 
             return all_goal_attempts
         else:
@@ -1384,8 +1466,8 @@ class RegionOpeningPlanner(BasePlanner):
             if self.config.verbose:
                 print(f"      📋 Async mode: {len(candidates)} candidates sorted by depth (ML running in background)")
         else:
-            # Sync mode: sort by (depth, -score) - shortest first, then high priority within same depth
-            candidates.sort(key=lambda x: (x[1], -getattr(x[2], 'score', 0.0)))
+            # Sync mode: sort by (-score, depth, edge_idx) - ML goals first, then fallback by depth
+            candidates.sort(key=lambda x: (-getattr(x[2], 'score', 0.0), x[1], x[0]))
 
         # Track position for re-sorting remaining candidates
         candidate_idx = 0
@@ -1415,9 +1497,9 @@ class RegionOpeningPlanner(BasePlanner):
                             score=ml_scores[key]
                         )
 
-                # Re-sort remaining candidates: score DESC, depth ASC
+                # Re-sort remaining candidates: score DESC, depth ASC, edge_idx ASC
                 remaining = candidates[candidate_idx:]
-                remaining.sort(key=lambda x: (-getattr(x[2], 'score', 0.0), x[1]))
+                remaining.sort(key=lambda x: (-getattr(x[2], 'score', 0.0), x[1], x[0]))
                 candidates[candidate_idx:] = remaining
 
                 if self.config.verbose:

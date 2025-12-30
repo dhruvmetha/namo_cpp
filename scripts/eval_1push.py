@@ -49,6 +49,25 @@ from collections import defaultdict
 import yaml
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib as mpl
+
+# Set up nicer plot style
+plt.style.use('seaborn-v0_8-whitegrid')
+mpl.rcParams['font.family'] = 'sans-serif'
+mpl.rcParams['font.size'] = 11
+mpl.rcParams['axes.titlesize'] = 14
+mpl.rcParams['axes.titleweight'] = 'bold'
+mpl.rcParams['axes.labelsize'] = 12
+mpl.rcParams['xtick.labelsize'] = 10
+mpl.rcParams['ytick.labelsize'] = 10
+mpl.rcParams['legend.fontsize'] = 10
+mpl.rcParams['figure.facecolor'] = 'white'
+mpl.rcParams['axes.facecolor'] = 'white'
+mpl.rcParams['axes.edgecolor'] = '#333333'
+mpl.rcParams['axes.linewidth'] = 0.8
+mpl.rcParams['grid.alpha'] = 0.3
+mpl.rcParams['axes.spines.top'] = False
+mpl.rcParams['axes.spines.right'] = False
 
 
 # =============================================================================
@@ -88,15 +107,16 @@ class EvalConfig:
     time_step: int = 100  # ms
 
     # Colors for models (will cycle if more models than colors)
+    # Using a colorblind-friendly palette
     model_colors: List[str] = field(default_factory=lambda: [
-        '#2ecc71',  # green
-        '#e74c3c',  # red
-        '#3498db',  # blue
-        '#9b59b6',  # purple
-        '#f39c12',  # orange
-        '#1abc9c',  # teal
-        '#e67e22',  # dark orange
-        '#16a085',  # dark teal
+        '#4C72B0',  # muted blue
+        '#DD8452',  # muted orange
+        '#55A868',  # muted green (okay as accent, not with red)
+        '#C44E52',  # muted red (okay as accent, not with green)
+        '#8172B3',  # muted purple
+        '#937860',  # muted brown
+        '#DA8BC3',  # muted pink
+        '#8C8C8C',  # gray
     ])
 
     @classmethod
@@ -179,13 +199,13 @@ def load_pickle_data(
     Args:
         data_dir: Glob pattern for pickle files
         exclude_easy: Whether to exclude 'easy' environments
-        reference_data: If provided, only include env+region pairs that exist in reference
+        reference_data: If provided, only include env+region+object triplets that exist in reference
 
     Returns:
-        per_env_per_region: {xml_file_name: {region_label: RegionResult}}
+        per_env_per_key: {xml_file_name: {region_label::object_id: RegionResult}}
         failure_reasons: {reason: count}
     """
-    per_env_per_region: Dict[str, Dict[str, RegionResult]] = {}
+    per_env_per_key: Dict[str, Dict[str, RegionResult]] = {}
     failure_reasons: Dict[str, int] = defaultdict(int)
 
     for file in glob(data_dir, recursive=True):
@@ -197,42 +217,46 @@ def load_pickle_data(
             if not episode_results:
                 continue
 
-            region_done = set()
+            keys_done = set()
 
             for ep in episode_results:
                 xml_file = ep.get('xml_file', '')
-                xml_file_name = "_".join(xml_file.split('/')[-4:])
+                xml_file_name = xml_file  # Use full path as env identifier
 
                 if exclude_easy and "easy" in xml_file_name:
                     continue
 
                 alg_stats = ep.get('algorithm_stats', {})
                 region_label = alg_stats.get('neighbour_region_label')
+                object_id = alg_stats.get('chosen_object_id', '')
 
-                if region_label is None:
+                if region_label is None or not object_id:
                     continue
 
-                # If reference provided, only include matching pairs
+                # Key by (env, region, object) triplet
+                key = f"{region_label}::{object_id}"
+
+                # If reference provided, only include matching triplets
                 if reference_data is not None:
                     if xml_file_name not in reference_data:
                         continue
-                    if region_label not in reference_data[xml_file_name]:
+                    if key not in reference_data[xml_file_name]:
                         continue
-                    if not reference_data[xml_file_name][region_label].success:
+                    if not reference_data[xml_file_name][key].success:
                         continue
 
-                # Track failure reasons
+                # Only process each key once per file
+                if key in keys_done:
+                    continue
+                keys_done.add(key)
+
+                # Track failure reasons (after dedup to avoid over-counting)
                 failure_reason = alg_stats.get('failure_reason', 'unknown')
                 failure_reasons[failure_reason] += 1
 
-                # Only process each region once per file
-                if region_label in region_done:
-                    continue
-                region_done.add(region_label)
-
                 # Initialize env dict if needed
-                if xml_file_name not in per_env_per_region:
-                    per_env_per_region[xml_file_name] = {}
+                if xml_file_name not in per_env_per_key:
+                    per_env_per_key[xml_file_name] = {}
 
                 # Extract stats
                 pushes = alg_stats.get('pushes_total_for_neighbour', 0)
@@ -259,13 +283,13 @@ def load_pickle_data(
                     movable_collisions=movable_collisions,
                 )
 
-                per_env_per_region[xml_file_name][region_label] = result
+                per_env_per_key[xml_file_name][key] = result
 
         except Exception as e:
             print(f"Error loading {file}: {e}")
             continue
 
-    return per_env_per_region, dict(failure_reasons)
+    return per_env_per_key, dict(failure_reasons)
 
 
 # =============================================================================
@@ -464,6 +488,64 @@ def compute_time_based_success(
     return result
 
 
+def compute_collision_success_stats(
+    model_data: Dict[str, Dict[str, RegionResult]],
+    search_data: Dict[str, Dict[str, RegionResult]],
+    config: EvalConfig,
+) -> Dict[str, Dict[str, int]]:
+    """
+    Compute success rates broken down by collision type.
+
+    Collision categories:
+    - none: No wall or movable collisions
+    - wall_only: Wall collision but no movable collisions
+    - movable_only: Movable collisions but no wall collision
+    - both: Both wall and movable collisions
+
+    Returns:
+        {collision_type: {'successes': int, 'total': int}}
+    """
+    stats = {
+        'none': {'successes': 0, 'total': 0},
+        'wall_only': {'successes': 0, 'total': 0},
+        'movable_only': {'successes': 0, 'total': 0},
+        'both': {'successes': 0, 'total': 0},
+    }
+
+    for env in model_data:
+        if env not in search_data:
+            continue
+        for region in model_data[env]:
+            if region not in search_data[env]:
+                continue
+
+            search_result = search_data[env][region]
+            model_result = model_data[env][region]
+
+            # Only consider cases where search succeeded (solvable problems)
+            if not search_result.success:
+                continue
+
+            # Determine collision category based on search (oracle) result
+            has_wall = search_result.wall_collision
+            has_movable = search_result.movable_collisions > 0
+
+            if has_wall and has_movable:
+                cat = 'both'
+            elif has_wall:
+                cat = 'wall_only'
+            elif has_movable:
+                cat = 'movable_only'
+            else:
+                cat = 'none'
+
+            stats[cat]['total'] += 1
+            if model_result.success:
+                stats[cat]['successes'] += 1
+
+    return stats
+
+
 # =============================================================================
 # Plotting
 # =============================================================================
@@ -482,35 +564,36 @@ def plot_success_rates(
     categories = ['easy', 'medium', 'hard']
     n_models = len(model_stats)
     x = np.arange(len(categories))
-    width = 0.8 / n_models
+    width = 0.35
 
-    fig, ax = plt.subplots(figsize=(12, 10))
+    fig, ax = plt.subplots(figsize=(8, 5))
 
     for i, stats in enumerate(model_stats):
         rates = [stats.get_category(cat).success_rate for cat in categories]
+        counts = [(stats.get_category(cat).successes, stats.get_category(cat).total) for cat in categories]
 
         offset = (i - n_models/2 + 0.5) * width
-        bars = ax.bar(x + offset, rates, width, label=stats.name,
-                      color=get_model_color(i, config), edgecolor='black')
+        bars = ax.bar(x + offset, rates, width * 0.9, label=stats.name,
+                      color=get_model_color(i, config), edgecolor='white', linewidth=0.5)
 
         # Add percentage labels
-        for bar, rate in zip(bars, rates):
+        for bar, rate, (succ, total) in zip(bars, rates, counts):
             ax.annotate(f'{rate:.0%}',
                        xy=(bar.get_x() + bar.get_width()/2, bar.get_height()),
-                       xytext=(0, 3), textcoords="offset points",
-                       ha='center', va='bottom', fontsize=9)
+                       xytext=(0, 4), textcoords="offset points",
+                       ha='center', va='bottom', fontsize=9, fontweight='bold')
 
     ax.set_xticks(x)
     ax.set_xticklabels([c.capitalize() for c in categories])
-    ax.set_ylim(0, 1.15)
+    ax.set_ylim(0, 1.12)
     ax.set_ylabel('Success Rate')
-    ax.set_title('Success Rate by Difficulty Category')
-    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.08), ncol=n_models, frameon=True)
-    ax.grid(True, axis='y', linestyle='--', alpha=0.6)
+    ax.set_title('Success Rate by Difficulty')
+    ax.legend(loc='upper right', frameon=True, fancybox=True)
+    ax.axhline(y=1.0, color='#888888', linestyle='--', linewidth=0.8, alpha=0.5)
 
     plt.tight_layout()
     if output_path:
-        plt.savefig(output_path, dpi=150, bbox_inches='tight')
+        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
         print(f"Saved: {output_path}")
     return fig
 
@@ -524,12 +607,11 @@ def plot_pushes_boxplot(
     categories = ['easy', 'medium', 'hard']
     n_models = len(model_stats)
 
-    fig, ax = plt.subplots(figsize=(12, 8))
+    fig, ax = plt.subplots(figsize=(9, 5))
 
     positions = []
     data = []
     colors = []
-    labels_added = set()
 
     for cat_idx, cat in enumerate(categories):
         for model_idx, stats in enumerate(model_stats):
@@ -542,11 +624,18 @@ def plot_pushes_boxplot(
 
     for patch, color in zip(bp['boxes'], colors):
         patch.set_facecolor(color)
-        patch.set_alpha(0.7)
+        patch.set_alpha(0.85)
+        patch.set_edgecolor('white')
+        patch.set_linewidth(0.5)
 
     for median in bp['medians']:
-        median.set_color('red')
+        median.set_color('#333333')
         median.set_linewidth(2)
+
+    for whisker in bp['whiskers']:
+        whisker.set_color('#666666')
+    for cap in bp['caps']:
+        cap.set_color('#666666')
 
     # Set x-axis labels
     cat_positions = [(i * (n_models + 1) + (n_models - 1) / 2) for i in range(len(categories))]
@@ -554,17 +643,16 @@ def plot_pushes_boxplot(
     ax.set_xticklabels([c.capitalize() for c in categories])
 
     # Legend
-    legend_handles = [plt.Rectangle((0,0),1,1, facecolor=get_model_color(i, config), alpha=0.7)
+    legend_handles = [plt.Rectangle((0,0),1,1, facecolor=get_model_color(i, config), alpha=0.85)
                       for i in range(n_models)]
-    ax.legend(legend_handles, [s.name for s in model_stats], loc='upper right')
+    ax.legend(legend_handles, [s.name for s in model_stats], loc='upper left', frameon=True, fancybox=True)
 
     ax.set_ylabel('Pushes to Success')
-    ax.set_title('Pushes to Success by Difficulty Category')
-    ax.grid(True, axis='y', linestyle='--', alpha=0.6)
+    ax.set_title('Pushes to Success by Difficulty')
 
     plt.tight_layout()
     if output_path:
-        plt.savefig(output_path, dpi=150)
+        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
         print(f"Saved: {output_path}")
     return fig
 
@@ -578,7 +666,7 @@ def plot_time_boxplot(
     categories = ['easy', 'medium', 'hard']
     n_models = len(model_stats)
 
-    fig, ax = plt.subplots(figsize=(12, 8))
+    fig, ax = plt.subplots(figsize=(9, 5))
 
     positions = []
     data = []
@@ -595,27 +683,33 @@ def plot_time_boxplot(
 
     for patch, color in zip(bp['boxes'], colors):
         patch.set_facecolor(color)
-        patch.set_alpha(0.7)
+        patch.set_alpha(0.85)
+        patch.set_edgecolor('white')
+        patch.set_linewidth(0.5)
 
     for median in bp['medians']:
-        median.set_color('red')
+        median.set_color('#333333')
         median.set_linewidth(2)
+
+    for whisker in bp['whiskers']:
+        whisker.set_color('#666666')
+    for cap in bp['caps']:
+        cap.set_color('#666666')
 
     cat_positions = [(i * (n_models + 1) + (n_models - 1) / 2) for i in range(len(categories))]
     ax.set_xticks(cat_positions)
     ax.set_xticklabels([c.capitalize() for c in categories])
 
-    legend_handles = [plt.Rectangle((0,0),1,1, facecolor=get_model_color(i, config), alpha=0.7)
+    legend_handles = [plt.Rectangle((0,0),1,1, facecolor=get_model_color(i, config), alpha=0.85)
                       for i in range(n_models)]
-    ax.legend(legend_handles, [s.name for s in model_stats], loc='upper right')
+    ax.legend(legend_handles, [s.name for s in model_stats], loc='upper left', frameon=True, fancybox=True)
 
     ax.set_ylabel('Time to Success (ms)')
-    ax.set_title('Time to Success by Difficulty Category')
-    ax.grid(True, axis='y', linestyle='--', alpha=0.6)
+    ax.set_title('Time to Success by Difficulty')
 
     plt.tight_layout()
     if output_path:
-        plt.savefig(output_path, dpi=150)
+        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
         print(f"Saved: {output_path}")
     return fig
 
@@ -782,6 +876,71 @@ def plot_interactions(
     plt.tight_layout()
     if output_path:
         plt.savefig(output_path, dpi=150, bbox_inches='tight')
+        print(f"Saved: {output_path}")
+    return fig
+
+
+def plot_collision_success_rates(
+    collision_stats: Dict[str, Dict[str, Dict[str, int]]],  # {model_name: {collision_type: {successes, total}}}
+    config: EvalConfig,
+    output_path: Optional[str] = None,
+):
+    """
+    Plot success rates by collision type for each model.
+
+    Shows a grouped bar chart with collision types on x-axis and models as groups.
+    """
+    collision_types = ['none', 'wall_only', 'movable_only', 'both']
+    collision_labels = ['No Collision', 'Wall Only', 'Movable Only', 'Both']
+    model_names = list(collision_stats.keys())
+    n_models = len(model_names)
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    x = np.arange(len(collision_types))
+    width = 0.35
+
+    for i, model_name in enumerate(model_names):
+        rates = []
+        counts = []
+        for ct in collision_types:
+            stats = collision_stats[model_name][ct]
+            rate = stats['successes'] / stats['total'] if stats['total'] > 0 else 0.0
+            rates.append(rate)
+            counts.append((stats['successes'], stats['total']))
+
+        offset = (i - n_models/2 + 0.5) * width
+        bars = ax.bar(x + offset, rates, width * 0.9, label=model_name,
+                      color=get_model_color(i, config), edgecolor='white', linewidth=0.5)
+
+        # Add percentage labels on bars
+        for bar, rate, (succ, total) in zip(bars, rates, counts):
+            if total > 0:
+                # Put percentage inside bar if tall enough, otherwise above
+                y_pos = bar.get_height()
+                ax.annotate(f'{rate:.0%}',
+                           xy=(bar.get_x() + bar.get_width()/2, y_pos),
+                           xytext=(0, 4), textcoords="offset points",
+                           ha='center', va='bottom', fontsize=9, fontweight='bold')
+                # Add count below the bar
+                ax.annotate(f'n={total}',
+                           xy=(bar.get_x() + bar.get_width()/2, 0),
+                           xytext=(0, -12), textcoords="offset points",
+                           ha='center', va='top', fontsize=8, color='#666666')
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(collision_labels)
+    ax.set_ylim(0, 1.15)
+    ax.set_ylabel('Success Rate')
+    ax.set_title('Success Rate by Collision Type Required')
+    ax.legend(loc='upper right', frameon=True, fancybox=True, shadow=False)
+
+    # Add horizontal line at 100%
+    ax.axhline(y=1.0, color='#888888', linestyle='--', linewidth=0.8, alpha=0.5)
+
+    plt.tight_layout()
+    if output_path:
+        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
         print(f"Saved: {output_path}")
     return fig
 
@@ -1114,11 +1273,12 @@ def main():
 
     # Load reference data (for difficulty categorization only)
     print(f"Loading reference data: {config.reference.name} (for categorization)...")
+    print(f"  Using triplets (env, region, object) for evaluation granularity")
     reference_data, _ = load_pickle_data(
         f"{config.reference.dir}/**/*.pkl",
         exclude_easy=config.exclude_easy,
     )
-    print(f"  Loaded {sum(len(v) for v in reference_data.values())} env+region pairs")
+    print(f"  Loaded {sum(len(v) for v in reference_data.values())} triplets")
 
     # Load all models (baselines + learned)
     all_model_data: Dict[str, Dict[str, Dict[str, RegionResult]]] = {}
@@ -1130,7 +1290,7 @@ def main():
             f"{baseline.dir}/**/*.pkl",
             exclude_easy=config.exclude_easy,
         )
-        print(f"  Loaded {sum(len(v) for v in data.values())} env+region pairs")
+        print(f"  Loaded {sum(len(v) for v in data.values())} triplets")
         all_model_data[baseline.name] = data
         all_model_failures[baseline.name] = failures
 
@@ -1140,14 +1300,42 @@ def main():
             f"{model.dir}/**/*.pkl",
             exclude_easy=config.exclude_easy,
         )
-        print(f"  Loaded {sum(len(v) for v in data.values())} env+region pairs")
+        print(f"  Loaded {sum(len(v) for v in data.values())} triplets")
         all_model_data[model.name] = data
         all_model_failures[model.name] = failures
 
     # Find intersection across all models + reference
-    print("\nComputing intersection of env+region pairs across all models...")
+    print("\nComputing intersection of triplets across all models...")
+
+    # Debug: Show triplet counts before intersection
+    print("\n  === TRIPLET COUNTS BEFORE INTERSECTION ===")
+    reference_keys = get_env_region_keys(reference_data)
+    reference_success_keys = {(env, region) for env, region in reference_keys
+                              if reference_data[env][region].success}
+    print(f"  Reference (all):     {len(reference_keys)} triplets")
+    print(f"  Reference (success): {len(reference_success_keys)} triplets")
+
+    for name, data in all_model_data.items():
+        model_keys = get_env_region_keys(data)
+        model_success_keys = {(env, region) for env, region in model_keys
+                              if data[env][region].success}
+        # How many of this model's triplets overlap with reference success?
+        overlap_with_ref = model_keys & reference_success_keys
+        print(f"  {name}:")
+        print(f"    Total triplets: {len(model_keys)}")
+        print(f"    Successful:     {len(model_success_keys)}")
+        print(f"    Overlap w/ ref: {len(overlap_with_ref)}")
+
     filtered_data, intersection = filter_to_intersection(all_model_data, reference_data)
-    print(f"  Intersection size: {len(intersection)} env+region pairs")
+    print(f"\n  === FINAL INTERSECTION ===")
+    print(f"  Intersection size: {len(intersection)} triplets")
+
+    # Show what was lost
+    if len(reference_success_keys) > len(intersection):
+        lost = len(reference_success_keys) - len(intersection)
+        pct_lost = lost / len(reference_success_keys) * 100
+        print(f"  Lost from reference: {lost} triplets ({pct_lost:.1f}%)")
+        print(f"  (These are triplets where oracle succeeded but not all models have matching triplets)")
 
     # Count by category
     category_counts = {'easy': 0, 'medium': 0, 'hard': 0}
@@ -1178,6 +1366,13 @@ def main():
             filtered_data[name], reference_data, config
         )
 
+        # Compute collision-based success stats
+    collision_stats = {}
+    for name in filtered_data:
+        collision_stats[name] = compute_collision_success_stats(
+            filtered_data[name], reference_data, config
+        )
+
     # Compute stats for reference (oracle) - for solutions plot
     reference_stats = compute_stats(
         reference_data, reference_data, config,
@@ -1186,6 +1381,31 @@ def main():
 
     # Print summary
     print_summary(all_stats)
+
+    # Print collision-based success rates
+    print("\n" + "=" * 80)
+    print("SUCCESS RATE BY COLLISION TYPE (based on oracle solution)")
+    print("=" * 80)
+    collision_types = ['none', 'wall_only', 'movable_only', 'both']
+    collision_labels = {'none': 'No Collision', 'wall_only': 'Wall Only',
+                        'movable_only': 'Movable Only', 'both': 'Both'}
+
+    # Print oracle collision distribution (use first model's totals - same for all)
+    first_model = list(collision_stats.keys())[0]
+    total_problems = sum(collision_stats[first_model][ct]['total'] for ct in collision_types)
+    print(f"\nOracle Collision Distribution (N={total_problems}):")
+    for ct in collision_types:
+        count = collision_stats[first_model][ct]['total']
+        pct = count / total_problems * 100 if total_problems > 0 else 0
+        print(f"  {collision_labels[ct]:15s}: {count:3d} ({pct:5.1f}%)")
+
+    # Print success rates per model
+    for name in collision_stats:
+        print(f"\n{name}:")
+        for ct in collision_types:
+            stats = collision_stats[name][ct]
+            rate = stats['successes'] / stats['total'] if stats['total'] > 0 else 0.0
+            print(f"  {collision_labels[ct]:15s}: {stats['successes']:3d}/{stats['total']:3d} = {rate:.1%}")
 
     # Generate plots
     print("\nGenerating plots...")
@@ -1227,6 +1447,13 @@ def main():
             all_stats,
             config,
             f"{config.output_dir}/interactions.png"
+        )
+
+    if collision_stats:
+        plot_collision_success_rates(
+            collision_stats,
+            config,
+            f"{config.output_dir}/collision_success_rates.png"
         )
 
     # Generate markdown report

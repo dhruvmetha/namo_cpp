@@ -656,7 +656,8 @@ class WavefrontSnapshotExporter:
         label_to_id: Dict[str, int] = {label: region_id for region_id, label in region_labels.items()}
 
         # Only sample goals for regions reachable from the robot (excluding robot itself)
-        for label in reachable_regions:
+        # Sort for deterministic iteration order (important for reproducible rng sampling)
+        for label in sorted(reachable_regions):
             if "robot" in label:
                 continue
 

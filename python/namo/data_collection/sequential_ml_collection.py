@@ -200,7 +200,8 @@ def process_single_environment(
                                 solution_depth = 1
                         
                         # Print stats for this neighbor attempt
-                        print(f"   ✅ Neighbor '{attempt.neighbour_region_label}': Found {getattr(attempt, 'solutions_total_for_neighbour', 0)} solutions in {getattr(attempt, 'pushes_total_for_neighbour', 0)} pushes")
+                        status_icon = "✅" if attempt.success else "❌"
+                        print(f"   {status_icon} Neighbor '{attempt.neighbour_region_label}' Object '{attempt.chosen_object_id}': {'Success' if attempt.success else 'Failed'} ({getattr(attempt, 'pushes_total_for_neighbour', 0)} pushes)")
 
                         actual_goal = attempt.region_goal_used if attempt.region_goal_used else robot_goal
                         
@@ -254,7 +255,9 @@ def process_single_environment(
                             robot_goal=actual_goal,
                             error_message=attempt.error_message or "",
                             failure_code=None,
-                            failure_description=attempt.error_message or ""
+                            failure_description=attempt.error_message or "",
+                            any_wall_collision=getattr(attempt, 'any_wall_collision', False),
+                            unique_movable_collision_count=getattr(attempt, 'unique_movable_collision_count', 0),
                         )
                         episode_results.append(episode_result)
                     continue
@@ -584,7 +587,8 @@ def main():
     parser.add_argument("--ml-sampler-method", type=str, default=None, help="Override sampler: euler, midpoint, rk4, dopri5 (flow matching) or ddpm, ddim (diffusion)")
     parser.add_argument("--ml-num-steps", type=int, default=None, help="Override number of integration steps")
     parser.add_argument("--ml-k-nearest", type=int, default=1, help="Number of nearest primitive slots to vote for per ML goal (within tolerance)")
-    
+    parser.add_argument("--ml-seed", type=int, default=None, help="Random seed for diffusion noise (None = random each time)")
+
     # Other
     parser.add_argument("--primitive-data-dir", type=str, default="data")
     parser.add_argument("--xml-dir", type=str, default="../ml4kp_ktamp/resources/models/custom_walled_envs/aug9")
@@ -647,6 +651,7 @@ def main():
                 "ml_sampler_method": args.ml_sampler_method,
                 "ml_num_steps": args.ml_num_steps,
                 "ml_k_nearest": args.ml_k_nearest,
+                "ml_seed": args.ml_seed,
                 "primitive_data_dir": args.primitive_data_dir,
             })
 

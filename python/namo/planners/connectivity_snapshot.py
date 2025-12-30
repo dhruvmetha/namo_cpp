@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional, Set, Tuple
 
+import numpy as np
+
 from namo.visualization.wavefront_snapshot import (
     RegionGoalBundle,
     RegionGoalSample,
@@ -78,6 +80,7 @@ def snapshot_region_connectivity(
     generate_training_data: bool = False,
     local_info_only: bool = False,
     use_current_state: bool = False,
+    rng: Optional[np.random.Generator] = None,
 ) -> Tuple[
     RegionAdjacency,
     RegionEdgeObjects,
@@ -114,12 +117,15 @@ def snapshot_region_connectivity(
     """
 
     exporter = WavefrontSnapshotExporter(env, resolution=resolution)
+    # Use fixed seed for deterministic region goal sampling
+    region_rng = rng if rng is not None else np.random.default_rng(42)
     snapshot = exporter.build_snapshot(
         xml_path=xml_path,
         config_path=config_path,
         goal_radius=goal_radius,
         goals_per_region=goals_per_region if generate_training_data else 0,
         use_current_state=use_current_state,
+        rng=region_rng,
     )
 
     adjacency: RegionAdjacency = {

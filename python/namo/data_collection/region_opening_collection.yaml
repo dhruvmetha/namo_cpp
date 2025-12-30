@@ -3,7 +3,7 @@
 # CLI flags can override any value here.
 
 # Core execution
-output_dir: /common/users/dm1487/namo_data/dec25/aug9_envs/1_push_test_first_solution_geometric_heuristic
+output_dir: /common/users/dm1487/namo_data/dec25/aug9_envs/1_push_triplets_test_first_solution
 end_idx: 7000
 algorithm: region_opening
 workers: 48 
@@ -26,7 +26,7 @@ region_max_recorded_solutions_per_neighbor: 1
 region_chain_link_cost: 11  # Additional cost per chain link beyond first push (0=no extra cost, e.g. 5 makes 2-push cost +5)
 
 # Goal strategy: primitive | geometric | ml | ml_fallback | ml_async | ml_driven_async
-goal_strategy: geometric
+goal_strategy: primitive  
 
 # Paths
 # xml_dir: /common/home/dm1487/robotics_research/ktamp/ml4kp_ktamp/resources/models/custom_walled_envs/aug9/medium
