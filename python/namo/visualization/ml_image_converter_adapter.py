@@ -378,7 +378,9 @@ class MLImageConverterAdapter:
             global_output_size=output_size,
             local_output_size=output_size,
             local_crop_size_meters=crop_size_meters,
-            goal_circle_radius=goal_circle_radius
+            goal_circle_radius=goal_circle_radius,
+            generate_global=False,
+            generate_local=True
         )
 
         # Extract local masks and convert to (H, W, 1) format for inference compatibility

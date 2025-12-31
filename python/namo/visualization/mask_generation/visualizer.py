@@ -104,7 +104,6 @@ from typing import Dict, List, Tuple, Any, Optional
 from pathlib import Path
 import glob
 from dataclasses import dataclass
-from collections import deque
 
 
 @dataclass
@@ -370,19 +369,22 @@ class NAMODataVisualizer:
         delta_obj = np.array([dx_obj, dy_obj, dtheta], dtype=np.float32)
         return delta_world, delta_obj
 
-    def generate_pose_metadata(self, episode: Dict[str, Any], local_only: bool = False) -> Dict[str, Any]:
+    def generate_pose_metadata(self, episode: Dict[str, Any], local_only: bool = False,
+                               env_info: Optional[EnvironmentInfo] = None) -> Dict[str, Any]:
         """Generate pose and corner metadata for the episode.
         
         Args:
             episode: Episode data dictionary
             local_only: If True, only generate object-centric (local) metadata
+            env_info: Optional cached EnvironmentInfo to avoid recomputation
             
         Returns:
             Dictionary containing pose and corner metadata
         """
         metadata = {}
         
-        env_info = self._extract_env_info_from_episode(episode)
+        if env_info is None:
+            env_info = self._extract_env_info_from_episode(episode)
         static_object_info = episode.get('static_object_info') or {}
         state_observations = episode.get('state_observations', [])
         action_sequence = episode.get('action_sequence', [])
@@ -1306,7 +1308,10 @@ class NAMODataVisualizer:
                                    global_output_size: int = 224,
                                    local_output_size: int = 224,
                                    local_crop_size_meters: float = 5.0,
-                                   goal_circle_radius: float = 0.25) -> Dict[str, Any]:
+                                   goal_circle_radius: float = 0.25,
+                                   generate_global: bool = True,
+                                   generate_local: bool = True,
+                                   env_info: Optional[EnvironmentInfo] = None) -> Dict[str, Any]:
         """Generate both global and local masks from a single high-resolution render.
 
         This is more efficient than calling generate_episode_masks and
@@ -1320,6 +1325,9 @@ class NAMODataVisualizer:
             local_output_size: Size of local output masks (default: 224)
             local_crop_size_meters: Size of local crop region in meters (default: 5.0)
             goal_circle_radius: Radius of robot goal circle in meters (default: 0.25)
+            generate_global: Whether to generate global masks (default: True)
+            generate_local: Whether to generate local masks (default: True)
+            env_info: Optional cached EnvironmentInfo to avoid recomputation
 
         Returns:
             Dictionary containing:
@@ -1345,8 +1353,12 @@ class NAMODataVisualizer:
         """
         import cv2
 
+        if not generate_global and not generate_local:
+            return {'global': {}, 'local': None, 'local_metadata': None}
+
         # Extract environment info
-        env_info = self._extract_env_info_from_episode(episode_data)
+        if env_info is None:
+            env_info = self._extract_env_info_from_episode(episode_data)
         world_bounds = env_info.world_bounds
         x_min_w, x_max_w, y_min_w, y_max_w = world_bounds
 
@@ -1390,31 +1402,40 @@ class NAMODataVisualizer:
             r_px = int(radius * scale)
             cv2.circle(mask, (px, py), max(1, r_px), 1.0, -1)
 
-        # Initialize high-res masks
-        highres = {
-            'robot': np.zeros((highres_size, highres_size), dtype=np.float32),
-            'goal': np.zeros((highres_size, highres_size), dtype=np.float32),
-            'movable': np.zeros((highres_size, highres_size), dtype=np.float32),
-            'static': np.zeros((highres_size, highres_size), dtype=np.float32),
-            'reachable': np.zeros((highres_size, highres_size), dtype=np.float32),
-            'target_object': np.zeros((highres_size, highres_size), dtype=np.float32),
-            'target_goal': np.zeros((highres_size, highres_size), dtype=np.float32),
-            'robot_region': np.zeros((highres_size, highres_size), dtype=np.float32),
-            'goal_sample_region': np.zeros((highres_size, highres_size), dtype=np.float32),
-        }
+        # Initialize high-res masks (only those needed)
+        required_masks = set()
+        if generate_global:
+            required_masks.update([
+                'robot', 'goal', 'movable', 'static', 'reachable',
+                'target_object', 'target_goal', 'robot_region', 'goal_sample_region'
+            ])
+        if generate_local:
+            required_masks.update([
+                'static', 'movable', 'target_object', 'target_goal',
+                'robot_region', 'goal_sample_region'
+            ])
+
+        highres = {name: np.zeros((highres_size, highres_size), dtype=np.float32)
+                   for name in required_masks}
 
         # Initialize multi-horizon goal masks (goal_mask_a1, goal_mask_a2, ...)
-        for action_idx in range(1, len(action_sequence) + 1):
-            highres[f'goal_mask_a{action_idx}'] = np.zeros((highres_size, highres_size), dtype=np.float32)
+        # Always generate at least 2 goal horizons for consistent dataset schema
+        min_goal_horizons = 2
+        num_goal_horizons = max(min_goal_horizons, len(action_sequence))
+        if generate_global or generate_local:
+            for action_idx in range(1, num_goal_horizons + 1):
+                highres[f'goal_mask_a{action_idx}'] = np.zeros((highres_size, highres_size), dtype=np.float32)
 
         # 1. Draw static objects (walls)
-        for obj in env_info.static_objects:
-            qw, qx, qy, qz = obj.quat_w, obj.quat_x, obj.quat_y, obj.quat_z
-            angle = np.arctan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz))
-            draw_rotated_box(highres['static'], obj.x, obj.y, obj.size_x, obj.size_y, angle)
+        if 'static' in highres:
+            for obj in env_info.static_objects:
+                qw, qx, qy, qz = obj.quat_w, obj.quat_x, obj.quat_y, obj.quat_z
+                angle = np.arctan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz))
+                draw_rotated_box(highres['static'], obj.x, obj.y, obj.size_x, obj.size_y, angle)
 
         # 2. Draw robot goal
-        draw_circle(highres['goal'], robot_goal[0], robot_goal[1], goal_circle_radius)
+        if 'goal' in highres:
+            draw_circle(highres['goal'], robot_goal[0], robot_goal[1], goal_circle_radius)
 
         # Get target object info
         target_object_id = None
@@ -1432,7 +1453,7 @@ class NAMODataVisualizer:
             first_state = state_observations[0]
 
             # Draw robot position
-            if 'robot_pose' in first_state:
+            if 'robot_pose' in first_state and 'robot' in highres:
                 robot_pose = first_state['robot_pose']
                 draw_circle(highres['robot'], robot_pose[0], robot_pose[1], 0.2)
 
@@ -1449,38 +1470,44 @@ class NAMODataVisualizer:
                     size_y = obj_info['size_y']
 
                     # Draw in movable mask
-                    draw_rotated_box(highres['movable'], x, y, size_x, size_y, theta)
+                    if 'movable' in highres:
+                        draw_rotated_box(highres['movable'], x, y, size_x, size_y, theta)
 
                     # Check if target object
                     if target_object_id and obj_base_name == target_object_id:
                         obj_x, obj_y, obj_theta = x, y, theta
                         target_size_x, target_size_y = size_x, size_y
-                        draw_rotated_box(highres['target_object'], x, y, size_x, size_y, theta)
+                        if 'target_object' in highres:
+                            draw_rotated_box(highres['target_object'], x, y, size_x, size_y, theta)
 
-                        if target_pose:
+                        if target_pose and 'target_goal' in highres:
                             goal_x, goal_y, goal_theta = target_pose[0], target_pose[1], target_pose[2]
                             draw_rotated_box(highres['target_goal'], goal_x, goal_y, size_x, size_y, goal_theta)
 
                         # Draw multi-horizon goal masks (goal_mask_a1, goal_mask_a2, ...)
                         for action_idx, action in enumerate(action_sequence, start=1):
+                            mask_key = f'goal_mask_a{action_idx}'
+                            if mask_key not in highres:
+                                continue
                             action_target = action.get('target')
                             if action_target and len(action_target) >= 3:
                                 ax, ay, atheta = action_target[0], action_target[1], action_target[2]
-                                draw_rotated_box(highres[f'goal_mask_a{action_idx}'], ax, ay, size_x, size_y, atheta)
+                                draw_rotated_box(highres[mask_key], ax, ay, size_x, size_y, atheta)
 
         # 4. Draw reachable objects
-        reachable_list = episode_data.get('reachable_objects_before_action')
-        if reachable_list and len(reachable_list) > 0 and state_observations:
-            first_state = state_observations[0]
-            reachable_objects = reachable_list[0] if reachable_list[0] else []
-            for obj_name in reachable_objects:
-                pose_key = f"{obj_name}_pose"
-                if pose_key in first_state:
-                    pose = first_state[pose_key]
-                    obj_info = static_object_info.get(obj_name, {})
-                    if 'size_x' in obj_info and 'size_y' in obj_info:
-                        draw_rotated_box(highres['reachable'], pose[0], pose[1],
-                                        obj_info['size_x'], obj_info['size_y'], pose[2])
+        if 'reachable' in highres:
+            reachable_list = episode_data.get('reachable_objects_before_action')
+            if reachable_list and len(reachable_list) > 0 and state_observations:
+                first_state = state_observations[0]
+                reachable_objects = reachable_list[0] if reachable_list[0] else []
+                for obj_name in reachable_objects:
+                    pose_key = f"{obj_name}_pose"
+                    if pose_key in first_state:
+                        pose = first_state[pose_key]
+                        obj_info = static_object_info.get(obj_name, {})
+                        if 'size_x' in obj_info and 'size_y' in obj_info:
+                            draw_rotated_box(highres['reachable'], pose[0], pose[1],
+                                            obj_info['size_x'], obj_info['size_y'], pose[2])
 
         # 5. Get region_goals_sampled for goal_sample_region computation
         algorithm_stats = episode_data.get('algorithm_stats') or {}
@@ -1497,7 +1524,8 @@ class NAMODataVisualizer:
         if not region_goals_sampled and robot_goal:
             region_goals_sampled = [(robot_goal[0], robot_goal[1], robot_goal[2] if len(robot_goal) > 2 else 0.0)]
 
-        # 6. Compute robot_region (reachable cells from robot position)
+        # 6. Compute robot_region / goal_sample_region (reachable cells)
+        compute_regions = ('robot_region' in highres) or ('goal_sample_region' in highres)
         # Get robot position and robot half-extent for inflation
         robot_px, robot_py = None, None
         robot_half_extent_x = 0.15  # Default fallback
@@ -1516,7 +1544,7 @@ class NAMODataVisualizer:
                 robot_pose = first_state['robot_pose']
                 robot_px, robot_py = world_to_highres(robot_pose[0], robot_pose[1])
 
-        if robot_px is not None and robot_py is not None:
+        if compute_regions:
             # Compute inflation amounts matching WavefrontSnapshotExporter
             inflate_x = robot_half_extent_x + self.INFLATION_EPSILON
             inflate_y = robot_half_extent_y + self.INFLATION_EPSILON
@@ -1558,13 +1586,13 @@ class NAMODataVisualizer:
                         x, y, theta = pose[0], pose[1], pose[2]
                         draw_inflated_box(inflated_obstacles, x, y, obj_info['size_x'], obj_info['size_y'], theta)
 
-            # BFS flood fill from robot position using 8-connected neighbors
-            visited = np.zeros((highres_size, highres_size), dtype=np.uint8)
-            queue = deque([(robot_px, robot_py)])
+            # Use scipy.ndimage.label for fast connected component analysis
+            from scipy import ndimage
 
             # Fix: If robot position is in inflated obstacle due to discretization,
             # clear the robot cell and its 8-neighborhood (matching C++ wavefront_grid behavior)
-            if (0 <= robot_px < highres_size and 0 <= robot_py < highres_size and
+            if (robot_px is not None and robot_py is not None and
+                0 <= robot_px < highres_size and 0 <= robot_py < highres_size and
                 inflated_obstacles[robot_py, robot_px] == 1):
                 for dy in [-1, 0, 1]:
                     for dx in [-1, 0, 1]:
@@ -1572,35 +1600,11 @@ class NAMODataVisualizer:
                         if 0 <= ny < highres_size and 0 <= nx < highres_size:
                             inflated_obstacles[ny, nx] = 0
 
-            # Check if starting position is valid
-            if (0 <= robot_px < highres_size and 0 <= robot_py < highres_size and
-                inflated_obstacles[robot_py, robot_px] == 0):
-                visited[robot_py, robot_px] = 1
-
-                # 8-connected BFS (matching C++ WavefrontGrid and WavefrontSnapshotExporter)
-                while queue:
-                    cx, cy = queue.popleft()
-                    for dx, dy in self.NEIGHBOR_OFFSETS_8:
-                        nx, ny = cx + dx, cy + dy
-                        if (0 <= nx < highres_size and 0 <= ny < highres_size and
-                            visited[ny, nx] == 0 and inflated_obstacles[ny, nx] == 0):
-                            visited[ny, nx] = 1
-                            queue.append((nx, ny))
-
-            highres['robot_region'] = visited.astype(np.float32)
-
-            # 7. Compute goal_sample_region (reachable cells from first goal sample)
-            # Reuse the inflated_obstacles from robot_region computation
+            # Fix: If goal sample position is in inflated obstacle, clear its neighborhood
+            goal_sample_px = goal_sample_py = None
             if region_goals_sampled and len(region_goals_sampled) > 0:
-                # Use first goal sample
                 goal_sample = region_goals_sampled[0]
                 goal_sample_px, goal_sample_py = world_to_highres(goal_sample[0], goal_sample[1])
-
-                # BFS flood fill from goal sample position using 8-connected neighbors
-                visited_goal = np.zeros((highres_size, highres_size), dtype=np.uint8)
-                queue_goal = deque([(goal_sample_px, goal_sample_py)])
-
-                # Fix: If goal sample position is in inflated obstacle, clear its neighborhood
                 if (0 <= goal_sample_px < highres_size and 0 <= goal_sample_py < highres_size and
                     inflated_obstacles[goal_sample_py, goal_sample_px] == 1):
                     for dy in [-1, 0, 1]:
@@ -1609,35 +1613,43 @@ class NAMODataVisualizer:
                             if 0 <= ny < highres_size and 0 <= nx < highres_size:
                                 inflated_obstacles[ny, nx] = 0
 
-                # Check if starting position is valid
-                if (0 <= goal_sample_px < highres_size and 0 <= goal_sample_py < highres_size and
-                    inflated_obstacles[goal_sample_py, goal_sample_px] == 0):
-                    visited_goal[goal_sample_py, goal_sample_px] = 1
+            free_space = (inflated_obstacles == 0).astype(np.int32)
+            structure_8conn = np.ones((3, 3), dtype=np.int32)  # 8-connected
+            labeled_regions, _ = ndimage.label(free_space, structure=structure_8conn)
 
-                    # 8-connected BFS (matching C++ WavefrontGrid and WavefrontSnapshotExporter)
-                    while queue_goal:
-                        cx, cy = queue_goal.popleft()
-                        for dx, dy in self.NEIGHBOR_OFFSETS_8:
-                            nx, ny = cx + dx, cy + dy
-                            if (0 <= nx < highres_size and 0 <= ny < highres_size and
-                                visited_goal[ny, nx] == 0 and inflated_obstacles[ny, nx] == 0):
-                                visited_goal[ny, nx] = 1
-                                queue_goal.append((nx, ny))
+            # Assign robot region mask
+            if 'robot_region' in highres:
+                if (robot_px is not None and robot_py is not None and
+                    0 <= robot_px < highres_size and 0 <= robot_py < highres_size and
+                    labeled_regions[robot_py, robot_px] > 0):
+                    robot_label = labeled_regions[robot_py, robot_px]
+                    highres['robot_region'] = (labeled_regions == robot_label).astype(np.float32)
+                else:
+                    highres['robot_region'] = np.zeros((highres_size, highres_size), dtype=np.float32)
 
-                highres['goal_sample_region'] = visited_goal.astype(np.float32)
+            # Assign goal sample region mask
+            if 'goal_sample_region' in highres:
+                if (goal_sample_px is not None and goal_sample_py is not None and
+                    0 <= goal_sample_px < highres_size and 0 <= goal_sample_py < highres_size and
+                    labeled_regions[goal_sample_py, goal_sample_px] > 0):
+                    goal_label = labeled_regions[goal_sample_py, goal_sample_px]
+                    highres['goal_sample_region'] = (labeled_regions == goal_label).astype(np.float32)
+                else:
+                    highres['goal_sample_region'] = np.zeros((highres_size, highres_size), dtype=np.float32)
 
         # === Create global masks (resize full highres to output size) ===
         global_masks = {}
-        for name, hr_mask in highres.items():
-            resized = cv2.resize(hr_mask, (global_output_size, global_output_size),
-                                interpolation=cv2.INTER_AREA)
-            global_masks[name] = resized.astype(np.float32)
+        if generate_global:
+            for name, hr_mask in highres.items():
+                resized = cv2.resize(hr_mask, (global_output_size, global_output_size),
+                                    interpolation=cv2.INTER_AREA)
+                global_masks[name] = resized.astype(np.float32)
 
         # === Create local masks (crop around target object, then resize) ===
         local_masks = None
         local_metadata = None
 
-        if obj_x is not None and obj_y is not None:
+        if generate_local and obj_x is not None and obj_y is not None:
             # Compute crop window centered on object
             obj_px, obj_py = world_to_highres(obj_x, obj_y)
             crop_size_px = int(local_crop_size_meters * scale)
@@ -1663,9 +1675,11 @@ class NAMODataVisualizer:
             # For local, we want: target_object, target_goal, static, movable, robot_region, goal_sample_region
             local_mask_names = ['target_object', 'target_goal', 'static', 'movable', 'robot_region', 'goal_sample_region']
             # Add multi-horizon goal masks (goal_mask_a1, goal_mask_a2, ...)
-            for action_idx in range(1, len(action_sequence) + 1):
+            for action_idx in range(1, num_goal_horizons + 1):
                 local_mask_names.append(f'goal_mask_a{action_idx}')
             for name in local_mask_names:
+                if name not in highres:
+                    continue
                 hr_mask = highres[name]
                 cropped = hr_mask[y1:y2, x1:x2]
                 if cropped.shape[0] == 0 or cropped.shape[1] == 0:

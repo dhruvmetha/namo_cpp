@@ -514,8 +514,13 @@ def process_episode(episode: Dict[str, Any], visualizer: NAMODataVisualizer,
 
     if use_highres:
         # Use unified high-res rendering (renders once, creates both global and local)
+        env_info = visualizer._extract_env_info_from_episode(episode)
         result = visualizer.generate_all_masks_highres(
-            episode, local_crop_size_meters=local_crop_size
+            episode,
+            local_crop_size_meters=local_crop_size,
+            generate_global=not local_only,
+            generate_local=generate_local,
+            env_info=env_info
         )
 
         if local_only:
@@ -577,7 +582,12 @@ def process_episode(episode: Dict[str, Any], visualizer: NAMODataVisualizer,
         metadata['local_metadata'] = local_metadata
 
     # --- Compute additional pose and corner metadata ---
-    pose_metadata = visualizer.generate_pose_metadata(episode, local_only=local_only)
+    if use_highres:
+        pose_metadata = visualizer.generate_pose_metadata(
+            episode, local_only=local_only, env_info=env_info
+        )
+    else:
+        pose_metadata = visualizer.generate_pose_metadata(episode, local_only=local_only)
     metadata.update(pose_metadata)
 
     return masks, metadata
