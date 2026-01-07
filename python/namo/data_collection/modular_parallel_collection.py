@@ -234,6 +234,10 @@ class ModularWorkerTask:
     # Action refinement options (post-smoothing step)
     refine_actions: bool = False
     validate_refinement: bool = True
+    # Region/object skip dict (blacklist): skip specific (region, object) pairs during neighbor exploration
+    # Parsed from manifest file (tab-separated format: xml_path\tregion1:obj1,region2:obj2,...)
+    # Dict maps region_label -> list of object_ids to skip (empty list = skip entire region)
+    region_object_skip: Optional[Dict[str, List[str]]] = None
 
 
 @dataclass
@@ -313,31 +317,69 @@ class ModularWorkerResult:
 # Planners are registered automatically when imported
 
 
-def discover_environment_files(base_dir: str, start_idx: int, end_idx: int, manifest_file: str = None) -> List[str]:
+def discover_environment_files(base_dir: str, start_idx: int, end_idx: int, manifest_file: str = None) -> List[Tuple[str, Optional[Dict[str, List[str]]]]]:
     """Discover and filter XML environment files by index range.
 
     Args:
         base_dir: Base directory containing XML files (used if no manifest)
         start_idx: Starting index for subset selection
         end_idx: Ending index for subset selection (exclusive)
-        manifest_file: Optional path to pre-generated manifest file for fast loading
+        manifest_file: Optional path to pre-generated manifest file for fast loading.
+            Supports extended tab-separated format with two styles:
+            1. Region-only: xml_path[\\tregion1,region2,...] - skip entire regions
+            2. Triplets: xml_path[\\tregion1:obj1,region1:obj2,region2:obj3,...] - skip specific (region,object) pairs
 
     Returns:
-        List of XML file paths for the requested index range
+        List of tuples: (xml_path, region_object_skip) where region_object_skip is None or
+        a dict mapping region_label -> list of object_ids to skip (empty list = skip all objects for that region)
     """
     if manifest_file and os.path.exists(manifest_file):
         # Fast path: read from pre-generated manifest
         print(f"Loading from manifest: {manifest_file}")
         with open(manifest_file, 'r') as f:
             # Read only the lines we need for memory efficiency
-            all_xml_files = []
+            all_entries = []
             for i, line in enumerate(f):
                 if i >= end_idx:
                     break
                 if i >= start_idx:
-                    all_xml_files.append(line.strip())
-        print(f"Loaded {len(all_xml_files)} environments from manifest (indices {start_idx}:{end_idx})")
-        return all_xml_files
+                    line = line.strip()
+                    if not line or line.startswith('#'):
+                        continue
+                    # Parse tab-separated format: xml_path[\tregion1:obj1,region2:obj2,...]
+                    parts = line.split('\t')
+                    xml_path = parts[0].strip()
+                    region_object_skip = None
+                    if len(parts) > 1 and parts[1].strip():
+                        # Parse comma-separated entries
+                        region_object_skip = {}
+                        for entry in parts[1].split(','):
+                            entry = entry.strip()
+                            if not entry:
+                                continue
+                            if ':' in entry:
+                                # Triplet format: region:object
+                                region, obj = entry.split(':', 1)
+                                region = region.strip()
+                                obj = obj.strip()
+                                if region not in region_object_skip:
+                                    region_object_skip[region] = []
+                                region_object_skip[region].append(obj)
+                            else:
+                                # Region-only format (backward compatible): skip all objects for this region
+                                region_object_skip[entry] = []  # Empty list = skip entire region
+                    all_entries.append((xml_path, region_object_skip))
+
+        # Count entries with filters
+        filtered_count = sum(1 for _, rs in all_entries if rs)
+        total_skips = sum(
+            sum(len(objs) if objs else 1 for objs in rs.values())
+            for _, rs in all_entries if rs
+        )
+        print(f"Loaded {len(all_entries)} environments from manifest (indices {start_idx}:{end_idx})")
+        if filtered_count > 0:
+            print(f"  {filtered_count} environments have skip filters ({total_skips} total region:object pairs)")
+        return all_entries
 
     # Fallback: discover files directly (slow for millions of files)
     print(f"No manifest provided, scanning directory: {base_dir}")
@@ -353,7 +395,8 @@ def discover_environment_files(base_dir: str, start_idx: int, end_idx: int, mani
     random.shuffle(all_xml_files)
     subset_files = all_xml_files[start_idx:end_idx]
 
-    return subset_files
+    # Return as tuples with no region_object_skip
+    return [(f, None) for f in subset_files]
 
 def generate_hostname_prefix() -> str:
     """Generate hostname-based prefix for output files."""
@@ -729,17 +772,17 @@ class ModularParallelCollectionManager:
     
     def create_tasks(self) -> List[ModularWorkerTask]:
         """Create worker tasks from environment file subset."""
-        # Discover environment files
-        xml_files = discover_environment_files(
+        # Discover environment files (returns list of (xml_path, region_skip) tuples)
+        env_entries = discover_environment_files(
             self.config.xml_base_dir,
             self.config.start_idx,
             self.config.end_idx,
             manifest_file=self.config.manifest_file
         )
-        
+
         # Create tasks
         tasks = []
-        for i, xml_file in enumerate(xml_files):
+        for i, (xml_file, region_object_skip) in enumerate(env_entries):
             task_id = f"{self.config.hostname}_env_{self.config.start_idx + i:06d}"
 
             task_planner_config = self.config.planner_config
@@ -747,11 +790,14 @@ class ModularParallelCollectionManager:
                 base_algorithm_params = task_planner_config.algorithm_params or {}
                 task_algorithm_params = dict(base_algorithm_params)
                 task_algorithm_params['xml_file'] = xml_file
+                # Pass region_object_skip to planner (from manifest or None)
+                if region_object_skip:
+                    task_algorithm_params['region_object_skip'] = region_object_skip
                 task_planner_config = replace(
                     task_planner_config,
                     algorithm_params=task_algorithm_params
                 )
-            
+
             task = ModularWorkerTask(
                 task_id=task_id,
                 xml_file=xml_file,
@@ -764,10 +810,11 @@ class ModularParallelCollectionManager:
                 smooth_solutions=self.config.smooth_solutions,
                 max_smooth_actions=self.config.max_smooth_actions,
                 refine_actions=self.config.refine_actions,
-                validate_refinement=self.config.validate_refinement
+                validate_refinement=self.config.validate_refinement,
+                region_object_skip=region_object_skip
             )
             tasks.append(task)
-        
+
         return tasks
     
     def run_parallel_collection(self):
@@ -1012,6 +1059,13 @@ def main():
                         help="Maximum solutions to record/save per neighbor (subset of found, default: 2)")
     parser.add_argument("--region-frontier-beam-width", type=int, default=None,
                         help="Optional beam width (K) to cap frontier per chain depth; None/<=0 disables")
+    parser.add_argument("--region-chain-link-cost", type=int, default=0,
+                        help="Additional cost per chain link beyond first push (default: 0)")
+    parser.add_argument("--region-ml-ignore-blacklist", action="store_true",
+                        help="Allow ML-scored primitives to bypass edge blacklist")
+    parser.add_argument("--region-selection-strategy", type=str, default="ml_first",
+                        choices=["ml_first", "cost_first"],
+                        help="Frontier priority: ml_first (ML-derived first) or cost_first (shallow first)")
     parser.add_argument("--goal-strategy", type=str, default=None,
                         choices=["primitive", "ml", "ml_primitive", "ml_fallback", "ml_primitive_fallback",
                                  "ml_async", "ml_primitive_async", "ml_driven_async",
@@ -1102,6 +1156,9 @@ def main():
             "region_allow_collisions": args.region_allow_collisions,
             "region_max_chain_depth": args.region_max_chain_depth,
             "region_max_solutions_per_neighbor": args.region_max_solutions_per_neighbor,
+            "region_chain_link_cost": args.region_chain_link_cost,
+            "region_ml_ignore_blacklist": args.region_ml_ignore_blacklist,
+            "region_selection_strategy": args.region_selection_strategy,
         })
         # Optionally cap how many of the found solutions are recorded/saved per neighbor
         algorithm_params["region_max_recorded_solutions_per_neighbor"] = args.region_max_recorded_solutions_per_neighbor

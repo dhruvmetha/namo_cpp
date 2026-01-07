@@ -63,6 +63,9 @@ from namo.data_collection.modular_parallel_collection import (
 
 def preload_ml_models(config: ModularCollectionConfig) -> Tuple[Optional[Any], Optional[Any]]:
     """Preload ML models based on configuration."""
+    import torch
+    import numpy as np
+
     object_model = None
     goal_model = None
 
@@ -70,8 +73,20 @@ def preload_ml_models(config: ModularCollectionConfig) -> Tuple[Optional[Any], O
     algo_params = config.planner_config.algorithm_params or {}
     device = algo_params.get("ml_device", "cuda")
 
+    # Set deterministic mode for reproducibility
+    ml_seed = algo_params.get("ml_seed")
+    if ml_seed is not None:
+        random.seed(ml_seed)
+        np.random.seed(ml_seed)
+        torch.manual_seed(ml_seed)
+        torch.cuda.manual_seed_all(ml_seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        # Use warn_only=True to allow some non-deterministic ops with a warning
+        torch.use_deterministic_algorithms(True, warn_only=True)
+        print(f"    Deterministic mode enabled with seed={ml_seed}")
+
     # Debug: Show GPU configuration
-    import torch
     print(f"🎮 GPU Configuration:")
     print(f"   CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES', 'not set')}")
     print(f"   Requested device: {device}")
@@ -87,7 +102,7 @@ def preload_ml_models(config: ModularCollectionConfig) -> Tuple[Optional[Any], O
     use_ml_object = algo_params.get("object_selection_strategy") == "ml"
     use_ml_goal = (algo_params.get("goal_strategy") in [
         "ml", "ml_primitive", "ml_fallback", "ml_primitive_fallback",
-        "ml_async", "ml_primitive_async"
+        "ml_async", "ml_primitive_async", "ml_driven_async"
     ] or algo_params.get("goal_selection_strategy") == "ml")
     
     if use_ml_object:
@@ -122,7 +137,43 @@ def preload_ml_models(config: ModularCollectionConfig) -> Tuple[Optional[Any], O
             except Exception as e:
                 print(f"❌ Failed to load goal model: {e}")
                 traceback.print_exc()
-    
+
+    # Warmup models to compile CUDA kernels (eliminates first-episode timing penalty)
+    if goal_model is not None:
+        print(f"🔥 Warming up goal model (compiling CUDA kernels)...")
+        warmup_start = time.time()
+        try:
+            import torch
+            # Get context size from model (typically 64)
+            context_size = getattr(goal_model, 'context_size', 64)
+            num_samples = algo_params.get("ml_samples", 32)
+            num_steps = algo_params.get("ml_num_steps") or 20
+
+            # Create dummy input matching GoalInferenceModel's expected format
+            # The model expects: (batch=1, channels=5, height=context_size, width=context_size)
+            # 5 channels: static, movable, target_object, robot_region, goal_sample_region
+            dummy_input = torch.zeros(1, 5, context_size, context_size, device=device)
+
+            # Run a few warmup inferences to fully compile CUDA kernels
+            for i in range(3):
+                with torch.no_grad():
+                    _ = goal_model.model.sample_from_model(
+                        dummy_input,
+                        samples=num_samples,
+                        num_steps=num_steps,
+                        seed=ml_seed
+                    )
+
+            # Synchronize CUDA to ensure all operations complete
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+
+            warmup_time = time.time() - warmup_start
+            print(f"✅ Goal model warmed up in {warmup_time:.2f}s ({num_samples} samples x 3 runs)")
+        except Exception as e:
+            print(f"⚠️ Warmup failed (will warmup on first real inference): {e}")
+            traceback.print_exc()
+
     return object_model, goal_model
 
 def process_single_environment(
@@ -416,29 +467,33 @@ class SequentialCollectionManager:
         
         # return all_files
         
-        xml_files = discover_environment_files(
+        # Returns list of (xml_path, region_skip) tuples
+        env_entries = discover_environment_files(
             self.config.xml_base_dir,
             self.config.start_idx,
             self.config.end_idx,
             manifest_file=self.config.manifest_file
         )
-        return xml_files
+        return env_entries
 
     def create_tasks(self) -> List[ModularWorkerTask]:
-        # Discover environment files
-        xml_files = self.discover_environment_files()
-        
+        # Discover environment files (returns list of (xml_path, region_object_skip) tuples)
+        env_entries = self.discover_environment_files()
+
         # Create tasks
         tasks = []
-        for i, xml_file in enumerate(xml_files):
+        for i, (xml_file, region_object_skip) in enumerate(env_entries):
             task_id = f"{self.config.hostname}_env_{self.config.start_idx + i:06d}"
-            
-            # Inject XML file into algorithm params
+
+            # Inject XML file and region_object_skip into algorithm params
             task_planner_config = self.config.planner_config
             if task_planner_config is not None:
                 base_algorithm_params = task_planner_config.algorithm_params or {}
                 task_algorithm_params = dict(base_algorithm_params)
                 task_algorithm_params['xml_file'] = xml_file
+                # Pass region_object_skip to planner (from manifest or None)
+                if region_object_skip:
+                    task_algorithm_params['region_object_skip'] = region_object_skip
                 task_planner_config = replace(
                     task_planner_config,
                     algorithm_params=task_algorithm_params
@@ -456,7 +511,8 @@ class SequentialCollectionManager:
                 smooth_solutions=self.config.smooth_solutions,
                 max_smooth_actions=self.config.max_smooth_actions,
                 refine_actions=self.config.refine_actions,
-                validate_refinement=self.config.validate_refinement
+                validate_refinement=self.config.validate_refinement,
+                region_object_skip=region_object_skip
             )
             tasks.append(task)
         return tasks
@@ -573,6 +629,10 @@ def main():
     parser.add_argument("--region-max-solutions-per-neighbor", type=int, default=10)
     parser.add_argument("--region-max-recorded-solutions-per-neighbor", type=int, default=2)
     parser.add_argument("--region-frontier-beam-width", type=int, default=None)
+    parser.add_argument("--region-chain-link-cost", type=int, default=0)
+    parser.add_argument("--region-ml-ignore-blacklist", action="store_true")
+    parser.add_argument("--region-selection-strategy", type=str, default="ml_first",
+                        choices=["ml_first", "cost_first"])
     
     # ML params
     parser.add_argument("--goal-strategy", type=str, default=None)
@@ -627,6 +687,9 @@ def main():
             "region_max_chain_depth": args.region_max_chain_depth,
             "region_max_solutions_per_neighbor": args.region_max_solutions_per_neighbor,
             "region_max_recorded_solutions_per_neighbor": args.region_max_recorded_solutions_per_neighbor,
+            "region_chain_link_cost": args.region_chain_link_cost,
+            "region_ml_ignore_blacklist": args.region_ml_ignore_blacklist,
+            "region_selection_strategy": args.region_selection_strategy,
         })
         if args.region_frontier_beam_width is not None:
             algorithm_params["region_frontier_beam_width"] = args.region_frontier_beam_width
