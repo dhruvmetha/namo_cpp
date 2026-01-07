@@ -105,6 +105,8 @@ class EvalConfig:
     output_dir: str = "./eval_plots"
     time_cutoff_max: int = 6000  # ms
     time_step: int = 100  # ms
+    push_cutoff_max: int = 10  # max number of pushes
+    push_step: int = 1  # step size for push cutoffs
 
     # Colors for models (will cycle if more models than colors)
     # Using a colorblind-friendly palette
@@ -163,6 +165,8 @@ class EvalConfig:
             config.output_dir = settings.get('output_dir', config.output_dir)
             config.time_cutoff_max = settings.get('time_cutoff_max', config.time_cutoff_max)
             config.time_step = settings.get('time_step', config.time_step)
+            config.push_cutoff_max = settings.get('push_cutoff_max', config.push_cutoff_max)
+            config.push_step = settings.get('push_step', config.push_step)
 
         return config
 
@@ -488,6 +492,62 @@ def compute_time_based_success(
     return result
 
 
+def compute_push_based_success(
+    model_data: Dict[str, Dict[str, RegionResult]],
+    search_data: Dict[str, Dict[str, RegionResult]],
+    config: EvalConfig,
+) -> Dict[str, Dict[str, List[float]]]:
+    """
+    Compute success rate as a function of push count cutoff.
+
+    Returns:
+        {category: {'cutoffs': [...], 'rates': [...], 'total': int}}
+    """
+    cutoffs = list(range(0, config.push_cutoff_max + 1, config.push_step))
+
+    # Collect pushes by category
+    pushes_by_category: Dict[str, List[int]] = {'easy': [], 'medium': [], 'hard': []}
+    totals_by_category: Dict[str, int] = {'easy': 0, 'medium': 0, 'hard': 0}
+
+    for env in model_data:
+        if env not in search_data:
+            continue
+        for region in model_data[env]:
+            if region not in search_data[env]:
+                continue
+
+            search_result = search_data[env][region]
+            model_result = model_data[env][region]
+
+            # Determine category
+            if search_result.ratio > config.easy_threshold:
+                cat = 'easy'
+            elif search_result.ratio > config.hard_threshold:
+                cat = 'medium'
+            else:
+                cat = 'hard'
+
+            totals_by_category[cat] += 1
+            if model_result.success:
+                pushes_by_category[cat].append(model_result.pushes)
+
+    # Compute rates at each cutoff
+    result = {}
+    for cat in ['easy', 'medium', 'hard']:
+        pushes = np.array(pushes_by_category[cat])
+        total = totals_by_category[cat]
+        rates = []
+        for cutoff in cutoffs:
+            if total > 0:
+                successes = np.sum(pushes <= cutoff) if len(pushes) > 0 else 0
+                rates.append(successes / total)
+            else:
+                rates.append(0.0)
+        result[cat] = {'cutoffs': cutoffs, 'rates': rates, 'total': total}
+
+    return result
+
+
 def compute_collision_success_stats(
     model_data: Dict[str, Dict[str, RegionResult]],
     search_data: Dict[str, Dict[str, RegionResult]],
@@ -783,6 +843,14 @@ def plot_time_vs_success(
     """Plot success rate vs time cutoff."""
     categories = ['easy', 'medium', 'hard']
 
+    # Get N for each category from the first model
+    n_by_cat = {}
+    for cat_data in time_data.values():
+        for cat in categories:
+            if cat in cat_data and cat not in n_by_cat:
+                n_by_cat[cat] = cat_data[cat].get('total', 0)
+        break
+
     fig, axes = plt.subplots(1, 3, figsize=(18, 6), sharey=True)
 
     for idx, cat in enumerate(categories):
@@ -790,24 +858,74 @@ def plot_time_vs_success(
 
         for model_idx, (model_name, cat_data) in enumerate(time_data.items()):
             if cat in cat_data:
+                cutoffs_ms = cat_data[cat]['cutoffs']
+                cutoffs_s = [c / 1000.0 for c in cutoffs_ms]  # Convert to seconds
+                rates = cat_data[cat]['rates']
+                ax.plot(cutoffs_s, rates, label=model_name,
+                       color=get_model_color(model_idx, config), linewidth=2)
+
+        n_problems = n_by_cat.get(cat, 0)
+        ax.set_title(f"{cat.capitalize()} Regions (N={n_problems})")
+        ax.set_xlabel('Time cutoff (s)')
+        if idx == 0:
+            ax.set_ylabel('Success Rate')
+        ax.set_ylim(0, 1.05)
+        ax.set_xlim(0, config.time_cutoff_max / 1000.0)
+        ax.grid(True, linestyle='--', alpha=0.7)
+        ax.legend()
+
+    plt.suptitle("Success Rate @ Time Cutoff", fontsize=14, fontweight='bold')
+    plt.tight_layout()
+
+    if output_path:
+        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
+        print(f"Saved: {output_path}")
+    return fig
+
+
+def plot_pushes_vs_success(
+    push_data: Dict[str, Dict[str, Dict[str, List[float]]]],  # {model_name: {category: {cutoffs, rates, total}}}
+    config: EvalConfig,
+    output_path: Optional[str] = None,
+):
+    """Plot success rate vs push count cutoff."""
+    categories = ['easy', 'medium', 'hard']
+
+    # Get N for each category from the first model
+    n_by_cat = {}
+    for cat_data in push_data.values():
+        for cat in categories:
+            if cat in cat_data and cat not in n_by_cat:
+                n_by_cat[cat] = cat_data[cat].get('total', 0)
+        break
+
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6), sharey=True)
+
+    for idx, cat in enumerate(categories):
+        ax = axes[idx]
+
+        for model_idx, (model_name, cat_data) in enumerate(push_data.items()):
+            if cat in cat_data:
                 cutoffs = cat_data[cat]['cutoffs']
                 rates = cat_data[cat]['rates']
                 ax.plot(cutoffs, rates, label=model_name,
                        color=get_model_color(model_idx, config), linewidth=2)
 
-        ax.set_title(f"{cat.capitalize()} Regions")
-        ax.set_xlabel('Time Cutoff (ms)')
+        n_problems = n_by_cat.get(cat, 0)
+        ax.set_title(f"{cat.capitalize()} Regions (N={n_problems})")
+        ax.set_xlabel('Simulation-verified push evaluations')
         if idx == 0:
             ax.set_ylabel('Success Rate')
         ax.set_ylim(0, 1.05)
+        ax.set_xlim(0, config.push_cutoff_max)
         ax.grid(True, linestyle='--', alpha=0.7)
-        ax.legend()
+        ax.legend(loc='lower right')
 
-    plt.suptitle("Success Rate @ Time Cutoff")
+    plt.suptitle("Success Rate @ Push Evaluations", fontsize=14, fontweight='bold')
     plt.tight_layout()
 
     if output_path:
-        plt.savefig(output_path, dpi=150)
+        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
         print(f"Saved: {output_path}")
     return fig
 
@@ -1353,6 +1471,7 @@ def main():
     # Compute stats for each model (using filtered data)
     all_stats: List[ModelStats] = []
     time_data = {}
+    push_data = {}
 
     for name in filtered_data:
         model_stats = compute_stats(
@@ -1366,7 +1485,12 @@ def main():
             filtered_data[name], reference_data, config
         )
 
-        # Compute collision-based success stats
+        # Compute push-based success
+        push_data[name] = compute_push_based_success(
+            filtered_data[name], reference_data, config
+        )
+
+    # Compute collision-based success stats
     collision_stats = {}
     for name in filtered_data:
         collision_stats[name] = compute_collision_success_stats(
@@ -1440,6 +1564,13 @@ def main():
             time_data,
             config,
             f"{config.output_dir}/time_vs_success.png"
+        )
+
+    if push_data:
+        plot_pushes_vs_success(
+            push_data,
+            config,
+            f"{config.output_dir}/pushes_vs_success.png"
         )
 
     if all_stats:
