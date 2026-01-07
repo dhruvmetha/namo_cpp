@@ -182,6 +182,39 @@ class RegionOpeningPlanner(BasePlanner):
         # With chain_link_cost=5, the same chain costs 2 + 5 = 7.
         self.chain_link_cost = algo_params.get("region_chain_link_cost", 0)
 
+        # Selection strategy for multi-push frontier prioritization:
+        # - "ml_first": (-score, chain_cost, step_cost) - trust ML votes, cost as tiebreaker
+        # - "cost_first": (chain_cost, step_cost, -score) - minimize disruption, ML as tiebreaker
+        # Default: "ml_first" to prioritize ML-derived states
+        self.selection_strategy = algo_params.get("region_selection_strategy", "ml_first")
+        if self.selection_strategy not in {"cost_first", "ml_first"}:
+            raise ValueError(f"Invalid selection_strategy: {self.selection_strategy}. Must be 'cost_first' or 'ml_first'")
+
+        # Region/object skip dict: skip specific (region, object) pairs during neighbor exploration.
+        # Format: Dict[region_label, List[object_id]] where empty list = skip entire region
+        # Example: {"goal": [], "region_2": ["box_1", "box_2"]}
+        #   - "goal" with empty list: skip entire goal region
+        #   - "region_2" with ["box_1", "box_2"]: only skip those objects when opening region_2
+        region_object_skip = algo_params.get("region_object_skip", None)
+        if region_object_skip is None:
+            self.region_object_skip = {}
+        elif isinstance(region_object_skip, dict):
+            self.region_object_skip = region_object_skip
+        else:
+            # Legacy: list of region names (backward compatible)
+            self.region_object_skip = {r: [] for r in region_object_skip}
+
+        # Log skip config at planner init (only if verbose)
+        if self.region_object_skip and config.verbose:
+            skip_regions = [r for r, objs in self.region_object_skip.items() if not objs]
+            skip_objects = [(r, objs) for r, objs in self.region_object_skip.items() if objs]
+            parts = []
+            if skip_regions:
+                parts.append(f"regions={skip_regions}")
+            if skip_objects:
+                parts.append(f"objects={skip_objects}")
+            print(f"🔧 Skip config: {', '.join(parts)}")
+
         # Visualization settings (can be set after init, like IDFS planners)
         self.visualize_search = False
         self.search_delay = 0.5
@@ -515,6 +548,19 @@ class RegionOpeningPlanner(BasePlanner):
         # Get neighbours
         neighbours = sorted(list(adjacency.get(robot_label, set())))
 
+        # Apply region skip filter (blacklist)
+        # Skip entire regions that have empty object lists in region_object_skip
+        if self.region_object_skip:
+            # Regions with empty list = skip entire region
+            regions_to_skip = [r for r, objs in self.region_object_skip.items() if not objs]
+            skipped = [n for n in neighbours if n in regions_to_skip]
+            neighbours = [n for n in neighbours if n not in regions_to_skip]
+            # Print skipped regions
+            if self.config.verbose and skipped:
+                for region in skipped:
+                    print(f"   ⏭ Neighbor '{region}': SKIPPED (from manifest)")
+            # Regions with specific objects will be filtered later in _attempt_opening_to_neighbour
+
         if self.config.verbose:
             # Print region snapshot details
             total_regions = len(region_labels)
@@ -633,6 +679,17 @@ class RegionOpeningPlanner(BasePlanner):
 
         # Get candidate objects blocking the edge
         candidates = list(edge_objects.get(robot_label, {}).get(neighbour_label, set()))
+
+        # Filter out objects specified in region_object_skip for this neighbour
+        if self.region_object_skip and neighbour_label in self.region_object_skip:
+            objects_to_skip = set(self.region_object_skip[neighbour_label])
+            if objects_to_skip:  # Only filter if there are specific objects (not empty list)
+                skipped_objects = [c for c in candidates if c in objects_to_skip]
+                candidates = [c for c in candidates if c not in objects_to_skip]
+                # Print skipped objects
+                if self.config.verbose and skipped_objects:
+                    for obj in skipped_objects:
+                        print(f"   ⏭ Neighbor '{neighbour_label}' Object '{obj}': SKIPPED (from manifest)")
 
         if not candidates:
             if self.config.verbose:
@@ -1084,7 +1141,9 @@ class RegionOpeningPlanner(BasePlanner):
             parent=None,
             step_cost=0
         )
-        frontier = [root_node]
+        # Track frontier nodes by depth level - persists across phases
+        # Key: depth level (0=root), Value: list of frontier nodes at that depth
+        frontiers_by_depth: Dict[int, List[ChainNode]] = {0: [root_node]}
 
         # Collect all successful chains across all depths
         all_chains_across_depths = []
@@ -1094,198 +1153,277 @@ class RegionOpeningPlanner(BasePlanner):
         best_total_cost = None
         skill_call_counter = {"count": 0}
 
-        # Try chain depths 1, 2, 3, ...
-        for chain_depth in range(1, self.max_chain_depth + 1):
-            next_frontier = []
-            processed_frontiers = 0
-            total_frontier_time_ms = 0.0
-            orig_frontier_len = len(frontier)
-            reached_cap = False
+        # Two-phase search for ml_first with ml_fallback:
+        # Phase 1: Try ONLY ML goals (score > 0) across ALL depths
+        # Phase 2: If Phase 1 fails, try ONLY primitives (score = 0) across ALL depths
+        # This ensures ML predictions get global priority before falling back to primitives
+        use_two_phase = self.selection_strategy == "ml_first"
+        # phases: (stop_at_score_zero, primitives_only, phase_name)
+        phases = [
+            (True, False, "ML-only"),      # Phase 1: ML goals only
+            (False, True, "primitives"),   # Phase 2: primitives only (skip ML)
+        ] if use_two_phase else [(False, False, "all")]
 
-            # Verbose: indicate which chain-depth search level we are at
+        # Track global phase state across all depths
+        global_phase_push_counts = {}
+
+        # Cache goals per node to avoid redundant ML inference across phases and depths
+        # Key: node id, Value: (goals_per_edge, reachable_edge_indices)
+        node_goals_cache: Dict[int, Tuple[List[List[Goal]], Set[int]]] = {}
+
+        # Persist blacklists per node across phases and depths
+        # Key: node id, Value: {edge_idx: min_stuck_depth}
+        node_blacklists: Dict[int, Dict[int, int]] = {}
+
+        for stop_at_zero, prims_only, phase_name in phases:
+            # Skip primitives phase if ML phase found a solution
+            if prims_only and len(all_chains_across_depths) > 0:
+                if self.config.verbose:
+                    print(f"    ⏭️ Skipping '{phase_name}' phase (ML found solution)")
+                break
+
+            # Reset blacklists at start of each phase for completeness
+            # Phase 1 stuck edges shouldn't block Phase 2 exploration
+            # This ensures each phase can fully explore its candidate space
+            node_blacklists = {}
+
             if self.config.verbose:
-                chain_label = f"{chain_depth}-chain"
-                print(f"    ▶ Searching {chain_label} (frontier={len(frontier)})")
+                print(f"    🎯 Phase: {phase_name}")
+            phase_start_pushes = skill_call_counter.get("count", 0)
 
-            for node in frontier:
-                node_start_time = time.time()
-                # Cost-based node prune: if cost so far already meets/exceeds best, skip
-                if best_total_cost is not None:
-                    chain_cost_so_far = self._compute_chain_cost(node)
-                    if chain_cost_so_far >= best_total_cost:
+            # Try chain depths 1, 2, 3, ...
+            for chain_depth in range(1, self.max_chain_depth + 1):
+                # Get frontier for this depth level (persists across phases)
+                frontier = frontiers_by_depth.get(chain_depth - 1, [])
+
+                next_frontier = []
+                processed_frontiers = 0
+                total_frontier_time_ms = 0.0
+                orig_frontier_len = len(frontier)
+                reached_cap = False
+
+                # Verbose: indicate which chain-depth search level we are at
+                if self.config.verbose:
+                    chain_label = f"{chain_depth}-chain"
+                    print(f"    ▶ Searching {chain_label} (frontier={len(frontier)})")
+
+                # Ensure blacklists exist for frontier nodes (reuse if already created)
+                for node in frontier:
+                    if id(node) not in node_blacklists:
+                        node_blacklists[id(node)] = {}
+
+                depth_start_pushes = skill_call_counter.get("count", 0)
+
+                node_idx = 0
+                for node in frontier:
+                    node_idx += 1
+                    node_start_time = time.time()
+                    # Cost-based node prune: if cost so far already meets/exceeds best, skip
+                    if best_total_cost is not None:
+                        chain_cost_so_far = self._compute_chain_cost(node)
+                        if chain_cost_so_far >= best_total_cost:
+                            continue
+                    # Restore to this node's state
+                    self.env.set_full_state(node.state)
+
+                    # Generate goals for this node (cached to avoid redundant ML inference across phases)
+                    if id(node) not in node_goals_cache:
+                        goals_per_edge = self.goal_strategy.generate_goals(
+                            object_id,
+                            node.state,
+                            self.env,
+                            max_goals=0
+                        )
+                        reachable_edge_indices = set(self.env.get_reachable_edges(object_id)) if goals_per_edge else set()
+                        node_goals_cache[id(node)] = (goals_per_edge, reachable_edge_indices)
+                    else:
+                        goals_per_edge, reachable_edge_indices = node_goals_cache[id(node)]
+
+                    if not goals_per_edge:
                         continue
-                # Restore to this node's state
-                self.env.set_full_state(node.state)
 
-                # Generate goals for this node's state
-                print(f"      🔮 [_search_with_chaining_bfs] Chain depth {chain_depth}, node {frontier.index(node)+1}/{len(frontier)}: Generating goals for {object_id}")
-                goals_per_edge = self.goal_strategy.generate_goals(
-                    object_id,
-                    node.state,
-                    self.env,
-                    max_goals=0
-                )
+                    if not reachable_edge_indices:
+                        continue
 
-                if not goals_per_edge:
-                    print(f"      ⚠️ No goals generated, skipping node")
-                    continue
+                    # Run inner BFS (single-skill search)
+                    collect_frontier = (chain_depth < self.max_chain_depth)
+                    # Compute remaining budget if we already have a best cost
+                    if 'best_total_cost' in locals() and best_total_cost is not None:
+                        chain_cost_so_far = self._compute_chain_cost(node)
+                        remaining_budget = max(0, best_total_cost - chain_cost_so_far)
+                    else:
+                        remaining_budget = None
 
-                # Get reachable edges from this state
-                reachable_edge_indices = set(self.env.get_reachable_edges(object_id))
+                    # Calculate how many more solutions we need to collect
+                    # If we have already collected some solutions in previous iterations (best_total_cost is set),
+                    # we need to account for them.
+                    # However, all_chains_across_depths is defined outside this loop and contains all valid solutions found so far.
+                    current_solutions_count = len(all_chains_across_depths)
 
-                print(f"      📍 Reachable edges: {sorted(list(reachable_edge_indices))} (total: {len(reachable_edge_indices)})")
+                    inner_max_solutions = None
+                    if max_solutions_to_collect is not None:
+                        if current_solutions_count >= max_solutions_to_collect:
+                            reached_cap = True
+                            break
+                        inner_max_solutions = max_solutions_to_collect - current_solutions_count
 
-                if not reachable_edge_indices:
-                    print(f"      ⚠️ No reachable edges, skipping node")
-                    continue
+                    successful_results, primitive_depth, new_frontier_nodes = self._search_bfs(
+                        goals_per_edge,
+                        reachable_edge_indices,
+                        node.state,
+                        neighbour_label,
+                        region_goals,
+                        object_id,
+                        parent_node=node,
+                        current_chain_depth=chain_depth,
+                        collect_frontier=collect_frontier,
+                        remaining_budget=remaining_budget,
+                        skill_call_counter=skill_call_counter,
+                        push_counter=push_counter,
+                        max_solutions_to_collect=inner_max_solutions,
+                        stop_at_score_zero=stop_at_zero,
+                        primitives_only=prims_only,
+                        shared_blacklist=node_blacklists.get(id(node)),
+                    )
 
-                # Run inner BFS (single-skill search)
-                collect_frontier = (chain_depth < self.max_chain_depth)
-                # Compute remaining budget if we already have a best cost
-                if 'best_total_cost' in locals() and best_total_cost is not None:
-                    chain_cost_so_far = self._compute_chain_cost(node)
-                    remaining_budget = max(0, best_total_cost - chain_cost_so_far)
-                else:
-                    remaining_budget = None
-
-                # Calculate how many more solutions we need to collect
-                # If we have already collected some solutions in previous iterations (best_total_cost is set),
-                # we need to account for them.
-                # However, all_chains_across_depths is defined outside this loop and contains all valid solutions found so far.
-                current_solutions_count = len(all_chains_across_depths)
-                
-                inner_max_solutions = None
-                if max_solutions_to_collect is not None:
-                    if current_solutions_count >= max_solutions_to_collect:
-                        reached_cap = True
-                        break
-                    inner_max_solutions = max_solutions_to_collect - current_solutions_count
-
-                successful_results, primitive_depth, new_frontier_nodes = self._search_bfs(
-                    goals_per_edge,
-                    reachable_edge_indices,
-                    node.state,
-                    neighbour_label,
-                    region_goals,
-                    object_id,
-                    parent_node=node,
-                    current_chain_depth=chain_depth,
-                    collect_frontier=collect_frontier,
-                    remaining_budget=remaining_budget,
-                    skill_call_counter=skill_call_counter,
-                    push_counter=push_counter,
-                    max_solutions_to_collect=inner_max_solutions
-                )
-
-                # If we found success, reconstruct ALL goal chains with their state observations
-                if successful_results:
-                    for (final_goal, final_state_obs, final_post_state_obs, resulting_state, region_goal_used, all_region_goals, success_node, success_time) in successful_results:
-                        # For multi-push chains, reconstruct full chain with observations
-                        if chain_depth > 1:
-                            goal_chain, state_obs, post_state_obs, reachable_before, reachable_after, total_cost, any_wall_collision, unique_movable_collision_count = self._reconstruct_chain_with_observations(
-                                success_node, object_id, baseline_state
-                            )
-                        else:
-                            # Single push - use observations captured during search
-                            goal_chain = [final_goal]
-                            state_obs = final_state_obs
-                            post_state_obs = final_post_state_obs
-                            # For single push, we don't have reachable objects captured during BFS
-                            # So collect them now with collision tracking
-                            self.env.set_full_state(baseline_state)
-                            reachable_before = [self.env.get_reachable_objects()]
-                            # Execute the action to get reachable after and collision info
-                            action = namo_rl.Action()
-                            action.object_id = object_id
-                            action.x = final_goal.x
-                            action.y = final_goal.y
-                            action.theta = final_goal.theta
-                            step_result = self.env.step(action)
-                            reachable_after = [self.env.get_reachable_objects()]
-                            # Extract collision info from step result
-                            any_wall_collision = step_result.info.get("wall_collision", "false") == "true"
-                            movable_str = step_result.info.get("movable_collisions", "")
-                            unique_movable_collision_count = len([s for s in movable_str.split(",") if s]) if movable_str else 0
-                            # For single push, total_cost equals the primitive depth at which success occurred
-                            total_cost = max(1, getattr(success_node, "step_cost", 1))
-
-                        skill_calls_before_success = getattr(success_node, "skill_calls_before_success", None)
-
-                        # Verbose: print each solution found at this chain depth
-                        if self.config.verbose:
-                            print(f"      ✓ Found solution at {chain_depth}-chain (total_cost={total_cost})")
-
-                        # Entry layout: (goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used, region_goals_sampled, reachable_before, reachable_after, total_cost, skill_calls, success_time, any_wall_collision, unique_movable_collision_count)
-                        # Maintain only min-cost solutions so far; reset when a new lower cost is found
-                        if best_total_cost is None or total_cost <= best_total_cost:
-                            # If strictly better cost, reset collection to only keep new best-cost solutions
-                            if best_total_cost is None or total_cost < best_total_cost:
-                                best_total_cost = total_cost
-                                all_chains_across_depths = [entry for entry in all_chains_across_depths if entry[8] == best_total_cost]
-
-                            all_chains_across_depths.append(
-                                (
-                                    goal_chain,
-                                    state_obs,
-                                    post_state_obs,
-                                    resulting_state,
-                                    region_goal_used,
-                                    all_region_goals,
-                                    reachable_before,
-                                    reachable_after,
-                                    total_cost,
-                                    skill_calls_before_success,
-                                    success_time,
-                                    any_wall_collision,
-                                    unique_movable_collision_count,
+                    # If we found success, reconstruct ALL goal chains with their state observations
+                    if successful_results:
+                        for (final_goal, final_state_obs, final_post_state_obs, resulting_state, region_goal_used, all_region_goals, success_node, success_time) in successful_results:
+                            # For multi-push chains, reconstruct full chain with observations
+                            if chain_depth > 1:
+                                goal_chain, state_obs, post_state_obs, reachable_before, reachable_after, total_cost, any_wall_collision, unique_movable_collision_count = self._reconstruct_chain_with_observations(
+                                    success_node, object_id, baseline_state
                                 )
-                            )
+                            else:
+                                # Single push - use observations captured during search
+                                goal_chain = [final_goal]
+                                state_obs = final_state_obs
+                                post_state_obs = final_post_state_obs
+                                # For single push, we don't have reachable objects captured during BFS
+                                # So collect them now with collision tracking
+                                self.env.set_full_state(baseline_state)
+                                reachable_before = [self.env.get_reachable_objects()]
+                                # Execute the action to get reachable after and collision info
+                                action = namo_rl.Action()
+                                action.object_id = object_id
+                                action.x = final_goal.x
+                                action.y = final_goal.y
+                                action.theta = final_goal.theta
+                                step_result = self.env.step(action)
+                                reachable_after = [self.env.get_reachable_objects()]
+                                # Extract collision info from step result
+                                any_wall_collision = step_result.info.get("wall_collision", "false") == "true"
+                                movable_str = step_result.info.get("movable_collisions", "")
+                                unique_movable_collision_count = len([s for s in movable_str.split(",") if s]) if movable_str else 0
+                                # For single push, total_cost equals the primitive depth at which success occurred
+                                total_cost = max(1, getattr(success_node, "step_cost", 1))
+
+                            skill_calls_before_success = getattr(success_node, "skill_calls_before_success", None)
+
+                            # Verbose: print each solution found at this chain depth
                             if self.config.verbose:
-                                # Running count of min-cost solutions so far (object scope)
-                                print(f"        → Solutions so far (object, best_cost={best_total_cost}): {len(all_chains_across_depths)}")
+                                print(f"      ✓ Found solution at {chain_depth}-chain (total_cost={total_cost})")
 
-                            # Early stop if we reached the per-object cap
-                            if max_solutions_to_collect is not None and len(all_chains_across_depths) >= max_solutions_to_collect:
-                                reached_cap = True
-                                break
+                            # Entry layout: (goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used, region_goals_sampled, reachable_before, reachable_after, total_cost, skill_calls, success_time, any_wall_collision, unique_movable_collision_count)
+                            # Maintain only min-cost solutions so far; reset when a new lower cost is found
+                            if best_total_cost is None or total_cost <= best_total_cost:
+                                # If strictly better cost, reset collection to only keep new best-cost solutions
+                                if best_total_cost is None or total_cost < best_total_cost:
+                                    best_total_cost = total_cost
+                                    all_chains_across_depths = [entry for entry in all_chains_across_depths if entry[8] == best_total_cost]
 
-                    # Track minimum chain depth where we found a solution
-                    if min_chain_depth_found is None:
-                        min_chain_depth_found = chain_depth
+                                all_chains_across_depths.append(
+                                    (
+                                        goal_chain,
+                                        state_obs,
+                                        post_state_obs,
+                                        resulting_state,
+                                        region_goal_used,
+                                        all_region_goals,
+                                        reachable_before,
+                                        reachable_after,
+                                        total_cost,
+                                        skill_calls_before_success,
+                                        success_time,
+                                        any_wall_collision,
+                                        unique_movable_collision_count,
+                                    )
+                                )
+                                if self.config.verbose:
+                                    # Running count of min-cost solutions so far (object scope)
+                                    print(f"        → Solutions so far (object, best_cost={best_total_cost}): {len(all_chains_across_depths)}")
 
-                # Add new frontier nodes for next chain level
-                next_frontier.extend(new_frontier_nodes)
+                                # Early stop if we reached the per-object cap
+                                if max_solutions_to_collect is not None and len(all_chains_across_depths) >= max_solutions_to_collect:
+                                    reached_cap = True
+                                    break
 
+                        # Track minimum chain depth where we found a solution
+                        if min_chain_depth_found is None:
+                            min_chain_depth_found = chain_depth
+
+                    # Add new frontier nodes for next chain level
+                    next_frontier.extend(new_frontier_nodes)
+
+                    if reached_cap:
+                        break
+
+                    # Per-frontier timing
+                    processed_frontiers += 1
+                    node_elapsed_ms = (time.time() - node_start_time) * 1000.0
+                    total_frontier_time_ms += node_elapsed_ms
+                    if self.config.verbose:
+                        print(f"      • Frontier {processed_frontiers}/{orig_frontier_len} took {node_elapsed_ms:.1f} ms")
+
+                # Sort frontier for next chain depth (based on selection strategy)
+                if self.selection_strategy == "ml_first":
+                    # (-score, chain_cost, step_cost) - trust ML votes, cost as tiebreaker
+                    next_frontier.sort(key=lambda n: (
+                        -getattr(n.goal, "score", 0.0) if n.goal else 0.0,
+                        self._compute_chain_cost(n),
+                        getattr(n, "step_cost", 0)
+                    ))
+                else:
+                    # "cost_first": (chain_cost, step_cost, -score) - minimize disruption, ML as tiebreaker
+                    next_frontier.sort(key=lambda n: (
+                        self._compute_chain_cost(n),
+                        getattr(n, "step_cost", 0),
+                        -getattr(n.goal, "score", 0.0) if n.goal else 0.0
+                    ))
+
+                # Store new frontier nodes at this depth level (extend if already exists from previous phase)
+                if next_frontier:
+                    # Apply beam width pruning if configured
+                    if self.frontier_beam_width is not None:
+                        next_frontier = next_frontier[: self.frontier_beam_width]
+
+                    if chain_depth not in frontiers_by_depth:
+                        frontiers_by_depth[chain_depth] = next_frontier
+                    else:
+                        # Extend existing frontier (Phase 2 may add more nodes)
+                        frontiers_by_depth[chain_depth].extend(next_frontier)
+
+                # Log depth completion stats
+                if self.config.verbose and processed_frontiers > 0:
+                    avg_ms = total_frontier_time_ms / processed_frontiers
+                    print(f"    ◼ Completed {processed_frontiers}/{orig_frontier_len} frontiers | avg {avg_ms:.1f} ms | total {total_frontier_time_ms:.1f} ms")
+
+                # Check early termination conditions
                 if reached_cap:
                     break
 
-                # Per-frontier timing
-                processed_frontiers += 1
-                node_elapsed_ms = (time.time() - node_start_time) * 1000.0
-                total_frontier_time_ms += node_elapsed_ms
-                if self.config.verbose:
-                    print(f"      • Frontier {processed_frontiers}/{orig_frontier_len} took {node_elapsed_ms:.1f} ms")
+            # End of phase - log push count (outside chain_depth loop)
+            phase_end_pushes = skill_call_counter.get("count", 0)
+            phase_pushes = phase_end_pushes - phase_start_pushes
+            global_phase_push_counts[phase_name] = phase_pushes
+            if self.config.verbose:
+                found_in_phase = len(all_chains_across_depths) > 0
+                print(f"      📈 Phase '{phase_name}': {phase_pushes} pushes, found={found_in_phase}")
 
-            # Apply beam width pruning on next_frontier if configured
-            if self.frontier_beam_width is not None:
-                # Sort by cumulative chain cost (ascending), then by step_cost (ascending)
-                next_frontier.sort(key=lambda n: (self._compute_chain_cost(n), getattr(n, "step_cost", 0)))
-                # Keep top-K
-                frontier = next_frontier[: self.frontier_beam_width]
-            else:
-                # Move to next chain depth
-                frontier = next_frontier
-
-            if reached_cap:
-                break
-
-            # After this chain depth, report completion stats
-            if self.config.verbose and processed_frontiers > 0:
-                avg_ms = total_frontier_time_ms / processed_frontiers
-                print(f"    ◼ Completed {processed_frontiers}/{orig_frontier_len} frontiers | avg {avg_ms:.1f} ms | total {total_frontier_time_ms:.1f} ms")
-
-            if not frontier:
-                break
+        # Log total phase breakdown (outside phases loop)
+        if self.config.verbose and len(global_phase_push_counts) > 1:
+            total_phase_pushes = sum(global_phase_push_counts.values())
+            print(f"      📊 Phase breakdown: {global_phase_push_counts}, total={total_phase_pushes}")
 
         # If we found any chains, filter to keep only minimum-cost ones
         if all_chains_across_depths:
@@ -1396,6 +1534,9 @@ class RegionOpeningPlanner(BasePlanner):
         skill_call_counter: Optional[Dict[str, int]] = None,
         push_counter: Optional[Dict[str, int]] = None,
         max_solutions_to_collect: Optional[int] = None,
+        stop_at_score_zero: bool = False,
+        primitives_only: bool = False,
+        shared_blacklist: Optional[Dict[int, int]] = None,
     ) -> Tuple[List[Tuple[Goal, List, List, 'namo_rl.RLState', Optional[Tuple], ChainNode, float]], int, List[ChainNode]]:
         """BFS: Try all edges at ALL depths to collect all possible solutions.
 
@@ -1407,6 +1548,13 @@ class RegionOpeningPlanner(BasePlanner):
             goals_or_async: Either List[List[Goal]] (sync) or AsyncGoalResult (async).
             collect_frontier: If True, collect valid but unsuccessful states as frontier nodes
             max_solutions_to_collect: If provided, stop searching once this many successful solutions are found.
+            stop_at_score_zero: If True, stop trying candidates when score becomes 0 (ML-first phase).
+                               Used for two-phase chain search: ML goals first across all nodes,
+                               then primitives. Only affects ml_first selection strategy.
+            primitives_only: If True, skip ML goals (score > 0) and only try primitives (score = 0).
+                            Used for Phase 2 of two-phase search to avoid re-trying ML goals.
+            shared_blacklist: Optional dict to share edge blacklist across phases. If provided,
+                             this dict is used and updated in-place. Same (edge, depth) = same target.
 
         Returns:
             Tuple of (all_successful_results, min_depth, frontier_nodes) where all_successful_results
@@ -1428,7 +1576,8 @@ class RegionOpeningPlanner(BasePlanner):
 
         # Track minimum depth at which each edge got stuck/collided during THIS skill execution
         # Only skip depths >= the stuck depth (shallower depths might still work)
-        edge_min_stuck_depth: Dict[int, int] = {}  # edge_idx -> min depth that got stuck
+        # Use shared_blacklist if provided (for two-phase search), otherwise create fresh
+        edge_min_stuck_depth: Dict[int, int] = shared_blacklist if shared_blacklist is not None else {}
 
         # Track edges that have already yielded a successful opening in THIS skill execution
         # Once an edge succeeds at any primitive depth, we do not explore deeper depths on that edge
@@ -1511,6 +1660,18 @@ class RegionOpeningPlanner(BasePlanner):
             # Get current candidate
             edge_idx, depth, goal = candidates[candidate_idx]
             candidate_idx += 1
+
+            # Two-phase chain search: stop at score=0 candidates (primitives) during ML-first phase
+            # Since candidates are sorted by -score, once we hit score=0, all remaining are primitives
+            if stop_at_score_zero and getattr(goal, 'score', 0.0) == 0:
+                if self.config.verbose:
+                    print(f"        ⏸️ ML-first phase: stopping at score=0 (primitive), {len(candidates) - candidate_idx + 1} candidates remaining")
+                break
+
+            # Two-phase chain search: skip ML goals (score > 0) during primitives-only phase
+            # This avoids re-trying ML goals that already failed in Phase 1
+            if primitives_only and getattr(goal, 'score', 0.0) > 0:
+                continue
 
             # Stop if we've reached the solution cap
             if max_solutions_to_collect is not None and len(all_successful_results) >= max_solutions_to_collect:
@@ -1746,9 +1907,8 @@ class RegionOpeningPlanner(BasePlanner):
                 if first_reachable_goal is None:
                     first_reachable_goal = (goal_sample.x, goal_sample.y, goal_sample.theta)
 
-        # Success if at least half of the goals are reachable
-        required_count = (total_goals + 1) // 2  # Ceiling division
-        if reachable_count >= required_count:
+        # Success if at least 1 goal is reachable
+        if reachable_count >= 1:
             return True, reachable_count, first_reachable_goal, all_goals
         else:
             return False, reachable_count, None, all_goals
