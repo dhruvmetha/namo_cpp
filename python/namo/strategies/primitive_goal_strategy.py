@@ -1190,6 +1190,9 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
     _executor: Optional[ThreadPoolExecutor] = None
     _executor_lock = threading.Lock()
 
+    # Cancellation event - set when current inference should be cancelled
+    _cancel_event: Optional[threading.Event] = None
+
     def __init__(
         self,
         goal_model_path: str,
@@ -1254,18 +1257,94 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
         # Initialize thread pool
         self._init_executor(max_workers)
 
+        # Warmup CUDA in the worker thread (first inference is slow due to context init)
+        if preloaded_model is not None:
+            self._warmup_cuda_in_thread()
+
         # Stats tracking
         self._last_alignment_info = None
 
     @classmethod
-    def _init_executor(cls, max_workers: int):
-        """Initialize shared thread pool executor (singleton)."""
+    def _init_executor(cls, max_workers: int = 1):
+        """Initialize shared thread pool executor (singleton).
+
+        Always uses 1 worker since GPU can only run one ML inference at a time.
+        """
         with cls._executor_lock:
             if cls._executor is None:
                 cls._executor = ThreadPoolExecutor(
-                    max_workers=max_workers,
+                    max_workers=1,  # Always 1 - GPU runs one inference at a time
                     thread_name_prefix="ml_goal_async"
                 )
+            if cls._cancel_event is None:
+                cls._cancel_event = threading.Event()
+
+    @classmethod
+    def cancel_all_pending(cls):
+        """Signal cancellation to any running inference.
+
+        The running inference will check this event and return early.
+        """
+        if cls._cancel_event is not None:
+            cls._cancel_event.set()
+
+    @classmethod
+    def clear_cancellation(cls):
+        """Clear the cancellation signal before starting new inference."""
+        if cls._cancel_event is not None:
+            cls._cancel_event.clear()
+
+    # Class-level flag to track if warmup has been done (singleton pattern)
+    _warmup_done = False
+    _warmup_lock = threading.Lock()
+
+    def _warmup_cuda_in_thread(self):
+        """Run a warmup inference in the worker thread to initialize CUDA/model.
+
+        First model inference is slow (~20s) due to CUDA kernel compilation.
+        Running warmup during strategy init makes actual inferences fast (~100ms).
+
+        This is a singleton operation - only runs once across all instances.
+        """
+        with self._warmup_lock:
+            if MLPrimitiveAsyncStrategy._warmup_done:
+                return  # Already warmed up
+            MLPrimitiveAsyncStrategy._warmup_done = True
+
+        import torch
+        import time
+
+        def warmup_task():
+            try:
+                # Get the actual model and run a dummy forward pass
+                model = self._ml_strategy._goal_model
+                if model is not None and hasattr(model, 'model'):
+                    device = self._ml_strategy.device
+                    # Create dummy input matching model's expected shape
+                    # The model expects 5 context channels: static, movable, target, reachable, goal_region
+                    context_channels = 5
+                    dummy_input = torch.randn(1, context_channels, 64, 64, device=device)
+                    with torch.no_grad():
+                        # Run full inference with actual number of steps
+                        # This ensures all CUDA kernels are compiled
+                        _ = model.model.sample_from_model(
+                            dummy_input,
+                            samples=self._default_ml_samples,  # Use actual sample count
+                            num_steps=5  # Typical DDIM steps
+                        )
+                    torch.cuda.synchronize()
+                else:
+                    # Fallback to simple tensor warmup
+                    device = self._ml_strategy.device
+                    x = torch.randn(1, 8, 64, 64, device=device)
+                    _ = x * 2
+                    torch.cuda.synchronize()
+            except Exception as e:
+                pass  # Warmup failure is non-fatal
+
+        # Submit warmup and wait for completion
+        future = self._executor.submit(warmup_task)
+        future.result()  # Block until warmup done
 
     def generate_goals(
         self,
@@ -1378,7 +1457,22 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
         import time
         start_time = time.time()
 
+        # Check if cancelled before starting
+        if self._cancel_event is not None and self._cancel_event.is_set():
+            return {'goals': [], 'inference_time_ms': 0, 'cancelled': True}
+
         try:
+            # Ensure model is loaded (lazy loading)
+            if self._ml_strategy._goal_model is None:
+                self._ml_strategy._load_model()
+
+            if self._ml_strategy._goal_model is None:
+                return {
+                    'goals': [],
+                    'inference_time_ms': (time.time() - start_time) * 1000,
+                    'error': 'Model failed to load'
+                }
+
             # Run model inference (pure computation, no env access)
             goals = self._ml_strategy._goal_model.infer(
                 json_message=json_message,
@@ -1390,6 +1484,10 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
 
             inference_time_ms = (time.time() - start_time) * 1000
 
+            # Check if cancelled after inference (results will be discarded)
+            if self._cancel_event is not None and self._cancel_event.is_set():
+                return {'goals': [], 'inference_time_ms': inference_time_ms, 'cancelled': True}
+
             # Convert to Goal objects
             goal_objects = []
             for goal_data in (goals or []):
@@ -1400,17 +1498,12 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
                         theta=float(goal_data['theta'])
                     ))
 
-            if self.verbose:
-                print(f"   ✅ ML inference complete: {len(goal_objects)} goals in {inference_time_ms:.0f}ms")
-
             return {
                 'goals': goal_objects,
                 'inference_time_ms': inference_time_ms
             }
 
         except Exception as e:
-            if self.verbose:
-                print(f"   ❌ ML inference failed: {e}")
             return {
                 'goals': [],
                 'inference_time_ms': (time.time() - start_time) * 1000,

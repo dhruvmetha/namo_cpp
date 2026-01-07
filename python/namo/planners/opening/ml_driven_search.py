@@ -28,6 +28,9 @@ class WorkEntry:
 
     Each state being explored has exactly ONE WorkEntry in the WORK_QUEUE.
     Contains both ML candidates (when available) and fallback primitives.
+
+    Fallback ordering: (depth, edge) to match ml_fallback strategy - tries
+    shallowest depths first across all edges before moving to deeper pushes.
     """
     state: namo_rl.RLState
     state_id: int
@@ -40,8 +43,11 @@ class WorkEntry:
     # Fallback candidates (all primitives, available immediately)
     # Stored as List[List[Goal]] - [edge_idx][depth_idx]
     fallback_goals_per_edge: List[List[Goal]] = field(default_factory=list)
-    fallback_edge_idx: int = 0
-    fallback_depth_idx: int = 0
+
+    # Fallback iteration: sorted list of (depth_idx, edge_idx) for (depth, edge) ordering
+    # Built lazily on first access to match ml_fallback ordering
+    _fallback_order: Optional[List[Tuple[int, int]]] = field(default=None, repr=False)
+    _fallback_idx: int = 0
 
     # Track which primitives have been tried (edge_idx, depth_idx)
     tried_primitives: Set[Tuple[int, int]] = field(default_factory=set)
@@ -53,30 +59,39 @@ class WorkEntry:
     # Reachable edges at this state (for filtering)
     reachable_edges: Set[int] = field(default_factory=set)
 
+    def _build_fallback_order(self) -> None:
+        """Build sorted fallback order: (depth, edge) to match ml_fallback."""
+        if self._fallback_order is not None:
+            return
+
+        # Collect all valid (depth, edge) pairs for reachable edges
+        candidates = []
+        for edge_idx, edge_goals in enumerate(self.fallback_goals_per_edge):
+            if edge_idx not in self.reachable_edges:
+                continue
+            for depth_idx in range(len(edge_goals)):
+                candidates.append((depth_idx, edge_idx))
+
+        # Sort by (depth, edge) - shallowest depths first, then by edge
+        candidates.sort(key=lambda x: (x[0], x[1]))
+        self._fallback_order = candidates
+        self._fallback_idx = 0
+
     def has_ml_work(self) -> bool:
         """Check if there are untried ML candidates."""
         return self.ml_idx < len(self.ml_candidates)
 
     def has_fallback_work(self) -> bool:
         """Check if there are untried fallback candidates."""
-        # Iterate through edges and depths to find next untried primitive
-        while self.fallback_edge_idx < len(self.fallback_goals_per_edge):
-            edge_goals = self.fallback_goals_per_edge[self.fallback_edge_idx]
+        self._build_fallback_order()
 
-            # Skip unreachable edges
-            if self.fallback_edge_idx not in self.reachable_edges:
-                self.fallback_edge_idx += 1
-                self.fallback_depth_idx = 0
-                continue
-
-            while self.fallback_depth_idx < len(edge_goals):
-                key = (self.fallback_edge_idx, self.fallback_depth_idx)
-                if key not in self.tried_primitives:
-                    return True
-                self.fallback_depth_idx += 1
-
-            self.fallback_edge_idx += 1
-            self.fallback_depth_idx = 0
+        # Find next untried primitive in (depth, edge) order
+        while self._fallback_idx < len(self._fallback_order):
+            depth_idx, edge_idx = self._fallback_order[self._fallback_idx]
+            key = (edge_idx, depth_idx)
+            if key not in self.tried_primitives:
+                return True
+            self._fallback_idx += 1
 
         return False
 
@@ -100,6 +115,9 @@ class WorkEntry:
     def get_next_candidate(self) -> Optional[Tuple[Goal, int, int, bool]]:
         """Get next candidate to try (ML first, then fallback).
 
+        Fallback order: (depth, edge) - tries shallowest depths first across
+        all edges, matching ml_fallback strategy ordering.
+
         Returns:
             Tuple of (goal, edge_idx, depth_idx, is_ml_candidate) or None if exhausted.
         """
@@ -111,33 +129,20 @@ class WorkEntry:
             # For now, return -1, -1 since ML candidates are already filtered
             return (goal, -1, -1, True)
 
-        # Try fallback primitives
-        while self.fallback_edge_idx < len(self.fallback_goals_per_edge):
-            # Skip unreachable edges
-            if self.fallback_edge_idx not in self.reachable_edges:
-                self.fallback_edge_idx += 1
-                self.fallback_depth_idx = 0
-                continue
+        # Try fallback primitives in (depth, edge) order
+        self._build_fallback_order()
 
-            edge_goals = self.fallback_goals_per_edge[self.fallback_edge_idx]
+        while self._fallback_idx < len(self._fallback_order):
+            depth_idx, edge_idx = self._fallback_order[self._fallback_idx]
+            key = (edge_idx, depth_idx)
 
-            while self.fallback_depth_idx < len(edge_goals):
-                key = (self.fallback_edge_idx, self.fallback_depth_idx)
+            if key not in self.tried_primitives:
+                goal = self.fallback_goals_per_edge[edge_idx][depth_idx]
+                self.tried_primitives.add(key)
+                self._fallback_idx += 1
+                return (goal, edge_idx, depth_idx, False)
 
-                if key not in self.tried_primitives:
-                    goal = edge_goals[self.fallback_depth_idx]
-                    edge_idx = self.fallback_edge_idx
-                    depth_idx = self.fallback_depth_idx
-
-                    self.tried_primitives.add(key)
-                    self.fallback_depth_idx += 1
-
-                    return (goal, edge_idx, depth_idx, False)
-
-                self.fallback_depth_idx += 1
-
-            self.fallback_edge_idx += 1
-            self.fallback_depth_idx = 0
+            self._fallback_idx += 1
 
         return None
 
@@ -152,13 +157,19 @@ class WorkEntry:
 
         # Build ML candidates from scored slots, excluding already-tried primitives
         candidates = []
+        skipped_tried = 0
+        skipped_unreachable = 0
+        skipped_invalid = 0
+
         for (edge_idx, depth_idx), score in ml_scores.items():
             # Skip if already tried via fallback
             if (edge_idx, depth_idx) in self.tried_primitives:
+                skipped_tried += 1
                 continue
 
             # Skip unreachable edges
             if edge_idx not in self.reachable_edges:
+                skipped_unreachable += 1
                 continue
 
             # Get the actual goal from fallback grid
@@ -173,14 +184,19 @@ class WorkEntry:
                         theta=goal.theta,
                         score=score
                     )
-                    candidates.append((score, edge_idx, depth_idx, ml_goal))
+                    candidates.append((score, depth_idx, edge_idx, ml_goal))
+                else:
+                    skipped_invalid += 1
+            else:
+                skipped_invalid += 1
 
-        # Sort by score descending
-        candidates.sort(key=lambda x: -x[0])
+        # Sort by (-score, depth, edge) to match ml_fallback ordering
+        # Higher scores first, then shallowest depths, then by edge
+        candidates.sort(key=lambda x: (-x[0], x[1], x[2]))
 
         # Extract goals (mark primitives as will-be-tried-via-ML)
         self.ml_candidates = []
-        for score, edge_idx, depth_idx, goal in candidates:
+        for score, depth_idx, edge_idx, goal in candidates:
             self.ml_candidates.append(goal)
             # Mark as tried so fallback skips them
             self.tried_primitives.add((edge_idx, depth_idx))
@@ -389,6 +405,16 @@ class MLDrivenAsyncSearch:
         Returns:
             List of SearchSolution found.
         """
+        # Cancel and wait for any previous ML inference to complete
+        # This happens BEFORE timing starts so it doesn't inflate search time
+        from namo.strategies import MLPrimitiveAsyncStrategy
+        MLPrimitiveAsyncStrategy.cancel_all_pending()
+        self._wait_for_pending_ml()
+
+        # Clear cancellation signal BEFORE submitting new ML
+        MLPrimitiveAsyncStrategy.clear_cancellation()
+
+        # Start timing AFTER previous ML cleanup
         start_time = time.time()
 
         # Reset search state
@@ -406,7 +432,9 @@ class MLDrivenAsyncSearch:
         self._debug(f"   Max chain depth: {self.max_chain_depth}, Max solutions: {self.max_solutions}")
 
         # Main loop
+        iteration = 0
         while self._should_continue():
+            iteration += 1
             # Step 1: Harvest ML results (non-blocking)
             self._harvest_ml_results()
 
@@ -430,8 +458,10 @@ class MLDrivenAsyncSearch:
                 continue
 
             # Check if entry has work
+            # Don't remove if ML is still pending for this entry
             if not entry.has_any_work():
-                self.work_queue.remove(entry.state_id)
+                if entry.state_id not in self.pending_ml:
+                    self.work_queue.remove(entry.state_id)
                 continue
 
             # Get next candidate
@@ -532,12 +562,56 @@ class MLDrivenAsyncSearch:
             # Note: priority update happens in _harvest_ml_results when ML arrives
             # No need to update here - entry stays at same priority
 
+        # Record search time BEFORE waiting for pending ML
+        # This way the wait doesn't inflate the recorded timing
+        search_time_ms = (time.time() - start_time) * 1000
+
+        # Wait for any running ML inference to complete before returning
+        # This ensures the next env doesn't start until DDIM is done
+        # NOTE: This wait is NOT included in solution timing_ms
+        from namo.strategies import MLPrimitiveAsyncStrategy
+        MLPrimitiveAsyncStrategy.cancel_all_pending()
+
+        for state_id, async_result in list(self.pending_ml.items()):
+            if async_result.ml_future is not None:
+                if not async_result.ml_future.done():
+                    self._debug(f"      ⏳ Waiting for ML {state_id} to complete...")
+                    try:
+                        async_result.ml_future.result(timeout=30.0)
+                        self._debug(f"      ✓ ML {state_id} completed")
+                    except Exception as e:
+                        self._debug(f"      ⚠️ ML {state_id} wait failed: {e}")
+                elif async_result.cancel_if_pending():
+                    self._debug(f"      🛑 Cancelled pending ML for state {state_id}")
+        self.pending_ml.clear()
+
         total_time_ms = (time.time() - start_time) * 1000
+        wait_time_ms = total_time_ms - search_time_ms
         self._debug(f"🏁 Search complete: {len(self.solutions)} solutions, "
                    f"{self.total_pushes} pushes, {self.ml_arrivals} ML arrivals, "
-                   f"{total_time_ms:.0f}ms")
+                   f"search={search_time_ms:.0f}ms, wait={wait_time_ms:.0f}ms")
 
         return self.solutions
+
+    def _wait_for_pending_ml(self) -> None:
+        """Wait for any pending ML inference to complete (from previous search).
+
+        This ensures the GPU is free before starting new inference.
+        Only waits if there are entries in pending_ml from a previous search.
+        """
+        if not self.pending_ml:
+            return
+
+        self._debug(f"      ⏳ Waiting for {len(self.pending_ml)} pending ML to complete...")
+        for state_id, async_result in list(self.pending_ml.items()):
+            if async_result.ml_future is not None and not async_result.ml_future.done():
+                try:
+                    # Wait with timeout to avoid infinite hang
+                    async_result.ml_future.result(timeout=30.0)
+                except Exception as e:
+                    self._debug(f"      ⚠️ ML wait failed: {e}")
+        self.pending_ml.clear()
+        self._debug(f"      ✓ Previous ML cleared")
 
     def _should_continue(self) -> bool:
         """Check if search should continue."""
@@ -573,8 +647,6 @@ class MLDrivenAsyncSearch:
             ml_candidates=[],
             ml_idx=0,
             fallback_goals_per_edge=primitives,
-            fallback_edge_idx=0,
-            fallback_depth_idx=0,
             tried_primitives=set(),
             parent_chain=[],
             path_ml_score=0.0,
@@ -623,8 +695,6 @@ class MLDrivenAsyncSearch:
             ml_candidates=[],
             ml_idx=0,
             fallback_goals_per_edge=primitives,
-            fallback_edge_idx=0,
-            fallback_depth_idx=0,
             tried_primitives=set(),
             parent_chain=parent_chain,
             path_ml_score=path_ml_score,

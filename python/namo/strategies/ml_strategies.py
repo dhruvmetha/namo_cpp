@@ -338,8 +338,6 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
         if preloaded_model is not None:
             self._goal_model = preloaded_model
             self._load_attempted = True
-            if self.verbose:
-                print("Using preloaded GoalInferenceModel")
         else:
             self._goal_model = None
             self._load_attempted = False
