@@ -42,6 +42,22 @@ namo_viz_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__f
 if namo_viz_path not in sys.path:
     sys.path.append(namo_viz_path)
 
+# Add learning directory for ML models
+_candidate_sage_paths = []
+_env_path = os.environ.get("SAGE_LEARNING_PATH")
+if _env_path:
+    _candidate_sage_paths.append(_env_path)
+_candidate_sage_paths.append("/common/home/dm1487/robotics_research/ktamp/sage_learning")
+try:
+    repo_root = Path(__file__).resolve().parents[4]
+    _candidate_sage_paths.append(str(repo_root / "sage_learning"))
+except Exception:
+    repo_root = None
+
+for _path in _candidate_sage_paths:
+    if _path and os.path.isdir(_path) and _path not in sys.path:
+        sys.path.insert(0, _path)
+
 from namo.core import BasePlanner, PlannerConfig, PlannerResult, PlannerFactory
 from namo.core.xml_goal_parser import extract_goal_with_fallback
 

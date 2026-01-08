@@ -7,6 +7,7 @@ using trained diffusion models from the learning package.
 import sys
 import os
 import random
+from pathlib import Path
 from typing import List, Optional, Dict, Any
 from collections import Counter
 import namo_rl
@@ -415,7 +416,13 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
         import os
         from omegaconf import OmegaConf
         
-        config_path = os.path.join(self.goal_model_path, ".hydra", "config.yaml")
+        model_path = Path(self.goal_model_path)
+        if model_path.is_file() and model_path.suffix == ".ckpt":
+            if model_path.parent.name == "checkpoints":
+                model_path = model_path.parent.parent
+            else:
+                model_path = model_path.parent
+        config_path = os.path.join(str(model_path), ".hydra", "config.yaml")
         
         if not os.path.exists(config_path):
             if self.verbose:

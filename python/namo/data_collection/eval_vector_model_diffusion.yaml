@@ -1,0 +1,37 @@
+# Vector Diffusion Model Evaluation Configuration
+# Intended for diffusion-trained vector models (no sampler override).
+
+output_dir: /common/users/tdn39/Robotics/Mujoco/namo_cpp/eval_results/vector_model_diffusion
+start_idx: 0
+end_idx: 100
+algorithm: region_opening
+workers: 1
+episodes_per_env: 1
+
+max_depth: 5
+max_goals_per_object: 5
+max_terminal_checks: 5000
+search_timeout: 300.0
+goals_per_region: 10
+
+region_allow_collisions: true
+region_max_chain_depth: 1
+region_max_solutions_per_neighbor: 1
+region_frontier_beam_width: 1000
+region_max_recorded_solutions_per_neighbor: 1
+
+goal_sampler: ml
+ml_goal_model: /common/users/tdn39/Robotics/Mujoco/sage_learning/outputs/placeholder
+ml_device: cuda
+ml_samples: 32
+ml_min_goals: 1
+ml_sampler_method: null
+ml_num_steps: null
+
+xml_dir: /common/home/dm1487/robotics_research/ktamp/ml4kp_ktamp/resources/models/custom_walled_envs/aug9/medium
+config_file: config/namo_config_complete_skill15.yaml
+manifest: null
+
+verbose: true
+filter_minimum_length: false
+smooth_solutions: false

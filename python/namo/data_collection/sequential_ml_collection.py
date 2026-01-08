@@ -36,9 +36,20 @@ if namo_viz_path not in sys.path:
     sys.path.append(namo_viz_path)
 
 # Add learning directory for ML models
-ktamp_learning_path = "/common/home/dm1487/robotics_research/ktamp/sage_learning"
-if os.path.isdir(ktamp_learning_path) and ktamp_learning_path not in sys.path:
-    sys.path.insert(0, ktamp_learning_path)
+_candidate_sage_paths = []
+_env_path = os.environ.get("SAGE_LEARNING_PATH")
+if _env_path:
+    _candidate_sage_paths.append(_env_path)
+_candidate_sage_paths.append("/common/home/dm1487/robotics_research/ktamp/sage_learning")
+try:
+    repo_root = Path(__file__).resolve().parents[4]
+    _candidate_sage_paths.append(str(repo_root / "sage_learning"))
+except Exception:
+    repo_root = None
+
+for _path in _candidate_sage_paths:
+    if _path and os.path.isdir(_path) and _path not in sys.path:
+        sys.path.insert(0, _path)
 
 # NAMO imports
 import namo_rl
@@ -60,6 +71,34 @@ from namo.data_collection.modular_parallel_collection import (
     _sanitize_run_name,
     get_failure_statistics
 )
+
+def _detect_goal_model_type(model_path: str) -> str:
+    """Detect whether a goal model is vector-based or mask-based."""
+    try:
+        from omegaconf import OmegaConf
+    except Exception:
+        return "mask"
+
+    path = Path(model_path)
+    if path.is_file() and path.suffix == ".ckpt":
+        if path.parent.name == "checkpoints":
+            path = path.parent.parent
+        else:
+            path = path.parent
+    config_path = os.path.join(str(path), ".hydra", "config.yaml")
+    if not os.path.exists(config_path):
+        return "mask"
+
+    try:
+        cfg = OmegaConf.load(config_path)
+        network_target = cfg.get("model", {}).get("network", {}).get("_target_", "")
+        vector_dim = cfg.get("model", {}).get("vector_dim", None)
+        if "vector_denoiser" in str(network_target).lower() or vector_dim is not None:
+            return "vector"
+    except Exception:
+        return "mask"
+
+    return "mask"
 
 def preload_ml_models(config: ModularCollectionConfig) -> Tuple[Optional[Any], Optional[Any]]:
     """Preload ML models based on configuration."""
@@ -104,18 +143,28 @@ def preload_ml_models(config: ModularCollectionConfig) -> Tuple[Optional[Any], O
         model_path = algo_params.get("ml_goal_model_path") or algo_params.get("ml_goal_model")
         if model_path:
             try:
-                from ktamp_learning.goal_inference_model import GoalInferenceModel
-                print(f"🎯 Loading GoalInferenceModel from {model_path}")
-                # Get optional sampler overrides from config
-                sampler_method = algo_params.get("ml_sampler_method")  # euler, midpoint, rk4, dopri5
-                num_steps = algo_params.get("ml_num_steps")  # number of integration steps
+                model_type = _detect_goal_model_type(model_path)
+                sampler_method = algo_params.get("ml_sampler_method")
+                num_steps = algo_params.get("ml_num_steps")
+                print(f"🎯 Loading goal model from {model_path} (type={model_type})")
                 print(f"   Sampler override: method={sampler_method}, num_steps={num_steps}")
-                goal_model = GoalInferenceModel(
-                    model_path=model_path,
-                    device=device,
-                    sampler_method=sampler_method,
-                    num_steps=num_steps
-                )
+
+                if model_type == "vector":
+                    from ktamp_learning.goal_vector_inference_model import GoalVectorInferenceModel
+                    goal_model = GoalVectorInferenceModel(
+                        model_path=model_path,
+                        device=device,
+                        sampler_method=sampler_method,
+                        num_steps=num_steps
+                    )
+                else:
+                    from ktamp_learning.goal_inference_model import GoalInferenceModel
+                    goal_model = GoalInferenceModel(
+                        model_path=model_path,
+                        device=device,
+                        sampler_method=sampler_method,
+                        num_steps=num_steps
+                    )
                 print(f"✅ Goal model loaded successfully")
             except Exception as e:
                 print(f"❌ Failed to load goal model: {e}")
@@ -460,11 +509,18 @@ class SequentialCollectionManager:
 
         # Final summary
         total_time = time.time() - start_time
-        success_rate = (len(tasks) - len(failed_tasks)) / len(tasks) * 100 if tasks else 0
+        env_completion_rate = (len(tasks) - len(failed_tasks)) / len(tasks) * 100 if tasks else 0
+        all_episodes = []
+        for result in results:
+            if result.episode_results:
+                all_episodes.extend(result.episode_results)
+        successful_episodes = [ep for ep in all_episodes if getattr(ep, "solution_found", False)]
+        episode_success_rate = len(successful_episodes) / len(all_episodes) * 100 if all_episodes else 0
         
         print(f"\n🎉 Collection complete!")
-        print(f"📊 Episodes: {total_episodes} total")
-        print(f"🎯 Task success rate: {success_rate:.1f}% ({total_time/60:.1f}m)")
+        print(f"📊 Episodes: {len(all_episodes)} total")
+        print(f"🎯 Env completion rate: {env_completion_rate:.1f}% ({total_time/60:.1f}m)")
+        print(f"🎯 Episode success rate: {episode_success_rate:.1f}% ({len(successful_episodes)}/{len(all_episodes)})")
         
         # Save aggregate summary (reuse logic from parallel script if possible, or simplified here)
         self._save_final_summary(results, total_time)
@@ -479,6 +535,10 @@ class SequentialCollectionManager:
         successful_episodes = [ep for ep in all_episodes if ep['solution_found']]
         failure_stats = get_failure_statistics(all_episodes)
         
+        total_tasks = len(results)
+        completed_tasks = len([r for r in results if r.success])
+        env_completion_rate = completed_tasks / total_tasks * 100 if total_tasks else 0
+
         summary = {
             'collection_metadata': {
                 'hostname': self.config.hostname,
@@ -488,6 +548,9 @@ class SequentialCollectionManager:
                 'config': asdict(self.config)
             },
             'performance_stats': {
+                'total_tasks': total_tasks,
+                'completed_tasks': completed_tasks,
+                'env_completion_rate': env_completion_rate,
                 'total_episodes': len(all_episodes),
                 'successful_episodes': len(successful_episodes),
                 'success_rate': len(successful_episodes) / len(all_episodes) * 100 if all_episodes else 0,
@@ -504,7 +567,8 @@ class SequentialCollectionManager:
         with open(summary_txt, 'w') as f:
             f.write("Sequential ML Data Collection Summary\n")
             f.write(f"Total episodes: {len(all_episodes)}\n")
-            f.write(f"Success rate: {summary['performance_stats']['success_rate']:.1f}%\n")
+            f.write(f"Episode success rate: {summary['performance_stats']['success_rate']:.1f}%\n")
+            f.write(f"Env completion rate: {summary['performance_stats']['env_completion_rate']:.1f}%\n")
 
 def main():
     # Use same argument parsing structure as modular_parallel_collection
@@ -538,6 +602,7 @@ def main():
     parser.add_argument("--region-frontier-beam-width", type=int, default=None)
     
     # ML params
+    parser.add_argument("--goal-strategy", type=str, default=None)
     parser.add_argument("--goal-sampler", type=str, default=None)
     parser.add_argument("--ml-goal-model", type=str)
     parser.add_argument("--ml-device", type=str, default="cuda")
@@ -547,6 +612,7 @@ def main():
     parser.add_argument("--ml-match-angle-tolerance", type=float, default=0.35)
     parser.add_argument("--ml-match-angle-weight", type=float, default=0.5)
     parser.add_argument("--ml-match-max-per-call", type=int, default=8)
+    parser.add_argument("--ml-k-nearest", type=int, default=1)
     parser.add_argument("--ml-sampler-method", type=str, default=None, help="Override sampler: euler, midpoint, rk4, dopri5 (flow matching) or ddpm, ddim (diffusion)")
     parser.add_argument("--ml-num-steps", type=int, default=None, help="Override number of integration steps")
     
@@ -594,11 +660,12 @@ def main():
 
         if args.goal_sampler:
             algorithm_params["goal_sampler"] = args.goal_sampler
+        if args.goal_strategy:
+            algorithm_params["goal_selection_strategy"] = args.goal_strategy
         
         # Pass ML params even if goal_sampler is not explicitly set (allows auto-detection)
         if args.ml_goal_model:
             algorithm_params.update({
-                "goal_sampler": "ml", # Force ML if model provided
                 "ml_goal_model_path": args.ml_goal_model,
                 "ml_device": args.ml_device,
                 "ml_samples": args.ml_samples,
@@ -607,10 +674,13 @@ def main():
                 "ml_match_angle_tolerance": args.ml_match_angle_tolerance,
                 "ml_match_angle_weight": args.ml_match_angle_weight,
                 "ml_match_max_per_call": args.ml_match_max_per_call,
+                "ml_k_nearest": args.ml_k_nearest,
                 "ml_sampler_method": args.ml_sampler_method,
                 "ml_num_steps": args.ml_num_steps,
                 "primitive_data_dir": args.primitive_data_dir,
             })
+            if not args.goal_sampler and not args.goal_strategy:
+                algorithm_params["goal_sampler"] = "ml"
 
     planner_config = PlannerConfig(
         max_depth=args.max_depth,
