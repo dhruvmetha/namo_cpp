@@ -334,6 +334,20 @@ class CategoryStats:
         return float(np.mean(self.times)) if self.times else 0.0
 
     @property
+    def pushes_iqr(self) -> Tuple[float, float]:
+        """Return (25th percentile, 75th percentile) for pushes."""
+        if not self.pushes:
+            return (0.0, 0.0)
+        return (float(np.percentile(self.pushes, 25)), float(np.percentile(self.pushes, 75)))
+
+    @property
+    def time_iqr(self) -> Tuple[float, float]:
+        """Return (25th percentile, 75th percentile) for times."""
+        if not self.times:
+            return (0.0, 0.0)
+        return (float(np.percentile(self.times, 25)), float(np.percentile(self.times, 75)))
+
+    @property
     def total_solutions(self) -> int:
         return int(np.sum(self.solutions)) if self.solutions else 0
 
@@ -602,6 +616,138 @@ def compute_collision_success_stats(
             stats[cat]['total'] += 1
             if model_result.success:
                 stats[cat]['successes'] += 1
+
+    return stats
+
+
+def compute_collision_bucket_efficiency(
+    model_data: Dict[str, Dict[str, RegionResult]],
+    search_data: Dict[str, Dict[str, RegionResult]],
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Compute efficiency stats (checks, time) per collision bucket for solved cases.
+
+    Returns:
+        {collision_type: {'pushes': [...], 'times': [...], 'successes': int, 'total': int}}
+    """
+    stats = {
+        'none': {'pushes': [], 'times': [], 'successes': 0, 'total': 0},
+        'wall_only': {'pushes': [], 'times': [], 'successes': 0, 'total': 0},
+        'movable_only': {'pushes': [], 'times': [], 'successes': 0, 'total': 0},
+        'both': {'pushes': [], 'times': [], 'successes': 0, 'total': 0},
+    }
+
+    for env in model_data:
+        if env not in search_data:
+            continue
+        for region in model_data[env]:
+            if region not in search_data[env]:
+                continue
+
+            search_result = search_data[env][region]
+            model_result = model_data[env][region]
+
+            # Only consider cases where search succeeded (solvable problems)
+            if not search_result.success:
+                continue
+
+            # Determine collision category based on oracle solution
+            has_wall = search_result.wall_collision
+            has_movable = search_result.movable_collisions > 0
+
+            if has_wall and has_movable:
+                cat = 'both'
+            elif has_wall:
+                cat = 'wall_only'
+            elif has_movable:
+                cat = 'movable_only'
+            else:
+                cat = 'none'
+
+            stats[cat]['total'] += 1
+            if model_result.success:
+                stats[cat]['successes'] += 1
+                stats[cat]['pushes'].append(model_result.pushes)
+                stats[cat]['times'].append(model_result.time_taken)
+
+    return stats
+
+
+def compute_difficulty_stratification(
+    model_data: Dict[str, Dict[str, RegionResult]],
+    search_data: Dict[str, Dict[str, RegionResult]],
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Stratify problems by difficulty based on oracle (search) solution time.
+    Uses 33rd percentile splits: easy (fastest 33%), medium (middle 33%), hard (slowest 33%).
+
+    Returns:
+        {difficulty: {'pushes': [...], 'times': [...], 'successes': int, 'total': int,
+                      'oracle_time_range': (min, max)}}
+    """
+    # First, collect oracle times for problems that exist in BOTH datasets (intersection)
+    oracle_times = []
+    problem_keys = []  # (env, region) tuples
+
+    for env in search_data:
+        if env not in model_data:
+            continue
+        for region in search_data[env]:
+            if region not in model_data[env]:
+                continue
+            search_result = search_data[env][region]
+            if search_result.success:
+                oracle_times.append(search_result.time_taken)
+                problem_keys.append((env, region))
+
+    if not oracle_times:
+        return {
+            'easy': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_time_range': (0, 0)},
+            'medium': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_time_range': (0, 0)},
+            'hard': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_time_range': (0, 0)},
+        }
+
+    # Compute 33rd and 66th percentiles
+    p33 = np.percentile(oracle_times, 33.33)
+    p66 = np.percentile(oracle_times, 66.67)
+
+    # Initialize stats
+    stats = {
+        'easy': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_times': []},
+        'medium': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_times': []},
+        'hard': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_times': []},
+    }
+
+    # Categorize each problem
+    for (env, region), oracle_time in zip(problem_keys, oracle_times):
+        if oracle_time <= p33:
+            difficulty = 'easy'
+        elif oracle_time <= p66:
+            difficulty = 'medium'
+        else:
+            difficulty = 'hard'
+
+        stats[difficulty]['total'] += 1
+        stats[difficulty]['oracle_times'].append(oracle_time)
+
+        # Check if model solved it
+        model_result = model_data[env][region]
+        if model_result.success:
+            stats[difficulty]['successes'] += 1
+            stats[difficulty]['pushes'].append(model_result.pushes)
+            stats[difficulty]['times'].append(model_result.time_taken)
+
+    # Compute oracle time ranges for each difficulty
+    for diff in stats:
+        if stats[diff]['oracle_times']:
+            stats[diff]['oracle_time_range'] = (
+                min(stats[diff]['oracle_times']) / 1000,  # Convert to seconds
+                max(stats[diff]['oracle_times']) / 1000
+            )
+        else:
+            stats[diff]['oracle_time_range'] = (0, 0)
+        # Remove oracle_times list (not needed in output)
+        del stats[diff]['oracle_times']
 
     return stats
 
@@ -1082,9 +1228,11 @@ def print_summary(model_stats: List[ModelStats]):
             print(f"\n  {cat.capitalize()}:")
             print(f"    Success: {cat_stats.successes}/{cat_stats.total} = {cat_stats.success_rate:.4f}")
             if cat_stats.pushes:
-                print(f"    Pushes:  median={cat_stats.median_pushes:.1f}, mean={cat_stats.mean_pushes:.1f}")
+                p_iqr = cat_stats.pushes_iqr
+                print(f"    Pushes:  median={cat_stats.median_pushes:.0f} [{p_iqr[0]:.0f}, {p_iqr[1]:.0f}], mean={cat_stats.mean_pushes:.1f}")
             if cat_stats.times:
-                print(f"    Time:    median={cat_stats.median_time:.1f}ms, mean={cat_stats.mean_time:.1f}ms")
+                t_iqr = cat_stats.time_iqr
+                print(f"    Time:    median={cat_stats.median_time:.0f}ms [{t_iqr[0]:.0f}, {t_iqr[1]:.0f}], mean={cat_stats.mean_time:.1f}ms")
             if cat_stats.solutions:
                 print(f"    Solutions: total={cat_stats.total_solutions}, mean={cat_stats.mean_solutions:.1f}")
             if cat_stats.successes > 0:
@@ -1101,6 +1249,8 @@ def generate_markdown_report(
     config: EvalConfig,
     category_counts: Dict[str, int],
     output_path: str,
+    collision_efficiency: Optional[Dict[str, Dict[str, Dict[str, Any]]]] = None,
+    difficulty_stratification: Optional[Dict[str, Dict[str, Dict[str, Any]]]] = None,
 ):
     """Generate a markdown report with comparison tables."""
     categories = ['easy', 'medium', 'hard']
@@ -1149,7 +1299,7 @@ def generate_markdown_report(
 
     # Pushes statistics (successful runs only)
     lines.append("## Pushes to Success (Successful Runs Only)\n")
-    lines.append("### Median Pushes\n")
+    lines.append("Format: median [IQR]\n")
     header = "| Model |"
     separator = "|-------|"
     for cat in categories:
@@ -1163,30 +1313,16 @@ def generate_markdown_report(
         for cat in categories:
             cat_stats = stats.get_category(cat)
             if cat_stats.pushes:
-                row += f" {cat_stats.median_pushes:.1f} |"
+                p_iqr = cat_stats.pushes_iqr
+                row += f" {cat_stats.median_pushes:.0f} [{p_iqr[0]:.0f}, {p_iqr[1]:.0f}] |"
             else:
                 row += " - |"
         lines.append(row)
     lines.append("")
 
-    lines.append("### Mean Pushes\n")
-    lines.append(header)
-    lines.append(separator)
-
-    for stats in model_stats:
-        row = f"| {stats.name} |"
-        for cat in categories:
-            cat_stats = stats.get_category(cat)
-            if cat_stats.pushes:
-                row += f" {cat_stats.mean_pushes:.1f} |"
-            else:
-                row += " - |"
-        lines.append(row)
-    lines.append("")
-
-    # Time statistics (successful runs only)
-    lines.append("## Time to Success in ms (Successful Runs Only)\n")
-    lines.append("### Median Time\n")
+    # Time statistics (successful runs only) - in seconds
+    lines.append("## Time to Success in seconds (Successful Runs Only)\n")
+    lines.append("Format: median [IQR]\n")
     lines.append(header)
     lines.append(separator)
 
@@ -1195,22 +1331,9 @@ def generate_markdown_report(
         for cat in categories:
             cat_stats = stats.get_category(cat)
             if cat_stats.times:
-                row += f" {cat_stats.median_time:.0f} |"
-            else:
-                row += " - |"
-        lines.append(row)
-    lines.append("")
-
-    lines.append("### Mean Time\n")
-    lines.append(header)
-    lines.append(separator)
-
-    for stats in model_stats:
-        row = f"| {stats.name} |"
-        for cat in categories:
-            cat_stats = stats.get_category(cat)
-            if cat_stats.times:
-                row += f" {cat_stats.mean_time:.0f} |"
+                t_iqr = cat_stats.time_iqr
+                # Convert ms to seconds
+                row += f" {cat_stats.median_time/1000:.1f} [{t_iqr[0]/1000:.1f}, {t_iqr[1]/1000:.1f}] |"
             else:
                 row += " - |"
         lines.append(row)
@@ -1218,7 +1341,7 @@ def generate_markdown_report(
 
     # Interaction statistics
     lines.append("## Interaction Statistics (Successful Runs Only)\n")
-    lines.append("These metrics show collision rates among successful runs.\n")
+    lines.append("*Note: Statistics computed over successful runs only. Models with lower success rates may show different interaction patterns due to selection bias (failing on harder instances).*\n")
 
     lines.append("### Wall Collision Rate\n")
     lines.append("Percentage of successful runs that had collisions with walls.\n")
@@ -1268,6 +1391,117 @@ def generate_markdown_report(
                 row += " - |"
         lines.append(row)
     lines.append("")
+
+    # =========================================================================
+    # COLLISION STRATIFICATION (success rate by collision type)
+    # =========================================================================
+    if collision_efficiency:
+        lines.append("## Success Rate by Collision Type\n")
+        lines.append("Collision type determined by oracle (search) solution.\n")
+
+        collision_types = ['none', 'wall_only', 'movable_only', 'both']
+        collision_labels = {'none': 'No Collision', 'wall_only': 'Wall Only',
+                            'movable_only': 'Movable Only', 'both': 'Both'}
+
+        col_header = "| Model |"
+        for ct in collision_types:
+            col_header += f" {collision_labels[ct]} |"
+        lines.append(col_header)
+
+        col_sep = "|-------|"
+        for _ in collision_types:
+            col_sep += "-------------|"
+        lines.append(col_sep)
+
+        for name in collision_efficiency:
+            row = f"| {name} |"
+            for ct in collision_types:
+                stats = collision_efficiency[name][ct]
+                rate = stats['successes'] / stats['total'] if stats['total'] > 0 else 0.0
+                row += f" {rate:.1%} ({stats['successes']}/{stats['total']}) |"
+            lines.append(row)
+        lines.append("")
+
+        # Efficiency by bucket
+        lines.append("### Efficiency by Collision Type (Solved Cases Only)\n")
+        lines.append("*Note: Efficiency numbers are computed over solved cases only; models with lower success rates may appear more efficient due to selection bias (e.g., only succeeding on easier instances).*\n")
+        lines.append("| Model | Collision Type | N | Median Checks | Median Time (s) |")
+        lines.append("|-------|----------------|---|---------------|-----------------|")
+
+        for name in collision_efficiency:
+            for ct in collision_types:
+                stats = collision_efficiency[name][ct]
+                pushes = stats['pushes']
+                times = stats['times']
+                n_solved = len(pushes)
+                if pushes:
+                    med_checks = f"{np.median(pushes):.0f}"
+                    med_time = f"{np.median(times)/1000:.1f}"  # Convert ms to seconds
+                else:
+                    med_checks = "-"
+                    med_time = "-"
+                lines.append(f"| {name} | {collision_labels[ct]} | {n_solved} | {med_checks} | {med_time} |")
+        lines.append("")
+
+    # =========================================================================
+    # DIFFICULTY STRATIFICATION (based on oracle time)
+    # =========================================================================
+    if difficulty_stratification:
+        lines.append("## Difficulty Stratification (by Oracle Time)\n")
+        lines.append("*Problems split into thirds by oracle solution time: Easy (fastest 33%), Medium (middle 33%), Hard (slowest 33%).*\n")
+
+        difficulty_levels = ['easy', 'medium', 'hard']
+        difficulty_labels = {'easy': 'Easy', 'medium': 'Medium', 'hard': 'Hard'}
+
+        # Get oracle time ranges from first model (same for all)
+        first_model = list(difficulty_stratification.keys())[0]
+        range_info = []
+        for diff in difficulty_levels:
+            r = difficulty_stratification[first_model][diff]['oracle_time_range']
+            range_info.append(f"**{difficulty_labels[diff]}**: {r[0]:.1f}–{r[1]:.1f}s")
+        lines.append(f"Oracle time ranges: {', '.join(range_info)}\n")
+
+        # Success rate table
+        lines.append("### Success Rate by Difficulty (Oracle Time)\n")
+        diff_header = "| Model |"
+        for diff in difficulty_levels:
+            diff_header += f" {difficulty_labels[diff]} |"
+        lines.append(diff_header)
+
+        diff_sep = "|-------|"
+        for _ in difficulty_levels:
+            diff_sep += "------------|"
+        lines.append(diff_sep)
+
+        for name in difficulty_stratification:
+            row = f"| {name} |"
+            for diff in difficulty_levels:
+                stats = difficulty_stratification[name][diff]
+                rate = stats['successes'] / stats['total'] if stats['total'] > 0 else 0.0
+                row += f" {rate:.1%} ({stats['successes']}/{stats['total']}) |"
+            lines.append(row)
+        lines.append("")
+
+        # Efficiency by difficulty (solved cases only)
+        lines.append("### Efficiency by Difficulty (Solved Cases Only)\n")
+        lines.append("*Note: Efficiency computed over solved cases only; selection bias may apply.*\n")
+        lines.append("| Model | Difficulty | N | Median Checks | Median Time (s) |")
+        lines.append("|-------|------------|---|---------------|-----------------|")
+
+        for name in difficulty_stratification:
+            for diff in difficulty_levels:
+                stats = difficulty_stratification[name][diff]
+                pushes = stats['pushes']
+                times = stats['times']
+                n_solved = len(pushes)
+                if pushes:
+                    med_checks = f"{np.median(pushes):.0f}"
+                    med_time = f"{np.median(times)/1000:.1f}"
+                else:
+                    med_checks = "-"
+                    med_time = "-"
+                lines.append(f"| {name} | {difficulty_labels[diff]} | {n_solved} | {med_checks} | {med_time} |")
+        lines.append("")
 
     # Detailed per-model breakdown
     lines.append("## Detailed Per-Model Statistics\n")
@@ -1497,6 +1731,20 @@ def main():
             filtered_data[name], reference_data, config
         )
 
+    # Compute collision bucket efficiency
+    collision_efficiency = {}
+    for name in filtered_data:
+        collision_efficiency[name] = compute_collision_bucket_efficiency(
+            filtered_data[name], reference_data
+        )
+
+    # Compute difficulty stratification (based on oracle time)
+    difficulty_stratification = {}
+    for name in filtered_data:
+        difficulty_stratification[name] = compute_difficulty_stratification(
+            filtered_data[name], reference_data
+        )
+
     # Compute stats for reference (oracle) - for solutions plot
     reference_stats = compute_stats(
         reference_data, reference_data, config,
@@ -1530,6 +1778,30 @@ def main():
             stats = collision_stats[name][ct]
             rate = stats['successes'] / stats['total'] if stats['total'] > 0 else 0.0
             print(f"  {collision_labels[ct]:15s}: {stats['successes']:3d}/{stats['total']:3d} = {rate:.1%}")
+
+    # Print difficulty stratification
+    print("\n" + "=" * 80)
+    print("DIFFICULTY STRATIFICATION (based on oracle solution time)")
+    print("=" * 80)
+    difficulty_levels = ['easy', 'medium', 'hard']
+    difficulty_labels_print = {'easy': 'Easy', 'medium': 'Medium', 'hard': 'Hard'}
+
+    if difficulty_stratification:
+        # Print oracle time ranges (same for all models)
+        first_model = list(difficulty_stratification.keys())[0]
+        print("\nOracle Time Ranges:")
+        for diff in difficulty_levels:
+            r = difficulty_stratification[first_model][diff]['oracle_time_range']
+            n = difficulty_stratification[first_model][diff]['total']
+            print(f"  {difficulty_labels_print[diff]:8s}: {r[0]:6.1f}s – {r[1]:6.1f}s  (N={n})")
+
+        # Print success rates per model
+        for name in difficulty_stratification:
+            print(f"\n{name}:")
+            for diff in difficulty_levels:
+                stats = difficulty_stratification[name][diff]
+                rate = stats['successes'] / stats['total'] if stats['total'] > 0 else 0.0
+                print(f"  {difficulty_labels_print[diff]:8s}: {stats['successes']:3d}/{stats['total']:3d} = {rate:.1%}")
 
     # Generate plots
     print("\nGenerating plots...")
@@ -1592,7 +1864,9 @@ def main():
         all_stats,
         config,
         category_counts,
-        f"{config.output_dir}/results.md"
+        f"{config.output_dir}/results.md",
+        collision_efficiency=collision_efficiency,
+        difficulty_stratification=difficulty_stratification,
     )
 
     print(f"\nPlots saved to: {config.output_dir}")

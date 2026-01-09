@@ -177,6 +177,19 @@ class RegionResult:
     # Interaction types
     wall_collision: bool = False
     movable_collisions: int = 0
+    # Explicit phase tracking fields
+    phase_push_counts: Optional[Dict[str, int]] = None  # {"ML-only": X, "primitives": Y}
+    solved_in_phase: str = ""  # "ML-only", "primitives", or ""
+
+    @property
+    def solved_by_learned(self) -> bool:
+        """Check if solved by learned stage (ML-only phase)."""
+        return self.success and self.solved_in_phase == "ML-only"
+
+    @property
+    def solved_by_fallback(self) -> bool:
+        """Check if solved by fallback stage (primitives phase)."""
+        return self.success and self.solved_in_phase == "primitives"
 
 
 def load_pickle_data(
@@ -259,6 +272,10 @@ def load_pickle_data(
                 wall_collision = ep.get('any_wall_collision', False)
                 movable_collisions = ep.get('unique_movable_collision_count', 0)
 
+                # Extract explicit phase tracking fields
+                phase_push_counts = alg_stats.get('phase_push_counts', None)
+                solved_in_phase = alg_stats.get('solved_in_phase', "")
+
                 result = RegionResult(
                     success=solution_found and pushes > 0,
                     pushes=pushes,
@@ -275,6 +292,8 @@ def load_pickle_data(
                     search_solutions=ep.get('search_solutions', []),
                     wall_collision=wall_collision,
                     movable_collisions=movable_collisions,
+                    phase_push_counts=phase_push_counts,
+                    solved_in_phase=solved_in_phase,
                 )
 
                 per_env_per_key[xml_file_name][key] = result
@@ -316,12 +335,26 @@ class DepthStats:
         return float(np.mean(self.pushes)) if self.pushes else 0.0
 
     @property
+    def pushes_iqr(self) -> Tuple[float, float]:
+        """Return (25th percentile, 75th percentile) for pushes."""
+        if not self.pushes:
+            return (0.0, 0.0)
+        return (float(np.percentile(self.pushes, 25)), float(np.percentile(self.pushes, 75)))
+
+    @property
     def median_time(self) -> float:
         return float(np.median(self.times)) if self.times else 0.0
 
     @property
     def mean_time(self) -> float:
         return float(np.mean(self.times)) if self.times else 0.0
+
+    @property
+    def time_iqr(self) -> Tuple[float, float]:
+        """Return (25th percentile, 75th percentile) for times."""
+        if not self.times:
+            return (0.0, 0.0)
+        return (float(np.percentile(self.times, 25)), float(np.percentile(self.times, 75)))
 
     @property
     def total_solutions(self) -> int:
@@ -639,6 +672,378 @@ def compute_chain_depth_confusion_matrix(
     return matrix
 
 
+def compute_collision_bucket_efficiency(
+    model_data: Dict[str, Dict[str, RegionResult]],
+    reference_data: Dict[str, Dict[str, RegionResult]],
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Compute efficiency stats (checks, time) per collision bucket for solved cases.
+
+    Returns:
+        {collision_type: {'pushes': [...], 'times': [...], 'successes': int, 'total': int}}
+    """
+    stats = {
+        'none': {'pushes': [], 'times': [], 'successes': 0, 'total': 0},
+        'wall_only': {'pushes': [], 'times': [], 'successes': 0, 'total': 0},
+        'movable_only': {'pushes': [], 'times': [], 'successes': 0, 'total': 0},
+        'both': {'pushes': [], 'times': [], 'successes': 0, 'total': 0},
+    }
+
+    for env in model_data:
+        if env not in reference_data:
+            continue
+        for key in model_data[env]:
+            if key not in reference_data[env]:
+                continue
+
+            ref_result = reference_data[env][key]
+            model_result = model_data[env][key]
+
+            # Only consider cases where search succeeded (solvable problems)
+            if not ref_result.success:
+                continue
+
+            # Determine collision category based on oracle solution
+            has_wall = ref_result.wall_collision
+            has_movable = ref_result.movable_collisions > 0
+
+            if has_wall and has_movable:
+                cat = 'both'
+            elif has_wall:
+                cat = 'wall_only'
+            elif has_movable:
+                cat = 'movable_only'
+            else:
+                cat = 'none'
+
+            stats[cat]['total'] += 1
+            if model_result.success:
+                stats[cat]['successes'] += 1
+                stats[cat]['pushes'].append(model_result.pushes)
+                stats[cat]['times'].append(model_result.time_taken)
+
+    return stats
+
+
+def compute_difficulty_stratification(
+    model_data: Dict[str, Dict[str, RegionResult]],
+    reference_data: Dict[str, Dict[str, RegionResult]],
+    depth_filter: Optional[int] = None,  # 1 for 1-push, 2 for 2-push, None for all
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Stratify problems by difficulty based on oracle (reference) solution time.
+    Uses 33rd percentile splits: easy (fastest 33%), medium (middle 33%), hard (slowest 33%).
+
+    Args:
+        depth_filter: If specified, only include problems where oracle solved in exactly this many pushes.
+
+    Returns:
+        {difficulty: {'pushes': [...], 'times': [...], 'successes': int, 'total': int,
+                      'oracle_time_range': (min, max)}}
+    """
+    # First, collect oracle times for problems that exist in BOTH datasets (intersection)
+    oracle_times = []
+    problem_keys = []  # (env, key) tuples
+
+    for env in reference_data:
+        if env not in model_data:
+            continue
+        for key in reference_data[env]:
+            if key not in model_data[env]:
+                continue
+            ref_result = reference_data[env][key]
+            if ref_result.success:
+                # Apply depth filter if specified (uses chain_depth for categorization)
+                if depth_filter is not None and ref_result.chain_depth != depth_filter:
+                    continue
+                oracle_times.append(ref_result.time_taken)
+                problem_keys.append((env, key))
+
+    if not oracle_times:
+        return {
+            'easy': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_time_range': (0, 0)},
+            'medium': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_time_range': (0, 0)},
+            'hard': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_time_range': (0, 0)},
+        }
+
+    # Compute 33rd and 66th percentiles
+    p33 = np.percentile(oracle_times, 33.33)
+    p66 = np.percentile(oracle_times, 66.67)
+
+    # Initialize stats
+    stats = {
+        'easy': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_times': []},
+        'medium': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_times': []},
+        'hard': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_times': []},
+    }
+
+    # Categorize each problem
+    for (env, key), oracle_time in zip(problem_keys, oracle_times):
+        if oracle_time <= p33:
+            difficulty = 'easy'
+        elif oracle_time <= p66:
+            difficulty = 'medium'
+        else:
+            difficulty = 'hard'
+
+        stats[difficulty]['total'] += 1
+        stats[difficulty]['oracle_times'].append(oracle_time)
+
+        # Check if model solved it
+        if env in model_data and key in model_data[env]:
+            model_result = model_data[env][key]
+            if model_result.success:
+                stats[difficulty]['successes'] += 1
+                stats[difficulty]['pushes'].append(model_result.pushes)
+                stats[difficulty]['times'].append(model_result.time_taken)
+
+    # Compute oracle time ranges for each difficulty
+    for diff in stats:
+        if stats[diff]['oracle_times']:
+            stats[diff]['oracle_time_range'] = (
+                min(stats[diff]['oracle_times']) / 1000,  # Convert to seconds
+                max(stats[diff]['oracle_times']) / 1000
+            )
+        else:
+            stats[diff]['oracle_time_range'] = (0, 0)
+        # Remove oracle_times list (not needed in output)
+        del stats[diff]['oracle_times']
+
+    return stats
+
+
+@dataclass
+class HybridStats:
+    """Statistics for hybrid model decomposition (learned vs fallback)."""
+    # Counts
+    solved_by_learned: int = 0
+    solved_by_fallback: int = 0
+    failed: int = 0
+    total: int = 0
+
+    # Efficiency for learned solutions
+    learned_pushes: List[int] = field(default_factory=list)
+    learned_times: List[float] = field(default_factory=list)
+
+    # Efficiency for fallback solutions
+    fallback_pushes: List[int] = field(default_factory=list)
+    fallback_times: List[float] = field(default_factory=list)
+
+    # Checks before fallback (for fallback cases)
+    checks_before_fallback: List[int] = field(default_factory=list)
+
+    @property
+    def learned_rate(self) -> float:
+        """Fraction solved by learned stage."""
+        return self.solved_by_learned / self.total if self.total > 0 else 0.0
+
+    @property
+    def fallback_rate(self) -> float:
+        """Fraction solved by fallback."""
+        return self.solved_by_fallback / self.total if self.total > 0 else 0.0
+
+    @property
+    def success_rate(self) -> float:
+        """Overall success rate."""
+        return (self.solved_by_learned + self.solved_by_fallback) / self.total if self.total > 0 else 0.0
+
+    @property
+    def learned_median_pushes(self) -> float:
+        return float(np.median(self.learned_pushes)) if self.learned_pushes else 0.0
+
+    @property
+    def learned_pushes_iqr(self) -> Tuple[float, float]:
+        if not self.learned_pushes:
+            return (0.0, 0.0)
+        return (float(np.percentile(self.learned_pushes, 25)),
+                float(np.percentile(self.learned_pushes, 75)))
+
+    @property
+    def learned_median_time(self) -> float:
+        return float(np.median(self.learned_times)) if self.learned_times else 0.0
+
+    @property
+    def learned_time_iqr(self) -> Tuple[float, float]:
+        if not self.learned_times:
+            return (0.0, 0.0)
+        return (float(np.percentile(self.learned_times, 25)),
+                float(np.percentile(self.learned_times, 75)))
+
+    @property
+    def fallback_median_pushes(self) -> float:
+        return float(np.median(self.fallback_pushes)) if self.fallback_pushes else 0.0
+
+    @property
+    def fallback_pushes_iqr(self) -> Tuple[float, float]:
+        if not self.fallback_pushes:
+            return (0.0, 0.0)
+        return (float(np.percentile(self.fallback_pushes, 25)),
+                float(np.percentile(self.fallback_pushes, 75)))
+
+    @property
+    def fallback_median_time(self) -> float:
+        return float(np.median(self.fallback_times)) if self.fallback_times else 0.0
+
+    @property
+    def fallback_time_iqr(self) -> Tuple[float, float]:
+        if not self.fallback_times:
+            return (0.0, 0.0)
+        return (float(np.percentile(self.fallback_times, 25)),
+                float(np.percentile(self.fallback_times, 75)))
+
+    @property
+    def median_checks_before_fallback(self) -> float:
+        return float(np.median(self.checks_before_fallback)) if self.checks_before_fallback else 0.0
+
+    @property
+    def checks_before_fallback_iqr(self) -> Tuple[float, float]:
+        if not self.checks_before_fallback:
+            return (0.0, 0.0)
+        return (float(np.percentile(self.checks_before_fallback, 25)),
+                float(np.percentile(self.checks_before_fallback, 75)))
+
+    @property
+    def fallback_phase_only_pushes(self) -> List[int]:
+        """Compute pushes in fallback phase only (total - ML phase) for each fallback case."""
+        if len(self.fallback_pushes) != len(self.checks_before_fallback):
+            return []  # Can't compute if lists don't align
+        return [total - ml for total, ml in zip(self.fallback_pushes, self.checks_before_fallback)]
+
+    @property
+    def fallback_phase_only_median(self) -> float:
+        phase_only = self.fallback_phase_only_pushes
+        return float(np.median(phase_only)) if phase_only else 0.0
+
+    @property
+    def fallback_phase_only_iqr(self) -> Tuple[float, float]:
+        phase_only = self.fallback_phase_only_pushes
+        if not phase_only:
+            return (0.0, 0.0)
+        return (float(np.percentile(phase_only, 25)),
+                float(np.percentile(phase_only, 75)))
+
+
+def compute_hybrid_stats(
+    model_data: Dict[str, Dict[str, RegionResult]],
+    reference_data: Dict[str, Dict[str, RegionResult]],
+    depth_filter: Optional[int] = None,  # 1 for 1-push, 2 for 2-push, None for all
+) -> HybridStats:
+    """
+    Compute hybrid decomposition stats (learned vs fallback).
+
+    Uses explicit phase tracking (solved_in_phase field):
+      - solved_in_phase == "ML-only" → LEARNED
+      - solved_in_phase == "primitives" → FALLBACK
+    """
+    stats = HybridStats()
+
+    for env in model_data:
+        if env not in reference_data:
+            continue
+        for key in model_data[env]:
+            if key not in reference_data[env]:
+                continue
+
+            ref_result = reference_data[env][key]
+            model_result = model_data[env][key]
+
+            # Only consider solvable problems
+            if not ref_result.success:
+                continue
+
+            # Filter by chain depth if specified
+            if depth_filter is not None and ref_result.chain_depth != depth_filter:
+                continue
+
+            stats.total += 1
+
+            if model_result.solved_by_learned:
+                stats.solved_by_learned += 1
+                stats.learned_pushes.append(model_result.pushes)
+                stats.learned_times.append(model_result.time_taken)
+            elif model_result.solved_by_fallback:
+                stats.solved_by_fallback += 1
+                stats.fallback_pushes.append(model_result.pushes)
+                stats.fallback_times.append(model_result.time_taken)
+                # Use explicit phase push counts
+                if model_result.phase_push_counts and "ML-only" in model_result.phase_push_counts:
+                    stats.checks_before_fallback.append(model_result.phase_push_counts["ML-only"])
+            else:
+                stats.failed += 1
+
+    return stats
+
+
+def compute_hybrid_stats_by_difficulty(
+    model_data: Dict[str, Dict[str, RegionResult]],
+    reference_data: Dict[str, Dict[str, RegionResult]],
+    depth_filter: Optional[int] = None,
+) -> Dict[str, Dict[str, int]]:
+    """
+    Compute hybrid decomposition stats (learned vs fallback) per difficulty bucket.
+
+    Difficulty is based on oracle time percentiles (33rd splits).
+
+    Returns:
+        {difficulty: {'total': N, 'learned': N, 'fallback': N, 'failed': N}}
+    """
+    # First, collect oracle times for problems in intersection
+    oracle_times = []
+    problem_keys = []
+
+    for env in reference_data:
+        if env not in model_data:
+            continue
+        for key in reference_data[env]:
+            if key not in model_data[env]:
+                continue
+            ref_result = reference_data[env][key]
+            if ref_result.success:
+                if depth_filter is not None and ref_result.chain_depth != depth_filter:
+                    continue
+                oracle_times.append(ref_result.time_taken)
+                problem_keys.append((env, key))
+
+    if not oracle_times:
+        return {
+            'easy': {'total': 0, 'learned': 0, 'fallback': 0, 'failed': 0},
+            'medium': {'total': 0, 'learned': 0, 'fallback': 0, 'failed': 0},
+            'hard': {'total': 0, 'learned': 0, 'fallback': 0, 'failed': 0},
+        }
+
+    # Compute percentiles
+    p33 = np.percentile(oracle_times, 33.33)
+    p66 = np.percentile(oracle_times, 66.67)
+
+    # Initialize stats
+    stats = {
+        'easy': {'total': 0, 'learned': 0, 'fallback': 0, 'failed': 0},
+        'medium': {'total': 0, 'learned': 0, 'fallback': 0, 'failed': 0},
+        'hard': {'total': 0, 'learned': 0, 'fallback': 0, 'failed': 0},
+    }
+
+    # Categorize each problem
+    for (env, key), oracle_time in zip(problem_keys, oracle_times):
+        if oracle_time <= p33:
+            difficulty = 'easy'
+        elif oracle_time <= p66:
+            difficulty = 'medium'
+        else:
+            difficulty = 'hard'
+
+        model_result = model_data[env][key]
+        stats[difficulty]['total'] += 1
+
+        if model_result.solved_by_learned:
+            stats[difficulty]['learned'] += 1
+        elif model_result.solved_by_fallback:
+            stats[difficulty]['fallback'] += 1
+        else:
+            stats[difficulty]['failed'] += 1
+
+    return stats
+
+
 # =============================================================================
 # Plotting
 # =============================================================================
@@ -859,6 +1264,158 @@ def compute_push_based_success(
     return result
 
 
+def compute_time_based_success_by_difficulty(
+    model_data: Dict[str, Dict[str, RegionResult]],
+    reference_data: Dict[str, Dict[str, RegionResult]],
+    config: EvalConfig,
+    depth_filter: int = 2,
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Compute success rate as a function of time cutoff, stratified by difficulty.
+
+    Difficulty is based on oracle time percentiles (33rd splits).
+
+    Returns:
+        {difficulty: {'cutoffs': [...], 'rates': [...], 'total': int}}
+    """
+    cutoffs = np.arange(0, config.time_cutoff_max + config.time_step, config.time_step)
+
+    # First, collect oracle times for difficulty bucketing
+    oracle_times = []
+    problem_keys = []
+
+    for env in reference_data:
+        if env not in model_data:
+            continue
+        for key in reference_data[env]:
+            if key not in model_data[env]:
+                continue
+            ref_result = reference_data[env][key]
+            if ref_result.success and ref_result.chain_depth == depth_filter:
+                oracle_times.append(ref_result.time_taken)
+                problem_keys.append((env, key))
+
+    if not oracle_times:
+        return {
+            'easy': {'cutoffs': cutoffs.tolist(), 'rates': [0.0] * len(cutoffs), 'total': 0},
+            'medium': {'cutoffs': cutoffs.tolist(), 'rates': [0.0] * len(cutoffs), 'total': 0},
+            'hard': {'cutoffs': cutoffs.tolist(), 'rates': [0.0] * len(cutoffs), 'total': 0},
+        }
+
+    # Compute percentiles
+    p33 = np.percentile(oracle_times, 33.33)
+    p66 = np.percentile(oracle_times, 66.67)
+
+    # Collect times by difficulty
+    times_by_difficulty: Dict[str, List[float]] = {'easy': [], 'medium': [], 'hard': []}
+    totals_by_difficulty: Dict[str, int] = {'easy': 0, 'medium': 0, 'hard': 0}
+
+    for (env, key), oracle_time in zip(problem_keys, oracle_times):
+        if oracle_time <= p33:
+            difficulty = 'easy'
+        elif oracle_time <= p66:
+            difficulty = 'medium'
+        else:
+            difficulty = 'hard'
+
+        model_result = model_data[env][key]
+        totals_by_difficulty[difficulty] += 1
+        if model_result.success:
+            times_by_difficulty[difficulty].append(model_result.time_taken)
+
+    # Compute rates at each cutoff
+    result = {}
+    for diff in ['easy', 'medium', 'hard']:
+        times = np.array(times_by_difficulty[diff])
+        total = totals_by_difficulty[diff]
+        rates = []
+        for cutoff in cutoffs:
+            if total > 0:
+                successes = np.sum(times <= cutoff) if len(times) > 0 else 0
+                rates.append(successes / total)
+            else:
+                rates.append(0.0)
+        result[diff] = {'cutoffs': cutoffs.tolist(), 'rates': rates, 'total': total}
+
+    return result
+
+
+def compute_push_based_success_by_difficulty(
+    model_data: Dict[str, Dict[str, RegionResult]],
+    reference_data: Dict[str, Dict[str, RegionResult]],
+    config: EvalConfig,
+    depth_filter: int = 2,
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Compute success rate as a function of push count cutoff, stratified by difficulty.
+
+    Difficulty is based on oracle time percentiles (33rd splits).
+
+    Returns:
+        {difficulty: {'cutoffs': [...], 'rates': [...], 'total': int}}
+    """
+    cutoffs = list(range(0, config.push_cutoff_max + 1, config.push_step))
+
+    # First, collect oracle times for difficulty bucketing
+    oracle_times = []
+    problem_keys = []
+
+    for env in reference_data:
+        if env not in model_data:
+            continue
+        for key in reference_data[env]:
+            if key not in model_data[env]:
+                continue
+            ref_result = reference_data[env][key]
+            if ref_result.success and ref_result.chain_depth == depth_filter:
+                oracle_times.append(ref_result.time_taken)
+                problem_keys.append((env, key))
+
+    if not oracle_times:
+        return {
+            'easy': {'cutoffs': cutoffs, 'rates': [0.0] * len(cutoffs), 'total': 0},
+            'medium': {'cutoffs': cutoffs, 'rates': [0.0] * len(cutoffs), 'total': 0},
+            'hard': {'cutoffs': cutoffs, 'rates': [0.0] * len(cutoffs), 'total': 0},
+        }
+
+    # Compute percentiles
+    p33 = np.percentile(oracle_times, 33.33)
+    p66 = np.percentile(oracle_times, 66.67)
+
+    # Collect pushes by difficulty
+    pushes_by_difficulty: Dict[str, List[int]] = {'easy': [], 'medium': [], 'hard': []}
+    totals_by_difficulty: Dict[str, int] = {'easy': 0, 'medium': 0, 'hard': 0}
+
+    for (env, key), oracle_time in zip(problem_keys, oracle_times):
+        if oracle_time <= p33:
+            difficulty = 'easy'
+        elif oracle_time <= p66:
+            difficulty = 'medium'
+        else:
+            difficulty = 'hard'
+
+        model_result = model_data[env][key]
+        totals_by_difficulty[difficulty] += 1
+        if model_result.success:
+            pushes_by_difficulty[difficulty].append(model_result.pushes)
+
+    # Compute rates at each cutoff
+    result = {}
+    for diff in ['easy', 'medium', 'hard']:
+        pushes = np.array(pushes_by_difficulty[diff])
+        total = totals_by_difficulty[diff]
+        rates = []
+        for cutoff in cutoffs:
+            if total > 0:
+                successes = np.sum(pushes <= cutoff) if len(pushes) > 0 else 0
+                rates.append(successes / total)
+            else:
+                rates.append(0.0)
+        result[diff] = {'cutoffs': cutoffs, 'rates': rates, 'total': total}
+
+    return result
+
+
 def plot_pushes_vs_success(
     push_data: Dict[str, Dict[str, Dict[str, List[float]]]],  # {model_name: {category: {cutoffs, rates, total}}}
     config: EvalConfig,
@@ -893,6 +1450,147 @@ def plot_pushes_vs_success(
     # Add caption
     fig.text(0.5, -0.02, "One evaluation = one simulated feasibility check of a candidate push (not an executed push).",
              ha='center', fontsize=9, style='italic', color='#666666')
+    plt.tight_layout()
+
+    if output_path:
+        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
+        print(f"Saved: {output_path}")
+    return fig
+
+
+def plot_time_vs_success_by_difficulty(
+    time_data_by_difficulty: Dict[str, Dict[str, Dict[str, Any]]],  # {model_name: {difficulty: {cutoffs, rates, total}}}
+    config: EvalConfig,
+    output_path: Optional[str] = None,
+):
+    """Plot success rate vs time cutoff, with subplots for each difficulty level."""
+    difficulty_levels = ['easy', 'medium', 'hard']
+    difficulty_labels = {'easy': 'Easy', 'medium': 'Medium', 'hard': 'Hard'}
+    difficulty_colors = {'easy': '#55A868', 'medium': '#DD8452', 'hard': '#C44E52'}
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5), sharey=True)
+
+    for ax_idx, diff in enumerate(difficulty_levels):
+        ax = axes[ax_idx]
+
+        # Get N from the first model's data for this difficulty
+        n_problems = 0
+        for model_data in time_data_by_difficulty.values():
+            if diff in model_data:
+                n_problems = model_data[diff].get('total', 0)
+                break
+
+        zero_success_models = []  # Track models with 0% success for annotation
+
+        for model_idx, (model_name, diff_data) in enumerate(time_data_by_difficulty.items()):
+            if diff in diff_data:
+                cutoffs_ms = diff_data[diff]['cutoffs']
+                cutoffs_s = [c / 1000.0 for c in cutoffs_ms]  # Convert to seconds
+                rates = diff_data[diff]['rates']
+                color = get_model_color(model_idx, config)
+
+                # Check if this model has 0% success (flat line at 0)
+                if max(rates) == 0:
+                    # Use dashed line and thinner width for visibility
+                    ax.plot(cutoffs_s, rates, label=model_name,
+                           color=color, linewidth=1.5, linestyle='--', alpha=0.7)
+                    zero_success_models.append((model_name, color))
+                else:
+                    ax.plot(cutoffs_s, rates, label=model_name,
+                           color=color, linewidth=2)
+
+        # Add annotation for 0% success models
+        if zero_success_models:
+            annotation_text = "0%: " + ", ".join([name for name, _ in zero_success_models])
+            ax.annotate(annotation_text, xy=(0.02, 0.02), xycoords='axes fraction',
+                       fontsize=8, color='#666666', style='italic',
+                       bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8, edgecolor='#cccccc'))
+
+        ax.set_xlabel('Time cutoff (s)')
+        if ax_idx == 0:
+            ax.set_ylabel('Success Rate')
+        ax.set_ylim(0, 1.05)
+        ax.set_xlim(0, config.time_cutoff_max / 1000.0)
+        ax.grid(True, linestyle='--', alpha=0.7)
+        ax.set_title(f"{difficulty_labels[diff]} (N={n_problems})", fontsize=12, fontweight='bold',
+                    color=difficulty_colors[diff])
+
+    # Single legend for all subplots
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, -0.02),
+              ncol=min(len(labels), 4), fontsize=10)
+
+    fig.suptitle("Success Rate @ Time Cutoff by Difficulty", fontsize=14, fontweight='bold')
+    plt.tight_layout()
+
+    if output_path:
+        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
+        print(f"Saved: {output_path}")
+    return fig
+
+
+def plot_pushes_vs_success_by_difficulty(
+    push_data_by_difficulty: Dict[str, Dict[str, Dict[str, Any]]],  # {model_name: {difficulty: {cutoffs, rates, total}}}
+    config: EvalConfig,
+    output_path: Optional[str] = None,
+):
+    """Plot success rate vs push count cutoff, with subplots for each difficulty level."""
+    difficulty_levels = ['easy', 'medium', 'hard']
+    difficulty_labels = {'easy': 'Easy', 'medium': 'Medium', 'hard': 'Hard'}
+    difficulty_colors = {'easy': '#55A868', 'medium': '#DD8452', 'hard': '#C44E52'}
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5), sharey=True)
+
+    for ax_idx, diff in enumerate(difficulty_levels):
+        ax = axes[ax_idx]
+
+        # Get N from the first model's data for this difficulty
+        n_problems = 0
+        for model_data in push_data_by_difficulty.values():
+            if diff in model_data:
+                n_problems = model_data[diff].get('total', 0)
+                break
+
+        zero_success_models = []  # Track models with 0% success for annotation
+
+        for model_idx, (model_name, diff_data) in enumerate(push_data_by_difficulty.items()):
+            if diff in diff_data:
+                cutoffs = diff_data[diff]['cutoffs']
+                rates = diff_data[diff]['rates']
+                color = get_model_color(model_idx, config)
+
+                # Check if this model has 0% success (flat line at 0)
+                if max(rates) == 0:
+                    # Use dashed line and thinner width for visibility
+                    ax.plot(cutoffs, rates, label=model_name,
+                           color=color, linewidth=1.5, linestyle='--', alpha=0.7)
+                    zero_success_models.append((model_name, color))
+                else:
+                    ax.plot(cutoffs, rates, label=model_name,
+                           color=color, linewidth=2)
+
+        # Add annotation for 0% success models
+        if zero_success_models:
+            annotation_text = "0%: " + ", ".join([name for name, _ in zero_success_models])
+            ax.annotate(annotation_text, xy=(0.02, 0.02), xycoords='axes fraction',
+                       fontsize=8, color='#666666', style='italic',
+                       bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8, edgecolor='#cccccc'))
+
+        ax.set_xlabel('# Checks')
+        if ax_idx == 0:
+            ax.set_ylabel('Success Rate')
+        ax.set_ylim(0, 1.05)
+        ax.set_xlim(0, config.push_cutoff_max)
+        ax.grid(True, linestyle='--', alpha=0.7)
+        ax.set_title(f"{difficulty_labels[diff]} (N={n_problems})", fontsize=12, fontweight='bold',
+                    color=difficulty_colors[diff])
+
+    # Single legend for all subplots
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, -0.02),
+              ncol=min(len(labels), 4), fontsize=10)
+
+    fig.suptitle("Success Rate @ Push Evaluations by Difficulty", fontsize=14, fontweight='bold')
     plt.tight_layout()
 
     if output_path:
@@ -1089,6 +1787,194 @@ def plot_confusion_matrix(
     return fig
 
 
+def plot_hybrid_decomposition(
+    hybrid_stats: Dict[str, HybridStats],  # {model_name: HybridStats}
+    config: EvalConfig,
+    output_path: Optional[str] = None,
+):
+    """
+    Plot hybrid decomposition: stacked bar of outcome fractions + fallback distribution.
+
+    Panel A: Stacked bar showing % solved by learned, % solved by fallback, % failed
+    Panel B: Box plot of checks before fallback triggered
+    """
+    model_names = list(hybrid_stats.keys())
+    n_models = len(model_names)
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+
+    # Panel A: Stacked bar of outcome fractions
+    ax1 = axes[0]
+
+    learned_rates = [hybrid_stats[m].learned_rate for m in model_names]
+    fallback_rates = [hybrid_stats[m].fallback_rate for m in model_names]
+    failed_rates = [1 - hybrid_stats[m].success_rate for m in model_names]
+    totals = [hybrid_stats[m].total for m in model_names]
+
+    x = np.arange(n_models)
+    width = 0.6
+
+    # Stack: learned (bottom), fallback (middle), failed (top)
+    bars_learned = ax1.bar(x, learned_rates, width, label='Solved by Learned',
+                           color='#55A868', edgecolor='white', linewidth=0.5)
+    bars_fallback = ax1.bar(x, fallback_rates, width, bottom=learned_rates,
+                            label='Solved by Fallback', color='#DD8452',
+                            edgecolor='white', linewidth=0.5)
+    bars_failed = ax1.bar(x, failed_rates, width,
+                          bottom=[l + f for l, f in zip(learned_rates, fallback_rates)],
+                          label='Failed', color='#C44E52', edgecolor='white', linewidth=0.5)
+
+    # Add labels
+    for i, (lr, fr, fail, total) in enumerate(zip(learned_rates, fallback_rates, failed_rates, totals)):
+        # Learned label
+        if lr > 0.05:
+            ax1.text(i, lr/2, f'{lr:.0%}', ha='center', va='center',
+                    fontsize=10, fontweight='bold', color='white')
+        # Fallback label
+        if fr > 0.05:
+            ax1.text(i, lr + fr/2, f'{fr:.0%}', ha='center', va='center',
+                    fontsize=10, fontweight='bold', color='white')
+        # Failed label
+        if fail > 0.05:
+            ax1.text(i, lr + fr + fail/2, f'{fail:.0%}', ha='center', va='center',
+                    fontsize=10, fontweight='bold', color='white')
+        # Total count on top
+        ax1.text(i, 1.02, f'n={total}', ha='center', va='bottom', fontsize=9, color='#666666')
+
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(model_names, rotation=15, ha='right')
+    ax1.set_ylim(0, 1.15)
+    ax1.set_ylabel('Fraction of Problems')
+    ax1.set_title('Hybrid Decomposition: Learned vs Fallback')
+    ax1.legend(loc='upper right', frameon=True)
+    ax1.axhline(y=1.0, color='#888888', linestyle='--', linewidth=0.8, alpha=0.5)
+
+    # Panel B: Checks before fallback (for fallback cases only)
+    ax2 = axes[1]
+
+    data = []
+    labels = []
+    for m in model_names:
+        if hybrid_stats[m].checks_before_fallback:
+            data.append(hybrid_stats[m].checks_before_fallback)
+            labels.append(f"{m}\n(n={len(hybrid_stats[m].checks_before_fallback)})")
+        else:
+            data.append([0])
+            labels.append(f"{m}\n(n=0)")
+
+    bp = ax2.boxplot(data, tick_labels=labels, patch_artist=True, showfliers=False)
+
+    for i, patch in enumerate(bp['boxes']):
+        patch.set_facecolor(get_model_color(i, config))
+        patch.set_alpha(0.85)
+        patch.set_edgecolor('white')
+
+    for median in bp['medians']:
+        median.set_color('#333333')
+        median.set_linewidth(2)
+
+    ax2.tick_params(axis='x', rotation=15)
+    ax2.set_ylabel('Checks Before Fallback (ml_goals_aligned)')
+    ax2.set_title('Fallback Trigger Point Distribution\n(for problems solved by fallback)')
+    ax2.grid(True, axis='y', linestyle='--', alpha=0.6)
+
+    plt.tight_layout()
+    if output_path:
+        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
+        print(f"Saved: {output_path}")
+    return fig
+
+
+def plot_collision_bucket_efficiency(
+    collision_efficiency: Dict[str, Dict[str, Dict[str, Any]]],  # {model: {bucket: {pushes, times, ...}}}
+    config: EvalConfig,
+    output_path: Optional[str] = None,
+):
+    """
+    Plot efficiency (checks, time) by collision bucket for each model.
+
+    Two panels: checks boxplot and time boxplot per collision type.
+    """
+    collision_types = ['none', 'wall_only', 'movable_only', 'both']
+    collision_labels = ['No Collision', 'Wall Only', 'Movable Only', 'Both']
+    model_names = list(collision_efficiency.keys())
+    n_models = len(model_names)
+
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+
+    # Panel A: Checks by collision type
+    ax1 = axes[0]
+    positions = []
+    data_checks = []
+    colors = []
+    tick_positions = []
+    tick_labels = []
+
+    pos = 0
+    for ct_idx, ct in enumerate(collision_types):
+        group_start = pos
+        for m_idx, model in enumerate(model_names):
+            pushes = collision_efficiency[model][ct]['pushes']
+            data_checks.append(pushes if pushes else [0])
+            positions.append(pos)
+            colors.append(get_model_color(m_idx, config))
+            pos += 1
+        pos += 0.5  # Gap between groups
+        tick_positions.append((group_start + pos - 1.5) / 2)
+        tick_labels.append(collision_labels[ct_idx])
+
+    bp1 = ax1.boxplot(data_checks, positions=positions, widths=0.7, patch_artist=True, showfliers=False)
+    for patch, color in zip(bp1['boxes'], colors):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.85)
+
+    ax1.set_xticks(tick_positions)
+    ax1.set_xticklabels(tick_labels)
+    ax1.set_ylabel('Checks to Solution')
+    ax1.set_title('Efficiency by Collision Type - Checks')
+    ax1.grid(True, axis='y', linestyle='--', alpha=0.6)
+
+    # Add legend
+    legend_handles = [plt.Rectangle((0, 0), 1, 1, facecolor=get_model_color(i, config))
+                     for i in range(n_models)]
+    ax1.legend(legend_handles, model_names, loc='upper right')
+
+    # Panel B: Time by collision type
+    ax2 = axes[1]
+    positions = []
+    data_times = []
+    colors = []
+
+    pos = 0
+    for ct in collision_types:
+        for m_idx, model in enumerate(model_names):
+            times = collision_efficiency[model][ct]['times']
+            # Convert to seconds for readability
+            data_times.append([t/1000 for t in times] if times else [0])
+            positions.append(pos)
+            colors.append(get_model_color(m_idx, config))
+            pos += 1
+        pos += 0.5
+
+    bp2 = ax2.boxplot(data_times, positions=positions, widths=0.7, patch_artist=True, showfliers=False)
+    for patch, color in zip(bp2['boxes'], colors):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.85)
+
+    ax2.set_xticks(tick_positions)
+    ax2.set_xticklabels(tick_labels)
+    ax2.set_ylabel('Time to Solution (seconds)')
+    ax2.set_title('Efficiency by Collision Type - Time')
+    ax2.grid(True, axis='y', linestyle='--', alpha=0.6)
+    ax2.legend(legend_handles, model_names, loc='upper right')
+
+    plt.tight_layout()
+    if output_path:
+        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
+        print(f"Saved: {output_path}")
+    return fig
+
+
 def print_summary(model_stats: List[ModelStats]):
     """Print summary statistics (2-push only)."""
     print("\n" + "=" * 80)
@@ -1123,6 +2009,10 @@ def generate_markdown_report(
     depth_counts: Dict[str, int],
     output_path: str,
     confusion_matrices: Optional[Dict[str, Dict[str, int]]] = None,
+    hybrid_stats: Optional[Dict[str, HybridStats]] = None,
+    collision_efficiency: Optional[Dict[str, Dict[str, Dict[str, Any]]]] = None,
+    difficulty_stratification: Optional[Dict[str, Dict[str, Dict[str, Any]]]] = None,
+    hybrid_stats_by_difficulty: Optional[Dict[str, Dict[str, Dict[str, int]]]] = None,
 ):
     """Generate a markdown report with comparison tables (2-push only)."""
     lines = []
@@ -1134,8 +2024,244 @@ def generate_markdown_report(
     count_2push = depth_counts.get('depth_2', 0)
     lines.append(f"Total 2-push problems evaluated: **{count_2push}**\n")
 
-    # Success rates
-    lines.append("## Success Rates\n")
+    # =========================================================================
+    # SUMMARY TABLE (the one table reviewers will quote)
+    # =========================================================================
+    lines.append("## Summary Table\n")
+    lines.append("**Definitions:**")
+    lines.append("- **Success**: First valid 2-push plan found satisfying clearance + executability")
+    lines.append("- **Checks**: # simulation-verified candidate push primitive evaluations until first solution")
+    lines.append("- **Time**: End-to-end wall-clock until first solution (includes inference+decode+scoring+verification)\n")
+
+    lines.append("| Model | Success % | Checks (median [IQR]) | Time (s) (median [IQR]) |")
+    lines.append("|-------|-----------|----------------------|-------------------------|")
+    for stats in model_stats:
+        cat_stats = stats.depth_2
+        success_str = f"**{cat_stats.success_rate:.1%}** ({cat_stats.successes}/{cat_stats.total})"
+        if cat_stats.pushes:
+            p_iqr = cat_stats.pushes_iqr
+            checks_str = f"{cat_stats.median_pushes:.0f} [{p_iqr[0]:.0f}, {p_iqr[1]:.0f}]"
+        else:
+            checks_str = "-"
+        if cat_stats.times:
+            t_iqr = cat_stats.time_iqr
+            # Convert ms to seconds
+            time_str = f"{cat_stats.median_time/1000:.1f} [{t_iqr[0]/1000:.1f}, {t_iqr[1]/1000:.1f}]"
+        else:
+            time_str = "-"
+        lines.append(f"| {stats.name} | {success_str} | {checks_str} | {time_str} |")
+    lines.append("")
+
+    # =========================================================================
+    # HYBRID DECOMPOSITION (only if phase tracking data exists)
+    # =========================================================================
+    # Check if any model has phase tracking data (solved_by_learned or solved_by_fallback > 0)
+    has_phase_data = hybrid_stats and any(
+        hs.solved_by_learned > 0 or hs.solved_by_fallback > 0
+        for hs in hybrid_stats.values()
+    )
+    if has_phase_data:
+        lines.append("## Hybrid Decomposition\n")
+        lines.append("**Definitions:**")
+        lines.append("- **LEARNED**: Solved during ML-only phase (ML-scored primitives)")
+        lines.append("- **FALLBACK**: ML phase exhausted, solved during primitives phase")
+        lines.append("- **FAILED**: Neither phase found a solution\n")
+
+        # Table 1: Success breakdown by outcome
+        lines.append("### Outcome Breakdown\n")
+        lines.append("| Model | N | Learned | Fallback | Failed |")
+        lines.append("|-------|---|---------|----------|--------|")
+
+        for name, hs in hybrid_stats.items():
+            learned_str = f"{hs.learned_rate:.1%} ({hs.solved_by_learned})"
+            fallback_str = f"{hs.fallback_rate:.1%} ({hs.solved_by_fallback})"
+            failed_str = f"{(1 - hs.success_rate):.1%} ({hs.failed})"
+            lines.append(f"| {name} | {hs.total} | {learned_str} | {fallback_str} | {failed_str} |")
+        lines.append("")
+
+        # Table 2: Efficiency for LEARNED cases
+        lines.append("### Learned Cases: Efficiency\n")
+        lines.append("*Problems solved by ML-only phase.*\n")
+        lines.append("| Model | N | Checks (median [IQR]) | Time (s) (median [IQR]) |")
+        lines.append("|-------|---|----------------------|-------------------------|")
+
+        for name, hs in hybrid_stats.items():
+            n_learned = hs.solved_by_learned
+            if hs.learned_pushes:
+                l_iqr = hs.learned_pushes_iqr
+                learned_checks = f"{hs.learned_median_pushes:.0f} [{l_iqr[0]:.0f}, {l_iqr[1]:.0f}]"
+                lt_iqr = hs.learned_time_iqr
+                learned_time = f"{hs.learned_median_time/1000:.1f} [{lt_iqr[0]/1000:.1f}, {lt_iqr[1]/1000:.1f}]"
+            else:
+                learned_checks = "-"
+                learned_time = "-"
+            lines.append(f"| {name} | {n_learned} | {learned_checks} | {learned_time} |")
+        lines.append("")
+
+        # Table 3: Efficiency for FALLBACK cases (total only)
+        any_fallback = any(hs.solved_by_fallback > 0 for hs in hybrid_stats.values())
+        if any_fallback:
+            lines.append("### Fallback Cases: Efficiency\n")
+            lines.append("*Problems where ML phase exhausted, solved by primitives phase. Totals include both phases.*\n")
+            lines.append("| Model | N | Checks (median [IQR]) | Time (s) (median [IQR]) |")
+            lines.append("|-------|---|----------------------|-------------------------|")
+
+            for name, hs in hybrid_stats.items():
+                n_fallback = hs.solved_by_fallback
+                if hs.fallback_pushes:
+                    f_iqr = hs.fallback_pushes_iqr
+                    total_checks = f"{hs.fallback_median_pushes:.0f} [{f_iqr[0]:.0f}, {f_iqr[1]:.0f}]"
+                    ft_iqr = hs.fallback_time_iqr
+                    total_time = f"{hs.fallback_median_time/1000:.1f} [{ft_iqr[0]/1000:.1f}, {ft_iqr[1]/1000:.1f}]"
+                else:
+                    total_checks = "-"
+                    total_time = "-"
+                lines.append(f"| {name} | {n_fallback} | {total_checks} | {total_time} |")
+            lines.append("")
+
+        # Table 4: Hybrid stats by difficulty (learned/fallback/failed by difficulty bucket)
+        if hybrid_stats_by_difficulty:
+            lines.append("### Outcome by Difficulty\n")
+            lines.append("*Learned vs Fallback breakdown per difficulty bucket (based on oracle time).*\n")
+            lines.append("| Model | Difficulty | N | Learned | Fallback | Failed |")
+            lines.append("|-------|------------|---|---------|----------|--------|")
+
+            difficulty_levels = ['easy', 'medium', 'hard']
+            difficulty_labels = {'easy': 'Easy', 'medium': 'Medium', 'hard': 'Hard'}
+
+            for name in hybrid_stats_by_difficulty:
+                for diff in difficulty_levels:
+                    stats = hybrid_stats_by_difficulty[name][diff]
+                    n = stats['total']
+                    if n > 0:
+                        learned_pct = f"{stats['learned']/n:.1%} ({stats['learned']})"
+                        fallback_pct = f"{stats['fallback']/n:.1%} ({stats['fallback']})"
+                        failed_pct = f"{stats['failed']/n:.1%} ({stats['failed']})"
+                    else:
+                        learned_pct = "-"
+                        fallback_pct = "-"
+                        failed_pct = "-"
+                    lines.append(f"| {name} | {difficulty_labels[diff]} | {n} | {learned_pct} | {fallback_pct} | {failed_pct} |")
+            lines.append("")
+
+    # =========================================================================
+    # COLLISION STRATIFICATION (success rate by collision type)
+    # =========================================================================
+    if collision_efficiency:
+        lines.append("## Success Rate by Collision Type\n")
+        lines.append("Collision type determined by oracle (search) solution.\n")
+
+        collision_types = ['none', 'wall_only', 'movable_only', 'both']
+        collision_labels = {'none': 'No Collision', 'wall_only': 'Wall Only',
+                            'movable_only': 'Movable Only', 'both': 'Both'}
+
+        header = "| Model |"
+        for ct in collision_types:
+            header += f" {collision_labels[ct]} |"
+        lines.append(header)
+
+        sep = "|-------|"
+        for _ in collision_types:
+            sep += "-------------|"
+        lines.append(sep)
+
+        for name in collision_efficiency:
+            row = f"| {name} |"
+            for ct in collision_types:
+                stats = collision_efficiency[name][ct]
+                rate = stats['successes'] / stats['total'] if stats['total'] > 0 else 0.0
+                row += f" {rate:.1%} ({stats['successes']}/{stats['total']}) |"
+            lines.append(row)
+        lines.append("")
+
+        # Efficiency by bucket
+        lines.append("### Efficiency by Collision Type (Solved Cases Only)\n")
+        lines.append("*Note: Efficiency numbers are computed over solved cases only; models with lower success rates may appear more efficient due to selection bias (e.g., only succeeding on easier instances).*\n")
+        lines.append("| Model | Collision Type | N | Median Checks | Median Time (s) |")
+        lines.append("|-------|----------------|---|---------------|-----------------|")
+
+        for name in collision_efficiency:
+            for ct in collision_types:
+                stats = collision_efficiency[name][ct]
+                pushes = stats['pushes']
+                times = stats['times']
+                n_solved = len(pushes)
+                if pushes:
+                    med_checks = f"{np.median(pushes):.0f}"
+                    med_time = f"{np.median(times)/1000:.1f}"  # Convert ms to seconds
+                else:
+                    med_checks = "-"
+                    med_time = "-"
+                lines.append(f"| {name} | {collision_labels[ct]} | {n_solved} | {med_checks} | {med_time} |")
+        lines.append("")
+
+    # =========================================================================
+    # DIFFICULTY STRATIFICATION (based on oracle time)
+    # =========================================================================
+    if difficulty_stratification:
+        lines.append("## Difficulty Stratification (by Oracle Time)\n")
+        lines.append("*Problems split into thirds by oracle solution time: Easy (fastest 33%), Medium (middle 33%), Hard (slowest 33%).*\n")
+
+        difficulty_levels = ['easy', 'medium', 'hard']
+        difficulty_labels = {'easy': 'Easy', 'medium': 'Medium', 'hard': 'Hard'}
+
+        # Get oracle time ranges from first model (same for all)
+        first_model = list(difficulty_stratification.keys())[0]
+        range_info = []
+        for diff in difficulty_levels:
+            r = difficulty_stratification[first_model][diff]['oracle_time_range']
+            range_info.append(f"**{difficulty_labels[diff]}**: {r[0]:.1f}–{r[1]:.1f}s")
+        lines.append(f"Oracle time ranges: {', '.join(range_info)}\n")
+
+        # Success rate table
+        lines.append("### Success Rate by Difficulty\n")
+        header = "| Model |"
+        for diff in difficulty_levels:
+            header += f" {difficulty_labels[diff]} |"
+        lines.append(header)
+
+        sep = "|-------|"
+        for _ in difficulty_levels:
+            sep += "------------|"
+        lines.append(sep)
+
+        for name in difficulty_stratification:
+            row = f"| {name} |"
+            for diff in difficulty_levels:
+                stats = difficulty_stratification[name][diff]
+                rate = stats['successes'] / stats['total'] if stats['total'] > 0 else 0.0
+                row += f" {rate:.1%} ({stats['successes']}/{stats['total']}) |"
+            lines.append(row)
+        lines.append("")
+
+        # Efficiency by difficulty (solved cases only)
+        lines.append("### Efficiency by Difficulty (Solved Cases Only)\n")
+        lines.append("*Note: Efficiency computed over solved cases only; selection bias may apply.*\n")
+        lines.append("| Model | Difficulty | N | Median Checks | Median Time (s) |")
+        lines.append("|-------|------------|---|---------------|-----------------|")
+
+        for name in difficulty_stratification:
+            for diff in difficulty_levels:
+                stats = difficulty_stratification[name][diff]
+                pushes = stats['pushes']
+                times = stats['times']
+                n_solved = len(pushes)
+                if pushes:
+                    med_checks = f"{np.median(pushes):.0f}"
+                    med_time = f"{np.median(times)/1000:.1f}"
+                else:
+                    med_checks = "-"
+                    med_time = "-"
+                lines.append(f"| {name} | {difficulty_labels[diff]} | {n_solved} | {med_checks} | {med_time} |")
+        lines.append("")
+
+    # =========================================================================
+    # LEGACY TABLES (kept for backward compatibility)
+    # =========================================================================
+    lines.append("## Detailed Statistics\n")
+
+    # Success rates (legacy format)
+    lines.append("### Success Rates\n")
     lines.append("| Model | Successes | Total | Success Rate |")
     lines.append("|-------|-----------|-------|--------------|")
     for stats in model_stats:
@@ -1143,32 +2269,36 @@ def generate_markdown_report(
         lines.append(f"| {stats.name} | {cat_stats.successes} | {cat_stats.total} | **{cat_stats.success_rate:.1%}** |")
     lines.append("")
 
-    # Pushes statistics
-    lines.append("## Pushes to Success (Successful Runs Only)\n")
-    lines.append("| Model | Median | Mean |")
-    lines.append("|-------|--------|------|")
+    # Pushes statistics with IQR
+    lines.append("### Checks to Success (Successful Runs Only)\n")
+    lines.append("| Model | Median | IQR [25%, 75%] | Mean |")
+    lines.append("|-------|--------|----------------|------|")
     for stats in model_stats:
         cat_stats = stats.depth_2
         if cat_stats.pushes:
-            lines.append(f"| {stats.name} | {cat_stats.median_pushes:.1f} | {cat_stats.mean_pushes:.1f} |")
+            p_iqr = cat_stats.pushes_iqr
+            lines.append(f"| {stats.name} | {cat_stats.median_pushes:.0f} | [{p_iqr[0]:.0f}, {p_iqr[1]:.0f}] | {cat_stats.mean_pushes:.0f} |")
         else:
-            lines.append(f"| {stats.name} | - | - |")
+            lines.append(f"| {stats.name} | - | - | - |")
     lines.append("")
 
-    # Time statistics
-    lines.append("## Time to Success in ms (Successful Runs Only)\n")
-    lines.append("| Model | Median | Mean |")
-    lines.append("|-------|--------|------|")
+    # Time statistics with IQR (in seconds)
+    lines.append("### Time to Success (s) (Successful Runs Only)\n")
+    lines.append("| Model | Median | IQR [25%, 75%] | Mean |")
+    lines.append("|-------|--------|----------------|------|")
     for stats in model_stats:
         cat_stats = stats.depth_2
         if cat_stats.times:
-            lines.append(f"| {stats.name} | {cat_stats.median_time:.0f} | {cat_stats.mean_time:.0f} |")
+            t_iqr = cat_stats.time_iqr
+            # Convert ms to seconds
+            lines.append(f"| {stats.name} | {cat_stats.median_time/1000:.1f} | [{t_iqr[0]/1000:.1f}, {t_iqr[1]/1000:.1f}] | {cat_stats.mean_time/1000:.1f} |")
         else:
-            lines.append(f"| {stats.name} | - | - |")
+            lines.append(f"| {stats.name} | - | - | - |")
     lines.append("")
 
     # Interaction statistics
     lines.append("## Interaction Statistics (Successful Runs Only)\n")
+    lines.append("*Note: Statistics computed over successful runs only. Models with lower success rates may show different interaction patterns due to selection bias (failing on harder instances).*\n")
     lines.append("| Model | Wall Collision Rate | Movable Collision Rate |")
     lines.append("|-------|---------------------|------------------------|")
     for stats in model_stats:
@@ -1416,6 +2546,45 @@ def main():
             filtered_data[name], reference_data
         )
 
+    # Compute hybrid stats (learned vs fallback decomposition) - 2-push only
+    # Only for learned models (not reference/baselines which don't use hybrid approach)
+    learned_model_names = {m.name for m in config.learned}
+    hybrid_stats_2push = {}
+    hybrid_stats_by_difficulty = {}
+    for name in filtered_data:
+        if name in learned_model_names:
+            hybrid_stats_2push[name] = compute_hybrid_stats(
+                filtered_data[name], reference_data, depth_filter=2
+            )
+            hybrid_stats_by_difficulty[name] = compute_hybrid_stats_by_difficulty(
+                filtered_data[name], reference_data, depth_filter=2
+            )
+
+    # Compute collision bucket efficiency
+    collision_efficiency = {}
+    for name in filtered_data:
+        collision_efficiency[name] = compute_collision_bucket_efficiency(
+            filtered_data[name], reference_data
+        )
+
+    # Compute difficulty stratification (based on oracle time) - 2-push only
+    difficulty_stratification = {}
+    for name in filtered_data:
+        difficulty_stratification[name] = compute_difficulty_stratification(
+            filtered_data[name], reference_data, depth_filter=2
+        )
+
+    # Compute time and push based success by difficulty (for plots)
+    time_data_by_difficulty = {}
+    push_data_by_difficulty = {}
+    for name in filtered_data:
+        time_data_by_difficulty[name] = compute_time_based_success_by_difficulty(
+            filtered_data[name], reference_data, config, depth_filter=2
+        )
+        push_data_by_difficulty[name] = compute_push_based_success_by_difficulty(
+            filtered_data[name], reference_data, config, depth_filter=2
+        )
+
     # Print summary
     print_summary(all_stats)
 
@@ -1445,6 +2614,30 @@ def main():
                 rate = stats['successes'] / stats['total'] if stats['total'] > 0 else 0.0
                 print(f"  {collision_labels[ct]:15s}: {stats['successes']:3d}/{stats['total']:3d} = {rate:.1%}")
 
+    # Print difficulty stratification
+    print("\n" + "=" * 80)
+    print("DIFFICULTY STRATIFICATION (based on oracle solution time)")
+    print("=" * 80)
+    difficulty_levels = ['easy', 'medium', 'hard']
+    difficulty_labels_print = {'easy': 'Easy', 'medium': 'Medium', 'hard': 'Hard'}
+
+    if difficulty_stratification:
+        # Print oracle time ranges (same for all models)
+        first_model = list(difficulty_stratification.keys())[0]
+        print("\nOracle Time Ranges:")
+        for diff in difficulty_levels:
+            r = difficulty_stratification[first_model][diff]['oracle_time_range']
+            n = difficulty_stratification[first_model][diff]['total']
+            print(f"  {difficulty_labels_print[diff]:8s}: {r[0]:6.1f}s – {r[1]:6.1f}s  (N={n})")
+
+        # Print success rates per model
+        for name in difficulty_stratification:
+            print(f"\n{name}:")
+            for diff in difficulty_levels:
+                stats = difficulty_stratification[name][diff]
+                rate = stats['successes'] / stats['total'] if stats['total'] > 0 else 0.0
+                print(f"  {difficulty_labels_print[diff]:8s}: {stats['successes']:3d}/{stats['total']:3d} = {rate:.1%}")
+
     # Print confusion matrices (2-push only)
     print("\n" + "=" * 80)
     print("2-PUSH MODEL RESULT BREAKDOWN")
@@ -1458,6 +2651,55 @@ def main():
         print(f"  Model 2-push: {matrix['oracle_2_model_2']:3d} ({matrix['oracle_2_model_2']/oracle_2_total*100:5.1f}%)" if oracle_2_total > 0 else "  Model 2-push: N/A")
         print(f"  Model 2+:     {matrix['oracle_2_model_2plus']:3d} ({matrix['oracle_2_model_2plus']/oracle_2_total*100:5.1f}%)" if oracle_2_total > 0 else "  Model 2+: N/A")
         print(f"  Failed:       {matrix['oracle_2_failed']:3d} ({matrix['oracle_2_failed']/oracle_2_total*100:5.1f}%)" if oracle_2_total > 0 else "  Failed: N/A")
+
+    # Print hybrid decomposition stats (2-push only) - only if phase data exists
+    has_phase_data = any(
+        hs.solved_by_learned > 0 or hs.solved_by_fallback > 0
+        for hs in hybrid_stats_2push.values()
+    )
+    if has_phase_data:
+        print("\n" + "=" * 80)
+        print("HYBRID DECOMPOSITION (2-Push Problems)")
+        print("=" * 80)
+        print("Phase tracking: solved_in_phase == 'ML-only' → LEARNED, 'primitives' → FALLBACK")
+
+        for name, hs in hybrid_stats_2push.items():
+            if hs.total == 0:
+                continue
+            print(f"\n{name} (n={hs.total}):")
+            print(f"  Solved by LEARNED:  {hs.solved_by_learned:3d} ({hs.learned_rate:.1%})")
+            print(f"  Solved by FALLBACK: {hs.solved_by_fallback:3d} ({hs.fallback_rate:.1%})")
+            print(f"  Failed:             {hs.failed:3d} ({(1-hs.success_rate):.1%})")
+
+            if hs.learned_pushes:
+                l_iqr = hs.learned_pushes_iqr
+                print(f"  Learned checks:     median={hs.learned_median_pushes:.0f} [{l_iqr[0]:.0f}, {l_iqr[1]:.0f}]")
+            if hs.fallback_pushes:
+                f_iqr = hs.fallback_pushes_iqr
+                print(f"  Fallback checks:    median={hs.fallback_median_pushes:.0f} [{f_iqr[0]:.0f}, {f_iqr[1]:.0f}]")
+            if hs.checks_before_fallback:
+                bf_iqr = hs.checks_before_fallback_iqr
+                print(f"  Checks before FB:   median={hs.median_checks_before_fallback:.0f} [{bf_iqr[0]:.0f}, {bf_iqr[1]:.0f}]")
+
+        # Print hybrid stats by difficulty
+        if hybrid_stats_by_difficulty:
+            print("\n  By Difficulty:")
+            difficulty_levels = ['easy', 'medium', 'hard']
+            difficulty_labels = {'easy': 'Easy', 'medium': 'Medium', 'hard': 'Hard'}
+
+            for name in hybrid_stats_by_difficulty:
+                print(f"\n  {name}:")
+                for diff in difficulty_levels:
+                    stats = hybrid_stats_by_difficulty[name][diff]
+                    n = stats['total']
+                    if n > 0:
+                        learned_pct = stats['learned'] / n * 100
+                        fallback_pct = stats['fallback'] / n * 100
+                        failed_pct = stats['failed'] / n * 100
+                        print(f"    {difficulty_labels[diff]:8s} (N={n:2d}): Learned={learned_pct:5.1f}% ({stats['learned']:2d}), "
+                              f"Fallback={fallback_pct:5.1f}% ({stats['fallback']:2d}), Failed={failed_pct:5.1f}% ({stats['failed']:2d})")
+                    else:
+                        print(f"    {difficulty_labels[diff]:8s} (N= 0): -")
 
     # Generate plots
     print("\nGenerating plots...")
@@ -1517,13 +2759,48 @@ def main():
             f"{config.output_dir}/confusion_matrix.png"
         )
 
+    # Plot hybrid decomposition
+    if hybrid_stats_2push:
+        plot_hybrid_decomposition(
+            hybrid_stats_2push,
+            config,
+            f"{config.output_dir}/hybrid_decomposition.png"
+        )
+
+    # Plot collision bucket efficiency
+    if collision_efficiency:
+        plot_collision_bucket_efficiency(
+            collision_efficiency,
+            config,
+            f"{config.output_dir}/collision_bucket_efficiency.png"
+        )
+
+    # Plot success vs time/pushes by difficulty
+    if time_data_by_difficulty:
+        plot_time_vs_success_by_difficulty(
+            time_data_by_difficulty,
+            config,
+            f"{config.output_dir}/time_vs_success_by_difficulty.png"
+        )
+
+    if push_data_by_difficulty:
+        plot_pushes_vs_success_by_difficulty(
+            push_data_by_difficulty,
+            config,
+            f"{config.output_dir}/pushes_vs_success_by_difficulty.png"
+        )
+
     # Generate markdown report
     generate_markdown_report(
         all_stats,
         config,
         depth_counts,
         f"{config.output_dir}/results.md",
-        confusion_matrices=confusion_matrices
+        confusion_matrices=confusion_matrices,
+        hybrid_stats=hybrid_stats_2push,
+        collision_efficiency=collision_efficiency,
+        difficulty_stratification=difficulty_stratification,
+        hybrid_stats_by_difficulty=hybrid_stats_by_difficulty,
     )
 
     print(f"\nPlots saved to: {config.output_dir}")
