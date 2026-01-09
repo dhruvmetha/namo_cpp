@@ -4,27 +4,30 @@
 # Reference model - determines problem categorization (1-push vs 2-push)
 # This is typically the exhaustive search results
 reference:
-  name: "Search MP"
-  dir: /common/users/dm1487/namo_data/dec25/aug9_envs/2_push_test_first_solution_parallel
+  name: "Exhaustive Primitive Search"
+  dir: /common/users/dm1487/namo_data/jan7/aug9_envs/2_push_test_first_solution
 
 
 # baselines:
 #   - name: "Search SP"
-#     dir: /common/users/dm1487/namo_data/dec25/aug9_envs/2_push_test_first_solution
+#     dir: /common/users/dm1487/namo_data/jan7/aug9_envs/2_push_test_first_solution
     # success_dir: learned_success  # optional: custom folder name for success-filtered plots
 
 # Learned models to compare
 learned:
   - name: "2 Push Learned Hybrid Voting 1"
-    dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/results_32samples_int5_seed42_voting1_hybrid_filtered/modular_data_1spring-303-desktop-08
+    dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/jan7/results_32samples_int5_seed42_voting1_hybrid_filtered/modular_data_1spring-303-desktop-08
   - name: "2 Push Learned Hybrid Voting 5"
-    dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/results_32samples_int5_seed42_voting5_hybrid_filtered/modular_data_ilab4
-    success_dir: learned_success  # optional: custom folder name for success-filtered plots
+    dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/jan7/results_32samples_int5_seed42_voting5_hybrid_filtered/modular_data_1spring-303-desktop-08
+  
+  # - name: "2 Push Learned Hybrid Voting 5"
+  #   dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/results_32samples_int5_seed42_voting5_hybrid_filtered/modular_data_ilab4
+  #   success_dir: learned_success  # optional: custom folder name for success-filtered plots
 #   - name: "2 Push Learned Hybrid"
 #     dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/results_32samples_int5_seed42_voting1_hybrid_filtered
 #     # success_dir: learned_success  # optional: custom folder name for success-filtered plots
-#   - name: "2 Push Learned Diffusion"
-#     dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/results_32samples_int5_seed42_voting1_filtered # /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/results_32samples_diffusion_only/modular_data_1spring-303-desktop-08
+  # - name: "2 Push Learned Diffusion"
+  #   dir:  /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/jan7/results_32samples_int5_seed42_voting5_filtered/modular_data_ilab4 # /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/results_32samples_diffusion_only/modular_data_1spring-303-desktop-08
 #     # success_dir: learned_success  # optional: custom folder name for success-filtered plots
 #   # - name: "2 Push Learned Diffusion 2"
 #   #   dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/results_32samples_int5_seed42_voting1 # /common/users/

@@ -2,7 +2,7 @@
 # Use with: python modular_parallel_collection.py --config-yaml python/namo/data_collection/region_opening_collection.yaml
 # CLI flags can override any value here.
 # Core execution
-output_dir: /common/users/dm1487/namo_data/dec25/aug9_envs/2_push_test_first_solution_parallel #/common/users/dm1487/namo_data/dec25/aug9_envs/1_push_triplets_test_first_solution
+output_dir: /common/users/dm1487/namo_data/jan7/aug9_envs/2_push_test_first_solution #/common/users/dm1487/namo_data/dec25/aug9_envs/1_push_triplets_test_first_solution
 # /common/users/dm1487/namo_data/dec2/aug9_envs/2_push_test_first_solution
 end_idx: 7000
 algorithm: region_opening
@@ -36,7 +36,7 @@ xml_dir: /common/users/shared/robot_learning/dm1487/namo/mj_env_configs/nov28/11
 config_file: config/namo_config_complete_skill15.yaml
 # manifest: /common/users/shared/robot_learning/dm1487/namo/manifests/aug9_medium/manifest.txt  # Pre-generated file list for fast loading (use generate_xml_manifest.py)
 # manifest: /common/users/shared/robot_learning/dm1487/namo/manifests/aug9_medium/manifest_test.txt  # Pre-generated file list for fast loading (use generate_xml_manifest.py)
-manifest: /common/users/shared/robot_learning/dm1487/namo/manifests/aug9_medium/manifest_2push_test_minus_1push_test.txt  # 
+manifest: /common/users/shared/robot_learning/dm1487/namo/manifests/aug9_medium/manifest_2push_test_minus_1push_test_filtered.txt  # 
 # manifest: /common/users/shared/robot_learning/dm1487/namo/manifests/aug9_medium/manifest_2push_test_minus_1push_test_filtered.txt
 # Pre-generated file list for fast loading (use generate_xml_manifest.py)
 # _2push_test_minus_1push_test
