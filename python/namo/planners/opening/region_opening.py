@@ -109,6 +109,11 @@ class AttemptResult:
     # Collision tracking for hardness metrics (aggregated across all pushes in chain)
     any_wall_collision: bool = False  # Did any push hit a wall?
     unique_movable_collision_count: int = 0  # Number of unique movable objects hit across all pushes
+    # Phase tracking for hybrid decomposition analysis
+    # Tracks pushes per search phase: {"ML-only": X, "primitives": Y}
+    phase_push_counts: Optional[Dict[str, int]] = None
+    # Which phase found the solution: "ML-only", "primitives", or "" if not found
+    solved_in_phase: str = ""
 
 
 class RegionOpeningPlanner(BasePlanner):
@@ -774,9 +779,12 @@ class RegionOpeningPlanner(BasePlanner):
                     max_solutions_to_collect=max_solutions_for_object,
                     push_counter=neighbour_push_counter,
                 )
+                # Async search doesn't have phase tracking yet - use defaults
+                phase_push_counts = None
+                solved_in_phase = ""
             else:
                 # Use standard BFS search
-                successful_goals, min_depth = self._search_with_chaining_bfs(
+                successful_goals, min_depth, phase_push_counts, solved_in_phase = self._search_with_chaining_bfs(
                     object_id,
                     exploration_state,
                     neighbour_label,
@@ -872,6 +880,8 @@ class RegionOpeningPlanner(BasePlanner):
                             reachable_edges=sorted(list(obj_reachable_edges_set)) if obj_reachable_edges_set else None,
                             any_wall_collision=any_wall_collision,
                             unique_movable_collision_count=unique_movable_collision_count,
+                            phase_push_counts=phase_push_counts,
+                            solved_in_phase=solved_in_phase,
                         ))
                         # Verbose: print running count of solutions for this object
                         if self.config.verbose:
@@ -915,6 +925,8 @@ class RegionOpeningPlanner(BasePlanner):
                             reachable_edges=sorted(list(obj_reachable_edges_set)) if obj_reachable_edges_set else None,
                             any_wall_collision=any_wall_collision,
                             unique_movable_collision_count=unique_movable_collision_count,
+                            phase_push_counts=phase_push_counts,
+                            solved_in_phase=solved_in_phase,
                         ))
                         # Verbose: print running count of solutions for this object
                         if self.config.verbose:
@@ -1166,6 +1178,8 @@ class RegionOpeningPlanner(BasePlanner):
 
         # Track global phase state across all depths
         global_phase_push_counts = {}
+        # Track which phase found the first solution
+        solved_in_phase = ""
 
         # Cache goals per node to avoid redundant ML inference across phases and depths
         # Key: node id, Value: (goals_per_edge, reachable_edge_indices)
@@ -1361,6 +1375,9 @@ class RegionOpeningPlanner(BasePlanner):
                         # Track minimum chain depth where we found a solution
                         if min_chain_depth_found is None:
                             min_chain_depth_found = chain_depth
+                            # Record which phase found the first solution
+                            if not solved_in_phase:
+                                solved_in_phase = phase_name
 
                     # Add new frontier nodes for next chain level
                     next_frontier.extend(new_frontier_nodes)
@@ -1431,9 +1448,9 @@ class RegionOpeningPlanner(BasePlanner):
             min_cost_chains = [entry for entry in all_chains_across_depths if entry[8] == best_cost]
             if self.config.verbose:
                 print(f"    ✔ Returning {len(min_cost_chains)} min-cost solution(s) with cost={best_cost}")
-            return min_cost_chains, min_chain_depth_found if min_chain_depth_found else 0
+            return min_cost_chains, min_chain_depth_found if min_chain_depth_found else 0, global_phase_push_counts, solved_in_phase
         else:
-            return all_chains_across_depths, 0
+            return all_chains_across_depths, 0, global_phase_push_counts, solved_in_phase
 
     def _reconstruct_chain(self, final_node: ChainNode, final_goal: Goal) -> List[Goal]:
         """Reconstruct the chain of goals from root to final goal."""

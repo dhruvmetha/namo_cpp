@@ -295,6 +295,9 @@ def process_single_environment(
                                 'ml_goals_raw': getattr(attempt, 'ml_goals_raw', None),
                                 # reachable_edges: [edge_idx, ...]
                                 'reachable_edges': getattr(attempt, 'reachable_edges', None),
+                                # Hybrid decomposition tracking
+                                'phase_push_counts': getattr(attempt, 'phase_push_counts', None),
+                                'solved_in_phase': getattr(attempt, 'solved_in_phase', ''),
                             },
                             action_sequence=action_sequence,
                             state_observations=attempt.state_observations,

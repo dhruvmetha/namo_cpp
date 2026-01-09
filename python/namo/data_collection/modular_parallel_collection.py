@@ -515,6 +515,9 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                                 'solutions_total_for_neighbour': getattr(attempt, 'solutions_total_for_neighbour', None),
                                 'pushes_total_for_neighbour': getattr(attempt, 'pushes_total_for_neighbour', None),
                                 'failure_reason': getattr(attempt, 'failure_reason', None),
+                                # Hybrid decomposition tracking
+                                'phase_push_counts': getattr(attempt, 'phase_push_counts', None),
+                                'solved_in_phase': getattr(attempt, 'solved_in_phase', ''),
                             },
                             action_sequence=action_sequence,
                             state_observations=attempt.state_observations,
