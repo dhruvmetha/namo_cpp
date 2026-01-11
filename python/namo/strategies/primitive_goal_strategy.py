@@ -7,9 +7,10 @@ and organized by edge points and push steps.
 
 import struct
 import os
+import json
 import math
 from dataclasses import dataclass
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 from collections import defaultdict
 from abc import ABC
 
@@ -109,6 +110,12 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
             verbose: Enable verbose output
         """
         self.data_dir = data_dir
+        # Default configs often set `primitive_data_dir: data`, which is CWD-relative and fragile.
+        # If we're running outside `namo_cpp/`, fall back to `<repo>/namo_cpp/data`.
+        if self.data_dir == "data" and not os.path.isdir(self.data_dir):
+            candidate = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../data"))
+            if os.path.isdir(candidate):
+                self.data_dir = candidate
         self.verbose = verbose
         self._primitive_cache: Dict[str, List[Primitive]] = {}
 
@@ -309,6 +316,7 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
         goals_per_region: int = None,
         preview_aligned_primitives: bool = False,
         k_nearest: int = 1,
+        score_metric: str = "pos+w*ang",
     ):
         """
         Args:
@@ -327,12 +335,17 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             goals_per_region: Number of region goal samples to include (vector models only).
             preview_aligned_primitives: If True, save visualization of aligned primitives.
             k_nearest: Number of nearest primitive slots to vote for per ML goal (within tolerance).
+            score_metric: How to rank primitive slots by (pos_err, ang_err). Options:
+                - "pos+w*ang": pos_err + w * ang_err  (current default; w has units m/rad)
+                - "l2": sqrt(pos_err^2 + (w*ang_err)^2)
+                - "normalized_l2": sqrt((pos_err/tol_pos)^2 + (w*ang_err/tol_ang)^2)
         """
         self.verbose = verbose
         self.max_matches = max_matches
         self.match_position_tolerance = match_position_tolerance
         self.match_angle_tolerance = match_angle_tolerance
         self.angle_weight = angle_weight
+        self.score_metric = str(score_metric or "pos+w*ang").strip().lower()
         self.preview_aligned_primitives = preview_aligned_primitives
         self.k_nearest = max(1, int(k_nearest)) if k_nearest is not None else 1
 
@@ -355,6 +368,19 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
 
         # Store last alignment result for visualization
         self._last_alignment_info = None
+
+    def _slot_score(self, *, pos_err: float, ang_err: float) -> float:
+        metric = self.score_metric
+        if metric == "pos+w*ang":
+            return pos_err + (self.angle_weight * ang_err)
+        if metric == "l2":
+            return math.hypot(pos_err, self.angle_weight * ang_err)
+        if metric == "normalized_l2":
+            pos_scale = max(float(self.match_position_tolerance), 1e-9)
+            ang_scale = max(float(self.match_angle_tolerance), 1e-9)
+            return math.hypot(pos_err / pos_scale, (self.angle_weight * ang_err) / ang_scale)
+        # Fallback to the historic behavior.
+        return pos_err + (self.angle_weight * ang_err)
 
     def generate_goals(
         self,
@@ -400,47 +426,159 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
                 print(f"  ⚠️ No ML goals - returning empty aligned structure")
             return aligned_goals
 
+        # NOTE: We map ML goals to the closest primitive slots over *all* edges (reachable + unreachable).
+        # The region-opening planner filters by reachability later (see RegionOpeningPlanner._search_bfs),
+        # but we still compute `reachable_edges` here to (a) color dots in the preview and (b) show which
+        # voted primitive the planner would attempt first among reachable edges.
+        reachable_edges: set[int] = set()
+        try:
+            original_state = env.get_full_state()
+            env.set_full_state(state)
+            reachable_edges = set(env.get_reachable_edges(object_id))
+        except Exception as e:
+            if self.verbose:
+                print(f"  ⚠️ Could not get reachable edges for alignment: {e}")
+        finally:
+            try:
+                env.set_full_state(original_state)
+            except Exception:
+                pass
+
         slot_metadata = self._build_slot_metadata(primitive_goals)
         slot_accumulators = defaultdict(lambda: {"x": 0.0, "y": 0.0, "sin": 0.0, "cos": 0.0, "count": 0})
-        goal_matches = 0
-        skipped_due_to_tolerance = 0
+        goals_within_tolerance = 0
+        goals_outside_tolerance = 0
+        ml_goal_match_debug: List[Dict[str, Any]] = []
+        debug_topk = 5 if (self.preview_aligned_primitives or self.verbose) else 0
 
         for ml_goal_idx, ml_goal in enumerate(ml_goals):
-            # Collect all slots within tolerance with their scores
-            candidates_within_tolerance = []
+            best_unfiltered = None  # for debugging: (score, slot_id, edge_idx, depth_idx, pos_err, ang_err)
+            candidates_reachable = []
+            candidates_all = [] if debug_topk else None
 
             for slot_id, (edge_idx, depth_idx, primitive_goal) in enumerate(slot_metadata):
                 pos_err, ang_err = self._goal_error(primitive_goal, ml_goal)
+                score = self._slot_score(pos_err=pos_err, ang_err=ang_err)
+                if best_unfiltered is None or score < best_unfiltered[0]:
+                    best_unfiltered = (score, slot_id, edge_idx, depth_idx, pos_err, ang_err)
 
-                # Filter by tolerance - only consider slots within both thresholds
-                if pos_err > self.match_position_tolerance or ang_err > self.match_angle_tolerance:
-                    continue
+                if candidates_all is not None:
+                    candidates_all.append((score, pos_err, ang_err, slot_id, edge_idx, depth_idx, (not reachable_edges) or (edge_idx in reachable_edges)))
 
-                score = pos_err + self.angle_weight * ang_err
-                candidates_within_tolerance.append((score, slot_id, edge_idx, depth_idx))
+                # NOTE: We intentionally map over *all* primitive slots, regardless of reachability.
+                # The region-opening planner later filters by `reachable_edge_indices` before executing.
+                candidates_reachable.append((score, pos_err, ang_err, slot_id, edge_idx, depth_idx))
 
-            if not candidates_within_tolerance:
-                skipped_due_to_tolerance += 1
-                if self.verbose and ml_goal_idx < 5:  # Show first 5 skipped goals
-                    print(f"    ⊗ ML goal {ml_goal_idx}: ({ml_goal.x:.3f}, {ml_goal.y:.3f}, {ml_goal.theta:.3f}) - No slots within tolerance")
+            if not candidates_reachable:
                 continue
 
-            # Sort by score (ascending) and take top-k
-            candidates_within_tolerance.sort(key=lambda x: x[0])
-            top_k_candidates = candidates_within_tolerance[:self.k_nearest]
+            candidate_pool_sorted = sorted(candidates_reachable, key=lambda x: x[0])
+            # For debugging only: what the planner could actually try (reachable edges).
+            # If reachability is unknown (empty set), treat everything as reachable.
+            candidate_pool_reachable_sorted = [
+                cand for cand in candidate_pool_sorted
+                if (not reachable_edges) or (cand[4] in reachable_edges)
+            ]
+            top_k = candidate_pool_sorted[: max(1, self.k_nearest)]
 
-            # Vote for each of the k-nearest slots
-            for score, slot_id, edge_idx, depth_idx in top_k_candidates:
+            # Count tolerance satisfaction based on the best (closest) candidate only.
+            best_score, best_pos, best_ang, _best_slot_id, _best_edge, _best_depth = top_k[0]
+            best_within_tolerance = (best_pos <= self.match_position_tolerance) and (best_ang <= self.match_angle_tolerance)
+            if best_within_tolerance:
+                goals_within_tolerance += 1
+            else:
+                goals_outside_tolerance += 1
+
+            # Vote weighting: Borda-style so the planner's order matches the closeness ranking.
+            # For k=5, votes are [5, 4, 3, 2, 1] for ranks 1..5.
+            voted_slots_debug = []
+            for rank, (cand_score, cand_pos, cand_ang, slot_id, edge_idx, depth_idx) in enumerate(top_k):
+                vote_weight = max(1, int(self.k_nearest) - rank)
                 acc = slot_accumulators[slot_id]
-                acc["count"] += 1
-
+                acc["count"] += vote_weight
                 if "goal" not in acc:
-                    # Retrieve the correct primitive goal from metadata using slot_id
-                    # (Do not use the loop variable 'primitive_goal' which is stale/incorrect here)
                     _, _, correct_primitive_goal = slot_metadata[slot_id]
                     acc["goal"] = correct_primitive_goal
 
-            goal_matches += 1  # Count ML goals that had at least one match
+                within_tolerance = (cand_pos <= self.match_position_tolerance) and (cand_ang <= self.match_angle_tolerance)
+                voted_slots_debug.append({
+                    "rank": rank + 1,
+                    "vote_weight": vote_weight,
+                    "score": cand_score,
+                    "pos_err": cand_pos,
+                    "ang_err": cand_ang,
+                    "slot_id": slot_id,
+                    "edge_idx": edge_idx,
+                    "depth_idx": depth_idx,
+                    "within_tolerance": within_tolerance,
+                    "reachable": (not reachable_edges) or (edge_idx in reachable_edges),
+                })
+
+            top_reachable = []
+            top_all = []
+            if debug_topk:
+                if candidate_pool_reachable_sorted:
+                    top_reachable = candidate_pool_reachable_sorted[:debug_topk]
+                if candidates_all:
+                    top_all = sorted(candidates_all, key=lambda x: x[0])[:debug_topk]
+
+            if self.verbose and ml_goal_idx < 5:
+                reach_note = "reachable" if (not reachable_edges or _best_edge in reachable_edges) else "unreachable"
+                tol_note = "✓ within tol" if best_within_tolerance else "⊗ outside tol"
+                print(
+                    f"    ↪ ML goal {ml_goal_idx}: ({ml_goal.x:.3f}, {ml_goal.y:.3f}, {ml_goal.theta:.3f}) "
+                    f"→ E{_best_edge}D{_best_depth+1} ({reach_note}) | pos={best_pos:.3f}, ang={best_ang:.3f} ({tol_note})"
+                )
+                if top_all:
+                    print(
+                        f"      Top-{min(debug_topk, len(top_all))} candidates "
+                        f"(all edges, score_metric={self.score_metric}, w={self.angle_weight}):"
+                    )
+                    for rank, cand in enumerate(top_all):
+                        c_score, c_pos, c_ang, _slot, c_edge, c_depth, c_reach = cand
+                        reach_tag = "reachable" if c_reach else "unreachable"
+                        print(f"        {rank+1}) E{c_edge}D{c_depth+1} ({reach_tag}): score={c_score:.3f}, pos={c_pos:.3f}, ang={c_ang:.3f}")
+                if reachable_edges and top_reachable:
+                    print(
+                        f"      Top-{min(debug_topk, len(top_reachable))} candidates "
+                        f"(reachable edges only, score_metric={self.score_metric}, w={self.angle_weight}):"
+                    )
+                    for rank, cand in enumerate(top_reachable):
+                        c_score, c_pos, c_ang, _slot, c_edge, c_depth = cand
+                        print(f"        {rank+1}) E{c_edge}D{c_depth+1}: score={c_score:.3f}, pos={c_pos:.3f}, ang={c_ang:.3f}")
+
+            ml_goal_match_debug.append({
+                "ml_goal_idx": ml_goal_idx,
+                "ml_goal": ml_goal,
+                "matched": best_within_tolerance,
+                "voted_slots": voted_slots_debug,
+                "best_overall": best_unfiltered,
+                "top_candidates_reachable": [
+                    {
+                        "rank": rank + 1,
+                        "score": float(c_score),
+                        "pos_err": float(c_pos),
+                        "ang_err": float(c_ang),
+                        "slot_id": int(c_slot),
+                        "edge_idx": int(c_edge),
+                        "depth_idx": int(c_depth),
+                    }
+                    for rank, (c_score, c_pos, c_ang, c_slot, c_edge, c_depth) in enumerate(top_reachable)
+                ] if top_reachable else [],
+                "top_candidates_all": [
+                    {
+                        "rank": rank + 1,
+                        "score": float(c_score),
+                        "pos_err": float(c_pos),
+                        "ang_err": float(c_ang),
+                        "slot_id": int(c_slot),
+                        "edge_idx": int(c_edge),
+                        "depth_idx": int(c_depth),
+                        "reachable": bool(c_reach),
+                    }
+                    for rank, (c_score, c_pos, c_ang, c_slot, c_edge, c_depth, c_reach) in enumerate(top_all)
+                ] if top_all else [],
+            })
 
         # Construct aligned goals from accumulators
         slot_prints = 0
@@ -459,30 +597,9 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             if self.verbose and slot_prints <= 10:
                 print(f"    ✓ Slot edge {edge_idx} depth {depth_idx+1}: {count} votes")
 
-        if self.verbose or goal_matches == 0:
-            print(f"  ✅ Aligned {goal_matches}/{len(ml_goals)} ML goals to primitive slots for {object_id}")
-            if skipped_due_to_tolerance > 0:
-                 print(f"     Skipped due to tolerance: {skipped_due_to_tolerance}")
-
-        if goal_matches == 0:
-            print(f"  ⚠️ WARNING: NO ML goals matched any primitive slots!")
-            print(f"     Position tolerance: {self.match_position_tolerance}m, Angle tolerance: {self.match_angle_tolerance} rad")
-        else:
-            # Show which edges/depths got ML goals only in verbose
-            if self.verbose:
-                aligned_edges = set()
-                edge_depth_counts = {}
-                for edge_idx, edge_goals in enumerate(aligned_goals):
-                    for depth_idx, goal in enumerate(edge_goals):
-                        if goal is not None:
-                            aligned_edges.add(edge_idx)
-                            if edge_idx not in edge_depth_counts:
-                                edge_depth_counts[edge_idx] = []
-                            edge_depth_counts[edge_idx].append(depth_idx + 1)
-
-                if aligned_edges:
-                    sorted_edges = sorted(list(aligned_edges))
-                    print(f"     Aligned to edges: {sorted_edges}")
+        if self.verbose:
+            print(f"  ✅ Mapped {len(ml_goals)} ML goals to nearest primitive slots for {object_id}")
+            print(f"     Within tolerance: {goals_within_tolerance}/{len(ml_goals)} | Outside tolerance: {goals_outside_tolerance}/{len(ml_goals)}")
 
         # Store alignment info for visualization
         aligned_primitives_info = []
@@ -499,15 +616,6 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
         # Sort by votes (descending) to get execution order
         aligned_primitives_info.sort(key=lambda x: x['votes'], reverse=True)
 
-        # Get reachable edges for visualization
-        reachable_edges = set()
-        try:
-            env.set_full_state(state)
-            reachable_edges = set(env.get_reachable_edges(object_id))
-        except Exception as e:
-            if self.verbose:
-                print(f"  ⚠️ Could not get reachable edges: {e}")
-
         self._last_alignment_info = {
             'object_id': object_id,
             'object_pose': self._get_object_pose(state, env, object_id),
@@ -515,11 +623,23 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             'ml_goals': ml_goals,
             'total_ml_goals': len(ml_goals),
             'total_aligned': len(aligned_primitives_info),
-            'reachable_edges': reachable_edges
+            'reachable_edges': reachable_edges,
+            'slot_metadata': slot_metadata,
+            'ml_goal_match_debug': ml_goal_match_debug,
+            'xml_path': getattr(self._ml_strategy, "xml_path", None),
+            'goals_within_tolerance': goals_within_tolerance,
+            'goals_outside_tolerance': goals_outside_tolerance,
+            'match_params': {
+                'match_position_tolerance': float(self.match_position_tolerance),
+                'match_angle_tolerance': float(self.match_angle_tolerance),
+                'angle_weight': float(self.angle_weight),
+                'k_nearest': int(self.k_nearest),
+                'score_metric': str(self.score_metric),
+            },
         }
 
-        # Save visualization if enabled
-        if self.preview_aligned_primitives and aligned_primitives_info:
+        # Save visualization if enabled (even if nothing matched, to debug why)
+        if self.preview_aligned_primitives:
             self._save_alignment_preview()
 
         return aligned_goals
@@ -553,14 +673,16 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             return
 
         info = self._last_alignment_info
-        if not info or not info['aligned_primitives']:
+        if not info:
             return
 
         object_id = info['object_id']
         obj_x, obj_y, obj_theta = info['object_pose']
-        aligned = info['aligned_primitives']
+        aligned = info.get('aligned_primitives', [])
         reachable_edges = info.get('reachable_edges', set())
         ml_goals = info.get('ml_goals', [])
+        slot_metadata = info.get('slot_metadata', [])
+        ml_goal_match_debug = info.get('ml_goal_match_debug', [])
 
         fig, ax = plt.subplots(1, 1, figsize=(12, 10))
 
@@ -576,6 +698,27 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
         )
         ax.add_patch(rect)
 
+        # Draw ALL primitive slots as faint dots for context.
+        # This is intentionally lightweight (dots not boxes) to keep the plot readable.
+        if slot_metadata:
+            reachable_x = []
+            reachable_y = []
+            unreachable_x = []
+            unreachable_y = []
+
+            for edge_idx, _depth_idx, goal in slot_metadata:
+                if edge_idx in reachable_edges:
+                    reachable_x.append(goal.x)
+                    reachable_y.append(goal.y)
+                else:
+                    unreachable_x.append(goal.x)
+                    unreachable_y.append(goal.y)
+
+            if unreachable_x:
+                ax.scatter(unreachable_x, unreachable_y, s=6, c='lightgray', alpha=0.15, label='All primitives (unreachable)')
+            if reachable_x:
+                ax.scatter(reachable_x, reachable_y, s=6, c='gray', alpha=0.25, label='All primitives (reachable)')
+
         # Draw ML predicted goals first (dashed magenta boxes, in background)
         for i, ml_goal in enumerate(ml_goals):
             ml_rect = Rectangle(
@@ -590,74 +733,177 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             ax.text(ml_goal.x, ml_goal.y - obj_size/2 - 0.05, f'ML{i}', fontsize=6,
                    ha='center', va='top', color='magenta', alpha=0.8)
 
-        # Separate aligned primitives by reachability
-        reachable_aligned = [p for p in aligned if p['edge_idx'] in reachable_edges]
-        unreachable_aligned = [p for p in aligned if p['edge_idx'] not in reachable_edges]
+        # Draw explicit ML->primitive mapping for the top-1 voted slot per ML goal (when available).
+        # This makes it obvious which primitive slot the sampler will vote for.
+        slot_by_id = {slot_id: entry for slot_id, entry in enumerate(slot_metadata)}
+        for entry in ml_goal_match_debug[:10]:  # safety cap to avoid unreadable plots
+            ml_goal = entry.get("ml_goal")
+            voted_slots = entry.get("voted_slots") or []
+            top_candidates_reachable = entry.get("top_candidates_reachable") or []
+            top_candidates_all = entry.get("top_candidates_all") or []
+            if ml_goal is None:
+                continue
 
-        # Color map for priority (higher votes = more red, lower = more blue)
-        max_votes = max(p['votes'] for p in aligned) if aligned else 1
+            # Draw top candidates (ranked by score) as faint outline boxes for sanity-checking the metric.
+            # This is useful for single-sample debugging but gets cluttered for many samples.
+            if len(ml_goals) <= 1 and len(voted_slots) <= 1:
+                # Prefer reachable candidates (what the planner can actually try); fall back to all candidates.
+                candidate_list = top_candidates_reachable if top_candidates_reachable else top_candidates_all
+                for cand in candidate_list[:5]:
+                    # Skip the top-1 candidate since it will be highlighted by the mapping/planner box anyway.
+                    if int(cand.get("rank", 0)) == 1:
+                        continue
+                    slot_entry = slot_by_id.get(int(cand.get("slot_id", -1)))
+                    if slot_entry is None:
+                        continue
+                    _e, _d, goal = slot_entry
+                    outline = Rectangle(
+                        (goal.x - obj_size / 2, goal.y - obj_size / 2),
+                        obj_size,
+                        obj_size,
+                        angle=np.degrees(goal.theta),
+                        rotation_point='center',
+                        fill=False,
+                        edgecolor='blue',
+                        linewidth=1.0,
+                        alpha=0.25,
+                        linestyle=':',
+                        zorder=7,
+                    )
+                    ax.add_patch(outline)
+                    ax.text(
+                        goal.x,
+                        goal.y,
+                        str(cand.get("rank")),
+                        fontsize=7,
+                        color='blue',
+                        ha='center',
+                        va='center',
+                        alpha=0.8,
+                        zorder=8,
+                    )
+            if voted_slots:
+                # Draw voted primitives (k-nearest) as translucent boxes; thickness/alpha follows vote weight.
+                max_vote_weight = max(int(v.get("vote_weight", 1)) for v in voted_slots) if voted_slots else 1
+                for vote in voted_slots:
+                    slot_entry = slot_by_id.get(int(vote.get("slot_id", -1)))
+                    if slot_entry is None:
+                        continue
+                    _edge_idx, _depth_idx, prim_goal = slot_entry
+                    within_tolerance = bool(vote.get("within_tolerance", True))
+                    vote_weight = int(vote.get("vote_weight", 1))
+                    rank = int(vote.get("rank", 1))
 
-        # Draw UNREACHABLE primitives first (gray, in background)
-        for prim_info in unreachable_aligned:
-            goal = prim_info['goal']
-            edge_idx = prim_info['edge_idx']
-            depth_idx = prim_info['depth_idx']
-            votes = prim_info['votes']
+                    # Visual encoding:
+                    # - Higher vote_weight => higher alpha, thicker border.
+                    # - Outside tolerance => dashed border/arrow.
+                    alpha = 0.06 + 0.22 * (vote_weight / max(1, max_vote_weight))
+                    linewidth = 1.0 + 1.0 * (vote_weight / max(1, max_vote_weight))
+                    style = '-' if within_tolerance else '--'
 
-            # Gray for unreachable
-            goal_rect = Rectangle(
-                (goal.x - obj_size/2, goal.y - obj_size/2),
-                obj_size, obj_size,
+                    prim_rect = Rectangle(
+                        (prim_goal.x - obj_size / 2, prim_goal.y - obj_size / 2),
+                        obj_size,
+                        obj_size,
+                        angle=np.degrees(prim_goal.theta),
+                        rotation_point='center',
+                        fill=True,
+                        facecolor='magenta',
+                        edgecolor='magenta',
+                        linewidth=linewidth,
+                        alpha=alpha,
+                        zorder=8,
+                        linestyle=style,
+                    )
+                    ax.add_patch(prim_rect)
+
+                    # Light mapping arrow for each voted primitive (ranked by weight).
+                    arrow_alpha = 0.15 + 0.45 * (vote_weight / max(1, max_vote_weight))
+                    ax.annotate(
+                        '',
+                        xy=(prim_goal.x, prim_goal.y),
+                        xytext=(ml_goal.x, ml_goal.y),
+                        arrowprops=dict(
+                            arrowstyle='->',
+                            color='magenta',
+                            lw=1.5,
+                            alpha=arrow_alpha,
+                            linestyle=style,
+                        ),
+                    )
+
+                    # Tiny rank label near the voted primitive (no text boxes).
+                    ax.text(
+                        prim_goal.x,
+                        prim_goal.y,
+                        str(rank),
+                        fontsize=8,
+                        fontweight='bold',
+                        color='black',
+                        ha='center',
+                        va='center',
+                        alpha=0.8,
+                        zorder=9,
+                    )
+            else:
+                # No mapping recorded (unexpected in normal operation). Keep a minimal, non-intrusive cue.
+                best_overall = entry.get("best_overall")
+                if best_overall is None:
+                    continue
+                _score, _slot_id, edge_idx, depth_idx, pos_err, ang_err = best_overall
+                prim = slot_metadata[_slot_id][2] if _slot_id is not None and _slot_id < len(slot_metadata) else None
+                if prim is None:
+                    continue
+                ax.annotate(
+                    '',
+                    xy=(prim.x, prim.y),
+                    xytext=(ml_goal.x, ml_goal.y),
+                    arrowprops=dict(arrowstyle='->', color='gray', lw=1.5, alpha=0.4, linestyle='--'),
+                )
+
+        # Determine which primitive the planner will try first (highest votes, reachable edges only).
+        planner_choice = None
+        if aligned:
+            reachable_aligned = [p for p in aligned if p['edge_idx'] in reachable_edges] if reachable_edges else aligned
+            if reachable_aligned:
+                planner_choice = sorted(
+                    reachable_aligned,
+                    key=lambda x: (-float(x.get('votes', 0.0)), int(x.get('depth_idx', 0))),
+                )[0]
+
+        if planner_choice is not None:
+            goal = planner_choice['goal']
+            edge_idx = planner_choice['edge_idx']
+            depth_idx = planner_choice['depth_idx']
+            planner_rect = Rectangle(
+                (goal.x - obj_size / 2, goal.y - obj_size / 2),
+                obj_size,
+                obj_size,
                 angle=np.degrees(goal.theta),
                 rotation_point='center',
-                fill=True, facecolor='lightgray', edgecolor='gray', linewidth=1, alpha=0.4
+                fill=True,
+                facecolor='magenta',
+                edgecolor='black',
+                linewidth=3.0,
+                alpha=0.45,
+                zorder=10,
             )
-            ax.add_patch(goal_rect)
-
-            # Add edge/depth info (smaller, grayed out)
-            ax.text(goal.x, goal.y, f'E{edge_idx}', fontsize=6, ha='center', va='center',
-                   color='gray', alpha=0.6)
-
-        # Draw REACHABLE primitives with execution order (colored, in foreground)
-        # Re-rank only reachable ones
-        reachable_aligned_sorted = sorted(reachable_aligned, key=lambda x: x['votes'], reverse=True)
-
-        for rank, prim_info in enumerate(reachable_aligned_sorted):
-            goal = prim_info['goal']
-            votes = prim_info['votes']
-            edge_idx = prim_info['edge_idx']
-            depth_idx = prim_info['depth_idx']
-
-            # Color based on votes (normalized) - green to red
-            cmap = plt.cm.RdYlGn_r
-            color = cmap(votes / max_votes) if max_votes > 0 else 'blue'
-
-            # Draw goal position as rectangle
-            goal_rect = Rectangle(
-                (goal.x - obj_size/2, goal.y - obj_size/2),
-                obj_size, obj_size,
-                angle=np.degrees(goal.theta),
-                rotation_point='center',
-                fill=True, facecolor=color, edgecolor='black', linewidth=1.5, alpha=0.8
+            ax.add_patch(planner_rect)
+            ax.text(
+                goal.x,
+                goal.y + obj_size / 2 + 0.05,
+                f"planner tries\nE{edge_idx}D{depth_idx+1}",
+                fontsize=7,
+                ha='center',
+                va='bottom',
+                color='black',
+                bbox=dict(boxstyle='round,pad=0.15', facecolor='white', alpha=0.7, edgecolor='black'),
+                zorder=11,
             )
-            ax.add_patch(goal_rect)
-
-            # Draw arrow from current position to goal
-            ax.annotate('', xy=(goal.x, goal.y), xytext=(obj_x, obj_y),
-                       arrowprops=dict(arrowstyle='->', color=color, lw=1.5, alpha=0.6))
-
-            # Add rank number at goal position (rank among REACHABLE only)
-            ax.text(goal.x, goal.y, f'{rank+1}', fontsize=10, fontweight='bold',
-                   ha='center', va='center', color='white',
-                   bbox=dict(boxstyle='circle', facecolor='black', alpha=0.8))
-
-            # Add edge/depth info near the goal
-            ax.text(goal.x + obj_size/2 + 0.05, goal.y, f'E{edge_idx}D{depth_idx+1}\n({votes}v)',
-                   fontsize=7, ha='left', va='center', alpha=0.9)
 
         # Set axis limits with padding (include ML goals)
-        all_x = [obj_x] + [p['goal'].x for p in aligned] + [g.x for g in ml_goals]
-        all_y = [obj_y] + [p['goal'].y for p in aligned] + [g.y for g in ml_goals]
+        all_x = [obj_x] + [p['goal'].x for p in aligned] + [g.x for g in ml_goals] + [g.x for _e, _d, g in slot_metadata]
+        all_y = [obj_y] + [p['goal'].y for p in aligned] + [g.y for g in ml_goals] + [g.y for _e, _d, g in slot_metadata]
         margin = 1.0
         ax.set_xlim(min(all_x) - margin, max(all_x) + margin)
         ax.set_ylim(min(all_y) - margin, max(all_y) + margin)
@@ -667,13 +913,34 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
         ax.set_ylabel('World Y (m)')
 
         # Title with summary including reachability info
-        reachable_count = len(reachable_aligned)
-        unreachable_count = len(unreachable_aligned)
-        ax.set_title(f'ML-Primitive Alignment: {object_id}\n'
-                    f'{info["total_aligned"]} primitives from {info["total_ml_goals"]} ML goals | '
-                    f'Reachable edges: {sorted(list(reachable_edges))}\n'
-                    f'✓ {reachable_count} reachable (numbered) | ✗ {unreachable_count} unreachable (gray)',
-                    fontsize=11, fontweight='bold')
+        slot_count = len(slot_metadata)
+        match_params = info.get("match_params", {})
+        score_metric = str(match_params.get("score_metric", self.score_metric))
+        if score_metric == "pos+w*ang":
+            score_note = f"score=pos+w*ang (w={match_params.get('angle_weight', self.angle_weight):.3f})"
+        elif score_metric == "l2":
+            score_note = f"score=sqrt(pos^2+(w*ang)^2) (w={match_params.get('angle_weight', self.angle_weight):.3f})"
+        elif score_metric == "normalized_l2":
+            score_note = f"score=sqrt((pos/tp)^2+(w*ang/ta)^2) (w={match_params.get('angle_weight', self.angle_weight):.3f})"
+        else:
+            score_note = f"score_metric={score_metric} (w={match_params.get('angle_weight', self.angle_weight):.3f})"
+        match_note = (
+            f"tol={match_params.get('match_position_tolerance', self.match_position_tolerance):.3f}m/"
+            f"{match_params.get('match_angle_tolerance', self.match_angle_tolerance):.3f}rad, "
+            f"k={match_params.get('k_nearest', self.k_nearest)}, "
+            f"{score_note}"
+        )
+        goals_within = int(info.get("goals_within_tolerance", 0))
+        goals_outside = int(info.get("goals_outside_tolerance", 0))
+        ax.set_title(
+            f'ML→Primitive Mapping: {object_id}\n'
+            f'{info["total_aligned"]} mapped slots from {info["total_ml_goals"]} ML goals | '
+            f'{slot_count} total primitive slots | {match_note}\n'
+            f'Within tolerance: {goals_within} | Outside tolerance: {goals_outside}\n'
+            f'Reachable edges: {sorted(list(reachable_edges)) if reachable_edges else "(unknown)"}',
+            fontsize=11,
+            fontweight='bold',
+        )
 
         # Add legend
         legend_elements = [
@@ -682,20 +949,132 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             plt.Line2D([0], [0], marker='s', color='w', markerfacecolor='none',
                       markersize=15, markeredgecolor='magenta', linestyle='--',
                       label=f'ML Predictions ({len(ml_goals)})'),
-            plt.Line2D([0], [0], marker='s', color='w', markerfacecolor='green',
-                      markersize=15, markeredgecolor='black', label='Reachable (low votes)'),
-            plt.Line2D([0], [0], marker='s', color='w', markerfacecolor='red',
-                      markersize=15, markeredgecolor='black', label='Reachable (high votes)'),
-            plt.Line2D([0], [0], marker='s', color='w', markerfacecolor='lightgray',
-                      markersize=15, markeredgecolor='gray', label='Unreachable'),
+            plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='gray',
+                      markersize=6, label='All primitive centers (reachable)'),
+            plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='lightgray',
+                      markersize=6, label='All primitive centers (unreachable)'),
+            plt.Line2D([0], [0], marker='s', color='w', markerfacecolor='magenta',
+                      markersize=12, markeredgecolor='magenta', label='Voted primitives'),
+            plt.Line2D([0], [0], marker='s', color='w', markerfacecolor='magenta',
+                      markersize=15, markeredgecolor='black', label='Planner-chosen primitive'),
+            plt.Line2D([0], [0], color='magenta', lw=2, linestyle='-',
+                       label='Mapping (within tol)'),
+            plt.Line2D([0], [0], color='magenta', lw=2, linestyle='--',
+                       label='Mapping (outside tol)'),
         ]
         ax.legend(handles=legend_elements, loc='upper right')
 
         # Save
-        save_path = os.path.join(os.getcwd(), f"ml_primitive_alignment_{object_id}.png")
+        xml_path = info.get("xml_path")
+        env_tag = None
+        if xml_path:
+            env_tag = os.path.splitext(os.path.basename(str(xml_path)))[0]
+            env_tag = "".join(c if (c.isalnum() or c in {"-", "_"}) else "_" for c in env_tag)
+        prefix = f"ml_primitive_alignment_{env_tag}_" if env_tag else "ml_primitive_alignment_"
+        save_path = os.path.join(os.getcwd(), f"{prefix}{object_id}.png")
         fig.savefig(save_path, dpi=150, bbox_inches='tight')
         print(f"   📁 Saved primitive alignment preview: {save_path}")
         plt.close(fig)
+
+        # Also emit a JSON sidecar with the exact votes/scores used, so it's easy to audit
+        # cases where a voted primitive looks unintuitive from the plot alone.
+        try:
+            def _goal_to_dict(g: Goal) -> Dict[str, float]:
+                return {"x": float(g.x), "y": float(g.y), "theta": float(g.theta)}
+
+            slot_by_id_for_json = {slot_id: entry for slot_id, entry in enumerate(slot_metadata)}
+
+            def _with_primitive_goal(entry: Dict[str, Any]) -> Dict[str, Any]:
+                out = dict(entry)
+                slot_entry = slot_by_id_for_json.get(int(out.get("slot_id", -1)))
+                if slot_entry is not None:
+                    _edge, _depth, prim_goal = slot_entry
+                    out["primitive_goal"] = _goal_to_dict(prim_goal)
+                return out
+
+            ml_goal_debug_json = []
+            for entry in ml_goal_match_debug:
+                ml_goal_obj = entry.get("ml_goal")
+                if ml_goal_obj is None:
+                    continue
+
+                best_overall = entry.get("best_overall")
+                best_overall_json = None
+                if best_overall is not None and isinstance(best_overall, (tuple, list)) and len(best_overall) >= 6:
+                    _score, _slot_id, edge_idx, depth_idx, pos_err, ang_err = best_overall[:6]
+                    prim = None
+                    slot_entry = slot_by_id_for_json.get(int(_slot_id))
+                    if slot_entry is not None:
+                        prim = _goal_to_dict(slot_entry[2])
+                    best_overall_json = {
+                        "score": float(_score),
+                        "slot_id": int(_slot_id),
+                        "edge_idx": int(edge_idx),
+                        "depth_idx": int(depth_idx),
+                        "pos_err": float(pos_err),
+                        "ang_err": float(ang_err),
+                        "primitive_goal": prim,
+                    }
+
+                ml_goal_debug_json.append(
+                    {
+                        "ml_goal_idx": int(entry.get("ml_goal_idx", -1)),
+                        "ml_goal": _goal_to_dict(ml_goal_obj),
+                        "matched": bool(entry.get("matched", False)),
+                        "voted_slots": [_with_primitive_goal(v) for v in (entry.get("voted_slots") or [])],
+                        "top_candidates_reachable": entry.get("top_candidates_reachable") or [],
+                        "top_candidates_all": entry.get("top_candidates_all") or [],
+                        "best_overall": best_overall_json,
+                    }
+                )
+
+            aligned_json = []
+            for p in aligned:
+                g = p.get("goal")
+                if g is None:
+                    continue
+                edge_idx = int(p.get("edge_idx", -1))
+                aligned_json.append(
+                    {
+                        "edge_idx": edge_idx,
+                        "depth_idx": int(p.get("depth_idx", -1)),
+                        "goal": _goal_to_dict(g),
+                        "votes": float(p.get("votes", 0.0)),
+                        "reachable": (not reachable_edges) or (edge_idx in reachable_edges),
+                    }
+                )
+
+            planner_choice_json = None
+            if planner_choice is not None:
+                g = planner_choice.get("goal")
+                if g is not None:
+                    edge_idx = int(planner_choice.get("edge_idx", -1))
+                    planner_choice_json = {
+                        "edge_idx": edge_idx,
+                        "depth_idx": int(planner_choice.get("depth_idx", -1)),
+                        "goal": _goal_to_dict(g),
+                        "votes": float(planner_choice.get("votes", 0.0)),
+                        "reachable": (not reachable_edges) or (edge_idx in reachable_edges),
+                    }
+
+            debug_payload = {
+                "xml_path": str(xml_path) if xml_path else None,
+                "object_id": object_id,
+                "object_pose": {"x": float(obj_x), "y": float(obj_y), "theta": float(obj_theta)},
+                "reachable_edges": sorted(list(reachable_edges)) if reachable_edges else [],
+                "match_params": info.get("match_params", {}),
+                "ml_goals": [_goal_to_dict(g) for g in ml_goals],
+                "aligned_primitives": aligned_json,
+                "planner_choice": planner_choice_json,
+                "ml_goal_match_debug": ml_goal_debug_json,
+            }
+
+            json_path = os.path.splitext(save_path)[0] + ".json"
+            with open(json_path, "w") as f:
+                json.dump(debug_payload, f, indent=2)
+            print(f"   🧾 Saved alignment debug JSON: {json_path}")
+        except Exception as e:
+            print(f"   ⚠️ Failed to save alignment debug JSON: {e}")
 
     def _build_slot_metadata(self, primitive_goals: List[List[Goal]]) -> List[Tuple[int, int, Goal]]:
         slots: List[Tuple[int, int, Goal]] = []

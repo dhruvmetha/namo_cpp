@@ -195,6 +195,7 @@ class RegionOpeningPlanner(BasePlanner):
                 match_position_tolerance=algo_params.get("ml_match_position_tolerance", 0.2),
                 match_angle_tolerance=algo_params.get("ml_match_angle_tolerance", 0.35),
                 angle_weight=algo_params.get("ml_match_angle_weight", 0.5),
+                score_metric=algo_params.get("ml_match_score_metric", "pos+w*ang"),
                 max_matches=algo_params.get("ml_match_max_per_call", 8),
                 verbose=self.config.verbose,
                 min_goals_threshold=algo_params.get("ml_min_goals", 1),

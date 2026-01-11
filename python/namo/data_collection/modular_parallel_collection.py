@@ -1038,6 +1038,12 @@ def main():
                         help="Max angular error (rad) between ML pose and primitive slot")
     parser.add_argument("--ml-match-angle-weight", type=float, default=0.5,
                         help="Weight applied to angular error in matching score")
+    parser.add_argument(
+        "--ml-match-score-metric",
+        type=str,
+        default="pos+w*ang",
+        help="Primitive-slot ranking metric: pos+w*ang | l2 | normalized_l2",
+    )
     parser.add_argument("--ml-match-max-per-call", type=int, default=8,
                         help="Maximum ML goals to align per sampler call")
     parser.add_argument("--primitive-data-dir", type=str, default="data",
@@ -1128,6 +1134,7 @@ def main():
                 "ml_match_position_tolerance": args.ml_match_position_tolerance,
                 "ml_match_angle_tolerance": args.ml_match_angle_tolerance,
                 "ml_match_angle_weight": args.ml_match_angle_weight,
+                "ml_match_score_metric": args.ml_match_score_metric,
                 "ml_match_max_per_call": args.ml_match_max_per_call,
                 "primitive_data_dir": args.primitive_data_dir,
             })
@@ -1142,6 +1149,7 @@ def main():
                 "ml_match_position_tolerance": args.ml_match_position_tolerance,
                 "ml_match_angle_tolerance": args.ml_match_angle_tolerance,
                 "ml_match_angle_weight": args.ml_match_angle_weight,
+                "ml_match_score_metric": args.ml_match_score_metric,
                 "ml_match_max_per_call": args.ml_match_max_per_call,
                 "primitive_data_dir": args.primitive_data_dir,
             })

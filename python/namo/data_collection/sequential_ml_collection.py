@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Any
 from dataclasses import dataclass, asdict, replace
 from tqdm import tqdm
+from contextlib import contextmanager
 
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -71,6 +72,23 @@ from namo.data_collection.modular_parallel_collection import (
     _sanitize_run_name,
     get_failure_statistics
 )
+
+NAMO_CPP_ROOT = Path(__file__).resolve().parents[3]
+
+
+@contextmanager
+def _with_namo_cpp_cwd():
+    """Temporarily switch CWD to the namo_cpp repo root for relative paths like `data/...`."""
+    prev_cwd = os.getcwd()
+    target_cwd = str(NAMO_CPP_ROOT)
+    if prev_cwd == target_cwd:
+        yield
+        return
+    os.chdir(target_cwd)
+    try:
+        yield
+    finally:
+        os.chdir(prev_cwd)
 
 def _detect_goal_model_type(model_path: str) -> str:
     """Detect whether a goal model is vector-based or mask-based."""
@@ -195,7 +213,8 @@ def process_single_environment(
     try:
         # Initialize environment
         print(f"\n📁 Processing environment: {task.xml_file}")
-        env = namo_rl.RLEnvironment(task.xml_file, task.config_file, visualize=False)
+        with _with_namo_cpp_cwd():
+            env = namo_rl.RLEnvironment(task.xml_file, task.config_file, visualize=False)
         episode_results = []
         
         # Collect static object information once
@@ -611,10 +630,20 @@ def main():
     parser.add_argument("--ml-match-position-tolerance", type=float, default=0.2)
     parser.add_argument("--ml-match-angle-tolerance", type=float, default=0.35)
     parser.add_argument("--ml-match-angle-weight", type=float, default=0.5)
+    parser.add_argument(
+        "--ml-match-score-metric",
+        type=str,
+        default="pos+w*ang",
+        help="Primitive-slot ranking metric: pos+w*ang | l2 | normalized_l2",
+    )
     parser.add_argument("--ml-match-max-per-call", type=int, default=8)
     parser.add_argument("--ml-k-nearest", type=int, default=1)
     parser.add_argument("--ml-sampler-method", type=str, default=None, help="Override sampler: euler, midpoint, rk4, dopri5 (flow matching) or ddpm, ddim (diffusion)")
     parser.add_argument("--ml-num-steps", type=int, default=None, help="Override number of integration steps")
+    parser.add_argument("--preview-ml-goal-masks", type=int, default=0,
+                        help="Save a matplotlib preview of ML outputs (mask models only); 0 disables")
+    parser.add_argument("--preview-aligned-primitives", action="store_true",
+                        help="Save visualization of ML->primitive alignment (shows votes + execution order)")
     
     # Other
     parser.add_argument("--primitive-data-dir", type=str, default="data")
@@ -673,11 +702,14 @@ def main():
                 "ml_match_position_tolerance": args.ml_match_position_tolerance,
                 "ml_match_angle_tolerance": args.ml_match_angle_tolerance,
                 "ml_match_angle_weight": args.ml_match_angle_weight,
+                "ml_match_score_metric": args.ml_match_score_metric,
                 "ml_match_max_per_call": args.ml_match_max_per_call,
                 "ml_k_nearest": args.ml_k_nearest,
                 "ml_sampler_method": args.ml_sampler_method,
                 "ml_num_steps": args.ml_num_steps,
                 "primitive_data_dir": args.primitive_data_dir,
+                "preview_ml_goal_masks": args.preview_ml_goal_masks,
+                "preview_aligned_primitives": args.preview_aligned_primitives,
             })
             if not args.goal_sampler and not args.goal_strategy:
                 algorithm_params["goal_sampler"] = "ml"
