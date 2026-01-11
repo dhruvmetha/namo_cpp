@@ -8,6 +8,7 @@ and organized by edge points and push steps.
 import struct
 import os
 import math
+import random
 import threading
 from concurrent.futures import ThreadPoolExecutor, Future
 from dataclasses import dataclass, field
@@ -106,16 +107,39 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
     - Inner list (10 items): push steps 1-10 for that edge point
     """
 
-    def __init__(self, data_dir: str = "data", verbose: bool = False):
+    def __init__(self, data_dir: str = "data", verbose: bool = False,
+                 shuffle_edges: bool = False, seed: int = None):
         """Initialize primitive goal strategy.
 
         Args:
             data_dir: Directory containing motion_primitives_15_*.dat files
             verbose: Enable verbose output
+            shuffle_edges: If True, randomize edge ordering (useful for averaging difficulty)
+            seed: Random seed for reproducible shuffling (None = random each call)
         """
         self.data_dir = data_dir
         self.verbose = verbose
+        self.shuffle_edges = shuffle_edges
+        self.seed = seed
+        self._rng = random.Random(seed) if seed is not None else None
         self._primitive_cache: Dict[str, List[Primitive]] = {}
+        self._last_edge_ordering: List[int] = []  # Track ordering for analysis
+
+    def reseed(self, seed: int):
+        """Reseed the RNG for a new shuffle. Use for running multiple trials.
+
+        Args:
+            seed: New random seed
+        """
+        self.seed = seed
+        self._rng = random.Random(seed)
+
+    def get_last_edge_ordering(self) -> List[int]:
+        """Return the edge ordering used in the last generate_goals call.
+
+        Useful for analyzing which ordering led to success/failure.
+        """
+        return self._last_edge_ordering.copy()
 
     def generate_goals(self,
                       object_id: str,
@@ -166,9 +190,22 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
             # Group primitives by edge_idx
             edge_groups = self._group_by_edge(primitives)
 
+            # Determine edge ordering (sorted or shuffled)
+            edge_indices = sorted(edge_groups.keys())
+            if self.shuffle_edges:
+                if self._rng is not None:
+                    # Seeded: reproducible shuffle
+                    self._rng.shuffle(edge_indices)
+                else:
+                    # Unseeded: random each call
+                    random.shuffle(edge_indices)
+
+            # Store ordering for analysis
+            self._last_edge_ordering = list(edge_indices)
+
             # Convert to absolute world coordinates
             goals_per_edge = []
-            for edge_idx in sorted(edge_groups.keys()):
+            for edge_idx in edge_indices:
                 edge_primitives = edge_groups[edge_idx]
 
                 # Sort by push_steps

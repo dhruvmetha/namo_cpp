@@ -1092,6 +1092,10 @@ def main():
                         help="Maximum ML goals to align per sampler call")
     parser.add_argument("--primitive-data-dir", type=str, default="data",
                         help="Directory containing primitive motion databases")
+    parser.add_argument("--shuffle-edges", action="store_true",
+                        help="Randomize edge ordering in primitive strategy (useful for difficulty analysis)")
+    parser.add_argument("--shuffle-seed", type=int, default=None,
+                        help="Random seed for reproducible edge shuffling (None = random each call)")
     parser.add_argument("--xml-dir", type=str,
                         default="../ml4kp_ktamp/resources/models/custom_walled_envs/aug9",
                         help="Base directory for XML environment files")
@@ -1162,6 +1166,8 @@ def main():
             "region_chain_link_cost": args.region_chain_link_cost,
             "region_ml_ignore_blacklist": args.region_ml_ignore_blacklist,
             "region_selection_strategy": args.region_selection_strategy,
+            "shuffle_edges": args.shuffle_edges,
+            "shuffle_seed": args.shuffle_seed,
         })
         # Optionally cap how many of the found solutions are recorded/saved per neighbor
         algorithm_params["region_max_recorded_solutions_per_neighbor"] = args.region_max_recorded_solutions_per_neighbor

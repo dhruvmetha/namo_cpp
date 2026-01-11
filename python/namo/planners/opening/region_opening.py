@@ -359,7 +359,9 @@ class RegionOpeningPlanner(BasePlanner):
             # Use primitive goal strategy for push goals
             self.goal_strategy = PrimitiveGoalStrategy(
                 data_dir=primitive_data_dir,
-                verbose=self.config.verbose
+                verbose=self.config.verbose,
+                shuffle_edges=algo_params.get("shuffle_edges", False),
+                seed=algo_params.get("shuffle_seed", None)
             )
 
     @property
