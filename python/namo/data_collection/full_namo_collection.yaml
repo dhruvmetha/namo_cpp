@@ -1,0 +1,54 @@
+# YAML defaults for modular_parallel_collection.py (Full NAMO)
+# Use with: python modular_parallel_collection.py --config-yaml python/namo/data_collection/full_namo_collection.yaml
+# CLI flags can override any value here.
+
+# Core execution
+output_dir: /common/users/dm1487/namo_data/full_namo_test
+end_idx: 100
+algorithm: full_namo
+workers: 8
+episodes_per_env: 1
+
+# Full NAMO specific parameters
+full_namo_max_iterations: 20  # Max region openings before giving up
+
+# Region opening sub-solver parameters (inherited by internal RegionOpeningPlanner)
+region_allow_collisions: true
+region_max_chain_depth: 2     # 1=single push, 2=two pushes, 3=three pushes per region opening
+region_max_solutions_per_neighbor: 1
+region_frontier_beam_width: 10000
+region_max_recorded_solutions_per_neighbor: 1
+region_chain_link_cost: 11
+region_ml_ignore_blacklist: false
+region_selection_strategy: cost_first
+
+# Goal strategy for region opening sub-problems
+# Options: primitive | geometric | ml | ml_fallback | ml_async | ml_driven_async
+goal_strategy: primitive
+
+# Primitive strategy options (only used when goal_strategy=primitive)
+shuffle_edges: false
+shuffle_seed: null
+
+# Generic planner limits
+max_depth: 5
+max_goals_per_object: 5
+max_terminal_checks: 5000
+search_timeout: 600.0  # 10 minutes for full NAMO (may need multiple region openings)
+goals_per_region: 10   # Number of robot goal samples per region for validation
+
+# Points per face configuration (must match config_file)
+points_per_face: 15
+
+# Paths - CUSTOMIZE THESE FOR YOUR ENVIRONMENT
+xml_dir: /common/users/shared/robot_learning/dm1487/namo/mj_env_configs/nov28/11_11_07deletion/maze_11x11_del70p_seed25188
+config_file: config/namo_config_complete_skill15.yaml
+# manifest: path/to/manifest.txt  # Optional: pre-generated file list
+
+# Optional pipeline features
+verbose: false
+filter_minimum_length: false
+smooth_solutions: false
+max_smooth_actions: 20
+refine_actions: false
+validate_refinement: false

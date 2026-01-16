@@ -109,9 +109,9 @@ Total 2-push problems evaluated: **243**
 
 | Model | Difficulty | N | Learned | Fallback | Failed |
 |-------|------------|---|---------|----------|--------|
-| 2 Push Learned Hybrid Voting 5 | Easy | 67 | 91.0% (61) | 9.0% (6) | 0.0% (0) |
-| 2 Push Learned Hybrid Voting 5 | Medium | 66 | 84.8% (56) | 15.2% (10) | 0.0% (0) |
-| 2 Push Learned Hybrid Voting 5 | Hard | 82 | 75.6% (62) | 24.4% (20) | 0.0% (0) |
+| 2 Push Learned Hybrid Voting 5 | Easy | 69 | 91.3% (63) | 8.7% (6) | 0.0% (0) |
+| 2 Push Learned Hybrid Voting 5 | Medium | 65 | 84.6% (55) | 15.4% (10) | 0.0% (0) |
+| 2 Push Learned Hybrid Voting 5 | Hard | 81 | 75.3% (61) | 24.7% (20) | 0.0% (0) |
 
 ## Success Rate by Collision Type
 
@@ -154,8 +154,8 @@ Oracle push ranges: **Easy**: 11–421 pushes, **Medium**: 45–2371 pushes, **H
 
 | Model | Easy | Medium | Hard |
 |-------|------------|------------|------------|
-| Exhaustive Primitive Search | 100.0% (67/67) | 100.0% (66/66) | 100.0% (82/82) |
-| 2 Push Learned Hybrid Voting 5 | 100.0% (67/67) | 100.0% (66/66) | 100.0% (82/82) |
+| Exhaustive Primitive Search | 100.0% (69/69) | 100.0% (65/65) | 100.0% (81/81) |
+| 2 Push Learned Hybrid Voting 5 | 100.0% (69/69) | 100.0% (65/65) | 100.0% (81/81) |
 
 ### Efficiency by Difficulty (Solved Cases Only)
 
@@ -163,12 +163,12 @@ Oracle push ranges: **Easy**: 11–421 pushes, **Medium**: 45–2371 pushes, **H
 
 | Model | Difficulty | N | Median Checks | Median Time (s) |
 |-------|------------|---|---------------|-----------------|
-| Exhaustive Primitive Search | Easy | 67 | 69 | 8.0 |
-| Exhaustive Primitive Search | Medium | 66 | 174 | 21.1 |
-| Exhaustive Primitive Search | Hard | 82 | 1086 | 144.5 |
-| 2 Push Learned Hybrid Voting 5 | Easy | 67 | 30 | 3.0 |
-| 2 Push Learned Hybrid Voting 5 | Medium | 66 | 71 | 7.9 |
-| 2 Push Learned Hybrid Voting 5 | Hard | 82 | 202 | 21.7 |
+| Exhaustive Primitive Search | Easy | 69 | 74 | 8.0 |
+| Exhaustive Primitive Search | Medium | 65 | 168 | 19.7 |
+| Exhaustive Primitive Search | Hard | 81 | 1124 | 151.2 |
+| 2 Push Learned Hybrid Voting 5 | Easy | 69 | 30 | 3.0 |
+| 2 Push Learned Hybrid Voting 5 | Medium | 65 | 71 | 8.1 |
+| 2 Push Learned Hybrid Voting 5 | Hard | 81 | 214 | 22.7 |
 
 ## Detailed Statistics
 
@@ -239,5 +239,5 @@ and search exhausted (all candidates evaluated without finding a solution).
 
 | Reason | Count |
 |--------|-------|
-| success | 280 |
-| all_pushes_failed | 2 |
+| success | 426 |
+| all_pushes_failed | 3 |

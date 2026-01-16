@@ -35,10 +35,12 @@ baselines:
 # Learned models to compare
 learned:
   # - name: "2 Push 1/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/jan7/results_32samples_int5_seed42_voting5_filtered/modular_data_1spring-303-desktop-08
+  # - name: "2 Push Learned Hybrid Voting 1"
+  #   dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/jan7/results_32samples_int5_seed42_voting1_hybrid_filtered/modular_data_1spring-303-desktop-08
   - name: "2 Push Learned Hybrid Voting 5"
     dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/jan7/results_32samples_int5_seed42_voting5_hybrid_filtered/modular_data_1spring-303-desktop-08
   # - name: "2 Push Learned Voting 10"
-  #   dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/jan7/results_32samples_int5_seed42_voting10_filtered/modular_data_1spring-303-desktop-08
+  #   dir: /common/us≈ers/dm1487/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/jan7/results_32samples_int5_seed42_voting10_filtered/modular_data_1spring-303-desktop-08
   # - name: "2 Push Learned Hybrid Voting 10"
   #   dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/jan7/results_32samples_int5_seed42_voting10_hybrid_filtered/modular_data_1spring-303-desktop-08
 

@@ -10,6 +10,7 @@ except ImportError:  # pragma: no cover
 from . import idfs
 from . import mcts
 from . import sampling
+from . import full_namo
 from .connectivity_snapshot import (
 	RegionGoalBundle,
 	RegionGoalSamples,
@@ -147,6 +148,7 @@ __all__ = [
 	"idfs",
 	"mcts",
 	"sampling",
+	"full_namo",
 	"get_region_connectivity",
 	"get_region_goal_samples",
 	"snapshot_region_connectivity",

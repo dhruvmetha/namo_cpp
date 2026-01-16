@@ -18,7 +18,7 @@ DEFAULT_CAMERA_DISTANCE = 15.0
 DEFAULT_CAMERA_AZIMUTH = 0.0
 DEFAULT_CAMERA_ELEVATION = -90.0
 from namo.core import BasePlanner, PlannerConfig, PlannerResult
-from namo.planners import snapshot_region_connectivity, find_robot_label
+from namo.planners.connectivity_snapshot import snapshot_region_connectivity, find_robot_label
 from namo.strategies import (
     PrimitiveGoalStrategy,
     Goal,
@@ -411,7 +411,11 @@ class RegionOpeningPlanner(BasePlanner):
             if self.config.verbose:
                 self._debug(f"Camera focus error: {e}")
 
-    def search(self, robot_goal: Tuple[float, float, float]) -> PlannerResult:
+    def search(
+        self,
+        robot_goal: Tuple[float, float, float],
+        target_neighbor: Optional[str] = None
+    ) -> PlannerResult:
         """Execute region opening planner (single-level exploration from initial state only).
 
         This method explores region openings from the initial state only:
@@ -420,6 +424,8 @@ class RegionOpeningPlanner(BasePlanner):
 
         Args:
             robot_goal: Target robot position (x, y, theta) - stored but not directly used
+            target_neighbor: If set, only attempt to open path to this specific neighbor.
+                           If None, attempt to open paths to ALL neighbors (default behavior).
 
         Returns:
             PlannerResult with all attempt results from initial state
@@ -436,12 +442,13 @@ class RegionOpeningPlanner(BasePlanner):
 
         if self.config.verbose:
             self._debug(f"\n{'='*60}")
-            self._debug("Region Opening Planner - Single-Level Exploration")
+            target_info = f" (target: {target_neighbor})" if target_neighbor else ""
+            self._debug(f"Region Opening Planner - Single-Level Exploration{target_info}")
             self._debug(f"Max chain depth: {self.max_chain_depth} | Collision checking: {'ON' if collision_checking_enabled else 'OFF'}")
             self._debug(f"{'='*60}\n")
 
         # Explore from initial state only (Level 0)
-        self.attempt_results = self._explore_from_state(baseline, level=0)
+        self.attempt_results = self._explore_from_state(baseline, level=0, target_neighbor=target_neighbor)
 
         if self.config.verbose:
             successful_attempts = sum(1 for a in self.attempt_results if a.success)
@@ -508,7 +515,12 @@ class RegionOpeningPlanner(BasePlanner):
             }
         )
 
-    def _explore_from_state(self, state: 'namo_rl.RLState', level: int = 0) -> List[AttemptResult]:
+    def _explore_from_state(
+        self,
+        state: 'namo_rl.RLState',
+        level: int = 0,
+        target_neighbor: Optional[str] = None
+    ) -> List[AttemptResult]:
         """Explore region openings from a given state.
 
         This helper method:
@@ -520,6 +532,8 @@ class RegionOpeningPlanner(BasePlanner):
         Args:
             state: Full environment state to explore from
             level: Exploration level (0 = initial state, 1+ = subsequent explorations)
+            target_neighbor: If set, only attempt to open path to this specific neighbor.
+                           If None, attempt to open paths to ALL neighbors.
 
         Returns:
             List of AttemptResults from exploring this state
@@ -567,6 +581,17 @@ class RegionOpeningPlanner(BasePlanner):
                 for region in skipped:
                     print(f"   ⏭ Neighbor '{region}': SKIPPED (from manifest)")
             # Regions with specific objects will be filtered later in _attempt_opening_to_neighbour
+
+        # Filter to target_neighbor if specified (for FullNAMOPlanner)
+        if target_neighbor is not None:
+            if target_neighbor in neighbours:
+                neighbours = [target_neighbor]
+                if self.config.verbose:
+                    print(f"  Targeting specific neighbor: {target_neighbor}")
+            else:
+                if self.config.verbose:
+                    print(f"  ⚠ Target neighbor '{target_neighbor}' not in immediate neighbors: {neighbours}")
+                return []
 
         if self.config.verbose:
             # Print region snapshot details
