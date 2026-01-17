@@ -54,6 +54,9 @@ public:
     bool is_object_reachable(const std::string& object_name) const;
     std::vector<int> get_reachable_edges(const std::string& object_name) const;
 
+    // Edge point queries (for visualization)
+    std::vector<std::array<double, 2>> get_edge_points(const std::string& object_name) const;
+
     // Object geometry information (returns cached reference)
     const std::map<std::string, std::map<std::string, double>>& get_object_info() const;
     
@@ -73,6 +76,16 @@ public:
     // Robot goal termination control (defaults to false)
     void set_robot_goal_termination(bool enable);
     bool get_robot_goal_termination() const;
+
+    // Video recording interface
+    void start_recording(int width = 640, int height = 480,
+                        int capture_frequency = 100, size_t max_frames = 10000);
+    void stop_recording();
+    bool is_recording() const;
+    size_t get_frame_count() const;
+    std::vector<std::vector<unsigned char>> get_frames() const;
+    void clear_frames();
+    std::tuple<int, int> get_recording_dimensions() const;
 
     // Geometric transport heuristic for primitive prioritization
     std::vector<int> evaluate_primitive_priorities(

@@ -194,6 +194,35 @@ bool RLEnvironment::get_collision_checking() const {
     return config_ ? config_->skill().check_object_collision : true;
 }
 
+// Video recording interface
+void RLEnvironment::start_recording(int width, int height, int capture_frequency, size_t max_frames) {
+    env_->start_recording(width, height, capture_frequency, max_frames);
+}
+
+void RLEnvironment::stop_recording() {
+    env_->stop_recording();
+}
+
+bool RLEnvironment::is_recording() const {
+    return env_->is_recording();
+}
+
+size_t RLEnvironment::get_frame_count() const {
+    return env_->get_frame_count();
+}
+
+std::vector<std::vector<unsigned char>> RLEnvironment::get_frames() const {
+    return env_->get_captured_frames();  // Returns copy
+}
+
+void RLEnvironment::clear_frames() {
+    env_->clear_captured_frames();
+}
+
+std::tuple<int, int> RLEnvironment::get_recording_dimensions() const {
+    return {env_->get_frame_width(), env_->get_frame_height()};
+}
+
 std::vector<double> RLEnvironment::get_world_bounds() const {
     return env_->get_environment_bounds();
 }

@@ -708,7 +708,7 @@ void NAMOEnvironment::visualize_object_goal_marker(const std::array<double, 3>& 
                                                   double theta,
                                                   const std::array<float, 4>& color) {
     if (!sim_) return;
-    
+
     // Convert theta (yaw angle) to quaternion
     double half_theta = theta * 0.5;
     std::array<double, 4> orientation = {
@@ -717,11 +717,12 @@ void NAMOEnvironment::visualize_object_goal_marker(const std::array<double, 3>& 
         0.0,                   // y
         std::sin(half_theta)   // z
     };
-    
+
     std::array<double, 3> marker_size = {object_size[0], object_size[1], 0.05}; // Match object footprint, thin but visible
     int geom_type = 6; // mjGEOM_BOX = 6 - use thin box to show goal footprint
-    
-    sim_->set_goal_marker(goal_position, orientation, marker_size, geom_type);
+
+    // Use separate object target marker (doesn't overwrite robot goal marker)
+    sim_->set_object_target_marker(goal_position, orientation, marker_size, color, geom_type);
 }
 
 //=============================================================================

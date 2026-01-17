@@ -447,12 +447,39 @@ void OptimizedMujocoWrapper::render() {
         for (int i = 0; i < 9; i++) {
             goal_geom->mat[i] = static_cast<float>(mat[i]);
         }
-        
+
         scn_.ngeom++;
     }
-    
+
+    // Add object target marker if active (separate from robot goal)
+    if (object_target_marker_.active && scn_.ngeom < scn_.maxgeom) {
+        mjvGeom* target_geom = &scn_.geoms[scn_.ngeom];
+        mjv_initGeom(target_geom, object_target_marker_.geom_type, NULL, NULL, NULL, NULL);
+
+        target_geom->rgba[0] = object_target_marker_.color[0];
+        target_geom->rgba[1] = object_target_marker_.color[1];
+        target_geom->rgba[2] = object_target_marker_.color[2];
+        target_geom->rgba[3] = object_target_marker_.color[3];
+
+        target_geom->size[0] = object_target_marker_.size[0];
+        target_geom->size[1] = object_target_marker_.size[1];
+        target_geom->size[2] = object_target_marker_.size[2];
+
+        target_geom->pos[0] = object_target_marker_.position[0];
+        target_geom->pos[1] = object_target_marker_.position[1];
+        target_geom->pos[2] = object_target_marker_.position[2];
+
+        mjtNum mat[9];
+        mju_quat2Mat(mat, object_target_marker_.orientation.data());
+        for (int i = 0; i < 9; i++) {
+            target_geom->mat[i] = static_cast<float>(mat[i]);
+        }
+
+        scn_.ngeom++;
+    }
+
     mjr_render(viewport, &scn_, &con_);
-    
+
     glfwSwapBuffers(window_);
     glfwPollEvents();
 }
@@ -585,6 +612,227 @@ void OptimizedMujocoWrapper::set_goal_marker(const std::array<double, 3>& positi
 
 void OptimizedMujocoWrapper::clear_goal_marker() {
     goal_marker_.active = false;
+}
+
+void OptimizedMujocoWrapper::set_object_target_marker(const std::array<double, 3>& position,
+                                                      const std::array<double, 4>& orientation,
+                                                      const std::array<double, 3>& size,
+                                                      const std::array<float, 4>& color,
+                                                      int geom_type) {
+    object_target_marker_.active = true;
+    object_target_marker_.position = position;
+    object_target_marker_.orientation = orientation;
+    object_target_marker_.size = size;
+    object_target_marker_.color = color;
+    object_target_marker_.geom_type = geom_type;
+}
+
+void OptimizedMujocoWrapper::clear_object_target_marker() {
+    object_target_marker_.active = false;
+}
+
+// ========== Video Recording / Frame Capture Implementation ==========
+
+bool OptimizedMujocoWrapper::init_offscreen_rendering(int width, int height) {
+    if (offscreen_initialized_) {
+        cleanup_offscreen_rendering();
+    }
+
+    offscreen_width_ = width;
+    offscreen_height_ = height;
+
+#ifdef HAVE_GLFW
+    // Need an OpenGL context - use GLFW window's context
+    if (!window_) {
+        std::cerr << "Warning: Cannot init offscreen rendering without GLFW window. "
+                  << "Create environment with visualize=True for video recording." << std::endl;
+        return false;
+    }
+
+    glfwMakeContextCurrent(window_);
+#endif
+
+    // Initialize visualization structures for offscreen rendering
+    mjv_defaultCamera(&offscreen_cam_);
+    mjv_defaultOption(&offscreen_opt_);
+    mjv_defaultScene(&offscreen_scn_);
+    mjr_defaultContext(&offscreen_con_);
+
+    // Disable contact force visualization
+    offscreen_opt_.flags[mjVIS_CONTACTFORCE] = 0;
+
+    // Create scene
+    mjv_makeScene(m_, &offscreen_scn_, 2000);
+
+    // Create context
+    mjr_makeContext(m_, &offscreen_con_, mjFONTSCALE_150);
+
+    // Resize offscreen buffer to requested dimensions
+    mjr_resizeOffscreen(width, height, &offscreen_con_);
+
+    // Set up camera (top-down view by default)
+    offscreen_cam_.distance = 15.0;
+    offscreen_cam_.azimuth = 0.0;
+    offscreen_cam_.elevation = -90.0;
+    offscreen_cam_.lookat[0] = 0.0;
+    offscreen_cam_.lookat[1] = 0.0;
+    offscreen_cam_.lookat[2] = 0.0;
+
+    offscreen_initialized_ = true;
+    return true;
+}
+
+void OptimizedMujocoWrapper::cleanup_offscreen_rendering() {
+    if (offscreen_initialized_) {
+        mjv_freeScene(&offscreen_scn_);
+        mjr_freeContext(&offscreen_con_);
+        offscreen_initialized_ = false;
+    }
+}
+
+void OptimizedMujocoWrapper::render_offscreen() {
+    if (!offscreen_initialized_) return;
+
+#ifdef HAVE_GLFW
+    // Ensure we're using the right OpenGL context
+    if (window_) {
+        glfwMakeContextCurrent(window_);
+    }
+#endif
+
+    // Set offscreen buffer as render target
+    mjr_setBuffer(mjFB_OFFSCREEN, &offscreen_con_);
+
+    // Define viewport matching offscreen buffer size
+    mjrRect viewport = {0, 0, offscreen_width_, offscreen_height_};
+
+    // Update scene with current simulation state
+    mjv_updateScene(m_, d_, &offscreen_opt_, nullptr, &offscreen_cam_, mjCAT_ALL, &offscreen_scn_);
+
+    // Add goal marker if active
+    if (goal_marker_.active && offscreen_scn_.ngeom < offscreen_scn_.maxgeom) {
+        mjvGeom* goal_geom = &offscreen_scn_.geoms[offscreen_scn_.ngeom];
+        mjv_initGeom(goal_geom, goal_marker_.geom_type, NULL, NULL, NULL, NULL);
+
+        goal_geom->rgba[0] = 0.0f;
+        goal_geom->rgba[1] = 1.0f;
+        goal_geom->rgba[2] = 0.0f;
+        goal_geom->rgba[3] = 0.25f;
+
+        goal_geom->size[0] = goal_marker_.size[0];
+        goal_geom->size[1] = goal_marker_.size[1];
+        goal_geom->size[2] = goal_marker_.size[2];
+
+        goal_geom->pos[0] = goal_marker_.position[0];
+        goal_geom->pos[1] = goal_marker_.position[1];
+        goal_geom->pos[2] = goal_marker_.position[2];
+
+        mjtNum mat[9];
+        mju_quat2Mat(mat, goal_marker_.orientation.data());
+        for (int i = 0; i < 9; i++) {
+            goal_geom->mat[i] = static_cast<float>(mat[i]);
+        }
+
+        offscreen_scn_.ngeom++;
+    }
+
+    // Add object target marker if active (separate from robot goal)
+    if (object_target_marker_.active && offscreen_scn_.ngeom < offscreen_scn_.maxgeom) {
+        mjvGeom* target_geom = &offscreen_scn_.geoms[offscreen_scn_.ngeom];
+        mjv_initGeom(target_geom, object_target_marker_.geom_type, NULL, NULL, NULL, NULL);
+
+        target_geom->rgba[0] = object_target_marker_.color[0];
+        target_geom->rgba[1] = object_target_marker_.color[1];
+        target_geom->rgba[2] = object_target_marker_.color[2];
+        target_geom->rgba[3] = object_target_marker_.color[3];
+
+        target_geom->size[0] = object_target_marker_.size[0];
+        target_geom->size[1] = object_target_marker_.size[1];
+        target_geom->size[2] = object_target_marker_.size[2];
+
+        target_geom->pos[0] = object_target_marker_.position[0];
+        target_geom->pos[1] = object_target_marker_.position[1];
+        target_geom->pos[2] = object_target_marker_.position[2];
+
+        mjtNum mat[9];
+        mju_quat2Mat(mat, object_target_marker_.orientation.data());
+        for (int i = 0; i < 9; i++) {
+            target_geom->mat[i] = static_cast<float>(mat[i]);
+        }
+
+        offscreen_scn_.ngeom++;
+    }
+
+    // Render to offscreen buffer
+    mjr_render(viewport, &offscreen_scn_, &offscreen_con_);
+}
+
+bool OptimizedMujocoWrapper::capture_frame() {
+    if (!offscreen_initialized_ || !recording_active_) return false;
+    if (captured_frames_.size() >= max_frames_) return false;
+
+    // Render current state to offscreen buffer
+    render_offscreen();
+
+    // Allocate frame buffer (RGB, 3 bytes per pixel)
+    std::vector<unsigned char> frame(offscreen_width_ * offscreen_height_ * 3);
+
+    // Read pixels from offscreen buffer
+    mjrRect viewport = {0, 0, offscreen_width_, offscreen_height_};
+    mjr_readPixels(frame.data(), nullptr, viewport, &offscreen_con_);
+
+    // MuJoCo returns pixels bottom-up, flip vertically for standard image format
+    std::vector<unsigned char> flipped(frame.size());
+    int row_size = offscreen_width_ * 3;
+    for (int y = 0; y < offscreen_height_; y++) {
+        std::memcpy(&flipped[y * row_size],
+                    &frame[(offscreen_height_ - 1 - y) * row_size],
+                    row_size);
+    }
+
+    captured_frames_.push_back(std::move(flipped));
+    return true;
+}
+
+void OptimizedMujocoWrapper::start_recording(int width, int height, int capture_frequency, size_t max_frames) {
+    // Initialize offscreen rendering if needed or if dimensions changed
+    if (!offscreen_initialized_ || offscreen_width_ != width || offscreen_height_ != height) {
+        if (!init_offscreen_rendering(width, height)) {
+            std::cerr << "Warning: Failed to initialize offscreen rendering. Recording disabled." << std::endl;
+            return;
+        }
+    }
+
+    capture_frequency_ = capture_frequency;
+    max_frames_ = max_frames;
+    physics_step_counter_ = 0;
+    captured_frames_.clear();
+    captured_frames_.reserve(std::min(max_frames, size_t(1000)));  // Pre-allocate
+    recording_active_ = true;
+
+    std::cout << "Recording started: " << width << "x" << height
+              << ", capture every " << capture_frequency << " steps"
+              << ", max " << max_frames << " frames" << std::endl;
+}
+
+void OptimizedMujocoWrapper::stop_recording() {
+    recording_active_ = false;
+    std::cout << "Recording stopped. Captured " << captured_frames_.size() << " frames." << std::endl;
+}
+
+void OptimizedMujocoWrapper::notify_physics_step() {
+    if (!recording_active_) return;
+
+    physics_step_counter_++;
+    if (physics_step_counter_ >= capture_frequency_) {
+        capture_frame();
+        physics_step_counter_ = 0;
+    }
+}
+
+void OptimizedMujocoWrapper::clear_captured_frames() {
+    captured_frames_.clear();
+    captured_frames_.shrink_to_fit();
 }
 
 } // namespace namo

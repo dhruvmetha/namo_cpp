@@ -1277,6 +1277,13 @@ class RegionOpeningPlanner(BasePlanner):
                         )
                         reachable_edge_indices = set(self.env.get_reachable_edges(object_id)) if goals_per_edge else set()
                         node_goals_cache[id(node)] = (goals_per_edge, reachable_edge_indices)
+
+                        # Verbose: show reachable edges and object state
+                        if self.config.verbose:
+                            obs = self.env.get_observation()
+                            obj_pose = obs.get(f"{object_id}_pose", [0, 0, 0])
+                            print(f"    📍 Object {object_id} at ({obj_pose[0]:.3f}, {obj_pose[1]:.3f}, θ={obj_pose[2]:.3f})")
+                            print(f"    🔗 Reachable edges ({len(reachable_edge_indices)}/{len(goals_per_edge)}): {sorted(reachable_edge_indices)}")
                     else:
                         goals_per_edge, reachable_edge_indices = node_goals_cache[id(node)]
 
@@ -1775,8 +1782,17 @@ class RegionOpeningPlanner(BasePlanner):
             action.theta = goal.theta
 
             if self.config.verbose:
+                # Show object current position vs goal position
+                obs = self.env.get_observation()
+                obj_pose = obs.get(f"{object_id}_pose", [0, 0, 0])
+                dx = goal.x - obj_pose[0]
+                dy = goal.y - obj_pose[1]
+                dtheta = goal.theta - obj_pose[2]
                 print(f"        🚀 EXECUTING PUSH edge {edge_idx} depth {depth+1}:")
-                print(f"           object_id={object_id}, goal=({goal.x:.3f}, {goal.y:.3f}, {goal.theta:.3f})")
+                print(f"           object_id={object_id}")
+                print(f"           current=({obj_pose[0]:.3f}, {obj_pose[1]:.3f}, θ={obj_pose[2]:.3f})")
+                print(f"           goal=({goal.x:.3f}, {goal.y:.3f}, θ={goal.theta:.3f})")
+                print(f"           delta=({dx:.3f}, {dy:.3f}, dθ={dtheta:.3f})")
 
             if skill_call_counter is not None:
                 skill_call_counter["count"] += 1

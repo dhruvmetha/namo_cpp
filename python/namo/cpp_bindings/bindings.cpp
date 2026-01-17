@@ -1,5 +1,6 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+#include <pybind11/numpy.h>
 #include "python/namo/cpp_bindings/rl_env.hpp"
 
 namespace py = pybind11;
@@ -80,6 +81,50 @@ PYBIND11_MODULE(namo_rl, m) {
              py::arg("object_name"), py::arg("target_poses"), py::arg("robot_goal"),
              "Evaluate geometric transport priorities for primitive targets. Returns priorities 1-4 (1=best, 4=worst).")
         .def("get_action_constraints", &namo::RLEnvironment::get_action_constraints, "Get action space constraints for MCTS.")
+        // Video recording interface
+        .def("start_recording", &namo::RLEnvironment::start_recording,
+             py::arg("width") = 640, py::arg("height") = 480,
+             py::arg("capture_frequency") = 100, py::arg("max_frames") = 10000,
+             "Start recording frames during physics execution. "
+             "capture_frequency=N means capture every N physics steps. "
+             "Requires visualize=True for OpenGL context.")
+        .def("stop_recording", &namo::RLEnvironment::stop_recording,
+             "Stop recording frames.")
+        .def("is_recording", &namo::RLEnvironment::is_recording,
+             "Check if recording is active.")
+        .def("get_frame_count", &namo::RLEnvironment::get_frame_count,
+             "Get number of captured frames.")
+        .def("get_frames", [](const namo::RLEnvironment& env) {
+            auto frames = env.get_frames();
+            auto dims = env.get_recording_dimensions();
+            int width = std::get<0>(dims);
+            int height = std::get<1>(dims);
+            size_t n_frames = frames.size();
+
+            if (n_frames == 0) {
+                return py::array_t<unsigned char>(std::vector<ssize_t>{0, height, width, 3});
+            }
+
+            // Create numpy array with shape (n_frames, height, width, 3)
+            py::array_t<unsigned char> result({(ssize_t)n_frames, (ssize_t)height, (ssize_t)width, (ssize_t)3});
+            auto buf = result.mutable_unchecked<4>();
+
+            for (size_t f = 0; f < n_frames; f++) {
+                const auto& frame = frames[f];
+                for (int y = 0; y < height; y++) {
+                    for (int x = 0; x < width; x++) {
+                        for (int c = 0; c < 3; c++) {
+                            buf(f, y, x, c) = frame[(y * width + x) * 3 + c];
+                        }
+                    }
+                }
+            }
+            return result;
+        }, "Get captured frames as numpy array with shape (n_frames, height, width, 3).")
+        .def("clear_frames", &namo::RLEnvironment::clear_frames,
+             "Clear captured frames to free memory.")
+        .def("get_recording_dimensions", &namo::RLEnvironment::get_recording_dimensions,
+             "Get recording dimensions as (width, height) tuple.")
        .def("get_region_connectivity", &namo::RLEnvironment::get_region_connectivity,
            "Return region adjacency, boundary objects, and region labels from the wavefront grid.")
        .def("sample_region_goals", &namo::RLEnvironment::sample_region_goals,

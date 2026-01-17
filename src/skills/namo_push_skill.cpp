@@ -478,6 +478,9 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
     result.outputs["wall_collision"] = accumulated_wall_collision;
     { std::string movable_str; for (auto it = accumulated_movable_collisions.begin(); it != accumulated_movable_collisions.end(); ++it) { if (it != accumulated_movable_collisions.begin()) movable_str += ","; movable_str += *it; } result.outputs["movable_collisions"] = movable_str; }
 
+    // Note: Don't clear object target marker here - let Python render it first
+    // The next push will overwrite it anyway
+
     auto end_time = std::chrono::high_resolution_clock::now();
     result.execution_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
 

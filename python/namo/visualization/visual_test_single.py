@@ -47,6 +47,7 @@ from namo.planners.idfs.standard_idfs import StandardIterativeDeepeningDFS
 from namo.planners.idfs.tree_idfs import TreeIterativeDeepeningDFS
 from namo.planners.sampling.random_sampling import RandomSamplingPlanner
 from namo.planners.opening.region_opening import RegionOpeningPlanner
+from namo.planners.full_namo.full_namo_planner import FullNAMOPlanner
 
 # Import solution smoothing system
 from namo.planners.idfs.solution_smoother import SolutionSmoother
@@ -306,7 +307,22 @@ def main():
                         help="Solution visualization mode: auto (automatic), prompt (ask user), step (step-by-step), none (disable)")
     solution_group.add_argument("--solution-delay", type=float, default=1.0,
                         help="Delay between solution steps in auto mode (default: 1.0)")
-    
+
+    # Video recording settings
+    video_group = parser.add_argument_group('Video Recording')
+    video_group.add_argument("--record-video", action="store_true",
+                        help="Record video of solution execution (requires visualize=True)")
+    video_group.add_argument("--video-output", type=str, default=None,
+                        help="Output video file path (default: auto-generated from XML filename)")
+    video_group.add_argument("--video-width", type=int, default=640,
+                        help="Video width in pixels (default: 640)")
+    video_group.add_argument("--video-height", type=int, default=480,
+                        help="Video height in pixels (default: 480)")
+    video_group.add_argument("--video-fps", type=int, default=30,
+                        help="Video output framerate (default: 30)")
+    video_group.add_argument("--capture-frequency", type=int, default=100,
+                        help="Capture every N physics steps (default: 100, ~250 frames per push)")
+
     # Solution smoothing settings
     parser.add_argument("--smooth-solutions", action="store_true",
                         help="Apply exhaustive smoothing to find minimal subsequences")
@@ -543,6 +559,15 @@ def main():
             if args.algorithm == "region_opening" and args.region_allow_collisions:
                 solution_env.set_collision_checking(False)
 
+            # Start video recording if requested
+            if args.record_video:
+                print(f"🎥 Starting video recording ({args.video_width}x{args.video_height}, every {args.capture_frequency} physics steps)...")
+                solution_env.start_recording(
+                    width=args.video_width,
+                    height=args.video_height,
+                    capture_frequency=args.capture_frequency
+                )
+
             # Check if region_opening planner returned multiple solutions
             attempt_results = None
             if result.algorithm_stats and "attempt_results" in result.algorithm_stats:
@@ -627,7 +652,44 @@ def main():
                             visualize_solution(solution_env, result, step_mode=False, delay=1.0)
                     except (EOFError, KeyboardInterrupt):
                         print("N")  # Default to no visualization
-        
+
+            # Save video if recording was enabled
+            if args.record_video:
+                solution_env.stop_recording()
+                frame_count = solution_env.get_frame_count()
+                print(f"🎥 Recording stopped. Captured {frame_count} frames.")
+
+                if frame_count > 0:
+                    # Get frames as numpy array
+                    frames = solution_env.get_frames()
+
+                    # Determine output path
+                    if args.video_output:
+                        video_path = args.video_output
+                    else:
+                        # Auto-generate from XML filename
+                        xml_basename = os.path.splitext(os.path.basename(args.xml_file))[0]
+                        video_path = f"{xml_basename}_solution.mp4"
+
+                    # Save video using mediapy
+                    try:
+                        import mediapy as mp
+                        print(f"📼 Saving video to {video_path} ({args.video_fps} fps)...")
+                        mp.write_video(video_path, frames, fps=args.video_fps)
+                        print(f"✅ Video saved successfully: {video_path}")
+                    except ImportError:
+                        print("⚠️  mediapy not installed. Install with: pip install mediapy")
+                        print("   Attempting to save frames as numpy array instead...")
+                        import numpy as np
+                        np_path = video_path.replace('.mp4', '_frames.npy')
+                        np.save(np_path, frames)
+                        print(f"✅ Frames saved to: {np_path}")
+
+                    # Clear frames to free memory
+                    solution_env.clear_frames()
+                else:
+                    print("⚠️  No frames captured - video not saved")
+
         return 0
         
     except KeyboardInterrupt:

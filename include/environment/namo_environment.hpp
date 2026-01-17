@@ -5,6 +5,7 @@
 #include <memory>
 #include <fstream>
 #include <map>
+#include <vector>
 
 namespace namo {
 
@@ -108,8 +109,11 @@ public:
     void visualize_object_goal_marker(const std::array<double, 3>& goal_position,
                                      const std::array<double, 3>& object_size,
                                      double theta = 0.0,
-                                     const std::array<float, 4>& color = {0.0f, 0.8f, 1.0f, 1.0f});
-    
+                                     const std::array<float, 4>& color = {0.0f, 0.8f, 1.0f, 0.5f});
+
+    // Clear the object target marker
+    void clear_object_target_marker() { sim_->clear_object_target_marker(); }
+
     // Collision detection
     bool is_in_collision() const { return sim_->in_collision(); }
     bool bodies_in_collision(const std::string& body1, const std::string& body2) const {
@@ -125,7 +129,22 @@ public:
     void set_camera_lookat(const std::array<double, 3>& lookat) {
         sim_->set_camera_lookat(lookat);
     }
-    
+
+    // Video recording interface
+    void start_recording(int width = 640, int height = 480,
+                        int capture_frequency = 100, size_t max_frames = 10000) {
+        sim_->start_recording(width, height, capture_frequency, max_frames);
+    }
+    void stop_recording() { sim_->stop_recording(); }
+    bool is_recording() const { return sim_->is_recording(); }
+    size_t get_frame_count() const { return sim_->get_frame_count(); }
+    const std::vector<std::vector<unsigned char>>& get_captured_frames() const {
+        return sim_->get_captured_frames();
+    }
+    void clear_captured_frames() { sim_->clear_captured_frames(); }
+    int get_frame_width() const { return sim_->get_frame_width(); }
+    int get_frame_height() const { return sim_->get_frame_height(); }
+
     // Direct MuJoCo access for advanced usage
     OptimizedMujocoWrapper* get_mujoco_wrapper() { return sim_.get(); }
     const OptimizedMujocoWrapper* get_mujoco_wrapper() const { return sim_.get(); }
