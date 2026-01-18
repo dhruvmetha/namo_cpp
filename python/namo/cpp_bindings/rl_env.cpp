@@ -33,7 +33,9 @@ void RLEnvironment::reset() {
 RLEnvironment::StepResult RLEnvironment::step(const Action& action) {
     std::map<std::string, SkillParameterValue> params = {
         {"object_name", action.object_id},
-        {"target_pose", SE2State(action.x, action.y, action.theta)}
+        {"target_pose", SE2State(action.x, action.y, action.theta)},
+        {"edge_idx", action.edge_idx},  // Pass to skill for direct primitive execution
+        {"depth", action.depth}         // Pass to skill for direct primitive execution
     };
 
     if (!skill_->is_applicable(params)) {

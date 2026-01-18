@@ -258,6 +258,8 @@ class SolutionSmoother:
                 rl_action.x = action['target_pose']['x']
                 rl_action.y = action['target_pose']['y']
                 rl_action.theta = action['target_pose']['theta']
+                rl_action.edge_idx = action.get('edge_idx', -1)  # Pass for direct C++ execution
+                rl_action.depth = action.get('depth', -1)        # Pass for direct C++ execution
 
                 step_result = env.step(rl_action)
                 if not step_result.done and "error" in step_result.info:

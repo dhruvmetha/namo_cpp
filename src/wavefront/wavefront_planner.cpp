@@ -25,8 +25,6 @@ WavefrontPlanner::WavefrontPlanner(double resolution, NAMOEnvironment& env,
     // Initialize static obstacles
     initialize_static_grid(env);
 
-    // std::cout << "robot_size: " << robot_size_[0] << ", " << robot_size_[1] << std::endl;
-
     // Add movable objects to initial dynamic grid
     const auto& movable_objects = env.get_movable_objects();
     for (size_t i = 0; i < env.get_num_movable(); i++) {
@@ -65,13 +63,13 @@ WavefrontPlanner::WavefrontPlanner(double resolution, NAMOEnvironment& env,
 
 void WavefrontPlanner::initialize_static_grid(NAMOEnvironment& env) {
     auto start_time = std::chrono::high_resolution_clock::now();
-    
-    // Process static obstacles once
+
+    // Process static obstacles once using cell CENTER (matching Python's wavefront_snapshot.py)
     for (int x = 0; x < grid_width_; x++) {
         for (int y = 0; y < grid_height_; y++) {
-            double world_x = grid_to_world_x(x);
-            double world_y = grid_to_world_y(y);
-            
+            double world_x = grid_to_world_x(x) + 0.5 * resolution_;  // Cell center
+            double world_y = grid_to_world_y(y) + 0.5 * resolution_;  // Cell center
+
             // Check against all static objects
             const auto& static_objects = env.get_static_objects();
             for (size_t i = 0; i < env.get_num_static(); i++) {
@@ -175,12 +173,12 @@ GridFootprint WavefrontPlanner::calculate_rotated_footprint(const ObjectInfo& ob
     int grid_min_y = std::max(0, world_to_grid_y(min_y));
     int grid_max_y = std::min(grid_height_ - 1, world_to_grid_y(max_y));
     
-    // Test each cell in bounding box
+    // Test each cell in bounding box using cell CENTER (matching Python's wavefront_snapshot.py)
     for (int x = grid_min_x; x <= grid_max_x; x++) {
         for (int y = grid_min_y; y <= grid_max_y; y++) {
-            double world_x = grid_to_world_x(x);
-            double world_y = grid_to_world_y(y);
-            
+            double world_x = grid_to_world_x(x) + 0.5 * resolution_;  // Cell center
+            double world_y = grid_to_world_y(y) + 0.5 * resolution_;  // Cell center
+
             if (is_point_in_rotated_rectangle(world_x, world_y, state, obj)) {
                 footprint.add_cell(x, y);
             }
@@ -298,7 +296,7 @@ void WavefrontPlanner::save_wavefront_iteration(const std::string& base_filename
 void WavefrontPlanner::recompute_wavefront(NAMOEnvironment& env, const std::vector<double>& start_pos) {
     // 1. Rebuild dynamic grid from current object positions
     rebuild_dynamic_grid_from_current_objects(env);
-    
+
     // 2. Reset all reachability values: -2=obstacle, 0=unreachable, 1=reachable
     for (int x = 0; x < grid_width_; x++) {
         for (int y = 0; y < grid_height_; y++) {
@@ -309,7 +307,7 @@ void WavefrontPlanner::recompute_wavefront(NAMOEnvironment& env, const std::vect
             }
         }
     }
-    
+
     // 3. Simple BFS for reachability from start position
     int start_x = world_to_grid_x(start_pos[0]);
     int start_y = world_to_grid_y(start_pos[1]);
@@ -355,22 +353,23 @@ void WavefrontPlanner::recompute_wavefront(NAMOEnvironment& env, const std::vect
     while (!bfs_empty()) {
         auto [x, y] = bfs_dequeue();
         if (x < 0) break;
-        
+
         for (const auto& [dx, dy] : DIRECTIONS) {
             int nx = x + dx;
             int ny = y + dy;
-            
-            if (is_valid_grid_coord(nx, ny) && 
+
+            if (is_valid_grid_coord(nx, ny) &&
                 reachability_grid_[nx][ny] != -2 &&
                 dynamic_grid_[nx][ny] != -2 &&    // Not an obstacle
                 reachability_grid_[nx][ny] == 0) { // Not already visited (closed list check)
-                
+
                 reachability_grid_[nx][ny] = 1;  // Mark as reachable AND visited
                 bfs_enqueue(nx, ny);
-     
+
             }
         }
     }
+
 }
 
 void WavefrontPlanner::rebuild_dynamic_grid_from_current_objects(NAMOEnvironment& env) {

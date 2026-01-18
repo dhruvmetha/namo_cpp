@@ -117,12 +117,16 @@ std::map<std::string, ParameterSchema> NAMOPushSkill::get_parameter_schema() con
     return {
         {"object_name", {ParameterSchema::STRING, "Name of movable object to push"}},
         {"target_pose", {ParameterSchema::POSE_2D, "Target SE(2) pose (x, y, theta)"}},
-        {"robot_goal", {ParameterSchema::POSE_2D, "Optional robot goal for early termination", 
+        {"robot_goal", {ParameterSchema::POSE_2D, "Optional robot goal for early termination",
                        SkillParameterValue(SE2State())}},  // Optional with default
-        {"tolerance", {ParameterSchema::DOUBLE, "Goal tolerance in meters", 
+        {"tolerance", {ParameterSchema::DOUBLE, "Goal tolerance in meters",
                       SkillParameterValue(config_ ? config_->skill().goal_tolerance : legacy_config_.tolerance)}},
-        {"max_attempts", {ParameterSchema::INT, "Maximum MPC iterations", 
-                         SkillParameterValue(config_ ? config_->skill().max_mpc_iterations : legacy_config_.max_mpc_iterations)}}
+        {"max_attempts", {ParameterSchema::INT, "Maximum MPC iterations",
+                         SkillParameterValue(config_ ? config_->skill().max_mpc_iterations : legacy_config_.max_mpc_iterations)}},
+        {"edge_idx", {ParameterSchema::INT, "Primitive edge index for direct execution (-1 = use MPC search)",
+                     SkillParameterValue(-1)}},  // Optional with default -1
+        {"depth", {ParameterSchema::INT, "Primitive depth for direct execution (-1 = use MPC search)",
+                  SkillParameterValue(-1)}}  // Optional with default -1
     };
 }
 
@@ -227,8 +231,87 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         std::array<float, 4> cyan_color = {0.0f, 0.8f, 1.0f, 1.0f}; // Cyan for object target goals
         env_.visualize_object_goal_marker(target_3d, obj_info->size, target_pose.theta, cyan_color);
     }
-    
-    // **ITERATIVE MPC LOOP**
+
+    // Check if Python provided explicit primitive selection (bypass MPC loop)
+    int provided_edge_idx = -1;
+    int provided_depth = -1;
+    if (auto it = parameters.find("edge_idx"); it != parameters.end()) {
+        provided_edge_idx = std::get<int>(it->second);
+    }
+    if (auto it = parameters.find("depth"); it != parameters.end()) {
+        provided_depth = std::get<int>(it->second);
+    }
+
+    // If edge_idx provided (>=0), bypass MPC loop and execute directly
+    if (provided_edge_idx >= 0 && provided_depth >= 0) {
+        // Get reachable edges to verify the requested edge is accessible
+        std::vector<int> reachable_edges = executor_->get_reachable_edges_with_wavefront(object_name);
+
+        // Check if requested edge is reachable
+        bool edge_reachable = std::find(reachable_edges.begin(), reachable_edges.end(),
+                                         provided_edge_idx) != reachable_edges.end();
+
+        if (!edge_reachable) {
+            result.failure_reason = "Requested edge " + std::to_string(provided_edge_idx) + " not reachable";
+            result.failure_type = FailureType::NO_REACHABLE_EDGES;
+            auto end_time = std::chrono::high_resolution_clock::now();
+            result.execution_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+            return result;
+        }
+
+        // Execute the specific primitive directly (no search, no MPC loop)
+        int push_steps = provided_depth + 1;  // Convert 0-indexed depth to 1-indexed push_steps
+        std::vector<PlanStep> single_step = {PlanStep(provided_edge_idx, push_steps, target_pose)};
+
+        auto step_result = executor_->execute_plan(object_name, single_step);
+
+        // Populate result
+        auto final_pose = get_object_current_pose(object_name);
+        result.success = step_result.success;
+        result.outputs["steps_executed"] = 1;
+        result.outputs["final_pose"] = final_pose ? *final_pose : SE2State();
+        result.outputs["object_name"] = object_name;
+        result.outputs["direct_execution"] = true;  // Flag indicating MPC was bypassed
+
+        // Check if robot goal became reachable (for early termination detection)
+        if (enable_robot_goal_termination_ && has_robot_goal_ && executor_->is_robot_goal_reachable()) {
+            result.outputs["robot_goal_reached"] = true;
+        } else {
+            result.outputs["robot_goal_reached"] = false;
+        }
+
+        if (!step_result.success) {
+            result.failure_reason = step_result.failure_reason;
+            // Copy collision info if present
+            if (!step_result.collision_object.empty()) {
+                result.outputs["collision_object"] = step_result.collision_object;
+                result.failure_type = FailureType::OBJECT_COLLISION_DURING_PUSH;
+            }
+            // Check for stuck condition
+            if (step_result.failure_reason.find("Controller-level stuck") != std::string::npos) {
+                result.outputs["stuck"] = "true";
+                result.failure_type = FailureType::OBJECT_STUCK;
+            }
+        }
+
+        // Collision tracking outputs
+        result.outputs["wall_collision"] = step_result.wall_collision_during_push;
+        {
+            std::string movable_str;
+            for (auto it = step_result.movable_collisions_during_push.begin();
+                 it != step_result.movable_collisions_during_push.end(); ++it) {
+                if (it != step_result.movable_collisions_during_push.begin()) movable_str += ",";
+                movable_str += *it;
+            }
+            result.outputs["movable_collisions"] = movable_str;
+        }
+
+        auto end_time = std::chrono::high_resolution_clock::now();
+        result.execution_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+        return result;
+    }
+
+    // **ITERATIVE MPC LOOP** (original behavior when edge_idx == -1)
     SE2State previous_state = *get_object_current_pose(object_name); // Initialize for stuck detection
     int stuck_counter = 0;
     int previous_edge_idx = -1;

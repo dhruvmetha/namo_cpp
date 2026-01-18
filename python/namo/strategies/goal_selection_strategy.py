@@ -17,9 +17,11 @@ import namo_rl
 class Goal:
     """Goal representation for IDFS actions."""
     x: float
-    y: float 
+    y: float
     theta: float
     score: float = 0.0
+    edge_idx: int = -1   # -1 means "let C++ search", >=0 means specific edge
+    depth: int = -1      # -1 means "let C++ search", 0-indexed (depth=0 means push_steps=1)
 
 
 class GoalSelectionStrategy(ABC):

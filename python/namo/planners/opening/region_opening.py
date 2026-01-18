@@ -600,6 +600,9 @@ class RegionOpeningPlanner(BasePlanner):
             has_goal_region = "goal" in region_labels.values()
             goal_info = " (includes GOAL region)" if has_goal_region else ""
             print(f"  Region snapshot: robot={robot_label} | regions={total_regions}{goal_info} | edges={total_edges} | neighbors={len(neighbours)}")
+            print(f"  All regions: {list(region_labels.values())}")
+            print(f"  Adjacency: {dict(adjacency)}")
+            print(f"  Edge objects: {dict(edge_objects)}")
             print(f"  Neighbors to explore: {neighbours}")
 
         # Collect attempts from this state
@@ -1780,6 +1783,8 @@ class RegionOpeningPlanner(BasePlanner):
             action.x = goal.x
             action.y = goal.y
             action.theta = goal.theta
+            action.edge_idx = goal.edge_idx  # Pass actual edge index for direct C++ execution
+            action.depth = goal.depth        # Pass depth (0-indexed) for direct C++ execution
 
             if self.config.verbose:
                 # Show object current position vs goal position
@@ -1801,10 +1806,16 @@ class RegionOpeningPlanner(BasePlanner):
 
             try:
                 if self.config.verbose:
+                    print(f"        DEBUG: goal.edge_idx={goal.edge_idx}, goal.depth={goal.depth}")
                     print(f"        ⏳ Calling env.step()...")
                 step_result = self.env.step(action)
                 if self.config.verbose:
-                    print(f"        ✓ env.step() returned successfully")
+                    print(f"        ✓ env.step() returned: done={step_result.done}, reward={step_result.reward}")
+                    print(f"        ✓ step_result.info={step_result.info}")
+                    # Check object position after push
+                    post_obs = self.env.get_observation()
+                    post_pose = post_obs.get(f"{object_id}_pose", [0, 0, 0])
+                    print(f"        ✓ AFTER push: object at ({post_pose[0]:.3f}, {post_pose[1]:.3f}, θ={post_pose[2]:.3f})")
 
                 # Visualize after action if enabled
                 self._focus_camera_on_object(object_id)

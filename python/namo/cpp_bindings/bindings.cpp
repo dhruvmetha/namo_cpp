@@ -34,7 +34,9 @@ PYBIND11_MODULE(namo_rl, m) {
         .def_readwrite("object_id", &namo::RLEnvironment::Action::object_id)
         .def_readwrite("x", &namo::RLEnvironment::Action::x)
         .def_readwrite("y", &namo::RLEnvironment::Action::y)
-        .def_readwrite("theta", &namo::RLEnvironment::Action::theta);
+        .def_readwrite("theta", &namo::RLEnvironment::Action::theta)
+        .def_readwrite("edge_idx", &namo::RLEnvironment::Action::edge_idx)
+        .def_readwrite("depth", &namo::RLEnvironment::Action::depth);
 
     py::class_<namo::RLEnvironment::StepResult>(m, "StepResult")
         .def(py::init<>())

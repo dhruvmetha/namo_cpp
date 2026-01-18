@@ -43,6 +43,8 @@ class Action:
         action.x = self.goal.x
         action.y = self.goal.y
         action.theta = self.goal.theta
+        action.edge_idx = self.goal.edge_idx  # Pass for direct C++ primitive execution
+        action.depth = self.goal.depth        # Pass for direct C++ primitive execution
         return action
 
 

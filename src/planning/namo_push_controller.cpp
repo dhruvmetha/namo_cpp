@@ -70,10 +70,10 @@ void NAMOPushController::generate_rectangular_edge_points(const std::array<doubl
                                                         std::array<std::array<double, 2>, MAX_EDGE_POINTS>& mid_points,
                                                         size_t& edge_count,
                                                         size_t& mid_count) {
-    
+
     // Convert quaternion to rotation angle (yaw)
     double yaw = utils::quaternion_to_yaw(obj_quat);
-    
+
     // Object dimensions - subtract margin
     double x = 0.0, y = 0.0;
     double w = obj_size[0];  // width with margin

@@ -204,6 +204,8 @@ class SolutionRefiner:
                 rl_action.x = action['target'][0]
                 rl_action.y = action['target'][1]
                 rl_action.theta = action['target'][2]
+                rl_action.edge_idx = action.get('edge_idx', -1)  # Pass for direct C++ execution
+                rl_action.depth = action.get('depth', -1)        # Pass for direct C++ execution
 
                 # Execute action using the same API as standard_idfs.py
                 step_result = env.step(rl_action)

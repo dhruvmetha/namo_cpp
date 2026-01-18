@@ -484,6 +484,8 @@ class MLDrivenAsyncSearch:
             action.x = goal.x
             action.y = goal.y
             action.theta = goal.theta
+            action.edge_idx = goal.edge_idx  # Pass for direct C++ primitive execution
+            action.depth = goal.depth        # Pass for direct C++ primitive execution
 
             self.total_pushes += 1
 
@@ -785,6 +787,8 @@ class MLDrivenAsyncSearch:
             action.x = goal.x
             action.y = goal.y
             action.theta = goal.theta
+            action.edge_idx = goal.edge_idx  # Pass for direct C++ primitive execution
+            action.depth = goal.depth        # Pass for direct C++ primitive execution
 
             try:
                 step_result = self.env.step(action)

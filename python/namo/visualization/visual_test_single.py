@@ -192,6 +192,8 @@ def visualize_solution(env: namo_rl.RLEnvironment, result: PlannerResult, step_m
         namo_action.x = action.x
         namo_action.y = action.y
         namo_action.theta = action.theta
+        namo_action.edge_idx = getattr(action, 'edge_idx', -1)  # Pass for direct C++ execution
+        namo_action.depth = getattr(action, 'depth', -1)        # Pass for direct C++ execution
         step_result = env.step(namo_action)
         if hasattr(step_result, 'info') and step_result.info:
             print(f"   Action result: {step_result.info}")
@@ -284,9 +286,9 @@ def main():
                         help="Maximum solutions to record per neighbor region (default: 2)")
 
     # Environment settings
-    parser.add_argument("--config-file", type=str, 
-                        default="config/namo_config_complete.yaml",
-                        help="NAMO configuration file")
+    parser.add_argument("--config-file", type=str,
+                        default="config/namo_config_complete_skill15.yaml",
+                        help="NAMO configuration file (skill15 = 15 points per edge)")
     parser.add_argument("--robot-goal", type=float, nargs=3, metavar=('X', 'Y', 'THETA'),
                         help="Custom robot goal (x, y, theta). If not provided, extracts from XML")
     
@@ -531,6 +533,8 @@ def main():
                         action.x = act["target_pose"]["x"]
                         action.y = act["target_pose"]["y"]
                         action.theta = act["target_pose"]["theta"]
+                        action.edge_idx = act.get("edge_idx", -1)  # Pass for direct C++ execution
+                        action.depth = act.get("depth", -1)        # Pass for direct C++ execution
                         smoothed_actions.append(action)
 
                     result.action_sequence = smoothed_actions
@@ -595,6 +599,8 @@ def main():
                             action.x = goal.x
                             action.y = goal.y
                             action.theta = goal.theta
+                            action.edge_idx = getattr(goal, 'edge_idx', -1)  # Pass for direct C++ execution
+                            action.depth = getattr(goal, 'depth', -1)        # Pass for direct C++ execution
                             action_sequence.append(action)
                     elif attempt.chosen_goal:
                         # Single push
@@ -603,6 +609,7 @@ def main():
                         action.x = attempt.chosen_goal[0]
                         action.y = attempt.chosen_goal[1]
                         action.theta = attempt.chosen_goal[2]
+                        # attempt.chosen_goal is a tuple, so edge_idx/depth use defaults (-1)
                         action_sequence.append(action)
 
                     # Create a temporary result with this solution's actions

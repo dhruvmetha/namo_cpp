@@ -106,6 +106,8 @@ class FullNAMOPlanner(BasePlanner):
         self.env.set_robot_goal(robot_goal[0], robot_goal[1], robot_goal[2])
 
         all_actions: List[namo_rl.Action] = []
+        # Track resulting state after each action for visualization replay
+        action_resulting_states: List[namo_rl.RLState] = []
 
         self._debug(f"\n{'='*60}")
         self._debug(f"Full NAMO Planner - Target: ({robot_goal[0]:.2f}, {robot_goal[1]:.2f}, {robot_goal[2]:.2f})")

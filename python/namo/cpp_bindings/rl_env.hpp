@@ -24,6 +24,8 @@ public:
     struct Action {
         std::string object_id;
         double x, y, theta;
+        int edge_idx = -1;  // -1 means use MPC+search, >=0 means execute directly
+        int depth = -1;     // 0-indexed (depth=0 means push_steps=1)
     };
 
     struct StepResult {

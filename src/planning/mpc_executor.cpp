@@ -3,6 +3,7 @@
 #include "core/types.hpp"
 #include <iostream>
 #include <cmath>
+#include <map>
 #include <unordered_set>
 
 namespace namo {
@@ -336,23 +337,25 @@ std::vector<int> MPCExecutor::get_reachable_edges_with_wavefront(const std::stri
     
     // Get the mutable wavefront grid for marking edge points
     auto& grid = planner_.get_mutable_grid();
-    
+
     // Check each transformed edge point for reachability and mark in grid
     for (size_t edge_idx = 0; edge_idx < edge_count; edge_idx++) {
         try {
-            // Convert world edge point to grid coordinates  
-            int edge_x = planner_.world_to_grid_x(edge_points[edge_idx][0]);  // Changed from world_edge_points
-            int edge_y = planner_.world_to_grid_y(edge_points[edge_idx][1]);  // Changed from world_edge_points
-            
+            // Convert world edge point to grid coordinates
+            int edge_x = planner_.world_to_grid_x(edge_points[edge_idx][0]);
+            int edge_y = planner_.world_to_grid_y(edge_points[edge_idx][1]);
+
             if (planner_.is_valid_grid_coord(edge_x, edge_y)) {
+                int grid_val = grid[edge_x][edge_y];
+
                 // Check if edge point is reachable (not obstacle -2, not unreachable 0)
                 // Only accept grid values > 0 (reachable positions)
-                if (grid[edge_x][edge_y] > 0) {
+                if (grid_val > 0) {
                     reachable_edges.push_back(static_cast<int>(edge_idx));
                     // Mark reachable edge points in grid as -3
                     grid[edge_x][edge_y] = -3;
                 } else {
-                    // Mark unreachable edge points in grid as -4  
+                    // Mark unreachable edge points in grid as -4
                     grid[edge_x][edge_y] = -4;
                 }
             }
@@ -361,8 +364,6 @@ std::vector<int> MPCExecutor::get_reachable_edges_with_wavefront(const std::stri
             continue;
         }
     }
-
-    // planner_.save_wavefront_iteration("mpc_wavefront", 0);
 
     // std::cout << "Wavefront analysis: " << reachable_edges.size()
             //   << "/" << edge_count << " edges reachable for " << object_name << std::endl;

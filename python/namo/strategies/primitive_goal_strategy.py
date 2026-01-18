@@ -218,14 +218,16 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
                 cos_theta = math.cos(obj_theta)
                 sin_theta = math.sin(obj_theta)
 
-                for primitive in edge_primitives:
+                for depth_idx, primitive in enumerate(edge_primitives):
                     dx = primitive.delta_x
                     dy = primitive.delta_y
 
                     goal = Goal(
                         x=obj_x + dx * cos_theta - dy * sin_theta,
                         y=obj_y + dx * sin_theta + dy * cos_theta,
-                        theta=obj_theta + primitive.delta_theta
+                        theta=obj_theta + primitive.delta_theta,
+                        edge_idx=edge_idx,      # Actual primitive edge index (from edge_indices, not list position)
+                        depth=depth_idx         # 0-indexed depth (depth=0 means push_steps=1)
                     )
                     edge_goals.append(goal)
 
@@ -541,12 +543,14 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             edge_idx, depth_idx, _ = slot_metadata[slot_id]
             count = data["count"]
             stored_goal = data["goal"]
-            
+
             aligned_goals[edge_idx][depth_idx] = Goal(
                 x=stored_goal.x,
                 y=stored_goal.y,
                 theta=stored_goal.theta,
-                score=count  # Store vote count as score
+                score=count,  # Store vote count as score
+                edge_idx=edge_idx,   # Preserve edge index for C++ direct execution
+                depth=depth_idx      # Preserve depth for C++ direct execution
             )
             matches += 1
             
@@ -974,12 +978,14 @@ class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
         for edge_idx, edge_goals in enumerate(primitive_goals):
             edge_output = []
             for depth_idx, goal in enumerate(edge_goals):
-                # Create new Goal with score=0 (fallback)
+                # Create new Goal with score=0 (fallback), preserving edge_idx/depth
                 fallback_goal = Goal(
                     x=goal.x,
                     y=goal.y,
                     theta=goal.theta,
-                    score=0.0  # Fallback priority
+                    score=0.0,  # Fallback priority
+                    edge_idx=goal.edge_idx if goal.edge_idx >= 0 else edge_idx,
+                    depth=goal.depth if goal.depth >= 0 else depth_idx
                 )
                 edge_output.append(fallback_goal)
             output_goals.append(edge_output)
@@ -1031,13 +1037,15 @@ class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
         ml_aligned_slots = 0
         for slot_id, votes in slot_votes.items():
             edge_idx, depth_idx, _ = slot_metadata[slot_id]
-            # Update the goal's score to vote count
+            # Update the goal's score to vote count, preserving edge_idx/depth
             old_goal = output_goals[edge_idx][depth_idx]
             output_goals[edge_idx][depth_idx] = Goal(
                 x=old_goal.x,
                 y=old_goal.y,
                 theta=old_goal.theta,
-                score=float(votes)  # ML priority based on votes
+                score=float(votes),  # ML priority based on votes
+                edge_idx=old_goal.edge_idx,
+                depth=old_goal.depth
             )
             ml_aligned_slots += 1
 
@@ -1408,16 +1416,18 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
         if not primitive_goals:
             return AsyncGoalResult(primitive_goals=[], ml_future=None)
 
-        # Initialize all primitives with score=0 (fallback priority)
+        # Initialize all primitives with score=0 (fallback priority), preserving edge_idx/depth
         output_goals: List[List[Goal]] = []
-        for edge_goals in primitive_goals:
+        for edge_idx, edge_goals in enumerate(primitive_goals):
             edge_output = []
-            for goal in edge_goals:
+            for depth_idx, goal in enumerate(edge_goals):
                 edge_output.append(Goal(
                     x=goal.x,
                     y=goal.y,
                     theta=goal.theta,
-                    score=0.0
+                    score=0.0,
+                    edge_idx=goal.edge_idx if goal.edge_idx >= 0 else edge_idx,
+                    depth=goal.depth if goal.depth >= 0 else depth_idx
                 ))
             output_goals.append(edge_output)
 

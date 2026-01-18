@@ -61,10 +61,11 @@ python python/namo/visualization/visual_test_single.py \
 ```
 
 ### Build C++ Components
+**Always use the build script** (not cmake directly):
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel 8
+./build_python_mjxrl.sh
 ```
+This script handles all CMake configuration, environment setup, and builds the `namo_rl` Python module.
 
 ## Critical Implementation Details
 
