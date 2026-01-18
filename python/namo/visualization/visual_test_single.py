@@ -167,18 +167,80 @@ def print_solution_summary(result: PlannerResult):
             print(f"   {key}: {value}")
 
 
+def visualize_region_opening_sequence(env: namo_rl.RLEnvironment, result: PlannerResult, step_mode: bool = False, delay: float = 1.0):
+    """Visualize Full NAMO solution using structured region opening sequence.
+
+    This handles the hierarchical structure where each region opening may contain
+    multiple actions (skill chain) that should be executed sequentially.
+    """
+    if not result.algorithm_stats or "region_opening_sequence" not in result.algorithm_stats:
+        print("❌ No region_opening_sequence found, falling back to flat visualization")
+        return visualize_solution(env, result, step_mode, delay)
+
+    region_opening_sequence = result.algorithm_stats["region_opening_sequence"]
+    if not region_opening_sequence:
+        print("❌ Empty region_opening_sequence")
+        return
+
+    total_actions = sum(len(ro.actions) for ro in region_opening_sequence)
+    print(f"\n🎬 Visualizing Full NAMO solution: {len(region_opening_sequence)} region openings, {total_actions} total actions...")
+
+    if step_mode:
+        print("👆 STEP MODE: Press Enter to advance to next action, 'q' to quit")
+        input("Press Enter to start...")
+
+    # Print the robot goal being used for this visualization
+    robot_goal = env.get_robot_goal()
+    print(f"🎯 Robot goal for visualization: ({robot_goal[0]:.2f}, {robot_goal[1]:.2f}, {robot_goal[2]:.2f})")
+
+    action_counter = 0
+    for ro_idx, region_opening in enumerate(region_opening_sequence):
+        print(f"\n📍 Region Opening {ro_idx + 1}/{len(region_opening_sequence)}: Opening path to '{region_opening.target_region}' by pushing {region_opening.object_id}")
+
+        for action_idx, action in enumerate(region_opening.actions):
+            action_counter += 1
+            print(f"   Step {action_counter}/{total_actions}: Push {action.object_id} to ({action.x:.2f}, {action.y:.2f}, {action.theta:.2f})")
+
+            # Execute the action
+            namo_action = namo_rl.Action()
+            namo_action.object_id = action.object_id
+            namo_action.x = action.x
+            namo_action.y = action.y
+            namo_action.theta = action.theta
+            namo_action.edge_idx = getattr(action, 'edge_idx', -1)
+            namo_action.depth = getattr(action, 'depth', -1)
+
+            step_result = env.step(namo_action)
+            if hasattr(step_result, 'info') and step_result.info:
+                print(f"      Result: {step_result.info}")
+
+            # Render the current state
+            env.render()
+
+            if step_mode:
+                user_input = input("Press Enter for next step (or 'q' to quit): ").strip().lower()
+                if user_input == 'q':
+                    return
+            else:
+                time.sleep(delay)
+
+        print(f"   ✓ Region opening complete")
+
+    print("\n🎉 Full NAMO solution visualization complete!")
+
+
 def visualize_solution(env: namo_rl.RLEnvironment, result: PlannerResult, step_mode: bool = False, delay: float = 1.0):
     """Visualize the solution by executing actions in the environment."""
     if not result.solution_found or not result.action_sequence:
         print("❌ No solution to visualize")
         return
-    
+
     print(f"\n🎬 Visualizing solution with {len(result.action_sequence)} actions...")
-    
+
     if step_mode:
         print("👆 STEP MODE: Press Enter to advance to next action, 'q' to quit")
         input("Press Enter to start...")
-    
+
     # Print the robot goal being used for this visualization
     robot_goal = env.get_robot_goal()
     print(f"🎯 Robot goal for visualization: ({robot_goal[0]:.2f}, {robot_goal[1]:.2f}, {robot_goal[2]:.2f})")
@@ -202,7 +264,7 @@ def visualize_solution(env: namo_rl.RLEnvironment, result: PlannerResult, step_m
 
         # Render the current state
         env.render()
-        
+
         if step_mode:
             user_input = input("Press Enter for next step (or 'q' to quit): ").strip().lower()
             if user_input == 'q':
@@ -210,7 +272,7 @@ def visualize_solution(env: namo_rl.RLEnvironment, result: PlannerResult, step_m
         else:
             # Automatic mode - wait specified delay between steps
             time.sleep(delay)
-    
+
     print("🎉 Solution visualization complete!")
 
 
@@ -324,6 +386,8 @@ def main():
                         help="Video output framerate (default: 30)")
     video_group.add_argument("--capture-frequency", type=int, default=100,
                         help="Capture every N physics steps (default: 100, ~250 frames per push)")
+    video_group.add_argument("--camera-distance", type=float, default=None,
+                        help="Camera distance/zoom (lower = more zoomed in, default: auto)")
 
     # Solution smoothing settings
     parser.add_argument("--smooth-solutions", action="store_true",
@@ -559,9 +623,14 @@ def main():
             solution_env = namo_rl.RLEnvironment(args.xml_file, args.config_file, visualize=True)
             reset_environment_for_visualization(solution_env, robot_goal)
 
-            # Apply collision checking settings for region_opening
-            if args.algorithm == "region_opening" and args.region_allow_collisions:
+            # Apply collision checking settings (must match planning settings)
+            if args.region_allow_collisions:
                 solution_env.set_collision_checking(False)
+
+            # Apply camera distance for visualization (only if explicitly set)
+            # Uses default azimuth=0, elevation=-90 (top-down view) from mujoco_wrapper
+            if args.camera_distance is not None:
+                solution_env.set_camera_position(args.camera_distance, 0.0, -90.0)
 
             # Start video recording if requested
             if args.record_video:
@@ -644,19 +713,26 @@ def main():
                             print("\n🛑 Stopping visualization")
                             break
             else:
-                # Single solution - use original visualization logic
+                # Single solution visualization
+                # Use structured visualization for full_namo, flat visualization for others
+                use_structured = (args.algorithm == "full_namo" and
+                                  result.algorithm_stats and
+                                  "region_opening_sequence" in result.algorithm_stats)
+
+                viz_func = visualize_region_opening_sequence if use_structured else visualize_solution
+
                 if args.show_solution == "auto":
                     print("\n🎬 Auto-visualizing solution...")
-                    visualize_solution(solution_env, result, step_mode=False, delay=args.solution_delay)
+                    viz_func(solution_env, result, step_mode=False, delay=args.solution_delay)
                 elif args.show_solution == "step":
                     print("\n🎬 Step-by-step solution visualization...")
-                    visualize_solution(solution_env, result, step_mode=True, delay=0)
+                    viz_func(solution_env, result, step_mode=True, delay=0)
                 elif args.show_solution == "prompt":
                     try:
                         print(f"\n🎬 Would you like to visualize the solution? (y/N): ", end="")
                         user_input = input().strip().lower()
                         if user_input in ['y', 'yes']:
-                            visualize_solution(solution_env, result, step_mode=False, delay=1.0)
+                            viz_func(solution_env, result, step_mode=False, delay=1.0)
                     except (EOFError, KeyboardInterrupt):
                         print("N")  # Default to no visualization
 

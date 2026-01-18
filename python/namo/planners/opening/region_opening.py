@@ -472,17 +472,19 @@ class RegionOpeningPlanner(BasePlanner):
             attempt_actions = []
 
             # Handle both single goal and goal chain
-            if attempt.goal_chain and len(attempt.goal_chain) > 1:
-                # Multi-push chain
+            # Build actions from goal_chain (has edge_idx/depth for direct C++ execution)
+            if attempt.goal_chain:
                 for goal in attempt.goal_chain:
                     action = namo_rl.Action()
                     action.object_id = attempt.chosen_object_id
                     action.x = goal.x
                     action.y = goal.y
                     action.theta = goal.theta
+                    action.edge_idx = getattr(goal, 'edge_idx', -1)
+                    action.depth = getattr(goal, 'depth', -1)
                     attempt_actions.append(action)
             elif attempt.chosen_goal:
-                # Single push
+                # Fallback to chosen_goal tuple (no edge_idx/depth)
                 action = namo_rl.Action()
                 action.object_id = attempt.chosen_object_id
                 action.x = attempt.chosen_goal[0]
