@@ -30,7 +30,11 @@ from typing import List, Dict, Tuple, Optional, Any, TYPE_CHECKING
 from dataclasses import dataclass, asdict, replace
 from multiprocessing import Pool
 import glob
-from tqdm import tqdm
+try:
+    from tqdm import tqdm
+except ModuleNotFoundError:  # pragma: no cover
+    def tqdm(iterable=None, **_kwargs):
+        return iterable if iterable is not None else []
 
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -250,6 +254,10 @@ class ModularWorkerTask:
     # Action refinement options (post-smoothing step)
     refine_actions: bool = False
     validate_refinement: bool = True
+    # Region/object skip dict (blacklist): skip specific (region, object) pairs during neighbor exploration
+    # Parsed from manifest file (tab-separated format: xml_path\tregion1:obj1,region2:obj2,...)
+    # Dict maps region_label -> list of object_ids to skip (empty list = skip entire region)
+    region_object_skip: Optional[Dict[str, List[str]]] = None
 
 
 @dataclass
@@ -303,6 +311,10 @@ class ModularEpisodeResult:
     xml_file: str = ""
     robot_goal: Optional[Tuple[float, float, float]] = None
 
+    # Collision tracking for hardness metrics (aggregated across all pushes in chain)
+    any_wall_collision: bool = False  # Did any push hit a wall?
+    unique_movable_collision_count: int = 0  # Number of unique movable objects hit across all pushes
+
 
 @dataclass
 class ModularWorkerResult:
@@ -325,31 +337,72 @@ class ModularWorkerResult:
 # Planners are registered automatically when imported
 
 
-def discover_environment_files(base_dir: str, start_idx: int, end_idx: int, manifest_file: str = None) -> List[str]:
+def discover_environment_files(
+    base_dir: str,
+    start_idx: int,
+    end_idx: int,
+    manifest_file: str = None
+) -> List[Tuple[str, Optional[Dict[str, List[str]]]]]:
     """Discover and filter XML environment files by index range.
 
     Args:
         base_dir: Base directory containing XML files (used if no manifest)
         start_idx: Starting index for subset selection
         end_idx: Ending index for subset selection (exclusive)
-        manifest_file: Optional path to pre-generated manifest file for fast loading
+        manifest_file: Optional path to pre-generated manifest file for fast loading.
+            Supports extended tab-separated format with two styles:
+            1. Region-only: xml_path[\\tregion1,region2,...] - skip entire regions
+            2. Triplets: xml_path[\\tregion1:obj1,region1:obj2,region2:obj3,...] - skip specific (region,object) pairs
 
     Returns:
-        List of XML file paths for the requested index range
+        List of tuples: (xml_path, region_object_skip) where region_object_skip is None or
+        a dict mapping region_label -> list of object_ids to skip (empty list = skip all objects for that region)
     """
     if manifest_file and os.path.exists(manifest_file):
         # Fast path: read from pre-generated manifest
         print(f"Loading from manifest: {manifest_file}")
         with open(manifest_file, 'r') as f:
             # Read only the lines we need for memory efficiency
-            all_xml_files = []
+            all_entries: List[Tuple[str, Optional[Dict[str, List[str]]]]] = []
             for i, line in enumerate(f):
                 if i >= end_idx:
                     break
                 if i >= start_idx:
-                    all_xml_files.append(line.strip())
-        print(f"Loaded {len(all_xml_files)} environments from manifest (indices {start_idx}:{end_idx})")
-        return all_xml_files
+                    line = line.strip()
+                    if not line or line.startswith('#'):
+                        continue
+
+                    parts = line.split('\t')
+                    xml_path = parts[0].strip()
+                    region_object_skip = None
+                    if len(parts) > 1 and parts[1].strip():
+                        region_object_skip = {}
+                        for entry in parts[1].split(','):
+                            entry = entry.strip()
+                            if not entry:
+                                continue
+                            if ':' in entry:
+                                region, obj = entry.split(':', 1)
+                                region = region.strip()
+                                obj = obj.strip()
+                                if region not in region_object_skip:
+                                    region_object_skip[region] = []
+                                region_object_skip[region].append(obj)
+                            else:
+                                # Region-only format (backward compatible): skip all objects for this region
+                                region_object_skip[entry] = []  # Empty list = skip entire region
+
+                    all_entries.append((xml_path, region_object_skip))
+
+        filtered_count = sum(1 for _, rs in all_entries if rs)
+        total_skips = sum(
+            sum(len(objs) if objs else 1 for objs in rs.values())
+            for _, rs in all_entries if rs
+        )
+        print(f"Loaded {len(all_entries)} environments from manifest (indices {start_idx}:{end_idx})")
+        if filtered_count > 0:
+            print(f"  {filtered_count} environments have skip filters ({total_skips} total region:object pairs)")
+        return all_entries
 
     # Fallback: discover files directly (slow for millions of files)
     print(f"No manifest provided, scanning directory: {base_dir}")
@@ -365,7 +418,7 @@ def discover_environment_files(base_dir: str, start_idx: int, end_idx: int, mani
     random.shuffle(all_xml_files)
     subset_files = all_xml_files[start_idx:end_idx]
 
-    return subset_files
+    return [(f, None) for f in subset_files]
 
 def generate_hostname_prefix() -> str:
     """Generate hostname-based prefix for output files."""
@@ -483,6 +536,10 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                                 'solutions_cap_for_neighbour': getattr(attempt, 'solutions_cap_for_neighbour', None),
                                 'solutions_total_for_neighbour': getattr(attempt, 'solutions_total_for_neighbour', None),
                                 'pushes_total_for_neighbour': getattr(attempt, 'pushes_total_for_neighbour', None),
+                                'failure_reason': getattr(attempt, 'failure_reason', None),
+                                # Hybrid decomposition tracking
+                                'phase_push_counts': getattr(attempt, 'phase_push_counts', None),
+                                'solved_in_phase': getattr(attempt, 'solved_in_phase', ''),
                             },
                             action_sequence=action_sequence,
                             state_observations=attempt.state_observations,
@@ -494,7 +551,9 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                             robot_goal=actual_goal,
                             error_message=attempt.error_message or "",
                             failure_code=None,
-                            failure_description=attempt.error_message or ""
+                            failure_description=attempt.error_message or "",
+                            any_wall_collision=getattr(attempt, 'any_wall_collision', False),
+                            unique_movable_collision_count=getattr(attempt, 'unique_movable_collision_count', 0),
                         )
 
                         episode_results.append(episode_result)
@@ -738,8 +797,8 @@ class ModularParallelCollectionManager:
     
     def create_tasks(self) -> List[ModularWorkerTask]:
         """Create worker tasks from environment file subset."""
-        # Discover environment files
-        xml_files = discover_environment_files(
+        # Discover environment files (returns (xml_path, region_object_skip) tuples)
+        env_entries = discover_environment_files(
             self.config.xml_base_dir,
             self.config.start_idx,
             self.config.end_idx,
@@ -748,7 +807,7 @@ class ModularParallelCollectionManager:
         
         # Create tasks
         tasks = []
-        for i, xml_file in enumerate(xml_files):
+        for i, (xml_file, region_object_skip) in enumerate(env_entries):
             task_id = f"{self.config.hostname}_env_{self.config.start_idx + i:06d}"
 
             task_planner_config = self.config.planner_config
@@ -756,6 +815,8 @@ class ModularParallelCollectionManager:
                 base_algorithm_params = task_planner_config.algorithm_params or {}
                 task_algorithm_params = dict(base_algorithm_params)
                 task_algorithm_params['xml_file'] = xml_file
+                if region_object_skip:
+                    task_algorithm_params['region_object_skip'] = region_object_skip
                 task_planner_config = replace(
                     task_planner_config,
                     algorithm_params=task_algorithm_params
@@ -773,7 +834,8 @@ class ModularParallelCollectionManager:
                 smooth_solutions=self.config.smooth_solutions,
                 max_smooth_actions=self.config.max_smooth_actions,
                 refine_actions=self.config.refine_actions,
-                validate_refinement=self.config.validate_refinement
+                validate_refinement=self.config.validate_refinement,
+                region_object_skip=region_object_skip,
             )
             tasks.append(task)
         
@@ -882,6 +944,7 @@ class ModularParallelCollectionManager:
     def _save_final_summary(self, tasks: List[ModularWorkerTask], 
                           results: List[ModularWorkerResult], total_time: float):
         """Save comprehensive summary of data collection run."""
+        import statistics
         
         # Collect all episode results
         all_episodes = []
@@ -893,6 +956,20 @@ class ModularParallelCollectionManager:
         successful_episodes = [ep for ep in all_episodes if ep['solution_found']]
         search_times = [ep['search_time_ms'] for ep in all_episodes if ep['search_time_ms']]
         nodes_expanded = [ep['nodes_expanded'] for ep in all_episodes if ep['nodes_expanded']]
+        success_search_times = [ep['search_time_ms'] for ep in successful_episodes if ep.get('search_time_ms')]
+        # "Real" opening successes: exclude already-accessible (0 pushes) and other trivial successes.
+        success_search_times_pushes = [
+            ep['search_time_ms']
+            for ep in successful_episodes
+            if ep.get('search_time_ms')
+            and (ep.get('algorithm_stats') or {}).get('pushes_total_for_neighbour', 0) > 0
+        ]
+        success_push_counts = [
+            (ep.get('algorithm_stats') or {}).get('pushes_total_for_neighbour')
+            for ep in successful_episodes
+            if (ep.get('algorithm_stats') or {}).get('pushes_total_for_neighbour') is not None
+        ]
+        success_push_counts_pushes = [p for p in success_push_counts if p > 0]
         
         # Calculate filtering statistics
         total_before_filtering = sum(result.episodes_before_filtering for result in results if hasattr(result, 'episodes_before_filtering'))
@@ -914,6 +991,18 @@ class ModularParallelCollectionManager:
                 'successful_episodes': len(successful_episodes),
                 'success_rate': len(successful_episodes) / len(all_episodes) * 100 if all_episodes else 0,
                 'avg_search_time_ms': sum(search_times) / len(search_times) if search_times else None,
+                'median_search_time_ms_success_only': (
+                    statistics.median(success_search_times) if success_search_times else None
+                ),
+                'median_search_time_ms_success_pushes_gt0': (
+                    statistics.median(success_search_times_pushes) if success_search_times_pushes else None
+                ),
+                'median_pushes_success_only': (
+                    statistics.median(success_push_counts) if success_push_counts else None
+                ),
+                'median_pushes_success_pushes_gt0': (
+                    statistics.median(success_push_counts_pushes) if success_push_counts_pushes else None
+                ),
                 'avg_nodes_expanded': sum(nodes_expanded) / len(nodes_expanded) if nodes_expanded else None
             },
             'filtering_stats': {
@@ -944,6 +1033,14 @@ class ModularParallelCollectionManager:
             f.write(f"Success rate: {stats['success_rate']:.1f}%\n")
             if stats['avg_search_time_ms']:
                 f.write(f"Avg search time: {stats['avg_search_time_ms']:.1f}ms\n")
+            if stats.get('median_search_time_ms_success_pushes_gt0') is not None:
+                f.write(f"Median time per success (pushes>0): {stats['median_search_time_ms_success_pushes_gt0']:.1f}ms\n")
+            if stats.get('median_search_time_ms_success_only') is not None:
+                f.write(f"Median time per success (all): {stats['median_search_time_ms_success_only']:.1f}ms\n")
+            if stats.get('median_pushes_success_pushes_gt0') is not None:
+                f.write(f"Median pushes per success (pushes>0): {stats['median_pushes_success_pushes_gt0']:.1f}\n")
+            if stats.get('median_pushes_success_only') is not None:
+                f.write(f"Median pushes per success (all): {stats['median_pushes_success_only']:.1f}\n")
             if stats['avg_nodes_expanded']:
                 f.write(f"Avg nodes expanded: {stats['avg_nodes_expanded']:.1f}\n")
             
@@ -1021,9 +1118,21 @@ def main():
                         help="Maximum solutions to record/save per neighbor (subset of found, default: 2)")
     parser.add_argument("--region-frontier-beam-width", type=int, default=None,
                         help="Optional beam width (K) to cap frontier per chain depth; None/<=0 disables")
+    parser.add_argument("--region-chain-link-cost", type=int, default=0,
+                        help="Additional cost per chain link beyond first push (default: 0)")
+    parser.add_argument("--region-ml-ignore-blacklist", action="store_true",
+                        help="Allow ML-scored primitives to bypass edge blacklist")
+    parser.add_argument("--region-selection-strategy", type=str, default="ml_first",
+                        choices=["ml_first", "cost_first"],
+                        help="Frontier priority: ml_first (ML-derived first) or cost_first (shallow first)")
+    parser.add_argument("--goal-strategy", type=str, default=None,
+                        choices=["primitive", "ml", "ml_primitive", "ml_fallback", "ml_primitive_fallback",
+                                 "ml_async", "ml_primitive_async", "ml_driven_async",
+                                 "geometric", "geometric_transport"],
+                        help="Goal strategy for region opening (primitive default)")
     parser.add_argument("--goal-sampler", type=str, default=None,
                         choices=["primitive", "ml", "ml_primitive"],
-                        help="Goal sampler override for region opening (primitive default)")
+                        help="Legacy alias for --goal-strategy (limited choices)")
     parser.add_argument("--ml-goal-model", type=str,
                         help="Hydra output directory containing diffusion goal model")
     parser.add_argument("--ml-device", type=str, default="cuda",
@@ -1046,8 +1155,16 @@ def main():
     )
     parser.add_argument("--ml-match-max-per-call", type=int, default=8,
                         help="Maximum ML goals to align per sampler call")
+    parser.add_argument("--ml-k-nearest", type=int, default=1,
+                        help="Number of nearest primitive slots to vote for per ML goal (within tolerance)")
+    parser.add_argument("--ml-seed", type=int, default=None,
+                        help="Random seed for diffusion noise (None = random each time)")
     parser.add_argument("--primitive-data-dir", type=str, default="data",
                         help="Directory containing primitive motion databases")
+    parser.add_argument("--shuffle-edges", action="store_true",
+                        help="Randomize edge ordering in primitive strategy (useful for difficulty analysis)")
+    parser.add_argument("--shuffle-seed", type=int, default=None,
+                        help="Random seed for reproducible edge shuffling (None = random each call)")
     parser.add_argument("--xml-dir", type=str,
                         default="../ml4kp_ktamp/resources/models/custom_walled_envs/aug9",
                         help="Base directory for XML environment files")
@@ -1115,17 +1232,27 @@ def main():
             "region_allow_collisions": args.region_allow_collisions,
             "region_max_chain_depth": args.region_max_chain_depth,
             "region_max_solutions_per_neighbor": args.region_max_solutions_per_neighbor,
+            "region_chain_link_cost": args.region_chain_link_cost,
+            "region_ml_ignore_blacklist": args.region_ml_ignore_blacklist,
+            "region_selection_strategy": args.region_selection_strategy,
+            "shuffle_edges": args.shuffle_edges,
+            "shuffle_seed": args.shuffle_seed,
         })
         # Optionally cap how many of the found solutions are recorded/saved per neighbor
         algorithm_params["region_max_recorded_solutions_per_neighbor"] = args.region_max_recorded_solutions_per_neighbor
         if args.region_frontier_beam_width is not None:
             algorithm_params["region_frontier_beam_width"] = args.region_frontier_beam_width
 
+        strategy_name = args.goal_strategy or args.goal_sampler
+        if strategy_name:
+            algorithm_params["goal_strategy"] = strategy_name
         if args.goal_sampler:
             algorithm_params["goal_sampler"] = args.goal_sampler
-        if args.goal_sampler and args.goal_sampler.lower() in {"ml", "ml_primitive"}:
+
+        if strategy_name and strategy_name.lower() in {"ml", "ml_primitive", "ml_fallback", "ml_primitive_fallback",
+                                                     "ml_async", "ml_primitive_async", "ml_driven_async"}:
             if not args.ml_goal_model:
-                parser.error("--ml-goal-model is required when goal sampler is set to 'ml'")
+                parser.error("--ml-goal-model is required for ML goal strategies")
             algorithm_params.update({
                 "ml_goal_model_path": args.ml_goal_model,
                 "ml_device": args.ml_device,
@@ -1136,11 +1263,14 @@ def main():
                 "ml_match_angle_weight": args.ml_match_angle_weight,
                 "ml_match_score_metric": args.ml_match_score_metric,
                 "ml_match_max_per_call": args.ml_match_max_per_call,
+                "ml_k_nearest": args.ml_k_nearest,
+                "ml_seed": args.ml_seed,
                 "primitive_data_dir": args.primitive_data_dir,
             })
         elif args.ml_goal_model:
             # Allow users to specify ML params even without explicit sampler flag
             algorithm_params.update({
+                "goal_strategy": "ml",
                 "goal_sampler": "ml",
                 "ml_goal_model_path": args.ml_goal_model,
                 "ml_device": args.ml_device,
@@ -1151,6 +1281,8 @@ def main():
                 "ml_match_angle_weight": args.ml_match_angle_weight,
                 "ml_match_score_metric": args.ml_match_score_metric,
                 "ml_match_max_per_call": args.ml_match_max_per_call,
+                "ml_k_nearest": args.ml_k_nearest,
+                "ml_seed": args.ml_seed,
                 "primitive_data_dir": args.primitive_data_dir,
             })
 

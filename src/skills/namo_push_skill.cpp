@@ -234,6 +234,10 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
     int previous_edge_idx = -1;
     const int max_stuck_iterations = config_ ? config_->skill().max_stuck_iterations : 2;
     std::unordered_set<int> stuck_edges;  // edges that caused a stuck outcome recently
+
+    // Collision accumulation across all MPC iterations
+    bool accumulated_wall_collision = false;
+    std::unordered_set<std::string> accumulated_movable_collisions;
     
     for (int mpc_iter = 0; mpc_iter < max_mpc_iterations; mpc_iter++) {
         // std::cout << "\n--- MPC Iteration " << (mpc_iter + 1) << "/" << max_mpc_iterations << " ---" << std::endl;
@@ -266,6 +270,9 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
                     result.outputs["steps_executed"] = mpc_iter;
                     result.outputs["final_pose"] = current_state;
                     result.outputs["object_name"] = object_name;
+                    // Collision tracking outputs
+                    result.outputs["wall_collision"] = accumulated_wall_collision;
+                    { std::string movable_str; for (auto it = accumulated_movable_collisions.begin(); it != accumulated_movable_collisions.end(); ++it) { if (it != accumulated_movable_collisions.begin()) movable_str += ","; movable_str += *it; } result.outputs["movable_collisions"] = movable_str; }
 
                     auto end_time = std::chrono::high_resolution_clock::now();
                     result.execution_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
@@ -288,6 +295,9 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
             result.outputs["steps_executed"] = mpc_iter;
             result.outputs["final_pose"] = current_state;
             result.outputs["object_name"] = object_name;
+            // Collision tracking outputs
+            result.outputs["wall_collision"] = accumulated_wall_collision;
+            { std::string movable_str; for (auto it = accumulated_movable_collisions.begin(); it != accumulated_movable_collisions.end(); ++it) { if (it != accumulated_movable_collisions.begin()) movable_str += ","; movable_str += *it; } result.outputs["movable_collisions"] = movable_str; }
 
             auto end_time = std::chrono::high_resolution_clock::now();
             result.execution_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
@@ -302,6 +312,9 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
             result.outputs["steps_executed"] = mpc_iter;
             result.outputs["final_pose"] = current_state;  
             result.outputs["object_name"] = object_name;
+            // Collision tracking outputs
+            result.outputs["wall_collision"] = accumulated_wall_collision;
+            { std::string movable_str; for (auto it = accumulated_movable_collisions.begin(); it != accumulated_movable_collisions.end(); ++it) { if (it != accumulated_movable_collisions.begin()) movable_str += ","; movable_str += *it; } result.outputs["movable_collisions"] = movable_str; }
             
             auto end_time = std::chrono::high_resolution_clock::now();
             result.execution_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
@@ -390,6 +403,14 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         // debug disabled
         auto step_result = executor_->execute_plan(object_name, single_step);
 
+        // Accumulate collision info from this step (even on failure)
+        if (step_result.wall_collision_during_push) {
+            accumulated_wall_collision = true;
+        }
+        for (const auto& obj : step_result.movable_collisions_during_push) {
+            accumulated_movable_collisions.insert(obj);
+        }
+
         if (!step_result.success) {
             // Blacklist this edge and continue trying other edges
             stuck_edges.insert(previous_edge_idx);
@@ -403,6 +424,9 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
                 result.outputs["steps_executed"] = mpc_iter;
                 result.outputs["final_pose"] = current_state;
                 result.outputs["object_name"] = object_name;
+                // Collision tracking outputs
+                result.outputs["wall_collision"] = accumulated_wall_collision;
+                { std::string movable_str; for (auto it = accumulated_movable_collisions.begin(); it != accumulated_movable_collisions.end(); ++it) { if (it != accumulated_movable_collisions.begin()) movable_str += ","; movable_str += *it; } result.outputs["movable_collisions"] = movable_str; }
                 return result;
             }
 
@@ -415,6 +439,9 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
                 result.outputs["steps_executed"] = mpc_iter;
                 result.outputs["final_pose"] = current_state;
                 result.outputs["object_name"] = object_name;
+                // Collision tracking outputs
+                result.outputs["wall_collision"] = accumulated_wall_collision;
+                { std::string movable_str; for (auto it = accumulated_movable_collisions.begin(); it != accumulated_movable_collisions.end(); ++it) { if (it != accumulated_movable_collisions.begin()) movable_str += ","; movable_str += *it; } result.outputs["movable_collisions"] = movable_str; }
                 return result;
             }
         }
@@ -446,6 +473,10 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         result.outputs["object_name"] = object_name;
         result.outputs["robot_goal_reached"] = false;
     }
+
+    // Collision tracking outputs (for both success and failure paths)
+    result.outputs["wall_collision"] = accumulated_wall_collision;
+    { std::string movable_str; for (auto it = accumulated_movable_collisions.begin(); it != accumulated_movable_collisions.end(); ++it) { if (it != accumulated_movable_collisions.begin()) movable_str += ","; movable_str += *it; } result.outputs["movable_collisions"] = movable_str; }
 
     auto end_time = std::chrono::high_resolution_clock::now();
     result.execution_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
@@ -715,6 +746,14 @@ void NAMOPushSkill::set_robot_goal_termination(bool enabled) {
 
 bool NAMOPushSkill::get_robot_goal_termination() const {
     return enable_robot_goal_termination_;
+}
+
+std::vector<int> NAMOPushSkill::evaluate_primitive_priorities(
+    const std::string& object_name,
+    const std::vector<std::array<double, 3>>& target_poses,
+    const std::array<double, 2>& robot_goal) {
+    // Delegate to executor's wavefront planner
+    return executor_->evaluate_primitive_priorities(env_, object_name, target_poses, robot_goal);
 }
 
 GreedyPlanner* NAMOPushSkill::get_planner_for_object(const std::string& object_name) const {

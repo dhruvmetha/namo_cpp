@@ -5,6 +5,7 @@
 #include "wavefront/wavefront_planner.hpp"
 #include <array>
 #include <memory>
+#include <unordered_set>
 
 namespace namo {
 
@@ -112,6 +113,10 @@ private:
     // Failure tracking
     std::string last_failure_reason_;
     std::string last_collision_object_;
+
+    // Collision accumulation during push (tracked even when check_object_collision_ = false)
+    bool wall_collision_during_push_ = false;
+    std::unordered_set<std::string> movable_collisions_during_push_;
 
 public:
     /**
@@ -229,6 +234,26 @@ public:
      */
     void set_collision_checking(bool enabled) {
         check_object_collision_ = enabled;
+    }
+
+    /**
+     * @brief Get whether wall was hit during last push
+     */
+    bool get_wall_collision_during_push() const { return wall_collision_during_push_; }
+
+    /**
+     * @brief Get set of movable objects hit during last push
+     */
+    const std::unordered_set<std::string>& get_movable_collisions_during_push() const {
+        return movable_collisions_during_push_;
+    }
+
+    /**
+     * @brief Clear collision tracking (called at start of each push)
+     */
+    void clear_collision_tracking() {
+        wall_collision_during_push_ = false;
+        movable_collisions_during_push_.clear();
     }
 
     /**

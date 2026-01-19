@@ -67,6 +67,13 @@ RLEnvironment::StepResult RLEnvironment::step(const Action& action) {
     if (auto it = result.outputs.find("stuck"); it != result.outputs.end()) {
         rl_result.info["stuck"] = std::get<std::string>(it->second);
     }
+    // Collision tracking outputs for hardness metrics
+    if (auto it = result.outputs.find("wall_collision"); it != result.outputs.end()) {
+        rl_result.info["wall_collision"] = std::get<bool>(it->second) ? "true" : "false";
+    }
+    if (auto it = result.outputs.find("movable_collisions"); it != result.outputs.end()) {
+        rl_result.info["movable_collisions"] = std::get<std::string>(it->second);
+    }
 
     return rl_result;
 }
@@ -308,6 +315,16 @@ bool RLEnvironment::get_robot_goal_termination() const {
         return skill_->get_robot_goal_termination();
     }
     return false;
+}
+
+std::vector<int> RLEnvironment::evaluate_primitive_priorities(
+    const std::string& object_name,
+    const std::vector<std::array<double, 3>>& target_poses,
+    const std::array<double, 2>& robot_goal) {
+    if (skill_) {
+        return skill_->evaluate_primitive_priorities(object_name, target_poses, robot_goal);
+    }
+    return std::vector<int>(target_poses.size(), 3);  // Default to priority 3
 }
 
 } // namespace namo

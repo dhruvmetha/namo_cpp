@@ -22,8 +22,11 @@ from .primitive_goal_strategy import (
     MotionPrimitiveLoader,
     Primitive,
     MLPrimitiveGoalStrategy,
-    MLPrimitiveFallbackStrategy
+    MLPrimitiveFallbackStrategy,
+    MLPrimitiveAsyncStrategy,
+    AsyncGoalResult
 )
+from .geometric_transport_strategy import GeometricTransportStrategy
 
 __all__ = [
     "ObjectSelectionStrategy",
@@ -41,5 +44,8 @@ __all__ = [
     "MotionPrimitiveLoader",
     "Primitive",
     "MLPrimitiveGoalStrategy",
-    "MLPrimitiveFallbackStrategy"
+    "MLPrimitiveFallbackStrategy",
+    "MLPrimitiveAsyncStrategy",
+    "AsyncGoalResult",
+    "GeometricTransportStrategy",
 ]

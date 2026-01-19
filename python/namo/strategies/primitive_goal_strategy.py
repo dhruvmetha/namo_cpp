@@ -9,6 +9,9 @@ import struct
 import os
 import json
 import math
+import random
+import threading
+from concurrent.futures import ThreadPoolExecutor, Future
 from dataclasses import dataclass
 from typing import List, Dict, Optional, Tuple, Any
 from collections import defaultdict
@@ -102,12 +105,20 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
     - Inner list (10 items): push steps 1-10 for that edge point
     """
 
-    def __init__(self, data_dir: str = "data", verbose: bool = False):
+    def __init__(
+        self,
+        data_dir: str = "data",
+        verbose: bool = False,
+        shuffle_edges: bool = False,
+        seed: int = None,
+    ):
         """Initialize primitive goal strategy.
 
         Args:
             data_dir: Directory containing motion_primitives_15_*.dat files
             verbose: Enable verbose output
+            shuffle_edges: If True, randomize edge ordering (primarily for ablations)
+            seed: Optional seed for reproducible shuffling
         """
         self.data_dir = data_dir
         # Default configs often set `primitive_data_dir: data`, which is CWD-relative and fragile.
@@ -117,7 +128,18 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
             if os.path.isdir(candidate):
                 self.data_dir = candidate
         self.verbose = verbose
+        self.shuffle_edges = shuffle_edges
+        self.seed = seed
+        self._rng = random.Random(seed) if seed is not None else None
+        self._last_edge_ordering: List[int] = []
         self._primitive_cache: Dict[str, List[Primitive]] = {}
+
+    def reseed(self, seed: int):
+        self.seed = seed
+        self._rng = random.Random(seed)
+
+    def get_last_edge_ordering(self) -> List[int]:
+        return self._last_edge_ordering.copy()
 
     def generate_goals(self,
                       object_id: str,
@@ -170,7 +192,16 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
 
             # Convert to absolute world coordinates
             goals_per_edge = []
-            for edge_idx in sorted(edge_groups.keys()):
+            # Determine edge ordering (sorted or shuffled)
+            edge_indices = sorted(edge_groups.keys())
+            if self.shuffle_edges:
+                if self._rng is not None:
+                    self._rng.shuffle(edge_indices)
+                else:
+                    random.shuffle(edge_indices)
+            self._last_edge_ordering = list(edge_indices)
+
+            for edge_idx in edge_indices:
                 edge_primitives = edge_groups[edge_idx]
 
                 # Sort by push_steps
@@ -317,6 +348,7 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
         preview_aligned_primitives: bool = False,
         k_nearest: int = 1,
         score_metric: str = "pos+w*ang",
+        seed: int = None,
     ):
         """
         Args:
@@ -362,12 +394,58 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             xml_path=xml_path,
             preview_mask_count=preview_mask_count,
             preloaded_model=preloaded_model,
-            goals_per_region=goals_per_region
+            goals_per_region=goals_per_region,
+            seed=seed,
         )
         self._default_ml_samples = samples
 
         # Store last alignment result for visualization
         self._last_alignment_info = None
+
+    def get_last_goal_stats(self) -> dict:
+        """Return stats from the last generate_goals call for failure tracking.
+
+        Mirrors the stats contract used by the 2push evaluation framework.
+        """
+        if self._last_alignment_info is None:
+            return {
+                'ml_goals_generated': 0,
+                'ml_goals_aligned': 0,
+                'reachable_edges_count': 0,
+                'aligned_primitives': [],
+                'ml_goals_raw': [],
+                'reachable_edges': [],
+            }
+
+        aligned_primitives = []
+        for p in self._last_alignment_info.get('aligned_primitives', []):
+            goal = p.get('goal')
+            aligned_primitives.append({
+                'edge_idx': p.get('edge_idx'),
+                'depth_idx': p.get('depth_idx'),
+                'x': goal.x if goal else None,
+                'y': goal.y if goal else None,
+                'theta': goal.theta if goal else None,
+                'votes': p.get('votes', 0),
+            })
+
+        ml_goals_raw = []
+        for g in self._last_alignment_info.get('ml_goals', []):
+            ml_goals_raw.append({
+                'x': g.x,
+                'y': g.y,
+                'theta': g.theta,
+            })
+
+        reachable_edges = self._last_alignment_info.get('reachable_edges', set()) or set()
+        return {
+            'ml_goals_generated': self._last_alignment_info.get('total_ml_goals', 0),
+            'ml_goals_aligned': self._last_alignment_info.get('total_aligned', 0),
+            'reachable_edges_count': len(reachable_edges),
+            'aligned_primitives': aligned_primitives,
+            'ml_goals_raw': ml_goals_raw,
+            'reachable_edges': sorted(list(reachable_edges)),
+        }
 
     def _slot_score(self, *, pos_err: float, ang_err: float) -> float:
         metric = self.score_metric
@@ -1345,3 +1423,331 @@ class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
     @property
     def strategy_name(self) -> str:
         return "ML Primitive Fallback Goal Generation"
+
+
+@dataclass
+class AsyncGoalResult:
+    """Result from async goal generation with ML inference running in background.
+
+    The caller can start executing fallback primitives immediately while ML
+    inference runs on a background thread. When ML completes, call
+    `get_ml_scores()` to retrieve slot vote scores for reprioritization.
+    """
+
+    # Immediate: primitives (score=0) for execution
+    primitive_goals: List[List[Goal]]
+
+    # Async: ML inference future (None if ML unavailable)
+    ml_future: Optional[Future] = None
+
+    # Strategy reference used to align ML goals when ready
+    _strategy_ref: Optional['MLPrimitiveAsyncStrategy'] = None
+    _object_id: Optional[str] = None
+
+    # Merge state
+    ml_merged: bool = False
+    ml_aligned_slots: Optional[Dict[Tuple[int, int], float]] = None
+
+    # Stats
+    ml_goals_count: int = 0
+    ml_inference_time_ms: float = 0.0
+
+    def poll_ml_ready(self) -> bool:
+        if self.ml_future is None or self.ml_merged:
+            return False
+        return self.ml_future.done()
+
+    def get_ml_scores(self) -> Dict[Tuple[int, int], float]:
+        """Get ML slot votes mapping (edge_idx, depth_idx) -> vote_count.
+
+        Blocks if ML future is not done.
+        """
+        if self.ml_merged:
+            return self.ml_aligned_slots or {}
+
+        if self.ml_future is None:
+            self.ml_merged = True
+            self.ml_aligned_slots = {}
+            return {}
+
+        try:
+            ml_result = self.ml_future.result()
+            ml_goals = ml_result.get('goals', [])
+            self.ml_inference_time_ms = ml_result.get('inference_time_ms', 0.0)
+            self.ml_goals_count = len(ml_goals)
+
+            if self._strategy_ref and ml_goals:
+                self.ml_aligned_slots = self._strategy_ref._align_ml_to_primitives(
+                    ml_goals,
+                    self.primitive_goals,
+                    self._object_id or ""
+                )
+            else:
+                self.ml_aligned_slots = {}
+        except Exception as e:
+            print(f"⚠️ Async ML inference failed: {e}")
+            self.ml_aligned_slots = {}
+
+        self.ml_merged = True
+        return self.ml_aligned_slots or {}
+
+
+class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
+    """Generate primitives immediately; run ML inference asynchronously."""
+
+    _executor: Optional[ThreadPoolExecutor] = None
+    _cancel_event: Optional[threading.Event] = None
+
+    def __init__(
+        self,
+        goal_model_path: str,
+        primitive_data_dir: str = "data",
+        samples: int = 32,
+        device: str = "cuda",
+        match_position_tolerance: float = 0.1,
+        match_angle_tolerance: float = 0.1,
+        angle_weight: float = 0.5,
+        max_matches: int = 8,
+        verbose: bool = False,
+        min_goals_threshold: int = 1,
+        xml_path: str = None,
+        preview_mask_count: int = 0,
+        preloaded_model=None,
+        k_nearest: int = 1,
+        max_workers: int = 1,
+        seed: int = None,
+    ):
+        self.verbose = verbose
+        self.max_matches = max_matches
+        self.match_position_tolerance = match_position_tolerance
+        self.match_angle_tolerance = match_angle_tolerance
+        self.angle_weight = angle_weight
+        self.k_nearest = max(1, int(k_nearest)) if k_nearest is not None else 1
+
+        self._primitive_strategy = PrimitiveGoalStrategy(
+            data_dir=primitive_data_dir,
+            verbose=False,
+        )
+        self._ml_strategy = MLGoalSelectionStrategy(
+            goal_model_path=goal_model_path,
+            samples=samples,
+            device=device,
+            min_goals_threshold=min_goals_threshold,
+            verbose=verbose,
+            xml_path=xml_path,
+            preview_mask_count=preview_mask_count,
+            preloaded_model=preloaded_model,
+            seed=seed,
+        )
+        self._default_ml_samples = samples
+
+        # Store last stats for failure tracking
+        self._last_goal_stats: Optional[Dict[str, Any]] = None
+
+        # Initialize singleton executor
+        if MLPrimitiveAsyncStrategy._executor is None:
+            MLPrimitiveAsyncStrategy._executor = ThreadPoolExecutor(
+                max_workers=max(1, int(max_workers)),
+                thread_name_prefix="ml_async",
+            )
+            MLPrimitiveAsyncStrategy._cancel_event = threading.Event()
+
+    def _slot_score(self, pos_err: float, ang_err: float) -> float:
+        return pos_err + (self.angle_weight * ang_err)
+
+    @staticmethod
+    def _wrap_angle(theta: float) -> float:
+        while theta > math.pi:
+            theta -= 2 * math.pi
+        while theta < -math.pi:
+            theta += 2 * math.pi
+        return theta
+
+    @staticmethod
+    def _goal_error(primitive_goal: Goal, ml_goal: Goal) -> Tuple[float, float]:
+        pos_err = math.hypot(
+            primitive_goal.x - ml_goal.x,
+            primitive_goal.y - ml_goal.y
+        )
+        ang_err = abs(MLPrimitiveAsyncStrategy._wrap_angle(primitive_goal.theta - ml_goal.theta))
+        return pos_err, ang_err
+
+    def _align_ml_to_primitives(
+        self,
+        ml_goals: List[Goal],
+        primitive_goals: List[List[Goal]],
+        object_id: str
+    ) -> Dict[Tuple[int, int], float]:
+        if not ml_goals or not primitive_goals:
+            self._last_goal_stats = {
+                'ml_goals_generated': len(ml_goals) if ml_goals else 0,
+                'ml_goals_aligned': 0,
+                'reachable_edges_count': 0,
+                'aligned_primitives': [],
+                'ml_goals_raw': [],
+                'reachable_edges': [],
+            }
+            return {}
+
+        slot_metadata: List[Tuple[int, int, Goal]] = []
+        for edge_idx, edge_goals in enumerate(primitive_goals):
+            for depth_idx, goal in enumerate(edge_goals):
+                slot_metadata.append((edge_idx, depth_idx, goal))
+
+        slot_votes: Dict[Tuple[int, int], int] = defaultdict(int)
+
+        for ml_goal in ml_goals:
+            candidates: List[Tuple[float, int, int]] = []
+            for edge_idx, depth_idx, prim_goal in slot_metadata:
+                pos_err, ang_err = self._goal_error(prim_goal, ml_goal)
+                if pos_err > self.match_position_tolerance:
+                    continue
+                if ang_err > self.match_angle_tolerance:
+                    continue
+                score = self._slot_score(pos_err, ang_err)
+                candidates.append((score, edge_idx, depth_idx))
+
+            if not candidates:
+                continue
+
+            candidates.sort(key=lambda x: x[0])
+            for _, edge_idx, depth_idx in candidates[: self.k_nearest]:
+                slot_votes[(edge_idx, depth_idx)] += 1
+
+        slot_scores = {k: float(v) for k, v in slot_votes.items()}
+
+        # Store last goal stats in the same schema as other ML strategies
+        aligned_primitives = [
+            {
+                'edge_idx': edge_idx,
+                'depth_idx': depth_idx,
+                'x': None,
+                'y': None,
+                'theta': None,
+                'votes': votes,
+            }
+            for (edge_idx, depth_idx), votes in sorted(
+                slot_scores.items(), key=lambda kv: (-kv[1], kv[0][0], kv[0][1])
+            )
+        ]
+        self._last_goal_stats = {
+            'ml_goals_generated': len(ml_goals),
+            'ml_goals_aligned': len(slot_scores),
+            'reachable_edges_count': 0,
+            'aligned_primitives': aligned_primitives,
+            'ml_goals_raw': [{'x': g.x, 'y': g.y, 'theta': g.theta} for g in ml_goals],
+            'reachable_edges': [],
+        }
+
+        return slot_scores
+
+    def get_last_goal_stats(self) -> dict:
+        return self._last_goal_stats or {
+            'ml_goals_generated': 0,
+            'ml_goals_aligned': 0,
+            'reachable_edges_count': 0,
+            'aligned_primitives': [],
+            'ml_goals_raw': [],
+            'reachable_edges': [],
+        }
+
+    def generate_goals(
+        self,
+        object_id: str,
+        state: namo_rl.RLState,
+        env: namo_rl.RLEnvironment,
+        max_goals: int
+    ) -> AsyncGoalResult:
+        primitive_goals = self._primitive_strategy.generate_goals(object_id, state, env, max_goals)
+        if not primitive_goals:
+            return AsyncGoalResult(primitive_goals=[], ml_future=None)
+
+        # Initialize primitives with score=0 (fallback)
+        output_goals: List[List[Goal]] = []
+        for edge_goals in primitive_goals:
+            edge_output = []
+            for goal in edge_goals:
+                edge_output.append(Goal(x=goal.x, y=goal.y, theta=goal.theta, score=0.0))
+            output_goals.append(edge_output)
+
+        # Capture JSON in main thread (env is not thread-safe)
+        try:
+            json_message = self._ml_strategy._create_json_message_for_goals(object_id, state, env)
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Failed to create JSON for async ML: {e}")
+            json_message = None
+
+        if json_message is None or MLPrimitiveAsyncStrategy._executor is None:
+            return AsyncGoalResult(
+                primitive_goals=output_goals,
+                ml_future=None,
+                _strategy_ref=self,
+                _object_id=object_id,
+            )
+
+        ml_budget = max_goals if max_goals > 0 else self._default_ml_samples
+        ml_future = MLPrimitiveAsyncStrategy._executor.submit(
+            self._run_ml_inference_only,
+            json_message,
+            object_id,
+            ml_budget,
+        )
+
+        return AsyncGoalResult(
+            primitive_goals=output_goals,
+            ml_future=ml_future,
+            _strategy_ref=self,
+            _object_id=object_id,
+            ml_merged=False,
+            ml_aligned_slots=None,
+        )
+
+    def _run_ml_inference_only(
+        self,
+        json_message: Dict[str, Any],
+        object_id: str,
+        ml_budget: int,
+    ) -> Dict[str, Any]:
+        import time
+        start_time = time.time()
+
+        cancel = MLPrimitiveAsyncStrategy._cancel_event
+        if cancel is not None and cancel.is_set():
+            return {'goals': [], 'inference_time_ms': 0.0, 'cancelled': True}
+
+        try:
+            if self._ml_strategy._goal_model is None:
+                self._ml_strategy._load_model()
+            if self._ml_strategy._goal_model is None:
+                return {'goals': [], 'inference_time_ms': (time.time() - start_time) * 1000, 'error': 'Model failed to load'}
+
+            # Run model inference (thread-safe: uses captured JSON only)
+            goals = self._ml_strategy._goal_model.infer(
+                json_message=json_message,
+                xml_path=json_message.get("xml_path"),
+                robot_goal=json_message.get("robot_goal"),
+                selected_object=object_id,
+                samples=ml_budget,
+            )
+
+            inference_time_ms = (time.time() - start_time) * 1000
+            if cancel is not None and cancel.is_set():
+                return {'goals': [], 'inference_time_ms': inference_time_ms, 'cancelled': True}
+
+            # Convert to Goal objects
+            goal_objects: List[Goal] = []
+            for goal_data in (goals or []):
+                if isinstance(goal_data, Goal):
+                    goal_objects.append(goal_data)
+                    continue
+                if isinstance(goal_data, dict) and 'x' in goal_data and 'y' in goal_data and 'theta' in goal_data:
+                    goal_objects.append(Goal(x=float(goal_data['x']), y=float(goal_data['y']), theta=float(goal_data['theta'])))
+
+            return {'goals': goal_objects, 'inference_time_ms': inference_time_ms}
+        except Exception as e:
+            return {'goals': [], 'inference_time_ms': (time.time() - start_time) * 1000, 'error': str(e)}
+
+    @property
+    def strategy_name(self) -> str:
+        return "ML Primitive Async Goal Generation"

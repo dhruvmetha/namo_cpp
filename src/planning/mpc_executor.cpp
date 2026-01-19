@@ -3,6 +3,7 @@
 #include "core/types.hpp"
 #include <iostream>
 #include <cmath>
+#include <unordered_set>
 
 namespace namo {
 
@@ -48,13 +49,17 @@ ExecutionResult MPCExecutor::execute_plan(
     const std::vector<PlanStep>& plan_sequence) {
     
     ExecutionResult result;
-    
+
     if (plan_sequence.empty()) {
         result.failure_reason = "Empty plan sequence";
         return result;
     }
     
     // std::cout << "Executing plan with " << plan_sequence.size() << " primitive steps" << std::endl;
+
+    // Accumulate collision info across all pushes in the plan
+    bool accumulated_wall_collision = false;
+    std::unordered_set<std::string> accumulated_movable_collisions;
     
     // Execute each primitive in sequence
     for (size_t i = 0; i < plan_sequence.size(); i++) {
@@ -76,11 +81,21 @@ ExecutionResult MPCExecutor::execute_plan(
         // Execute this primitive step
         bool step_success = execute_primitive_step(object_name, step);
 
+        // Accumulate collision info from this push (even on failure)
+        if (controller_.get_wall_collision_during_push()) {
+            accumulated_wall_collision = true;
+        }
+        const auto& movable_set = controller_.get_movable_collisions_during_push();
+        accumulated_movable_collisions.insert(movable_set.begin(), movable_set.end());
+
         if (!step_success) {
             result.failure_reason = "Primitive step " + std::to_string(i+1) + " failed";
             result.collision_object = controller_.get_last_collision_object();
             result.steps_executed = i;
             result.final_object_state = get_object_se2_state(object_name);
+            // Copy accumulated collision info to result
+            result.wall_collision_during_push = accumulated_wall_collision;
+            result.movable_collisions_during_push.assign(accumulated_movable_collisions.begin(), accumulated_movable_collisions.end());
             // Propagate controller-level stuck reason if threshold was hit
             int ctrl_stuck = controller_.get_last_stuck_counter();
             if (ctrl_stuck >= controller_.get_stuck_threshold()) {
@@ -104,8 +119,11 @@ ExecutionResult MPCExecutor::execute_plan(
         result.success = true;
         result.robot_goal_reached = false;
     }
-    
+
     result.final_object_state = get_object_se2_state(object_name);
+    // Copy accumulated collision info to result
+    result.wall_collision_during_push = accumulated_wall_collision;
+    result.movable_collisions_during_push.assign(accumulated_movable_collisions.begin(), accumulated_movable_collisions.end());
     return result;
 }
 
@@ -350,6 +368,15 @@ std::vector<int> MPCExecutor::get_reachable_edges_with_wavefront(const std::stri
             //   << "/" << edge_count << " edges reachable for " << object_name << std::endl;
     
     return reachable_edges;
+}
+
+std::vector<int> MPCExecutor::evaluate_primitive_priorities(
+    NAMOEnvironment& env,
+    const std::string& object_name,
+    const std::vector<std::array<double, 3>>& target_poses,
+    const std::array<double, 2>& robot_goal) {
+    // Delegate to wavefront planner
+    return planner_.evaluate_primitive_priorities(env, object_name, target_poses, robot_goal);
 }
 
 } // namespace namo

@@ -49,6 +49,25 @@ from collections import defaultdict
 import yaml
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib as mpl
+
+# Set up nicer plot style
+plt.style.use('seaborn-v0_8-whitegrid')
+mpl.rcParams['font.family'] = 'sans-serif'
+mpl.rcParams['font.size'] = 11
+mpl.rcParams['axes.titlesize'] = 14
+mpl.rcParams['axes.titleweight'] = 'bold'
+mpl.rcParams['axes.labelsize'] = 12
+mpl.rcParams['xtick.labelsize'] = 10
+mpl.rcParams['ytick.labelsize'] = 10
+mpl.rcParams['legend.fontsize'] = 10
+mpl.rcParams['figure.facecolor'] = 'white'
+mpl.rcParams['axes.facecolor'] = 'white'
+mpl.rcParams['axes.edgecolor'] = '#333333'
+mpl.rcParams['axes.linewidth'] = 0.8
+mpl.rcParams['grid.alpha'] = 0.3
+mpl.rcParams['axes.spines.top'] = False
+mpl.rcParams['axes.spines.right'] = False
 
 
 # =============================================================================
@@ -86,17 +105,20 @@ class EvalConfig:
     output_dir: str = "./eval_plots"
     time_cutoff_max: int = 6000  # ms
     time_step: int = 100  # ms
+    push_cutoff_max: int = 10  # max number of pushes
+    push_step: int = 1  # step size for push cutoffs
 
     # Colors for models (will cycle if more models than colors)
+    # Using a colorblind-friendly palette
     model_colors: List[str] = field(default_factory=lambda: [
-        '#2ecc71',  # green
-        '#e74c3c',  # red
-        '#3498db',  # blue
-        '#9b59b6',  # purple
-        '#f39c12',  # orange
-        '#1abc9c',  # teal
-        '#e67e22',  # dark orange
-        '#16a085',  # dark teal
+        '#4C72B0',  # muted blue
+        '#DD8452',  # muted orange
+        '#55A868',  # muted green (okay as accent, not with red)
+        '#C44E52',  # muted red (okay as accent, not with green)
+        '#8172B3',  # muted purple
+        '#937860',  # muted brown
+        '#DA8BC3',  # muted pink
+        '#8C8C8C',  # gray
     ])
 
     @classmethod
@@ -143,6 +165,8 @@ class EvalConfig:
             config.output_dir = settings.get('output_dir', config.output_dir)
             config.time_cutoff_max = settings.get('time_cutoff_max', config.time_cutoff_max)
             config.time_step = settings.get('time_step', config.time_step)
+            config.push_cutoff_max = settings.get('push_cutoff_max', config.push_cutoff_max)
+            config.push_step = settings.get('push_step', config.push_step)
 
         return config
 
@@ -179,13 +203,13 @@ def load_pickle_data(
     Args:
         data_dir: Glob pattern for pickle files
         exclude_easy: Whether to exclude 'easy' environments
-        reference_data: If provided, only include env+region pairs that exist in reference
+        reference_data: If provided, only include env+region+object triplets that exist in reference
 
     Returns:
-        per_env_per_region: {xml_file_name: {region_label: RegionResult}}
+        per_env_per_key: {xml_file_name: {region_label::object_id: RegionResult}}
         failure_reasons: {reason: count}
     """
-    per_env_per_region: Dict[str, Dict[str, RegionResult]] = {}
+    per_env_per_key: Dict[str, Dict[str, RegionResult]] = {}
     failure_reasons: Dict[str, int] = defaultdict(int)
 
     for file in glob(data_dir, recursive=True):
@@ -197,42 +221,46 @@ def load_pickle_data(
             if not episode_results:
                 continue
 
-            region_done = set()
+            keys_done = set()
 
             for ep in episode_results:
                 xml_file = ep.get('xml_file', '')
-                xml_file_name = "_".join(xml_file.split('/')[-4:])
+                xml_file_name = xml_file  # Use full path as env identifier
 
                 if exclude_easy and "easy" in xml_file_name:
                     continue
 
                 alg_stats = ep.get('algorithm_stats', {})
                 region_label = alg_stats.get('neighbour_region_label')
+                object_id = alg_stats.get('chosen_object_id', '')
 
-                if region_label is None:
+                if region_label is None or not object_id:
                     continue
 
-                # If reference provided, only include matching pairs
+                # Key by (env, region, object) triplet
+                key = f"{region_label}::{object_id}"
+
+                # If reference provided, only include matching triplets
                 if reference_data is not None:
                     if xml_file_name not in reference_data:
                         continue
-                    if region_label not in reference_data[xml_file_name]:
+                    if key not in reference_data[xml_file_name]:
                         continue
-                    if not reference_data[xml_file_name][region_label].success:
+                    if not reference_data[xml_file_name][key].success:
                         continue
 
-                # Track failure reasons
+                # Only process each key once per file
+                if key in keys_done:
+                    continue
+                keys_done.add(key)
+
+                # Track failure reasons (after dedup to avoid over-counting)
                 failure_reason = alg_stats.get('failure_reason', 'unknown')
                 failure_reasons[failure_reason] += 1
 
-                # Only process each region once per file
-                if region_label in region_done:
-                    continue
-                region_done.add(region_label)
-
                 # Initialize env dict if needed
-                if xml_file_name not in per_env_per_region:
-                    per_env_per_region[xml_file_name] = {}
+                if xml_file_name not in per_env_per_key:
+                    per_env_per_key[xml_file_name] = {}
 
                 # Extract stats
                 pushes = alg_stats.get('pushes_total_for_neighbour', 0)
@@ -259,13 +287,13 @@ def load_pickle_data(
                     movable_collisions=movable_collisions,
                 )
 
-                per_env_per_region[xml_file_name][region_label] = result
+                per_env_per_key[xml_file_name][key] = result
 
         except Exception as e:
             print(f"Error loading {file}: {e}")
             continue
 
-    return per_env_per_region, dict(failure_reasons)
+    return per_env_per_key, dict(failure_reasons)
 
 
 # =============================================================================
@@ -304,6 +332,20 @@ class CategoryStats:
     @property
     def mean_time(self) -> float:
         return float(np.mean(self.times)) if self.times else 0.0
+
+    @property
+    def pushes_iqr(self) -> Tuple[float, float]:
+        """Return (25th percentile, 75th percentile) for pushes."""
+        if not self.pushes:
+            return (0.0, 0.0)
+        return (float(np.percentile(self.pushes, 25)), float(np.percentile(self.pushes, 75)))
+
+    @property
+    def time_iqr(self) -> Tuple[float, float]:
+        """Return (25th percentile, 75th percentile) for times."""
+        if not self.times:
+            return (0.0, 0.0)
+        return (float(np.percentile(self.times, 25)), float(np.percentile(self.times, 75)))
 
     @property
     def total_solutions(self) -> int:
@@ -464,6 +506,252 @@ def compute_time_based_success(
     return result
 
 
+def compute_push_based_success(
+    model_data: Dict[str, Dict[str, RegionResult]],
+    search_data: Dict[str, Dict[str, RegionResult]],
+    config: EvalConfig,
+) -> Dict[str, Dict[str, List[float]]]:
+    """
+    Compute success rate as a function of push count cutoff.
+
+    Returns:
+        {category: {'cutoffs': [...], 'rates': [...], 'total': int}}
+    """
+    cutoffs = list(range(0, config.push_cutoff_max + 1, config.push_step))
+
+    # Collect pushes by category
+    pushes_by_category: Dict[str, List[int]] = {'easy': [], 'medium': [], 'hard': []}
+    totals_by_category: Dict[str, int] = {'easy': 0, 'medium': 0, 'hard': 0}
+
+    for env in model_data:
+        if env not in search_data:
+            continue
+        for region in model_data[env]:
+            if region not in search_data[env]:
+                continue
+
+            search_result = search_data[env][region]
+            model_result = model_data[env][region]
+
+            # Determine category
+            if search_result.ratio > config.easy_threshold:
+                cat = 'easy'
+            elif search_result.ratio > config.hard_threshold:
+                cat = 'medium'
+            else:
+                cat = 'hard'
+
+            totals_by_category[cat] += 1
+            if model_result.success:
+                pushes_by_category[cat].append(model_result.pushes)
+
+    # Compute rates at each cutoff
+    result = {}
+    for cat in ['easy', 'medium', 'hard']:
+        pushes = np.array(pushes_by_category[cat])
+        total = totals_by_category[cat]
+        rates = []
+        for cutoff in cutoffs:
+            if total > 0:
+                successes = np.sum(pushes <= cutoff) if len(pushes) > 0 else 0
+                rates.append(successes / total)
+            else:
+                rates.append(0.0)
+        result[cat] = {'cutoffs': cutoffs, 'rates': rates, 'total': total}
+
+    return result
+
+
+def compute_collision_success_stats(
+    model_data: Dict[str, Dict[str, RegionResult]],
+    search_data: Dict[str, Dict[str, RegionResult]],
+    config: EvalConfig,
+) -> Dict[str, Dict[str, int]]:
+    """
+    Compute success rates broken down by collision type.
+
+    Collision categories:
+    - none: No wall or movable collisions
+    - wall_only: Wall collision but no movable collisions
+    - movable_only: Movable collisions but no wall collision
+    - both: Both wall and movable collisions
+
+    Returns:
+        {collision_type: {'successes': int, 'total': int}}
+    """
+    stats = {
+        'none': {'successes': 0, 'total': 0},
+        'wall_only': {'successes': 0, 'total': 0},
+        'movable_only': {'successes': 0, 'total': 0},
+        'both': {'successes': 0, 'total': 0},
+    }
+
+    for env in model_data:
+        if env not in search_data:
+            continue
+        for region in model_data[env]:
+            if region not in search_data[env]:
+                continue
+
+            search_result = search_data[env][region]
+            model_result = model_data[env][region]
+
+            # Only consider cases where search succeeded (solvable problems)
+            if not search_result.success:
+                continue
+
+            # Determine collision category based on search (oracle) result
+            has_wall = search_result.wall_collision
+            has_movable = search_result.movable_collisions > 0
+
+            if has_wall and has_movable:
+                cat = 'both'
+            elif has_wall:
+                cat = 'wall_only'
+            elif has_movable:
+                cat = 'movable_only'
+            else:
+                cat = 'none'
+
+            stats[cat]['total'] += 1
+            if model_result.success:
+                stats[cat]['successes'] += 1
+
+    return stats
+
+
+def compute_collision_bucket_efficiency(
+    model_data: Dict[str, Dict[str, RegionResult]],
+    search_data: Dict[str, Dict[str, RegionResult]],
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Compute efficiency stats (checks, time) per collision bucket for solved cases.
+
+    Returns:
+        {collision_type: {'pushes': [...], 'times': [...], 'successes': int, 'total': int}}
+    """
+    stats = {
+        'none': {'pushes': [], 'times': [], 'successes': 0, 'total': 0},
+        'wall_only': {'pushes': [], 'times': [], 'successes': 0, 'total': 0},
+        'movable_only': {'pushes': [], 'times': [], 'successes': 0, 'total': 0},
+        'both': {'pushes': [], 'times': [], 'successes': 0, 'total': 0},
+    }
+
+    for env in model_data:
+        if env not in search_data:
+            continue
+        for region in model_data[env]:
+            if region not in search_data[env]:
+                continue
+
+            search_result = search_data[env][region]
+            model_result = model_data[env][region]
+
+            # Only consider cases where search succeeded (solvable problems)
+            if not search_result.success:
+                continue
+
+            # Determine collision category based on oracle solution
+            has_wall = search_result.wall_collision
+            has_movable = search_result.movable_collisions > 0
+
+            if has_wall and has_movable:
+                cat = 'both'
+            elif has_wall:
+                cat = 'wall_only'
+            elif has_movable:
+                cat = 'movable_only'
+            else:
+                cat = 'none'
+
+            stats[cat]['total'] += 1
+            if model_result.success:
+                stats[cat]['successes'] += 1
+                stats[cat]['pushes'].append(model_result.pushes)
+                stats[cat]['times'].append(model_result.time_taken)
+
+    return stats
+
+
+def compute_difficulty_stratification(
+    model_data: Dict[str, Dict[str, RegionResult]],
+    search_data: Dict[str, Dict[str, RegionResult]],
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Stratify problems by difficulty based on oracle (search) solution time.
+    Uses 33rd percentile splits: easy (fastest 33%), medium (middle 33%), hard (slowest 33%).
+
+    Returns:
+        {difficulty: {'pushes': [...], 'times': [...], 'successes': int, 'total': int,
+                      'oracle_time_range': (min, max)}}
+    """
+    # First, collect oracle times for problems that exist in BOTH datasets (intersection)
+    oracle_times = []
+    problem_keys = []  # (env, region) tuples
+
+    for env in search_data:
+        if env not in model_data:
+            continue
+        for region in search_data[env]:
+            if region not in model_data[env]:
+                continue
+            search_result = search_data[env][region]
+            if search_result.success:
+                oracle_times.append(search_result.time_taken)
+                problem_keys.append((env, region))
+
+    if not oracle_times:
+        return {
+            'easy': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_time_range': (0, 0)},
+            'medium': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_time_range': (0, 0)},
+            'hard': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_time_range': (0, 0)},
+        }
+
+    # Compute 33rd and 66th percentiles
+    p33 = np.percentile(oracle_times, 33.33)
+    p66 = np.percentile(oracle_times, 66.67)
+
+    # Initialize stats
+    stats = {
+        'easy': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_times': []},
+        'medium': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_times': []},
+        'hard': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_times': []},
+    }
+
+    # Categorize each problem
+    for (env, region), oracle_time in zip(problem_keys, oracle_times):
+        if oracle_time <= p33:
+            difficulty = 'easy'
+        elif oracle_time <= p66:
+            difficulty = 'medium'
+        else:
+            difficulty = 'hard'
+
+        stats[difficulty]['total'] += 1
+        stats[difficulty]['oracle_times'].append(oracle_time)
+
+        # Check if model solved it
+        model_result = model_data[env][region]
+        if model_result.success:
+            stats[difficulty]['successes'] += 1
+            stats[difficulty]['pushes'].append(model_result.pushes)
+            stats[difficulty]['times'].append(model_result.time_taken)
+
+    # Compute oracle time ranges for each difficulty
+    for diff in stats:
+        if stats[diff]['oracle_times']:
+            stats[diff]['oracle_time_range'] = (
+                min(stats[diff]['oracle_times']) / 1000,  # Convert to seconds
+                max(stats[diff]['oracle_times']) / 1000
+            )
+        else:
+            stats[diff]['oracle_time_range'] = (0, 0)
+        # Remove oracle_times list (not needed in output)
+        del stats[diff]['oracle_times']
+
+    return stats
+
+
 # =============================================================================
 # Plotting
 # =============================================================================
@@ -482,35 +770,36 @@ def plot_success_rates(
     categories = ['easy', 'medium', 'hard']
     n_models = len(model_stats)
     x = np.arange(len(categories))
-    width = 0.8 / n_models
+    width = 0.35
 
-    fig, ax = plt.subplots(figsize=(12, 10))
+    fig, ax = plt.subplots(figsize=(8, 5))
 
     for i, stats in enumerate(model_stats):
         rates = [stats.get_category(cat).success_rate for cat in categories]
+        counts = [(stats.get_category(cat).successes, stats.get_category(cat).total) for cat in categories]
 
         offset = (i - n_models/2 + 0.5) * width
-        bars = ax.bar(x + offset, rates, width, label=stats.name,
-                      color=get_model_color(i, config), edgecolor='black')
+        bars = ax.bar(x + offset, rates, width * 0.9, label=stats.name,
+                      color=get_model_color(i, config), edgecolor='white', linewidth=0.5)
 
         # Add percentage labels
-        for bar, rate in zip(bars, rates):
+        for bar, rate, (succ, total) in zip(bars, rates, counts):
             ax.annotate(f'{rate:.0%}',
                        xy=(bar.get_x() + bar.get_width()/2, bar.get_height()),
-                       xytext=(0, 3), textcoords="offset points",
-                       ha='center', va='bottom', fontsize=9)
+                       xytext=(0, 4), textcoords="offset points",
+                       ha='center', va='bottom', fontsize=9, fontweight='bold')
 
     ax.set_xticks(x)
     ax.set_xticklabels([c.capitalize() for c in categories])
-    ax.set_ylim(0, 1.15)
+    ax.set_ylim(0, 1.12)
     ax.set_ylabel('Success Rate')
-    ax.set_title('Success Rate by Difficulty Category')
-    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.08), ncol=n_models, frameon=True)
-    ax.grid(True, axis='y', linestyle='--', alpha=0.6)
+    ax.set_title('Success Rate by Difficulty')
+    ax.legend(loc='upper right', frameon=True, fancybox=True)
+    ax.axhline(y=1.0, color='#888888', linestyle='--', linewidth=0.8, alpha=0.5)
 
     plt.tight_layout()
     if output_path:
-        plt.savefig(output_path, dpi=150, bbox_inches='tight')
+        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
         print(f"Saved: {output_path}")
     return fig
 
@@ -524,12 +813,11 @@ def plot_pushes_boxplot(
     categories = ['easy', 'medium', 'hard']
     n_models = len(model_stats)
 
-    fig, ax = plt.subplots(figsize=(12, 8))
+    fig, ax = plt.subplots(figsize=(9, 5))
 
     positions = []
     data = []
     colors = []
-    labels_added = set()
 
     for cat_idx, cat in enumerate(categories):
         for model_idx, stats in enumerate(model_stats):
@@ -542,11 +830,18 @@ def plot_pushes_boxplot(
 
     for patch, color in zip(bp['boxes'], colors):
         patch.set_facecolor(color)
-        patch.set_alpha(0.7)
+        patch.set_alpha(0.85)
+        patch.set_edgecolor('white')
+        patch.set_linewidth(0.5)
 
     for median in bp['medians']:
-        median.set_color('red')
+        median.set_color('#333333')
         median.set_linewidth(2)
+
+    for whisker in bp['whiskers']:
+        whisker.set_color('#666666')
+    for cap in bp['caps']:
+        cap.set_color('#666666')
 
     # Set x-axis labels
     cat_positions = [(i * (n_models + 1) + (n_models - 1) / 2) for i in range(len(categories))]
@@ -554,17 +849,16 @@ def plot_pushes_boxplot(
     ax.set_xticklabels([c.capitalize() for c in categories])
 
     # Legend
-    legend_handles = [plt.Rectangle((0,0),1,1, facecolor=get_model_color(i, config), alpha=0.7)
+    legend_handles = [plt.Rectangle((0,0),1,1, facecolor=get_model_color(i, config), alpha=0.85)
                       for i in range(n_models)]
-    ax.legend(legend_handles, [s.name for s in model_stats], loc='upper right')
+    ax.legend(legend_handles, [s.name for s in model_stats], loc='upper left', frameon=True, fancybox=True)
 
     ax.set_ylabel('Pushes to Success')
-    ax.set_title('Pushes to Success by Difficulty Category')
-    ax.grid(True, axis='y', linestyle='--', alpha=0.6)
+    ax.set_title('Pushes to Success by Difficulty')
 
     plt.tight_layout()
     if output_path:
-        plt.savefig(output_path, dpi=150)
+        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
         print(f"Saved: {output_path}")
     return fig
 
@@ -578,7 +872,7 @@ def plot_time_boxplot(
     categories = ['easy', 'medium', 'hard']
     n_models = len(model_stats)
 
-    fig, ax = plt.subplots(figsize=(12, 8))
+    fig, ax = plt.subplots(figsize=(9, 5))
 
     positions = []
     data = []
@@ -595,27 +889,33 @@ def plot_time_boxplot(
 
     for patch, color in zip(bp['boxes'], colors):
         patch.set_facecolor(color)
-        patch.set_alpha(0.7)
+        patch.set_alpha(0.85)
+        patch.set_edgecolor('white')
+        patch.set_linewidth(0.5)
 
     for median in bp['medians']:
-        median.set_color('red')
+        median.set_color('#333333')
         median.set_linewidth(2)
+
+    for whisker in bp['whiskers']:
+        whisker.set_color('#666666')
+    for cap in bp['caps']:
+        cap.set_color('#666666')
 
     cat_positions = [(i * (n_models + 1) + (n_models - 1) / 2) for i in range(len(categories))]
     ax.set_xticks(cat_positions)
     ax.set_xticklabels([c.capitalize() for c in categories])
 
-    legend_handles = [plt.Rectangle((0,0),1,1, facecolor=get_model_color(i, config), alpha=0.7)
+    legend_handles = [plt.Rectangle((0,0),1,1, facecolor=get_model_color(i, config), alpha=0.85)
                       for i in range(n_models)]
-    ax.legend(legend_handles, [s.name for s in model_stats], loc='upper right')
+    ax.legend(legend_handles, [s.name for s in model_stats], loc='upper left', frameon=True, fancybox=True)
 
     ax.set_ylabel('Time to Success (ms)')
-    ax.set_title('Time to Success by Difficulty Category')
-    ax.grid(True, axis='y', linestyle='--', alpha=0.6)
+    ax.set_title('Time to Success by Difficulty')
 
     plt.tight_layout()
     if output_path:
-        plt.savefig(output_path, dpi=150)
+        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
         print(f"Saved: {output_path}")
     return fig
 
@@ -689,6 +989,14 @@ def plot_time_vs_success(
     """Plot success rate vs time cutoff."""
     categories = ['easy', 'medium', 'hard']
 
+    # Get N for each category from the first model
+    n_by_cat = {}
+    for cat_data in time_data.values():
+        for cat in categories:
+            if cat in cat_data and cat not in n_by_cat:
+                n_by_cat[cat] = cat_data[cat].get('total', 0)
+        break
+
     fig, axes = plt.subplots(1, 3, figsize=(18, 6), sharey=True)
 
     for idx, cat in enumerate(categories):
@@ -696,24 +1004,74 @@ def plot_time_vs_success(
 
         for model_idx, (model_name, cat_data) in enumerate(time_data.items()):
             if cat in cat_data:
+                cutoffs_ms = cat_data[cat]['cutoffs']
+                cutoffs_s = [c / 1000.0 for c in cutoffs_ms]  # Convert to seconds
+                rates = cat_data[cat]['rates']
+                ax.plot(cutoffs_s, rates, label=model_name,
+                       color=get_model_color(model_idx, config), linewidth=2)
+
+        n_problems = n_by_cat.get(cat, 0)
+        ax.set_title(f"{cat.capitalize()} Regions (N={n_problems})")
+        ax.set_xlabel('Time cutoff (s)')
+        if idx == 0:
+            ax.set_ylabel('Success Rate')
+        ax.set_ylim(0, 1.05)
+        ax.set_xlim(0, config.time_cutoff_max / 1000.0)
+        ax.grid(True, linestyle='--', alpha=0.7)
+        ax.legend()
+
+    plt.suptitle("Success Rate @ Time Cutoff", fontsize=14, fontweight='bold')
+    plt.tight_layout()
+
+    if output_path:
+        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
+        print(f"Saved: {output_path}")
+    return fig
+
+
+def plot_pushes_vs_success(
+    push_data: Dict[str, Dict[str, Dict[str, List[float]]]],  # {model_name: {category: {cutoffs, rates, total}}}
+    config: EvalConfig,
+    output_path: Optional[str] = None,
+):
+    """Plot success rate vs push count cutoff."""
+    categories = ['easy', 'medium', 'hard']
+
+    # Get N for each category from the first model
+    n_by_cat = {}
+    for cat_data in push_data.values():
+        for cat in categories:
+            if cat in cat_data and cat not in n_by_cat:
+                n_by_cat[cat] = cat_data[cat].get('total', 0)
+        break
+
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6), sharey=True)
+
+    for idx, cat in enumerate(categories):
+        ax = axes[idx]
+
+        for model_idx, (model_name, cat_data) in enumerate(push_data.items()):
+            if cat in cat_data:
                 cutoffs = cat_data[cat]['cutoffs']
                 rates = cat_data[cat]['rates']
                 ax.plot(cutoffs, rates, label=model_name,
                        color=get_model_color(model_idx, config), linewidth=2)
 
-        ax.set_title(f"{cat.capitalize()} Regions")
-        ax.set_xlabel('Time Cutoff (ms)')
+        n_problems = n_by_cat.get(cat, 0)
+        ax.set_title(f"{cat.capitalize()} Regions (N={n_problems})")
+        ax.set_xlabel('Simulation-verified push evaluations')
         if idx == 0:
             ax.set_ylabel('Success Rate')
         ax.set_ylim(0, 1.05)
+        ax.set_xlim(0, config.push_cutoff_max)
         ax.grid(True, linestyle='--', alpha=0.7)
-        ax.legend()
+        ax.legend(loc='lower right')
 
-    plt.suptitle("Success Rate @ Time Cutoff")
+    plt.suptitle("Success Rate @ Push Evaluations", fontsize=14, fontweight='bold')
     plt.tight_layout()
 
     if output_path:
-        plt.savefig(output_path, dpi=150)
+        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
         print(f"Saved: {output_path}")
     return fig
 
@@ -786,6 +1144,71 @@ def plot_interactions(
     return fig
 
 
+def plot_collision_success_rates(
+    collision_stats: Dict[str, Dict[str, Dict[str, int]]],  # {model_name: {collision_type: {successes, total}}}
+    config: EvalConfig,
+    output_path: Optional[str] = None,
+):
+    """
+    Plot success rates by collision type for each model.
+
+    Shows a grouped bar chart with collision types on x-axis and models as groups.
+    """
+    collision_types = ['none', 'wall_only', 'movable_only', 'both']
+    collision_labels = ['No Collision', 'Wall Only', 'Movable Only', 'Both']
+    model_names = list(collision_stats.keys())
+    n_models = len(model_names)
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    x = np.arange(len(collision_types))
+    width = 0.35
+
+    for i, model_name in enumerate(model_names):
+        rates = []
+        counts = []
+        for ct in collision_types:
+            stats = collision_stats[model_name][ct]
+            rate = stats['successes'] / stats['total'] if stats['total'] > 0 else 0.0
+            rates.append(rate)
+            counts.append((stats['successes'], stats['total']))
+
+        offset = (i - n_models/2 + 0.5) * width
+        bars = ax.bar(x + offset, rates, width * 0.9, label=model_name,
+                      color=get_model_color(i, config), edgecolor='white', linewidth=0.5)
+
+        # Add percentage labels on bars
+        for bar, rate, (succ, total) in zip(bars, rates, counts):
+            if total > 0:
+                # Put percentage inside bar if tall enough, otherwise above
+                y_pos = bar.get_height()
+                ax.annotate(f'{rate:.0%}',
+                           xy=(bar.get_x() + bar.get_width()/2, y_pos),
+                           xytext=(0, 4), textcoords="offset points",
+                           ha='center', va='bottom', fontsize=9, fontweight='bold')
+                # Add count below the bar
+                ax.annotate(f'n={total}',
+                           xy=(bar.get_x() + bar.get_width()/2, 0),
+                           xytext=(0, -12), textcoords="offset points",
+                           ha='center', va='top', fontsize=8, color='#666666')
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(collision_labels)
+    ax.set_ylim(0, 1.15)
+    ax.set_ylabel('Success Rate')
+    ax.set_title('Success Rate by Collision Type Required')
+    ax.legend(loc='upper right', frameon=True, fancybox=True, shadow=False)
+
+    # Add horizontal line at 100%
+    ax.axhline(y=1.0, color='#888888', linestyle='--', linewidth=0.8, alpha=0.5)
+
+    plt.tight_layout()
+    if output_path:
+        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
+        print(f"Saved: {output_path}")
+    return fig
+
+
 def print_summary(model_stats: List[ModelStats]):
     """Print summary statistics."""
     print("\n" + "=" * 80)
@@ -805,9 +1228,11 @@ def print_summary(model_stats: List[ModelStats]):
             print(f"\n  {cat.capitalize()}:")
             print(f"    Success: {cat_stats.successes}/{cat_stats.total} = {cat_stats.success_rate:.4f}")
             if cat_stats.pushes:
-                print(f"    Pushes:  median={cat_stats.median_pushes:.1f}, mean={cat_stats.mean_pushes:.1f}")
+                p_iqr = cat_stats.pushes_iqr
+                print(f"    Pushes:  median={cat_stats.median_pushes:.0f} [{p_iqr[0]:.0f}, {p_iqr[1]:.0f}], mean={cat_stats.mean_pushes:.1f}")
             if cat_stats.times:
-                print(f"    Time:    median={cat_stats.median_time:.1f}ms, mean={cat_stats.mean_time:.1f}ms")
+                t_iqr = cat_stats.time_iqr
+                print(f"    Time:    median={cat_stats.median_time:.0f}ms [{t_iqr[0]:.0f}, {t_iqr[1]:.0f}], mean={cat_stats.mean_time:.1f}ms")
             if cat_stats.solutions:
                 print(f"    Solutions: total={cat_stats.total_solutions}, mean={cat_stats.mean_solutions:.1f}")
             if cat_stats.successes > 0:
@@ -824,6 +1249,8 @@ def generate_markdown_report(
     config: EvalConfig,
     category_counts: Dict[str, int],
     output_path: str,
+    collision_efficiency: Optional[Dict[str, Dict[str, Dict[str, Any]]]] = None,
+    difficulty_stratification: Optional[Dict[str, Dict[str, Dict[str, Any]]]] = None,
 ):
     """Generate a markdown report with comparison tables."""
     categories = ['easy', 'medium', 'hard']
@@ -872,7 +1299,7 @@ def generate_markdown_report(
 
     # Pushes statistics (successful runs only)
     lines.append("## Pushes to Success (Successful Runs Only)\n")
-    lines.append("### Median Pushes\n")
+    lines.append("Format: median [IQR]\n")
     header = "| Model |"
     separator = "|-------|"
     for cat in categories:
@@ -886,30 +1313,16 @@ def generate_markdown_report(
         for cat in categories:
             cat_stats = stats.get_category(cat)
             if cat_stats.pushes:
-                row += f" {cat_stats.median_pushes:.1f} |"
+                p_iqr = cat_stats.pushes_iqr
+                row += f" {cat_stats.median_pushes:.0f} [{p_iqr[0]:.0f}, {p_iqr[1]:.0f}] |"
             else:
                 row += " - |"
         lines.append(row)
     lines.append("")
 
-    lines.append("### Mean Pushes\n")
-    lines.append(header)
-    lines.append(separator)
-
-    for stats in model_stats:
-        row = f"| {stats.name} |"
-        for cat in categories:
-            cat_stats = stats.get_category(cat)
-            if cat_stats.pushes:
-                row += f" {cat_stats.mean_pushes:.1f} |"
-            else:
-                row += " - |"
-        lines.append(row)
-    lines.append("")
-
-    # Time statistics (successful runs only)
-    lines.append("## Time to Success in ms (Successful Runs Only)\n")
-    lines.append("### Median Time\n")
+    # Time statistics (successful runs only) - in seconds
+    lines.append("## Time to Success in seconds (Successful Runs Only)\n")
+    lines.append("Format: median [IQR]\n")
     lines.append(header)
     lines.append(separator)
 
@@ -918,22 +1331,9 @@ def generate_markdown_report(
         for cat in categories:
             cat_stats = stats.get_category(cat)
             if cat_stats.times:
-                row += f" {cat_stats.median_time:.0f} |"
-            else:
-                row += " - |"
-        lines.append(row)
-    lines.append("")
-
-    lines.append("### Mean Time\n")
-    lines.append(header)
-    lines.append(separator)
-
-    for stats in model_stats:
-        row = f"| {stats.name} |"
-        for cat in categories:
-            cat_stats = stats.get_category(cat)
-            if cat_stats.times:
-                row += f" {cat_stats.mean_time:.0f} |"
+                t_iqr = cat_stats.time_iqr
+                # Convert ms to seconds
+                row += f" {cat_stats.median_time/1000:.1f} [{t_iqr[0]/1000:.1f}, {t_iqr[1]/1000:.1f}] |"
             else:
                 row += " - |"
         lines.append(row)
@@ -941,7 +1341,7 @@ def generate_markdown_report(
 
     # Interaction statistics
     lines.append("## Interaction Statistics (Successful Runs Only)\n")
-    lines.append("These metrics show collision rates among successful runs.\n")
+    lines.append("*Note: Statistics computed over successful runs only. Models with lower success rates may show different interaction patterns due to selection bias (failing on harder instances).*\n")
 
     lines.append("### Wall Collision Rate\n")
     lines.append("Percentage of successful runs that had collisions with walls.\n")
@@ -991,6 +1391,117 @@ def generate_markdown_report(
                 row += " - |"
         lines.append(row)
     lines.append("")
+
+    # =========================================================================
+    # COLLISION STRATIFICATION (success rate by collision type)
+    # =========================================================================
+    if collision_efficiency:
+        lines.append("## Success Rate by Collision Type\n")
+        lines.append("Collision type determined by oracle (search) solution.\n")
+
+        collision_types = ['none', 'wall_only', 'movable_only', 'both']
+        collision_labels = {'none': 'No Collision', 'wall_only': 'Wall Only',
+                            'movable_only': 'Movable Only', 'both': 'Both'}
+
+        col_header = "| Model |"
+        for ct in collision_types:
+            col_header += f" {collision_labels[ct]} |"
+        lines.append(col_header)
+
+        col_sep = "|-------|"
+        for _ in collision_types:
+            col_sep += "-------------|"
+        lines.append(col_sep)
+
+        for name in collision_efficiency:
+            row = f"| {name} |"
+            for ct in collision_types:
+                stats = collision_efficiency[name][ct]
+                rate = stats['successes'] / stats['total'] if stats['total'] > 0 else 0.0
+                row += f" {rate:.1%} ({stats['successes']}/{stats['total']}) |"
+            lines.append(row)
+        lines.append("")
+
+        # Efficiency by bucket
+        lines.append("### Efficiency by Collision Type (Solved Cases Only)\n")
+        lines.append("*Note: Efficiency numbers are computed over solved cases only; models with lower success rates may appear more efficient due to selection bias (e.g., only succeeding on easier instances).*\n")
+        lines.append("| Model | Collision Type | N | Median Checks | Median Time (s) |")
+        lines.append("|-------|----------------|---|---------------|-----------------|")
+
+        for name in collision_efficiency:
+            for ct in collision_types:
+                stats = collision_efficiency[name][ct]
+                pushes = stats['pushes']
+                times = stats['times']
+                n_solved = len(pushes)
+                if pushes:
+                    med_checks = f"{np.median(pushes):.0f}"
+                    med_time = f"{np.median(times)/1000:.1f}"  # Convert ms to seconds
+                else:
+                    med_checks = "-"
+                    med_time = "-"
+                lines.append(f"| {name} | {collision_labels[ct]} | {n_solved} | {med_checks} | {med_time} |")
+        lines.append("")
+
+    # =========================================================================
+    # DIFFICULTY STRATIFICATION (based on oracle time)
+    # =========================================================================
+    if difficulty_stratification:
+        lines.append("## Difficulty Stratification (by Oracle Time)\n")
+        lines.append("*Problems split into thirds by oracle solution time: Easy (fastest 33%), Medium (middle 33%), Hard (slowest 33%).*\n")
+
+        difficulty_levels = ['easy', 'medium', 'hard']
+        difficulty_labels = {'easy': 'Easy', 'medium': 'Medium', 'hard': 'Hard'}
+
+        # Get oracle time ranges from first model (same for all)
+        first_model = list(difficulty_stratification.keys())[0]
+        range_info = []
+        for diff in difficulty_levels:
+            r = difficulty_stratification[first_model][diff]['oracle_time_range']
+            range_info.append(f"**{difficulty_labels[diff]}**: {r[0]:.1f}–{r[1]:.1f}s")
+        lines.append(f"Oracle time ranges: {', '.join(range_info)}\n")
+
+        # Success rate table
+        lines.append("### Success Rate by Difficulty (Oracle Time)\n")
+        diff_header = "| Model |"
+        for diff in difficulty_levels:
+            diff_header += f" {difficulty_labels[diff]} |"
+        lines.append(diff_header)
+
+        diff_sep = "|-------|"
+        for _ in difficulty_levels:
+            diff_sep += "------------|"
+        lines.append(diff_sep)
+
+        for name in difficulty_stratification:
+            row = f"| {name} |"
+            for diff in difficulty_levels:
+                stats = difficulty_stratification[name][diff]
+                rate = stats['successes'] / stats['total'] if stats['total'] > 0 else 0.0
+                row += f" {rate:.1%} ({stats['successes']}/{stats['total']}) |"
+            lines.append(row)
+        lines.append("")
+
+        # Efficiency by difficulty (solved cases only)
+        lines.append("### Efficiency by Difficulty (Solved Cases Only)\n")
+        lines.append("*Note: Efficiency computed over solved cases only; selection bias may apply.*\n")
+        lines.append("| Model | Difficulty | N | Median Checks | Median Time (s) |")
+        lines.append("|-------|------------|---|---------------|-----------------|")
+
+        for name in difficulty_stratification:
+            for diff in difficulty_levels:
+                stats = difficulty_stratification[name][diff]
+                pushes = stats['pushes']
+                times = stats['times']
+                n_solved = len(pushes)
+                if pushes:
+                    med_checks = f"{np.median(pushes):.0f}"
+                    med_time = f"{np.median(times)/1000:.1f}"
+                else:
+                    med_checks = "-"
+                    med_time = "-"
+                lines.append(f"| {name} | {difficulty_labels[diff]} | {n_solved} | {med_checks} | {med_time} |")
+        lines.append("")
 
     # Detailed per-model breakdown
     lines.append("## Detailed Per-Model Statistics\n")
@@ -1114,11 +1625,12 @@ def main():
 
     # Load reference data (for difficulty categorization only)
     print(f"Loading reference data: {config.reference.name} (for categorization)...")
+    print(f"  Using triplets (env, region, object) for evaluation granularity")
     reference_data, _ = load_pickle_data(
         f"{config.reference.dir}/**/*.pkl",
         exclude_easy=config.exclude_easy,
     )
-    print(f"  Loaded {sum(len(v) for v in reference_data.values())} env+region pairs")
+    print(f"  Loaded {sum(len(v) for v in reference_data.values())} triplets")
 
     # Load all models (baselines + learned)
     all_model_data: Dict[str, Dict[str, Dict[str, RegionResult]]] = {}
@@ -1130,7 +1642,7 @@ def main():
             f"{baseline.dir}/**/*.pkl",
             exclude_easy=config.exclude_easy,
         )
-        print(f"  Loaded {sum(len(v) for v in data.values())} env+region pairs")
+        print(f"  Loaded {sum(len(v) for v in data.values())} triplets")
         all_model_data[baseline.name] = data
         all_model_failures[baseline.name] = failures
 
@@ -1140,14 +1652,42 @@ def main():
             f"{model.dir}/**/*.pkl",
             exclude_easy=config.exclude_easy,
         )
-        print(f"  Loaded {sum(len(v) for v in data.values())} env+region pairs")
+        print(f"  Loaded {sum(len(v) for v in data.values())} triplets")
         all_model_data[model.name] = data
         all_model_failures[model.name] = failures
 
     # Find intersection across all models + reference
-    print("\nComputing intersection of env+region pairs across all models...")
+    print("\nComputing intersection of triplets across all models...")
+
+    # Debug: Show triplet counts before intersection
+    print("\n  === TRIPLET COUNTS BEFORE INTERSECTION ===")
+    reference_keys = get_env_region_keys(reference_data)
+    reference_success_keys = {(env, region) for env, region in reference_keys
+                              if reference_data[env][region].success}
+    print(f"  Reference (all):     {len(reference_keys)} triplets")
+    print(f"  Reference (success): {len(reference_success_keys)} triplets")
+
+    for name, data in all_model_data.items():
+        model_keys = get_env_region_keys(data)
+        model_success_keys = {(env, region) for env, region in model_keys
+                              if data[env][region].success}
+        # How many of this model's triplets overlap with reference success?
+        overlap_with_ref = model_keys & reference_success_keys
+        print(f"  {name}:")
+        print(f"    Total triplets: {len(model_keys)}")
+        print(f"    Successful:     {len(model_success_keys)}")
+        print(f"    Overlap w/ ref: {len(overlap_with_ref)}")
+
     filtered_data, intersection = filter_to_intersection(all_model_data, reference_data)
-    print(f"  Intersection size: {len(intersection)} env+region pairs")
+    print(f"\n  === FINAL INTERSECTION ===")
+    print(f"  Intersection size: {len(intersection)} triplets")
+
+    # Show what was lost
+    if len(reference_success_keys) > len(intersection):
+        lost = len(reference_success_keys) - len(intersection)
+        pct_lost = lost / len(reference_success_keys) * 100
+        print(f"  Lost from reference: {lost} triplets ({pct_lost:.1f}%)")
+        print(f"  (These are triplets where oracle succeeded but not all models have matching triplets)")
 
     # Count by category
     category_counts = {'easy': 0, 'medium': 0, 'hard': 0}
@@ -1165,6 +1705,7 @@ def main():
     # Compute stats for each model (using filtered data)
     all_stats: List[ModelStats] = []
     time_data = {}
+    push_data = {}
 
     for name in filtered_data:
         model_stats = compute_stats(
@@ -1178,6 +1719,32 @@ def main():
             filtered_data[name], reference_data, config
         )
 
+        # Compute push-based success
+        push_data[name] = compute_push_based_success(
+            filtered_data[name], reference_data, config
+        )
+
+    # Compute collision-based success stats
+    collision_stats = {}
+    for name in filtered_data:
+        collision_stats[name] = compute_collision_success_stats(
+            filtered_data[name], reference_data, config
+        )
+
+    # Compute collision bucket efficiency
+    collision_efficiency = {}
+    for name in filtered_data:
+        collision_efficiency[name] = compute_collision_bucket_efficiency(
+            filtered_data[name], reference_data
+        )
+
+    # Compute difficulty stratification (based on oracle time)
+    difficulty_stratification = {}
+    for name in filtered_data:
+        difficulty_stratification[name] = compute_difficulty_stratification(
+            filtered_data[name], reference_data
+        )
+
     # Compute stats for reference (oracle) - for solutions plot
     reference_stats = compute_stats(
         reference_data, reference_data, config,
@@ -1186,6 +1753,55 @@ def main():
 
     # Print summary
     print_summary(all_stats)
+
+    # Print collision-based success rates
+    print("\n" + "=" * 80)
+    print("SUCCESS RATE BY COLLISION TYPE (based on oracle solution)")
+    print("=" * 80)
+    collision_types = ['none', 'wall_only', 'movable_only', 'both']
+    collision_labels = {'none': 'No Collision', 'wall_only': 'Wall Only',
+                        'movable_only': 'Movable Only', 'both': 'Both'}
+
+    # Print oracle collision distribution (use first model's totals - same for all)
+    first_model = list(collision_stats.keys())[0]
+    total_problems = sum(collision_stats[first_model][ct]['total'] for ct in collision_types)
+    print(f"\nOracle Collision Distribution (N={total_problems}):")
+    for ct in collision_types:
+        count = collision_stats[first_model][ct]['total']
+        pct = count / total_problems * 100 if total_problems > 0 else 0
+        print(f"  {collision_labels[ct]:15s}: {count:3d} ({pct:5.1f}%)")
+
+    # Print success rates per model
+    for name in collision_stats:
+        print(f"\n{name}:")
+        for ct in collision_types:
+            stats = collision_stats[name][ct]
+            rate = stats['successes'] / stats['total'] if stats['total'] > 0 else 0.0
+            print(f"  {collision_labels[ct]:15s}: {stats['successes']:3d}/{stats['total']:3d} = {rate:.1%}")
+
+    # Print difficulty stratification
+    print("\n" + "=" * 80)
+    print("DIFFICULTY STRATIFICATION (based on oracle solution time)")
+    print("=" * 80)
+    difficulty_levels = ['easy', 'medium', 'hard']
+    difficulty_labels_print = {'easy': 'Easy', 'medium': 'Medium', 'hard': 'Hard'}
+
+    if difficulty_stratification:
+        # Print oracle time ranges (same for all models)
+        first_model = list(difficulty_stratification.keys())[0]
+        print("\nOracle Time Ranges:")
+        for diff in difficulty_levels:
+            r = difficulty_stratification[first_model][diff]['oracle_time_range']
+            n = difficulty_stratification[first_model][diff]['total']
+            print(f"  {difficulty_labels_print[diff]:8s}: {r[0]:6.1f}s – {r[1]:6.1f}s  (N={n})")
+
+        # Print success rates per model
+        for name in difficulty_stratification:
+            print(f"\n{name}:")
+            for diff in difficulty_levels:
+                stats = difficulty_stratification[name][diff]
+                rate = stats['successes'] / stats['total'] if stats['total'] > 0 else 0.0
+                print(f"  {difficulty_labels_print[diff]:8s}: {stats['successes']:3d}/{stats['total']:3d} = {rate:.1%}")
 
     # Generate plots
     print("\nGenerating plots...")
@@ -1222,6 +1838,13 @@ def main():
             f"{config.output_dir}/time_vs_success.png"
         )
 
+    if push_data:
+        plot_pushes_vs_success(
+            push_data,
+            config,
+            f"{config.output_dir}/pushes_vs_success.png"
+        )
+
     if all_stats:
         plot_interactions(
             all_stats,
@@ -1229,12 +1852,21 @@ def main():
             f"{config.output_dir}/interactions.png"
         )
 
+    if collision_stats:
+        plot_collision_success_rates(
+            collision_stats,
+            config,
+            f"{config.output_dir}/collision_success_rates.png"
+        )
+
     # Generate markdown report
     generate_markdown_report(
         all_stats,
         config,
         category_counts,
-        f"{config.output_dir}/results.md"
+        f"{config.output_dir}/results.md",
+        collision_efficiency=collision_efficiency,
+        difficulty_stratification=difficulty_stratification,
     )
 
     print(f"\nPlots saved to: {config.output_dir}")

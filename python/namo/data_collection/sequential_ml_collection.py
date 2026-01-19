@@ -25,7 +25,11 @@ import random
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Any
 from dataclasses import dataclass, asdict, replace
-from tqdm import tqdm
+try:
+    from tqdm import tqdm
+except ModuleNotFoundError:  # pragma: no cover
+    def tqdm(iterable=None, **_kwargs):
+        return iterable if iterable is not None else []
 from contextlib import contextmanager
 
 # Add parent directory to path for imports
@@ -127,23 +131,42 @@ def preload_ml_models(config: ModularCollectionConfig) -> Tuple[Optional[Any], O
     algo_params = config.planner_config.algorithm_params or {}
     device = algo_params.get("ml_device", "cuda")
 
-    # Debug: Show GPU configuration
-    import torch
-    print(f"🎮 GPU Configuration:")
-    print(f"   CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES', 'not set')}")
-    print(f"   Requested device: {device}")
-    print(f"   PyTorch CUDA available: {torch.cuda.is_available()}")
-    if torch.cuda.is_available():
-        print(f"   PyTorch visible GPU count: {torch.cuda.device_count()}")
-        if torch.cuda.device_count() > 0:
-            actual_device = torch.device(device)
-            print(f"   Actual device to use: {actual_device}")
-            print(f"   GPU name: {torch.cuda.get_device_name(actual_device)}")
-
     # Check if ML is used
     use_ml_object = algo_params.get("object_selection_strategy") == "ml"
-    use_ml_goal = (algo_params.get("goal_sampler") in ["ml", "ml_primitive"] or
-                   algo_params.get("goal_selection_strategy") == "ml")
+    goal_strategy = (
+        algo_params.get("goal_strategy")
+        or algo_params.get("goal_sampler")
+        or algo_params.get("goal_selection_strategy")
+    )
+    use_ml_goal = goal_strategy in {
+        "ml",
+        "ml_primitive",
+        "ml_fallback",
+        "ml_primitive_fallback",
+        "ml_async",
+        "ml_primitive_async",
+        "ml_driven_async",
+    }
+
+    # Debug: Show GPU configuration only if ML is enabled
+    if use_ml_object or use_ml_goal:
+        try:
+            import torch
+        except ModuleNotFoundError as exc:
+            raise ModuleNotFoundError(
+                "PyTorch is required for ML-based collection but is not installed."
+            ) from exc
+
+        print(f"🎮 GPU Configuration:")
+        print(f"   CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES', 'not set')}")
+        print(f"   Requested device: {device}")
+        print(f"   PyTorch CUDA available: {torch.cuda.is_available()}")
+        if torch.cuda.is_available():
+            print(f"   PyTorch visible GPU count: {torch.cuda.device_count()}")
+            if torch.cuda.device_count() > 0:
+                actual_device = torch.device(device)
+                print(f"   Actual device to use: {actual_device}")
+                print(f"   GPU name: {torch.cuda.get_device_name(actual_device)}")
     
     if use_ml_object:
         model_path = algo_params.get("ml_object_model_path")
@@ -266,7 +289,13 @@ def process_single_environment(
                                 solution_depth = 1
                         
                         # Print stats for this neighbor attempt
-                        print(f"   ✅ Neighbor '{attempt.neighbour_region_label}': Found {getattr(attempt, 'solutions_total_for_neighbour', 0)} solutions in {getattr(attempt, 'pushes_total_for_neighbour', 0)} pushes")
+                        status_icon = "✅" if attempt.success else "❌"
+                        print(
+                            f"   {status_icon} Neighbor '{attempt.neighbour_region_label}' "
+                            f"Object '{attempt.chosen_object_id}': "
+                            f"{'Success' if attempt.success else 'Failed'} "
+                            f"({getattr(attempt, 'pushes_total_for_neighbour', 0)} pushes)"
+                        )
 
                         actual_goal = attempt.region_goal_used if attempt.region_goal_used else robot_goal
                         
@@ -296,6 +325,18 @@ def process_single_environment(
                                 'solutions_cap_for_neighbour': getattr(attempt, 'solutions_cap_for_neighbour', None),
                                 'solutions_total_for_neighbour': getattr(attempt, 'solutions_total_for_neighbour', None),
                                 'pushes_total_for_neighbour': getattr(attempt, 'pushes_total_for_neighbour', None),
+                                # Failure tracking and ML diagnostics
+                                'failure_reason': getattr(attempt, 'failure_reason', None),
+                                'candidate_objects_count': getattr(attempt, 'candidate_objects_count', None),
+                                'ml_goals_generated': getattr(attempt, 'ml_goals_generated', None),
+                                'ml_goals_aligned': getattr(attempt, 'ml_goals_aligned', None),
+                                'reachable_edges_count': getattr(attempt, 'reachable_edges_count', None),
+                                'aligned_primitives': getattr(attempt, 'aligned_primitives', None),
+                                'ml_goals_raw': getattr(attempt, 'ml_goals_raw', None),
+                                'reachable_edges': getattr(attempt, 'reachable_edges', None),
+                                # Hybrid decomposition tracking
+                                'phase_push_counts': getattr(attempt, 'phase_push_counts', None),
+                                'solved_in_phase': getattr(attempt, 'solved_in_phase', ''),
                             },
                             action_sequence=action_sequence,
                             state_observations=attempt.state_observations,
@@ -307,7 +348,9 @@ def process_single_environment(
                             robot_goal=actual_goal,
                             error_message=attempt.error_message or "",
                             failure_code=None,
-                            failure_description=attempt.error_message or ""
+                            failure_description=attempt.error_message or "",
+                            any_wall_collision=getattr(attempt, 'any_wall_collision', False),
+                            unique_movable_collision_count=getattr(attempt, 'unique_movable_collision_count', 0),
                         )
                         episode_results.append(episode_result)
                     continue
@@ -430,7 +473,7 @@ class SequentialCollectionManager:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         print(f"🗂️  Run directory: {self.output_dir}")
         
-    def discover_environment_files(self) -> List[str]:
+    def discover_environment_files(self) -> List[Tuple[str, Optional[Dict[str, List[str]]]]]:
         
         # all_xml_files = []
         # with open("/common/home/dm1487/robotics_research/ktamp/namo/all_xml_files.pkl", "rb") as f:
@@ -447,21 +490,21 @@ class SequentialCollectionManager:
         
         # return all_files
         
-        xml_files = discover_environment_files(
+        env_entries = discover_environment_files(
             self.config.xml_base_dir,
             self.config.start_idx,
             self.config.end_idx,
             manifest_file=self.config.manifest_file
         )
-        return xml_files
+        return env_entries
 
     def create_tasks(self) -> List[ModularWorkerTask]:
-        # Discover environment files
-        xml_files = self.discover_environment_files()
+        # Discover environment files (returns (xml_path, region_object_skip) tuples)
+        env_entries = self.discover_environment_files()
         
         # Create tasks
         tasks = []
-        for i, xml_file in enumerate(xml_files):
+        for i, (xml_file, region_object_skip) in enumerate(env_entries):
             task_id = f"{self.config.hostname}_env_{self.config.start_idx + i:06d}"
             
             # Inject XML file into algorithm params
@@ -470,6 +513,8 @@ class SequentialCollectionManager:
                 base_algorithm_params = task_planner_config.algorithm_params or {}
                 task_algorithm_params = dict(base_algorithm_params)
                 task_algorithm_params['xml_file'] = xml_file
+                if region_object_skip:
+                    task_algorithm_params['region_object_skip'] = region_object_skip
                 task_planner_config = replace(
                     task_planner_config,
                     algorithm_params=task_algorithm_params
@@ -487,7 +532,8 @@ class SequentialCollectionManager:
                 smooth_solutions=self.config.smooth_solutions,
                 max_smooth_actions=self.config.max_smooth_actions,
                 refine_actions=self.config.refine_actions,
-                validate_refinement=self.config.validate_refinement
+                validate_refinement=self.config.validate_refinement,
+                region_object_skip=region_object_skip,
             )
             tasks.append(task)
         return tasks
@@ -546,12 +592,27 @@ class SequentialCollectionManager:
 
     def _save_final_summary(self, results: List[ModularWorkerResult], total_time: float):
         """Save comprehensive summary."""
+        import statistics
+
         all_episodes = []
         for result in results:
             if result.episode_results:
                 all_episodes.extend([asdict(ep) for ep in result.episode_results])
         
         successful_episodes = [ep for ep in all_episodes if ep['solution_found']]
+        success_search_times = [ep['search_time_ms'] for ep in successful_episodes if ep.get('search_time_ms')]
+        success_search_times_pushes = [
+            ep['search_time_ms']
+            for ep in successful_episodes
+            if ep.get('search_time_ms')
+            and (ep.get('algorithm_stats') or {}).get('pushes_total_for_neighbour', 0) > 0
+        ]
+        success_push_counts = [
+            (ep.get('algorithm_stats') or {}).get('pushes_total_for_neighbour')
+            for ep in successful_episodes
+            if (ep.get('algorithm_stats') or {}).get('pushes_total_for_neighbour') is not None
+        ]
+        success_push_counts_pushes = [p for p in success_push_counts if p > 0]
         failure_stats = get_failure_statistics(all_episodes)
         
         total_tasks = len(results)
@@ -573,6 +634,18 @@ class SequentialCollectionManager:
                 'total_episodes': len(all_episodes),
                 'successful_episodes': len(successful_episodes),
                 'success_rate': len(successful_episodes) / len(all_episodes) * 100 if all_episodes else 0,
+                'median_search_time_ms_success_only': (
+                    statistics.median(success_search_times) if success_search_times else None
+                ),
+                'median_search_time_ms_success_pushes_gt0': (
+                    statistics.median(success_search_times_pushes) if success_search_times_pushes else None
+                ),
+                'median_pushes_success_only': (
+                    statistics.median(success_push_counts) if success_push_counts else None
+                ),
+                'median_pushes_success_pushes_gt0': (
+                    statistics.median(success_push_counts_pushes) if success_push_counts_pushes else None
+                ),
             },
             'failure_analysis': failure_stats
         }
@@ -588,6 +661,18 @@ class SequentialCollectionManager:
             f.write(f"Total episodes: {len(all_episodes)}\n")
             f.write(f"Episode success rate: {summary['performance_stats']['success_rate']:.1f}%\n")
             f.write(f"Env completion rate: {summary['performance_stats']['env_completion_rate']:.1f}%\n")
+            median_push = summary['performance_stats'].get('median_search_time_ms_success_pushes_gt0')
+            median_all = summary['performance_stats'].get('median_search_time_ms_success_only')
+            if median_push is not None:
+                f.write(f"Median time per success (pushes>0): {median_push:.1f}ms\n")
+            if median_all is not None:
+                f.write(f"Median time per success (all): {median_all:.1f}ms\n")
+            pushes_median_gt0 = summary['performance_stats'].get('median_pushes_success_pushes_gt0')
+            pushes_median_all = summary['performance_stats'].get('median_pushes_success_only')
+            if pushes_median_gt0 is not None:
+                f.write(f"Median pushes per success (pushes>0): {pushes_median_gt0:.1f}\n")
+            if pushes_median_all is not None:
+                f.write(f"Median pushes per success (all): {pushes_median_all:.1f}\n")
 
 def main():
     # Use same argument parsing structure as modular_parallel_collection
@@ -619,6 +704,14 @@ def main():
     parser.add_argument("--region-max-solutions-per-neighbor", type=int, default=10)
     parser.add_argument("--region-max-recorded-solutions-per-neighbor", type=int, default=2)
     parser.add_argument("--region-frontier-beam-width", type=int, default=None)
+    parser.add_argument("--region-chain-link-cost", type=int, default=0)
+    parser.add_argument("--region-ml-ignore-blacklist", action="store_true")
+    parser.add_argument(
+        "--region-selection-strategy",
+        type=str,
+        default="ml_first",
+        choices=["ml_first", "cost_first"],
+    )
     
     # ML params
     parser.add_argument("--goal-strategy", type=str, default=None)
@@ -627,8 +720,8 @@ def main():
     parser.add_argument("--ml-device", type=str, default="cuda")
     parser.add_argument("--ml-samples", type=int, default=32)
     parser.add_argument("--ml-min-goals", type=int, default=1)
-    parser.add_argument("--ml-match-position-tolerance", type=float, default=0.2)
-    parser.add_argument("--ml-match-angle-tolerance", type=float, default=0.35)
+    parser.add_argument("--ml-match-position-tolerance", type=float, default=0.1)
+    parser.add_argument("--ml-match-angle-tolerance", type=float, default=0.1)
     parser.add_argument("--ml-match-angle-weight", type=float, default=0.5)
     parser.add_argument(
         "--ml-match-score-metric",
@@ -640,6 +733,7 @@ def main():
     parser.add_argument("--ml-k-nearest", type=int, default=1)
     parser.add_argument("--ml-sampler-method", type=str, default=None, help="Override sampler: euler, midpoint, rk4, dopri5 (flow matching) or ddpm, ddim (diffusion)")
     parser.add_argument("--ml-num-steps", type=int, default=None, help="Override number of integration steps")
+    parser.add_argument("--ml-seed", type=int, default=None, help="Random seed for diffusion noise (None = random each time)")
     parser.add_argument("--preview-ml-goal-masks", type=int, default=0,
                         help="Save a matplotlib preview of ML outputs (mask models only); 0 disables")
     parser.add_argument("--preview-aligned-primitives", action="store_true",
@@ -683,6 +777,9 @@ def main():
             "region_max_chain_depth": args.region_max_chain_depth,
             "region_max_solutions_per_neighbor": args.region_max_solutions_per_neighbor,
             "region_max_recorded_solutions_per_neighbor": args.region_max_recorded_solutions_per_neighbor,
+            "region_chain_link_cost": args.region_chain_link_cost,
+            "region_ml_ignore_blacklist": args.region_ml_ignore_blacklist,
+            "region_selection_strategy": args.region_selection_strategy,
         })
         if args.region_frontier_beam_width is not None:
             algorithm_params["region_frontier_beam_width"] = args.region_frontier_beam_width
@@ -690,7 +787,10 @@ def main():
         if args.goal_sampler:
             algorithm_params["goal_sampler"] = args.goal_sampler
         if args.goal_strategy:
+            algorithm_params["goal_strategy"] = args.goal_strategy
             algorithm_params["goal_selection_strategy"] = args.goal_strategy
+        elif args.goal_sampler:
+            algorithm_params["goal_strategy"] = args.goal_sampler
         
         # Pass ML params even if goal_sampler is not explicitly set (allows auto-detection)
         if args.ml_goal_model:
@@ -707,12 +807,13 @@ def main():
                 "ml_k_nearest": args.ml_k_nearest,
                 "ml_sampler_method": args.ml_sampler_method,
                 "ml_num_steps": args.ml_num_steps,
+                "ml_seed": args.ml_seed,
                 "primitive_data_dir": args.primitive_data_dir,
                 "preview_ml_goal_masks": args.preview_ml_goal_masks,
                 "preview_aligned_primitives": args.preview_aligned_primitives,
             })
-            if not args.goal_sampler and not args.goal_strategy:
-                algorithm_params["goal_sampler"] = "ml"
+            if "goal_strategy" not in algorithm_params and not args.goal_sampler and not args.goal_strategy:
+                algorithm_params["goal_strategy"] = "ml"
 
     planner_config = PlannerConfig(
         max_depth=args.max_depth,

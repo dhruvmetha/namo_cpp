@@ -9,7 +9,7 @@ the next neighbour.
 import random
 import time
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple, Dict, Any, Set
+from typing import List, Optional, Tuple, Dict, Any, Set, Union
 
 import namo_rl
 
@@ -19,7 +19,16 @@ DEFAULT_CAMERA_AZIMUTH = 0.0
 DEFAULT_CAMERA_ELEVATION = -90.0
 from namo.core import BasePlanner, PlannerConfig, PlannerResult
 from namo.planners import snapshot_region_connectivity, find_robot_label
-from namo.strategies import PrimitiveGoalStrategy, Goal, MLPrimitiveGoalStrategy, MLPrimitiveFallbackStrategy
+from namo.strategies import (
+    PrimitiveGoalStrategy,
+    Goal,
+    MLPrimitiveGoalStrategy,
+    MLPrimitiveFallbackStrategy,
+    MLPrimitiveAsyncStrategy,
+    AsyncGoalResult,
+    GeometricTransportStrategy
+)
+from namo.planners.opening.ml_driven_search import MLDrivenAsyncSearch
 
 
 @dataclass
@@ -72,6 +81,39 @@ class AttemptResult:
     solutions_total_for_neighbour: int = 0
     # Total pushes executed (env.step calls) for this neighbour during search
     pushes_total_for_neighbour: int = 0
+    # Failure tracking: categorize WHY there were 0 solutions/pushes
+    # Values:
+    #   "success"              - Found a valid opening (not a failure)
+    #   "already_accessible"   - Neighbor was already reachable (0 pushes needed)
+    #   "no_blocking_objects"  - No objects identified on the region edge
+    #   "no_reachable_objects" - Blocking objects exist but robot can't reach them
+    #   "ml_no_goals_extracted"- ML model produced 0 goals (mask extraction failed)
+    #   "ml_goals_not_aligned" - ML produced goals but none matched primitive slots
+    #   "no_reachable_edges"   - Goals aligned but none on edges robot can reach
+    #   "no_valid_goals"       - Fallback: goals existed but weren't tried
+    #   "all_pushes_failed"    - N pushes executed but none created opening
+    #   "timeout"              - Search timed out
+    failure_reason: Optional[str] = None
+    # ML goal generation stats (for debugging ML model quality)
+    ml_goals_generated: int = 0  # Raw ML goals before primitive alignment
+    ml_goals_aligned: int = 0    # ML goals that matched a primitive slot
+    reachable_edges_count: int = 0  # Number of reachable edges for the object
+    candidate_objects_count: int = 0  # Number of candidate blocking objects
+    # Detailed ML goal info (for analysis/visualization)
+    # Each entry: {'edge_idx': int, 'depth_idx': int, 'x': float, 'y': float, 'theta': float, 'votes': int}
+    aligned_primitives: Optional[List[Dict]] = None
+    # Raw ML goals before alignment: [{'x': float, 'y': float, 'theta': float}, ...]
+    ml_goals_raw: Optional[List[Dict]] = None
+    # List of reachable edge indices
+    reachable_edges: Optional[List[int]] = None
+    # Collision tracking for hardness metrics (aggregated across all pushes in chain)
+    any_wall_collision: bool = False  # Did any push hit a wall?
+    unique_movable_collision_count: int = 0  # Number of unique movable objects hit across all pushes
+    # Phase tracking for hybrid decomposition analysis
+    # Tracks pushes per search phase: {"ML-only": X, "primitives": Y}
+    phase_push_counts: Optional[Dict[str, int]] = None
+    # Which phase found the solution: "ML-only", "primitives", or "" if not found
+    solved_in_phase: str = ""
 
 
 class RegionOpeningPlanner(BasePlanner):
@@ -134,10 +176,59 @@ class RegionOpeningPlanner(BasePlanner):
             timeout_sec = None
         self.timeout_per_neighbour_sec = timeout_sec
 
+        # ML blacklist override: when True, ML-scored primitives bypass the
+        # edge blacklist built during pre-ML exhaustive phase. This allows
+        # ML suggestions to be tried even if earlier depth-first exploration
+        # caused collisions on that edge. (default: False for backward compat)
+        self.ml_ignore_blacklist = algo_params.get("region_ml_ignore_blacklist", False)
+
+        # Chain link cost: additional cost added per chain link beyond the first push.
+        # With chain_link_cost=0 (default), a 2-push chain at depths [0,0] costs 2.
+        # With chain_link_cost=5, the same chain costs 2 + 5 = 7.
+        self.chain_link_cost = algo_params.get("region_chain_link_cost", 0)
+
+        # Selection strategy for multi-push frontier prioritization:
+        # - "ml_first": (-score, chain_cost, step_cost) - trust ML votes, cost as tiebreaker
+        # - "cost_first": (chain_cost, step_cost, -score) - minimize disruption, ML as tiebreaker
+        # Default: "ml_first" to prioritize ML-derived states
+        self.selection_strategy = algo_params.get("region_selection_strategy", "ml_first")
+        if self.selection_strategy not in {"cost_first", "ml_first"}:
+            raise ValueError(f"Invalid selection_strategy: {self.selection_strategy}. Must be 'cost_first' or 'ml_first'")
+
+        # Region/object skip dict: skip specific (region, object) pairs during neighbor exploration.
+        # Format: Dict[region_label, List[object_id]] where empty list = skip entire region
+        # Example: {"goal": [], "region_2": ["box_1", "box_2"]}
+        #   - "goal" with empty list: skip entire goal region
+        #   - "region_2" with ["box_1", "box_2"]: only skip those objects when opening region_2
+        region_object_skip = algo_params.get("region_object_skip", None)
+        if region_object_skip is None:
+            self.region_object_skip = {}
+        elif isinstance(region_object_skip, dict):
+            self.region_object_skip = region_object_skip
+        else:
+            # Legacy: list of region names (backward compatible)
+            self.region_object_skip = {r: [] for r in region_object_skip}
+
+        # Log skip config at planner init (only if verbose)
+        if self.region_object_skip and config.verbose:
+            skip_regions = [r for r, objs in self.region_object_skip.items() if not objs]
+            skip_objects = [(r, objs) for r, objs in self.region_object_skip.items() if objs]
+            parts = []
+            if skip_regions:
+                parts.append(f"regions={skip_regions}")
+            if skip_objects:
+                parts.append(f"objects={skip_objects}")
+            print(f"🔧 Skip config: {', '.join(parts)}")
+
         # Visualization settings (can be set after init, like IDFS planners)
         self.visualize_search = False
         self.search_delay = 0.5
         self.step_mode = False
+
+        # ML-driven async search flag (set in _initialize_algorithm)
+        self._use_ml_driven_async = False
+        self._primitive_strategy = None
+        self._ml_async_strategy = None
 
         super().__init__(env, config)
 
@@ -154,48 +245,27 @@ class RegionOpeningPlanner(BasePlanner):
 
         algo_params = getattr(self, "algorithm_params", {}) or {}
         primitive_data_dir = algo_params.get("primitive_data_dir", "data")
-        sampler_name = (
-            algo_params.get("goal_sampler")
+        # Backward-compat: older configs used `goal_sampler` or `goal_selection_strategy`.
+        # The 2push evaluation pipeline uses `goal_strategy`.
+        strategy_name = (
+            algo_params.get("goal_strategy")
+            or algo_params.get("goal_sampler")
             or algo_params.get("goal_selection_strategy")
         )
 
-        if sampler_name and sampler_name.lower() in {"ml_fallback", "ml_primitive_fallback"}:
-            ml_path = algo_params.get("ml_goal_model_path")
-            if not ml_path:
-                raise ValueError("ML fallback goal sampler requires 'ml_goal_model_path'")
-
-            self.goal_sampler = MLPrimitiveFallbackStrategy(
-                goal_model_path=ml_path,
-                primitive_data_dir=primitive_data_dir,
-                samples=algo_params.get("ml_samples", 32),
-                device=algo_params.get("ml_device", "cuda"),
-                match_position_tolerance=algo_params.get("ml_match_position_tolerance", 0.2),
-                match_angle_tolerance=algo_params.get("ml_match_angle_tolerance", 0.35),
-                angle_weight=algo_params.get("ml_match_angle_weight", 0.5),
-                max_matches=algo_params.get("ml_match_max_per_call", 8),
-                verbose=self.config.verbose,
-                min_goals_threshold=algo_params.get("ml_min_goals", 1),
-                xml_path=algo_params.get("xml_file"),
-                preview_mask_count=algo_params.get("preview_ml_goal_masks", 0),
-                preloaded_model=algo_params.get("preloaded_goal_model"),
-                preview_aligned_primitives=algo_params.get("preview_aligned_primitives", False),
-                k_nearest=algo_params.get("ml_k_nearest", 1),
-            )
-            self._debug("▶ Using ML-first with primitive fallback goal sampler")
-        elif sampler_name and sampler_name.lower() in {"ml", "ml_primitive"}:
+        if strategy_name and strategy_name.lower() in {"ml", "ml_primitive"}:
             ml_path = algo_params.get("ml_goal_model_path")
             if not ml_path:
                 raise ValueError("ML primitive goal sampler requires 'ml_goal_model_path'")
 
-            self.goal_sampler = MLPrimitiveGoalStrategy(
+            self.goal_strategy = MLPrimitiveGoalStrategy(
                 goal_model_path=ml_path,
                 primitive_data_dir=primitive_data_dir,
                 samples=algo_params.get("ml_samples", 32),
                 device=algo_params.get("ml_device", "cuda"),
-                match_position_tolerance=algo_params.get("ml_match_position_tolerance", 0.2),
-                match_angle_tolerance=algo_params.get("ml_match_angle_tolerance", 0.35),
+                match_position_tolerance=algo_params.get("ml_match_position_tolerance", 0.1),
+                match_angle_tolerance=algo_params.get("ml_match_angle_tolerance", 0.1),
                 angle_weight=algo_params.get("ml_match_angle_weight", 0.5),
-                score_metric=algo_params.get("ml_match_score_metric", "pos+w*ang"),
                 max_matches=algo_params.get("ml_match_max_per_call", 8),
                 verbose=self.config.verbose,
                 min_goals_threshold=algo_params.get("ml_min_goals", 1),
@@ -204,13 +274,101 @@ class RegionOpeningPlanner(BasePlanner):
                 preloaded_model=algo_params.get("preloaded_goal_model"),
                 preview_aligned_primitives=algo_params.get("preview_aligned_primitives", False),
                 k_nearest=algo_params.get("ml_k_nearest", 1),
+                seed=algo_params.get("ml_seed"),
+                score_metric=algo_params.get("ml_match_score_metric", "pos+w*ang"),
             )
-            self._debug("▶ Using ML-aligned primitive goal sampler")
-        else:
-            # Use primitive goal strategy for push goals
-            self.goal_sampler = PrimitiveGoalStrategy(
+            self._debug("▶ Using ML-aligned primitive goal strategy")
+        elif strategy_name and strategy_name.lower() in {"ml_fallback", "ml_primitive_fallback"}:
+            ml_path = algo_params.get("ml_goal_model_path")
+            if not ml_path:
+                raise ValueError("ML fallback goal sampler requires 'ml_goal_model_path'")
+
+            self.goal_strategy = MLPrimitiveFallbackStrategy(
+                goal_model_path=ml_path,
+                primitive_data_dir=primitive_data_dir,
+                samples=algo_params.get("ml_samples", 32),
+                device=algo_params.get("ml_device", "cuda"),
+                match_position_tolerance=algo_params.get("ml_match_position_tolerance", 0.1),
+                match_angle_tolerance=algo_params.get("ml_match_angle_tolerance", 0.1),
+                angle_weight=algo_params.get("ml_match_angle_weight", 0.5),
+                max_matches=algo_params.get("ml_match_max_per_call", 8),
+                verbose=self.config.verbose,
+                min_goals_threshold=algo_params.get("ml_min_goals", 1),
+                xml_path=algo_params.get("xml_file"),
+                preview_mask_count=algo_params.get("preview_ml_goal_masks", 0),
+                preloaded_model=algo_params.get("preloaded_goal_model"),
+                preview_aligned_primitives=algo_params.get("preview_aligned_primitives", False),
+                k_nearest=algo_params.get("ml_k_nearest", 1),
+                seed=algo_params.get("ml_seed"),
+            )
+            self._debug("▶ Using ML-first with primitive fallback goal strategy")
+        elif strategy_name and strategy_name.lower() in {"ml_async", "ml_primitive_async"}:
+            ml_path = algo_params.get("ml_goal_model_path")
+            if not ml_path:
+                raise ValueError("ML async goal sampler requires 'ml_goal_model_path'")
+
+            self.goal_strategy = MLPrimitiveAsyncStrategy(
+                goal_model_path=ml_path,
+                primitive_data_dir=primitive_data_dir,
+                samples=algo_params.get("ml_samples", 32),
+                device=algo_params.get("ml_device", "cuda"),
+                match_position_tolerance=algo_params.get("ml_match_position_tolerance", 0.1),
+                match_angle_tolerance=algo_params.get("ml_match_angle_tolerance", 0.1),
+                angle_weight=algo_params.get("ml_match_angle_weight", 0.5),
+                verbose=self.config.verbose,
+                min_goals_threshold=algo_params.get("ml_min_goals", 1),
+                xml_path=algo_params.get("xml_file"),
+                preloaded_model=algo_params.get("preloaded_goal_model"),
+                k_nearest=algo_params.get("ml_k_nearest", 1),
+                max_workers=algo_params.get("ml_async_workers", 1),
+                seed=algo_params.get("ml_seed"),
+            )
+            self._debug("▶ Using async ML with primitive pre-execution goal strategy")
+        elif strategy_name and strategy_name.lower() in {"ml_driven_async"}:
+            # ML-Driven Async: uses MLDrivenAsyncSearch with zero idle time guarantee
+            ml_path = algo_params.get("ml_goal_model_path")
+            if not ml_path:
+                raise ValueError("ML driven async requires 'ml_goal_model_path'")
+
+            # Store strategies for MLDrivenAsyncSearch
+            self._primitive_strategy = PrimitiveGoalStrategy(
                 data_dir=primitive_data_dir,
                 verbose=self.config.verbose
+            )
+            self._ml_async_strategy = MLPrimitiveAsyncStrategy(
+                goal_model_path=ml_path,
+                primitive_data_dir=primitive_data_dir,
+                samples=algo_params.get("ml_samples", 32),
+                device=algo_params.get("ml_device", "cuda"),
+                match_position_tolerance=algo_params.get("ml_match_position_tolerance", 0.1),
+                match_angle_tolerance=algo_params.get("ml_match_angle_tolerance", 0.1),
+                angle_weight=algo_params.get("ml_match_angle_weight", 0.5),
+                verbose=self.config.verbose,
+                min_goals_threshold=algo_params.get("ml_min_goals", 1),
+                xml_path=algo_params.get("xml_file"),
+                preloaded_model=algo_params.get("preloaded_goal_model"),
+                k_nearest=algo_params.get("ml_k_nearest", 1),
+                max_workers=1,  # Always 1 - GPU runs 1 ML inference at a time
+                seed=algo_params.get("ml_seed"),
+            )
+            # Set goal_strategy to primitive for compatibility (MLDrivenAsyncSearch handles ML internally)
+            self.goal_strategy = self._primitive_strategy
+            self._use_ml_driven_async = True
+            self._debug("▶ Using ML-driven async search (zero idle time, ML priority)")
+        elif strategy_name and strategy_name.lower() in {"geometric", "geometric_transport"}:
+            # Use geometric transport heuristic for goal prioritization
+            self.goal_strategy = GeometricTransportStrategy(
+                primitive_data_dir=primitive_data_dir,
+                verbose=self.config.verbose
+            )
+            self._debug("▶ Using geometric transport goal strategy")
+        else:
+            # Use primitive goal strategy for push goals
+            self.goal_strategy = PrimitiveGoalStrategy(
+                data_dir=primitive_data_dir,
+                verbose=self.config.verbose,
+                shuffle_edges=algo_params.get("shuffle_edges", False),
+                seed=algo_params.get("shuffle_seed", None)
             )
 
     @property
@@ -404,6 +562,19 @@ class RegionOpeningPlanner(BasePlanner):
         # Get neighbours
         neighbours = sorted(list(adjacency.get(robot_label, set())))
 
+        # Apply region skip filter (blacklist)
+        # Skip entire regions that have empty object lists in region_object_skip
+        if self.region_object_skip:
+            # Regions with empty list = skip entire region
+            regions_to_skip = [r for r, objs in self.region_object_skip.items() if not objs]
+            skipped = [n for n in neighbours if n in regions_to_skip]
+            neighbours = [n for n in neighbours if n not in regions_to_skip]
+            # Print skipped regions
+            if self.config.verbose and skipped:
+                for region in skipped:
+                    print(f"   ⏭ Neighbor '{region}': SKIPPED (from manifest)")
+            # Regions with specific objects will be filtered later in _attempt_opening_to_neighbour
+
         if self.config.verbose:
             # Print region snapshot details
             total_regions = len(region_labels)
@@ -515,12 +686,24 @@ class RegionOpeningPlanner(BasePlanner):
                 total_cost=0,
                 skill_calls_before_success=0,
                 solutions_found_for_neighbour=0,
-                solutions_cap_for_neighbour=self.max_solutions_per_neighbor
+                solutions_cap_for_neighbour=self.max_solutions_per_neighbor,
+                failure_reason="already_accessible",
             )
             return [already_result]
 
         # Get candidate objects blocking the edge
         candidates = list(edge_objects.get(robot_label, {}).get(neighbour_label, set()))
+
+        # Filter out objects specified in region_object_skip for this neighbour
+        if self.region_object_skip and neighbour_label in self.region_object_skip:
+            objects_to_skip = set(self.region_object_skip[neighbour_label])
+            if objects_to_skip:  # Only filter if there are specific objects (not empty list)
+                skipped_objects = [c for c in candidates if c in objects_to_skip]
+                candidates = [c for c in candidates if c not in objects_to_skip]
+                # Print skipped objects
+                if self.config.verbose and skipped_objects:
+                    for obj in skipped_objects:
+                        print(f"   ⏭ Neighbor '{neighbour_label}' Object '{obj}': SKIPPED (from manifest)")
 
         if not candidates:
             if self.config.verbose:
@@ -529,21 +712,26 @@ class RegionOpeningPlanner(BasePlanner):
                 success=False,
                 neighbour_region_label=neighbour_label,
                 error_message="No blocking objects found",
-                timing_ms=(time.time() - attempt_start) * 1000
+                timing_ms=(time.time() - attempt_start) * 1000,
+                failure_reason="no_blocking_objects",
+                candidate_objects_count=0,
             )]
 
         # Intersect with reachable objects
         reachable = set(self.env.get_reachable_objects())
+        original_candidates_count = len(candidates)
         candidates = [obj for obj in candidates if obj in reachable]
 
         if not candidates:
             if self.config.verbose:
-                print(f"    ✗ '{neighbour_label}' - no reachable blocking objects")
+                print(f"    ✗ '{neighbour_label}' - no reachable blocking objects (had {original_candidates_count} blocking objects)")
             return [AttemptResult(
                 success=False,
                 neighbour_region_label=neighbour_label,
-                error_message="No reachable blocking objects",
-                timing_ms=(time.time() - attempt_start) * 1000
+                error_message=f"No reachable blocking objects (had {original_candidates_count} blocking)",
+                timing_ms=(time.time() - attempt_start) * 1000,
+                failure_reason="no_reachable_objects",
+                candidate_objects_count=original_candidates_count,
             )]
 
         # Print what we're attempting
@@ -551,17 +739,23 @@ class RegionOpeningPlanner(BasePlanner):
             total_goals = len(region_goals[neighbour_label].goals) if neighbour_label in region_goals else 0
             print(f"    → '{neighbour_label}' ({reachable_count_before}/{total_goals} reachable) - trying {len(candidates)} objects: {candidates}")
 
-        # Collect attempts from candidate objects, capped per-neighbour
+        # Collect attempts from candidate objects (per-object limits applied)
         all_goal_attempts = []
-        solutions_remaining = self.max_solutions_per_neighbor
         total_solutions_collected = 0
 
+        # Track ML goal stats across all objects for failure analysis
+        total_ml_goals_generated = 0
+        total_ml_goals_aligned = 0
+        total_reachable_edges = 0
+        # Detailed info for analysis (accumulated across all objects)
+        all_aligned_primitives = []
+        all_ml_goals_raw = []
+        all_reachable_edges = set()
+
         # Try each candidate object with BFS search (already filtered for reachability)
+        # NOTE: We try ALL objects (no early termination) to record per-object triplets for eval
         timed_out = False
         for obj_idx, object_id in enumerate(candidates, 1):
-            if solutions_remaining <= 0:
-                break
-
             # Check timeout before trying next object
             if self.timeout_per_neighbour_sec is not None:
                 elapsed_sec = time.time() - attempt_start
@@ -577,16 +771,71 @@ class RegionOpeningPlanner(BasePlanner):
 
             print(f"  🎯 [_attempt_opening_to_neighbour] Trying object {obj_idx}/{len(candidates)}: {object_id} for neighbour '{neighbour_label}'")
 
-            # BFS search with chaining
+            # BFS search with chaining (or ML-driven async if enabled)
             object_attempt_start = time.time()
-            successful_goals, min_depth = self._search_with_chaining_bfs(
-                object_id,
-                exploration_state,
-                neighbour_label,
-                region_goals,
-                max_solutions_to_collect=solutions_remaining,
-                push_counter=neighbour_push_counter,
-            )
+            pushes_before_object = neighbour_push_counter.get("count", 0)
+
+            # Use per-object solution limit (not global remaining)
+            max_solutions_for_object = self.max_solutions_per_neighbor
+
+            if self._use_ml_driven_async:
+                # Use ML-driven async search
+                successful_goals, min_depth = self._search_with_ml_driven_async(
+                    object_id,
+                    exploration_state,
+                    neighbour_label,
+                    region_goals,
+                    max_solutions_to_collect=max_solutions_for_object,
+                    push_counter=neighbour_push_counter,
+                )
+                # Async search doesn't have phase tracking yet - use defaults
+                phase_push_counts = None
+                solved_in_phase = ""
+            else:
+                # Use standard BFS search
+                successful_goals, min_depth, phase_push_counts, solved_in_phase = self._search_with_chaining_bfs(
+                    object_id,
+                    exploration_state,
+                    neighbour_label,
+                    region_goals,
+                    max_solutions_to_collect=max_solutions_for_object,
+                    push_counter=neighbour_push_counter,
+                )
+
+            pushes_for_this_object = neighbour_push_counter.get("count", 0) - pushes_before_object
+
+            # Get per-object ML goal stats from goal_strategy (if it supports get_last_goal_stats)
+            # Capture per-object values BEFORE accumulating into totals
+            obj_ml_goals = 0
+            obj_ml_aligned = 0
+            obj_reachable_edges = 0
+            obj_aligned_primitives = []
+            obj_ml_goals_raw = []
+            obj_reachable_edges_set = set()
+
+            if hasattr(self.goal_strategy, 'get_last_goal_stats'):
+                stats = self.goal_strategy.get_last_goal_stats()
+                obj_ml_goals = stats.get('ml_goals_generated', 0)
+                obj_ml_aligned = stats.get('ml_goals_aligned', 0)
+                obj_reachable_edges = stats.get('reachable_edges_count', 0)
+                obj_aligned_primitives = stats.get('aligned_primitives', [])
+                obj_ml_goals_raw = stats.get('ml_goals_raw', [])
+                obj_reachable_edges_set = set(stats.get('reachable_edges', []))
+
+                # Accumulate into totals (for neighbor-level stats if needed)
+                total_ml_goals_generated += obj_ml_goals
+                total_ml_goals_aligned += obj_ml_aligned
+                total_reachable_edges += obj_reachable_edges
+                # Accumulate detailed info (tag with object_id for multi-object analysis)
+                for p in obj_aligned_primitives:
+                    p_with_obj = dict(p)
+                    p_with_obj['object_id'] = object_id
+                    all_aligned_primitives.append(p_with_obj)
+                for g in obj_ml_goals_raw:
+                    g_with_obj = dict(g)
+                    g_with_obj['object_id'] = object_id
+                    all_ml_goals_raw.append(g_with_obj)
+                all_reachable_edges.update(obj_reachable_edges_set)
 
             if successful_goals:
                 if self.config.verbose:
@@ -595,10 +844,9 @@ class RegionOpeningPlanner(BasePlanner):
                 # Create AttemptResults directly from successful goal chains
                 # State observations were already captured during BFS search
 
-                # Limit to max_solutions per object
-                # Respect global per-neighbour cap
-                per_object_limit = min(max_solutions, solutions_remaining)
-                for goal_idx, (goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used, region_goals_sampled, reachable_before, reachable_after, total_cost, skill_calls_before_success, success_timestamp) in enumerate(successful_goals[:per_object_limit]):
+                # Limit to max_solutions per object (now per-object, not global)
+                per_object_limit = max_solutions
+                for goal_idx, (goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used, region_goals_sampled, reachable_before, reachable_after, total_cost, skill_calls_before_success, success_timestamp, any_wall_collision, unique_movable_collision_count) in enumerate(successful_goals[:per_object_limit]):
 
                     per_goal_timing_ms = max(0.0, (success_timestamp - object_attempt_start) * 1000.0)
 
@@ -625,18 +873,28 @@ class RegionOpeningPlanner(BasePlanner):
                             exploration_state=exploration_state,
                             resulting_state=resulting_state,
                             exploration_level=exploration_level,
-                                timing_ms=per_goal_timing_ms,
+                            timing_ms=per_goal_timing_ms,
                             total_cost=total_cost,
                             skill_calls_before_success=skill_calls_before_success,
                             solutions_found_for_neighbour=total_solutions_collected,
-                            solutions_cap_for_neighbour=self.max_solutions_per_neighbor
+                            solutions_cap_for_neighbour=self.max_solutions_per_neighbor,
+                            pushes_total_for_neighbour=pushes_for_this_object,  # Per-object pushes
+                            failure_reason="success",
+                            candidate_objects_count=len(candidates),
+                            ml_goals_generated=obj_ml_goals,  # Per-object
+                            ml_goals_aligned=obj_ml_aligned,  # Per-object
+                            reachable_edges_count=obj_reachable_edges,  # Per-object
+                            aligned_primitives=obj_aligned_primitives if obj_aligned_primitives else None,
+                            ml_goals_raw=obj_ml_goals_raw if obj_ml_goals_raw else None,
+                            reachable_edges=sorted(list(obj_reachable_edges_set)) if obj_reachable_edges_set else None,
+                            any_wall_collision=any_wall_collision,
+                            unique_movable_collision_count=unique_movable_collision_count,
+                            phase_push_counts=phase_push_counts,
+                            solved_in_phase=solved_in_phase,
                         ))
-                        # Verbose: print running count of solutions for this neighbour
+                        # Verbose: print running count of solutions for this object
                         if self.config.verbose:
-                            print(f"        → Solutions so far: {len(all_goal_attempts)}/{self.max_solutions_per_neighbor}")
-                        solutions_remaining -= 1
-                        if solutions_remaining <= 0:
-                            break
+                            print(f"        → Object {object_id} solutions: {goal_idx + 1}/{per_object_limit}")
                     else:
                         # Multi-push chain
                         total_solutions_collected += 1
@@ -660,36 +918,140 @@ class RegionOpeningPlanner(BasePlanner):
                             exploration_state=exploration_state,
                             resulting_state=resulting_state,
                             exploration_level=exploration_level,
-                                timing_ms=per_goal_timing_ms,
+                            timing_ms=per_goal_timing_ms,
                             total_cost=total_cost,
                             skill_calls_before_success=skill_calls_before_success,
                             solutions_found_for_neighbour=total_solutions_collected,
-                            solutions_cap_for_neighbour=self.max_solutions_per_neighbor
+                            solutions_cap_for_neighbour=self.max_solutions_per_neighbor,
+                            pushes_total_for_neighbour=pushes_for_this_object,  # Per-object pushes
+                            failure_reason="success",
+                            candidate_objects_count=len(candidates),
+                            ml_goals_generated=obj_ml_goals,  # Per-object
+                            ml_goals_aligned=obj_ml_aligned,  # Per-object
+                            reachable_edges_count=obj_reachable_edges,  # Per-object
+                            aligned_primitives=obj_aligned_primitives if obj_aligned_primitives else None,
+                            ml_goals_raw=obj_ml_goals_raw if obj_ml_goals_raw else None,
+                            reachable_edges=sorted(list(obj_reachable_edges_set)) if obj_reachable_edges_set else None,
+                            any_wall_collision=any_wall_collision,
+                            unique_movable_collision_count=unique_movable_collision_count,
+                            phase_push_counts=phase_push_counts,
+                            solved_in_phase=solved_in_phase,
                         ))
-                        # Verbose: print running count of solutions for this neighbour
+                        # Verbose: print running count of solutions for this object
                         if self.config.verbose:
-                            print(f"        → Solutions so far: {len(all_goal_attempts)}/{self.max_solutions_per_neighbor}")
-                        solutions_remaining -= 1
-                        if solutions_remaining <= 0:
-                            break
+                            print(f"        → Object {object_id} solutions: {goal_idx + 1}/{per_object_limit}")
+            else:
+                # Record per-object failure for eval triplet tracking
+                # This ensures we can measure success rates per (env, region, object) triplet
+                object_timing_ms = (time.time() - object_attempt_start) * 1000.0
+
+                # Determine per-object failure reason
+                if hasattr(self.goal_strategy, 'get_last_goal_stats'):
+                    obj_stats = self.goal_strategy.get_last_goal_stats()
+                    obj_ml_goals = obj_stats.get('ml_goals_generated', 0)
+                    obj_ml_aligned = obj_stats.get('ml_goals_aligned', 0)
+                    obj_reachable_edges = obj_stats.get('reachable_edges_count', 0)
+                else:
+                    obj_ml_goals = 0
+                    obj_ml_aligned = 0
+                    obj_reachable_edges = 0
+
+                if pushes_for_this_object > 0:
+                    obj_failure_reason = "all_pushes_failed"
+                elif obj_ml_goals == 0:
+                    obj_failure_reason = "ml_no_goals_extracted"
+                elif obj_ml_aligned == 0:
+                    obj_failure_reason = "ml_goals_not_aligned"
+                elif obj_reachable_edges == 0:
+                    obj_failure_reason = "no_reachable_edges"
+                else:
+                    obj_failure_reason = "no_valid_goals"
+
+                if self.config.verbose:
+                    print(f"      ✗ {object_id}: No solutions found ({obj_failure_reason}, {pushes_for_this_object} pushes)")
+
+                all_goal_attempts.append(AttemptResult(
+                    success=False,
+                    neighbour_region_label=neighbour_label,
+                    chosen_object_id=object_id,  # KEY: Include object_id for triplet tracking
+                    chosen_goal=None,
+                    validation_method="failed",
+                    connectivity_before=conn_before,
+                    connectivity_after=None,
+                    exploration_state=exploration_state,
+                    exploration_level=exploration_level,
+                    timing_ms=object_timing_ms,
+                    solutions_found_for_neighbour=0,
+                    solutions_cap_for_neighbour=self.max_solutions_per_neighbor,
+                    pushes_total_for_neighbour=pushes_for_this_object,
+                    failure_reason=obj_failure_reason,
+                    candidate_objects_count=len(candidates),
+                    ml_goals_generated=obj_ml_goals,
+                    ml_goals_aligned=obj_ml_aligned,
+                    reachable_edges_count=obj_reachable_edges,
+                ))
 
         # After trying all objects, return results
         if all_goal_attempts:
-            # Record the total number of successful solutions and pushes for this neighbour
-            for attempt in all_goal_attempts:
-                attempt.solutions_total_for_neighbour = total_solutions_collected
-                attempt.pushes_total_for_neighbour = neighbour_push_counter.get("count", 0)
+            # Separate successes and failures
+            successes = [a for a in all_goal_attempts if a.success]
+            failures = [a for a in all_goal_attempts if not a.success]
 
-            # Keep at most configured number of solutions for this neighbour (min-cost by design)
-            if len(all_goal_attempts) > self.max_recorded_solutions_per_neighbor:
-                all_goal_attempts = all_goal_attempts[: self.max_recorded_solutions_per_neighbor]
+            # Set solutions_total for all attempts (successes and failures)
+            # pushes_total_for_neighbour is already set per-object during creation
+            for attempt in successes + failures:
+                attempt.solutions_total_for_neighbour = total_solutions_collected
+
+            # Truncate successes PER OBJECT (not globally)
+            # Group by object_id and keep max_recorded per object
+            from collections import defaultdict
+            successes_by_object = defaultdict(list)
+            for s in successes:
+                successes_by_object[s.chosen_object_id].append(s)
+
+            truncated_successes = []
+            for obj_id, obj_successes in successes_by_object.items():
+                # Truncate to max_recorded_solutions_per_neighbor per object
+                truncated_successes.extend(obj_successes[:self.max_recorded_solutions_per_neighbor])
+
+            # Combine: successes first, then failures (both per-object)
+            all_goal_attempts = truncated_successes + failures
+
+            # Update solutions_found_for_neighbour per object
+            solutions_by_object = defaultdict(int)
+            for s in truncated_successes:
+                solutions_by_object[s.chosen_object_id] += 1
+
+            for attempt in all_goal_attempts:
+                attempt.solutions_found_for_neighbour = solutions_by_object.get(attempt.chosen_object_id, 0)
+
             return all_goal_attempts
         else:
             # No successful opening found from any object
+            pushes_executed = neighbour_push_counter.get("count", 0)
             if timed_out:
                 error_msg = f"Timeout after {self.timeout_per_neighbour_sec}s"
+                failure_reason = "timeout"
+            elif pushes_executed > 0:
+                # Pushes were executed but all failed to create opening
+                error_msg = f"Tried {len(candidates)} objects, {pushes_executed} pushes, none succeeded"
+                failure_reason = "all_pushes_failed"
+            elif total_ml_goals_generated == 0:
+                # ML model produced no goals at all (extraction failed)
+                error_msg = f"Tried {len(candidates)} objects, ML produced 0 goals"
+                failure_reason = "ml_no_goals_extracted"
+            elif total_ml_goals_aligned == 0:
+                # ML produced goals but none aligned to any primitives
+                error_msg = f"Tried {len(candidates)} objects, ML produced {total_ml_goals_generated} goals but 0 aligned to primitives"
+                failure_reason = "ml_goals_not_aligned"
+            elif total_reachable_edges == 0:
+                # Goals aligned but none on reachable edges
+                error_msg = f"Tried {len(candidates)} objects, {total_ml_goals_aligned} aligned but 0 reachable edges"
+                failure_reason = "no_reachable_edges"
             else:
-                error_msg = f"Tried {len(candidates)} objects, none succeeded"
+                # Fallback: goals existed but weren't tried for some other reason
+                error_msg = f"Tried {len(candidates)} objects, no valid goals found (0 pushes, {total_ml_goals_generated} ML, {total_ml_goals_aligned} aligned)"
+                failure_reason = "no_valid_goals"
             if self.config.verbose:
                 print(f"      ✗ {error_msg}")
             return [AttemptResult(
@@ -699,7 +1061,15 @@ class RegionOpeningPlanner(BasePlanner):
                 connectivity_before=conn_before,
                 timing_ms=(time.time() - attempt_start) * 1000,
                 solutions_total_for_neighbour=total_solutions_collected,
-                pushes_total_for_neighbour=neighbour_push_counter.get("count", 0),
+                pushes_total_for_neighbour=pushes_executed,
+                failure_reason=failure_reason,
+                candidate_objects_count=len(candidates),
+                ml_goals_generated=total_ml_goals_generated,
+                ml_goals_aligned=total_ml_goals_aligned,
+                reachable_edges_count=total_reachable_edges,
+                aligned_primitives=all_aligned_primitives if all_aligned_primitives else None,
+                ml_goals_raw=all_ml_goals_raw if all_ml_goals_raw else None,
+                reachable_edges=sorted(list(all_reachable_edges)) if all_reachable_edges else None,
             )]
 
     def _collect_chain_observations(
@@ -707,7 +1077,7 @@ class RegionOpeningPlanner(BasePlanner):
         object_id: str,
         goal_chain: List[Goal],
         baseline_state: namo_rl.RLState
-    ) -> Tuple[List, List, List, List]:
+    ) -> Tuple[List, List, List, List, bool, int]:
         """Execute a goal chain and collect state observations for each push.
 
         Args:
@@ -717,13 +1087,18 @@ class RegionOpeningPlanner(BasePlanner):
 
         Returns:
             Tuple of (state_observations, post_action_state_observations,
-                     reachable_before, reachable_after)
+                     reachable_before, reachable_after, any_wall_collision,
+                     unique_movable_collision_count)
         """
         self.env.set_full_state(baseline_state)
         state_obs = []
         post_state_obs = []
         reachable_before = []
         reachable_after = []
+
+        # Collision tracking - accumulate across all pushes
+        any_wall_collision = False
+        all_movable_collisions: Set[str] = set()
 
         for goal in goal_chain:
             # Capture state and reachable objects before action
@@ -738,7 +1113,16 @@ class RegionOpeningPlanner(BasePlanner):
             action.x = goal.x
             action.y = goal.y
             action.theta = goal.theta
-            self.env.step(action)
+            step_result = self.env.step(action)
+
+            # Extract collision info from step result
+            if step_result.info.get("wall_collision", "false") == "true":
+                any_wall_collision = True
+            movable_str = step_result.info.get("movable_collisions", "")
+            if movable_str:
+                for obj_name in movable_str.split(","):
+                    if obj_name:
+                        all_movable_collisions.add(obj_name)
 
             # Capture state and reachable objects after action
             post_obs = self.env.get_observation()
@@ -746,7 +1130,8 @@ class RegionOpeningPlanner(BasePlanner):
             post_state_obs.append(post_obs)
             reachable_after.append(post_reachable)
 
-        return state_obs, post_state_obs, reachable_before, reachable_after
+        unique_movable_collision_count = len(all_movable_collisions)
+        return state_obs, post_state_obs, reachable_before, reachable_after, any_wall_collision, unique_movable_collision_count
 
     def _search_with_chaining_bfs(
         self,
@@ -777,7 +1162,9 @@ class RegionOpeningPlanner(BasePlanner):
             parent=None,
             step_cost=0
         )
-        frontier = [root_node]
+        # Track frontier nodes by depth level - persists across phases
+        # Key: depth level (0=root), Value: list of frontier nodes at that depth
+        frontiers_by_depth: Dict[int, List[ChainNode]] = {0: [root_node]}
 
         # Collect all successful chains across all depths
         all_chains_across_depths = []
@@ -787,192 +1174,282 @@ class RegionOpeningPlanner(BasePlanner):
         best_total_cost = None
         skill_call_counter = {"count": 0}
 
-        # Try chain depths 1, 2, 3, ...
-        for chain_depth in range(1, self.max_chain_depth + 1):
-            next_frontier = []
-            processed_frontiers = 0
-            total_frontier_time_ms = 0.0
-            orig_frontier_len = len(frontier)
-            reached_cap = False
+        # Two-phase search for ml_first with ml_fallback:
+        # Phase 1: Try ONLY ML goals (score > 0) across ALL depths
+        # Phase 2: If Phase 1 fails, try ONLY primitives (score = 0) across ALL depths
+        # This ensures ML predictions get global priority before falling back to primitives
+        use_two_phase = self.selection_strategy == "ml_first"
+        # phases: (stop_at_score_zero, primitives_only, phase_name)
+        phases = [
+            (True, False, "ML-only"),      # Phase 1: ML goals only
+            (False, True, "primitives"),   # Phase 2: primitives only (skip ML)
+        ] if use_two_phase else [(False, False, "all")]
 
-            # Verbose: indicate which chain-depth search level we are at
+        # Track global phase state across all depths
+        global_phase_push_counts = {}
+        # Track which phase found the first solution
+        solved_in_phase = ""
+
+        # Cache goals per node to avoid redundant ML inference across phases and depths
+        # Key: node id, Value: (goals_per_edge, reachable_edge_indices)
+        node_goals_cache: Dict[int, Tuple[List[List[Goal]], Set[int]]] = {}
+
+        # Persist blacklists per node across phases and depths
+        # Key: node id, Value: {edge_idx: min_stuck_depth}
+        node_blacklists: Dict[int, Dict[int, int]] = {}
+
+        for stop_at_zero, prims_only, phase_name in phases:
+            # Skip primitives phase if ML phase found a solution
+            if prims_only and len(all_chains_across_depths) > 0:
+                if self.config.verbose:
+                    print(f"    ⏭️ Skipping '{phase_name}' phase (ML found solution)")
+                break
+
+            # Reset blacklists at start of each phase for completeness
+            # Phase 1 stuck edges shouldn't block Phase 2 exploration
+            # This ensures each phase can fully explore its candidate space
+            node_blacklists = {}
+
             if self.config.verbose:
-                chain_label = f"{chain_depth}-chain"
-                print(f"    ▶ Searching {chain_label} (frontier={len(frontier)})")
+                print(f"    🎯 Phase: {phase_name}")
+            phase_start_pushes = skill_call_counter.get("count", 0)
 
-            for node in frontier:
-                node_start_time = time.time()
-                # Cost-based node prune: if cost so far already meets/exceeds best, skip
-                if best_total_cost is not None:
-                    chain_cost_so_far = self._compute_chain_cost(node)
-                    if chain_cost_so_far >= best_total_cost:
+            # Try chain depths 1, 2, 3, ...
+            for chain_depth in range(1, self.max_chain_depth + 1):
+                # Get frontier for this depth level (persists across phases)
+                frontier = frontiers_by_depth.get(chain_depth - 1, [])
+
+                next_frontier = []
+                processed_frontiers = 0
+                total_frontier_time_ms = 0.0
+                orig_frontier_len = len(frontier)
+                reached_cap = False
+
+                # Verbose: indicate which chain-depth search level we are at
+                if self.config.verbose:
+                    chain_label = f"{chain_depth}-chain"
+                    print(f"    ▶ Searching {chain_label} (frontier={len(frontier)})")
+
+                # Ensure blacklists exist for frontier nodes (reuse if already created)
+                for node in frontier:
+                    if id(node) not in node_blacklists:
+                        node_blacklists[id(node)] = {}
+
+                depth_start_pushes = skill_call_counter.get("count", 0)
+
+                node_idx = 0
+                for node in frontier:
+                    node_idx += 1
+                    node_start_time = time.time()
+                    # Cost-based node prune: if cost so far already meets/exceeds best, skip
+                    if best_total_cost is not None:
+                        chain_cost_so_far = self._compute_chain_cost(node)
+                        if chain_cost_so_far >= best_total_cost:
+                            continue
+                    # Restore to this node's state
+                    self.env.set_full_state(node.state)
+
+                    # Generate goals for this node (cached to avoid redundant ML inference across phases)
+                    if id(node) not in node_goals_cache:
+                        goals_per_edge = self.goal_strategy.generate_goals(
+                            object_id,
+                            node.state,
+                            self.env,
+                            max_goals=0
+                        )
+                        reachable_edge_indices = set(self.env.get_reachable_edges(object_id)) if goals_per_edge else set()
+                        node_goals_cache[id(node)] = (goals_per_edge, reachable_edge_indices)
+                    else:
+                        goals_per_edge, reachable_edge_indices = node_goals_cache[id(node)]
+
+                    if not goals_per_edge:
                         continue
-                # Restore to this node's state
-                self.env.set_full_state(node.state)
 
-                # Generate goals for this node's state
-                print(f"      🔮 [_search_with_chaining_bfs] Chain depth {chain_depth}, node {frontier.index(node)+1}/{len(frontier)}: Generating goals for {object_id}")
-                goals_per_edge = self.goal_sampler.generate_goals(
-                    object_id,
-                    node.state,
-                    self.env,
-                    max_goals=0
-                )
+                    if not reachable_edge_indices:
+                        continue
 
-                if not goals_per_edge:
-                    print(f"      ⚠️ No goals generated, skipping node")
-                    continue
+                    # Run inner BFS (single-skill search)
+                    collect_frontier = (chain_depth < self.max_chain_depth)
+                    # Compute remaining budget if we already have a best cost
+                    if 'best_total_cost' in locals() and best_total_cost is not None:
+                        chain_cost_so_far = self._compute_chain_cost(node)
+                        remaining_budget = max(0, best_total_cost - chain_cost_so_far)
+                    else:
+                        remaining_budget = None
 
-                # Get reachable edges from this state
-                reachable_edge_indices = set(self.env.get_reachable_edges(object_id))
+                    # Calculate how many more solutions we need to collect
+                    # If we have already collected some solutions in previous iterations (best_total_cost is set),
+                    # we need to account for them.
+                    # However, all_chains_across_depths is defined outside this loop and contains all valid solutions found so far.
+                    current_solutions_count = len(all_chains_across_depths)
 
-                print(f"      📍 Reachable edges: {sorted(list(reachable_edge_indices))} (total: {len(reachable_edge_indices)})")
+                    inner_max_solutions = None
+                    if max_solutions_to_collect is not None:
+                        if current_solutions_count >= max_solutions_to_collect:
+                            reached_cap = True
+                            break
+                        inner_max_solutions = max_solutions_to_collect - current_solutions_count
 
-                if not reachable_edge_indices:
-                    print(f"      ⚠️ No reachable edges, skipping node")
-                    continue
+                    successful_results, primitive_depth, new_frontier_nodes = self._search_bfs(
+                        goals_per_edge,
+                        reachable_edge_indices,
+                        node.state,
+                        neighbour_label,
+                        region_goals,
+                        object_id,
+                        parent_node=node,
+                        current_chain_depth=chain_depth,
+                        collect_frontier=collect_frontier,
+                        remaining_budget=remaining_budget,
+                        skill_call_counter=skill_call_counter,
+                        push_counter=push_counter,
+                        max_solutions_to_collect=inner_max_solutions,
+                        stop_at_score_zero=stop_at_zero,
+                        primitives_only=prims_only,
+                        shared_blacklist=node_blacklists.get(id(node)),
+                    )
 
-                # Run inner BFS (single-skill search)
-                collect_frontier = (chain_depth < self.max_chain_depth)
-                # Compute remaining budget if we already have a best cost
-                if 'best_total_cost' in locals() and best_total_cost is not None:
-                    chain_cost_so_far = self._compute_chain_cost(node)
-                    remaining_budget = max(0, best_total_cost - chain_cost_so_far)
-                else:
-                    remaining_budget = None
-
-                # Calculate how many more solutions we need to collect
-                # If we have already collected some solutions in previous iterations (best_total_cost is set),
-                # we need to account for them.
-                # However, all_chains_across_depths is defined outside this loop and contains all valid solutions found so far.
-                current_solutions_count = len(all_chains_across_depths)
-                
-                inner_max_solutions = None
-                if max_solutions_to_collect is not None:
-                    if current_solutions_count >= max_solutions_to_collect:
-                        reached_cap = True
-                        break
-                    inner_max_solutions = max_solutions_to_collect - current_solutions_count
-
-                successful_results, primitive_depth, new_frontier_nodes = self._search_bfs(
-                    goals_per_edge,
-                    reachable_edge_indices,
-                    node.state,
-                    neighbour_label,
-                    region_goals,
-                    object_id,
-                    parent_node=node,
-                    current_chain_depth=chain_depth,
-                    collect_frontier=collect_frontier,
-                    remaining_budget=remaining_budget,
-                    skill_call_counter=skill_call_counter,
-                    push_counter=push_counter,
-                    max_solutions_to_collect=inner_max_solutions
-                )
-
-                # If we found success, reconstruct ALL goal chains with their state observations
-                if successful_results:
-                    for (final_goal, final_state_obs, final_post_state_obs, resulting_state, region_goal_used, all_region_goals, success_node, success_time) in successful_results:
-                        # For multi-push chains, reconstruct full chain with observations
-                        if chain_depth > 1:
-                            goal_chain, state_obs, post_state_obs, reachable_before, reachable_after, total_cost = self._reconstruct_chain_with_observations(
-                                success_node, object_id, baseline_state
-                            )
-                        else:
-                            # Single push - use observations captured during search
-                            goal_chain = [final_goal]
-                            state_obs = final_state_obs
-                            post_state_obs = final_post_state_obs
-                            # For single push, we don't have reachable objects captured during BFS
-                            # So collect them now
-                            self.env.set_full_state(baseline_state)
-                            reachable_before = [self.env.get_reachable_objects()]
-                            # Execute the action to get reachable after
-                            action = namo_rl.Action()
-                            action.object_id = object_id
-                            action.x = final_goal.x
-                            action.y = final_goal.y
-                            action.theta = final_goal.theta
-                            self.env.step(action)
-                            reachable_after = [self.env.get_reachable_objects()]
-                            # For single push, total_cost equals the primitive depth at which success occurred
-                            total_cost = max(1, getattr(success_node, "step_cost", 1))
-
-                        skill_calls_before_success = getattr(success_node, "skill_calls_before_success", None)
-
-                        # Verbose: print each solution found at this chain depth
-                        if self.config.verbose:
-                            print(f"      ✓ Found solution at {chain_depth}-chain (total_cost={total_cost})")
-
-                        # Entry layout: (goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used, region_goals_sampled, reachable_before, reachable_after, total_cost, skill_calls, success_time)
-                        # Maintain only min-cost solutions so far; reset when a new lower cost is found
-                        if best_total_cost is None or total_cost <= best_total_cost:
-                            # If strictly better cost, reset collection to only keep new best-cost solutions
-                            if best_total_cost is None or total_cost < best_total_cost:
-                                best_total_cost = total_cost
-                                all_chains_across_depths = [entry for entry in all_chains_across_depths if entry[8] == best_total_cost]
-
-                            all_chains_across_depths.append(
-                                (
-                                    goal_chain,
-                                    state_obs,
-                                    post_state_obs,
-                                    resulting_state,
-                                    region_goal_used,
-                                    all_region_goals,
-                                    reachable_before,
-                                    reachable_after,
-                                    total_cost,
-                                    skill_calls_before_success,
-                                    success_time,
+                    # If we found success, reconstruct ALL goal chains with their state observations
+                    if successful_results:
+                        for (final_goal, final_state_obs, final_post_state_obs, resulting_state, region_goal_used, all_region_goals, success_node, success_time) in successful_results:
+                            # For multi-push chains, reconstruct full chain with observations
+                            if chain_depth > 1:
+                                goal_chain, state_obs, post_state_obs, reachable_before, reachable_after, total_cost, any_wall_collision, unique_movable_collision_count = self._reconstruct_chain_with_observations(
+                                    success_node, object_id, baseline_state
                                 )
-                            )
+                            else:
+                                # Single push - use observations captured during search
+                                goal_chain = [final_goal]
+                                state_obs = final_state_obs
+                                post_state_obs = final_post_state_obs
+                                # For single push, we don't have reachable objects captured during BFS
+                                # So collect them now with collision tracking
+                                self.env.set_full_state(baseline_state)
+                                reachable_before = [self.env.get_reachable_objects()]
+                                # Execute the action to get reachable after and collision info
+                                action = namo_rl.Action()
+                                action.object_id = object_id
+                                action.x = final_goal.x
+                                action.y = final_goal.y
+                                action.theta = final_goal.theta
+                                step_result = self.env.step(action)
+                                reachable_after = [self.env.get_reachable_objects()]
+                                # Extract collision info from step result
+                                any_wall_collision = step_result.info.get("wall_collision", "false") == "true"
+                                movable_str = step_result.info.get("movable_collisions", "")
+                                unique_movable_collision_count = len([s for s in movable_str.split(",") if s]) if movable_str else 0
+                                # For single push, total_cost equals the primitive depth at which success occurred
+                                total_cost = max(1, getattr(success_node, "step_cost", 1))
+
+                            skill_calls_before_success = getattr(success_node, "skill_calls_before_success", None)
+
+                            # Verbose: print each solution found at this chain depth
                             if self.config.verbose:
-                                # Running count of min-cost solutions so far (object scope)
-                                print(f"        → Solutions so far (object, best_cost={best_total_cost}): {len(all_chains_across_depths)}")
+                                print(f"      ✓ Found solution at {chain_depth}-chain (total_cost={total_cost})")
 
-                            # Early stop if we reached the per-object cap
-                            if max_solutions_to_collect is not None and len(all_chains_across_depths) >= max_solutions_to_collect:
-                                reached_cap = True
-                                break
+                            # Entry layout: (goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used, region_goals_sampled, reachable_before, reachable_after, total_cost, skill_calls, success_time, any_wall_collision, unique_movable_collision_count)
+                            # Maintain only min-cost solutions so far; reset when a new lower cost is found
+                            if best_total_cost is None or total_cost <= best_total_cost:
+                                # If strictly better cost, reset collection to only keep new best-cost solutions
+                                if best_total_cost is None or total_cost < best_total_cost:
+                                    best_total_cost = total_cost
+                                    all_chains_across_depths = [entry for entry in all_chains_across_depths if entry[8] == best_total_cost]
 
-                    # Track minimum chain depth where we found a solution
-                    if min_chain_depth_found is None:
-                        min_chain_depth_found = chain_depth
+                                all_chains_across_depths.append(
+                                    (
+                                        goal_chain,
+                                        state_obs,
+                                        post_state_obs,
+                                        resulting_state,
+                                        region_goal_used,
+                                        all_region_goals,
+                                        reachable_before,
+                                        reachable_after,
+                                        total_cost,
+                                        skill_calls_before_success,
+                                        success_time,
+                                        any_wall_collision,
+                                        unique_movable_collision_count,
+                                    )
+                                )
+                                if self.config.verbose:
+                                    # Running count of min-cost solutions so far (object scope)
+                                    print(f"        → Solutions so far (object, best_cost={best_total_cost}): {len(all_chains_across_depths)}")
 
-                # Add new frontier nodes for next chain level
-                next_frontier.extend(new_frontier_nodes)
+                                # Early stop if we reached the per-object cap
+                                if max_solutions_to_collect is not None and len(all_chains_across_depths) >= max_solutions_to_collect:
+                                    reached_cap = True
+                                    break
 
+                        # Track minimum chain depth where we found a solution
+                        if min_chain_depth_found is None:
+                            min_chain_depth_found = chain_depth
+                            # Record which phase found the first solution
+                            if not solved_in_phase:
+                                solved_in_phase = phase_name
+
+                    # Add new frontier nodes for next chain level
+                    next_frontier.extend(new_frontier_nodes)
+
+                    if reached_cap:
+                        break
+
+                    # Per-frontier timing
+                    processed_frontiers += 1
+                    node_elapsed_ms = (time.time() - node_start_time) * 1000.0
+                    total_frontier_time_ms += node_elapsed_ms
+                    if self.config.verbose:
+                        print(f"      • Frontier {processed_frontiers}/{orig_frontier_len} took {node_elapsed_ms:.1f} ms")
+
+                # Sort frontier for next chain depth (based on selection strategy)
+                if self.selection_strategy == "ml_first":
+                    # (-score, chain_cost, step_cost) - trust ML votes, cost as tiebreaker
+                    next_frontier.sort(key=lambda n: (
+                        -getattr(n.goal, "score", 0.0) if n.goal else 0.0,
+                        self._compute_chain_cost(n),
+                        getattr(n, "step_cost", 0)
+                    ))
+                else:
+                    # "cost_first": (chain_cost, step_cost, -score) - minimize disruption, ML as tiebreaker
+                    next_frontier.sort(key=lambda n: (
+                        self._compute_chain_cost(n),
+                        getattr(n, "step_cost", 0),
+                        -getattr(n.goal, "score", 0.0) if n.goal else 0.0
+                    ))
+
+                # Store new frontier nodes at this depth level (extend if already exists from previous phase)
+                if next_frontier:
+                    # Apply beam width pruning if configured
+                    if self.frontier_beam_width is not None:
+                        next_frontier = next_frontier[: self.frontier_beam_width]
+
+                    if chain_depth not in frontiers_by_depth:
+                        frontiers_by_depth[chain_depth] = next_frontier
+                    else:
+                        # Extend existing frontier (Phase 2 may add more nodes)
+                        frontiers_by_depth[chain_depth].extend(next_frontier)
+
+                # Log depth completion stats
+                if self.config.verbose and processed_frontiers > 0:
+                    avg_ms = total_frontier_time_ms / processed_frontiers
+                    print(f"    ◼ Completed {processed_frontiers}/{orig_frontier_len} frontiers | avg {avg_ms:.1f} ms | total {total_frontier_time_ms:.1f} ms")
+
+                # Check early termination conditions
                 if reached_cap:
                     break
 
-                # Per-frontier timing
-                processed_frontiers += 1
-                node_elapsed_ms = (time.time() - node_start_time) * 1000.0
-                total_frontier_time_ms += node_elapsed_ms
-                if self.config.verbose:
-                    print(f"      • Frontier {processed_frontiers}/{orig_frontier_len} took {node_elapsed_ms:.1f} ms")
+            # End of phase - log push count (outside chain_depth loop)
+            phase_end_pushes = skill_call_counter.get("count", 0)
+            phase_pushes = phase_end_pushes - phase_start_pushes
+            global_phase_push_counts[phase_name] = phase_pushes
+            if self.config.verbose:
+                found_in_phase = len(all_chains_across_depths) > 0
+                print(f"      📈 Phase '{phase_name}': {phase_pushes} pushes, found={found_in_phase}")
 
-            # Apply beam width pruning on next_frontier if configured
-            if self.frontier_beam_width is not None:
-                # Sort by cumulative chain cost (ascending), then by step_cost (ascending)
-                next_frontier.sort(key=lambda n: (self._compute_chain_cost(n), getattr(n, "step_cost", 0)))
-                # Keep top-K
-                frontier = next_frontier[: self.frontier_beam_width]
-            else:
-                # Move to next chain depth
-                frontier = next_frontier
-
-            if reached_cap:
-                break
-
-            # After this chain depth, report completion stats
-            if self.config.verbose and processed_frontiers > 0:
-                avg_ms = total_frontier_time_ms / processed_frontiers
-                print(f"    ◼ Completed {processed_frontiers}/{orig_frontier_len} frontiers | avg {avg_ms:.1f} ms | total {total_frontier_time_ms:.1f} ms")
-
-            if not frontier:
-                break
+        # Log total phase breakdown (outside phases loop)
+        if self.config.verbose and len(global_phase_push_counts) > 1:
+            total_phase_pushes = sum(global_phase_push_counts.values())
+            print(f"      📊 Phase breakdown: {global_phase_push_counts}, total={total_phase_pushes}")
 
         # If we found any chains, filter to keep only minimum-cost ones
         if all_chains_across_depths:
@@ -980,9 +1457,9 @@ class RegionOpeningPlanner(BasePlanner):
             min_cost_chains = [entry for entry in all_chains_across_depths if entry[8] == best_cost]
             if self.config.verbose:
                 print(f"    ✔ Returning {len(min_cost_chains)} min-cost solution(s) with cost={best_cost}")
-            return min_cost_chains, min_chain_depth_found if min_chain_depth_found else 0
+            return min_cost_chains, min_chain_depth_found if min_chain_depth_found else 0, global_phase_push_counts, solved_in_phase
         else:
-            return all_chains_across_depths, 0
+            return all_chains_across_depths, 0, global_phase_push_counts, solved_in_phase
 
     def _reconstruct_chain(self, final_node: ChainNode, final_goal: Goal) -> List[Goal]:
         """Reconstruct the chain of goals from root to final goal."""
@@ -1007,7 +1484,7 @@ class RegionOpeningPlanner(BasePlanner):
         success_node: ChainNode,
         object_id: str,
         baseline_state: namo_rl.RLState
-    ) -> Tuple[List[Goal], List, List, List, List, int]:
+    ) -> Tuple[List[Goal], List, List, List, List, int, bool, int]:
         """Reconstruct goal chain and collect observations by re-executing.
 
         This is only called for multi-push chains (chain_depth > 1).
@@ -1018,7 +1495,8 @@ class RegionOpeningPlanner(BasePlanner):
             baseline_state: Starting state for re-execution
 
         Returns:
-            Tuple of (goal_chain, state_obs, post_state_obs, reachable_before, reachable_after)
+            Tuple of (goal_chain, state_obs, post_state_obs, reachable_before, reachable_after,
+                     total_cost, any_wall_collision, unique_movable_collision_count)
         """
         # Reconstruct goal chain from parent nodes
         goal_chain = []
@@ -1029,34 +1507,47 @@ class RegionOpeningPlanner(BasePlanner):
         goal_chain.reverse()
 
         # Re-execute chain to collect observations
-        state_obs, post_state_obs, reachable_before, reachable_after = self._collect_chain_observations(
+        state_obs, post_state_obs, reachable_before, reachable_after, any_wall_collision, unique_movable_collision_count = self._collect_chain_observations(
             object_id, goal_chain, baseline_state
         )
 
         # Compute cumulative cost along the reconstructed chain
         total_cost = 0
+        num_pushes = 0
         node = success_node
         while node.parent is not None:
             total_cost += max(0, getattr(node, "step_cost", 0))
+            num_pushes += 1
             node = node.parent
+        # Add chain link cost for multi-push chains (flat cost, not per-link)
+        if num_pushes > 1:
+            total_cost += self.chain_link_cost
 
-        return goal_chain, state_obs, post_state_obs, reachable_before, reachable_after, total_cost
+        return goal_chain, state_obs, post_state_obs, reachable_before, reachable_after, total_cost, any_wall_collision, unique_movable_collision_count
 
     def _compute_chain_cost(self, node: ChainNode) -> int:
         """Compute cumulative additive cost from root to the given node.
 
         Root node has cost 0. Each edge contributes its inner primitive depth (1-based).
+        Additionally, chain_link_cost is added once if this is a multi-push chain.
+
+        Total cost = sum(step_costs) + chain_link_cost (if num_pushes > 1)
         """
         total = 0
+        num_pushes = 0
         cursor = node
         while cursor is not None and cursor.parent is not None:
             total += max(0, getattr(cursor, "step_cost", 0))
+            num_pushes += 1
             cursor = cursor.parent
+        # Add chain link cost for multi-push chains (flat cost, not per-link)
+        if num_pushes > 1:
+            total += self.chain_link_cost
         return total
 
     def _search_bfs(
         self,
-        goals_per_edge: List[List[Goal]],
+        goals_or_async: Union[List[List[Goal]], AsyncGoalResult],
         reachable_edge_indices: Set[int],
         baseline_state: namo_rl.RLState,
         neighbour_label: str,
@@ -1069,12 +1560,27 @@ class RegionOpeningPlanner(BasePlanner):
         skill_call_counter: Optional[Dict[str, int]] = None,
         push_counter: Optional[Dict[str, int]] = None,
         max_solutions_to_collect: Optional[int] = None,
+        stop_at_score_zero: bool = False,
+        primitives_only: bool = False,
+        shared_blacklist: Optional[Dict[int, int]] = None,
     ) -> Tuple[List[Tuple[Goal, List, List, 'namo_rl.RLState', Optional[Tuple], ChainNode, float]], int, List[ChainNode]]:
         """BFS: Try all edges at ALL depths to collect all possible solutions.
 
+        Supports async ML inference: if goals_or_async is an AsyncGoalResult,
+        primitives start executing immediately while ML runs in background.
+        When ML completes, remaining candidates are re-sorted by ML scores.
+
         Args:
+            goals_or_async: Either List[List[Goal]] (sync) or AsyncGoalResult (async).
             collect_frontier: If True, collect valid but unsuccessful states as frontier nodes
             max_solutions_to_collect: If provided, stop searching once this many successful solutions are found.
+            stop_at_score_zero: If True, stop trying candidates when score becomes 0 (ML-first phase).
+                               Used for two-phase chain search: ML goals first across all nodes,
+                               then primitives. Only affects ml_first selection strategy.
+            primitives_only: If True, skip ML goals (score > 0) and only try primitives (score = 0).
+                            Used for Phase 2 of two-phase search to avoid re-trying ML goals.
+            shared_blacklist: Optional dict to share edge blacklist across phases. If provided,
+                             this dict is used and updated in-place. Same (edge, depth) = same target.
 
         Returns:
             Tuple of (all_successful_results, min_depth, frontier_nodes) where all_successful_results
@@ -1083,11 +1589,21 @@ class RegionOpeningPlanner(BasePlanner):
             The chain_node contains the full parent chain for observation reconstruction.
         """
         print = self._debug
+
+        # Handle both sync and async goal results
+        if isinstance(goals_or_async, AsyncGoalResult):
+            async_result = goals_or_async
+            goals_per_edge = async_result.primitive_goals
+        else:
+            async_result = None
+            goals_per_edge = goals_or_async
+
         max_depth = len(goals_per_edge[0]) if goals_per_edge else 10
 
-        # Track edges that have collided or gotten stuck during THIS skill execution
-        # Once an edge collides or gets stuck, we blacklist it for all remaining primitive depths
-        blacklisted_edges_this_skill = set()
+        # Track minimum depth at which each edge got stuck/collided during THIS skill execution
+        # Only skip depths >= the stuck depth (shallower depths might still work)
+        # Use shared_blacklist if provided (for two-phase search), otherwise create fresh
+        edge_min_stuck_depth: Dict[int, int] = shared_blacklist if shared_blacklist is not None else {}
 
         # Track edges that have already yielded a successful opening in THIS skill execution
         # Once an edge succeeds at any primitive depth, we do not explore deeper depths on that edge
@@ -1100,22 +1616,89 @@ class RegionOpeningPlanner(BasePlanner):
         all_successful_results = []
         min_depth_found = None
 
+        # Track async ML merge state
+        ml_merged = False
+        ml_scores: Dict[Tuple[int, int], float] = {}
+        ml_scored_slots: Set[Tuple[int, int]] = set()  # Track which (edge, depth) have ML scores
+
+
         # Flatten goals into candidates for prioritized iteration
+        # Use list of lists to allow mutation during re-sort
         candidates = []
         for edge_idx, edge_goals in enumerate(goals_per_edge):
             # Filter: only try reachable edges
             if edge_idx not in reachable_edge_indices:
                 continue
-            
+
             for depth, goal in enumerate(edge_goals):
                 if goal is not None:
-                    candidates.append((edge_idx, depth, goal))
-        
-        # Sort candidates: Primary = Score (descending), Secondary = Depth (ascending)
-        # High votes first. If ties, shorter pushes first.
-        candidates.sort(key=lambda x: (-getattr(x[2], 'score', 0.0), x[1]))
+                    candidates.append([edge_idx, depth, goal])  # Use list for mutability
 
-        for edge_idx, depth, goal in candidates:
+        # Initial sort depends on whether we have async ML
+        if async_result is not None and async_result.ml_future is not None:
+            # Async mode: sort by (depth, edge) initially - shortest pushes first while waiting for ML
+            candidates.sort(key=lambda x: (x[1], x[0]))
+            if self.config.verbose:
+                print(f"      📋 Async mode: {len(candidates)} candidates sorted by depth (ML running in background)")
+        else:
+            # Sync mode: sort by (-score, depth, edge_idx) - ML goals first, then fallback by depth
+            candidates.sort(key=lambda x: (-getattr(x[2], 'score', 0.0), x[1], x[0]))
+
+        # Track position for re-sorting remaining candidates
+        candidate_idx = 0
+
+        while candidate_idx < len(candidates):
+            # ══════════════════════════════════════════════════════════════════
+            # ASYNC ML POLLING: Check if ML inference is ready (non-blocking)
+            # ══════════════════════════════════════════════════════════════════
+            if async_result is not None and not ml_merged and async_result.poll_ml_ready():
+                ml_scores = async_result.get_ml_scores()
+                ml_merged = True
+                ml_scored_slots = set(ml_scores.keys())  # Track all ML-scored slots
+
+                if self.config.verbose:
+                    print(f"      🎯 ML ready! {len(ml_scores)} slots with votes (after {candidate_idx} primitive pushes)")
+
+                # Update scores for remaining candidates
+                for i in range(candidate_idx, len(candidates)):
+                    edge_idx_i, depth_i, goal_i = candidates[i]
+                    key = (edge_idx_i, depth_i)
+                    if key in ml_scores:
+                        # Update goal with ML score
+                        candidates[i][2] = Goal(
+                            x=goal_i.x,
+                            y=goal_i.y,
+                            theta=goal_i.theta,
+                            score=ml_scores[key]
+                        )
+
+                # Re-sort remaining candidates: score DESC, depth ASC, edge_idx ASC
+                remaining = candidates[candidate_idx:]
+                remaining.sort(key=lambda x: (-getattr(x[2], 'score', 0.0), x[1], x[0]))
+                candidates[candidate_idx:] = remaining
+
+                if self.config.verbose:
+                    # Show top candidates after re-sort
+                    top_5 = candidates[candidate_idx:candidate_idx+5]
+                    top_info = [(c[0], c[1], getattr(c[2], 'score', 0.0)) for c in top_5]
+                    print(f"      📊 Re-sorted remaining {len(remaining)} candidates. Top 5: {top_info}")
+
+            # Get current candidate
+            edge_idx, depth, goal = candidates[candidate_idx]
+            candidate_idx += 1
+
+            # Two-phase chain search: stop at score=0 candidates (primitives) during ML-first phase
+            # Since candidates are sorted by -score, once we hit score=0, all remaining are primitives
+            if stop_at_score_zero and getattr(goal, 'score', 0.0) == 0:
+                if self.config.verbose:
+                    print(f"        ⏸️ ML-first phase: stopping at score=0 (primitive), {len(candidates) - candidate_idx + 1} candidates remaining")
+                break
+
+            # Two-phase chain search: skip ML goals (score > 0) during primitives-only phase
+            # This avoids re-trying ML goals that already failed in Phase 1
+            if primitives_only and getattr(goal, 'score', 0.0) > 0:
+                continue
+
             # Stop if we've reached the solution cap
             if max_solutions_to_collect is not None and len(all_successful_results) >= max_solutions_to_collect:
                 if self.config.verbose:
@@ -1129,9 +1712,22 @@ class RegionOpeningPlanner(BasePlanner):
             if remaining_budget is not None and (depth + 1) > remaining_budget:
                 continue
 
-            # Filter: skip blacklisted edges (collided or stuck earlier in this skill execution)
-            if edge_idx in blacklisted_edges_this_skill:
-                continue
+            # Filter: skip if this edge got stuck/collided at a shallower or equal depth
+            # (shallower depths than the stuck depth are still worth trying)
+            # Exception: if ml_ignore_blacklist is enabled, we disable blacklist during pre-ML phase
+            # entirely, and bypass for ML-scored slots after ML merges
+            is_blacklisted = edge_idx in edge_min_stuck_depth and depth >= edge_min_stuck_depth[edge_idx]
+            if is_blacklisted:
+                # During pre-ML phase: disable blacklist entirely if ml_ignore_blacklist is enabled
+                if not ml_merged and self.ml_ignore_blacklist:
+                    if self.config.verbose:
+                        print(f"        🔓 Ignoring blacklist during pre-ML phase (edge {edge_idx}, depth {depth+1})")
+                # After ML merge: bypass only for ML-scored slots
+                elif ml_merged and self.ml_ignore_blacklist and (edge_idx, depth) in ml_scored_slots:
+                    if self.config.verbose:
+                        print(f"        🔓 Bypassing blacklist for ML-scored slot (edge {edge_idx}, depth {depth+1})")
+                else:
+                    continue
 
             # Filter: skip edges that have already produced a successful opening
             if edge_idx in solved_edges_this_skill:
@@ -1201,16 +1797,22 @@ class RegionOpeningPlanner(BasePlanner):
                 if self.config.verbose:
                     print(f"        ⚠️  COLLISION detected: {step_result.info.get('collision_object', 'unknown')}")
                 collision_detected = True
-                # Blacklist this edge for all remaining depths in this skill execution
-                blacklisted_edges_this_skill.add(edge_idx)
+                # Record this depth as stuck - shallower depths might still work
+                if edge_idx not in edge_min_stuck_depth or depth < edge_min_stuck_depth[edge_idx]:
+                    edge_min_stuck_depth[edge_idx] = depth
+                    if self.config.verbose:
+                        print(f"        📍 Edge {edge_idx} stuck at depth {depth+1}, depths 1-{depth} still valid")
 
             stuck_detected = False
             if "stuck" in step_result.info and step_result.info["stuck"] == "true":
                 if self.config.verbose:
                     print(f"        ⚠️  STUCK condition detected")
                 stuck_detected = True
-                # Blacklist this edge for all remaining depths
-                blacklisted_edges_this_skill.add(edge_idx)
+                # Record this depth as stuck - shallower depths might still work
+                if edge_idx not in edge_min_stuck_depth or depth < edge_min_stuck_depth[edge_idx]:
+                    edge_min_stuck_depth[edge_idx] = depth
+                    if self.config.verbose:
+                        print(f"        📍 Edge {edge_idx} stuck at depth {depth+1}, depths 1-{depth} still valid")
 
             total_region_goals = len(region_goals[neighbour_label].goals) if neighbour_label in region_goals else 0
             if is_accessible_after and not is_accessible_before:
@@ -1274,6 +1876,17 @@ class RegionOpeningPlanner(BasePlanner):
                     )
                     frontier_nodes.append(new_node)
 
+        # ══════════════════════════════════════════════════════════════════
+        # CLEANUP: Cancel pending ML inference if not yet merged
+        # ══════════════════════════════════════════════════════════════════
+        if async_result is not None and not ml_merged:
+            cancelled = async_result.cancel_if_pending()
+            if self.config.verbose:
+                if cancelled:
+                    print(f"      🚫 Cancelled pending ML inference (solution found before ML ready)")
+                else:
+                    print(f"      ⏳ ML inference still running (will complete in background)")
+
         # Return all successful results found across all depths
         return all_successful_results, min_depth_found if min_depth_found else 0, frontier_nodes
 
@@ -1320,12 +1933,95 @@ class RegionOpeningPlanner(BasePlanner):
                 if first_reachable_goal is None:
                     first_reachable_goal = (goal_sample.x, goal_sample.y, goal_sample.theta)
 
-        # Success if at least half of the goals are reachable
-        required_count = (total_goals + 1) // 2  # Ceiling division
-        if reachable_count >= required_count:
+        # Success if at least half of the sampled goals are reachable.
+        # With the default `goals_per_region=10`, this is 5/10.
+        min_reachable = max(1, (total_goals + 1) // 2)  # ceil(total_goals / 2)
+        if reachable_count >= min_reachable:
             return True, reachable_count, first_reachable_goal, all_goals
-        else:
-            return False, reachable_count, None, all_goals
+        return False, reachable_count, None, all_goals
+
+    def _search_with_ml_driven_async(
+        self,
+        object_id: str,
+        baseline_state: namo_rl.RLState,
+        neighbour_label: str,
+        region_goals: Dict[str, Any],
+        max_solutions_to_collect: Optional[int] = None,
+        push_counter: Optional[Dict[str, int]] = None,
+    ) -> Tuple[List[Tuple[List[Goal], List, List, 'namo_rl.RLState', Optional[Tuple], Optional[List[Tuple]], List, List, int, Optional[int], float]], int]:
+        """ML-driven async search: zero idle time, ML priority, N-push support.
+
+        Uses MLDrivenAsyncSearch to find openings with:
+        - Immediate fallback execution while ML runs in background
+        - ML results jump the queue when ready
+        - CPU never idles waiting for GPU
+
+        Returns same format as _search_with_chaining_bfs for compatibility.
+        """
+        # Create search instance
+        search = MLDrivenAsyncSearch(
+            env=self.env,
+            primitive_strategy=self._primitive_strategy,
+            ml_strategy=self._ml_async_strategy,
+            max_chain_depth=self.max_chain_depth,
+            max_solutions=max_solutions_to_collect or self.max_solutions_per_neighbor,
+            verbose=self.config.verbose,
+            terminate_on_collision=self.terminate_on_collision,
+        )
+
+        # Create validation function (env param unused - uses self.env internally)
+        def validate_fn(_env):
+            return self._validate_opening(neighbour_label, region_goals)
+
+        # Run search
+        solutions = search.search(
+            object_id=object_id,
+            baseline_state=baseline_state,
+            neighbor_label=neighbour_label,
+            validate_opening_fn=validate_fn,
+        )
+
+        # Update push counter
+        if push_counter is not None:
+            push_counter["count"] += search.total_pushes
+
+        # Convert solutions to expected format
+        # Format: (goal_chain, state_obs, post_state_obs, resulting_state,
+        #          region_goal_used, region_goals_sampled, reachable_before,
+        #          reachable_after, total_cost, skill_calls, success_time,
+        #          any_wall_collision, unique_movable_collision_count)
+        results = []
+        min_depth = None
+
+        for sol in solutions:
+            # Get validation info
+            self.env.set_full_state(sol.resulting_state)
+            is_open, reachable_count, region_goal, all_goals = self._validate_opening(
+                neighbour_label, region_goals
+            )
+
+            # Build result tuple (13 elements to match _search_with_chaining_bfs)
+            result = (
+                sol.chain,                                  # goal_chain
+                sol.state_observations,                     # state_obs
+                sol.post_action_observations,               # post_state_obs
+                sol.resulting_state,                        # resulting_state
+                region_goal,                                # region_goal_used
+                all_goals,                                  # region_goals_sampled
+                [],                                         # reachable_before (not tracked)
+                [],                                         # reachable_after (not tracked)
+                sol.num_pushes,                             # total_cost
+                None,                                       # skill_calls_before_success
+                time.time(),                                # success_timestamp
+                sol.any_wall_collision,                     # any_wall_collision
+                sol.unique_movable_collision_count,         # unique_movable_collision_count
+            )
+            results.append(result)
+
+            if min_depth is None or sol.num_pushes < min_depth:
+                min_depth = sol.num_pushes
+
+        return results, min_depth if min_depth else 0
 
 
 # Register the planner with the factory

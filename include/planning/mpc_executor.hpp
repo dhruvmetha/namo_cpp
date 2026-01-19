@@ -18,8 +18,10 @@ struct ExecutionResult {
     SE2State final_object_state;     // Final object pose after execution
     std::string failure_reason;      // Description of failure if success=false
     std::string collision_object;    // Name of object that caused collision (if any)
+    bool wall_collision_during_push;                      // Did object hit any wall during push?
+    std::vector<std::string> movable_collisions_during_push;  // Unique movable objects hit during push
 
-    ExecutionResult() : success(false), robot_goal_reached(false), steps_executed(0) {}
+    ExecutionResult() : success(false), robot_goal_reached(false), steps_executed(0), wall_collision_during_push(false) {}
 };
 
 /**
@@ -160,6 +162,20 @@ public:
      * @return std::vector<int> List of reachable edge indices
      */
     std::vector<int> get_reachable_edges_with_wavefront(const std::string& object_name);
+
+    /**
+     * @brief Evaluate geometric transport priorities for primitive target poses
+     * @param env Environment reference
+     * @param object_name Object to evaluate
+     * @param target_poses Vector of target poses [x, y, theta]
+     * @param robot_goal Robot goal position [x, y]
+     * @return Vector of priorities (1=best, 4=worst) for each target pose
+     */
+    std::vector<int> evaluate_primitive_priorities(
+        NAMOEnvironment& env,
+        const std::string& object_name,
+        const std::vector<std::array<double, 3>>& target_poses,
+        const std::array<double, 2>& robot_goal);
     
 private:
     
