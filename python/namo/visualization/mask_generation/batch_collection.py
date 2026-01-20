@@ -146,6 +146,7 @@ import os
 import sys
 import pickle
 import glob
+import hashlib
 from pathlib import Path
 from typing import Dict, List, Any, Tuple, Optional
 import numpy as np
@@ -593,14 +594,19 @@ def process_episode(episode: Dict[str, Any], visualizer: NAMODataVisualizer,
     return masks, metadata
 
 
-def save_episode_data(masks: Dict[str, np.ndarray], metadata: Dict[str, Any], 
-                     output_path: str) -> None:
+def save_episode_data(masks: Dict[str, np.ndarray], metadata: Dict[str, Any],
+                     output_path: str,
+                     *,
+                     pkl_file: str | None = None,
+                     input_dir: str | None = None) -> str:
     """Save episode masks and metadata to compressed npz file.
     
     Args:
         masks: Dictionary of mask arrays
         metadata: Episode metadata dictionary
         output_path: Output file path (.npz)
+        pkl_file: Optional source pkl path (used to avoid silent overwrites)
+        input_dir: Optional input root (for stable relative tagging)
     """
     # Create output directory if needed
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -631,8 +637,13 @@ def save_episode_data(masks: Dict[str, np.ndarray], metadata: Dict[str, Any],
         score = metadata.get('difficulty_score')
         save_dict['difficulty_score'] = np.array([score if score is not None else -1.0], dtype=np.float32)
 
-    # Count number of goal mask horizons (goal_mask_a1, goal_mask_a2, etc.)
-    num_goal_horizons = sum(1 for key in masks.keys() if key.startswith('goal_mask_a'))
+    # Count number of goal mask horizons (goal_mask_a1, goal_mask_a2, etc.).
+    # Support both global (`goal_mask_a*`) and local-only (`local_goal_mask_a*`) naming.
+    num_goal_horizons = sum(
+        1
+        for key in masks.keys()
+        if key.startswith('goal_mask_a') or key.startswith('local_goal_mask_a')
+    )
     save_dict['num_goal_horizons'] = np.array([num_goal_horizons], dtype=np.int32)
 
     # Save action sequence as separate arrays for object_ids and targets
@@ -676,15 +687,67 @@ def save_episode_data(masks: Dict[str, np.ndarray], metadata: Dict[str, Any],
         if key in metadata:
             save_dict[key] = np.array(metadata[key], dtype=np.float32)
 
-    # Save as compressed npz
-    np.savez_compressed(output_path, **save_dict)
+    # Save as compressed npz (no-overwrite).
+    #
+    # We have observed collisions in the derived output_path (same task_id/episode_id)
+    # across different raw-data subtrees. To ensure we never silently clobber samples,
+    # we create the file using exclusive mode and fall back to a tagged filename.
+    base, ext = os.path.splitext(output_path)
+
+    pkl_tag = "unknown"
+    if pkl_file:
+        try:
+            tag_source = str(Path(pkl_file).resolve())
+            if input_dir:
+                try:
+                    rel = Path(pkl_file).resolve().relative_to(Path(input_dir).resolve())
+                    tag_source = rel.as_posix()
+                except Exception:
+                    pass
+            pkl_tag = hashlib.md5(tag_source.encode("utf-8")).hexdigest()[:8]
+        except Exception:
+            pkl_tag = "unknown"
+
+    attempt = 0
+    candidate_path = output_path
+    while True:
+        try:
+            with open(candidate_path, "xb") as f:
+                np.savez_compressed(f, **save_dict)
+            return candidate_path
+        except FileExistsError:
+            attempt += 1
+            if attempt == 1:
+                candidate_path = f"{base}__pkl{pkl_tag}{ext}"
+            else:
+                candidate_path = f"{base}__pkl{pkl_tag}_dup{attempt}{ext}"
+
+
+def _infer_source_subdir(pkl_file: str, input_dir: str | None) -> str:
+    """Infer a stable source subdirectory label for a pkl file.
+
+    For dec2 2-push training data, there are overlapping pkl basenames under
+    `<input_dir>/1/...` and `<input_dir>/2/...`. Output NPZ filenames are derived
+    from the environment/task id (from episode_id), so without a source tag the
+    two branches can overwrite each other. We avoid that by inserting the first
+    relative path component (e.g., "1" or "2") into the output directory layout.
+    """
+    if not input_dir:
+        return "unknown_source"
+    try:
+        input_root = Path(input_dir).resolve()
+        rel = Path(pkl_file).resolve().relative_to(input_root)
+        return rel.parts[0] if rel.parts else "root"
+    except Exception:
+        return "unknown_source"
 
 
 def process_pkl_file_worker(pkl_file: str, output_dir: str, filter_minimum_length: bool = False,
                             split_difficulty: bool = False,
                             generate_local: bool = True,
                             local_only: bool = False,
-                            filter_overlaps: bool = False) -> Tuple[int, int, str, List[str]]:
+                            filter_overlaps: bool = False,
+                            input_dir: str | None = None) -> Tuple[int, int, str, List[str], List[str], List[str]]:
     """Worker function to process a single pickle file.
 
     This function is designed to be called by multiprocessing workers.
@@ -700,18 +763,22 @@ def process_pkl_file_worker(pkl_file: str, output_dir: str, filter_minimum_lengt
         filter_overlaps: If True, skip episodes where robot_region and goal_region overlap
 
     Returns:
-        Tuple of (total_episodes, processed_episodes, pkl_file, skipped_episodes)
-        skipped_episodes is a list of "pkl_file:episode_id" strings for overlapping episodes
+        Tuple of (total_episodes, processed_samples, pkl_file, skipped_episodes, failed_episodes, duplicate_outputs)
+        skipped_episodes is a list of "pkl_file:episode_id" strings for overlapping episodes.
+        failed_episodes is a list of "pkl_file:episode_id:ExceptionType:message" strings.
+        duplicate_outputs is a list of "requested_path -> written_path" strings.
     """
     # Create visualizer instance for this worker
     visualizer = NAMODataVisualizer(figsize=(10, 8))
-    skipped_episodes = []
+    skipped_episodes: List[str] = []
+    failed_episodes: List[str] = []
+    duplicate_outputs: List[str] = []
 
     try:
         with open(pkl_file, 'rb') as f:
             data = pickle.load(f)
     except Exception:
-        return 0, 0, pkl_file, []
+        return 0, 0, pkl_file, [], [], []
 
     episodes = data.get('episode_results', [])
     total_episodes = len(episodes)
@@ -720,48 +787,58 @@ def process_pkl_file_worker(pkl_file: str, output_dir: str, filter_minimum_lengt
     filtered_episodes, _, _ = filter_episodes_by_minimum_length(episodes, filter_minimum_length)
 
     processed_episodes = 0
+    source_subdir = _infer_source_subdir(pkl_file, input_dir)
 
     for episode in filtered_episodes:
-        if is_valid_episode(episode):
+        if not is_valid_episode(episode):
+            continue
+
+        if split_difficulty:
+            assign_difficulty_annotation(episode)
+
+        # Split multi-step episodes into trajectory suffix examples
+        suffix_episodes = split_episode_into_trajectory_suffixes(episode)
+
+        # Process each suffix as a separate training example
+        for suffix_episode in suffix_episodes:
             try:
+                # Generate masks and metadata
+                masks, metadata = process_episode(
+                    suffix_episode, visualizer,
+                    generate_local=generate_local, local_only=local_only
+                )
+
+                # Check for region overlap if filtering is enabled
+                if filter_overlaps and has_region_overlap(masks):
+                    episode_id = metadata.get('episode_id', suffix_episode.get('episode_id', 'unknown'))
+                    skipped_episodes.append(f"{pkl_file}:{episode_id}")
+                    continue  # Skip this episode
+
+                # Create output path: output_dir/[difficulty]/source_subdir/task_id/episode_id.npz
+                task_id = metadata['task_id']
+                episode_id = metadata['episode_id']
+                base_dir = output_dir
                 if split_difficulty:
-                    assign_difficulty_annotation(episode)
+                    label = metadata.get('difficulty_label', 'unknown') or 'unknown'
+                    base_dir = os.path.join(base_dir, label)
+                # Include source subdir to prevent overwrites when multiple raw data branches
+                # share the same task_id/episode_id names (e.g., dec2 2-push has both /1 and /2).
+                output_path = os.path.join(base_dir, source_subdir, task_id, f"{episode_id}.npz")
 
-                # Split multi-step episodes into trajectory suffix examples
-                suffix_episodes = split_episode_into_trajectory_suffixes(episode)
+                # Save data
+                written_path = save_episode_data(
+                    masks, metadata, output_path, pkl_file=pkl_file, input_dir=input_dir
+                )
+                if written_path != output_path:
+                    duplicate_outputs.append(f"{output_path} -> {written_path}")
+                processed_episodes += 1
 
-                # Process each suffix as a separate training example
-                for suffix_episode in suffix_episodes:
-                    # Generate masks and metadata
-                    masks, metadata = process_episode(
-                        suffix_episode, visualizer,
-                        generate_local=generate_local, local_only=local_only
-                    )
-
-                    # Check for region overlap if filtering is enabled
-                    if filter_overlaps and has_region_overlap(masks):
-                        episode_id = metadata.get('episode_id', 'unknown')
-                        skipped_episodes.append(f"{pkl_file}:{episode_id}")
-                        continue  # Skip this episode
-
-                    # Create output path: output_dir/task_id/episode_id.npz
-                    task_id = metadata['task_id']
-                    episode_id = metadata['episode_id']
-                    base_dir = output_dir
-                    if split_difficulty:
-                        label = metadata.get('difficulty_label', 'unknown') or 'unknown'
-                        base_dir = os.path.join(base_dir, label)
-                    output_path = os.path.join(base_dir, task_id, f"{episode_id}.npz")
-
-                    # Save data
-                    save_episode_data(masks, metadata, output_path)
-                    processed_episodes += 1
-
-            except Exception:
-                # Suppress individual episode errors for cleaner parallel output
+            except Exception as e:
+                episode_id = suffix_episode.get('episode_id') or episode.get('episode_id', 'unknown')
+                failed_episodes.append(f"{pkl_file}:{episode_id}:{type(e).__name__}:{e}")
                 continue
 
-    return total_episodes, processed_episodes, pkl_file, skipped_episodes
+    return total_episodes, processed_episodes, pkl_file, skipped_episodes, failed_episodes, duplicate_outputs
 
 
 def process_pkl_file(pkl_file: str, visualizer: NAMODataVisualizer, 
@@ -779,7 +856,7 @@ def process_pkl_file(pkl_file: str, visualizer: NAMODataVisualizer,
     Returns:
         Tuple of (total_episodes, processed_episodes)
     """
-    total_episodes, processed_episodes, _ = process_pkl_file_worker(
+    total_episodes, processed_episodes, _, _, _, _ = process_pkl_file_worker(
         pkl_file, output_dir, filter_minimum_length, split_difficulty)
     return total_episodes, processed_episodes
 
@@ -1050,17 +1127,22 @@ def main():
     total_episodes = 0
     total_processed = 0
     all_skipped_episodes = []
+    all_failed_episodes = []
+    all_duplicate_outputs = []
 
     if num_workers == 1:
         # Serial processing (original behavior)
         for pkl_file in tqdm(pkl_files, desc="Processing files"):
-            file_episodes, file_processed, _, skipped = process_pkl_file_worker(
+            file_episodes, file_processed, _, skipped, failed, dupes = process_pkl_file_worker(
                 pkl_file, args.output_dir,
                 args.filter_minimum_length, args.split_difficulty,
-                generate_local, args.local_only, args.filter_overlaps)
+                generate_local, args.local_only, args.filter_overlaps,
+                input_dir=args.input_dir)
             total_episodes += file_episodes
             total_processed += file_processed
             all_skipped_episodes.extend(skipped)
+            all_failed_episodes.extend(failed)
+            all_duplicate_outputs.extend(dupes)
     else:
         # Parallel processing
         print("Starting parallel processing...")
@@ -1074,7 +1156,8 @@ def main():
                 split_difficulty=args.split_difficulty,
                 generate_local=generate_local,
                 local_only=args.local_only,
-                filter_overlaps=args.filter_overlaps)
+                filter_overlaps=args.filter_overlaps,
+                input_dir=args.input_dir)
 
             # Process files with progress bar
             results = []
@@ -1087,10 +1170,12 @@ def main():
                 # Collect results as they complete
                 for result in results:
                     try:
-                        file_episodes, file_processed, _, skipped = result.get()
+                        file_episodes, file_processed, _, skipped, failed, dupes = result.get()
                         total_episodes += file_episodes
                         total_processed += file_processed
                         all_skipped_episodes.extend(skipped)
+                        all_failed_episodes.extend(failed)
+                        all_duplicate_outputs.extend(dupes)
                         pbar.update(1)
                     except Exception as e:
                         print(f"Error processing file: {e}")
@@ -1107,17 +1192,41 @@ def main():
                 f.write(f"{entry}\n")
         print(f"Skipped {len(all_skipped_episodes)} overlapping episodes (logged to {skipped_log_path})")
 
+    if all_failed_episodes:
+        failed_log_path = os.path.join(args.output_dir, "failed_episodes.txt")
+        with open(failed_log_path, 'w') as f:
+            f.write("# Episodes that failed during mask generation\n")
+            f.write(f"# Total failed: {len(all_failed_episodes)}\n")
+            f.write("# Format: pkl_file:episode_id:ExceptionType:message\n\n")
+            for entry in all_failed_episodes:
+                f.write(f"{entry}\n")
+        print(f"Failed {len(all_failed_episodes)} episodes (logged to {failed_log_path})")
+
+    if all_duplicate_outputs:
+        dup_log_path = os.path.join(args.output_dir, "duplicate_npz_outputs.txt")
+        with open(dup_log_path, 'w') as f:
+            f.write("# Output path collisions detected; samples were written with a tagged filename.\n")
+            f.write(f"# Total collisions: {len(all_duplicate_outputs)}\n")
+            f.write("# Format: requested_path -> written_path\n\n")
+            for entry in all_duplicate_outputs:
+                f.write(f"{entry}\n")
+        print(f"Detected {len(all_duplicate_outputs)} output collisions (logged to {dup_log_path})")
+
     # Print summary statistics
     print(f"\n=== Processing Complete ===")
     print(f"Files processed: {len(pkl_files)}")
     print(f"Total episodes found: {total_episodes}")
-    print(f"Valid episodes processed: {total_processed}")
+    print(f"Training samples written: {total_processed}")
     if args.filter_overlaps:
         print(f"Episodes skipped (overlap): {len(all_skipped_episodes)}")
+    if all_duplicate_outputs:
+        print(f"Output collisions (auto-renamed): {len(all_duplicate_outputs)}")
+    if all_failed_episodes:
+        print(f"Episodes failed (exceptions): {len(all_failed_episodes)}")
     if total_episodes > 0:
-        print(f"Success rate: {total_processed/total_episodes*100:.1f}%")
+        print(f"Samples per episode: {total_processed/total_episodes:.3f}")
     else:
-        print("Success rate: 0.0%")
+        print("Samples per episode: 0.000")
     print(f"Output directory: {args.output_dir}")
     print(f"Generated {total_processed} compressed .npz files")
 

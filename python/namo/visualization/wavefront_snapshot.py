@@ -655,8 +655,9 @@ class WavefrontSnapshotExporter:
         # Create reverse lookup from label to region_id
         label_to_id: Dict[str, int] = {label: region_id for region_id, label in region_labels.items()}
 
-        # Only sample goals for regions reachable from the robot (excluding robot itself)
-        for label in reachable_regions:
+        # Only sample goals for regions reachable from the robot (excluding robot itself).
+        # Sort for deterministic iteration order (important for reproducible RNG sampling).
+        for label in sorted(reachable_regions):
             if "robot" in label:
                 continue
 
@@ -772,10 +773,10 @@ class WavefrontSnapshotExporter:
 
         cells: List[Tuple[int, int]] = []
         for gx in range(min_x, max_x + 1):
-            world_x = self._grid_to_world_x(gx)
+            world_x = self._grid_to_world_x(gx) + 0.5 * self.resolution
             dx = world_x - center_x
             for gy in range(min_y, max_y + 1):
-                world_y = self._grid_to_world_y(gy)
+                world_y = self._grid_to_world_y(gy) + 0.5 * self.resolution
                 dy = world_y - center_y
                 local_x = dx * cos_a + dy * sin_a
                 local_y = -dx * sin_a + dy * cos_a

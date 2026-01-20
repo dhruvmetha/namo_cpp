@@ -66,11 +66,11 @@ WavefrontPlanner::WavefrontPlanner(double resolution, NAMOEnvironment& env,
 void WavefrontPlanner::initialize_static_grid(NAMOEnvironment& env) {
     auto start_time = std::chrono::high_resolution_clock::now();
     
-    // Process static obstacles once
+    // Process static obstacles once using cell CENTER (matching Python wavefront_snapshot.py)
     for (int x = 0; x < grid_width_; x++) {
         for (int y = 0; y < grid_height_; y++) {
-            double world_x = grid_to_world_x(x);
-            double world_y = grid_to_world_y(y);
+            double world_x = grid_to_world_x(x) + 0.5 * resolution_;
+            double world_y = grid_to_world_y(y) + 0.5 * resolution_;
             
             // Check against all static objects
             const auto& static_objects = env.get_static_objects();
@@ -175,11 +175,11 @@ GridFootprint WavefrontPlanner::calculate_rotated_footprint(const ObjectInfo& ob
     int grid_min_y = std::max(0, world_to_grid_y(min_y));
     int grid_max_y = std::min(grid_height_ - 1, world_to_grid_y(max_y));
     
-    // Test each cell in bounding box
+    // Test each cell in bounding box using cell CENTER (matching Python wavefront_snapshot.py)
     for (int x = grid_min_x; x <= grid_max_x; x++) {
         for (int y = grid_min_y; y <= grid_max_y; y++) {
-            double world_x = grid_to_world_x(x);
-            double world_y = grid_to_world_y(y);
+            double world_x = grid_to_world_x(x) + 0.5 * resolution_;
+            double world_y = grid_to_world_y(y) + 0.5 * resolution_;
             
             if (is_point_in_rotated_rectangle(world_x, world_y, state, obj)) {
                 footprint.add_cell(x, y);
@@ -280,8 +280,9 @@ void WavefrontPlanner::save_wavefront(const std::string& filename) const {
     
     for (int x = 0; x < grid_width_; x++) {
         for (int y = 0; y < grid_height_; y++) {
-            double world_x = grid_to_world_x(x);
-            double world_y = grid_to_world_y(y);
+            // Emit cell centers to match the discretization used for obstacle checks.
+            double world_x = grid_to_world_x(x) + 0.5 * resolution_;
+            double world_y = grid_to_world_y(y) + 0.5 * resolution_;
             file << world_x << " " << world_y << " " << reachability_grid_[x][y] << "\n";
         }
     }

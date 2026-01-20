@@ -50,8 +50,9 @@ void WavefrontGrid::rebuild_grids(NAMOEnvironment& env) {
 
     for (int x = 0; x < grid_width_; x++) {
         for (int y = 0; y < grid_height_; y++) {
-            double world_x = grid_to_world_x(x);
-            double world_y = grid_to_world_y(y);
+            // Sample occupancy at the cell center (match Python wavefront_snapshot.py)
+            double world_x = grid_to_world_x(x) + 0.5 * resolution_;
+            double world_y = grid_to_world_y(y) + 0.5 * resolution_;
 
             bool occupied_uninflated = false;
             bool occupied_inflated = false;
@@ -190,8 +191,9 @@ GridFootprint WavefrontGrid::calculate_rotated_footprint(const ObjectInfo& obj,
     // Test each cell in bounding box
     for (int x = grid_min_x; x <= grid_max_x; x++) {
         for (int y = grid_min_y; y <= grid_max_y; y++) {
-            double world_x = grid_to_world_x(x);
-            double world_y = grid_to_world_y(y);
+            // Sample occupancy at the cell center (match Python wavefront_snapshot.py)
+            double world_x = grid_to_world_x(x) + 0.5 * resolution_;
+            double world_y = grid_to_world_y(y) + 0.5 * resolution_;
             
             if (is_point_in_rotated_rectangle(world_x, world_y, state, obj)) {
                 footprint.add_cell(x, y);
@@ -270,8 +272,9 @@ void WavefrontGrid::save_grid(const std::string& filename, bool use_static_grid)
     
     for (int x = 0; x < grid_width_; x++) {
         for (int y = 0; y < grid_height_; y++) {
-            double world_x = grid_to_world_x(x);
-            double world_y = grid_to_world_y(y);
+            // Emit cell centers to match discretization conventions elsewhere.
+            double world_x = grid_to_world_x(x) + 0.5 * resolution_;
+            double world_y = grid_to_world_y(y) + 0.5 * resolution_;
             file << world_x << " " << world_y << " " << grid[x][y] << "\n";
         }
     }
@@ -289,8 +292,9 @@ void WavefrontGrid::save_uninflated_grid(const std::string& filename) const {
     
     for (int x = 0; x < grid_width_; x++) {
         for (int y = 0; y < grid_height_; y++) {
-            double world_x = grid_to_world_x(x);
-            double world_y = grid_to_world_y(y);
+            // Emit cell centers to match discretization conventions elsewhere.
+            double world_x = grid_to_world_x(x) + 0.5 * resolution_;
+            double world_y = grid_to_world_y(y) + 0.5 * resolution_;
             file << world_x << " " << world_y << " " << uninflated_grid_[x][y] << "\n";
         }
     }
