@@ -1,0 +1,46 @@
+# 2-Push Evaluation Configuration
+# Usage: python eval_2push.py --config eval_2push_config.yaml
+
+# Reference model - determines problem categorization (1-push vs 2-push)
+# This is typically the exhaustive search results
+reference:
+  name: "Exhaustive Primitive Search Seed 43"
+  dir: /common/users/dm1487/namo_data/jan7/aug9_envs/2_push_test_first_solution_seed43
+  # Other reference seeds (for manual comparisons):
+  # - /common/users/dm1487/namo_data/jan7/aug9_envs/2_push_test_first_solution_seed44
+  # - /common/users/dm1487/namo_data/jan7/aug9_envs/2_push_test_first_solution_seed45
+  # - /common/users/dm1487/namo_data/jan7/aug9_envs/2_push_test_first_solution_seed46
+
+
+
+baselines:
+  - name: "Exhaustive Primitive Search"
+    dir: /common/users/dm1487/namo_data/jan7/aug9_envs/2_push_test_first_solution
+    success_dir: eps  # optional: custom folder name for success-filtered plots
+  # - name: "Exhaustive Primitive Search Seed 43"
+  #   dir: /common/users/dm1487/namo_data/jan7/aug9_envs/2_push_test_first_solution_seed43
+  # - name: "Exhaustive Primitive Search Seed 44"
+  #   dir: /common/users/dm1487/namo_data/jan7/aug9_envs/2_push_test_first_solution_seed44
+  # - name: "Exhaustive Primitive Search Seed 45"
+  #   dir: /common/users/dm1487/namo_data/jan7/aug9_envs/2_push_test_first_solution_seed45
+  # - name: "Exhaustive Primitive Search Seed 46"
+  #   dir: /common/users/dm1487/namo_data/jan7/aug9_envs/2_push_test_first_solution_seed46
+
+# Learned models to compare
+learned:
+  # - name: "2 Push 1/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/jan7/results_32samples_int5_seed42_voting5_filtered/modular_data_1spring-303-desktop-08
+  - name: "2 Push Learned Hybrid Voting 5"
+    dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/jan7/results_32samples_int5_seed42_voting5_hybrid_filtered/modular_data_1spring-303-desktop-08
+  # - name: "2 Push Learned Voting 10"
+  #   dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/jan7/results_32samples_int5_seed42_voting10_filtered/modular_data_1spring-303-desktop-08
+  # - name: "2 Push Learned Hybrid Voting 10"
+  #   dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/jan7/results_32samples_int5_seed42_voting10_hybrid_filtered/modular_data_1spring-303-desktop-08
+
+settings:
+  output_dir: ./eval_2push_plots_1push_test
+  time_cutoff_max: 100000  # Extended to capture max 2-push time (~820s)
+  time_step: 500
+
+  # Push-based success rate plot settings
+  push_cutoff_max: 2000     # max number of pushes
+  push_step: 20            # step size for push cutoffs
