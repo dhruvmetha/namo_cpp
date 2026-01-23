@@ -129,6 +129,9 @@ def get_region_goal_samples(env: Any, goals_per_region: int) -> RegionGoalSample
 			include_snapshot=False,
 			goals_per_region=goals_per_region,
 			generate_training_data=True,
+			# Critical: do NOT reset() the MuJoCo env during sampling; callers (ML inference
+			# and planners) expect the current state to remain intact.
+			use_current_state=True,
 		)
 		return {
 			region: _clone_goal_bundle(bundle)

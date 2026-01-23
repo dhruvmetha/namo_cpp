@@ -1157,6 +1157,14 @@ def main():
                         help="Maximum ML goals to align per sampler call")
     parser.add_argument("--ml-k-nearest", type=int, default=1,
                         help="Number of nearest primitive slots to vote for per ML goal (within tolerance)")
+    parser.add_argument(
+        "--ml-sampler-method",
+        type=str,
+        default=None,
+        help="Override sampler: euler/midpoint/rk4/dopri5 (flow matching) or ddpm/ddim (diffusion)",
+    )
+    parser.add_argument("--ml-num-steps", type=int, default=None,
+                        help="Override number of integration/sampling steps (default: use model config)")
     parser.add_argument("--ml-seed", type=int, default=None,
                         help="Random seed for diffusion noise (None = random each time)")
     parser.add_argument("--primitive-data-dir", type=str, default="data",
@@ -1258,6 +1266,8 @@ def main():
                 "ml_device": args.ml_device,
                 "ml_samples": args.ml_samples,
                 "ml_min_goals": args.ml_min_goals,
+                "ml_sampler_method": args.ml_sampler_method,
+                "ml_num_steps": args.ml_num_steps,
                 "ml_match_position_tolerance": args.ml_match_position_tolerance,
                 "ml_match_angle_tolerance": args.ml_match_angle_tolerance,
                 "ml_match_angle_weight": args.ml_match_angle_weight,
@@ -1276,6 +1286,8 @@ def main():
                 "ml_device": args.ml_device,
                 "ml_samples": args.ml_samples,
                 "ml_min_goals": args.ml_min_goals,
+                "ml_sampler_method": args.ml_sampler_method,
+                "ml_num_steps": args.ml_num_steps,
                 "ml_match_position_tolerance": args.ml_match_position_tolerance,
                 "ml_match_angle_tolerance": args.ml_match_angle_tolerance,
                 "ml_match_angle_weight": args.ml_match_angle_weight,

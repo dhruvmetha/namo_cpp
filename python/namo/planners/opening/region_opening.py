@@ -182,6 +182,11 @@ class RegionOpeningPlanner(BasePlanner):
         # caused collisions on that edge. (default: False for backward compat)
         self.ml_ignore_blacklist = algo_params.get("region_ml_ignore_blacklist", False)
 
+        # Optional: disable edge-level stuck/collision blacklisting so the search is
+        # exhaustive over all reachable (edge_idx, depth) primitive slots.
+        # This removes ordering-dependent pruning (useful for reference baselines).
+        self.disable_edge_blacklist = algo_params.get("region_disable_edge_blacklist", False)
+
         # Chain link cost: additional cost added per chain link beyond the first push.
         # With chain_link_cost=0 (default), a 2-push chain at depths [0,0] costs 2.
         # With chain_link_cost=5, the same chain costs 2 + 5 = 7.
@@ -263,6 +268,8 @@ class RegionOpeningPlanner(BasePlanner):
                 primitive_data_dir=primitive_data_dir,
                 samples=algo_params.get("ml_samples", 32),
                 device=algo_params.get("ml_device", "cuda"),
+                sampler_method=algo_params.get("ml_sampler_method"),
+                num_steps=algo_params.get("ml_num_steps"),
                 match_position_tolerance=algo_params.get("ml_match_position_tolerance", 0.1),
                 match_angle_tolerance=algo_params.get("ml_match_angle_tolerance", 0.1),
                 angle_weight=algo_params.get("ml_match_angle_weight", 0.5),
@@ -272,6 +279,7 @@ class RegionOpeningPlanner(BasePlanner):
                 xml_path=algo_params.get("xml_file"),
                 preview_mask_count=algo_params.get("preview_ml_goal_masks", 0),
                 preloaded_model=algo_params.get("preloaded_goal_model"),
+                goals_per_region=self.config.goals_per_region,
                 preview_aligned_primitives=algo_params.get("preview_aligned_primitives", False),
                 k_nearest=algo_params.get("ml_k_nearest", 1),
                 seed=algo_params.get("ml_seed"),
@@ -288,6 +296,8 @@ class RegionOpeningPlanner(BasePlanner):
                 primitive_data_dir=primitive_data_dir,
                 samples=algo_params.get("ml_samples", 32),
                 device=algo_params.get("ml_device", "cuda"),
+                sampler_method=algo_params.get("ml_sampler_method"),
+                num_steps=algo_params.get("ml_num_steps"),
                 match_position_tolerance=algo_params.get("ml_match_position_tolerance", 0.1),
                 match_angle_tolerance=algo_params.get("ml_match_angle_tolerance", 0.1),
                 angle_weight=algo_params.get("ml_match_angle_weight", 0.5),
@@ -300,6 +310,7 @@ class RegionOpeningPlanner(BasePlanner):
                 preview_aligned_primitives=algo_params.get("preview_aligned_primitives", False),
                 k_nearest=algo_params.get("ml_k_nearest", 1),
                 seed=algo_params.get("ml_seed"),
+                goals_per_region=self.config.goals_per_region,
             )
             self._debug("▶ Using ML-first with primitive fallback goal strategy")
         elif strategy_name and strategy_name.lower() in {"ml_async", "ml_primitive_async"}:
@@ -312,6 +323,8 @@ class RegionOpeningPlanner(BasePlanner):
                 primitive_data_dir=primitive_data_dir,
                 samples=algo_params.get("ml_samples", 32),
                 device=algo_params.get("ml_device", "cuda"),
+                sampler_method=algo_params.get("ml_sampler_method"),
+                num_steps=algo_params.get("ml_num_steps"),
                 match_position_tolerance=algo_params.get("ml_match_position_tolerance", 0.1),
                 match_angle_tolerance=algo_params.get("ml_match_angle_tolerance", 0.1),
                 angle_weight=algo_params.get("ml_match_angle_weight", 0.5),
@@ -322,6 +335,7 @@ class RegionOpeningPlanner(BasePlanner):
                 k_nearest=algo_params.get("ml_k_nearest", 1),
                 max_workers=algo_params.get("ml_async_workers", 1),
                 seed=algo_params.get("ml_seed"),
+                goals_per_region=self.config.goals_per_region,
             )
             self._debug("▶ Using async ML with primitive pre-execution goal strategy")
         elif strategy_name and strategy_name.lower() in {"ml_driven_async"}:
@@ -340,6 +354,8 @@ class RegionOpeningPlanner(BasePlanner):
                 primitive_data_dir=primitive_data_dir,
                 samples=algo_params.get("ml_samples", 32),
                 device=algo_params.get("ml_device", "cuda"),
+                sampler_method=algo_params.get("ml_sampler_method"),
+                num_steps=algo_params.get("ml_num_steps"),
                 match_position_tolerance=algo_params.get("ml_match_position_tolerance", 0.1),
                 match_angle_tolerance=algo_params.get("ml_match_angle_tolerance", 0.1),
                 angle_weight=algo_params.get("ml_match_angle_weight", 0.5),
@@ -350,6 +366,7 @@ class RegionOpeningPlanner(BasePlanner):
                 k_nearest=algo_params.get("ml_k_nearest", 1),
                 max_workers=1,  # Always 1 - GPU runs 1 ML inference at a time
                 seed=algo_params.get("ml_seed"),
+                goals_per_region=self.config.goals_per_region,
             )
             # Set goal_strategy to primitive for compatibility (MLDrivenAsyncSearch handles ML internally)
             self.goal_strategy = self._primitive_strategy
@@ -1716,18 +1733,19 @@ class RegionOpeningPlanner(BasePlanner):
             # (shallower depths than the stuck depth are still worth trying)
             # Exception: if ml_ignore_blacklist is enabled, we disable blacklist during pre-ML phase
             # entirely, and bypass for ML-scored slots after ML merges
-            is_blacklisted = edge_idx in edge_min_stuck_depth and depth >= edge_min_stuck_depth[edge_idx]
-            if is_blacklisted:
-                # During pre-ML phase: disable blacklist entirely if ml_ignore_blacklist is enabled
-                if not ml_merged and self.ml_ignore_blacklist:
-                    if self.config.verbose:
-                        print(f"        🔓 Ignoring blacklist during pre-ML phase (edge {edge_idx}, depth {depth+1})")
-                # After ML merge: bypass only for ML-scored slots
-                elif ml_merged and self.ml_ignore_blacklist and (edge_idx, depth) in ml_scored_slots:
-                    if self.config.verbose:
-                        print(f"        🔓 Bypassing blacklist for ML-scored slot (edge {edge_idx}, depth {depth+1})")
-                else:
-                    continue
+            if not self.disable_edge_blacklist:
+                is_blacklisted = edge_idx in edge_min_stuck_depth and depth >= edge_min_stuck_depth[edge_idx]
+                if is_blacklisted:
+                    # During pre-ML phase: disable blacklist entirely if ml_ignore_blacklist is enabled
+                    if not ml_merged and self.ml_ignore_blacklist:
+                        if self.config.verbose:
+                            print(f"        🔓 Ignoring blacklist during pre-ML phase (edge {edge_idx}, depth {depth+1})")
+                    # After ML merge: bypass only for ML-scored slots
+                    elif ml_merged and self.ml_ignore_blacklist and (edge_idx, depth) in ml_scored_slots:
+                        if self.config.verbose:
+                            print(f"        🔓 Bypassing blacklist for ML-scored slot (edge {edge_idx}, depth {depth+1})")
+                    else:
+                        continue
 
             # Filter: skip edges that have already produced a successful opening
             if edge_idx in solved_edges_this_skill:
@@ -1797,22 +1815,24 @@ class RegionOpeningPlanner(BasePlanner):
                 if self.config.verbose:
                     print(f"        ⚠️  COLLISION detected: {step_result.info.get('collision_object', 'unknown')}")
                 collision_detected = True
-                # Record this depth as stuck - shallower depths might still work
-                if edge_idx not in edge_min_stuck_depth or depth < edge_min_stuck_depth[edge_idx]:
-                    edge_min_stuck_depth[edge_idx] = depth
-                    if self.config.verbose:
-                        print(f"        📍 Edge {edge_idx} stuck at depth {depth+1}, depths 1-{depth} still valid")
+                if not self.disable_edge_blacklist:
+                    # Record this depth as stuck - shallower depths might still work
+                    if edge_idx not in edge_min_stuck_depth or depth < edge_min_stuck_depth[edge_idx]:
+                        edge_min_stuck_depth[edge_idx] = depth
+                        if self.config.verbose:
+                            print(f"        📍 Edge {edge_idx} stuck at depth {depth+1}, depths 1-{depth} still valid")
 
             stuck_detected = False
             if "stuck" in step_result.info and step_result.info["stuck"] == "true":
                 if self.config.verbose:
                     print(f"        ⚠️  STUCK condition detected")
                 stuck_detected = True
-                # Record this depth as stuck - shallower depths might still work
-                if edge_idx not in edge_min_stuck_depth or depth < edge_min_stuck_depth[edge_idx]:
-                    edge_min_stuck_depth[edge_idx] = depth
-                    if self.config.verbose:
-                        print(f"        📍 Edge {edge_idx} stuck at depth {depth+1}, depths 1-{depth} still valid")
+                if not self.disable_edge_blacklist:
+                    # Record this depth as stuck - shallower depths might still work
+                    if edge_idx not in edge_min_stuck_depth or depth < edge_min_stuck_depth[edge_idx]:
+                        edge_min_stuck_depth[edge_idx] = depth
+                        if self.config.verbose:
+                            print(f"        📍 Edge {edge_idx} stuck at depth {depth+1}, depths 1-{depth} still valid")
 
             total_region_goals = len(region_goals[neighbour_label].goals) if neighbour_label in region_goals else 0
             if is_accessible_after and not is_accessible_before:
@@ -1922,6 +1942,17 @@ class RegionOpeningPlanner(BasePlanner):
         reachable_count = 0
         first_reachable_goal = None
 
+        # `set_robot_goal()` is stateful and can influence downstream queries. Preserve
+        # the current goal so this validation check has no side effects.
+        original_robot_goal = None
+        if hasattr(self.env, "get_robot_goal"):
+            try:
+                original_robot_goal = tuple(self.env.get_robot_goal())
+                if len(original_robot_goal) == 2:
+                    original_robot_goal = (original_robot_goal[0], original_robot_goal[1], 0.0)
+            except Exception:
+                original_robot_goal = None
+
         # Collect all goal samples for visualization
         all_goals = [(g.x, g.y, g.theta) for g in bundle.goals]
 
@@ -1932,6 +1963,12 @@ class RegionOpeningPlanner(BasePlanner):
                 reachable_count += 1
                 if first_reachable_goal is None:
                     first_reachable_goal = (goal_sample.x, goal_sample.y, goal_sample.theta)
+
+        if original_robot_goal is not None:
+            try:
+                self.env.set_robot_goal(*original_robot_goal)
+            except Exception:
+                pass
 
         # Success if at least half of the sampled goals are reachable.
         # With the default `goals_per_region=10`, this is 5/10.

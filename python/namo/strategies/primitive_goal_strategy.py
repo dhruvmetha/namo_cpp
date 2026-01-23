@@ -349,6 +349,8 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
         k_nearest: int = 1,
         score_metric: str = "pos+w*ang",
         seed: int = None,
+        sampler_method: Optional[str] = None,
+        num_steps: Optional[int] = None,
     ):
         """
         Args:
@@ -396,6 +398,8 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             preloaded_model=preloaded_model,
             goals_per_region=goals_per_region,
             seed=seed,
+            sampler_method=sampler_method,
+            num_steps=num_steps,
         )
         self._default_ml_samples = samples
 
@@ -1204,6 +1208,9 @@ class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
         preview_aligned_primitives: bool = False,
         k_nearest: int = 1,
         seed: int = None,
+        goals_per_region: int = None,
+        sampler_method: Optional[str] = None,
+        num_steps: Optional[int] = None,
     ):
         self.verbose = verbose
         self.max_matches = max_matches
@@ -1226,7 +1233,10 @@ class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
             xml_path=xml_path,
             preview_mask_count=preview_mask_count,
             preloaded_model=preloaded_model,
-            seed=seed
+            seed=seed,
+            goals_per_region=goals_per_region,
+            sampler_method=sampler_method,
+            num_steps=num_steps,
         )
         self._default_ml_samples = samples
         self._last_alignment_info = None
@@ -1516,6 +1526,9 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
         k_nearest: int = 1,
         max_workers: int = 1,
         seed: int = None,
+        goals_per_region: int = None,
+        sampler_method: Optional[str] = None,
+        num_steps: Optional[int] = None,
     ):
         self.verbose = verbose
         self.max_matches = max_matches
@@ -1538,6 +1551,9 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
             preview_mask_count=preview_mask_count,
             preloaded_model=preloaded_model,
             seed=seed,
+            goals_per_region=goals_per_region,
+            sampler_method=sampler_method,
+            num_steps=num_steps,
         )
         self._default_ml_samples = samples
 

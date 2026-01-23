@@ -707,6 +707,11 @@ def main():
     parser.add_argument("--region-chain-link-cost", type=int, default=0)
     parser.add_argument("--region-ml-ignore-blacklist", action="store_true")
     parser.add_argument(
+        "--region-disable-edge-blacklist",
+        action="store_true",
+        help="Disable edge-level stuck/collision blacklisting so all reachable (edge, depth) primitives are attempted.",
+    )
+    parser.add_argument(
         "--region-selection-strategy",
         type=str,
         default="ml_first",
@@ -779,6 +784,7 @@ def main():
             "region_max_recorded_solutions_per_neighbor": args.region_max_recorded_solutions_per_neighbor,
             "region_chain_link_cost": args.region_chain_link_cost,
             "region_ml_ignore_blacklist": args.region_ml_ignore_blacklist,
+            "region_disable_edge_blacklist": args.region_disable_edge_blacklist,
             "region_selection_strategy": args.region_selection_strategy,
         })
         if args.region_frontier_beam_width is not None:

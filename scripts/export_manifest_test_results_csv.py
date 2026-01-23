@@ -80,17 +80,34 @@ def _extract_checkpoint_from_summary(summary: Dict[str, Any]) -> str:
     )
 
 
-def _parse_path_metadata(pkl_path: Path) -> Dict[str, Any]:
-    # Expected structure:
-    #   eval_results/manifest_test/<model_tag>/<ckpt_stem>/shard_*_job*/modular_data_<host>/*_results.pkl
+def _parse_path_metadata(pkl_path: Path, *, root: Optional[Path] = None) -> Dict[str, Any]:
+    # Expected structure (relative to `root`):
+    #   <model_tag>/<ckpt_stem>/shard_*_job*/modular_data_<host>/*_results.pkl
+    #
+    # Historically we parsed by searching for a literal "manifest_test" path segment.
+    # That breaks for alternate roots (e.g., `manifest_test_hybrid`). Prefer parsing
+    # relative to `root` when provided, and fall back to the legacy behavior.
     parts = pkl_path.parts
-    try:
-        manifest_idx = parts.index("manifest_test")
-        model_tag = parts[manifest_idx + 1]
-        ckpt_stem = parts[manifest_idx + 2]
-    except Exception:
-        model_tag = ""
-        ckpt_stem = ""
+    model_tag = ""
+    ckpt_stem = ""
+
+    if root is not None:
+        try:
+            rel = pkl_path.relative_to(root)
+            if len(rel.parts) >= 2:
+                model_tag = rel.parts[0]
+                ckpt_stem = rel.parts[1]
+        except Exception:
+            pass
+
+    if not model_tag or not ckpt_stem:
+        try:
+            manifest_idx = parts.index("manifest_test")
+            model_tag = parts[manifest_idx + 1]
+            ckpt_stem = parts[manifest_idx + 2]
+        except Exception:
+            model_tag = model_tag or ""
+            ckpt_stem = ckpt_stem or ""
 
     shard_dir = ""
     shard_idx = ""
@@ -260,7 +277,7 @@ def main() -> int:
 
         for pkl_path in tqdm(result_paths, desc="Exporting", unit="pkl"):
             pkls_read += 1
-            meta = _parse_path_metadata(pkl_path)
+            meta = _parse_path_metadata(pkl_path, root=root)
 
             # Find / cache modular run metadata (checkpoint path)
             modular_dir = pkl_path.parent
@@ -278,8 +295,14 @@ def main() -> int:
 
             ckpt_path = modular_meta_cache[modular_dir].get("checkpoint_path", "")
             if not ckpt_path and ckpt_map:
-                key = (meta.get("model_tag", ""), meta.get("ckpt_stem", ""))
-                ckpt_path = ckpt_map.get(key, "")
+                model_tag = meta.get("model_tag", "") or ""
+                ckpt_stem = meta.get("ckpt_stem", "") or ""
+                ckpt_path = ckpt_map.get((model_tag, ckpt_stem), "")
+                if not ckpt_path and "__" in model_tag:
+                    # Common pattern for comparisons: "<model_tag>__hybrid", "<model_tag>__ml_only".
+                    # Allow recovering the underlying checkpoint from the base model tag.
+                    base_tag = model_tag.split("__", 1)[0]
+                    ckpt_path = ckpt_map.get((base_tag, ckpt_stem), "")
 
             try:
                 with open(pkl_path, "rb") as pf:

@@ -313,6 +313,9 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
                  preloaded_model: Optional[Any] = None,
                  preview_mask_count: int = 0,
                  goals_per_region: Optional[int] = None,
+                 seed: Optional[int] = None,
+                 sampler_method: Optional[str] = None,
+                 num_steps: Optional[int] = None,
                  **unused_kwargs):
         """Initialize ML goal selection strategy.
 
@@ -340,6 +343,9 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
         self.verbose = verbose
         self.preview_mask_count = max(0, preview_mask_count)
         self.goals_per_region = goals_per_region
+        self.seed = seed
+        self.sampler_method = sampler_method
+        self.num_steps = num_steps
         self._model_type = None
         self._pending_preview = None  # Store preview data to save later (before push)
         if unused_kwargs and self.verbose:
@@ -383,7 +389,9 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
                 
                 self._goal_model = GoalVectorInferenceModel(
                     model_path=self.goal_model_path,
-                    device=self.device
+                    device=self.device,
+                    sampler_method=self.sampler_method,
+                    num_steps=self.num_steps,
                 )
             else:
                 from ktamp_learning.goal_inference_model import GoalInferenceModel
@@ -393,7 +401,9 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
                 
                 self._goal_model = GoalInferenceModel(
                     model_path=self.goal_model_path,
-                    device=self.device
+                    device=self.device,
+                    sampler_method=self.sampler_method,
+                    num_steps=self.num_steps,
                 )
             
             print(f"Goal ML model loaded successfully ({model_type} type)")
@@ -509,22 +519,36 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
                         print(f"Warning: failed to sample region goals: {e}")
 
             if self._model_type == "vector" and region_goals_sampled is not None:
-                goals = self._goal_model.infer(
+                infer_kwargs = dict(
                     json_message=json_message,
                     xml_path=json_message["xml_path"],
                     robot_goal=json_message["robot_goal"],
                     selected_object=object_id,
                     samples=self.samples,
-                    region_goals_sampled=region_goals_sampled
+                    region_goals_sampled=region_goals_sampled,
                 )
+                if self.seed is not None:
+                    infer_kwargs["seed"] = self.seed
+                try:
+                    goals = self._goal_model.infer(**infer_kwargs)
+                except TypeError:
+                    infer_kwargs.pop("seed", None)
+                    goals = self._goal_model.infer(**infer_kwargs)
             else:
-                goals = self._goal_model.infer(
+                infer_kwargs = dict(
                     json_message=json_message,
                     xml_path=json_message["xml_path"],
                     robot_goal=json_message["robot_goal"],
                     selected_object=object_id,
-                    samples=self.samples
+                    samples=self.samples,
                 )
+                if self.seed is not None:
+                    infer_kwargs["seed"] = self.seed
+                try:
+                    goals = self._goal_model.infer(**infer_kwargs)
+                except TypeError:
+                    infer_kwargs.pop("seed", None)
+                    goals = self._goal_model.infer(**infer_kwargs)
 
             if self.verbose:
                 print(f"🔍 ML INFERENCE RESULT for {object_id}: {len(goals) if goals else 0} goals generated")
