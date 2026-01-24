@@ -227,6 +227,9 @@ class ModularCollectionConfig:
 
     # Episode filtering options
     filter_minimum_length: bool = False  # Only keep episodes with minimum action sequence length per environment
+    # Evaluation: keep successful episodes with 0 actions (e.g., RegionOpening neighbour already accessible).
+    # Training: default False filters these out because they provide no action supervision.
+    keep_empty_action_successes: bool = False
 
     # Manifest file for fast loading (pre-generated list of XML files)
     manifest_file: Optional[str] = None
@@ -248,6 +251,7 @@ class ModularWorkerTask:
     planner_config: PlannerConfig
     # Filtering options
     filter_minimum_length: bool = False
+    keep_empty_action_successes: bool = False
     # Solution smoothing options
     smooth_solutions: bool = False
     max_smooth_actions: int = 20
@@ -720,12 +724,17 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                 episodes_filtered_out = len(episode_results) - len(filtered_episodes)
                 episode_results = filtered_episodes
 
-        # Filter out episodes with empty action sequences (robot already at goal)
-        # These episodes are successful but provide no useful training data
-        initial_count = len(episode_results)
-        episode_results = [ep for ep in episode_results if not (ep.solution_found and (not ep.action_sequence or len(ep.action_sequence) == 0))]
-        empty_action_filtered = initial_count - len(episode_results)
-        episodes_filtered_out += empty_action_filtered
+        if not task.keep_empty_action_successes:
+            # Filter out successful episodes with empty action sequences.
+            # These are typically \"already accessible\" / \"robot already at goal\" and provide no action supervision.
+            initial_count = len(episode_results)
+            episode_results = [
+                ep
+                for ep in episode_results
+                if not (ep.solution_found and (not ep.action_sequence or len(ep.action_sequence) == 0))
+            ]
+            empty_action_filtered = initial_count - len(episode_results)
+            episodes_filtered_out += empty_action_filtered
 
         # Save results
         worker_result_data = {
@@ -831,6 +840,7 @@ class ModularParallelCollectionManager:
                 algorithm=self.config.algorithm,
                 planner_config=task_planner_config,
                 filter_minimum_length=self.config.filter_minimum_length,
+                keep_empty_action_successes=self.config.keep_empty_action_successes,
                 smooth_solutions=self.config.smooth_solutions,
                 max_smooth_actions=self.config.max_smooth_actions,
                 refine_actions=self.config.refine_actions,

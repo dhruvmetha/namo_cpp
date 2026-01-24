@@ -710,11 +710,31 @@ class RegionOpeningPlanner(BasePlanner):
 
         # Get candidate objects blocking the edge
         candidates = list(edge_objects.get(robot_label, {}).get(neighbour_label, set()))
+        original_candidates_count = len(candidates)
 
         # Filter out objects specified in region_object_skip for this neighbour
         if self.region_object_skip and neighbour_label in self.region_object_skip:
-            objects_to_skip = set(self.region_object_skip[neighbour_label])
-            if objects_to_skip:  # Only filter if there are specific objects (not empty list)
+            objects_to_skip_list = self.region_object_skip[neighbour_label]
+
+            # Manifest can request skipping an entire neighbour region (region-only entry).
+            # Represent this as an "excluded" AttemptResult so eval tooling can ignore it.
+            if objects_to_skip_list is not None and len(objects_to_skip_list) == 0:
+                if self.config.verbose:
+                    print(f"   ⏭ Neighbor '{neighbour_label}': SKIPPED (entire region from manifest)")
+                return [
+                    AttemptResult(
+                        success=False,
+                        neighbour_region_label=neighbour_label,
+                        error_message="Skipped neighbour (manifest filter)",
+                        timing_ms=(time.time() - attempt_start) * 1000,
+                        failure_reason="skipped_manifest",
+                        validation_method="skipped_manifest",
+                        candidate_objects_count=len(candidates),
+                    )
+                ]
+
+            objects_to_skip = set(objects_to_skip_list or [])
+            if objects_to_skip:
                 skipped_objects = [c for c in candidates if c in objects_to_skip]
                 candidates = [c for c in candidates if c not in objects_to_skip]
                 # Print skipped objects
@@ -723,6 +743,30 @@ class RegionOpeningPlanner(BasePlanner):
                         print(f"   ⏭ Neighbor '{neighbour_label}' Object '{obj}': SKIPPED (from manifest)")
 
         if not candidates:
+            # If there WERE blocking objects but the manifest disallowed all of them, exclude this
+            # neighbour from evaluation denominators (same intent as region-only skips).
+            if (
+                self.region_object_skip
+                and neighbour_label in self.region_object_skip
+                and original_candidates_count > 0
+                and (self.region_object_skip[neighbour_label] or [])
+            ):
+                if self.config.verbose:
+                    print(
+                        f"   ⏭ Neighbor '{neighbour_label}': SKIPPED (all {original_candidates_count} blocking objects filtered by manifest)"
+                    )
+                return [
+                    AttemptResult(
+                        success=False,
+                        neighbour_region_label=neighbour_label,
+                        error_message="Skipped neighbour (all blocking objects filtered by manifest)",
+                        timing_ms=(time.time() - attempt_start) * 1000,
+                        failure_reason="skipped_manifest",
+                        validation_method="skipped_manifest",
+                        candidate_objects_count=original_candidates_count,
+                    )
+                ]
+
             if self.config.verbose:
                 print(f"    ✗ '{neighbour_label}' - no blocking objects found")
             return [AttemptResult(

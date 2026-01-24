@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Long-running jobs on NFS can occasionally hit "Stale file handle" while bash is
+# still reading this script. Re-exec from a local temp copy to avoid that class
+# of failure.
+if [[ "${NAMO_EVAL_LOCALIZED:-0}" != "1" ]]; then
+  ORIG_SCRIPT="${BASH_SOURCE[0]}"
+  TMP_SCRIPT="$(mktemp /tmp/run_eval_hybrid_manifest_test.XXXXXX.sh)"
+  cp "$ORIG_SCRIPT" "$TMP_SCRIPT"
+  chmod +x "$TMP_SCRIPT"
+  exec env NAMO_EVAL_LOCALIZED=1 NAMO_EVAL_ORIG_SCRIPT="$ORIG_SCRIPT" "$TMP_SCRIPT" "$@"
+fi
+
 # Hybrid (ML-first -> primitive fallback) evaluation on the aug9_medium "manifest_test" suite.
 #
 # Notes:
@@ -28,7 +39,8 @@ set -euo pipefail
 #   ./scripts/run_eval_hybrid_manifest_test.sh --ckpt /path/to/other.ckpt
 #   ./scripts/run_eval_hybrid_manifest_test.sh --start-idx 0 --end-idx 250
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_PATH="${NAMO_EVAL_ORIG_SCRIPT:-${BASH_SOURCE[0]}}"
+SCRIPT_DIR="$(cd "$(dirname "${SCRIPT_PATH}")" && pwd)"
 NAMO_CPP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ROOT_DIR="$(cd "$NAMO_CPP_DIR/.." && pwd)"
 
@@ -55,6 +67,11 @@ END_IDX=""
 CHAIN_DEPTH="1"
 ML_SEED="42"
 
+# Budgets / caps (match manifest_test reference defaults unless overridden).
+ML_MAX_TERMINAL_CHECKS="${ML_MAX_TERMINAL_CHECKS:-20000}"
+ML_MAX_SOLUTIONS_PER_NEIGHBOR="${ML_MAX_SOLUTIONS_PER_NEIGHBOR:-1}"
+ML_MAX_RECORDED_SOLUTIONS_PER_NEIGHBOR="${ML_MAX_RECORDED_SOLUTIONS_PER_NEIGHBOR:-1}"
+
 EXTRA_ARGS=()
 
 usage() {
@@ -74,6 +91,13 @@ Options:
   --chain-depth N        RegionOpening chain depth (default: $CHAIN_DEPTH)
   --seed N               ML inference seed (default: $ML_SEED)
   --help|-h              Show this help
+
+Env overrides:
+  VENV_PATH=/common/home/tdn39/.virtualenvs/mujoco   (virtualenv to source)
+  SKIP_VENV=1                                        (disable venv activation)
+  ML_MAX_TERMINAL_CHECKS=20000
+  ML_MAX_SOLUTIONS_PER_NEIGHBOR=1
+  ML_MAX_RECORDED_SOLUTIONS_PER_NEIGHBOR=1
 EOF
 }
 
@@ -175,6 +199,7 @@ echo "GPU:              CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
 echo "Threads:          OMP_NUM_THREADS=$OMP_NUM_THREADS"
 echo "Chain depth:      $CHAIN_DEPTH"
 echo "ML seed:          $ML_SEED"
+echo "Max terminal chk: $ML_MAX_TERMINAL_CHECKS"
 echo "======================================"
 
 cd "$NAMO_CPP_DIR"
@@ -189,6 +214,7 @@ python3 "$COLLECT_SCRIPT" \
   --episodes-per-env 1 \
   --workers 1 \
   --output-dir "$OUT_DIR" \
+  --keep-empty-action-successes \
   --goal-strategy ml_fallback \
   --ml-goal-model "$CKPT_PATH" \
   --ml-device cuda \
@@ -203,9 +229,9 @@ python3 "$COLLECT_SCRIPT" \
   --region-allow-collisions \
   --region-selection-strategy ml_first \
   --region-max-chain-depth "$CHAIN_DEPTH" \
-  --region-max-solutions-per-neighbor 1 \
-  --region-max-recorded-solutions-per-neighbor 1 \
+  --region-max-solutions-per-neighbor "$ML_MAX_SOLUTIONS_PER_NEIGHBOR" \
+  --region-max-recorded-solutions-per-neighbor "$ML_MAX_RECORDED_SOLUTIONS_PER_NEIGHBOR" \
   --region-frontier-beam-width 1000 \
   --region-disable-edge-blacklist \
-  --max-terminal-checks 2000 \
+  --max-terminal-checks "$ML_MAX_TERMINAL_CHECKS" \
   "${EXTRA_ARGS[@]}"

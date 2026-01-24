@@ -15,6 +15,8 @@ References:
 - Browne et al. (2012). A Survey of Monte Carlo Tree Search Methods
 """
 
+from __future__ import annotations
+
 import math
 import random
 from typing import List, Optional, Tuple, Dict

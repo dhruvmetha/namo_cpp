@@ -79,6 +79,19 @@ from namo.data_collection.modular_parallel_collection import (
 
 NAMO_CPP_ROOT = Path(__file__).resolve().parents[3]
 
+def _is_eval_excluded_attempt_stats(algorithm_stats: Dict[str, Any]) -> bool:
+    """Return True if this AttemptResult should be excluded from evaluation denominators.
+
+    Examples:
+    - already_accessible: neighbour reachable without any pushes
+    - skipped_manifest: neighbour explicitly excluded by manifest filters
+    """
+    if not algorithm_stats:
+        return False
+    return (algorithm_stats.get("validation_method") in {"already_accessible", "skipped_manifest"}) or (
+        algorithm_stats.get("failure_reason") in {"already_accessible", "skipped_manifest"}
+    )
+
 
 @contextmanager
 def _with_namo_cpp_cwd():
@@ -413,11 +426,16 @@ def process_single_environment(
         episodes_filtered_out = 0
 
         # Filter out episodes with empty action sequences (robot already at goal)
-        # These episodes are successful but provide no useful training data
-        initial_count = len(episode_results)
-        episode_results = [ep for ep in episode_results if not (ep.solution_found and (not ep.action_sequence or len(ep.action_sequence) == 0))]
-        empty_action_filtered = initial_count - len(episode_results)
-        episodes_filtered_out += empty_action_filtered
+        # These episodes are successful but provide no useful training data (unless explicitly kept for eval)
+        if not getattr(task, "keep_empty_action_successes", False):
+            initial_count = len(episode_results)
+            episode_results = [
+                ep
+                for ep in episode_results
+                if not (ep.solution_found and (not ep.action_sequence or len(ep.action_sequence) == 0))
+            ]
+            empty_action_filtered = initial_count - len(episode_results)
+            episodes_filtered_out += empty_action_filtered
 
         # Save results immediately
         worker_result_data = {
@@ -501,23 +519,23 @@ class SequentialCollectionManager:
     def create_tasks(self) -> List[ModularWorkerTask]:
         # Discover environment files (returns (xml_path, region_object_skip) tuples)
         env_entries = self.discover_environment_files()
-        
+
         # Create tasks
-        tasks = []
+        tasks: List[ModularWorkerTask] = []
         for i, (xml_file, region_object_skip) in enumerate(env_entries):
             task_id = f"{self.config.hostname}_env_{self.config.start_idx + i:06d}"
-            
+
             # Inject XML file into algorithm params
             task_planner_config = self.config.planner_config
             if task_planner_config is not None:
                 base_algorithm_params = task_planner_config.algorithm_params or {}
                 task_algorithm_params = dict(base_algorithm_params)
-                task_algorithm_params['xml_file'] = xml_file
+                task_algorithm_params["xml_file"] = xml_file
                 if region_object_skip:
-                    task_algorithm_params['region_object_skip'] = region_object_skip
+                    task_algorithm_params["region_object_skip"] = region_object_skip
                 task_planner_config = replace(
                     task_planner_config,
-                    algorithm_params=task_algorithm_params
+                    algorithm_params=task_algorithm_params,
                 )
 
             task = ModularWorkerTask(
@@ -529,6 +547,7 @@ class SequentialCollectionManager:
                 algorithm=self.config.algorithm,
                 planner_config=task_planner_config,
                 filter_minimum_length=self.config.filter_minimum_length,
+                keep_empty_action_successes=getattr(self.config, "keep_empty_action_successes", False),
                 smooth_solutions=self.config.smooth_solutions,
                 max_smooth_actions=self.config.max_smooth_actions,
                 refine_actions=self.config.refine_actions,
@@ -580,12 +599,116 @@ class SequentialCollectionManager:
             if result.episode_results:
                 all_episodes.extend(result.episode_results)
         successful_episodes = [ep for ep in all_episodes if getattr(ep, "solution_found", False)]
-        episode_success_rate = len(successful_episodes) / len(all_episodes) * 100 if all_episodes else 0
-        
+        # Attempt-level success rate is ambiguous for RegionOpening because it includes neighbours that
+        # were already accessible. Exclude those from attempt-level metrics too.
+        eligible_attempt_episodes = []
+        already_accessible_attempts = 0
+        for ep in all_episodes:
+            alg = getattr(ep, "algorithm_stats", None) or {}
+            if _is_eval_excluded_attempt_stats(alg):
+                already_accessible_attempts += 1
+                continue
+            eligible_attempt_episodes.append(ep)
+        successful_eligible_attempts = [
+            ep for ep in eligible_attempt_episodes if getattr(ep, "solution_found", False)
+        ]
+        episode_success_rate = (
+            len(successful_eligible_attempts) / len(eligible_attempt_episodes) * 100
+            if eligible_attempt_episodes
+            else 0
+        )
+
+        # RegionOpening success is fundamentally per-neighbour (a neighbour is \"opened\" if >= half
+        # of its sampled goals are reachable). The planner may emit multiple AttemptResults per
+        # neighbour (e.g., per-object), so report neighbour-level and env-level rates too.
+        neighbour_pairs_total = None
+        neighbour_pairs_success = None
+        neighbour_success_rate = None
+        env_opened_ge_half = None
+        env_opened_gt_half = None
+        env_opened_ge_half_rate = None
+        env_opened_gt_half_rate = None
+
+        if self.config.algorithm == "region_opening":
+            env_to_neigh_attempted = {}
+            env_to_neigh_success = {}
+            env_to_neigh_skipped_accessible = {}
+
+            for ep in all_episodes:
+                alg = getattr(ep, "algorithm_stats", None) or {}
+                neigh = alg.get("neighbour_region_label")
+                xml = getattr(ep, "xml_file", None)
+                if not neigh or not xml:
+                    continue
+
+                if _is_eval_excluded_attempt_stats(alg):
+                    env_to_neigh_skipped_accessible.setdefault(xml, set()).add(neigh)
+                    continue
+
+                env_to_neigh_attempted.setdefault(xml, set()).add(neigh)
+                if getattr(ep, "solution_found", False):
+                    env_to_neigh_success.setdefault(xml, set()).add(neigh)
+
+            neighbour_pairs_total = sum(len(v) for v in env_to_neigh_attempted.values())
+            neighbour_pairs_skipped_accessible = sum(
+                len(v) for v in env_to_neigh_skipped_accessible.values()
+            )
+            neighbour_pairs_success = sum(
+                len(env_to_neigh_success.get(xml, set()))
+                for xml in env_to_neigh_attempted.keys()
+            )
+            neighbour_success_rate = (
+                neighbour_pairs_success / neighbour_pairs_total * 100.0
+                if neighbour_pairs_total
+                else 0.0
+            )
+
+            env_total_all = len({getattr(ep, "xml_file", None) for ep in all_episodes if getattr(ep, "xml_file", None)})
+            env_total = len(env_to_neigh_attempted)
+            env_opened_ge_half = 0
+            env_opened_gt_half = 0
+            for xml, neighs in env_to_neigh_attempted.items():
+                total = len(neighs)
+                succ = len(env_to_neigh_success.get(xml, set()))
+                if total == 0:
+                    continue
+                if succ * 2 >= total:
+                    env_opened_ge_half += 1
+                if succ * 2 > total:
+                    env_opened_gt_half += 1
+
+            env_opened_ge_half_rate = env_opened_ge_half / env_total * 100.0 if env_total else 0.0
+            env_opened_gt_half_rate = env_opened_gt_half / env_total * 100.0 if env_total else 0.0
+
         print(f"\n🎉 Collection complete!")
         print(f"📊 Episodes: {len(all_episodes)} total")
         print(f"🎯 Env completion rate: {env_completion_rate:.1f}% ({total_time/60:.1f}m)")
-        print(f"🎯 Episode success rate: {episode_success_rate:.1f}% ({len(successful_episodes)}/{len(all_episodes)})")
+        if self.config.algorithm == "region_opening":
+            if neighbour_pairs_total is not None:
+                print(
+                    f"🎯 Neighbour opening success rate: {neighbour_success_rate:.1f}% "
+                    f"({neighbour_pairs_success}/{neighbour_pairs_total})"
+                )
+                if neighbour_pairs_skipped_accessible:
+                    print(f"↪ Skipped already-accessible neighbours: {neighbour_pairs_skipped_accessible}")
+            if env_opened_gt_half is not None:
+                skipped_envs = env_total_all - env_total if 'env_total_all' in locals() else 0
+                print(
+                    f"🏠 Env success rate (> half neighbours opened): {env_opened_gt_half_rate:.1f}% "
+                    f"({env_opened_gt_half}/{len(env_to_neigh_attempted)})"
+                )
+                if skipped_envs:
+                    print(f"↪ Skipped envs with 0 eligible neighbours: {skipped_envs}")
+            # Keep attempt-level number for debugging, but label it clearly.
+            print(
+                f"📌 Attempt success rate (excl. already-accessible): {episode_success_rate:.1f}% "
+                f"({len(successful_eligible_attempts)}/{len(eligible_attempt_episodes)})"
+            )
+        else:
+            print(
+                f"🎯 Episode success rate: {episode_success_rate:.1f}% "
+                f"({len(successful_eligible_attempts)}/{len(eligible_attempt_episodes)})"
+            )
         
         # Save aggregate summary (reuse logic from parallel script if possible, or simplified here)
         self._save_final_summary(results, total_time)
@@ -619,6 +742,78 @@ class SequentialCollectionManager:
         completed_tasks = len([r for r in results if r.success])
         env_completion_rate = completed_tasks / total_tasks * 100 if total_tasks else 0
 
+        # Attempt-level success excluding already-accessible (so eval metrics are apples-to-apples)
+        eligible_attempt_episodes = [
+            ep
+            for ep in all_episodes
+            if not _is_eval_excluded_attempt_stats((ep.get("algorithm_stats") or {}))
+        ]
+        successful_eligible_attempts = [ep for ep in eligible_attempt_episodes if ep.get("solution_found")]
+        success_rate_excl_already_accessible = (
+            len(successful_eligible_attempts) / len(eligible_attempt_episodes) * 100.0
+            if eligible_attempt_episodes
+            else 0.0
+        )
+
+        # RegionOpening neighbour-level metrics (apples-to-apples across goal strategies)
+        neighbour_pairs_total = None
+        neighbour_pairs_success = None
+        neighbour_pairs_skipped_accessible = None
+        neighbour_success_rate = None
+        env_opened_ge_half = None
+        env_opened_gt_half = None
+        env_opened_ge_half_rate = None
+        env_opened_gt_half_rate = None
+
+        if self.config.algorithm == "region_opening":
+            env_to_neigh_attempted = {}
+            env_to_neigh_success = {}
+            env_to_neigh_skipped_accessible = {}
+            for ep in all_episodes:
+                alg = ep.get('algorithm_stats') or {}
+                neigh = alg.get('neighbour_region_label')
+                xml = ep.get('xml_file')
+                if not neigh or not xml:
+                    continue
+
+                if _is_eval_excluded_attempt_stats(alg):
+                    env_to_neigh_skipped_accessible.setdefault(xml, set()).add(neigh)
+                    continue
+
+                env_to_neigh_attempted.setdefault(xml, set()).add(neigh)
+                if ep.get('solution_found'):
+                    env_to_neigh_success.setdefault(xml, set()).add(neigh)
+
+            neighbour_pairs_total = sum(len(v) for v in env_to_neigh_attempted.values())
+            neighbour_pairs_skipped_accessible = sum(
+                len(v) for v in env_to_neigh_skipped_accessible.values()
+            )
+            neighbour_pairs_success = sum(
+                len(env_to_neigh_success.get(xml, set()))
+                for xml in env_to_neigh_attempted.keys()
+            )
+            neighbour_success_rate = (
+                neighbour_pairs_success / neighbour_pairs_total * 100.0
+                if neighbour_pairs_total
+                else 0.0
+            )
+
+            env_total_all = len({ep.get('xml_file') for ep in all_episodes if ep.get('xml_file')})
+            env_total = len(env_to_neigh_attempted)
+            env_opened_ge_half = 0
+            env_opened_gt_half = 0
+            for xml, neighs in env_to_neigh_attempted.items():
+                total = len(neighs)
+                succ = len(env_to_neigh_success.get(xml, set()))
+                if total == 0:
+                    continue
+                if succ * 2 >= total:
+                    env_opened_ge_half += 1
+                if succ * 2 > total:
+                    env_opened_gt_half += 1
+            env_opened_ge_half_rate = env_opened_ge_half / env_total * 100.0 if env_total else 0.0
+            env_opened_gt_half_rate = env_opened_gt_half / env_total * 100.0 if env_total else 0.0
+
         summary = {
             'collection_metadata': {
                 'hostname': self.config.hostname,
@@ -634,6 +829,21 @@ class SequentialCollectionManager:
                 'total_episodes': len(all_episodes),
                 'successful_episodes': len(successful_episodes),
                 'success_rate': len(successful_episodes) / len(all_episodes) * 100 if all_episodes else 0,
+                'eligible_attempt_episodes': len(eligible_attempt_episodes),
+                'successful_eligible_attempts': len(successful_eligible_attempts),
+                'success_rate_excl_already_accessible': success_rate_excl_already_accessible,
+                # RegionOpening neighbour-level success (preferred for evaluation comparisons).
+                'neighbour_pairs_total': neighbour_pairs_total,
+                'neighbour_pairs_successful': neighbour_pairs_success,
+                'neighbour_pairs_skipped_already_accessible': neighbour_pairs_skipped_accessible,
+                'neighbour_opening_success_rate': neighbour_success_rate,
+                'envs_skipped_no_eligible_neighbours': (
+                    (env_total_all - env_total) if (self.config.algorithm == "region_opening" and env_total_all is not None) else None
+                ),
+                'env_opened_ge_half': env_opened_ge_half,
+                'env_opened_ge_half_rate': env_opened_ge_half_rate,
+                'env_opened_gt_half': env_opened_gt_half,
+                'env_opened_gt_half_rate': env_opened_gt_half_rate,
                 'median_search_time_ms_success_only': (
                     statistics.median(success_search_times) if success_search_times else None
                 ),
@@ -659,7 +869,25 @@ class SequentialCollectionManager:
         with open(summary_txt, 'w') as f:
             f.write("Sequential ML Data Collection Summary\n")
             f.write(f"Total episodes: {len(all_episodes)}\n")
-            f.write(f"Episode success rate: {summary['performance_stats']['success_rate']:.1f}%\n")
+            if self.config.algorithm == "region_opening":
+                f.write(
+                    f"Neighbour opening success rate: {summary['performance_stats'].get('neighbour_opening_success_rate', 0.0):.1f}%\n"
+                )
+                skipped_neigh = summary['performance_stats'].get('neighbour_pairs_skipped_already_accessible')
+                if skipped_neigh:
+                    f.write(f"Skipped already-accessible neighbours: {skipped_neigh}\n")
+                f.write(
+                    f"Env success rate (> half neighbours opened): {summary['performance_stats'].get('env_opened_gt_half_rate', 0.0):.1f}%\n"
+                )
+                skipped_envs = summary['performance_stats'].get('envs_skipped_no_eligible_neighbours')
+                if skipped_envs:
+                    f.write(f"Skipped envs with 0 eligible neighbours: {skipped_envs}\n")
+                f.write(
+                    "Attempt success rate (excl. already-accessible): "
+                    f"{summary['performance_stats'].get('success_rate_excl_already_accessible', 0.0):.1f}%\n"
+                )
+            else:
+                f.write(f"Episode success rate: {summary['performance_stats']['success_rate']:.1f}%\n")
             f.write(f"Env completion rate: {summary['performance_stats']['env_completion_rate']:.1f}%\n")
             median_push = summary['performance_stats'].get('median_search_time_ms_success_pushes_gt0')
             median_all = summary['performance_stats'].get('median_search_time_ms_success_only')
@@ -757,6 +985,11 @@ def main():
     parser.add_argument("--run-name", type=str, default=None)
     parser.add_argument("--unique-run-dir", action="store_true")
     parser.add_argument("--manifest", type=str, default=None, help="Path to manifest file listing XML files")
+    parser.add_argument(
+        "--keep-empty-action-successes",
+        action="store_true",
+        help="Keep successful episodes with empty action sequences (e.g., neighbour already accessible). Recommended for evaluation.",
+    )
 
     # Load YAML
     if pre_args.config_yaml:
@@ -846,6 +1079,7 @@ def main():
         refine_actions=args.refine_actions,
         validate_refinement=args.validate_refinement,
         filter_minimum_length=args.filter_minimum_length,
+        keep_empty_action_successes=args.keep_empty_action_successes,
         planner_config=planner_config,
         run_name=args.run_name,
         unique_run_dir=args.unique_run_dir,
