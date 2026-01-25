@@ -8,7 +8,7 @@
 ##     --start-idx 0 --end-idx 100
 
 # Core execution
-output_dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/jan7/results_32samples_int5_seed42_voting5_hybrid_filtered
+output_dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/jan20/1push/results_32samples_int5_seed42_voting5_hybrid
 start_idx: 0
 end_idx: 6000
 algorithm: region_opening
@@ -25,7 +25,7 @@ goals_per_region: 10  # Number of robot goal samples per region for validation
 # Region opening parameters
 points_per_face: 15           # 3 or 15 - must match config_file (skill3 or skill15)
 region_allow_collisions: true
-region_max_chain_depth: 2
+region_max_chain_depth: 1
 region_max_solutions_per_neighbor: 1
 region_frontier_beam_width: 5000
 region_max_recorded_solutions_per_neighbor: 1
@@ -57,7 +57,8 @@ preview_aligned_primitives: false  # Save visualization of ML-to-primitive align
 xml_dir: /common/home/dm1487/robotics_research/ktamp/ml4kp_ktamp/resources/models/custom_walled_envs/aug9/medium
 config_file: config/namo_config_complete_skill15.yaml
 # manifest: /common/users/shared/robot_learning/dm1487/namo/manifests/aug9_medium/manifest.txt  # Pre-generated file list for fast loading (use generate_xml_manifest.py)
-manifest: /common/users/shared/robot_learning/dm1487/namo/manifests/aug9_medium/manifest_2push_test_minus_1push_test_filtered.txt # Pre-generated file list for fast loading (use generate_xml_manifest.py)
+# manifest: /common/users/shared/robot_learning/dm1487/namo/manifests/aug9_medium/manifest_2push_test_minus_1push_test_filtered.txt # Pre-generated file list for fast loading (use generate_xml_manifest.py)
+manifest: /common/users/shared/robot_learning/dm1487/namo/manifests/aug9_medium/manifest_test.txt # Pre-generated file list for fast loading (use generate_xml_manifest.py)
 
 # Optional pipeline features
 verbose: false

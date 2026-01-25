@@ -2,7 +2,7 @@
 # Use with: python modular_parallel_collection.py --config-yaml python/namo/data_collection/region_opening_collection.yaml
 # CLI flags can override any value here.
 # Core execution
-output_dir: /common/users/dm1487/namo_data/jan7/aug9_envs/2_push_test_first_solution_seed46 #/common/users/dm1487/namo_data/dec25/aug9_envs/1_push_triplets_test_first_solution
+output_dir:  /common/users/dm1487/namo_data/jan7/aug9_envs/2_push_test_first_solution #/common/users/dm1487/namo_data/dec25/aug9_envs/1_push_triplets_test_first_solution
 # /common/users/dm1487/namo_data/dec2/aug9_envs/2_push_test_first_solution
 end_idx: 7000
 algorithm: region_opening
@@ -31,8 +31,8 @@ region_selection_strategy: cost_first  # Frontier priority: "ml_first" (ML-deriv
 goal_strategy: primitive
 
 # Primitive strategy options (only used when goal_strategy=primitive)
-shuffle_edges: true  # Randomize edge ordering (useful for difficulty analysis)
-shuffle_seed: 46    # Random seed for reproducible shuffling (null = random each call if shuffle_edges=true)
+# shuffle_edges: true  # Randomize edge ordering (useful for difficulty analysis)
+# shuffle_seed: 42    # Random seed for reproducible shuffling (null = random each call if shuffle_edges=true)
 
 # Paths
 # xml_dir: /common/home/dm1487/robotics_research/ktamp/ml4kp_ktamp/resources/models/custom_walled_envs/aug9/medium
