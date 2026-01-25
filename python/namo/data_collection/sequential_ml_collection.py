@@ -30,16 +30,6 @@ from tqdm import tqdm
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Add visualization directory to path for ML adapters (CRITICAL FIX)
-namo_viz_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "visualization")
-if namo_viz_path not in sys.path:
-    sys.path.append(namo_viz_path)
-
-# Add learning directory for ML models
-ktamp_learning_path = "/common/home/dm1487/robotics_research/ktamp/sage_learning"
-if os.path.isdir(ktamp_learning_path) and ktamp_learning_path not in sys.path:
-    sys.path.insert(0, ktamp_learning_path)
-
 # NAMO imports
 import namo_rl
 from namo.core import BasePlanner, PlannerConfig, PlannerResult, PlannerFactory
@@ -109,7 +99,7 @@ def preload_ml_models(config: ModularCollectionConfig) -> Tuple[Optional[Any], O
         model_path = algo_params.get("ml_object_model_path")
         if model_path:
             try:
-                from ktamp_learning.object_inference_model import ObjectInferenceModel
+                from sage_learning.object_inference_model import ObjectInferenceModel
                 print(f"🔮 Loading ObjectInferenceModel from {model_path}")
                 object_model = ObjectInferenceModel(model_path=model_path, device=device)
                 print(f"✅ Object model loaded successfully")
@@ -121,7 +111,7 @@ def preload_ml_models(config: ModularCollectionConfig) -> Tuple[Optional[Any], O
         model_path = algo_params.get("ml_goal_model_path") or algo_params.get("ml_goal_model")
         if model_path:
             try:
-                from ktamp_learning.goal_inference_model import GoalInferenceModel
+                from sage_learning.goal_inference_model import GoalInferenceModel
                 print(f"🎯 Loading GoalInferenceModel from {model_path}")
                 # Get optional sampler overrides from config
                 sampler_method = algo_params.get("ml_sampler_method")  # euler, midpoint, rk4, dopri5

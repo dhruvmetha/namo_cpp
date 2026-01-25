@@ -13,7 +13,7 @@ Usage:
     from mask_generation.batch_collection import main as run_batch_collection
 """
 
-from .visualizer import NAMODataVisualizer, NAMOXMLParser
+from sage_learning.visualizer import NAMODataVisualizer, NAMOXMLParser
 
 __all__ = ['NAMODataVisualizer', 'NAMOXMLParser']
 __version__ = '1.0.0'

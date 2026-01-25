@@ -94,13 +94,9 @@ def preload_ml_models(object_model_path: Optional[str],
     object_model = None
     goal_model = None
 
-    ktamp_learning_path = "/common/home/dm1487/robotics_research/ktamp/sage_learning"
-    if os.path.isdir(ktamp_learning_path) and ktamp_learning_path not in sys.path:
-        sys.path.insert(0, ktamp_learning_path)
-
     if object_model_path:
         try:
-            from ktamp_learning.object_inference_model import ObjectInferenceModel
+            from sage_learning.object_inference_model import ObjectInferenceModel
             print(f"🔮 Loading ObjectInferenceModel from {object_model_path}")
             object_model = ObjectInferenceModel(model_path=object_model_path, device=device)
             print(f"✅ Object model loaded successfully")
@@ -110,7 +106,7 @@ def preload_ml_models(object_model_path: Optional[str],
 
     if goal_model_path:
         try:
-            from ktamp_learning.goal_inference_model import GoalInferenceModel
+            from sage_learning.goal_inference_model import GoalInferenceModel
             print(f"🎯 Loading GoalInferenceModel from {goal_model_path}")
             goal_model = GoalInferenceModel(
                 model_path=goal_model_path,
@@ -122,7 +118,7 @@ def preload_ml_models(object_model_path: Optional[str],
         except Exception as e:
             print(f"❌ Failed to load goal model: {e}")
             return object_model, None  # Return object model even if goal model fails
-    
+
     return object_model, goal_model
 
 

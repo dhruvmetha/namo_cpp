@@ -13,12 +13,6 @@ import namo_rl
 from .object_selection_strategy import ObjectSelectionStrategy
 from .goal_selection_strategy import GoalSelectionStrategy, Goal, RandomGoalStrategy
 
-# Add sage_learning package to path for imports (has proper local mask support)
-# Use insert(0, ...) to ensure sage_learning's 'src' module is found before any other 'src'
-sage_learning_path = "/common/home/dm1487/robotics_research/ktamp/sage_learning"
-if sage_learning_path not in sys.path:
-    sys.path.insert(0, sage_learning_path)
-
 
 class MLObjectSelectionStrategy(ObjectSelectionStrategy):
     """ML-based object selection using ObjectInferenceModel.
@@ -72,7 +66,7 @@ class MLObjectSelectionStrategy(ObjectSelectionStrategy):
         
         print(f"Loading ObjectInferenceModel from {self.object_model_path}...")
         try:
-            from ktamp_learning.object_inference_model import ObjectInferenceModel
+            from sage_learning.object_inference_model import ObjectInferenceModel
             
             if self.verbose:
                 print(f"Loading ObjectInferenceModel from {self.object_model_path}")
@@ -351,7 +345,7 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
         
         print(f"Loading GoalInferenceModel from {self.goal_model_path}...")
         try:
-            from ktamp_learning.goal_inference_model import GoalInferenceModel
+            from sage_learning.goal_inference_model import GoalInferenceModel
             
             if self.verbose:
                 print(f"Loading GoalInferenceModel from {self.goal_model_path}")

@@ -151,7 +151,7 @@ try:
 except ImportError:
     HAS_H5PY = False
 
-from .visualizer import NAMODataVisualizer
+from sage_learning.visualizer import NAMODataVisualizer
 
 # Global list to collect skipped episodes (for multiprocessing)
 _skipped_episodes_lock = None

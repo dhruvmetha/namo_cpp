@@ -112,7 +112,7 @@ def process_mcts_episode_file(episode_file: Path, output_dir: Path,
                 # Check if we have static_object_info (no XML needed)
                 if 'static_object_info' in sample and sample['static_object_info']:
                     # Use NAMODataVisualizer directly with static_object_info
-                    from mask_generation.visualizer import NAMODataVisualizer
+                    from sage_learning.visualizer import NAMODataVisualizer
                     visualizer = NAMODataVisualizer()
                     
                     # Create fake episode data for existing visualizer
