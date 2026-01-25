@@ -1,72 +1,69 @@
 # 1-Push Evaluation Configuration
 # Usage: python eval_1push.py --config eval_1push_config.yaml
+#
+# This script supports two modes:
+# 1. Single reference: difficulty categorization uses percentiles of oracle pushes
+# 2. Multiple references: consistency analysis across runs, difficulty from median pushes
 
-# Reference model - determines easy/medium/hard categorization
-# This is typically the exhaustive search (oracle) results
+# Reference model(s) - determines difficulty categorization
+# Can be a single reference (legacy format) or a list (multi-reference mode)
+#
+# For multi-reference consistency analysis (recommended):
 reference:
-  name: "Search (Oracle)"
-  dir: /common/users/dm1487/namo_data/dec25/aug9_envs/1_push_triplets_test_all_solutions
+  - name: "Search (Seed 42)"
+    dir: /common/users/dm1487/namo_data/jan20/aug9_envs/1_push_test_first_solution_seed42
+  - name: "Search (Seed 43)"
+    dir: /common/users/dm1487/namo_data/jan20/aug9_envs/1_push_test_first_solution_seed43
+  - name: "Search (Seed 44)"
+    dir: /common/users/dm1487/namo_data/jan20/aug9_envs/1_push_test_first_solution_seed44
+  - name: "Search (Seed 45)"
+    dir: /common/users/dm1487/namo_data/jan20/aug9_envs/1_push_test_first_solution_seed45
+
+# For single reference (legacy format):
+# reference:
+#   name: "Search (Oracle)"
+#   dir: /common/users/dm1487/namo_data/dec25/aug9_envs/1_push_triplets_test_all_solutions
 
 # Non-learned baselines
 baselines:
   - name: "No Heuristic"
-    dir: /common/users/dm1487/namo_data/dec25/aug9_envs/1_push_triplets_test_first_solution
-  # - name: "Geometric Heuristic"
-  #   dir: /common/users/dm1487/namo_data/dec25/aug9_envs/1_push_test_first_solution_geometric_heuristic
+    dir:   /common/users/dm1487/namo_data/jan20/aug9_envs/1_push_test_first_solution/modular_data_1spring-303-desktop-08
 
 # Learned models to compare
 learned:
-  - name: "Diffusion"
-    dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_balanced_solutions/2025-12-26/12-32-32/results_32samples_int5_fasterbfs_seed42_triplets/modular_data_1spring-303-desktop-08
-  - name: "Diffusion Hybrid"
-    dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_balanced_solutions/2025-12-26/12-32-32/results_32samples_int5_fasterbfs_seed42_hybrid_triplets/modular_data_1spring-303-desktop-08
-  # - name: "Diffusion Hybrid Async"
-  #   dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_balanced_solutions/2025-12-26/12-32-32/results_32samples_int5_fasterbfs_seed42_hybrid_async_triplets/modular_data_1spring-303-desktop-08
-  #   dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_balanced_solutions/2025-12-26/12-32-32/results_32samples_int5_fasterbfs_hybrid/modular_data_1spring-303-desktop-08
-  
-  # - name: "Diffusion 2 Steps"
-  #   dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_balanced_solutions/2025-12-26/12-32-32/results_32samples_int2/modular_data_1spring-303-desktop-08
-   # - name: "Diffusion"
-  #   dir: /common/users/dm1487/namo_data/outputs/diffusion_corrected_overlaps/2025-12-10/14-18-57/results_32samples_1
-  # - name: "Diffusion CrossAttn"
-  # - name: "Diffusion"
-  #   dir: /common/users/dm1487/namo_data/outputs/diffusion_corrected_overlaps/2025-12-10/14-18-57/results_32samples_1
-  # - name: "Diffusion CrossAttn"
-  #   dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn/2025-12-16/04-45-01/results_32samples_diffusion_only
-  # - name: "Hybrid"
-  #   dir: /common/users/dm1487/namo_data/outputs/diffusion_corrected_overlaps/2025-12-10/14-18-57/results_32samples_hybrid_complete
-  # - name: "Hybrid CrossAttn"
-  #   dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn/2025-12-16/04-45-01/results_32samples_hybrid_fallback_test
-  # # - name: "Hybrid Async"
-  # #   dir: /common/users/dm1487/namo_data/outputs/diffusion_corrected_overlaps/2025-12-10/14-18-57/results_32samples_hybrid_async_complete
-  # # - name: "Hybrid Async Ignore Blacklist"
-  # #   dir: /common/users/dm1487/namo_data/outputs/diffusion_corrected_overlaps/2025-12-10/14-18-57/results_32samples_hybrid_async_complete_ignore_blacklist
-  # - name: "Hybrid Async"
-  #   dir: /common/users/dm1487/namo_data/outputs/diffusion_corrected_overlaps/2025-12-10/14-18-57/results_32samples_hybrid_async_complete_ignore_blacklist_full
-  # - name: "Hybrid Async CrossAttn"
-  #   dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn/2025-12-16/04-45-01/results_32samples_hybrid_async_test
+  - name: "Diffusion Hybrid Voting5"
+    dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/jan20/1push/results_32samples_int5_seed42_voting5_hybrid
   # Add more models here:
-  # - name: "Diffusion (CrossAttn)"
-  #   dir: /path/to/crossattn/results
+  # - name: "Diffusion"
+  #   dir: /path/to/diffusion/results
   # - name: "Flow Matching"
   #   dir: /path/to/flow_matching/results
 
-# Optional settings (these are the defaults)
+# Settings
 settings:
   # Exclude environments with 'easy' in the name
   exclude_easy: true
 
-  # Thresholds for difficulty categorization (based on reference success ratio)
-  easy_threshold: 0.75    # ratio > 0.75 = easy
-  hard_threshold: 0.25    # ratio <= 0.25 = hard, else medium
+  # NOTE: Difficulty is now determined by data-driven percentiles (p33/p66 of oracle pushes)
+  # The old ratio-based thresholds (easy_threshold, hard_threshold) are deprecated
 
   # Output directory for plots
-  output_dir: ./dec25/eval_plots_crossattn
+  output_dir: ./jan20/eval_plots_1push
 
   # Time-based success rate plot settings
   time_cutoff_max: 6000   # max time in ms
-  time_step: 50          # step size in ms
+  time_step: 50           # step size in ms
 
   # Push-based success rate plot settings
   push_cutoff_max: 10     # max number of pushes
   push_step: 1            # step size for push cutoffs
+
+  # RA@K (ReachableAttachment@K) thresholds
+  # null = all ranked primitives
+  ra_at_k_values: [10, 50, 100, null]
+
+  # Success@Budget values (number of simulation-verified push evaluations)
+  success_at_budget_values: [5, 10, 20]
+
+  # Success@Time values (milliseconds)
+  success_at_time_values: [1000, 3000, 6000]

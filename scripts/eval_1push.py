@@ -43,13 +43,96 @@ import argparse
 from glob import glob
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Any, Callable, Dict, Generator, List, Optional, Tuple, Set
 from collections import defaultdict
 
 import yaml
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+
+
+# =============================================================================
+# Shared Utilities
+# =============================================================================
+
+# Type aliases for clarity
+EnvKeyPair = Tuple[str, str]
+ModelData = Dict[str, Dict[str, 'RegionResult']]
+
+
+def iter_matched_triplets(
+    model_data: ModelData,
+    reference_data: ModelData,
+    require_ref_success: bool = True,
+) -> Generator[Tuple[str, str, 'RegionResult', 'RegionResult'], None, None]:
+    """
+    Iterate over triplets present in both model and reference data.
+
+    Yields (env, key, ref_result, model_result) tuples.
+    This eliminates the repeated nested loop pattern throughout the codebase.
+    """
+    for env in model_data:
+        if env not in reference_data:
+            continue
+        for key in model_data[env]:
+            if key not in reference_data[env]:
+                continue
+            ref_result = reference_data[env][key]
+            if require_ref_success and not ref_result.success:
+                continue
+            yield env, key, ref_result, model_data[env][key]
+
+
+def compute_stats_list(values: List[float]) -> Dict[str, float]:
+    """Compute common statistics (median, mean, IQR) for a list of values."""
+    if not values:
+        return {'median': 0.0, 'mean': 0.0, 'p25': 0.0, 'p75': 0.0, 'std': 0.0}
+    arr = np.array(values)
+    return {
+        'median': float(np.median(arr)),
+        'mean': float(np.mean(arr)),
+        'p25': float(np.percentile(arr, 25)),
+        'p75': float(np.percentile(arr, 75)),
+        'std': float(np.std(arr)),
+    }
+
+
+def get_collision_category(ref_result: 'RegionResult') -> str:
+    """Determine collision category from reference result."""
+    has_wall = ref_result.wall_collision
+    has_movable = ref_result.movable_collisions > 0
+    if has_wall and has_movable:
+        return 'both'
+    elif has_wall:
+        return 'wall_only'
+    elif has_movable:
+        return 'movable_only'
+    return 'none'
+
+
+def compute_percentile_thresholds(
+    values: List[float],
+    percentiles: Tuple[float, float] = (33.33, 66.67),
+) -> Dict[str, float]:
+    """Compute percentile thresholds for difficulty categorization."""
+    if not values:
+        return {'p33': 0.0, 'p66': 0.0, 'min': 0.0, 'max': 0.0}
+    return {
+        'p33': float(np.percentile(values, percentiles[0])),
+        'p66': float(np.percentile(values, percentiles[1])),
+        'min': float(min(values)),
+        'max': float(max(values)),
+    }
+
+
+def assign_difficulty(value: float, thresholds: Dict[str, float]) -> str:
+    """Assign difficulty category based on thresholds."""
+    if value <= thresholds['p33']:
+        return 'easy'
+    elif value <= thresholds['p66']:
+        return 'medium'
+    return 'hard'
 
 # Set up nicer plot style
 plt.style.use('seaborn-v0_8-whitegrid')
@@ -84,22 +167,21 @@ class ModelConfig:
 
 @dataclass
 class EvalConfig:
-    """Configuration for evaluation."""
-    # Reference model (determines difficulty categorization)
+    """Configuration for 1-push evaluation."""
+    # References (multiple oracle runs with different seeds for consistency analysis)
+    references: List[ModelConfig] = field(default_factory=list)
+
+    # Legacy: single reference (for backwards compatibility)
     reference: ModelConfig = None
 
     # Baselines (non-learned)
     baselines: List[ModelConfig] = field(default_factory=list)
 
-    # Learned models
+    # Learned models to compare
     learned: List[ModelConfig] = field(default_factory=list)
 
     # Filtering
     exclude_easy: bool = True
-
-    # Thresholds for difficulty categorization (based on reference success ratio)
-    easy_threshold: float = 0.75
-    hard_threshold: float = 0.25
 
     # Plot settings
     output_dir: str = "./eval_plots"
@@ -108,13 +190,21 @@ class EvalConfig:
     push_cutoff_max: int = 10  # max number of pushes
     push_step: int = 1  # step size for push cutoffs
 
-    # Colors for models (will cycle if more models than colors)
-    # Using a colorblind-friendly palette
+    # ReachableAttachment@K thresholds (None = all ranked primitives)
+    ra_at_k_values: List[Optional[int]] = field(default_factory=lambda: [10, 50, 100, None])
+
+    # Success@B budget values (number of simulation-verified checks)
+    success_at_budget_values: List[int] = field(default_factory=lambda: [5, 10, 20])
+
+    # Success@T time budget values (milliseconds)
+    success_at_time_values: List[float] = field(default_factory=lambda: [1000, 3000, 6000])
+
+    # Colors for models (colorblind-friendly palette)
     model_colors: List[str] = field(default_factory=lambda: [
         '#4C72B0',  # muted blue
         '#DD8452',  # muted orange
-        '#55A868',  # muted green (okay as accent, not with red)
-        '#C44E52',  # muted red (okay as accent, not with green)
+        '#55A868',  # muted green
+        '#C44E52',  # muted red
         '#8172B3',  # muted purple
         '#937860',  # muted brown
         '#DA8BC3',  # muted pink
@@ -129,17 +219,31 @@ class EvalConfig:
 
         config = cls()
 
-        # Parse reference
+        # Parse reference(s) - supports both single and multiple
         if 'reference' in data:
-            ref = data['reference']
-            config.reference = ModelConfig(
-                name=ref.get('name', 'Reference'),
-                dir=ref['dir'],
-                color=ref.get('color'),
-            )
+            ref_data = data['reference']
+            # Check if it's a list (multiple references) or single dict
+            if isinstance(ref_data, list):
+                for ref in ref_data:
+                    config.references.append(ModelConfig(
+                        name=ref.get('name', 'Search'),
+                        dir=ref['dir'],
+                        color=ref.get('color'),
+                    ))
+                # Set first reference as primary (for backwards compatibility)
+                if config.references:
+                    config.reference = config.references[0]
+            else:
+                # Single reference (legacy format)
+                config.reference = ModelConfig(
+                    name=ref_data.get('name', 'Search'),
+                    dir=ref_data['dir'],
+                    color=ref_data.get('color'),
+                )
+                config.references = [config.reference]
 
         # Parse baselines
-        if 'baselines' in data:
+        if 'baselines' in data and data['baselines']:
             for b in data['baselines']:
                 config.baselines.append(ModelConfig(
                     name=b.get('name', 'Baseline'),
@@ -147,8 +251,8 @@ class EvalConfig:
                     color=b.get('color'),
                 ))
 
-        # Parse learned models
-        if 'learned' in data:
+        # Parse learned models (list)
+        if 'learned' in data and data['learned']:
             for m in data['learned']:
                 config.learned.append(ModelConfig(
                     name=m.get('name', 'Learned'),
@@ -156,17 +260,21 @@ class EvalConfig:
                     color=m.get('color'),
                 ))
 
-        # Parse settings
         if 'settings' in data:
             settings = data['settings']
             config.exclude_easy = settings.get('exclude_easy', config.exclude_easy)
-            config.easy_threshold = settings.get('easy_threshold', config.easy_threshold)
-            config.hard_threshold = settings.get('hard_threshold', config.hard_threshold)
             config.output_dir = settings.get('output_dir', config.output_dir)
             config.time_cutoff_max = settings.get('time_cutoff_max', config.time_cutoff_max)
             config.time_step = settings.get('time_step', config.time_step)
             config.push_cutoff_max = settings.get('push_cutoff_max', config.push_cutoff_max)
             config.push_step = settings.get('push_step', config.push_step)
+            # New settings
+            if 'ra_at_k_values' in settings:
+                config.ra_at_k_values = settings['ra_at_k_values']
+            if 'success_at_budget_values' in settings:
+                config.success_at_budget_values = settings['success_at_budget_values']
+            if 'success_at_time_values' in settings:
+                config.success_at_time_values = settings['success_at_time_values']
 
         return config
 
@@ -177,19 +285,49 @@ class EvalConfig:
 
 @dataclass
 class RegionResult:
-    """Results for a single env+region pair."""
+    """Results for a single env+region+object triplet."""
     success: bool = False
     pushes: int = 0
-    solutions: int = 0  # solutions_total_for_neighbour (for ratio/categorization)
-    solutions_found: int = 0  # solutions_found_for_neighbour (for distribution)
+    solutions: int = 0  # solutions_total_for_neighbour
+    solutions_found: int = 0  # solutions_found_for_neighbour
     ratio: float = 0.0
     time_taken: float = 0.0
     failure_reason: str = ""
+    xml_file: str = ""
+    region: str = ""
+    object_id: str = ""
+    chain_depth: int = 1  # Always 1 for 1-push problems
     ml_goals_raw: List[Any] = field(default_factory=list)
     search_solutions: List[Any] = field(default_factory=list)
     # Interaction types
     wall_collision: bool = False
     movable_collisions: int = 0
+    # Explicit phase tracking fields
+    phase_push_counts: Optional[Dict[str, int]] = None  # {"ML-only": X, "primitives": Y}
+    solved_in_phase: str = ""  # "ML-only", "primitives", or ""
+    # ML prediction grounding metrics
+    ml_aligned_count: int = 0  # Number of aligned primitives from ML
+    ml_aligned_reachable_count: int = 0  # Number of those that are reachable
+    # Full data for RA@K computation
+    aligned_primitives: List[Dict] = field(default_factory=list)  # Each has 'edge_idx', 'votes'
+    reachable_edges: set = field(default_factory=set)  # Set of reachable edge indices
+
+    @property
+    def solved_by_learned(self) -> bool:
+        """Check if solved by learned stage (ML-only phase)."""
+        return self.success and self.solved_in_phase == "ML-only"
+
+    @property
+    def solved_by_fallback(self) -> bool:
+        """Check if solved by fallback stage (primitives phase)."""
+        return self.success and self.solved_in_phase == "primitives"
+
+    @property
+    def ml_aligned_reachable_ratio(self) -> float:
+        """Fraction of aligned ML primitives that are reachable (grounding metric)."""
+        if self.ml_aligned_count == 0:
+            return 0.0
+        return self.ml_aligned_reachable_count / self.ml_aligned_count
 
 
 def load_pickle_data(
@@ -273,6 +411,22 @@ def load_pickle_data(
                 wall_collision = ep.get('any_wall_collision', False)
                 movable_collisions = ep.get('unique_movable_collision_count', 0)
 
+                # Extract phase tracking data
+                phase_push_counts = alg_stats.get('phase_push_counts', None)
+                solved_in_phase = alg_stats.get('solved_in_phase', '')
+
+                # Extract ML grounding data
+                aligned_primitives = alg_stats.get('aligned_primitives', [])
+                reachable_edges = set(alg_stats.get('reachable_edges', []))
+
+                # Compute ml_aligned_count and ml_aligned_reachable_count
+                ml_aligned_count = len(aligned_primitives)
+                ml_aligned_reachable_count = 0
+                for prim in aligned_primitives:
+                    edge_idx = prim.get('edge_idx')
+                    if edge_idx is not None and edge_idx in reachable_edges:
+                        ml_aligned_reachable_count += 1
+
                 result = RegionResult(
                     success=solution_found and pushes > 0,
                     pushes=pushes,
@@ -281,10 +435,20 @@ def load_pickle_data(
                     ratio=solutions / pushes if pushes > 0 else 0.0,
                     time_taken=time_taken,
                     failure_reason=failure_reason,
+                    xml_file=xml_file_name,
+                    region=region_label,
+                    object_id=object_id,
+                    chain_depth=1,  # Always 1 for 1-push problems
                     ml_goals_raw=alg_stats.get('ml_goals_raw', []),
                     search_solutions=ep.get('search_solutions', []),
                     wall_collision=wall_collision,
                     movable_collisions=movable_collisions,
+                    phase_push_counts=phase_push_counts,
+                    solved_in_phase=solved_in_phase,
+                    ml_aligned_count=ml_aligned_count,
+                    ml_aligned_reachable_count=ml_aligned_reachable_count,
+                    aligned_primitives=aligned_primitives,
+                    reachable_edges=reachable_edges,
                 )
 
                 per_env_per_key[xml_file_name][key] = result
@@ -301,7 +465,7 @@ def load_pickle_data(
 # =============================================================================
 
 @dataclass
-class CategoryStats:
+class DifficultyStats:
     """Statistics for a difficulty category."""
     pushes: List[int] = field(default_factory=list)
     times: List[float] = field(default_factory=list)
@@ -312,6 +476,9 @@ class CategoryStats:
     # Interaction tracking
     wall_collisions: int = 0  # count of successful runs with wall collisions
     movable_collisions_list: List[int] = field(default_factory=list)  # movable collision counts per success
+    # ML grounding metrics
+    ml_aligned_counts: List[int] = field(default_factory=list)  # Per-instance aligned primitive counts
+    ml_aligned_reachable_counts: List[int] = field(default_factory=list)  # Per-instance reachable counts
 
     @property
     def success_rate(self) -> float:
@@ -372,14 +539,47 @@ class CategoryStats:
             return 0.0
         return sum(1 for c in self.movable_collisions_list if c > 0) / len(self.movable_collisions_list)
 
+    @property
+    def total_ml_aligned(self) -> int:
+        """Total ML-aligned primitives across all instances."""
+        return sum(self.ml_aligned_counts) if self.ml_aligned_counts else 0
+
+    @property
+    def total_ml_aligned_reachable(self) -> int:
+        """Total reachable ML-aligned primitives across all instances."""
+        return sum(self.ml_aligned_reachable_counts) if self.ml_aligned_reachable_counts else 0
+
+    @property
+    def mean_ml_aligned_reachable_ratio(self) -> float:
+        """Mean grounding ratio (fraction of aligned primitives that are reachable)."""
+        if not self.ml_aligned_counts:
+            return 0.0
+        ratios = []
+        for aligned, reachable in zip(self.ml_aligned_counts, self.ml_aligned_reachable_counts):
+            if aligned > 0:
+                ratios.append(reachable / aligned)
+        return float(np.mean(ratios)) if ratios else 0.0
+
+    @property
+    def micro_ml_aligned_reachable_ratio(self) -> float:
+        """Micro-averaged grounding ratio (total reachable / total aligned)."""
+        total = self.total_ml_aligned
+        if total == 0:
+            return 0.0
+        return self.total_ml_aligned_reachable / total
+
+
+# Backwards compatibility alias
+CategoryStats = DifficultyStats
+
 
 @dataclass
 class ModelStats:
-    """Statistics for a model across all categories."""
+    """Statistics for a model across all difficulty categories."""
     name: str
-    easy: CategoryStats = field(default_factory=CategoryStats)
-    medium: CategoryStats = field(default_factory=CategoryStats)
-    hard: CategoryStats = field(default_factory=CategoryStats)
+    easy: DifficultyStats = field(default_factory=DifficultyStats)
+    medium: DifficultyStats = field(default_factory=DifficultyStats)
+    hard: DifficultyStats = field(default_factory=DifficultyStats)
     failure_reasons: Dict[str, int] = field(default_factory=dict)
 
     def get_category(self, name: str) -> CategoryStats:
@@ -401,51 +601,69 @@ class ModelStats:
 def compute_stats(
     model_data: Dict[str, Dict[str, RegionResult]],
     search_data: Dict[str, Dict[str, RegionResult]],
-    config: EvalConfig,
     model_name: str,
     failure_reasons: Optional[Dict[str, int]] = None,
+    difficulty_mapping: Optional[Dict[Tuple[str, str], str]] = None,
 ) -> ModelStats:
     """
     Compute statistics for a model, categorized by difficulty.
 
-    Difficulty is determined by the search (oracle) success ratio.
+    Args:
+        model_data: Model results by env/key
+        search_data: Reference/search results by env/key
+        model_name: Name for the model
+        failure_reasons: Optional failure reason counts
+        difficulty_mapping: Optional pre-computed difficulty mapping {(env, key): 'easy'|'medium'|'hard'}
+                           If None, difficulty is computed from percentiles of reference pushes.
     """
     stats = ModelStats(name=model_name)
     if failure_reasons:
         stats.failure_reasons = failure_reasons
 
-    # Only consider env+region pairs in both model and search
-    for env in model_data:
-        if env not in search_data:
-            continue
-
-        for region in model_data[env]:
-            if region not in search_data[env]:
+    # Build difficulty mapping if not provided (data-driven percentiles)
+    if difficulty_mapping is None:
+        oracle_pushes = []
+        problem_keys = []
+        for env in search_data:
+            if env not in model_data:
                 continue
+            for key in search_data[env]:
+                if key not in model_data[env]:
+                    continue
+                ref_result = search_data[env][key]
+                if ref_result.success:
+                    oracle_pushes.append(ref_result.pushes)
+                    problem_keys.append((env, key))
 
-            search_result = search_data[env][region]
-            model_result = model_data[env][region]
+        if oracle_pushes:
+            thresholds = compute_percentile_thresholds(oracle_pushes)
+            difficulty_mapping = {}
+            for (env, key), pushes in zip(problem_keys, oracle_pushes):
+                difficulty_mapping[(env, key)] = assign_difficulty(pushes, thresholds)
+        else:
+            difficulty_mapping = {}
 
-            # Determine category based on search ratio
-            if search_result.ratio > config.easy_threshold:
-                category = stats.easy
-            elif search_result.ratio > config.hard_threshold:
-                category = stats.medium
-            else:
-                category = stats.hard
+    # Compute stats using difficulty mapping
+    for env, key, ref_result, model_result in iter_matched_triplets(model_data, search_data):
+        difficulty = difficulty_mapping.get((env, key), 'medium')  # Default to medium
+        category = stats.get_category(difficulty)
 
-            category.total += 1
+        category.total += 1
 
-            if model_result.success:
-                category.successes += 1
-                category.pushes.append(model_result.pushes)
-                category.times.append(model_result.time_taken)
-                category.solutions.append(model_result.solutions)
-                category.solutions_found.append(model_result.solutions_found)
-                # Track interactions
-                if model_result.wall_collision:
-                    category.wall_collisions += 1
-                category.movable_collisions_list.append(model_result.movable_collisions)
+        if model_result.success:
+            category.successes += 1
+            category.pushes.append(model_result.pushes)
+            category.times.append(model_result.time_taken)
+            category.solutions.append(model_result.solutions)
+            category.solutions_found.append(model_result.solutions_found)
+            # Track interactions
+            if model_result.wall_collision:
+                category.wall_collisions += 1
+            category.movable_collisions_list.append(model_result.movable_collisions)
+            # Track ML grounding metrics
+            if model_result.ml_aligned_count > 0:
+                category.ml_aligned_counts.append(model_result.ml_aligned_count)
+                category.ml_aligned_reachable_counts.append(model_result.ml_aligned_reachable_count)
 
     return stats
 
@@ -454,38 +672,49 @@ def compute_time_based_success(
     model_data: Dict[str, Dict[str, RegionResult]],
     search_data: Dict[str, Dict[str, RegionResult]],
     config: EvalConfig,
-) -> Dict[str, Dict[str, List[float]]]:
+    difficulty_mapping: Optional[Dict[Tuple[str, str], str]] = None,
+    learned_only: bool = False,
+) -> Dict[str, Dict[str, Any]]:
     """
     Compute success rate as a function of time cutoff.
 
+    Args:
+        difficulty_mapping: Pre-computed difficulty mapping. If None, uses data-driven percentiles.
+        learned_only: If True, only count successes from ML-only phase (no fallback).
+
     Returns:
-        {category: {'cutoffs': [...], 'rates': [...]}}
+        {category: {'cutoffs': [...], 'rates': [...], 'total': int}}
     """
     cutoffs = np.arange(0, config.time_cutoff_max + config.time_step, config.time_step)
+
+    # Build difficulty mapping if not provided
+    if difficulty_mapping is None:
+        oracle_pushes = []
+        problem_keys = []
+        for env, key, ref_result, _ in iter_matched_triplets(model_data, search_data):
+            oracle_pushes.append(ref_result.pushes)
+            problem_keys.append((env, key))
+
+        if oracle_pushes:
+            thresholds = compute_percentile_thresholds(oracle_pushes)
+            difficulty_mapping = {k: assign_difficulty(p, thresholds)
+                                  for k, p in zip(problem_keys, oracle_pushes)}
+        else:
+            difficulty_mapping = {}
 
     # Collect times by category
     times_by_category: Dict[str, List[float]] = {'easy': [], 'medium': [], 'hard': []}
     totals_by_category: Dict[str, int] = {'easy': 0, 'medium': 0, 'hard': 0}
 
-    for env in model_data:
-        if env not in search_data:
-            continue
-        for region in model_data[env]:
-            if region not in search_data[env]:
-                continue
+    for env, key, ref_result, model_result in iter_matched_triplets(model_data, search_data):
+        cat = difficulty_mapping.get((env, key), 'medium')
+        totals_by_category[cat] += 1
 
-            search_result = search_data[env][region]
-            model_result = model_data[env][region]
-
-            # Determine category
-            if search_result.ratio > config.easy_threshold:
-                cat = 'easy'
-            elif search_result.ratio > config.hard_threshold:
-                cat = 'medium'
-            else:
-                cat = 'hard'
-
-            totals_by_category[cat] += 1
+        # Check success based on learned_only flag
+        if learned_only:
+            if model_result.solved_by_learned:
+                times_by_category[cat].append(model_result.time_taken)
+        else:
             if model_result.success:
                 times_by_category[cat].append(model_result.time_taken)
 
@@ -501,7 +730,7 @@ def compute_time_based_success(
                 rates.append(successes / total)
             else:
                 rates.append(0.0)
-        result[cat] = {'cutoffs': cutoffs.tolist(), 'rates': rates}
+        result[cat] = {'cutoffs': cutoffs.tolist(), 'rates': rates, 'total': total}
 
     return result
 
@@ -510,38 +739,49 @@ def compute_push_based_success(
     model_data: Dict[str, Dict[str, RegionResult]],
     search_data: Dict[str, Dict[str, RegionResult]],
     config: EvalConfig,
-) -> Dict[str, Dict[str, List[float]]]:
+    difficulty_mapping: Optional[Dict[Tuple[str, str], str]] = None,
+    learned_only: bool = False,
+) -> Dict[str, Dict[str, Any]]:
     """
     Compute success rate as a function of push count cutoff.
+
+    Args:
+        difficulty_mapping: Pre-computed difficulty mapping. If None, uses data-driven percentiles.
+        learned_only: If True, only count successes from ML-only phase (no fallback).
 
     Returns:
         {category: {'cutoffs': [...], 'rates': [...], 'total': int}}
     """
     cutoffs = list(range(0, config.push_cutoff_max + 1, config.push_step))
 
+    # Build difficulty mapping if not provided
+    if difficulty_mapping is None:
+        oracle_pushes = []
+        problem_keys = []
+        for env, key, ref_result, _ in iter_matched_triplets(model_data, search_data):
+            oracle_pushes.append(ref_result.pushes)
+            problem_keys.append((env, key))
+
+        if oracle_pushes:
+            thresholds = compute_percentile_thresholds(oracle_pushes)
+            difficulty_mapping = {k: assign_difficulty(p, thresholds)
+                                  for k, p in zip(problem_keys, oracle_pushes)}
+        else:
+            difficulty_mapping = {}
+
     # Collect pushes by category
     pushes_by_category: Dict[str, List[int]] = {'easy': [], 'medium': [], 'hard': []}
     totals_by_category: Dict[str, int] = {'easy': 0, 'medium': 0, 'hard': 0}
 
-    for env in model_data:
-        if env not in search_data:
-            continue
-        for region in model_data[env]:
-            if region not in search_data[env]:
-                continue
+    for env, key, ref_result, model_result in iter_matched_triplets(model_data, search_data):
+        cat = difficulty_mapping.get((env, key), 'medium')
+        totals_by_category[cat] += 1
 
-            search_result = search_data[env][region]
-            model_result = model_data[env][region]
-
-            # Determine category
-            if search_result.ratio > config.easy_threshold:
-                cat = 'easy'
-            elif search_result.ratio > config.hard_threshold:
-                cat = 'medium'
-            else:
-                cat = 'hard'
-
-            totals_by_category[cat] += 1
+        # Check success based on learned_only flag
+        if learned_only:
+            if model_result.solved_by_learned:
+                pushes_by_category[cat].append(model_result.pushes)
+        else:
             if model_result.success:
                 pushes_by_category[cat].append(model_result.pushes)
 
@@ -565,12 +805,11 @@ def compute_push_based_success(
 def compute_collision_success_stats(
     model_data: Dict[str, Dict[str, RegionResult]],
     search_data: Dict[str, Dict[str, RegionResult]],
-    config: EvalConfig,
 ) -> Dict[str, Dict[str, int]]:
     """
     Compute success rates broken down by collision type.
 
-    Collision categories:
+    Collision categories (based on oracle solution):
     - none: No wall or movable collisions
     - wall_only: Wall collision but no movable collisions
     - movable_only: Movable collisions but no wall collision
@@ -586,36 +825,11 @@ def compute_collision_success_stats(
         'both': {'successes': 0, 'total': 0},
     }
 
-    for env in model_data:
-        if env not in search_data:
-            continue
-        for region in model_data[env]:
-            if region not in search_data[env]:
-                continue
-
-            search_result = search_data[env][region]
-            model_result = model_data[env][region]
-
-            # Only consider cases where search succeeded (solvable problems)
-            if not search_result.success:
-                continue
-
-            # Determine collision category based on search (oracle) result
-            has_wall = search_result.wall_collision
-            has_movable = search_result.movable_collisions > 0
-
-            if has_wall and has_movable:
-                cat = 'both'
-            elif has_wall:
-                cat = 'wall_only'
-            elif has_movable:
-                cat = 'movable_only'
-            else:
-                cat = 'none'
-
-            stats[cat]['total'] += 1
-            if model_result.success:
-                stats[cat]['successes'] += 1
+    for env, key, ref_result, model_result in iter_matched_triplets(model_data, search_data):
+        cat = get_collision_category(ref_result)
+        stats[cat]['total'] += 1
+        if model_result.success:
+            stats[cat]['successes'] += 1
 
     return stats
 
@@ -637,38 +851,13 @@ def compute_collision_bucket_efficiency(
         'both': {'pushes': [], 'times': [], 'successes': 0, 'total': 0},
     }
 
-    for env in model_data:
-        if env not in search_data:
-            continue
-        for region in model_data[env]:
-            if region not in search_data[env]:
-                continue
-
-            search_result = search_data[env][region]
-            model_result = model_data[env][region]
-
-            # Only consider cases where search succeeded (solvable problems)
-            if not search_result.success:
-                continue
-
-            # Determine collision category based on oracle solution
-            has_wall = search_result.wall_collision
-            has_movable = search_result.movable_collisions > 0
-
-            if has_wall and has_movable:
-                cat = 'both'
-            elif has_wall:
-                cat = 'wall_only'
-            elif has_movable:
-                cat = 'movable_only'
-            else:
-                cat = 'none'
-
-            stats[cat]['total'] += 1
-            if model_result.success:
-                stats[cat]['successes'] += 1
-                stats[cat]['pushes'].append(model_result.pushes)
-                stats[cat]['times'].append(model_result.time_taken)
+    for env, key, ref_result, model_result in iter_matched_triplets(model_data, search_data):
+        cat = get_collision_category(ref_result)
+        stats[cat]['total'] += 1
+        if model_result.success:
+            stats[cat]['successes'] += 1
+            stats[cat]['pushes'].append(model_result.pushes)
+            stats[cat]['times'].append(model_result.time_taken)
 
     return stats
 
@@ -676,80 +865,678 @@ def compute_collision_bucket_efficiency(
 def compute_difficulty_stratification(
     model_data: Dict[str, Dict[str, RegionResult]],
     search_data: Dict[str, Dict[str, RegionResult]],
+    difficulty_mapping: Optional[Dict[Tuple[str, str], str]] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """
-    Stratify problems by difficulty based on oracle (search) solution time.
-    Uses 33rd percentile splits: easy (fastest 33%), medium (middle 33%), hard (slowest 33%).
+    Stratify problems by difficulty based on oracle push counts.
+    Uses 33rd percentile splits: easy (fewest pushes 33%), medium (middle 33%), hard (most pushes 33%).
+
+    Args:
+        difficulty_mapping: Pre-computed difficulty mapping. If None, uses data-driven percentiles.
 
     Returns:
         {difficulty: {'pushes': [...], 'times': [...], 'successes': int, 'total': int,
-                      'oracle_time_range': (min, max)}}
+                      'oracle_push_range': (min, max)}}
     """
-    # First, collect oracle times for problems that exist in BOTH datasets (intersection)
-    oracle_times = []
-    problem_keys = []  # (env, region) tuples
+    # Build difficulty mapping if not provided
+    oracle_pushes_list = []
+    problem_keys = []
 
-    for env in search_data:
-        if env not in model_data:
-            continue
-        for region in search_data[env]:
-            if region not in model_data[env]:
-                continue
-            search_result = search_data[env][region]
-            if search_result.success:
-                oracle_times.append(search_result.time_taken)
-                problem_keys.append((env, region))
+    for env, key, ref_result, _ in iter_matched_triplets(model_data, search_data):
+        oracle_pushes_list.append(ref_result.pushes)
+        problem_keys.append((env, key))
 
-    if not oracle_times:
+    if not oracle_pushes_list:
         return {
-            'easy': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_time_range': (0, 0)},
-            'medium': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_time_range': (0, 0)},
-            'hard': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_time_range': (0, 0)},
+            'easy': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_push_range': (0, 0)},
+            'medium': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_push_range': (0, 0)},
+            'hard': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_push_range': (0, 0)},
         }
 
-    # Compute 33rd and 66th percentiles
-    p33 = np.percentile(oracle_times, 33.33)
-    p66 = np.percentile(oracle_times, 66.67)
+    if difficulty_mapping is None:
+        thresholds = compute_percentile_thresholds(oracle_pushes_list)
+        difficulty_mapping = {k: assign_difficulty(p, thresholds)
+                              for k, p in zip(problem_keys, oracle_pushes_list)}
 
     # Initialize stats
     stats = {
-        'easy': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_times': []},
-        'medium': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_times': []},
-        'hard': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_times': []},
+        'easy': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_pushes': []},
+        'medium': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_pushes': []},
+        'hard': {'pushes': [], 'times': [], 'successes': 0, 'total': 0, 'oracle_pushes': []},
     }
 
     # Categorize each problem
-    for (env, region), oracle_time in zip(problem_keys, oracle_times):
-        if oracle_time <= p33:
-            difficulty = 'easy'
-        elif oracle_time <= p66:
-            difficulty = 'medium'
-        else:
-            difficulty = 'hard'
-
+    for (env, key), oracle_pushes in zip(problem_keys, oracle_pushes_list):
+        difficulty = difficulty_mapping.get((env, key), 'medium')
         stats[difficulty]['total'] += 1
-        stats[difficulty]['oracle_times'].append(oracle_time)
+        stats[difficulty]['oracle_pushes'].append(oracle_pushes)
 
         # Check if model solved it
-        model_result = model_data[env][region]
+        model_result = model_data[env][key]
         if model_result.success:
             stats[difficulty]['successes'] += 1
             stats[difficulty]['pushes'].append(model_result.pushes)
             stats[difficulty]['times'].append(model_result.time_taken)
 
-    # Compute oracle time ranges for each difficulty
+    # Compute oracle push ranges for each difficulty
     for diff in stats:
-        if stats[diff]['oracle_times']:
-            stats[diff]['oracle_time_range'] = (
-                min(stats[diff]['oracle_times']) / 1000,  # Convert to seconds
-                max(stats[diff]['oracle_times']) / 1000
+        if stats[diff]['oracle_pushes']:
+            stats[diff]['oracle_push_range'] = (
+                int(min(stats[diff]['oracle_pushes'])),
+                int(max(stats[diff]['oracle_pushes']))
             )
         else:
-            stats[diff]['oracle_time_range'] = (0, 0)
-        # Remove oracle_times list (not needed in output)
-        del stats[diff]['oracle_times']
+            stats[diff]['oracle_push_range'] = (0, 0)
+        # Remove oracle_pushes list (not needed in output)
+        del stats[diff]['oracle_pushes']
 
     return stats
+
+
+# =============================================================================
+# Multi-Reference Consistency Analysis
+# =============================================================================
+
+@dataclass
+class TripletConsistency:
+    """Per-triplet consistency across multiple reference runs."""
+    key: str  # "env::region::object"
+    pushes: List[int]  # Push counts from each reference
+    chain_depths: List[int]  # Chain depths from each reference (always [1, 1, ...] for 1-push)
+    all_successful: bool  # Whether all references solved this
+
+    @property
+    def median_pushes(self) -> float:
+        return float(np.median(self.pushes)) if self.pushes else 0.0
+
+    @property
+    def mean_pushes(self) -> float:
+        return float(np.mean(self.pushes)) if self.pushes else 0.0
+
+    @property
+    def std_pushes(self) -> float:
+        return float(np.std(self.pushes)) if self.pushes else 0.0
+
+    @property
+    def cv_pushes(self) -> float:
+        """Coefficient of variation (std/mean)."""
+        if self.mean_pushes == 0:
+            return 0.0
+        return self.std_pushes / self.mean_pushes
+
+
+@dataclass
+class ConsistencyStats:
+    """Aggregate consistency statistics."""
+    n_triplets: int
+    n_all_successful: int
+    mean_cv_pushes: float
+    threshold_p33: float
+    threshold_p66: float
+    n_easy: int
+    n_medium: int
+    n_hard: int
+
+
+def compute_multi_reference_consistency(
+    reference_data_list: List[Dict[str, Dict[str, RegionResult]]],
+    reference_names: List[str],
+) -> Tuple[Dict[Tuple[str, str], TripletConsistency], Set[Tuple[str, str]]]:
+    """
+    Analyze consistency across multiple oracle runs.
+
+    Returns:
+        consistency_data: {(env, key): TripletConsistency}
+        common_triplets: Set of (env, key) tuples present in all references
+    """
+    # Find common triplets across all references
+    all_keys = []
+    for ref_data in reference_data_list:
+        keys = {(env, key) for env in ref_data for key in ref_data[env]}
+        all_keys.append(keys)
+
+    common_triplets = all_keys[0] if all_keys else set()
+    for keys in all_keys[1:]:
+        common_triplets = common_triplets & keys
+
+    # Build consistency data
+    consistency_data: Dict[Tuple[str, str], TripletConsistency] = {}
+
+    for env, key in common_triplets:
+        pushes = []
+        chain_depths = []
+        all_successful = True
+
+        for ref_data in reference_data_list:
+            result = ref_data[env][key]
+            if result.success:
+                pushes.append(result.pushes)
+                chain_depths.append(result.chain_depth)
+            else:
+                all_successful = False
+
+        consistency_data[(env, key)] = TripletConsistency(
+            key=f"{env}::{key}",
+            pushes=pushes,
+            chain_depths=chain_depths,
+            all_successful=all_successful,
+        )
+
+    return consistency_data, common_triplets
+
+
+def categorize_by_consistency(
+    consistency_data: Dict[Tuple[str, str], TripletConsistency],
+) -> Tuple[Dict[str, List[TripletConsistency]], Dict[str, float]]:
+    """
+    Categorize triplets by difficulty using median pushes from multi-reference analysis.
+
+    Returns:
+        categories: {'easy': [...], 'medium': [...], 'hard': [...]}
+        thresholds: {'p33': float, 'p66': float}
+    """
+    # Filter to triplets where all references succeeded
+    successful = [tc for tc in consistency_data.values() if tc.all_successful]
+
+    if not successful:
+        return {'easy': [], 'medium': [], 'hard': []}, {'p33': 0.0, 'p66': 0.0}
+
+    # Compute thresholds based on median pushes
+    median_pushes = [tc.median_pushes for tc in successful]
+    thresholds = compute_percentile_thresholds(median_pushes)
+
+    categories: Dict[str, List[TripletConsistency]] = {'easy': [], 'medium': [], 'hard': []}
+
+    for tc in successful:
+        difficulty = assign_difficulty(tc.median_pushes, thresholds)
+        categories[difficulty].append(tc)
+
+    return categories, thresholds
+
+
+def build_difficulty_mapping(
+    categories: Dict[str, List[TripletConsistency]],
+) -> Dict[Tuple[str, str], str]:
+    """Build (env, key) -> difficulty mapping from categorized triplets."""
+    mapping = {}
+    for difficulty, triplets in categories.items():
+        for tc in triplets:
+            # Parse the key back to (env, key)
+            parts = tc.key.split("::", 1)
+            if len(parts) == 2:
+                env, key = parts
+                mapping[(env, key)] = difficulty
+    return mapping
+
+
+def compute_consistency_stats(
+    consistency_data: Dict[Tuple[str, str], TripletConsistency],
+    categories: Dict[str, List[TripletConsistency]],
+    thresholds: Dict[str, float],
+    n_references: int,
+) -> ConsistencyStats:
+    """Compute aggregate consistency statistics."""
+    all_successful = [tc for tc in consistency_data.values() if tc.all_successful]
+    cv_values = [tc.cv_pushes for tc in all_successful if tc.mean_pushes > 0]
+
+    return ConsistencyStats(
+        n_triplets=len(consistency_data),
+        n_all_successful=len(all_successful),
+        mean_cv_pushes=float(np.mean(cv_values)) if cv_values else 0.0,
+        threshold_p33=thresholds.get('p33', 0.0),
+        threshold_p66=thresholds.get('p66', 0.0),
+        n_easy=len(categories.get('easy', [])),
+        n_medium=len(categories.get('medium', [])),
+        n_hard=len(categories.get('hard', [])),
+    )
+
+
+def print_consistency_report(
+    stats: ConsistencyStats,
+    categories: Dict[str, List[TripletConsistency]],
+    title: str = "Consistency Analysis",
+):
+    """Print consistency analysis report to stdout."""
+    print(f"\n{'='*60}")
+    print(f"  {title}")
+    print(f"{'='*60}")
+    print(f"  Common triplets: {stats.n_triplets}")
+    print(f"  All successful:  {stats.n_all_successful}")
+    print(f"  Mean CV:         {stats.mean_cv_pushes:.3f}")
+    print(f"\n  Thresholds (data-driven percentiles):")
+    print(f"    Easy:   ≤ {stats.threshold_p33:.0f} pushes")
+    print(f"    Medium: {stats.threshold_p33:.0f} - {stats.threshold_p66:.0f} pushes")
+    print(f"    Hard:   > {stats.threshold_p66:.0f} pushes")
+    print(f"\n  Distribution:")
+    print(f"    Easy:   {stats.n_easy}")
+    print(f"    Medium: {stats.n_medium}")
+    print(f"    Hard:   {stats.n_hard}")
+
+
+# =============================================================================
+# Hybrid Stats (Learned vs Fallback Decomposition)
+# =============================================================================
+
+@dataclass
+class HybridStats:
+    """Statistics for hybrid (learned + fallback) decomposition."""
+    total: int = 0
+    solved_by_learned: int = 0
+    solved_by_fallback: int = 0
+    failed: int = 0
+    learned_pushes: List[int] = field(default_factory=list)
+    learned_times: List[float] = field(default_factory=list)
+    fallback_pushes: List[int] = field(default_factory=list)
+    fallback_times: List[float] = field(default_factory=list)
+    checks_before_fallback: List[int] = field(default_factory=list)
+
+    @property
+    def success_rate(self) -> float:
+        return (self.solved_by_learned + self.solved_by_fallback) / self.total if self.total > 0 else 0.0
+
+    @property
+    def learned_rate(self) -> float:
+        return self.solved_by_learned / self.total if self.total > 0 else 0.0
+
+    @property
+    def fallback_rate(self) -> float:
+        return self.solved_by_fallback / self.total if self.total > 0 else 0.0
+
+    @property
+    def learned_median_pushes(self) -> float:
+        return float(np.median(self.learned_pushes)) if self.learned_pushes else 0.0
+
+    @property
+    def learned_median_time(self) -> float:
+        return float(np.median(self.learned_times)) if self.learned_times else 0.0
+
+    @property
+    def fallback_median_pushes(self) -> float:
+        return float(np.median(self.fallback_pushes)) if self.fallback_pushes else 0.0
+
+    @property
+    def fallback_median_time(self) -> float:
+        return float(np.median(self.fallback_times)) if self.fallback_times else 0.0
+
+    @property
+    def median_checks_before_fallback(self) -> float:
+        return float(np.median(self.checks_before_fallback)) if self.checks_before_fallback else 0.0
+
+    @property
+    def learned_pushes_iqr(self) -> Tuple[float, float]:
+        if not self.learned_pushes:
+            return (0.0, 0.0)
+        return (float(np.percentile(self.learned_pushes, 25)),
+                float(np.percentile(self.learned_pushes, 75)))
+
+    @property
+    def learned_time_iqr(self) -> Tuple[float, float]:
+        if not self.learned_times:
+            return (0.0, 0.0)
+        return (float(np.percentile(self.learned_times, 25)),
+                float(np.percentile(self.learned_times, 75)))
+
+    @property
+    def fallback_pushes_iqr(self) -> Tuple[float, float]:
+        if not self.fallback_pushes:
+            return (0.0, 0.0)
+        return (float(np.percentile(self.fallback_pushes, 25)),
+                float(np.percentile(self.fallback_pushes, 75)))
+
+    @property
+    def fallback_time_iqr(self) -> Tuple[float, float]:
+        if not self.fallback_times:
+            return (0.0, 0.0)
+        return (float(np.percentile(self.fallback_times, 25)),
+                float(np.percentile(self.fallback_times, 75)))
+
+    @property
+    def checks_before_fallback_iqr(self) -> Tuple[float, float]:
+        if not self.checks_before_fallback:
+            return (0.0, 0.0)
+        return (float(np.percentile(self.checks_before_fallback, 25)),
+                float(np.percentile(self.checks_before_fallback, 75)))
+
+
+def compute_hybrid_stats(
+    model_data: Dict[str, Dict[str, RegionResult]],
+    reference_data: Dict[str, Dict[str, RegionResult]],
+) -> HybridStats:
+    """Compute hybrid decomposition statistics."""
+    stats = HybridStats()
+
+    for env, key, ref_result, model_result in iter_matched_triplets(model_data, reference_data):
+        stats.total += 1
+
+        if model_result.solved_by_learned:
+            stats.solved_by_learned += 1
+            stats.learned_pushes.append(model_result.pushes)
+            stats.learned_times.append(model_result.time_taken)
+        elif model_result.solved_by_fallback:
+            stats.solved_by_fallback += 1
+            stats.fallback_pushes.append(model_result.pushes)
+            stats.fallback_times.append(model_result.time_taken)
+            # Track checks before fallback if available
+            if model_result.phase_push_counts:
+                ml_checks = model_result.phase_push_counts.get('ML-only', 0)
+                stats.checks_before_fallback.append(ml_checks)
+        else:
+            stats.failed += 1
+
+    return stats
+
+
+def compute_hybrid_stats_by_difficulty(
+    model_data: Dict[str, Dict[str, RegionResult]],
+    reference_data: Dict[str, Dict[str, RegionResult]],
+    difficulty_mapping: Optional[Dict[Tuple[str, str], str]] = None,
+) -> Dict[str, Dict[str, int]]:
+    """
+    Compute hybrid stats stratified by difficulty.
+
+    Returns:
+        {difficulty: {'total': int, 'learned': int, 'fallback': int, 'failed': int}}
+    """
+    result = {
+        'easy': {'total': 0, 'learned': 0, 'fallback': 0, 'failed': 0},
+        'medium': {'total': 0, 'learned': 0, 'fallback': 0, 'failed': 0},
+        'hard': {'total': 0, 'learned': 0, 'fallback': 0, 'failed': 0},
+    }
+
+    # Build difficulty mapping if not provided
+    if difficulty_mapping is None:
+        oracle_pushes = []
+        problem_keys = []
+        for env, key, ref_result, _ in iter_matched_triplets(model_data, reference_data):
+            oracle_pushes.append(ref_result.pushes)
+            problem_keys.append((env, key))
+        if oracle_pushes:
+            thresholds = compute_percentile_thresholds(oracle_pushes)
+            difficulty_mapping = {k: assign_difficulty(p, thresholds)
+                                  for k, p in zip(problem_keys, oracle_pushes)}
+        else:
+            difficulty_mapping = {}
+
+    for env, key, ref_result, model_result in iter_matched_triplets(model_data, reference_data):
+        difficulty = difficulty_mapping.get((env, key), 'medium')
+        result[difficulty]['total'] += 1
+
+        if model_result.solved_by_learned:
+            result[difficulty]['learned'] += 1
+        elif model_result.solved_by_fallback:
+            result[difficulty]['fallback'] += 1
+        else:
+            result[difficulty]['failed'] += 1
+
+    return result
+
+
+# =============================================================================
+# RA@K Metrics (ReachableAttachment@K)
+# =============================================================================
+
+@dataclass
+class RAatKStats:
+    """ReachableAttachment@K statistics."""
+    k: Optional[int]  # None means all primitives
+    macro: float  # Macro-averaged (mean of per-instance ratios)
+    micro: float  # Micro-averaged (total reachable / total considered)
+    total_reachable: int
+    total_considered: int
+    n_instances: int
+
+
+def compute_ra_at_k_single(
+    aligned_primitives: List[Dict],
+    reachable_edges: Set,
+    k: Optional[int] = None,
+) -> Tuple[int, int]:
+    """
+    Compute reachable count at top-K for a single instance.
+
+    Args:
+        aligned_primitives: List of primitives with 'edge_idx' and 'votes'
+        reachable_edges: Set of reachable edge indices
+        k: Number of top primitives to consider (None = all)
+
+    Returns:
+        (reachable_count, total_count)
+    """
+    if not aligned_primitives:
+        return 0, 0
+
+    # Sort by votes (descending)
+    sorted_prims = sorted(aligned_primitives, key=lambda p: -p.get('votes', 0))
+
+    # Take top-K
+    if k is not None:
+        sorted_prims = sorted_prims[:k]
+
+    reachable = 0
+    for prim in sorted_prims:
+        edge_idx = prim.get('edge_idx')
+        if edge_idx is not None and edge_idx in reachable_edges:
+            reachable += 1
+
+    return reachable, len(sorted_prims)
+
+
+def compute_ra_at_k(
+    model_data: Dict[str, Dict[str, RegionResult]],
+    reference_data: Dict[str, Dict[str, RegionResult]],
+    k: Optional[int] = None,
+) -> RAatKStats:
+    """
+    Compute ReachableAttachment@K across all instances.
+
+    Args:
+        k: Top-K primitives to consider (None = all)
+    """
+    ratios = []
+    total_reachable = 0
+    total_considered = 0
+    n_instances = 0
+
+    for env, key, ref_result, model_result in iter_matched_triplets(model_data, reference_data):
+        if not model_result.aligned_primitives:
+            continue
+
+        reachable, total = compute_ra_at_k_single(
+            model_result.aligned_primitives,
+            model_result.reachable_edges,
+            k=k
+        )
+
+        if total > 0:
+            ratios.append(reachable / total)
+            total_reachable += reachable
+            total_considered += total
+            n_instances += 1
+
+    macro = float(np.mean(ratios)) if ratios else 0.0
+    micro = total_reachable / total_considered if total_considered > 0 else 0.0
+
+    return RAatKStats(
+        k=k,
+        macro=macro,
+        micro=micro,
+        total_reachable=total_reachable,
+        total_considered=total_considered,
+        n_instances=n_instances,
+    )
+
+
+def compute_random_baseline(
+    model_data: Dict[str, Dict[str, RegionResult]],
+    reference_data: Dict[str, Dict[str, RegionResult]],
+) -> float:
+    """Compute random baseline (expected RA if primitives were randomly ordered)."""
+    ratios = []
+
+    for env, key, ref_result, model_result in iter_matched_triplets(model_data, reference_data):
+        if model_result.ml_aligned_count > 0:
+            ratios.append(model_result.ml_aligned_reachable_ratio)
+
+    return float(np.mean(ratios)) if ratios else 0.0
+
+
+# =============================================================================
+# Success@Budget and Success@Time
+# =============================================================================
+
+def _compute_success_at_threshold(
+    model_data: Dict[str, Dict[str, RegionResult]],
+    reference_data: Dict[str, Dict[str, RegionResult]],
+    thresholds: List,
+    metric_getter: Callable[[RegionResult], float],
+) -> Dict[Any, Dict[str, Any]]:
+    """
+    Generic helper to compute success rate at specific thresholds.
+
+    Returns:
+        {threshold: {'successes': int, 'total': int, 'rate': float}}
+    """
+    metrics_list = []
+    total = 0
+
+    for env, key, ref_result, model_result in iter_matched_triplets(model_data, reference_data):
+        total += 1
+        if model_result.success:
+            metrics_list.append(metric_getter(model_result))
+
+    metrics = np.array(metrics_list) if metrics_list else np.array([])
+    result = {}
+
+    for threshold in thresholds:
+        if total > 0:
+            successes = int(np.sum(metrics <= threshold)) if len(metrics) > 0 else 0
+            rate = successes / total
+        else:
+            successes = 0
+            rate = 0.0
+        result[threshold] = {'successes': successes, 'total': total, 'rate': rate}
+
+    return result
+
+
+def compute_success_at_budget(
+    model_data: Dict[str, Dict[str, RegionResult]],
+    reference_data: Dict[str, Dict[str, RegionResult]],
+    budgets: List[int],
+) -> Dict[int, Dict[str, Any]]:
+    """
+    Compute success rate at specific verification budgets (Success@B).
+
+    This is a constant-compute comparison: what success rate does each method
+    achieve when limited to B simulation-verified push evaluations?
+    """
+    return _compute_success_at_threshold(
+        model_data, reference_data, budgets,
+        metric_getter=lambda r: r.pushes
+    )
+
+
+def compute_success_at_time_budget(
+    model_data: Dict[str, Dict[str, RegionResult]],
+    reference_data: Dict[str, Dict[str, RegionResult]],
+    time_budgets: List[float],
+) -> Dict[float, Dict[str, Any]]:
+    """
+    Compute success rate at specific time budgets (Success@T).
+
+    This is a constant-time comparison: what success rate does each method
+    achieve when limited to T milliseconds?
+    """
+    return _compute_success_at_threshold(
+        model_data, reference_data, time_budgets,
+        metric_getter=lambda r: r.time_taken
+    )
+
+
+def _compute_success_at_threshold_by_difficulty(
+    model_data: Dict[str, Dict[str, RegionResult]],
+    reference_data: Dict[str, Dict[str, RegionResult]],
+    thresholds: List,
+    metric_getter: Callable[[RegionResult], float],
+    difficulty_mapping: Optional[Dict[Tuple[str, str], str]] = None,
+) -> Dict[str, Dict[Any, Dict[str, Any]]]:
+    """
+    Generic helper to compute success rate at thresholds, stratified by difficulty.
+
+    Returns:
+        {difficulty: {threshold: {'successes': int, 'total': int, 'rate': float}}}
+    """
+    # Build difficulty mapping if not provided
+    if difficulty_mapping is None:
+        oracle_pushes = []
+        problem_keys = []
+        for env, key, ref_result, _ in iter_matched_triplets(model_data, reference_data):
+            oracle_pushes.append(ref_result.pushes)
+            problem_keys.append((env, key))
+
+        if not oracle_pushes:
+            empty_result = {t: {'successes': 0, 'total': 0, 'rate': 0.0} for t in thresholds}
+            return {'easy': empty_result.copy(), 'medium': empty_result.copy(), 'hard': empty_result.copy()}
+
+        thresh = compute_percentile_thresholds(oracle_pushes)
+        difficulty_mapping = {k: assign_difficulty(p, thresh)
+                              for k, p in zip(problem_keys, oracle_pushes)}
+
+    # Collect metrics by difficulty
+    metrics_by_difficulty: Dict[str, List[float]] = {'easy': [], 'medium': [], 'hard': []}
+    totals_by_difficulty: Dict[str, int] = {'easy': 0, 'medium': 0, 'hard': 0}
+
+    for env, key, ref_result, model_result in iter_matched_triplets(model_data, reference_data):
+        difficulty = difficulty_mapping.get((env, key), 'medium')
+        totals_by_difficulty[difficulty] += 1
+        if model_result.success:
+            metrics_by_difficulty[difficulty].append(metric_getter(model_result))
+
+    # Compute rates for each difficulty and threshold
+    result = {}
+    for diff in ['easy', 'medium', 'hard']:
+        metrics = np.array(metrics_by_difficulty[diff]) if metrics_by_difficulty[diff] else np.array([])
+        total = totals_by_difficulty[diff]
+        result[diff] = {}
+
+        for threshold in thresholds:
+            if total > 0:
+                successes = int(np.sum(metrics <= threshold)) if len(metrics) > 0 else 0
+                rate = successes / total
+            else:
+                successes = 0
+                rate = 0.0
+            result[diff][threshold] = {'successes': successes, 'total': total, 'rate': rate}
+
+    return result
+
+
+def compute_success_at_budget_by_difficulty(
+    model_data: Dict[str, Dict[str, RegionResult]],
+    reference_data: Dict[str, Dict[str, RegionResult]],
+    budgets: List[int],
+    difficulty_mapping: Optional[Dict[Tuple[str, str], str]] = None,
+) -> Dict[str, Dict[int, Dict[str, Any]]]:
+    """Compute success rate at specific verification budgets, stratified by difficulty."""
+    return _compute_success_at_threshold_by_difficulty(
+        model_data, reference_data, budgets,
+        metric_getter=lambda r: r.pushes,
+        difficulty_mapping=difficulty_mapping
+    )
+
+
+def compute_success_at_time_budget_by_difficulty(
+    model_data: Dict[str, Dict[str, RegionResult]],
+    reference_data: Dict[str, Dict[str, RegionResult]],
+    time_budgets: List[float],
+    difficulty_mapping: Optional[Dict[Tuple[str, str], str]] = None,
+) -> Dict[str, Dict[float, Dict[str, Any]]]:
+    """Compute success rate at specific time budgets, stratified by difficulty."""
+    return _compute_success_at_threshold_by_difficulty(
+        model_data, reference_data, time_budgets,
+        metric_getter=lambda r: r.time_taken,
+        difficulty_mapping=difficulty_mapping
+    )
 
 
 # =============================================================================
@@ -1251,13 +2038,28 @@ def generate_markdown_report(
     output_path: str,
     collision_efficiency: Optional[Dict[str, Dict[str, Dict[str, Any]]]] = None,
     difficulty_stratification: Optional[Dict[str, Dict[str, Dict[str, Any]]]] = None,
+    hybrid_stats: Optional[Dict[str, 'HybridStats']] = None,
+    hybrid_stats_by_difficulty: Optional[Dict[str, Dict[str, Dict[str, int]]]] = None,
+    ra_at_k_stats: Optional[Dict[str, Dict[Optional[int], 'RAatKStats']]] = None,
+    random_baselines: Optional[Dict[str, float]] = None,
+    success_at_budget: Optional[Dict[str, Dict[int, Dict[str, Any]]]] = None,
+    success_at_time: Optional[Dict[str, Dict[float, Dict[str, Any]]]] = None,
+    difficulty_thresholds: Optional[Dict[str, float]] = None,
 ):
     """Generate a markdown report with comparison tables."""
     categories = ['easy', 'medium', 'hard']
+    difficulty_labels = {'easy': 'Easy', 'medium': 'Medium', 'hard': 'Hard'}
 
     lines = []
     lines.append("# 1-Push Evaluation Results\n")
     lines.append(f"Generated from evaluation config.\n")
+
+    # Show difficulty thresholds if available
+    if difficulty_thresholds:
+        lines.append(f"Difficulty thresholds (data-driven percentiles): "
+                     f"Easy ≤ {difficulty_thresholds['p33']:.0f} pushes, "
+                     f"Medium ≤ {difficulty_thresholds['p66']:.0f} pushes, "
+                     f"Hard > {difficulty_thresholds['p66']:.0f} pushes\n")
 
     # Dataset overview
     lines.append("## Dataset Overview\n")
@@ -1444,25 +2246,24 @@ def generate_markdown_report(
         lines.append("")
 
     # =========================================================================
-    # DIFFICULTY STRATIFICATION (based on oracle time)
+    # DIFFICULTY STRATIFICATION (based on oracle push counts)
     # =========================================================================
     if difficulty_stratification:
-        lines.append("## Difficulty Stratification (by Oracle Time)\n")
-        lines.append("*Problems split into thirds by oracle solution time: Easy (fastest 33%), Medium (middle 33%), Hard (slowest 33%).*\n")
+        lines.append("## Difficulty Stratification (by Oracle Push Counts)\n")
+        lines.append("*Problems split into thirds by oracle push counts: Easy (fewest 33%), Medium (middle 33%), Hard (most 33%).*\n")
 
         difficulty_levels = ['easy', 'medium', 'hard']
-        difficulty_labels = {'easy': 'Easy', 'medium': 'Medium', 'hard': 'Hard'}
 
-        # Get oracle time ranges from first model (same for all)
+        # Get oracle push ranges from first model (same for all)
         first_model = list(difficulty_stratification.keys())[0]
         range_info = []
         for diff in difficulty_levels:
-            r = difficulty_stratification[first_model][diff]['oracle_time_range']
-            range_info.append(f"**{difficulty_labels[diff]}**: {r[0]:.1f}–{r[1]:.1f}s")
-        lines.append(f"Oracle time ranges: {', '.join(range_info)}\n")
+            r = difficulty_stratification[first_model][diff].get('oracle_push_range', (0, 0))
+            range_info.append(f"**{difficulty_labels[diff]}**: {r[0]}–{r[1]} pushes")
+        lines.append(f"Oracle push ranges: {', '.join(range_info)}\n")
 
         # Success rate table
-        lines.append("### Success Rate by Difficulty (Oracle Time)\n")
+        lines.append("### Success Rate by Difficulty\n")
         diff_header = "| Model |"
         for diff in difficulty_levels:
             diff_header += f" {difficulty_labels[diff]} |"
@@ -1501,6 +2302,132 @@ def generate_markdown_report(
                     med_checks = "-"
                     med_time = "-"
                 lines.append(f"| {name} | {difficulty_labels[diff]} | {n_solved} | {med_checks} | {med_time} |")
+        lines.append("")
+
+    # =========================================================================
+    # HYBRID DECOMPOSITION (Learned vs Fallback)
+    # =========================================================================
+    if hybrid_stats:
+        lines.append("## Hybrid Decomposition (Learned vs Fallback)\n")
+        lines.append("*Phase tracking: solved_in_phase='ML-only' → LEARNED, 'primitives' → FALLBACK*\n")
+
+        lines.append("| Model | Total | Learned | Fallback | Failed | Success Rate |")
+        lines.append("|-------|-------|---------|----------|--------|--------------|")
+
+        for name, hs in hybrid_stats.items():
+            if hs.total > 0:
+                lines.append(f"| {name} | {hs.total} | {hs.solved_by_learned} ({hs.learned_rate:.1%}) | "
+                             f"{hs.solved_by_fallback} ({hs.fallback_rate:.1%}) | {hs.failed} | {hs.success_rate:.1%} |")
+        lines.append("")
+
+        # Add by-difficulty breakdown if available
+        if hybrid_stats_by_difficulty:
+            lines.append("### Hybrid Decomposition by Difficulty\n")
+            lines.append("| Model | Difficulty | N | Learned | Fallback | Failed |")
+            lines.append("|-------|------------|---|---------|----------|--------|")
+            for name in hybrid_stats_by_difficulty:
+                for diff in categories:
+                    stats = hybrid_stats_by_difficulty[name].get(diff, {})
+                    n = stats.get('total', 0)
+                    if n > 0:
+                        learned = stats.get('learned', 0)
+                        fallback = stats.get('fallback', 0)
+                        failed = stats.get('failed', 0)
+                        learned_pct = learned / n * 100
+                        fallback_pct = fallback / n * 100
+                        failed_pct = failed / n * 100
+                        lines.append(f"| {name} | {diff.capitalize()} | {n} | {learned_pct:.1f}% ({learned}) | {fallback_pct:.1f}% ({fallback}) | {failed_pct:.1f}% ({failed}) |")
+            lines.append("")
+
+    # =========================================================================
+    # RA@K METRICS
+    # =========================================================================
+    if ra_at_k_stats:
+        lines.append("## Reachable Attachment @ K (RA@K)\n")
+        lines.append("*Fraction of top-K ML-ranked primitives with reachable push attachments.*\n")
+
+        # Build header dynamically based on k values
+        header = "| Model |"
+        for k in config.ra_at_k_values:
+            k_str = f"@{k}" if k is not None else "@All"
+            header += f" RA{k_str} |"
+        header += " Random |"
+        lines.append(header)
+
+        sep = "|-------|"
+        for _ in config.ra_at_k_values:
+            sep += "--------|"
+        sep += "--------|"
+        lines.append(sep)
+
+        for name in ra_at_k_stats:
+            row = f"| {name} |"
+            for k in config.ra_at_k_values:
+                ra = ra_at_k_stats[name][k]
+                if ra.n_instances > 0:
+                    row += f" {ra.macro:.1%} |"
+                else:
+                    row += " - |"
+            if random_baselines and name in random_baselines:
+                row += f" {random_baselines[name]:.1%} |"
+            else:
+                row += " - |"
+            lines.append(row)
+        lines.append("")
+
+    # =========================================================================
+    # SUCCESS @ BUDGET
+    # =========================================================================
+    if success_at_budget:
+        lines.append("## Success @ Budget\n")
+        lines.append("*Success rate at fixed verification budget (constant-compute comparison).*\n")
+
+        header = "| Model |"
+        for b in config.success_at_budget_values:
+            header += f" @{b} |"
+        lines.append(header)
+
+        sep = "|-------|"
+        for _ in config.success_at_budget_values:
+            sep += "--------|"
+        lines.append(sep)
+
+        for name in success_at_budget:
+            row = f"| {name} |"
+            for b in config.success_at_budget_values:
+                stats = success_at_budget[name][b]
+                row += f" {stats['rate']:.1%} |"
+            lines.append(row)
+        lines.append("")
+
+    # =========================================================================
+    # SUCCESS @ TIME
+    # =========================================================================
+    if success_at_time:
+        lines.append("## Success @ Time\n")
+        lines.append("*Success rate at fixed time budget (constant-time comparison).*\n")
+
+        def format_time(t_ms: float) -> str:
+            if t_ms >= 1000:
+                return f"@{t_ms/1000:.0f}s"
+            return f"@{t_ms:.0f}ms"
+
+        header = "| Model |"
+        for t in config.success_at_time_values:
+            header += f" {format_time(t)} |"
+        lines.append(header)
+
+        sep = "|-------|"
+        for _ in config.success_at_time_values:
+            sep += "---------|"
+        lines.append(sep)
+
+        for name in success_at_time:
+            row = f"| {name} |"
+            for t in config.success_at_time_values:
+                stats = success_at_time[name][t]
+                row += f" {stats['rate']:.1%} |"
+            lines.append(row)
         lines.append("")
 
     # Detailed per-model breakdown
@@ -1617,20 +2544,78 @@ def main():
         config.output_dir = args.output_dir
 
     # Validate config
-    if config.reference is None:
+    if config.reference is None and not config.references:
         raise ValueError("Config must specify a 'reference' model for difficulty categorization")
 
     # Create output directory
     Path(config.output_dir).mkdir(parents=True, exist_ok=True)
 
-    # Load reference data (for difficulty categorization only)
-    print(f"Loading reference data: {config.reference.name} (for categorization)...")
-    print(f"  Using triplets (env, region, object) for evaluation granularity")
-    reference_data, _ = load_pickle_data(
-        f"{config.reference.dir}/**/*.pkl",
-        exclude_easy=config.exclude_easy,
-    )
-    print(f"  Loaded {sum(len(v) for v in reference_data.values())} triplets")
+    # Load reference data (single or multiple)
+    reference_data_list = []
+    reference_names = []
+
+    if len(config.references) > 1:
+        # Multiple references: consistency analysis mode
+        print(f"Loading {len(config.references)} references for consistency analysis...")
+        for ref in config.references:
+            print(f"  Loading: {ref.name}...")
+            ref_data, _ = load_pickle_data(
+                f"{ref.dir}/**/*.pkl",
+                exclude_easy=config.exclude_easy,
+            )
+            print(f"    Loaded {sum(len(v) for v in ref_data.values())} triplets")
+            reference_data_list.append(ref_data)
+            reference_names.append(ref.name)
+        # Use first reference as primary
+        reference_data = reference_data_list[0]
+    else:
+        # Single reference (legacy mode)
+        print(f"Loading reference data: {config.reference.name}...")
+        print(f"  Using triplets (env, region, object) for evaluation granularity")
+        reference_data, _ = load_pickle_data(
+            f"{config.reference.dir}/**/*.pkl",
+            exclude_easy=config.exclude_easy,
+        )
+        print(f"  Loaded {sum(len(v) for v in reference_data.values())} triplets")
+        reference_data_list = [reference_data]
+        reference_names = [config.reference.name]
+
+    # Build difficulty mapping (data-driven percentiles)
+    difficulty_mapping: Optional[Dict[Tuple[str, str], str]] = None
+    difficulty_thresholds: Optional[Dict[str, float]] = None
+    consistency_stats: Optional[ConsistencyStats] = None
+
+    if len(reference_data_list) > 1:
+        # Multi-reference consistency analysis
+        print("\nRunning multi-reference consistency analysis...")
+        consistency_data, common_triplets = compute_multi_reference_consistency(
+            reference_data_list, reference_names
+        )
+        categories, thresholds = categorize_by_consistency(consistency_data)
+        difficulty_mapping = build_difficulty_mapping(categories)
+        difficulty_thresholds = thresholds
+        consistency_stats = compute_consistency_stats(
+            consistency_data, categories, thresholds, len(reference_data_list)
+        )
+        print_consistency_report(consistency_stats, categories, "Multi-Reference Consistency")
+    else:
+        # Single reference: compute difficulty from oracle pushes
+        print("\nComputing difficulty categories from oracle push counts...")
+        oracle_pushes = []
+        problem_keys = []
+        for env in reference_data:
+            for key in reference_data[env]:
+                ref_result = reference_data[env][key]
+                if ref_result.success:
+                    oracle_pushes.append(ref_result.pushes)
+                    problem_keys.append((env, key))
+
+        if oracle_pushes:
+            difficulty_thresholds = compute_percentile_thresholds(oracle_pushes)
+            difficulty_mapping = {k: assign_difficulty(p, difficulty_thresholds)
+                                  for k, p in zip(problem_keys, oracle_pushes)}
+            print(f"  Thresholds (data-driven): Easy ≤ {difficulty_thresholds['p33']:.0f}, "
+                  f"Medium ≤ {difficulty_thresholds['p66']:.0f} pushes")
 
     # Load all models (baselines + learned)
     all_model_data: Dict[str, Dict[str, Dict[str, RegionResult]]] = {}
@@ -1689,46 +2674,56 @@ def main():
         print(f"  Lost from reference: {lost} triplets ({pct_lost:.1f}%)")
         print(f"  (These are triplets where oracle succeeded but not all models have matching triplets)")
 
-    # Count by category
+    # Count by category using data-driven difficulty_mapping
     category_counts = {'easy': 0, 'medium': 0, 'hard': 0}
-    for env, region in intersection:
-        if env in reference_data and region in reference_data[env]:
-            ratio = reference_data[env][region].ratio
-            if ratio > config.easy_threshold:
-                category_counts['easy'] += 1
-            elif ratio > config.hard_threshold:
-                category_counts['medium'] += 1
-            else:
-                category_counts['hard'] += 1
-    print(f"  By category: Easy={category_counts['easy']}, Medium={category_counts['medium']}, Hard={category_counts['hard']}")
+    for env, key in intersection:
+        if difficulty_mapping and (env, key) in difficulty_mapping:
+            difficulty = difficulty_mapping[(env, key)]
+            category_counts[difficulty] += 1
+    print(f"  By difficulty: Easy={category_counts['easy']}, Medium={category_counts['medium']}, Hard={category_counts['hard']}")
 
-    # Compute stats for each model (using filtered data)
+    # Compute stats for each model (using filtered data and data-driven difficulty)
     all_stats: List[ModelStats] = []
     time_data = {}
     push_data = {}
+    time_data_learned_only = {}  # For ML-only success tracking
+    push_data_learned_only = {}
 
     for name in filtered_data:
         model_stats = compute_stats(
-            filtered_data[name], reference_data, config,
-            name, all_model_failures.get(name, {})
+            filtered_data[name], reference_data,
+            name, all_model_failures.get(name, {}),
+            difficulty_mapping=difficulty_mapping
         )
         all_stats.append(model_stats)
 
         # Compute time-based success
         time_data[name] = compute_time_based_success(
-            filtered_data[name], reference_data, config
+            filtered_data[name], reference_data, config,
+            difficulty_mapping=difficulty_mapping
         )
 
         # Compute push-based success
         push_data[name] = compute_push_based_success(
-            filtered_data[name], reference_data, config
+            filtered_data[name], reference_data, config,
+            difficulty_mapping=difficulty_mapping
+        )
+
+        # Also compute learned-only versions (if solved_in_phase data is available)
+        time_data_learned_only[name] = compute_time_based_success(
+            filtered_data[name], reference_data, config,
+            difficulty_mapping=difficulty_mapping, learned_only=True
+        )
+        push_data_learned_only[name] = compute_push_based_success(
+            filtered_data[name], reference_data, config,
+            difficulty_mapping=difficulty_mapping, learned_only=True
         )
 
     # Compute collision-based success stats
     collision_stats = {}
     for name in filtered_data:
         collision_stats[name] = compute_collision_success_stats(
-            filtered_data[name], reference_data, config
+            filtered_data[name], reference_data
         )
 
     # Compute collision bucket efficiency
@@ -1738,18 +2733,78 @@ def main():
             filtered_data[name], reference_data
         )
 
-    # Compute difficulty stratification (based on oracle time)
+    # Compute difficulty stratification (based on oracle pushes)
     difficulty_stratification = {}
     for name in filtered_data:
         difficulty_stratification[name] = compute_difficulty_stratification(
-            filtered_data[name], reference_data
+            filtered_data[name], reference_data, difficulty_mapping=difficulty_mapping
         )
 
     # Compute stats for reference (oracle) - for solutions plot
     reference_stats = compute_stats(
-        reference_data, reference_data, config,
-        config.reference.name, {}
+        reference_data, reference_data,
+        config.reference.name, {},
+        difficulty_mapping=difficulty_mapping
     )
+
+    # Compute new metrics: Hybrid stats, RA@K, Success@Budget/Time
+    hybrid_stats = {}
+    hybrid_stats_by_difficulty = {}
+    ra_at_k_stats = {}
+    random_baselines = {}
+    success_at_budget = {}
+    success_at_time = {}
+    success_at_budget_by_diff = {}
+    success_at_time_by_diff = {}
+
+    learned_model_names = [m.name for m in config.learned]
+
+    for name in filtered_data:
+        # Hybrid stats (only meaningful for models with solved_in_phase data)
+        hs = compute_hybrid_stats(filtered_data[name], reference_data)
+        if hs.solved_by_learned > 0 or hs.solved_by_fallback > 0:
+            hybrid_stats[name] = hs
+            hybrid_stats_by_difficulty[name] = compute_hybrid_stats_by_difficulty(
+                filtered_data[name], reference_data, difficulty_mapping=difficulty_mapping
+            )
+
+        # RA@K stats (only for learned models with aligned_primitives data)
+        if name in learned_model_names:
+            # Check if model has aligned_primitives data
+            has_aligned = False
+            for env_data in filtered_data[name].values():
+                for result in env_data.values():
+                    if result.aligned_primitives:
+                        has_aligned = True
+                        break
+                if has_aligned:
+                    break
+
+            if has_aligned:
+                ra_at_k_stats[name] = {}
+                for k in config.ra_at_k_values:
+                    ra_at_k_stats[name][k] = compute_ra_at_k(
+                        filtered_data[name], reference_data, k=k
+                    )
+                random_baselines[name] = compute_random_baseline(
+                    filtered_data[name], reference_data
+                )
+
+        # Success@Budget and Success@Time
+        success_at_budget[name] = compute_success_at_budget(
+            filtered_data[name], reference_data, config.success_at_budget_values
+        )
+        success_at_time[name] = compute_success_at_time_budget(
+            filtered_data[name], reference_data, config.success_at_time_values
+        )
+        success_at_budget_by_diff[name] = compute_success_at_budget_by_difficulty(
+            filtered_data[name], reference_data, config.success_at_budget_values,
+            difficulty_mapping=difficulty_mapping
+        )
+        success_at_time_by_diff[name] = compute_success_at_time_budget_by_difficulty(
+            filtered_data[name], reference_data, config.success_at_time_values,
+            difficulty_mapping=difficulty_mapping
+        )
 
     # Print summary
     print_summary(all_stats)
@@ -1781,19 +2836,19 @@ def main():
 
     # Print difficulty stratification
     print("\n" + "=" * 80)
-    print("DIFFICULTY STRATIFICATION (based on oracle solution time)")
+    print("DIFFICULTY STRATIFICATION (based on oracle push counts)")
     print("=" * 80)
     difficulty_levels = ['easy', 'medium', 'hard']
     difficulty_labels_print = {'easy': 'Easy', 'medium': 'Medium', 'hard': 'Hard'}
 
     if difficulty_stratification:
-        # Print oracle time ranges (same for all models)
+        # Print oracle push ranges (same for all models)
         first_model = list(difficulty_stratification.keys())[0]
-        print("\nOracle Time Ranges:")
+        print("\nOracle Push Ranges:")
         for diff in difficulty_levels:
-            r = difficulty_stratification[first_model][diff]['oracle_time_range']
+            r = difficulty_stratification[first_model][diff]['oracle_push_range']
             n = difficulty_stratification[first_model][diff]['total']
-            print(f"  {difficulty_labels_print[diff]:8s}: {r[0]:6.1f}s – {r[1]:6.1f}s  (N={n})")
+            print(f"  {difficulty_labels_print[diff]:8s}: {r[0]:3d} – {r[1]:3d} pushes  (N={n})")
 
         # Print success rates per model
         for name in difficulty_stratification:
@@ -1802,6 +2857,122 @@ def main():
                 stats = difficulty_stratification[name][diff]
                 rate = stats['successes'] / stats['total'] if stats['total'] > 0 else 0.0
                 print(f"  {difficulty_labels_print[diff]:8s}: {stats['successes']:3d}/{stats['total']:3d} = {rate:.1%}")
+
+    # Print hybrid stats (learned vs fallback decomposition)
+    if hybrid_stats:
+        print("\n" + "=" * 80)
+        print("HYBRID DECOMPOSITION (Learned vs Fallback)")
+        print("=" * 80)
+        print("Phase tracking: solved_in_phase == 'ML-only' → LEARNED, 'primitives' → FALLBACK")
+
+        for name, hs in hybrid_stats.items():
+            if hs.total == 0:
+                continue
+            print(f"\n{name} (n={hs.total}):")
+            print(f"  Solved by LEARNED:  {hs.solved_by_learned:3d} ({hs.learned_rate:.1%})")
+            print(f"  Solved by FALLBACK: {hs.solved_by_fallback:3d} ({hs.fallback_rate:.1%})")
+            print(f"  Failed:             {hs.failed:3d} ({(1-hs.success_rate):.1%})")
+
+            if hs.learned_pushes:
+                l_iqr = hs.learned_pushes_iqr
+                print(f"  Learned pushes:     median={hs.learned_median_pushes:.0f} [{l_iqr[0]:.0f}, {l_iqr[1]:.0f}]")
+            if hs.fallback_pushes:
+                f_iqr = hs.fallback_pushes_iqr
+                print(f"  Fallback pushes:    median={hs.fallback_median_pushes:.0f} [{f_iqr[0]:.0f}, {f_iqr[1]:.0f}]")
+            if hs.checks_before_fallback:
+                bf_iqr = hs.checks_before_fallback_iqr
+                print(f"  Checks before FB:   median={hs.median_checks_before_fallback:.0f} [{bf_iqr[0]:.0f}, {bf_iqr[1]:.0f}]")
+
+        # Print hybrid stats by difficulty
+        if hybrid_stats_by_difficulty:
+            print("\n  By Difficulty:")
+            for name in hybrid_stats_by_difficulty:
+                print(f"\n  {name}:")
+                for diff in difficulty_levels:
+                    stats = hybrid_stats_by_difficulty[name][diff]
+                    n = stats['total']
+                    if n > 0:
+                        learned_pct = stats['learned'] / n * 100
+                        fallback_pct = stats['fallback'] / n * 100
+                        failed_pct = stats['failed'] / n * 100
+                        print(f"    {difficulty_labels_print[diff]:8s} (N={n:2d}): Learned={learned_pct:5.1f}% ({stats['learned']:2d}), "
+                              f"Fallback={fallback_pct:5.1f}% ({stats['fallback']:2d}), Failed={failed_pct:5.1f}% ({stats['failed']:2d})")
+                    else:
+                        print(f"    {difficulty_labels_print[diff]:8s} (N= 0): -")
+
+    # Print RA@K stats (learned models only)
+    if ra_at_k_stats:
+        print("\n" + "=" * 80)
+        print("REACHABLE ATTACHMENT @ K")
+        print("=" * 80)
+        print("Fraction of top-K ML-ranked primitives with reachable push attachments")
+        print("(Higher = ML predictions are better grounded in physical reachability)\n")
+
+        for name in ra_at_k_stats:
+            print(f"{name}:")
+            for k in config.ra_at_k_values:
+                ra = ra_at_k_stats[name][k]
+                k_str = f"@{k}" if k is not None else "@All"
+                if ra.n_instances > 0:
+                    print(f"  RA{k_str:>5}: macro={ra.macro:.1%}, micro={ra.micro:.1%} "
+                          f"({ra.total_reachable}/{ra.total_considered}, n={ra.n_instances})")
+                else:
+                    print(f"  RA{k_str:>5}: no data")
+            if name in random_baselines:
+                print(f"  Random baseline: {random_baselines[name]:.1%}")
+            print()
+
+    # Print Success@Budget
+    if success_at_budget:
+        print("\n" + "=" * 80)
+        print("SUCCESS @ BUDGET")
+        print("=" * 80)
+        print("Success rate at fixed verification budget (constant-compute comparison)")
+        print("Budget = max number of simulation-verified push evaluations\n")
+
+        budget_strs = [f"@{b}" for b in config.success_at_budget_values]
+        header = f"{'Model':<30} | " + " | ".join(f"{s:>8}" for s in budget_strs)
+        print(header)
+        print("-" * len(header))
+
+        for name in success_at_budget:
+            row = f"{name:<30} |"
+            for b in config.success_at_budget_values:
+                stats = success_at_budget[name][b]
+                row += f" {stats['rate']:>7.1%} |"
+            print(row)
+
+        first_model = list(success_at_budget.keys())[0]
+        n_total = success_at_budget[first_model][config.success_at_budget_values[0]]['total']
+        print(f"\n(N={n_total} problems)")
+
+    # Print Success@Time
+    if success_at_time:
+        print("\n" + "=" * 80)
+        print("SUCCESS @ TIME")
+        print("=" * 80)
+        print("Success rate at fixed time budget (constant-time comparison)\n")
+
+        def format_time(t_ms: float) -> str:
+            if t_ms >= 1000:
+                return f"@{t_ms/1000:.0f}s"
+            return f"@{t_ms:.0f}ms"
+
+        time_strs = [format_time(t) for t in config.success_at_time_values]
+        header = f"{'Model':<30} | " + " | ".join(f"{s:>8}" for s in time_strs)
+        print(header)
+        print("-" * len(header))
+
+        for name in success_at_time:
+            row = f"{name:<30} |"
+            for t in config.success_at_time_values:
+                stats = success_at_time[name][t]
+                row += f" {stats['rate']:>7.1%} |"
+            print(row)
+
+        first_model = list(success_at_time.keys())[0]
+        n_total = success_at_time[first_model][config.success_at_time_values[0]]['total']
+        print(f"\n(N={n_total} problems)")
 
     # Generate plots
     print("\nGenerating plots...")
@@ -1867,6 +3038,13 @@ def main():
         f"{config.output_dir}/results.md",
         collision_efficiency=collision_efficiency,
         difficulty_stratification=difficulty_stratification,
+        hybrid_stats=hybrid_stats,
+        hybrid_stats_by_difficulty=hybrid_stats_by_difficulty,
+        ra_at_k_stats=ra_at_k_stats,
+        random_baselines=random_baselines,
+        success_at_budget=success_at_budget,
+        success_at_time=success_at_time,
+        difficulty_thresholds=difficulty_thresholds,
     )
 
     print(f"\nPlots saved to: {config.output_dir}")
