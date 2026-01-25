@@ -8,7 +8,7 @@ Problems requiring exactly 2 sequential push actions to clear a path to the goal
 as determined by an exhaustive oracle search. Evaluates model ability to solve multi-step 
 manipulation problems where object interactions must be planned in sequence.
 
-Total 2-push problems evaluated: **243**
+Total 2-push problems evaluated: **1125**
 
 ## Summary Table
 
@@ -19,8 +19,8 @@ Total 2-push problems evaluated: **243**
 
 | Model | Success % | Checks (median [IQR]) | Time (s) (median [IQR]) |
 |-------|-----------|----------------------|-------------------------|
-| Exhaustive Primitive Search | **100.0%** (243/243) | 219 [85, 1100] | 28.8 [10.1, 136.9] |
-| 2 Push Learned Hybrid Voting 5 | **100.0%** (243/243) | 68 [30, 434] | 7.6 [3.2, 48.6] |
+| Exhaustive Primitive Search | **99.0%** (1114/1125) | 140 [66, 626] | 19.5 [7.6, 71.8] |
+| 2 Push Learned Hybrid Voting 5 | **99.6%** (1121/1125) | 71 [30, 391] | 7.9 [3.1, 38.6] |
 
 ## Success@Budget (Constant-Compute Comparison)
 
@@ -30,8 +30,8 @@ Total 2-push problems evaluated: **243**
 
 | Model |@50 | @100 | @200 |
 |-------|--------|--------|--------|
-| Exhaustive Primitive Search | **12.8%** | **26.7%** | **46.5%** |
-| 2 Push Learned Hybrid Voting 5 | **40.7%** | **58.8%** | **66.3%** |
+| Exhaustive Primitive Search | **19.4%** | **39.7%** | **58.0%** |
+| 2 Push Learned Hybrid Voting 5 | **41.1%** | **56.4%** | **66.8%** |
 
 ## Success@Time (Constant-Time Comparison)
 
@@ -41,8 +41,8 @@ Total 2-push problems evaluated: **243**
 
 | Model |@5s | @10s | @30s |
 |-------|--------|--------|--------|
-| Exhaustive Primitive Search | **9.9%** | **25.1%** | **51.0%** |
-| 2 Push Learned Hybrid Voting 5 | **41.2%** | **56.0%** | **70.4%** |
+| Exhaustive Primitive Search | **17.3%** | **32.8%** | **58.4%** |
+| 2 Push Learned Hybrid Voting 5 | **37.8%** | **54.2%** | **71.1%** |
 
 ## ML Prediction Grounding
 
@@ -53,7 +53,7 @@ Total 2-push problems evaluated: **243**
 | Model | Grounding % | Reachable / Aligned | N samples |
 |-------|-------------|---------------------|-----------|
 | Exhaustive Primitive Search | - | - | 0 |
-| 2 Push Learned Hybrid Voting 5 | **60.4%** | 7819/13282 | 243 |
+| 2 Push Learned Hybrid Voting 5 | **59.9%** | 35741/60403 | 1121 |
 
 ## ReachableAttachment@K
 
@@ -63,16 +63,16 @@ Total 2-push problems evaluated: **243**
 
 | Model |@10 | @50 | @100 | @All |
 |-------|--------|--------|--------|--------|
-| 2 Push Learned Hybrid Voting 5 | **73.3%** | **61.7%** | **60.4%** | **60.4%** |
+| 2 Push Learned Hybrid Voting 5 | **72.4%** | **60.9%** | **59.9%** | **59.9%** |
 
 ### Detailed RA@K Statistics
 
 | Model | K | Macro | Micro | Reachable/Total | N |
 |-------|---|-------|-------|-----------------|---|
-| 2 Push Learned Hybrid Voting 5 | 10 | 73.3% | 73.3% | 1780/2430 | 243 |
-| 2 Push Learned Hybrid Voting 5 | 50 | 61.7% | 61.3% | 6978/11391 | 243 |
-| 2 Push Learned Hybrid Voting 5 | 100 | 60.4% | 58.9% | 7819/13282 | 243 |
-| 2 Push Learned Hybrid Voting 5 | All | 60.4% | 58.9% | 7819/13282 | 243 |
+| 2 Push Learned Hybrid Voting 5 | 10 | 72.4% | 72.4% | 8117/11209 | 1121 |
+| 2 Push Learned Hybrid Voting 5 | 50 | 60.9% | 60.7% | 31505/51869 | 1121 |
+| 2 Push Learned Hybrid Voting 5 | 100 | 59.9% | 59.2% | 35741/60403 | 1121 |
+| 2 Push Learned Hybrid Voting 5 | All | 59.9% | 59.2% | 35741/60403 | 1121 |
 
 ## Hybrid Decomposition
 
@@ -85,7 +85,7 @@ Total 2-push problems evaluated: **243**
 
 | Model | N | Learned | Fallback | Failed |
 |-------|---|---------|----------|--------|
-| 2 Push Learned Hybrid Voting 5 | 243 | 79.0% (192) | 21.0% (51) | 0.0% (0) |
+| 2 Push Learned Hybrid Voting 5 | 1125 | 78.3% (881) | 21.3% (240) | 0.4% (4) |
 
 ### Learned Cases: Efficiency
 
@@ -93,7 +93,7 @@ Total 2-push problems evaluated: **243**
 
 | Model | N | Checks (median [IQR]) | Time (s) (median [IQR]) |
 |-------|---|----------------------|-------------------------|
-| 2 Push Learned Hybrid Voting 5 | 192 | 46 [28, 105] | 4.9 [2.9, 12.4] |
+| 2 Push Learned Hybrid Voting 5 | 881 | 47 [25, 120] | 5.4 [2.6, 13.5] |
 
 ### Fallback Cases: Efficiency
 
@@ -101,7 +101,7 @@ Total 2-push problems evaluated: **243**
 
 | Model | N | Checks (median [IQR]) | Time (s) (median [IQR]) |
 |-------|---|----------------------|-------------------------|
-| 2 Push Learned Hybrid Voting 5 | 51 | 1097 [700, 2086] | 151.3 [55.1, 240.7] |
+| 2 Push Learned Hybrid Voting 5 | 240 | 1120 [588, 2294] | 118.5 [56.1, 244.4] |
 
 ### Outcome by Difficulty
 
@@ -109,9 +109,9 @@ Total 2-push problems evaluated: **243**
 
 | Model | Difficulty | N | Learned | Fallback | Failed |
 |-------|------------|---|---------|----------|--------|
-| 2 Push Learned Hybrid Voting 5 | Easy | 69 | 91.3% (63) | 8.7% (6) | 0.0% (0) |
-| 2 Push Learned Hybrid Voting 5 | Medium | 65 | 84.6% (55) | 15.4% (10) | 0.0% (0) |
-| 2 Push Learned Hybrid Voting 5 | Hard | 81 | 75.3% (61) | 24.7% (20) | 0.0% (0) |
+| 2 Push Learned Hybrid Voting 5 | Easy | 332 | 91.6% (304) | 8.4% (28) | 0.0% (0) |
+| 2 Push Learned Hybrid Voting 5 | Medium | 332 | 81.9% (272) | 18.1% (60) | 0.0% (0) |
+| 2 Push Learned Hybrid Voting 5 | Hard | 342 | 69.9% (239) | 29.8% (102) | 0.3% (1) |
 
 ## Success Rate by Collision Type
 
@@ -122,8 +122,8 @@ Stratifies problems by the type of collisions encountered in the oracle solution
 
 | Model | No Collision | Wall Only | Movable Only | Both |
 |-------|-------------|-------------|-------------|-------------|
-| Exhaustive Primitive Search | 100.0% (4/4) | 100.0% (124/124) | 100.0% (47/47) | 100.0% (81/81) |
-| 2 Push Learned Hybrid Voting 5 | 100.0% (4/4) | 100.0% (124/124) | 100.0% (47/47) | 100.0% (81/81) |
+| Exhaustive Primitive Search | 100.0% (54/54) | 98.9% (533/539) | 99.6% (231/232) | 98.9% (363/367) |
+| 2 Push Learned Hybrid Voting 5 | 100.0% (54/54) | 99.6% (537/539) | 100.0% (232/232) | 99.5% (365/367) |
 
 ### Efficiency by Collision Type (Solved Cases Only)
 
@@ -131,14 +131,14 @@ Stratifies problems by the type of collisions encountered in the oracle solution
 
 | Model | Collision Type | N | Median Checks | Median Time (s) |
 |-------|----------------|---|---------------|-----------------|
-| Exhaustive Primitive Search | No Collision | 4 | 134 | 12.0 |
-| Exhaustive Primitive Search | Wall Only | 124 | 166 | 17.3 |
-| Exhaustive Primitive Search | Movable Only | 47 | 278 | 50.4 |
-| Exhaustive Primitive Search | Both | 81 | 332 | 45.6 |
-| 2 Push Learned Hybrid Voting 5 | No Collision | 4 | 56 | 6.3 |
-| 2 Push Learned Hybrid Voting 5 | Wall Only | 124 | 51 | 4.7 |
-| 2 Push Learned Hybrid Voting 5 | Movable Only | 47 | 64 | 8.1 |
-| 2 Push Learned Hybrid Voting 5 | Both | 81 | 119 | 12.5 |
+| Exhaustive Primitive Search | No Collision | 54 | 60 | 7.8 |
+| Exhaustive Primitive Search | Wall Only | 533 | 114 | 13.5 |
+| Exhaustive Primitive Search | Movable Only | 231 | 141 | 24.4 |
+| Exhaustive Primitive Search | Both | 363 | 192 | 30.6 |
+| 2 Push Learned Hybrid Voting 5 | No Collision | 54 | 22 | 2.4 |
+| 2 Push Learned Hybrid Voting 5 | Wall Only | 537 | 56 | 5.7 |
+| 2 Push Learned Hybrid Voting 5 | Movable Only | 232 | 62 | 7.8 |
+| 2 Push Learned Hybrid Voting 5 | Both | 365 | 124 | 14.4 |
 
 ## Difficulty Stratification (by Oracle Pushes)
 
@@ -148,14 +148,14 @@ Enables analysis of model performance across different difficulty levels.
 
 *Problems split into thirds by oracle pushes: Easy (fewest 33%), Medium (middle 33%), Hard (most 33%).*
 
-Oracle push ranges: **Easy**: 11–421 pushes, **Medium**: 45–2371 pushes, **Hard**: 95–14496 pushes
+Oracle push ranges: **Easy**: 5–597 pushes, **Medium**: 45–3234 pushes, **Hard**: 68–30179 pushes
 
 ### Success Rate by Difficulty
 
 | Model | Easy | Medium | Hard |
 |-------|------------|------------|------------|
-| Exhaustive Primitive Search | 100.0% (69/69) | 100.0% (65/65) | 100.0% (81/81) |
-| 2 Push Learned Hybrid Voting 5 | 100.0% (69/69) | 100.0% (65/65) | 100.0% (81/81) |
+| Exhaustive Primitive Search | 100.0% (332/332) | 99.7% (331/332) | 98.5% (337/342) |
+| 2 Push Learned Hybrid Voting 5 | 100.0% (332/332) | 100.0% (332/332) | 99.7% (341/342) |
 
 ### Efficiency by Difficulty (Solved Cases Only)
 
@@ -163,12 +163,12 @@ Oracle push ranges: **Easy**: 11–421 pushes, **Medium**: 45–2371 pushes, **H
 
 | Model | Difficulty | N | Median Checks | Median Time (s) |
 |-------|------------|---|---------------|-----------------|
-| Exhaustive Primitive Search | Easy | 69 | 74 | 8.0 |
-| Exhaustive Primitive Search | Medium | 65 | 168 | 19.7 |
-| Exhaustive Primitive Search | Hard | 81 | 1124 | 151.2 |
-| 2 Push Learned Hybrid Voting 5 | Easy | 69 | 30 | 3.0 |
-| 2 Push Learned Hybrid Voting 5 | Medium | 65 | 71 | 8.1 |
-| 2 Push Learned Hybrid Voting 5 | Hard | 81 | 214 | 22.7 |
+| Exhaustive Primitive Search | Easy | 332 | 62 | 7.1 |
+| Exhaustive Primitive Search | Medium | 331 | 137 | 19.7 |
+| Exhaustive Primitive Search | Hard | 337 | 569 | 66.8 |
+| 2 Push Learned Hybrid Voting 5 | Easy | 332 | 27 | 2.7 |
+| 2 Push Learned Hybrid Voting 5 | Medium | 332 | 82 | 9.6 |
+| 2 Push Learned Hybrid Voting 5 | Hard | 341 | 260 | 27.2 |
 
 ## Detailed Statistics
 
@@ -179,22 +179,22 @@ and statistical summaries (median, IQR, mean) for checks and time.
 
 | Model | Successes | Total | Success Rate |
 |-------|-----------|-------|--------------|
-| Exhaustive Primitive Search | 243 | 243 | **100.0%** |
-| 2 Push Learned Hybrid Voting 5 | 243 | 243 | **100.0%** |
+| Exhaustive Primitive Search | 1114 | 1125 | **99.0%** |
+| 2 Push Learned Hybrid Voting 5 | 1121 | 1125 | **99.6%** |
 
 ### Checks to Success (Successful Runs Only)
 
 | Model | Median | IQR [25%, 75%] | Mean |
 |-------|--------|----------------|------|
-| Exhaustive Primitive Search | 219 | [85, 1100] | 1132 |
-| 2 Push Learned Hybrid Voting 5 | 68 | [30, 434] | 597 |
+| Exhaustive Primitive Search | 140 | [66, 626] | 586 |
+| 2 Push Learned Hybrid Voting 5 | 71 | [30, 391] | 537 |
 
 ### Time to Success (s) (Successful Runs Only)
 
 | Model | Median | IQR [25%, 75%] | Mean |
 |-------|--------|----------------|------|
-| Exhaustive Primitive Search | 28.8 | [10.1, 136.9] | 143.2 |
-| 2 Push Learned Hybrid Voting 5 | 7.6 | [3.2, 48.6] | 70.2 |
+| Exhaustive Primitive Search | 19.5 | [7.6, 71.8] | 85.0 |
+| 2 Push Learned Hybrid Voting 5 | 7.9 | [3.1, 38.6] | 64.6 |
 
 ## Interaction Statistics (Successful Runs Only)
 
@@ -206,8 +206,8 @@ Measures how often solutions involve object collisions during push execution.
 
 | Model | Wall Collision Rate | Movable Collision Rate |
 |-------|---------------------|------------------------|
-| Exhaustive Primitive Search | 81.5% (198/243) | 48.6% (118/243) |
-| 2 Push Learned Hybrid Voting 5 | 83.5% (203/243) | 47.3% (115/243) |
+| Exhaustive Primitive Search | 76.1% (848/1114) | 51.0% (568/1114) |
+| 2 Push Learned Hybrid Voting 5 | 78.3% (878/1121) | 51.1% (573/1121) |
 
 ## Model Result Breakdown
 
@@ -220,8 +220,8 @@ How each model solved 2-push problems:
 
 | Model | 1-Push | 2-Push | 2+ Push | Failed | Total |
 |-------|--------|--------|---------|--------|-------|
-| Exhaustive Primitive Search | 1 (0%) | 242 (100%) | 0 (0%) | 0 (0%) | 243 |
-| 2 Push Learned Hybrid Voting 5 | 3 (1%) | 240 (99%) | 0 (0%) | 0 (0%) | 243 |
+| Exhaustive Primitive Search | 197 (18%) | 917 (82%) | 0 (0%) | 11 (1%) | 1125 |
+| 2 Push Learned Hybrid Voting 5 | 19 (2%) | 1102 (98%) | 0 (0%) | 4 (0%) | 1125 |
 
 ## Failure Reasons
 
@@ -233,11 +233,12 @@ and search exhausted (all candidates evaluated without finding a solution).
 
 | Reason | Count |
 |--------|-------|
-| success | 266 |
+| success | 1296 |
+| all_pushes_failed | 21 |
 
 ### 2 Push Learned Hybrid Voting 5
 
 | Reason | Count |
 |--------|-------|
-| success | 426 |
-| all_pushes_failed | 3 |
+| success | 1245 |
+| all_pushes_failed | 13 |

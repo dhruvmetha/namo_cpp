@@ -4,23 +4,23 @@ Analyzed **4** oracle runs with different shuffle seeds.
 
 ## All Depths
 
-**1068** common triplets | Mean CV: 0.47
+**1110** common triplets | Mean CV: 0.48
 
 ### Thresholds (data-driven percentiles)
 
 | Difficulty | Median Pushes |
 |------------|---------------|
-| Easy | ≤ 137 |
-| Medium | 137 - 506 |
-| Hard | > 506 |
+| Easy | ≤ 142 |
+| Medium | 142 - 537 |
+| Hard | > 537 |
 
 ### Distribution
 
 | Category | Count | % |
 |----------|------:|--:|
-| Easy | 356 | 33% |
-| Medium | 357 | 33% |
-| Hard | 355 | 33% |
+| Easy | 371 | 33% |
+| Medium | 369 | 33% |
+| Hard | 370 | 33% |
 
 ### Hardest Problems
 
@@ -28,34 +28,34 @@ Analyzed **4** oracle runs with different shuffle seeds.
 |---------|-------:|----:|
 | goal::obstacle_2_movable | 17266 | 2716.4 |
 | region_6::obstacle_4_movable | 13152 | 5587.4 |
+| goal::obstacle_2_movable | 10642 | 1482.3 |
+| goal::obstacle_2_movable | 10642 | 1482.3 |
+| region_4::obstacle_7_movable | 10612 | 3489.2 |
 | region_3::obstacle_7_movable | 10164 | 5084.4 |
+| region_3::obstacle_2_movable | 8965 | 772.4 |
 | region_3::obstacle_2_movable | 8965 | 772.4 |
 | region_3::obstacle_1_movable | 8620 | 4998.1 |
 | region_3::obstacle_1_movable | 8620 | 4998.1 |
-| region_4::obstacle_5_movable | 7788 | 5369.9 |
-| region_5::obstacle_8_movable | 7634 | 2391.2 |
-| region_3::obstacle_5_movable | 7383 | 2576.8 |
-| goal::obstacle_3_movable | 7332 | 1877.0 |
 
 ## 1-Push Problems
 
-**1068** common triplets | Mean CV: 0.47
+**1110** common triplets | Mean CV: 0.48
 
 ### Thresholds (data-driven percentiles)
 
 | Difficulty | Median Pushes |
 |------------|---------------|
-| Easy | ≤ 47 |
-| Medium | 47 - 109 |
+| Easy | ≤ 46 |
+| Medium | 46 - 109 |
 | Hard | > 109 |
 
 ### Distribution
 
 | Category | Count | % |
 |----------|------:|--:|
-| Easy | 25 | 2% |
+| Easy | 26 | 2% |
 | Medium | 26 | 2% |
-| Hard | 25 | 2% |
+| Hard | 26 | 2% |
 
 ### Hardest Problems
 
@@ -68,29 +68,29 @@ Analyzed **4** oracle runs with different shuffle seeds.
 | region_3::obstacle_1_movable | 266 | 176.5 |
 | region_6::obstacle_4_movable | 248 | 279.1 |
 | goal::obstacle_8_movable | 220 | 114.6 |
-| region_3::obstacle_1_movable | 214 | 215.7 |
 | goal::obstacle_1_movable | 214 | 465.0 |
+| region_3::obstacle_1_movable | 214 | 215.7 |
 | goal::obstacle_1_movable | 214 | 465.0 |
 
 ## 2-Push Problems
 
-**1068** common triplets | Mean CV: 0.47
+**1110** common triplets | Mean CV: 0.48
 
 ### Thresholds (data-driven percentiles)
 
 | Difficulty | Median Pushes |
 |------------|---------------|
-| Easy | ≤ 162 |
-| Medium | 162 - 557 |
-| Hard | > 557 |
+| Easy | ≤ 168 |
+| Medium | 168 - 585 |
+| Hard | > 585 |
 
 ### Distribution
 
 | Category | Count | % |
 |----------|------:|--:|
-| Easy | 331 | 31% |
-| Medium | 330 | 31% |
-| Hard | 331 | 31% |
+| Easy | 344 | 31% |
+| Medium | 344 | 31% |
+| Hard | 344 | 31% |
 
 ### Hardest Problems
 
@@ -98,11 +98,11 @@ Analyzed **4** oracle runs with different shuffle seeds.
 |---------|-------:|----:|
 | goal::obstacle_2_movable | 17266 | 2716.4 |
 | region_6::obstacle_4_movable | 13152 | 5587.4 |
+| goal::obstacle_2_movable | 10642 | 1482.3 |
+| goal::obstacle_2_movable | 10642 | 1482.3 |
+| region_4::obstacle_7_movable | 10612 | 3489.2 |
 | region_3::obstacle_7_movable | 10164 | 5084.4 |
+| region_3::obstacle_2_movable | 8965 | 772.4 |
 | region_3::obstacle_2_movable | 8965 | 772.4 |
 | region_3::obstacle_1_movable | 8620 | 4998.1 |
 | region_3::obstacle_1_movable | 8620 | 4998.1 |
-| region_4::obstacle_5_movable | 7788 | 5369.9 |
-| region_5::obstacle_8_movable | 7634 | 2391.2 |
-| region_3::obstacle_5_movable | 7383 | 2576.8 |
-| goal::obstacle_3_movable | 7332 | 1877.0 |
