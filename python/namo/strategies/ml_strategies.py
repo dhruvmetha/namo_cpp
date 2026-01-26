@@ -7,7 +7,7 @@ using trained diffusion models from the learning package.
 import sys
 import os
 import random
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from collections import Counter
 import namo_rl
 from .object_selection_strategy import ObjectSelectionStrategy
@@ -368,17 +368,18 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
             self._goal_model = None
             return False
     
-    def generate_goals(self, 
+    def generate_goals(self,
                       object_id: str,
                       state: namo_rl.RLState,
                       env: namo_rl.RLEnvironment,
-                      max_goals: int) -> List[Goal]:
+                      max_goals: int,
+                      region_goals_sampled: Optional[List[Tuple[float, float, float]]] = None) -> List[Goal]:
         """Generate goals using ML model."""
         # Try ML inference
-        ml_result = self._generate_goals_ml(object_id, state, env, max_goals)
+        ml_result = self._generate_goals_ml(object_id, state, env, max_goals, region_goals_sampled)
         if ml_result:
             return ml_result[:max_goals]  # Ensure we don't exceed max_goals
-        
+
         # If ML fails, return empty list (will cause this action to be skipped)
         if self.verbose:
             print("ML goal generation failed, skipping this object")
@@ -388,7 +389,8 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
                           object_id: str,
                           state: namo_rl.RLState,
                           env: namo_rl.RLEnvironment,
-                          max_goals: int) -> Optional[List[Goal]]:
+                          max_goals: int,
+                          region_goals_sampled: Optional[List[Tuple[float, float, float]]] = None) -> Optional[List[Goal]]:
         """Attempt ML-based goal generation."""
         # Load model if needed
         if not self._load_model():
@@ -418,7 +420,8 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
                 robot_goal=json_message["robot_goal"],
                 selected_object=object_id,
                 samples=self.samples,
-                seed=self.seed
+                seed=self.seed,
+                region_goals_sampled=region_goals_sampled
             )
 
             if self.verbose:
@@ -824,31 +827,32 @@ class EpsilonGreedyGoalStrategy(GoalSelectionStrategy):
         if not (0.0 <= epsilon <= 1.0):
             raise ValueError(f"Epsilon must be between 0.0 and 1.0, got {epsilon}")
     
-    def generate_goals(self, 
+    def generate_goals(self,
                       object_id: str,
                       state: namo_rl.RLState,
                       env: namo_rl.RLEnvironment,
-                      max_goals: int) -> List[Goal]:
+                      max_goals: int,
+                      region_goals_sampled: Optional[List[Tuple[float, float, float]]] = None) -> List[Goal]:
         """Generate goals using epsilon-greedy selection between ML and random."""
         if max_goals <= 0:
             return []
-        
+
         # Generate full sets from both strategies
         ml_goals = []
         random_goals = []
-        
+
         # Try ML strategy first
         try:
-            ml_goals = self.ml_strategy.generate_goals(object_id, state, env, max_goals)
+            ml_goals = self.ml_strategy.generate_goals(object_id, state, env, max_goals, region_goals_sampled)
             if self.verbose:
                 print(f"ML strategy generated {len(ml_goals)} goals for {object_id}")
         except Exception as e:
             if self.verbose:
                 print(f"ML strategy failed for {object_id}: {e}")
-        
+
         # Generate random goals
         try:
-            random_goals = self.random_strategy.generate_goals(object_id, state, env, max_goals)
+            random_goals = self.random_strategy.generate_goals(object_id, state, env, max_goals, region_goals_sampled)
             if self.verbose:
                 print(f"Random strategy generated {len(random_goals)} goals for {object_id}")
         except Exception as e:

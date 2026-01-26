@@ -1176,6 +1176,14 @@ class RegionOpeningPlanner(BasePlanner):
              skill_calls_before_success, success_time). Returns ([], 0) if no solution found.
         """
         print = self._debug
+
+        # Extract region_goals_sampled for the target neighbor (for ML inference mask generation)
+        neighbour_region_goals = None
+        if neighbour_label in region_goals:
+            bundle = region_goals[neighbour_label]
+            if bundle.goals:
+                neighbour_region_goals = [(g.x, g.y, g.theta) for g in bundle.goals]
+
         # Initial frontier for chain depth 1
         root_node = ChainNode(
             state=baseline_state,
@@ -1278,7 +1286,8 @@ class RegionOpeningPlanner(BasePlanner):
                             object_id,
                             node.state,
                             self.env,
-                            max_goals=0
+                            max_goals=0,
+                            region_goals_sampled=neighbour_region_goals
                         )
                         reachable_edge_indices = set(self.env.get_reachable_edges(object_id)) if goals_per_edge else set()
                         node_goals_cache[id(node)] = (goals_per_edge, reachable_edge_indices)
@@ -1944,7 +1953,7 @@ class RegionOpeningPlanner(BasePlanner):
     ) -> Tuple[bool, int, Optional[Tuple[float, float, float]], Optional[List[Tuple[float, float, float]]]]:
         """Validate that opening to neighbour was created using reachability.
 
-        Success criterion: At least half of the region goals must be reachable.
+        Success criterion: At least 1 region goal must be reachable.
 
         Args:
             neighbour_label: Target neighbour region
@@ -1952,7 +1961,7 @@ class RegionOpeningPlanner(BasePlanner):
 
         Returns:
             Tuple of (success, reachable_count, first_reachable_goal, all_region_goals):
-                - success: True if at least half of region goals are reachable
+                - success: True if at least 1 region goal is reachable
                 - reachable_count: Number of reachable goals
                 - first_reachable_goal: First reachable goal found (for validation)
                 - all_region_goals: All goal samples for this region (for visualization)
@@ -1965,7 +1974,6 @@ class RegionOpeningPlanner(BasePlanner):
         if not bundle.goals:
             return False, 0, None, None
 
-        total_goals = len(bundle.goals)
         reachable_count = 0
         first_reachable_goal = None
 

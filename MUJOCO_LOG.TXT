@@ -2005,3 +2005,9 @@ WARNING: Linesearch objective is not convex
 Sun Jan 11 07:20:55 2026
 WARNING: Linesearch objective is not convex
 
+Tue Jan 20 04:10:00 2026
+WARNING: Linesearch objective is not convex
+
+Tue Jan 20 05:29:05 2026
+WARNING: Linesearch objective is not convex
+

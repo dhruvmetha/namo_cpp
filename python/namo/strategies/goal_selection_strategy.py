@@ -8,7 +8,7 @@ search algorithm unchanged.
 import math
 import random
 from abc import ABC, abstractmethod
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from dataclasses import dataclass
 import namo_rl
 
@@ -26,21 +26,25 @@ class Goal:
 
 class GoalSelectionStrategy(ABC):
     """Abstract base class for goal selection strategies."""
-    
+
     @abstractmethod
-    def generate_goals(self, 
+    def generate_goals(self,
                       object_id: str,
                       state: namo_rl.RLState,
                       env: namo_rl.RLEnvironment,
-                      max_goals: int) -> List[Goal]:
+                      max_goals: int,
+                      region_goals_sampled: Optional[List[Tuple[float, float, float]]] = None) -> List[Goal]:
         """Generate goals for the given object in the given state.
-        
+
         Args:
             object_id: ID of object to generate goals for
             state: Current environment state
             env: Environment instance for querying object positions
             max_goals: Maximum number of goals to generate
-            
+            region_goals_sampled: Optional list of (x, y, theta) tuples representing
+                                  goal samples for the target neighbor region.
+                                  Used for computing goal_sample_region mask in ML inference.
+
         Returns:
             List of goals to try for this object (can be fewer than max_goals)
         """
@@ -75,11 +79,12 @@ class RandomGoalStrategy(GoalSelectionStrategy):
         self.theta_min = theta_min
         self.theta_max = theta_max
     
-    def generate_goals(self, 
+    def generate_goals(self,
                       object_id: str,
                       state: namo_rl.RLState,
                       env: namo_rl.RLEnvironment,
-                      max_goals: int) -> List[Goal]:
+                      max_goals: int,
+                      region_goals_sampled: Optional[List[Tuple[float, float, float]]] = None) -> List[Goal]:
         """Generate random goals around object using polar sampling."""
         # Save current environment state to restore later
         original_state = env.get_full_state()
@@ -141,11 +146,12 @@ class AdaptiveGoalStrategy(GoalSelectionStrategy):
         self.max_distance = max_distance
         self.boundary_margin = boundary_margin
     
-    def generate_goals(self, 
+    def generate_goals(self,
                       object_id: str,
                       state: namo_rl.RLState,
                       env: namo_rl.RLEnvironment,
-                      max_goals: int) -> List[Goal]:
+                      max_goals: int,
+                      region_goals_sampled: Optional[List[Tuple[float, float, float]]] = None) -> List[Goal]:
         """Generate adaptive goals based on environment constraints."""
         # Save current environment state to restore later
         original_state = env.get_full_state()
@@ -261,7 +267,8 @@ class DiscretizedGridGoalStrategy(GoalSelectionStrategy):
                       object_id: str,
                       state: namo_rl.RLState,
                       env: namo_rl.RLEnvironment,
-                      max_goals: int) -> List[Goal]:
+                      max_goals: int,
+                      region_goals_sampled: Optional[List[Tuple[float, float, float]]] = None) -> List[Goal]:
         """Generate goals by sampling from discretized grid around object."""
         # Get current object positions from environment
         obs = env.get_observation()

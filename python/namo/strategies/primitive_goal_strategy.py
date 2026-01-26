@@ -12,7 +12,7 @@ import random
 import threading
 from concurrent.futures import ThreadPoolExecutor, Future
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Tuple, Union, Any, TYPE_CHECKING
+from typing import List, Dict, Optional, Tuple, Union, Any, TYPE_CHECKING, Sequence
 from collections import defaultdict
 from abc import ABC
 
@@ -145,7 +145,8 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
                       object_id: str,
                       state: namo_rl.RLState,
                       env: namo_rl.RLEnvironment,
-                      max_goals: int) -> List[List[Goal]]:
+                      max_goals: int,
+                      region_goals_sampled: Optional[List[Tuple[float, float, float]]] = None) -> List[List[Goal]]:
         """Generate primitive-based goals for object.
 
         Args:
@@ -153,6 +154,7 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
             state: Current environment state
             env: Environment instance
             max_goals: Unused (returns all primitives)
+            region_goals_sampled: Unused by primitive strategy
 
         Returns:
             List of 60 goal lists (one per edge point),
@@ -458,13 +460,15 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
         object_id: str,
         state: namo_rl.RLState,
         env: namo_rl.RLEnvironment,
-        max_goals: int
+        max_goals: int,
+        region_goals_sampled: Optional[List[Tuple[float, float, float]]] = None
     ) -> List[List[Goal]]:
         primitive_goals = self._primitive_strategy.generate_goals(
             object_id,
             state,
             env,
-            max_goals
+            max_goals,
+            region_goals_sampled
         )
 
         if not primitive_goals:
@@ -481,7 +485,8 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             object_id,
             state,
             env,
-            ml_goal_budget
+            ml_goal_budget,
+            region_goals_sampled
         )
 
         if self.verbose:
@@ -953,7 +958,8 @@ class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
         object_id: str,
         state: namo_rl.RLState,
         env: namo_rl.RLEnvironment,
-        max_goals: int
+        max_goals: int,
+        region_goals_sampled: Optional[List[Tuple[float, float, float]]] = None
     ) -> List[List[Goal]]:
         """Generate goals with ML prioritization and full primitive fallback.
 
@@ -963,7 +969,7 @@ class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
         """
         # Phase 1: Generate ALL primitives
         primitive_goals = self._primitive_strategy.generate_goals(
-            object_id, state, env, max_goals
+            object_id, state, env, max_goals, region_goals_sampled
         )
 
         if not primitive_goals:
@@ -993,7 +999,7 @@ class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
         # Phase 3: Run ML inference
         ml_goal_budget = max_goals if max_goals > 0 else self._default_ml_samples
         ml_goals = self._ml_strategy.generate_goals(
-            object_id, state, env, ml_goal_budget
+            object_id, state, env, ml_goal_budget, region_goals_sampled
         )
 
         if self.verbose:
@@ -1396,7 +1402,8 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
         object_id: str,
         state: namo_rl.RLState,
         env: namo_rl.RLEnvironment,
-        max_goals: int
+        max_goals: int,
+        region_goals_sampled: Optional[List[Tuple[float, float, float]]] = None
     ) -> AsyncGoalResult:
         """Generate primitives immediately, start ML inference async.
 
@@ -1410,7 +1417,7 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
 
         # Phase 1: Generate ALL primitives (sync, ~1ms)
         primitive_goals = self._primitive_strategy.generate_goals(
-            object_id, state, env, max_goals
+            object_id, state, env, max_goals, region_goals_sampled
         )
 
         if not primitive_goals:
