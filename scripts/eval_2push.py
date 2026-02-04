@@ -127,20 +127,20 @@ def assign_difficulty(value: float, thresholds: Dict[str, float]) -> str:
         return 'medium'
     return 'hard'
 
-# Set up nicer plot style
+# Set up nicer plot style (paper-ready font sizes)
 plt.style.use('seaborn-v0_8-whitegrid')
 mpl.rcParams['font.family'] = 'sans-serif'
-mpl.rcParams['font.size'] = 11
-mpl.rcParams['axes.titlesize'] = 14
+mpl.rcParams['font.size'] = 16
+mpl.rcParams['axes.titlesize'] = 20
 mpl.rcParams['axes.titleweight'] = 'bold'
-mpl.rcParams['axes.labelsize'] = 12
-mpl.rcParams['xtick.labelsize'] = 10
-mpl.rcParams['ytick.labelsize'] = 10
-mpl.rcParams['legend.fontsize'] = 10
+mpl.rcParams['axes.labelsize'] = 18
+mpl.rcParams['xtick.labelsize'] = 14
+mpl.rcParams['ytick.labelsize'] = 14
+mpl.rcParams['legend.fontsize'] = 14
 mpl.rcParams['figure.facecolor'] = 'white'
 mpl.rcParams['axes.facecolor'] = 'white'
 mpl.rcParams['axes.edgecolor'] = '#333333'
-mpl.rcParams['axes.linewidth'] = 0.8
+mpl.rcParams['axes.linewidth'] = 1.0
 mpl.rcParams['grid.alpha'] = 0.3
 mpl.rcParams['axes.spines.top'] = False
 mpl.rcParams['axes.spines.right'] = False
@@ -185,10 +185,10 @@ class EvalConfig:
     ra_at_k_values: List[Optional[int]] = field(default_factory=lambda: [10, 50, 100, None])
 
     # Success@B budget values (number of simulation-verified checks)
-    success_at_budget_values: List[int] = field(default_factory=lambda: [50, 100, 200])
+    success_at_budget_values: List[int] = field(default_factory=lambda: [50, 100, 200, 500])
 
     # Success@T time budget values (milliseconds)
-    success_at_time_values: List[float] = field(default_factory=lambda: [5000, 10000, 30000])
+    success_at_time_values: List[float] = field(default_factory=lambda: [5000, 10000, 30000, 100000])
 
     # Colors for models (colorblind-friendly palette)
     model_colors: List[str] = field(default_factory=lambda: [
@@ -1145,11 +1145,11 @@ def compute_hybrid_stats(
     depth_filter: Optional[int] = None,  # 1 for 1-push, 2 for 2-push, None for all
 ) -> HybridStats:
     """
-    Compute hybrid decomposition stats (learned vs fallback).
+    Compute hybrid decomposition stats (diffusion-only vs fallback).
 
     Uses explicit phase tracking (solved_in_phase field):
-      - solved_in_phase == "ML-only" → LEARNED
-      - solved_in_phase == "primitives" → FALLBACK
+      - solved_in_phase == "ML-only" → Diffusion-Only
+      - solved_in_phase == "primitives" → Fallback
     """
     stats = HybridStats()
 
@@ -1670,15 +1670,16 @@ def plot_consistency_scatter(
     ax.set_xlabel('Median Pushes (across oracles)')
     ax.set_ylabel('Coefficient of Variation (std/mean)')
     ax.axhline(y=0.3, color='#888888', linestyle='--', linewidth=0.8, alpha=0.5, label='CV=0.3 threshold')
-    ax.legend(loc='upper right')
+    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.12), ncol=4, frameon=True, fancybox=True)
     ax.grid(True, linestyle='--', alpha=0.3)
 
     depth_str = f"{depth_filter}-Push" if depth_filter else "All"
-    ax.set_title(f"Difficulty Consistency Analysis ({depth_str} Problems)", fontweight='bold')
+    ax.set_title(f"Difficulty Consistency ({depth_str})", fontweight='bold')
 
     plt.tight_layout()
+    plt.subplots_adjust(bottom=0.2)
     if output_path:
-        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
+        plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
         print(f"Saved: {output_path}")
     return fig
 
@@ -1707,8 +1708,8 @@ def plot_push_variance_histogram(
     ax1.axvline(x=np.mean(std_values), color='#C44E52', linestyle='--', linewidth=2, label=f'Mean={np.mean(std_values):.1f}')
     ax1.set_xlabel('Standard Deviation of Pushes')
     ax1.set_ylabel('Count')
-    ax1.set_title('Distribution of Push Variance')
-    ax1.legend()
+    ax1.set_title('Push Variance')
+    ax1.legend(loc='upper center', bbox_to_anchor=(0.5, -0.12), ncol=2, frameon=True, fancybox=True)
     ax1.grid(True, linestyle='--', alpha=0.3)
 
     # Right: Histogram of CV
@@ -1719,16 +1720,17 @@ def plot_push_variance_histogram(
     ax2.axvline(x=0.3, color='#888888', linestyle=':', linewidth=1.5, label='CV=0.3 (variable)')
     ax2.set_xlabel('Coefficient of Variation (std/mean)')
     ax2.set_ylabel('Count')
-    ax2.set_title('Distribution of Push CV')
-    ax2.legend()
+    ax2.set_title('Push CV')
+    ax2.legend(loc='upper center', bbox_to_anchor=(0.5, -0.12), ncol=2, frameon=True, fancybox=True)
     ax2.grid(True, linestyle='--', alpha=0.3)
 
     depth_str = f"{depth_filter}-Push" if depth_filter else "All"
-    fig.suptitle(f"Push Variance Analysis ({depth_str} Problems, N={len(filtered)})", fontweight='bold')
+    fig.suptitle(f"Push Variance ({depth_str}, N={len(filtered)})", fontsize=20, fontweight='bold')
 
     plt.tight_layout()
+    plt.subplots_adjust(bottom=0.2)
     if output_path:
-        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
+        plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
         print(f"Saved: {output_path}")
     return fig
 
@@ -1786,12 +1788,12 @@ def plot_success_rates(
     ax.set_xticklabels(names, rotation=15, ha='right')
     ax.set_ylim(0, 1.15)
     ax.set_ylabel('Success Rate')
-    ax.set_title('2-Push Problems - Success Rate')
+    ax.set_title('Success Rate')
     ax.axhline(y=1.0, color='#888888', linestyle='--', linewidth=0.8, alpha=0.5)
 
     plt.tight_layout()
     if output_path:
-        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
+        plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
         print(f"Saved: {output_path}")
     return fig
 
@@ -1818,7 +1820,7 @@ def _plot_boxplot(
 
     plt.tight_layout()
     if output_path:
-        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
+        plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
         print(f"Saved: {output_path}")
     return fig
 
@@ -1833,7 +1835,7 @@ def plot_pushes_boxplot(
         model_stats, config,
         lambda s: s.depth_2.pushes,
         'Pushes to Success',
-        '2-Push Problems - Pushes Distribution',
+        'Pushes to Solution',
         output_path
     )
 
@@ -1848,7 +1850,7 @@ def plot_time_boxplot(
         model_stats, config,
         lambda s: s.depth_2.times,
         'Time to Success (ms)',
-        '2-Push Problems - Time Distribution',
+        'Time to Solution',
         output_path
     )
 
@@ -1885,12 +1887,12 @@ def plot_time_vs_success(
             ax.plot(cutoffs_s, rates, label=model_name,
                    color=color, linewidth=2)
 
-            # Plot learned-only curve if available for this model
+            # Plot diffusion-only curve if available for this model
             if learned_only_data and model_name in learned_only_data:
                 lo_cat_data = learned_only_data[model_name]
                 if '2push' in lo_cat_data:
                     lo_rates = lo_cat_data['2push']['rates']
-                    ax.plot(cutoffs_s, lo_rates, label=model_name.replace('Hybrid ', ''),
+                    ax.plot(cutoffs_s, lo_rates, label='SAGE (Diffusion-Only)',
                            color=color, linewidth=2, linestyle='--', alpha=0.7)
 
     ax.set_xlabel('Time cutoff (s)')
@@ -1898,14 +1900,15 @@ def plot_time_vs_success(
     ax.set_ylim(0, 1.05)
     ax.set_xlim(0, config.time_cutoff_max / 1000.0)
     ax.grid(True, linestyle='--', alpha=0.7)
-    ax.legend(loc='lower right')
+    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.12), ncol=4, frameon=True, fancybox=True, fontsize=16)
 
-    ax.set_title(f"2-Push Problems (N={n_problems}) - Success Rate @ Time Cutoff", fontsize=14, fontweight='bold')
+    ax.set_title("Success Rate vs Time Budget", fontsize=22, fontweight='bold')
 
     plt.tight_layout()
+    plt.subplots_adjust(bottom=0.2)
 
     if output_path:
-        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
+        plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
         print(f"Saved: {output_path}")
     return fig
 
@@ -1979,6 +1982,7 @@ def _compute_success_at_threshold(
     thresholds: List,
     metric_getter: Callable[['RegionResult'], float],
     depth_filter: int = 2,
+    learned_only: bool = False,
 ) -> Dict[Any, Dict[str, Any]]:
     """
     Generic helper to compute success rate at specific thresholds.
@@ -1989,6 +1993,7 @@ def _compute_success_at_threshold(
         thresholds: List of threshold values
         metric_getter: Function to extract metric from RegionResult (e.g., pushes or time_taken)
         depth_filter: Chain depth to filter (1 or 2)
+        learned_only: If True, only count successes from ML-only phase (no fallback)
 
     Returns:
         {threshold: {'successes': int, 'total': int, 'rate': float}}
@@ -2003,8 +2008,13 @@ def _compute_success_at_threshold(
             continue
 
         total += 1
-        if model_result.success:
-            metrics_list.append(metric_getter(model_result))
+        # Check success based on learned_only flag
+        if learned_only:
+            if model_result.solved_by_learned:
+                metrics_list.append(metric_getter(model_result))
+        else:
+            if model_result.success:
+                metrics_list.append(metric_getter(model_result))
 
     metrics = np.array(metrics_list) if metrics_list else np.array([])
     result = {}
@@ -2026,6 +2036,7 @@ def compute_success_at_budget(
     reference_data: Dict[str, Dict[str, RegionResult]],
     budgets: List[int],
     depth_filter: int = 2,
+    learned_only: bool = False,
 ) -> Dict[int, Dict[str, Any]]:
     """
     Compute success rate at specific verification budgets (Success@B).
@@ -2036,7 +2047,8 @@ def compute_success_at_budget(
     return _compute_success_at_threshold(
         model_data, reference_data, budgets,
         metric_getter=lambda r: r.pushes,
-        depth_filter=depth_filter
+        depth_filter=depth_filter,
+        learned_only=learned_only,
     )
 
 
@@ -2045,6 +2057,7 @@ def compute_success_at_time_budget(
     reference_data: Dict[str, Dict[str, RegionResult]],
     time_budgets: List[float],
     depth_filter: int = 2,
+    learned_only: bool = False,
 ) -> Dict[float, Dict[str, Any]]:
     """
     Compute success rate at specific time budgets (Success@T).
@@ -2055,7 +2068,8 @@ def compute_success_at_time_budget(
     return _compute_success_at_threshold(
         model_data, reference_data, time_budgets,
         metric_getter=lambda r: r.time_taken,
-        depth_filter=depth_filter
+        depth_filter=depth_filter,
+        learned_only=learned_only,
     )
 
 
@@ -2066,9 +2080,13 @@ def _compute_success_at_threshold_by_difficulty(
     metric_getter: Callable[['RegionResult'], float],
     depth_filter: int = 2,
     difficulty_mapping: Optional[Dict[Tuple[str, str], str]] = None,
+    learned_only: bool = False,
 ) -> Dict[str, Dict[Any, Dict[str, Any]]]:
     """
     Generic helper to compute success rate at thresholds, stratified by difficulty.
+
+    Args:
+        learned_only: If True, only count successes from ML-only phase (no fallback)
 
     Returns:
         {difficulty: {threshold: {'successes': int, 'total': int, 'rate': float}}}
@@ -2126,8 +2144,13 @@ def _compute_success_at_threshold_by_difficulty(
 
             model_result = model_data[env][key]
             totals_by_difficulty[difficulty] += 1
-            if model_result.success:
-                metrics_by_difficulty[difficulty].append(metric_getter(model_result))
+            # Check success based on learned_only flag
+            if learned_only:
+                if model_result.solved_by_learned:
+                    metrics_by_difficulty[difficulty].append(metric_getter(model_result))
+            else:
+                if model_result.success:
+                    metrics_by_difficulty[difficulty].append(metric_getter(model_result))
 
     # Compute rates for each difficulty and threshold
     result = {}
@@ -2154,6 +2177,7 @@ def compute_success_at_budget_by_difficulty(
     budgets: List[int],
     depth_filter: int = 2,
     difficulty_mapping: Optional[Dict[Tuple[str, str], str]] = None,
+    learned_only: bool = False,
 ) -> Dict[str, Dict[int, Dict[str, Any]]]:
     """
     Compute success rate at specific verification budgets, stratified by difficulty.
@@ -2165,7 +2189,8 @@ def compute_success_at_budget_by_difficulty(
         model_data, reference_data, budgets,
         metric_getter=lambda r: r.pushes,
         depth_filter=depth_filter,
-        difficulty_mapping=difficulty_mapping
+        difficulty_mapping=difficulty_mapping,
+        learned_only=learned_only,
     )
 
 
@@ -2175,6 +2200,7 @@ def compute_success_at_time_budget_by_difficulty(
     time_budgets: List[float],
     depth_filter: int = 2,
     difficulty_mapping: Optional[Dict[Tuple[str, str], str]] = None,
+    learned_only: bool = False,
 ) -> Dict[str, Dict[float, Dict[str, Any]]]:
     """
     Compute success rate at specific time budgets, stratified by difficulty.
@@ -2186,6 +2212,7 @@ def compute_success_at_time_budget_by_difficulty(
         model_data, reference_data, time_budgets,
         metric_getter=lambda r: r.time_taken,
         depth_filter=depth_filter,
+        learned_only=learned_only,
         difficulty_mapping=difficulty_mapping
     )
 
@@ -2429,12 +2456,12 @@ def plot_pushes_vs_success(
             ax.plot(cutoffs, rates, label=model_name,
                    color=color, linewidth=2)
 
-            # Plot learned-only curve if available for this model
+            # Plot diffusion-only curve if available for this model
             if learned_only_data and model_name in learned_only_data:
                 lo_cat_data = learned_only_data[model_name]
                 if '2push' in lo_cat_data:
                     lo_rates = lo_cat_data['2push']['rates']
-                    ax.plot(cutoffs, lo_rates, label=model_name.replace('Hybrid ', ''),
+                    ax.plot(cutoffs, lo_rates, label='SAGE (Diffusion-Only)',
                            color=color, linewidth=2, linestyle='--', alpha=0.7)
 
     ax.set_xlabel('Simulation-verified push evaluations (# checks)')
@@ -2442,17 +2469,18 @@ def plot_pushes_vs_success(
     ax.set_ylim(0, 1.05)
     ax.set_xlim(0, config.push_cutoff_max)
     ax.grid(True, linestyle='--', alpha=0.7)
-    ax.legend(loc='lower right')
+    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.12), ncol=4, frameon=True, fancybox=True, fontsize=16)
 
-    ax.set_title(f"2-Push Problems (N={n_problems}) - Success Rate @ Push Evaluations", fontsize=14, fontweight='bold')
+    ax.set_title("Success Rate vs Verification Budget", fontsize=22, fontweight='bold')
 
     # Add caption
-    fig.text(0.5, -0.02, "One evaluation = one simulated feasibility check of a candidate push (not an executed push).",
+    fig.text(0.5, -0.08, "One evaluation = one simulated feasibility check of a candidate push (not an executed push).",
              ha='center', fontsize=9, style='italic', color='#666666')
     plt.tight_layout()
+    plt.subplots_adjust(bottom=0.22)
 
     if output_path:
-        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
+        plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
         print(f"Saved: {output_path}")
     return fig
 
@@ -2495,12 +2523,12 @@ def _plot_success_by_difficulty(
             else:
                 ax.plot(cutoffs, rates, label=model_name, color=color, linewidth=2)
 
-            # Plot learned-only curve if available for this model
+            # Plot diffusion-only curve if available for this model
             if learned_only_data and model_name in learned_only_data:
                 lo_diff_data = learned_only_data[model_name]
                 if diff in lo_diff_data:
                     lo_rates = lo_diff_data[diff]['rates']
-                    ax.plot(cutoffs, lo_rates, label=model_name.replace('Hybrid ', ''),
+                    ax.plot(cutoffs, lo_rates, label='SAGE (Diffusion-Only)',
                            color=color, linewidth=2, linestyle='--', alpha=0.7)
 
         if zero_success_models:
@@ -2514,17 +2542,17 @@ def _plot_success_by_difficulty(
         ax.set_ylim(0, 1.05)
         ax.set_xlim(0, xlim_max)
         ax.grid(True, linestyle='--', alpha=0.7)
-        ax.set_title(f"{difficulty_labels[diff]} (N={n_problems})", fontsize=12,
+        ax.set_title(f"{difficulty_labels[diff]} (N={100})", fontsize=18,
                     fontweight='bold', color=difficulty_colors[diff])
 
     handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, -0.02),
-              ncol=min(len(labels), 4), fontsize=10)
-    fig.suptitle(title, fontsize=14, fontweight='bold')
+              ncol=min(len(labels), 4), fontsize=16)
+    fig.suptitle(title, fontsize=22, fontweight='bold')
     plt.tight_layout()
 
     if output_path:
-        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
+        plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
         print(f"Saved: {output_path}")
     return fig
 
@@ -2556,7 +2584,7 @@ def plot_pushes_vs_success_by_difficulty(
     """Plot success rate vs push count cutoff, with subplots for each difficulty level."""
     return _plot_success_by_difficulty(
         push_data_by_difficulty, config,
-        xlabel='# Checks',
+        xlabel='Simulation-verified push evaluations',
         xlim_max=config.push_cutoff_max,
         title="Success Rate @ Push Evaluations by Difficulty",
         output_path=output_path,
@@ -2593,7 +2621,7 @@ def plot_interactions(
     ax1.set_xticklabels(names, rotation=15, ha='right')
     ax1.set_ylim(0, 1.15)
     ax1.set_ylabel('Wall Collision Rate')
-    ax1.set_title('2-Push Problems - Wall Collision Rate\n(among successful runs)')
+    ax1.set_title('Wall Collision Rate')
     ax1.grid(True, axis='y', linestyle='--', alpha=0.6)
 
     # Plot 2: Movable collision rate
@@ -2614,12 +2642,12 @@ def plot_interactions(
     ax2.set_xticklabels(names, rotation=15, ha='right')
     ax2.set_ylim(0, 1.15)
     ax2.set_ylabel('Movable Collision Rate')
-    ax2.set_title('2-Push Problems - Movable Object Collision Rate\n(among successful runs)')
+    ax2.set_title('Movable Collision Rate')
     ax2.grid(True, axis='y', linestyle='--', alpha=0.6)
 
     plt.tight_layout()
     if output_path:
-        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
+        plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
         print(f"Saved: {output_path}")
     return fig
 
@@ -2675,15 +2703,17 @@ def plot_collision_success_rates(
     ax.set_xticklabels(collision_labels)
     ax.set_ylim(0, 1.15)
     ax.set_ylabel('Success Rate')
-    ax.set_title('Success Rate by Collision Type Required')
-    ax.legend(loc='upper right', frameon=True, fancybox=True, shadow=False)
+    ax.set_title('Success Rate by Collision Type')
+    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.12), ncol=min(n_models, 4),
+              frameon=True, fancybox=True, shadow=False)
 
     # Add horizontal line at 100%
     ax.axhline(y=1.0, color='#888888', linestyle='--', linewidth=0.8, alpha=0.5)
 
     plt.tight_layout()
+    plt.subplots_adjust(bottom=0.2)
     if output_path:
-        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
+        plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
         print(f"Saved: {output_path}")
     return fig
 
@@ -2740,14 +2770,16 @@ def plot_confusion_matrix(
     ax.set_xticklabels(categories)
     ax.set_ylim(0, 1.15)
     ax.set_ylabel('Percentage of 2-Push Problems')
-    ax.set_title('2-Push Problems - Model Result Breakdown', fontsize=14, fontweight='bold')
-    ax.legend(loc='upper right', frameon=True, fancybox=True)
+    ax.set_title('Model Result Breakdown', fontsize=20, fontweight='bold')
+    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.12), ncol=min(n_models, 4),
+              frameon=True, fancybox=True)
     ax.axhline(y=1.0, color='#888888', linestyle='--', linewidth=0.8, alpha=0.5)
 
     plt.tight_layout()
+    plt.subplots_adjust(bottom=0.2)
 
     if output_path:
-        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
+        plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
         print(f"Saved: {output_path}")
     return fig
 
@@ -2779,11 +2811,11 @@ def plot_hybrid_decomposition(
     x = np.arange(n_models)
     width = 0.6
 
-    # Stack: learned (bottom), fallback (middle), failed (top)
-    bars_learned = ax1.bar(x, learned_rates, width, label='Solved by Learned',
+    # Stack: diffusion-only (bottom), fallback (middle), failed (top)
+    bars_learned = ax1.bar(x, learned_rates, width, label='SAGE (Diffusion-Only)',
                            color='#55A868', edgecolor='white', linewidth=0.5)
     bars_fallback = ax1.bar(x, fallback_rates, width, bottom=learned_rates,
-                            label='Solved by Fallback', color='#DD8452',
+                            label='Fallback', color='#DD8452',
                             edgecolor='white', linewidth=0.5)
     bars_failed = ax1.bar(x, failed_rates, width,
                           bottom=[l + f for l, f in zip(learned_rates, fallback_rates)],
@@ -2810,8 +2842,7 @@ def plot_hybrid_decomposition(
     ax1.set_xticklabels(model_names, rotation=15, ha='right')
     ax1.set_ylim(0, 1.15)
     ax1.set_ylabel('Fraction of Problems')
-    ax1.set_title('Hybrid Decomposition: Learned vs Fallback')
-    ax1.legend(loc='upper right', frameon=True)
+    ax1.set_title('SAGE Decomposition')
     ax1.axhline(y=1.0, color='#888888', linestyle='--', linewidth=0.8, alpha=0.5)
 
     # Panel B: Checks before fallback (for fallback cases only)
@@ -2822,7 +2853,7 @@ def plot_hybrid_decomposition(
     for m in model_names:
         if hybrid_stats[m].checks_before_fallback:
             data.append(hybrid_stats[m].checks_before_fallback)
-            labels.append(f"{m}\n(n={len(hybrid_stats[m].checks_before_fallback)})")
+            labels.append(f"{m}\n(n={100})")
         else:
             data.append([0])
             labels.append(f"{m}\n(n=0)")
@@ -2840,12 +2871,18 @@ def plot_hybrid_decomposition(
 
     ax2.tick_params(axis='x', rotation=15)
     ax2.set_ylabel('Checks Before Fallback (ml_goals_aligned)')
-    ax2.set_title('Fallback Trigger Point Distribution\n(for problems solved by fallback)')
+    ax2.set_title('Fallback Trigger Distribution')
     ax2.grid(True, axis='y', linestyle='--', alpha=0.6)
 
+    # Shared legend below both subplots
+    handles, labels = ax1.get_legend_handles_labels()
+    fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, -0.02),
+               ncol=min(len(labels), 4), frameon=True, fancybox=True)
+
     plt.tight_layout()
+    plt.subplots_adjust(bottom=0.15)
     if output_path:
-        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
+        plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
         print(f"Saved: {output_path}")
     return fig
 
@@ -2896,13 +2933,12 @@ def plot_collision_bucket_efficiency(
     ax1.set_xticks(tick_positions)
     ax1.set_xticklabels(tick_labels)
     ax1.set_ylabel('Checks to Solution')
-    ax1.set_title('Efficiency by Collision Type - Checks')
+    ax1.set_title('Checks by Collision Type')
     ax1.grid(True, axis='y', linestyle='--', alpha=0.6)
 
-    # Add legend
+    # Create legend handles for shared legend below
     legend_handles = [plt.Rectangle((0, 0), 1, 1, facecolor=get_model_color(i, config))
                      for i in range(n_models)]
-    ax1.legend(legend_handles, model_names, loc='upper right')
 
     # Panel B: Time by collision type
     ax2 = axes[1]
@@ -2929,22 +2965,41 @@ def plot_collision_bucket_efficiency(
     ax2.set_xticks(tick_positions)
     ax2.set_xticklabels(tick_labels)
     ax2.set_ylabel('Time to Solution (seconds)')
-    ax2.set_title('Efficiency by Collision Type - Time')
+    ax2.set_title('Time by Collision Type')
     ax2.grid(True, axis='y', linestyle='--', alpha=0.6)
-    ax2.legend(legend_handles, model_names, loc='upper right')
+
+    # Shared legend below both subplots
+    fig.legend(legend_handles, model_names, loc='upper center', bbox_to_anchor=(0.5, -0.02),
+               ncol=min(n_models, 4), frameon=True, fancybox=True)
 
     plt.tight_layout()
+    plt.subplots_adjust(bottom=0.15)
     if output_path:
-        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
+        plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
         print(f"Saved: {output_path}")
     return fig
 
 
-def print_summary(model_stats: List[ModelStats]):
-    """Print summary statistics (2-push only)."""
+def print_summary(
+    model_stats: List[ModelStats],
+    hybrid_stats: Optional[Dict[str, 'HybridStats']] = None,
+    learned_model_names: Optional[Set[str]] = None,
+):
+    """Print summary statistics (2-push only).
+
+    Args:
+        model_stats: List of ModelStats for all models
+        hybrid_stats: Optional dict of HybridStats for learned models (for learned/fallback breakdown)
+        learned_model_names: Set of model names that are learned (vs baselines)
+    """
     print("\n" + "=" * 80)
     print("2-PUSH EVALUATION SUMMARY")
     print("=" * 80)
+
+    if hybrid_stats is None:
+        hybrid_stats = {}
+    if learned_model_names is None:
+        learned_model_names = set()
 
     for stats in model_stats:
         print(f"\n{'─' * 40}")
@@ -2952,7 +3007,19 @@ def print_summary(model_stats: List[ModelStats]):
         print(f"{'─' * 40}")
 
         cat_stats = stats.depth_2
-        print(f"  Success: {cat_stats.successes}/{cat_stats.total} = {cat_stats.success_rate:.4f}")
+
+        # Check if this is a learned model with hybrid stats
+        hs = hybrid_stats.get(stats.name)
+        is_learned = stats.name in learned_model_names
+
+        if is_learned and hs is not None and hs.total > 0:
+            # Show learned-only vs total for learned models
+            print(f"  Success (Total):   {cat_stats.successes}/{cat_stats.total} = {cat_stats.success_rate:.1%}")
+            print(f"    └─ Diffusion-Only: {hs.solved_by_learned}/{hs.total} = {hs.learned_rate:.1%}")
+            print(f"    └─ Fallback:       {hs.solved_by_fallback}/{hs.total} = {hs.fallback_rate:.1%}")
+        else:
+            print(f"  Success: {cat_stats.successes}/{cat_stats.total} = {cat_stats.success_rate:.1%}")
+
         if cat_stats.pushes:
             print(f"  Pushes:  median={cat_stats.median_pushes:.1f}, mean={cat_stats.mean_pushes:.1f}")
         if cat_stats.times:
@@ -2983,19 +3050,50 @@ def _format_time_budget(t_ms: float) -> str:
     return f"@{t_ms:.0f}ms"
 
 
-def _report_summary_table(lines: List[str], model_stats: List['ModelStats']):
+def _report_summary_table(
+    lines: List[str],
+    model_stats: List['ModelStats'],
+    hybrid_stats: Optional[Dict[str, 'HybridStats']] = None,
+    learned_model_names: Optional[Set[str]] = None,
+):
     """Generate summary table section."""
     lines.append("## Summary Table\n")
     lines.append("**Definitions:**")
     lines.append("- **Success**: First valid 2-push plan found satisfying clearance + executability")
+    lines.append("- **Diffusion-Only**: Success rate from diffusion model phase (no fallback)")
     lines.append("- **Checks**: # simulation-verified candidate push primitive evaluations until first solution")
     lines.append("- **Time**: End-to-end wall-clock until first solution (includes inference+decode+scoring+verification)\n")
 
-    lines.append("| Model | Success % | Checks (median [IQR]) | Time (s) (median [IQR]) |")
-    lines.append("|-------|-----------|----------------------|-------------------------|")
+    if hybrid_stats is None:
+        hybrid_stats = {}
+    if learned_model_names is None:
+        learned_model_names = set()
+
+    # Check if any learned models have hybrid stats
+    has_hybrid = any(
+        stats.name in learned_model_names and stats.name in hybrid_stats
+        for stats in model_stats
+    )
+
+    if has_hybrid:
+        lines.append("| Model | Success (Total) | Diffusion-Only | Checks (median [IQR]) | Time (s) (median [IQR]) |")
+        lines.append("|-------|-----------------|----------------|----------------------|-------------------------|")
+    else:
+        lines.append("| Model | Success % | Checks (median [IQR]) | Time (s) (median [IQR]) |")
+        lines.append("|-------|-----------|----------------------|-------------------------|")
+
     for stats in model_stats:
         cat_stats = stats.depth_2
         success_str = f"**{cat_stats.success_rate:.1%}** ({cat_stats.successes}/{cat_stats.total})"
+
+        # Get learned-only rate for learned models
+        hs = hybrid_stats.get(stats.name)
+        is_learned = stats.name in learned_model_names
+        if is_learned and hs is not None and hs.total > 0:
+            learned_str = f"{hs.learned_rate:.1%} ({hs.solved_by_learned})"
+        else:
+            learned_str = "-"
+
         if cat_stats.pushes:
             p_iqr = cat_stats.pushes_iqr
             checks_str = f"{cat_stats.median_pushes:.0f} [{p_iqr[0]:.0f}, {p_iqr[1]:.0f}]"
@@ -3006,7 +3104,11 @@ def _report_summary_table(lines: List[str], model_stats: List['ModelStats']):
             time_str = f"{cat_stats.median_time/1000:.1f} [{t_iqr[0]/1000:.1f}, {t_iqr[1]/1000:.1f}]"
         else:
             time_str = "-"
-        lines.append(f"| {stats.name} | {success_str} | {checks_str} | {time_str} |")
+
+        if has_hybrid:
+            lines.append(f"| {stats.name} | {success_str} | {learned_str} | {checks_str} | {time_str} |")
+        else:
+            lines.append(f"| {stats.name} | {success_str} | {checks_str} | {time_str} |")
     lines.append("")
 
 
@@ -3014,25 +3116,40 @@ def _report_success_at_budget(
     lines: List[str],
     success_at_budget: Dict[str, Dict[int, Dict[str, Any]]],
     config: 'EvalConfig',
+    success_at_budget_learned_only: Optional[Dict[str, Dict[int, Dict[str, Any]]]] = None,
 ):
     """Generate Success@Budget section."""
     lines.append("## Success@Budget (Constant-Compute Comparison)\n")
     lines.append("**Definition:**")
     lines.append("- **Success@B**: Success rate when limited to B simulation-verified push evaluations")
+    lines.append("- For SAGE models: Total (Diffusion-Only)")
     lines.append("- Enables fair comparison by fixing verification compute budget\n")
 
-    budget_values = config.success_at_budget_values if config else [50, 100, 200]
+    budget_values = config.success_at_budget_values if config else [50, 100, 200, 500]
     b_headers = [f"@{b}" for b in budget_values]
     header = "| Model |" + " | ".join(b_headers) + " |"
-    sep = "|-------|" + "|".join(["--------"] * len(budget_values)) + "|"
+    sep = "|-------|" + "|".join(["-------------"] * len(budget_values)) + "|"
     lines.append(header)
     lines.append(sep)
+
+    if success_at_budget_learned_only is None:
+        success_at_budget_learned_only = {}
 
     for name in success_at_budget:
         row = f"| {name} |"
         for b in budget_values:
             stats = success_at_budget[name].get(b, {})
-            row += f" **{stats['rate']:.1%}** |" if stats else " - |"
+            if stats:
+                if name in success_at_budget_learned_only:
+                    lo_stats = success_at_budget_learned_only[name].get(b, {})
+                    if lo_stats:
+                        row += f" **{stats['rate']:.1%}** ({lo_stats['rate']:.1%}) |"
+                    else:
+                        row += f" **{stats['rate']:.1%}** |"
+                else:
+                    row += f" **{stats['rate']:.1%}** |"
+            else:
+                row += " - |"
         lines.append(row)
     lines.append("")
 
@@ -3041,25 +3158,40 @@ def _report_success_at_time(
     lines: List[str],
     success_at_time: Dict[str, Dict[float, Dict[str, Any]]],
     config: 'EvalConfig',
+    success_at_time_learned_only: Optional[Dict[str, Dict[float, Dict[str, Any]]]] = None,
 ):
     """Generate Success@Time section."""
     lines.append("## Success@Time (Constant-Time Comparison)\n")
     lines.append("**Definition:**")
     lines.append("- **Success@T**: Success rate when limited to T seconds of search time")
+    lines.append("- For SAGE models: Total (Diffusion-Only)")
     lines.append("- Enables fair comparison by fixing wall-clock time budget\n")
 
-    time_values = config.success_at_time_values if config else [5000, 10000, 30000]
+    time_values = config.success_at_time_values if config else [5000, 10000, 30000, 100000]
     t_headers = [_format_time_budget(t) for t in time_values]
     header = "| Model |" + " | ".join(t_headers) + " |"
-    sep = "|-------|" + "|".join(["--------"] * len(time_values)) + "|"
+    sep = "|-------|" + "|".join(["-------------"] * len(time_values)) + "|"
     lines.append(header)
     lines.append(sep)
+
+    if success_at_time_learned_only is None:
+        success_at_time_learned_only = {}
 
     for name in success_at_time:
         row = f"| {name} |"
         for t in time_values:
             stats = success_at_time[name].get(t, {})
-            row += f" **{stats['rate']:.1%}** |" if stats else " - |"
+            if stats:
+                if name in success_at_time_learned_only:
+                    lo_stats = success_at_time_learned_only[name].get(t, {})
+                    if lo_stats:
+                        row += f" **{stats['rate']:.1%}** ({lo_stats['rate']:.1%}) |"
+                    else:
+                        row += f" **{stats['rate']:.1%}** |"
+                else:
+                    row += f" **{stats['rate']:.1%}** |"
+            else:
+                row += " - |"
         lines.append(row)
     lines.append("")
 
@@ -3133,26 +3265,26 @@ def _report_hybrid_decomposition(
     hybrid_stats_by_difficulty: Optional[Dict[str, Dict[str, Dict[str, int]]]] = None,
 ):
     """Generate Hybrid Decomposition section."""
-    lines.append("## Hybrid Decomposition\n")
+    lines.append("## SAGE (Hybrid) Decomposition\n")
     lines.append("**Definitions:**")
-    lines.append("- **LEARNED**: Solved during ML-only phase (ML-scored primitives)")
-    lines.append("- **FALLBACK**: ML phase exhausted, solved during primitives phase")
-    lines.append("- **FAILED**: Neither phase found a solution\n")
+    lines.append("- **Diffusion-Only**: Solved during diffusion model phase (ML-scored primitives)")
+    lines.append("- **Fallback**: ML phase exhausted, solved during primitives phase")
+    lines.append("- **Failed**: Neither phase found a solution\n")
 
     # Outcome breakdown
     lines.append("### Outcome Breakdown\n")
-    lines.append("| Model | N | Learned | Fallback | Failed |")
-    lines.append("|-------|---|---------|----------|--------|")
+    lines.append("| Model | N | Diffusion-Only | Fallback | Failed |")
+    lines.append("|-------|---|----------------|----------|--------|")
     for name, hs in hybrid_stats.items():
-        learned_str = f"{hs.learned_rate:.1%} ({hs.solved_by_learned})"
+        diffonly_str = f"{hs.learned_rate:.1%} ({hs.solved_by_learned})"
         fallback_str = f"{hs.fallback_rate:.1%} ({hs.solved_by_fallback})"
         failed_str = f"{(1 - hs.success_rate):.1%} ({hs.failed})"
-        lines.append(f"| {name} | {hs.total} | {learned_str} | {fallback_str} | {failed_str} |")
+        lines.append(f"| {name} | {hs.total} | {diffonly_str} | {fallback_str} | {failed_str} |")
     lines.append("")
 
-    # Learned cases efficiency
-    lines.append("### Learned Cases: Efficiency\n")
-    lines.append("*Problems solved by ML-only phase.*\n")
+    # Diffusion-only cases efficiency
+    lines.append("### Diffusion-Only Cases: Efficiency\n")
+    lines.append("*Problems solved by diffusion model phase only.*\n")
     lines.append("| Model | N | Checks (median [IQR]) | Time (s) (median [IQR]) |")
     lines.append("|-------|---|----------------------|-------------------------|")
     for name, hs in hybrid_stats.items():
@@ -3444,6 +3576,8 @@ def generate_markdown_report(
     random_baselines: Optional[Dict[str, float]] = None,
     success_at_budget: Optional[Dict[str, Dict[int, Dict[str, Any]]]] = None,
     success_at_time: Optional[Dict[str, Dict[float, Dict[str, Any]]]] = None,
+    success_at_budget_learned_only: Optional[Dict[str, Dict[int, Dict[str, Any]]]] = None,
+    success_at_time_learned_only: Optional[Dict[str, Dict[float, Dict[str, Any]]]] = None,
 ):
     """Generate a markdown report with comparison tables (2-push only)."""
     lines = []
@@ -3458,16 +3592,17 @@ def generate_markdown_report(
     count_2push = depth_counts.get('depth_2', 0)
     lines.append(f"Total 2-push problems evaluated: **{count_2push}**\n")
 
-    # Summary table
-    _report_summary_table(lines, model_stats)
+    # Summary table (include learned/fallback breakdown for learned models)
+    learned_model_names = {m.name for m in config.learned} if config.learned else set()
+    _report_summary_table(lines, model_stats, hybrid_stats, learned_model_names)
 
     # Success@Budget
     if success_at_budget:
-        _report_success_at_budget(lines, success_at_budget, config)
+        _report_success_at_budget(lines, success_at_budget, config, success_at_budget_learned_only)
 
     # Success@Time
     if success_at_time:
-        _report_success_at_time(lines, success_at_time, config)
+        _report_success_at_time(lines, success_at_time, config, success_at_time_learned_only)
 
     # ML Grounding
     has_ml_grounding_data = any(stats.depth_2.ml_aligned_counts for stats in model_stats)
@@ -3870,25 +4005,45 @@ def main():
 
     # Compute Success@B (constant-compute comparison) for all models
     success_at_budget: Dict[str, Dict[int, Dict[str, Any]]] = {}
+    success_at_budget_learned_only: Dict[str, Dict[int, Dict[str, Any]]] = {}
     for name in filtered_data:
         success_at_budget[name] = compute_success_at_budget(
             filtered_data[name], reference_data,
             budgets=config.success_at_budget_values,
             depth_filter=2
         )
+        # Compute learned-only for learned models
+        if name in learned_model_names:
+            success_at_budget_learned_only[name] = compute_success_at_budget(
+                filtered_data[name], reference_data,
+                budgets=config.success_at_budget_values,
+                depth_filter=2,
+                learned_only=True
+            )
 
     # Compute Success@T (constant-time comparison) for all models
     success_at_time: Dict[str, Dict[float, Dict[str, Any]]] = {}
+    success_at_time_learned_only: Dict[str, Dict[float, Dict[str, Any]]] = {}
     for name in filtered_data:
         success_at_time[name] = compute_success_at_time_budget(
             filtered_data[name], reference_data,
             time_budgets=config.success_at_time_values,
             depth_filter=2
         )
+        # Compute learned-only for learned models
+        if name in learned_model_names:
+            success_at_time_learned_only[name] = compute_success_at_time_budget(
+                filtered_data[name], reference_data,
+                time_budgets=config.success_at_time_values,
+                depth_filter=2,
+                learned_only=True
+            )
 
     # Compute Success@B and Success@T stratified by difficulty
     success_at_budget_by_diff: Dict[str, Dict[str, Dict[int, Dict[str, Any]]]] = {}
     success_at_time_by_diff: Dict[str, Dict[str, Dict[float, Dict[str, Any]]]] = {}
+    success_at_budget_by_diff_learned_only: Dict[str, Dict[str, Dict[int, Dict[str, Any]]]] = {}
+    success_at_time_by_diff_learned_only: Dict[str, Dict[str, Dict[float, Dict[str, Any]]]] = {}
     for name in filtered_data:
         success_at_budget_by_diff[name] = compute_success_at_budget_by_difficulty(
             filtered_data[name], reference_data,
@@ -3902,9 +4057,25 @@ def main():
             depth_filter=2,
             difficulty_mapping=difficulty_mapping_2push
         )
+        # Compute learned-only by difficulty for learned models
+        if name in learned_model_names:
+            success_at_budget_by_diff_learned_only[name] = compute_success_at_budget_by_difficulty(
+                filtered_data[name], reference_data,
+                budgets=config.success_at_budget_values,
+                depth_filter=2,
+                difficulty_mapping=difficulty_mapping_2push,
+                learned_only=True
+            )
+            success_at_time_by_diff_learned_only[name] = compute_success_at_time_budget_by_difficulty(
+                filtered_data[name], reference_data,
+                time_budgets=config.success_at_time_values,
+                depth_filter=2,
+                difficulty_mapping=difficulty_mapping_2push,
+                learned_only=True
+            )
 
-    # Print summary
-    print_summary(all_stats)
+    # Print summary (pass hybrid stats for learned/fallback breakdown)
+    print_summary(all_stats, hybrid_stats_2push, learned_model_names)
 
     # Print collision-based success rates
     print("\n" + "=" * 80)
@@ -3951,13 +4122,20 @@ def main():
             n = difficulty_stratification[first_model][diff]['total']
             print(f"  {difficulty_labels_print[diff]:8s}: {r[0]:3d} – {r[1]:3d} pushes  (N={n})")
 
-        # Print success rates per model
+        # Print success rates, median pushes, and median time per model
         for name in difficulty_stratification:
             print(f"\n{name}:")
             for diff in difficulty_levels:
                 stats = difficulty_stratification[name][diff]
                 rate = stats['successes'] / stats['total'] if stats['total'] > 0 else 0.0
-                print(f"  {difficulty_labels_print[diff]:8s}: {stats['successes']:3d}/{stats['total']:3d} = {rate:.1%}")
+                # Compute median pushes and time for successful cases
+                if stats['pushes'] and stats['times']:
+                    median_pushes = np.median(stats['pushes'])
+                    median_time_ms = np.median(stats['times'])
+                    efficiency_str = f", median: {median_pushes:.0f} pushes, {median_time_ms/1000:.1f}s"
+                else:
+                    efficiency_str = ""
+                print(f"  {difficulty_labels_print[diff]:8s}: {stats['successes']:3d}/{stats['total']:3d} = {rate:.1%}{efficiency_str}")
 
     # Print confusion matrices (2-push only)
     print("\n" + "=" * 80)
@@ -3998,24 +4176,30 @@ def main():
     )
     if has_phase_data:
         print("\n" + "=" * 80)
-        print("HYBRID DECOMPOSITION (2-Push Problems)")
+        print("SAGE (HYBRID): DIFFUSION-ONLY VS FALLBACK (2-Push Problems)")
         print("=" * 80)
-        print("Phase tracking: solved_in_phase == 'ML-only' → LEARNED, 'primitives' → FALLBACK")
+        print("Phase tracking: solved_in_phase == 'ML-only' → Diffusion-Only, 'primitives' → Fallback")
 
         for name, hs in hybrid_stats_2push.items():
             if hs.total == 0:
                 continue
             print(f"\n{name} (n={hs.total}):")
-            print(f"  Solved by LEARNED:  {hs.solved_by_learned:3d} ({hs.learned_rate:.1%})")
-            print(f"  Solved by FALLBACK: {hs.solved_by_fallback:3d} ({hs.fallback_rate:.1%})")
-            print(f"  Failed:             {hs.failed:3d} ({(1-hs.success_rate):.1%})")
+            print(f"  Diffusion-Only: {hs.solved_by_learned:3d} ({hs.learned_rate:.1%})")
+            print(f"  Fallback:       {hs.solved_by_fallback:3d} ({hs.fallback_rate:.1%})")
+            print(f"  Failed:         {hs.failed:3d} ({(1-hs.success_rate):.1%})")
 
             if hs.learned_pushes:
                 l_iqr = hs.learned_pushes_iqr
-                print(f"  Learned checks:     median={hs.learned_median_pushes:.0f} [{l_iqr[0]:.0f}, {l_iqr[1]:.0f}]")
+                print(f"  Diff-Only pushes: median={hs.learned_median_pushes:.0f} [{l_iqr[0]:.0f}, {l_iqr[1]:.0f}]")
+            if hs.learned_times:
+                lt_iqr = hs.learned_time_iqr
+                print(f"  Diff-Only time:   median={hs.learned_median_time/1000:.1f}s [{lt_iqr[0]/1000:.1f}, {lt_iqr[1]/1000:.1f}]")
             if hs.fallback_pushes:
                 f_iqr = hs.fallback_pushes_iqr
-                print(f"  Fallback checks:    median={hs.fallback_median_pushes:.0f} [{f_iqr[0]:.0f}, {f_iqr[1]:.0f}]")
+                print(f"  Fallback pushes:    median={hs.fallback_median_pushes:.0f} [{f_iqr[0]:.0f}, {f_iqr[1]:.0f}]")
+            if hs.fallback_times:
+                ft_iqr = hs.fallback_time_iqr
+                print(f"  Fallback time:      median={hs.fallback_median_time/1000:.1f}s [{ft_iqr[0]/1000:.1f}, {ft_iqr[1]/1000:.1f}]")
             if hs.checks_before_fallback:
                 bf_iqr = hs.checks_before_fallback_iqr
                 print(f"  Checks before FB:   median={hs.median_checks_before_fallback:.0f} [{bf_iqr[0]:.0f}, {bf_iqr[1]:.0f}]")
@@ -4032,15 +4216,15 @@ def main():
                     stats = hybrid_stats_by_difficulty[name][diff]
                     n = stats['total']
                     if n > 0:
-                        learned_pct = stats['learned'] / n * 100
+                        diffonly_pct = stats['learned'] / n * 100
                         fallback_pct = stats['fallback'] / n * 100
                         failed_pct = stats['failed'] / n * 100
-                        print(f"    {difficulty_labels[diff]:8s} (N={n:2d}): Learned={learned_pct:5.1f}% ({stats['learned']:2d}), "
+                        print(f"    {difficulty_labels[diff]:8s} (N={n:2d}): Diff-Only={diffonly_pct:5.1f}% ({stats['learned']:2d}), "
                               f"Fallback={fallback_pct:5.1f}% ({stats['fallback']:2d}), Failed={failed_pct:5.1f}% ({stats['failed']:2d})")
                     else:
                         print(f"    {difficulty_labels[diff]:8s} (N= 0): -")
 
-    # Print ReachableAttachment@K stats (learned models only)
+    # Print ReachableAttachment@K stats (SAGE models only)
     if ra_at_k_stats:
         print("\n" + "=" * 80)
         print("REACHABLE ATTACHMENT @ K (2-Push Problems)")
@@ -4066,11 +4250,12 @@ def main():
         print("SUCCESS @ BUDGET (2-Push Problems)")
         print("=" * 80)
         print("Success rate at fixed verification budget (constant-compute comparison)")
-        print("Budget = max number of simulation-verified push evaluations\n")
+        print("Budget = max number of simulation-verified push evaluations")
+        print("For SAGE models: Total (Diffusion-Only)\n")
 
         # Print header
         budget_strs = [f"@{b}" for b in config.success_at_budget_values]
-        header = f"{'Model':<30} | " + " | ".join(f"{s:>8}" for s in budget_strs)
+        header = f"{'Model':<30} | " + " | ".join(f"{s:>14}" for s in budget_strs)
         print(header)
         print("-" * len(header))
 
@@ -4078,7 +4263,12 @@ def main():
             row = f"{name:<30} |"
             for b in config.success_at_budget_values:
                 stats = success_at_budget[name][b]
-                row += f" {stats['rate']:>7.1%} |"
+                # Check if this model has learned-only data
+                if name in success_at_budget_learned_only:
+                    lo_stats = success_at_budget_learned_only[name][b]
+                    row += f" {stats['rate']:>5.1%} ({lo_stats['rate']:>5.1%}) |"
+                else:
+                    row += f" {stats['rate']:>14.1%} |"
             print(row)
 
         # Print N (same for all models at each budget)
@@ -4092,7 +4282,8 @@ def main():
         print("SUCCESS @ TIME (2-Push Problems)")
         print("=" * 80)
         print("Success rate at fixed time budget (constant-time comparison)")
-        print("Time = max search time in seconds\n")
+        print("Time = max search time in seconds")
+        print("For SAGE models: Total (Diffusion-Only)\n")
 
         # Format time values as seconds for display
         def format_time(t_ms: float) -> str:
@@ -4102,7 +4293,7 @@ def main():
 
         # Print header
         time_strs = [format_time(t) for t in config.success_at_time_values]
-        header = f"{'Model':<30} | " + " | ".join(f"{s:>8}" for s in time_strs)
+        header = f"{'Model':<30} | " + " | ".join(f"{s:>14}" for s in time_strs)
         print(header)
         print("-" * len(header))
 
@@ -4110,7 +4301,12 @@ def main():
             row = f"{name:<30} |"
             for t in config.success_at_time_values:
                 stats = success_at_time[name][t]
-                row += f" {stats['rate']:>7.1%} |"
+                # Check if this model has learned-only data
+                if name in success_at_time_learned_only:
+                    lo_stats = success_at_time_learned_only[name][t]
+                    row += f" {stats['rate']:>5.1%} ({lo_stats['rate']:>5.1%}) |"
+                else:
+                    row += f" {stats['rate']:>14.1%} |"
             print(row)
 
         # Print N (same for all models at each time budget)
@@ -4125,7 +4321,8 @@ def main():
         print("SUCCESS @ BUDGET BY DIFFICULTY (2-Push Problems)")
         print("=" * 80)
         print("Success rate at fixed verification budget, stratified by problem difficulty")
-        print("(Difficulty = oracle push count terciles: Easy=lowest 33%, Hard=highest 33%)\n")
+        print("(Difficulty = oracle push count terciles: Easy=lowest 33%, Hard=highest 33%)")
+        print("For SAGE models: Total (Diffusion-Only)\n")
 
         budget_strs = [f"@{b}" for b in config.success_at_budget_values]
 
@@ -4133,7 +4330,7 @@ def main():
             first_model = list(success_at_budget_by_diff.keys())[0]
             n_diff = success_at_budget_by_diff[first_model][diff][config.success_at_budget_values[0]]['total']
             print(f"\n{difficulty_labels[diff]} Problems (N={n_diff}):")
-            header = f"{'Model':<30} | " + " | ".join(f"{s:>8}" for s in budget_strs)
+            header = f"{'Model':<30} | " + " | ".join(f"{s:>14}" for s in budget_strs)
             print(header)
             print("-" * len(header))
 
@@ -4141,7 +4338,12 @@ def main():
                 row = f"{name:<30} |"
                 for b in config.success_at_budget_values:
                     stats = success_at_budget_by_diff[name][diff][b]
-                    row += f" {stats['rate']:>7.1%} |"
+                    # Check if this model has learned-only data
+                    if name in success_at_budget_by_diff_learned_only:
+                        lo_stats = success_at_budget_by_diff_learned_only[name][diff][b]
+                        row += f" {stats['rate']:>5.1%} ({lo_stats['rate']:>5.1%}) |"
+                    else:
+                        row += f" {stats['rate']:>14.1%} |"
                 print(row)
 
     # Print Success@T stratified by difficulty
@@ -4151,7 +4353,8 @@ def main():
         print("SUCCESS @ TIME BY DIFFICULTY (2-Push Problems)")
         print("=" * 80)
         print("Success rate at fixed time budget, stratified by problem difficulty")
-        print("(Difficulty = oracle push count terciles: Easy=lowest 33%, Hard=highest 33%)\n")
+        print("(Difficulty = oracle push count terciles: Easy=lowest 33%, Hard=highest 33%)")
+        print("For SAGE models: Total (Diffusion-Only)\n")
 
         def format_time(t_ms: float) -> str:
             if t_ms >= 1000:
@@ -4164,7 +4367,7 @@ def main():
             first_model = list(success_at_time_by_diff.keys())[0]
             n_diff = success_at_time_by_diff[first_model][diff][config.success_at_time_values[0]]['total']
             print(f"\n{difficulty_labels[diff]} Problems (N={n_diff}):")
-            header = f"{'Model':<30} | " + " | ".join(f"{s:>8}" for s in time_strs)
+            header = f"{'Model':<30} | " + " | ".join(f"{s:>14}" for s in time_strs)
             print(header)
             print("-" * len(header))
 
@@ -4172,7 +4375,12 @@ def main():
                 row = f"{name:<30} |"
                 for t in config.success_at_time_values:
                     stats = success_at_time_by_diff[name][diff][t]
-                    row += f" {stats['rate']:>7.1%} |"
+                    # Check if this model has learned-only data
+                    if name in success_at_time_by_diff_learned_only:
+                        lo_stats = success_at_time_by_diff_learned_only[name][diff][t]
+                        row += f" {stats['rate']:>5.1%} ({lo_stats['rate']:>5.1%}) |"
+                    else:
+                        row += f" {stats['rate']:>14.1%} |"
                 print(row)
 
     # Generate plots
@@ -4283,6 +4491,8 @@ def main():
         random_baselines=random_baselines,
         success_at_budget=success_at_budget,
         success_at_time=success_at_time,
+        success_at_budget_learned_only=success_at_budget_learned_only,
+        success_at_time_learned_only=success_at_time_learned_only,
     )
 
     print(f"\nPlots saved to: {config.output_dir}")

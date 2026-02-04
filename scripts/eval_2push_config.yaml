@@ -23,6 +23,9 @@ baselines:
   - name: "Exhaustive Primitive Search"
     dir: /common/users/dm1487/namo_data/jan7/aug9_envs/2_push_test_first_solution
     success_dir: eps  # optional: custom folder name for success-filtered plots
+
+  - name: "Geometric Heuristic"
+    dir: /common/users/shared/robot_learning/dm1487/namo/eval_data/geometric_2push_results
   # - name: "Exhaustive Primitive Search Seed 43"
   #   dir: /common/users/dm1487/namo_data/jan7/aug9_envs/2_push_test_first_solution_seed43
   # - name: "Exhaustive Primitive Search Seed 44"
@@ -34,18 +37,28 @@ baselines:
 
 # Learned models to compare
 learned:
-  # - name: "2 Push 1/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/jan7/results_32samples_int5_seed42_voting5_filtered/modular_data_1spring-303-desktop-08
-  # - name: "2 Push Learned Hybrid Voting 1"
-  #   dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/jan7/results_32samples_int5_seed42_voting1_hybrid_filtered/modular_data_1spring-303-desktop-08
-  - name: "2 Push Learned Hybrid Voting 5"
-    dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/jan7/results_32samples_int5_seed42_voting5_hybrid_filtered/modular_data_1spring-303-desktop-08
-  # - name: "2 Push Learned Voting 10"
-  #   dir: /common/us≈ers/dm1487/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/jan7/results_32samples_int5_seed42_voting10_filtered/modular_data_1spring-303-desktop-08
-  # - name: "2 Push Learned Hybrid Voting 10"
-  #   dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/jan7/results_32samples_int5_seed42_voting10_hybrid_filtered/modular_data_1spring-303-desktop-08
+  - name: "Sage (Hybrid)"
+    dir: /common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/jan7/results_32samples_int5_seed42_voting5_hybrid_filtered/modular_data_1spring-303-desktop-08 
+
+  # - name: "2 Push Learned SE(2)"
+  #   dir: /common/users/shared/robot_learning/dm1487/namo/eval_data/se2_2push_results
+
+  # - name: "2 Push Learned Non-Region"
+  #   dir: /common/users/shared/robot_learning/dm1487/namo/models/img2multi_img/diffusion/center/crop32-crossattn-nonregion_dataset/2026-01-26/01-47-17/jan20/1push/results_32samples_int5_seed42_voting5
+
+  # - name: "2 Push Learned Multi-Horizon"
+  #   dir: /common/users/shared/robot_learning/dm1487/namo/models/img2multi_img/diffusion/crossattn_multihorizon/2026-01-25/02-06-42
+  
+  # - name: "2 Push Learned No Crop"
+  #   dir: /common/users/shared/robot_learning/dm1487/namo/models/img2multi_img1/diffusion/single-horizon/crop-size-64-crossattn/2026-01-25/03-11-53/jan20/1push/results_32samples_int5_seed42_voting5
+
+  
+
+  # - name: "SE"
+  
 
 settings:
-  output_dir: ./eval_2push_plots_1push_test
+  output_dir: ./2_push_eval
   time_cutoff_max: 100000  # Extended to capture max 2-push time (~820s)
   time_step: 500
 
