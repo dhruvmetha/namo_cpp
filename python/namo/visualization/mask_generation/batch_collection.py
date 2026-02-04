@@ -540,6 +540,10 @@ def process_episode(episode: Dict[str, Any], visualizer: NAMODataVisualizer,
             episode, local_crop_size_meters=local_crop_size
         )
 
+        # Skip if no region_goals_sampled available
+        if result is None:
+            return {}, None
+
         if local_only:
             # Only local masks
             if result['local'] is not None:
@@ -778,6 +782,10 @@ def process_pkl_file_worker(pkl_file: str, output_dir: str, filter_minimum_lengt
                         suffix_episode, visualizer,
                         generate_local=generate_local, local_only=local_only
                     )
+
+                    # Skip if no masks (e.g., missing region_goals_sampled)
+                    if not masks:
+                        continue
 
                     # Check for region overlap if filtering is enabled
                     if filter_overlaps and has_region_overlap(masks):
