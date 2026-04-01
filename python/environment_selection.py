@@ -14,18 +14,31 @@ import sys
 import pickle
 import argparse
 
-def visualize_environment(xml_file_path, resolution=800, wall_color="white"):
+def visualize_environment(xml_file_path, resolution=800, wall_color="grey", target_object_name=None):
     """
     Create overhead view image and save to file, return the image path.
     """
     # Color mapping
+    # Fixed palette (matches preview_se2_model_io.py + wavefront_viewer.py)
+    wall_rgb = (160, 160, 160)
+    if wall_color == "white":
+        wall_rgb = (255, 255, 255)
+    elif wall_color == "red":
+        wall_rgb = (255, 0, 0)
+    elif wall_color == "grey":
+        wall_rgb = (160, 160, 160)
+
     colors = {
-        'robot': (0, 102, 255),      # Blue
-        'goal': (0, 255, 0),         # Green  
-        'wall': (255, 255, 255) if wall_color == "white" else (255, 0, 0),  # White or Red
-        'obstacle': (255, 212, 0),   # Yellow
-        'floor': (240, 240, 240),    # Light gray background
-        'default': (200, 200, 200)   # Default gray
+        'robot': (0, 0, 255),        # Blue fill
+        'goal': (255, 0, 0),         # Red fill
+        'wall': wall_rgb,            # Static
+        'obstacle': (255, 255, 0),   # Movable (non-target)
+        'target': (0, 255, 255),     # Target
+        'floor': (255, 255, 255),    # Background
+        'default': (200, 200, 200),
+        'outline': (0, 0, 0),
+        'robot_outline': (255, 255, 255),
+        'halo': (255, 255, 255),
     }
     
     try:
@@ -50,7 +63,7 @@ def visualize_environment(xml_file_path, resolution=800, wall_color="white"):
         
         # Process geoms
         for geom in geoms:
-            geom_data = parse_geom(geom, colors)
+            geom_data = parse_geom(geom, colors, target_object_name=target_object_name)
             if geom_data:
                 primitives.append(geom_data)
         
@@ -111,7 +124,7 @@ def visualize_environment(xml_file_path, resolution=800, wall_color="white"):
         return None
 
 # Keep all your existing helper functions (parse_geom, parse_site, etc.)
-def parse_geom(geom, colors):
+def parse_geom(geom, colors, target_object_name=None):
     """Parse a geom element into drawable primitive data."""
     name = geom.get('name', '')
     geom_type = geom.get('type', 'sphere')
@@ -134,15 +147,39 @@ def parse_geom(geom, colors):
     elif name.startswith('wall') or 'wall' in name.lower():
         color_type = 'wall'
     elif 'obstacle' in name.lower():
-        color_type = 'obstacle'
-    
+        color_type = 'target' if (target_object_name and target_object_name in name) else 'obstacle'
+
+    # Apply outlines only to movable objects (not walls), so borders stay readable without clutter.
+    outline = None
+    outline_width = 0
+    if color_type in ("obstacle", "target"):
+        outline = colors["outline"]
+        outline_width = 1
+
+    # Render the robot as a simple blue circle for clarity/consistency with other panels.
+    if color_type == 'robot':
+        radius = size[0] if len(size) > 0 else 0.2
+        if len(size) > 1:
+            radius = max(radius, size[1])
+        return {
+            'shape': 'circle',
+            'type': color_type,
+            'x': x, 'y': y,
+            'radius': radius,
+            'color': colors[color_type],
+            'outline': colors['robot_outline'],
+            'outline_width': 2,
+        }
+
     if geom_type == 'sphere':
         return {
             'shape': 'circle',
             'type': color_type,
             'x': x, 'y': y,
             'radius': size[0],
-            'color': colors[color_type]
+            'color': colors[color_type],
+            'outline': outline,
+            'outline_width': outline_width,
         }
     elif geom_type in ['box', 'capsule', 'cylinder']:
         width = 2 * size[0] if len(size) > 0 else 0.2
@@ -153,7 +190,9 @@ def parse_geom(geom, colors):
             'x': x, 'y': y,
             'width': width, 'height': height,
             'yaw': yaw,
-            'color': colors[color_type]
+            'color': colors[color_type],
+            'outline': outline,
+            'outline_width': outline_width,
         }
     return None
 
@@ -170,16 +209,21 @@ def parse_site(site, colors):
     size = [float(x) for x in size_str.split()]
     
     return {
-        'shape': 'circle',
+        'shape': 'star',
         'type': 'goal',
         'x': pos[0], 'y': pos[1],
         'radius': size[0],
-        'color': colors['goal']
+        'color': colors['goal'],
+        'outline': colors['outline'],
+        'halo': colors['halo'],
     }
 
 def get_primitive_bounds(prim):
     """Get bounding box of a primitive."""
     if prim['shape'] == 'circle':
+        r = prim['radius']
+        return (prim['x'] - r, prim['x'] + r, prim['y'] - r, prim['y'] + r)
+    elif prim['shape'] == 'star':
         r = prim['radius']
         return (prim['x'] - r, prim['x'] + r, prim['y'] - r, prim['y'] + r)
     elif prim['shape'] == 'rectangle':
@@ -214,7 +258,35 @@ def draw_primitive(draw, prim, min_x, max_y, scale, resolution):
         cx, cy = world_to_pixel(prim['x'], prim['y'])
         r_pixels = prim['radius'] * scale
         bbox = (cx - r_pixels, cy - r_pixels, cx + r_pixels, cy + r_pixels)
-        draw.ellipse(bbox, fill=prim['color'])
+        outline = prim.get('outline', None)
+        outline_width = int(prim.get('outline_width', 0) or 0)
+        if outline and outline_width > 0:
+            draw.ellipse(bbox, fill=prim['color'], outline=outline, width=outline_width)
+        else:
+            draw.ellipse(bbox, fill=prim['color'])
+
+    elif prim['shape'] == 'star':
+        cx, cy = world_to_pixel(prim['x'], prim['y'])
+        r_outer = prim['radius'] * scale
+        r_inner = r_outer * 0.45
+        points = []
+        for i in range(10):
+            angle = math.radians(-90) + i * math.radians(36)
+            r = r_outer if i % 2 == 0 else r_inner
+            points.append((cx + r * math.cos(angle), cy + r * math.sin(angle)))
+        halo = prim.get('halo', None)
+        if halo is not None:
+            points_halo = []
+            for i in range(10):
+                angle = math.radians(-90) + i * math.radians(36)
+                r = (r_outer * 1.12) if i % 2 == 0 else (r_inner * 1.12)
+                points_halo.append((cx + r * math.cos(angle), cy + r * math.sin(angle)))
+            draw.polygon(points_halo, fill=halo)
+        outline = prim.get('outline', None)
+        if outline is not None:
+            draw.polygon(points, fill=prim['color'], outline=outline)
+        else:
+            draw.polygon(points, fill=prim['color'])
         
     elif prim['shape'] == 'rectangle':
         w, h = prim['width'] / 2, prim['height'] / 2
@@ -233,7 +305,12 @@ def draw_primitive(draw, prim, min_x, max_y, scale, resolution):
             px, py = world_to_pixel(world_x, world_y)
             pixel_corners.append((px, py))
         
-        draw.polygon(pixel_corners, fill=prim['color'])
+        outline = prim.get('outline', None)
+        outline_width = int(prim.get('outline_width', 0) or 0)
+        if outline and outline_width > 0:
+            draw.polygon(pixel_corners, fill=prim['color'], outline=outline)
+        else:
+            draw.polygon(pixel_corners, fill=prim['color'])
 
 def get_envs_from_pickle(pickle_file_path: str) -> list[str]:
     """Read XML file paths from a pickle file."""

@@ -323,7 +323,6 @@ class WavefrontSnapshotExporter:
         for instance in movable_objects:
             self._rasterise_object(instance, instance.half_extent, uninflated)
             inflated_extent = (instance.half_extent[0] + inflate_x, instance.half_extent[1] + inflate_y)
-            self._rasterise_object(instance, inflated_extent, static_grid)
             self._rasterise_object(instance, inflated_extent, dynamic_grid)
 
         return {

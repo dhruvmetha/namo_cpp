@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from namo.visualization.wavefront_viewer import visualize_snapshot
+from namo.visualization.wavefront_viewer import visualize_snapshot, visualize_snapshot_panels
 
 
 def parse_args() -> argparse.Namespace:
@@ -30,6 +30,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional path for the generated summary figure (PNG). Defaults to <prefix>_summary.png",
     )
+    parser.add_argument(
+        "--separate",
+        action="store_true",
+        help="Write three separate images (<prefix>_panel_environment.png, <prefix>_panel_inflated.png, <prefix>_panel_graph.png)",
+    )
     return parser.parse_args()
 
 
@@ -40,10 +45,14 @@ def main() -> None:
     if not directory.exists():
         raise FileNotFoundError(f"Snapshot directory not found: {directory}")
 
-    save_target = Path(args.output) if args.output else None
-    output_path = visualize_snapshot(directory, prefix=args.prefix, show=not args.no_show, save_path=save_target)
-
-    print("Snapshot visualisation written to:", output_path)
+    if args.separate:
+        outputs = visualize_snapshot_panels(directory, prefix=args.prefix, show=not args.no_show)
+        for name, path in outputs.items():
+            print(f"{name}: {path}")
+    else:
+        save_target = Path(args.output) if args.output else None
+        output_path = visualize_snapshot(directory, prefix=args.prefix, show=not args.no_show, save_path=save_target)
+        print("Snapshot visualisation written to:", output_path)
 
 
 if __name__ == "__main__":

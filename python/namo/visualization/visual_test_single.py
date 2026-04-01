@@ -94,9 +94,22 @@ def preload_ml_models(object_model_path: Optional[str],
     object_model = None
     goal_model = None
 
+    # Support local editable checkouts where `sage_learning` isn't installed globally.
+    mujoco_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
+    local_sage_root = os.path.join(mujoco_root, "sage_learning")
+    if os.path.isdir(local_sage_root) and local_sage_root not in sys.path:
+        sys.path.insert(0, local_sage_root)
+    snapshot_sage_root = os.path.join(mujoco_root, "eval_pipeline_snapshot", "sage_learning")
+    if os.path.isdir(snapshot_sage_root) and snapshot_sage_root not in sys.path:
+        # Append so local code takes precedence; snapshot is only for legacy `ktamp_learning.*`.
+        sys.path.append(snapshot_sage_root)
+
     if object_model_path:
         try:
-            from sage_learning.object_inference_model import ObjectInferenceModel
+            try:
+                from sage_learning.object_inference_model import ObjectInferenceModel
+            except Exception:
+                from ktamp_learning.object_inference_model import ObjectInferenceModel
             print(f"🔮 Loading ObjectInferenceModel from {object_model_path}")
             object_model = ObjectInferenceModel(model_path=object_model_path, device=device)
             print(f"✅ Object model loaded successfully")
@@ -106,7 +119,10 @@ def preload_ml_models(object_model_path: Optional[str],
 
     if goal_model_path:
         try:
-            from sage_learning.goal_inference_model import GoalInferenceModel
+            try:
+                from sage_learning.goal_inference_model import GoalInferenceModel
+            except Exception:
+                from ktamp_learning.goal_inference_model import GoalInferenceModel
             print(f"🎯 Loading GoalInferenceModel from {goal_model_path}")
             goal_model = GoalInferenceModel(
                 model_path=goal_model_path,
@@ -242,7 +258,10 @@ def visualize_solution(env: namo_rl.RLEnvironment, result: PlannerResult, step_m
     print(f"🎯 Robot goal for visualization: ({robot_goal[0]:.2f}, {robot_goal[1]:.2f}, {robot_goal[2]:.2f})")
 
     for i, action in enumerate(result.action_sequence):
-        print(f"Step {i+1}/{len(result.action_sequence)}: Moving object {action.object_id} to ({action.x:.2f}, {action.y:.2f}, {action.theta:.2f})")
+        print(
+            f"Step {i+1}/{len(result.action_sequence)}: Moving object {action.object_id} to "
+            f"({action.x:.2f}, {action.y:.2f}, {action.theta:.2f})"
+        )
 
         # Execute the action using the proper step() method
         namo_action = namo_rl.Action()
@@ -252,6 +271,7 @@ def visualize_solution(env: namo_rl.RLEnvironment, result: PlannerResult, step_m
         namo_action.theta = action.theta
         namo_action.edge_idx = getattr(action, 'edge_idx', -1)  # Pass for direct C++ execution
         namo_action.depth = getattr(action, 'depth', -1)        # Pass for direct C++ execution
+        print(f"   Action primitive: edge_idx={namo_action.edge_idx}, depth={namo_action.depth}")
         step_result = env.step(namo_action)
         if hasattr(step_result, 'info') and step_result.info:
             print(f"   Action result: {step_result.info}")
@@ -316,6 +336,8 @@ def main():
                         help="Angle tolerance for ML-primitive alignment in radians (default: 0.35)")
     parser.add_argument("--ml-match-angle-weight", type=float, default=0.5,
                         help="Weight for angle error in alignment scoring (default: 0.5)")
+    parser.add_argument("--ml-k-nearest", type=int, default=1,
+                        help="Vote for up to k nearest primitive slots per ML sample (default: 1)")
     parser.add_argument("--preview-ml-goal-masks", type=int, default=0,
                         help="Number of ML goal masks to preview via matplotlib before planning (0 disables)")
     parser.add_argument("--preview-aligned-primitives", action="store_true",
@@ -477,6 +499,15 @@ def main():
         
         # Set robot goal in planning environment
         planning_env.set_robot_goal(*robot_goal)
+
+        # For region-opening visual debugging, hide the XML scene's fixed `<site name="goal">`
+        # (often a green sphere). Region-opening cares about sampled neighbour-region goals,
+        # and this site is unrelated/confusing alongside the robot-goal marker square.
+        if args.algorithm == "region_opening":
+            try:
+                planning_env.set_goal_site_visible(False)
+            except Exception:
+                pass
         
         # Preload ML models if needed
         preloaded_object_model = None
@@ -491,6 +522,9 @@ def main():
         # Create planner configuration
         algorithm_params = {
             'object_selection_strategy': args.object_strategy,
+            # NOTE: RegionOpeningPlanner expects 'goal_strategy' while IDFS planners
+            # historically used 'goal_selection_strategy'. Set both for compatibility.
+            'goal_strategy': args.goal_strategy,
             'goal_selection_strategy': args.goal_strategy,
             'ml_samples': args.ml_samples,
             'ml_device': args.ml_device,
@@ -498,6 +532,7 @@ def main():
             'ml_match_position_tolerance': args.ml_match_position_tolerance,
             'ml_match_angle_tolerance': args.ml_match_angle_tolerance,
             'ml_match_angle_weight': args.ml_match_angle_weight,
+            'ml_k_nearest': args.ml_k_nearest,
             'region_allow_collisions': args.region_allow_collisions,
             'region_max_chain_depth': args.region_max_chain_depth,
             'region_max_solutions_per_neighbor': args.region_max_solutions_per_neighbor,
@@ -619,6 +654,12 @@ def main():
             solution_env = namo_rl.RLEnvironment(args.xml_file, args.config_file, visualize=True)
             reset_environment_for_visualization(solution_env, robot_goal)
 
+            if args.algorithm == "region_opening":
+                try:
+                    solution_env.set_goal_site_visible(False)
+                except Exception:
+                    pass
+
             # Apply collision checking settings (must match planning settings)
             if args.region_allow_collisions:
                 solution_env.set_collision_checking(False)
@@ -654,10 +695,23 @@ def main():
                     # Reset environment to initial state before visualizing this solution
                     reset_environment_for_visualization(solution_env, robot_goal)
 
+                    # For region-opening solutions, the success criterion is reachability of a sampled
+                    # goal in the neighbor region. Replay using that exact goal so `robot_goal_reached`
+                    # is meaningful during visualization.
+                    if getattr(attempt, "region_goal_used", None):
+                        rg = attempt.region_goal_used
+                        print(f"🟩 Setting visualization robot goal to region_goal_used={rg}")
+                        before_rg = solution_env.get_robot_goal()
+                        print(f"🟩 Env robot goal before set: ({before_rg[0]:.3f}, {before_rg[1]:.3f}, {before_rg[2]:.3f})")
+                        solution_env.set_robot_goal(rg[0], rg[1], rg[2] if len(rg) > 2 else 0.0)
+                        after_rg = solution_env.get_robot_goal()
+                        print(f"🟩 Env robot goal after set:  ({after_rg[0]:.3f}, {after_rg[1]:.3f}, {after_rg[2]:.3f})")
+                        solution_env.render()
+
                     # Build action sequence from attempt
                     action_sequence = []
-                    if attempt.goal_chain and len(attempt.goal_chain) > 1:
-                        # Multi-push chain
+                    if attempt.goal_chain:
+                        # Single or multi-push chain (goal_chain contains edge_idx/depth metadata)
                         for goal in attempt.goal_chain:
                             action = namo_rl.Action()
                             action.object_id = attempt.chosen_object_id
@@ -716,6 +770,20 @@ def main():
                                   "region_opening_sequence" in result.algorithm_stats)
 
                 viz_func = visualize_region_opening_sequence if use_structured else visualize_solution
+
+                # For region_opening, align the visualization robot-goal with the recorded
+                # reachable region goal (if present) so `robot_goal_reached` lines up.
+                if args.algorithm == "region_opening" and result.algorithm_stats and "attempt_results" in result.algorithm_stats:
+                    successes = [a for a in result.algorithm_stats["attempt_results"] if getattr(a, "success", False)]
+                    if successes and getattr(successes[0], "region_goal_used", None):
+                        rg = successes[0].region_goal_used
+                        print(f"🟩 Setting visualization robot goal to first region_goal_used={rg}")
+                        before_rg = solution_env.get_robot_goal()
+                        print(f"🟩 Env robot goal before set: ({before_rg[0]:.3f}, {before_rg[1]:.3f}, {before_rg[2]:.3f})")
+                        solution_env.set_robot_goal(rg[0], rg[1], rg[2] if len(rg) > 2 else 0.0)
+                        after_rg = solution_env.get_robot_goal()
+                        print(f"🟩 Env robot goal after set:  ({after_rg[0]:.3f}, {after_rg[1]:.3f}, {after_rg[2]:.3f})")
+                        solution_env.render()
 
                 if args.show_solution == "auto":
                     print("\n🎬 Auto-visualizing solution...")

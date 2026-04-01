@@ -20,12 +20,192 @@ import sys
 import threading
 import time
 import webbrowser
+import xml.etree.ElementTree as ET
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
 # Import the visualization function from environment_selection
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from environment_selection import visualize_environment
+from environment_selection import (
+    get_primitive_bounds,
+    parse_geom,
+    parse_site,
+    visualize_environment,
+)
+
+
+def _colors_for_wall_color(wall_color: str):
+    wall_rgb = (160, 160, 160)
+    if wall_color == "white":
+        wall_rgb = (255, 255, 255)
+    elif wall_color == "red":
+        wall_rgb = (255, 0, 0)
+    elif wall_color == "grey":
+        wall_rgb = (160, 160, 160)
+
+    return {
+        "robot": (0, 0, 255),
+        "goal": (255, 0, 0),
+        "wall": wall_rgb,
+        "obstacle": (255, 255, 0),
+        "target": (0, 255, 255),
+        "floor": (255, 255, 255),
+        "default": (200, 200, 200),
+        "outline": (0, 0, 0),
+        "robot_outline": (255, 255, 255),
+        "halo": (255, 255, 255),
+    }
+
+
+def _compute_view_transform(xml_file_path: str, resolution: int, wall_color: str):
+    """
+    Recompute the same world->pixel transform used by environment_selection.visualize_environment
+    so we can place text labels in the correct location.
+    """
+    colors = _colors_for_wall_color(wall_color)
+
+    tree = ET.parse(xml_file_path)
+    root = tree.getroot()
+
+    geoms = []
+    sites = []
+    worldbody = root.find("worldbody")
+    if worldbody is not None:
+        for geom in worldbody.iter("geom"):
+            geoms.append(geom)
+        for site in worldbody.iter("site"):
+            sites.append(site)
+
+    primitives = []
+    for geom in geoms:
+        geom_data = parse_geom(geom, colors)
+        if geom_data:
+            primitives.append(geom_data)
+    for site in sites:
+        site_data = parse_site(site, colors)
+        if site_data:
+            primitives.append(site_data)
+
+    if not primitives:
+        return None
+
+    min_x = min_y = float("inf")
+    max_x = max_y = float("-inf")
+    for prim in primitives:
+        bounds = get_primitive_bounds(prim)
+        min_x = min(min_x, bounds[0])
+        max_x = max(max_x, bounds[1])
+        min_y = min(min_y, bounds[2])
+        max_y = max(max_y, bounds[3])
+
+    padding = 0.05
+    width = max_x - min_x
+    height = max_y - min_y
+    min_x -= width * padding
+    max_x += width * padding
+    min_y -= height * padding
+    max_y += height * padding
+
+    world_width = max_x - min_x
+    world_height = max_y - min_y
+    scale = (resolution * 0.9) / max(world_width, world_height)
+
+    margin = resolution * 0.05
+
+    def world_to_pixel(x, y):
+        px = (x - min_x) * scale + margin
+        py = (max_y - y) * scale + margin
+        return px, py
+
+    return world_to_pixel
+
+
+def _iter_movable_obstacle_labels(xml_file_path: str):
+    """
+    Yield (name, x, y) for obstacles that should be labeled.
+
+    Per user request: "any obstacle that doesn't have wall in the name".
+    We treat geoms with 'obstacle' in the name (and without 'wall') as label candidates.
+    """
+    tree = ET.parse(xml_file_path)
+    root = tree.getroot()
+    worldbody = root.find("worldbody")
+    if worldbody is None:
+        return
+
+    def traverse(node, inherited_label: str | None = None):
+        if node.tag == "body":
+            body_name = node.get("name", "") or ""
+            body_lower = body_name.lower()
+            if ("obstacle" in body_lower) and ("wall" not in body_lower):
+                inherited_label = body_name
+
+        for child in list(node):
+            if child.tag == "body":
+                yield from traverse(child, inherited_label=inherited_label)
+                continue
+            if child.tag != "geom":
+                continue
+
+            geom_name = child.get("name", "") or ""
+            label_name = geom_name or (inherited_label or "")
+            lowered = label_name.lower()
+            if "obstacle" not in lowered:
+                continue
+            if "wall" in lowered:
+                continue
+
+            pos_str = child.get("pos", "0 0 0")
+            try:
+                pos = [float(v) for v in pos_str.split()]
+            except Exception:
+                continue
+            if len(pos) < 2:
+                continue
+            yield label_name, pos[0], pos[1]
+
+    yield from traverse(worldbody)
+
+
+def add_movable_obstacle_labels(img, xml_file_path: str, wall_color: str = "grey"):
+    """Annotate the rendered overhead view with movable-obstacle labels."""
+    from PIL import ImageDraw, ImageFont
+
+    resolution = img.size[0]
+    world_to_pixel = _compute_view_transform(xml_file_path, resolution, wall_color)
+    if world_to_pixel is None:
+        return img
+
+    draw = ImageDraw.Draw(img)
+    try:
+        font = ImageFont.load_default()
+    except Exception:
+        font = None
+
+    def text_bbox(text: str):
+        if hasattr(draw, "textbbox"):
+            x0, y0, x1, y1 = draw.textbbox((0, 0), text, font=font)
+            return x1 - x0, y1 - y0
+        return draw.textsize(text, font=font)
+
+    for name, x, y in _iter_movable_obstacle_labels(xml_file_path):
+        px, py = world_to_pixel(x, y)
+        label = name
+
+        tw, th = text_bbox(label)
+        x0 = px - tw / 2
+        y0 = py - th / 2
+
+        pad = 2
+        draw.rectangle(
+            (x0 - pad, y0 - pad, x0 + tw + pad, y0 + th + pad),
+            fill=(0, 0, 0),
+            outline=(255, 255, 255),
+            width=1,
+        )
+        draw.text((x0, y0), label, fill=(255, 255, 255), font=font)
+
+    return img
 
 
 class EnvironmentViewerHandler(BaseHTTPRequestHandler):
@@ -374,23 +554,29 @@ class EnvironmentViewerHandler(BaseHTTPRequestHandler):
             
         try:
             # Render the environment image
-            img = visualize_environment(full_path, resolution=800, wall_color="white")
+            resolution = int(getattr(self.server, "resolution", 800))
+            wall_color = getattr(self.server, "wall_color", "grey")
+            img = visualize_environment(full_path, resolution=resolution, wall_color=wall_color)
             if img is None:
                 self.send_error(500, 'Failed to render environment')
                 return
-                
+
+            # Label movable obstacles (anything with 'obstacle' in the name and without 'wall')
+            img = add_movable_obstacle_labels(img, full_path, wall_color=wall_color)
+
             # Convert to PNG bytes
             import io
+
             img_bytes = io.BytesIO()
             img.save(img_bytes, format='PNG')
             img_bytes.seek(0)
-            
+
             self.send_response(200)
             self.send_header('Content-Type', 'image/png')
             self.send_header('Content-Length', str(len(img_bytes.getvalue())))
             self.end_headers()
             self.wfile.write(img_bytes.getvalue())
-            
+
         except Exception as e:
             print(f"Error rendering {full_path}: {e}")
             self.send_error(500, f'Rendering error: {str(e)}')
@@ -403,13 +589,15 @@ def find_xml_files(directory):
     return [os.path.join(directory, "*.xml")]
 
 
-def start_server(port, xml_patterns):
+def start_server(port, xml_patterns, *, wall_color: str = "grey", resolution: int = 800):
     """Start the HTTP server."""
     class CustomHTTPServer(HTTPServer):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             self.xml_patterns = xml_patterns
             self.xml_file_map = {}
+            self.wall_color = wall_color
+            self.resolution = resolution
     
     server = CustomHTTPServer(('localhost', port), EnvironmentViewerHandler)
     server.xml_patterns = xml_patterns
@@ -431,6 +619,14 @@ def main():
     parser = argparse.ArgumentParser(description='Fast Environment Viewer - Browse MuJoCo maze environments')
     parser.add_argument('--port', type=int, default=8000, help='Server port (default: 8000)')
     parser.add_argument('--dir', type=str, help='Directory containing XML files (default: ../generated_templates)')
+    parser.add_argument(
+        "--wall-color",
+        type=str,
+        default="grey",
+        choices=["grey", "white", "red"],
+        help="Wall color for rendering (default: grey). Note: white walls blend into the white floor.",
+    )
+    parser.add_argument("--resolution", type=int, default=800, help="Render resolution in pixels (default: 800)")
     
     args = parser.parse_args()
     
@@ -459,7 +655,7 @@ def main():
         return 1
     
     print(f"Found {total_files} XML files")
-    start_server(args.port, xml_patterns)
+    start_server(args.port, xml_patterns, wall_color=args.wall_color, resolution=args.resolution)
     return 0
 
 
