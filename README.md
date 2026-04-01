@@ -59,6 +59,57 @@ Notes:
 
 ---
 
+# Evaluation Scripts
+
+## `scripts/eval_1push.py` (1-push evaluation)
+
+This script aggregates per-problem (“triplet”) results from `.pkl` files and prints/saves summary metrics and plots.
+
+**Hybrid decomposition metrics**
+- A **triplet** is an `(env, region, object)` key that exists in both the model results and the reference (oracle) results. By default, the script only evaluates triplets where the reference succeeded.
+- Each model triplet is classified into:
+  - **LEARNED / no-fallback**: `success == True` and `solved_in_phase == "ML-only"`
+  - **FALLBACK**: `success == True` and `solved_in_phase == "primitives"`
+  - **FAILED**: otherwise
+- **No-fallback (LEARNED) efficiency** is computed over the subset of LEARNED triplets only:
+  - pushes list = `pushes_total_for_neighbour` for each LEARNED triplet
+  - time list = `search_time_ms` for each LEARNED triplet
+  - summary = `median(list)` and `mean(list)`, and the script prints `n = len(list)` for each statistic
+- “By difficulty” uses the oracle’s push counts to split evaluated triplets into thirds (easy/medium/hard), then computes the same LEARNED-only medians/means within each bucket.
+
+## `scripts/eval_2push.py` (2-push evaluation)
+
+This script evaluates mixed chain-depth data, but most “2-push” summaries are computed by filtering to **oracle chain depth = 2**.
+
+- Triplets are the same idea as in 1-push: matched `(env, region, object)` keys where the reference succeeded.
+- Hybrid/no-fallback definitions are identical:
+  - **LEARNED / no-fallback**: `success == True` and `solved_in_phase == "ML-only"`
+  - **FALLBACK**: `success == True` and `solved_in_phase == "primitives"`
+  - **FAILED**: otherwise
+- No-fallback (LEARNED) pushes/time efficiency:
+  - pushes list = `pushes_total_for_neighbour` for each LEARNED triplet (after depth filtering)
+  - time list = `search_time_ms` for each LEARNED triplet (after depth filtering)
+  - summary = `median(list)` and `mean(list)`; the script prints `n = len(list)` for each statistic
+- “By difficulty” uses oracle push counts (or multi-reference median pushes when provided) to bucket **2-push** triplets into easy/medium/hard, then computes LEARNED-only medians/means per bucket.
+
+## `scripts/eval_allpush.py` (1-push + 2-push aggregate)
+
+For a single “total” summary across both problem types, this script aggregates:
+- all **1-push** reference-success triplets (treated as `chain_depth = 1`)
+- all **2-push** reference-success triplets filtered to oracle `chain_depth == 2`
+
+It reports overall **success rate**, plus **median/mean pushes and time** for:
+- all successful cases
+- **no-fallback / LEARNED** cases (`solved_in_phase == "ML-only"`)
+
+Usage:
+```bash
+python scripts/eval_allpush.py \
+  --config-1push scripts/eval_1push_config.yaml \
+  --config-2push scripts/eval_2push_config.yaml \
+  --output-dir ./eval_allpush_plots
+```
+
 # NAMO Standalone
 
 A C++ implementation of Navigation Among Movable Obstacles (NAMO) planning for robotic systems. This codebase provides path planning for robots that need to navigate environments containing objects they can push or move to reach their goals.

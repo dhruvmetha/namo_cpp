@@ -17,12 +17,13 @@ import sys
 import argparse
 import socket
 import pickle
+import json
 import time
+from pathlib import Path
 import traceback
 import signal
 import re
 import random
-from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Any
 from dataclasses import dataclass, asdict, replace
 from tqdm import tqdm
@@ -30,6 +31,21 @@ from tqdm import tqdm
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Add visualization directory to path for local scripts that import from it.
+namo_viz_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "visualization")
+if namo_viz_path not in sys.path:
+    sys.path.append(namo_viz_path)
+
+# Support local editable checkouts where `sage_learning` isn't installed globally.
+_mujoco_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
+_sage_learning_root = os.path.join(_mujoco_root, "sage_learning")
+if os.path.isdir(_sage_learning_root) and _sage_learning_root not in sys.path:
+    sys.path.insert(0, _sage_learning_root)
+
+# Snapshot contains `ktamp_learning` (legacy layout).
+_snapshot_sage_root = os.path.join(_mujoco_root, "eval_pipeline_snapshot", "sage_learning")
+if os.path.isdir(_snapshot_sage_root) and _snapshot_sage_root not in sys.path:
+    sys.path.append(_snapshot_sage_root)
 # NAMO imports
 import namo_rl
 from namo.core import BasePlanner, PlannerConfig, PlannerResult, PlannerFactory
@@ -94,12 +110,15 @@ def preload_ml_models(config: ModularCollectionConfig) -> Tuple[Optional[Any], O
         "ml", "ml_primitive", "ml_fallback", "ml_primitive_fallback",
         "ml_async", "ml_primitive_async", "ml_driven_async"
     ] or algo_params.get("goal_selection_strategy") == "ml")
-    
+
     if use_ml_object:
         model_path = algo_params.get("ml_object_model_path")
         if model_path:
             try:
-                from sage_learning.object_inference_model import ObjectInferenceModel
+                try:
+                    from sage_learning.object_inference_model import ObjectInferenceModel
+                except Exception:
+                    from ktamp_learning.object_inference_model import ObjectInferenceModel
                 print(f"🔮 Loading ObjectInferenceModel from {model_path}")
                 object_model = ObjectInferenceModel(model_path=model_path, device=device)
                 print(f"✅ Object model loaded successfully")
@@ -111,7 +130,10 @@ def preload_ml_models(config: ModularCollectionConfig) -> Tuple[Optional[Any], O
         model_path = algo_params.get("ml_goal_model_path") or algo_params.get("ml_goal_model")
         if model_path:
             try:
-                from sage_learning.goal_inference_model import GoalInferenceModel
+                try:
+                    from sage_learning.goal_inference_model import GoalInferenceModel
+                except Exception:
+                    from ktamp_learning.goal_inference_model import GoalInferenceModel
                 print(f"🎯 Loading GoalInferenceModel from {model_path}")
                 # Get optional sampler overrides from config
                 sampler_method = algo_params.get("ml_sampler_method")  # euler, midpoint, rk4, dopri5
@@ -134,32 +156,48 @@ def preload_ml_models(config: ModularCollectionConfig) -> Tuple[Optional[Any], O
         warmup_start = time.time()
         try:
             import torch
-            # Get context size from model (typically 64)
-            context_size = getattr(goal_model, 'context_size', 64)
             num_samples = algo_params.get("ml_samples", 32)
             num_steps = algo_params.get("ml_num_steps") or 20
 
-            # Create dummy input matching GoalInferenceModel's expected format
-            # The model expects: (batch=1, channels=5, height=context_size, width=context_size)
-            # 5 channels: static, movable, target_object, robot_region, goal_sample_region
-            dummy_input = torch.zeros(1, 5, context_size, context_size, device=device)
+            # Check if this is an SE2 model (outputs pose vectors) vs image model
+            is_se2_model = getattr(goal_model, 'is_se2_model', False)
 
-            # Run a few warmup inferences to fully compile CUDA kernels
-            for i in range(3):
-                with torch.no_grad():
-                    _ = goal_model.model.sample_from_model(
-                        dummy_input,
-                        samples=num_samples,
-                        num_steps=num_steps,
-                        seed=ml_seed
-                    )
+            if is_se2_model:
+                # SE2 models use sample_pose() with image context input
+                # Input: (batch=1, channels=5 or 7, height=224, width=224)
+                context_size = 224
+                num_channels = 7 if getattr(goal_model, 'use_coord_grid', False) else 5
+                dummy_input = torch.zeros(1, num_channels, context_size, context_size, device=device)
+
+                for i in range(3):
+                    with torch.no_grad():
+                        _ = goal_model.model.sample_pose(
+                            dummy_input,
+                            num_samples=num_samples,
+                            num_steps=num_steps,
+                            denormalize=True
+                        )
+            else:
+                # Image-based models use sample_from_model()
+                context_size = getattr(goal_model, 'context_size', 64)
+                dummy_input = torch.zeros(1, 5, context_size, context_size, device=device)
+
+                for i in range(3):
+                    with torch.no_grad():
+                        _ = goal_model.model.sample_from_model(
+                            dummy_input,
+                            samples=num_samples,
+                            num_steps=num_steps,
+                            seed=ml_seed
+                        )
 
             # Synchronize CUDA to ensure all operations complete
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
 
             warmup_time = time.time() - warmup_start
-            print(f"✅ Goal model warmed up in {warmup_time:.2f}s ({num_samples} samples x 3 runs)")
+            model_type = "SE2 pose" if is_se2_model else "image"
+            print(f"✅ Goal model ({model_type}) warmed up in {warmup_time:.2f}s ({num_samples} samples x 3 runs)")
         except Exception as e:
             print(f"⚠️ Warmup failed (will warmup on first real inference): {e}")
             traceback.print_exc()
@@ -174,6 +212,34 @@ def process_single_environment(
     """Process a single environment using preloaded models."""
     start_time = time.time()
     result = ModularWorkerResult(task_id=task.task_id, success=False)
+
+    # Environment-specific ML artifact directory (non-destructive, additive).
+    # Downstream ML/primitive alignment code can use this to persist masks + vote mappings.
+    artifacts_dir = Path(task.output_dir) / "ml_artifacts" / task.task_id
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    env_info_path = artifacts_dir / "env_info.json"
+    if not env_info_path.exists():
+        try:
+            env_info_path.write_text(
+                json.dumps(
+                    {
+                        "task_id": task.task_id,
+                        "xml_file": task.xml_file,
+                        "config_file": task.config_file,
+                        "algorithm": task.algorithm,
+                        "created_unix_sec": time.time(),
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+        except Exception:
+            # Best-effort only; failures here shouldn't break collection.
+            pass
+
+    prior_artifacts_dir = os.environ.get("NAMO_ML_ARTIFACTS_DIR")
+    os.environ["NAMO_ML_ARTIFACTS_DIR"] = str(artifacts_dir)
     
     # Inject preloaded models into planner config
     if preloaded_object_model or preloaded_goal_model:
@@ -228,15 +294,25 @@ def process_single_environment(
                         if attempt.success:
                             if attempt.goal_chain:
                                 for goal in attempt.goal_chain:
-                                    action_sequence.append({
-                                        "object_id": attempt.chosen_object_id,
-                                        "target": (goal.x, goal.y, goal.theta)
-                                    })
+                                    edge_idx = getattr(goal, "edge_idx", None)
+                                    depth_idx = getattr(goal, "depth", None)
+                                    action_sequence.append(
+                                        {
+                                            "object_id": attempt.chosen_object_id,
+                                            "target": (goal.x, goal.y, goal.theta),
+                                            # Optional but critical for accurate replay:
+                                            # primitive slot identity for direct execution.
+                                            "edge_idx": int(edge_idx) if edge_idx is not None else None,
+                                            "depth": int(depth_idx) if depth_idx is not None else None,
+                                        }
+                                    )
                                 solution_depth = len(attempt.goal_chain)
                             elif attempt.chosen_goal:
                                 action_sequence = [{
                                     "object_id": attempt.chosen_object_id,
-                                    "target": attempt.chosen_goal
+                                    "target": attempt.chosen_goal,
+                                    "edge_idx": None,
+                                    "depth": None,
                                 }]
                                 solution_depth = 1
                         
@@ -267,6 +343,7 @@ def process_single_environment(
                                 'chosen_object_id': attempt.chosen_object_id,
                                 'chain_depth': attempt.chain_depth,
                                 'total_cost': getattr(attempt, 'total_cost', None),
+                                'goal_strategy_profile': getattr(attempt, 'goal_strategy_profile', None),
                                 'skill_calls_before_success': getattr(attempt, 'skill_calls_before_success', None),
                                 'solutions_found_for_neighbour': getattr(attempt, 'solutions_found_for_neighbour', None),
                                 'solutions_cap_for_neighbour': getattr(attempt, 'solutions_cap_for_neighbour', None),
@@ -277,7 +354,34 @@ def process_single_environment(
                                 'candidate_objects_count': getattr(attempt, 'candidate_objects_count', None),
                                 'ml_goals_generated': getattr(attempt, 'ml_goals_generated', None),
                                 'ml_goals_aligned': getattr(attempt, 'ml_goals_aligned', None),
+                                'ml_diffusion_calls': getattr(attempt, 'ml_diffusion_calls', None),
+                                'ml_mask_vote_attach_calls': getattr(attempt, 'ml_mask_vote_attach_calls', None),
+                                'ml_mask_vote_attach_ms_total': getattr(attempt, 'ml_mask_vote_attach_ms_total', None),
+                                'ml_mask_vote_attach_ms_avg': getattr(attempt, 'ml_mask_vote_attach_ms_avg', None),
                                 'reachable_edges_count': getattr(attempt, 'reachable_edges_count', None),
+                                'primitive_ranking_calls': getattr(attempt, 'primitive_ranking_calls', None),
+                                'primitive_ranking_ms_total': getattr(attempt, 'primitive_ranking_ms_total', None),
+                                'primitive_ranking_ms_avg': getattr(attempt, 'primitive_ranking_ms_avg', None),
+                                'primitive_ranking_candidates_total': getattr(attempt, 'primitive_ranking_candidates_total', None),
+                                'primitive_ranking_candidates_avg': getattr(attempt, 'primitive_ranking_candidates_avg', None),
+                                'push_exec_count': getattr(attempt, 'push_exec_count', None),
+                                'push_exec_ms_total': getattr(attempt, 'push_exec_ms_total', None),
+                                'push_exec_ms_avg': getattr(attempt, 'push_exec_ms_avg', None),
+                                'push_exec_ms_by_depth': getattr(attempt, 'push_exec_ms_by_depth', None),
+                                'goal_generation_calls': getattr(attempt, 'goal_generation_calls', None),
+                                'goal_generation_ms_total': getattr(attempt, 'goal_generation_ms_total', None),
+                                'goal_generation_ms_avg': getattr(attempt, 'goal_generation_ms_avg', None),
+                                'opening_validation_calls': getattr(attempt, 'opening_validation_calls', None),
+                                'opening_validation_ms_total': getattr(attempt, 'opening_validation_ms_total', None),
+                                'opening_validation_ms_avg': getattr(attempt, 'opening_validation_ms_avg', None),
+                                'opening_validation_goal_checks_total': getattr(attempt, 'opening_validation_goal_checks_total', None),
+                                'opening_validation_goal_checks_avg_per_call': getattr(attempt, 'opening_validation_goal_checks_avg_per_call', None),
+                                'opening_validation_reachability_calls': getattr(attempt, 'opening_validation_reachability_calls', None),
+                                'opening_validation_reachability_ms_total': getattr(attempt, 'opening_validation_reachability_ms_total', None),
+                                'opening_validation_reachability_ms_avg': getattr(attempt, 'opening_validation_reachability_ms_avg', None),
+                                'chain_observation_replay_calls': getattr(attempt, 'chain_observation_replay_calls', None),
+                                'chain_observation_replay_ms_total': getattr(attempt, 'chain_observation_replay_ms_total', None),
+                                'chain_observation_replay_ms_avg': getattr(attempt, 'chain_observation_replay_ms_avg', None),
                                 # Detailed ML goal info for analysis/visualization
                                 # aligned_primitives: [{'object_id', 'edge_idx', 'depth_idx', 'x', 'y', 'theta', 'votes'}, ...]
                                 'aligned_primitives': getattr(attempt, 'aligned_primitives', None),
@@ -336,7 +440,9 @@ def process_single_environment(
                     original_action_sequence = [
                         {
                             "object_id": action.object_id,
-                            "target": (action.x, action.y, action.theta)
+                            "target": (action.x, action.y, action.theta),
+                            "edge_idx": int(getattr(action, "edge_idx", -1)),
+                            "depth": int(getattr(action, "depth", -1)),
                         }
                         for action in planner_result.action_sequence
                     ]
@@ -411,8 +517,15 @@ def process_single_environment(
     except Exception as e:
         result.error_message = f"Task failed: {str(e)}\n{traceback.format_exc()}"
         print(f"\n❌ {result.error_message}")
-    
-    result.processing_time = time.time() - start_time
+    finally:
+        # Always populate processing_time (success and failure paths).
+        result.processing_time = time.time() - start_time
+        # Restore prior artifacts directory to avoid contaminating subsequent environments.
+        if prior_artifacts_dir is None:
+            os.environ.pop("NAMO_ML_ARTIFACTS_DIR", None)
+        else:
+            os.environ["NAMO_ML_ARTIFACTS_DIR"] = prior_artifacts_dir
+
     return result
 
 class SequentialCollectionManager:
@@ -593,6 +706,23 @@ class SequentialCollectionManager:
             f.write(f"Success rate: {summary['performance_stats']['success_rate']:.1f}%\n")
 
 def main():
+    # Some parts of the C++ environment initialization load motion primitives from
+    # relative paths like `data/motion_primitives_15_square.dat`. If the script is
+    # launched outside the `namo_cpp` repo root, `RLEnvironment` can fail to
+    # initialize (even if `--primitive-data-dir` is provided, since that only
+    # affects Python-side strategies).
+    #
+    # To make this script robust, if the current working directory does not have
+    # a `data/` folder but the repo root does, switch CWD to the repo root.
+    try:
+        repo_root = Path(__file__).resolve().parents[4]  # .../namo_cpp
+        if not Path("data").exists() and (repo_root / "data").exists():
+            os.chdir(repo_root)
+            print(f"📁 Changed working directory to namo_cpp repo root: {repo_root}")
+    except Exception:
+        # Best-effort only; if this fails, we'll surface the original error later.
+        pass
+
     # Use same argument parsing structure as modular_parallel_collection
     pre_parser = argparse.ArgumentParser(add_help=False)
     pre_parser.add_argument("--config-yaml", type=str, help="Path to YAML config file for defaults")

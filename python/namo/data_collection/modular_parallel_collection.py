@@ -62,7 +62,13 @@ from namo.planners.idfs.failure_codes import FailureCode, FailureClassifier, cre
 from namo.planners.idfs.solution_smoother import SolutionSmoother
 
 import random
-random.seed(42)
+DEFAULT_GLOBAL_SEED = int(os.environ.get("NAMO_GLOBAL_SEED", "42"))
+random.seed(DEFAULT_GLOBAL_SEED)
+
+
+def set_global_seed(seed: int) -> None:
+    """Set global RNG seed for deterministic planning runs."""
+    random.seed(int(seed))
 
 
 def _sanitize_run_name(name: str) -> str:
@@ -507,6 +513,7 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                                 'region_goal_used': attempt.region_goal_used,
                                 'region_goals_sampled': attempt.region_goals_sampled,
                                 'chosen_object_id': attempt.chosen_object_id,
+                                'goal_strategy_profile': getattr(attempt, 'goal_strategy_profile', None),
                                 'chain_depth': attempt.chain_depth,
                                 'total_cost': getattr(attempt, 'total_cost', None),
                                 'skill_calls_before_success': getattr(attempt, 'skill_calls_before_success', None),
@@ -515,6 +522,40 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                                 'solutions_total_for_neighbour': getattr(attempt, 'solutions_total_for_neighbour', None),
                                 'pushes_total_for_neighbour': getattr(attempt, 'pushes_total_for_neighbour', None),
                                 'failure_reason': getattr(attempt, 'failure_reason', None),
+                                'candidate_objects_count': getattr(attempt, 'candidate_objects_count', None),
+                                'ml_goals_generated': getattr(attempt, 'ml_goals_generated', None),
+                                'ml_goals_aligned': getattr(attempt, 'ml_goals_aligned', None),
+                                'ml_diffusion_calls': getattr(attempt, 'ml_diffusion_calls', None),
+                                'ml_mask_vote_attach_calls': getattr(attempt, 'ml_mask_vote_attach_calls', None),
+                                'ml_mask_vote_attach_ms_total': getattr(attempt, 'ml_mask_vote_attach_ms_total', None),
+                                'ml_mask_vote_attach_ms_avg': getattr(attempt, 'ml_mask_vote_attach_ms_avg', None),
+                                'reachable_edges_count': getattr(attempt, 'reachable_edges_count', None),
+                                'primitive_ranking_calls': getattr(attempt, 'primitive_ranking_calls', None),
+                                'primitive_ranking_ms_total': getattr(attempt, 'primitive_ranking_ms_total', None),
+                                'primitive_ranking_ms_avg': getattr(attempt, 'primitive_ranking_ms_avg', None),
+                                'primitive_ranking_candidates_total': getattr(attempt, 'primitive_ranking_candidates_total', None),
+                                'primitive_ranking_candidates_avg': getattr(attempt, 'primitive_ranking_candidates_avg', None),
+                                'push_exec_count': getattr(attempt, 'push_exec_count', None),
+                                'push_exec_ms_total': getattr(attempt, 'push_exec_ms_total', None),
+                                'push_exec_ms_avg': getattr(attempt, 'push_exec_ms_avg', None),
+                                'push_exec_ms_by_depth': getattr(attempt, 'push_exec_ms_by_depth', None),
+                                'goal_generation_calls': getattr(attempt, 'goal_generation_calls', None),
+                                'goal_generation_ms_total': getattr(attempt, 'goal_generation_ms_total', None),
+                                'goal_generation_ms_avg': getattr(attempt, 'goal_generation_ms_avg', None),
+                                'opening_validation_calls': getattr(attempt, 'opening_validation_calls', None),
+                                'opening_validation_ms_total': getattr(attempt, 'opening_validation_ms_total', None),
+                                'opening_validation_ms_avg': getattr(attempt, 'opening_validation_ms_avg', None),
+                                'opening_validation_goal_checks_total': getattr(attempt, 'opening_validation_goal_checks_total', None),
+                                'opening_validation_goal_checks_avg_per_call': getattr(attempt, 'opening_validation_goal_checks_avg_per_call', None),
+                                'opening_validation_reachability_calls': getattr(attempt, 'opening_validation_reachability_calls', None),
+                                'opening_validation_reachability_ms_total': getattr(attempt, 'opening_validation_reachability_ms_total', None),
+                                'opening_validation_reachability_ms_avg': getattr(attempt, 'opening_validation_reachability_ms_avg', None),
+                                'chain_observation_replay_calls': getattr(attempt, 'chain_observation_replay_calls', None),
+                                'chain_observation_replay_ms_total': getattr(attempt, 'chain_observation_replay_ms_total', None),
+                                'chain_observation_replay_ms_avg': getattr(attempt, 'chain_observation_replay_ms_avg', None),
+                                'aligned_primitives': getattr(attempt, 'aligned_primitives', None),
+                                'ml_goals_raw': getattr(attempt, 'ml_goals_raw', None),
+                                'reachable_edges': getattr(attempt, 'reachable_edges', None),
                                 # Hybrid decomposition tracking
                                 'phase_push_counts': getattr(attempt, 'phase_push_counts', None),
                                 'solved_in_phase': getattr(attempt, 'solved_in_phase', ''),
@@ -1069,6 +1110,8 @@ def main():
     parser.add_argument("--region-selection-strategy", type=str, default="ml_first",
                         choices=["ml_first", "cost_first"],
                         help="Frontier priority: ml_first (ML-derived first) or cost_first (shallow first)")
+    parser.add_argument("--profile-geometric", action="store_true",
+                        help="Collect goal-strategy timing breakdown for geometric_transport (adds goal_strategy_profile to PKLs)")
     parser.add_argument("--goal-strategy", type=str, default=None,
                         choices=["primitive", "ml", "ml_primitive", "ml_fallback", "ml_primitive_fallback",
                                  "ml_async", "ml_primitive_async", "ml_driven_async",
@@ -1096,6 +1139,8 @@ def main():
                         help="Randomize edge ordering in primitive strategy (useful for difficulty analysis)")
     parser.add_argument("--shuffle-seed", type=int, default=None,
                         help="Random seed for reproducible edge shuffling (None = random each call)")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Global RNG seed for deterministic planning (default: NAMO_GLOBAL_SEED env var or 42)")
     parser.add_argument("--xml-dir", type=str,
                         default="../ml4kp_ktamp/resources/models/custom_walled_envs/aug9",
                         help="Base directory for XML environment files")
@@ -1135,6 +1180,9 @@ def main():
             print(f"⚠️  Warning: could not load YAML config '{pre_args.config_yaml}': {e}")
 
     args = parser.parse_args(remaining_argv)
+
+    # Global RNG seed (affects region_opening planner and any random sampling).
+    set_global_seed(args.seed if args.seed is not None else DEFAULT_GLOBAL_SEED)
     
     # Validate required arguments presence (after YAML + CLI merge)
     if args.output_dir is None or args.start_idx is None or args.end_idx is None:
@@ -1166,6 +1214,7 @@ def main():
             "region_chain_link_cost": args.region_chain_link_cost,
             "region_ml_ignore_blacklist": args.region_ml_ignore_blacklist,
             "region_selection_strategy": args.region_selection_strategy,
+            "profile_geometric": args.profile_geometric,
             "shuffle_edges": args.shuffle_edges,
             "shuffle_seed": args.shuffle_seed,
         })
