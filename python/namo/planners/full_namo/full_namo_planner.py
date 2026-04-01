@@ -24,6 +24,9 @@ class FullNAMOStats:
     """Statistics for full NAMO planning."""
     iterations: int = 0
     total_pushes: int = 0
+    # Includes every simulated push attempt (successful and rejected) made by
+    # nested RegionOpeningPlanner calls while solving the full NAMO problem.
+    total_attempted_pushes: int = 0
     regions_opened: List[str] = field(default_factory=list)
 
 
@@ -100,6 +103,53 @@ class FullNAMOPlanner(BasePlanner):
         """Print debug message if verbose mode is enabled."""
         if getattr(self.config, "verbose", False):
             print(message)
+
+    @staticmethod
+    def _as_int(value: Any) -> Optional[int]:
+        try:
+            return int(value)
+        except Exception:
+            return None
+
+    def _extract_attempted_pushes_from_region_result(self, result: PlannerResult) -> int:
+        """Estimate total simulated pushes attempted in one region-opening call.
+
+        RegionOpeningPlanner returns per-object AttemptResult rows. We aggregate
+        one count per object (max when duplicates exist) to avoid double counting
+        when multiple recorded solutions exist for the same object.
+        """
+        if not result.algorithm_stats:
+            return 0
+
+        attempt_results = result.algorithm_stats.get("attempt_results", [])
+        if not attempt_results:
+            return 0
+
+        pushes_by_key: Dict[str, int] = {}
+        for attempt in attempt_results:
+            obj_id = getattr(attempt, "chosen_object_id", None)
+            neighbour = getattr(attempt, "neighbour_region_label", "")
+            if obj_id is None:
+                # Fallback rows can have no object id; keep them distinct.
+                err = getattr(attempt, "error_message", "") or ""
+                key = f"none:{neighbour}:{err}"
+            else:
+                key = f"obj:{obj_id}"
+
+            # push_exec_count tracks actual env.step calls for this object search.
+            pushes = self._as_int(getattr(attempt, "push_exec_count", None))
+            if pushes is None:
+                # Older rows may only populate pushes_total_for_neighbour.
+                pushes = self._as_int(getattr(attempt, "pushes_total_for_neighbour", None))
+            if pushes is None:
+                continue
+
+            if key in pushes_by_key:
+                pushes_by_key[key] = max(pushes_by_key[key], pushes)
+            else:
+                pushes_by_key[key] = max(0, pushes)
+
+        return int(sum(pushes_by_key.values()))
 
     def search(self, robot_goal: Tuple[float, float, float]) -> PlannerResult:
         """Execute full NAMO planning as online execution.
@@ -203,6 +253,7 @@ class FullNAMOPlanner(BasePlanner):
 
             # Try to open
             result = self.region_opener.search(robot_goal, target_neighbor=target)
+            self.stats.total_attempted_pushes += self._extract_attempted_pushes_from_region_result(result)
 
             if not result.success:
                 self._debug(f"Failed, marking edge {edge}")
@@ -250,6 +301,7 @@ class FullNAMOPlanner(BasePlanner):
                         region_openings: List[RegionOpeningResult],
                         accessible_regions: List[str]) -> PlannerResult:
         """Create a success PlannerResult."""
+        serialized_region_openings = self._serialize_region_opening_sequence(region_openings)
         return PlannerResult(
             success=True,
             solution_found=True,
@@ -260,11 +312,63 @@ class FullNAMOPlanner(BasePlanner):
                 "full_namo_stats": self.stats,
                 "iterations": self.stats.iterations,
                 "total_pushes": self.stats.total_pushes,
+                "total_attempted_pushes": self.stats.total_attempted_pushes,
                 "regions_opened": self.stats.regions_opened,
                 "accessible_regions": accessible_regions,
-                "region_opening_sequence": region_openings,
+                # Keep this pickle-safe for collection serialization.
+                "region_opening_sequence": serialized_region_openings,
             }
         )
+
+    def _serialize_action(self, action: namo_rl.Action) -> Dict[str, Any]:
+        """Convert namo_rl.Action to a plain dict for safe persistence."""
+        payload: Dict[str, Any] = {
+            "object_id": getattr(action, "object_id", None),
+            "x": None,
+            "y": None,
+            "theta": None,
+            "edge_idx": None,
+            "depth": None,
+        }
+        try:
+            payload["x"] = float(getattr(action, "x"))
+        except Exception:
+            pass
+        try:
+            payload["y"] = float(getattr(action, "y"))
+        except Exception:
+            pass
+        try:
+            payload["theta"] = float(getattr(action, "theta"))
+        except Exception:
+            pass
+        try:
+            payload["edge_idx"] = int(getattr(action, "edge_idx"))
+        except Exception:
+            pass
+        try:
+            payload["depth"] = int(getattr(action, "depth"))
+        except Exception:
+            pass
+        return payload
+
+    def _serialize_region_opening_sequence(
+        self,
+        region_openings: List[RegionOpeningResult],
+    ) -> List[Dict[str, Any]]:
+        """Serialize region-opening details into plain Python objects."""
+        out: List[Dict[str, Any]] = []
+        for opening in region_openings or []:
+            out.append(
+                {
+                    "target_region": opening.target_region,
+                    "object_id": opening.object_id,
+                    "actions": [self._serialize_action(a) for a in (opening.actions or [])],
+                    # RLState is not pickle-safe; only keep a flag.
+                    "has_resulting_state": opening.resulting_state is not None,
+                }
+            )
+        return out
 
     def _check_already_accessible(self, result: PlannerResult) -> bool:
         """Check if region opener result indicates "already_accessible".
@@ -339,6 +443,7 @@ class FullNAMOPlanner(BasePlanner):
                 "full_namo_stats": self.stats,
                 "iterations": self.stats.iterations,
                 "total_pushes": self.stats.total_pushes,
+                "total_attempted_pushes": self.stats.total_attempted_pushes,
                 "regions_opened": self.stats.regions_opened,
             }
         )

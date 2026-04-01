@@ -167,7 +167,30 @@ const std::map<std::string, std::map<std::string, double>>& RLEnvironment::get_o
 }
 
 void RLEnvironment::set_robot_goal(double x, double y, double theta) {
+    // Keep the C++ environment and visualization marker in sync with the goal used
+    // by the skill/executor (especially important for region-opening validation loops).
+    if (env_) {
+        env_->set_robot_goal({x, y});
+        // Visualization-only goal marker: keep it on the ground plane so it matches
+        // the XML goal site conventions used in most scenes.
+        env_->visualize_goal_marker({x, y, 0.0});
+    }
     skill_->set_robot_goal(x, y, theta);
+}
+
+void RLEnvironment::set_robot_goal_silent(double x, double y, double theta) {
+    // Same as set_robot_goal, but do not update the visualization marker.
+    // This avoids flickering the goal marker while iterating over many sampled goals.
+    if (env_) {
+        env_->set_robot_goal({x, y});
+    }
+    skill_->set_robot_goal(x, y, theta);
+}
+
+void RLEnvironment::set_goal_site_visible(bool visible) {
+    if (env_) {
+        env_->set_goal_site_visible(visible);
+    }
 }
 
 bool RLEnvironment::is_robot_goal_reachable() const {
@@ -215,6 +238,10 @@ size_t RLEnvironment::get_frame_count() const {
 
 std::vector<std::vector<unsigned char>> RLEnvironment::get_frames() const {
     return env_->get_captured_frames();  // Returns copy
+}
+
+const std::vector<unsigned char>& RLEnvironment::get_frame_ref(size_t idx) const {
+    return env_->get_captured_frame(idx);
 }
 
 void RLEnvironment::clear_frames() {
@@ -312,6 +339,13 @@ std::vector<int> RLEnvironment::evaluate_primitive_priorities(
         return skill_->evaluate_primitive_priorities(object_name, target_poses, robot_goal);
     }
     return std::vector<int>(target_poses.size(), 3);  // Default to priority 3
+}
+
+std::map<std::string, double> RLEnvironment::get_last_priority_profile() const {
+    if (skill_) {
+        return skill_->get_last_priority_profile();
+    }
+    return {};
 }
 
 } // namespace namo

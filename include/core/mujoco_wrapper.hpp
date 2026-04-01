@@ -4,6 +4,7 @@
 #include <string>
 #include <memory>
 #include <vector>
+#include <stdexcept>
 
 extern "C" {
 #include "mujoco/mujoco.h"
@@ -180,8 +181,15 @@ public:
      * @brief Get geom position and orientation by name
      */
     bool get_geom_position(const std::string& name, std::array<double, 3>& pos) const;
-    bool get_geom_quaternion(const std::string& name, std::array<double, 4>& quat) const;
-    bool get_geom_pose(const std::string& name, std::array<double, 7>& pose) const;
+	    bool get_geom_quaternion(const std::string& name, std::array<double, 4>& quat) const;
+	    bool get_geom_pose(const std::string& name, std::array<double, 7>& pose) const;
+
+	    /**
+	     * @brief Set site rgba by name (updates mjModel).
+	     *
+	     * @return True if the site exists and was updated.
+	     */
+	    bool set_site_rgba(const std::string& name, const std::array<float, 4>& rgba);
     
     /**
      * @brief Collision detection
@@ -320,6 +328,18 @@ public:
      */
     const std::vector<std::vector<unsigned char>>& get_captured_frames() const {
         return captured_frames_;
+    }
+
+    /**
+     * @brief Get a single captured frame (no copy).
+     *
+     * @throws std::out_of_range if idx is invalid.
+     */
+    const std::vector<unsigned char>& get_captured_frame(size_t idx) const {
+        if (idx >= captured_frames_.size()) {
+            throw std::out_of_range("captured frame index out of range");
+        }
+        return captured_frames_[idx];
     }
 
     /**

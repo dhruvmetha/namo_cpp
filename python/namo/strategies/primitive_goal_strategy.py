@@ -10,6 +10,9 @@ import os
 import math
 import random
 import threading
+import json
+import time
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, Future
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Tuple, Union, Any, TYPE_CHECKING, Sequence
@@ -22,6 +25,31 @@ from .ml_strategies import MLGoalSelectionStrategy
 
 if TYPE_CHECKING:
     from .primitive_goal_strategy import MLPrimitiveAsyncStrategy
+
+
+def _namo_get_ml_artifacts_dir() -> Optional[Path]:
+    raw = os.environ.get("NAMO_ML_ARTIFACTS_DIR")
+    if not raw:
+        return None
+    try:
+        path = Path(raw)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+    except Exception:
+        return None
+
+
+def _namo_unique_path(path: Path) -> Path:
+    if not path.exists():
+        return path
+    stem = path.stem
+    suffix = path.suffix
+    parent = path.parent
+    for i in range(1, 10_000):
+        candidate = parent / f"{stem}_{i:04d}{suffix}"
+        if not candidate.exists():
+            return candidate
+    return parent / f"{stem}_{time.time_ns()}{suffix}"
 
 
 @dataclass
@@ -401,6 +429,42 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
 
         # Store last alignment result for visualization
         self._last_alignment_info = None
+        self._profile_state = {
+            "generate_goals_calls": 0,
+            "ml_mask_vote_attach_calls": 0,
+            "ml_mask_vote_attach_ms_total": 0.0,
+            "ml_goals_seen_total": 0,
+        }
+
+    def reset_diffusion_call_counter(self) -> None:
+        """Reset diffusion/infer call counter for the underlying ML goal sampler."""
+        if hasattr(self._ml_strategy, "reset_diffusion_call_counter"):
+            self._ml_strategy.reset_diffusion_call_counter()
+
+    def get_diffusion_call_counter(self) -> int:
+        """Get diffusion/infer calls since last reset (best-effort)."""
+        if hasattr(self._ml_strategy, "get_diffusion_call_counter"):
+            return int(self._ml_strategy.get_diffusion_call_counter())
+        return 0
+
+    def reset_profile(self) -> None:
+        self._profile_state = {
+            "generate_goals_calls": 0,
+            "ml_mask_vote_attach_calls": 0,
+            "ml_mask_vote_attach_ms_total": 0.0,
+            "ml_goals_seen_total": 0,
+        }
+
+    def get_profile(self) -> Dict[str, Any]:
+        calls = int(self._profile_state.get("ml_mask_vote_attach_calls", 0))
+        total_ms = float(self._profile_state.get("ml_mask_vote_attach_ms_total", 0.0))
+        return {
+            "generate_goals_calls": int(self._profile_state.get("generate_goals_calls", 0)),
+            "ml_mask_vote_attach_calls": calls,
+            "ml_mask_vote_attach_ms_total": total_ms,
+            "ml_mask_vote_attach_ms_avg": (total_ms / calls) if calls > 0 else 0.0,
+            "ml_goals_seen_total": int(self._profile_state.get("ml_goals_seen_total", 0)),
+        }
 
     def get_last_goal_stats(self) -> dict:
         """Return stats from the last generate_goals call for failure tracking.
@@ -415,6 +479,7 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
                 - reachable_edges: list of reachable edge indices
         """
         if self._last_alignment_info is None:
+            prof = self.get_profile()
             return {
                 'ml_goals_generated': 0,
                 'ml_goals_aligned': 0,
@@ -422,6 +487,10 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
                 'aligned_primitives': [],
                 'ml_goals_raw': [],
                 'reachable_edges': [],
+                'ml_diffusion_calls': self.get_diffusion_call_counter(),
+                'ml_mask_vote_attach_calls': int(prof.get('ml_mask_vote_attach_calls', 0)),
+                'ml_mask_vote_attach_ms_total': float(prof.get('ml_mask_vote_attach_ms_total', 0.0)),
+                'ml_mask_vote_attach_ms_avg': float(prof.get('ml_mask_vote_attach_ms_avg', 0.0)),
             }
 
         # Convert aligned primitives to serializable format
@@ -446,6 +515,7 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
                 'theta': g.theta,
             })
 
+        prof = self.get_profile()
         return {
             'ml_goals_generated': self._last_alignment_info.get('total_ml_goals', 0),
             'ml_goals_aligned': self._last_alignment_info.get('total_aligned', 0),
@@ -453,6 +523,10 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             'aligned_primitives': aligned_primitives,
             'ml_goals_raw': ml_goals_raw,
             'reachable_edges': sorted(list(self._last_alignment_info.get('reachable_edges', set()))),
+            'ml_diffusion_calls': self.get_diffusion_call_counter(),
+            'ml_mask_vote_attach_calls': int(prof.get('ml_mask_vote_attach_calls', 0)),
+            'ml_mask_vote_attach_ms_total': float(prof.get('ml_mask_vote_attach_ms_total', 0.0)),
+            'ml_mask_vote_attach_ms_avg': float(prof.get('ml_mask_vote_attach_ms_avg', 0.0)),
         }
 
     def generate_goals(
@@ -463,6 +537,8 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
         max_goals: int,
         region_goals_sampled: Optional[List[Tuple[float, float, float]]] = None
     ) -> List[List[Goal]]:
+        self._profile_state["generate_goals_calls"] += 1
+
         primitive_goals = self._primitive_strategy.generate_goals(
             object_id,
             state,
@@ -506,7 +582,14 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
         slot_accumulators = defaultdict(lambda: {"x": 0.0, "y": 0.0, "sin": 0.0, "cos": 0.0, "count": 0})
         matches = 0
         skipped_due_to_tolerance = 0
+        ml_goal_vote_details: List[Dict[str, Any]] = []
+        self._profile_state["ml_goals_seen_total"] += int(len(ml_goals))
+        try:
+            alignment_ml_call_id = int(getattr(ml_goals[0], "ml_call_id", -1)) if ml_goals else -1
+        except Exception:
+            alignment_ml_call_id = -1
 
+        vote_attach_start = time.perf_counter()
         for ml_goal_idx, ml_goal in enumerate(ml_goals):
             # Collect all slots within tolerance with their scores
             candidates_within_tolerance = []
@@ -523,6 +606,27 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
 
             if not candidates_within_tolerance:
                 skipped_due_to_tolerance += 1
+                # Still record an entry (empty votes) so downstream analysis can align
+                # "no-match" samples with their stored masks.
+                try:
+                    sample_index = int(getattr(ml_goal, "sample_index", ml_goal_idx))
+                except Exception:
+                    sample_index = int(ml_goal_idx)
+                try:
+                    ml_call_id = int(getattr(ml_goal, "ml_call_id", -1))
+                except Exception:
+                    ml_call_id = -1
+                ml_goal_vote_details.append(
+                    {
+                        "sample_index": sample_index,
+                        "ml_call_id": ml_call_id,
+                        "mask_path": getattr(ml_goal, "mask_path", None),
+                        "x": float(ml_goal.x),
+                        "y": float(ml_goal.y),
+                        "theta": float(ml_goal.theta),
+                        "voted_primitives": [],
+                    }
+                )
                 if self.verbose and ml_goal_idx < 5:  # Show first 5 skipped goals
                     print(f"    ⊗ ML goal {ml_goal_idx}: ({ml_goal.x:.3f}, {ml_goal.y:.3f}, {ml_goal.theta:.3f}) - No slots within tolerance")
                 continue
@@ -530,6 +634,36 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             # Sort by score (ascending) and take top-k
             candidates_within_tolerance.sort(key=lambda x: x[0])
             top_k_candidates = candidates_within_tolerance[:self.k_nearest]
+
+            # Record which primitive slots this ML sample voted for.
+            try:
+                sample_index = int(getattr(ml_goal, "sample_index", ml_goal_idx))
+            except Exception:
+                sample_index = int(ml_goal_idx)
+            try:
+                ml_call_id = int(getattr(ml_goal, "ml_call_id", -1))
+            except Exception:
+                ml_call_id = -1
+
+            ml_goal_vote_details.append(
+                {
+                    "sample_index": sample_index,
+                    "ml_call_id": ml_call_id,
+                    "mask_path": getattr(ml_goal, "mask_path", None),
+                    "x": float(ml_goal.x),
+                    "y": float(ml_goal.y),
+                    "theta": float(ml_goal.theta),
+                    "voted_primitives": [
+                        {
+                            "edge_idx": int(edge_idx),
+                            "depth_idx": int(depth_idx),
+                            "score": float(score),
+                            "slot_id": int(slot_id),
+                        }
+                        for (score, slot_id, edge_idx, depth_idx) in top_k_candidates
+                    ],
+                }
+            )
 
             # Vote for each of the k-nearest slots
             for score, slot_id, edge_idx, depth_idx in top_k_candidates:
@@ -542,6 +676,9 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
                     acc["goal"] = correct_primitive_goal
 
             matches += 1  # Count ML goals that had at least one match
+        vote_attach_ms = (time.perf_counter() - vote_attach_start) * 1000.0
+        self._profile_state["ml_mask_vote_attach_calls"] += 1
+        self._profile_state["ml_mask_vote_attach_ms_total"] += max(0.0, float(vote_attach_ms))
 
         # Construct aligned goals from accumulators
         for slot_id, data in slot_accumulators.items():
@@ -555,7 +692,10 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
                 theta=stored_goal.theta,
                 score=count,  # Store vote count as score
                 edge_idx=edge_idx,   # Preserve edge index for C++ direct execution
-                depth=depth_idx      # Preserve depth for C++ direct execution
+                depth=depth_idx,     # Preserve depth for C++ direct execution
+                # Propagate diffusion call id for joining with saved masks/votes artifacts.
+                ml_call_id=int(alignment_ml_call_id),
+                sample_index=-1,
             )
             matches += 1
             
@@ -616,10 +756,42 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             'object_pose': self._get_object_pose(state, env, object_id),
             'aligned_primitives': aligned_primitives_info,
             'ml_goals': ml_goals,
+            'ml_goal_votes': ml_goal_vote_details,
             'total_ml_goals': len(ml_goals),
             'total_aligned': len(aligned_primitives_info),
-            'reachable_edges': reachable_edges
+            'reachable_edges': reachable_edges,
+            'ml_mask_vote_attach_ms': max(0.0, float(vote_attach_ms)),
         }
+
+        # Best-effort: persist per-sample vote mapping alongside saved masks.
+        artifacts_root = _namo_get_ml_artifacts_dir()
+        if artifacts_root is not None and ml_goal_vote_details:
+            call_id = -1
+            for g in ml_goals:
+                cid = getattr(g, "ml_call_id", -1)
+                if isinstance(cid, int) and cid >= 0:
+                    call_id = cid
+                    break
+            if call_id >= 0:
+                out_dir = artifacts_root / "ml_goal_samples" / str(object_id) / f"call_{call_id:06d}"
+            else:
+                out_dir = artifacts_root / "primitive_votes" / str(object_id)
+            try:
+                out_dir.mkdir(parents=True, exist_ok=True)
+                payload = {
+                    "object_id": str(object_id),
+                    "ml_call_id": int(call_id),
+                    "k_nearest": int(self.k_nearest),
+                    "match_position_tolerance": float(self.match_position_tolerance),
+                    "match_angle_tolerance": float(self.match_angle_tolerance),
+                    "angle_weight": float(self.angle_weight),
+                    "created_unix_sec": time.time(),
+                    "ml_goal_votes": ml_goal_vote_details,
+                }
+                out_path = _namo_unique_path(out_dir / "primitive_votes.json")
+                out_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+            except Exception:
+                pass
 
         # Save visualization if enabled
         if self.preview_aligned_primitives and aligned_primitives_info:
@@ -909,10 +1081,47 @@ class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
 
         # Store last alignment result for stats/visualization
         self._last_alignment_info = None
+        self._profile_state = {
+            "generate_goals_calls": 0,
+            "ml_mask_vote_attach_calls": 0,
+            "ml_mask_vote_attach_ms_total": 0.0,
+            "ml_goals_seen_total": 0,
+        }
+
+    def reset_diffusion_call_counter(self) -> None:
+        """Reset diffusion/infer call counter for the underlying ML goal sampler."""
+        if hasattr(self._ml_strategy, "reset_diffusion_call_counter"):
+            self._ml_strategy.reset_diffusion_call_counter()
+
+    def get_diffusion_call_counter(self) -> int:
+        """Get diffusion/infer calls since last reset (best-effort)."""
+        if hasattr(self._ml_strategy, "get_diffusion_call_counter"):
+            return int(self._ml_strategy.get_diffusion_call_counter())
+        return 0
+
+    def reset_profile(self) -> None:
+        self._profile_state = {
+            "generate_goals_calls": 0,
+            "ml_mask_vote_attach_calls": 0,
+            "ml_mask_vote_attach_ms_total": 0.0,
+            "ml_goals_seen_total": 0,
+        }
+
+    def get_profile(self) -> Dict[str, Any]:
+        calls = int(self._profile_state.get("ml_mask_vote_attach_calls", 0))
+        total_ms = float(self._profile_state.get("ml_mask_vote_attach_ms_total", 0.0))
+        return {
+            "generate_goals_calls": int(self._profile_state.get("generate_goals_calls", 0)),
+            "ml_mask_vote_attach_calls": calls,
+            "ml_mask_vote_attach_ms_total": total_ms,
+            "ml_mask_vote_attach_ms_avg": (total_ms / calls) if calls > 0 else 0.0,
+            "ml_goals_seen_total": int(self._profile_state.get("ml_goals_seen_total", 0)),
+        }
 
     def get_last_goal_stats(self) -> dict:
         """Return stats from the last generate_goals call for failure tracking."""
         if self._last_alignment_info is None:
+            prof = self.get_profile()
             return {
                 'ml_goals_generated': 0,
                 'ml_goals_aligned': 0,
@@ -921,6 +1130,10 @@ class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
                 'ml_goals_raw': [],
                 'reachable_edges': [],
                 'fallback_primitives_count': 0,
+                'ml_diffusion_calls': self.get_diffusion_call_counter(),
+                'ml_mask_vote_attach_calls': int(prof.get('ml_mask_vote_attach_calls', 0)),
+                'ml_mask_vote_attach_ms_total': float(prof.get('ml_mask_vote_attach_ms_total', 0.0)),
+                'ml_mask_vote_attach_ms_avg': float(prof.get('ml_mask_vote_attach_ms_avg', 0.0)),
             }
 
         aligned_primitives = []
@@ -943,6 +1156,7 @@ class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
                 'theta': g.theta,
             })
 
+        prof = self.get_profile()
         return {
             'ml_goals_generated': self._last_alignment_info.get('total_ml_goals', 0),
             'ml_goals_aligned': self._last_alignment_info.get('total_aligned', 0),
@@ -951,6 +1165,10 @@ class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
             'ml_goals_raw': ml_goals_raw,
             'reachable_edges': sorted(list(self._last_alignment_info.get('reachable_edges', set()))),
             'fallback_primitives_count': self._last_alignment_info.get('fallback_count', 0),
+            'ml_diffusion_calls': self.get_diffusion_call_counter(),
+            'ml_mask_vote_attach_calls': int(prof.get('ml_mask_vote_attach_calls', 0)),
+            'ml_mask_vote_attach_ms_total': float(prof.get('ml_mask_vote_attach_ms_total', 0.0)),
+            'ml_mask_vote_attach_ms_avg': float(prof.get('ml_mask_vote_attach_ms_avg', 0.0)),
         }
 
     def generate_goals(
@@ -967,6 +1185,8 @@ class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
         - ML-aligned slots have score = vote_count (positive)
         - Non-ML slots have score = 0 (fallback)
         """
+        self._profile_state["generate_goals_calls"] += 1
+
         # Phase 1: Generate ALL primitives
         primitive_goals = self._primitive_strategy.generate_goals(
             object_id, state, env, max_goals, region_goals_sampled
@@ -1012,8 +1232,11 @@ class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
         slot_votes: Dict[int, int] = defaultdict(int)  # slot_id -> vote count
         aligned_count = 0
         skipped_tolerance = 0
+        ml_goal_vote_details: List[Dict[str, Any]] = []
+        self._profile_state["ml_goals_seen_total"] += int(len(ml_goals))
+        vote_attach_start = time.perf_counter()
 
-        for ml_goal in ml_goals:
+        for ml_goal_idx, ml_goal in enumerate(ml_goals):
             # Find slots within tolerance
             candidates_within_tolerance = []
 
@@ -1028,16 +1251,66 @@ class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
 
             if not candidates_within_tolerance:
                 skipped_tolerance += 1
+                try:
+                    sample_index = int(getattr(ml_goal, "sample_index", ml_goal_idx))
+                except Exception:
+                    sample_index = int(ml_goal_idx)
+                try:
+                    ml_call_id = int(getattr(ml_goal, "ml_call_id", -1))
+                except Exception:
+                    ml_call_id = -1
+                ml_goal_vote_details.append(
+                    {
+                        "sample_index": sample_index,
+                        "ml_call_id": ml_call_id,
+                        "mask_path": getattr(ml_goal, "mask_path", None),
+                        "x": float(ml_goal.x),
+                        "y": float(ml_goal.y),
+                        "theta": float(ml_goal.theta),
+                        "voted_primitives": [],
+                    }
+                )
                 continue
 
             # Vote for top-k nearest slots
             candidates_within_tolerance.sort(key=lambda x: x[0])
             top_k = candidates_within_tolerance[:self.k_nearest]
 
+            try:
+                sample_index = int(getattr(ml_goal, "sample_index", ml_goal_idx))
+            except Exception:
+                sample_index = int(ml_goal_idx)
+            try:
+                ml_call_id = int(getattr(ml_goal, "ml_call_id", -1))
+            except Exception:
+                ml_call_id = -1
+            ml_goal_vote_details.append(
+                {
+                    "sample_index": sample_index,
+                    "ml_call_id": ml_call_id,
+                    "mask_path": getattr(ml_goal, "mask_path", None),
+                    "x": float(ml_goal.x),
+                    "y": float(ml_goal.y),
+                    "theta": float(ml_goal.theta),
+                    "voted_primitives": [
+                        {
+                            "edge_idx": int(edge_idx),
+                            "depth_idx": int(depth_idx),
+                            "score": float(score),
+                            "slot_id": int(slot_id),
+                        }
+                        for (score, slot_id, edge_idx, depth_idx) in top_k
+                    ],
+                }
+            )
+
             for score, slot_id, edge_idx, depth_idx in top_k:
                 slot_votes[slot_id] += 1
 
             aligned_count += 1
+        vote_attach_ms = (time.perf_counter() - vote_attach_start) * 1000.0
+        self._profile_state["ml_mask_vote_attach_calls"] += 1
+        self._profile_state["ml_mask_vote_attach_ms_total"] += max(0.0, float(vote_attach_ms))
 
         # Phase 5: Update output grid with ML vote scores
         ml_aligned_slots = 0
@@ -1089,11 +1362,43 @@ class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
             'object_id': object_id,
             'aligned_primitives': aligned_primitives_info,
             'ml_goals': ml_goals,
+            'ml_goal_votes': ml_goal_vote_details,
             'total_ml_goals': len(ml_goals),
             'total_aligned': ml_aligned_slots,
             'reachable_edges': reachable_edges,
             'fallback_count': fallback_count,
+            'ml_mask_vote_attach_ms': max(0.0, float(vote_attach_ms)),
         }
+
+        # Best-effort: persist per-sample vote mapping alongside saved masks.
+        artifacts_root = _namo_get_ml_artifacts_dir()
+        if artifacts_root is not None and ml_goal_vote_details:
+            call_id = -1
+            for g in ml_goals:
+                cid = getattr(g, "ml_call_id", -1)
+                if isinstance(cid, int) and cid >= 0:
+                    call_id = cid
+                    break
+            if call_id >= 0:
+                out_dir = artifacts_root / "ml_goal_samples" / str(object_id) / f"call_{call_id:06d}"
+            else:
+                out_dir = artifacts_root / "primitive_votes" / str(object_id)
+            try:
+                out_dir.mkdir(parents=True, exist_ok=True)
+                payload = {
+                    "object_id": str(object_id),
+                    "ml_call_id": int(call_id),
+                    "k_nearest": int(self.k_nearest),
+                    "match_position_tolerance": float(self.match_position_tolerance),
+                    "match_angle_tolerance": float(self.match_angle_tolerance),
+                    "angle_weight": float(self.angle_weight),
+                    "created_unix_sec": time.time(),
+                    "ml_goal_votes": ml_goal_vote_details,
+                }
+                out_path = _namo_unique_path(out_dir / "primitive_votes.json")
+                out_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+            except Exception:
+                pass
 
         return output_goals
 
@@ -1314,6 +1619,17 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
 
         # Stats tracking
         self._last_alignment_info = None
+
+    def reset_diffusion_call_counter(self) -> None:
+        """Reset diffusion/infer call counter for the underlying ML goal sampler."""
+        if hasattr(self._ml_strategy, "reset_diffusion_call_counter"):
+            self._ml_strategy.reset_diffusion_call_counter()
+
+    def get_diffusion_call_counter(self) -> int:
+        """Get diffusion/infer calls since last reset (best-effort)."""
+        if hasattr(self._ml_strategy, "get_diffusion_call_counter"):
+            return int(self._ml_strategy.get_diffusion_call_counter())
+        return 0
 
     @classmethod
     def _init_executor(cls, max_workers: int = 1):
@@ -1536,6 +1852,12 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
                 samples=ml_budget
             )
 
+            # Persist masks if configured via NAMO_ML_ARTIFACTS_DIR (thread-safe).
+            try:
+                ml_call_id, _ = self._ml_strategy._maybe_save_goal_samples(goals or [], object_id)
+            except Exception:
+                ml_call_id = -1
+
             inference_time_ms = (time.time() - start_time) * 1000
 
             # Check if cancelled after inference (results will be discarded)
@@ -1544,12 +1866,20 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
 
             # Convert to Goal objects
             goal_objects = []
-            for goal_data in (goals or []):
+            for i, goal_data in enumerate(goals or []):
                 if 'x' in goal_data and 'y' in goal_data and 'theta' in goal_data:
+                    sample_index = goal_data.get("index", i)
+                    try:
+                        sample_index_int = int(sample_index)
+                    except Exception:
+                        sample_index_int = int(i)
                     goal_objects.append(Goal(
                         x=float(goal_data['x']),
                         y=float(goal_data['y']),
-                        theta=float(goal_data['theta'])
+                        theta=float(goal_data['theta']),
+                        sample_index=sample_index_int,
+                        ml_call_id=int(ml_call_id),
+                        mask_path=goal_data.get("_namo_saved_mask_path"),
                     ))
 
             return {
@@ -1584,6 +1914,7 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
             return {}
 
         slot_votes: Dict[Tuple[int, int], int] = defaultdict(int)
+        ml_goal_vote_details: List[Dict[str, Any]] = []
 
         # Build flat slot list for matching
         slot_metadata: List[Tuple[int, int, Goal]] = []
@@ -1595,7 +1926,7 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
         aligned_count = 0
         skipped_tolerance = 0
 
-        for ml_goal in ml_goals:
+        for ml_goal_idx, ml_goal in enumerate(ml_goals):
             candidates = []
 
             for edge_idx, depth_idx, prim_goal in slot_metadata:
@@ -1612,11 +1943,53 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
 
             if not candidates:
                 skipped_tolerance += 1
+                try:
+                    sample_index = int(getattr(ml_goal, "sample_index", ml_goal_idx))
+                except Exception:
+                    sample_index = int(ml_goal_idx)
+                try:
+                    ml_call_id = int(getattr(ml_goal, "ml_call_id", -1))
+                except Exception:
+                    ml_call_id = -1
+                ml_goal_vote_details.append(
+                    {
+                        "sample_index": sample_index,
+                        "ml_call_id": ml_call_id,
+                        "mask_path": getattr(ml_goal, "mask_path", None),
+                        "x": float(ml_goal.x),
+                        "y": float(ml_goal.y),
+                        "theta": float(ml_goal.theta),
+                        "voted_primitives": [],
+                    }
+                )
                 continue
 
             # Vote for top-k nearest slots
             candidates.sort(key=lambda x: x[0])
-            for _, edge_idx, depth_idx in candidates[:self.k_nearest]:
+            top_k = candidates[:self.k_nearest]
+            try:
+                sample_index = int(getattr(ml_goal, "sample_index", ml_goal_idx))
+            except Exception:
+                sample_index = int(ml_goal_idx)
+            try:
+                ml_call_id = int(getattr(ml_goal, "ml_call_id", -1))
+            except Exception:
+                ml_call_id = -1
+            ml_goal_vote_details.append(
+                {
+                    "sample_index": sample_index,
+                    "ml_call_id": ml_call_id,
+                    "mask_path": getattr(ml_goal, "mask_path", None),
+                    "x": float(ml_goal.x),
+                    "y": float(ml_goal.y),
+                    "theta": float(ml_goal.theta),
+                    "voted_primitives": [
+                        {"edge_idx": int(edge_idx), "depth_idx": int(depth_idx), "score": float(score)}
+                        for (score, edge_idx, depth_idx) in top_k
+                    ],
+                }
+            )
+            for score, edge_idx, depth_idx in top_k:
                 slot_votes[(edge_idx, depth_idx)] += 1
 
             aligned_count += 1
@@ -1633,7 +2006,38 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
             'aligned_count': aligned_count,
             'slots_with_votes': len(slot_votes),
             'skipped_tolerance': skipped_tolerance,
+            'ml_goal_votes': ml_goal_vote_details,
         }
+
+        # Best-effort: persist per-sample vote mapping alongside saved masks.
+        artifacts_root = _namo_get_ml_artifacts_dir()
+        if artifacts_root is not None and ml_goal_vote_details:
+            call_id = -1
+            for g in ml_goals:
+                cid = getattr(g, "ml_call_id", -1)
+                if isinstance(cid, int) and cid >= 0:
+                    call_id = cid
+                    break
+            if call_id >= 0:
+                out_dir = artifacts_root / "ml_goal_samples" / str(object_id) / f"call_{call_id:06d}"
+            else:
+                out_dir = artifacts_root / "primitive_votes" / str(object_id)
+            try:
+                out_dir.mkdir(parents=True, exist_ok=True)
+                payload = {
+                    "object_id": str(object_id),
+                    "ml_call_id": int(call_id),
+                    "k_nearest": int(self.k_nearest),
+                    "match_position_tolerance": float(self.match_position_tolerance),
+                    "match_angle_tolerance": float(self.match_angle_tolerance),
+                    "angle_weight": float(self.angle_weight),
+                    "created_unix_sec": time.time(),
+                    "ml_goal_votes": ml_goal_vote_details,
+                }
+                out_path = _namo_unique_path(out_dir / "primitive_votes.json")
+                out_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+            except Exception:
+                pass
 
         return {k: float(v) for k, v in slot_votes.items()}
 
@@ -1649,8 +2053,10 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
     def get_last_goal_stats(self) -> dict:
         """Return stats from the last alignment."""
         if self._last_alignment_info is None:
-            return {}
-        return self._last_alignment_info.copy()
+            return {'ml_diffusion_calls': self.get_diffusion_call_counter()}
+        stats = self._last_alignment_info.copy()
+        stats['ml_diffusion_calls'] = self.get_diffusion_call_counter()
+        return stats
 
     @property
     def strategy_name(self) -> str:

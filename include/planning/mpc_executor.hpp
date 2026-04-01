@@ -5,6 +5,7 @@
 #include "planning/namo_push_controller.hpp"
 #include "wavefront/wavefront_planner.hpp"
 #include <memory>
+#include <map>
 
 namespace namo {
 
@@ -178,6 +179,11 @@ public:
         const std::string& object_name,
         const std::vector<std::array<double, 3>>& target_poses,
         const std::array<double, 2>& robot_goal);
+
+    /**
+     * @brief Get timing breakdown for the last evaluate_primitive_priorities() call.
+     */
+    std::map<std::string, double> get_last_priority_profile() const;
 
 private:
     

@@ -31,6 +31,21 @@ from namo.strategies import (
 from namo.planners.opening.ml_driven_search import MLDrivenAsyncSearch
 
 
+def _sort_candidates_sync(
+    candidates: List[List[object]],
+    *,
+    depth_first: bool,
+) -> None:
+    """Sort in-place the candidate list [edge_idx, depth_idx, goal]."""
+
+    if depth_first:
+        # Depth-first, then score (descending), then edge index for determinism.
+        candidates.sort(key=lambda x: (x[1], -float(getattr(x[2], "score", 0.0)), x[0]))
+    else:
+        # Score-first (descending), then depth, then edge index for determinism.
+        candidates.sort(key=lambda x: (-float(getattr(x[2], "score", 0.0)), x[1], x[0]))
+
+
 @dataclass
 class ChainNode:
     """Node in the skill chaining search tree."""
@@ -71,6 +86,8 @@ class AttemptResult:
     resulting_state: Optional['namo_rl.RLState'] = None  # Full state after executing this opening (for multi-level exploration)
     exploration_level: int = 0  # Which exploration level this opening was found at (0 = initial state)
     timing_ms: Optional[float] = None
+    # Optional goal-strategy profiling payload (e.g., geometric transport timing breakdown)
+    goal_strategy_profile: Optional[Dict[str, Any]] = None
     # Total additive cost of the chain (sum of inner primitive depths)
     total_cost: int = 0
     # Neighbour-level solution accounting
@@ -97,6 +114,13 @@ class AttemptResult:
     # ML goal generation stats (for debugging ML model quality)
     ml_goals_generated: int = 0  # Raw ML goals before primitive alignment
     ml_goals_aligned: int = 0    # ML goals that matched a primitive slot
+    # Number of diffusion model calls (GoalInferenceModel.infer invocations) used while
+    # searching this (neighbour, object) attempt. Purely additive; helps measure volatility.
+    ml_diffusion_calls: int = 0
+    # Time spent attaching ML mask samples to primitive vote bins.
+    ml_mask_vote_attach_calls: int = 0
+    ml_mask_vote_attach_ms_total: float = 0.0
+    ml_mask_vote_attach_ms_avg: float = 0.0
     reachable_edges_count: int = 0  # Number of reachable edges for the object
     candidate_objects_count: int = 0  # Number of candidate blocking objects
     # Detailed ML goal info (for analysis/visualization)
@@ -114,6 +138,32 @@ class AttemptResult:
     phase_push_counts: Optional[Dict[str, int]] = None
     # Which phase found the solution: "ML-only", "primitives", or "" if not found
     solved_in_phase: str = ""
+    # Primitive ranking/sorting timings in BFS candidate ordering.
+    primitive_ranking_calls: int = 0
+    primitive_ranking_ms_total: float = 0.0
+    primitive_ranking_ms_avg: float = 0.0
+    primitive_ranking_candidates_total: int = 0
+    primitive_ranking_candidates_avg: float = 0.0
+    # Single-push execution timings (env.step only), with depth breakdown.
+    push_exec_count: int = 0
+    push_exec_ms_total: float = 0.0
+    push_exec_ms_avg: float = 0.0
+    push_exec_ms_by_depth: Optional[Dict[str, Dict[str, float]]] = None
+    # Additional runtime timing buckets to reduce unattributed wall-clock time.
+    goal_generation_calls: int = 0
+    goal_generation_ms_total: float = 0.0
+    goal_generation_ms_avg: float = 0.0
+    opening_validation_calls: int = 0
+    opening_validation_ms_total: float = 0.0
+    opening_validation_ms_avg: float = 0.0
+    opening_validation_goal_checks_total: int = 0
+    opening_validation_goal_checks_avg_per_call: float = 0.0
+    opening_validation_reachability_calls: int = 0
+    opening_validation_reachability_ms_total: float = 0.0
+    opening_validation_reachability_ms_avg: float = 0.0
+    chain_observation_replay_calls: int = 0
+    chain_observation_replay_ms_total: float = 0.0
+    chain_observation_replay_ms_avg: float = 0.0
 
 
 class RegionOpeningPlanner(BasePlanner):
@@ -161,6 +211,16 @@ class RegionOpeningPlanner(BasePlanner):
             raise ValueError(
                 f"Invalid region_max_recorded_solutions_per_neighbor: {self.max_recorded_solutions_per_neighbor}. Must be at least 1"
             )
+
+        # When True, stop attempting additional objects for a neighbour once the
+        # configured max_solutions has been collected for that neighbour.
+        # Default is False to preserve legacy behaviour (useful for evaluation/triplet logging).
+        self.stop_after_max_solutions = algo_params.get("region_stop_after_max_solutions", False)
+
+        # When True, stop exploring additional neighbour regions as soon as any
+        # successful opening is found from the current exploration state.
+        # Default is False to preserve legacy behaviour (collect per-neighbour data).
+        self.stop_after_first_success = algo_params.get("region_stop_after_first_success", False)
 
         # Optional: cap number of frontier nodes per chain level (beam width)
         # None or 0 => unbounded frontier (complete)
@@ -229,8 +289,133 @@ class RegionOpeningPlanner(BasePlanner):
         self._use_ml_driven_async = False
         self._primitive_strategy = None
         self._ml_async_strategy = None
+        self._runtime_timing_stats = self._new_runtime_timing_stats()
 
         super().__init__(env, config)
+
+    @staticmethod
+    def _new_runtime_timing_stats() -> Dict[str, Any]:
+        return {
+            "primitive_ranking_calls": 0,
+            "primitive_ranking_ms_total": 0.0,
+            "primitive_ranking_candidates_total": 0,
+            "push_exec_count": 0,
+            "push_exec_ms_total": 0.0,
+            "push_exec_ms_by_depth": {},
+            "goal_generation_calls": 0,
+            "goal_generation_ms_total": 0.0,
+            "opening_validation_calls": 0,
+            "opening_validation_ms_total": 0.0,
+            "opening_validation_goal_checks_total": 0,
+            "opening_validation_reachability_calls": 0,
+            "opening_validation_reachability_ms_total": 0.0,
+            "chain_observation_replay_calls": 0,
+            "chain_observation_replay_ms_total": 0.0,
+        }
+
+    def _reset_runtime_timing_stats(self) -> None:
+        self._runtime_timing_stats = self._new_runtime_timing_stats()
+
+    def _record_primitive_ranking_timing(self, elapsed_ms: float, candidate_count: int) -> None:
+        stats = self._runtime_timing_stats
+        stats["primitive_ranking_calls"] += 1
+        stats["primitive_ranking_ms_total"] += max(0.0, float(elapsed_ms))
+        stats["primitive_ranking_candidates_total"] += max(0, int(candidate_count))
+
+    def _record_push_exec_timing(self, elapsed_ms: float, primitive_depth_1_indexed: int) -> None:
+        stats = self._runtime_timing_stats
+        stats["push_exec_count"] += 1
+        stats["push_exec_ms_total"] += max(0.0, float(elapsed_ms))
+
+        depth_key = str(int(primitive_depth_1_indexed))
+        depth_map = stats["push_exec_ms_by_depth"]
+        if depth_key not in depth_map:
+            depth_map[depth_key] = {"count": 0, "ms_total": 0.0}
+        depth_map[depth_key]["count"] += 1
+        depth_map[depth_key]["ms_total"] += max(0.0, float(elapsed_ms))
+
+    def _record_goal_generation_timing(self, elapsed_ms: float) -> None:
+        stats = self._runtime_timing_stats
+        stats["goal_generation_calls"] += 1
+        stats["goal_generation_ms_total"] += max(0.0, float(elapsed_ms))
+
+    def _record_opening_validation_timing(
+        self,
+        elapsed_ms: float,
+        goal_checks: int = 0,
+        reachability_calls: int = 0,
+        reachability_ms: float = 0.0,
+    ) -> None:
+        stats = self._runtime_timing_stats
+        stats["opening_validation_calls"] += 1
+        stats["opening_validation_ms_total"] += max(0.0, float(elapsed_ms))
+        stats["opening_validation_goal_checks_total"] += max(0, int(goal_checks))
+        stats["opening_validation_reachability_calls"] += max(0, int(reachability_calls))
+        stats["opening_validation_reachability_ms_total"] += max(0.0, float(reachability_ms))
+
+    def _record_chain_observation_replay_timing(self, elapsed_ms: float) -> None:
+        stats = self._runtime_timing_stats
+        stats["chain_observation_replay_calls"] += 1
+        stats["chain_observation_replay_ms_total"] += max(0.0, float(elapsed_ms))
+
+    def _get_runtime_timing_summary(self) -> Dict[str, Any]:
+        stats = self._runtime_timing_stats
+        rank_calls = int(stats.get("primitive_ranking_calls", 0))
+        rank_ms_total = float(stats.get("primitive_ranking_ms_total", 0.0))
+        rank_candidates_total = int(stats.get("primitive_ranking_candidates_total", 0))
+
+        push_count = int(stats.get("push_exec_count", 0))
+        push_ms_total = float(stats.get("push_exec_ms_total", 0.0))
+        goal_gen_calls = int(stats.get("goal_generation_calls", 0))
+        goal_gen_ms_total = float(stats.get("goal_generation_ms_total", 0.0))
+        validation_calls = int(stats.get("opening_validation_calls", 0))
+        validation_ms_total = float(stats.get("opening_validation_ms_total", 0.0))
+        validation_goal_checks_total = int(stats.get("opening_validation_goal_checks_total", 0))
+        validation_reachability_calls = int(stats.get("opening_validation_reachability_calls", 0))
+        validation_reachability_ms_total = float(stats.get("opening_validation_reachability_ms_total", 0.0))
+        replay_calls = int(stats.get("chain_observation_replay_calls", 0))
+        replay_ms_total = float(stats.get("chain_observation_replay_ms_total", 0.0))
+
+        push_by_depth_raw = stats.get("push_exec_ms_by_depth", {}) or {}
+        push_by_depth_summary: Dict[str, Dict[str, float]] = {}
+        for depth_key, depth_stats in push_by_depth_raw.items():
+            d_count = int(depth_stats.get("count", 0))
+            d_total = float(depth_stats.get("ms_total", 0.0))
+            push_by_depth_summary[str(depth_key)] = {
+                "count": d_count,
+                "ms_total": d_total,
+                "ms_avg": (d_total / d_count) if d_count > 0 else 0.0,
+            }
+
+        return {
+            "primitive_ranking_calls": rank_calls,
+            "primitive_ranking_ms_total": rank_ms_total,
+            "primitive_ranking_ms_avg": (rank_ms_total / rank_calls) if rank_calls > 0 else 0.0,
+            "primitive_ranking_candidates_total": rank_candidates_total,
+            "primitive_ranking_candidates_avg": (rank_candidates_total / rank_calls) if rank_calls > 0 else 0.0,
+            "push_exec_count": push_count,
+            "push_exec_ms_total": push_ms_total,
+            "push_exec_ms_avg": (push_ms_total / push_count) if push_count > 0 else 0.0,
+            "push_exec_ms_by_depth": push_by_depth_summary,
+            "goal_generation_calls": goal_gen_calls,
+            "goal_generation_ms_total": goal_gen_ms_total,
+            "goal_generation_ms_avg": (goal_gen_ms_total / goal_gen_calls) if goal_gen_calls > 0 else 0.0,
+            "opening_validation_calls": validation_calls,
+            "opening_validation_ms_total": validation_ms_total,
+            "opening_validation_ms_avg": (validation_ms_total / validation_calls) if validation_calls > 0 else 0.0,
+            "opening_validation_goal_checks_total": validation_goal_checks_total,
+            "opening_validation_goal_checks_avg_per_call": (
+                validation_goal_checks_total / validation_calls
+            ) if validation_calls > 0 else 0.0,
+            "opening_validation_reachability_calls": validation_reachability_calls,
+            "opening_validation_reachability_ms_total": validation_reachability_ms_total,
+            "opening_validation_reachability_ms_avg": (
+                validation_reachability_ms_total / validation_reachability_calls
+            ) if validation_reachability_calls > 0 else 0.0,
+            "chain_observation_replay_calls": replay_calls,
+            "chain_observation_replay_ms_total": replay_ms_total,
+            "chain_observation_replay_ms_avg": (replay_ms_total / replay_calls) if replay_calls > 0 else 0.0,
+        }
 
     def _setup_constraints(self):
         """Setup action constraints from environment."""
@@ -352,7 +537,8 @@ class RegionOpeningPlanner(BasePlanner):
             # Use geometric transport heuristic for goal prioritization
             self.goal_strategy = GeometricTransportStrategy(
                 primitive_data_dir=primitive_data_dir,
-                verbose=self.config.verbose
+                verbose=self.config.verbose,
+                profile=bool(algo_params.get("profile_geometric", False)),
             )
             self._debug("▶ Using geometric transport goal strategy")
         else:
@@ -635,6 +821,13 @@ class RegionOpeningPlanner(BasePlanner):
             else:
                 state_attempts.append(attempts)
 
+            if self.stop_after_first_success:
+                # Stop exploring other neighbours once any successful opening exists.
+                if any(a.success for a in (attempts if isinstance(attempts, list) else [attempts])):
+                    if self.config.verbose:
+                        print(f"  🛑 Stopping neighbour exploration after first success (neighbour='{neighbour_label}')")
+                    break
+
         return state_attempts
 
     def _attempt_opening_to_neighbour(
@@ -671,6 +864,16 @@ class RegionOpeningPlanner(BasePlanner):
 
         # Ensure environment is in correct state before pre-check
         self.env.set_full_state(exploration_state)
+
+        # For visualization/debugging: set a stable "target" goal marker for this neighbour
+        # (rather than leaving whatever goal was used for the previous neighbour).
+        try:
+            seed_bundle = region_goals.get(neighbour_label)
+            if seed_bundle and getattr(seed_bundle, "goals", None):
+                seed_goal = seed_bundle.goals[0]
+                self.env.set_robot_goal(seed_goal.x, seed_goal.y, seed_goal.theta)
+        except Exception:
+            pass
 
         # Pre-check: Is this neighbor already accessible?
         is_already_accessible, reachable_count_before, precheck_region_goal, all_region_goals = self._validate_opening(
@@ -736,6 +939,8 @@ class RegionOpeningPlanner(BasePlanner):
                 neighbour_region_label=neighbour_label,
                 error_message="No blocking objects found",
                 timing_ms=(time.time() - attempt_start) * 1000,
+                region_goal_used=precheck_region_goal,
+                region_goals_sampled=all_region_goals,
                 failure_reason="no_blocking_objects",
                 candidate_objects_count=0,
             )]
@@ -753,6 +958,8 @@ class RegionOpeningPlanner(BasePlanner):
                 neighbour_region_label=neighbour_label,
                 error_message=f"No reachable blocking objects (had {original_candidates_count} blocking)",
                 timing_ms=(time.time() - attempt_start) * 1000,
+                region_goal_used=precheck_region_goal,
+                region_goals_sampled=all_region_goals,
                 failure_reason="no_reachable_objects",
                 candidate_objects_count=original_candidates_count,
             )]
@@ -779,6 +986,14 @@ class RegionOpeningPlanner(BasePlanner):
         # NOTE: We try ALL objects (no early termination) to record per-object triplets for eval
         timed_out = False
         for obj_idx, object_id in enumerate(candidates, 1):
+            if self.stop_after_max_solutions and total_solutions_collected >= max_solutions:
+                if self.config.verbose:
+                    print(
+                        f"    🛑 Collected {total_solutions_collected}/{max_solutions} solutions for '{neighbour_label}', "
+                        f"stopping before trying remaining objects"
+                    )
+                break
+
             # Check timeout before trying next object
             if self.timeout_per_neighbour_sec is not None:
                 elapsed_sec = time.time() - attempt_start
@@ -794,12 +1009,30 @@ class RegionOpeningPlanner(BasePlanner):
 
             print(f"  🎯 [_attempt_opening_to_neighbour] Trying object {obj_idx}/{len(candidates)}: {object_id} for neighbour '{neighbour_label}'")
 
+            # Reset diffusion call counter so per-object stats reflect only this object's search.
+            if hasattr(self.goal_strategy, "reset_diffusion_call_counter"):
+                try:
+                    self.goal_strategy.reset_diffusion_call_counter()
+                except Exception:
+                    pass
+            # Reset optional goal-strategy profiler so per-object stats reflect only this object's search.
+            if hasattr(self.goal_strategy, "reset_profile"):
+                try:
+                    self.goal_strategy.reset_profile()
+                except Exception:
+                    pass
+            self._reset_runtime_timing_stats()
+
             # BFS search with chaining (or ML-driven async if enabled)
             object_attempt_start = time.time()
             pushes_before_object = neighbour_push_counter.get("count", 0)
 
-            # Use per-object solution limit (not global remaining)
-            max_solutions_for_object = self.max_solutions_per_neighbor
+            # Use per-object solution limit (not global remaining) unless explicitly stopping early.
+            if self.stop_after_max_solutions:
+                remaining = max(0, max_solutions - total_solutions_collected)
+                max_solutions_for_object = max(1, remaining) if remaining > 0 else 1
+            else:
+                max_solutions_for_object = self.max_solutions_per_neighbor
 
             if self._use_ml_driven_async:
                 # Use ML-driven async search
@@ -814,9 +1047,11 @@ class RegionOpeningPlanner(BasePlanner):
                 # Async search doesn't have phase tracking yet - use defaults
                 phase_push_counts = None
                 solved_in_phase = ""
+                search_any_wall_collision = False
+                search_unique_movable_collision_count = 0
             else:
                 # Use standard BFS search
-                successful_goals, min_depth, phase_push_counts, solved_in_phase = self._search_with_chaining_bfs(
+                successful_goals, min_depth, phase_push_counts, solved_in_phase, search_any_wall_collision, search_unique_movable_collision_count = self._search_with_chaining_bfs(
                     object_id,
                     exploration_state,
                     neighbour_label,
@@ -826,11 +1061,40 @@ class RegionOpeningPlanner(BasePlanner):
                 )
 
             pushes_for_this_object = neighbour_push_counter.get("count", 0) - pushes_before_object
+            obj_goal_strategy_profile = None
+            if hasattr(self.goal_strategy, "get_profile"):
+                try:
+                    obj_goal_strategy_profile = self.goal_strategy.get_profile()
+                except Exception:
+                    obj_goal_strategy_profile = None
+            obj_runtime_timing = self._get_runtime_timing_summary()
+
+            obj_ml_mask_vote_attach_calls = 0
+            obj_ml_mask_vote_attach_ms_total = 0.0
+            obj_ml_mask_vote_attach_ms_avg = 0.0
+            if obj_goal_strategy_profile:
+                try:
+                    obj_ml_mask_vote_attach_calls = int(
+                        obj_goal_strategy_profile.get("ml_mask_vote_attach_calls", 0) or 0
+                    )
+                except Exception:
+                    obj_ml_mask_vote_attach_calls = 0
+                try:
+                    obj_ml_mask_vote_attach_ms_total = float(
+                        obj_goal_strategy_profile.get("ml_mask_vote_attach_ms_total", 0.0) or 0.0
+                    )
+                except Exception:
+                    obj_ml_mask_vote_attach_ms_total = 0.0
+                if obj_ml_mask_vote_attach_calls > 0:
+                    obj_ml_mask_vote_attach_ms_avg = (
+                        obj_ml_mask_vote_attach_ms_total / obj_ml_mask_vote_attach_calls
+                    )
 
             # Get per-object ML goal stats from goal_strategy (if it supports get_last_goal_stats)
             # Capture per-object values BEFORE accumulating into totals
             obj_ml_goals = 0
             obj_ml_aligned = 0
+            obj_ml_diffusion_calls = 0
             obj_reachable_edges = 0
             obj_aligned_primitives = []
             obj_ml_goals_raw = []
@@ -840,6 +1104,7 @@ class RegionOpeningPlanner(BasePlanner):
                 stats = self.goal_strategy.get_last_goal_stats()
                 obj_ml_goals = stats.get('ml_goals_generated', 0)
                 obj_ml_aligned = stats.get('ml_goals_aligned', 0)
+                obj_ml_diffusion_calls = stats.get('ml_diffusion_calls', 0)
                 obj_reachable_edges = stats.get('reachable_edges_count', 0)
                 obj_aligned_primitives = stats.get('aligned_primitives', [])
                 obj_ml_goals_raw = stats.get('ml_goals_raw', [])
@@ -867,8 +1132,9 @@ class RegionOpeningPlanner(BasePlanner):
                 # Create AttemptResults directly from successful goal chains
                 # State observations were already captured during BFS search
 
-                # Limit to max_solutions per object (now per-object, not global)
                 per_object_limit = max_solutions
+                if self.stop_after_max_solutions:
+                    per_object_limit = max(0, max_solutions - total_solutions_collected)
                 for goal_idx, (goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used, region_goals_sampled, reachable_before, reachable_after, total_cost, skill_calls_before_success, success_timestamp, any_wall_collision, unique_movable_collision_count) in enumerate(successful_goals[:per_object_limit]):
 
                     per_goal_timing_ms = max(0.0, (success_timestamp - object_attempt_start) * 1000.0)
@@ -883,6 +1149,8 @@ class RegionOpeningPlanner(BasePlanner):
                             neighbour_region_label=neighbour_label,
                             chosen_object_id=object_id,
                             chosen_goal=(goal.x, goal.y, goal.theta),
+                            goal_chain=goal_chain,
+                            chain_depth=1,
                             validation_method="reachability_validated",
                             connectivity_before=conn_before,
                             connectivity_after=None,
@@ -897,6 +1165,7 @@ class RegionOpeningPlanner(BasePlanner):
                             resulting_state=resulting_state,
                             exploration_level=exploration_level,
                             timing_ms=per_goal_timing_ms,
+                            goal_strategy_profile=obj_goal_strategy_profile,
                             total_cost=total_cost,
                             skill_calls_before_success=skill_calls_before_success,
                             solutions_found_for_neighbour=total_solutions_collected,
@@ -906,10 +1175,37 @@ class RegionOpeningPlanner(BasePlanner):
                             candidate_objects_count=len(candidates),
                             ml_goals_generated=obj_ml_goals,  # Per-object
                             ml_goals_aligned=obj_ml_aligned,  # Per-object
+                            ml_diffusion_calls=obj_ml_diffusion_calls,  # Per-object
+                            ml_mask_vote_attach_calls=obj_ml_mask_vote_attach_calls,
+                            ml_mask_vote_attach_ms_total=obj_ml_mask_vote_attach_ms_total,
+                            ml_mask_vote_attach_ms_avg=obj_ml_mask_vote_attach_ms_avg,
                             reachable_edges_count=obj_reachable_edges,  # Per-object
                             aligned_primitives=obj_aligned_primitives if obj_aligned_primitives else None,
                             ml_goals_raw=obj_ml_goals_raw if obj_ml_goals_raw else None,
                             reachable_edges=sorted(list(obj_reachable_edges_set)) if obj_reachable_edges_set else None,
+                            primitive_ranking_calls=int(obj_runtime_timing.get("primitive_ranking_calls", 0)),
+                            primitive_ranking_ms_total=float(obj_runtime_timing.get("primitive_ranking_ms_total", 0.0)),
+                            primitive_ranking_ms_avg=float(obj_runtime_timing.get("primitive_ranking_ms_avg", 0.0)),
+                            primitive_ranking_candidates_total=int(obj_runtime_timing.get("primitive_ranking_candidates_total", 0)),
+                            primitive_ranking_candidates_avg=float(obj_runtime_timing.get("primitive_ranking_candidates_avg", 0.0)),
+                            push_exec_count=int(obj_runtime_timing.get("push_exec_count", 0)),
+                            push_exec_ms_total=float(obj_runtime_timing.get("push_exec_ms_total", 0.0)),
+                            push_exec_ms_avg=float(obj_runtime_timing.get("push_exec_ms_avg", 0.0)),
+                            push_exec_ms_by_depth=obj_runtime_timing.get("push_exec_ms_by_depth", {}),
+                            goal_generation_calls=int(obj_runtime_timing.get("goal_generation_calls", 0)),
+                            goal_generation_ms_total=float(obj_runtime_timing.get("goal_generation_ms_total", 0.0)),
+                            goal_generation_ms_avg=float(obj_runtime_timing.get("goal_generation_ms_avg", 0.0)),
+                            opening_validation_calls=int(obj_runtime_timing.get("opening_validation_calls", 0)),
+                            opening_validation_ms_total=float(obj_runtime_timing.get("opening_validation_ms_total", 0.0)),
+                            opening_validation_ms_avg=float(obj_runtime_timing.get("opening_validation_ms_avg", 0.0)),
+                            opening_validation_goal_checks_total=int(obj_runtime_timing.get("opening_validation_goal_checks_total", 0)),
+                            opening_validation_goal_checks_avg_per_call=float(obj_runtime_timing.get("opening_validation_goal_checks_avg_per_call", 0.0)),
+                            opening_validation_reachability_calls=int(obj_runtime_timing.get("opening_validation_reachability_calls", 0)),
+                            opening_validation_reachability_ms_total=float(obj_runtime_timing.get("opening_validation_reachability_ms_total", 0.0)),
+                            opening_validation_reachability_ms_avg=float(obj_runtime_timing.get("opening_validation_reachability_ms_avg", 0.0)),
+                            chain_observation_replay_calls=int(obj_runtime_timing.get("chain_observation_replay_calls", 0)),
+                            chain_observation_replay_ms_total=float(obj_runtime_timing.get("chain_observation_replay_ms_total", 0.0)),
+                            chain_observation_replay_ms_avg=float(obj_runtime_timing.get("chain_observation_replay_ms_avg", 0.0)),
                             any_wall_collision=any_wall_collision,
                             unique_movable_collision_count=unique_movable_collision_count,
                             phase_push_counts=phase_push_counts,
@@ -918,6 +1214,14 @@ class RegionOpeningPlanner(BasePlanner):
                         # Verbose: print running count of solutions for this object
                         if self.config.verbose:
                             print(f"        → Object {object_id} solutions: {goal_idx + 1}/{per_object_limit}")
+
+                        if self.stop_after_max_solutions and total_solutions_collected >= max_solutions:
+                            if self.config.verbose:
+                                print(
+                                    f"        🛑 Collected {total_solutions_collected}/{max_solutions} solutions for '{neighbour_label}', "
+                                    f"stopping search for this neighbour"
+                                )
+                            break
                     else:
                         # Multi-push chain
                         total_solutions_collected += 1
@@ -942,6 +1246,7 @@ class RegionOpeningPlanner(BasePlanner):
                             resulting_state=resulting_state,
                             exploration_level=exploration_level,
                             timing_ms=per_goal_timing_ms,
+                            goal_strategy_profile=obj_goal_strategy_profile,
                             total_cost=total_cost,
                             skill_calls_before_success=skill_calls_before_success,
                             solutions_found_for_neighbour=total_solutions_collected,
@@ -951,10 +1256,37 @@ class RegionOpeningPlanner(BasePlanner):
                             candidate_objects_count=len(candidates),
                             ml_goals_generated=obj_ml_goals,  # Per-object
                             ml_goals_aligned=obj_ml_aligned,  # Per-object
+                            ml_diffusion_calls=obj_ml_diffusion_calls,  # Per-object
+                            ml_mask_vote_attach_calls=obj_ml_mask_vote_attach_calls,
+                            ml_mask_vote_attach_ms_total=obj_ml_mask_vote_attach_ms_total,
+                            ml_mask_vote_attach_ms_avg=obj_ml_mask_vote_attach_ms_avg,
                             reachable_edges_count=obj_reachable_edges,  # Per-object
                             aligned_primitives=obj_aligned_primitives if obj_aligned_primitives else None,
                             ml_goals_raw=obj_ml_goals_raw if obj_ml_goals_raw else None,
                             reachable_edges=sorted(list(obj_reachable_edges_set)) if obj_reachable_edges_set else None,
+                            primitive_ranking_calls=int(obj_runtime_timing.get("primitive_ranking_calls", 0)),
+                            primitive_ranking_ms_total=float(obj_runtime_timing.get("primitive_ranking_ms_total", 0.0)),
+                            primitive_ranking_ms_avg=float(obj_runtime_timing.get("primitive_ranking_ms_avg", 0.0)),
+                            primitive_ranking_candidates_total=int(obj_runtime_timing.get("primitive_ranking_candidates_total", 0)),
+                            primitive_ranking_candidates_avg=float(obj_runtime_timing.get("primitive_ranking_candidates_avg", 0.0)),
+                            push_exec_count=int(obj_runtime_timing.get("push_exec_count", 0)),
+                            push_exec_ms_total=float(obj_runtime_timing.get("push_exec_ms_total", 0.0)),
+                            push_exec_ms_avg=float(obj_runtime_timing.get("push_exec_ms_avg", 0.0)),
+                            push_exec_ms_by_depth=obj_runtime_timing.get("push_exec_ms_by_depth", {}),
+                            goal_generation_calls=int(obj_runtime_timing.get("goal_generation_calls", 0)),
+                            goal_generation_ms_total=float(obj_runtime_timing.get("goal_generation_ms_total", 0.0)),
+                            goal_generation_ms_avg=float(obj_runtime_timing.get("goal_generation_ms_avg", 0.0)),
+                            opening_validation_calls=int(obj_runtime_timing.get("opening_validation_calls", 0)),
+                            opening_validation_ms_total=float(obj_runtime_timing.get("opening_validation_ms_total", 0.0)),
+                            opening_validation_ms_avg=float(obj_runtime_timing.get("opening_validation_ms_avg", 0.0)),
+                            opening_validation_goal_checks_total=int(obj_runtime_timing.get("opening_validation_goal_checks_total", 0)),
+                            opening_validation_goal_checks_avg_per_call=float(obj_runtime_timing.get("opening_validation_goal_checks_avg_per_call", 0.0)),
+                            opening_validation_reachability_calls=int(obj_runtime_timing.get("opening_validation_reachability_calls", 0)),
+                            opening_validation_reachability_ms_total=float(obj_runtime_timing.get("opening_validation_reachability_ms_total", 0.0)),
+                            opening_validation_reachability_ms_avg=float(obj_runtime_timing.get("opening_validation_reachability_ms_avg", 0.0)),
+                            chain_observation_replay_calls=int(obj_runtime_timing.get("chain_observation_replay_calls", 0)),
+                            chain_observation_replay_ms_total=float(obj_runtime_timing.get("chain_observation_replay_ms_total", 0.0)),
+                            chain_observation_replay_ms_avg=float(obj_runtime_timing.get("chain_observation_replay_ms_avg", 0.0)),
                             any_wall_collision=any_wall_collision,
                             unique_movable_collision_count=unique_movable_collision_count,
                             phase_push_counts=phase_push_counts,
@@ -963,6 +1295,14 @@ class RegionOpeningPlanner(BasePlanner):
                         # Verbose: print running count of solutions for this object
                         if self.config.verbose:
                             print(f"        → Object {object_id} solutions: {goal_idx + 1}/{per_object_limit}")
+
+                        if self.stop_after_max_solutions and total_solutions_collected >= max_solutions:
+                            if self.config.verbose:
+                                print(
+                                    f"        🛑 Collected {total_solutions_collected}/{max_solutions} solutions for '{neighbour_label}', "
+                                    f"stopping search for this neighbour"
+                                )
+                            break
             else:
                 # Record per-object failure for eval triplet tracking
                 # This ensures we can measure success rates per (env, region, object) triplet
@@ -973,10 +1313,12 @@ class RegionOpeningPlanner(BasePlanner):
                     obj_stats = self.goal_strategy.get_last_goal_stats()
                     obj_ml_goals = obj_stats.get('ml_goals_generated', 0)
                     obj_ml_aligned = obj_stats.get('ml_goals_aligned', 0)
+                    obj_ml_diffusion_calls = obj_stats.get('ml_diffusion_calls', 0)
                     obj_reachable_edges = obj_stats.get('reachable_edges_count', 0)
                 else:
                     obj_ml_goals = 0
                     obj_ml_aligned = 0
+                    obj_ml_diffusion_calls = 0
                     obj_reachable_edges = 0
 
                 if pushes_for_this_object > 0:
@@ -1001,9 +1343,12 @@ class RegionOpeningPlanner(BasePlanner):
                     validation_method="failed",
                     connectivity_before=conn_before,
                     connectivity_after=None,
+                    region_goal_used=precheck_region_goal,
+                    region_goals_sampled=all_region_goals,
                     exploration_state=exploration_state,
                     exploration_level=exploration_level,
                     timing_ms=object_timing_ms,
+                    goal_strategy_profile=obj_goal_strategy_profile,
                     solutions_found_for_neighbour=0,
                     solutions_cap_for_neighbour=self.max_solutions_per_neighbor,
                     pushes_total_for_neighbour=pushes_for_this_object,
@@ -1011,7 +1356,36 @@ class RegionOpeningPlanner(BasePlanner):
                     candidate_objects_count=len(candidates),
                     ml_goals_generated=obj_ml_goals,
                     ml_goals_aligned=obj_ml_aligned,
+                    ml_diffusion_calls=obj_ml_diffusion_calls,
+                    ml_mask_vote_attach_calls=obj_ml_mask_vote_attach_calls,
+                    ml_mask_vote_attach_ms_total=obj_ml_mask_vote_attach_ms_total,
+                    ml_mask_vote_attach_ms_avg=obj_ml_mask_vote_attach_ms_avg,
                     reachable_edges_count=obj_reachable_edges,
+                    primitive_ranking_calls=int(obj_runtime_timing.get("primitive_ranking_calls", 0)),
+                    primitive_ranking_ms_total=float(obj_runtime_timing.get("primitive_ranking_ms_total", 0.0)),
+                    primitive_ranking_ms_avg=float(obj_runtime_timing.get("primitive_ranking_ms_avg", 0.0)),
+                    primitive_ranking_candidates_total=int(obj_runtime_timing.get("primitive_ranking_candidates_total", 0)),
+                    primitive_ranking_candidates_avg=float(obj_runtime_timing.get("primitive_ranking_candidates_avg", 0.0)),
+                    push_exec_count=int(obj_runtime_timing.get("push_exec_count", 0)),
+                    push_exec_ms_total=float(obj_runtime_timing.get("push_exec_ms_total", 0.0)),
+                    push_exec_ms_avg=float(obj_runtime_timing.get("push_exec_ms_avg", 0.0)),
+                    push_exec_ms_by_depth=obj_runtime_timing.get("push_exec_ms_by_depth", {}),
+                    goal_generation_calls=int(obj_runtime_timing.get("goal_generation_calls", 0)),
+                    goal_generation_ms_total=float(obj_runtime_timing.get("goal_generation_ms_total", 0.0)),
+                    goal_generation_ms_avg=float(obj_runtime_timing.get("goal_generation_ms_avg", 0.0)),
+                    opening_validation_calls=int(obj_runtime_timing.get("opening_validation_calls", 0)),
+                    opening_validation_ms_total=float(obj_runtime_timing.get("opening_validation_ms_total", 0.0)),
+                    opening_validation_ms_avg=float(obj_runtime_timing.get("opening_validation_ms_avg", 0.0)),
+                    opening_validation_goal_checks_total=int(obj_runtime_timing.get("opening_validation_goal_checks_total", 0)),
+                    opening_validation_goal_checks_avg_per_call=float(obj_runtime_timing.get("opening_validation_goal_checks_avg_per_call", 0.0)),
+                    opening_validation_reachability_calls=int(obj_runtime_timing.get("opening_validation_reachability_calls", 0)),
+                    opening_validation_reachability_ms_total=float(obj_runtime_timing.get("opening_validation_reachability_ms_total", 0.0)),
+                    opening_validation_reachability_ms_avg=float(obj_runtime_timing.get("opening_validation_reachability_ms_avg", 0.0)),
+                    chain_observation_replay_calls=int(obj_runtime_timing.get("chain_observation_replay_calls", 0)),
+                    chain_observation_replay_ms_total=float(obj_runtime_timing.get("chain_observation_replay_ms_total", 0.0)),
+                    chain_observation_replay_ms_avg=float(obj_runtime_timing.get("chain_observation_replay_ms_avg", 0.0)),
+                    any_wall_collision=search_any_wall_collision,
+                    unique_movable_collision_count=search_unique_movable_collision_count,
                 ))
 
         # After trying all objects, return results
@@ -1083,6 +1457,8 @@ class RegionOpeningPlanner(BasePlanner):
                 error_message=error_msg,
                 connectivity_before=conn_before,
                 timing_ms=(time.time() - attempt_start) * 1000,
+                region_goal_used=precheck_region_goal,
+                region_goals_sampled=all_region_goals,
                 solutions_total_for_neighbour=total_solutions_collected,
                 pushes_total_for_neighbour=pushes_executed,
                 failure_reason=failure_reason,
@@ -1164,7 +1540,7 @@ class RegionOpeningPlanner(BasePlanner):
         region_goals: Dict[str, Any],
         max_solutions_to_collect: Optional[int] = None,
         push_counter: Optional[Dict[str, int]] = None,
-    ) -> Tuple[List[Tuple[List[Goal], List, List, 'namo_rl.RLState', Optional[Tuple], Optional[List[Tuple]], List, List, int, Optional[int], float]], int]:
+    ) -> Tuple[List[Tuple[List[Goal], List, List, 'namo_rl.RLState', Optional[Tuple], Optional[List[Tuple]], List, List, int, Optional[int], float]], int, Dict[str, int], str, bool, int]:
         """Outer BFS over chain depth: Try single pushes, then 2-push chains, then 3-push chains.
 
         Collects ALL successful chains across all depths instead of stopping early.
@@ -1220,6 +1596,8 @@ class RegionOpeningPlanner(BasePlanner):
         global_phase_push_counts = {}
         # Track which phase found the first solution
         solved_in_phase = ""
+        any_wall_collision_during_search = False
+        movable_collisions_during_search: Set[str] = set()
 
         # Cache goals per node to avoid redundant ML inference across phases and depths
         # Key: node id, Value: (goals_per_edge, reachable_edge_indices)
@@ -1228,6 +1606,21 @@ class RegionOpeningPlanner(BasePlanner):
         # Persist blacklists per node across phases and depths
         # Key: node id, Value: {edge_idx: min_stuck_depth}
         node_blacklists: Dict[int, Dict[int, int]] = {}
+
+        # Ensure ML inference uses a goal seed consistent with region sampling.
+        # Region-opening validation calls `set_robot_goal()` while iterating sampled goals and
+        # can leave the env goal at an arbitrary (often last-sampled) value. Stack A SE(2)
+        # inference uses `robot_goal` as the fallback seed for `goal_sample_region`, so we
+        # explicitly set the env goal to the first sampled goal for the neighbor region when
+        # generating ML goals to match training behavior.
+        goal_seed = None
+        try:
+            seed_bundle = region_goals.get(neighbour_label)
+            if seed_bundle and getattr(seed_bundle, "goals", None):
+                seed_goal = seed_bundle.goals[0]
+                goal_seed = (float(seed_goal.x), float(seed_goal.y), float(seed_goal.theta))
+        except Exception:
+            goal_seed = None
 
         for stop_at_zero, prims_only, phase_name in phases:
             # Skip primitives phase if ML phase found a solution
@@ -1282,6 +1675,17 @@ class RegionOpeningPlanner(BasePlanner):
 
                     # Generate goals for this node (cached to avoid redundant ML inference across phases)
                     if id(node) not in node_goals_cache:
+                        original_robot_goal = None
+                        if goal_seed is not None:
+                            try:
+                                original_robot_goal = self.env.get_robot_goal()
+                            except Exception:
+                                original_robot_goal = None
+                            try:
+                                self.env.set_robot_goal(*goal_seed)
+                            except Exception:
+                                goal_seed = None
+                        goal_gen_start = time.perf_counter()
                         goals_per_edge = self.goal_strategy.generate_goals(
                             object_id,
                             node.state,
@@ -1289,6 +1693,12 @@ class RegionOpeningPlanner(BasePlanner):
                             max_goals=0,
                             region_goals_sampled=neighbour_region_goals
                         )
+                        self._record_goal_generation_timing((time.perf_counter() - goal_gen_start) * 1000.0)
+                        if original_robot_goal is not None:
+                            try:
+                                self.env.set_robot_goal(*original_robot_goal)
+                            except Exception:
+                                pass
                         reachable_edge_indices = set(self.env.get_reachable_edges(object_id)) if goals_per_edge else set()
                         node_goals_cache[id(node)] = (goals_per_edge, reachable_edge_indices)
 
@@ -1329,7 +1739,7 @@ class RegionOpeningPlanner(BasePlanner):
                             break
                         inner_max_solutions = max_solutions_to_collect - current_solutions_count
 
-                    successful_results, primitive_depth, new_frontier_nodes = self._search_bfs(
+                    successful_results, primitive_depth, new_frontier_nodes, bfs_any_wall_collision, bfs_movable_collisions = self._search_bfs(
                         goals_per_edge,
                         reachable_edge_indices,
                         node.state,
@@ -1347,6 +1757,8 @@ class RegionOpeningPlanner(BasePlanner):
                         primitives_only=prims_only,
                         shared_blacklist=node_blacklists.get(id(node)),
                     )
+                    any_wall_collision_during_search = any_wall_collision_during_search or bfs_any_wall_collision
+                    movable_collisions_during_search.update(bfs_movable_collisions)
 
                     # If we found success, reconstruct ALL goal chains with their state observations
                     if successful_results:
@@ -1363,9 +1775,10 @@ class RegionOpeningPlanner(BasePlanner):
                                 post_state_obs = final_post_state_obs
                                 # For single push, we don't have reachable objects captured during BFS
                                 # So collect them now with collision tracking
+                                replay_start = time.perf_counter()
                                 self.env.set_full_state(baseline_state)
                                 reachable_before = [self.env.get_reachable_objects()]
-                                # Execute the action to get reachable after and collision info
+                                # Execute the action to get reachable after and collision info.
                                 action = namo_rl.Action()
                                 action.object_id = object_id
                                 action.x = final_goal.x
@@ -1377,6 +1790,7 @@ class RegionOpeningPlanner(BasePlanner):
                                 any_wall_collision = step_result.info.get("wall_collision", "false") == "true"
                                 movable_str = step_result.info.get("movable_collisions", "")
                                 unique_movable_collision_count = len([s for s in movable_str.split(",") if s]) if movable_str else 0
+                                self._record_chain_observation_replay_timing((time.perf_counter() - replay_start) * 1000.0)
                                 # For single push, total_cost equals the primitive depth at which success occurred
                                 total_cost = max(1, getattr(success_node, "step_cost", 1))
 
@@ -1496,9 +1910,9 @@ class RegionOpeningPlanner(BasePlanner):
             min_cost_chains = [entry for entry in all_chains_across_depths if entry[8] == best_cost]
             if self.config.verbose:
                 print(f"    ✔ Returning {len(min_cost_chains)} min-cost solution(s) with cost={best_cost}")
-            return min_cost_chains, min_chain_depth_found if min_chain_depth_found else 0, global_phase_push_counts, solved_in_phase
+            return min_cost_chains, min_chain_depth_found if min_chain_depth_found else 0, global_phase_push_counts, solved_in_phase, any_wall_collision_during_search, len(movable_collisions_during_search)
         else:
-            return all_chains_across_depths, 0, global_phase_push_counts, solved_in_phase
+            return all_chains_across_depths, 0, global_phase_push_counts, solved_in_phase, any_wall_collision_during_search, len(movable_collisions_during_search)
 
     def _reconstruct_chain(self, final_node: ChainNode, final_goal: Goal) -> List[Goal]:
         """Reconstruct the chain of goals from root to final goal."""
@@ -1546,9 +1960,11 @@ class RegionOpeningPlanner(BasePlanner):
         goal_chain.reverse()
 
         # Re-execute chain to collect observations
+        replay_start = time.perf_counter()
         state_obs, post_state_obs, reachable_before, reachable_after, any_wall_collision, unique_movable_collision_count = self._collect_chain_observations(
             object_id, goal_chain, baseline_state
         )
+        self._record_chain_observation_replay_timing((time.perf_counter() - replay_start) * 1000.0)
 
         # Compute cumulative cost along the reconstructed chain
         total_cost = 0
@@ -1602,7 +2018,7 @@ class RegionOpeningPlanner(BasePlanner):
         stop_at_score_zero: bool = False,
         primitives_only: bool = False,
         shared_blacklist: Optional[Dict[int, int]] = None,
-    ) -> Tuple[List[Tuple[Goal, List, List, 'namo_rl.RLState', Optional[Tuple], ChainNode, float]], int, List[ChainNode]]:
+    ) -> Tuple[List[Tuple[Goal, List, List, 'namo_rl.RLState', Optional[Tuple], ChainNode, float]], int, List[ChainNode], bool, Set[str]]:
         """BFS: Try all edges at ALL depths to collect all possible solutions.
 
         Supports async ML inference: if goals_or_async is an AsyncGoalResult,
@@ -1659,29 +2075,53 @@ class RegionOpeningPlanner(BasePlanner):
         ml_merged = False
         ml_scores: Dict[Tuple[int, int], float] = {}
         ml_scored_slots: Set[Tuple[int, int]] = set()  # Track which (edge, depth) have ML scores
+        any_wall_collision_during_search = False
+        movable_collisions_during_search: Set[str] = set()
 
 
-        # Flatten goals into candidates for prioritized iteration
-        # Use list of lists to allow mutation during re-sort
+        # Flatten goals into candidates for prioritized iteration.
+        #
+        # IMPORTANT: `goals_per_edge` may be returned in a shuffled edge ordering (see
+        # PrimitiveGoalStrategy.shuffle_edges). The outer list index is NOT guaranteed to be
+        # the true primitive edge index, so we must use `goal.edge_idx` when filtering against
+        # `reachable_edge_indices` (which are true edge indices from the env).
+        #
+        # Use list of lists to allow mutation during re-sort.
         candidates = []
-        for edge_idx, edge_goals in enumerate(goals_per_edge):
-            # Filter: only try reachable edges
-            if edge_idx not in reachable_edge_indices:
+        for edge_goals in goals_per_edge:
+            # Determine the true edge index for this group.
+            true_edge_idx = None
+            for g in edge_goals:
+                if g is not None:
+                    true_edge_idx = int(getattr(g, "edge_idx", -1))
+                    break
+            if true_edge_idx is None or true_edge_idx < 0:
+                continue
+
+            # Filter: only try reachable edges (true indices).
+            if true_edge_idx not in reachable_edge_indices:
                 continue
 
             for depth, goal in enumerate(edge_goals):
                 if goal is not None:
-                    candidates.append([edge_idx, depth, goal])  # Use list for mutability
+                    candidates.append([true_edge_idx, depth, goal])  # Use list for mutability
 
         # Initial sort depends on whether we have async ML
         if async_result is not None and async_result.ml_future is not None:
             # Async mode: sort by (depth, edge) initially - shortest pushes first while waiting for ML
+            sort_start = time.perf_counter()
             candidates.sort(key=lambda x: (x[1], x[0]))
+            self._record_primitive_ranking_timing((time.perf_counter() - sort_start) * 1000.0, len(candidates))
             if self.config.verbose:
                 print(f"      📋 Async mode: {len(candidates)} candidates sorted by depth (ML running in background)")
         else:
-            # Sync mode: sort by (-score, depth, edge_idx) - ML goals first, then fallback by depth
-            candidates.sort(key=lambda x: (-getattr(x[2], 'score', 0.0), x[1], x[0]))
+            # Sync mode:
+            # - ML strategies want score-first ordering (ML goals before primitives).
+            # - GeometricTransportStrategy wants depth-first ordering, then priority within depth.
+            depth_first = isinstance(self.goal_strategy, GeometricTransportStrategy)
+            sort_start = time.perf_counter()
+            _sort_candidates_sync(candidates, depth_first=depth_first)
+            self._record_primitive_ranking_timing((time.perf_counter() - sort_start) * 1000.0, len(candidates))
 
         # Track position for re-sorting remaining candidates
         candidate_idx = 0
@@ -1713,7 +2153,11 @@ class RegionOpeningPlanner(BasePlanner):
 
                 # Re-sort remaining candidates: score DESC, depth ASC, edge_idx ASC
                 remaining = candidates[candidate_idx:]
-                remaining.sort(key=lambda x: (-getattr(x[2], 'score', 0.0), x[1], x[0]))
+                # ML merge always uses score-first re-sorting, regardless of depth-first
+                # geometric ordering (geometric strategy does not use async ML).
+                sort_start = time.perf_counter()
+                _sort_candidates_sync(remaining, depth_first=False)
+                self._record_primitive_ranking_timing((time.perf_counter() - sort_start) * 1000.0, len(remaining))
                 candidates[candidate_idx:] = remaining
 
                 if self.config.verbose:
@@ -1785,7 +2229,7 @@ class RegionOpeningPlanner(BasePlanner):
             # Check if this slot has an ML-aligned goal
             if depth == 0 and self.config.verbose:  # Only print for first depth to reduce noise, and only in verbose
                 total_region_goals = len(region_goals[neighbour_label].goals) if neighbour_label in region_goals else 0
-                goal_type = "ML-aligned" if goal is not None else "empty"
+                goal_type = f"score={getattr(goal, 'score', 0.0):.1f}" if goal is not None else "empty"
                 print(f"      Testing edge {edge_idx} depth {depth+1} ({goal_type}): {neighbour_label} ({reachable_count_before}/{total_region_goals} reachable before)")
 
             # Execute push
@@ -1819,7 +2263,10 @@ class RegionOpeningPlanner(BasePlanner):
                 if self.config.verbose:
                     print(f"        DEBUG: goal.edge_idx={goal.edge_idx}, goal.depth={goal.depth}")
                     print(f"        ⏳ Calling env.step()...")
+                step_start = time.perf_counter()
                 step_result = self.env.step(action)
+                step_elapsed_ms = (time.perf_counter() - step_start) * 1000.0
+                self._record_push_exec_timing(step_elapsed_ms, depth + 1)
                 if self.config.verbose:
                     print(f"        ✓ env.step() returned: done={step_result.done}, reward={step_result.reward}")
                     print(f"        ✓ step_result.info={step_result.info}")
@@ -1837,6 +2284,25 @@ class RegionOpeningPlanner(BasePlanner):
                 import traceback
                 traceback.print_exc()
                 continue
+
+            wall_collision = step_result.info.get("wall_collision", "false")
+            if isinstance(wall_collision, str):
+                any_wall_collision_during_search = any_wall_collision_during_search or (wall_collision.lower() == "true")
+            else:
+                any_wall_collision_during_search = any_wall_collision_during_search or bool(wall_collision)
+
+            movable_raw = step_result.info.get("movable_collisions", "")
+            if isinstance(movable_raw, str):
+                if movable_raw:
+                    for obj_name in movable_raw.split(","):
+                        obj_name = obj_name.strip()
+                        if obj_name:
+                            movable_collisions_during_search.add(obj_name)
+            elif isinstance(movable_raw, (list, tuple, set)):
+                for obj_name in movable_raw:
+                    obj_str = str(obj_name).strip()
+                    if obj_str:
+                        movable_collisions_during_search.add(obj_str)
 
             # We have a post-action state - ALWAYS capture observation and check goal condition
             post_state_obs = self.env.get_observation()
@@ -1917,6 +2383,15 @@ class RegionOpeningPlanner(BasePlanner):
                 # Prevent exploring deeper depths for this edge in this BFS call
                 solved_edges_this_skill.add(edge_idx)
 
+                # If we're only collecting a fixed number of solutions, stop immediately
+                # once we reach the cap (don’t wait for the next candidate iteration).
+                if max_solutions_to_collect is not None and len(all_successful_results) >= max_solutions_to_collect:
+                    if self.config.verbose:
+                        print(
+                            f"        🛑 Reached max solutions ({len(all_successful_results)}/{max_solutions_to_collect}), stopping search"
+                        )
+                    break
+
             elif not (collision_detected or stuck_detected) and collect_frontier:
                 # Valid push but didn't create opening - add to frontier
                 # (Don't add stuck/collision states to frontier - they're already blacklisted)
@@ -1944,7 +2419,7 @@ class RegionOpeningPlanner(BasePlanner):
                     print(f"      ⏳ ML inference still running (will complete in background)")
 
         # Return all successful results found across all depths
-        return all_successful_results, min_depth_found if min_depth_found else 0, frontier_nodes
+        return all_successful_results, min_depth_found if min_depth_found else 0, frontier_nodes, any_wall_collision_during_search, movable_collisions_during_search
 
     def _validate_opening(
         self,
@@ -1966,33 +2441,73 @@ class RegionOpeningPlanner(BasePlanner):
                 - first_reachable_goal: First reachable goal found (for validation)
                 - all_region_goals: All goal samples for this region (for visualization)
         """
-        # Get region goals for this neighbour
-        if neighbour_label not in region_goals:
-            return False, 0, None, None
+        validation_start = time.perf_counter()
+        goal_checks = 0
+        reachability_calls = 0
+        reachability_ms_total = 0.0
+        try:
+            # Get region goals for this neighbour
+            if neighbour_label not in region_goals:
+                return False, 0, None, None
 
-        bundle = region_goals[neighbour_label]
-        if not bundle.goals:
-            return False, 0, None, None
+            bundle = region_goals[neighbour_label]
+            if not bundle.goals:
+                return False, 0, None, None
 
-        reachable_count = 0
-        first_reachable_goal = None
+            # `_validate_opening` is used as a pure predicate/count for region opening,
+            # but it must temporarily call `set_robot_goal()` to reuse the wavefront
+            # reachability check. Preserve the caller’s goal so we don’t “sample a new”
+            # goal as a side-effect (which can confuse visualization/replay).
+            previous_goal = None
+            try:
+                previous_goal = self.env.get_robot_goal()
+            except Exception:
+                previous_goal = None
 
-        # Collect all goal samples for visualization
-        all_goals = [(g.x, g.y, g.theta) for g in bundle.goals]
+            reachable_count = 0
+            first_reachable_goal = None
 
-        # Check ALL goals and count how many are reachable
-        for goal_sample in bundle.goals:
-            self.env.set_robot_goal(goal_sample.x, goal_sample.y, goal_sample.theta)
-            if self.env.is_robot_goal_reachable():
-                reachable_count += 1
-                if first_reachable_goal is None:
-                    first_reachable_goal = (goal_sample.x, goal_sample.y, goal_sample.theta)
+            # Collect all goal samples for visualization
+            all_goals = [(g.x, g.y, g.theta) for g in bundle.goals]
 
-        # Success if at least 1 goal is reachable
-        if reachable_count >= 1:
-            return True, reachable_count, first_reachable_goal, all_goals
-        else:
-            return False, reachable_count, None, all_goals
+            set_goal = getattr(self.env, "set_robot_goal_silent", self.env.set_robot_goal)
+
+            # Check ALL goals and count how many are reachable
+            for goal_sample in bundle.goals:
+                goal_checks += 1
+                set_goal(goal_sample.x, goal_sample.y, goal_sample.theta)
+                reachability_start = time.perf_counter()
+                is_reachable = self.env.is_robot_goal_reachable()
+                reachability_ms_total += (time.perf_counter() - reachability_start) * 1000.0
+                reachability_calls += 1
+                if is_reachable:
+                    reachable_count += 1
+                    if first_reachable_goal is None:
+                        first_reachable_goal = (goal_sample.x, goal_sample.y, goal_sample.theta)
+
+            # Restore goal to avoid leaking the "last checked" sampled goal.
+            # If we found a reachable goal, pin the env goal to that exact goal so
+            # search-time visualization and solution replay use the same goal.
+            try:
+                if first_reachable_goal is not None:
+                    self.env.set_robot_goal(first_reachable_goal[0], first_reachable_goal[1], first_reachable_goal[2])
+                elif previous_goal is not None:
+                    self.env.set_robot_goal(previous_goal[0], previous_goal[1], previous_goal[2] if len(previous_goal) > 2 else 0.0)
+            except Exception:
+                pass
+
+            # Success if at least 1 goal is reachable
+            if reachable_count >= 1:
+                return True, reachable_count, first_reachable_goal, all_goals
+            else:
+                return False, reachable_count, None, all_goals
+        finally:
+            self._record_opening_validation_timing(
+                (time.perf_counter() - validation_start) * 1000.0,
+                goal_checks=goal_checks,
+                reachability_calls=reachability_calls,
+                reachability_ms=reachability_ms_total,
+            )
 
     def _search_with_ml_driven_async(
         self,

@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <chrono>
+#include <map>
 
 namespace namo {
 
@@ -177,6 +178,13 @@ public:
         const std::string& object_name,
         const std::vector<std::array<double, 3>>& target_poses,
         const std::array<double, 2>& robot_goal);
+
+    /**
+     * @brief Get the most recent timing breakdown produced by evaluate_primitive_priorities().
+     *
+     * Keys are stable strings; values are milliseconds for timing keys and counts encoded as doubles.
+     */
+    std::map<std::string, double> get_last_priority_profile() const { return last_priority_profile_; }
     
     /**
      * @brief Convert world coordinates to grid coordinates
@@ -224,6 +232,9 @@ private:
     
     // Performance tracking
     mutable PlanningStats stats_;
+
+    // Last call timing profile for evaluate_primitive_priorities()
+    std::map<std::string, double> last_priority_profile_;
     
     // Grid utility functions
     double grid_to_world_x(int grid_x) const {

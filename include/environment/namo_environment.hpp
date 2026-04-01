@@ -93,9 +93,21 @@ public:
     // Batch object info for efficient access (returns all immutable object data)
     std::map<std::string, std::map<std::string, double>> get_all_object_info() const;
     
-    // Goal management
-    void set_robot_goal(const std::array<double, 2>& goal) { robot_goal_ = goal; }
-    std::array<double, 2> get_robot_goal() const { return robot_goal_; }
+	    // Goal management
+	    void set_robot_goal(const std::array<double, 2>& goal) { robot_goal_ = goal; }
+	    std::array<double, 2> get_robot_goal() const { return robot_goal_; }
+
+	    // Visualization: some XMLs include a fixed `<site name="goal"...>` marker.
+	    // For region-opening visual debugging, it can be confusing (region-opening cares
+	    // about sampled neighbour-region goals, not the original goal site).
+	    void set_goal_site_visible(bool visible) {
+	        if (!sim_) return;
+	        if (visible) {
+	            sim_->set_site_rgba("goal", {0.0f, 1.0f, 0.0f, 0.5f});
+	        } else {
+	            sim_->set_site_rgba("goal", {0.0f, 1.0f, 0.0f, 0.0f});
+	        }
+	    }
     
     // Visualization
     void visualize_edge_reachability(const std::string& object_name, 
@@ -140,6 +152,9 @@ public:
     size_t get_frame_count() const { return sim_->get_frame_count(); }
     const std::vector<std::vector<unsigned char>>& get_captured_frames() const {
         return sim_->get_captured_frames();
+    }
+    const std::vector<unsigned char>& get_captured_frame(size_t idx) const {
+        return sim_->get_captured_frame(idx);
     }
     void clear_captured_frames() { sim_->clear_captured_frames(); }
     int get_frame_width() const { return sim_->get_frame_width(); }

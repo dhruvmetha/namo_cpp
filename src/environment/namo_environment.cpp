@@ -695,10 +695,16 @@ void NAMOEnvironment::visualize_goal_marker(const std::array<double, 3>& goal_po
                                            const std::array<float, 4>& color) {
     if (!sim_) return;
     
-    // Make goal marker more visible - match typical object size
+    // Visualization-only marker for the current robot goal (also used by region-opening
+    // scripts to show the sampled neighbour-region goal). Use a sphere so it matches the
+    // XML `<site name="goal" type="sphere" ...>` style that users are familiar with.
+    //
+    // Radius chosen to approximately match the reachability goal radius used by the
+    // wavefront snapshot utilities (default goal_radius=0.15).
+    constexpr double kGoalVizRadius = 0.15;
     std::array<double, 4> orientation = {1.0, 0.0, 0.0, 0.0}; // Identity quaternion
-    std::array<double, 3> size = {0.35, 0.35, 0.05}; // Match movable object width/height, thin but visible
-    int geom_type = 6; // mjGEOM_BOX = 6 - use thin box to show goal footprint
+    std::array<double, 3> size = {kGoalVizRadius, kGoalVizRadius, kGoalVizRadius};
+    int geom_type = 2; // mjGEOM_SPHERE = 2
     
     sim_->set_goal_marker(goal_position, orientation, size, geom_type);
 }

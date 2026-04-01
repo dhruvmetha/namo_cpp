@@ -7,11 +7,85 @@ using trained diffusion models from the learning package.
 import sys
 import os
 import random
+import json
+import time
+import threading
+from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 from collections import Counter
 import namo_rl
 from .object_selection_strategy import ObjectSelectionStrategy
 from .goal_selection_strategy import GoalSelectionStrategy, Goal, RandomGoalStrategy
+
+
+def _namo_get_ml_artifacts_dir() -> Optional[Path]:
+    raw = os.environ.get("NAMO_ML_ARTIFACTS_DIR")
+    if not raw:
+        return None
+    try:
+        path = Path(raw)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+    except Exception:
+        return None
+
+
+def _namo_unique_path(path: Path) -> Path:
+    if not path.exists():
+        return path
+    stem = path.stem
+    suffix = path.suffix
+    parent = path.parent
+    for i in range(1, 10_000):
+        candidate = parent / f"{stem}_{i:04d}{suffix}"
+        if not candidate.exists():
+            return candidate
+    return parent / f"{stem}_{time.time_ns()}{suffix}"
+
+
+def _namo_parse_int_set(spec: Optional[str]) -> Optional[set[int]]:
+    if spec is None:
+        return None
+    spec = str(spec).strip()
+    if not spec:
+        return None
+    out: set[int] = set()
+    for chunk in spec.split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        try:
+            out.add(int(chunk))
+        except Exception:
+            continue
+    return out or None
+
+
+class _InferCountingWrapper:
+    """Lightweight proxy that counts GoalInferenceModel.infer() calls.
+
+    Used to track "diffusion calls" (one infer() invocation) without modifying
+    the upstream learning code.
+    """
+
+    _namo_is_infer_counting_wrapper = True
+
+    def __init__(self, inner: Any):
+        self._inner = inner
+        self._infer_calls = 0
+
+    def infer(self, *args, **kwargs):
+        self._infer_calls += 1
+        return self._inner.infer(*args, **kwargs)
+
+    def get_infer_call_count(self) -> int:
+        return int(self._infer_calls)
+
+    def reset_infer_call_count(self) -> None:
+        self._infer_calls = 0
+
+    def __getattr__(self, item):
+        return getattr(self._inner, item)
 
 
 class MLObjectSelectionStrategy(ObjectSelectionStrategy):
@@ -325,16 +399,44 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
         self.preview_mask_count = max(0, preview_mask_count)
         self.seed = seed
         self._pending_preview = None  # Store preview data to save later (before push)
+        self._artifact_lock = threading.Lock()
+        self._artifact_call_counter = 0
         if unused_kwargs and self.verbose:
             print(f"Warning: Unused MLGoalSelectionStrategy kwargs: {list(unused_kwargs.keys())}")
+
+        # Diffusion call counting is purely additive: used to measure how many times the
+        # diffusion model was invoked during a region-opening attempt.
+        # (One "diffusion call" == one GoalInferenceModel.infer() invocation.)
+        self._diffusion_calls_since_reset = 0
         
         # Use preloaded model if available, otherwise lazy load
         if preloaded_model is not None:
-            self._goal_model = preloaded_model
+            self._goal_model = self._wrap_goal_model(preloaded_model)
             self._load_attempted = True
         else:
             self._goal_model = None
             self._load_attempted = False
+
+    @staticmethod
+    def _wrap_goal_model(model: Any) -> Any:
+        if model is None:
+            return None
+        if hasattr(model, "_namo_is_infer_counting_wrapper"):
+            return model
+        return _InferCountingWrapper(model)
+
+    def reset_diffusion_call_counter(self) -> None:
+        """Reset diffusion call counter (counts infer() invocations)."""
+        self._diffusion_calls_since_reset = 0
+        if self._goal_model is not None and hasattr(self._goal_model, "reset_infer_call_count"):
+            self._goal_model.reset_infer_call_count()
+
+    def get_diffusion_call_counter(self) -> int:
+        """Return diffusion calls since last reset."""
+        model_calls = 0
+        if self._goal_model is not None and hasattr(self._goal_model, "get_infer_call_count"):
+            model_calls = int(self._goal_model.get_infer_call_count())
+        return int(max(self._diffusion_calls_since_reset, model_calls))
     
     def _load_model(self):
         """Lazy load the goal inference model."""
@@ -354,6 +456,7 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
                 model_path=self.goal_model_path,
                 device=self.device
             )
+            self._goal_model = self._wrap_goal_model(self._goal_model)
             
             print("Goal ML model loaded successfully")
             if self.verbose:
@@ -414,6 +517,8 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
             if self.verbose:
                 print(f"Running goal inference for object {object_id} with {self.samples} samples")
 
+            # One diffusion call per infer() invocation.
+            self._diffusion_calls_since_reset += 1
             goals = self._goal_model.infer(
                 json_message=json_message,
                 xml_path=json_message["xml_path"],
@@ -437,17 +542,28 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
                 if self.verbose:
                     print(f"Too few goals generated: {len(goals)} < {self.min_goals_threshold}")
                 return None
+
+            # Persist raw goal_sample masks (if available) to an environment-specific folder.
+            ml_call_id, _ = self._maybe_save_goal_samples(goals, object_id)
             
             self._preview_goal_inference(goals, object_id)
             
             # Convert to our Goal format
             converted_goals = []
-            for goal_data in goals:
+            for i, goal_data in enumerate(goals):
                 if 'x' in goal_data and 'y' in goal_data and 'theta' in goal_data:
+                    sample_index = goal_data.get("index", i)
+                    try:
+                        sample_index_int = int(sample_index)
+                    except Exception:
+                        sample_index_int = int(i)
                     converted_goals.append(Goal(
                         x=float(goal_data['x']),
                         y=float(goal_data['y']),
-                        theta=float(goal_data['theta'])
+                        theta=float(goal_data['theta']),
+                        sample_index=sample_index_int,
+                        ml_call_id=int(ml_call_id),
+                        mask_path=goal_data.get("_namo_saved_mask_path"),
                     ))
             
             if self.verbose:
@@ -506,6 +622,110 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
             'count': min(self.preview_mask_count, len(mask_entries))
         }
         self.save_pending_preview()  # Save immediately during goal generation
+
+    def _maybe_save_goal_samples(
+        self, goals: List[Dict[str, Any]], object_id: str
+    ) -> Tuple[int, Optional[Path]]:
+        """Persist raw goal_sample masks to the environment-specific artifacts directory.
+
+        Returns:
+            (ml_call_id, call_dir) if artifacts are enabled, otherwise (-1, None).
+        """
+        artifacts_root = _namo_get_ml_artifacts_dir()
+        if artifacts_root is None:
+            return -1, None
+
+        with self._artifact_lock:
+            call_id = int(self._artifact_call_counter)
+            self._artifact_call_counter += 1
+
+        call_dir = artifacts_root / "ml_goal_samples" / str(object_id) / f"call_{call_id:06d}"
+        try:
+            call_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            return -1, None
+
+        # Best-effort: persist per-sample masks + minimal metadata for joining with primitive votes.
+        try:
+            import numpy as np
+        except Exception:
+            return call_id, call_dir
+
+        entries: List[Dict[str, Any]] = []
+        input_channels_saved = False
+
+        allowed_indices = _namo_parse_int_set(os.environ.get("NAMO_ML_SAVE_MASK_INDICES"))
+
+        for i, g in enumerate(goals):
+            sample_index = g.get("index", i)
+            try:
+                sample_index_int = int(sample_index)
+            except Exception:
+                sample_index_int = int(i)
+
+            mask_path = None
+            sample = g.get("goal_sample")
+            # NOTE: some goal samplers do not guarantee that `goal["index"] == i` or even that all
+            # indices 0..(samples-1) appear. When the user asks for specific indices via
+            # NAMO_ML_SAVE_MASK_INDICES, interpret those indices as either:
+            #   (a) the sampler-provided `goal["index"]`, or
+            #   (b) the positional sample number `i`
+            # This ensures we can reliably save e.g. {0,15,31} even if the sampler skips index 15.
+            should_save_mask = (allowed_indices is None) or (sample_index_int in allowed_indices) or (i in allowed_indices)
+            index_for_file = sample_index_int
+            if allowed_indices is not None and (sample_index_int not in allowed_indices) and (i in allowed_indices):
+                index_for_file = int(i)
+
+            if should_save_mask and sample is not None:
+                try:
+                    sample_np = np.asarray(sample)
+                    mask_file = _namo_unique_path(call_dir / f"mask_{int(index_for_file):06d}.npy")
+                    np.save(mask_file, sample_np.astype(np.float32, copy=False))
+                    mask_path = str(mask_file)
+                except Exception:
+                    mask_path = None
+
+            # Save input channels once (they're duplicated across goals).
+            if should_save_mask and (not input_channels_saved) and "input_channels" in g and g["input_channels"] is not None:
+                try:
+                    inp = np.asarray(g["input_channels"])
+                    inp_path = _namo_unique_path(call_dir / "input_channels.npy")
+                    np.save(inp_path, inp.astype(np.float32, copy=False))
+                    input_channels_saved = True
+                except Exception:
+                    pass
+
+            entry = {
+                "index": int(index_for_file),
+                "original_index": sample_index_int,
+                "sample_pos": int(i),
+                "x": float(g["x"]) if "x" in g else None,
+                "y": float(g["y"]) if "y" in g else None,
+                "theta": float(g["theta"]) if "theta" in g else None,
+                "mask_path": mask_path,
+            }
+            entries.append(entry)
+
+            # Attach saved path back onto the goal dict so callers can propagate it.
+            if mask_path is not None:
+                g["_namo_saved_mask_path"] = mask_path
+
+        meta = {
+            "object_id": str(object_id),
+            "ml_call_id": call_id,
+            "goal_model_path": str(self.goal_model_path),
+            "device": str(self.device),
+            "seed": self.seed,
+            "created_unix_sec": time.time(),
+            "entries": entries,
+        }
+        try:
+            meta_path = _namo_unique_path(call_dir / "inference.json")
+            meta_path.write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n")
+        except Exception:
+            pass
+
+        return call_id, call_dir
 
     def _render_mask_overlay(self, shape, layers, threshold=0.3):
         """Render multiple mask layers with colors.

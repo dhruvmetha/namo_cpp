@@ -672,21 +672,35 @@ std::vector<int> WavefrontPlanner::evaluate_primitive_priorities(
     const std::vector<std::array<double, 3>>& target_poses,
     const std::array<double, 2>& robot_goal) {
 
+    using Clock = std::chrono::steady_clock;
+    auto to_ms = [](const Clock::time_point& a, const Clock::time_point& b) -> double {
+        return std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(b - a).count();
+    };
+
+    std::map<std::string, double> profile;
+    const auto t_total0 = Clock::now();
+    profile["target_poses_count"] = static_cast<double>(target_poses.size());
+
     std::vector<int> priorities(target_poses.size(), 3);  // Default to priority 3
 
     if (target_poses.empty()) {
+        profile["total_ms"] = to_ms(t_total0, Clock::now());
+        last_priority_profile_ = std::move(profile);
         return priorities;
     }
 
     // 1. Get object info
     const ObjectState* obj_state = env.get_object_state(object_name);
     if (!obj_state) {
+        profile["total_ms"] = to_ms(t_total0, Clock::now());
+        last_priority_profile_ = std::move(profile);
         return priorities;
     }
 
     // Get object size from movable objects
     std::array<double, 3> object_size = {0.1, 0.1, 0.1};  // Default
     const auto& movable_objects = env.get_movable_objects();
+    profile["movable_objects_count"] = static_cast<double>(env.get_num_movable());
     for (size_t i = 0; i < env.get_num_movable(); i++) {
         if (movable_objects[i].name == object_name) {
             object_size = movable_objects[i].size;
@@ -696,7 +710,9 @@ std::vector<int> WavefrontPlanner::evaluate_primitive_priorities(
 
     // 2. Compute grid without this object (ONE grid computation)
     std::vector<std::vector<int>> base_grid;
+    const auto t_grid0 = Clock::now();
     compute_grid_without_object(env, object_name, base_grid);
+    profile["compute_grid_without_object_ms"] = to_ms(t_grid0, Clock::now());
 
     // 3. Get robot position
     const auto* robot_state = env.get_robot_state();
@@ -706,15 +722,25 @@ std::vector<int> WavefrontPlanner::evaluate_primitive_priorities(
     };
 
     // 4. Get path cells from robot to goal (ONE BFS)
+    const auto t_path0 = Clock::now();
     auto path_cells = get_path_cells(base_grid, robot_pos, robot_goal);
+    profile["get_path_cells_ms"] = to_ms(t_path0, Clock::now());
+    profile["path_cells_count"] = static_cast<double>(path_cells.size());
 
     // 5. If goal not reachable without object, all priorities = 3 (object isn't only blocker)
     if (path_cells.empty()) {
         std::fill(priorities.begin(), priorities.end(), 3);
+        profile["total_ms"] = to_ms(t_total0, Clock::now());
+        last_priority_profile_ = std::move(profile);
         return priorities;
     }
 
     // 6. Evaluate each target pose
+    double footprint_ms = 0.0;
+    double blocks_ms = 0.0;
+    double static_collision_ms = 0.0;
+    double movable_collision_ms = 0.0;
+    const auto t_loop0 = Clock::now();
     for (size_t i = 0; i < target_poses.size(); i++) {
         const auto& pose = target_poses[i];
 
@@ -728,16 +754,24 @@ std::vector<int> WavefrontPlanner::evaluate_primitive_priorities(
         inflated_info.size[0] += robot_size_[0] + 0.005;
         inflated_info.size[1] += robot_size_[1] + 0.005;
 
+        auto t0 = Clock::now();
         GridFootprint footprint = calculate_rotated_footprint(inflated_info, target_state);
+        footprint_ms += to_ms(t0, Clock::now());
 
         // Check if blocks path
+        t0 = Clock::now();
         bool blocks = footprint_blocks_path(footprint, path_cells);
+        blocks_ms += to_ms(t0, Clock::now());
 
         // Check static collision
+        t0 = Clock::now();
         bool static_collision = check_static_collision(pose, object_size);
+        static_collision_ms += to_ms(t0, Clock::now());
 
         // Check movable collision
+        t0 = Clock::now();
         auto movable_hits = check_movable_collision(object_name, pose, object_size, env);
+        movable_collision_ms += to_ms(t0, Clock::now());
 
         // Assign priority based on heuristic:
         // OPENINGS FIRST (clean -> movable -> static):
@@ -769,6 +803,13 @@ std::vector<int> WavefrontPlanner::evaluate_primitive_priorities(
         }
     }
 
+    profile["per_pose_loop_ms"] = to_ms(t_loop0, Clock::now());
+    profile["per_pose_calculate_footprint_ms"] = footprint_ms;
+    profile["per_pose_blocks_path_ms"] = blocks_ms;
+    profile["per_pose_check_static_collision_ms"] = static_collision_ms;
+    profile["per_pose_check_movable_collision_ms"] = movable_collision_ms;
+    profile["total_ms"] = to_ms(t_total0, Clock::now());
+    last_priority_profile_ = std::move(profile);
     return priorities;
 }
 

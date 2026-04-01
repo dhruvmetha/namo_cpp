@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <string>
+#include <map>
 
 namespace namo {
 
@@ -65,11 +66,15 @@ public:
     // World bounds information
     std::vector<double> get_world_bounds() const;
 
-    // Robot goal management for MCTS
-    void set_robot_goal(double x, double y, double theta = 0.0);
-    bool is_robot_goal_reachable() const;
-    std::array<double, 3> get_robot_goal() const;
-    void clear_robot_goal();
+	    // Robot goal management for MCTS
+	    void set_robot_goal(double x, double y, double theta = 0.0);
+	    // Set robot goal without updating the visualization goal marker (useful for
+	    // reachability checks over many sampled goals without flickering the marker).
+	    void set_robot_goal_silent(double x, double y, double theta = 0.0);
+	    bool is_robot_goal_reachable() const;
+	    std::array<double, 3> get_robot_goal() const;
+	    void clear_robot_goal();
+	    void set_goal_site_visible(bool visible);
 
     // Collision checking control (for region opening planner)
     void set_collision_checking(bool enable);
@@ -86,6 +91,8 @@ public:
     bool is_recording() const;
     size_t get_frame_count() const;
     std::vector<std::vector<unsigned char>> get_frames() const;
+    // Get one captured frame by index (no copy). Intended for streaming encoders.
+    const std::vector<unsigned char>& get_frame_ref(size_t idx) const;
     void clear_frames();
     std::tuple<int, int> get_recording_dimensions() const;
 
@@ -94,6 +101,7 @@ public:
         const std::string& object_name,
         const std::vector<std::array<double, 3>>& target_poses,
         const std::array<double, 2>& robot_goal);
+    std::map<std::string, double> get_last_priority_profile() const;
 
     // Action space constraints for MCTS progressive widening
     struct ActionConstraints {

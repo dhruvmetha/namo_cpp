@@ -72,9 +72,13 @@ PYBIND11_MODULE(namo_rl, m) {
         .def("get_object_info", &namo::RLEnvironment::get_object_info, "Returns object geometry information (sizes, positions, orientations) for all objects including static walls.")
         .def("get_world_bounds", &namo::RLEnvironment::get_world_bounds, "Returns world bounds [x_min, x_max, y_min, y_max] calculated from all objects.")
         .def("set_robot_goal", &namo::RLEnvironment::set_robot_goal, py::arg("x"), py::arg("y"), py::arg("theta") = 0.0, "Set robot goal for MCTS planning.")
+        .def("set_robot_goal_silent", &namo::RLEnvironment::set_robot_goal_silent, py::arg("x"), py::arg("y"), py::arg("theta") = 0.0,
+             "Set robot goal without updating the visualization marker (useful for repeated reachability checks).")
         .def("is_robot_goal_reachable", &namo::RLEnvironment::is_robot_goal_reachable, "Check if robot goal is reachable from current state.")
         .def("get_robot_goal", &namo::RLEnvironment::get_robot_goal, "Get current robot goal.")
         .def("clear_robot_goal", &namo::RLEnvironment::clear_robot_goal, "Clear robot goal (resets to XML goal for snapshot consistency).")
+        .def("set_goal_site_visible", &namo::RLEnvironment::set_goal_site_visible, py::arg("visible"),
+             "Show/hide the XML `<site name='goal'>` marker when present (visualization only).")
         .def("set_collision_checking", &namo::RLEnvironment::set_collision_checking, py::arg("enable"), "Enable or disable collision checking during push execution.")
         .def("get_collision_checking", &namo::RLEnvironment::get_collision_checking, "Get current collision checking state.")
         .def("set_robot_goal_termination", &namo::RLEnvironment::set_robot_goal_termination, py::arg("enable"), "Enable or disable robot goal termination during MPC execution.")
@@ -82,6 +86,8 @@ PYBIND11_MODULE(namo_rl, m) {
         .def("evaluate_primitive_priorities", &namo::RLEnvironment::evaluate_primitive_priorities,
              py::arg("object_name"), py::arg("target_poses"), py::arg("robot_goal"),
              "Evaluate geometric transport priorities for primitive targets. Returns priorities 1-4 (1=best, 4=worst).")
+        .def("get_last_priority_profile", &namo::RLEnvironment::get_last_priority_profile,
+             "Get timing breakdown for the most recent evaluate_primitive_priorities() call.")
         .def("get_action_constraints", &namo::RLEnvironment::get_action_constraints, "Get action space constraints for MCTS.")
         // Video recording interface
         .def("start_recording", &namo::RLEnvironment::start_recording,
@@ -123,6 +129,15 @@ PYBIND11_MODULE(namo_rl, m) {
             }
             return result;
         }, "Get captured frames as numpy array with shape (n_frames, height, width, 3).")
+        .def("get_frame_bytes", [](const namo::RLEnvironment& env, size_t idx) {
+            const auto& frame = env.get_frame_ref(idx);
+            if (frame.empty()) {
+                return py::bytes();
+            }
+            return py::bytes(reinterpret_cast<const char*>(frame.data()), frame.size());
+        }, py::arg("idx"),
+        "Get a single captured frame as raw RGB bytes (width*height*3). "
+        "Useful for streaming to encoders without materializing a full (N,H,W,3) array.")
         .def("clear_frames", &namo::RLEnvironment::clear_frames,
              "Clear captured frames to free memory.")
         .def("get_recording_dimensions", &namo::RLEnvironment::get_recording_dimensions,

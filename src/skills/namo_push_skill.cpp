@@ -273,12 +273,9 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         result.outputs["object_name"] = object_name;
         result.outputs["direct_execution"] = true;  // Flag indicating MPC was bypassed
 
-        // Check if robot goal became reachable (for early termination detection)
-        if (enable_robot_goal_termination_ && has_robot_goal_ && executor_->is_robot_goal_reachable()) {
-            result.outputs["robot_goal_reached"] = true;
-        } else {
-            result.outputs["robot_goal_reached"] = false;
-        }
+        // Report robot-goal reachability regardless of whether early-termination is enabled.
+        // Early termination only controls whether we *stop* on reachability, not whether we *report* it.
+        result.outputs["robot_goal_reached"] = (has_robot_goal_ && executor_->is_robot_goal_reachable());
 
         if (!step_result.success) {
             result.failure_reason = step_result.failure_reason;
@@ -391,7 +388,8 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         if (is_object_at_goal(current_state, target_pose, tolerance)) {
             // std::cout << "Object reached goal at iteration " << mpc_iter << std::endl;
             result.success = true;
-            result.outputs["robot_goal_reached"] = false;
+            // Report robot-goal reachability even when the push goal (object pose) is achieved.
+            result.outputs["robot_goal_reached"] = (has_robot_goal_ && executor_->is_robot_goal_reachable());
             result.outputs["steps_executed"] = mpc_iter;
             result.outputs["final_pose"] = current_state;
             result.outputs["object_name"] = object_name;
@@ -782,6 +780,13 @@ std::vector<int> NAMOPushSkill::evaluate_primitive_priorities(
     const std::array<double, 2>& robot_goal) {
     // Delegate to executor's wavefront planner
     return executor_->evaluate_primitive_priorities(env_, object_name, target_poses, robot_goal);
+}
+
+std::map<std::string, double> NAMOPushSkill::get_last_priority_profile() const {
+    if (!executor_) {
+        return {};
+    }
+    return executor_->get_last_priority_profile();
 }
 
 GreedyPlanner* NAMOPushSkill::get_planner_for_object(const std::string& object_name) const {

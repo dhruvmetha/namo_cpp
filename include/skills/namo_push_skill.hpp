@@ -7,6 +7,7 @@
 #include "config/config_manager.hpp"
 #include <optional>
 #include <filesystem>
+#include <map>
 
 namespace namo {
 
@@ -114,6 +115,11 @@ public:
         const std::string& object_name,
         const std::vector<std::array<double, 3>>& target_poses,
         const std::array<double, 2>& robot_goal);
+
+    /**
+     * @brief Get timing breakdown for the last evaluate_primitive_priorities() call.
+     */
+    std::map<std::string, double> get_last_priority_profile() const;
 
     /**
      * @brief Runtime configuration for collision checking

@@ -380,4 +380,8 @@ std::vector<int> MPCExecutor::evaluate_primitive_priorities(
     return planner_.evaluate_primitive_priorities(env, object_name, target_poses, robot_goal);
 }
 
+std::map<std::string, double> MPCExecutor::get_last_priority_profile() const {
+    return planner_.get_last_priority_profile();
+}
+
 } // namespace namo

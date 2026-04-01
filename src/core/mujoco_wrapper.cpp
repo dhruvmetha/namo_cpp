@@ -3,6 +3,7 @@
 #include <stdexcept>
 #include <cstring>
 #include <algorithm>
+#include <cstdlib>
 
 namespace namo {
 
@@ -256,6 +257,20 @@ bool OptimizedMujocoWrapper::get_geom_pose(const std::string& name, std::array<d
     return true;
 }
 
+bool OptimizedMujocoWrapper::set_site_rgba(const std::string& name, const std::array<float, 4>& rgba) {
+    int id = mj_name2id(m_, mjOBJ_SITE, name.c_str());
+    if (id < 0) return false;
+    if (!m_ || !d_) return false;
+
+    m_->site_rgba[4 * id] = rgba[0];
+    m_->site_rgba[4 * id + 1] = rgba[1];
+    m_->site_rgba[4 * id + 2] = rgba[2];
+    m_->site_rgba[4 * id + 3] = rgba[3];
+
+    mj_forward(m_, d_);
+    return true;
+}
+
 bool OptimizedMujocoWrapper::in_collision() const {
     return d_->ncon > 0;
 }
@@ -320,8 +335,17 @@ void OptimizedMujocoWrapper::init_visualization() {
         visualize_ = false;
         return;
     }
-    
-    window_ = glfwCreateWindow(1200, 900, "NAMO Simulation", nullptr, nullptr);
+
+    int window_width = 1200;
+    int window_height = 900;
+    if (const char* w = std::getenv("NAMO_WINDOW_WIDTH")) {
+        window_width = std::max(200, std::atoi(w));
+    }
+    if (const char* h = std::getenv("NAMO_WINDOW_HEIGHT")) {
+        window_height = std::max(200, std::atoi(h));
+    }
+
+    window_ = glfwCreateWindow(window_width, window_height, "NAMO Simulation", nullptr, nullptr);
     if (!window_) {
         std::cerr << "Warning: Failed to create GLFW window. Visualization disabled." << std::endl;
         glfwTerminate();

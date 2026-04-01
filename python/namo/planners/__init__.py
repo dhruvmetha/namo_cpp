@@ -81,6 +81,10 @@ def get_region_connectivity(
 			config_str,
 			include_snapshot=False,
 			local_info_only=local_info_only,
+			# Do not reset the MuJoCo environment while sampling connectivity.
+			# Callers (planners / ML inference) often expect the current env state
+			# to remain intact across this query.
+			use_current_state=True,
 		)
 		return adjacency, edge_objects, region_labels
 
@@ -130,6 +134,9 @@ def get_region_goal_samples(env: Any, goals_per_region: int) -> RegionGoalSample
 			include_snapshot=False,
 			goals_per_region=goals_per_region,
 			generate_training_data=True,
+			# Critical: do NOT reset() the MuJoCo env during sampling; callers expect
+			# the current state (object poses) to remain intact.
+			use_current_state=True,
 		)
 		return {
 			region: _clone_goal_bundle(bundle)

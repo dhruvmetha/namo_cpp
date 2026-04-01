@@ -22,6 +22,10 @@ class Goal:
     score: float = 0.0
     edge_idx: int = -1   # -1 means "let C++ search", >=0 means specific edge
     depth: int = -1      # -1 means "let C++ search", 0-indexed (depth=0 means push_steps=1)
+    # Optional ML-debug metadata. These are ignored by planners that don't use them.
+    sample_index: int = -1
+    ml_call_id: int = -1
+    mask_path: Optional[str] = None
 
 
 class GoalSelectionStrategy(ABC):
