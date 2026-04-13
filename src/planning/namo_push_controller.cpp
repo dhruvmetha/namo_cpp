@@ -290,7 +290,6 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
     env_.set_robot_se2(push_state.initial_edge_point[0],
                        push_state.initial_edge_point[1],
                        push_theta);
-    // env_.set_zero_velocity();
     
     // Check for robot collision with static objects (walls) after positioning
     const auto& static_objects = env_.get_static_objects();

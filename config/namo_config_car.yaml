@@ -13,10 +13,10 @@ skill:
   control_steps_per_push: 250
   force_scaling: 1.0
   goal_tolerance: 0.03            # Tighter tolerance for small robot
-  check_object_collision: true
-  stuck_check_stride: 30
-  controller_stuck_threshold: 3
-  controller_min_position_change: 0.0005
+  check_object_collision: false     # Disabled — region_opening sets this dynamically
+  stuck_check_stride: 80           # Car needs time to cross gap to object
+  controller_stuck_threshold: 5    # More lenient — car pushes intermittently
+  controller_min_position_change: 0.0003
   controller_min_angle_change: 0.05
   object_clearance: 0.03
   points_per_face: 15

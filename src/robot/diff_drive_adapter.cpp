@@ -39,9 +39,9 @@ std::vector<std::string> DiffDriveAdapter::get_skip_body_names() const {
 }
 
 std::array<double, 2> DiffDriveAdapter::get_xy(const mjModel* m, const mjData* d) const {
-    // Freejoint qpos is displacement from body origin. Add init_pos for world frame.
-    return {d->qpos[freejoint_qpos_adr_ + 0] + init_pos_[0],
-            d->qpos[freejoint_qpos_adr_ + 1] + init_pos_[1]};
+    // Freejoint qpos is ABSOLUTE world position (not relative to body origin)
+    return {d->qpos[freejoint_qpos_adr_ + 0],
+            d->qpos[freejoint_qpos_adr_ + 1]};
 }
 
 double DiffDriveAdapter::get_theta(const mjModel* m, const mjData* d) const {
@@ -50,9 +50,9 @@ double DiffDriveAdapter::get_theta(const mjModel* m, const mjData* d) const {
 }
 
 void DiffDriveAdapter::set_xy(const mjModel* m, mjData* d, double x, double y) const {
-    // Convert world coordinates to qpos displacement from body origin
-    d->qpos[freejoint_qpos_adr_ + 0] = x - init_pos_[0];
-    d->qpos[freejoint_qpos_adr_ + 1] = y - init_pos_[1];
+    // Freejoint qpos is absolute world position
+    d->qpos[freejoint_qpos_adr_ + 0] = x;
+    d->qpos[freejoint_qpos_adr_ + 1] = y;
     // Keep current z and quaternion
 
     // Zero freejoint velocities
@@ -64,9 +64,9 @@ void DiffDriveAdapter::set_xy(const mjModel* m, mjData* d, double x, double y) c
 
 void DiffDriveAdapter::set_se2(const mjModel* m, mjData* d,
                                 double x, double y, double theta) const {
-    d->qpos[freejoint_qpos_adr_ + 0] = x - init_pos_[0];
-    d->qpos[freejoint_qpos_adr_ + 1] = y - init_pos_[1];
-    d->qpos[freejoint_qpos_adr_ + 2] = 0.0;  // keep at body-origin z (ground height)
+    d->qpos[freejoint_qpos_adr_ + 0] = x;
+    d->qpos[freejoint_qpos_adr_ + 1] = y;
+    d->qpos[freejoint_qpos_adr_ + 2] = init_pos_[2];  // maintain ground height
 
     auto q = yaw_to_quat(theta);
     d->qpos[freejoint_qpos_adr_ + 3] = q[0];  // w
