@@ -23,8 +23,11 @@ public:
     // ── Identity ──────────────────────────────────────────────────────
     /// Primary MuJoCo body name (e.g. "robot" or "car")
     virtual std::string get_body_name() const = 0;
-    /// Geom name used for pose queries via get_geom_pose()
-    virtual std::string get_pose_geom_name() const = 0;
+    /// Whether to use body pose (true) or geom pose (false) for position queries.
+    /// Car uses body pose (no single geom at center); point robot uses geom pose.
+    virtual bool use_body_pose() const { return false; }
+    /// Name used for pose queries — body name if use_body_pose(), geom name otherwise.
+    virtual std::string get_pose_source_name() const = 0;
     /// Body names to skip when enumerating environment objects
     virtual std::vector<std::string> get_skip_body_names() const = 0;
 

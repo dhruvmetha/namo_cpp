@@ -1,5 +1,6 @@
 #include "environment/namo_environment.hpp"
 #include "robot/holonomic_adapter.hpp"
+#include "robot/diff_drive_adapter.hpp"
 #include <iostream>
 #include <filesystem>
 #include <algorithm>
@@ -31,15 +32,11 @@ NAMOEnvironment::NAMOEnvironment(const std::string& xml_path, bool visualize, bo
     config_name_ = xml_file_path.stem().string();
     
     // Create default holonomic adapter (backward compatible constructor)
-    // First read the initial geom pose to get init_pos for the adapter
     {
         std::array<double, 3> init_pos = {0.0, 0.0, 0.0};
-        int rid = sim_->get_geom_id("robot");
-        if (rid >= 0) {
-            std::array<double, 7> pose;
-            if (sim_->get_geom_pose("robot", pose)) {
-                init_pos = {pose[0], pose[1], pose[2]};
-            }
+        std::array<double, 7> pose;
+        if (sim_->get_geom_pose("robot", pose)) {
+            init_pos = {pose[0], pose[1], pose[2]};
         }
         robot_adapter_ = std::make_unique<HolonomicAdapter>(init_pos);
     }
@@ -93,17 +90,16 @@ NAMOEnvironment::NAMOEnvironment(const std::string& xml_path, std::shared_ptr<Co
     const std::string& robot_type = config ? config->get_robot_type() : "holonomic";
     if (robot_type == "holonomic") {
         std::array<double, 3> init_pos = {0.0, 0.0, 0.0};
-        int rid = sim_->get_geom_id("robot");
-        if (rid >= 0) {
-            std::array<double, 7> pose;
-            if (sim_->get_geom_pose("robot", pose)) {
-                init_pos = {pose[0], pose[1], pose[2]};
-            }
+        std::array<double, 7> pose;
+        if (sim_->get_geom_pose("robot", pose)) {
+            init_pos = {pose[0], pose[1], pose[2]};
         }
         robot_adapter_ = std::make_unique<HolonomicAdapter>(init_pos);
+    } else if (robot_type == "diff_drive") {
+        robot_adapter_ = std::make_unique<DiffDriveAdapter>(sim_->model());
     } else {
         throw std::runtime_error("Unknown robot_type: " + robot_type +
-                                 " (only 'holonomic' supported so far)");
+                                 " (supported: 'holonomic', 'diff_drive')");
     }
     init_robot_from_adapter();
 
@@ -121,23 +117,42 @@ NAMOEnvironment::NAMOEnvironment(const std::string& xml_path, std::shared_ptr<Co
 }
 
 void NAMOEnvironment::init_robot_from_adapter() {
-    // Use adapter to identify robot body/geom and read initial pose
-    std::string pose_geom = robot_adapter_->get_pose_geom_name();
-    robot_id_ = sim_->get_geom_id(pose_geom);
-    if (robot_id_ >= 0) {
-        robot_info_.body_id = sim_->get_body_id(robot_adapter_->get_body_name());
-        robot_info_.geom_id = robot_id_;
-        robot_info_.name = "robot";  // Internal name stays "robot" for Python compatibility
-        robot_info_.is_static = false;
+    // Use adapter to identify robot and read initial pose
+    std::string pose_name = robot_adapter_->get_pose_source_name();
+    std::string body_name = robot_adapter_->get_body_name();
 
+    robot_info_.body_id = sim_->get_body_id(body_name);
+    robot_info_.name = "robot";  // Internal name stays "robot" for Python compatibility
+    robot_info_.is_static = false;
+
+    // Find a geom for size queries: try pose_name first, then first geom on body
+    robot_id_ = sim_->get_geom_id(pose_name);
+    if (robot_id_ < 0 && robot_info_.body_id >= 0) {
+        // pose_name is a body, not a geom. Find the first geom on this body.
+        mjModel* model = sim_->model();
+        for (int j = 0; j < model->ngeom; j++) {
+            if (model->geom_bodyid[j] == robot_info_.body_id) {
+                robot_id_ = j;
+                break;
+            }
+        }
+    }
+    robot_info_.geom_id = robot_id_;
+
+    if (robot_info_.body_id >= 0) {
+        // Read pose: body pose for car (no single center geom), geom pose for point robot
         std::array<double, 7> robot_pose;
-        if (sim_->get_geom_pose(pose_geom, robot_pose)) {
+        bool got_pose = robot_adapter_->use_body_pose()
+            ? sim_->get_body_pose(body_name, robot_pose)
+            : sim_->get_geom_pose(pose_name, robot_pose);
+        if (got_pose) {
             for (int i = 0; i < 3; i++) robot_info_.position[i] = robot_pose[i];
             for (int i = 0; i < 4; i++) robot_info_.quaternion[i] = robot_pose[i + 3];
         }
 
+        // Read geom size
         mjModel* model = sim_->model();
-        if (robot_id_ < model->ngeom) {
+        if (robot_id_ >= 0 && robot_id_ < model->ngeom) {
             for (int i = 0; i < 3; i++) {
                 robot_info_.size[i] = model->geom_size[robot_id_ * 3 + i];
             }
@@ -337,10 +352,14 @@ void NAMOEnvironment::apply_control(double control_x, double control_y, double d
 }
 
 void NAMOEnvironment::update_object_states() {
-    // Update robot state via adapter's pose geom
+    // Update robot state: use body pose for car, geom pose for point robot
     robot_state_.name = "robot";
     std::array<double, 7> robot_pose;
-    if (sim_->get_geom_pose(robot_adapter_->get_pose_geom_name(), robot_pose)) {
+    std::string pose_src = robot_adapter_->get_pose_source_name();
+    bool got_pose = robot_adapter_->use_body_pose()
+        ? sim_->get_body_pose(pose_src, robot_pose)
+        : sim_->get_geom_pose(pose_src, robot_pose);
+    if (got_pose) {
         for (int i = 0; i < 3; i++) robot_state_.position[i] = robot_pose[i];
         for (int i = 0; i < 4; i++) robot_state_.quaternion[i] = robot_pose[i + 3];
     }

@@ -21,7 +21,7 @@ public:
 
     // Identity
     std::string get_body_name() const override { return "robot"; }
-    std::string get_pose_geom_name() const override { return "robot"; }
+    std::string get_pose_source_name() const override { return "robot"; }
     std::vector<std::string> get_skip_body_names() const override {
         return {"robot", "world"};
     }
