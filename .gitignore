@@ -8,3 +8,5 @@ __pycache__/
 *.txt
 *.html
 modular_data/
+docs/papers/
+docs/theses/

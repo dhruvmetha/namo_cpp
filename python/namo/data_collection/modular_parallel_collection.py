@@ -559,6 +559,8 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                                 # Hybrid decomposition tracking
                                 'phase_push_counts': getattr(attempt, 'phase_push_counts', None),
                                 'solved_in_phase': getattr(attempt, 'solved_in_phase', ''),
+                                # F characterization: per-primitive trial log (exhaustive mode only)
+                                'primitive_trial_log': getattr(attempt, 'primitive_trial_log', None),
                             },
                             action_sequence=action_sequence,
                             state_observations=attempt.state_observations,
@@ -1215,6 +1217,7 @@ def main():
             "region_ml_ignore_blacklist": args.region_ml_ignore_blacklist,
             "region_selection_strategy": args.region_selection_strategy,
             "profile_geometric": args.profile_geometric,
+            "region_exhaustive_mode": getattr(args, 'region_exhaustive_mode', False),
             "shuffle_edges": args.shuffle_edges,
             "shuffle_seed": args.shuffle_seed,
         })

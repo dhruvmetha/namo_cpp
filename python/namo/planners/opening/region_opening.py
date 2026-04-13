@@ -164,6 +164,11 @@ class AttemptResult:
     chain_observation_replay_calls: int = 0
     chain_observation_replay_ms_total: float = 0.0
     chain_observation_replay_ms_avg: float = 0.0
+    # Per-primitive trial log for F characterization (exhaustive mode)
+    # Each entry: {'edge_idx': int, 'depth': int, 'success': bool,
+    #              'wall_collision': bool, 'movable_collisions': str,
+    #              'stuck': bool, 'collision': bool, 'reachable_after': int}
+    primitive_trial_log: Optional[List[Dict]] = None
 
 
 class RegionOpeningPlanner(BasePlanner):
@@ -202,6 +207,9 @@ class RegionOpeningPlanner(BasePlanner):
         self.max_solutions_per_neighbor = algo_params.get("region_max_solutions_per_neighbor", 10)
         if self.max_solutions_per_neighbor < 1:
             raise ValueError(f"Invalid max_solutions_per_neighbor: {self.max_solutions_per_neighbor}. Must be at least 1")
+
+        # Exhaustive mode: disable search pruning, log all primitive outcomes for F characterization
+        self.exhaustive_mode = algo_params.get("region_exhaustive_mode", False)
 
         # Get max recorded solutions per neighbor (subset of found solutions to keep), default: 2
         self.max_recorded_solutions_per_neighbor = algo_params.get(
@@ -1044,14 +1052,15 @@ class RegionOpeningPlanner(BasePlanner):
                     max_solutions_to_collect=max_solutions_for_object,
                     push_counter=neighbour_push_counter,
                 )
-                # Async search doesn't have phase tracking yet - use defaults
+                # Async search doesn't have phase tracking or trial log yet
                 phase_push_counts = None
                 solved_in_phase = ""
                 search_any_wall_collision = False
                 search_unique_movable_collision_count = 0
+                object_trial_log = []
             else:
                 # Use standard BFS search
-                successful_goals, min_depth, phase_push_counts, solved_in_phase, search_any_wall_collision, search_unique_movable_collision_count = self._search_with_chaining_bfs(
+                successful_goals, min_depth, phase_push_counts, solved_in_phase, search_any_wall_collision, search_unique_movable_collision_count, object_trial_log = self._search_with_chaining_bfs(
                     object_id,
                     exploration_state,
                     neighbour_label,
@@ -1210,6 +1219,7 @@ class RegionOpeningPlanner(BasePlanner):
                             unique_movable_collision_count=unique_movable_collision_count,
                             phase_push_counts=phase_push_counts,
                             solved_in_phase=solved_in_phase,
+                            primitive_trial_log=object_trial_log if self.exhaustive_mode else None,
                         ))
                         # Verbose: print running count of solutions for this object
                         if self.config.verbose:
@@ -1291,6 +1301,7 @@ class RegionOpeningPlanner(BasePlanner):
                             unique_movable_collision_count=unique_movable_collision_count,
                             phase_push_counts=phase_push_counts,
                             solved_in_phase=solved_in_phase,
+                            primitive_trial_log=object_trial_log if self.exhaustive_mode else None,
                         ))
                         # Verbose: print running count of solutions for this object
                         if self.config.verbose:
@@ -1386,6 +1397,7 @@ class RegionOpeningPlanner(BasePlanner):
                     chain_observation_replay_ms_avg=float(obj_runtime_timing.get("chain_observation_replay_ms_avg", 0.0)),
                     any_wall_collision=search_any_wall_collision,
                     unique_movable_collision_count=search_unique_movable_collision_count,
+                    primitive_trial_log=object_trial_log if self.exhaustive_mode else None,
                 ))
 
         # After trying all objects, return results
@@ -1581,6 +1593,9 @@ class RegionOpeningPlanner(BasePlanner):
         best_total_cost = None
         skill_call_counter = {"count": 0}
 
+        # Accumulated trial logs across all chain depths (for F characterization)
+        all_trial_logs = []
+
         # Two-phase search for ml_first with ml_fallback:
         # Phase 1: Try ONLY ML goals (score > 0) across ALL depths
         # Phase 2: If Phase 1 fails, try ONLY primitives (score = 0) across ALL depths
@@ -1739,7 +1754,7 @@ class RegionOpeningPlanner(BasePlanner):
                             break
                         inner_max_solutions = max_solutions_to_collect - current_solutions_count
 
-                    successful_results, primitive_depth, new_frontier_nodes, bfs_any_wall_collision, bfs_movable_collisions = self._search_bfs(
+                    successful_results, primitive_depth, new_frontier_nodes, bfs_any_wall_collision, bfs_movable_collisions, bfs_trial_log = self._search_bfs(
                         goals_per_edge,
                         reachable_edge_indices,
                         node.state,
@@ -1759,6 +1774,7 @@ class RegionOpeningPlanner(BasePlanner):
                     )
                     any_wall_collision_during_search = any_wall_collision_during_search or bfs_any_wall_collision
                     movable_collisions_during_search.update(bfs_movable_collisions)
+                    all_trial_logs.extend(bfs_trial_log)
 
                     # If we found success, reconstruct ALL goal chains with their state observations
                     if successful_results:
@@ -1910,9 +1926,9 @@ class RegionOpeningPlanner(BasePlanner):
             min_cost_chains = [entry for entry in all_chains_across_depths if entry[8] == best_cost]
             if self.config.verbose:
                 print(f"    ✔ Returning {len(min_cost_chains)} min-cost solution(s) with cost={best_cost}")
-            return min_cost_chains, min_chain_depth_found if min_chain_depth_found else 0, global_phase_push_counts, solved_in_phase, any_wall_collision_during_search, len(movable_collisions_during_search)
+            return min_cost_chains, min_chain_depth_found if min_chain_depth_found else 0, global_phase_push_counts, solved_in_phase, any_wall_collision_during_search, len(movable_collisions_during_search), all_trial_logs
         else:
-            return all_chains_across_depths, 0, global_phase_push_counts, solved_in_phase, any_wall_collision_during_search, len(movable_collisions_during_search)
+            return all_chains_across_depths, 0, global_phase_push_counts, solved_in_phase, any_wall_collision_during_search, len(movable_collisions_during_search), all_trial_logs
 
     def _reconstruct_chain(self, final_node: ChainNode, final_goal: Goal) -> List[Goal]:
         """Reconstruct the chain of goals from root to final goal."""
@@ -2071,6 +2087,9 @@ class RegionOpeningPlanner(BasePlanner):
         all_successful_results = []
         min_depth_found = None
 
+        # Per-primitive trial log for F characterization
+        trial_log = []
+
         # Track async ML merge state
         ml_merged = False
         ml_scores: Dict[Tuple[int, int], float] = {}
@@ -2182,13 +2201,14 @@ class RegionOpeningPlanner(BasePlanner):
             if primitives_only and getattr(goal, 'score', 0.0) > 0:
                 continue
 
-            # Stop if we've reached the solution cap
-            if max_solutions_to_collect is not None and len(all_successful_results) >= max_solutions_to_collect:
+            # Stop if we've reached the solution cap (disabled in exhaustive mode)
+            if not self.exhaustive_mode and max_solutions_to_collect is not None and len(all_successful_results) >= max_solutions_to_collect:
                 if self.config.verbose:
                     print(f"        🛑 Reached max solutions ({len(all_successful_results)}/{max_solutions_to_collect}), stopping search")
                 break
             # Global prune: once any success is found at depth D, skip candidates with depth > D
-            if min_depth_found is not None and depth > min_depth_found:
+            # (disabled in exhaustive mode — evaluate all depths)
+            if not self.exhaustive_mode and min_depth_found is not None and depth > min_depth_found:
                 continue
 
             # Budget prune
@@ -2197,6 +2217,7 @@ class RegionOpeningPlanner(BasePlanner):
 
             # Filter: skip if this edge got stuck/collided at a shallower or equal depth
             # (shallower depths than the stuck depth are still worth trying)
+            # NOTE: blacklist is NOT disabled in exhaustive mode — stuck/collision is physical, not search pruning
             # Exception: if ml_ignore_blacklist is enabled, we disable blacklist during pre-ML phase
             # entirely, and bypass for ML-scored slots after ML merges
             is_blacklisted = edge_idx in edge_min_stuck_depth and depth >= edge_min_stuck_depth[edge_idx]
@@ -2213,7 +2234,8 @@ class RegionOpeningPlanner(BasePlanner):
                     continue
 
             # Filter: skip edges that have already produced a successful opening
-            if edge_idx in solved_edges_this_skill:
+            # (disabled in exhaustive mode — evaluate all depths on all edges)
+            if not self.exhaustive_mode and edge_idx in solved_edges_this_skill:
                 continue
 
             self.env.set_full_state(baseline_state)
@@ -2336,6 +2358,18 @@ class RegionOpeningPlanner(BasePlanner):
                     if self.config.verbose:
                         print(f"        📍 Edge {edge_idx} stuck at depth {depth+1}, depths 1-{depth} still valid")
 
+            # Log this primitive trial for F characterization
+            trial_log.append({
+                'edge_idx': edge_idx,
+                'depth': depth,
+                'success': is_accessible_after and not is_accessible_before,
+                'wall_collision': step_result.info.get("wall_collision", "false") == "true",
+                'movable_collisions': step_result.info.get("movable_collisions", ""),
+                'stuck': stuck_detected,
+                'collision': collision_detected,
+                'reachable_after': reachable_count_after,
+            })
+
             total_region_goals = len(region_goals[neighbour_label].goals) if neighbour_label in region_goals else 0
             if is_accessible_after and not is_accessible_before:
                 print(f"      ✅ SUCCESS! {object_id} edge {edge_idx} depth {depth+1}: {reachable_count_before}/{total_region_goals} → {reachable_count_after}/{total_region_goals} reachable")
@@ -2419,7 +2453,7 @@ class RegionOpeningPlanner(BasePlanner):
                     print(f"      ⏳ ML inference still running (will complete in background)")
 
         # Return all successful results found across all depths
-        return all_successful_results, min_depth_found if min_depth_found else 0, frontier_nodes, any_wall_collision_during_search, movable_collisions_during_search
+        return all_successful_results, min_depth_found if min_depth_found else 0, frontier_nodes, any_wall_collision_during_search, movable_collisions_during_search, trial_log
 
     def _validate_opening(
         self,
