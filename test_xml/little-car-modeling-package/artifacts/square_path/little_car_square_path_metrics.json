@@ -1,0 +1,89 @@
+{
+  "closure_error_m": 0.015151303065389725,
+  "final_position_m": [
+    0.013029686183846693,
+    -0.007732351681717717,
+    -8.376462589007693e-06
+  ],
+  "final_yaw_deg": 3.9627809326614574,
+  "final_yaw_rad": 0.06916357481019413,
+  "heading_error_deg": 3.9627809326614574,
+  "heading_error_rad": 0.06916357481019413,
+  "min_chassis_geom_z_m": 0.036669759999999996,
+  "min_up_dot": 0.9999317988577819,
+  "segments": [
+    {
+      "distance_along_heading_m": 0.12715817756469516,
+      "end_xy_m": [
+        0.12715817756469516,
+        0.010880986769955275
+      ],
+      "heading_end_rad": 1.5723798567593326,
+      "heading_start_rad": 2.988395905247941e-19,
+      "min_chassis_geom_z_m": 0.03736427474933713,
+      "min_up_dot": 0.9999361338403874,
+      "segment_index": 1,
+      "start_xy_m": [
+        -1.409319343225257e-19,
+        -9.780025322748256e-18
+      ],
+      "tipped_during_segment": false,
+      "yaw_change_rad": 1.5723798567593326
+    },
+    {
+      "distance_along_heading_m": 0.11610918859352481,
+      "end_xy_m": [
+        0.11703326270792792,
+        0.12697428781996123
+      ],
+      "heading_end_rad": -3.107268438488308,
+      "heading_start_rad": 1.5723798567593326,
+      "min_chassis_geom_z_m": 0.03738881274751283,
+      "min_up_dot": 0.9999317988577819,
+      "segment_index": 2,
+      "start_xy_m": [
+        0.12715817756469516,
+        0.010880986769955275
+      ],
+      "tipped_during_segment": false,
+      "yaw_change_rad": 1.6035370119319465
+    },
+    {
+      "distance_along_heading_m": 0.12111980511627873,
+      "end_xy_m": [
+        -0.003756311477511332,
+        0.11527825944481866
+      ],
+      "heading_end_rad": -1.5315493104539413,
+      "heading_start_rad": -3.107268438488308,
+      "min_chassis_geom_z_m": 0.03741339860506991,
+      "min_up_dot": 0.9999675505363751,
+      "segment_index": 3,
+      "start_xy_m": [
+        0.11703326270792792,
+        0.12697428781996123
+      ],
+      "tipped_during_segment": false,
+      "yaw_change_rad": 1.5757191280343665
+    },
+    {
+      "distance_along_heading_m": 0.12357451613375689,
+      "end_xy_m": [
+        0.013029686183846693,
+        -0.007732351681717717
+      ],
+      "heading_end_rad": 0.06916357481019413,
+      "heading_start_rad": -1.5315493104539413,
+      "min_chassis_geom_z_m": 0.03741504534510737,
+      "min_up_dot": 0.9999604823390991,
+      "segment_index": 4,
+      "start_xy_m": [
+        -0.003756311477511332,
+        0.11527825944481866
+      ],
+      "tipped_during_segment": false,
+      "yaw_change_rad": 1.6007128852641355
+    }
+  ],
+  "tipped_any_time": false
+}

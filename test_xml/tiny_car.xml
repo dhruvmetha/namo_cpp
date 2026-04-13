@@ -1,0 +1,103 @@
+<mujoco model="tiny_car">
+  <compiler angle="radian" inertiafromgeom="true"/>
+  <option timestep="0.01" integrator="RK4" cone="elliptic" gravity="0 0 -9.81"/>
+
+  <default>
+    <geom condim="4" solref="0.01 1" solimp="0.9 0.95 0.001"/>
+    <joint damping="0.05"/>
+    <default class="wheel">
+      <joint type="hinge" axis="0 1 0" limited="false" frictionloss="0.01" armature="0.005"/>
+      <velocity kv="5" ctrlrange="-10 10" ctrllimited="true"/>
+    </default>
+  </default>
+
+  <worldbody>
+    <light name="top" pos="0 0 2" dir="0 0 -1" directional="true"
+           diffuse="0.8 0.8 0.8" specular="0.2 0.2 0.2"/>
+
+    <!-- Floor -->
+    <geom name="floor" type="plane" size="5 5 0.1" rgba="0.3 0.3 0.3 1"
+          friction="0.8 0.005 0.001"/>
+
+    <!-- Robot base: freejoint gives full 6-DOF -->
+    <body name="chassis" pos="0 0 0.0375">
+      <freejoint name="chassis_joint"/>
+
+      <!-- Upper chassis shell (lightweight) -->
+      <!-- Box half-sizes: x=0.035 y=0.034 z=0.0325 -->
+      <!-- Centered at z=+0.0125 relative to body origin -->
+      <!-- Body origin at z=0.0375, so geom center at z=0.05, spans z=0.0175..0.0825 -->
+      <!-- But we need chassis bottom at z=0.005 (world) = 0.005-0.0375 = -0.0325 (local) -->
+      <!-- And chassis top at z=0.07 (world) = 0.07-0.0375 = +0.0325 (local) -->
+      <!-- So half-height = 0.0325, centered at local z=0 works if body at z=0.0375 -->
+      <!-- Wait: bottom = 0.0375-0.0325 = 0.005 (world). Top = 0.0375+0.0325 = 0.07. -->
+      <!-- Total height = 0.065m = 6.5cm. Top at 7cm? No, 0.07m = 7cm. Good. -->
+      <!-- Actually top should be at 0.07m = 7cm. 0.0375+0.0325 = 0.07. Correct. -->
+      <!-- Bottom at 0.0375-0.0325 = 0.005m = 0.5cm. Correct (ground clearance). -->
+
+      <!-- Full chassis shell (lightweight upper portion) -->
+      <!-- Local z=0 is at world z=0.0375. We need: -->
+      <!--   chassis bottom at world z=0.005 (0.5cm clearance) = local z=-0.0325 -->
+      <!--   chassis top at world z=0.07 (7cm total) = local z=+0.0325 -->
+      <!--   half-height = 0.0325, center at local z=0 -->
+      <geom name="chassis_shell" type="box"
+            pos="0 0 0"
+            size="0.035 0.034 0.0325"
+            mass="0.03"
+            rgba="0.2 0.2 0.8 1"
+            friction="0.3 0.005 0.001"/>
+
+      <!-- Motor block at wheel level: heavy, keeps COM low -->
+      <!-- Centered at world z=0.015 (wheel axle) = local z=-0.0225 -->
+      <!-- half-height=0.01 → spans world z=0.005..0.025 (bottom flush with chassis bottom) -->
+      <geom name="motor_block" type="box"
+            pos="0 0 -0.0225"
+            size="0.03 0.03 0.01"
+            mass="0.15"
+            rgba="0.4 0.4 0.4 1"
+            friction="0.3 0.005 0.001"/>
+
+      <!-- Front marker (heading indicator, non-physical) -->
+      <geom name="front_marker" type="sphere"
+            pos="0.03 0 0.02" size="0.005"
+            rgba="1.0 0.2 0.2 1"
+            contype="0" conaffinity="0" mass="0.001"/>
+
+      <!-- Left wheel -->
+      <!-- y = +(chassis_half_width + wheel_half_thickness) = +(0.034 + 0.0005) = +0.0345 -->
+      <!-- z = wheel_center - body_z = 0.015 - 0.0375 = -0.0225 (local) -->
+      <body name="wheel_left" pos="0 0.0345 -0.0225">
+        <joint name="wheel_left" class="wheel"/>
+        <!-- Cylinder axis along local Z; rotate 90deg about X to align with Y axle -->
+        <geom name="g_wheel_left" type="cylinder"
+              size="0.015 0.0005"
+              euler="1.5707963 0 0"
+              mass="0.01"
+              rgba="0.1 0.1 0.1 1"
+              friction="1.5 0.005 0.001"/>
+      </body>
+
+      <!-- Right wheel -->
+      <body name="wheel_right" pos="0 -0.0345 -0.0225">
+        <joint name="wheel_right" class="wheel"/>
+        <geom name="g_wheel_right" type="cylinder"
+              size="0.015 0.0005"
+              euler="1.5707963 0 0"
+              mass="0.01"
+              rgba="0.1 0.1 0.1 1"
+              friction="1.5 0.005 0.001"/>
+      </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <velocity class="wheel" name="left_wheel" joint="wheel_left"/>
+    <velocity class="wheel" name="right_wheel" joint="wheel_right"/>
+  </actuator>
+
+  <contact>
+    <!-- Prevent self-collision between chassis and wheels -->
+    <exclude body1="chassis" body2="wheel_left"/>
+    <exclude body1="chassis" body2="wheel_right"/>
+  </contact>
+</mujoco>
