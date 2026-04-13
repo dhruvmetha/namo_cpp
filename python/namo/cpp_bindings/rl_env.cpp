@@ -11,7 +11,7 @@ RLEnvironment::RLEnvironment(const std::string& xml_path, const std::string& con
     // std::cout << "Initializing RLEnvironment..." << std::endl;
     try {
         config_ = std::shared_ptr<ConfigManager>(ConfigManager::create_from_file(config_path).release());
-        env_ = std::make_unique<NAMOEnvironment>(xml_path, visualize); // Use provided visualization parameter
+        env_ = std::make_unique<NAMOEnvironment>(xml_path, config_, visualize);
         skill_ = std::make_unique<NAMOPushSkill>(*env_, config_);
         
         // Cache immutable object info once during initialization

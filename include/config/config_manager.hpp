@@ -21,10 +21,13 @@ public:
         double high_level_resolution = 0.05;     // 5cm grid for reachability
         int max_planning_iterations = 10;
         bool verbose_planning = false;
-        
+
         // Wavefront planning
         double skill_level_resolution = 0.02;    // 2cm grid for detailed planning
         std::vector<double> robot_size = {0.15, 0.15};  // [width, height] for inflation
+
+        // Robot type: "holonomic" (default point robot) or "diff_drive" (car)
+        std::string robot_type = "holonomic";
         std::vector<double> robot_goal = {0.5455398969960719, -0.8430872280407762};  // [x, y] for goal
         
         // Grid limits
@@ -170,6 +173,7 @@ public:
     double get_high_level_resolution() const { return planning_.high_level_resolution; }
     double get_skill_level_resolution() const { return planning_.skill_level_resolution; }
     const std::vector<double>& get_robot_size() const { return planning_.robot_size; }
+    const std::string& get_robot_type() const { return planning_.robot_type; }
     // get_environment_bounds() removed - use NAMOEnvironment::get_environment_bounds() instead
     
     // Runtime configuration updates

@@ -2,6 +2,8 @@
 
 #include "core/types.hpp"
 #include "core/mujoco_wrapper.hpp"
+#include "robot/robot_adapter.hpp"
+#include "config/config_manager.hpp"
 #include <memory>
 #include <fstream>
 #include <map>
@@ -24,7 +26,11 @@ public:
      * @param enable_logging Enable state logging
      */
     NAMOEnvironment(const std::string& xml_path, bool visualize = false, bool enable_logging = false);
-    
+
+    /// Config-aware constructor: creates the correct RobotAdapter from config.robot_type
+    NAMOEnvironment(const std::string& xml_path, std::shared_ptr<ConfigManager> config,
+                    bool visualize = false, bool enable_logging = false);
+
     /**
      * @brief Destructor
      */
@@ -63,14 +69,19 @@ public:
     // State management
     void set_robot_position(const std::array<double, 2>& pos);
     void set_robot_position(const std::array<double, 3>& pos);
+    /// Teleport robot to (x, y, theta) in world frame. Uses adapter for robot-specific behavior.
+    void set_robot_se2(double x, double y, double theta);
     void set_zero_velocity();
     void enable_logging();
     void disable_logging();
-    
+
     // Robot control
     void apply_robot_control(double control_x, double control_y);
     void set_robot_control(double control_x, double control_y);
     void apply_control(double control_x, double control_y, double dt);
+
+    /// Access the robot adapter (for push controller, skill, etc.)
+    const RobotAdapter* get_robot_adapter() const { return robot_adapter_.get(); }
     
     // Environment bounds
     std::vector<double> get_environment_bounds() const;
@@ -175,6 +186,9 @@ public:
 private:
     // MuJoCo simulation
     std::unique_ptr<OptimizedMujocoWrapper> sim_;
+
+    // Robot adapter (abstracts robot-specific position/control/identity)
+    std::unique_ptr<RobotAdapter> robot_adapter_;
     
     // Fixed-size object storage
     static constexpr size_t MAX_STATIC_OBJECTS = 100;
@@ -222,6 +236,7 @@ private:
     size_t log_position_ = 0;
     
     // Initialization helpers
+    void init_robot_from_adapter();   // Read robot info using adapter
     void process_environment_objects();
     void warm_up();
     

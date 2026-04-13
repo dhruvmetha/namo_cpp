@@ -576,7 +576,9 @@ std::map<std::string, SkillParameterValue> NAMOPushSkill::get_world_state() cons
         SE2State robot_pose;
         robot_pose.x = robot_state->position[0];
         robot_pose.y = robot_state->position[1];
-        robot_pose.theta = 0.0;  // Robot has no orientation in this system
+        auto adapter = env_.get_robot_adapter();
+        robot_pose.theta = adapter ? adapter->get_theta(env_.get_mujoco_wrapper()->model(),
+                                                         env_.get_mujoco_wrapper()->data()) : 0.0;
         state["robot_pose"] = robot_pose;
     }
     

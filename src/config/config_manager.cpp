@@ -57,6 +57,10 @@ void ConfigManager::load_planning_config() {
     if (loader_->has_key("planning.robot_size")) {
         planning_.robot_size = loader_->get_vector("planning.robot_size");
     }
+    // Robot type
+    if (loader_->has_key("planning.robot_type")) {
+        planning_.robot_type = loader_->get_string("planning.robot_type");
+    }
     
     // Grid limits
     if (loader_->has_key("planning.max_bfs_queue")) {

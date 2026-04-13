@@ -9,7 +9,8 @@
 namespace namo {
 
 MPCExecutor::MPCExecutor(NAMOEnvironment& env)
-    : env_(env), planner_(0.02, env_, {0.15, 0.15}), controller_(env_, planner_, 10, 250, 1.0), has_robot_goal_(false) {
+    : env_(env), planner_(0.02, env_, {env.get_robot_info().size[0], env.get_robot_info().size[1]}),
+      controller_(env_, planner_, 10, 250, 1.0), has_robot_goal_(false) {
     
     // Set default parameters
     set_parameters();
@@ -224,8 +225,8 @@ bool MPCExecutor::is_robot_goal_reachable() {
         // Update wavefront with current robot position
         planner_.update_wavefront(env_, {robot_pos[0], robot_pos[1]});
         
-        // Check if goal is reachable (using default robot size)
-        return planner_.is_goal_reachable(robot_goal_, 0.15);
+        // Check if goal is reachable (using robot size from environment)
+        return planner_.is_goal_reachable(robot_goal_, env_.get_robot_info().size[0]);
     } catch (const std::exception& e) {
         std::cerr << "Error checking robot goal reachability: " << e.what() << std::endl;
         return false;

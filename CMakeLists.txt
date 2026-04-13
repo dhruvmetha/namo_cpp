@@ -121,8 +121,9 @@ file(GLOB_RECURSE ENVIRONMENT_SOURCES "src/environment/*.cpp")
 file(GLOB_RECURSE UTILS_SOURCES "src/utils/*.cpp")
 file(GLOB_RECURSE SKILLS_SOURCES "src/skills/*.cpp")
 file(GLOB_RECURSE CONFIG_SOURCES "src/config/*.cpp")
+file(GLOB_RECURSE ROBOT_SOURCES "src/robot/*.cpp")
 
-set(ALL_SOURCES 
+set(ALL_SOURCES
     ${CORE_SOURCES}
     ${PLANNING_SOURCES}
     ${WAVEFRONT_SOURCES}
@@ -132,6 +133,7 @@ set(ALL_SOURCES
     ${UTILS_SOURCES}
     ${SKILLS_SOURCES}
     ${CONFIG_SOURCES}
+    ${ROBOT_SOURCES}
     src/main.cpp
 )
 
@@ -146,6 +148,7 @@ add_executable(high_level_planning_demo
     ${ENVIRONMENT_SOURCES}
     ${SKILLS_SOURCES}
     ${CONFIG_SOURCES}
+    ${ROBOT_SOURCES}
 )
 
 # Link high-level planning demo
@@ -226,6 +229,7 @@ if(BUILD_PYTHON_BINDINGS)
         ${ENVIRONMENT_SOURCES}
         ${SKILLS_SOURCES}
         ${CONFIG_SOURCES}
+        ${ROBOT_SOURCES}
     )
     
     # Create Python module with explicit Python3 linking
@@ -292,6 +296,7 @@ add_executable(generate_motion_primitives_db
     ${ENVIRONMENT_SOURCES}
     ${SKILLS_SOURCES}
     ${CONFIG_SOURCES}
+    ${ROBOT_SOURCES}
 )
 
 # Link motion primitives generator
@@ -331,6 +336,7 @@ add_executable(test_planner_output
     ${ENVIRONMENT_SOURCES}
     ${SKILLS_SOURCES}
     ${CONFIG_SOURCES}
+    ${ROBOT_SOURCES}
 )
 
 target_link_libraries(test_planner_output

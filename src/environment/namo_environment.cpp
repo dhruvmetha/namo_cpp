@@ -1,4 +1,5 @@
 #include "environment/namo_environment.hpp"
+#include "robot/holonomic_adapter.hpp"
 #include <iostream>
 #include <filesystem>
 #include <algorithm>
@@ -29,31 +30,20 @@ NAMOEnvironment::NAMOEnvironment(const std::string& xml_path, bool visualize, bo
     std::filesystem::path xml_file_path(xml_path);
     config_name_ = xml_file_path.stem().string();
     
-    // Get robot information first
-    robot_id_ = sim_->get_geom_id("robot");
-    if (robot_id_ >= 0) {
-        robot_info_.body_id = sim_->get_body_id("robot");
-        robot_info_.geom_id = robot_id_;
-        robot_info_.name = "robot";
-        robot_info_.is_static = false;
-        
-        // Get robot pose
-        std::array<double, 7> robot_pose;
-        if (sim_->get_geom_pose("robot", robot_pose)) {
-            for (int i = 0; i < 3; i++) robot_info_.position[i] = robot_pose[i];
-            for (int i = 0; i < 4; i++) robot_info_.quaternion[i] = robot_pose[i + 3];
-        }
-        
-        // Get robot size from MuJoCo model
-        mjModel* model = sim_->model();
-        if (robot_id_ < model->ngeom) {
-            for (int i = 0; i < 3; i++) {
-                robot_info_.size[i] = model->geom_size[robot_id_ * 3 + i];
+    // Create default holonomic adapter (backward compatible constructor)
+    // First read the initial geom pose to get init_pos for the adapter
+    {
+        std::array<double, 3> init_pos = {0.0, 0.0, 0.0};
+        int rid = sim_->get_geom_id("robot");
+        if (rid >= 0) {
+            std::array<double, 7> pose;
+            if (sim_->get_geom_pose("robot", pose)) {
+                init_pos = {pose[0], pose[1], pose[2]};
             }
         }
-        
-        init_robot_pos_ = robot_info_.position;
+        robot_adapter_ = std::make_unique<HolonomicAdapter>(init_pos);
     }
+    init_robot_from_adapter();
     
     // Process environment objects
     process_environment_objects();
@@ -86,6 +76,77 @@ NAMOEnvironment::~NAMOEnvironment() {
     }
 }
 
+NAMOEnvironment::NAMOEnvironment(const std::string& xml_path, std::shared_ptr<ConfigManager> config,
+                                 bool visualize, bool enable_logging)
+    : logging_enabled_(enable_logging) {
+
+    sim_ = std::make_unique<OptimizedMujocoWrapper>(xml_path, visualize);
+    sim_->initialize();
+    sim_->set_camera_lookat({0.0, 0.0, 0.0});
+    sim_->set_camera_position(15.0, 0.0, -90.0);
+    warm_up();
+
+    std::filesystem::path xml_file_path(xml_path);
+    config_name_ = xml_file_path.stem().string();
+
+    // Create adapter based on config robot_type
+    const std::string& robot_type = config ? config->get_robot_type() : "holonomic";
+    if (robot_type == "holonomic") {
+        std::array<double, 3> init_pos = {0.0, 0.0, 0.0};
+        int rid = sim_->get_geom_id("robot");
+        if (rid >= 0) {
+            std::array<double, 7> pose;
+            if (sim_->get_geom_pose("robot", pose)) {
+                init_pos = {pose[0], pose[1], pose[2]};
+            }
+        }
+        robot_adapter_ = std::make_unique<HolonomicAdapter>(init_pos);
+    } else {
+        throw std::runtime_error("Unknown robot_type: " + robot_type +
+                                 " (only 'holonomic' supported so far)");
+    }
+    init_robot_from_adapter();
+
+    process_environment_objects();
+
+    if (logging_enabled_) {
+        state_log_file_.open("namo_state_log_" + std::to_string(state_log_idx_) + ".csv");
+        if (!state_log_file_.is_open()) {
+            std::cerr << "Warning: Could not open state log file. Logging disabled." << std::endl;
+            logging_enabled_ = false;
+        }
+    }
+
+    update_object_states();
+}
+
+void NAMOEnvironment::init_robot_from_adapter() {
+    // Use adapter to identify robot body/geom and read initial pose
+    std::string pose_geom = robot_adapter_->get_pose_geom_name();
+    robot_id_ = sim_->get_geom_id(pose_geom);
+    if (robot_id_ >= 0) {
+        robot_info_.body_id = sim_->get_body_id(robot_adapter_->get_body_name());
+        robot_info_.geom_id = robot_id_;
+        robot_info_.name = "robot";  // Internal name stays "robot" for Python compatibility
+        robot_info_.is_static = false;
+
+        std::array<double, 7> robot_pose;
+        if (sim_->get_geom_pose(pose_geom, robot_pose)) {
+            for (int i = 0; i < 3; i++) robot_info_.position[i] = robot_pose[i];
+            for (int i = 0; i < 4; i++) robot_info_.quaternion[i] = robot_pose[i + 3];
+        }
+
+        mjModel* model = sim_->model();
+        if (robot_id_ < model->ngeom) {
+            for (int i = 0; i < 3; i++) {
+                robot_info_.size[i] = model->geom_size[robot_id_ * 3 + i];
+            }
+        }
+
+        init_robot_pos_ = robot_info_.position;
+    }
+}
+
 void NAMOEnvironment::warm_up() {
     // Step simulation a few times to stabilize physics
     for (int i = 0; i < 3; i++) {
@@ -115,8 +176,9 @@ void NAMOEnvironment::process_environment_objects() {
         
         std::string body_name(body_name_ptr);
         
-        // Skip robot and world bodies
-        if (body_name == "robot" || body_name == "world") {
+        // Skip robot-related and world bodies (adapter provides the list)
+        auto skip = robot_adapter_->get_skip_body_names();
+        if (std::find(skip.begin(), skip.end(), body_name) != skip.end()) {
             continue;
         }
         
@@ -225,17 +287,17 @@ void NAMOEnvironment::reset() {
 }
 
 void NAMOEnvironment::set_robot_position(const std::array<double, 2>& pos) {
-    // Calculate offset from initial position
-    std::array<double, 2> robot_pos = {
-        pos[0] - init_robot_pos_[0], 
-        pos[1] - init_robot_pos_[1], 
-    };
-    sim_->set_robot_position(robot_pos);
+    robot_adapter_->set_xy(sim_->model(), sim_->data(), pos[0], pos[1]);
     update_object_states();
 }
 
 void NAMOEnvironment::set_robot_position(const std::array<double, 3>& pos) {
-    sim_->set_robot_position(pos);
+    robot_adapter_->set_se2(sim_->model(), sim_->data(), pos[0], pos[1], pos[2]);
+    update_object_states();
+}
+
+void NAMOEnvironment::set_robot_se2(double x, double y, double theta) {
+    robot_adapter_->set_se2(sim_->model(), sim_->data(), x, y, theta);
     update_object_states();
 }
 
@@ -245,16 +307,16 @@ void NAMOEnvironment::set_zero_velocity() {
 }
 
 void NAMOEnvironment::apply_robot_control(double control_x, double control_y) {
-    sim_->set_robot_control(control_x, control_y);
+    robot_adapter_->apply_control(sim_->model(), sim_->data(), control_x, control_y);
 }
 
 void NAMOEnvironment::set_robot_control(double control_x, double control_y) {
-    sim_->set_robot_control(control_x, control_y);
+    robot_adapter_->apply_control(sim_->model(), sim_->data(), control_x, control_y);
 }
 
 void NAMOEnvironment::apply_control(double control_x, double control_y, double dt) {
     // Apply control for the specified duration (matching original PRX implementation)
-    sim_->set_robot_control(control_x, control_y);
+    robot_adapter_->apply_control(sim_->model(), sim_->data(), control_x, control_y);
     
     // Calculate number of simulation steps for the given time duration
     // MuJoCo default timestep is typically 0.002, but we should check the model
@@ -275,10 +337,10 @@ void NAMOEnvironment::apply_control(double control_x, double control_y, double d
 }
 
 void NAMOEnvironment::update_object_states() {
-    // Update robot state
+    // Update robot state via adapter's pose geom
     robot_state_.name = "robot";
     std::array<double, 7> robot_pose;
-    if (sim_->get_geom_pose("robot", robot_pose)) {
+    if (sim_->get_geom_pose(robot_adapter_->get_pose_geom_name(), robot_pose)) {
         for (int i = 0; i < 3; i++) robot_state_.position[i] = robot_pose[i];
         for (int i = 0; i < 4; i++) robot_state_.quaternion[i] = robot_pose[i + 3];
     }
@@ -518,7 +580,7 @@ void NAMOEnvironment::visualize_edge_reachability(const std::string& object_name
     double x = obj_state->position[0], y = obj_state->position[1];
     double w = obj_state->size[0] - 0.05;  // width with margin
     double d = obj_state->size[1] - 0.05;  // depth with margin
-    double offset = 0.15 + 0.05; // robot radius + margin
+    double offset = robot_info_.size[0] + 0.05; // robot radius + margin
     
     // Generate 12 edge points (same pattern as push controller)
     std::array<std::array<double, 2>, 12> local_edge_points = {{

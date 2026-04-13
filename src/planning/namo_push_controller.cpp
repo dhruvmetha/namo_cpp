@@ -282,9 +282,14 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
     push_state.current_edge_point = push_state.initial_edge_point;
     push_state.current_mid_point = push_state.initial_mid_point;
     
-    // Position robot at the edge point
-    std::array<double, 2> robot_pos = {push_state.initial_edge_point[0], push_state.initial_edge_point[1]};
-    env_.set_robot_position(robot_pos);
+    // Position robot at the edge point, facing the push direction
+    double push_theta = std::atan2(
+        push_state.initial_mid_point[1] - push_state.initial_edge_point[1],
+        push_state.initial_mid_point[0] - push_state.initial_edge_point[0]
+    );
+    env_.set_robot_se2(push_state.initial_edge_point[0],
+                       push_state.initial_edge_point[1],
+                       push_theta);
     // env_.set_zero_velocity();
     
     // Check for robot collision with static objects (walls) after positioning
@@ -293,7 +298,7 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
     
     for (size_t i = 0; i < num_static; i++) {
         const auto& static_obj = static_objects[i];
-        if (env_.bodies_in_collision("robot", static_obj.body_name)) {
+        if (env_.bodies_in_collision(env_.get_robot_adapter()->get_body_name(), static_obj.body_name)) {
             last_failure_reason_ = "Robot placement collision with static object: " + static_obj.body_name;
             last_collision_object_ = static_obj.body_name;
             return false;
@@ -308,7 +313,7 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
         const auto& movable_obj = movable_objects[i];
 
         // Skip collision check with the object we're trying to push (expected contact)
-        if (movable_obj.name != object_name && env_.bodies_in_collision("robot", movable_obj.body_name)) {
+        if (movable_obj.name != object_name && env_.bodies_in_collision(env_.get_robot_adapter()->get_body_name(), movable_obj.body_name)) {
             last_failure_reason_ = "Robot placement collision with movable object: " + movable_obj.body_name;
             last_collision_object_ = movable_obj.body_name;
             return false;
