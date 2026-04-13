@@ -17,8 +17,10 @@ namespace namo {
 class DiffDriveAdapter : public RobotAdapter {
 public:
     /// Construct from a loaded MuJoCo model.
-    /// Looks up joint/actuator indices from names.
-    explicit DiffDriveAdapter(const mjModel* m);
+    /// @param m       MuJoCo model (for joint/actuator lookups)
+    /// @param init_pos  Initial car body world position (from d->xpos after mj_forward).
+    ///                  Freejoint qpos is relative to this origin.
+    DiffDriveAdapter(const mjModel* m, const std::array<double, 3>& init_pos);
 
     // Identity
     std::string get_body_name() const override { return "car"; }
@@ -46,7 +48,7 @@ private:
     int left_actuator_idx_;    // ctrl index for left wheel
     int right_actuator_idx_;   // ctrl index for right wheel
     double wheel_radius_;      // wheel radius for velocity conversion
-    double init_z_;            // initial z position (ground height)
+    std::array<double, 3> init_pos_;  // body origin in world frame (qpos is relative to this)
 
     /// Convert yaw angle to MuJoCo quaternion (w,x,y,z) for rotation around z-axis
     static std::array<double, 4> yaw_to_quat(double theta);

@@ -96,7 +96,13 @@ NAMOEnvironment::NAMOEnvironment(const std::string& xml_path, std::shared_ptr<Co
         }
         robot_adapter_ = std::make_unique<HolonomicAdapter>(init_pos);
     } else if (robot_type == "diff_drive") {
-        robot_adapter_ = std::make_unique<DiffDriveAdapter>(sim_->model());
+        // Get initial body position from MuJoCo (after warm_up/mj_forward)
+        std::array<double, 3> car_init_pos = {0.0, 0.0, 0.0};
+        std::array<double, 7> car_pose;
+        if (sim_->get_body_pose("car", car_pose)) {
+            car_init_pos = {car_pose[0], car_pose[1], car_pose[2]};
+        }
+        robot_adapter_ = std::make_unique<DiffDriveAdapter>(sim_->model(), car_init_pos);
     } else {
         throw std::runtime_error("Unknown robot_type: " + robot_type +
                                  " (supported: 'holonomic', 'diff_drive')");

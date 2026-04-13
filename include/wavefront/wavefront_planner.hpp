@@ -94,6 +94,7 @@ public:
     int get_grid_height() const { return grid_height_; }
     double get_resolution() const { return resolution_; }
     const std::vector<double>& get_bounds() const { return bounds_; }
+    const std::vector<double>& get_robot_size() const { return robot_size_; }
     
     /**
      * @brief Get performance statistics

@@ -4,7 +4,8 @@
 
 namespace namo {
 
-DiffDriveAdapter::DiffDriveAdapter(const mjModel* m) {
+DiffDriveAdapter::DiffDriveAdapter(const mjModel* m, const std::array<double, 3>& init_pos)
+    : init_pos_(init_pos) {
     // Look up freejoint
     int fj_id = mj_name2id(m, mjOBJ_JOINT, "car_freejoint");
     if (fj_id < 0) {
@@ -28,9 +29,7 @@ DiffDriveAdapter::DiffDriveAdapter(const mjModel* m) {
         wheel_radius_ = 0.015;  // fallback: 1.5cm
     }
 
-    // Read initial z from the freejoint qpos (set after mj_forward in warm_up)
-    // This will be overwritten in set_xy/set_se2 to keep the car at ground level
-    init_z_ = 0.01;  // default: 1cm spawn height from car parameters
+    // init_pos_[2] provides the initial z for teleportation
 }
 
 std::vector<std::string> DiffDriveAdapter::get_skip_body_names() const {
@@ -40,9 +39,9 @@ std::vector<std::string> DiffDriveAdapter::get_skip_body_names() const {
 }
 
 std::array<double, 2> DiffDriveAdapter::get_xy(const mjModel* m, const mjData* d) const {
-    // Read directly from freejoint qpos (world-frame absolute position)
-    return {d->qpos[freejoint_qpos_adr_ + 0],
-            d->qpos[freejoint_qpos_adr_ + 1]};
+    // Freejoint qpos is displacement from body origin. Add init_pos for world frame.
+    return {d->qpos[freejoint_qpos_adr_ + 0] + init_pos_[0],
+            d->qpos[freejoint_qpos_adr_ + 1] + init_pos_[1]};
 }
 
 double DiffDriveAdapter::get_theta(const mjModel* m, const mjData* d) const {
@@ -51,8 +50,9 @@ double DiffDriveAdapter::get_theta(const mjModel* m, const mjData* d) const {
 }
 
 void DiffDriveAdapter::set_xy(const mjModel* m, mjData* d, double x, double y) const {
-    d->qpos[freejoint_qpos_adr_ + 0] = x;
-    d->qpos[freejoint_qpos_adr_ + 1] = y;
+    // Convert world coordinates to qpos displacement from body origin
+    d->qpos[freejoint_qpos_adr_ + 0] = x - init_pos_[0];
+    d->qpos[freejoint_qpos_adr_ + 1] = y - init_pos_[1];
     // Keep current z and quaternion
 
     // Zero freejoint velocities
@@ -64,9 +64,9 @@ void DiffDriveAdapter::set_xy(const mjModel* m, mjData* d, double x, double y) c
 
 void DiffDriveAdapter::set_se2(const mjModel* m, mjData* d,
                                 double x, double y, double theta) const {
-    d->qpos[freejoint_qpos_adr_ + 0] = x;
-    d->qpos[freejoint_qpos_adr_ + 1] = y;
-    d->qpos[freejoint_qpos_adr_ + 2] = init_z_;  // maintain ground height
+    d->qpos[freejoint_qpos_adr_ + 0] = x - init_pos_[0];
+    d->qpos[freejoint_qpos_adr_ + 1] = y - init_pos_[1];
+    d->qpos[freejoint_qpos_adr_ + 2] = 0.0;  // keep at body-origin z (ground height)
 
     auto q = yaw_to_quat(theta);
     d->qpos[freejoint_qpos_adr_ + 3] = q[0];  // w

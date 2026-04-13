@@ -18,11 +18,11 @@ NAMOPushController::NAMOPushController(NAMOEnvironment& env,
       force_scaling_(scaling),
       points_per_edge_(points_per_edge) {
     
-    // Initialize robot size from environment
-    auto robot_info = env_.get_robot_info();
-    robot_size_[0] = robot_info.size[0];
-    robot_size_[1] = robot_info.size[1]; 
-    robot_size_[2] = robot_info.size[2];
+    // Initialize robot size from wavefront planner (matches inflation)
+    const auto& planner_robot_size = planner_.get_robot_size();
+    robot_size_[0] = planner_robot_size.size() > 0 ? planner_robot_size[0] : 0.15;
+    robot_size_[1] = planner_robot_size.size() > 1 ? planner_robot_size[1] : 0.15;
+    robot_size_[2] = 0.0;  // z not used for 2D planning
     
     // Pre-allocate memory pools (they're already initialized as empty)
     // std::cout << "NAMO Push Controller initialized:" << std::endl;
