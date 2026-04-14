@@ -72,6 +72,13 @@ public:
 
     /// Wheel radius [m]. Used to convert linear speed to wheel ω.
     virtual double get_wheel_radius() const { return 0.0; }
+
+    /// Inner control update — called once per physics step from step_control_tick.
+    /// Diff-drive adapters override this to run their PI velocity loop at the
+    /// physics rate (matches real firmware). Holonomic is a no-op.
+    virtual void inner_control_update(const mjModel* m, mjData* d) const {
+        (void)m; (void)d;
+    }
 };
 
 } // namespace namo

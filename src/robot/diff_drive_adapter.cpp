@@ -21,6 +21,15 @@ DiffDriveAdapter::DiffDriveAdapter(const mjModel* m, const std::array<double, 3>
         throw std::runtime_error("DiffDriveAdapter: wheel actuators not found in model");
     }
 
+    // Look up wheel hinge joints — used to read actual ω for the PI loop.
+    int left_wj = mj_name2id(m, mjOBJ_JOINT, "left_wheel_joint");
+    int right_wj = mj_name2id(m, mjOBJ_JOINT, "right_wheel_joint");
+    if (left_wj < 0 || right_wj < 0) {
+        throw std::runtime_error("DiffDriveAdapter: wheel hinge joints not found");
+    }
+    left_wheel_qvel_adr_ = m->jnt_dofadr[left_wj];
+    right_wheel_qvel_adr_ = m->jnt_dofadr[right_wj];
+
     // Get wheel radius from the wheel geom
     int wheel_geom = mj_name2id(m, mjOBJ_GEOM, "left_wheel_collision");
     if (wheel_geom >= 0) {
@@ -91,6 +100,12 @@ void DiffDriveAdapter::set_se2(const mjModel* m, mjData* d,
         d->qvel[freejoint_qvel_adr_ + i] = 0.0;
     }
 
+    // Teleport invalidates integrator state.
+    cmd_omega_left_ = 0.0;
+    cmd_omega_right_ = 0.0;
+    integral_left_ = 0.0;
+    integral_right_ = 0.0;
+
     mj_forward(const_cast<mjModel*>(m), d);
 }
 
@@ -99,22 +114,65 @@ void DiffDriveAdapter::apply_control(const mjModel* m, mjData* d,
     // Car heading was set at teleport. Both wheels get equal speed.
     // Use magnitude of (vx, vy) as the desired forward speed.
     double speed = std::sqrt(vx * vx + vy * vy);
-    // Convert linear speed to angular wheel velocity: omega = speed / radius
     double omega = speed / wheel_radius_;
-    d->ctrl[left_actuator_idx_] = omega;
-    d->ctrl[right_actuator_idx_] = omega;
+    apply_wheel_control(m, d, omega, omega);
 }
 
 void DiffDriveAdapter::zero_control(const mjModel* m, mjData* d) const {
+    // Motor actuators: zero ctrl = zero torque (passive coast). Also clear
+    // the commanded ω and integrator state so the PI inner loop stops
+    // actively driving and the wheels free-coast.
+    (void)m;
     d->ctrl[left_actuator_idx_] = 0.0;
     d->ctrl[right_actuator_idx_] = 0.0;
+    cmd_omega_left_ = 0.0;
+    cmd_omega_right_ = 0.0;
+    integral_left_ = 0.0;
+    integral_right_ = 0.0;
 }
 
 void DiffDriveAdapter::apply_wheel_control(const mjModel* m, mjData* d,
                                             double omega_left, double omega_right) const {
-    (void)m;
-    d->ctrl[left_actuator_idx_] = omega_left;
-    d->ctrl[right_actuator_idx_] = omega_right;
+    // Store commanded wheel ω. The PI loop runs in inner_control_update
+    // every physics step (standard fast inner-velocity / slow outer-planner
+    // cascade). Immediately evaluate once so this call never leaves stale
+    // torque in ctrl.
+    cmd_omega_left_ = omega_left;
+    cmd_omega_right_ = omega_right;
+    inner_control_update(m, d);
+}
+
+void DiffDriveAdapter::inner_control_update(const mjModel* m, mjData* d) const {
+    // Per-wheel PI velocity controller with anti-windup (clamp on integral),
+    // running at the physics rate matches ros2_control velocity_controllers,
+    // Drake's JointVelocityController, and typical motor-driver firmware.
+    //   err = ω_cmd - ω_measured
+    //   I   = clamp(I + err·dt, ±τ_max/Ki)
+    //   τ   = clamp(Kp·err + Ki·I, ±τ_max)
+    const double dt = m->opt.timestep;
+    const double I_max = kTauMax / kPiKi;
+
+    // --- Left wheel ---
+    double actual_l = d->qvel[left_wheel_qvel_adr_];
+    double err_l = cmd_omega_left_ - actual_l;
+    integral_left_ += err_l * dt;
+    if (integral_left_ > I_max) integral_left_ = I_max;
+    else if (integral_left_ < -I_max) integral_left_ = -I_max;
+    double tau_l = kPiKp * err_l + kPiKi * integral_left_;
+    if (tau_l > kTauMax) tau_l = kTauMax;
+    else if (tau_l < -kTauMax) tau_l = -kTauMax;
+    d->ctrl[left_actuator_idx_] = tau_l;
+
+    // --- Right wheel ---
+    double actual_r = d->qvel[right_wheel_qvel_adr_];
+    double err_r = cmd_omega_right_ - actual_r;
+    integral_right_ += err_r * dt;
+    if (integral_right_ > I_max) integral_right_ = I_max;
+    else if (integral_right_ < -I_max) integral_right_ = -I_max;
+    double tau_r = kPiKp * err_r + kPiKi * integral_right_;
+    if (tau_r > kTauMax) tau_r = kTauMax;
+    else if (tau_r < -kTauMax) tau_r = -kTauMax;
+    d->ctrl[right_actuator_idx_] = tau_r;
 }
 
 std::array<double, 4> DiffDriveAdapter::yaw_to_quat(double theta) {

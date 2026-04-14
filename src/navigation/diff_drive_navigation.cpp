@@ -108,12 +108,21 @@ void maybe_dump_qpos(NAMOEnvironment& env, int phase_id) {
 }
 
 // Step MuJoCo for one "control tick" (matches NAMOEnvironment::apply_control timing: 0.01s).
+// Runs the adapter's inner control update (PI velocity loop for diff-drive)
+// at the physics rate — the standard cascaded-control pattern where the
+// planner/state machine commands target ω at ~100 Hz and the wheel velocity
+// loop runs at the physics rate (~500 Hz).
 void step_control_tick(NAMOEnvironment& env) {
     auto* sim = env.get_mujoco_wrapper();
+    auto* adapter = env.get_robot_adapter();
+    auto* m = sim->model();
+    auto* d = sim->data();
     double dt = 0.01;
-    double timestep = sim->model()->opt.timestep;
-    int n = std::max(1, static_cast<int>(dt / timestep));
-    for (int i = 0; i < n; i++) sim->step();
+    int n = std::max(1, static_cast<int>(dt / m->opt.timestep));
+    for (int i = 0; i < n; i++) {
+        adapter->inner_control_update(m, d);
+        sim->step();
+    }
     env.update_object_states();
 }
 

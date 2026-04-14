@@ -82,10 +82,13 @@ EMPTY_XML_TEMPLATE = """\
     </body>
   </worldbody>
   <actuator>
-    <velocity name="left_wheel_drive" joint="left_wheel_joint"
-              ctrlrange="-25.0 25.0" kv="0.75" forcerange="-0.3 0.3"/>
-    <velocity name="right_wheel_drive" joint="right_wheel_joint"
-              ctrlrange="-25.0 25.0" kv="0.75" forcerange="-0.3 0.3"/>
+    <!-- Torque-controlled motors. Per-wheel velocity PI loop lives in
+         DiffDriveAdapter::apply_wheel_control (ctrl is interpreted as a
+         commanded wheel angular velocity and converted to torque). -->
+    <motor name="left_wheel_drive" joint="left_wheel_joint"
+           gear="1" ctrlrange="-25.0 25.0" forcerange="-0.3 0.3"/>
+    <motor name="right_wheel_drive" joint="right_wheel_joint"
+           gear="1" ctrlrange="-25.0 25.0" forcerange="-0.3 0.3"/>
   </actuator>
 </mujoco>
 """
