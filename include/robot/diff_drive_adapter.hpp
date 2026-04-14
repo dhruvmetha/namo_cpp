@@ -42,12 +42,20 @@ public:
                        double vx, double vy) const override;
     void zero_control(const mjModel* m, mjData* d) const override;
 
+    // Diff-drive navigation
+    bool is_diff_drive() const override { return true; }
+    void apply_wheel_control(const mjModel* m, mjData* d,
+                             double omega_left, double omega_right) const override;
+    double get_wheelbase() const override { return wheelbase_; }
+    double get_wheel_radius() const override { return wheel_radius_; }
+
 private:
     int freejoint_qpos_adr_;   // qpos index for freejoint (x,y,z,qw,qx,qy,qz)
     int freejoint_qvel_adr_;   // qvel index for freejoint (6 DOF)
     int left_actuator_idx_;    // ctrl index for left wheel
     int right_actuator_idx_;   // ctrl index for right wheel
     double wheel_radius_;      // wheel radius for velocity conversion
+    double wheelbase_;         // distance between left and right wheels
     std::array<double, 3> init_pos_;  // body origin in world frame (qpos is relative to this)
 
     /// Convert yaw angle to MuJoCo quaternion (w,x,y,z) for rotation around z-axis

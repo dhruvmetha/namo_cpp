@@ -133,6 +133,17 @@ public:
         const std::array<double, 2>& goal_pos);
 
     /**
+     * @brief Extract a navigation path from start to goal as world-frame waypoints.
+     * Uses the current dynamic grid (includes current object positions).
+     * @param start_pos  Robot start position [x, y] in world coordinates
+     * @param goal_pos   Target position [x, y] in world coordinates
+     * @return Vector of (x, y) waypoints in world coordinates, empty if unreachable
+     */
+    std::vector<std::array<double, 2>> extract_path(
+        const std::array<double, 2>& start_pos,
+        const std::array<double, 2>& goal_pos);
+
+    /**
      * @brief Check if footprint overlaps with path cells
      * @param footprint Object footprint cells
      * @param path_cells Path cells from get_path_cells

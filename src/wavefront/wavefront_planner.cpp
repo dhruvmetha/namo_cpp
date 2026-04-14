@@ -541,6 +541,20 @@ std::vector<std::pair<int, int>> WavefrontPlanner::get_path_cells(
     return path;
 }
 
+std::vector<std::array<double, 2>> WavefrontPlanner::extract_path(
+    const std::array<double, 2>& start_pos,
+    const std::array<double, 2>& goal_pos) {
+
+    // Reuse the existing BFS path finder on the current dynamic grid
+    auto cells = get_path_cells(dynamic_grid_, start_pos, goal_pos);
+    std::vector<std::array<double, 2>> waypoints;
+    waypoints.reserve(cells.size());
+    for (const auto& [gx, gy] : cells) {
+        waypoints.push_back({grid_to_world_x(gx), grid_to_world_y(gy)});
+    }
+    return waypoints;
+}
+
 bool WavefrontPlanner::footprint_blocks_path(
     const GridFootprint& footprint,
     const std::vector<std::pair<int, int>>& path_cells) const {

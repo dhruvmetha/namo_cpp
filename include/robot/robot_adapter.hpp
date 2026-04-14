@@ -54,6 +54,24 @@ public:
                                double vx, double vy) const = 0;
     /// Zero all robot actuators.
     virtual void zero_control(const mjModel* m, mjData* d) const = 0;
+
+    // ── Diff-drive navigation support ─────────────────────────────────
+    /// Whether this robot supports diff-drive style navigation
+    /// (rotate-drive-rotate). Holonomic robots return false (use teleport).
+    virtual bool is_diff_drive() const { return false; }
+
+    /// Apply left/right wheel angular velocities [rad/s].
+    /// Only meaningful for diff-drive robots; no-op for holonomic.
+    virtual void apply_wheel_control(const mjModel* m, mjData* d,
+                                     double omega_left, double omega_right) const {
+        (void)m; (void)d; (void)omega_left; (void)omega_right;
+    }
+
+    /// Wheelbase (distance between wheels) [m]. Used by pure pursuit.
+    virtual double get_wheelbase() const { return 0.0; }
+
+    /// Wheel radius [m]. Used to convert linear speed to wheel ω.
+    virtual double get_wheel_radius() const { return 0.0; }
 };
 
 } // namespace namo

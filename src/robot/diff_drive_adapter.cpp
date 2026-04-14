@@ -29,6 +29,18 @@ DiffDriveAdapter::DiffDriveAdapter(const mjModel* m, const std::array<double, 3>
         wheel_radius_ = 0.015;  // fallback: 1.5cm
     }
 
+    // Get wheelbase from wheel body positions (distance between left and right)
+    int left_body = mj_name2id(m, mjOBJ_BODY, "left_wheel");
+    int right_body = mj_name2id(m, mjOBJ_BODY, "right_wheel");
+    if (left_body >= 0 && right_body >= 0) {
+        // body_pos is relative to parent — for wheels, y offsets differ by wheelbase
+        double ly = m->body_pos[left_body * 3 + 1];
+        double ry = m->body_pos[right_body * 3 + 1];
+        wheelbase_ = std::abs(ly - ry);
+    } else {
+        wheelbase_ = 0.075;  // fallback: 7.5cm for 7cm car
+    }
+
     // init_pos_[2] provides the initial z for teleportation
 }
 
@@ -96,6 +108,13 @@ void DiffDriveAdapter::apply_control(const mjModel* m, mjData* d,
 void DiffDriveAdapter::zero_control(const mjModel* m, mjData* d) const {
     d->ctrl[left_actuator_idx_] = 0.0;
     d->ctrl[right_actuator_idx_] = 0.0;
+}
+
+void DiffDriveAdapter::apply_wheel_control(const mjModel* m, mjData* d,
+                                            double omega_left, double omega_right) const {
+    (void)m;
+    d->ctrl[left_actuator_idx_] = omega_left;
+    d->ctrl[right_actuator_idx_] = omega_right;
 }
 
 std::array<double, 4> DiffDriveAdapter::yaw_to_quat(double theta) {

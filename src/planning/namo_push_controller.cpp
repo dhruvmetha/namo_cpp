@@ -1,5 +1,7 @@
 #include "planning/namo_push_controller.hpp"
 #include "core/mujoco_wrapper.hpp"
+#include "navigation/holonomic_navigation.hpp"
+#include "navigation/diff_drive_navigation.hpp"
 #include <cmath>
 #include <iostream>
 #include <iomanip>
@@ -24,6 +26,14 @@ NAMOPushController::NAMOPushController(NAMOEnvironment& env,
     robot_size_[1] = planner_robot_size.size() > 1 ? planner_robot_size[1] : 0.15;
     robot_size_[2] = 0.0;  // z not used for 2D planning
     
+    // Create navigation strategy based on robot type
+    auto adapter = env_.get_robot_adapter();
+    if (adapter && adapter->is_diff_drive()) {
+        nav_strategy_ = std::make_unique<DiffDriveNavigation>(DiffDriveNavigation::Params{});
+    } else {
+        nav_strategy_ = std::make_unique<HolonomicNavigation>();
+    }
+
     // Pre-allocate memory pools (they're already initialized as empty)
     // std::cout << "NAMO Push Controller initialized:" << std::endl;
     // std::cout << "  Push steps: " << default_push_steps_ << std::endl;
@@ -287,9 +297,41 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
         push_state.initial_mid_point[1] - push_state.initial_edge_point[1],
         push_state.initial_mid_point[0] - push_state.initial_edge_point[0]
     );
-    env_.set_robot_se2(push_state.initial_edge_point[0],
-                       push_state.initial_edge_point[1],
-                       push_theta);
+
+    // Navigate from current robot position to the edge point.
+    // For the point robot, this is a teleport. For the car, it's
+    // rotate -> pure pursuit -> rotate.
+    {
+        // Refresh the wavefront so path extraction has the current grid.
+        auto robot_state_now = env_.get_robot_state();
+        std::vector<double> start_pos = robot_state_now
+            ? std::vector<double>{robot_state_now->position[0], robot_state_now->position[1]}
+            : std::vector<double>{0.0, 0.0};
+        planner_.update_wavefront(env_, start_pos);
+
+        auto path = planner_.extract_path(
+            {start_pos[0], start_pos[1]},
+            {push_state.initial_edge_point[0], push_state.initial_edge_point[1]}
+        );
+
+        if (path.empty()) {
+            last_failure_reason_ = "No navigable path to edge point";
+            return false;
+        }
+
+        auto nav_result = nav_strategy_->execute(env_, path, push_theta, object_name);
+        if (!nav_result.success) {
+            std::cerr << "[NAV] Failed: " << nav_result.failure_reason
+                      << " (steps=" << nav_result.steps_used
+                      << ", collision=" << nav_result.collision_object
+                      << ", path_len=" << path.size() << ")" << std::endl;
+            last_failure_reason_ = "Navigation failed: " + nav_result.failure_reason;
+            if (!nav_result.collision_object.empty()) {
+                last_collision_object_ = nav_result.collision_object;
+            }
+            return false;
+        }
+    }
     
     // Check for robot collision with static objects (walls) after positioning
     const auto& static_objects = env_.get_static_objects();

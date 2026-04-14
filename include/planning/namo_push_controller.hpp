@@ -3,6 +3,7 @@
 #include "core/types.hpp"
 #include "environment/namo_environment.hpp"
 #include "wavefront/wavefront_planner.hpp"
+#include "navigation/navigation_strategy.hpp"
 #include <array>
 #include <memory>
 #include <unordered_set>
@@ -117,6 +118,9 @@ private:
     // Collision accumulation during push (tracked even when check_object_collision_ = false)
     bool wall_collision_during_push_ = false;
     std::unordered_set<std::string> movable_collisions_during_push_;
+
+    // Navigation strategy (holonomic = teleport, diff-drive = rotate-drive-rotate)
+    std::unique_ptr<NavigationStrategy> nav_strategy_;
 
 public:
     /**

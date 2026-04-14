@@ -122,6 +122,7 @@ file(GLOB_RECURSE UTILS_SOURCES "src/utils/*.cpp")
 file(GLOB_RECURSE SKILLS_SOURCES "src/skills/*.cpp")
 file(GLOB_RECURSE CONFIG_SOURCES "src/config/*.cpp")
 file(GLOB_RECURSE ROBOT_SOURCES "src/robot/*.cpp")
+file(GLOB_RECURSE NAVIGATION_SOURCES "src/navigation/*.cpp")
 
 set(ALL_SOURCES
     ${CORE_SOURCES}
@@ -134,6 +135,7 @@ set(ALL_SOURCES
     ${SKILLS_SOURCES}
     ${CONFIG_SOURCES}
     ${ROBOT_SOURCES}
+    ${NAVIGATION_SOURCES}
     src/main.cpp
 )
 
@@ -149,6 +151,7 @@ add_executable(high_level_planning_demo
     ${SKILLS_SOURCES}
     ${CONFIG_SOURCES}
     ${ROBOT_SOURCES}
+    ${NAVIGATION_SOURCES}
 )
 
 # Link high-level planning demo
@@ -230,6 +233,7 @@ if(BUILD_PYTHON_BINDINGS)
         ${SKILLS_SOURCES}
         ${CONFIG_SOURCES}
         ${ROBOT_SOURCES}
+    ${NAVIGATION_SOURCES}
     )
     
     # Create Python module with explicit Python3 linking
@@ -297,6 +301,7 @@ add_executable(generate_motion_primitives_db
     ${SKILLS_SOURCES}
     ${CONFIG_SOURCES}
     ${ROBOT_SOURCES}
+    ${NAVIGATION_SOURCES}
 )
 
 # Link motion primitives generator
@@ -337,6 +342,7 @@ add_executable(test_planner_output
     ${SKILLS_SOURCES}
     ${CONFIG_SOURCES}
     ${ROBOT_SOURCES}
+    ${NAVIGATION_SOURCES}
 )
 
 target_link_libraries(test_planner_output
