@@ -234,7 +234,7 @@ static bool drive_straight_to(
         return false;
     }
 
-    // Wait briefly so linear momentum coasts to rest before the next phase.
+    // Wait briefly to dissipate momentum (zero control, no decel ramp).
     if (!wait_after_phase(env, p.wait_steps, result.collision_object, skip_body, 1)) {
         result.failure_reason = "collision during drive wait";
         return false;
@@ -342,8 +342,7 @@ static bool rotate_in_place(
         return false;
     }
 
-    // Wait briefly so chassis rotation + caster momentum dissipate before
-    // transitioning to the next phase.
+    // Wait briefly so chassis rotation + caster momentum dissipate.
     if (!wait_after_phase(env, p.wait_steps, result.collision_object, skip_body, phase_id)) {
         result.failure_reason = "collision during rotation wait";
         return false;

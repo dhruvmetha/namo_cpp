@@ -53,8 +53,8 @@ public:
         // Not active braking — just passive coast to rest.
         int wait_steps = 30;              // 0.30s of zero-control coast
 
-        // (decel_steps and settle_steps removed; wait_steps replaces them)
-        int decel_steps = 25;             // unused
+        // Linear deceleration ramp before wait (smooth velocity transition).
+        int decel_steps = 50;             // 0.5s ramp
         int settle_steps = 20;            // unused
         double velocity_tolerance = 0.01; // unused
 
