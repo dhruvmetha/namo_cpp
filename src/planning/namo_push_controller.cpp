@@ -320,6 +320,18 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
         }
 
         auto nav_result = nav_strategy_->execute(env_, path, push_theta, object_name);
+        // Emit trajectory + path for visualization tooling.
+        if (std::getenv("NAMO_NAV_LOG")) {
+            std::cerr << "[NAV_PATH]";
+            for (const auto& p : path) {
+                std::cerr << " " << p[0] << "," << p[1];
+            }
+            std::cerr << std::endl;
+            for (const auto& t : nav_result.trajectory) {
+                std::cerr << "[NAV_POSE] " << t[0] << " " << t[1]
+                          << " " << t[2] << " " << (int)t[3] << std::endl;
+            }
+        }
         if (!nav_result.success) {
             std::cerr << "[NAV] Failed: " << nav_result.failure_reason
                       << " (steps=" << nav_result.steps_used

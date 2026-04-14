@@ -14,6 +14,9 @@ struct NavigationResult {
     std::string failure_reason;
     std::string collision_object;   // If collision caused failure
     int steps_used = 0;
+    /// Sampled robot trajectory during navigation: (x, y, theta, phase).
+    /// Phase: 0 = rotate_start, 1 = pure_pursuit, 2 = rotate_end.
+    std::vector<std::array<double, 4>> trajectory;
 };
 
 /// Abstract interface for getting the robot to a target (x, y, theta) pose.

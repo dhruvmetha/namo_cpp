@@ -100,7 +100,8 @@ static bool rotate_in_place(
     const DiffDriveNavigation::Params& p,
     int& steps_used_total,
     NavigationResult& result,
-    const std::string& skip_body = "")
+    const std::string& skip_body = "",
+    int phase_id = 0)
 {
     const auto* adapter = env.get_robot_adapter();
     auto* m = env.get_mujoco_wrapper()->model();
@@ -133,6 +134,13 @@ static bool rotate_in_place(
         adapter->apply_wheel_control(m, d, wheel_omega_left, wheel_omega_right);
         step_control_tick(env);
         phase_steps++;
+
+        // Sample trajectory every 5 control steps
+        if (phase_steps % 5 == 0) {
+            double tx, ty, tt;
+            get_robot_pose(env, tx, ty, tt);
+            result.trajectory.push_back({tx, ty, tt, (double)phase_id});
+        }
 
         if (check_robot_collision_any(env, result.collision_object, skip_body)) {
             result.failure_reason = "collision during rotation";
@@ -283,6 +291,13 @@ static bool pure_pursuit_along(
         step_control_tick(env);
         phase_steps++;
 
+        // Sample trajectory every 5 control steps
+        if (phase_steps % 5 == 0) {
+            double tx, ty, tt;
+            get_robot_pose(env, tx, ty, tt);
+            result.trajectory.push_back({tx, ty, tt, 1.0});  // phase_id = 1
+        }
+
         if (check_robot_collision_any(env, result.collision_object, skip_body)) {
             result.failure_reason = "collision during pure pursuit";
             steps_used_total += phase_steps;
@@ -356,21 +371,19 @@ NavigationResult DiffDriveNavigation::execute(
         path[1][1] - ry,
         path[1][0] - rx
     );
-    if (!rotate_in_place(env, heading_to_path, params_, steps, result, "")) {
+    if (!rotate_in_place(env, heading_to_path, params_, steps, result, "", 0)) {
         result.steps_used = steps;
         return result;
     }
 
     // --- Phase 2: pure pursuit ---
-    // Avoid ALL collisions; path should keep us clear.
     if (!pure_pursuit_along(env, path, params_, steps, result, "")) {
         result.steps_used = steps;
         return result;
     }
 
     // --- Phase 3: rotate to push heading ---
-    // We're at the edge point — contact with the target is expected; skip it.
-    if (!rotate_in_place(env, target_theta, params_, steps, result, target_body)) {
+    if (!rotate_in_place(env, target_theta, params_, steps, result, target_body, 2)) {
         result.steps_used = steps;
         return result;
     }
