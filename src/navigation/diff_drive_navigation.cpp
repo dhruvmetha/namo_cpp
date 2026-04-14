@@ -18,6 +18,46 @@ double wrap_angle(double a) {
     return a;
 }
 
+// Segment a path into runs of consecutive waypoints whose direction of
+// travel agrees within `heading_threshold`. Each segment has a target
+// endpoint and a constant heading. The wavefront path has 8 possible
+// inter-cell directions (0°, 45°, 90°, ...), so heading changes are
+// always 45° increments.
+struct PathSegment {
+    std::array<double, 2> end_point;   // last waypoint of this segment
+    double heading;                    // direction of travel along this segment
+};
+
+std::vector<PathSegment> segment_path(
+    const std::vector<std::array<double, 2>>& path,
+    double heading_threshold)
+{
+    std::vector<PathSegment> segments;
+    if (path.size() < 2) return segments;
+
+    // Heading of first inter-waypoint step
+    double cur_heading = std::atan2(path[1][1] - path[0][1],
+                                    path[1][0] - path[0][0]);
+    size_t segment_end = 1;
+
+    for (size_t i = 1; i + 1 < path.size(); i++) {
+        double h = std::atan2(path[i+1][1] - path[i][1],
+                               path[i+1][0] - path[i][0]);
+        double diff = std::abs(wrap_angle(h - cur_heading));
+        if (diff > heading_threshold) {
+            // Close the current segment at path[i]; start a new one with new heading
+            segments.push_back({path[i], cur_heading});
+            cur_heading = h;
+            segment_end = i + 1;
+        } else {
+            segment_end = i + 1;
+        }
+    }
+    // Close the final segment
+    segments.push_back({path[segment_end], cur_heading});
+    return segments;
+}
+
 // Check if robot is in collision with any wall or any movable object,
 // optionally skipping one body (the target the robot is about to push).
 bool check_robot_collision_any(NAMOEnvironment& env, std::string& out_obj,
@@ -108,6 +148,77 @@ bool ramp_decel(NAMOEnvironment& env, double final_omega_left, double final_omeg
         maybe_dump_qpos(env, phase_id);
         if (check_robot_collision_any(env, out_obj, skip_body)) return false;
     }
+    return true;
+}
+
+// Drive forward in a straight line (equal wheel velocities) until either:
+//   - the robot is within `xy_threshold` of the endpoint, or
+//   - the robot has passed the endpoint (the dot product of motion-to-go
+//     onto the segment heading goes negative)
+// Constant linear speed, no curvature commands. Designed for short straight
+// segments produced by segment_path.
+static bool drive_straight_to(
+    NAMOEnvironment& env,
+    const std::array<double, 2>& endpoint,
+    double segment_heading,
+    const DiffDriveNavigation::Params& p,
+    int& steps_used_total,
+    NavigationResult& result,
+    const std::string& skip_body = "")
+{
+    const auto* adapter = env.get_robot_adapter();
+    auto* m = env.get_mujoco_wrapper()->model();
+    auto* d = env.get_mujoco_wrapper()->data();
+    const double r = adapter->get_wheel_radius();
+
+    // Wheel angular velocity for forward driving at linear_speed
+    const double wheel_omega = p.linear_speed / r;
+
+    int phase_steps = 0;
+    const int max_phase_steps = p.max_nav_steps - steps_used_total;
+    const double cos_h = std::cos(segment_heading);
+    const double sin_h = std::sin(segment_heading);
+
+    while (phase_steps < max_phase_steps) {
+        double rx, ry, rtheta;
+        get_robot_pose(env, rx, ry, rtheta);
+
+        double dx = endpoint[0] - rx;
+        double dy = endpoint[1] - ry;
+        double dist = std::hypot(dx, dy);
+
+        // Distance threshold OR we've overshot (projection on heading negative)
+        double along = dx * cos_h + dy * sin_h;
+        if (dist < p.xy_threshold || along < 0.0) break;
+
+        // Drive both wheels forward at equal velocity (straight-line)
+        adapter->apply_wheel_control(m, d, wheel_omega, wheel_omega);
+        step_control_tick(env);
+        phase_steps++;
+
+        // Sample
+        {
+            double tx, ty, tt;
+            get_robot_pose(env, tx, ty, tt);
+            result.trajectory.push_back({tx, ty, tt, 1.0});
+            maybe_dump_qpos(env, 1);
+        }
+
+        if (check_robot_collision_any(env, result.collision_object, skip_body)) {
+            result.failure_reason = "collision while driving straight";
+            steps_used_total += phase_steps;
+            return false;
+        }
+    }
+
+    steps_used_total += phase_steps;
+    if (phase_steps >= max_phase_steps) {
+        result.failure_reason = "drive-straight timeout";
+        return false;
+    }
+
+    // Zero control. Don't settle — let physics coast naturally.
+    adapter->zero_control(m, d);
     return true;
 }
 
@@ -487,26 +598,37 @@ NavigationResult DiffDriveNavigation::execute(
         maybe_dump_qpos(env, 0);
     }
 
-    // --- Phase 1: rotate to face first waypoint beyond start ---
-    // Avoid ALL collisions during this phase.
-    double rx, ry, rtheta;
-    get_robot_pose(env, rx, ry, rtheta);
-    double heading_to_path = std::atan2(
-        path[1][1] - ry,
-        path[1][0] - rx
-    );
-    if (!rotate_in_place(env, heading_to_path, params_, steps, result, "", 0)) {
-        result.steps_used = steps;
-        return result;
+    // ── State machine over path segments ─────────────────────────────────
+    // Wavefront paths are 8-connected → headings are 0/45/90/135° etc.
+    // segment_path() merges runs of waypoints with consistent heading; each
+    // resulting segment is a STRAIGHT corridor. The car follows by
+    // alternating "rotate to segment heading" and "drive straight to
+    // segment endpoint" — no curvature commands → no oscillation.
+    auto segments = segment_path(path, params_.sharp_turn_threshold);
+    if (std::getenv("NAMO_NAV_LOG")) {
+        std::cerr << "[NAV_DEBUG] " << segments.size() << " segments" << std::endl;
+        for (size_t i = 0; i < segments.size(); i++) {
+            std::cerr << "    seg " << i << ": end=("
+                      << segments[i].end_point[0] << "," << segments[i].end_point[1]
+                      << ") heading=" << segments[i].heading << " rad" << std::endl;
+        }
     }
 
-    // --- Phase 2: pure pursuit ---
-    if (!pure_pursuit_along(env, path, params_, steps, result, "")) {
-        result.steps_used = steps;
-        return result;
+    for (size_t i = 0; i < segments.size(); i++) {
+        // Rotate to align with segment heading
+        if (!rotate_in_place(env, segments[i].heading, params_, steps, result, "", 0)) {
+            result.steps_used = steps;
+            return result;
+        }
+        // Drive straight to segment endpoint
+        if (!drive_straight_to(env, segments[i].end_point, segments[i].heading,
+                                params_, steps, result, "")) {
+            result.steps_used = steps;
+            return result;
+        }
     }
 
-    // --- Phase 3: rotate to push heading ---
+    // Final rotation to push heading (target may touch — skip target collision)
     if (!rotate_in_place(env, target_theta, params_, steps, result, target_body, 2)) {
         result.steps_used = steps;
         return result;
