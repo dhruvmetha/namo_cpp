@@ -122,12 +122,12 @@ def car_body_xml(start_x: float, start_y: float) -> str:
 
 CAR_ACTUATORS = """\
   <actuator>
-    <motor name="left_wheel_drive" joint="left_wheel_joint"
-           gear="1" ctrlrange="-25.000000 25.000000"
-           forcerange="-0.300000 0.300000"/>
-    <motor name="right_wheel_drive" joint="right_wheel_joint"
-           gear="1" ctrlrange="-25.000000 25.000000"
-           forcerange="-0.300000 0.300000"/>
+    <velocity name="left_wheel_drive" joint="left_wheel_joint"
+              ctrlrange="-25.000000 25.000000"
+              kv="0.750000" forcerange="-0.300000 0.300000"/>
+    <velocity name="right_wheel_drive" joint="right_wheel_joint"
+              ctrlrange="-25.000000 25.000000"
+              kv="0.750000" forcerange="-0.300000 0.300000"/>
   </actuator>"""
 
 
