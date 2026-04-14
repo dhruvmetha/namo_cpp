@@ -43,8 +43,10 @@ public:
         double xy_threshold = 0.03;      // m — exit when within 3cm of goal
         double theta_threshold = 0.10;   // rad — exit rotation at ~5.7°
 
-        // Post-settle final tolerance (allows for coast distance + drift).
-        double xy_tolerance = 0.05;      // m — 5cm final tolerance
+        // Post-settle final tolerance.
+        // Generous enough to accommodate the lookahead-distance gap when
+        // pure pursuit exits because path is exhausted (~lookahead).
+        double xy_tolerance = 0.15;      // m — 15cm (pure pursuit may exit ~lookahead from goal)
         double theta_tolerance = 0.20;   // rad — ~11.5°
 
         // Smooth deceleration ramp before settle.

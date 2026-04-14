@@ -87,19 +87,22 @@ void get_robot_pose(const NAMOEnvironment& env, double& x, double& y, double& th
     theta = env.get_robot_adapter()->get_theta(m, d);
 }
 
-// Smooth deceleration: linearly ramp commanded wheel velocities from
-// the current values down to zero over n_steps control ticks.
-// Eliminates the jerk at phase exit.
+// Smooth deceleration: ramp commanded wheel velocities to zero by
+// scaling them by a factor that decreases from 1 to 0 over n_steps.
+// Decomposing into (forward, rotation) and ramping each is unnecessary —
+// scaling preserves the sign of every wheel command, so neither wheel ever
+// reverses direction (which would cause the car to back up).
+// Eliminates the jerk at phase exit while staying physically consistent.
 bool ramp_decel(NAMOEnvironment& env, double final_omega_left, double final_omega_right,
-                double end_omega_left, double end_omega_right, int n_steps,
+                double /*unused_end_left*/, double /*unused_end_right*/, int n_steps,
                 std::string& out_obj, const std::string& skip_body, int phase_id) {
     auto* m = env.get_mujoco_wrapper()->model();
     auto* d = env.get_mujoco_wrapper()->data();
     auto adapter = env.get_robot_adapter();
     for (int i = 0; i < n_steps; i++) {
-        double t = (i + 1) / static_cast<double>(n_steps);  // 1/n .. 1
-        double left  = final_omega_left  + (end_omega_left  - final_omega_left)  * t;
-        double right = final_omega_right + (end_omega_right - final_omega_right) * t;
+        double scale = 1.0 - (i + 1) / static_cast<double>(n_steps);  // 1 → 0
+        double left  = final_omega_left  * scale;
+        double right = final_omega_right * scale;
         adapter->apply_wheel_control(m, d, left, right);
         step_control_tick(env);
         maybe_dump_qpos(env, phase_id);
@@ -207,20 +210,12 @@ static bool rotate_in_place(
         return false;
     }
 
-    // Linear deceleration ramp from current commanded velocities to zero.
-    if (!ramp_decel(env, last_wheel_left, last_wheel_right, 0.0, 0.0,
-                    p.decel_steps, result.collision_object, skip_body, phase_id)) {
-        result.failure_reason = "collision during rotation deceleration";
-        return false;
+    // Just zero control — no decel/settle (those caused backward sliding).
+    {
+        auto* m = env.get_mujoco_wrapper()->model();
+        auto* d = env.get_mujoco_wrapper()->data();
+        env.get_robot_adapter()->zero_control(m, d);
     }
-    steps_used_total += p.decel_steps;
-
-    // Settle (zero control, let physics quiet down)
-    if (!settle(env, p.settle_steps, result.collision_object, skip_body, phase_id)) {
-        result.failure_reason = "collision during rotation settle";
-        return false;
-    }
-    steps_used_total += p.settle_steps;
 
     // Verify final heading within final tolerance
     double rx, ry, rtheta;
@@ -332,14 +327,12 @@ static bool pure_pursuit_along(
         auto [la_x, la_y] = find_lookahead(path, rx, ry, p.lookahead,
                                             last_idx, reached_end);
 
-        // When the path has been exhausted (reached_end), switch to a
-        // direct-to-goal "terminal approach" so we don't oscillate trying to
-        // chase a fixed lookahead point. Aim straight at goal; rely on the
-        // sharp-turn recovery to handle alignment if the heading is off.
-        if (reached_end) {
-            la_x = goal_xy[0];
-            la_y = goal_xy[1];
-        }
+        // Exit pure pursuit when both:
+        //   (a) the path is exhausted (reached_end == true), AND
+        //   (b) the car is actually within `lookahead` of the goal.
+        // Beyond this the algorithm oscillates around a fixed lookahead
+        // point. Accept the residual gap and rely on post-settle tolerance.
+        if (reached_end && dist_goal <= p.lookahead) break;
 
         // Angle to lookahead in robot frame
         double dx = la_x - rx;
@@ -409,21 +402,15 @@ static bool pure_pursuit_along(
         return false;
     }
 
-    // Linear deceleration ramp from pursuit speed to zero — eliminates the
-    // jerk caused by the abrupt stop.
-    if (!ramp_decel(env, last_wheel_left, last_wheel_right, 0.0, 0.0,
-                    p.decel_steps, result.collision_object, skip_body, 1)) {
-        result.failure_reason = "collision during pursuit deceleration";
-        return false;
+    // Just zero control. Don't ramp, don't settle. The velocity-controlled
+    // wheels will brake the car naturally; any active braking from the
+    // controller during settle was dragging the car backwards because of
+    // asymmetric brake torques while the chassis still had angular momentum.
+    {
+        auto* m = env.get_mujoco_wrapper()->model();
+        auto* d = env.get_mujoco_wrapper()->data();
+        env.get_robot_adapter()->zero_control(m, d);
     }
-    steps_used_total += p.decel_steps;
-
-    // Settle (zero control, let physics quiet down)
-    if (!settle(env, p.settle_steps, result.collision_object, skip_body, 1)) {
-        result.failure_reason = "collision during pursuit settle";
-        return false;
-    }
-    steps_used_total += p.settle_steps;
 
     // Verify final position within final tolerance
     double rx, ry, rtheta;
