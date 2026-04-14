@@ -412,26 +412,49 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
             }
 
             // Always track collisions for hardness metrics, but only terminate if check_object_collision_ is true
+            std::string robot_body = env_.get_robot_adapter()->get_body_name();
 
-            // Check collision with static objects (walls)
+            // Check ROBOT collision with static objects (walls) during push
+            for (size_t i = 0; i < num_static; i++) {
+                const auto& static_obj = static_objects[i];
+                if (env_.bodies_in_collision(robot_body, static_obj.body_name)) {
+                    wall_collision_during_push_ = true;
+                    last_failure_reason_ = "Robot collision during push with static object: " + static_obj.body_name;
+                    last_collision_object_ = static_obj.body_name;
+                    return false;
+                }
+            }
+
+            // Check ROBOT collision with OTHER movable objects during push
+            for (size_t i = 0; i < num_movable; i++) {
+                const auto& movable_obj = movable_objects[i];
+                if (movable_obj.name != object_name && env_.bodies_in_collision(robot_body, movable_obj.body_name)) {
+                    movable_collisions_during_push_.insert(movable_obj.name);
+                    last_failure_reason_ = "Robot collision during push with movable object: " + movable_obj.body_name;
+                    last_collision_object_ = movable_obj.body_name;
+                    return false;
+                }
+            }
+
+            // Check TARGET OBJECT collision with static objects (walls)
             for (size_t i = 0; i < num_static; i++) {
                 const auto& static_obj = static_objects[i];
                 if (env_.bodies_in_collision(object_name, static_obj.body_name)) {
-                    wall_collision_during_push_ = true;  // Track wall collision
+                    wall_collision_during_push_ = true;
                     if (check_object_collision_) {
                         last_failure_reason_ = "Object collision during push with static object: " + static_obj.body_name;
                         last_collision_object_ = static_obj.body_name;
                         return false;
                     }
-                    break;  // Already hit a wall, no need to check more static objects this step
+                    break;
                 }
             }
 
-            // Check collision with OTHER movable objects
+            // Check TARGET OBJECT collision with OTHER movable objects
             for (size_t i = 0; i < num_movable; i++) {
                 const auto& movable_obj = movable_objects[i];
                 if (movable_obj.name != object_name && env_.bodies_in_collision(object_name, movable_obj.body_name)) {
-                    movable_collisions_during_push_.insert(movable_obj.name);  // Track unique movable collision
+                    movable_collisions_during_push_.insert(movable_obj.name);
                     if (check_object_collision_) {
                         last_failure_reason_ = "Object collision during push with movable object: " + movable_obj.body_name;
                         last_collision_object_ = movable_obj.body_name;
