@@ -32,20 +32,20 @@ public:
     struct Params {
         // Constant speeds during each phase
         double linear_speed = 0.10;      // m/s during straight driving
-        double angular_speed = 1.0;      // rad/s during rotation — balance speed vs coast overshoot
+        double angular_speed = 1.0;      // rad/s — fast; overshoot is bounded by physics, not config
 
         // Pure pursuit
         double lookahead = 0.10;         // m — larger = smoother steering
 
-        // Exit thresholds (trigger zero-control + settle).
-        // Set higher than the typical pure-pursuit oscillation amplitude so
-        // we stop driving before entering the unstable regime near the goal.
-        double xy_threshold = 0.03;      // m — exit when within 3cm of goal
-        double theta_threshold = 0.10;   // rad — exit rotation at ~5.7°
+        // Exit thresholds (trigger zero-control + wait).
+        double xy_threshold = 0.015;     // m — exit drive when within 1.5cm of segment endpoint
+        double theta_threshold = 0.05;   // rad — exit rotation at ~2.9°
 
         // Post-wait final tolerance.
-        double xy_tolerance = 0.15;      // m
-        double theta_tolerance = 0.30;   // rad — ~17°, allows for coast overshoot during wait
+        // theta_tolerance accommodates ~10° physics overshoot during wait
+        // (wheels grip while chassis still rotating → small reverse bounce).
+        double xy_tolerance = 0.05;      // m — 5cm
+        double theta_tolerance = 0.22;   // rad — ~12.5°
 
         // Wait period after each phase (rotation or linear drive).
         // Zero control + step simulation, letting wheel brakes and caster
