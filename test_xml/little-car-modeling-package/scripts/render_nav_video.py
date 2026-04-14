@@ -5,9 +5,10 @@ Inputs:
   - XML path (scene)
   - qpos dump file (one frame per line: "phase nq q0 q1 ...")
   - output MP4 path
+  - optional: --path-file with wavefront waypoints ("x,y x,y ..." on one line)
 
-Layout: left half = MuJoCo render, right half = matplotlib trajectory
-that advances in sync with the video.
+Layout: left half = MuJoCo render (top-down), right half = matplotlib
+trajectory with planned path overlay, advancing in sync with the video.
 """
 
 import argparse
@@ -64,7 +65,25 @@ def render_mj_frame(renderer, model, data, q, camera):
     return renderer.render()
 
 
-def render_mpl_frame(ax, xml_path, trajectory_so_far, phase_colors, bounds):
+def load_path(path_file):
+    if not path_file or not os.path.exists(path_file):
+        return []
+    with open(path_file) as f:
+        line = f.read().strip()
+    if line.startswith("[NAV_PATH]"):
+        line = line[len("[NAV_PATH]"):].strip()
+    waypoints = []
+    for tok in line.split():
+        try:
+            x, y = tok.split(",")
+            waypoints.append((float(x), float(y)))
+        except ValueError:
+            pass
+    return waypoints
+
+
+def render_mpl_frame(ax, xml_path, trajectory_so_far, phase_colors, bounds,
+                     planned_path=None):
     ax.clear()
     # Walls
     for wx, wy, hx, hy in parse_walls(xml_path):
@@ -86,6 +105,13 @@ def render_mpl_frame(ax, xml_path, trajectory_so_far, phase_colors, bounds):
                                  color="gold", alpha=0.6, ec="black", lw=0.3)
         rect.set_transform(Affine2D().rotate(euler).translate(pos[0], pos[1]) + ax.transData)
         ax.add_patch(rect)
+
+    # Planned wavefront path (green line)
+    if planned_path:
+        xs = [p[0] for p in planned_path]
+        ys = [p[1] for p in planned_path]
+        ax.plot(xs, ys, color="lime", linewidth=2.0, alpha=0.7, zorder=2,
+                label="wavefront plan")
 
     # Trajectory so far, phase-colored
     by_phase = {}
@@ -134,16 +160,20 @@ def main():
     ap.add_argument("output_mp4")
     ap.add_argument("--fps", type=int, default=20)
     ap.add_argument("--cam-dist", type=float, default=1.2)
-    ap.add_argument("--cam-elevation", type=float, default=-60.0)
+    ap.add_argument("--cam-elevation", type=float, default=-89.0)  # top-down
     ap.add_argument("--cam-azimuth", type=float, default=90.0)
     ap.add_argument("--width", type=int, default=640)
     ap.add_argument("--height", type=int, default=480)
+    ap.add_argument("--path-file", default=None, help="File with wavefront waypoints")
     args = ap.parse_args()
 
     frames = parse_qpos(args.qpos_dump)
     print(f"Loaded {len(frames)} qpos frames")
     if not frames:
         sys.exit(1)
+
+    planned_path = load_path(args.path_file)
+    print(f"Loaded {len(planned_path)} planned waypoints")
 
     # Load MuJoCo model with a visual global element
     with open(args.xml) as f:
@@ -152,6 +182,19 @@ def main():
     if "<visual>" not in xml_str:
         visual = f'  <visual><global offwidth="{args.width}" offheight="{args.height}"/></visual>\n'
         xml_str = xml_str.replace("<worldbody>", visual + "  <worldbody>")
+
+    # Inject planned path as green sphere sites
+    if planned_path:
+        # Subsample so rendering stays clean (one marker every ~1cm)
+        step = max(1, len(planned_path) // 60)
+        path_sites = []
+        for i, (x, y) in enumerate(planned_path[::step]):
+            path_sites.append(
+                f'<site name="path_pt_{i}" pos="{x:.4f} {y:.4f} 0.005" '
+                f'size="0.006" rgba="0 1 0 0.7" type="sphere"/>'
+            )
+        path_xml = "\n    ".join(path_sites)
+        xml_str = xml_str.replace("</worldbody>", f"    {path_xml}\n  </worldbody>")
 
     model = mujoco.MjModel.from_xml_string(xml_str)
     data = mujoco.MjData(model)
@@ -202,7 +245,8 @@ def main():
             trajectory_samples.append((phase, (rx, ry, rt)))
 
             # Render matplotlib panel
-            render_mpl_frame(ax, args.xml, trajectory_samples, phase_colors, bounds)
+            render_mpl_frame(ax, args.xml, trajectory_samples, phase_colors, bounds,
+                             planned_path=planned_path)
             fig.canvas.draw()
             mpl_img = np.asarray(fig.canvas.buffer_rgba())[..., :3]
 

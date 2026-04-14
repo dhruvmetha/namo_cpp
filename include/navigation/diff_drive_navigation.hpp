@@ -32,18 +32,20 @@ public:
     struct Params {
         // Constant speeds during each phase
         double linear_speed = 0.10;      // m/s during pure pursuit — slow for stability
-        double angular_speed = 0.5;      // rad/s during in-place rotation
+        double angular_speed = 0.25;     // rad/s during rotation — low → small settle overshoot
 
         // Pure pursuit
         double lookahead = 0.10;         // m — larger = smoother steering
 
-        // Exit thresholds (trigger zero-control + settle)
-        double xy_threshold = 0.01;      // m
-        double theta_threshold = 0.05;   // rad
+        // Exit thresholds (trigger zero-control + settle).
+        // Set higher than the typical pure-pursuit oscillation amplitude so
+        // we stop driving before entering the unstable regime near the goal.
+        double xy_threshold = 0.03;      // m — exit when within 3cm of goal
+        double theta_threshold = 0.10;   // rad — exit rotation at ~5.7°
 
-        // Post-settle final tolerance
-        double xy_tolerance = 0.03;      // m — 3cm tolerance
-        double theta_tolerance = 0.15;   // rad — ~8.6°
+        // Post-settle final tolerance (allows for coast distance + drift).
+        double xy_tolerance = 0.05;      // m — 5cm final tolerance
+        double theta_tolerance = 0.20;   // rad — ~11.5°
 
         // Settling
         int settle_steps = 20;
@@ -52,6 +54,11 @@ public:
         // Safety
         int max_nav_steps = 6000;         // control steps total
         double max_path_deviation = 0.15; // m; abort if drifting off path
+
+        // Sharp-turn recovery: if the steering angle to lookahead exceeds
+        // this, switch to in-place rotation until aligned again.
+        double sharp_turn_threshold = 0.35;  // ~20 deg
+        double sharp_turn_exit = 0.15;       // resume when under ~8.6 deg
     };
 
     explicit DiffDriveNavigation(const Params& params);

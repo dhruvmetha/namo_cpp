@@ -87,19 +87,17 @@ void get_robot_pose(const NAMOEnvironment& env, double& x, double& y, double& th
     theta = env.get_robot_adapter()->get_theta(m, d);
 }
 
-// Settle: zero control + zero velocities (bypasses simulation momentum).
+// Settle: zero control, step physics until velocities approach zero.
+// Dumps qpos every step for smooth video. No qvel snap — physics does the braking.
 bool settle(NAMOEnvironment& env, int settle_steps, std::string& out_obj,
-            const std::string& skip_body = "") {
+            const std::string& skip_body = "", int phase_id = 0) {
     auto* m = env.get_mujoco_wrapper()->model();
     auto* d = env.get_mujoco_wrapper()->data();
     env.get_robot_adapter()->zero_control(m, d);
 
-    for (int i = 0; i < m->nv; i++) d->qvel[i] = 0.0;
-    mj_forward(m, d);
-    env.update_object_states();
-
     for (int i = 0; i < settle_steps; i++) {
         step_control_tick(env);
+        maybe_dump_qpos(env, phase_id);
         if (check_robot_collision_any(env, out_obj, skip_body)) return false;
     }
     return true;
@@ -164,8 +162,8 @@ static bool rotate_in_place(
         step_control_tick(env);
         phase_steps++;
 
-        // Sample trajectory every 5 control steps
-        if (phase_steps % 5 == 0) {
+        // Sample trajectory every control step for smooth video
+        {
             double tx, ty, tt;
             get_robot_pose(env, tx, ty, tt);
             result.trajectory.push_back({tx, ty, tt, (double)phase_id});
@@ -186,7 +184,7 @@ static bool rotate_in_place(
     }
 
     // Settle
-    if (!settle(env, p.settle_steps, result.collision_object, skip_body)) {
+    if (!settle(env, p.settle_steps, result.collision_object, skip_body, phase_id)) {
         result.failure_reason = "collision during rotation settle";
         return false;
     }
@@ -301,11 +299,45 @@ static bool pure_pursuit_along(
         auto [la_x, la_y] = find_lookahead(path, rx, ry, p.lookahead,
                                             last_idx, reached_end);
 
+        // When the path has been exhausted (reached_end), switch to a
+        // direct-to-goal "terminal approach" so we don't oscillate trying to
+        // chase a fixed lookahead point. Aim straight at goal; rely on the
+        // sharp-turn recovery to handle alignment if the heading is off.
+        if (reached_end) {
+            la_x = goal_xy[0];
+            la_y = goal_xy[1];
+        }
+
         // Angle to lookahead in robot frame
         double dx = la_x - rx;
         double dy = la_y - ry;
         double L_actual = std::max(1e-6, std::hypot(dx, dy));
         double alpha = wrap_angle(std::atan2(dy, dx) - rtheta);
+
+        // Sharp turn recovery: if heading error is too large, stop forward
+        // motion and rotate in place until we're within a smaller band.
+        // Avoids ill-conditioned pure-pursuit when alpha is near ±π/2.
+        if (std::abs(alpha) > p.sharp_turn_threshold) {
+            // Pick rotation direction
+            double rot_omega = p.angular_speed * (alpha > 0 ? 1.0 : -1.0);
+            double vl_rot = (-rot_omega * b / 2.0) / r;
+            double vr_rot = (+rot_omega * b / 2.0) / r;
+            adapter->apply_wheel_control(m, d, vl_rot, vr_rot);
+            step_control_tick(env);
+            phase_steps++;
+            {
+                double tx, ty, tt;
+                get_robot_pose(env, tx, ty, tt);
+                result.trajectory.push_back({tx, ty, tt, 1.0});
+                maybe_dump_qpos(env, 1);
+            }
+            if (check_robot_collision_any(env, result.collision_object, skip_body)) {
+                result.failure_reason = "collision during sharp-turn rotation";
+                steps_used_total += phase_steps;
+                return false;
+            }
+            continue;  // re-evaluate alpha next iteration; drive resumes when |alpha| < sharp_turn_exit
+        }
 
         // Pure pursuit curvature
         double kappa = 2.0 * std::sin(alpha) / L_actual;
@@ -321,11 +353,11 @@ static bool pure_pursuit_along(
         step_control_tick(env);
         phase_steps++;
 
-        // Sample trajectory every 5 control steps
-        if (phase_steps % 5 == 0) {
+        // Sample trajectory every control step for smooth video
+        {
             double tx, ty, tt;
             get_robot_pose(env, tx, ty, tt);
-            result.trajectory.push_back({tx, ty, tt, 1.0});  // phase_id = 1
+            result.trajectory.push_back({tx, ty, tt, 1.0});
             maybe_dump_qpos(env, 1);
         }
 
@@ -343,7 +375,7 @@ static bool pure_pursuit_along(
     }
 
     // Settle
-    if (!settle(env, p.settle_steps, result.collision_object, skip_body)) {
+    if (!settle(env, p.settle_steps, result.collision_object, skip_body, 1)) {
         result.failure_reason = "collision during pursuit settle";
         return false;
     }
@@ -415,6 +447,14 @@ NavigationResult DiffDriveNavigation::execute(
     }
 
     int steps = 0;
+
+    // Sample the starting pose so video begins at the actual start
+    {
+        double tx, ty, tt;
+        get_robot_pose(env, tx, ty, tt);
+        result.trajectory.push_back({tx, ty, tt, 0.0});
+        maybe_dump_qpos(env, 0);
+    }
 
     // --- Phase 1: rotate to face first waypoint beyond start ---
     // Avoid ALL collisions during this phase.
