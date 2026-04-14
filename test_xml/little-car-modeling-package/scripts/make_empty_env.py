@@ -69,13 +69,13 @@ EMPTY_XML_TEMPLATE = """\
 
       <body name="left_wheel" pos="0.0 0.0375 0.015">
         <inertial pos="0 0 0" mass="0.05" diaginertia="0.000003 0.000006 0.000003"/>
-        <joint name="left_wheel_joint" type="hinge" axis="0 1 0"/>
+        <joint name="left_wheel_joint" type="hinge" axis="0 1 0" damping="0.0001"/>
         <geom name="left_wheel_collision" type="cylinder" size="0.015 0.0005"
               euler="90 0 0" rgba="0.1 0.1 0.1 1"/>
       </body>
       <body name="right_wheel" pos="0.0 -0.0375 0.015">
         <inertial pos="0 0 0" mass="0.05" diaginertia="0.000003 0.000006 0.000003"/>
-        <joint name="right_wheel_joint" type="hinge" axis="0 1 0"/>
+        <joint name="right_wheel_joint" type="hinge" axis="0 1 0" damping="0.0001"/>
         <geom name="right_wheel_collision" type="cylinder" size="0.015 0.0005"
               euler="90 0 0" rgba="0.1 0.1 0.1 1"/>
       </body>

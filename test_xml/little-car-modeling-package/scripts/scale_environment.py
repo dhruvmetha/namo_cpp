@@ -106,14 +106,14 @@ def car_body_xml(start_x: float, start_y: float) -> str:
       <body name="left_wheel" pos="0.000000 0.037500 0.015000">
         <inertial pos="0 0 0" mass="0.050000"
                   diaginertia="0.000003 0.000006 0.000003"/>
-        <joint name="left_wheel_joint" type="hinge" axis="0 1 0"/>
+        <joint name="left_wheel_joint" type="hinge" axis="0 1 0" damping="0.0001"/>
         <geom name="left_wheel_collision" type="cylinder"
               size="0.015000 0.000500" euler="90 0 0" rgba="0.1 0.1 0.1 1"/>
       </body>
       <body name="right_wheel" pos="0.000000 -0.037500 0.015000">
         <inertial pos="0 0 0" mass="0.050000"
                   diaginertia="0.000003 0.000006 0.000003"/>
-        <joint name="right_wheel_joint" type="hinge" axis="0 1 0"/>
+        <joint name="right_wheel_joint" type="hinge" axis="0 1 0" damping="0.0001"/>
         <geom name="right_wheel_collision" type="cylinder"
               size="0.015000 0.000500" euler="90 0 0" rgba="0.1 0.1 0.1 1"/>
       </body>
