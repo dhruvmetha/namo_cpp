@@ -31,8 +31,8 @@ class DiffDriveNavigation : public NavigationStrategy {
 public:
     struct Params {
         // Constant speeds during each phase
-        double linear_speed = 0.10;      // m/s during pure pursuit — slow for stability
-        double angular_speed = 0.25;     // rad/s during rotation — low → small settle overshoot
+        double linear_speed = 0.10;      // m/s during straight driving
+        double angular_speed = 1.5;      // rad/s during rotation — fast since next phase tolerates drift
 
         // Pure pursuit
         double lookahead = 0.10;         // m — larger = smoother steering
