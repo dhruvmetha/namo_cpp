@@ -3,6 +3,9 @@
 #include "robot/robot_adapter.hpp"
 #include "config/config_manager.hpp"
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <iostream>
 
 namespace namo {
 
@@ -29,13 +32,39 @@ bool check_robot_collision_any(NAMOEnvironment& env, std::string& out_obj,
     }
     const auto& movables = env.get_movable_objects();
     for (size_t i = 0; i < env.get_num_movable(); i++) {
-        if (!skip_body.empty() && movables[i].body_name == skip_body) continue;
-        if (env.bodies_in_collision(robot_body, movables[i].body_name)) {
-            out_obj = movables[i].body_name;
+        const std::string& bn = movables[i].body_name;
+        if (!skip_body.empty() && bn == skip_body) continue;
+        if (env.bodies_in_collision(robot_body, bn)) {
+            out_obj = bn;
+            if (std::getenv("NAMO_NAV_LOG")) {
+                std::cerr << "[NAV_DEBUG_COL] robot=" << robot_body
+                          << " vs " << bn << " (skip=" << skip_body << ")" << std::endl;
+            }
             return true;
         }
     }
     return false;
+}
+
+// Dump full qpos to a file for later video rendering. Triggered by env var.
+void maybe_dump_qpos(NAMOEnvironment& env, int phase_id) {
+    static FILE* dump_fp = nullptr;
+    static bool init = false;
+    if (!init) {
+        const char* path = std::getenv("NAMO_QPOS_DUMP");
+        if (path && path[0]) {
+            dump_fp = std::fopen(path, "w");
+        }
+        init = true;
+    }
+    if (!dump_fp) return;
+
+    auto* m = env.get_mujoco_wrapper()->model();
+    auto* d = env.get_mujoco_wrapper()->data();
+    std::fprintf(dump_fp, "%d %d", phase_id, m->nq);
+    for (int i = 0; i < m->nq; i++) std::fprintf(dump_fp, " %.6f", d->qpos[i]);
+    std::fprintf(dump_fp, "\n");
+    std::fflush(dump_fp);
 }
 
 // Step MuJoCo for one "control tick" (matches NAMOEnvironment::apply_control timing: 0.01s).
@@ -140,6 +169,7 @@ static bool rotate_in_place(
             double tx, ty, tt;
             get_robot_pose(env, tx, ty, tt);
             result.trajectory.push_back({tx, ty, tt, (double)phase_id});
+            maybe_dump_qpos(env, phase_id);
         }
 
         if (check_robot_collision_any(env, result.collision_object, skip_body)) {
@@ -296,6 +326,7 @@ static bool pure_pursuit_along(
             double tx, ty, tt;
             get_robot_pose(env, tx, ty, tt);
             result.trajectory.push_back({tx, ty, tt, 1.0});  // phase_id = 1
+            maybe_dump_qpos(env, 1);
         }
 
         if (check_robot_collision_any(env, result.collision_object, skip_body)) {
@@ -348,6 +379,28 @@ NavigationResult DiffDriveNavigation::execute(
     if (!target_object.empty()) {
         auto* info = env.get_object_info(target_object);
         if (info) target_body = info->body_name;
+    }
+    if (std::getenv("NAMO_NAV_LOG")) {
+        std::cerr << "[NAV_DEBUG] target_object=" << target_object
+                  << " target_body=" << target_body << std::endl;
+    }
+
+    // If we're already at the goal pose, skip navigation.
+    // Avoids re-navigating when the push controller's MPC loop calls us
+    // again after the car is already placed at the edge point.
+    if (!path.empty()) {
+        double rx, ry, rtheta;
+        get_robot_pose(env, rx, ry, rtheta);
+        const auto& goal = path.back();
+        double dxy = std::hypot(goal[0] - rx, goal[1] - ry);
+        double dth = std::abs(wrap_angle(target_theta - rtheta));
+        if (dxy < params_.xy_tolerance && dth < params_.theta_tolerance) {
+            if (std::getenv("NAMO_NAV_LOG")) {
+                std::cerr << "[NAV_DEBUG] already at goal; skipping nav" << std::endl;
+            }
+            result.success = true;
+            return result;
+        }
     }
 
     if (path.size() < 2) {

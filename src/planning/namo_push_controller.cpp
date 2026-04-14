@@ -331,6 +331,8 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
                 std::cerr << "[NAV_POSE] " << t[0] << " " << t[1]
                           << " " << t[2] << " " << (int)t[3] << std::endl;
             }
+            // Also emit push phase start marker
+            std::cerr << "[NAV_END]" << std::endl;
         }
         if (!nav_result.success) {
             std::cerr << "[NAV] Failed: " << nav_result.failure_reason
