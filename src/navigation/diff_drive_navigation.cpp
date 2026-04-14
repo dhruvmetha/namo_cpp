@@ -87,6 +87,27 @@ void get_robot_pose(const NAMOEnvironment& env, double& x, double& y, double& th
     theta = env.get_robot_adapter()->get_theta(m, d);
 }
 
+// Smooth deceleration: linearly ramp commanded wheel velocities from
+// the current values down to zero over n_steps control ticks.
+// Eliminates the jerk at phase exit.
+bool ramp_decel(NAMOEnvironment& env, double final_omega_left, double final_omega_right,
+                double end_omega_left, double end_omega_right, int n_steps,
+                std::string& out_obj, const std::string& skip_body, int phase_id) {
+    auto* m = env.get_mujoco_wrapper()->model();
+    auto* d = env.get_mujoco_wrapper()->data();
+    auto adapter = env.get_robot_adapter();
+    for (int i = 0; i < n_steps; i++) {
+        double t = (i + 1) / static_cast<double>(n_steps);  // 1/n .. 1
+        double left  = final_omega_left  + (end_omega_left  - final_omega_left)  * t;
+        double right = final_omega_right + (end_omega_right - final_omega_right) * t;
+        adapter->apply_wheel_control(m, d, left, right);
+        step_control_tick(env);
+        maybe_dump_qpos(env, phase_id);
+        if (check_robot_collision_any(env, out_obj, skip_body)) return false;
+    }
+    return true;
+}
+
 // Settle: zero control, step physics until velocities approach zero.
 // Dumps qpos every step for smooth video. No qvel snap — physics does the braking.
 bool settle(NAMOEnvironment& env, int settle_steps, std::string& out_obj,
@@ -141,6 +162,7 @@ static bool rotate_in_place(
 
     int phase_steps = 0;
     const int max_phase_steps = p.max_nav_steps - steps_used_total;
+    double last_wheel_left = 0.0, last_wheel_right = 0.0;
 
     while (phase_steps < max_phase_steps) {
         double rx, ry, rtheta;
@@ -157,6 +179,8 @@ static bool rotate_in_place(
         // v_left = -ω·b/2, v_right = +ω·b/2, then / r for wheel angular velocity
         double wheel_omega_left  = (-omega * b / 2.0) / r;
         double wheel_omega_right = (+omega * b / 2.0) / r;
+        last_wheel_left = wheel_omega_left;
+        last_wheel_right = wheel_omega_right;
 
         adapter->apply_wheel_control(m, d, wheel_omega_left, wheel_omega_right);
         step_control_tick(env);
@@ -183,7 +207,15 @@ static bool rotate_in_place(
         return false;
     }
 
-    // Settle
+    // Linear deceleration ramp from current commanded velocities to zero.
+    if (!ramp_decel(env, last_wheel_left, last_wheel_right, 0.0, 0.0,
+                    p.decel_steps, result.collision_object, skip_body, phase_id)) {
+        result.failure_reason = "collision during rotation deceleration";
+        return false;
+    }
+    steps_used_total += p.decel_steps;
+
+    // Settle (zero control, let physics quiet down)
     if (!settle(env, p.settle_steps, result.collision_object, skip_body, phase_id)) {
         result.failure_reason = "collision during rotation settle";
         return false;
@@ -274,6 +306,7 @@ static bool pure_pursuit_along(
 
     int phase_steps = 0;
     const int max_phase_steps = p.max_nav_steps - steps_used_total;
+    double last_wheel_left = 0.0, last_wheel_right = 0.0;
 
     while (phase_steps < max_phase_steps) {
         double rx, ry, rtheta;
@@ -347,8 +380,10 @@ static bool pure_pursuit_along(
         // v_left = v - ω·b/2, v_right = v + ω·b/2
         double v_left  = v - omega * b / 2.0;
         double v_right = v + omega * b / 2.0;
+        last_wheel_left = v_left / r;
+        last_wheel_right = v_right / r;
         // Convert to wheel angular velocity
-        adapter->apply_wheel_control(m, d, v_left / r, v_right / r);
+        adapter->apply_wheel_control(m, d, last_wheel_left, last_wheel_right);
 
         step_control_tick(env);
         phase_steps++;
@@ -374,7 +409,16 @@ static bool pure_pursuit_along(
         return false;
     }
 
-    // Settle
+    // Linear deceleration ramp from pursuit speed to zero — eliminates the
+    // jerk caused by the abrupt stop.
+    if (!ramp_decel(env, last_wheel_left, last_wheel_right, 0.0, 0.0,
+                    p.decel_steps, result.collision_object, skip_body, 1)) {
+        result.failure_reason = "collision during pursuit deceleration";
+        return false;
+    }
+    steps_used_total += p.decel_steps;
+
+    // Settle (zero control, let physics quiet down)
     if (!settle(env, p.settle_steps, result.collision_object, skip_body, 1)) {
         result.failure_reason = "collision during pursuit settle";
         return false;

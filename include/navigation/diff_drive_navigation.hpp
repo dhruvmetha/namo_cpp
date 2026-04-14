@@ -47,6 +47,11 @@ public:
         double xy_tolerance = 0.05;      // m — 5cm final tolerance
         double theta_tolerance = 0.20;   // rad — ~11.5°
 
+        // Smooth deceleration ramp before settle.
+        // Commanded velocity decays linearly from full speed to 0 over this
+        // many control steps. Eliminates jerk at phase exit.
+        int decel_steps = 25;             // 25 ticks @ 0.01s = 0.25s
+
         // Settling
         int settle_steps = 20;
         double velocity_tolerance = 0.01;
