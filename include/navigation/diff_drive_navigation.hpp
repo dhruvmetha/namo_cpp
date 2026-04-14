@@ -32,7 +32,7 @@ public:
     struct Params {
         // Constant speeds during each phase
         double linear_speed = 0.10;      // m/s during straight driving
-        double angular_speed = 1.5;      // rad/s during rotation — fast since next phase tolerates drift
+        double angular_speed = 1.0;      // rad/s during rotation — balance speed vs coast overshoot
 
         // Pure pursuit
         double lookahead = 0.10;         // m — larger = smoother steering
@@ -43,20 +43,20 @@ public:
         double xy_threshold = 0.03;      // m — exit when within 3cm of goal
         double theta_threshold = 0.10;   // rad — exit rotation at ~5.7°
 
-        // Post-settle final tolerance.
-        // Generous enough to accommodate the lookahead-distance gap when
-        // pure pursuit exits because path is exhausted (~lookahead).
-        double xy_tolerance = 0.15;      // m — 15cm (pure pursuit may exit ~lookahead from goal)
-        double theta_tolerance = 0.20;   // rad — ~11.5°
+        // Post-wait final tolerance.
+        double xy_tolerance = 0.15;      // m
+        double theta_tolerance = 0.30;   // rad — ~17°, allows for coast overshoot during wait
 
-        // Smooth deceleration ramp before settle.
-        // Commanded velocity decays linearly from full speed to 0 over this
-        // many control steps. Eliminates jerk at phase exit.
-        int decel_steps = 25;             // 25 ticks @ 0.01s = 0.25s
+        // Wait period after each phase (rotation or linear drive).
+        // Zero control + step simulation, letting wheel brakes and caster
+        // momentum dissipate before transitioning to the next phase.
+        // Not active braking — just passive coast to rest.
+        int wait_steps = 30;              // 0.30s of zero-control coast
 
-        // Settling
-        int settle_steps = 20;
-        double velocity_tolerance = 0.01;
+        // (decel_steps and settle_steps removed; wait_steps replaces them)
+        int decel_steps = 25;             // unused
+        int settle_steps = 20;            // unused
+        double velocity_tolerance = 0.01; // unused
 
         // Safety
         int max_nav_steps = 6000;         // control steps total

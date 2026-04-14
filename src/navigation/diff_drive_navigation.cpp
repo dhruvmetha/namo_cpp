@@ -151,6 +151,23 @@ bool ramp_decel(NAMOEnvironment& env, double final_omega_left, double final_omeg
     return true;
 }
 
+// Passive wait: zero control + step simulation. Lets wheel brakes and
+// caster momentum dissipate naturally before the next phase begins.
+// Samples qpos every step so the wait period is visible in the video.
+static bool wait_after_phase(NAMOEnvironment& env, int n_steps,
+                              std::string& out_obj,
+                              const std::string& skip_body, int phase_id) {
+    auto* m = env.get_mujoco_wrapper()->model();
+    auto* d = env.get_mujoco_wrapper()->data();
+    env.get_robot_adapter()->zero_control(m, d);
+    for (int i = 0; i < n_steps; i++) {
+        step_control_tick(env);
+        maybe_dump_qpos(env, phase_id);
+        if (check_robot_collision_any(env, out_obj, skip_body)) return false;
+    }
+    return true;
+}
+
 // Drive forward in a straight line (equal wheel velocities) until either:
 //   - the robot is within `xy_threshold` of the endpoint, or
 //   - the robot has passed the endpoint (the dot product of motion-to-go
@@ -217,8 +234,12 @@ static bool drive_straight_to(
         return false;
     }
 
-    // Zero control. Don't settle — let physics coast naturally.
-    adapter->zero_control(m, d);
+    // Wait briefly so linear momentum coasts to rest before the next phase.
+    if (!wait_after_phase(env, p.wait_steps, result.collision_object, skip_body, 1)) {
+        result.failure_reason = "collision during drive wait";
+        return false;
+    }
+    steps_used_total += p.wait_steps;
     return true;
 }
 
@@ -321,12 +342,13 @@ static bool rotate_in_place(
         return false;
     }
 
-    // Just zero control — no decel/settle (those caused backward sliding).
-    {
-        auto* m = env.get_mujoco_wrapper()->model();
-        auto* d = env.get_mujoco_wrapper()->data();
-        env.get_robot_adapter()->zero_control(m, d);
+    // Wait briefly so chassis rotation + caster momentum dissipate before
+    // transitioning to the next phase.
+    if (!wait_after_phase(env, p.wait_steps, result.collision_object, skip_body, phase_id)) {
+        result.failure_reason = "collision during rotation wait";
+        return false;
     }
+    steps_used_total += p.wait_steps;
 
     // Verify final heading within final tolerance
     double rx, ry, rtheta;
@@ -513,15 +535,12 @@ static bool pure_pursuit_along(
         return false;
     }
 
-    // Just zero control. Don't ramp, don't settle. The velocity-controlled
-    // wheels will brake the car naturally; any active braking from the
-    // controller during settle was dragging the car backwards because of
-    // asymmetric brake torques while the chassis still had angular momentum.
-    {
-        auto* m = env.get_mujoco_wrapper()->model();
-        auto* d = env.get_mujoco_wrapper()->data();
-        env.get_robot_adapter()->zero_control(m, d);
+    // Wait briefly for momentum to settle before completing.
+    if (!wait_after_phase(env, p.wait_steps, result.collision_object, skip_body, 1)) {
+        result.failure_reason = "collision during pursuit wait";
+        return false;
     }
+    steps_used_total += p.wait_steps;
 
     // Verify final position within final tolerance
     double rx, ry, rtheta;
