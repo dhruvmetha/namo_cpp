@@ -1685,21 +1685,12 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
             try:
                 # Get the actual model and run a dummy forward pass
                 model = self._ml_strategy._goal_model
-                if model is not None and hasattr(model, 'model'):
-                    device = self._ml_strategy.device
-                    # Create dummy input matching model's expected shape
-                    # The model expects 5 context channels: static, movable, target, reachable, goal_region
-                    context_channels = 5
-                    dummy_input = torch.randn(1, context_channels, 64, 64, device=device)
-                    with torch.no_grad():
-                        # Run full inference with actual number of steps
-                        # This ensures all CUDA kernels are compiled
-                        _ = model.model.sample_from_model(
-                            dummy_input,
-                            samples=self._default_ml_samples,  # Use actual sample count
-                            num_steps=5  # Typical DDIM steps
-                        )
-                    torch.cuda.synchronize()
+                if model is not None and hasattr(model, 'warmup'):
+                    model.warmup(
+                        samples=self._default_ml_samples,
+                        num_steps=5,  # Typical DDIM steps
+                        repeats=1,
+                    )
                 else:
                     # Fallback to simple tensor warmup
                     device = self._ml_strategy.device
