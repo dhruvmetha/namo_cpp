@@ -69,6 +69,32 @@ PYBIND11_MODULE(namo_rl, m) {
         .def("get_reachable_objects", &namo::RLEnvironment::get_reachable_objects, "Returns a list of object names that are reachable through push actions.")
         .def("is_object_reachable", &namo::RLEnvironment::is_object_reachable, py::arg("object_name"), "Returns true if the specified object is reachable through push actions.")
         .def("get_reachable_edges", &namo::RLEnvironment::get_reachable_edges, py::arg("object_name"), "Returns list of reachable edge indices (0-59) for the specified object using wavefront analysis.")
+        .def("get_reachability_summary",
+             [](const namo::RLEnvironment& env, bool analysis_mode) {
+                 auto summary = env.get_reachability_summary(analysis_mode);
+                 py::dict output;
+                 output["goal_reachable"] = summary.goal_reachable;
+                 output["analysis_mode"] = analysis_mode;
+
+                 py::dict objects;
+                 for (const auto& [name, obj] : summary.objects) {
+                     py::dict entry;
+                     entry["reachable"] = obj.reachable;
+                     entry["reachable_edges"] = obj.reachable_edges;
+                     entry["total_edges"] = obj.total_edges;
+                     entry["reachable_primitives"] = obj.reachable_primitives;
+                     entry["total_primitives"] = obj.total_primitives;
+                     if (analysis_mode) {
+                         entry["reachable_edge_indices"] = obj.reachable_edge_indices;
+                     }
+                     objects[py::str(name)] = std::move(entry);
+                 }
+                 output["objects"] = std::move(objects);
+                 return output;
+             },
+             py::arg("analysis_mode") = false,
+             "Return unified reachability from one C++ wavefront snapshot. "
+             "Includes goal reachability plus per-object edge/primitive reachability stats.")
         .def("get_object_info", &namo::RLEnvironment::get_object_info, "Returns object geometry information (sizes, positions, orientations) for all objects including static walls.")
         .def("get_world_bounds", &namo::RLEnvironment::get_world_bounds, "Returns world bounds [x_min, x_max, y_min, y_max] calculated from all objects.")
         .def("set_robot_goal", &namo::RLEnvironment::set_robot_goal, py::arg("x"), py::arg("y"), py::arg("theta") = 0.0, "Set robot goal for MCTS planning.")
@@ -140,8 +166,40 @@ PYBIND11_MODULE(namo_rl, m) {
         "Useful for streaming to encoders without materializing a full (N,H,W,3) array.")
         .def("clear_frames", &namo::RLEnvironment::clear_frames,
              "Clear captured frames to free memory.")
-        .def("get_recording_dimensions", &namo::RLEnvironment::get_recording_dimensions,
+       .def("get_recording_dimensions", &namo::RLEnvironment::get_recording_dimensions,
              "Get recording dimensions as (width, height) tuple.")
+       .def("get_region_snapshot",
+            [](const namo::RLEnvironment& env,
+               int goals_per_region,
+               double goal_radius,
+               bool local_info_only,
+               unsigned int seed,
+               bool use_xml_goal) {
+                auto snapshot = env.get_region_snapshot(
+                    goals_per_region,
+                    goal_radius,
+                    local_info_only,
+                    seed,
+                    use_xml_goal
+                );
+                py::dict out;
+                out["adjacency"] = snapshot.adjacency;
+                out["edge_objects"] = snapshot.edge_objects;
+                out["region_labels"] = snapshot.region_labels;
+                out["region_goals"] = snapshot.region_goals;
+                out["robot_label"] = snapshot.robot_label;
+                out["goal_label"] = snapshot.goal_label;
+                out["goal_reachable"] = snapshot.goal_reachable;
+                out["goal_in_free_space"] = snapshot.goal_in_free_space;
+                return out;
+            },
+            py::arg("goals_per_region") = 0,
+            py::arg("goal_radius") = 0.15,
+            py::arg("local_info_only") = false,
+            py::arg("seed") = 42,
+            py::arg("use_xml_goal") = true,
+            "Return one unified C++ wavefront snapshot: region connectivity, sampled goals, "
+            "robot/goal labels, and goal reachability flags.")
        .def("get_region_connectivity", &namo::RLEnvironment::get_region_connectivity,
            "Return region adjacency, boundary objects, and region labels from the wavefront grid.")
        .def("sample_region_goals", &namo::RLEnvironment::sample_region_goals,

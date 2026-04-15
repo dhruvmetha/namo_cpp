@@ -18,7 +18,7 @@ DEFAULT_CAMERA_DISTANCE = 15.0
 DEFAULT_CAMERA_AZIMUTH = 0.0
 DEFAULT_CAMERA_ELEVATION = -90.0
 from namo.core import BasePlanner, PlannerConfig, PlannerResult
-from namo.planners.connectivity_snapshot import snapshot_region_connectivity, find_robot_label
+from namo.planners.connectivity_snapshot import find_robot_label
 from namo.strategies import (
     PrimitiveGoalStrategy,
     Goal,
@@ -243,6 +243,13 @@ class RegionOpeningPlanner(BasePlanner):
         if timeout_sec is not None and timeout_sec <= 0:
             timeout_sec = None
         self.timeout_per_neighbour_sec = timeout_sec
+
+        # Unified wavefront snapshot backend:
+        # - True: prefer C++ `env.get_region_snapshot(...)`
+        # - False: fallback to Python snapshot exporter
+        self.use_cpp_unified_wavefront = algo_params.get("region_use_cpp_unified_wavefront", True)
+        self.region_snapshot_seed = int(algo_params.get("region_snapshot_seed", 42))
+        self.region_goal_radius_m = float(algo_params.get("region_goal_radius_m", 0.15))
 
         # ML blacklist override: when True, ML-scored primitives bypass the
         # edge blacklist built during pre-ML exhaustive phase. This allows
@@ -739,25 +746,26 @@ class RegionOpeningPlanner(BasePlanner):
         # Set environment to exploration state
         self.env.set_full_state(state)
 
-        # Get region connectivity and goals from snapshot
-        # use_current_state=True ensures snapshot uses current object positions (not initial XML state)
-        # and always uses XML goal (not whatever was last set via set_robot_goal during validation)
-        xml_path = self.env.get_xml_path()
-        config_path = self.env.get_config_path()
-        adjacency, edge_objects, region_labels, region_goals, _ = snapshot_region_connectivity(
+        # Get unified region connectivity + sampled goals from one wavefront source.
+        from namo.planners import get_region_snapshot as _get_region_snapshot
+
+        snapshot = _get_region_snapshot(
             self.env,
-            xml_path,
-            config_path,
-            include_snapshot=False,
-            local_info_only=True,
             goals_per_region=self.config.goals_per_region,
-            generate_training_data=True,
-            use_current_state=True,
+            goal_radius=self.region_goal_radius_m,
+            local_info_only=True,
+            seed=self.region_snapshot_seed,
+            use_cpp_unified=self.use_cpp_unified_wavefront,
+            use_xml_goal=True,
         )
+        adjacency = snapshot["adjacency"]
+        edge_objects = snapshot["edge_objects"]
+        region_labels = snapshot["region_labels"]
+        region_goals = snapshot["region_goals"]
 
         # Identify robot region
-        robot_label = find_robot_label(region_labels)
-        if robot_label is None:
+        robot_label = snapshot.get("robot_label") or find_robot_label(region_labels)
+        if not robot_label:
             if self.config.verbose:
                 print(f"  ⚠ Could not identify robot region")
             return []

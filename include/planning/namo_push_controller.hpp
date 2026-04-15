@@ -104,6 +104,7 @@ private:
     double force_scaling_;
     int points_per_edge_;
     std::array<double, 3> robot_size_;
+    double push_offset_margin_ = 0.02;  // Additional offset beyond robot radius for spawn points
     bool check_object_collision_ = true;
     int stuck_ctrl_iterations_threshold_ = 3;   // controller-level stuck threshold (checks)
     int last_stuck_counter_ = 0;             // last observed stuck counter (for diagnostics)
@@ -239,6 +240,14 @@ public:
     void set_collision_checking(bool enabled) {
         check_object_collision_ = enabled;
     }
+
+    /**
+     * @brief Set push offset margin (additional distance beyond robot radius)
+     */
+    void set_push_offset_margin(double margin) {
+        push_offset_margin_ = margin;
+    }
+    double get_push_offset_margin() const { return push_offset_margin_; }
 
     /**
      * @brief Get whether wall was hit during last push

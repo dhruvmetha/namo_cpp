@@ -88,6 +88,7 @@ public:
     std::vector<std::string> get_reachable_objects() const;
     bool is_object_reachable(const std::string& object_name) const;
     std::vector<int> get_reachable_edges(const std::string& object_name) const;
+    MPCExecutor::ReachabilitySnapshot get_reachability_snapshot() const;
 
     /**
      * @brief Robot goal management for MCTS (leverages cached wavefront)

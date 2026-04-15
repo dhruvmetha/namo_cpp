@@ -91,8 +91,8 @@ void NAMOPushController::generate_rectangular_edge_points(const std::array<doubl
     double d = obj_size[1];  // depth with margin
 
     
-    // Robot offset for close contact pushing
-    double offset = robot_size_[0] + 0.02; // offset = 0.02
+    // Robot offset for close contact pushing (robot radius + configurable margin)
+    double offset = robot_size_[0] + push_offset_margin_;
     
     int n = points_per_edge_;
     double eps_u = std::min(0.05, 0.25 * w);  // margin from corners

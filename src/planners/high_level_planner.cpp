@@ -15,7 +15,8 @@ HighLevelPlanner::HighLevelPlanner(NAMOEnvironment& env,
     // Create separate wavefront planner for high-level reachability analysis
     // This is independent of the skill's internal planner
     high_level_wavefront_ = std::make_unique<WavefrontPlanner>(
-        0.02, environment_, config_->get_robot_size()  // Force 0.02m resolution
+        0.02, environment_, config_->get_robot_size(),
+        config_->planning().wavefront_tier1_inflation_margin  // Force 0.02m resolution
     );
     
     // Create push skill for object manipulation with configuration
@@ -176,14 +177,16 @@ std::vector<std::string> HighLevelPlanner::computeReachableObjects() {
         
         // Sample edge points around object (using configuration)
         bool object_reachable = false;
-        int num_edge_points = config_->skill().num_edge_points;
-        double clearance = config_->skill().object_clearance;
         
         // Generate 12 edge points using rectangular pattern (matching push controller)
         // Object dimensions (MuJoCo sizes are half-extents)
         double w = obj_width - 0.05;   // half-width with margin  
         double d = obj_height - 0.05;  // half-height with margin
-        double offset = 0.15 + 0.1; // clearance;     // robot offset for reachability
+        double robot_radius = 0.15;
+        if (config_->planning().robot_size.size() >= 1) {
+            robot_radius = config_->planning().robot_size[0];
+        }
+        double offset = robot_radius + config_->planning().wavefront_edge_offset_margin;
         
         // 12 rectangular edge points (same pattern as push controller)
         std::array<std::array<double, 2>, 12> local_edge_points = {{
@@ -225,9 +228,9 @@ std::vector<std::string> HighLevelPlanner::computeReachableObjects() {
                     reachable_edge_count++;
                 }
                 
-                // DEBUG: Mark edge point in wavefront for visualization
-                // Use -3 for reachable edges, -4 for unreachable edges
-                high_level_wavefront_->get_mutable_grid()[grid_x][grid_y] = edge_reachable ? -3 : -4;
+                // Do not mutate the live wavefront grid for visualization.
+                // Keeping canonical values (-1 obstacle, 0 unreachable, 1 reachable)
+                // avoids order-dependent side effects during reachability checks.
             }
         }
         
@@ -283,7 +286,8 @@ void HighLevelPlanner::updateConfig(std::shared_ptr<ConfigManager> new_config) {
     
     // Recreate wavefront planner with new configuration
     high_level_wavefront_ = std::make_unique<WavefrontPlanner>(
-        config_->get_high_level_resolution(), environment_, config_->get_robot_size()
+        config_->get_high_level_resolution(), environment_, config_->get_robot_size(),
+        config_->planning().wavefront_tier1_inflation_margin
     );
     updateHighLevelWavefront();
 }
