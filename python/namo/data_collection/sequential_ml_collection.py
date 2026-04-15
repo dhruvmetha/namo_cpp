@@ -154,48 +154,18 @@ def preload_ml_models(config: ModularCollectionConfig) -> Tuple[Optional[Any], O
         print(f"🔥 Warming up goal model (compiling CUDA kernels)...")
         warmup_start = time.time()
         try:
-            import torch
             num_samples = algo_params.get("ml_samples", 32)
             num_steps = algo_params.get("ml_num_steps") or 20
 
-            # Check if this is an SE2 model (outputs pose vectors) vs image model
-            is_se2_model = getattr(goal_model, 'is_se2_model', False)
-
-            if is_se2_model:
-                # SE2 models use sample_pose() with image context input
-                # Input: (batch=1, channels=5 or 7, height=224, width=224)
-                context_size = 224
-                num_channels = 7 if getattr(goal_model, 'use_coord_grid', False) else 5
-                dummy_input = torch.zeros(1, num_channels, context_size, context_size, device=device)
-
-                for i in range(3):
-                    with torch.no_grad():
-                        _ = goal_model.model.sample_pose(
-                            dummy_input,
-                            num_samples=num_samples,
-                            num_steps=num_steps,
-                            denormalize=True
-                        )
-            else:
-                # Image-based models use sample_from_model()
-                context_size = getattr(goal_model, 'context_size', 64)
-                dummy_input = torch.zeros(1, 5, context_size, context_size, device=device)
-
-                for i in range(3):
-                    with torch.no_grad():
-                        _ = goal_model.model.sample_from_model(
-                            dummy_input,
-                            samples=num_samples,
-                            num_steps=num_steps,
-                            seed=ml_seed
-                        )
-
-            # Synchronize CUDA to ensure all operations complete
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
+            goal_model.warmup(
+                samples=num_samples,
+                num_steps=num_steps,
+                seed=ml_seed,
+                repeats=3,
+            )
 
             warmup_time = time.time() - warmup_start
-            model_type = "SE2 pose" if is_se2_model else "image"
+            model_type = "SE2 pose" if getattr(goal_model, 'is_se2_model', False) else "image"
             print(f"✅ Goal model ({model_type}) warmed up in {warmup_time:.2f}s ({num_samples} samples x 3 runs)")
         except Exception as e:
             print(f"⚠️ Warmup failed (will warmup on first real inference): {e}")
