@@ -327,6 +327,14 @@ PushPrimitiveExecutor::ReachabilitySnapshot NAMOPushSkill::get_reachability_snap
     return const_cast<PushPrimitiveExecutor*>(executor_.get())->compute_reachability_snapshot();
 }
 
+MPCExecutor::ReachabilitySnapshot NAMOPushSkill::get_reachability_snapshot() const {
+    if (!executor_) {
+        return MPCExecutor::ReachabilitySnapshot{};
+    }
+    // executor methods are non-const because they refresh internal wavefront caches.
+    return const_cast<MPCExecutor*>(executor_.get())->compute_reachability_snapshot();
+}
+
 std::vector<std::string> NAMOPushSkill::get_reachable_objects() const {
     std::vector<std::string> reachable_objects;
 
