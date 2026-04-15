@@ -6,6 +6,7 @@
 #include "wavefront/wavefront_planner.hpp"
 #include <memory>
 #include <map>
+#include <unordered_map>
 
 namespace namo {
 
@@ -51,6 +52,16 @@ private:
     std::array<double, 2> robot_goal_;
     
 public:
+    struct ReachableEdgesResult {
+        std::vector<int> edge_indices;
+        int total_edge_points = 0;
+    };
+
+    struct ReachabilitySnapshot {
+        bool goal_reachable = false;
+        std::map<std::string, ReachableEdgesResult> object_edges;
+    };
+
     /**
      * @brief Constructor with default hardcoded values
      * 
@@ -64,6 +75,7 @@ public:
      * @param env Reference to NAMO environment
      * @param resolution Wavefront planning resolution
      * @param robot_size Robot size for wavefront inflation
+     * @param wavefront_tier1_inflation_margin Wavefront tier-1 inflation margin
      * @param max_push_steps Max push steps per primitive
      * @param control_steps_per_push Control steps per push
      * @param force_scaling Force scaling factor
@@ -71,6 +83,7 @@ public:
      * @param check_object_collision Enable object collision checking during push
      */
     MPCExecutor(NAMOEnvironment& env, double resolution, const std::vector<double>& robot_size,
+                double wavefront_tier1_inflation_margin,
                 int max_push_steps, int control_steps_per_push, double force_scaling, int points_per_face = 3,
                 bool check_object_collision = true);
     
@@ -167,6 +180,21 @@ public:
     std::vector<int> get_reachable_edges_with_wavefront(const std::string& object_name);
 
     /**
+     * @brief Update wavefront and get detailed reachable-edge stats for one object.
+     */
+    ReachableEdgesResult get_reachable_edges_with_wavefront_detailed(const std::string& object_name);
+
+    /**
+     * @brief Update wavefront once and get detailed reachable-edge stats for all movable objects.
+     */
+    std::map<std::string, ReachableEdgesResult> get_reachable_edges_for_all_objects_with_wavefront();
+
+    /**
+     * @brief Compute one unified reachability snapshot from a single wavefront update.
+     */
+    ReachabilitySnapshot compute_reachability_snapshot();
+
+    /**
      * @brief Evaluate geometric transport priorities for primitive target poses
      * @param env Environment reference
      * @param object_name Object to evaluate
@@ -186,6 +214,17 @@ public:
     std::map<std::string, double> get_last_priority_profile() const;
 
 private:
+    /**
+     * @brief Update internal wavefront using current robot state.
+     */
+    bool update_wavefront_from_robot_position();
+
+    /**
+     * @brief Read reachable-edge stats from current cached wavefront.
+     * @note Assumes wavefront already updated for current state.
+     */
+    ReachableEdgesResult get_reachable_edges_from_current_wavefront(const std::string& object_name);
+
     
     /**
      * @brief Check if object has reached the target state

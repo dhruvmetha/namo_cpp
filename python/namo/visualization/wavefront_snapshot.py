@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
@@ -99,6 +100,7 @@ class WavefrontSnapshot:
     xml_path: str
     config_path: str
     robot_half_extent: Tuple[float, float]
+    tier1_inflation_margin_m: float
     region_goals: Dict[str, RegionGoalBundle]
     movable_objects: List[MovableObjectRecord]
 
@@ -112,6 +114,7 @@ class WavefrontSnapshot:
             "robot_pose": self.robot_pose,
             "goal_pose": self.goal_pose,
             "robot_half_extent": self.robot_half_extent,
+            "tier1_inflation_margin_m": self.tier1_inflation_margin_m,
             "region_labels": {str(idx): label for idx, label in self.region_labels.items()},
             "adjacency": {region: sorted(neighbors) for region, neighbors in self.adjacency.items()},
             "adjacency_objects": {
@@ -128,6 +131,7 @@ class WavefrontSnapshot:
                 for region, bundle in self.region_goals.items()
             },
             "movable_objects": [record.to_json() for record in self.movable_objects],
+            "occupancy_encoding": {"occupied": -1, "free": 0},
         }
 
     def save(self, output_dir: Path, prefix: str = "snapshot") -> Dict[str, Path]:
@@ -159,23 +163,21 @@ class WavefrontSnapshotExporter:
 
     # Match the fixed resolution used by the C++ implementation
     DEFAULT_RESOLUTION: float = 0.01
-    INFLATION_EPSILON: float = 0.005
-    # Skip "regions" smaller than this many cells — sub-robot-footprint, can't host the car.
-    MIN_REGION_CELLS: int = 8
+    DEFAULT_TIER1_INFLATION_MARGIN_M: float = 0.005
     NEIGHBOR_OFFSETS: Tuple[Tuple[int, int], ...] = (
         (-1, -1), (-1, 0), (-1, 1),
         (0, -1),            (0, 1),
         (1, -1),  (1, 0),   (1, 1),
     )
 
-    def __init__(self, env: Any, resolution: Optional[float] = None,
-                 robot_half_extent_override: Optional[Tuple[float, float]] = None) -> None:
+    def __init__(self, env: Any, resolution: Optional[float] = None) -> None:
         self._env = env
         self.resolution = resolution or self.DEFAULT_RESOLUTION
+        self.tier1_inflation_margin_m = self._load_tier1_inflation_margin_from_env()
         bounds_sequence = cast(Sequence[float], self._env.get_world_bounds())
         if len(bounds_sequence) != 4:
             raise ValueError("World bounds must contain [xmin, xmax, ymin, ymax]")
-        bounds: Tuple[float, float, float, float] = (
+        self.bounds: Tuple[float, float, float, float] = (
             float(bounds_sequence[0]),
             float(bounds_sequence[1]),
             float(bounds_sequence[2]),
@@ -186,67 +188,100 @@ class WavefrontSnapshotExporter:
         if "robot" not in object_info:
             raise ValueError("Environment did not provide robot geometry via get_object_info()")
 
-        if robot_half_extent_override is not None:
-            robot_half_extent = (float(robot_half_extent_override[0]),
-                                 float(robot_half_extent_override[1]))
-        else:
-            robot_info = object_info["robot"]
-            robot_half_extent = (
-                float(robot_info.get("size_x", 0.25)),
-                float(robot_info.get("size_y", 0.25)),
-            )
+        robot_info = object_info["robot"]
+        self.robot_half_extent = (
+            float(robot_info.get("size_x", 0.25)),
+            float(robot_info.get("size_y", 0.25)),
+        )
 
-        static_objects = self._build_static_objects(object_info)
-        movable_templates = self._build_movable_templates(object_info)
+        self.static_objects = self._build_static_objects(object_info)
+        self.movable_templates = self._build_movable_templates(object_info)
 
-        self._init_from_data(bounds, robot_half_extent, static_objects, movable_templates)
-        self._preset_robot_pose = None
-        self._preset_goal_pose = None
-        self._preset_movables = None
-
-    @classmethod
-    def from_geometry(
-        cls,
-        *,
-        bounds: Tuple[float, float, float, float],
-        robot_half_extent: Tuple[float, float],
-        static_objects: Sequence["ObjectInstance"],
-        movable_templates: Dict[str, "ObjectTemplate"],
-        movable_instances: Sequence["ObjectInstance"],
-        robot_pose: Tuple[float, float, float],
-        goal_pose: Optional[Tuple[float, float, float]],
-        resolution: Optional[float] = None,
-    ) -> "WavefrontSnapshotExporter":
-        """Construct without a running namo_rl env. Used by env-generation pipelines
-        that already know every piece of geometry (since they just produced it).
-
-        The build_snapshot() output is identical to the env-backed path for the
-        same world state — the same _build_grids / _compute_regions /
-        _build_connectivity logic runs, just sourced from explicit args instead
-        of env queries.
-        """
-        instance = cls.__new__(cls)
-        instance._env = None
-        instance.resolution = resolution or cls.DEFAULT_RESOLUTION
-        instance._init_from_data(bounds, robot_half_extent, static_objects, movable_templates)
-        instance._preset_robot_pose = robot_pose
-        instance._preset_goal_pose = goal_pose
-        instance._preset_movables = list(movable_instances)
-        return instance
-
-    def _init_from_data(
-        self,
-        bounds: Tuple[float, float, float, float],
-        robot_half_extent: Tuple[float, float],
-        static_objects: Sequence["ObjectInstance"],
-        movable_templates: Dict[str, "ObjectTemplate"],
-    ) -> None:
-        self.bounds = bounds
-        self.robot_half_extent = robot_half_extent
-        self.static_objects = list(static_objects)
-        self.movable_templates = dict(movable_templates)
         self.grid_width = max(1, int((self.bounds[1] - self.bounds[0]) / self.resolution))
         self.grid_height = max(1, int((self.bounds[3] - self.bounds[2]) / self.resolution))
+
+    @classmethod
+    def _resolve_wavefront_yaml_path(cls, primary_config_path: Union[str, Path]) -> Optional[Path]:
+        primary_path = Path(primary_config_path).expanduser().resolve()
+
+        direct_candidate = primary_path.parent / "wavefront_inflation.yaml"
+        if direct_candidate.exists():
+            return direct_candidate
+
+        cursor = primary_path.parent
+        while True:
+            candidate = cursor / "config" / "wavefront_inflation.yaml"
+            if candidate.exists():
+                return candidate
+            if cursor.parent == cursor:
+                break
+            cursor = cursor.parent
+
+        return None
+
+    @classmethod
+    def _extract_tier1_margin_from_yaml(cls, wavefront_yaml_path: Path) -> Optional[float]:
+        # Lightweight parser for the expected config schema:
+        # tier1:
+        #   base_inflation_margin_m: <float>
+        in_tier1 = False
+        for raw_line in wavefront_yaml_path.read_text(encoding="utf-8").splitlines():
+            content = raw_line.split("#", 1)[0].rstrip()
+            stripped = content.strip()
+            if not stripped:
+                continue
+
+            indent = len(content) - len(content.lstrip(" "))
+
+            if indent == 0 and stripped.endswith(":"):
+                in_tier1 = stripped[:-1].strip() == "tier1"
+                continue
+
+            if not in_tier1:
+                continue
+
+            if indent == 0:
+                in_tier1 = False
+                continue
+
+            match = re.match(r"^base_inflation_margin_m\s*:\s*([^\s]+)$", stripped)
+            if match:
+                try:
+                    value = float(match.group(1))
+                except ValueError:
+                    return None
+                return value if value >= 0.0 else None
+
+        return None
+
+    @classmethod
+    def _load_tier1_inflation_margin(
+        cls,
+        primary_config_path: Optional[Union[str, Path]],
+    ) -> float:
+        if not primary_config_path:
+            return cls.DEFAULT_TIER1_INFLATION_MARGIN_M
+
+        try:
+            wavefront_yaml_path = cls._resolve_wavefront_yaml_path(primary_config_path)
+            if wavefront_yaml_path is None:
+                return cls.DEFAULT_TIER1_INFLATION_MARGIN_M
+            parsed_margin = cls._extract_tier1_margin_from_yaml(wavefront_yaml_path)
+            if parsed_margin is None:
+                return cls.DEFAULT_TIER1_INFLATION_MARGIN_M
+            return parsed_margin
+        except Exception:
+            return cls.DEFAULT_TIER1_INFLATION_MARGIN_M
+
+    def _load_tier1_inflation_margin_from_env(self) -> float:
+        get_config_path = getattr(self._env, "get_config_path", None)
+        if callable(get_config_path):
+            try:
+                config_path = get_config_path()
+                return self._load_tier1_inflation_margin(config_path)
+            except Exception:
+                return self.DEFAULT_TIER1_INFLATION_MARGIN_M
+        return self.DEFAULT_TIER1_INFLATION_MARGIN_M
 
     # ------------------------------------------------------------------
     # Public API
@@ -267,45 +302,40 @@ class WavefrontSnapshotExporter:
                               Useful for multi-level exploration where state was set via set_full_state().
         """
 
-        if self._env is None:
-            # from_geometry path — caller pre-supplied poses; skip env queries.
-            robot_pose = self._preset_robot_pose
-            goal_pose = self._preset_goal_pose
-            movable_instances = list(self._preset_movables or [])
-        else:
-            if not use_current_state:
-                self._env.reset()
-            observation = self._env.get_observation()
-            robot_pose = tuple(observation.get("robot_pose", [0.0, 0.0, 0.0]))  # type: ignore
+        if not use_current_state:
+            self._env.reset()
 
-            # Always use XML goal for consistency across snapshots
-            goal_pose_xml = self._extract_goal_pose_from_xml(xml_path)
-            goal_pose = goal_pose_xml
+        # Keep visualization inflation synchronized with C++ runtime wavefront config.
+        self.tier1_inflation_margin_m = self._load_tier1_inflation_margin(config_path)
 
-            if goal_pose is None:
-                # Fallback to env goal only if XML goal not found
-                goal_pose_env = tuple(self._env.get_robot_goal()) if hasattr(self._env, "get_robot_goal") else None
-                goal_pose = goal_pose_env
+        observation = self._env.get_observation()
+        robot_pose = tuple(observation.get("robot_pose", [0.0, 0.0, 0.0]))  # type: ignore
 
-            movable_instances = self._instantiate_movable_objects(observation)
+        # Always use XML goal for consistency across snapshots
+        goal_pose_xml = self._extract_goal_pose_from_xml(xml_path)
+        goal_pose = goal_pose_xml
+
+        if goal_pose is None:
+            # Fallback to env goal only if XML goal not found
+            goal_pose_env = tuple(self._env.get_robot_goal()) if hasattr(self._env, "get_robot_goal") else None
+            goal_pose = goal_pose_env
+
+        movable_instances = self._instantiate_movable_objects(observation)
 
         grids = self._build_grids(self.static_objects, movable_instances)
 
-        # Clear obstacle cells in a 3×3 around the robot's actual cell. Only when
-        # we have a real robot pose (env-backed path); gen-time uses None to
-        # avoid fusing regions via a placeholder pose.
-        if robot_pose is not None:
-            robot_cell = (
-                self._clamp_grid_x(self._world_to_grid_x(robot_pose[0])),
-                self._clamp_grid_y(self._world_to_grid_y(robot_pose[1])),
-            )
-            for nx, ny in self._neighbors_including_center(*robot_cell):
-                if not self._valid_coord(nx, ny):
-                    continue
-                if grids["dynamic"][nx, ny] == -2:
-                    grids["dynamic"][nx, ny] = -1
-                if grids["static"][nx, ny] == -2:
-                    grids["static"][nx, ny] = -1
+        robot_cell = (
+            self._clamp_grid_x(self._world_to_grid_x(robot_pose[0])),
+            self._clamp_grid_y(self._world_to_grid_y(robot_pose[1])),
+        )
+
+        for nx, ny in self._neighbors_including_center(*robot_cell):
+            if not self._valid_coord(nx, ny):
+                continue
+            if grids["dynamic"][nx, ny] == -1:
+                grids["dynamic"][nx, ny] = 0
+            if grids["static"][nx, ny] == -1:
+                grids["static"][nx, ny] = 0
 
         goal_cells = self._goal_cells(goal_pose, goal_radius)
         region_map, region_labels = self._compute_regions(grids["dynamic"], robot_pose, goal_cells)
@@ -354,6 +384,7 @@ class WavefrontSnapshotExporter:
             xml_path=xml_path,
             config_path=config_path,
             robot_half_extent=self.robot_half_extent,
+            tier1_inflation_margin_m=self.tier1_inflation_margin_m,
             region_goals=region_goals,
             movable_objects=movable_metadata,
         )
@@ -367,12 +398,12 @@ class WavefrontSnapshotExporter:
         movable_objects: Sequence[ObjectInstance],
     ) -> Dict[str, GridArray]:
         shape = (self.grid_width, self.grid_height)
-        uninflated = np.full(shape, -1, dtype=np.int16)
-        static_grid = np.full(shape, -1, dtype=np.int16)
-        dynamic_grid = np.full(shape, -1, dtype=np.int16)
+        uninflated = np.full(shape, 0, dtype=np.int16)
+        static_grid = np.full(shape, 0, dtype=np.int16)
+        dynamic_grid = np.full(shape, 0, dtype=np.int16)
 
-        inflate_x = self.robot_half_extent[0] + self.INFLATION_EPSILON
-        inflate_y = self.robot_half_extent[1] + self.INFLATION_EPSILON
+        inflate_x = self.robot_half_extent[0] + self.tier1_inflation_margin_m
+        inflate_y = self.robot_half_extent[1] + self.tier1_inflation_margin_m
 
         # Rasterise static objects
         for instance in static_objects:
@@ -481,7 +512,7 @@ class WavefrontSnapshotExporter:
                 local_y = -dx * sin_a + dy * cos_a
 
                 if abs(local_x) <= half_w and abs(local_y) <= half_h:
-                    grid[gx, gy] = -2
+                    grid[gx, gy] = -1
 
     # ------------------------------------------------------------------
     # Region computation
@@ -489,7 +520,7 @@ class WavefrontSnapshotExporter:
     def _compute_regions(
         self,
         dynamic_grid: GridArray,
-        robot_pose: Optional[Tuple[float, float, float]],
+        robot_pose: Tuple[float, float, float],
         goal_cells: Set[Tuple[int, int]],
     ) -> Tuple[GridArray, Dict[int, str]]:
         region_map = np.zeros_like(dynamic_grid, dtype=np.int32)
@@ -499,7 +530,7 @@ class WavefrontSnapshotExporter:
 
         def bfs(seed: Tuple[int, int]) -> List[Tuple[int, int]]:
             sx, sy = seed
-            if visited[sx, sy] or dynamic_grid[sx, sy] == -2:
+            if visited[sx, sy] or dynamic_grid[sx, sy] == -1:
                 return []
 
             queue: deque[Tuple[int, int]] = deque([seed])
@@ -515,7 +546,7 @@ class WavefrontSnapshotExporter:
                     ny = y + dy
                     if nx < 0 or nx >= width or ny < 0 or ny >= height:
                         continue
-                    if visited[nx, ny] or dynamic_grid[nx, ny] == -2:
+                    if visited[nx, ny] or dynamic_grid[nx, ny] == -1:
                         continue
                     visited[nx, ny] = True
                     queue.append((nx, ny))
@@ -542,7 +573,7 @@ class WavefrontSnapshotExporter:
                 continue
             cell = (gx, gy)
             valid_goal_cells.add(cell)
-            if dynamic_grid[cell] == -2:
+            if dynamic_grid[cell] == -1:
                 blocked_goal_cells.add(cell)
             else:
                 free_goal_cells.add(cell)
@@ -550,25 +581,24 @@ class WavefrontSnapshotExporter:
         region_labels: Dict[int, str] = {}
         region_id = 1
 
+        robot_cell = (
+            self._clamp_grid_x(self._world_to_grid_x(robot_pose[0])),
+            self._clamp_grid_y(self._world_to_grid_y(robot_pose[1])),
+        )
+
         robot_region: List[Tuple[int, int]] = []
         robot_region_set: Set[Tuple[int, int]] = set()
-        if robot_pose is not None:
-            robot_cell = (
-                self._clamp_grid_x(self._world_to_grid_x(robot_pose[0])),
-                self._clamp_grid_y(self._world_to_grid_y(robot_pose[1])),
-            )
+        if dynamic_grid[robot_cell] != -1:
+            robot_region = bfs(robot_cell)
+            robot_region_set = set(robot_region)
+            for gx, gy in robot_region:
+                region_map[gx, gy] = region_id
 
-            if dynamic_grid[robot_cell] != -2:
-                robot_region = bfs(robot_cell)
-                robot_region_set = set(robot_region)
-                for gx, gy in robot_region:
-                    region_map[gx, gy] = region_id
-
-                if valid_goal_cells and any(cell in robot_region_set for cell in free_goal_cells):
-                    region_labels[region_id] = "robot_goal"
-                else:
-                    region_labels[region_id] = "robot"
-                region_id += 1
+            if valid_goal_cells and any(cell in robot_region_set for cell in free_goal_cells):
+                region_labels[region_id] = "robot_goal"
+            else:
+                region_labels[region_id] = "robot"
+            region_id += 1
 
         goal_region_cells: List[Tuple[int, int]] = []
         if valid_goal_cells and free_goal_cells and not (robot_region_set & free_goal_cells):
@@ -587,13 +617,10 @@ class WavefrontSnapshotExporter:
         # Remaining free space regions (excluding border-touching components)
         for gx in range(width):
             for gy in range(height):
-                if visited[gx, gy] or dynamic_grid[gx, gy] == -2:
+                if visited[gx, gy] or dynamic_grid[gx, gy] == -1:
                     continue
                 region_cells = bfs((gx, gy))
                 if not region_cells or touches_border(region_cells):
-                    continue
-                # Skip tiny regions — they can't host the robot footprint.
-                if len(region_cells) < self.MIN_REGION_CELLS:
                     continue
                 for cell in region_cells:
                     region_map[cell] = region_id
@@ -616,8 +643,8 @@ class WavefrontSnapshotExporter:
         edge_objects: Dict[str, Dict[str, Set[str]]] = {
             label: {} for label in region_labels.values()
         }
-        inflate_x = self.robot_half_extent[0] + self.INFLATION_EPSILON
-        inflate_y = self.robot_half_extent[1] + self.INFLATION_EPSILON
+        inflate_x = self.robot_half_extent[0] + self.tier1_inflation_margin_m
+        inflate_y = self.robot_half_extent[1] + self.tier1_inflation_margin_m
         neighbor_offsets = self.NEIGHBOR_OFFSETS
 
         for instance in movable_objects:
@@ -631,8 +658,8 @@ class WavefrontSnapshotExporter:
 
             removed_cells: List[Tuple[int, int]] = []
             for cell in footprint:
-                if dynamic_grid[cell] == -2:
-                    dynamic_grid[cell] = -1
+                if dynamic_grid[cell] == -1:
+                    dynamic_grid[cell] = 0
                     removed_cells.append(cell)
 
             if not removed_cells:
@@ -651,7 +678,7 @@ class WavefrontSnapshotExporter:
                     ny = y + dy
                     if nx < 0 or nx >= self.grid_width or ny < 0 or ny >= self.grid_height:
                         continue
-                    if dynamic_grid[nx, ny] == -2:
+                    if dynamic_grid[nx, ny] == -1:
                         continue
                     neighbor = (nx, ny)
                     if neighbor in visited:
@@ -677,7 +704,7 @@ class WavefrontSnapshotExporter:
                         edge_objects.setdefault(label_b, {}).setdefault(label_a, set()).add(instance.name)
 
             for cell in removed_cells:
-                dynamic_grid[cell] = -2
+                dynamic_grid[cell] = -1
 
         return adjacency, edge_objects
 
@@ -935,70 +962,3 @@ class WavefrontSnapshotExporter:
     def _yaw_to_quaternion(theta: float) -> Tuple[float, float, float, float]:
         half_theta = 0.5 * theta
         return (math.cos(half_theta), 0.0, 0.0, math.sin(half_theta))
-
-    # ------------------------------------------------------------------
-    # Cell sampling helpers (used by env-generation placement code)
-    # ------------------------------------------------------------------
-    def sample_cell_in_region(
-        self,
-        region_label: str,
-        region_map: "GridArray",
-        region_labels: Dict[int, str],
-        rng: Optional[np.random.Generator] = None,
-    ) -> Optional[Tuple[float, float]]:
-        """Return world coords of a random cell in `region_label`, or None if empty."""
-        generator = rng or np.random.default_rng()
-        region_id = next((rid for rid, lab in region_labels.items() if lab == region_label), None)
-        if region_id is None:
-            return None
-        cells = np.argwhere(region_map == region_id)
-        if cells.size == 0:
-            return None
-        idx = generator.choice(cells.shape[0])
-        gx, gy = int(cells[idx][0]), int(cells[idx][1])
-        return (self._grid_to_world_x(gx) + 0.5 * self.resolution,
-                self._grid_to_world_y(gy) + 0.5 * self.resolution)
-
-    def check_cell_clearance(
-        self,
-        grid_pos: Tuple[int, int],
-        clearance_radius: float,
-        dynamic_grid: "GridArray",
-    ) -> bool:
-        """All cells within `clearance_radius` (world units) of grid_pos are non-obstacle and in-bounds."""
-        gx, gy = grid_pos
-        clearance_cells = int(math.ceil(clearance_radius / self.resolution))
-        for dx in range(-clearance_cells, clearance_cells + 1):
-            for dy in range(-clearance_cells, clearance_cells + 1):
-                nx, ny = gx + dx, gy + dy
-                if nx < 0 or nx >= self.grid_width or ny < 0 or ny >= self.grid_height:
-                    return False
-                if dynamic_grid[nx, ny] == -2:
-                    return False
-        return True
-
-    def sample_cell_with_clearance(
-        self,
-        region_label: str,
-        region_map: "GridArray",
-        region_labels: Dict[int, str],
-        dynamic_grid: "GridArray",
-        clearance_radius: float,
-        rng: Optional[np.random.Generator] = None,
-        max_attempts: int = 100,
-    ) -> Optional[Tuple[float, float]]:
-        """Random cell in `region_label` whose clearance disc is obstacle-free, or None after `max_attempts`."""
-        generator = rng or np.random.default_rng()
-        region_id = next((rid for rid, lab in region_labels.items() if lab == region_label), None)
-        if region_id is None:
-            return None
-        cells = np.argwhere(region_map == region_id)
-        if cells.size == 0:
-            return None
-        for _ in range(max_attempts):
-            idx = generator.choice(cells.shape[0])
-            gx, gy = int(cells[idx][0]), int(cells[idx][1])
-            if self.check_cell_clearance((gx, gy), clearance_radius, dynamic_grid):
-                return (self._grid_to_world_x(gx) + 0.5 * self.resolution,
-                        self._grid_to_world_y(gy) + 0.5 * self.resolution)
-        return None

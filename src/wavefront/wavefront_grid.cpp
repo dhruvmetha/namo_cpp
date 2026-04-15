@@ -11,8 +11,11 @@
 namespace namo {
 
 WavefrontGrid::WavefrontGrid(NAMOEnvironment& env,
-                             const std::vector<double>& robot_size)
-    : resolution_(kResolution), robot_size_(robot_size) {
+                             const std::vector<double>& robot_size,
+                             double tier1_inflation_margin)
+    : resolution_(kResolution),
+      robot_size_(robot_size),
+      tier1_inflation_margin_(tier1_inflation_margin) {
     
     // Get environment bounds
     bounds_ = env.get_environment_bounds();
@@ -20,9 +23,9 @@ WavefrontGrid::WavefrontGrid(NAMOEnvironment& env,
     grid_height_ = static_cast<int>((bounds_[3] - bounds_[2]) / resolution_);
     
     // Allocate grids
-    uninflated_grid_.resize(grid_width_, std::vector<int>(grid_height_, -1));
-    static_grid_.resize(grid_width_, std::vector<int>(grid_height_, -1));
-    dynamic_grid_.resize(grid_width_, std::vector<int>(grid_height_, -1));
+    uninflated_grid_.resize(grid_width_, std::vector<int>(grid_height_, 0));
+    static_grid_.resize(grid_width_, std::vector<int>(grid_height_, 0));
+    dynamic_grid_.resize(grid_width_, std::vector<int>(grid_height_, 0));
     
     // Build initial occupancy grids (uninflated + inflated)
     rebuild_grids(env);
@@ -45,8 +48,8 @@ void WavefrontGrid::rebuild_grids(NAMOEnvironment& env) {
     const auto& movable_objects = env.get_movable_objects();
     const size_t num_static = env.get_num_static();
     const size_t num_movable = env.get_num_movable();
-    const double inflate_x = robot_size_[0] + 0.005;
-    const double inflate_y = robot_size_[1] + 0.005;
+    const double inflate_x = robot_size_[0] + tier1_inflation_margin_;
+    const double inflate_y = robot_size_[1] + tier1_inflation_margin_;
 
     for (int x = 0; x < grid_width_; x++) {
         for (int y = 0; y < grid_height_; y++) {
@@ -114,8 +117,8 @@ void WavefrontGrid::rebuild_grids(NAMOEnvironment& env) {
                 }
             }
 
-            uninflated_grid_[x][y] = occupied_uninflated ? -2 : -1;
-            static_grid_[x][y] = occupied_inflated ? -2 : -1;
+            uninflated_grid_[x][y] = occupied_uninflated ? -1 : 0;
+            static_grid_[x][y] = occupied_inflated ? -1 : 0;
         }
     }
 
@@ -229,7 +232,7 @@ bool WavefrontGrid::is_cell_free(int x, int y) const {
     if (!is_valid_grid_coord(x, y)) {
         return false;
     }
-    return dynamic_grid_[x][y] != -2;  // Free if not obstacle
+    return dynamic_grid_[x][y] != -1;  // Free if not obstacle
 }
 
 bool WavefrontGrid::is_position_free(double world_x, double world_y) const {
@@ -249,7 +252,7 @@ void WavefrontGrid::clear_region(double world_x, double world_y, int clear_radiu
             int ny = center_y + dy;
             
             if (is_valid_grid_coord(nx, ny)) {
-                dynamic_grid_[nx][ny] = -1;  // Mark as free space
+                dynamic_grid_[nx][ny] = 0;  // Mark as free space
             }
         }
     }
@@ -307,22 +310,18 @@ std::pair<int, int> WavefrontGrid::select_random_point(
     const std::unordered_set<std::pair<int, int>, CoordinateHash>& points) const {
     
     if (points.empty()) {
-        throw std::runtime_error("Cannot select random point from empty set");
+        throw std::runtime_error("Cannot select seed point from empty set");
     }
-    
-    // Create random number generator
-    static std::random_device rd;
-    static std::mt19937 gen(rd());
-    
-    // Select random index
-    std::uniform_int_distribution<size_t> dist(0, points.size() - 1);
-    size_t random_index = dist(gen);
-    
-    // Advance iterator to random position
-    auto it = points.begin();
-    std::advance(it, random_index);
-    
-    return *it;
+
+    // Deterministic seed selection so region IDs are stable across runs.
+    auto best_it = points.begin();
+    for (auto it = std::next(points.begin()); it != points.end(); ++it) {
+        if (it->first < best_it->first ||
+            (it->first == best_it->first && it->second < best_it->second)) {
+            best_it = it;
+        }
+    }
+    return *best_it;
 }
 
 std::unordered_set<std::pair<int, int>, CoordinateHash> WavefrontGrid::explore_connected_region(
@@ -410,8 +409,8 @@ WavefrontGrid::find_connected_components(const std::array<double, 2>& robot_pos,
             if (!is_valid_grid_coord(nx, ny)) {
                 continue;
             }
-            if (dynamic_grid_[nx][ny] == -2) {
-                dynamic_grid_[nx][ny] = -1;
+            if (dynamic_grid_[nx][ny] == -1) {
+                dynamic_grid_[nx][ny] = 0;
             }
             unvisited_points.insert({nx, ny});
         }
@@ -716,8 +715,8 @@ WavefrontGrid::build_region_connectivity_graph(NAMOEnvironment& env) {
         
         // === STEP 1: Calculate object footprint ===
         ObjectInfo inflated_obj = obj;
-        inflated_obj.size[0] += robot_size_[0] + 0.005;
-        inflated_obj.size[1] += robot_size_[1] + 0.005;
+        inflated_obj.size[0] += robot_size_[0] + tier1_inflation_margin_;
+        inflated_obj.size[1] += robot_size_[1] + tier1_inflation_margin_;
         
         GridFootprint footprint = calculate_rotated_footprint(inflated_obj, *obj_state);
         
@@ -732,8 +731,8 @@ WavefrontGrid::build_region_connectivity_graph(NAMOEnvironment& env) {
         for (size_t i = 0; i < footprint.num_cells; i++) {
             int x = footprint.cells[i].first;
             int y = footprint.cells[i].second;
-            if (is_valid_grid_coord(x, y) && dynamic_grid_[x][y] == -2) {
-                dynamic_grid_[x][y] = -1;  // Mark as free
+            if (is_valid_grid_coord(x, y) && dynamic_grid_[x][y] == -1) {
+                dynamic_grid_[x][y] = 0;  // Mark as free
                 removed_cells.push_back({x, y});
             }
         }
@@ -772,7 +771,7 @@ WavefrontGrid::build_region_connectivity_graph(NAMOEnvironment& env) {
                 
                 if (!is_valid_grid_coord(nx, ny) || 
                     visited.find(neighbor) != visited.end() ||
-                    dynamic_grid_[nx][ny] == -2) {  // Skip obstacles
+                    dynamic_grid_[nx][ny] == -1) {  // Skip obstacles
                     continue;
                 }
                 
@@ -837,7 +836,7 @@ WavefrontGrid::build_region_connectivity_graph(NAMOEnvironment& env) {
         
         // === STEP 5: Restore object to grid ===
         for (const auto& cell : removed_cells) {
-            dynamic_grid_[cell.first][cell.second] = -2;  // Mark as obstacle again
+            dynamic_grid_[cell.first][cell.second] = -1;  // Mark as obstacle again
         }
     }
     
@@ -858,6 +857,12 @@ WavefrontGrid::build_region_connectivity_graph(NAMOEnvironment& env) {
 }
 
 std::unordered_map<std::string, RegionGoalBundle> WavefrontGrid::sample_region_goals(int goals_per_region) const {
+    static thread_local std::mt19937 rng(std::random_device{}());
+    return sample_region_goals(goals_per_region, rng());
+}
+
+std::unordered_map<std::string, RegionGoalBundle> WavefrontGrid::sample_region_goals(
+    int goals_per_region, uint32_t seed) const {
     std::unordered_map<std::string, RegionGoalBundle> result;
     if (goals_per_region <= 0) {
         return result;
@@ -879,23 +884,71 @@ std::unordered_map<std::string, RegionGoalBundle> WavefrontGrid::sample_region_g
         }
     }
 
-    static thread_local std::mt19937 rng(std::random_device{}());
+    std::unordered_map<std::string, std::unordered_set<std::string>> adjacency;
+    for (const auto& [from_label, neighbor_map] : adjacency_object_map_) {
+        auto& neighbors = adjacency[from_label];
+        for (const auto& [to_label, _objects] : neighbor_map) {
+            neighbors.insert(to_label);
+            adjacency[to_label].insert(from_label);
+        }
+    }
 
-    for (const auto& region_entry : cached_regions_) {
-        const int region_id = region_entry.first;
-        const auto label_it = cached_region_labels_.find(region_id);
-        if (label_it == cached_region_labels_.end()) {
+    std::unordered_set<std::string> reachable_labels;
+    if (adjacency.find(robot_label) != adjacency.end()) {
+        std::queue<std::string> bfs_queue;
+        reachable_labels.insert(robot_label);
+        bfs_queue.push(robot_label);
+        while (!bfs_queue.empty()) {
+            const std::string current = bfs_queue.front();
+            bfs_queue.pop();
+            auto it = adjacency.find(current);
+            if (it == adjacency.end()) {
+                continue;
+            }
+            for (const auto& neighbor : it->second) {
+                if (reachable_labels.insert(neighbor).second) {
+                    bfs_queue.push(neighbor);
+                }
+            }
+        }
+    }
+
+    // Fallback to all labels when adjacency is unavailable.
+    if (reachable_labels.empty()) {
+        for (const auto& [region_id, label] : cached_region_labels_) {
+            (void)region_id;
+            reachable_labels.insert(label);
+        }
+    }
+
+    std::vector<std::string> sorted_labels(reachable_labels.begin(), reachable_labels.end());
+    std::sort(sorted_labels.begin(), sorted_labels.end());
+
+    std::mt19937 rng(seed);
+
+    std::unordered_map<std::string, int> label_to_region_id;
+    for (const auto& [region_id, label] : cached_region_labels_) {
+        label_to_region_id[label] = region_id;
+    }
+
+    for (const auto& region_label : sorted_labels) {
+        auto id_it = label_to_region_id.find(region_label);
+        if (id_it == label_to_region_id.end()) {
             continue;
         }
-
-        const std::string& region_label = label_it->second;
+        const int region_id = id_it->second;
+        auto region_it = cached_regions_.find(region_id);
+        if (region_it == cached_regions_.end()) {
+            continue;
+        }
         std::string key = region_label;
         if (region_label.find("robot") != std::string::npos) {
             key = "robot_region";
         }
 
-        const auto& cell_set = region_entry.second;
+        const auto& cell_set = region_it->second;
         std::vector<std::pair<int, int>> cells(cell_set.begin(), cell_set.end());
+        std::sort(cells.begin(), cells.end());
         if (cells.empty()) {
             result.emplace(key, RegionGoalBundle{});
             continue;

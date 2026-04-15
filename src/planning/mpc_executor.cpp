@@ -9,18 +9,21 @@
 namespace namo {
 
 MPCExecutor::MPCExecutor(NAMOEnvironment& env)
-    : env_(env), planner_(0.02, env_, {env.get_robot_info().size[0], env.get_robot_info().size[1]}),
-      controller_(env_, planner_, 10, 250, 1.0), has_robot_goal_(false) {
+    : env_(env),
+      planner_(0.02, env_, {env.get_robot_info().size[0], env.get_robot_info().size[1]}, 0.005),
+      controller_(env_, planner_, 10, 250, 1.0),
+      has_robot_goal_(false) {
     
     // Set default parameters
     set_parameters();
 }
 
 MPCExecutor::MPCExecutor(NAMOEnvironment& env, double resolution, const std::vector<double>& robot_size,
+                         double wavefront_tier1_inflation_margin,
                          int max_push_steps, int control_steps_per_push, double force_scaling, int points_per_face,
                          bool check_object_collision)
     : env_(env),
-      planner_(resolution, env_, robot_size),
+      planner_(resolution, env_, robot_size, wavefront_tier1_inflation_margin),
       controller_(env_, planner_, max_push_steps, control_steps_per_push, force_scaling, points_per_face),
       has_robot_goal_(false) {
 
@@ -140,32 +143,7 @@ bool MPCExecutor::execute_primitive_step(
     //           << " target_pose=[" << plan_step.pose.x << "," << plan_step.pose.y 
     //           << "," << plan_step.pose.theta << "]" << std::endl;
     
-    // Diff-drive: execute the full depth-N primitive in ONE controller call so wheel
-    // drive is continuous (matches generator). MPC's per-depth re-checks are skipped
-    // here — the controller still does its own collision/stuck detection mid-stream.
-    if (env_.get_robot_adapter() && env_.get_robot_adapter()->is_diff_drive()) {
-        if (has_robot_goal_ && is_robot_goal_reachable()) return true;
-        if (is_object_at_target(object_name, plan_step.pose)) return true;
-
-        // Edge reachability check (one-shot)
-        bool edge_ok = false;
-        for (int e : get_reachable_edges_with_wavefront(object_name)) {
-            if (e == plan_step.edge_idx) { edge_ok = true; break; }
-        }
-        if (!edge_ok) return false;
-
-        env_.save_full_state();
-        bool ok = controller_.execute_push_primitive(object_name, plan_step.edge_idx,
-                                                    plan_step.push_steps);
-        if (!ok) {
-            env_.restore_full_state();
-            env_.set_zero_velocity();
-            return false;
-        }
-        return true;
-    }
-
-    // Execute MPC following old implementation approach (namo_planner.hpp:217-292)
+    // Execute MPC following old implementation approach (namo_planner.hpp lines 217 to 292)
     int stuck_counter = 0;
     SE2State previous_state = get_object_se2_state(object_name);
     // std::cout << "plan push steps: " << plan_step.push_steps << std::endl;
@@ -236,6 +214,15 @@ bool MPCExecutor::execute_primitive_step(
     return true;
 }
 
+bool MPCExecutor::update_wavefront_from_robot_position() {
+    auto robot_state = env_.get_robot_state();
+    if (!robot_state) {
+        return false;
+    }
+    std::vector<double> robot_pos = {robot_state->position[0], robot_state->position[1]};
+    return planner_.update_wavefront(env_, robot_pos);
+}
+
 bool MPCExecutor::is_robot_goal_reachable() {
     if (!has_robot_goal_) {
         return false;
@@ -243,15 +230,10 @@ bool MPCExecutor::is_robot_goal_reachable() {
     
     // Use the incremental wavefront planner to check reachability
     try {
-        // Get current robot position
-        auto robot_state = env_.get_robot_state();
-        std::array<double, 2> robot_pos = {robot_state->position[0], robot_state->position[1]};
-        
-        // Update wavefront with current robot position
-        planner_.update_wavefront(env_, {robot_pos[0], robot_pos[1]});
-        
-        // Check if goal is reachable (using robot size from environment)
-        return planner_.is_goal_reachable(robot_goal_, env_.get_robot_info().size[0]);
+        if (!update_wavefront_from_robot_position()) {
+            return false;
+        }
+        return planner_.is_goal_reachable(robot_goal_, 0.15);
     } catch (const std::exception& e) {
         std::cerr << "Error checking robot goal reachability: " << e.what() << std::endl;
         return false;
@@ -326,45 +308,82 @@ void MPCExecutor::save_debug_wavefront(int iteration, const std::string& base_fi
 }
 
 std::vector<int> MPCExecutor::get_reachable_edges_with_wavefront(const std::string& object_name) {
-    // Get robot current position
-    auto robot_state = env_.get_robot_state();
-    if (!robot_state) {
-        // std::cout << "Warning: Could not get robot state for wavefront update" << std::endl;
-        return {}; 
-    }
-    
-    // Update wavefront from current robot position
-    std::vector<double> robot_pos = {robot_state->position[0], robot_state->position[1]};
-    bool wavefront_updated = planner_.update_wavefront(env_, robot_pos);
-    
+    auto detailed = get_reachable_edges_with_wavefront_detailed(object_name);
+    return detailed.edge_indices;
+}
 
-    if (!wavefront_updated) {
-        // std::cout << "Warning: Wavefront update failed" << std::endl;
+MPCExecutor::ReachableEdgesResult MPCExecutor::get_reachable_edges_with_wavefront_detailed(
+    const std::string& object_name) {
+    ReachableEdgesResult result;
+    if (!update_wavefront_from_robot_position()) {
+        return result;
     }
-    
-    // Get object current position to generate edge points
+    return get_reachable_edges_from_current_wavefront(object_name);
+}
+
+std::map<std::string, MPCExecutor::ReachableEdgesResult>
+MPCExecutor::get_reachable_edges_for_all_objects_with_wavefront() {
+    std::map<std::string, ReachableEdgesResult> per_object;
+    if (!update_wavefront_from_robot_position()) {
+        return per_object;
+    }
+
+    const auto& movable_objects = env_.get_movable_objects();
+    for (size_t i = 0; i < env_.get_num_movable(); ++i) {
+        const auto& obj_info = movable_objects[i];
+        if (!obj_info.name.empty()) {
+            per_object[obj_info.name] = get_reachable_edges_from_current_wavefront(obj_info.name);
+        }
+    }
+    return per_object;
+}
+
+MPCExecutor::ReachabilitySnapshot MPCExecutor::compute_reachability_snapshot() {
+    ReachabilitySnapshot snapshot;
+    if (!update_wavefront_from_robot_position()) {
+        return snapshot;
+    }
+
+    if (has_robot_goal_) {
+        snapshot.goal_reachable = planner_.is_goal_reachable(robot_goal_, 0.15);
+    }
+
+    const auto& movable_objects = env_.get_movable_objects();
+    for (size_t i = 0; i < env_.get_num_movable(); ++i) {
+        const auto& obj_info = movable_objects[i];
+        if (!obj_info.name.empty()) {
+            snapshot.object_edges[obj_info.name] =
+                get_reachable_edges_from_current_wavefront(obj_info.name);
+        }
+    }
+    return snapshot;
+}
+
+MPCExecutor::ReachableEdgesResult MPCExecutor::get_reachable_edges_from_current_wavefront(
+    const std::string& object_name) {
+    ReachableEdgesResult result;
+
     auto obj_pose = env_.get_object_state(object_name);
     if (!obj_pose) {
-        // std::cout << "Warning: Could not get object pose for " << object_name << std::endl;
-        return {};
+        return result;
     }
-    
-    std::vector<int> reachable_edges;
 
     // Use controller to generate edge points (supports dynamic n points per edge)
     std::array<std::array<double, 2>, NAMOPushController::MAX_EDGE_POINTS> edge_points;
     std::array<std::array<double, 2>, NAMOPushController::MAX_EDGE_POINTS> mid_points;   // Not used but required
-    size_t edge_count, mid_count;
+    size_t edge_count = 0;
+    size_t mid_count = 0;
 
     if (controller_.generate_edge_points(object_name, edge_points, mid_points, edge_count, mid_count) == 0) {
-        // std::cout << "Warning: Could not generate edge points for " << object_name << std::endl;
-        return {};
+        return result;
     }
-    
-    // Get the mutable wavefront grid for marking edge points
-    auto& grid = planner_.get_mutable_grid();
 
-    // Check each transformed edge point for reachability and mark in grid
+    result.total_edge_points = static_cast<int>(edge_count);
+
+    // Read the current wavefront grid without mutating canonical values.
+    const auto& grid = planner_.get_grid();
+
+    // Check each transformed edge point for reachability
     for (size_t edge_idx = 0; edge_idx < edge_count; edge_idx++) {
         try {
             // Convert world edge point to grid coordinates
@@ -373,28 +392,17 @@ std::vector<int> MPCExecutor::get_reachable_edges_with_wavefront(const std::stri
 
             if (planner_.is_valid_grid_coord(edge_x, edge_y)) {
                 int grid_val = grid[edge_x][edge_y];
-
-                // Check if edge point is reachable (not obstacle -2, not unreachable 0)
-                // Only accept grid values > 0 (reachable positions)
-                if (grid_val > 0) {
-                    reachable_edges.push_back(static_cast<int>(edge_idx));
-                    // Mark reachable edge points in grid as -3
-                    grid[edge_x][edge_y] = -3;
-                } else {
-                    // Mark unreachable edge points in grid as -4
-                    grid[edge_x][edge_y] = -4;
+                // Reachable == 1. Non-reachable free == 0. Occupied == -1.
+                if (grid_val == 1) {
+                    result.edge_indices.push_back(static_cast<int>(edge_idx));
                 }
             }
-        } catch (const std::exception& e) {
-            // std::cout << "Error checking edge " << edge_idx << ": " << e.what() << std::endl;
+        } catch (const std::exception&) {
             continue;
         }
     }
 
-    // std::cout << "Wavefront analysis: " << reachable_edges.size()
-            //   << "/" << edge_count << " edges reachable for " << object_name << std::endl;
-
-    return reachable_edges;
+    return result;
 }
 
 std::vector<int> MPCExecutor::evaluate_primitive_priorities(

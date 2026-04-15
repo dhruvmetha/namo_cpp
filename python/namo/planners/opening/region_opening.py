@@ -6,11 +6,8 @@ validates the opening, logs an episode, then restores the baseline and proceeds 
 the next neighbour.
 """
 
-import math
 import random
 import time
-
-import numpy as np
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple, Dict, Any, Set, Union
 
@@ -21,8 +18,7 @@ DEFAULT_CAMERA_DISTANCE = 15.0
 DEFAULT_CAMERA_AZIMUTH = 0.0
 DEFAULT_CAMERA_ELEVATION = -90.0
 from namo.core import BasePlanner, PlannerConfig, PlannerResult
-from namo.planners.connectivity_snapshot import snapshot_region_connectivity, find_robot_label
-from namo.visualization.wavefront_snapshot import RegionGoalSample
+from namo.planners.connectivity_snapshot import find_robot_label
 from namo.strategies import (
     PrimitiveGoalStrategy,
     Goal,
@@ -198,9 +194,8 @@ class RegionOpeningPlanner(BasePlanner):
 
         # Get collision termination flag from config.algorithm_params
         # region_allow_collisions=True means ALLOW collisions (don't terminate)
-        # Default True: object-object/object-wall collisions are expected during NAMO
-        # pushes. Strict mode (terminate on collision) is opt-in via region_allow_collisions=False.
-        allow_collisions = algo_params.get("region_allow_collisions", True)
+        # We invert it: terminate_on_collision=True means TERMINATE on collision
+        allow_collisions = algo_params.get("region_allow_collisions", False)
         self.terminate_on_collision = not allow_collisions
 
         # Get max chain depth from config.algorithm_params (default: 1, no chaining)
@@ -235,18 +230,6 @@ class RegionOpeningPlanner(BasePlanner):
         # Default is False to preserve legacy behaviour (collect per-neighbour data).
         self.stop_after_first_success = algo_params.get("region_stop_after_first_success", False)
 
-        # When True (default), restrict exploration to the single neighbour containing the env's
-        # goal site (uses target_neighbor="goal"). Each pair file contributes one focused
-        # demonstration tied to its actual NAMO task, avoiding redundant work across pairs that
-        # share R_robot. Set to False to fall back to the legacy "enumerate all neighbours" mode.
-        self.target_goal_only = algo_params.get("region_target_goal_only", True)
-
-        # Stricter success criterion for _validate_opening: at least
-        # `min_reachable_fraction` of the sampled region goals must be reachable.
-        # Rejects "thin opening" demos where only one sampled cell happens to be
-        # reachable (often a flake from the planner barely moving the blocker).
-        self.min_reachable_fraction = float(algo_params.get("region_min_reachable_fraction", 0.5))
-
         # Optional: cap number of frontier nodes per chain level (beam width)
         # None or 0 => unbounded frontier (complete)
         beam_width = algo_params.get("region_frontier_beam_width", None)
@@ -260,6 +243,13 @@ class RegionOpeningPlanner(BasePlanner):
         if timeout_sec is not None and timeout_sec <= 0:
             timeout_sec = None
         self.timeout_per_neighbour_sec = timeout_sec
+
+        # Unified wavefront snapshot backend:
+        # - True: prefer C++ `env.get_region_snapshot(...)`
+        # - False: fallback to Python snapshot exporter
+        self.use_cpp_unified_wavefront = algo_params.get("region_use_cpp_unified_wavefront", True)
+        self.region_snapshot_seed = int(algo_params.get("region_snapshot_seed", 42))
+        self.region_goal_radius_m = float(algo_params.get("region_goal_radius_m", 0.15))
 
         # ML blacklist override: when True, ML-scored primitives bypass the
         # edge blacklist built during pre-ML exhaustive phase. This allows
@@ -455,10 +445,6 @@ class RegionOpeningPlanner(BasePlanner):
 
         algo_params = getattr(self, "algorithm_params", {}) or {}
         primitive_data_dir = algo_params.get("primitive_data_dir", "data")
-        # Prefix selecting per-robot primitive calibration:
-        #   ""    → motion_primitives_15_*.dat (30 cm point-robot, legacy)
-        #   "car_" → car_motion_primitives_15_*.dat (7 cm diff-drive car)
-        primitive_prefix = algo_params.get("primitive_prefix", "")
         strategy_name = algo_params.get("goal_strategy")
 
         if strategy_name and strategy_name.lower() in {"ml", "ml_primitive"}:
@@ -540,8 +526,7 @@ class RegionOpeningPlanner(BasePlanner):
             # Store strategies for MLDrivenAsyncSearch
             self._primitive_strategy = PrimitiveGoalStrategy(
                 data_dir=primitive_data_dir,
-                verbose=self.config.verbose,
-                primitive_prefix=primitive_prefix,
+                verbose=self.config.verbose
             )
             self._ml_async_strategy = MLPrimitiveAsyncStrategy(
                 goal_model_path=ml_path,
@@ -577,8 +562,7 @@ class RegionOpeningPlanner(BasePlanner):
                 data_dir=primitive_data_dir,
                 verbose=self.config.verbose,
                 shuffle_edges=algo_params.get("shuffle_edges", False),
-                seed=algo_params.get("shuffle_seed", None),
-                primitive_prefix=primitive_prefix,
+                seed=algo_params.get("shuffle_seed", None)
             )
 
     @property
@@ -663,10 +647,6 @@ class RegionOpeningPlanner(BasePlanner):
             self._debug(f"Region Opening Planner - Single-Level Exploration{target_info}")
             self._debug(f"Max chain depth: {self.max_chain_depth} | Collision checking: {'ON' if collision_checking_enabled else 'OFF'}")
             self._debug(f"{'='*60}\n")
-
-        # If region_target_goal_only is set and caller didn't override, target the env-goal's region
-        if target_neighbor is None and self.target_goal_only:
-            target_neighbor = "goal"
 
         # Explore from initial state only (Level 0)
         self.attempt_results = self._explore_from_state(baseline, level=0, target_neighbor=target_neighbor)
@@ -766,52 +746,26 @@ class RegionOpeningPlanner(BasePlanner):
         # Set environment to exploration state
         self.env.set_full_state(state)
 
-        # Get region connectivity and goals from snapshot
-        # use_current_state=True ensures snapshot uses current object positions (not initial XML state)
-        # and always uses XML goal (not whatever was last set via set_robot_goal during validation)
-        xml_path = self.env.get_xml_path()
-        config_path = self.env.get_config_path()
-        adjacency, edge_objects, region_labels, region_goals, _ = snapshot_region_connectivity(
-            self.env,
-            xml_path,
-            config_path,
-            include_snapshot=False,
-            local_info_only=True,
-            goals_per_region=self.config.goals_per_region,
-            generate_training_data=True,
-            use_current_state=True,
-        )
+        # Get unified region connectivity + sampled goals from one wavefront source.
+        from namo.planners import get_region_snapshot as _get_region_snapshot
 
-        # Replace the goal-region's random samples with dense cell-center samples
-        # on the goal-site disc (radius 0.05m, wavefront resolution 0.02m → ~20 cells).
-        # `_validate_opening` will then check reachability of every cell on the
-        # goal site; with min_reachable_fraction=1.0 this becomes "full goal site
-        # reachable" — a tight, geometry-grounded success criterion.
-        try:
-            scenario_goal = self.env.get_robot_goal()
-            if scenario_goal is not None:
-                gx, gy = float(scenario_goal[0]), float(scenario_goal[1])
-                gtheta = float(scenario_goal[2]) if len(scenario_goal) > 2 else 0.0
-                cell_size = 0.02
-                radius = 0.05
-                disc_samples = []
-                n_cells = int(np.ceil(radius / cell_size))
-                r2 = radius * radius
-                for dx in range(-n_cells, n_cells + 1):
-                    for dy in range(-n_cells, n_cells + 1):
-                        ox = dx * cell_size
-                        oy = dy * cell_size
-                        if ox * ox + oy * oy <= r2:
-                            disc_samples.append(RegionGoalSample(gx + ox, gy + oy, gtheta))
-                for region_label, bundle in region_goals.items():
-                    if "goal" in region_label.lower():
-                        bundle.goals = disc_samples
-        except Exception:
-            pass
+        snapshot = _get_region_snapshot(
+            self.env,
+            goals_per_region=self.config.goals_per_region,
+            goal_radius=self.region_goal_radius_m,
+            local_info_only=True,
+            seed=self.region_snapshot_seed,
+            use_cpp_unified=self.use_cpp_unified_wavefront,
+            use_xml_goal=True,
+        )
+        adjacency = snapshot["adjacency"]
+        edge_objects = snapshot["edge_objects"]
+        region_labels = snapshot["region_labels"]
+        region_goals = snapshot["region_goals"]
 
         # Identify robot region
-        robot_label = find_robot_label(region_labels)
-        if robot_label is None:
+        robot_label = snapshot.get("robot_label") or find_robot_label(region_labels)
+        if not robot_label:
             if self.config.verbose:
                 print(f"  ⚠ Could not identify robot region")
             return []
@@ -1572,15 +1526,12 @@ class RegionOpeningPlanner(BasePlanner):
             state_obs.append(pre_obs)
             reachable_before.append(pre_reachable)
 
-            # Execute action — pass explicit edge_idx/depth so the C++ skill executes the SAME
-            # primitive the search picked, not an MPC-reselected one (which would diverge).
+            # Execute action
             action = namo_rl.Action()
             action.object_id = object_id
             action.x = goal.x
             action.y = goal.y
             action.theta = goal.theta
-            action.edge_idx = getattr(goal, "edge_idx", -1)
-            action.depth = getattr(goal, "depth", -1)
             step_result = self.env.step(action)
 
             # Extract collision info from step result
@@ -2415,10 +2366,7 @@ class RegionOpeningPlanner(BasePlanner):
                     if self.config.verbose:
                         print(f"        📍 Edge {edge_idx} stuck at depth {depth+1}, depths 1-{depth} still valid")
 
-            # Log this primitive trial for F characterization.
-            # chain_depth + parent_* let downstream analysis reconstruct F_n'
-            # (push-1 primitives that enable a successful push-2). Without
-            # them, chain_depth>=2 trial logs are flat and unrecoverable.
+            # Log this primitive trial for F characterization
             trial_log.append({
                 'edge_idx': edge_idx,
                 'depth': depth,
@@ -2428,9 +2376,6 @@ class RegionOpeningPlanner(BasePlanner):
                 'stuck': stuck_detected,
                 'collision': collision_detected,
                 'reachable_after': reachable_count_after,
-                'chain_depth': current_chain_depth,
-                'parent_edge_idx': parent_node.edge_idx if parent_node is not None else None,
-                'parent_depth': (parent_node.step_cost - 1) if (parent_node is not None and parent_node.step_cost > 0) else None,
             })
 
             total_region_goals = len(region_goals[neighbour_label].goals) if neighbour_label in region_goals else 0
@@ -2593,11 +2538,8 @@ class RegionOpeningPlanner(BasePlanner):
             except Exception:
                 pass
 
-            # Stricter success criterion: at least min_reachable_fraction of sampled
-            # region goals must be reachable.
-            total_goals = len(bundle.goals)
-            reachable_fraction = (reachable_count / total_goals) if total_goals > 0 else 0.0
-            if reachable_fraction >= self.min_reachable_fraction:
+            # Success if at least 1 goal is reachable
+            if reachable_count >= 1:
                 return True, reachable_count, first_reachable_goal, all_goals
             else:
                 return False, reachable_count, None, all_goals

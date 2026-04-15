@@ -28,6 +28,10 @@ public:
 
         // Robot type: "holonomic" (default point robot) or "diff_drive" (car)
         std::string robot_type = "holonomic";
+
+        double wavefront_tier1_inflation_margin = 0.005;  // meters
+        double wavefront_edge_offset_margin = 0.020;      // meters beyond robot radius for edge spawn points
+
         std::vector<double> robot_goal = {0.5455398969960719, -0.8430872280407762};  // [x, y] for goal
         
         // Grid limits
@@ -141,6 +145,7 @@ private:
     void load_environment_config();
     void load_system_config();
     void load_optimization_config();
+    void load_wavefront_inflation_config(const std::string& primary_config_file);
     
     void validate_configuration() const;
 

@@ -22,6 +22,31 @@ struct RLState {
 
 class RLEnvironment {
 public:
+    struct ObjectReachabilitySummary {
+        bool reachable = false;
+        int reachable_edges = 0;
+        int total_edges = 0;
+        int reachable_primitives = 0;
+        int total_primitives = 0;
+        std::vector<int> reachable_edge_indices;
+    };
+
+    struct ReachabilitySummary {
+        bool goal_reachable = false;
+        std::map<std::string, ObjectReachabilitySummary> objects;
+    };
+
+    struct RegionSnapshot {
+        std::unordered_map<std::string, std::unordered_set<std::string>> adjacency;
+        std::unordered_map<std::string, std::unordered_map<std::string, std::unordered_set<std::string>>> edge_objects;
+        std::unordered_map<int, std::string> region_labels;
+        std::unordered_map<std::string, RegionGoalBundle> region_goals;
+        std::string robot_label;
+        std::string goal_label;
+        bool goal_reachable = false;
+        bool goal_in_free_space = false;
+    };
+
     struct Action {
         std::string object_id;
         double x, y, theta;
@@ -75,6 +100,7 @@ public:
     std::vector<std::string> get_reachable_objects() const;
     bool is_object_reachable(const std::string& object_name) const;
     std::vector<int> get_reachable_edges(const std::string& object_name) const;
+    ReachabilitySummary get_reachability_summary(bool analysis_mode = false) const;
 
     // Edge point queries (for visualization)
     std::vector<std::array<double, 2>> get_edge_points(const std::string& object_name) const;
@@ -138,6 +164,12 @@ public:
 
     std::tuple<RegionAdjacency, RegionEdgeObjects, RegionLabels> get_region_connectivity() const;
     RegionGoalSamples sample_region_goals(int goals_per_region) const;
+    RegionSnapshot get_region_snapshot(
+        int goals_per_region = 0,
+        double goal_radius = 0.15,
+        bool local_info_only = false,
+        unsigned int seed = 42,
+        bool use_xml_goal = true) const;
 
     const std::string& get_xml_path() const { return xml_path_; }
     const std::string& get_config_path() const { return config_path_; }

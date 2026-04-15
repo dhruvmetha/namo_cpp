@@ -1,25 +1,217 @@
 #include "python/namo/cpp_bindings/rl_env.hpp"
 #include "core/types.hpp"
 #include "wavefront/wavefront_grid.hpp"
-#include "wavefront/wavefront_planner.hpp"
-#include "navigation/diff_drive_navigation.hpp"
-#include "navigation/holonomic_navigation.hpp"
-#include "robot/robot_adapter.hpp"
 #include <iostream>
+#include <fstream>
+#include <regex>
 #include <sstream>
-#include <cmath>
+#include <queue>
+#include <algorithm>
 
 namespace namo {
+
+namespace {
+
+bool parse_goal_position(const std::string& pos_str, std::array<double, 3>& goal_pose) {
+    std::istringstream ss(pos_str);
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
+    if (!(ss >> x >> y)) {
+        return false;
+    }
+    if (!(ss >> z)) {
+        z = 0.0;
+    }
+    goal_pose = {x, y, z};
+    return true;
+}
+
+bool extract_xml_goal_pose(const std::string& xml_path, std::array<double, 3>& goal_pose) {
+    std::ifstream file(xml_path);
+    if (!file.is_open()) {
+        return false;
+    }
+
+    std::ostringstream buffer;
+    buffer << file.rdbuf();
+    const std::string xml = buffer.str();
+
+    const std::regex site_regex(R"(<site\b([^>]*)>)");
+    const std::regex name_regex(R"re(name\s*=\s*"([^\"]+)")re");
+    const std::regex pos_regex(R"re(pos\s*=\s*"([^\"]+)")re");
+
+    struct Candidate {
+        std::string name;
+        std::array<double, 3> pose;
+    };
+
+    std::vector<Candidate> candidates;
+    for (std::sregex_iterator it(xml.begin(), xml.end(), site_regex), end; it != end; ++it) {
+        const std::string attrs = (*it)[1].str();
+
+        std::smatch name_match;
+        if (!std::regex_search(attrs, name_match, name_regex)) {
+            continue;
+        }
+        const std::string name = name_match[1].str();
+        if (name.find("goal") == std::string::npos) {
+            continue;
+        }
+
+        std::smatch pos_match;
+        if (!std::regex_search(attrs, pos_match, pos_regex)) {
+            continue;
+        }
+
+        std::array<double, 3> pose;
+        if (!parse_goal_position(pos_match[1].str(), pose)) {
+            continue;
+        }
+        candidates.push_back({name, pose});
+    }
+
+    if (candidates.empty()) {
+        return false;
+    }
+
+    for (const auto& candidate : candidates) {
+        if (candidate.name == "goal") {
+            goal_pose = candidate.pose;
+            return true;
+        }
+    }
+
+    goal_pose = candidates.front().pose;
+    return true;
+}
+
+std::string find_robot_label(const std::unordered_map<int, std::string>& region_labels) {
+    for (const auto& [region_id, label] : region_labels) {
+        (void)region_id;
+        if (label.find("robot") != std::string::npos) {
+            return label;
+        }
+    }
+    return "";
+}
+
+std::string find_goal_label(const std::unordered_map<int, std::string>& region_labels) {
+    for (const auto& [region_id, label] : region_labels) {
+        (void)region_id;
+        if (label == "goal") {
+            return label;
+        }
+    }
+    for (const auto& [region_id, label] : region_labels) {
+        (void)region_id;
+        if (label.find("goal") != std::string::npos) {
+            return label;
+        }
+    }
+    return "";
+}
+
+void restrict_to_local_regions(
+    std::unordered_map<std::string, std::unordered_set<std::string>>& adjacency,
+    std::unordered_map<std::string, std::unordered_map<std::string, std::unordered_set<std::string>>>& edge_objects,
+    std::unordered_map<int, std::string>& region_labels,
+    const std::string& robot_label) {
+    if (robot_label.empty()) {
+        return;
+    }
+
+    const auto neighbors_it = adjacency.find(robot_label);
+    if (neighbors_it == adjacency.end()) {
+        return;
+    }
+
+    const std::unordered_set<std::string> neighbours = neighbors_it->second;
+
+    std::unordered_map<std::string, std::unordered_set<std::string>> filtered_adjacency;
+    filtered_adjacency[robot_label] = neighbours;
+    for (const auto& neighbour : neighbours) {
+        filtered_adjacency[neighbour] = {robot_label};
+    }
+    adjacency = std::move(filtered_adjacency);
+
+    std::unordered_map<std::string, std::unordered_map<std::string, std::unordered_set<std::string>>> filtered_edge_objects;
+    const auto robot_edges_it = edge_objects.find(robot_label);
+    for (const auto& neighbour : neighbours) {
+        if (robot_edges_it != edge_objects.end()) {
+            auto edge_it = robot_edges_it->second.find(neighbour);
+            if (edge_it != robot_edges_it->second.end()) {
+                filtered_edge_objects[robot_label][neighbour] = edge_it->second;
+            }
+        }
+
+        auto neighbour_edges_it = edge_objects.find(neighbour);
+        if (neighbour_edges_it != edge_objects.end()) {
+            auto back_edge_it = neighbour_edges_it->second.find(robot_label);
+            if (back_edge_it != neighbour_edges_it->second.end()) {
+                filtered_edge_objects[neighbour][robot_label] = back_edge_it->second;
+            }
+        }
+    }
+    edge_objects = std::move(filtered_edge_objects);
+
+    std::unordered_map<int, std::string> filtered_labels;
+    for (const auto& [region_id, label] : region_labels) {
+        if (label == robot_label || neighbours.find(label) != neighbours.end()) {
+            filtered_labels[region_id] = label;
+        }
+    }
+    region_labels = std::move(filtered_labels);
+}
+
+std::vector<std::array<double, 2>> build_goal_cells(
+    const WavefrontGrid& grid,
+    const std::array<double, 2>& goal_xy,
+    double goal_radius) {
+    std::vector<std::array<double, 2>> goal_cells;
+    const double resolution = grid.get_resolution();
+    const int center_x = grid.world_to_grid_x(goal_xy[0]);
+    const int center_y = grid.world_to_grid_y(goal_xy[1]);
+    if (!grid.is_valid_grid_coord(center_x, center_y)) {
+        return goal_cells;
+    }
+
+    const int radius_cells = std::max(0, static_cast<int>(std::ceil(goal_radius / resolution)));
+    for (int dx = -radius_cells; dx <= radius_cells; ++dx) {
+        for (int dy = -radius_cells; dy <= radius_cells; ++dy) {
+            const double dist_sq = static_cast<double>(dx * dx + dy * dy) * resolution * resolution;
+            if (dist_sq > goal_radius * goal_radius) {
+                continue;
+            }
+            const int gx = center_x + dx;
+            const int gy = center_y + dy;
+            if (!grid.is_valid_grid_coord(gx, gy)) {
+                continue;
+            }
+            goal_cells.push_back({
+                grid.grid_to_world_x(gx) + 0.5 * resolution,
+                grid.grid_to_world_y(gy) + 0.5 * resolution,
+            });
+        }
+    }
+
+    if (goal_cells.empty()) {
+        goal_cells.push_back({
+            grid.grid_to_world_x(center_x) + 0.5 * resolution,
+            grid.grid_to_world_y(center_y) + 0.5 * resolution,
+        });
+    }
+    return goal_cells;
+}
+
+}  // namespace
 
 RLEnvironment::RLEnvironment(const std::string& xml_path, const std::string& config_path, bool visualize)
     : xml_path_(xml_path), config_path_(config_path) {
     // std::cout << "Initializing RLEnvironment..." << std::endl;
     try {
         config_ = std::shared_ptr<ConfigManager>(ConfigManager::create_from_file(config_path).release());
-        // Effective visualization: explicit arg OR config (system.enable_visualization).
-        // This makes the YAML the source of truth while letting callers force-enable.
-        bool effective_visualize = visualize || config_->system().enable_visualization;
-        env_ = std::make_unique<NAMOEnvironment>(xml_path, config_, effective_visualize);
+        env_ = std::make_unique<NAMOEnvironment>(xml_path, config_, visualize);
         skill_ = std::make_unique<NAMOPushSkill>(*env_, config_);
         
         // Cache immutable object info once during initialization
@@ -86,80 +278,6 @@ RLEnvironment::StepResult RLEnvironment::step(const Action& action) {
     }
 
     return rl_result;
-}
-
-RLEnvironment::NavigateResult RLEnvironment::navigate_to(double x, double y, double theta) {
-    NavigateResult res;
-    auto wrap_pi = [](double a) {
-        while (a >  M_PI) a -= 2.0 * M_PI;
-        while (a < -M_PI) a += 2.0 * M_PI;
-        return a;
-    };
-
-    if (!env_) { res.failure_reason = "no_env"; return res; }
-
-    const auto* adapter = env_->get_robot_adapter();
-    auto* mjw = env_->get_mujoco_wrapper();
-    auto* model = mjw ? mjw->model() : nullptr;
-    auto* data  = mjw ? mjw->data()  : nullptr;
-    auto rs = env_->get_robot_state();
-    if (!rs) { res.failure_reason = "no_robot_state"; return res; }
-
-    // Heap-allocate the WavefrontPlanner: it carries multi-MB inline
-    // grid+queue buffers that overflow the stack if declared as a local.
-    const double resolution = config_ ? config_->get_skill_level_resolution() : 0.005;
-    const auto& robot_info = env_->get_robot_info();
-    // Inflate by chassis half-diagonal + safety margin so the wavefront path
-    // keeps the chassis's rotational sweep clear AND tolerates nav drift
-    // (~25 mm cross-track on average). Half-diagonal alone gives 0 margin
-    // beyond the chassis sweep — adding 2.5 cm covers realistic drift.
-    //
-    // robot_info.size = [0.0175, 0.035] only covers ONE chassis half; full
-    // chassis with wheels has half-extents [0.035, 0.0525].
-    double half_x = std::max(0.035, robot_info.size[0]);
-    double half_y = std::max(0.0525, robot_info.size[1]);
-    const double half_diag = std::hypot(half_x, half_y);
-    const double safety_margin = 0.025;
-    const double inflation = half_diag + safety_margin;
-    std::vector<double> robot_size = {inflation, inflation};
-    auto planner = std::make_unique<WavefrontPlanner>(resolution, *env_, robot_size);
-
-    std::vector<double> start_pos = {rs->position[0], rs->position[1]};
-    if (!planner->update_wavefront(*env_, start_pos)) {
-        res.failure_reason = "wavefront_failed";
-        return res;
-    }
-    auto path = planner->extract_path({start_pos[0], start_pos[1]}, {x, y});
-    if (path.empty()) { res.failure_reason = "no_path"; return res; }
-
-    // Emit [NAV_PATH] line so render_nav_video.py --path-file can overlay
-    // the wavefront waypoints. Mirrors what NAMOPushController does.
-    if (std::getenv("NAMO_NAV_LOG")) {
-        std::cerr << "[NAV_PATH]";
-        for (const auto& p : path) std::cerr << " " << p[0] << "," << p[1];
-        std::cerr << std::endl;
-    }
-
-    std::unique_ptr<NavigationStrategy> nav;
-    if (adapter && adapter->is_diff_drive()) {
-        nav = std::make_unique<DiffDriveNavigation>(DiffDriveNavigation::Params{});
-    } else {
-        nav = std::make_unique<HolonomicNavigation>();
-    }
-    auto nav_result = nav->execute(*env_, path, theta, /*target_object=*/"");
-
-    res.success          = nav_result.success;
-    res.failure_reason   = nav_result.failure_reason;
-    res.collision_object = nav_result.collision_object;
-    res.steps_used       = nav_result.steps_used;
-
-    auto rs2 = env_->get_robot_state();
-    res.final_x = rs2 ? rs2->position[0] : 0.0;
-    res.final_y = rs2 ? rs2->position[1] : 0.0;
-    res.final_theta = (adapter && model && data) ? adapter->get_theta(model, data) : 0.0;
-    res.pos_error_m = std::hypot(x - res.final_x, y - res.final_y);
-    res.yaw_error_rad = std::abs(wrap_pi(theta - res.final_theta));
-    return res;
 }
 
 std::map<std::string, std::vector<double>> RLEnvironment::get_observation() const {
@@ -241,6 +359,42 @@ bool RLEnvironment::is_object_reachable(const std::string& object_name) const {
 
 std::vector<int> RLEnvironment::get_reachable_edges(const std::string& object_name) const {
     return skill_->get_reachable_edges(object_name);
+}
+
+RLEnvironment::ReachabilitySummary RLEnvironment::get_reachability_summary(bool analysis_mode) const {
+    ReachabilitySummary summary;
+    if (!skill_) {
+        return summary;
+    }
+
+    const int push_depth_count = config_ ? config_->skill().max_push_steps : 10;
+    MPCExecutor::ReachabilitySnapshot snapshot = skill_->get_reachability_snapshot();
+    summary.goal_reachable = snapshot.goal_reachable;
+
+    const auto& movable_objects = env_->get_movable_objects();
+    for (size_t i = 0; i < env_->get_num_movable(); ++i) {
+        const auto& obj = movable_objects[i];
+        if (obj.name.empty()) {
+            continue;
+        }
+
+        ObjectReachabilitySummary obj_summary;
+        auto it = snapshot.object_edges.find(obj.name);
+        if (it != snapshot.object_edges.end()) {
+            obj_summary.reachable_edges = static_cast<int>(it->second.edge_indices.size());
+            obj_summary.total_edges = it->second.total_edge_points;
+            obj_summary.reachable = obj_summary.reachable_edges > 0;
+            if (analysis_mode) {
+                obj_summary.reachable_edge_indices = it->second.edge_indices;
+            }
+        }
+
+        obj_summary.total_primitives = obj_summary.total_edges * push_depth_count;
+        obj_summary.reachable_primitives = obj_summary.reachable_edges * push_depth_count;
+        summary.objects[obj.name] = std::move(obj_summary);
+    }
+
+    return summary;
 }
 
 const std::map<std::string, std::map<std::string, double>>& RLEnvironment::get_object_info() const {
@@ -344,48 +498,50 @@ RLEnvironment::ActionConstraints RLEnvironment::get_action_constraints() const {
 
 std::tuple<RLEnvironment::RegionAdjacency, RLEnvironment::RegionEdgeObjects, RLEnvironment::RegionLabels>
 RLEnvironment::get_region_connectivity() const {
-    std::vector<double> robot_size = {0.15, 0.15};
-    if (config_) {
-        const auto& cfg_size = config_->planning().robot_size;
-        if (cfg_size.size() >= 2) {
-            robot_size[0] = cfg_size[0];
-            robot_size[1] = cfg_size[1];
-        }
-    }
-
-    WavefrontGrid grid(*env_, robot_size);
-    grid.update_dynamic_grid(*env_);
-
-    struct CoutSilencer {
-        std::streambuf* original_buf;
-        std::ostringstream null_stream;
-
-        CoutSilencer() : original_buf(std::cout.rdbuf(null_stream.rdbuf())) {}
-        ~CoutSilencer() { std::cout.rdbuf(original_buf); }
-    } silencer;
-
-    auto adjacency = grid.build_region_connectivity_graph(*env_);
-    auto edge_objects = grid.get_region_edge_objects();
-    auto region_labels = grid.get_region_labels();
-
-    return {std::move(adjacency), std::move(edge_objects), std::move(region_labels)};
+    auto snapshot = get_region_snapshot(
+        /*goals_per_region=*/0,
+        /*goal_radius=*/0.15,
+        /*local_info_only=*/false,
+        /*seed=*/42,
+        /*use_xml_goal=*/true
+    );
+    return {
+        std::move(snapshot.adjacency),
+        std::move(snapshot.edge_objects),
+        std::move(snapshot.region_labels),
+    };
 }
 
 RLEnvironment::RegionGoalSamples RLEnvironment::sample_region_goals(int goals_per_region) const {
-    if (goals_per_region <= 0) {
-        return {};
-    }
+    return get_region_snapshot(
+        /*goals_per_region=*/goals_per_region,
+        /*goal_radius=*/0.15,
+        /*local_info_only=*/false,
+        /*seed=*/42,
+        /*use_xml_goal=*/true
+    ).region_goals;
+}
+
+RLEnvironment::RegionSnapshot RLEnvironment::get_region_snapshot(
+    int goals_per_region,
+    double goal_radius,
+    bool local_info_only,
+    unsigned int seed,
+    bool use_xml_goal) const {
+    RegionSnapshot snapshot;
 
     std::vector<double> robot_size = {0.15, 0.15};
+    double tier1_margin = 0.005;
     if (config_) {
         const auto& cfg_size = config_->planning().robot_size;
         if (cfg_size.size() >= 2) {
             robot_size[0] = cfg_size[0];
             robot_size[1] = cfg_size[1];
         }
+        tier1_margin = config_->planning().wavefront_tier1_inflation_margin;
     }
 
-    WavefrontGrid grid(*env_, robot_size);
+    WavefrontGrid grid(*env_, robot_size, tier1_margin);
     grid.update_dynamic_grid(*env_);
 
     struct CoutSilencer {
@@ -396,8 +552,47 @@ RLEnvironment::RegionGoalSamples RLEnvironment::sample_region_goals(int goals_pe
         ~CoutSilencer() { std::cout.rdbuf(original_buf); }
     } silencer;
 
-    grid.build_region_connectivity_graph(*env_);
-    return grid.sample_region_goals(goals_per_region);
+    std::array<double, 2> goal_xy = env_->get_robot_goal();
+    if (use_xml_goal) {
+        std::array<double, 3> xml_goal_pose{};
+        if (extract_xml_goal_pose(xml_path_, xml_goal_pose)) {
+            goal_xy = {xml_goal_pose[0], xml_goal_pose[1]};
+        }
+    }
+
+    const ObjectState* robot_state = env_->get_robot_state();
+    if (!robot_state) {
+        return snapshot;
+    }
+    const std::array<double, 2> robot_xy = {robot_state->position[0], robot_state->position[1]};
+    const auto goal_cells = build_goal_cells(grid, goal_xy, goal_radius);
+    grid.find_connected_components(robot_xy, goal_cells);
+
+    snapshot.adjacency = grid.build_region_connectivity_graph(*env_);
+    snapshot.edge_objects = grid.get_region_edge_objects();
+    snapshot.region_labels = grid.get_region_labels();
+
+    snapshot.robot_label = find_robot_label(snapshot.region_labels);
+    snapshot.goal_label = find_goal_label(snapshot.region_labels);
+    snapshot.goal_reachable =
+        snapshot.robot_label.find("goal") != std::string::npos;
+    snapshot.goal_in_free_space =
+        !snapshot.goal_label.empty() || snapshot.goal_reachable;
+
+    if (goals_per_region > 0) {
+        snapshot.region_goals = grid.sample_region_goals(goals_per_region, seed);
+    }
+
+    if (local_info_only) {
+        restrict_to_local_regions(
+            snapshot.adjacency,
+            snapshot.edge_objects,
+            snapshot.region_labels,
+            snapshot.robot_label
+        );
+    }
+
+    return snapshot;
 }
 
 void RLEnvironment::set_robot_goal_termination(bool enable) {

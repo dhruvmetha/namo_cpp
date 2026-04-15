@@ -8,6 +8,7 @@
 #include <unordered_set>
 #include <chrono>
 #include <map>
+#include <memory>
 
 namespace namo {
 
@@ -27,9 +28,11 @@ public:
      * @param resolution Grid resolution in meters
      * @param env Environment (used for initial setup)
      * @param robot_size Robot size for inflation [width, height]
+     * @param tier1_inflation_margin Tier-1 additive inflation margin in meters
      */
     WavefrontPlanner(double resolution, NAMOEnvironment& env, 
-                    const std::vector<double>& robot_size);
+                    const std::vector<double>& robot_size,
+                    double tier1_inflation_margin = 0.005);
     
     /**
      * @brief Update wavefront by rebuilding from scratch
@@ -223,17 +226,19 @@ private:
     int grid_width_;
     int grid_height_;
     std::vector<double> robot_size_;
+    double tier1_inflation_margin_;
     
     // Persistent grids - never reallocated
     std::vector<std::vector<int>> static_grid_;      // Static obstacles only
     std::vector<std::vector<int>> dynamic_grid_;     // Current full state
-    std::vector<std::vector<int>> reachability_grid_; // Reachability from start: -2=obstacle, 0=unreachable, 1=reachable
+    std::vector<std::vector<int>> reachability_grid_; // Reachability from start: -1=obstacle, 0=unreachable, 1=reachable
     
     // No change tracking needed - always rebuild from scratch
     
     // BFS workspace - reused across calls (simplified)
     static constexpr size_t MAX_BFS_QUEUE = 4000000;  // Increased to handle 1410x2210 grid (3.1M cells)
-    std::array<std::pair<int, int>, MAX_BFS_QUEUE> bfs_queue_;
+    // Heap allocation avoids >30MB stack frames when WavefrontPlanner is a member of stack objects.
+    std::unique_ptr<std::pair<int, int>[]> bfs_queue_;
     size_t queue_front_ = 0, queue_back_ = 0;
     
     // 8-connected grid directions
