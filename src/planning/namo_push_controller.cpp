@@ -2,6 +2,7 @@
 #include "core/mujoco_wrapper.hpp"
 #include "navigation/holonomic_navigation.hpp"
 #include "navigation/diff_drive_navigation.hpp"
+#include "navigation/qpos_dump.hpp"
 #include <cmath>
 #include <iostream>
 #include <iomanip>
@@ -436,6 +437,7 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
             // Apply control through environment dynamics system
             env_.apply_control(control[0], control[1], 0.01);  // 0.01 second timestep
             env_.get_mujoco_wrapper()->notify_physics_step();  // Video recording hook
+            dump_qpos(env_, /*phase=*/3);  // phase 3 = push execution
 
             // Fetch updated object state AFTER applying control
             auto obj_state_after = env_.get_object_state(object_name);
@@ -524,6 +526,7 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
         env_.set_zero_velocity();
         env_.step_simulation();
         env_.get_mujoco_wrapper()->notify_physics_step();  // Video recording hook
+        dump_qpos(env_, /*phase=*/3);
     }
 
     auto final_obj_state = env_.get_object_state(object_name);

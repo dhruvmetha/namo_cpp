@@ -1,4 +1,5 @@
 #include "navigation/diff_drive_navigation.hpp"
+#include "navigation/qpos_dump.hpp"
 #include "environment/namo_environment.hpp"
 #include "robot/robot_adapter.hpp"
 #include "config/config_manager.hpp"
@@ -86,25 +87,10 @@ bool check_robot_collision_any(NAMOEnvironment& env, std::string& out_obj,
     return false;
 }
 
-// Dump full qpos to a file for later video rendering. Triggered by env var.
-void maybe_dump_qpos(NAMOEnvironment& env, int phase_id) {
-    static FILE* dump_fp = nullptr;
-    static bool init = false;
-    if (!init) {
-        const char* path = std::getenv("NAMO_QPOS_DUMP");
-        if (path && path[0]) {
-            dump_fp = std::fopen(path, "w");
-        }
-        init = true;
-    }
-    if (!dump_fp) return;
-
-    auto* m = env.get_mujoco_wrapper()->model();
-    auto* d = env.get_mujoco_wrapper()->data();
-    std::fprintf(dump_fp, "%d %d", phase_id, m->nq);
-    for (int i = 0; i < m->nq; i++) std::fprintf(dump_fp, " %.6f", d->qpos[i]);
-    std::fprintf(dump_fp, "\n");
-    std::fflush(dump_fp);
+// Dump full qpos to file named by NAMO_QPOS_DUMP. Thin wrapper around the
+// shared helper so push_controller can write into the same stream.
+inline void maybe_dump_qpos(NAMOEnvironment& env, int phase_id) {
+    dump_qpos(env, phase_id);
 }
 
 // Step MuJoCo for one "control tick" (matches NAMOEnvironment::apply_control timing: 0.01s).
