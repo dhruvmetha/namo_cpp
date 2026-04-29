@@ -74,6 +74,7 @@ class WavefrontSnapshotData:
     robot_pose: Tuple[float, float, float]
     goal_pose: Optional[Tuple[float, float, float]]
     robot_half_extent: Tuple[float, float]
+    tier1_inflation_margin_m: float
     movable_objects: Sequence[Dict[str, float]]
     environment_image: Optional[Path]
     xml_path: Optional[str] = None
@@ -118,6 +119,7 @@ def load_snapshot(directory: Path, prefix: str = "snapshot") -> WavefrontSnapsho
         robot_pose=tuple(metadata.get("robot_pose", [0.0, 0.0, 0.0])),
         goal_pose=tuple(metadata["goal_pose"]) if metadata.get("goal_pose") else None,
         robot_half_extent=tuple(metadata.get("robot_half_extent", [0.2, 0.2])),
+        tier1_inflation_margin_m=float(metadata.get("tier1_inflation_margin_m", 0.005)),
         movable_objects=metadata.get("movable_objects", []),
         environment_image=environment_image,
         xml_path=str(metadata.get("xml_path")) if metadata.get("xml_path") else None,
@@ -139,6 +141,18 @@ def _hex_to_rgb_u8(hex_color: str) -> Tuple[int, int, int]:
         int(color[2:4], 16),
         int(color[4:6], 16),
     )
+
+
+def _snapshot_inflation_radius(data: WavefrontSnapshotData) -> float:
+    hx = abs(float(data.robot_half_extent[0]))
+    hy = abs(float(data.robot_half_extent[1]))
+    margin = float(data.tier1_inflation_margin_m)
+    if margin < 0.0:
+        margin = 0.005
+    radius = math.sqrt(hx * hx + hy * hy)
+    if radius <= 0.0:
+        radius = 0.15
+    return radius + margin
 
 
 def _region_label_color(label: str) -> str:
@@ -398,10 +412,9 @@ def _target_inflated_mask(data: WavefrontSnapshotData) -> NDArray[np.bool_]:
     if half_w <= 0.0 or half_h <= 0.0:
         return mask
 
-    inflate_x = float(data.robot_half_extent[0]) + 0.005
-    inflate_y = float(data.robot_half_extent[1]) + 0.005
-    half_w += inflate_x
-    half_h += inflate_y
+    inflate_r = _snapshot_inflation_radius(data)
+    half_w += inflate_r
+    half_h += inflate_r
 
     cos_a = math.cos(yaw)
     sin_a = math.sin(yaw)
@@ -574,10 +587,9 @@ def _rasterize_movable_object_mask(data: WavefrontSnapshotData, obj: Dict[str, f
         return mask
 
     if inflated:
-        inflate_x = float(data.robot_half_extent[0]) + 0.005
-        inflate_y = float(data.robot_half_extent[1]) + 0.005
-        half_w += inflate_x
-        half_h += inflate_y
+        inflate_r = _snapshot_inflation_radius(data)
+        half_w += inflate_r
+        half_h += inflate_r
 
     cos_a = math.cos(yaw)
     sin_a = math.sin(yaw)

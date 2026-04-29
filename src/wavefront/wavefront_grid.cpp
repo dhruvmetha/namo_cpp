@@ -1,5 +1,6 @@
 #include "wavefront/wavefront_grid.hpp"
 #include "environment/namo_environment.hpp"
+#include "wavefront/goal_tolerance_utils.hpp"
 #include <iostream>
 #include <fstream>
 #include <cmath>
@@ -48,8 +49,7 @@ void WavefrontGrid::rebuild_grids(NAMOEnvironment& env) {
     const auto& movable_objects = env.get_movable_objects();
     const size_t num_static = env.get_num_static();
     const size_t num_movable = env.get_num_movable();
-    const double inflate_x = robot_size_[0] + tier1_inflation_margin_;
-    const double inflate_y = robot_size_[1] + tier1_inflation_margin_;
+    const double inflate_r = compute_wavefront_inflation_radius_m(robot_size_, tier1_inflation_margin_);
 
     for (int x = 0; x < grid_width_; x++) {
         for (int y = 0; y < grid_height_; y++) {
@@ -74,8 +74,8 @@ void WavefrontGrid::rebuild_grids(NAMOEnvironment& env) {
 
                 if (!occupied_inflated) {
                     ObjectInfo inflated_obj = obj;
-                    inflated_obj.size[0] += inflate_x;
-                    inflated_obj.size[1] += inflate_y;
+                    inflated_obj.size[0] += inflate_r;
+                    inflated_obj.size[1] += inflate_r;
 
                     if (is_point_in_rotated_rectangle(world_x, world_y, static_state, inflated_obj)) {
                         occupied_inflated = true;
@@ -103,8 +103,8 @@ void WavefrontGrid::rebuild_grids(NAMOEnvironment& env) {
 
                     if (!occupied_inflated) {
                         ObjectInfo inflated_obj = obj;
-                        inflated_obj.size[0] += inflate_x;
-                        inflated_obj.size[1] += inflate_y;
+                        inflated_obj.size[0] += inflate_r;
+                        inflated_obj.size[1] += inflate_r;
 
                         if (is_point_in_rotated_rectangle(world_x, world_y, *obj_state, inflated_obj)) {
                             occupied_inflated = true;
@@ -715,8 +715,9 @@ WavefrontGrid::build_region_connectivity_graph(NAMOEnvironment& env) {
         
         // === STEP 1: Calculate object footprint ===
         ObjectInfo inflated_obj = obj;
-        inflated_obj.size[0] += robot_size_[0] + tier1_inflation_margin_;
-        inflated_obj.size[1] += robot_size_[1] + tier1_inflation_margin_;
+        const double inflate_r = compute_wavefront_inflation_radius_m(robot_size_, tier1_inflation_margin_);
+        inflated_obj.size[0] += inflate_r;
+        inflated_obj.size[1] += inflate_r;
         
         GridFootprint footprint = calculate_rotated_footprint(inflated_obj, *obj_state);
         

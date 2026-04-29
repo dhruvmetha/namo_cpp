@@ -82,7 +82,7 @@ def analyze_environment(
         snapshot = exporter.build_snapshot(
             xml_path=xml_path,
             config_path=config_path,
-            goal_radius=0.15,
+            goal_radius=None,  # auto: sqrt(hx^2 + hy^2) + tier1_margin
             goals_per_region=0,
             use_current_state=False,
         )

@@ -14,7 +14,7 @@ Cell-value conventions are documented in [`WAVEFRONT_CELL_SEMANTICS.md`](WAVEFRO
 The Python helper prefers the C++ unified API and only falls back to Python raster snapshotting when explicitly requested (`use_cpp_unified=False`) or when the binding is unavailable.
 
 ## C++ API Shape
-`env.get_region_snapshot(goals_per_region=0, goal_radius=0.15, local_info_only=False, seed=42, use_xml_goal=True)` returns:
+`env.get_region_snapshot(goals_per_region=0, goal_radius=-1.0, local_info_only=False, seed=42, use_xml_goal=True)` returns:
 - `adjacency`: `Dict[str, Set[str]]`
 - `edge_objects`: `Dict[str, Dict[str, Set[str]]]`
 - `region_labels`: `Dict[int, str]`
@@ -32,7 +32,7 @@ snapshot = get_region_snapshot(
     env,
     goals_per_region=10,
     use_cpp_unified=True,
-    goal_radius=0.15,
+    goal_radius=None,  # auto: sqrt(hx^2 + hy^2) + tier1_margin
     seed=42,
 )
 

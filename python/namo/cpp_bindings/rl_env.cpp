@@ -407,10 +407,22 @@ void RLEnvironment::set_robot_goal(double x, double y, double theta) {
     // Keep the C++ environment and visualization marker in sync with the goal used
     // by the skill/executor (especially important for region-opening validation loops).
     if (env_) {
+        std::vector<double> robot_size = {kDefaultWavefrontRobotRadiusM, kDefaultWavefrontRobotRadiusM};
+        double tier1_margin = kDefaultWavefrontTier1MarginM;
+        if (config_) {
+            const auto& cfg_size = config_->planning().robot_size;
+            if (cfg_size.size() >= 2) {
+                robot_size[0] = cfg_size[0];
+                robot_size[1] = cfg_size[1];
+            }
+            tier1_margin = config_->planning().wavefront_tier1_inflation_margin;
+        }
+        const double goal_radius = compute_goal_tolerance_m(robot_size, tier1_margin);
+
         env_->set_robot_goal({x, y});
         // Visualization-only goal marker: keep it on the ground plane so it matches
         // the XML goal site conventions used in most scenes.
-        env_->visualize_goal_marker({x, y, 0.0});
+        env_->visualize_goal_marker({x, y, 0.0}, {0.0f, 1.0f, 0.0f, 1.0f}, goal_radius);
     }
     skill_->set_robot_goal(x, y, theta);
 }
@@ -555,8 +567,8 @@ RLEnvironment::RegionSnapshot RLEnvironment::get_region_snapshot(
     bool use_xml_goal) const {
     RegionSnapshot snapshot;
 
-    std::vector<double> robot_size = {0.15, 0.15};
-    double tier1_margin = 0.005;
+    std::vector<double> robot_size = {kDefaultWavefrontRobotRadiusM, kDefaultWavefrontRobotRadiusM};
+    double tier1_margin = kDefaultWavefrontTier1MarginM;
     if (config_) {
         const auto& cfg_size = config_->planning().robot_size;
         if (cfg_size.size() >= 2) {
@@ -585,12 +597,15 @@ RLEnvironment::RegionSnapshot RLEnvironment::get_region_snapshot(
         }
     }
 
+    const double effective_goal_radius =
+        (goal_radius > 0.0) ? goal_radius : compute_goal_tolerance_m(robot_size, tier1_margin);
+
     const ObjectState* robot_state = env_->get_robot_state();
     if (!robot_state) {
         return snapshot;
     }
     const std::array<double, 2> robot_xy = {robot_state->position[0], robot_state->position[1]};
-    const auto goal_cells = build_goal_cells(grid, goal_xy, goal_radius);
+    const auto goal_cells = build_goal_cells(grid, goal_xy, effective_goal_radius);
     grid.find_connected_components(robot_xy, goal_cells);
 
     snapshot.adjacency = grid.build_region_connectivity_graph(*env_);

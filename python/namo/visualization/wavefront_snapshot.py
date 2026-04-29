@@ -200,6 +200,18 @@ class WavefrontSnapshotExporter:
         self.grid_width = max(1, int((self.bounds[1] - self.bounds[0]) / self.resolution))
         self.grid_height = max(1, int((self.bounds[3] - self.bounds[2]) / self.resolution))
 
+    def _rotation_safe_robot_radius_m(self) -> float:
+        hx = abs(float(self.robot_half_extent[0]))
+        hy = abs(float(self.robot_half_extent[1]))
+        radius = math.sqrt(hx * hx + hy * hy)
+        return radius if radius > 0.0 else 0.15
+
+    def _inflation_radius_m(self) -> float:
+        margin = self.tier1_inflation_margin_m
+        if margin < 0.0:
+            margin = self.DEFAULT_TIER1_INFLATION_MARGIN_M
+        return self._rotation_safe_robot_radius_m() + margin
+
     @classmethod
     def _resolve_wavefront_yaml_path(cls, primary_config_path: Union[str, Path]) -> Optional[Path]:
         primary_path = Path(primary_config_path).expanduser().resolve()
@@ -290,7 +302,7 @@ class WavefrontSnapshotExporter:
         self,
         xml_path: str,
         config_path: str,
-        goal_radius: float = 0.15,
+        goal_radius: Optional[float] = None,
         goals_per_region: int = 0,
         rng: Optional[np.random.Generator] = None,
         use_current_state: bool = False,
@@ -337,7 +349,11 @@ class WavefrontSnapshotExporter:
             if grids["static"][nx, ny] == -1:
                 grids["static"][nx, ny] = 0
 
-        goal_cells = self._goal_cells(goal_pose, goal_radius)
+        effective_goal_radius = (
+            goal_radius if (goal_radius is not None and goal_radius > 0.0)
+            else self._inflation_radius_m()
+        )
+        goal_cells = self._goal_cells(goal_pose, effective_goal_radius)
         region_map, region_labels = self._compute_regions(grids["dynamic"], robot_pose, goal_cells)
         adjacency, edge_objects = self._build_connectivity(
             grids["dynamic"].copy(),
@@ -402,20 +418,19 @@ class WavefrontSnapshotExporter:
         static_grid = np.full(shape, 0, dtype=np.int16)
         dynamic_grid = np.full(shape, 0, dtype=np.int16)
 
-        inflate_x = self.robot_half_extent[0] + self.tier1_inflation_margin_m
-        inflate_y = self.robot_half_extent[1] + self.tier1_inflation_margin_m
+        inflate_r = self._inflation_radius_m()
 
         # Rasterise static objects
         for instance in static_objects:
             self._rasterise_object(instance, instance.half_extent, uninflated)
-            inflated_extent = (instance.half_extent[0] + inflate_x, instance.half_extent[1] + inflate_y)
+            inflated_extent = (instance.half_extent[0] + inflate_r, instance.half_extent[1] + inflate_r)
             self._rasterise_object(instance, inflated_extent, static_grid)
             self._rasterise_object(instance, inflated_extent, dynamic_grid)
 
         # Rasterise movable objects
         for instance in movable_objects:
             self._rasterise_object(instance, instance.half_extent, uninflated)
-            inflated_extent = (instance.half_extent[0] + inflate_x, instance.half_extent[1] + inflate_y)
+            inflated_extent = (instance.half_extent[0] + inflate_r, instance.half_extent[1] + inflate_r)
             self._rasterise_object(instance, inflated_extent, dynamic_grid)
 
         return {
@@ -643,14 +658,13 @@ class WavefrontSnapshotExporter:
         edge_objects: Dict[str, Dict[str, Set[str]]] = {
             label: {} for label in region_labels.values()
         }
-        inflate_x = self.robot_half_extent[0] + self.tier1_inflation_margin_m
-        inflate_y = self.robot_half_extent[1] + self.tier1_inflation_margin_m
+        inflate_r = self._inflation_radius_m()
         neighbor_offsets = self.NEIGHBOR_OFFSETS
 
         for instance in movable_objects:
             inflated_extent = (
-                instance.half_extent[0] + inflate_x,
-                instance.half_extent[1] + inflate_y,
+                instance.half_extent[0] + inflate_r,
+                instance.half_extent[1] + inflate_r,
             )
             footprint = self._collect_footprint_cells(instance, inflated_extent)
             if not footprint:

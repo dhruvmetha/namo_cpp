@@ -24,7 +24,7 @@ public:
 
         // Wavefront planning
         double skill_level_resolution = 0.02;    // 2cm grid for detailed planning
-        std::vector<double> robot_size = {0.15, 0.15};  // [width, height] for inflation
+        std::vector<double> robot_size = {0.15, 0.15};  // [half_extent_x, half_extent_y] in meters
 
         // Robot type: "holonomic" (default point robot) or "diff_drive" (car)
         std::string robot_type = "holonomic";
