@@ -1,2 +1,3 @@
 index	sha	subject	files
 1	7b75dedcab4fe7abe623dd6addcf7a4797aa7fa7	Unify wavefront semantics and C++ region snapshot across planning stack	python/namo/cpp_bindings/rl_env.cpp,python/namo/planners/opening/region_opening.py,python/namo/visualization/wavefront_snapshot.py,src/planning/mpc_executor.cpp
+2	1bd35c117d123ea9ef6471893d6e1a5b0b251394	Enforce canonical namo_rl build_python loading with strict policy and guard checks	.gitignore,IDFS_DATA_PIPELINE.md,build_python_mjxrl.sh,python/namo/data_collection/parallel_sequential_runner.py

@@ -5,7 +5,16 @@ Test script for the clean 2-level hierarchical MCTS implementation.
 
 import sys
 import argparse
-import namo_rl
+from pathlib import Path
+
+repo_root = Path(__file__).resolve().parents[2]
+python_dir = repo_root / "python"
+if str(python_dir) not in sys.path:
+    sys.path.insert(0, str(python_dir))
+
+from namo.core.binding_loader import load_canonical_namo_rl
+
+namo_rl, module_path, canonical_build = load_canonical_namo_rl(repo_root)
 from mcts_hierarchical import plan_with_clean_hierarchical_mcts, CleanHierarchicalMCTS
 from mcts_config import MCTSConfig
 

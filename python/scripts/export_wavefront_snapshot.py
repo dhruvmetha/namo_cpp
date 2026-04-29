@@ -4,16 +4,20 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 from typing import Any, Dict, cast
 
 from PIL import Image  # type: ignore[import]
-
-import namo_rl  # type: ignore[import]
-
 from environment_selection import visualize_environment  # type: ignore[attr-defined]
 
 visualize_environment_fn = cast(Any, visualize_environment)
+repo_root = Path(__file__).resolve().parents[2]
+python_dir = repo_root / "python"
+if str(python_dir) not in sys.path:
+    sys.path.insert(0, str(python_dir))
+
+from namo.core.binding_loader import load_canonical_namo_rl
 from namo.visualization.wavefront_snapshot import WavefrontSnapshotExporter
 
 
@@ -60,6 +64,8 @@ def main() -> None:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    namo_rl, loaded_module, _ = load_canonical_namo_rl(repo_root)
+    print(f"Using namo_rl: {loaded_module}")
     print("Initialising NAMO RL environment...")
     rl_env_cls: Any = getattr(namo_rl, "RLEnvironment")
     env: Any = rl_env_cls(args.xml, args.config, visualize=False)
