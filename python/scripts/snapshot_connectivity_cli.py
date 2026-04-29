@@ -10,18 +10,19 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 from typing import Any, Iterable, Mapping, MutableMapping, Sequence, Set, cast
 
-try:
-    import namo_rl  # type: ignore[import]
-except ImportError as exc:  # pragma: no cover - surfaced immediately to the user
-    raise SystemExit(
-        "Failed to import namo_rl. Ensure the MuJoCo virtualenv is active and PYTHONPATH is set."
-    ) from exc
+repo_root = Path(__file__).resolve().parents[2]
+python_dir = repo_root / "python"
+if str(python_dir) not in sys.path:
+    sys.path.insert(0, str(python_dir))
 
+from namo.core.binding_loader import load_canonical_namo_rl
 from namo.planners import snapshot_region_connectivity
 
-namo_rl = cast(Any, namo_rl)
+namo_rl: Any = None
+
 
 
 def _format_set(values: Iterable[str]) -> str:
@@ -142,6 +143,10 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
 
+    global namo_rl
+    namo_rl, loaded_module, _ = load_canonical_namo_rl(repo_root)
+    namo_rl = cast(Any, namo_rl)
+    print(f"[setup] using namo_rl: {loaded_module}")
     print("[setup] constructing RLEnvironment")
     env_cls = getattr(namo_rl, "RLEnvironment")
     env = env_cls(args.xml, args.config, args.render)

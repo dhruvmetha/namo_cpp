@@ -41,15 +41,20 @@ print('RESULT', result.done, dict(result.info))
 def run_and_capture(xml, config, obj, edge, depth):
     env = os.environ.copy()
     env["NAMO_NAV_LOG"] = "1"
-    env["PYTHONPATH"] = (
-        "/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_rlab7:"
-        + env.get("PYTHONPATH", "")
-    )
+    repo_root = Path(__file__).resolve().parents[3]
+    build_dir = repo_root / "build_python"
+    if not build_dir.is_dir() or not any(build_dir.glob("namo_rl*.so")):
+        raise RuntimeError(
+            "Canonical namo_rl build missing at build_python. Build with:\n"
+            "  cmake -S . -B build_python -DCMAKE_BUILD_TYPE=Release -DBUILD_PYTHON_BINDINGS=ON\n"
+            "  cmake --build build_python --target namo_rl -j$(nproc)"
+        )
+    env["PYTHONPATH"] = f"{build_dir}:{env.get('PYTHONPATH', '')}"
     env["LD_LIBRARY_PATH"] = (
         "/usr/lib/x86_64-linux-gnu:" + env.get("LD_LIBRARY_PATH", "")
     )
     p = subprocess.run(
-        ["/common/users/dm1487/envs/mjxrl/bin/python", "-c", RUNNER,
+        [sys.executable, "-c", RUNNER,
          xml, config, obj, str(edge), str(depth)],
         env=env, capture_output=True, text=True,
     )

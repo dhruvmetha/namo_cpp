@@ -1,38 +1,27 @@
 #!/usr/bin/env python3
 """Setup script for NAMO Python package."""
 
+from pathlib import Path
 from setuptools import setup, find_packages
-import os
 import sys
+from typing import Optional
 
-# Read README for long description
-def read_readme():
-    readme_path = os.path.join(os.path.dirname(__file__), 'README.md')
-    if os.path.exists(readme_path):
-        with open(readme_path, 'r', encoding='utf-8') as f:
-            return f.read()
+
+def read_readme() -> str:
+    readme_path = Path(__file__).resolve().parent / "README.md"
+    if readme_path.exists():
+        return readme_path.read_text(encoding="utf-8")
     return "NAMO (Navigation Among Movable Obstacles) Python package"
 
-# Determine the C++ module path based on hostname
-def get_cpp_module_path():
-    """Get the path to the compiled namo_rl module."""
-    import subprocess
-    try:
-        hostname = subprocess.check_output(['hostname', '-s']).decode().strip()
-        base_dir = os.path.dirname(os.path.dirname(__file__))  # Go up from python/ to namo/
-        cpp_module_dir = os.path.join(base_dir, f'build_python_mjxrl_{hostname}')
 
-        if os.path.exists(cpp_module_dir):
-            return cpp_module_dir
-        else:
-            # Fallback to generic build directory
-            generic_dir = os.path.join(base_dir, 'build_python_mjxrl')
-            if os.path.exists(generic_dir):
-                return generic_dir
-    except:
-        pass
-
+def get_cpp_module_path() -> Optional[Path]:
+    """Return canonical build directory path if namo_rl shared object exists."""
+    base_dir = Path(__file__).resolve().parent.parent
+    build_dir = base_dir / "build_python"
+    if build_dir.is_dir() and any(build_dir.glob("namo_rl*.so")):
+        return build_dir
     return None
+
 
 setup(
     name="namo",
@@ -73,24 +62,23 @@ setup(
     ],
 )
 
-# Post-install hook to add C++ module to path
+
 class PostDevelopInstall:
-    """Add the C++ module path to the Python path after installation."""
+    """Show canonical namo_rl build guidance after install/develop."""
 
-    def run(self):
+    def run(self) -> None:
         cpp_path = get_cpp_module_path()
-        if cpp_path:
-            print(f"\n🔧 C++ module found at: {cpp_path}")
-            print("💡 You may need to add this to your PYTHONPATH:")
-            print(f"   export PYTHONPATH=\"{cpp_path}:$PYTHONPATH\"")
-            print("\n   Or add it to your shell configuration file.")
-        else:
-            print("\n⚠️  C++ module (namo_rl) not found.")
-            print("   You may need to build it first with:")
-            print("   cmake -B build_python_mjxrl -DBUILD_PYTHON_BINDINGS=ON")
-            print("   cmake --build build_python_mjxrl")
+        if cpp_path is not None:
+            print(f"\nC++ module found at: {cpp_path}")
+            print("Add this to your PYTHONPATH:")
+            print(f"  export PYTHONPATH=\"{cpp_path}:$PYTHONPATH\"")
+            return
 
-# Run post-install notification
-if 'develop' in sys.argv or 'install' in sys.argv:
-    post_install = PostDevelopInstall()
-    post_install.run()
+        print("\nC++ module (namo_rl) not found in canonical build directory.")
+        print("Build it with:")
+        print("  cmake -S . -B build_python -DCMAKE_BUILD_TYPE=Release -DBUILD_PYTHON_BINDINGS=ON")
+        print("  cmake --build build_python --target namo_rl -j$(nproc)")
+
+
+if "develop" in sys.argv or "install" in sys.argv:
+    PostDevelopInstall().run()

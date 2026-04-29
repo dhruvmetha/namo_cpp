@@ -22,8 +22,8 @@ Collect MCTS episode data containing:
 
 **Small Test Collection (10 environments):**
 ```bash
-PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_westeros \
-/common/users/dm1487/envs/mjxrl/bin/python python/namo/data_collection/parallel_data_collection.py \
+PYTHONPATH=<repo>/build_python \
+python python/namo/data_collection/parallel_data_collection.py \
 --output-dir ./test_mcts_data \
 --start-idx 0 \
 --end-idx 10 \
@@ -35,8 +35,8 @@ PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_w
 
 **Medium Production Collection (100 environments):**
 ```bash
-PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_westeros \
-/common/users/dm1487/envs/mjxrl/bin/python python/namo/data_collection/parallel_data_collection.py \
+PYTHONPATH=<repo>/build_python \
+python python/namo/data_collection/parallel_data_collection.py \
 --output-dir ./mcts_episodes \
 --start-idx 0 \
 --end-idx 100 \
@@ -48,8 +48,8 @@ PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_w
 
 **Large Scale Collection (1000+ environments):**
 ```bash
-PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_westeros \
-/common/users/dm1487/envs/mjxrl/bin/python python/namo/data_collection/parallel_data_collection.py \
+PYTHONPATH=<repo>/build_python \
+python python/namo/data_collection/parallel_data_collection.py \
 --output-dir ./large_mcts_dataset \
 --start-idx 0 \
 --end-idx 1000 \
@@ -354,8 +354,8 @@ print(f"Loaded {len(value_data)} value network samples")
 
 ```bash
 # Step 1: Generate MCTS episodes (100 environments)
-PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_westeros \
-/common/users/dm1487/envs/mjxrl/bin/python python/namo/data_collection/parallel_data_collection.py \
+PYTHONPATH=<repo>/build_python \
+python python/namo/data_collection/parallel_data_collection.py \
 --output-dir ./my_mcts_dataset \
 --start-idx 0 \
 --end-idx 100 \
@@ -395,6 +395,8 @@ python train_diffusion_model.py \
 4. **Import errors**
    - Ensure `PYTHONPATH` is set correctly
    - Check that `namo_rl` module is built
+   - Run `python python/scripts/check_binding_provenance.py`
+   - Run `python python/scripts/check_canonical_binding_policy.py`
 
 **Performance Tips:**
 
@@ -434,16 +436,16 @@ For debugging, understanding MCTS behavior, or demonstrating the system, you can
 
 **Basic visualization:**
 ```bash
-PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_westeros \
-/common/users/dm1487/envs/mjxrl/bin/python python/scripts/test_clean_mcts.py \
+PYTHONPATH=<repo>/build_python \
+python python/scripts/test_clean_mcts.py \
 --visualize-tree \
 --budget 50
 ```
 
 **With custom parameters:**
 ```bash
-PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_westeros \
-/common/users/dm1487/envs/mjxrl/bin/python python/scripts/test_clean_mcts.py \
+PYTHONPATH=<repo>/build_python \
+python python/scripts/test_clean_mcts.py \
 --visualize-tree \
 --budget 100 \
 --k 2.0 \
@@ -455,8 +457,8 @@ PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_w
 
 **Complete episode with visualization:**
 ```bash
-PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_westeros \
-/common/users/dm1487/envs/mjxrl/bin/python python/scripts/test_multi_step_mcts.py \
+PYTHONPATH=<repo>/build_python \
+python python/scripts/test_multi_step_mcts.py \
 --visualize-tree \
 --budget 50 \
 --max-steps 10

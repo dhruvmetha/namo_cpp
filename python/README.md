@@ -75,9 +75,8 @@ export MJ_PATH=/path/to/mujoco
 ./build_python_bindings.sh
 
 # Option 2: Manual build
-mkdir build_python && cd build_python
-cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_PYTHON_BINDINGS=ON
-make -j$(nproc) namo_rl
+cmake -S . -B build_python -DCMAKE_BUILD_TYPE=Release -DBUILD_PYTHON_BINDINGS=ON
+cmake --build build_python --target namo_rl -j$(nproc)
 ```
 
 ## Usage Examples
@@ -293,6 +292,12 @@ Run the test suite to verify functionality:
 ```bash
 cd python
 PYTHONPATH=../build_python python test_rl_env.py
+
+# Canonical binding provenance (strict build_python check)
+python scripts/check_binding_provenance.py
+
+# Policy guard (rejects non-canonical build folder references)
+python scripts/check_canonical_binding_policy.py
 ```
 
 The test suite covers:

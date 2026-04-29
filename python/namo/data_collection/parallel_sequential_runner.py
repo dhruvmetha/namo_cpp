@@ -125,11 +125,11 @@ def main():
     
     # Python execution
     parser.add_argument("--python-path", type=str, 
-                        default="/common/users/dm1487/envs/mjxrl/bin/python",
+                        default=sys.executable,
                         help="Path to Python executable")
     parser.add_argument("--pythonpath", type=str,
-                        default="/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_westeros",
-                        help="PYTHONPATH for the subprocess")
+                        default=None,
+                        help="PYTHONPATH for the subprocess (default: <repo>/build_python)")
     
     # CUDA device management
     parser.add_argument("--cuda-devices", type=str, nargs='+',
@@ -177,6 +177,17 @@ def main():
     
     args = parser.parse_args()
     
+    # Canonical namo_rl build path
+    if not args.pythonpath:
+        args.pythonpath = str(Path(__file__).resolve().parents[2] / "build_python")
+    if not Path(args.pythonpath).exists():
+        print(
+            "❌ Error: canonical namo_rl build directory is missing. Build with:\n"
+            "   cmake -S . -B build_python -DCMAKE_BUILD_TYPE=Release -DBUILD_PYTHON_BINDINGS=ON\n"
+            "   cmake --build build_python --target namo_rl -j$(nproc)"
+        )
+        return 1
+
     # Validate arguments
     if args.start_idx < 0:
         print("❌ Error: start-idx must be non-negative")
