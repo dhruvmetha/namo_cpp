@@ -1,5 +1,6 @@
 #include "python/namo/cpp_bindings/rl_env.hpp"
 #include "core/types.hpp"
+#include "wavefront/goal_tolerance_utils.hpp"
 #include "wavefront/wavefront_grid.hpp"
 #include <iostream>
 #include <fstream>
@@ -498,9 +499,21 @@ RLEnvironment::ActionConstraints RLEnvironment::get_action_constraints() const {
 
 std::tuple<RLEnvironment::RegionAdjacency, RLEnvironment::RegionEdgeObjects, RLEnvironment::RegionLabels>
 RLEnvironment::get_region_connectivity() const {
+    std::vector<double> robot_size = {kDefaultWavefrontRobotRadiusM, kDefaultWavefrontRobotRadiusM};
+    double tier1_margin = kDefaultWavefrontTier1MarginM;
+    if (config_) {
+        const auto& cfg_size = config_->planning().robot_size;
+        if (cfg_size.size() >= 2) {
+            robot_size[0] = cfg_size[0];
+            robot_size[1] = cfg_size[1];
+        }
+        tier1_margin = config_->planning().wavefront_tier1_inflation_margin;
+    }
+    const double goal_radius = compute_goal_tolerance_m(robot_size, tier1_margin);
+
     auto snapshot = get_region_snapshot(
         /*goals_per_region=*/0,
-        /*goal_radius=*/0.15,
+        /*goal_radius=*/goal_radius,
         /*local_info_only=*/false,
         /*seed=*/42,
         /*use_xml_goal=*/true
@@ -513,9 +526,21 @@ RLEnvironment::get_region_connectivity() const {
 }
 
 RLEnvironment::RegionGoalSamples RLEnvironment::sample_region_goals(int goals_per_region) const {
+    std::vector<double> robot_size = {kDefaultWavefrontRobotRadiusM, kDefaultWavefrontRobotRadiusM};
+    double tier1_margin = kDefaultWavefrontTier1MarginM;
+    if (config_) {
+        const auto& cfg_size = config_->planning().robot_size;
+        if (cfg_size.size() >= 2) {
+            robot_size[0] = cfg_size[0];
+            robot_size[1] = cfg_size[1];
+        }
+        tier1_margin = config_->planning().wavefront_tier1_inflation_margin;
+    }
+    const double goal_radius = compute_goal_tolerance_m(robot_size, tier1_margin);
+
     return get_region_snapshot(
         /*goals_per_region=*/goals_per_region,
-        /*goal_radius=*/0.15,
+        /*goal_radius=*/goal_radius,
         /*local_info_only=*/false,
         /*seed=*/42,
         /*use_xml_goal=*/true

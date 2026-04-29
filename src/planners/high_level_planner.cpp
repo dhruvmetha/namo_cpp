@@ -1,5 +1,6 @@
 #include "planners/high_level_planner.hpp"
 #include "planners/strategies/random_selection_strategy.hpp"
+#include "wavefront/goal_tolerance_utils.hpp"
 #include <chrono>
 #include <iostream>
 
@@ -246,7 +247,12 @@ std::vector<std::string> HighLevelPlanner::computeReachableObjects() {
 }
 
 bool HighLevelPlanner::isRobotGoalReachable() {
-    return high_level_wavefront_->is_goal_reachable({robot_goal_.x, robot_goal_.y});
+    const double goal_tolerance = compute_goal_tolerance_m(
+        config_->planning().robot_size,
+        config_->planning().wavefront_tier1_inflation_margin);
+    return high_level_wavefront_->is_goal_reachable(
+        {robot_goal_.x, robot_goal_.y},
+        goal_tolerance);
 }
 
 void HighLevelPlanner::updateHighLevelWavefront() {
