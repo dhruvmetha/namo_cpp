@@ -1,6 +1,7 @@
 #include "planning/mpc_executor.hpp"
 #include "planning/namo_push_controller.hpp"
 #include "core/types.hpp"
+#include "wavefront/goal_tolerance_utils.hpp"
 #include <iostream>
 #include <cmath>
 #include <map>
@@ -233,7 +234,10 @@ bool MPCExecutor::is_robot_goal_reachable() {
         if (!update_wavefront_from_robot_position()) {
             return false;
         }
-        return planner_.is_goal_reachable(robot_goal_, 0.15);
+        const double goal_tolerance = compute_goal_tolerance_m(
+            planner_.get_robot_size(),
+            planner_.get_tier1_inflation_margin());
+        return planner_.is_goal_reachable(robot_goal_, goal_tolerance);
     } catch (const std::exception& e) {
         std::cerr << "Error checking robot goal reachability: " << e.what() << std::endl;
         return false;
@@ -345,7 +349,10 @@ MPCExecutor::ReachabilitySnapshot MPCExecutor::compute_reachability_snapshot() {
     }
 
     if (has_robot_goal_) {
-        snapshot.goal_reachable = planner_.is_goal_reachable(robot_goal_, 0.15);
+        const double goal_tolerance = compute_goal_tolerance_m(
+            planner_.get_robot_size(),
+            planner_.get_tier1_inflation_margin());
+        snapshot.goal_reachable = planner_.is_goal_reachable(robot_goal_, goal_tolerance);
     }
 
     const auto& movable_objects = env_.get_movable_objects();
