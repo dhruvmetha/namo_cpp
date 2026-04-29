@@ -249,7 +249,8 @@ class RegionOpeningPlanner(BasePlanner):
         # - False: fallback to Python snapshot exporter
         self.use_cpp_unified_wavefront = algo_params.get("region_use_cpp_unified_wavefront", True)
         self.region_snapshot_seed = int(algo_params.get("region_snapshot_seed", 42))
-        self.region_goal_radius_m = float(algo_params.get("region_goal_radius_m", 0.15))
+        region_goal_radius = algo_params.get("region_goal_radius_m", None)
+        self.region_goal_radius_m = float(region_goal_radius) if region_goal_radius is not None else None
 
         # ML blacklist override: when True, ML-scored primitives bypass the
         # edge blacklist built during pre-ML exhaustive phase. This allows

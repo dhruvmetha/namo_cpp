@@ -1,6 +1,6 @@
 """Planning algorithms and utilities for NAMO."""
 
-from typing import Any, Dict, Set, Tuple
+from typing import Any, Dict, Optional, Set, Tuple
 
 try:  # pragma: no cover - optional during static analysis
 	import namo_rl  # type: ignore[import]
@@ -32,7 +32,7 @@ def get_region_snapshot(
 	env: Any,
 	*,
 	goals_per_region: int = 0,
-	goal_radius: float = 0.15,
+	goal_radius: Optional[float] = None,
 	local_info_only: bool = False,
 	seed: int = 42,
 	use_cpp_unified: bool = True,
@@ -51,7 +51,7 @@ def get_region_snapshot(
 	if use_cpp_unified and hasattr(env, "get_region_snapshot"):
 		raw = env.get_region_snapshot(
 			goals_per_region,
-			goal_radius,
+			(-1.0 if goal_radius is None else float(goal_radius)),
 			local_info_only,
 			int(seed),
 			bool(use_xml_goal),

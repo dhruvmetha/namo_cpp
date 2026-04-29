@@ -147,7 +147,7 @@ public:
     RegionGoalSamples sample_region_goals(int goals_per_region) const;
     RegionSnapshot get_region_snapshot(
         int goals_per_region = 0,
-        double goal_radius = 0.15,
+        double goal_radius = -1.0,
         bool local_info_only = false,
         unsigned int seed = 42,
         bool use_xml_goal = true) const;

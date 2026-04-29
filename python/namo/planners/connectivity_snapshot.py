@@ -74,7 +74,7 @@ def snapshot_region_connectivity(
     config_path: str,
     *,
     resolution: Optional[float] = None,
-    goal_radius: float = 0.15,
+    goal_radius: Optional[float] = None,
     include_snapshot: bool = False,
     goals_per_region: int = 0,
     generate_training_data: bool = False,
@@ -95,7 +95,8 @@ def snapshot_region_connectivity(
         xml_path: Path to the MuJoCo XML file used to initialise ``env``.
         config_path: Path to the NAMO YAML configuration file.
         resolution: Optional override for grid resolution (defaults to exporter default).
-        goal_radius: Radius (metres) used for goal region when building connectivity.
+        goal_radius: Optional radius (metres) used for goal region when building
+            connectivity. ``None`` means use exporter/runtime auto tolerance.
         include_snapshot: When ``True`` also return the full :class:`WavefrontSnapshot` for
             callers that need raw grids or metadata.
         goals_per_region: Maximum number of goal samples to draw per region. Ignored unless

@@ -97,8 +97,11 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument(
         "--goal-radius",
         type=float,
-        default=0.15,
-        help="Goal radius used when building connectivity (default: %(default)s)",
+        default=None,
+        help=(
+            "Goal radius used when building connectivity "
+            "(default: auto = sqrt(hx^2 + hy^2) + tier1_margin)"
+        ),
     )
     parser.add_argument(
         "--resolution",

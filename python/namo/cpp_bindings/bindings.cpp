@@ -194,7 +194,7 @@ PYBIND11_MODULE(namo_rl, m) {
                 return out;
             },
             py::arg("goals_per_region") = 0,
-            py::arg("goal_radius") = 0.15,
+            py::arg("goal_radius") = -1.0,
             py::arg("local_info_only") = false,
             py::arg("seed") = 42,
             py::arg("use_xml_goal") = true,

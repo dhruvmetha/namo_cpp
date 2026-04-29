@@ -34,8 +34,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--goal-radius",
         type=float,
-        default=0.15,
-        help="Radius in metres used to paint goal cells when labelling regions (default: 0.15)",
+        default=None,
+        help=(
+            "Radius in metres used to paint goal cells when labelling regions "
+            "(default: auto = sqrt(hx^2 + hy^2) + tier1_margin)"
+        ),
     )
     parser.add_argument(
         "--resolution",

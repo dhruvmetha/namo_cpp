@@ -183,10 +183,7 @@ std::vector<std::string> HighLevelPlanner::computeReachableObjects() {
         // Object dimensions (MuJoCo sizes are half-extents)
         double w = obj_width - 0.05;   // half-width with margin  
         double d = obj_height - 0.05;  // half-height with margin
-        double robot_radius = 0.15;
-        if (config_->planning().robot_size.size() >= 1) {
-            robot_radius = config_->planning().robot_size[0];
-        }
+        const double robot_radius = compute_rotation_safe_robot_radius_m(config_->planning().robot_size);
         double offset = robot_radius + config_->planning().wavefront_edge_offset_margin;
         
         // 12 rectangular edge points (same pattern as push controller)

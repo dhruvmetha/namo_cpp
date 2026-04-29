@@ -1,5 +1,6 @@
 #include "wavefront/wavefront_planner.hpp"
 #include "environment/namo_environment.hpp"
+#include "wavefront/goal_tolerance_utils.hpp"
 #include <iostream>
 #include <fstream>
 #include <cmath>
@@ -28,6 +29,8 @@ WavefrontPlanner::WavefrontPlanner(double resolution, NAMOEnvironment& env,
     // Initialize static obstacles
     initialize_static_grid(env);
 
+    const double inflate_r = compute_wavefront_inflation_radius_m(robot_size_, tier1_inflation_margin_);
+
     // Add movable objects to initial dynamic grid
     const auto& movable_objects = env.get_movable_objects();
     for (size_t i = 0; i < env.get_num_movable(); i++) {
@@ -40,8 +43,8 @@ WavefrontPlanner::WavefrontPlanner(double resolution, NAMOEnvironment& env,
         // Create inflated object for robot size
         ObjectInfo inflated_obj = obj;
 
-        inflated_obj.size[0] += robot_size_[0] + tier1_inflation_margin_;
-        inflated_obj.size[1] += robot_size_[1] + tier1_inflation_margin_;
+        inflated_obj.size[0] += inflate_r;
+        inflated_obj.size[1] += inflate_r;
 
         
         // Add object footprint to dynamic grid
@@ -66,6 +69,7 @@ WavefrontPlanner::WavefrontPlanner(double resolution, NAMOEnvironment& env,
 
 void WavefrontPlanner::initialize_static_grid(NAMOEnvironment& env) {
     auto start_time = std::chrono::high_resolution_clock::now();
+    const double inflate_r = compute_wavefront_inflation_radius_m(robot_size_, tier1_inflation_margin_);
 
     // Process static obstacles once using cell CENTER (matching Python's wavefront_snapshot.py)
     for (int x = 0; x < grid_width_; x++) {
@@ -80,8 +84,8 @@ void WavefrontPlanner::initialize_static_grid(NAMOEnvironment& env) {
                 
                 // Create inflated object for robot size
                 ObjectInfo inflated_obj = obj;
-                inflated_obj.size[1] += robot_size_[1] + tier1_inflation_margin_;
-                inflated_obj.size[0] += robot_size_[0] + tier1_inflation_margin_;
+                inflated_obj.size[1] += inflate_r;
+                inflated_obj.size[0] += inflate_r;
                 
                 // Use object info directly for static objects (no state)
                 ObjectState static_state;
@@ -378,6 +382,7 @@ void WavefrontPlanner::recompute_wavefront(NAMOEnvironment& env, const std::vect
 void WavefrontPlanner::rebuild_dynamic_grid_from_current_objects(NAMOEnvironment& env) {
     // Start fresh with static obstacles only
     dynamic_grid_ = static_grid_;
+    const double inflate_r = compute_wavefront_inflation_radius_m(robot_size_, tier1_inflation_margin_);
     
     // Add all current movable objects directly (no incremental tracking)
     const auto& movable_objects = env.get_movable_objects();
@@ -388,8 +393,8 @@ void WavefrontPlanner::rebuild_dynamic_grid_from_current_objects(NAMOEnvironment
         if (obj_state) {
             // Create inflated object for robot size
             ObjectInfo inflated_obj = obj;
-            inflated_obj.size[0] += robot_size_[0] + tier1_inflation_margin_;
-            inflated_obj.size[1] += robot_size_[1] + tier1_inflation_margin_;
+            inflated_obj.size[0] += inflate_r;
+            inflated_obj.size[1] += inflate_r;
 
             // std::cout << "inflated_obj.size: " << inflated_obj.size[0] << ", " << inflated_obj.size[1] << " " << robot_size_[0] << " " << robot_size_[1] << std::endl;
             
@@ -431,6 +436,7 @@ void WavefrontPlanner::compute_grid_without_object(
 
     // Resize and copy static grid
     output_grid = static_grid_;
+    const double inflate_r = compute_wavefront_inflation_radius_m(robot_size_, tier1_inflation_margin_);
 
     // Add all movable objects EXCEPT the specified one
     const auto& movable_objects = env.get_movable_objects();
@@ -445,8 +451,8 @@ void WavefrontPlanner::compute_grid_without_object(
 
         // Create inflated object for robot size
         ObjectInfo inflated_obj = obj;
-        inflated_obj.size[0] += robot_size_[0] + tier1_inflation_margin_;
-        inflated_obj.size[1] += robot_size_[1] + tier1_inflation_margin_;
+        inflated_obj.size[0] += inflate_r;
+        inflated_obj.size[1] += inflate_r;
 
         // Calculate footprint and add to grid
         GridFootprint footprint = calculate_rotated_footprint(inflated_obj, *obj_state);
@@ -605,9 +611,10 @@ bool WavefrontPlanner::check_static_collision(
     obj_info.size = object_size;
 
     // Inflate for robot size
+    const double inflate_r = compute_wavefront_inflation_radius_m(robot_size_, tier1_inflation_margin_);
     ObjectInfo inflated_obj = obj_info;
-    inflated_obj.size[0] += robot_size_[0] + tier1_inflation_margin_;
-    inflated_obj.size[1] += robot_size_[1] + tier1_inflation_margin_;
+    inflated_obj.size[0] += inflate_r;
+    inflated_obj.size[1] += inflate_r;
 
     // Calculate footprint at target pose
     GridFootprint footprint = calculate_rotated_footprint(inflated_obj, target_state);
@@ -761,6 +768,7 @@ std::vector<int> WavefrontPlanner::evaluate_primitive_priorities(
     double blocks_ms = 0.0;
     double static_collision_ms = 0.0;
     double movable_collision_ms = 0.0;
+    const double inflate_r = compute_wavefront_inflation_radius_m(robot_size_, tier1_inflation_margin_);
     const auto t_loop0 = Clock::now();
     for (size_t i = 0; i < target_poses.size(); i++) {
         const auto& pose = target_poses[i];
@@ -772,8 +780,8 @@ std::vector<int> WavefrontPlanner::evaluate_primitive_priorities(
 
         ObjectInfo inflated_info;
         inflated_info.size = object_size;
-        inflated_info.size[0] += robot_size_[0] + tier1_inflation_margin_;
-        inflated_info.size[1] += robot_size_[1] + tier1_inflation_margin_;
+        inflated_info.size[0] += inflate_r;
+        inflated_info.size[1] += inflate_r;
 
         auto t0 = Clock::now();
         GridFootprint footprint = calculate_rotated_footprint(inflated_info, target_state);

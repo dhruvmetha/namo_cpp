@@ -12,7 +12,7 @@ planning:
   verbose: false                   # Enable verbose planning output
   
   # Robot physical properties
-  robot_size: [0.15, 0.15]          # [width, height] in meters for wavefront inflation
+  robot_size: [0.15, 0.15]          # [half_extent_x, half_extent_y] in meters for wavefront inflation
   
   # Grid system limits
   max_bfs_queue: 100000            # Maximum BFS queue size
