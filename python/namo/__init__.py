@@ -15,6 +15,7 @@ __all__ = (
     "strategies",
     "planners",
     "data_collection",
+    "boosted_data_collection",
     "visualization",
 )
 
@@ -39,4 +40,5 @@ if TYPE_CHECKING:
     from . import strategies as strategies
     from . import planners as planners
     from . import data_collection as data_collection
+    from . import boosted_data_collection as boosted_data_collection
     from . import visualization as visualization

@@ -45,6 +45,7 @@ setup(
     entry_points={
         "console_scripts": [
             "namo-collect=namo.data_collection.modular_parallel_collection:main",
+            "namo-boosted-collect=namo.boosted_data_collection.run:main",
             "namo-visualize=namo.visualization.visual_test_single:main",
         ],
     },

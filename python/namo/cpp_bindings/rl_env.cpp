@@ -208,6 +208,63 @@ std::vector<std::array<double, 2>> build_goal_cells(
     return goal_cells;
 }
 
+std::array<double, 2> transform_point_local_to_world(
+    const std::array<double, 2>& local_point,
+    const std::array<double, 3>& translation,
+    double yaw) {
+    const double cos_a = std::cos(yaw);
+    const double sin_a = std::sin(yaw);
+    return {
+        translation[0] + (local_point[0] * cos_a - local_point[1] * sin_a),
+        translation[1] + (local_point[0] * sin_a + local_point[1] * cos_a),
+    };
+}
+
+std::vector<std::array<double, 2>> generate_rectangular_edge_points_world(
+    const std::array<double, 3>& obj_pos,
+    const std::array<double, 3>& obj_size,
+    const std::array<double, 4>& obj_quat,
+    const std::vector<double>& robot_half_extents,
+    int points_per_face,
+    double push_offset_margin) {
+    const double yaw = utils::quaternion_to_yaw(obj_quat);
+    const double w = obj_size[0];
+    const double d = obj_size[1];
+    const double robot_radius = compute_rotation_safe_robot_radius_m(robot_half_extents);
+    const double offset = robot_radius + push_offset_margin;
+
+    const int n = std::max(1, points_per_face);
+    auto sample_lin = [](double a, double b, int samples, int i) {
+        if (samples <= 1) {
+            return 0.5 * (a + b);
+        }
+        return a + (b - a) * (static_cast<double>(i) / static_cast<double>(samples - 1));
+    };
+
+    std::vector<std::array<double, 2>> local_edge_points;
+    local_edge_points.reserve(static_cast<size_t>(4 * n));
+
+    // Preserve the exact ordering used by NAMOPushController:
+    // top/bottom alternating, then right/left alternating.
+    for (int j = 0; j < n; ++j) {
+        const double u = sample_lin(-w, w, n, j);
+        local_edge_points.push_back({u, d + offset});   // Top(j)
+        local_edge_points.push_back({u, -d - offset});  // Bottom(j)
+    }
+    for (int k = 0; k < n; ++k) {
+        const double v = sample_lin(-d, d, n, k);
+        local_edge_points.push_back({w + offset, v});   // Right(k)
+        local_edge_points.push_back({-w - offset, v});  // Left(k)
+    }
+
+    std::vector<std::array<double, 2>> world_edge_points;
+    world_edge_points.reserve(local_edge_points.size());
+    for (const auto& local_pt : local_edge_points) {
+        world_edge_points.push_back(transform_point_local_to_world(local_pt, obj_pos, yaw));
+    }
+    return world_edge_points;
+}
+
 }  // namespace
 
 RLEnvironment::RLEnvironment(const std::string& xml_path, const std::string& config_path, bool visualize,
@@ -410,6 +467,42 @@ bool RLEnvironment::is_object_reachable(const std::string& object_name) const {
 
 std::vector<int> RLEnvironment::get_reachable_edges(const std::string& object_name) const {
     return skill_->get_reachable_edges(object_name);
+}
+
+std::array<double, 3> RLEnvironment::get_primitive_library_target_pose(
+    const std::string& object_name,
+    int edge_idx,
+    int depth_idx) const {
+    if (!skill_) {
+        throw std::runtime_error("NAMOPushSkill not initialized");
+    }
+
+    SE2State target_pose;
+    std::string error_message;
+    const bool ok = skill_->get_primitive_library_target_pose(
+        object_name,
+        edge_idx,
+        depth_idx,
+        target_pose,
+        &error_message
+    );
+    if (!ok) {
+        if (error_message.empty()) {
+            error_message = "failed to query primitive-library target pose";
+        }
+        throw std::runtime_error(error_message);
+    }
+
+    return {target_pose.x, target_pose.y, target_pose.theta};
+}
+
+std::vector<int> RLEnvironment::get_valid_primitive_depth_indices(
+    const std::string& object_name,
+    int edge_idx) const {
+    if (!skill_) {
+        return {};
+    }
+    return skill_->get_valid_primitive_depth_indices(object_name, edge_idx);
 }
 
 RLEnvironment::ReachabilitySummary RLEnvironment::get_reachability_summary(bool analysis_mode) const {

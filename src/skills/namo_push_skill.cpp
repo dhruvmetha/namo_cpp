@@ -335,6 +335,91 @@ MPCExecutor::ReachabilitySnapshot NAMOPushSkill::get_reachability_snapshot() con
     return const_cast<MPCExecutor*>(executor_.get())->compute_reachability_snapshot();
 }
 
+bool NAMOPushSkill::get_primitive_library_target_pose(
+    const std::string& object_name,
+    int edge_idx,
+    int depth_idx,
+    SE2State& out_target_pose,
+    std::string* error_message) const {
+    if (depth_idx < 0) {
+        if (error_message) {
+            *error_message = "depth_idx must be >= 0";
+        }
+        return false;
+    }
+
+    auto current_pose_opt = get_object_current_pose(object_name);
+    if (!current_pose_opt) {
+        if (error_message) {
+            *error_message = "object pose unavailable for " + object_name;
+        }
+        return false;
+    }
+
+    GreedyPlanner* planner = get_planner_for_object(object_name);
+    if (!planner) {
+        if (error_message) {
+            *error_message = "planner unavailable for " + object_name;
+        }
+        return false;
+    }
+
+    const int push_steps = depth_idx + 1;
+    try {
+        const LoadedPrimitive& primitive =
+            planner->get_primitive_loader().get_primitive(edge_idx, push_steps);
+
+        const SE2State& current_pose = *current_pose_opt;
+        const double cos_theta = std::cos(current_pose.theta);
+        const double sin_theta = std::sin(current_pose.theta);
+
+        const double dx = primitive.delta_x;
+        const double dy = primitive.delta_y;
+        double next_theta = current_pose.theta + primitive.delta_theta;
+        while (next_theta > M_PI) next_theta -= 2.0 * M_PI;
+        while (next_theta < -M_PI) next_theta += 2.0 * M_PI;
+
+        out_target_pose = SE2State(
+            current_pose.x + dx * cos_theta - dy * sin_theta,
+            current_pose.y + dx * sin_theta + dy * cos_theta,
+            next_theta
+        );
+        return true;
+    } catch (const std::exception& e) {
+        if (error_message) {
+            *error_message = e.what();
+        }
+        return false;
+    }
+}
+
+std::vector<int> NAMOPushSkill::get_valid_primitive_depth_indices(
+    const std::string& object_name,
+    int edge_idx) const {
+    std::vector<int> depth_indices;
+    GreedyPlanner* planner = get_planner_for_object(object_name);
+    if (!planner) {
+        return depth_indices;
+    }
+
+    try {
+        const std::vector<int> push_steps =
+            planner->get_primitive_loader().get_valid_steps_for_edge(edge_idx);
+        depth_indices.reserve(push_steps.size());
+        for (int steps : push_steps) {
+            if (steps <= 0) {
+                continue;
+            }
+            depth_indices.push_back(steps - 1);
+        }
+        std::sort(depth_indices.begin(), depth_indices.end());
+        depth_indices.erase(std::unique(depth_indices.begin(), depth_indices.end()), depth_indices.end());
+    } catch (const std::exception&) {
+        depth_indices.clear();
+    }
+    return depth_indices;
+}
+
 std::vector<std::string> NAMOPushSkill::get_reachable_objects() const {
     std::vector<std::string> reachable_objects;
 

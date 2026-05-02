@@ -1,0 +1,36 @@
+# Boosted deterministic cell-opening collection defaults
+# Usage:
+#   python -m namo.boosted_data_collection.run --config-yaml python/namo/boosted_data_collection/boosted_collection.yaml
+
+output_dir: ./boosted_data
+start_idx: 0
+end_idx: 100
+workers: 1
+episodes_per_env: 1
+
+xml_dir: /path/to/xml_dir
+config_file: config/namo_config_complete_skill15.yaml
+manifest: null
+
+seed: 42
+verbose: false
+run_name: null
+unique_run_dir: false
+
+# Phase-1 manifest compression
+output_compression: gzip
+boosted_output_compression: gzip
+
+# Boosted keys
+boosted_max_horizon: 2
+# alias accepted:
+# region_max_chain_depth: 2
+boosted_ignore_xml_goal: true
+boosted_cell_filter: newly_free_and_reachable
+boosted_same_object_only: true
+boosted_use_cpp_grid_fastpath: true
+
+# Legacy keys are accepted and preserved in metadata for compatibility.
+algorithm: region_opening
+region_allow_collisions: true
+region_frontier_beam_width: null

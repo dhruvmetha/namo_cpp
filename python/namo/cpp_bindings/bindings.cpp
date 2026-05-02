@@ -1,6 +1,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <pybind11/numpy.h>
+#include <cstring>
 #include "python/namo/cpp_bindings/rl_env.hpp"
 
 namespace py = pybind11;
@@ -91,6 +92,17 @@ PYBIND11_MODULE(namo_rl, m) {
         .def("get_reachable_objects", &namo::RLEnvironment::get_reachable_objects, "Returns a list of object names that are reachable through push actions.")
         .def("is_object_reachable", &namo::RLEnvironment::is_object_reachable, py::arg("object_name"), "Returns true if the specified object is reachable through push actions.")
         .def("get_reachable_edges", &namo::RLEnvironment::get_reachable_edges, py::arg("object_name"), "Returns list of reachable edge indices (0-59) for the specified object using wavefront analysis.")
+        .def("get_primitive_library_target_pose",
+             &namo::RLEnvironment::get_primitive_library_target_pose,
+             py::arg("object_name"),
+             py::arg("edge_idx"),
+             py::arg("depth_idx"),
+             "Return the primitive-library target pose [x, y, theta] for the current object pose and selected edge/depth slot.")
+        .def("get_valid_primitive_depth_indices",
+             &namo::RLEnvironment::get_valid_primitive_depth_indices,
+             py::arg("object_name"),
+             py::arg("edge_idx"),
+             "Return valid 0-indexed depth slots for this object/edge from the loaded primitive library.")
         .def("get_reachability_summary",
              [](const namo::RLEnvironment& env, bool analysis_mode) {
                  auto summary = env.get_reachability_summary(analysis_mode);
@@ -239,6 +251,47 @@ PYBIND11_MODULE(namo_rl, m) {
        .def("sample_region_goals", &namo::RLEnvironment::sample_region_goals,
             py::arg("goals_per_region"),
             "Sample random goal poses for each region, including blocking objects shared with the robot region.")
+       .def("get_wavefront_snapshot_for_object",
+            [](const namo::RLEnvironment& env, const std::string& object_name) {
+                auto snapshot = env.get_wavefront_snapshot_for_object(object_name);
+
+                py::array_t<std::uint8_t> free_mask({
+                    static_cast<ssize_t>(snapshot.grid_width),
+                    static_cast<ssize_t>(snapshot.grid_height)
+                });
+                py::array_t<std::uint8_t> reachable_mask({
+                    static_cast<ssize_t>(snapshot.grid_width),
+                    static_cast<ssize_t>(snapshot.grid_height)
+                });
+
+                if (!snapshot.free_mask.empty()) {
+                    std::memcpy(
+                        free_mask.mutable_data(),
+                        snapshot.free_mask.data(),
+                        snapshot.free_mask.size() * sizeof(std::uint8_t)
+                    );
+                }
+                if (!snapshot.reachable_mask.empty()) {
+                    std::memcpy(
+                        reachable_mask.mutable_data(),
+                        snapshot.reachable_mask.data(),
+                        snapshot.reachable_mask.size() * sizeof(std::uint8_t)
+                    );
+                }
+
+                py::dict out;
+                out["free_mask"] = std::move(free_mask);
+                out["reachable_mask"] = std::move(reachable_mask);
+                out["reachable_edges"] = snapshot.reachable_edges;
+                out["resolution"] = snapshot.resolution;
+                out["bounds"] = snapshot.bounds;
+                out["grid_shape"] = py::make_tuple(snapshot.grid_width, snapshot.grid_height);
+                return out;
+            },
+            py::arg("object_name"),
+            "Return one unified wavefront snapshot for the current state and selected object: "
+            "free mask, reachable mask, and reachable primitive edges. "
+            "Masks are shaped (grid_width, grid_height) with x-major indexing.")
        .def("get_xml_path", &namo::RLEnvironment::get_xml_path,
            py::return_value_policy::reference_internal,
            "Return the XML scene path used to create this environment.")

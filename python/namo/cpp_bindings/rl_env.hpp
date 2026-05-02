@@ -11,6 +11,7 @@
 #include <unordered_set>
 #include <string>
 #include <map>
+#include <cstdint>
 
 namespace namo {
 
@@ -45,6 +46,18 @@ public:
         std::string goal_label;
         bool goal_reachable = false;
         bool goal_in_free_space = false;
+    };
+
+    struct WavefrontObjectSnapshot {
+        // Flattened with x-major indexing:
+        // flat_index = x * grid_height + y
+        std::vector<std::uint8_t> free_mask;
+        std::vector<std::uint8_t> reachable_mask;
+        std::vector<int> reachable_edges;
+        int grid_width = 0;
+        int grid_height = 0;
+        double resolution = 0.0;
+        std::vector<double> bounds;
     };
 
     struct Action {
@@ -101,6 +114,13 @@ public:
 
     // Edge point queries (for visualization)
     std::vector<std::array<double, 2>> get_edge_points(const std::string& object_name) const;
+    std::array<double, 3> get_primitive_library_target_pose(
+        const std::string& object_name,
+        int edge_idx,
+        int depth_idx) const;
+    std::vector<int> get_valid_primitive_depth_indices(
+        const std::string& object_name,
+        int edge_idx) const;
 
     // Object geometry information (returns cached reference)
     const std::map<std::string, std::map<std::string, double>>& get_object_info() const;
@@ -179,6 +199,7 @@ public:
         bool local_info_only = false,
         unsigned int seed = 42,
         bool use_xml_goal = true) const;
+    WavefrontObjectSnapshot get_wavefront_snapshot_for_object(const std::string& object_name) const;
 
     const std::string& get_xml_path() const { return xml_path_; }
     const std::string& get_config_path() const { return config_path_; }
