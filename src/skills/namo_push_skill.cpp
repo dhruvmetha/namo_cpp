@@ -92,6 +92,7 @@ void NAMOPushSkill::initialize_skill() {
             env_,
             config_->planning().skill_level_resolution,
             config_->planning().robot_size,
+            config_->planning().wavefront_tier1_inflation_margin,
             config_->skill().max_push_steps,
             config_->skill().control_steps_per_push,
             config_->skill().force_scaling,
@@ -105,6 +106,7 @@ void NAMOPushSkill::initialize_skill() {
         controller.set_stuck_threshold(config_->skill().controller_stuck_threshold);
         controller.set_min_position_change(config_->skill().controller_min_position_change);
         controller.set_min_angle_change(config_->skill().controller_min_angle_change);
+        controller.set_push_offset_margin(config_->planning().wavefront_edge_offset_margin);
 
         
     } else {
@@ -697,6 +699,14 @@ std::vector<int> NAMOPushSkill::get_reachable_edges(const std::string& object_na
 
     // Note: executor_->get_reachable_edges_with_wavefront() is non-const, so we need to cast
     return const_cast<MPCExecutor*>(executor_.get())->get_reachable_edges_with_wavefront(object_name);
+}
+
+MPCExecutor::ReachabilitySnapshot NAMOPushSkill::get_reachability_snapshot() const {
+    if (!executor_) {
+        return MPCExecutor::ReachabilitySnapshot{};
+    }
+    // executor methods are non-const because they refresh internal wavefront caches.
+    return const_cast<MPCExecutor*>(executor_.get())->compute_reachability_snapshot();
 }
 
 std::vector<std::string> NAMOPushSkill::get_reachable_objects() const {

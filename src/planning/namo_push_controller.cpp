@@ -3,6 +3,7 @@
 #include "navigation/holonomic_navigation.hpp"
 #include "navigation/diff_drive_navigation.hpp"
 #include "navigation/qpos_dump.hpp"
+#include "wavefront/goal_tolerance_utils.hpp"
 #include <cmath>
 #include <iostream>
 #include <iomanip>
@@ -91,8 +92,10 @@ void NAMOPushController::generate_rectangular_edge_points(const std::array<doubl
     double d = obj_size[1];  // depth with margin
 
     
-    // Robot offset for close contact pushing
-    double offset = robot_size_[0] + 0.02; // offset = 0.02
+    // Robot offset for close contact pushing (rotation-safe radius + configurable margin)
+    const std::vector<double> robot_half_extents = {robot_size_[0], robot_size_[1]};
+    const double robot_radius = compute_rotation_safe_robot_radius_m(robot_half_extents);
+    double offset = robot_radius + push_offset_margin_;
     
     int n = points_per_edge_;
     double eps_u = std::min(0.05, 0.25 * w);  // margin from corners

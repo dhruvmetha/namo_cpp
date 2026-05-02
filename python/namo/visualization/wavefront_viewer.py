@@ -74,6 +74,7 @@ class WavefrontSnapshotData:
     robot_pose: Tuple[float, float, float]
     goal_pose: Optional[Tuple[float, float, float]]
     robot_half_extent: Tuple[float, float]
+    tier1_inflation_margin_m: float
     movable_objects: Sequence[Dict[str, float]]
     environment_image: Optional[Path]
     xml_path: Optional[str] = None
@@ -118,6 +119,7 @@ def load_snapshot(directory: Path, prefix: str = "snapshot") -> WavefrontSnapsho
         robot_pose=tuple(metadata.get("robot_pose", [0.0, 0.0, 0.0])),
         goal_pose=tuple(metadata["goal_pose"]) if metadata.get("goal_pose") else None,
         robot_half_extent=tuple(metadata.get("robot_half_extent", [0.2, 0.2])),
+        tier1_inflation_margin_m=float(metadata.get("tier1_inflation_margin_m", 0.005)),
         movable_objects=metadata.get("movable_objects", []),
         environment_image=environment_image,
         xml_path=str(metadata.get("xml_path")) if metadata.get("xml_path") else None,
@@ -139,6 +141,18 @@ def _hex_to_rgb_u8(hex_color: str) -> Tuple[int, int, int]:
         int(color[2:4], 16),
         int(color[4:6], 16),
     )
+
+
+def _snapshot_inflation_radius(data: WavefrontSnapshotData) -> float:
+    hx = abs(float(data.robot_half_extent[0]))
+    hy = abs(float(data.robot_half_extent[1]))
+    margin = float(data.tier1_inflation_margin_m)
+    if margin < 0.0:
+        margin = 0.005
+    radius = math.sqrt(hx * hx + hy * hy)
+    if radius <= 0.0:
+        radius = 0.15
+    return radius + margin
 
 
 def _region_label_color(label: str) -> str:
@@ -398,10 +412,9 @@ def _target_inflated_mask(data: WavefrontSnapshotData) -> NDArray[np.bool_]:
     if half_w <= 0.0 or half_h <= 0.0:
         return mask
 
-    inflate_x = float(data.robot_half_extent[0]) + 0.005
-    inflate_y = float(data.robot_half_extent[1]) + 0.005
-    half_w += inflate_x
-    half_h += inflate_y
+    inflate_r = _snapshot_inflation_radius(data)
+    half_w += inflate_r
+    half_h += inflate_r
 
     cos_a = math.cos(yaw)
     sin_a = math.sin(yaw)
@@ -574,10 +587,9 @@ def _rasterize_movable_object_mask(data: WavefrontSnapshotData, obj: Dict[str, f
         return mask
 
     if inflated:
-        inflate_x = float(data.robot_half_extent[0]) + 0.005
-        inflate_y = float(data.robot_half_extent[1]) + 0.005
-        half_w += inflate_x
-        half_h += inflate_y
+        inflate_r = _snapshot_inflation_radius(data)
+        half_w += inflate_r
+        half_h += inflate_r
 
     cos_a = math.cos(yaw)
     sin_a = math.sin(yaw)
@@ -634,9 +646,9 @@ def inflated_label_positions(data: WavefrontSnapshotData) -> List[Tuple[float, f
     width, height = data.dynamic_grid.shape
     res = float(data.resolution)
     region_display_map = _compute_between_obstacles_region_label_map(data)
-    inflation_band = (data.dynamic_grid == -2) & ~(data.uninflated_grid == -2)
+    inflation_band = (data.dynamic_grid == -1) & ~(data.uninflated_grid == -1)
 
-    occupied_uninflated = data.uninflated_grid == -2
+    occupied_uninflated = data.uninflated_grid == -1
     movable_uninflated = _movable_mask_uninflated(data)
     wall_uninflated = occupied_uninflated & ~movable_uninflated
     obstacle_mask = (wall_uninflated | movable_uninflated).astype(bool)
@@ -712,7 +724,7 @@ def _plot_environment(ax: Any, data: WavefrontSnapshotData) -> None:
 
     # Render directly from the uninflated grid for crisp corners (no antialiased MuJoCo render).
     width, height = data.uninflated_grid.shape
-    occupied = data.uninflated_grid == -2
+    occupied = data.uninflated_grid == -1
     movable_mask = _movable_mask_uninflated(data)
     wall_occupied = occupied & ~movable_mask
 
@@ -784,7 +796,7 @@ def _plot_environment(ax: Any, data: WavefrontSnapshotData) -> None:
 def environment_rgb_u8(data: WavefrontSnapshotData) -> NDArray[np.uint8]:
     """Return an environment RGB image (uint8) in PIL layout (top-left origin)."""
     width, height = data.uninflated_grid.shape
-    occupied = data.uninflated_grid == -2
+    occupied = data.uninflated_grid == -1
     movable_mask = _movable_mask_uninflated(data)
     wall_occupied = occupied & ~movable_mask
 
@@ -813,7 +825,7 @@ def _plot_heatmap(ax: Any, data: WavefrontSnapshotData) -> None:
     # Emulate the "white inflation border" look:
     # - Regions are from the inflated grid (region_map already respects inflated obstacles).
     # - Obstacles are drawn using UNINFLATED footprints only, so the inflation-only band stays white.
-    occupied_uninflated = data.uninflated_grid == -2
+    occupied_uninflated = data.uninflated_grid == -1
     movable_uninflated = _movable_mask_uninflated(data)
     wall_uninflated = occupied_uninflated & ~movable_uninflated
 
@@ -840,8 +852,8 @@ def _plot_heatmap(ax: Any, data: WavefrontSnapshotData) -> None:
     rgb[target_mask] = _hex_to_rgb(COLOR_TARGET)
 
     # Border the inflation-only band so it's easy to see what was removed by inflation.
-    inflated_occ = data.dynamic_grid == -2
-    inflation_band = inflated_occ & ~(data.uninflated_grid == -2)
+    inflated_occ = data.dynamic_grid == -1
+    inflation_band = inflated_occ & ~(data.uninflated_grid == -1)
     inflation_outline = _outline_mask(inflation_band.astype(bool), thickness_px=1)
     rgb[inflation_outline] = _hex_to_rgb(COLOR_OUTLINE)
 
@@ -896,8 +908,8 @@ def _plot_heatmap(ax: Any, data: WavefrontSnapshotData) -> None:
 
         coords_to_consider = coords
         if display == "r4":
-            inflated_occ = data.dynamic_grid == -2
-            inflation_band = inflated_occ & ~(data.uninflated_grid == -2)
+            inflated_occ = data.dynamic_grid == -1
+            inflation_band = inflated_occ & ~(data.uninflated_grid == -1)
             keep = ~inflation_band[coords[:, 0], coords[:, 1]]
             if bool(np.any(keep)):
                 coords_to_consider = coords[keep]
@@ -969,7 +981,7 @@ def inflated_rgb_u8(data: WavefrontSnapshotData) -> NDArray[np.uint8]:
     """Return an inflated-panel RGB image (uint8) in PIL layout (top-left origin)."""
     width, height = data.dynamic_grid.shape
 
-    occupied_uninflated = data.uninflated_grid == -2
+    occupied_uninflated = data.uninflated_grid == -1
     movable_uninflated = _movable_mask_uninflated(data)
     wall_uninflated = occupied_uninflated & ~movable_uninflated
 
@@ -993,8 +1005,8 @@ def inflated_rgb_u8(data: WavefrontSnapshotData) -> NDArray[np.uint8]:
     rgb[movable_uninflated & ~target_mask] = _hex_to_rgb(COLOR_MOVABLE)
     rgb[target_mask] = _hex_to_rgb(COLOR_TARGET)
 
-    inflated_occ = data.dynamic_grid == -2
-    inflation_band = inflated_occ & ~(data.uninflated_grid == -2)
+    inflated_occ = data.dynamic_grid == -1
+    inflation_band = inflated_occ & ~(data.uninflated_grid == -1)
     inflation_outline = _outline_mask(inflation_band.astype(bool), thickness_px=1)
     rgb[inflation_outline] = _hex_to_rgb(COLOR_OUTLINE)
 

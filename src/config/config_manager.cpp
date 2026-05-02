@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <stdexcept>
 #include <algorithm>
+#include <cmath>
 
 namespace namo {
 
@@ -18,6 +19,7 @@ ConfigManager::ConfigManager(const std::string& config_file) {
         load_environment_config();
         load_system_config();
         load_optimization_config();
+        load_wavefront_inflation_config(config_file);
         
         validate_configuration();
         // std::cout << "ConfigManager: Configuration loaded successfully" << std::endl;
@@ -285,6 +287,49 @@ void ConfigManager::load_optimization_config() {
     }
 }
 
+void ConfigManager::load_wavefront_inflation_config(const std::string& primary_config_file) {
+    try {
+        const std::filesystem::path primary_path = std::filesystem::absolute(primary_config_file);
+        std::filesystem::path wavefront_path =
+            primary_path.parent_path() / "wavefront_inflation.yaml";
+
+        // Support both config locations:
+        //   - <config_dir>/wavefront_inflation.yaml
+        //   - <repo_root>/config/wavefront_inflation.yaml (when main config lives in python/config)
+        if (!std::filesystem::exists(wavefront_path)) {
+            std::filesystem::path cursor = primary_path.parent_path();
+            while (!cursor.empty()) {
+                const std::filesystem::path candidate = cursor / "config" / "wavefront_inflation.yaml";
+                if (std::filesystem::exists(candidate)) {
+                    wavefront_path = candidate;
+                    break;
+                }
+
+                if (cursor == cursor.root_path()) {
+                    break;
+                }
+                cursor = cursor.parent_path();
+            }
+        }
+
+        if (!std::filesystem::exists(wavefront_path)) {
+            return;
+        }
+
+        FastParameterLoader wavefront_loader(wavefront_path.string());
+        if (wavefront_loader.has_key("tier1.base_inflation_margin_m")) {
+            planning_.wavefront_tier1_inflation_margin =
+                wavefront_loader.get_double("tier1.base_inflation_margin_m");
+        }
+        if (wavefront_loader.has_key("tier1.edge_offset_margin_m")) {
+            planning_.wavefront_edge_offset_margin =
+                wavefront_loader.get_double("tier1.edge_offset_margin_m");
+        }
+    } catch (const std::exception&) {
+        // Keep defaults if the auxiliary wavefront inflation config fails to load.
+    }
+}
+
 void ConfigManager::validate_configuration() const {
     // Validate critical parameters
     if (planning_.high_level_resolution <= 0 || planning_.skill_level_resolution <= 0) {
@@ -305,6 +350,24 @@ void ConfigManager::validate_configuration() const {
     
     if (planning_.robot_size.size() != 2) {
         throw std::invalid_argument("Planning robot size vector must have 2 dimensions");
+    }
+
+    if (planning_.wavefront_tier1_inflation_margin < 0.0) {
+        throw std::invalid_argument("Wavefront tier1 inflation margin must be non-negative");
+    }
+
+    if (planning_.wavefront_edge_offset_margin < 0.0) {
+        throw std::invalid_argument("Wavefront edge offset margin must be non-negative");
+    }
+
+    const double required_rotation_safe_gap =
+        std::sqrt(0.5) * planning_.skill_level_resolution;
+    const double actual_gap =
+        planning_.wavefront_edge_offset_margin - planning_.wavefront_tier1_inflation_margin;
+    if (actual_gap < required_rotation_safe_gap) {
+        throw std::invalid_argument(
+            "Unsafe wavefront edge offset configuration: "
+            "edge_offset_margin_m - base_inflation_margin_m must be >= sqrt(0.5) * skill_level_resolution");
     }
     
     // Environment bounds validation removed - bounds now calculated dynamically

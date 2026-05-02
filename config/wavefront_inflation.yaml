@@ -1,0 +1,30 @@
+# Centralized wavefront inflation settings for namo_cpp.
+# All values are in meters.
+#
+# Tier-1 inflation is the base additive margin applied to robot half-extents
+# during obstacle inflation in wavefront occupancy grids.
+tier1:
+  base_inflation_margin_m: 0.005
+  # Edge spawning margin beyond robot radius for push approach samples.
+  #
+  # To keep spawned edge samples outside inflated obstacle cells, enforce:
+  #   gap = edge_offset_margin_m - base_inflation_margin_m
+  #   gap > 0.5 * resolution                (axis-aligned lower bound)
+  #   gap > sqrt(0.5) * resolution          (rotation-safe bound)
+  #
+  # With resolution = 0.02:
+  #   sqrt(0.5) * resolution ~= 0.0142
+  #   base = 0.005 implies edge_offset >= 0.0192 (use >= 0.0195; 0.020 recommended)
+  edge_offset_margin_m: 0.020
+
+# The fields below are documented here so all wavefront-related inflation knobs
+# are in one place, even when certain layers are consumed by other modules.
+navigation:
+  additional_margin_m: 0.0
+
+push_approach:
+  additional_margin_m: 0.003
+
+xml_collision_resolution:
+  min_separation_m: 0.005
+  additional_margin_m: 0.08

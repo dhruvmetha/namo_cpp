@@ -121,12 +121,16 @@ public:
 	    }
     
     // Visualization
-    void visualize_edge_reachability(const std::string& object_name, 
-                                   const std::vector<int>& reachable_edges);
+    void visualize_edge_reachability(
+        const std::string& object_name,
+        const std::vector<int>& reachable_edges,
+        double edge_offset_margin_m = 0.020);
                                    
     // Visualization for goal marker (like old MuJoCo implementation)
-    void visualize_goal_marker(const std::array<double, 3>& goal_position, 
-                              const std::array<float, 4>& color = {0.0f, 1.0f, 0.0f, 1.0f});
+    void visualize_goal_marker(
+        const std::array<double, 3>& goal_position,
+        const std::array<float, 4>& color = {0.0f, 1.0f, 0.0f, 1.0f},
+        double goal_radius_m = -1.0);
                               
     // Visualization for object goal marker with object-specific size
     void visualize_object_goal_marker(const std::array<double, 3>& goal_position,

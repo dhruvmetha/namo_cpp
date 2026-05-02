@@ -1,6 +1,7 @@
 #include "environment/namo_environment.hpp"
 #include "robot/holonomic_adapter.hpp"
 #include "robot/diff_drive_adapter.hpp"
+#include "wavefront/goal_tolerance_utils.hpp"
 #include <iostream>
 #include <filesystem>
 #include <algorithm>
@@ -587,8 +588,10 @@ std::vector<double> NAMOEnvironment::get_environment_bounds() const {
     return bounds;
 }
 
-void NAMOEnvironment::visualize_edge_reachability(const std::string& object_name, 
-                                                const std::vector<int>& reachable_edges) {
+void NAMOEnvironment::visualize_edge_reachability(
+    const std::string& object_name,
+    const std::vector<int>& reachable_edges,
+    double edge_offset_margin_m) {
     // Get object state
     const ObjectState* obj_state = get_object_state(object_name);
     if (!obj_state) {
@@ -605,7 +608,14 @@ void NAMOEnvironment::visualize_edge_reachability(const std::string& object_name
     double x = obj_state->position[0], y = obj_state->position[1];
     double w = obj_state->size[0] - 0.05;  // width with margin
     double d = obj_state->size[1] - 0.05;  // depth with margin
-    double offset = robot_info_.size[0] + 0.05; // robot radius + margin
+    std::vector<double> robot_half_extents = {
+        robot_info_.size[0],
+        robot_info_.size[1],
+    };
+    const double rotation_safe_robot_radius =
+        compute_rotation_safe_robot_radius_m(robot_half_extents);
+    const double margin = (edge_offset_margin_m > 0.0) ? edge_offset_margin_m : 0.020;
+    const double offset = rotation_safe_robot_radius + margin;
     
     // Generate 12 edge points (same pattern as push controller)
     std::array<std::array<double, 2>, 12> local_edge_points = {{
@@ -778,19 +788,26 @@ void NAMOEnvironment::save_objects_to_file(const std::string& filename) const {
     file.close();
 }
 
-void NAMOEnvironment::visualize_goal_marker(const std::array<double, 3>& goal_position, 
-                                           const std::array<float, 4>& color) {
+void NAMOEnvironment::visualize_goal_marker(
+    const std::array<double, 3>& goal_position,
+    const std::array<float, 4>& color,
+    double goal_radius_m) {
     if (!sim_) return;
     
     // Visualization-only marker for the current robot goal (also used by region-opening
     // scripts to show the sampled neighbour-region goal). Use a sphere so it matches the
     // XML `<site name="goal" type="sphere" ...>` style that users are familiar with.
     //
-    // Radius chosen to approximately match the reachability goal radius used by the
-    // wavefront snapshot utilities (default goal_radius=0.15).
-    constexpr double kGoalVizRadius = 0.15;
+    std::vector<double> robot_half_extents = {
+        robot_info_.size[0],
+        robot_info_.size[1],
+    };
+    const double auto_goal_radius =
+        compute_goal_tolerance_m(robot_half_extents, kDefaultWavefrontTier1MarginM);
+    const double goal_viz_radius = (goal_radius_m > 0.0) ? goal_radius_m : auto_goal_radius;
+
     std::array<double, 4> orientation = {1.0, 0.0, 0.0, 0.0}; // Identity quaternion
-    std::array<double, 3> size = {kGoalVizRadius, kGoalVizRadius, kGoalVizRadius};
+    std::array<double, 3> size = {goal_viz_radius, goal_viz_radius, goal_viz_radius};
     int geom_type = 2; // mjGEOM_SPHERE = 2
     
     sim_->set_goal_marker(goal_position, orientation, size, geom_type);

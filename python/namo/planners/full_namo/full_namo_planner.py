@@ -15,7 +15,7 @@ from typing import Dict, List, Optional, Set, Tuple, Any
 import namo_rl
 
 from namo.core import BasePlanner, PlannerConfig, PlannerResult
-from namo.planners.connectivity_snapshot import snapshot_region_connectivity, find_robot_label
+from namo.planners.connectivity_snapshot import find_robot_label
 from namo.planners.opening.region_opening import RegionOpeningPlanner
 
 
@@ -61,6 +61,13 @@ class FullNAMOPlanner(BasePlanner):
 
         # Full NAMO specific settings
         self.max_iterations = algo_params.get("full_namo_max_iterations", 20)
+        self.use_cpp_unified_wavefront = algo_params.get(
+            "full_namo_use_cpp_unified_wavefront",
+            algo_params.get("region_use_cpp_unified_wavefront", True),
+        )
+        self.region_snapshot_seed = int(algo_params.get("region_snapshot_seed", 42))
+        region_goal_radius = algo_params.get("region_goal_radius_m", None)
+        self.region_goal_radius_m = float(region_goal_radius) if region_goal_radius is not None else None
 
         # Store config for creating region opener
         self._config = config
@@ -182,8 +189,9 @@ class FullNAMOPlanner(BasePlanner):
         if snapshot is None:
             return self._failure_result("Failed to compute region snapshot", start_time, [])
 
-        goal_region = self._get_region_label_at_position(snapshot, robot_goal[0], robot_goal[1])
-        if goal_region is None:
+        goal_region = snapshot.get("goal_label")
+        goal_in_free_space = bool(snapshot.get("goal_in_free_space", False))
+        if not goal_region or not goal_in_free_space:
             return self._failure_result("Goal position is in obstacle or out of bounds", start_time, [])
 
         # State for online execution
@@ -452,81 +460,24 @@ class FullNAMOPlanner(BasePlanner):
         """Compute full region connectivity snapshot.
 
         Returns:
-            Dict with adjacency, region_labels, and snapshot (for region_map lookup)
+            Dict with adjacency/edge_objects/region_labels and goal-region metadata.
         """
         try:
-            xml_path = self.env.get_xml_path()
-            config_path = self.env.get_config_path()
+            from namo.planners import get_region_snapshot as _get_region_snapshot
 
-            adjacency, edge_objects, region_labels, region_goals, snapshot = snapshot_region_connectivity(
+            snapshot = _get_region_snapshot(
                 self.env,
-                xml_path,
-                config_path,
-                include_snapshot=True,  # Need region_map for position lookup
-                local_info_only=False,  # Full graph, not just neighbors
                 goals_per_region=self.config.goals_per_region,
-                generate_training_data=True,
-                use_current_state=True,
+                goal_radius=self.region_goal_radius_m,
+                local_info_only=False,
+                seed=self.region_snapshot_seed,
+                use_cpp_unified=self.use_cpp_unified_wavefront,
+                use_xml_goal=True,
             )
-
-            return {
-                'adjacency': adjacency,
-                'edge_objects': edge_objects,
-                'region_labels': region_labels,
-                'region_goals': region_goals,
-                'snapshot': snapshot,
-            }
+            return snapshot
         except Exception as e:
             self._debug(f"Error computing region snapshot: {e}")
             return None
-
-    def _get_region_label_at_position(
-        self,
-        snapshot_data: Dict[str, Any],
-        x: float,
-        y: float
-    ) -> Optional[str]:
-        """Get the region label at world position (x, y).
-
-        Args:
-            snapshot_data: Data from _compute_region_snapshot
-            x: World x coordinate
-            y: World y coordinate
-
-        Returns:
-            Region label (e.g., "robot", "goal", "region_2") or None if invalid
-        """
-        snapshot = snapshot_data['snapshot']
-        region_labels = snapshot_data['region_labels']
-
-        bounds = snapshot.bounds  # (xmin, xmax, ymin, ymax)
-        resolution = snapshot.resolution
-        region_map = snapshot.region_map  # 2D numpy array, indexed [gx, gy]
-
-        # Convert world to grid coordinates
-        gx = int((x - bounds[0]) / resolution)
-        gy = int((y - bounds[2]) / resolution)
-
-        # Check bounds
-        if not (0 <= gx < region_map.shape[0] and 0 <= gy < region_map.shape[1]):
-            self._debug(f"Position ({x}, {y}) -> grid ({gx}, {gy}) out of bounds")
-            return None
-
-        region_id = int(region_map[gx, gy])
-
-        # region_id == 0 means unassigned/obstacle in some cases
-        # region_id < 0 also indicates obstacle
-        if region_id <= 0:
-            self._debug(f"Position ({x}, {y}) has region_id {region_id} (obstacle/unassigned)")
-            return None
-
-        # Look up label
-        label = region_labels.get(region_id)
-        if label is None:
-            self._debug(f"No label for region_id {region_id}")
-            return None
-
-        return label
 
     def _get_robot_region_label(self, snapshot_data: Dict[str, Any]) -> Optional[str]:
         """Get the robot's current region label.
@@ -537,6 +488,9 @@ class FullNAMOPlanner(BasePlanner):
         Returns:
             Robot's region label (typically "robot" or "robot_goal")
         """
+        robot_label = snapshot_data.get("robot_label")
+        if robot_label:
+            return robot_label
         region_labels = snapshot_data['region_labels']
         return find_robot_label(region_labels)
 

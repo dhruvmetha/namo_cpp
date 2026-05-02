@@ -1,5 +1,6 @@
 #include "wavefront/wavefront_planner.hpp"
 #include "environment/namo_environment.hpp"
+#include "wavefront/goal_tolerance_utils.hpp"
 #include <iostream>
 #include <fstream>
 #include <cmath>
@@ -8,9 +9,12 @@
 
 namespace namo {
 
-WavefrontPlanner::WavefrontPlanner(double resolution, NAMOEnvironment& env, 
-                                   const std::vector<double>& robot_size)
-    : resolution_(resolution), robot_size_(robot_size) {
+WavefrontPlanner::WavefrontPlanner(double resolution, NAMOEnvironment& env,
+                                   const std::vector<double>& robot_size,
+                                   double tier1_inflation_margin)
+    : resolution_(resolution), robot_size_(robot_size),
+      tier1_inflation_margin_(tier1_inflation_margin),
+      bfs_queue_(std::make_unique<std::pair<int, int>[]>(MAX_BFS_QUEUE)) {
     
     // Get environment bounds
     bounds_ = env.get_environment_bounds();
@@ -18,12 +22,14 @@ WavefrontPlanner::WavefrontPlanner(double resolution, NAMOEnvironment& env,
     grid_height_ = static_cast<int>((bounds_[3] - bounds_[2]) / resolution_);
     
     // Allocate grids
-    static_grid_.resize(grid_width_, std::vector<int>(grid_height_, -1));
-    dynamic_grid_.resize(grid_width_, std::vector<int>(grid_height_, -1));
+    static_grid_.resize(grid_width_, std::vector<int>(grid_height_, 0));
+    dynamic_grid_.resize(grid_width_, std::vector<int>(grid_height_, 0));
     reachability_grid_.resize(grid_width_, std::vector<int>(grid_height_, 0));
     
     // Initialize static obstacles
     initialize_static_grid(env);
+
+    const double inflate_r = compute_wavefront_inflation_radius_m(robot_size_, tier1_inflation_margin_);
 
     // Add movable objects to initial dynamic grid
     const auto& movable_objects = env.get_movable_objects();
@@ -37,8 +43,8 @@ WavefrontPlanner::WavefrontPlanner(double resolution, NAMOEnvironment& env,
         // Create inflated object for robot size
         ObjectInfo inflated_obj = obj;
 
-        inflated_obj.size[0] += robot_size_[0] + 0.005;
-        inflated_obj.size[1] += robot_size_[1] + 0.005;
+        inflated_obj.size[0] += inflate_r;
+        inflated_obj.size[1] += inflate_r;
 
         
         // Add object footprint to dynamic grid
@@ -47,7 +53,7 @@ WavefrontPlanner::WavefrontPlanner(double resolution, NAMOEnvironment& env,
             int x = footprint.cells[j].first;
             int y = footprint.cells[j].second;
             if (is_valid_grid_coord(x, y)) {
-                dynamic_grid_[x][y] = -2;  // Obstacle
+                dynamic_grid_[x][y] = -1;  // Obstacle
             }
         }
         // No change detection needed - simple rebuild approach
@@ -63,6 +69,7 @@ WavefrontPlanner::WavefrontPlanner(double resolution, NAMOEnvironment& env,
 
 void WavefrontPlanner::initialize_static_grid(NAMOEnvironment& env) {
     auto start_time = std::chrono::high_resolution_clock::now();
+    const double inflate_r = compute_wavefront_inflation_radius_m(robot_size_, tier1_inflation_margin_);
 
     // Process static obstacles once using cell CENTER (matching Python's wavefront_snapshot.py)
     for (int x = 0; x < grid_width_; x++) {
@@ -77,8 +84,8 @@ void WavefrontPlanner::initialize_static_grid(NAMOEnvironment& env) {
                 
                 // Create inflated object for robot size
                 ObjectInfo inflated_obj = obj;
-                inflated_obj.size[1] += robot_size_[1] + 0.005;
-                inflated_obj.size[0] += robot_size_[0] + 0.005;
+                inflated_obj.size[1] += inflate_r;
+                inflated_obj.size[0] += inflate_r;
                 
                 // Use object info directly for static objects (no state)
                 ObjectState static_state;
@@ -86,7 +93,7 @@ void WavefrontPlanner::initialize_static_grid(NAMOEnvironment& env) {
                 static_state.quaternion = obj.quaternion;
                 
                 if (is_point_in_rotated_rectangle(world_x, world_y, static_state, inflated_obj)) {
-                    static_grid_[x][y] = -2;  // Obstacle
+                    static_grid_[x][y] = -1;  // Obstacle
                     break;
                 }
             }
@@ -297,11 +304,11 @@ void WavefrontPlanner::recompute_wavefront(NAMOEnvironment& env, const std::vect
     // 1. Rebuild dynamic grid from current object positions
     rebuild_dynamic_grid_from_current_objects(env);
 
-    // 2. Reset all reachability values: -2=obstacle, 0=unreachable, 1=reachable
+    // 2. Reset all reachability values: -1=obstacle, 0=unreachable, 1=reachable
     for (int x = 0; x < grid_width_; x++) {
         for (int y = 0; y < grid_height_; y++) {
-            if (dynamic_grid_[x][y] == -2) {
-                reachability_grid_[x][y] = -2;  // Obstacle
+            if (dynamic_grid_[x][y] == -1) {
+                reachability_grid_[x][y] = -1;  // Obstacle
             } else {
                 reachability_grid_[x][y] = 0;   // Unreachable (until proven otherwise)
             }
@@ -320,7 +327,7 @@ void WavefrontPlanner::recompute_wavefront(NAMOEnvironment& env, const std::vect
         for (const auto& [dx, dy] : DIRECTIONS) {
             int nx = start_x + dx; 
             int ny = start_y + dy;
-            if (is_valid_grid_coord(nx, ny) && dynamic_grid_[nx][ny] != -2) {
+            if (is_valid_grid_coord(nx, ny) && dynamic_grid_[nx][ny] != -1) {
                 is_trapped = false;
                 break;
             }
@@ -337,7 +344,7 @@ void WavefrontPlanner::recompute_wavefront(NAMOEnvironment& env, const std::vect
             int ny = start_y + dy;
             
             if (is_valid_grid_coord(nx, ny)) {
-                dynamic_grid_[nx][ny] = -1;           // Mark as free space
+                dynamic_grid_[nx][ny] = 0;            // Mark as free space
                 reachability_grid_[nx][ny] = 0;       // Reset to unreachable (will become reachable in BFS)
             }
         }
@@ -359,8 +366,8 @@ void WavefrontPlanner::recompute_wavefront(NAMOEnvironment& env, const std::vect
             int ny = y + dy;
 
             if (is_valid_grid_coord(nx, ny) &&
-                reachability_grid_[nx][ny] != -2 &&
-                dynamic_grid_[nx][ny] != -2 &&    // Not an obstacle
+                reachability_grid_[nx][ny] != -1 &&
+                dynamic_grid_[nx][ny] != -1 &&    // Not an obstacle
                 reachability_grid_[nx][ny] == 0) { // Not already visited (closed list check)
 
                 reachability_grid_[nx][ny] = 1;  // Mark as reachable AND visited
@@ -375,6 +382,7 @@ void WavefrontPlanner::recompute_wavefront(NAMOEnvironment& env, const std::vect
 void WavefrontPlanner::rebuild_dynamic_grid_from_current_objects(NAMOEnvironment& env) {
     // Start fresh with static obstacles only
     dynamic_grid_ = static_grid_;
+    const double inflate_r = compute_wavefront_inflation_radius_m(robot_size_, tier1_inflation_margin_);
     
     // Add all current movable objects directly (no incremental tracking)
     const auto& movable_objects = env.get_movable_objects();
@@ -385,8 +393,8 @@ void WavefrontPlanner::rebuild_dynamic_grid_from_current_objects(NAMOEnvironment
         if (obj_state) {
             // Create inflated object for robot size
             ObjectInfo inflated_obj = obj;
-            inflated_obj.size[0] += robot_size_[0] + 0.005;
-            inflated_obj.size[1] += robot_size_[1] + 0.005;
+            inflated_obj.size[0] += inflate_r;
+            inflated_obj.size[1] += inflate_r;
 
             // std::cout << "inflated_obj.size: " << inflated_obj.size[0] << ", " << inflated_obj.size[1] << " " << robot_size_[0] << " " << robot_size_[1] << std::endl;
             
@@ -403,7 +411,7 @@ void WavefrontPlanner::add_footprint_to_dynamic_grid(const GridFootprint& footpr
         int x = footprint.cells[i].first;
         int y = footprint.cells[i].second;
         if (is_valid_grid_coord(x, y)) {
-            dynamic_grid_[x][y] = -2;  // Mark as obstacle
+            dynamic_grid_[x][y] = -1;  // Mark as obstacle
         }
     }
 }
@@ -428,6 +436,7 @@ void WavefrontPlanner::compute_grid_without_object(
 
     // Resize and copy static grid
     output_grid = static_grid_;
+    const double inflate_r = compute_wavefront_inflation_radius_m(robot_size_, tier1_inflation_margin_);
 
     // Add all movable objects EXCEPT the specified one
     const auto& movable_objects = env.get_movable_objects();
@@ -442,8 +451,8 @@ void WavefrontPlanner::compute_grid_without_object(
 
         // Create inflated object for robot size
         ObjectInfo inflated_obj = obj;
-        inflated_obj.size[0] += robot_size_[0] + 0.005;
-        inflated_obj.size[1] += robot_size_[1] + 0.005;
+        inflated_obj.size[0] += inflate_r;
+        inflated_obj.size[1] += inflate_r;
 
         // Calculate footprint and add to grid
         GridFootprint footprint = calculate_rotated_footprint(inflated_obj, *obj_state);
@@ -451,7 +460,7 @@ void WavefrontPlanner::compute_grid_without_object(
             int x = footprint.cells[j].first;
             int y = footprint.cells[j].second;
             if (is_valid_grid_coord(x, y)) {
-                output_grid[x][y] = -2;  // Obstacle
+                output_grid[x][y] = -1;  // Obstacle
             }
         }
     }
@@ -475,18 +484,22 @@ std::vector<std::pair<int, int>> WavefrontPlanner::get_path_cells(
     }
 
     // Check if start or goal is in obstacle
-    if (grid[start_x][start_y] == -2 || grid[goal_x][goal_y] == -2) {
+    if (grid[start_x][start_y] == -1 || grid[goal_x][goal_y] == -1) {
         return path;  // Empty path
     }
 
-    // BFS with parent tracking
-    // Use a separate grid to track parents: -1 = unvisited, -2 = start, otherwise encodes parent direction
-    std::vector<std::vector<int>> parent(grid_width_, std::vector<int>(grid_height_, -1));
+    // BFS with parent tracking.
+    // Internal parent-grid sentinels (not wavefront cell semantics):
+    // -1 = unvisited, -2 = start, otherwise encodes parent direction.
+    constexpr int kParentUnvisited = -1;
+    constexpr int kParentStart = -2;
+    std::vector<std::vector<int>> parent(
+        grid_width_, std::vector<int>(grid_height_, kParentUnvisited));
 
     // Direction encoding: 0-7 maps to DIRECTIONS indices
     reset_bfs_queue();
     bfs_enqueue(start_x, start_y);
-    parent[start_x][start_y] = -2;  // Mark start
+    parent[start_x][start_y] = kParentStart;  // Mark start
 
     bool found = false;
 
@@ -505,8 +518,8 @@ std::vector<std::pair<int, int>> WavefrontPlanner::get_path_cells(
             int ny = y + DIRECTIONS[dir].second;
 
             if (is_valid_grid_coord(nx, ny) &&
-                grid[nx][ny] != -2 &&      // Not obstacle
-                parent[nx][ny] == -1) {    // Not visited
+                grid[nx][ny] != -1 &&      // Not obstacle
+                parent[nx][ny] == kParentUnvisited) {    // Not visited
 
                 parent[nx][ny] = dir;  // Store direction we came from
                 bfs_enqueue(nx, ny);
@@ -525,7 +538,7 @@ std::vector<std::pair<int, int>> WavefrontPlanner::get_path_cells(
 
     // Backtrack from goal to start
     int cx = goal_x, cy = goal_y;
-    while (parent[cx][cy] != -2) {  // Until we reach start
+    while (parent[cx][cy] != kParentStart) {  // Until we reach start
         path.push_back({cx, cy});
 
         int dir = parent[cx][cy];
@@ -598,9 +611,10 @@ bool WavefrontPlanner::check_static_collision(
     obj_info.size = object_size;
 
     // Inflate for robot size
+    const double inflate_r = compute_wavefront_inflation_radius_m(robot_size_, tier1_inflation_margin_);
     ObjectInfo inflated_obj = obj_info;
-    inflated_obj.size[0] += robot_size_[0] + 0.005;
-    inflated_obj.size[1] += robot_size_[1] + 0.005;
+    inflated_obj.size[0] += inflate_r;
+    inflated_obj.size[1] += inflate_r;
 
     // Calculate footprint at target pose
     GridFootprint footprint = calculate_rotated_footprint(inflated_obj, target_state);
@@ -610,7 +624,7 @@ bool WavefrontPlanner::check_static_collision(
         int x = footprint.cells[i].first;
         int y = footprint.cells[i].second;
 
-        if (is_valid_grid_coord(x, y) && static_grid_[x][y] == -2) {
+        if (is_valid_grid_coord(x, y) && static_grid_[x][y] == -1) {
             return true;  // Collision with static obstacle
         }
     }
@@ -754,6 +768,7 @@ std::vector<int> WavefrontPlanner::evaluate_primitive_priorities(
     double blocks_ms = 0.0;
     double static_collision_ms = 0.0;
     double movable_collision_ms = 0.0;
+    const double inflate_r = compute_wavefront_inflation_radius_m(robot_size_, tier1_inflation_margin_);
     const auto t_loop0 = Clock::now();
     for (size_t i = 0; i < target_poses.size(); i++) {
         const auto& pose = target_poses[i];
@@ -765,8 +780,8 @@ std::vector<int> WavefrontPlanner::evaluate_primitive_priorities(
 
         ObjectInfo inflated_info;
         inflated_info.size = object_size;
-        inflated_info.size[0] += robot_size_[0] + 0.005;
-        inflated_info.size[1] += robot_size_[1] + 0.005;
+        inflated_info.size[0] += inflate_r;
+        inflated_info.size[1] += inflate_r;
 
         auto t0 = Clock::now();
         GridFootprint footprint = calculate_rotated_footprint(inflated_info, target_state);
