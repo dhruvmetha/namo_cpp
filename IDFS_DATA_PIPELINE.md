@@ -22,8 +22,8 @@ python/namo/data_collection/modular_parallel_collection.py
 
 ### Basic Usage
 ```bash
-PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_westeros \
-/common/users/dm1487/envs/mjxrl/bin/python python/namo/data_collection/modular_parallel_collection.py \
+PYTHONPATH=<repo>/build_python \
+python python/namo/data_collection/modular_parallel_collection.py \
 --output-dir ./idfs_data \
 --start-idx 0 \
 --end-idx 50 \
@@ -71,8 +71,8 @@ PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_w
 
 **Small Test Collection:**
 ```bash
-PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_westeros \
-/common/users/dm1487/envs/mjxrl/bin/python python/namo/data_collection/modular_parallel_collection.py \
+PYTHONPATH=<repo>/build_python \
+python python/namo/data_collection/modular_parallel_collection.py \
 --output-dir ./test_idfs_data \
 --start-idx 0 \
 --end-idx 10 \
@@ -84,8 +84,8 @@ PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_w
 
 **Production Collection with ML Strategies:**
 ```bash
-PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_westeros \
-/common/users/dm1487/envs/mjxrl/bin/python python/namo/data_collection/modular_parallel_collection.py \
+PYTHONPATH=<repo>/build_python \
+python python/namo/data_collection/modular_parallel_collection.py \
 --output-dir ./idfs_ml_data \
 --start-idx 0 \
 --end-idx 100 \
@@ -102,22 +102,22 @@ PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_w
 **Comparison Study (Multiple Planners):**
 ```bash
 # Standard IDFS
-PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_westeros \
-/common/users/dm1487/envs/mjxrl/bin/python python/namo/data_collection/modular_parallel_collection.py \
+PYTHONPATH=<repo>/build_python \
+python python/namo/data_collection/modular_parallel_collection.py \
 --output-dir ./comparison_standard \
 --start-idx 0 --end-idx 50 --workers 8 \
 --planner standard_idfs --max-depth 5
 
 # Optimal IDFS
-PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_westeros \
-/common/users/dm1487/envs/mjxrl/bin/python python/namo/data_collection/modular_parallel_collection.py \
+PYTHONPATH=<repo>/build_python \
+python python/namo/data_collection/modular_parallel_collection.py \
 --output-dir ./comparison_optimal \
 --start-idx 0 --end-idx 50 --workers 8 \
 --planner optimal_idfs --max-depth 5
 
 # Random Sampling Baseline
-PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_westeros \
-/common/users/dm1487/envs/mjxrl/bin/python python/namo/data_collection/modular_parallel_collection.py \
+PYTHONPATH=<repo>/build_python \
+python python/namo/data_collection/modular_parallel_collection.py \
 --output-dir ./comparison_random \
 --start-idx 0 --end-idx 50 --workers 8 \
 --planner random_sampling --max-depth 5
@@ -135,8 +135,8 @@ python/namo/data_collection/sequential_ml_collection.py
 
 ### Basic Usage
 ```bash
-PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_westeros \
-/common/users/dm1487/envs/mjxrl/bin/python python/namo/data_collection/sequential_ml_collection.py \
+PYTHONPATH=<repo>/build_python \
+python python/namo/data_collection/sequential_ml_collection.py \
 --output-dir ./ml_training_data \
 --start-idx 0 \
 --end-idx 100 \
@@ -161,8 +161,8 @@ PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_w
 
 **ML Training Data Collection:**
 ```bash
-PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_westeros \
-/common/users/dm1487/envs/mjxrl/bin/python python/namo/data_collection/sequential_ml_collection.py \
+PYTHONPATH=<repo>/build_python \
+python python/namo/data_collection/sequential_ml_collection.py \
 --output-dir ./ml_dataset \
 --start-idx 0 \
 --end-idx 200 \
@@ -175,8 +175,8 @@ PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_w
 
 **Failure Analysis Collection:**
 ```bash
-PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_westeros \
-/common/users/dm1487/envs/mjxrl/bin/python python/namo/data_collection/sequential_ml_collection.py \
+PYTHONPATH=<repo>/build_python \
+python python/namo/data_collection/sequential_ml_collection.py \
 --output-dir ./failure_analysis \
 --start-idx 0 \
 --end-idx 50 \
@@ -237,8 +237,8 @@ python python/namo/visualization/run_mask_generation.py batch \
 ### Example 1: Basic IDFS Pipeline
 ```bash
 # Step 1: Collect IDFS data
-PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_westeros \
-/common/users/dm1487/envs/mjxrl/bin/python python/namo/data_collection/modular_parallel_collection.py \
+PYTHONPATH=<repo>/build_python \
+python python/namo/data_collection/modular_parallel_collection.py \
 --output-dir ./basic_idfs \
 --start-idx 0 --end-idx 50 --workers 8 \
 --planner standard_idfs --max-depth 5
@@ -253,8 +253,8 @@ python python/namo/visualization/run_mask_generation.py batch \
 ### Example 2: ML Training Pipeline
 ```bash
 # Step 1: Sequential ML collection
-PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_westeros \
-/common/users/dm1487/envs/mjxrl/bin/python python/namo/data_collection/sequential_ml_collection.py \
+PYTHONPATH=<repo>/build_python \
+python python/namo/data_collection/sequential_ml_collection.py \
 --output-dir ./ml_training \
 --start-idx 0 --end-idx 100 --episodes-per-env 5 \
 --planner optimal_idfs --ml-ready
@@ -270,8 +270,8 @@ python python/namo/visualization/run_mask_generation.py batch \
 ```bash
 # Collect data for different planners
 for planner in standard_idfs optimal_idfs random_sampling; do
-    PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_westeros \
-    /common/users/dm1487/envs/mjxrl/bin/python python/namo/data_collection/modular_parallel_collection.py \
+    PYTHONPATH=<repo>/build_python \
+    python python/namo/data_collection/modular_parallel_collection.py \
     --output-dir ./study_${planner} \
     --start-idx 0 --end-idx 100 --workers 10 \
     --planner ${planner} --max-depth 5
@@ -352,10 +352,16 @@ Generated mask files contain:
 **Import Errors:**
 ```bash
 # Ensure PYTHONPATH is set correctly
-export PYTHONPATH=/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_westeros:$PYTHONPATH
+export PYTHONPATH=<repo>/build_python:$PYTHONPATH
 
 # Check namo_rl module
 python -c "import namo_rl; print('OK')"
+
+# Verify canonical module provenance
+python python/scripts/check_binding_provenance.py
+
+# Reject non-canonical build-path references
+python python/scripts/check_canonical_binding_policy.py
 ```
 
 **Environment Errors:**

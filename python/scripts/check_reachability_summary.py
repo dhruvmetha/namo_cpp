@@ -8,26 +8,19 @@ import json
 import sys
 from pathlib import Path
 
+repo_root = Path(__file__).resolve().parents[2]
+python_dir = repo_root / "python"
+if str(python_dir) not in sys.path:
+    sys.path.insert(0, str(python_dir))
+
+from namo.core.binding_loader import load_canonical_namo_rl
+
 
 def _default_paths(repo_root: Path) -> tuple[str, str]:
     return (
         str(repo_root / "data" / "test_scene.xml"),
         str(repo_root / "config" / "benchmark_config.yaml"),
     )
-
-
-def _inject_python_paths(repo_root: Path) -> None:
-    if str(repo_root / "python") not in sys.path:
-        sys.path.insert(0, str(repo_root / "python"))
-
-    build_dirs = [repo_root / "build_python"]
-    build_dirs.extend(sorted(repo_root.glob("build_python*")))
-    for build_dir in build_dirs:
-        if not build_dir.is_dir():
-            continue
-        if any(build_dir.glob("namo_rl*.so")) and str(build_dir) not in sys.path:
-            sys.path.insert(0, str(build_dir))
-            return
 
 
 def main() -> int:
@@ -46,15 +39,11 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    repo_root = Path(__file__).resolve().parents[2]
     default_xml, default_config = _default_paths(repo_root)
     xml_path = args.xml or default_xml
     config_path = args.config or default_config
 
-    # Ensure local package/module resolution from source tree.
-    _inject_python_paths(repo_root)
-
-    import namo_rl  # pylint: disable=import-error
+    namo_rl, module_path, _ = load_canonical_namo_rl(repo_root)
 
     env = namo_rl.RLEnvironment(xml_path, config_path, False)
     env.set_robot_goal(args.goal_x, args.goal_y, args.goal_theta)
@@ -96,6 +85,7 @@ def main() -> int:
         "goal_reachable": summary.get("goal_reachable", False),
         "object_count": len(objects),
         "reachable_objects": sum(1 for s in objects.values() if s.get("reachable", False)),
+        "loaded_namo_rl": str(module_path),
         "mismatches": mismatches,
     }
 
