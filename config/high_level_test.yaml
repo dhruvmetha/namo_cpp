@@ -6,7 +6,7 @@ planning:
   skill_level_resolution: 0.02     # 2cm grid for detailed skill planning (increased from 0.5cm)
   max_iterations: 10
   verbose: true
-  robot_size: [0.15, 0.15]
+  robot_size: [0.15, 0.15]      # LEGACY FALLBACK ONLY: runtime footprint is derived from robot collision geometry; do not tune unless geometry derivation is unavailable
   robot_goal: [0.54, -0.84]
   max_bfs_queue: 100000
   max_grid_width: 2000

@@ -4,7 +4,7 @@
 planning:
   high_level_resolution: 0.05
   skill_level_resolution: 0.005   # Finer grid for smaller robot
-  robot_size: [0.04, 0.04]        # Half of 7.6cm car width
+  robot_size: [0.035, 0.038]      # LEGACY FALLBACK ONLY: runtime footprint is derived from robot collision geometry; do not tune unless geometry derivation is unavailable
   robot_type: "diff_drive"
 
 skill:
@@ -18,8 +18,28 @@ skill:
   controller_stuck_threshold: 5    # More lenient — car pushes intermittently
   controller_min_position_change: 0.0003
   controller_min_angle_change: 0.05
+  emit_failure_trace: false
+  failure_trace_max_events: 128
   object_clearance: 0.03
   points_per_face: 15
+
+navigation:
+  diff_drive:
+    linear_speed: 0.10
+    angular_speed: 1.0
+    lookahead: 0.10
+    xy_threshold: 0.015
+    theta_threshold: 0.05
+    xy_tolerance: 0.05
+    theta_tolerance: 0.22
+    wait_steps: 30
+    decel_steps: 50
+    settle_steps: 20
+    velocity_tolerance: 0.01
+    max_nav_steps: 6000
+    max_path_deviation: 0.15
+    sharp_turn_threshold: 0.35
+    sharp_turn_exit: 0.15
 
 system:
   motion_primitives_file: "data/car_motion_primitives_15.dat"

@@ -373,7 +373,179 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_link_libraries(test_planner_output gomp)
 endif()
 
+# Regression test: extract_path waypoints must use cell centers (not corners)
+add_executable(test_wavefront_extract_path_cell_centers
+    tests/core/test_wavefront_extract_path_cell_centers.cpp
+    ${CORE_SOURCES}
+    ${PLANNING_SOURCES}
+    ${WAVEFRONT_SOURCES}
+    ${PLANNER_SOURCES}
+    ${STRATEGY_SOURCES}
+    ${ENVIRONMENT_SOURCES}
+    ${SKILLS_SOURCES}
+    ${CONFIG_SOURCES}
+    ${ROBOT_SOURCES}
+    ${NAVIGATION_SOURCES}
+)
+
+target_link_libraries(test_wavefront_extract_path_cell_centers
+    ${MUJOCO_LIB}
+    pthread
+    m
+    yaml-cpp
+)
+
+target_include_directories(test_wavefront_extract_path_cell_centers PRIVATE
+    include
+    ${MUJOCO_DIR}/include
+)
+
+if(glfw3_FOUND AND OpenGL_FOUND)
+    target_link_libraries(test_wavefront_extract_path_cell_centers glfw OpenGL::GL)
+    target_compile_definitions(test_wavefront_extract_path_cell_centers PRIVATE HAVE_GLFW)
+endif()
+
+if(ZMQ_FOUND)
+    target_link_libraries(test_wavefront_extract_path_cell_centers ${ZMQ_LIBRARIES})
+    target_include_directories(test_wavefront_extract_path_cell_centers PRIVATE ${ZMQ_INCLUDE_DIRS})
+    target_compile_definitions(test_wavefront_extract_path_cell_centers PRIVATE HAVE_ZMQ)
+endif()
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(test_wavefront_extract_path_cell_centers PRIVATE -fopenmp -ffast-math)
+    target_link_libraries(test_wavefront_extract_path_cell_centers gomp)
+endif()
+
+# Regression test: diff-drive navigation params must be ingested from config
+add_executable(test_diff_drive_nav_config_ingestion
+    tests/core/test_diff_drive_nav_config_ingestion.cpp
+    ${CORE_SOURCES}
+    ${PLANNING_SOURCES}
+    ${WAVEFRONT_SOURCES}
+    ${PLANNER_SOURCES}
+    ${STRATEGY_SOURCES}
+    ${ENVIRONMENT_SOURCES}
+    ${SKILLS_SOURCES}
+    ${CONFIG_SOURCES}
+    ${ROBOT_SOURCES}
+    ${NAVIGATION_SOURCES}
+)
+
+target_link_libraries(test_diff_drive_nav_config_ingestion
+    ${MUJOCO_LIB}
+    pthread
+    m
+    yaml-cpp
+)
+
+target_include_directories(test_diff_drive_nav_config_ingestion PRIVATE
+    include
+    ${MUJOCO_DIR}/include
+)
+
+if(glfw3_FOUND AND OpenGL_FOUND)
+    target_link_libraries(test_diff_drive_nav_config_ingestion glfw OpenGL::GL)
+    target_compile_definitions(test_diff_drive_nav_config_ingestion PRIVATE HAVE_GLFW)
+endif()
+
+if(ZMQ_FOUND)
+    target_link_libraries(test_diff_drive_nav_config_ingestion ${ZMQ_LIBRARIES})
+    target_include_directories(test_diff_drive_nav_config_ingestion PRIVATE ${ZMQ_INCLUDE_DIRS})
+    target_compile_definitions(test_diff_drive_nav_config_ingestion PRIVATE HAVE_ZMQ)
+endif()
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(test_diff_drive_nav_config_ingestion PRIVATE -fopenmp -ffast-math)
+    target_link_libraries(test_diff_drive_nav_config_ingestion gomp)
+endif()
+
+# Regression test: execution failures must preserve root-cause diagnostics
+add_executable(test_mpc_failure_diagnostics
+    tests/core/test_mpc_failure_diagnostics.cpp
+    ${CORE_SOURCES}
+    ${PLANNING_SOURCES}
+    ${WAVEFRONT_SOURCES}
+    ${PLANNER_SOURCES}
+    ${STRATEGY_SOURCES}
+    ${ENVIRONMENT_SOURCES}
+    ${SKILLS_SOURCES}
+    ${CONFIG_SOURCES}
+    ${ROBOT_SOURCES}
+    ${NAVIGATION_SOURCES}
+)
+
+target_link_libraries(test_mpc_failure_diagnostics
+    ${MUJOCO_LIB}
+    pthread
+    m
+    yaml-cpp
+)
+
+target_include_directories(test_mpc_failure_diagnostics PRIVATE
+    include
+    ${MUJOCO_DIR}/include
+)
+
+if(glfw3_FOUND AND OpenGL_FOUND)
+    target_link_libraries(test_mpc_failure_diagnostics glfw OpenGL::GL)
+    target_compile_definitions(test_mpc_failure_diagnostics PRIVATE HAVE_GLFW)
+endif()
+
+if(ZMQ_FOUND)
+    target_link_libraries(test_mpc_failure_diagnostics ${ZMQ_LIBRARIES})
+    target_include_directories(test_mpc_failure_diagnostics PRIVATE ${ZMQ_INCLUDE_DIRS})
+    target_compile_definitions(test_mpc_failure_diagnostics PRIVATE HAVE_ZMQ)
+endif()
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(test_mpc_failure_diagnostics PRIVATE -fopenmp -ffast-math)
+    target_link_libraries(test_mpc_failure_diagnostics gomp)
+endif()
+
+# Regression test: runtime robot footprint must come from full collidable geometry
+add_executable(test_robot_planning_footprint
+    tests/core/test_robot_planning_footprint.cpp
+    ${CORE_SOURCES}
+    ${PLANNING_SOURCES}
+    ${WAVEFRONT_SOURCES}
+    ${PLANNER_SOURCES}
+    ${STRATEGY_SOURCES}
+    ${ENVIRONMENT_SOURCES}
+    ${SKILLS_SOURCES}
+    ${CONFIG_SOURCES}
+    ${ROBOT_SOURCES}
+    ${NAVIGATION_SOURCES}
+)
+
+target_link_libraries(test_robot_planning_footprint
+    ${MUJOCO_LIB}
+    pthread
+    m
+    yaml-cpp
+)
+
+target_include_directories(test_robot_planning_footprint PRIVATE
+    include
+    ${MUJOCO_DIR}/include
+)
+
+if(glfw3_FOUND AND OpenGL_FOUND)
+    target_link_libraries(test_robot_planning_footprint glfw OpenGL::GL)
+    target_compile_definitions(test_robot_planning_footprint PRIVATE HAVE_GLFW)
+endif()
+
+if(ZMQ_FOUND)
+    target_link_libraries(test_robot_planning_footprint ${ZMQ_LIBRARIES})
+    target_include_directories(test_robot_planning_footprint PRIVATE ${ZMQ_INCLUDE_DIRS})
+    target_compile_definitions(test_robot_planning_footprint PRIVATE HAVE_ZMQ)
+endif()
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(test_robot_planning_footprint PRIVATE -fopenmp -ffast-math)
+    target_link_libraries(test_robot_planning_footprint gomp)
+endif()
+
 # Install targets
-install(TARGETS high_level_planning_demo generate_motion_primitives_db test_planner_output DESTINATION bin)
+install(TARGETS high_level_planning_demo generate_motion_primitives_db test_planner_output test_wavefront_extract_path_cell_centers test_diff_drive_nav_config_ingestion test_mpc_failure_diagnostics test_robot_planning_footprint DESTINATION bin)
 install(DIRECTORY config/ DESTINATION share/namo_standalone/config)
 install(DIRECTORY data/ DESTINATION share/namo_standalone/data OPTIONAL)
