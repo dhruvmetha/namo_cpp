@@ -8,6 +8,67 @@
 
 namespace namo {
 
+namespace {
+
+FailureType infer_failure_type_from_diag(const FailureDiagnostics& diag) {
+    if (diag.code == "robot_placement_collision_static" ||
+        diag.code == "robot_placement_collision_movable") {
+        return FailureType::ROBOT_PLACEMENT_COLLISION;
+    }
+    if (diag.code == "robot_collision_static" ||
+        diag.code == "robot_collision_movable" ||
+        diag.code == "object_collision_static" ||
+        diag.code == "object_collision_movable") {
+        return FailureType::OBJECT_COLLISION_DURING_PUSH;
+    }
+    if (diag.code == "controller_stuck" || diag.code == "object_stuck_mpc") {
+        return FailureType::OBJECT_STUCK;
+    }
+    if (diag.code == "requested_edge_not_reachable" ||
+        diag.code == "edge_not_reachable_during_mpc") {
+        return FailureType::NO_REACHABLE_EDGES;
+    }
+    if (diag.code == "no_plan_found") {
+        return FailureType::NO_PLAN_FOUND;
+    }
+    if (diag.code == "iteration_limit_reached") {
+        return FailureType::ITERATION_LIMIT_REACHED;
+    }
+    if (diag.code == "action_not_applicable") {
+        return FailureType::INVALID_PARAMETERS;
+    }
+    return FailureType::NONE;
+}
+
+void populate_failure_outputs(
+    SkillResult& result,
+    const FailureDiagnostics& diag,
+    bool emit_trace,
+    int trace_max_events) {
+    result.outputs["failure_source"] = diag.source;
+    result.outputs["failure_stage"] = diag.stage;
+    result.outputs["failure_code"] = diag.code;
+    result.outputs["failure_detail"] = diag.detail;
+    result.outputs["failure_step_index"] = diag.step_index_1based;
+    result.outputs["failure_edge_idx"] = diag.edge_idx;
+    result.outputs["failure_push_steps"] = diag.push_steps;
+    result.outputs["failure_controller_stuck_counter"] = diag.controller_stuck_counter;
+    result.outputs["failure_nav_reason"] = diag.nav_reason;
+    result.outputs["failure_nav_steps_used"] = diag.nav_steps_used;
+    result.outputs["failure_diag_json"] = diag.to_json(false, 0);
+    if (!diag.collision_object.empty()) {
+        result.outputs["collision_object"] = diag.collision_object;
+    }
+    if (diag.code == "controller_stuck" || diag.code == "object_stuck_mpc") {
+        result.outputs["stuck"] = "true";
+    }
+    if (emit_trace) {
+        result.outputs["failure_trace_json"] = diag.to_json(true, trace_max_events);
+    }
+}
+
+}  // namespace
+
 
 NAMOPushSkill::NAMOPushSkill(NAMOEnvironment& env) 
     : env_(env), config_(nullptr), legacy_config_() {
@@ -87,17 +148,19 @@ void NAMOPushSkill::initialize_skill() {
     
     // Initialize executor with configuration parameters
     if (config_) {
+        const auto robot_half_extents = env_.get_robot_planning_half_extents();
         // Use ConfigManager parameters
         executor_ = std::make_unique<MPCExecutor>(
             env_,
             config_->planning().skill_level_resolution,
-            config_->planning().robot_size,
+            std::vector<double>{robot_half_extents[0], robot_half_extents[1]},
             config_->planning().wavefront_tier1_inflation_margin,
             config_->skill().max_push_steps,
             config_->skill().control_steps_per_push,
             config_->skill().force_scaling,
             config_->skill().points_per_face,
-            config_->skill().check_object_collision
+            config_->skill().check_object_collision,
+            config_
         );
 
         // Configure controller-level stuck parameters from config
@@ -181,11 +244,29 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
     
     SkillResult result;
     result.skill_name = get_name();
+    const bool emit_failure_trace = config_ ? config_->skill().emit_failure_trace : false;
+    const int failure_trace_max_events = config_ ? config_->skill().failure_trace_max_events : 128;
+
+    auto set_failure_from_diag = [&](const FailureDiagnostics& diag,
+                                     std::optional<FailureType> type_override = std::nullopt) {
+        result.failure_reason = diag.summary.empty() ? diag.detail : diag.summary;
+        result.failure_type = type_override.value_or(infer_failure_type_from_diag(diag));
+        populate_failure_outputs(result, diag, emit_failure_trace, failure_trace_max_events);
+    };
     
     // Validate parameters
     std::string validation_error;
     if (!validate_parameters(parameters, validation_error)) {
-        result.failure_reason = "Parameter validation failed: " + validation_error;
+        FailureDiagnostics diag;
+        diag.source = "skill";
+        diag.stage = "applicability";
+        diag.code = "action_not_applicable";
+        diag.summary = "Parameter validation failed";
+        diag.detail = "Parameter validation failed: " + validation_error;
+        diag.add_trace_event(FailureTraceEvent{
+            "skill", "applicability", "action_not_applicable", diag.detail, 0, -1, 0, 0
+        });
+        set_failure_from_diag(diag, FailureType::INVALID_PARAMETERS);
         return result;
     }
     
@@ -254,8 +335,25 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
                                          provided_edge_idx) != reachable_edges.end();
 
         if (!edge_reachable) {
-            result.failure_reason = "Requested edge " + std::to_string(provided_edge_idx) + " not reachable";
-            result.failure_type = FailureType::NO_REACHABLE_EDGES;
+            FailureDiagnostics diag;
+            diag.source = "skill";
+            diag.stage = "edge_reachability_precheck";
+            diag.code = "requested_edge_not_reachable";
+            diag.summary = "Requested edge " + std::to_string(provided_edge_idx) + " not reachable";
+            diag.detail = "Requested edge " + std::to_string(provided_edge_idx) + " not reachable";
+            diag.edge_idx = provided_edge_idx;
+            diag.push_steps = provided_depth + 1;
+            diag.add_trace_event(FailureTraceEvent{
+                "skill",
+                "edge_reachability_precheck",
+                "requested_edge_not_reachable",
+                diag.summary,
+                1,
+                provided_edge_idx,
+                provided_depth + 1,
+                0
+            });
+            set_failure_from_diag(diag, FailureType::NO_REACHABLE_EDGES);
             auto end_time = std::chrono::high_resolution_clock::now();
             result.execution_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
             return result;
@@ -280,17 +378,22 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         result.outputs["robot_goal_reached"] = (has_robot_goal_ && executor_->is_robot_goal_reachable());
 
         if (!step_result.success) {
-            result.failure_reason = step_result.failure_reason;
-            // Copy collision info if present
-            if (!step_result.collision_object.empty()) {
-                result.outputs["collision_object"] = step_result.collision_object;
-                result.failure_type = FailureType::OBJECT_COLLISION_DURING_PUSH;
+            FailureDiagnostics diag = step_result.failure_diagnostics;
+            if (!diag.has_signal()) {
+                diag.source = "executor";
+                diag.stage = "executor_mpc_step";
+                diag.code = "unknown";
+                diag.summary = step_result.failure_reason;
+                diag.detail = step_result.failure_reason;
+                diag.collision_object = step_result.collision_object;
+                diag.step_index_1based = 1;
+                diag.edge_idx = provided_edge_idx;
+                diag.push_steps = push_steps;
+                diag.add_trace_event(FailureTraceEvent{
+                    "skill", "executor_mpc_step", "unknown", diag.summary, 1, provided_edge_idx, push_steps, 0
+                });
             }
-            // Check for stuck condition
-            if (step_result.failure_reason.find("Controller-level stuck") != std::string::npos) {
-                result.outputs["stuck"] = "true";
-                result.failure_type = FailureType::OBJECT_STUCK;
-            }
+            set_failure_from_diag(diag);
         }
 
         // Collision tracking outputs
@@ -328,7 +431,17 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         auto current_pose = get_object_current_pose(object_name);
         if (!current_pose) {
             std::cout << "Could not get current pose for object: " << object_name << " at iteration " << mpc_iter << std::endl;
-            result.failure_reason = "Could not get current pose for object: " + object_name + " at iteration " + std::to_string(mpc_iter);
+            FailureDiagnostics diag;
+            diag.source = "skill";
+            diag.stage = "skill_planning";
+            diag.code = "unknown";
+            diag.summary = "Could not get current pose for object";
+            diag.detail = "Could not get current pose for object: " + object_name + " at iteration " + std::to_string(mpc_iter);
+            diag.step_index_1based = mpc_iter + 1;
+            diag.add_trace_event(FailureTraceEvent{
+                "skill", "skill_planning", "unknown", diag.detail, mpc_iter + 1, -1, 0, 0
+            });
+            set_failure_from_diag(diag);
             return result;
         }
         
@@ -347,8 +460,19 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
                 if (stuck_counter >= max_stuck_iterations) {
                     // debug disabled
                     result.outputs["stuck"] = "true";
-                    result.failure_reason = "Object stuck for " + std::to_string(stuck_counter) + " iterations at MPC iteration " + std::to_string(mpc_iter);
-                    result.failure_type = FailureType::OBJECT_STUCK;
+                    FailureDiagnostics diag;
+                    diag.source = "skill";
+                    diag.stage = "executor_mpc_stuck";
+                    diag.code = "object_stuck_mpc";
+                    diag.summary = "Object stuck during MPC execution";
+                    diag.detail = "Object stuck for " + std::to_string(stuck_counter) +
+                                  " iterations at MPC iteration " + std::to_string(mpc_iter);
+                    diag.step_index_1based = mpc_iter + 1;
+                    diag.controller_stuck_counter = stuck_counter;
+                    diag.add_trace_event(FailureTraceEvent{
+                        "skill", "executor_mpc_stuck", "object_stuck_mpc", diag.detail, mpc_iter + 1, previous_edge_idx, 0, stuck_counter
+                    });
+                    set_failure_from_diag(diag, FailureType::OBJECT_STUCK);
                     result.outputs["steps_executed"] = mpc_iter;
                     result.outputs["final_pose"] = current_state;
                     result.outputs["object_name"] = object_name;
@@ -430,8 +554,17 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         if (filtered_edges.empty()) {
             // std::cout << "No reachable edges for object " << object_name << " after filtering stuck edges - stopping MPC" << std::endl;
             // executor_->save_debug_wavefront(mpc_iter, "mpc_wavefront_no_reachable_edges_after_filter");
-            result.failure_reason = "No reachable edges after filtering stuck edges at iteration " + std::to_string(mpc_iter);
-            result.failure_type = FailureType::NO_REACHABLE_EDGES;
+            FailureDiagnostics diag;
+            diag.source = "skill";
+            diag.stage = "skill_planning";
+            diag.code = "requested_edge_not_reachable";
+            diag.summary = "No reachable edges after filtering stuck edges";
+            diag.detail = "No reachable edges after filtering stuck edges at iteration " + std::to_string(mpc_iter);
+            diag.step_index_1based = mpc_iter + 1;
+            diag.add_trace_event(FailureTraceEvent{
+                "skill", "skill_planning", diag.code, diag.detail, mpc_iter + 1, -1, 0, 0
+            });
+            set_failure_from_diag(diag, FailureType::NO_REACHABLE_EDGES);
             result.outputs["steps_executed"] = mpc_iter;
             result.outputs["final_pose"] = current_state;
             result.outputs["object_name"] = object_name;
@@ -453,7 +586,17 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
             // std::cout << "filtered_edges: " << filtered_edges.size() << std::endl;
         } catch (const std::exception& e) {
             std::cout << "Planning failed: " << e.what() << std::endl;
-            result.failure_reason = "Planning failed at iteration " + std::to_string(mpc_iter) + ": " + e.what();
+            FailureDiagnostics diag;
+            diag.source = "skill";
+            diag.stage = "skill_planning";
+            diag.code = "unknown";
+            diag.summary = "Planning failed during iterative MPC";
+            diag.detail = "Planning failed at iteration " + std::to_string(mpc_iter) + ": " + e.what();
+            diag.step_index_1based = mpc_iter + 1;
+            diag.add_trace_event(FailureTraceEvent{
+                "skill", "skill_planning", "unknown", diag.detail, mpc_iter + 1, -1, 0, 0
+            });
+            set_failure_from_diag(diag);
             result.outputs["steps_executed"] = mpc_iter;
             result.outputs["final_pose"] = current_state;
             result.outputs["object_name"] = object_name;
@@ -465,8 +608,17 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         
         if (plan.empty()) {
             // std::cout << "No plan found from current state" << std::endl;
-            result.failure_reason = "No plan found at iteration " + std::to_string(mpc_iter);
-            result.failure_type = FailureType::NO_PLAN_FOUND;
+            FailureDiagnostics diag;
+            diag.source = "skill";
+            diag.stage = "skill_planning";
+            diag.code = "no_plan_found";
+            diag.summary = "No plan found during iterative MPC";
+            diag.detail = "No plan found at iteration " + std::to_string(mpc_iter);
+            diag.step_index_1based = mpc_iter + 1;
+            diag.add_trace_event(FailureTraceEvent{
+                "skill", "skill_planning", "no_plan_found", diag.detail, mpc_iter + 1, -1, 0, 0
+            });
+            set_failure_from_diag(diag, FailureType::NO_PLAN_FOUND);
             result.outputs["steps_executed"] = mpc_iter;
             result.outputs["final_pose"] = current_state;
             result.outputs["object_name"] = object_name;
@@ -499,26 +651,27 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
             stuck_edges.insert(previous_edge_idx);
             // debug disabled
 
-            // Propagate collision info if present
-            if (!step_result.collision_object.empty()) {
-                result.outputs["collision_object"] = step_result.collision_object;
-                result.failure_reason = "Collision with " + step_result.collision_object;
-                result.failure_type = FailureType::OBJECT_COLLISION_DURING_PUSH;
-                result.outputs["steps_executed"] = mpc_iter;
-                result.outputs["final_pose"] = current_state;
-                result.outputs["object_name"] = object_name;
-                // Collision tracking outputs
-                result.outputs["wall_collision"] = accumulated_wall_collision;
-                { std::string movable_str; for (auto it = accumulated_movable_collisions.begin(); it != accumulated_movable_collisions.end(); ++it) { if (it != accumulated_movable_collisions.begin()) movable_str += ","; movable_str += *it; } result.outputs["movable_collisions"] = movable_str; }
-                return result;
+            FailureDiagnostics diag = step_result.failure_diagnostics;
+            if (!diag.has_signal()) {
+                diag.source = "executor";
+                diag.stage = "executor_mpc_step";
+                diag.code = "unknown";
+                diag.summary = step_result.failure_reason;
+                diag.detail = step_result.failure_reason;
+                diag.collision_object = step_result.collision_object;
+                diag.step_index_1based = mpc_iter + 1;
+                diag.edge_idx = previous_edge_idx;
+                diag.push_steps = single_step[0].push_steps;
+                diag.add_trace_event(FailureTraceEvent{
+                    "skill", "executor_mpc_step", "unknown", diag.summary, mpc_iter + 1, previous_edge_idx, single_step[0].push_steps, 0
+                });
             }
-
-            // Check for controller-level stuck propagated up by MPC executor
-            if (!step_result.collision_object.empty() == false &&
-                step_result.failure_reason.find("Controller-level stuck") != std::string::npos) {
-                result.outputs["stuck"] = "true";
-                result.failure_reason = step_result.failure_reason;
-                result.failure_type = FailureType::OBJECT_STUCK;
+            const bool terminal_failure =
+                !diag.collision_object.empty() ||
+                diag.code == "controller_stuck" ||
+                diag.code == "object_stuck_mpc";
+            if (terminal_failure) {
+                set_failure_from_diag(diag);
                 result.outputs["steps_executed"] = mpc_iter;
                 result.outputs["final_pose"] = current_state;
                 result.outputs["object_name"] = object_name;
@@ -549,8 +702,17 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         result.outputs["object_name"] = object_name;
     } else {
         // Robot goal not reachable or termination disabled - treat as failure
-        result.failure_reason = "MPC reached iteration limit (" + std::to_string(max_mpc_iterations) + ") without reaching goal";
-        result.failure_type = FailureType::ITERATION_LIMIT_REACHED;
+        FailureDiagnostics diag;
+        diag.source = "skill";
+        diag.stage = "skill_iteration_limit";
+        diag.code = "iteration_limit_reached";
+        diag.summary = "MPC reached iteration limit without reaching goal";
+        diag.detail = "MPC reached iteration limit (" + std::to_string(max_mpc_iterations) + ") without reaching goal";
+        diag.step_index_1based = max_mpc_iterations;
+        diag.add_trace_event(FailureTraceEvent{
+            "skill", "skill_iteration_limit", "iteration_limit_reached", diag.detail, max_mpc_iterations, previous_edge_idx, 0, 0
+        });
+        set_failure_from_diag(diag, FailureType::ITERATION_LIMIT_REACHED);
         result.outputs["steps_executed"] = max_mpc_iterations;
         result.outputs["final_pose"] = final_pose ? *final_pose : SE2State();
         result.outputs["object_name"] = object_name;

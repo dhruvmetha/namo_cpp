@@ -94,6 +94,9 @@ public:
     size_t get_num_movable() const { return num_movable_; }
     
     const ObjectInfo& get_robot_info() const { return robot_info_; }
+    std::array<double, 2> get_robot_planning_half_extents() const {
+        return {robot_info_.size[0], robot_info_.size[1]};
+    }
     const ObjectState* get_robot_state() const { return &robot_state_; }
     
     // Object state queries
@@ -190,6 +193,7 @@ public:
 private:
     // MuJoCo simulation
     std::unique_ptr<OptimizedMujocoWrapper> sim_;
+    std::shared_ptr<ConfigManager> config_;
 
     // Robot adapter (abstracts robot-specific position/control/identity)
     std::unique_ptr<RobotAdapter> robot_adapter_;
@@ -241,6 +245,7 @@ private:
     
     // Initialization helpers
     void init_robot_from_adapter();   // Read robot info using adapter
+    bool derive_robot_footprint_from_collision_geometry(std::array<double, 3>& derived_size) const;
     void process_environment_objects();
     void warm_up();
     

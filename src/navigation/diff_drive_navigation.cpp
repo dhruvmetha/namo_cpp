@@ -252,9 +252,26 @@ DiffDriveNavigation::DiffDriveNavigation(const Params& params)
     : params_(params) {}
 
 DiffDriveNavigation::DiffDriveNavigation(std::shared_ptr<ConfigManager> config) {
-    // Params remain at defaults; a richer config structure can be added later.
-    // For now DiffDriveNavigation uses the built-in Params defaults.
-    (void)config;
+    if (!config) {
+        return;
+    }
+
+    const auto& cfg = config->navigation().diff_drive;
+    params_.linear_speed = cfg.linear_speed;
+    params_.angular_speed = cfg.angular_speed;
+    params_.lookahead = cfg.lookahead;
+    params_.xy_threshold = cfg.xy_threshold;
+    params_.theta_threshold = cfg.theta_threshold;
+    params_.xy_tolerance = cfg.xy_tolerance;
+    params_.theta_tolerance = cfg.theta_tolerance;
+    params_.wait_steps = cfg.wait_steps;
+    params_.decel_steps = cfg.decel_steps;
+    params_.settle_steps = cfg.settle_steps;
+    params_.velocity_tolerance = cfg.velocity_tolerance;
+    params_.max_nav_steps = cfg.max_nav_steps;
+    params_.max_path_deviation = cfg.max_path_deviation;
+    params_.sharp_turn_threshold = cfg.sharp_turn_threshold;
+    params_.sharp_turn_exit = cfg.sharp_turn_exit;
 }
 
 

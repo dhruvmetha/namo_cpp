@@ -7,12 +7,111 @@
 #include <algorithm>
 #include <random>
 #include <iomanip>
+#include <cmath>
+#include <sstream>
 
 extern "C" {
 #include "mujoco/mujoco.h"
 }
 
 namespace namo {
+
+namespace {
+
+constexpr double kRobotFootprintMismatchEpsilon = 1e-6;
+constexpr std::array<double, 2> kDefaultRobotPlanningHalfExtents = {0.15, 0.15};
+
+bool is_descendant_body(const mjModel* model, int body_id, int ancestor_id) {
+    while (body_id >= 0) {
+        if (body_id == ancestor_id) {
+            return true;
+        }
+        const int parent_id = model->body_parentid[body_id];
+        if (parent_id == body_id) {
+            break;
+        }
+        body_id = parent_id;
+    }
+    return false;
+}
+
+bool is_collidable_geom(const mjModel* model, int geom_id) {
+    return model->geom_contype[geom_id] != 0 || model->geom_conaffinity[geom_id] != 0;
+}
+
+std::array<double, 3> geom_local_half_extents(const mjModel* model, int geom_id) {
+    const mjtNum* size = model->geom_size + 3 * geom_id;
+    switch (model->geom_type[geom_id]) {
+        case mjGEOM_BOX:
+        case mjGEOM_ELLIPSOID:
+            return {size[0], size[1], size[2]};
+        case mjGEOM_SPHERE:
+            return {size[0], size[0], size[0]};
+        case mjGEOM_CYLINDER:
+            return {size[0], size[0], size[1]};
+        case mjGEOM_CAPSULE:
+            return {size[0], size[0], size[0] + size[1]};
+        default: {
+            const double radius = (model->geom_rbound[geom_id] > 0.0)
+                ? model->geom_rbound[geom_id]
+                : std::max({double(size[0]), double(size[1]), double(size[2])});
+            return {radius, radius, radius};
+        }
+    }
+}
+
+std::array<double, 3> rotate_world_to_local(const mjtNum* local_to_world_rot, const std::array<double, 3>& world_vec) {
+    return {
+        local_to_world_rot[0] * world_vec[0] + local_to_world_rot[3] * world_vec[1] + local_to_world_rot[6] * world_vec[2],
+        local_to_world_rot[1] * world_vec[0] + local_to_world_rot[4] * world_vec[1] + local_to_world_rot[7] * world_vec[2],
+        local_to_world_rot[2] * world_vec[0] + local_to_world_rot[5] * world_vec[1] + local_to_world_rot[8] * world_vec[2],
+    };
+}
+
+void multiply_transpose_a_b(const mjtNum* a, const mjtNum* b, double out[9]) {
+    for (int row = 0; row < 3; ++row) {
+        for (int col = 0; col < 3; ++col) {
+            double sum = 0.0;
+            for (int k = 0; k < 3; ++k) {
+                sum += static_cast<double>(a[k * 3 + row]) * static_cast<double>(b[k * 3 + col]);
+            }
+            out[row * 3 + col] = sum;
+        }
+    }
+}
+
+std::array<double, 3> oriented_box_aabb_half_extents(const double rot[9], const std::array<double, 3>& half_extents) {
+    std::array<double, 3> out = {0.0, 0.0, 0.0};
+    for (int row = 0; row < 3; ++row) {
+        out[row] =
+            std::abs(rot[row * 3 + 0]) * half_extents[0] +
+            std::abs(rot[row * 3 + 1]) * half_extents[1] +
+            std::abs(rot[row * 3 + 2]) * half_extents[2];
+    }
+    return out;
+}
+
+bool materially_differs(const std::array<double, 2>& lhs, const std::vector<double>& rhs) {
+    return rhs.size() < 2 ||
+           std::abs(lhs[0] - rhs[0]) > kRobotFootprintMismatchEpsilon ||
+           std::abs(lhs[1] - rhs[1]) > kRobotFootprintMismatchEpsilon;
+}
+
+std::string format_half_extents(const std::array<double, 2>& extents) {
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(6)
+        << "[" << extents[0] << ", " << extents[1] << "]";
+    return oss.str();
+}
+
+std::string format_half_extents(const std::vector<double>& extents) {
+    if (extents.size() < 2) {
+        return "[]";
+    }
+    return format_half_extents(std::array<double, 2>{extents[0], extents[1]});
+}
+
+}  // namespace
 
 NAMOEnvironment::NAMOEnvironment(const std::string& xml_path, bool visualize, bool enable_logging) 
     : logging_enabled_(enable_logging) {
@@ -76,7 +175,7 @@ NAMOEnvironment::~NAMOEnvironment() {
 
 NAMOEnvironment::NAMOEnvironment(const std::string& xml_path, std::shared_ptr<ConfigManager> config,
                                  bool visualize, bool enable_logging)
-    : logging_enabled_(enable_logging) {
+    : config_(std::move(config)), logging_enabled_(enable_logging) {
 
     sim_ = std::make_unique<OptimizedMujocoWrapper>(xml_path, visualize);
     sim_->initialize();
@@ -88,7 +187,7 @@ NAMOEnvironment::NAMOEnvironment(const std::string& xml_path, std::shared_ptr<Co
     config_name_ = xml_file_path.stem().string();
 
     // Create adapter based on config robot_type
-    const std::string& robot_type = config ? config->get_robot_type() : "holonomic";
+    const std::string& robot_type = config_ ? config_->get_robot_type() : "holonomic";
     if (robot_type == "holonomic") {
         std::array<double, 3> init_pos = {0.0, 0.0, 0.0};
         std::array<double, 7> pose;
@@ -157,7 +256,8 @@ void NAMOEnvironment::init_robot_from_adapter() {
             for (int i = 0; i < 4; i++) robot_info_.quaternion[i] = robot_pose[i + 3];
         }
 
-        // Read geom size
+        // Read one geom size as a last-resort fallback. The canonical planning/export
+        // footprint is derived from the full collidable robot subtree below.
         mjModel* model = sim_->model();
         if (robot_id_ >= 0 && robot_id_ < model->ngeom) {
             for (int i = 0; i < 3; i++) {
@@ -165,8 +265,99 @@ void NAMOEnvironment::init_robot_from_adapter() {
             }
         }
 
+        std::array<double, 3> derived_size = robot_info_.size;
+        if (derive_robot_footprint_from_collision_geometry(derived_size)) {
+            robot_info_.size = derived_size;
+            if (config_ && config_->is_robot_size_explicitly_configured()) {
+                const auto derived_xy = get_robot_planning_half_extents();
+                const auto& cfg_xy = config_->planning().robot_size;
+                if (materially_differs(derived_xy, cfg_xy)) {
+                    std::cerr
+                        << "Warning: planning.robot_size is legacy fallback only and differs from "
+                        << "geometry-derived robot footprint; using geometry-derived values. "
+                        << "yaml=" << format_half_extents(cfg_xy)
+                        << ", geometry=" << format_half_extents(derived_xy) << std::endl;
+                } else {
+                    std::cerr
+                        << "Info: planning.robot_size is legacy fallback only and is ignored at runtime; "
+                        << "using geometry-derived robot footprint "
+                        << format_half_extents(derived_xy) << std::endl;
+                }
+            }
+        } else {
+            if (config_ && config_->planning().robot_size.size() >= 2) {
+                robot_info_.size[0] = config_->planning().robot_size[0];
+                robot_info_.size[1] = config_->planning().robot_size[1];
+                if (robot_info_.size[2] <= 0.0) {
+                    robot_info_.size[2] = std::max(robot_info_.size[0], robot_info_.size[1]);
+                }
+                std::cerr
+                    << "Warning: failed to derive robot planning footprint from collision geometry; "
+                    << "falling back to planning.robot_size "
+                    << format_half_extents(config_->planning().robot_size) << std::endl;
+            } else {
+                robot_info_.size[0] = (robot_info_.size[0] > 0.0) ? robot_info_.size[0] : kDefaultRobotPlanningHalfExtents[0];
+                robot_info_.size[1] = (robot_info_.size[1] > 0.0) ? robot_info_.size[1] : kDefaultRobotPlanningHalfExtents[1];
+                if (robot_info_.size[2] <= 0.0) {
+                    robot_info_.size[2] = std::max(robot_info_.size[0], robot_info_.size[1]);
+                }
+                std::cerr
+                    << "Warning: failed to derive robot planning footprint from collision geometry; "
+                    << "falling back to default half-extents "
+                    << format_half_extents(std::array<double, 2>{robot_info_.size[0], robot_info_.size[1]}) << std::endl;
+            }
+        }
+
         init_robot_pos_ = robot_info_.position;
     }
+}
+
+bool NAMOEnvironment::derive_robot_footprint_from_collision_geometry(std::array<double, 3>& derived_size) const {
+    const mjModel* model = sim_ ? sim_->model() : nullptr;
+    const mjData* data = sim_ ? sim_->data() : nullptr;
+    if (!model || !data || robot_info_.body_id < 0 || robot_info_.body_id >= model->nbody) {
+        return false;
+    }
+
+    const mjtNum* root_pos = data->xpos + 3 * robot_info_.body_id;
+    const mjtNum* root_rot = data->xmat + 9 * robot_info_.body_id;
+    std::array<double, 3> max_abs_extent = {0.0, 0.0, 0.0};
+    bool found_collidable_geom = false;
+
+    for (int geom_id = 0; geom_id < model->ngeom; ++geom_id) {
+        const int body_id = model->geom_bodyid[geom_id];
+        if (!is_descendant_body(model, body_id, robot_info_.body_id) || !is_collidable_geom(model, geom_id)) {
+            continue;
+        }
+
+        found_collidable_geom = true;
+        const auto local_half_extents = geom_local_half_extents(model, geom_id);
+        const mjtNum* geom_pos = data->geom_xpos + 3 * geom_id;
+        const mjtNum* geom_rot = data->geom_xmat + 9 * geom_id;
+        const std::array<double, 3> delta_world = {
+            geom_pos[0] - root_pos[0],
+            geom_pos[1] - root_pos[1],
+            geom_pos[2] - root_pos[2],
+        };
+        const auto center_in_root = rotate_world_to_local(root_rot, delta_world);
+
+        double geom_in_root_rot[9];
+        multiply_transpose_a_b(root_rot, geom_rot, geom_in_root_rot);
+        const auto geom_root_half_extents = oriented_box_aabb_half_extents(geom_in_root_rot, local_half_extents);
+
+        for (int axis = 0; axis < 3; ++axis) {
+            max_abs_extent[axis] = std::max(
+                max_abs_extent[axis],
+                std::abs(center_in_root[axis]) + geom_root_half_extents[axis]);
+        }
+    }
+
+    if (!found_collidable_geom || max_abs_extent[0] <= 0.0 || max_abs_extent[1] <= 0.0) {
+        return false;
+    }
+
+    derived_size = max_abs_extent;
+    return true;
 }
 
 void NAMOEnvironment::warm_up() {
@@ -571,7 +762,9 @@ std::vector<double> NAMOEnvironment::get_environment_bounds() const {
     // Include robot position (CRITICAL FIX for wavefront)
     double robot_x = robot_state_.position[0];
     double robot_y = robot_state_.position[1];
-    double robot_radius = robot_info_.size[0]; // Use robot radius for bounds
+    const auto robot_half_extents = get_robot_planning_half_extents();
+    const double robot_radius =
+        compute_rotation_safe_robot_radius_m({robot_half_extents[0], robot_half_extents[1]});
     
     bounds[0] = std::min(bounds[0], robot_x - robot_radius);  // Expand x_min if needed
     bounds[1] = std::max(bounds[1], robot_x + robot_radius);  // Expand x_max if needed
@@ -713,8 +906,8 @@ std::map<std::string, std::map<std::string, double>> NAMOEnvironment::get_all_ob
     // Add robot info (only size is immutable)
     all_object_info[robot_info_.name] = {
         {"size_x", robot_info_.size[0]},
-        {"size_y", robot_info_.size[0]},
-        {"size_z", robot_info_.size[0]}
+        {"size_y", robot_info_.size[1]},
+        {"size_z", robot_info_.size[2]}
     };
     
     // Add static objects (position, orientation, AND size are all immutable)
@@ -769,7 +962,7 @@ void NAMOEnvironment::save_objects_to_file(const std::string& filename) const {
     // Write robot information (type 2)
     file << "2," << robot_info_.name << "," 
          << std::fixed << std::setprecision(6)
-         << robot_info_.size[0] << "," << robot_info_.size[0] << "\n";
+         << robot_info_.size[0] << "," << robot_info_.size[1] << "\n";
     
     // Write static objects (type 0)
     for (size_t i = 0; i < num_static_; i++) {

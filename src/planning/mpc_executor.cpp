@@ -11,7 +11,7 @@ namespace namo {
 
 MPCExecutor::MPCExecutor(NAMOEnvironment& env)
     : env_(env),
-      planner_(0.02, env_, {env.get_robot_info().size[0], env.get_robot_info().size[1]}, 0.005),
+      planner_(0.02, env_, {env.get_robot_planning_half_extents()[0], env.get_robot_planning_half_extents()[1]}, 0.005),
       controller_(env_, planner_, 10, 250, 1.0),
       has_robot_goal_(false) {
     
@@ -22,10 +22,11 @@ MPCExecutor::MPCExecutor(NAMOEnvironment& env)
 MPCExecutor::MPCExecutor(NAMOEnvironment& env, double resolution, const std::vector<double>& robot_size,
                          double wavefront_tier1_inflation_margin,
                          int max_push_steps, int control_steps_per_push, double force_scaling, int points_per_face,
-                         bool check_object_collision)
+                         bool check_object_collision,
+                         std::shared_ptr<ConfigManager> config)
     : env_(env),
       planner_(resolution, env_, robot_size, wavefront_tier1_inflation_margin),
-      controller_(env_, planner_, max_push_steps, control_steps_per_push, force_scaling, points_per_face),
+      controller_(env_, planner_, max_push_steps, control_steps_per_push, force_scaling, points_per_face, config),
       has_robot_goal_(false) {
 
     // Set default parameters
@@ -58,6 +59,14 @@ ExecutionResult MPCExecutor::execute_plan(
 
     if (plan_sequence.empty()) {
         result.failure_reason = "Empty plan sequence";
+        result.failure_diagnostics.source = "executor";
+        result.failure_diagnostics.stage = "executor_mpc_precheck";
+        result.failure_diagnostics.code = "unknown";
+        result.failure_diagnostics.summary = "Empty plan sequence";
+        result.failure_diagnostics.detail = "Empty plan sequence";
+        result.failure_diagnostics.add_trace_event(FailureTraceEvent{
+            "executor", "executor_mpc_precheck", "unknown", "Empty plan sequence", 0, -1, 0, 0
+        });
         return result;
     }
 
@@ -95,20 +104,35 @@ ExecutionResult MPCExecutor::execute_plan(
         accumulated_movable_collisions.insert(movable_set.begin(), movable_set.end());
 
         if (!step_success) {
-            result.failure_reason = "Primitive step " + std::to_string(i+1) + " failed";
-            result.collision_object = controller_.get_last_collision_object();
+            FailureDiagnostics diag = last_step_failure_diagnostics_;
+            if (!diag.has_signal()) {
+                diag = controller_.get_last_failure_diagnostics();
+            }
+            if (!diag.has_signal()) {
+                diag.source = "executor";
+                diag.stage = "executor_mpc_step";
+                diag.code = "unknown";
+                diag.summary = "Push primitive execution failed (unspecified root cause)";
+                diag.detail = "Push primitive execution failed without structured failure from controller/executor";
+            }
+            if (diag.step_index_1based <= 0) {
+                diag.step_index_1based = static_cast<int>(i + 1);
+            }
+            if (diag.edge_idx < 0) {
+                diag.edge_idx = step.edge_idx;
+            }
+            if (diag.push_steps <= 0) {
+                diag.push_steps = step.push_steps;
+            }
+
+            result.failure_diagnostics = diag;
+            result.failure_reason = diag.summary.empty() ? diag.detail : diag.summary;
+            result.collision_object = diag.collision_object;
             result.steps_executed = i;
             result.final_object_state = get_object_se2_state(object_name);
             // Copy accumulated collision info to result
             result.wall_collision_during_push = accumulated_wall_collision;
             result.movable_collisions_during_push.assign(accumulated_movable_collisions.begin(), accumulated_movable_collisions.end());
-            // Propagate controller-level stuck reason if threshold was hit
-            int ctrl_stuck = controller_.get_last_stuck_counter();
-            if (ctrl_stuck >= controller_.get_stuck_threshold()) {
-                result.failure_reason = "Controller-level stuck (counter=" + std::to_string(ctrl_stuck) + ")";
-                // Surface a stuck marker via outputs channel by mapping to collision_object as empty and reason text
-                // The skill will translate this into outputs["stuck"]="true" semantics if desired.
-            }
             return result;
         }
 
@@ -136,6 +160,7 @@ ExecutionResult MPCExecutor::execute_plan(
 bool MPCExecutor::execute_primitive_step(
     const std::string& object_name,
     const PlanStep& plan_step) {
+    last_step_failure_diagnostics_.clear();
     
     // For now, we'll execute the primitive directly without explicit goal setting
     // The push controller will handle the primitive execution with physics
@@ -168,6 +193,27 @@ bool MPCExecutor::execute_primitive_step(
             }
         }
         if (!edge_idx_reachable) {
+            last_step_failure_diagnostics_.source = "executor";
+            last_step_failure_diagnostics_.stage = "executor_mpc_precheck";
+            last_step_failure_diagnostics_.code = "edge_not_reachable_during_mpc";
+            last_step_failure_diagnostics_.summary = "Requested edge not reachable during MPC execution";
+            last_step_failure_diagnostics_.detail =
+                "Edge " + std::to_string(plan_step.edge_idx) +
+                " is not reachable during MPC precheck";
+            last_step_failure_diagnostics_.step_index_1based = mpc_step + 1;
+            last_step_failure_diagnostics_.edge_idx = plan_step.edge_idx;
+            last_step_failure_diagnostics_.push_steps = plan_step.push_steps;
+            last_step_failure_diagnostics_.controller_stuck_counter = controller_.get_last_stuck_counter();
+            last_step_failure_diagnostics_.add_trace_event(FailureTraceEvent{
+                "executor",
+                "executor_mpc_precheck",
+                "edge_not_reachable_during_mpc",
+                last_step_failure_diagnostics_.summary,
+                mpc_step + 1,
+                plan_step.edge_idx,
+                plan_step.push_steps,
+                controller_.get_last_stuck_counter()
+            });
             return false;
         }
 
@@ -185,6 +231,30 @@ bool MPCExecutor::execute_primitive_step(
         bool push_success = controller_.execute_push_primitive(object_name, plan_step.edge_idx, 1);
         
         if (!push_success) {
+            last_step_failure_diagnostics_ = controller_.get_last_failure_diagnostics();
+            if (!last_step_failure_diagnostics_.has_signal()) {
+                last_step_failure_diagnostics_.source = "executor";
+                last_step_failure_diagnostics_.stage = "executor_mpc_step";
+                last_step_failure_diagnostics_.code = "unknown";
+                last_step_failure_diagnostics_.summary = "Push controller execution failed";
+                last_step_failure_diagnostics_.detail = "Push controller execution failed without structured diagnostics";
+            }
+            if (last_step_failure_diagnostics_.step_index_1based <= 0) {
+                last_step_failure_diagnostics_.step_index_1based = mpc_step + 1;
+            }
+            last_step_failure_diagnostics_.edge_idx = plan_step.edge_idx;
+            last_step_failure_diagnostics_.push_steps = plan_step.push_steps;
+            last_step_failure_diagnostics_.controller_stuck_counter = controller_.get_last_stuck_counter();
+            last_step_failure_diagnostics_.add_trace_event(FailureTraceEvent{
+                "executor",
+                "executor_mpc_step",
+                last_step_failure_diagnostics_.code,
+                last_step_failure_diagnostics_.summary.empty() ? last_step_failure_diagnostics_.detail : last_step_failure_diagnostics_.summary,
+                mpc_step + 1,
+                plan_step.edge_idx,
+                plan_step.push_steps,
+                controller_.get_last_stuck_counter()
+            });
             // Restore full simulation state on push failure (e.g., collision during robot placement)
             env_.restore_full_state();
             env_.set_zero_velocity();
@@ -203,6 +273,27 @@ bool MPCExecutor::execute_primitive_step(
         if (is_object_stuck(object_name, previous_state)) {
             stuck_counter++;
             if (stuck_counter > max_stuck_iterations_) {
+                last_step_failure_diagnostics_.source = "executor";
+                last_step_failure_diagnostics_.stage = "executor_mpc_stuck";
+                last_step_failure_diagnostics_.code = "object_stuck_mpc";
+                last_step_failure_diagnostics_.summary =
+                    "Object stuck during MPC execution (counter=" + std::to_string(stuck_counter) + ")";
+                last_step_failure_diagnostics_.detail =
+                    "Object stuck during MPC execution before reaching target";
+                last_step_failure_diagnostics_.step_index_1based = mpc_step + 1;
+                last_step_failure_diagnostics_.edge_idx = plan_step.edge_idx;
+                last_step_failure_diagnostics_.push_steps = plan_step.push_steps;
+                last_step_failure_diagnostics_.controller_stuck_counter = controller_.get_last_stuck_counter();
+                last_step_failure_diagnostics_.add_trace_event(FailureTraceEvent{
+                    "executor",
+                    "executor_mpc_stuck",
+                    "object_stuck_mpc",
+                    last_step_failure_diagnostics_.summary,
+                    mpc_step + 1,
+                    plan_step.edge_idx,
+                    plan_step.push_steps,
+                    controller_.get_last_stuck_counter()
+                });
                 return false;
             }
         } else {

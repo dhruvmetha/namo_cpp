@@ -3,6 +3,7 @@
 #include "navigation/holonomic_navigation.hpp"
 #include "navigation/diff_drive_navigation.hpp"
 #include "navigation/qpos_dump.hpp"
+#include "config/config_manager.hpp"
 #include "wavefront/goal_tolerance_utils.hpp"
 #include <cmath>
 #include <iostream>
@@ -15,7 +16,8 @@ NAMOPushController::NAMOPushController(NAMOEnvironment& env,
                                      int push_steps,
                                      int control_steps,
                                      double scaling,
-                                     int points_per_edge)
+                                     int points_per_edge,
+                                     std::shared_ptr<ConfigManager> config)
     : env_(env), planner_(planner), 
       default_push_steps_(push_steps),
       control_steps_per_push_(control_steps),
@@ -31,7 +33,11 @@ NAMOPushController::NAMOPushController(NAMOEnvironment& env,
     // Create navigation strategy based on robot type
     auto adapter = env_.get_robot_adapter();
     if (adapter && adapter->is_diff_drive()) {
-        nav_strategy_ = std::make_unique<DiffDriveNavigation>(DiffDriveNavigation::Params{});
+        if (config) {
+            nav_strategy_ = std::make_unique<DiffDriveNavigation>(config);
+        } else {
+            nav_strategy_ = std::make_unique<DiffDriveNavigation>(DiffDriveNavigation::Params{});
+        }
     } else {
         nav_strategy_ = std::make_unique<HolonomicNavigation>();
     }
@@ -42,6 +48,14 @@ NAMOPushController::NAMOPushController(NAMOEnvironment& env,
     // std::cout << "  Control steps per push: " << control_steps_per_push_ << std::endl;
     // std::cout << "  Force scaling: " << force_scaling_ << std::endl;
     // std::cout << "  Robot size: [" << robot_size_[0] << ", " << robot_size_[1] << ", " << robot_size_[2] << "]" << std::endl;
+}
+
+std::optional<DiffDriveNavigation::Params> NAMOPushController::get_diff_drive_params_for_debug() const {
+    const auto* diff_nav = dynamic_cast<const DiffDriveNavigation*>(nav_strategy_.get());
+    if (!diff_nav) {
+        return std::nullopt;
+    }
+    return diff_nav->params();
 }
 
 size_t NAMOPushController::generate_edge_points(const std::string& object_name,
@@ -267,11 +281,51 @@ void NAMOPushController::update_push_state(PushState& state,
 bool NAMOPushController::execute_push_primitive(const std::string& object_name,
                                                int edge_idx,
                                                int push_steps) {
+    // Reset failure state for this primitive attempt.
+    last_failure_reason_.clear();
+    last_collision_object_.clear();
+    last_failure_diagnostics_.clear();
+
     // Reset controller-level stuck counter at the start of every primitive execution
     last_stuck_counter_ = 0;
 
     // Reset collision tracking for this push
     clear_collision_tracking();
+
+    auto set_failure = [&](const std::string& stage,
+                           const std::string& code,
+                           const std::string& summary,
+                           const std::string& detail,
+                           const std::string& collision_object,
+                           const std::string& nav_reason = std::string(),
+                           int nav_steps_used = 0,
+                           int step_index_1based = 0) {
+        last_failure_diagnostics_.schema_version = 1;
+        last_failure_diagnostics_.source = "controller";
+        last_failure_diagnostics_.stage = stage;
+        last_failure_diagnostics_.code = code;
+        last_failure_diagnostics_.summary = summary;
+        last_failure_diagnostics_.detail = detail;
+        last_failure_diagnostics_.collision_object = collision_object;
+        last_failure_diagnostics_.step_index_1based = step_index_1based;
+        last_failure_diagnostics_.edge_idx = edge_idx;
+        last_failure_diagnostics_.push_steps = push_steps;
+        last_failure_diagnostics_.controller_stuck_counter = last_stuck_counter_;
+        last_failure_diagnostics_.nav_reason = nav_reason;
+        last_failure_diagnostics_.nav_steps_used = nav_steps_used;
+        last_failure_diagnostics_.add_trace_event(FailureTraceEvent{
+            "controller",
+            stage,
+            code,
+            summary.empty() ? detail : summary,
+            step_index_1based,
+            edge_idx,
+            push_steps,
+            last_stuck_counter_
+        });
+        last_failure_reason_ = summary;
+        last_collision_object_ = collision_object;
+    };
 
     // Generate edge points for the object
     edge_point_count_ = 0;
@@ -280,11 +334,24 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
     if (generate_edge_points(object_name, edge_point_pool_, mid_point_pool_, 
                            edge_point_count_, mid_point_count_) == 0) {
         std::cerr << "Failed to generate edge points for object: " << object_name << std::endl;
+        set_failure(
+            "edge_reachability_precheck",
+            "unknown",
+            "Failed to generate edge points for object",
+            "Failed to generate edge points for object: " + object_name,
+            "");
         return false;
     }
     
     if (edge_idx >= static_cast<int>(edge_point_count_)) {
         std::cerr << "Invalid edge index: " << edge_idx << " (max: " << edge_point_count_ << ")" << std::endl;
+        set_failure(
+            "edge_reachability_precheck",
+            "unknown",
+            "Invalid edge index for push primitive",
+            "Invalid edge index: " + std::to_string(edge_idx) +
+                " (max: " + std::to_string(edge_point_count_) + ")",
+            "");
         return false;
     }
     
@@ -319,7 +386,12 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
         );
 
         if (path.empty()) {
-            last_failure_reason_ = "No navigable path to edge point";
+            set_failure(
+                "navigation_to_edge",
+                "no_navigable_path_to_edge",
+                "No navigable path to edge point",
+                "No navigable path to edge point",
+                "");
             return false;
         }
 
@@ -343,10 +415,14 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
                       << " (steps=" << nav_result.steps_used
                       << ", collision=" << nav_result.collision_object
                       << ", path_len=" << path.size() << ")" << std::endl;
-            last_failure_reason_ = "Navigation failed: " + nav_result.failure_reason;
-            if (!nav_result.collision_object.empty()) {
-                last_collision_object_ = nav_result.collision_object;
-            }
+            set_failure(
+                "navigation_to_edge",
+                "navigation_failed",
+                "Navigation failed: " + nav_result.failure_reason,
+                "Navigation failed: " + nav_result.failure_reason,
+                nav_result.collision_object,
+                nav_result.failure_reason,
+                nav_result.steps_used);
             return false;
         }
     }
@@ -358,8 +434,12 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
     for (size_t i = 0; i < num_static; i++) {
         const auto& static_obj = static_objects[i];
         if (env_.bodies_in_collision(env_.get_robot_adapter()->get_body_name(), static_obj.body_name)) {
-            last_failure_reason_ = "Robot placement collision with static object: " + static_obj.body_name;
-            last_collision_object_ = static_obj.body_name;
+            set_failure(
+                "robot_placement",
+                "robot_placement_collision_static",
+                "Robot placement collision with static object: " + static_obj.body_name,
+                "Robot placement collision with static object: " + static_obj.body_name,
+                static_obj.body_name);
             return false;
         }
     }
@@ -373,8 +453,12 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
 
         // Skip collision check with the object we're trying to push (expected contact)
         if (movable_obj.name != object_name && env_.bodies_in_collision(env_.get_robot_adapter()->get_body_name(), movable_obj.body_name)) {
-            last_failure_reason_ = "Robot placement collision with movable object: " + movable_obj.body_name;
-            last_collision_object_ = movable_obj.body_name;
+            set_failure(
+                "robot_placement",
+                "robot_placement_collision_movable",
+                "Robot placement collision with movable object: " + movable_obj.body_name,
+                "Robot placement collision with movable object: " + movable_obj.body_name,
+                movable_obj.body_name);
             return false;
         }
     }
@@ -404,6 +488,15 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
         auto obj_state = env_.get_object_state(object_name);
         if (!obj_state) {
             std::cerr << "Lost object state during push execution" << std::endl;
+            set_failure(
+                "push_execution",
+                "unknown",
+                "Lost object state during push execution",
+                "Lost object state during push execution",
+                "",
+                "",
+                0,
+                step + 1);
             return false;
         }
         
@@ -416,6 +509,15 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
             obj_state = env_.get_object_state(object_name);
             if (!obj_state) {
                 std::cerr << "Lost object state during control step" << std::endl;
+                set_failure(
+                    "push_execution",
+                    "unknown",
+                    "Lost object state during control step",
+                    "Lost object state during control step",
+                    "",
+                    "",
+                    0,
+                    step + 1);
                 return false;
             }
             
@@ -446,6 +548,15 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
             auto obj_state_after = env_.get_object_state(object_name);
             if (!obj_state_after) {
                 std::cerr << "Lost object state after control application" << std::endl;
+                set_failure(
+                    "push_execution",
+                    "unknown",
+                    "Lost object state after control application",
+                    "Lost object state after control application",
+                    "",
+                    "",
+                    0,
+                    step + 1);
                 return false;
             }
 
@@ -464,6 +575,15 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
                         step, ctrl_step
                     );
                     if (abort) {
+                        set_failure(
+                            "push_execution",
+                            "controller_stuck",
+                            "Controller-level stuck (counter=" + std::to_string(last_stuck_counter_) + ")",
+                            "Controller-level stuck while executing push controls",
+                            "",
+                            "",
+                            0,
+                            step + 1);
                         return false;
                     }
                     // Advance prev snapshot to current
@@ -480,8 +600,15 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
                 const auto& static_obj = static_objects[i];
                 if (env_.bodies_in_collision(robot_body, static_obj.body_name)) {
                     wall_collision_during_push_ = true;
-                    last_failure_reason_ = "Robot collision during push with static object: " + static_obj.body_name;
-                    last_collision_object_ = static_obj.body_name;
+                    set_failure(
+                        "push_execution",
+                        "robot_collision_static",
+                        "Robot collision during push with static object: " + static_obj.body_name,
+                        "Robot collision during push with static object: " + static_obj.body_name,
+                        static_obj.body_name,
+                        "",
+                        0,
+                        step + 1);
                     return false;
                 }
             }
@@ -491,8 +618,15 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
                 const auto& movable_obj = movable_objects[i];
                 if (movable_obj.name != object_name && env_.bodies_in_collision(robot_body, movable_obj.body_name)) {
                     movable_collisions_during_push_.insert(movable_obj.name);
-                    last_failure_reason_ = "Robot collision during push with movable object: " + movable_obj.body_name;
-                    last_collision_object_ = movable_obj.body_name;
+                    set_failure(
+                        "push_execution",
+                        "robot_collision_movable",
+                        "Robot collision during push with movable object: " + movable_obj.body_name,
+                        "Robot collision during push with movable object: " + movable_obj.body_name,
+                        movable_obj.body_name,
+                        "",
+                        0,
+                        step + 1);
                     return false;
                 }
             }
@@ -503,8 +637,15 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
                 if (env_.bodies_in_collision(object_name, static_obj.body_name)) {
                     wall_collision_during_push_ = true;
                     if (check_object_collision_) {
-                        last_failure_reason_ = "Object collision during push with static object: " + static_obj.body_name;
-                        last_collision_object_ = static_obj.body_name;
+                        set_failure(
+                            "push_execution",
+                            "object_collision_static",
+                            "Object collision during push with static object: " + static_obj.body_name,
+                            "Object collision during push with static object: " + static_obj.body_name,
+                            static_obj.body_name,
+                            "",
+                            0,
+                            step + 1);
                         return false;
                     }
                     break;
@@ -517,8 +658,15 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
                 if (movable_obj.name != object_name && env_.bodies_in_collision(object_name, movable_obj.body_name)) {
                     movable_collisions_during_push_.insert(movable_obj.name);
                     if (check_object_collision_) {
-                        last_failure_reason_ = "Object collision during push with movable object: " + movable_obj.body_name;
-                        last_collision_object_ = movable_obj.body_name;
+                        set_failure(
+                            "push_execution",
+                            "object_collision_movable",
+                            "Object collision during push with movable object: " + movable_obj.body_name,
+                            "Object collision during push with movable object: " + movable_obj.body_name,
+                            movable_obj.body_name,
+                            "",
+                            0,
+                            step + 1);
                         return false;
                     }
                 }

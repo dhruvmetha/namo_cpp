@@ -13,10 +13,11 @@ HighLevelPlanner::HighLevelPlanner(NAMOEnvironment& env,
     , strategy_(std::move(strategy))
     , config_(config ? config : std::shared_ptr<ConfigManager>(ConfigManager::create_default().release()))
 {
+    const auto robot_half_extents = environment_.get_robot_planning_half_extents();
     // Create separate wavefront planner for high-level reachability analysis
     // This is independent of the skill's internal planner
     high_level_wavefront_ = std::make_unique<WavefrontPlanner>(
-        0.02, environment_, config_->get_robot_size(),
+        0.02, environment_, std::vector<double>{robot_half_extents[0], robot_half_extents[1]},
         config_->planning().wavefront_tier1_inflation_margin  // Force 0.02m resolution
     );
     
@@ -183,7 +184,9 @@ std::vector<std::string> HighLevelPlanner::computeReachableObjects() {
         // Object dimensions (MuJoCo sizes are half-extents)
         double w = obj_width - 0.05;   // half-width with margin  
         double d = obj_height - 0.05;  // half-height with margin
-        const double robot_radius = compute_rotation_safe_robot_radius_m(config_->planning().robot_size);
+        const auto robot_half_extents = environment_.get_robot_planning_half_extents();
+        const double robot_radius =
+            compute_rotation_safe_robot_radius_m(std::vector<double>{robot_half_extents[0], robot_half_extents[1]});
         double offset = robot_radius + config_->planning().wavefront_edge_offset_margin;
         
         // 12 rectangular edge points (same pattern as push controller)
@@ -244,8 +247,9 @@ std::vector<std::string> HighLevelPlanner::computeReachableObjects() {
 }
 
 bool HighLevelPlanner::isRobotGoalReachable() {
+    const auto robot_half_extents = environment_.get_robot_planning_half_extents();
     const double goal_tolerance = compute_goal_tolerance_m(
-        config_->planning().robot_size,
+        std::vector<double>{robot_half_extents[0], robot_half_extents[1]},
         config_->planning().wavefront_tier1_inflation_margin);
     return high_level_wavefront_->is_goal_reachable(
         {robot_goal_.x, robot_goal_.y},
@@ -288,8 +292,9 @@ void HighLevelPlanner::updateConfig(std::shared_ptr<ConfigManager> new_config) {
     config_ = new_config;
     
     // Recreate wavefront planner with new configuration
+    const auto robot_half_extents = environment_.get_robot_planning_half_extents();
     high_level_wavefront_ = std::make_unique<WavefrontPlanner>(
-        config_->get_high_level_resolution(), environment_, config_->get_robot_size(),
+        config_->get_high_level_resolution(), environment_, std::vector<double>{robot_half_extents[0], robot_half_extents[1]},
         config_->planning().wavefront_tier1_inflation_margin
     );
     updateHighLevelWavefront();

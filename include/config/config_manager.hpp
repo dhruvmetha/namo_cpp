@@ -24,7 +24,8 @@ public:
 
         // Wavefront planning
         double skill_level_resolution = 0.02;    // 2cm grid for detailed planning
-        std::vector<double> robot_size = {0.15, 0.15};  // [half_extent_x, half_extent_y] in meters
+        std::vector<double> robot_size = {0.15, 0.15};  // LEGACY FALLBACK ONLY: runtime footprint is geometry-derived
+        bool robot_size_explicitly_configured = false;
 
         // Robot type: "holonomic" (default point robot) or "diff_drive" (car)
         std::string robot_type = "holonomic";
@@ -76,6 +77,8 @@ public:
         int controller_stuck_threshold = 3;     // number of stuck detections before abort
         double controller_min_position_change = 0.001; // meters
         double controller_min_angle_change = 0.05;     // radians
+        bool emit_failure_trace = false;        // Include per-failure trace JSON in outputs
+        int failure_trace_max_events = 128;     // Maximum trace events emitted per failure
         
         // Object interaction
         double object_clearance = 0.1;           // meters around objects for edge point sampling
@@ -113,6 +116,28 @@ public:
         bool collect_training_data = false;
         std::string training_data_directory = "training_data/";
     };
+
+    struct NavigationConfig {
+        struct DiffDriveConfig {
+            double linear_speed = 0.10;
+            double angular_speed = 1.0;
+            double lookahead = 0.10;
+            double xy_threshold = 0.015;
+            double theta_threshold = 0.05;
+            double xy_tolerance = 0.05;
+            double theta_tolerance = 0.22;
+            int wait_steps = 30;
+            int decel_steps = 50;
+            int settle_steps = 20;
+            double velocity_tolerance = 0.01;
+            int max_nav_steps = 6000;
+            double max_path_deviation = 0.15;
+            double sharp_turn_threshold = 0.35;
+            double sharp_turn_exit = 0.15;
+        };
+
+        DiffDriveConfig diff_drive;
+    };
     
     struct OptimizationConfig {
         // Sequence optimization
@@ -137,6 +162,7 @@ private:
     EnvironmentConfig environment_;
     SystemConfig system_;
     OptimizationConfig optimization_;
+    NavigationConfig navigation_;
     
     // Internal helpers
     void load_planning_config();
@@ -145,6 +171,7 @@ private:
     void load_environment_config();
     void load_system_config();
     void load_optimization_config();
+    void load_navigation_config();
     void load_wavefront_inflation_config(const std::string& primary_config_file);
     
     void validate_configuration() const;
@@ -173,11 +200,13 @@ public:
     const EnvironmentConfig& environment() const { return environment_; }
     const SystemConfig& system() const { return system_; }
     const OptimizationConfig& optimization() const { return optimization_; }
+    const NavigationConfig& navigation() const { return navigation_; }
     
     // Convenience methods for commonly used values
     double get_high_level_resolution() const { return planning_.high_level_resolution; }
     double get_skill_level_resolution() const { return planning_.skill_level_resolution; }
     const std::vector<double>& get_robot_size() const { return planning_.robot_size; }
+    bool is_robot_size_explicitly_configured() const { return planning_.robot_size_explicitly_configured; }
     const std::string& get_robot_type() const { return planning_.robot_type; }
     // get_environment_bounds() removed - use NAMOEnvironment::get_environment_bounds() instead
     

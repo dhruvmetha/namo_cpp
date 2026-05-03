@@ -3,12 +3,17 @@
 #include "core/types.hpp"
 #include "environment/namo_environment.hpp"
 #include "wavefront/wavefront_planner.hpp"
+#include "planning/failure_diagnostics.hpp"
 #include "navigation/navigation_strategy.hpp"
+#include "navigation/diff_drive_navigation.hpp"
 #include <array>
 #include <memory>
+#include <optional>
 #include <unordered_set>
 
 namespace namo {
+
+class ConfigManager;
 
 /**
  * @brief Push motion primitive for NAMO planning
@@ -115,6 +120,7 @@ private:
     // Failure tracking
     std::string last_failure_reason_;
     std::string last_collision_object_;
+    FailureDiagnostics last_failure_diagnostics_;
 
     // Collision accumulation during push (tracked even when check_object_collision_ = false)
     bool wall_collision_during_push_ = false;
@@ -139,7 +145,8 @@ public:
                       int push_steps = 20,
                       int control_steps = 500,
                       double scaling = 0.5,
-                      int points_per_edge = 3);
+                      int points_per_edge = 3,
+                      std::shared_ptr<ConfigManager> config = nullptr);
     
     /**
      * @brief Generate edge points for pushing an object
@@ -235,6 +242,11 @@ public:
     const std::string& get_last_collision_object() const { return last_collision_object_; }
 
     /**
+     * @brief Get structured diagnostics for the last push failure.
+     */
+    const FailureDiagnostics& get_last_failure_diagnostics() const { return last_failure_diagnostics_; }
+
+    /**
      * @brief Set collision checking mode
      */
     void set_collision_checking(bool enabled) {
@@ -283,6 +295,13 @@ public:
      * @brief Get controller-level stuck threshold
      */
     int get_stuck_threshold() const { return stuck_ctrl_iterations_threshold_; }
+
+    /**
+     * @brief Debug accessor for effective diff-drive navigation parameters.
+     *
+     * Returns std::nullopt when the active navigation strategy is not diff-drive.
+     */
+    std::optional<DiffDriveNavigation::Params> get_diff_drive_params_for_debug() const;
 
     /**
      * @brief Set/get controller-level stuck check stride (control steps between checks)

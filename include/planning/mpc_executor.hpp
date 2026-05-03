@@ -3,12 +3,15 @@
 #include "planning/greedy_planner.hpp"
 #include "environment/namo_environment.hpp"
 #include "planning/namo_push_controller.hpp"
+#include "planning/failure_diagnostics.hpp"
 #include "wavefront/wavefront_planner.hpp"
 #include <memory>
 #include <map>
 #include <unordered_map>
 
 namespace namo {
+
+class ConfigManager;
 
 /**
  * @brief Execution result for a primitive sequence
@@ -20,6 +23,7 @@ struct ExecutionResult {
     SE2State final_object_state;     // Final object pose after execution
     std::string failure_reason;      // Description of failure if success=false
     std::string collision_object;    // Name of object that caused collision (if any)
+    FailureDiagnostics failure_diagnostics;  // Structured failure context
 
     // Collision tracking for hardness metrics (accumulated during push)
     bool wall_collision_during_push;                      // Did object hit any wall during push?
@@ -46,6 +50,7 @@ private:
     double distance_threshold_;      // Distance threshold for goal checking
     double angle_threshold_;         // Angle threshold for goal checking  
     int max_stuck_iterations_;       // Max iterations before considering object stuck
+    FailureDiagnostics last_step_failure_diagnostics_;
     
     // Robot goal for early termination
     bool has_robot_goal_;
@@ -85,7 +90,8 @@ public:
     MPCExecutor(NAMOEnvironment& env, double resolution, const std::vector<double>& robot_size,
                 double wavefront_tier1_inflation_margin,
                 int max_push_steps, int control_steps_per_push, double force_scaling, int points_per_face = 3,
-                bool check_object_collision = true);
+                bool check_object_collision = true,
+                std::shared_ptr<ConfigManager> config = nullptr);
     
     /**
      * @brief Set execution parameters

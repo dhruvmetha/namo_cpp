@@ -61,8 +61,8 @@ std::vector<NominalPrimitive> generate_primitives_for_scene(
     NAMOEnvironment env(scene_config.xml_path, visualize, false);
     
     // Get robot info
-    const auto& robot_info = env.get_robot_info();
-    std::vector<double> robot_size = {robot_info.size[0], robot_info.size[1]};
+    const auto robot_half_extents = env.get_robot_planning_half_extents();
+    std::vector<double> robot_size = {robot_half_extents[0], robot_half_extents[1]};
     
     // Create wavefront planner (heap allocation to avoid 32MB stack array)
     auto wavefront_planner = std::make_unique<WavefrontPlanner>(resolution, env, robot_size);

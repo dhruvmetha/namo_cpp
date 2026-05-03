@@ -76,8 +76,8 @@ int main(int argc, char* argv[]) {
         // std::cout << "Environment created successfully!" << std::endl;
         
         // Get robot size for wavefront planner
-        const auto& robot_info = env.get_robot_info();
-        std::vector<double> robot_size = {robot_info.size[0], robot_info.size[1]};
+        const auto robot_half_extents = env.get_robot_planning_half_extents();
+        std::vector<double> robot_size = {robot_half_extents[0], robot_half_extents[1]};
         
         // Create incremental wavefront planner
         // std::cout << "Attempting to load wavefront planner resolution..." << std::endl;

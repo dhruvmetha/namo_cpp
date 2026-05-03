@@ -19,6 +19,7 @@ ConfigManager::ConfigManager(const std::string& config_file) {
         load_environment_config();
         load_system_config();
         load_optimization_config();
+        load_navigation_config();
         load_wavefront_inflation_config(config_file);
         
         validate_configuration();
@@ -58,6 +59,7 @@ void ConfigManager::load_planning_config() {
     // Robot size (array)
     if (loader_->has_key("planning.robot_size")) {
         planning_.robot_size = loader_->get_vector("planning.robot_size");
+        planning_.robot_size_explicitly_configured = true;
     }
     // Robot type
     if (loader_->has_key("planning.robot_type")) {
@@ -174,6 +176,12 @@ void ConfigManager::load_skill_config() {
     if (loader_->has_key("skill.controller_min_angle_change")) {
         skill_.controller_min_angle_change = loader_->get_double("skill.controller_min_angle_change");
     }
+    if (loader_->has_key("skill.emit_failure_trace")) {
+        skill_.emit_failure_trace = loader_->get_bool("skill.emit_failure_trace");
+    }
+    if (loader_->has_key("skill.failure_trace_max_events")) {
+        skill_.failure_trace_max_events = loader_->get_int("skill.failure_trace_max_events");
+    }
 
     // Object interaction
     if (loader_->has_key("skill.object_clearance")) {
@@ -287,6 +295,58 @@ void ConfigManager::load_optimization_config() {
     }
 }
 
+void ConfigManager::load_navigation_config() {
+    if (!loader_) return;
+
+    auto resolve_key = [&](const std::string& canonical_key) -> std::string {
+        if (loader_->has_key(canonical_key)) {
+            return canonical_key;
+        }
+
+        // FastParameterLoader's fallback parser does not preserve nested section prefixes.
+        // Accept `diff_drive.*` as a compatibility fallback for `navigation.diff_drive.*`.
+        constexpr const char* canonical_prefix = "navigation.diff_drive.";
+        std::string prefix(canonical_prefix);
+        if (canonical_key.rfind(prefix, 0) == 0) {
+            std::string fallback_key = "diff_drive." + canonical_key.substr(prefix.size());
+            if (loader_->has_key(fallback_key)) {
+                return fallback_key;
+            }
+        }
+        return "";
+    };
+
+    auto load_double = [&](const std::string& canonical_key, double& field) {
+        const std::string key = resolve_key(canonical_key);
+        if (!key.empty()) {
+            field = loader_->get_double(key);
+        }
+    };
+    auto load_int = [&](const std::string& canonical_key, int& field) {
+        const std::string key = resolve_key(canonical_key);
+        if (!key.empty()) {
+            field = loader_->get_int(key);
+        }
+    };
+
+    auto& diff = navigation_.diff_drive;
+    load_double("navigation.diff_drive.linear_speed", diff.linear_speed);
+    load_double("navigation.diff_drive.angular_speed", diff.angular_speed);
+    load_double("navigation.diff_drive.lookahead", diff.lookahead);
+    load_double("navigation.diff_drive.xy_threshold", diff.xy_threshold);
+    load_double("navigation.diff_drive.theta_threshold", diff.theta_threshold);
+    load_double("navigation.diff_drive.xy_tolerance", diff.xy_tolerance);
+    load_double("navigation.diff_drive.theta_tolerance", diff.theta_tolerance);
+    load_int("navigation.diff_drive.wait_steps", diff.wait_steps);
+    load_int("navigation.diff_drive.decel_steps", diff.decel_steps);
+    load_int("navigation.diff_drive.settle_steps", diff.settle_steps);
+    load_double("navigation.diff_drive.velocity_tolerance", diff.velocity_tolerance);
+    load_int("navigation.diff_drive.max_nav_steps", diff.max_nav_steps);
+    load_double("navigation.diff_drive.max_path_deviation", diff.max_path_deviation);
+    load_double("navigation.diff_drive.sharp_turn_threshold", diff.sharp_turn_threshold);
+    load_double("navigation.diff_drive.sharp_turn_exit", diff.sharp_turn_exit);
+}
+
 void ConfigManager::load_wavefront_inflation_config(const std::string& primary_config_file) {
     try {
         const std::filesystem::path primary_path = std::filesystem::absolute(primary_config_file);
@@ -347,6 +407,9 @@ void ConfigManager::validate_configuration() const {
     if (skill_.max_push_steps <= 0 || skill_.control_steps_per_push <= 0) {
         throw std::invalid_argument("Push and control steps must be positive");
     }
+    if (skill_.failure_trace_max_events <= 0) {
+        throw std::invalid_argument("skill.failure_trace_max_events must be > 0");
+    }
     
     if (planning_.robot_size.size() != 2) {
         throw std::invalid_argument("Planning robot size vector must have 2 dimensions");
@@ -368,6 +431,22 @@ void ConfigManager::validate_configuration() const {
         throw std::invalid_argument(
             "Unsafe wavefront edge offset configuration: "
             "edge_offset_margin_m - base_inflation_margin_m must be >= sqrt(0.5) * skill_level_resolution");
+    }
+
+    const auto& diff = navigation_.diff_drive;
+    if (diff.linear_speed <= 0.0 || diff.angular_speed <= 0.0 || diff.lookahead <= 0.0 ||
+        diff.xy_threshold <= 0.0 || diff.xy_tolerance <= 0.0 || diff.velocity_tolerance <= 0.0 ||
+        diff.max_path_deviation <= 0.0 || diff.sharp_turn_threshold <= 0.0) {
+        throw std::invalid_argument("Diff-drive navigation positive parameters must be > 0");
+    }
+    if (diff.wait_steps <= 0 || diff.decel_steps <= 0 || diff.settle_steps <= 0 || diff.max_nav_steps <= 0) {
+        throw std::invalid_argument("Diff-drive navigation step counts must be > 0");
+    }
+    if (diff.theta_threshold < 0.0 || diff.theta_tolerance < 0.0 || diff.sharp_turn_exit < 0.0) {
+        throw std::invalid_argument("Diff-drive angular thresholds/tolerances must be >= 0");
+    }
+    if (diff.sharp_turn_exit > diff.sharp_turn_threshold) {
+        throw std::invalid_argument("Diff-drive sharp_turn_exit must be <= sharp_turn_threshold");
     }
     
     // Environment bounds validation removed - bounds now calculated dynamically

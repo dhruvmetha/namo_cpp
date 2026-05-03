@@ -1,5 +1,6 @@
 #include "python/namo/cpp_bindings/rl_env.hpp"
 #include "core/types.hpp"
+#include "planning/failure_diagnostics.hpp"
 #include "wavefront/goal_tolerance_utils.hpp"
 #include "wavefront/wavefront_grid.hpp"
 #include <iostream>
@@ -205,6 +206,15 @@ std::vector<std::array<double, 2>> build_goal_cells(
     return goal_cells;
 }
 
+std::vector<double> runtime_robot_planning_size_xy(const NAMOEnvironment& env) {
+    const auto half_extents = env.get_robot_planning_half_extents();
+    return {half_extents[0], half_extents[1]};
+}
+
+double runtime_wavefront_tier1_margin(const std::shared_ptr<ConfigManager>& config) {
+    return config ? config->planning().wavefront_tier1_inflation_margin : kDefaultWavefrontTier1MarginM;
+}
+
 }  // namespace
 
 RLEnvironment::RLEnvironment(const std::string& xml_path, const std::string& config_path, bool visualize)
@@ -240,7 +250,36 @@ RLEnvironment::StepResult RLEnvironment::step(const Action& action) {
     };
 
     if (!skill_->is_applicable(params)) {
-        return {false, -10.0, {{"failure_reason", "Action not applicable"}}};
+        FailureDiagnostics diag;
+        diag.source = "rl_env";
+        diag.stage = "applicability";
+        diag.code = "action_not_applicable";
+        diag.summary = "Action not applicable";
+        diag.detail = "Action not applicable";
+        diag.edge_idx = action.edge_idx;
+        diag.push_steps = action.depth >= 0 ? (action.depth + 1) : 0;
+        diag.add_trace_event(FailureTraceEvent{
+            "rl_env",
+            "applicability",
+            "action_not_applicable",
+            "Action not applicable",
+            0,
+            action.edge_idx,
+            diag.push_steps,
+            0
+        });
+
+        StepResult fail_result;
+        fail_result.done = false;
+        fail_result.reward = -10.0;
+        fail_result.info["failure_reason"] = diag.summary;
+        fail_result.info["failure_type"] = std::to_string(static_cast<int>(FailureType::INVALID_PARAMETERS));
+        const auto flat = diag.to_flat_kv();
+        for (const auto& [k, v] : flat) {
+            fail_result.info[k] = v;
+        }
+        fail_result.info["failure_diag_json"] = diag.to_json(false, 0);
+        return fail_result;
     }
 
     auto result = skill_->execute(params);
@@ -276,6 +315,42 @@ RLEnvironment::StepResult RLEnvironment::step(const Action& action) {
     }
     if (auto it = result.outputs.find("movable_collisions"); it != result.outputs.end()) {
         rl_result.info["movable_collisions"] = std::get<std::string>(it->second);
+    }
+    if (auto it = result.outputs.find("failure_source"); it != result.outputs.end()) {
+        rl_result.info["failure_source"] = std::get<std::string>(it->second);
+    }
+    if (auto it = result.outputs.find("failure_stage"); it != result.outputs.end()) {
+        rl_result.info["failure_stage"] = std::get<std::string>(it->second);
+    }
+    if (auto it = result.outputs.find("failure_code"); it != result.outputs.end()) {
+        rl_result.info["failure_code"] = std::get<std::string>(it->second);
+    }
+    if (auto it = result.outputs.find("failure_detail"); it != result.outputs.end()) {
+        rl_result.info["failure_detail"] = std::get<std::string>(it->second);
+    }
+    if (auto it = result.outputs.find("failure_step_index"); it != result.outputs.end()) {
+        rl_result.info["failure_step_index"] = std::to_string(std::get<int>(it->second));
+    }
+    if (auto it = result.outputs.find("failure_edge_idx"); it != result.outputs.end()) {
+        rl_result.info["failure_edge_idx"] = std::to_string(std::get<int>(it->second));
+    }
+    if (auto it = result.outputs.find("failure_push_steps"); it != result.outputs.end()) {
+        rl_result.info["failure_push_steps"] = std::to_string(std::get<int>(it->second));
+    }
+    if (auto it = result.outputs.find("failure_controller_stuck_counter"); it != result.outputs.end()) {
+        rl_result.info["failure_controller_stuck_counter"] = std::to_string(std::get<int>(it->second));
+    }
+    if (auto it = result.outputs.find("failure_nav_reason"); it != result.outputs.end()) {
+        rl_result.info["failure_nav_reason"] = std::get<std::string>(it->second);
+    }
+    if (auto it = result.outputs.find("failure_nav_steps_used"); it != result.outputs.end()) {
+        rl_result.info["failure_nav_steps_used"] = std::to_string(std::get<int>(it->second));
+    }
+    if (auto it = result.outputs.find("failure_diag_json"); it != result.outputs.end()) {
+        rl_result.info["failure_diag_json"] = std::get<std::string>(it->second);
+    }
+    if (auto it = result.outputs.find("failure_trace_json"); it != result.outputs.end()) {
+        rl_result.info["failure_trace_json"] = std::get<std::string>(it->second);
     }
 
     return rl_result;
@@ -407,16 +482,8 @@ void RLEnvironment::set_robot_goal(double x, double y, double theta) {
     // Keep the C++ environment and visualization marker in sync with the goal used
     // by the skill/executor (especially important for region-opening validation loops).
     if (env_) {
-        std::vector<double> robot_size = {kDefaultWavefrontRobotRadiusM, kDefaultWavefrontRobotRadiusM};
-        double tier1_margin = kDefaultWavefrontTier1MarginM;
-        if (config_) {
-            const auto& cfg_size = config_->planning().robot_size;
-            if (cfg_size.size() >= 2) {
-                robot_size[0] = cfg_size[0];
-                robot_size[1] = cfg_size[1];
-            }
-            tier1_margin = config_->planning().wavefront_tier1_inflation_margin;
-        }
+        const auto robot_size = runtime_robot_planning_size_xy(*env_);
+        const double tier1_margin = runtime_wavefront_tier1_margin(config_);
         const double goal_radius = compute_goal_tolerance_m(robot_size, tier1_margin);
 
         env_->set_robot_goal({x, y});
@@ -511,16 +578,8 @@ RLEnvironment::ActionConstraints RLEnvironment::get_action_constraints() const {
 
 std::tuple<RLEnvironment::RegionAdjacency, RLEnvironment::RegionEdgeObjects, RLEnvironment::RegionLabels>
 RLEnvironment::get_region_connectivity() const {
-    std::vector<double> robot_size = {kDefaultWavefrontRobotRadiusM, kDefaultWavefrontRobotRadiusM};
-    double tier1_margin = kDefaultWavefrontTier1MarginM;
-    if (config_) {
-        const auto& cfg_size = config_->planning().robot_size;
-        if (cfg_size.size() >= 2) {
-            robot_size[0] = cfg_size[0];
-            robot_size[1] = cfg_size[1];
-        }
-        tier1_margin = config_->planning().wavefront_tier1_inflation_margin;
-    }
+    const auto robot_size = runtime_robot_planning_size_xy(*env_);
+    const double tier1_margin = runtime_wavefront_tier1_margin(config_);
     const double goal_radius = compute_goal_tolerance_m(robot_size, tier1_margin);
 
     auto snapshot = get_region_snapshot(
@@ -538,16 +597,8 @@ RLEnvironment::get_region_connectivity() const {
 }
 
 RLEnvironment::RegionGoalSamples RLEnvironment::sample_region_goals(int goals_per_region) const {
-    std::vector<double> robot_size = {kDefaultWavefrontRobotRadiusM, kDefaultWavefrontRobotRadiusM};
-    double tier1_margin = kDefaultWavefrontTier1MarginM;
-    if (config_) {
-        const auto& cfg_size = config_->planning().robot_size;
-        if (cfg_size.size() >= 2) {
-            robot_size[0] = cfg_size[0];
-            robot_size[1] = cfg_size[1];
-        }
-        tier1_margin = config_->planning().wavefront_tier1_inflation_margin;
-    }
+    const auto robot_size = runtime_robot_planning_size_xy(*env_);
+    const double tier1_margin = runtime_wavefront_tier1_margin(config_);
     const double goal_radius = compute_goal_tolerance_m(robot_size, tier1_margin);
 
     return get_region_snapshot(
@@ -567,16 +618,8 @@ RLEnvironment::RegionSnapshot RLEnvironment::get_region_snapshot(
     bool use_xml_goal) const {
     RegionSnapshot snapshot;
 
-    std::vector<double> robot_size = {kDefaultWavefrontRobotRadiusM, kDefaultWavefrontRobotRadiusM};
-    double tier1_margin = kDefaultWavefrontTier1MarginM;
-    if (config_) {
-        const auto& cfg_size = config_->planning().robot_size;
-        if (cfg_size.size() >= 2) {
-            robot_size[0] = cfg_size[0];
-            robot_size[1] = cfg_size[1];
-        }
-        tier1_margin = config_->planning().wavefront_tier1_inflation_margin;
-    }
+    const auto robot_size = runtime_robot_planning_size_xy(*env_);
+    const double tier1_margin = runtime_wavefront_tier1_margin(config_);
 
     WavefrontGrid grid(*env_, robot_size, tier1_margin);
     grid.update_dynamic_grid(*env_);
