@@ -203,7 +203,8 @@ public:
     std::map<std::string, double> get_last_priority_profile() const { return last_priority_profile_; }
     
     /**
-     * @brief Convert world coordinates to grid coordinates
+     * @brief Convert world coordinates to grid coordinates.
+     * world_to_grid_* uses floor(), so any world point maps to its containing cell index.
      */
     int world_to_grid_x(double world_x) const {
         return static_cast<int>(std::floor((world_x - bounds_[0]) / resolution_));
@@ -254,13 +255,27 @@ private:
     // Last call timing profile for evaluate_primitive_priorities()
     std::map<std::string, double> last_priority_profile_;
     
-    // Grid utility functions
+    // Grid utility functions.
+    // grid_to_world_* returns the lower-left cell corner.
     double grid_to_world_x(int grid_x) const {
         return bounds_[0] + grid_x * resolution_;
     }
     
     double grid_to_world_y(int grid_y) const {
         return bounds_[2] + grid_y * resolution_;
+    }
+
+    // Cell-center world coordinates are corner + 0.5 * resolution.
+    double grid_cell_center_world_x(int grid_x) const {
+        return grid_to_world_x(grid_x) + 0.5 * resolution_;
+    }
+
+    double grid_cell_center_world_y(int grid_y) const {
+        return grid_to_world_y(grid_y) + 0.5 * resolution_;
+    }
+
+    std::array<double, 2> grid_cell_center_world(int grid_x, int grid_y) const {
+        return {grid_cell_center_world_x(grid_x), grid_cell_center_world_y(grid_y)};
     }
     
     // Core algorithm methods

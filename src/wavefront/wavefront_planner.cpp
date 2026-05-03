@@ -74,8 +74,9 @@ void WavefrontPlanner::initialize_static_grid(NAMOEnvironment& env) {
     // Process static obstacles once using cell CENTER (matching Python's wavefront_snapshot.py)
     for (int x = 0; x < grid_width_; x++) {
         for (int y = 0; y < grid_height_; y++) {
-            double world_x = grid_to_world_x(x) + 0.5 * resolution_;  // Cell center
-            double world_y = grid_to_world_y(y) + 0.5 * resolution_;  // Cell center
+            const auto world_center = grid_cell_center_world(x, y);
+            double world_x = world_center[0];
+            double world_y = world_center[1];
 
             // Check against all static objects
             const auto& static_objects = env.get_static_objects();
@@ -183,8 +184,9 @@ GridFootprint WavefrontPlanner::calculate_rotated_footprint(const ObjectInfo& ob
     // Test each cell in bounding box using cell CENTER (matching Python's wavefront_snapshot.py)
     for (int x = grid_min_x; x <= grid_max_x; x++) {
         for (int y = grid_min_y; y <= grid_max_y; y++) {
-            double world_x = grid_to_world_x(x) + 0.5 * resolution_;  // Cell center
-            double world_y = grid_to_world_y(y) + 0.5 * resolution_;  // Cell center
+            const auto world_center = grid_cell_center_world(x, y);
+            double world_x = world_center[0];
+            double world_y = world_center[1];
 
             if (is_point_in_rotated_rectangle(world_x, world_y, state, obj)) {
                 footprint.add_cell(x, y);
@@ -563,7 +565,8 @@ std::vector<std::array<double, 2>> WavefrontPlanner::extract_path(
     std::vector<std::array<double, 2>> waypoints;
     waypoints.reserve(cells.size());
     for (const auto& [gx, gy] : cells) {
-        waypoints.push_back({grid_to_world_x(gx), grid_to_world_y(gy)});
+        // Waypoints are cell centers to match the occupancy/reachability convention.
+        waypoints.push_back(grid_cell_center_world(gx, gy));
     }
     return waypoints;
 }
