@@ -27,10 +27,13 @@ public:
     bool use_body_pose() const override { return true; }
     std::string get_pose_source_name() const override { return "car"; }
     std::vector<std::string> get_skip_body_names() const override;
+    std::vector<std::string> get_collision_body_names() const override;
 
     // Pose
     std::array<double, 2> get_xy(const mjModel* m, const mjData* d) const override;
     double get_theta(const mjModel* m, const mjData* d) const override;
+    double get_yaw_rate(const mjModel* m, const mjData* d) const override;
+    double get_speed(const mjModel* m, const mjData* d) const override;
 
     // Teleport
     void set_xy(const mjModel* m, mjData* d, double x, double y) const override;

@@ -44,6 +44,18 @@ PYBIND11_MODULE(namo_rl, m) {
         .def_readwrite("reward", &namo::RLEnvironment::StepResult::reward)
         .def_readwrite("info", &namo::RLEnvironment::StepResult::info);
 
+    py::class_<namo::RLEnvironment::NavigateResult>(m, "NavigateResult")
+        .def(py::init<>())
+        .def_readwrite("success",          &namo::RLEnvironment::NavigateResult::success)
+        .def_readwrite("failure_reason",   &namo::RLEnvironment::NavigateResult::failure_reason)
+        .def_readwrite("collision_object", &namo::RLEnvironment::NavigateResult::collision_object)
+        .def_readwrite("steps_used",       &namo::RLEnvironment::NavigateResult::steps_used)
+        .def_readwrite("final_x",          &namo::RLEnvironment::NavigateResult::final_x)
+        .def_readwrite("final_y",          &namo::RLEnvironment::NavigateResult::final_y)
+        .def_readwrite("final_theta",      &namo::RLEnvironment::NavigateResult::final_theta)
+        .def_readwrite("pos_error_m",      &namo::RLEnvironment::NavigateResult::pos_error_m)
+        .def_readwrite("yaw_error_rad",    &namo::RLEnvironment::NavigateResult::yaw_error_rad);
+
     py::class_<namo::RLEnvironment::ActionConstraints>(m, "ActionConstraints")
         .def(py::init<>())
         .def_readwrite("min_distance", &namo::RLEnvironment::ActionConstraints::min_distance)
@@ -56,6 +68,10 @@ PYBIND11_MODULE(namo_rl, m) {
              py::arg("xml_path"), py::arg("config_path"), py::arg("visualize") = false)
         .def("reset", &namo::RLEnvironment::reset)
         .def("step", &namo::RLEnvironment::step, py::arg("action"))
+        .def("navigate_to", &namo::RLEnvironment::navigate_to,
+             py::arg("x"), py::arg("y"), py::arg("theta"),
+             "Free-space nav-only: wavefront-plan from current pose to (x, y) and run "
+             "the diff-drive state machine to settle at heading theta. No push, no skill.")
         .def("get_observation", &namo::RLEnvironment::get_observation, "Returns a map of object names to their SE(2) poses.")
         .def("get_full_state", &namo::RLEnvironment::get_full_state, "Returns a full snapshot of the simulation state (qpos, qvel).")
         .def("set_full_state", &namo::RLEnvironment::set_full_state, py::arg("state"), "Sets the simulation to a specific state snapshot.")

@@ -35,6 +35,25 @@ public:
         std::map<std::string, std::string> info;
     };
 
+    /// Result of a free-space nav-only call (no push).
+    struct NavigateResult {
+        bool success = false;
+        std::string failure_reason;     // "no_path", "rotation timeout", etc.
+        std::string collision_object;
+        int steps_used = 0;
+        double final_x = 0.0, final_y = 0.0, final_theta = 0.0;
+        double pos_error_m = 0.0;       // ||goal - final||
+        double yaw_error_rad = 0.0;     // wrap(target_theta - final_theta)
+    };
+
+    /// Free-space navigation only — no push, no skill, no Action.
+    /// 1. Compute wavefront from current robot pose to (x, y).
+    /// 2. Extract a 2D path.
+    /// 3. Run DiffDriveNavigation::execute (state machine: rotate-drive
+    ///    per segment, then final rotate to `theta`).
+    /// 4. Return outcome + final pose error.
+    NavigateResult navigate_to(double x, double y, double theta);
+
     RLEnvironment(const std::string& xml_path, const std::string& config_path, bool visualize = false);
     ~RLEnvironment();
 

@@ -30,12 +30,27 @@ public:
     virtual std::string get_pose_source_name() const = 0;
     /// Body names to skip when enumerating environment objects
     virtual std::vector<std::string> get_skip_body_names() const = 0;
+    /// Body names that count as "the robot" for collision-abort checks during
+    /// nav and push. Default: just the primary body. Diff-drive overrides to
+    /// also include the wheels (which protrude ~3mm beyond the chassis).
+    virtual std::vector<std::string> get_collision_body_names() const {
+        return { get_body_name() };
+    }
 
     // ── Pose (SE2) ────────────────────────────────────────────────────
     /// Read robot (x, y) from MuJoCo state
     virtual std::array<double, 2> get_xy(const mjModel* m, const mjData* d) const = 0;
     /// Read robot heading (radians). Returns 0 for holonomic.
     virtual double get_theta(const mjModel* m, const mjData* d) const = 0;
+    /// Read chassis yaw rate (rad/s). Default 0 (holonomic, no heading).
+    /// Diff-drive overrides to read from freejoint qvel.
+    virtual double get_yaw_rate(const mjModel* m, const mjData* d) const {
+        (void)m; (void)d; return 0.0;
+    }
+    /// Read chassis planar speed |v| (m/s). Default 0.
+    virtual double get_speed(const mjModel* m, const mjData* d) const {
+        (void)m; (void)d; return 0.0;
+    }
 
     // ── Teleport ──────────────────────────────────────────────────────
     /// Place robot at world-frame (x, y), preserving current theta.

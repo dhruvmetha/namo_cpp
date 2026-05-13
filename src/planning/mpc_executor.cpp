@@ -140,6 +140,31 @@ bool MPCExecutor::execute_primitive_step(
     //           << " target_pose=[" << plan_step.pose.x << "," << plan_step.pose.y 
     //           << "," << plan_step.pose.theta << "]" << std::endl;
     
+    // Diff-drive: execute the full depth-N primitive in ONE controller call so wheel
+    // drive is continuous (matches generator). MPC's per-depth re-checks are skipped
+    // here — the controller still does its own collision/stuck detection mid-stream.
+    if (env_.get_robot_adapter() && env_.get_robot_adapter()->is_diff_drive()) {
+        if (has_robot_goal_ && is_robot_goal_reachable()) return true;
+        if (is_object_at_target(object_name, plan_step.pose)) return true;
+
+        // Edge reachability check (one-shot)
+        bool edge_ok = false;
+        for (int e : get_reachable_edges_with_wavefront(object_name)) {
+            if (e == plan_step.edge_idx) { edge_ok = true; break; }
+        }
+        if (!edge_ok) return false;
+
+        env_.save_full_state();
+        bool ok = controller_.execute_push_primitive(object_name, plan_step.edge_idx,
+                                                    plan_step.push_steps);
+        if (!ok) {
+            env_.restore_full_state();
+            env_.set_zero_velocity();
+            return false;
+        }
+        return true;
+    }
+
     // Execute MPC following old implementation approach (namo_planner.hpp:217-292)
     int stuck_counter = 0;
     SE2State previous_state = get_object_se2_state(object_name);

@@ -46,9 +46,9 @@ class ObjectConfig:
 SCALE = 0.07 / 0.30
 
 OBJECT_CONFIGS = [
-    ObjectConfig("square", 0.35 * SCALE, 0.35 * SCALE, 0.035, 0.02, f"Square ({0.70*SCALE*100:.1f}x{0.70*SCALE*100:.1f}cm)"),
-    ObjectConfig("wide",   0.45 * SCALE, 0.25 * SCALE, 0.035, 0.02, f"Wide ({0.90*SCALE*100:.1f}x{0.50*SCALE*100:.1f}cm)"),
-    ObjectConfig("tall",   0.25 * SCALE, 0.45 * SCALE, 0.035, 0.02, f"Tall ({0.50*SCALE*100:.1f}x{0.90*SCALE*100:.1f}cm)"),
+    ObjectConfig("square", 0.35 * SCALE, 0.35 * SCALE, 0.035, 0.1, f"Square ({0.70*SCALE*100:.1f}x{0.70*SCALE*100:.1f}cm)"),
+    ObjectConfig("wide",   0.45 * SCALE, 0.25 * SCALE, 0.035, 0.1, f"Wide ({0.90*SCALE*100:.1f}x{0.50*SCALE*100:.1f}cm)"),
+    ObjectConfig("tall",   0.25 * SCALE, 0.45 * SCALE, 0.035, 0.1, f"Tall ({0.50*SCALE*100:.1f}x{0.90*SCALE*100:.1f}cm)"),
 ]
 
 
@@ -66,24 +66,29 @@ def generate_scene_xml(obj_config: ObjectConfig, car_params) -> str:
     # Object at origin
     obj_z = obj_config.half_size_z  # bottom at z=0
 
+    # Physics matched to nav_env_3000e.xml (cone="elliptic", floor friction 0.5/0.005/0.001,
+    # object friction 0.0/0.005/0.001, mass 0.1, geom density 1).
     return f"""\
 <mujoco model="car_primitive_gen_{obj_config.name}">
   <compiler angle="radian"/>
   <include file="{car_xml_path}"/>
-  <option gravity="0 0 -9.81" timestep="0.002" integrator="implicitfast" iterations="100"/>
+  <option timestep="0.002" integrator="implicitfast" cone="elliptic" iterations="100" gravity="0 0 -9.81"/>
+  <default>
+    <geom density="1"/>
+  </default>
 
   <worldbody>
     <light name="sun" pos="0 0 2" dir="0 0 -1" directional="true"/>
     <geom name="ground" type="plane" size="2 2 0.1" rgba="0.85 0.85 0.85 1"
-          friction="1.3 0.05 0.01"/>
+          condim="4" friction="0.5 0.005 0.001"/>
 
-    <!-- Pushable object at origin -->
+    <!-- Pushable object at origin (mass/friction matched to 3000e movable obstacles) -->
     <body name="obstacle_1_movable" pos="0 0 {obj_z:.6f}">
       <joint type="free"/>
       <geom name="obstacle_1_movable" type="box"
             size="{obj_config.half_size_x:.6f} {obj_config.half_size_y:.6f} {obj_config.half_size_z:.6f}"
             mass="{obj_config.mass:.6f}"
-            friction="0.4 0.005 0.001"
+            friction="0.0 0.005 0.001"
             rgba="1 0.3 0.3 1" condim="4"/>
     </body>
   </worldbody>

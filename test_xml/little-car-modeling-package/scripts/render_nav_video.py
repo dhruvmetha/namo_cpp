@@ -159,6 +159,8 @@ def main():
     ap.add_argument("qpos_dump")
     ap.add_argument("output_mp4")
     ap.add_argument("--fps", type=int, default=20)
+    ap.add_argument("--frame-skip", type=int, default=1,
+                    help="Render every Nth qpos frame (1 = every frame). 25 = ~20fps from a 500Hz qpos dump.")
     ap.add_argument("--cam-dist", type=float, default=1.2)
     ap.add_argument("--cam-elevation", type=float, default=-89.0)  # top-down
     ap.add_argument("--cam-azimuth", type=float, default=90.0)

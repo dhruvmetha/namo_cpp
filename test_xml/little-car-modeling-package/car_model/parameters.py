@@ -22,7 +22,7 @@ class CarParameters:
     scene_spawn_height_m: float = 0.01     # smaller drop for 1.5cm radius wheels
     drive_ctrl_limit_rad_s: float = 25.0
     drive_kv: float = 0.75
-    drive_force_limit_n_m: float = 0.3
+    drive_force_limit_n_m: float = 0.5
     rear_support_friction_slide: float = 0.0
     rear_support_friction_torsion: float = 0.0
     rear_support_friction_roll: float = 0.0

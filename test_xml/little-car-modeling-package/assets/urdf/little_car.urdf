@@ -1,0 +1,116 @@
+<?xml version="1.0"?>
+<robot name="little_car">
+  <material name="body_gray"><color rgba="0.4 0.4 0.4 1.0"/></material>
+  <material name="wheel_black"><color rgba="0.1 0.1 0.1 1.0"/></material>
+  <material name="support_red"><color rgba="0.7 0.1 0.1 1.0"/></material>
+
+  <link name="base_footprint"/>
+
+  <link name="chassis">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="../meshes/chassis_top.obj"/></geometry>
+      <material name="body_gray"/>
+    </visual>
+    <visual>
+      <origin xyz="0.017500 0.000000 0.000000" rpy="0 0 0"/>
+      <geometry><box size="0.035000 0.070000 0.065000"/></geometry>
+      <material name="body_gray"/>
+    </visual>
+    <visual>
+      <origin xyz="-0.017500 0.000000 0.000000" rpy="0 0 0"/>
+      <geometry><box size="0.035000 0.070000 0.065000"/></geometry>
+      <material name="body_gray"/>
+    </visual>
+    <collision>
+      <origin xyz="0.017500 0.000000 0.000000" rpy="0 0 0"/>
+      <geometry><box size="0.035000 0.070000 0.065000"/></geometry>
+    </collision>
+    <collision>
+      <origin xyz="-0.017500 0.000000 0.000000" rpy="0 0 0"/>
+      <geometry><box size="0.035000 0.070000 0.065000"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.000000 0.000000 0.000000" rpy="0 0 0"/>
+      <mass value="0.350000"/>
+      <inertia ixx="0.000266146" ixy="0" ixz="0" iyy="0.000266146" iyz="0" izz="0.000285833"/>
+    </inertial>
+  </link>
+
+  <link name="left_wheel">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 1.57079632679 0"/>
+      <geometry><mesh filename="../meshes/wheel.obj"/></geometry>
+      <material name="wheel_black"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="1.57079632679 0 0"/>
+      <geometry><cylinder radius="0.015000" length="0.001000"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.050000"/>
+      <inertia ixx="0.000002817" ixy="0" ixz="0" iyy="0.000005625" iyz="0" izz="0.000002817"/>
+    </inertial>
+  </link>
+
+  <link name="right_wheel">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 1.57079632679 0"/>
+      <geometry><mesh filename="../meshes/wheel.obj"/></geometry>
+      <material name="wheel_black"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="1.57079632679 0 0"/>
+      <geometry><cylinder radius="0.015000" length="0.001000"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.050000"/>
+      <inertia ixx="0.000002817" ixy="0" ixz="0" iyy="0.000005625" iyz="0" izz="0.000002817"/>
+    </inertial>
+  </link>
+
+  <link name="rear_support">
+    <visual>
+      <origin xyz="-0.001000 0.000000 0.000000" rpy="0 0 0"/>
+      <geometry><box size="0.008000 0.016000 0.005000"/></geometry>
+      <material name="support_red"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.001000 0.000000 0.000000" rpy="0 0 0"/>
+      <geometry><box size="0.008000 0.016000 0.005000"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="-0.001000 0.000000 0.000000" rpy="0 0 0"/>
+      <mass value="0.050000"/>
+      <inertia ixx="0.000001171" ixy="0" ixz="0" iyy="0.000000371" iyz="0" izz="0.000001333"/>
+    </inertial>
+  </link>
+
+  <joint name="base_to_chassis" type="fixed">
+    <parent link="base_footprint"/>
+    <child link="chassis"/>
+    <origin xyz="0.000000 0.000000 0.037500" rpy="0 0 0"/>
+  </joint>
+
+  <joint name="left_wheel_joint" type="continuous">
+    <parent link="chassis"/>
+    <child link="left_wheel"/>
+    <origin xyz="0.000000 0.037500 -0.022500" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+  </joint>
+
+  <joint name="right_wheel_joint" type="continuous">
+    <parent link="chassis"/>
+    <child link="right_wheel"/>
+    <origin xyz="0.000000 -0.037500 -0.022500" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+  </joint>
+
+  <joint name="rear_support_joint" type="fixed">
+    <parent link="chassis"/>
+    <child link="rear_support"/>
+    <origin xyz="-0.030000 0.000000 -0.035000" rpy="0 0 0"/>
+  </joint>
+</robot>

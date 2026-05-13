@@ -4,14 +4,17 @@
 planning:
   high_level_resolution: 0.05
   skill_level_resolution: 0.005   # Finer grid for smaller robot
-  robot_size: [0.04, 0.04]        # Half of 7.6cm car width
+  robot_size: [0.052, 0.052]      # Diagonal half-reach of the 7x7.6cm car (sqrt(3.5^2 + 3.8^2) ≈ 5.17cm) — covers corner extent so diagonal pinch points are correctly marked occupied.
   robot_type: "diff_drive"
 
 skill:
   max_push_steps: 10
   max_mpc_iterations: 1
-  control_steps_per_push: 250
-  force_scaling: 1.0
+  # Match primitive generator: one push step = 250 sim steps (0.5s) at 10 rad/s wheel speed.
+  # apply_control runs 5 sim steps per ctrl call (0.01s / 0.002s tick) → 50 ctrl × 5 = 250 sim steps.
+  # force_scaling = 0.15 m/s → wheel cmd = 0.15 / 0.015 = 10 rad/s (no ctrlrange clamp).
+  control_steps_per_push: 50
+  force_scaling: 0.3
   goal_tolerance: 0.03            # Tighter tolerance for small robot
   check_object_collision: false     # Disabled — region_opening sets this dynamically
   stuck_check_stride: 80           # Car needs time to cross gap to object
@@ -23,4 +26,4 @@ skill:
 
 system:
   motion_primitives_file: "data/car_motion_primitives_15.dat"
-  enable_visualization: false
+  enable_visualization: false   # set true to pop a GLFW window during runs (needs X display)

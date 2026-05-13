@@ -41,19 +41,43 @@ def plot_primitives(shape: str, primitives: list, half_sx: float, half_sy: float
             by_depth[push_steps] = []
         by_depth[push_steps].append((dx, dy, dtheta, edge_idx))
 
-    # Plot 1: All displacements colored by depth
+    # Plot 1: Object footprint at end of push, only left/center/right edge per face
+    from matplotlib.transforms import Affine2D
     ax = axes[0]
-    ax.set_title("All displacements (colored by push steps)")
+    shown_depths = [d for d in (1, 5, 10) if d in by_depth]
+    # Per-face local indices to keep: 0 (left), 14 (right) for points_per_face=15
+    selected_local = {0: 'L', points_per_face - 1: 'R'}
+    # Restrict to a single face for clarity (face 0 = +x, 1 = +y, 2 = -x, 3 = -y)
+    shown_faces = {0}
+    face_names = {0: '+x', 1: '+y', 2: '-x', 3: '-y'}
+    face_label = ', '.join(f"face {f} ({face_names[f]})" for f in sorted(shown_faces))
+    ax.set_title(f"Object pose after push — {face_label}, L/R, depths {shown_depths}")
+    # Initial footprint at origin
     rect = patches.Rectangle((-half_sx, -half_sy), 2*half_sx, 2*half_sy,
                               linewidth=2, edgecolor='black', facecolor='lightyellow', alpha=0.5)
     ax.add_patch(rect)
 
-    cmap = plt.cm.viridis
-    for depth, entries in sorted(by_depth.items()):
-        color = cmap(depth / max(by_depth.keys()))
-        for dx, dy, dtheta, edge_idx in entries:
-            ax.arrow(0, 0, dx, dy, head_width=0.003, head_length=0.002,
-                     fc=color, ec=color, alpha=0.4, linewidth=0.5)
+    depth_colors = {1: 'tab:blue', 5: 'tab:orange', 10: 'tab:red'}
+    for depth in shown_depths:
+        color = depth_colors[depth]
+        for dx, dy, dtheta, edge_idx in by_depth[depth]:
+            local = edge_idx % points_per_face
+            face = edge_idx // points_per_face
+            if face not in shown_faces or local not in selected_local:
+                continue
+            footprint = patches.Rectangle((-half_sx, -half_sy), 2*half_sx, 2*half_sy,
+                                          linewidth=1.0, edgecolor=color,
+                                          facecolor='none', alpha=0.75)
+            t = (Affine2D().rotate(dtheta).translate(dx, dy) + ax.transData)
+            footprint.set_transform(t)
+            ax.add_patch(footprint)
+            # Label deepest push only, to keep clutter down
+            if depth == max(shown_depths):
+                face = edge_idx // points_per_face
+                ax.annotate(f"f{face}{selected_local[local]}", (dx, dy),
+                            fontsize=6, ha='center', va='center', color=color)
+        ax.plot([], [], color=color, linewidth=2, label=f'depth={depth}')
+    ax.legend(loc='upper left', fontsize=8)
 
     ax.set_xlim(-0.6, 0.6)
     ax.set_ylim(-0.6, 0.6)

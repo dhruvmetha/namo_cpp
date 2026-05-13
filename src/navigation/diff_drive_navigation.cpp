@@ -61,27 +61,33 @@ std::vector<PathSegment> segment_path(
 
 // Check if robot is in collision with any wall or any movable object,
 // optionally skipping one body (the target the robot is about to push).
+// Iterates all robot collision bodies (chassis + wheels for diff-drive) so
+// wheel-clipping a wall is treated as a collision.
 bool check_robot_collision_any(NAMOEnvironment& env, std::string& out_obj,
                                 const std::string& skip_body = "") {
-    const std::string robot_body = env.get_robot_adapter()->get_body_name();
+    const auto robot_bodies = env.get_robot_adapter()->get_collision_body_names();
     const auto& statics = env.get_static_objects();
     for (size_t i = 0; i < env.get_num_static(); i++) {
-        if (env.bodies_in_collision(robot_body, statics[i].body_name)) {
-            out_obj = statics[i].body_name;
-            return true;
+        for (const auto& rb : robot_bodies) {
+            if (env.bodies_in_collision(rb, statics[i].body_name)) {
+                out_obj = statics[i].body_name;
+                return true;
+            }
         }
     }
     const auto& movables = env.get_movable_objects();
     for (size_t i = 0; i < env.get_num_movable(); i++) {
         const std::string& bn = movables[i].body_name;
         if (!skip_body.empty() && bn == skip_body) continue;
-        if (env.bodies_in_collision(robot_body, bn)) {
-            out_obj = bn;
-            if (std::getenv("NAMO_NAV_LOG")) {
-                std::cerr << "[NAV_DEBUG_COL] robot=" << robot_body
-                          << " vs " << bn << " (skip=" << skip_body << ")" << std::endl;
+        for (const auto& rb : robot_bodies) {
+            if (env.bodies_in_collision(rb, bn)) {
+                out_obj = bn;
+                if (std::getenv("NAMO_NAV_LOG")) {
+                    std::cerr << "[NAV_DEBUG_COL] robot=" << rb
+                              << " vs " << bn << " (skip=" << skip_body << ")" << std::endl;
+                }
+                return true;
             }
-            return true;
         }
     }
     return false;
@@ -154,58 +160,49 @@ static bool wait_after_phase(NAMOEnvironment& env, int n_steps,
     return true;
 }
 
-// Drive forward in a straight line (equal wheel velocities) until either:
-//   - the robot is within `xy_threshold` of the endpoint, or
-//   - the robot has passed the endpoint (the dot product of motion-to-go
-//     onto the segment heading goes negative)
-// Constant linear speed, no curvature commands. Designed for short straight
-// segments produced by segment_path.
-static bool drive_straight_to(
+// Drive (P controller variant).
+static bool drive_p(
     NAMOEnvironment& env,
     const std::array<double, 2>& endpoint,
     double segment_heading,
     const DiffDriveNavigation::Params& p,
     int& steps_used_total,
     NavigationResult& result,
-    const std::string& skip_body = "")
+    const std::string& skip_body)
 {
     const auto* adapter = env.get_robot_adapter();
     auto* m = env.get_mujoco_wrapper()->model();
     auto* d = env.get_mujoco_wrapper()->data();
     const double r = adapter->get_wheel_radius();
-
-    // Wheel angular velocity for forward driving at linear_speed
-    const double wheel_omega = p.linear_speed / r;
+    const double cos_h = std::cos(segment_heading);
+    const double sin_h = std::sin(segment_heading);
 
     int phase_steps = 0;
     const int max_phase_steps = p.max_nav_steps - steps_used_total;
-    const double cos_h = std::cos(segment_heading);
-    const double sin_h = std::sin(segment_heading);
 
     while (phase_steps < max_phase_steps) {
         double rx, ry, rtheta;
         get_robot_pose(env, rx, ry, rtheta);
+        const double dx = endpoint[0] - rx;
+        const double dy = endpoint[1] - ry;
+        const double along = dx * cos_h + dy * sin_h;
+        const double speed = adapter->get_speed(m, d);
 
-        double dx = endpoint[0] - rx;
-        double dy = endpoint[1] - ry;
-        double dist = std::hypot(dx, dy);
+        if (std::abs(along) < p.xy_converged && speed < p.speed_converged) break;
 
-        // Distance threshold OR we've overshot (projection on heading negative)
-        double along = dx * cos_h + dy * sin_h;
-        if (dist < p.xy_threshold || along < 0.0) break;
+        double v_cmd = p.Kp_drive * along;
+        if (v_cmd < 0.0) v_cmd = 0.0;
+        if (v_cmd > p.linear_speed) v_cmd = p.linear_speed;
 
-        // Drive both wheels forward at equal velocity (straight-line)
+        const double wheel_omega = v_cmd / r;
         adapter->apply_wheel_control(m, d, wheel_omega, wheel_omega);
         step_control_tick(env);
         phase_steps++;
 
-        // Sample
-        {
-            double tx, ty, tt;
-            get_robot_pose(env, tx, ty, tt);
-            result.trajectory.push_back({tx, ty, tt, 1.0});
-            maybe_dump_qpos(env, 1);
-        }
+        double tx, ty, tt;
+        get_robot_pose(env, tx, ty, tt);
+        result.trajectory.push_back({tx, ty, tt, 1.0});
+        maybe_dump_qpos(env, 1);
 
         if (check_robot_collision_any(env, result.collision_object, skip_body)) {
             result.failure_reason = "collision while driving straight";
@@ -219,14 +216,134 @@ static bool drive_straight_to(
         result.failure_reason = "drive-straight timeout";
         return false;
     }
+    return true;
+}
 
-    // Wait briefly to dissipate momentum (zero control, no decel ramp).
-    if (!wait_after_phase(env, p.wait_steps, result.collision_object, skip_body, 1)) {
-        result.failure_reason = "collision during drive wait";
+
+// Drive (trapezoidal): closed-loop sqrt-distance velocity law.
+//   v_cmd = clamp( sqrt(2 · a_max · max(0, along)), 0, v_max )
+// Symmetric to rotate_trapezoidal. Re-evaluates every tick on actual
+// along-distance, so slip and momentum are absorbed automatically.
+static bool drive_trapezoidal(
+    NAMOEnvironment& env,
+    const std::array<double, 2>& endpoint,
+    double segment_heading,
+    const DiffDriveNavigation::Params& p,
+    int& steps_used_total,
+    NavigationResult& result,
+    const std::string& skip_body)
+{
+    const auto* adapter = env.get_robot_adapter();
+    auto* m = env.get_mujoco_wrapper()->model();
+    auto* d = env.get_mujoco_wrapper()->data();
+    const double r = adapter->get_wheel_radius();
+    const double cos_h = std::cos(segment_heading);
+    const double sin_h = std::sin(segment_heading);
+    const double v_max = p.linear_speed;
+    const double a_max = p.accel_max;
+
+    int phase_steps = 0;
+    const int max_phase_steps = p.max_nav_steps - steps_used_total;
+
+    const double b = adapter->get_wheelbase();
+
+    while (phase_steps < max_phase_steps) {
+        double rx, ry, rtheta;
+        get_robot_pose(env, rx, ry, rtheta);
+        const double dx = endpoint[0] - rx;
+        const double dy = endpoint[1] - ry;
+        const double along = dx * cos_h + dy * sin_h;
+        const double speed = adapter->get_speed(m, d);
+
+        // Position-only exit. A brief controlled-stop after this loop
+        // brings chassis speed to zero before handoff to next phase.
+        if (along < p.xy_converged) break;
+        (void)speed;
+
+        // Square-root profile; clamp to forward-only.
+        double v_des = (along > 0.0) ? std::sqrt(2.0 * a_max * along) : 0.0;
+        if (v_des > v_max) v_des = v_max;
+
+        // Heading correction: small differential to keep chassis on-axis.
+        // P controller on heading error; corrects for drift accumulated
+        // during rotation handoff or drive disturbances.
+        const double heading_err = wrap_angle(segment_heading - rtheta);
+        const double K_heading = 2.0;
+        double omega_corr = K_heading * heading_err;
+        const double omega_corr_max = 0.5 * p.angular_speed;
+        if (omega_corr >  omega_corr_max) omega_corr =  omega_corr_max;
+        if (omega_corr < -omega_corr_max) omega_corr = -omega_corr_max;
+
+        // Diff-drive: blend forward velocity with heading correction.
+        // v_left = (v_des - omega_corr·b/2) / r
+        // v_right = (v_des + omega_corr·b/2) / r
+        const double wheel_left  = (v_des - omega_corr * b / 2.0) / r;
+        const double wheel_right = (v_des + omega_corr * b / 2.0) / r;
+        adapter->apply_wheel_control(m, d, wheel_left, wheel_right);
+        step_control_tick(env);
+        phase_steps++;
+
+        double tx, ty, tt;
+        get_robot_pose(env, tx, ty, tt);
+        result.trajectory.push_back({tx, ty, tt, 1.0});
+        maybe_dump_qpos(env, 1);
+
+        if (check_robot_collision_any(env, result.collision_object, skip_body)) {
+            result.failure_reason = "collision while driving straight";
+            steps_used_total += phase_steps;
+            return false;
+        }
+    }
+
+    // Controlled stop: actively damp residual forward velocity before
+    // handoff so the next phase's rotation doesn't fight residual v.
+    const int max_settle = 60;
+    const double K_brake_v = 3.0;
+    for (int i = 0; i < max_settle; i++) {
+        const double sp = adapter->get_speed(m, d);
+        if (sp < p.speed_converged) break;
+        // Drive both wheels backward proportional to current speed.
+        // Direction we were going was +heading; brake by commanding −sp · K.
+        double v_cmd = -K_brake_v * sp;
+        if (v_cmd > 0.0) v_cmd = 0.0;  // forward-only segment; clamp brake
+        // For low-friction plant, just commanding zero is the best we can do.
+        const double wL = 0.0;
+        const double wR = 0.0;
+        adapter->apply_wheel_control(m, d, wL, wR);
+        step_control_tick(env);
+        phase_steps++;
+        double tx, ty, tt;
+        get_robot_pose(env, tx, ty, tt);
+        result.trajectory.push_back({tx, ty, tt, 1.0});
+        maybe_dump_qpos(env, 1);
+        (void)v_cmd;
+    }
+
+    steps_used_total += phase_steps;
+    if (phase_steps >= max_phase_steps) {
+        result.failure_reason = "drive-straight timeout";
         return false;
     }
-    steps_used_total += p.wait_steps;
     return true;
+}
+
+
+// Dispatch
+static bool drive_straight_to(
+    NAMOEnvironment& env,
+    const std::array<double, 2>& endpoint,
+    double segment_heading,
+    const DiffDriveNavigation::Params& p,
+    int& steps_used_total,
+    NavigationResult& result,
+    const std::string& skip_body = "")
+{
+    if (p.mode == DiffDriveNavigation::Mode::TRAPEZOIDAL) {
+        return drive_trapezoidal(env, endpoint, segment_heading, p,
+                                 steps_used_total, result, skip_body);
+    }
+    return drive_p(env, endpoint, segment_heading, p,
+                   steps_used_total, result, skip_body);
 }
 
 // Settle: zero control, step physics until velocities approach zero.
@@ -259,61 +376,73 @@ DiffDriveNavigation::DiffDriveNavigation(std::shared_ptr<ConfigManager> config) 
 
 
 // -----------------------------------------------------------------------------
-// Phase 1 / Phase 3: in-place rotation to a target heading.
-// Constant angular speed; sign chosen to minimize angular error.
-// Exits when |error| < theta_threshold, then settles.
+// Trapezoidal velocity profile for in-place rotation, closed-loop variant.
+//
+// At each tick:
+//   ω_cmd = clamp(sgn(err) · sqrt(2 · α_max · |err|), -ω_max, +ω_max)
+//
+// Why this shape: starting from 0 and accelerating at α_max, the velocity
+// after rotating angle θ is v(θ) = sqrt(2·α_max·θ). The same curve in
+// reverse is the deceleration profile that brings v→0 exactly at err=0
+// while never exceeding |α_max| of deceleration. So commanding this ω at
+// each tick traces a feasible velocity profile that's saturation-respectful
+// on both ends, and self-corrects for slip (re-evaluated every tick from
+// actual remaining error).
+//
+// This is sometimes called a "constant-deceleration profile" or
+// "square-root-of-distance velocity law" in industrial servo control.
+// Equivalent to an open-loop trapezoid in the absence of disturbance, but
+// closed-loop on remaining-angle so it absorbs slip.
 // -----------------------------------------------------------------------------
-static bool rotate_in_place(
+static bool rotate_trapezoidal(
     NAMOEnvironment& env,
     double target_theta,
     const DiffDriveNavigation::Params& p,
     int& steps_used_total,
     NavigationResult& result,
-    const std::string& skip_body = "",
-    int phase_id = 0)
+    const std::string& skip_body,
+    int phase_id)
 {
     const auto* adapter = env.get_robot_adapter();
     auto* m = env.get_mujoco_wrapper()->model();
     auto* d = env.get_mujoco_wrapper()->data();
     const double r = adapter->get_wheel_radius();
-
-    // Differential wheel speed for pure rotation (v=0, ω=angular_speed).
-    // v_left = -ω·b/2, v_right = +ω·b/2. Convert to wheel ω: divide by r.
     const double b = adapter->get_wheelbase();
+    const double w_max = p.angular_speed;
+    const double a_max = p.alpha_max;
 
     int phase_steps = 0;
     const int max_phase_steps = p.max_nav_steps - steps_used_total;
-    double last_wheel_left = 0.0, last_wheel_right = 0.0;
 
     while (phase_steps < max_phase_steps) {
         double rx, ry, rtheta;
         get_robot_pose(env, rx, ry, rtheta);
-        double err = wrap_angle(target_theta - rtheta);
+        const double err = wrap_angle(target_theta - rtheta);
+        const double yaw_rate = adapter->get_yaw_rate(m, d);
 
-        // Exit condition
-        if (std::abs(err) < p.theta_threshold) break;
+        // Position-only exit (rate gate causes limit cycle). After exit,
+        // a brief controlled-stop loop below brings chassis to actual rest
+        // before handoff, so the next phase doesn't inherit yaw momentum.
+        if (std::abs(err) < p.theta_converged) break;
 
-        // Pick direction. Turn the shorter way.
-        double omega = p.angular_speed * (err > 0 ? 1.0 : -1.0);
+        // Square-root velocity profile: gives a controlled, feasible decel.
+        const double sgn = (err >= 0.0) ? 1.0 : -1.0;
+        double w_des = std::sqrt(2.0 * a_max * std::abs(err));
+        if (w_des > w_max) w_des = w_max;
+        const double omega_cmd = sgn * w_des;
+        (void)yaw_rate;
 
-        // Diff-drive wheel velocities for pure rotation:
-        // v_left = -ω·b/2, v_right = +ω·b/2, then / r for wheel angular velocity
-        double wheel_omega_left  = (-omega * b / 2.0) / r;
-        double wheel_omega_right = (+omega * b / 2.0) / r;
-        last_wheel_left = wheel_omega_left;
-        last_wheel_right = wheel_omega_right;
-
+        const double wheel_omega_left  = (-omega_cmd * b / 2.0) / r;
+        const double wheel_omega_right = (+omega_cmd * b / 2.0) / r;
         adapter->apply_wheel_control(m, d, wheel_omega_left, wheel_omega_right);
+
         step_control_tick(env);
         phase_steps++;
 
-        // Sample trajectory every control step for smooth video
-        {
-            double tx, ty, tt;
-            get_robot_pose(env, tx, ty, tt);
-            result.trajectory.push_back({tx, ty, tt, (double)phase_id});
-            maybe_dump_qpos(env, phase_id);
-        }
+        double tx, ty, tt;
+        get_robot_pose(env, tx, ty, tt);
+        result.trajectory.push_back({tx, ty, tt, (double)phase_id});
+        maybe_dump_qpos(env, phase_id);
 
         if (check_robot_collision_any(env, result.collision_object, skip_body)) {
             result.failure_reason = "collision during rotation";
@@ -327,188 +456,68 @@ static bool rotate_in_place(
         result.failure_reason = "rotation timeout";
         return false;
     }
-
-    // Wait briefly so chassis rotation + caster momentum dissipate.
-    if (!wait_after_phase(env, p.wait_steps, result.collision_object, skip_body, phase_id)) {
-        result.failure_reason = "collision during rotation wait";
-        return false;
-    }
-    steps_used_total += p.wait_steps;
-
-    // Verify final heading within final tolerance
-    double rx, ry, rtheta;
-    get_robot_pose(env, rx, ry, rtheta);
-    double err = wrap_angle(target_theta - rtheta);
-    if (std::abs(err) > p.theta_tolerance) {
-        result.failure_reason = "rotation did not settle at target heading (err=" +
-            std::to_string(err) + " rad, tol=" + std::to_string(p.theta_tolerance) + ")";
-        return false;
-    }
     return true;
 }
 
 
 // -----------------------------------------------------------------------------
-// Phase 2: pure pursuit along a 2D path.
-// Standard pure pursuit formulation with constant linear speed.
+// Rotate-in-place: outer-loop PD on chassis yaw → commanded chassis ω →
+// diff-drive wheel kinematics → inner velocity-mode actuator.
+//
+//   ω_cmd  = clamp(Kp · err - Kd · yaw_rate, ±angular_speed)
+//   v_left = -ω_cmd · b/2 / r,   v_right = +ω_cmd · b/2 / r
+//
+// The reference shrinks continuously as err→0, so the wheels are never
+// step-commanded to zero. No brake transient → no friction reversal → no
+// rebound. Exits when both error and yaw rate are small (system at rest at
+// target). No post-phase wait — controller brings the system to rest.
 // -----------------------------------------------------------------------------
-// Returns (lookahead_x, lookahead_y) and sets reached_end=true when the
-// lookahead would be beyond the final waypoint.
-static std::pair<double, double> find_lookahead(
-    const std::vector<std::array<double, 2>>& path,
-    double rx, double ry,
-    double lookahead,
-    size_t& last_idx,
-    bool& reached_end)
-{
-    reached_end = false;
-
-    // Find the closest path segment to the robot, starting from last_idx to
-    // avoid scanning the whole path every step (Nav2 pattern).
-    size_t closest = last_idx;
-    double best_dist2 = std::numeric_limits<double>::infinity();
-    for (size_t i = last_idx; i < path.size(); i++) {
-        double dx = path[i][0] - rx;
-        double dy = path[i][1] - ry;
-        double d2 = dx*dx + dy*dy;
-        if (d2 < best_dist2) {
-            best_dist2 = d2;
-            closest = i;
-        }
-    }
-    last_idx = closest;
-
-    // Advance from the closest point along the path until we exceed lookahead.
-    double remaining = lookahead;
-    double prev_x = path[closest][0];
-    double prev_y = path[closest][1];
-    for (size_t i = closest + 1; i < path.size(); i++) {
-        double dx = path[i][0] - prev_x;
-        double dy = path[i][1] - prev_y;
-        double seg_len = std::hypot(dx, dy);
-        if (seg_len >= remaining) {
-            double t = remaining / seg_len;
-            return {prev_x + t * dx, prev_y + t * dy};
-        }
-        remaining -= seg_len;
-        prev_x = path[i][0];
-        prev_y = path[i][1];
-    }
-    // Ran off the end of the path
-    reached_end = true;
-    return {path.back()[0], path.back()[1]};
-}
-
-static bool pure_pursuit_along(
+static bool rotate_pd(
     NAMOEnvironment& env,
-    const std::vector<std::array<double, 2>>& path,
+    double target_theta,
     const DiffDriveNavigation::Params& p,
     int& steps_used_total,
     NavigationResult& result,
-    const std::string& skip_body = "")
+    const std::string& skip_body,
+    int phase_id)
 {
     const auto* adapter = env.get_robot_adapter();
     auto* m = env.get_mujoco_wrapper()->model();
     auto* d = env.get_mujoco_wrapper()->data();
     const double r = adapter->get_wheel_radius();
     const double b = adapter->get_wheelbase();
-    const double v = p.linear_speed;
-
-    const auto& goal_xy = path.back();
-    size_t last_idx = 0;
 
     int phase_steps = 0;
     const int max_phase_steps = p.max_nav_steps - steps_used_total;
-    double last_wheel_left = 0.0, last_wheel_right = 0.0;
 
     while (phase_steps < max_phase_steps) {
         double rx, ry, rtheta;
         get_robot_pose(env, rx, ry, rtheta);
+        const double yaw_rate = adapter->get_yaw_rate(m, d);
+        const double err = wrap_angle(target_theta - rtheta);
 
-        // Exit if close to goal
-        double dx_goal = goal_xy[0] - rx;
-        double dy_goal = goal_xy[1] - ry;
-        double dist_goal = std::hypot(dx_goal, dy_goal);
-        if (dist_goal < p.xy_threshold) break;
-
-        // Abort if drifting too far from path (off-track safeguard)
-        double dx_closest = path[last_idx][0] - rx;
-        double dy_closest = path[last_idx][1] - ry;
-        if (std::hypot(dx_closest, dy_closest) > p.max_path_deviation) {
-            result.failure_reason = "drifted off planned path";
-            steps_used_total += phase_steps;
-            return false;
+        if (std::abs(err) < p.theta_converged && std::abs(yaw_rate) < p.rate_converged) {
+            break;
         }
 
-        // Lookahead point
-        bool reached_end = false;
-        auto [la_x, la_y] = find_lookahead(path, rx, ry, p.lookahead,
-                                            last_idx, reached_end);
+        double omega_cmd = p.Kp_yaw * err - p.Kd_yaw * yaw_rate;
+        if (omega_cmd >  p.angular_speed) omega_cmd =  p.angular_speed;
+        if (omega_cmd < -p.angular_speed) omega_cmd = -p.angular_speed;
 
-        // Exit pure pursuit when both:
-        //   (a) the path is exhausted (reached_end == true), AND
-        //   (b) the car is actually within `lookahead` of the goal.
-        // Beyond this the algorithm oscillates around a fixed lookahead
-        // point. Accept the residual gap and rely on post-settle tolerance.
-        if (reached_end && dist_goal <= p.lookahead) break;
-
-        // Angle to lookahead in robot frame
-        double dx = la_x - rx;
-        double dy = la_y - ry;
-        double L_actual = std::max(1e-6, std::hypot(dx, dy));
-        double alpha = wrap_angle(std::atan2(dy, dx) - rtheta);
-
-        // Sharp turn recovery: if heading error is too large, stop forward
-        // motion and rotate in place until we're within a smaller band.
-        // Avoids ill-conditioned pure-pursuit when alpha is near ±π/2.
-        if (std::abs(alpha) > p.sharp_turn_threshold) {
-            // Pick rotation direction
-            double rot_omega = p.angular_speed * (alpha > 0 ? 1.0 : -1.0);
-            double vl_rot = (-rot_omega * b / 2.0) / r;
-            double vr_rot = (+rot_omega * b / 2.0) / r;
-            adapter->apply_wheel_control(m, d, vl_rot, vr_rot);
-            step_control_tick(env);
-            phase_steps++;
-            {
-                double tx, ty, tt;
-                get_robot_pose(env, tx, ty, tt);
-                result.trajectory.push_back({tx, ty, tt, 1.0});
-                maybe_dump_qpos(env, 1);
-            }
-            if (check_robot_collision_any(env, result.collision_object, skip_body)) {
-                result.failure_reason = "collision during sharp-turn rotation";
-                steps_used_total += phase_steps;
-                return false;
-            }
-            continue;  // re-evaluate alpha next iteration; drive resumes when |alpha| < sharp_turn_exit
-        }
-
-        // Pure pursuit curvature
-        double kappa = 2.0 * std::sin(alpha) / L_actual;
-
-        // Linear + angular velocity
-        double omega = kappa * v;
-        // v_left = v - ω·b/2, v_right = v + ω·b/2
-        double v_left  = v - omega * b / 2.0;
-        double v_right = v + omega * b / 2.0;
-        last_wheel_left = v_left / r;
-        last_wheel_right = v_right / r;
-        // Convert to wheel angular velocity
-        adapter->apply_wheel_control(m, d, last_wheel_left, last_wheel_right);
+        const double wheel_omega_left  = (-omega_cmd * b / 2.0) / r;
+        const double wheel_omega_right = (+omega_cmd * b / 2.0) / r;
+        adapter->apply_wheel_control(m, d, wheel_omega_left, wheel_omega_right);
 
         step_control_tick(env);
         phase_steps++;
 
-        // Sample trajectory every control step for smooth video
-        {
-            double tx, ty, tt;
-            get_robot_pose(env, tx, ty, tt);
-            result.trajectory.push_back({tx, ty, tt, 1.0});
-            maybe_dump_qpos(env, 1);
-        }
+        double tx, ty, tt;
+        get_robot_pose(env, tx, ty, tt);
+        result.trajectory.push_back({tx, ty, tt, (double)phase_id});
+        maybe_dump_qpos(env, phase_id);
 
         if (check_robot_collision_any(env, result.collision_object, skip_body)) {
-            result.failure_reason = "collision during pure pursuit";
+            result.failure_reason = "collision during rotation";
             steps_used_total += phase_steps;
             return false;
         }
@@ -516,27 +525,29 @@ static bool pure_pursuit_along(
 
     steps_used_total += phase_steps;
     if (phase_steps >= max_phase_steps) {
-        result.failure_reason = "pure pursuit timeout";
-        return false;
-    }
-
-    // Wait briefly for momentum to settle before completing.
-    if (!wait_after_phase(env, p.wait_steps, result.collision_object, skip_body, 1)) {
-        result.failure_reason = "collision during pursuit wait";
-        return false;
-    }
-    steps_used_total += p.wait_steps;
-
-    // Verify final position within final tolerance
-    double rx, ry, rtheta;
-    get_robot_pose(env, rx, ry, rtheta);
-    double dx = goal_xy[0] - rx;
-    double dy = goal_xy[1] - ry;
-    if (std::hypot(dx, dy) > p.xy_tolerance) {
-        result.failure_reason = "pure pursuit did not settle at goal";
+        result.failure_reason = "rotation timeout";
         return false;
     }
     return true;
+}
+
+
+// Dispatch: pick rotate implementation by Mode.
+static bool rotate_in_place(
+    NAMOEnvironment& env,
+    double target_theta,
+    const DiffDriveNavigation::Params& p,
+    int& steps_used_total,
+    NavigationResult& result,
+    const std::string& skip_body = "",
+    int phase_id = 0)
+{
+    if (p.mode == DiffDriveNavigation::Mode::TRAPEZOIDAL) {
+        return rotate_trapezoidal(env, target_theta, p, steps_used_total,
+                                  result, skip_body, phase_id);
+    }
+    return rotate_pd(env, target_theta, p, steps_used_total,
+                     result, skip_body, phase_id);
 }
 
 

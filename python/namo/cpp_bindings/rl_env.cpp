@@ -1,8 +1,13 @@
 #include "python/namo/cpp_bindings/rl_env.hpp"
 #include "core/types.hpp"
 #include "wavefront/wavefront_grid.hpp"
+#include "wavefront/wavefront_planner.hpp"
+#include "navigation/diff_drive_navigation.hpp"
+#include "navigation/holonomic_navigation.hpp"
+#include "robot/robot_adapter.hpp"
 #include <iostream>
 #include <sstream>
+#include <cmath>
 
 namespace namo {
 
@@ -11,7 +16,10 @@ RLEnvironment::RLEnvironment(const std::string& xml_path, const std::string& con
     // std::cout << "Initializing RLEnvironment..." << std::endl;
     try {
         config_ = std::shared_ptr<ConfigManager>(ConfigManager::create_from_file(config_path).release());
-        env_ = std::make_unique<NAMOEnvironment>(xml_path, config_, visualize);
+        // Effective visualization: explicit arg OR config (system.enable_visualization).
+        // This makes the YAML the source of truth while letting callers force-enable.
+        bool effective_visualize = visualize || config_->system().enable_visualization;
+        env_ = std::make_unique<NAMOEnvironment>(xml_path, config_, effective_visualize);
         skill_ = std::make_unique<NAMOPushSkill>(*env_, config_);
         
         // Cache immutable object info once during initialization
@@ -78,6 +86,80 @@ RLEnvironment::StepResult RLEnvironment::step(const Action& action) {
     }
 
     return rl_result;
+}
+
+RLEnvironment::NavigateResult RLEnvironment::navigate_to(double x, double y, double theta) {
+    NavigateResult res;
+    auto wrap_pi = [](double a) {
+        while (a >  M_PI) a -= 2.0 * M_PI;
+        while (a < -M_PI) a += 2.0 * M_PI;
+        return a;
+    };
+
+    if (!env_) { res.failure_reason = "no_env"; return res; }
+
+    const auto* adapter = env_->get_robot_adapter();
+    auto* mjw = env_->get_mujoco_wrapper();
+    auto* model = mjw ? mjw->model() : nullptr;
+    auto* data  = mjw ? mjw->data()  : nullptr;
+    auto rs = env_->get_robot_state();
+    if (!rs) { res.failure_reason = "no_robot_state"; return res; }
+
+    // Heap-allocate the WavefrontPlanner: it carries multi-MB inline
+    // grid+queue buffers that overflow the stack if declared as a local.
+    const double resolution = config_ ? config_->get_skill_level_resolution() : 0.005;
+    const auto& robot_info = env_->get_robot_info();
+    // Inflate by chassis half-diagonal + safety margin so the wavefront path
+    // keeps the chassis's rotational sweep clear AND tolerates nav drift
+    // (~25 mm cross-track on average). Half-diagonal alone gives 0 margin
+    // beyond the chassis sweep — adding 2.5 cm covers realistic drift.
+    //
+    // robot_info.size = [0.0175, 0.035] only covers ONE chassis half; full
+    // chassis with wheels has half-extents [0.035, 0.0525].
+    double half_x = std::max(0.035, robot_info.size[0]);
+    double half_y = std::max(0.0525, robot_info.size[1]);
+    const double half_diag = std::hypot(half_x, half_y);
+    const double safety_margin = 0.025;
+    const double inflation = half_diag + safety_margin;
+    std::vector<double> robot_size = {inflation, inflation};
+    auto planner = std::make_unique<WavefrontPlanner>(resolution, *env_, robot_size);
+
+    std::vector<double> start_pos = {rs->position[0], rs->position[1]};
+    if (!planner->update_wavefront(*env_, start_pos)) {
+        res.failure_reason = "wavefront_failed";
+        return res;
+    }
+    auto path = planner->extract_path({start_pos[0], start_pos[1]}, {x, y});
+    if (path.empty()) { res.failure_reason = "no_path"; return res; }
+
+    // Emit [NAV_PATH] line so render_nav_video.py --path-file can overlay
+    // the wavefront waypoints. Mirrors what NAMOPushController does.
+    if (std::getenv("NAMO_NAV_LOG")) {
+        std::cerr << "[NAV_PATH]";
+        for (const auto& p : path) std::cerr << " " << p[0] << "," << p[1];
+        std::cerr << std::endl;
+    }
+
+    std::unique_ptr<NavigationStrategy> nav;
+    if (adapter && adapter->is_diff_drive()) {
+        nav = std::make_unique<DiffDriveNavigation>(DiffDriveNavigation::Params{});
+    } else {
+        nav = std::make_unique<HolonomicNavigation>();
+    }
+    auto nav_result = nav->execute(*env_, path, theta, /*target_object=*/"");
+
+    res.success          = nav_result.success;
+    res.failure_reason   = nav_result.failure_reason;
+    res.collision_object = nav_result.collision_object;
+    res.steps_used       = nav_result.steps_used;
+
+    auto rs2 = env_->get_robot_state();
+    res.final_x = rs2 ? rs2->position[0] : 0.0;
+    res.final_y = rs2 ? rs2->position[1] : 0.0;
+    res.final_theta = (adapter && model && data) ? adapter->get_theta(model, data) : 0.0;
+    res.pos_error_m = std::hypot(x - res.final_x, y - res.final_y);
+    res.yaw_error_rad = std::abs(wrap_pi(theta - res.final_theta));
+    return res;
 }
 
 std::map<std::string, std::vector<double>> RLEnvironment::get_observation() const {

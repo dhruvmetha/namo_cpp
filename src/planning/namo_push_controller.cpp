@@ -29,7 +29,9 @@ NAMOPushController::NAMOPushController(NAMOEnvironment& env,
     
     // Create navigation strategy based on robot type
     auto adapter = env_.get_robot_adapter();
-    if (adapter && adapter->is_diff_drive()) {
+    const char* force_teleport = std::getenv("NAMO_FORCE_TELEPORT_NAV");
+    bool teleport_override = force_teleport && std::string(force_teleport) == "1";
+    if (adapter && adapter->is_diff_drive() && !teleport_override) {
         nav_strategy_ = std::make_unique<DiffDriveNavigation>(DiffDriveNavigation::Params{});
     } else {
         nav_strategy_ = std::make_unique<HolonomicNavigation>();
@@ -351,45 +353,152 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
     // Check for robot collision with static objects (walls) after positioning
     const auto& static_objects = env_.get_static_objects();
     size_t num_static = env_.get_num_static();
-    
+    const auto robot_bodies = env_.get_robot_adapter()->get_collision_body_names();
+
     for (size_t i = 0; i < num_static; i++) {
         const auto& static_obj = static_objects[i];
-        if (env_.bodies_in_collision(env_.get_robot_adapter()->get_body_name(), static_obj.body_name)) {
-            last_failure_reason_ = "Robot placement collision with static object: " + static_obj.body_name;
-            last_collision_object_ = static_obj.body_name;
-            return false;
+        for (const auto& rb : robot_bodies) {
+            if (env_.bodies_in_collision(rb, static_obj.body_name)) {
+                last_failure_reason_ = "Robot placement collision with static object: " + static_obj.body_name + " (via " + rb + ")";
+                last_collision_object_ = static_obj.body_name;
+                return false;
+            }
         }
     }
-    
+
     // Check for robot collision with movable objects after positioning
     const auto& movable_objects = env_.get_movable_objects();
     size_t num_movable = env_.get_num_movable();
-    
+
     for (size_t i = 0; i < num_movable; i++) {
         const auto& movable_obj = movable_objects[i];
 
         // Skip collision check with the object we're trying to push (expected contact)
-        if (movable_obj.name != object_name && env_.bodies_in_collision(env_.get_robot_adapter()->get_body_name(), movable_obj.body_name)) {
-            last_failure_reason_ = "Robot placement collision with movable object: " + movable_obj.body_name;
-            last_collision_object_ = movable_obj.body_name;
-            return false;
+        if (movable_obj.name == object_name) continue;
+        for (const auto& rb : robot_bodies) {
+            if (env_.bodies_in_collision(rb, movable_obj.body_name)) {
+                last_failure_reason_ = "Robot placement collision with movable object: " + movable_obj.body_name + " (via " + rb + ")";
+                last_collision_object_ = movable_obj.body_name;
+                return false;
+            }
         }
     }
+    // ===== Diff-drive path: match the standalone primitive generator exactly =====
+    // Generator does: mj_resetData → place obj/car → 500 settle steps (ctrl=0) →
+    //                 push_steps * 250 sim steps continuous wheel drive →
+    //                 500 settle steps (ctrl=0). No mid-push velocity zeroing.
+    // We can't full-reset the sim at runtime (other objects matter), but we can mirror
+    // the velocity/control hygiene around this primitive.
+    bool diff_drive = env_.get_robot_adapter() && env_.get_robot_adapter()->is_diff_drive();
+    if (diff_drive) {
+        constexpr int kSettleSteps = 500;
+        constexpr int kSimStepsPerPushStep = 250;  // matches generator: 0.5s / 0.002s tick
+
+        // 1) Zero all velocities (chassis + wheels + casters + every object) and stop wheel ctrl
+        env_.set_zero_velocity();
+        env_.apply_robot_control(0.0, 0.0);
+
+        // 2) Pre-push settle
+        for (int i = 0; i < kSettleSteps; ++i) {
+            env_.step_simulation();
+            env_.get_mujoco_wrapper()->notify_physics_step();
+            dump_qpos(env_, /*phase=*/3);
+        }
+
+        // 3) Snapshot for stuck/coll checks
+        auto obj_state0 = env_.get_object_state(object_name);
+        if (!obj_state0) {
+            std::cerr << "Lost object state before diff-drive push" << std::endl;
+            return false;
+        }
+        update_push_state(push_state, obj_state0->position, obj_state0->size, obj_state0->quaternion);
+
+        // 4) Compute push control once and command wheels (direction discarded by adapter,
+        //    only magnitude == force_scaling drives wheel rad/s)
+        auto control = compute_push_control(push_state);
+        env_.apply_robot_control(control[0], control[1]);
+
+        // 5) Continuous push for push_steps × 250 sim ticks
+        const int total_sim_steps = push_steps * kSimStepsPerPushStep;
+        std::array<double, 3> prev_pos_sample = obj_state0->position;
+        std::array<double, 4> prev_quat_sample = obj_state0->quaternion;
+        const auto robot_bodies = env_.get_robot_adapter()->get_collision_body_names();
+
+        for (int t = 0; t < total_sim_steps; ++t) {
+            env_.step_simulation();
+            env_.get_mujoco_wrapper()->notify_physics_step();
+            dump_qpos(env_, /*phase=*/3);
+
+            // Periodic collision + stuck checks (don't check every tick — too expensive)
+            if (t > 0 && (t % stuck_check_stride_ == 0)) {
+                auto obj_now = env_.get_object_state(object_name);
+                if (!obj_now) return false;
+
+                bool abort = update_stuck_counter_and_check_abort(
+                    prev_pos_sample, prev_quat_sample,
+                    obj_now->position, obj_now->quaternion,
+                    t / kSimStepsPerPushStep, t % kSimStepsPerPushStep);
+                if (abort) return false;
+                prev_pos_sample = obj_now->position;
+                prev_quat_sample = obj_now->quaternion;
+
+                for (size_t i = 0; i < num_static; i++) {
+                    const auto& s = static_objects[i];
+                    for (const auto& rb : robot_bodies) {
+                        if (env_.bodies_in_collision(rb, s.body_name)) {
+                            wall_collision_during_push_ = true;
+                            last_failure_reason_ = "Robot collision during push with static object: " + s.body_name + " (via " + rb + ")";
+                            last_collision_object_ = s.body_name;
+                            return false;
+                        }
+                    }
+                    if (env_.bodies_in_collision(object_name, s.body_name)) {
+                        wall_collision_during_push_ = true;
+                        if (check_object_collision_) {
+                            last_failure_reason_ = "Object collision during push with static object: " + s.body_name;
+                            last_collision_object_ = s.body_name;
+                            return false;
+                        }
+                    }
+                }
+                for (size_t i = 0; i < num_movable; i++) {
+                    const auto& mv = movable_objects[i];
+                    if (mv.name == object_name) continue;
+                    for (const auto& rb : robot_bodies) {
+                        if (env_.bodies_in_collision(rb, mv.body_name)) {
+                            movable_collisions_during_push_.insert(mv.name);
+                            last_failure_reason_ = "Robot collision during push with movable object: " + mv.body_name + " (via " + rb + ")";
+                            last_collision_object_ = mv.body_name;
+                            return false;
+                        }
+                    }
+                    if (env_.bodies_in_collision(object_name, mv.body_name)) {
+                        movable_collisions_during_push_.insert(mv.name);
+                        if (check_object_collision_) {
+                            last_failure_reason_ = "Object collision during push with movable object: " + mv.body_name;
+                            last_collision_object_ = mv.body_name;
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 6) Stop wheels and post-push settle
+        env_.apply_robot_control(0.0, 0.0);
+        for (int i = 0; i < kSettleSteps; ++i) {
+            env_.step_simulation();
+            env_.get_mujoco_wrapper()->notify_physics_step();
+            dump_qpos(env_, /*phase=*/3);
+        }
+
+        return true;
+    }
+
+    // ===== Point-robot path (unchanged) =====
     env_.step_simulation();
     env_.get_mujoco_wrapper()->notify_physics_step();  // Video recording hook
 
-    // auto obj_state_initial = env_.get_object_state(object_name);
-    // auto robot_state_initial = env_.get_robot_state();
-    // if (obj_state_initial && robot_state_initial) {
-    //     double dx = robot_state_initial->position[0] - obj_state_initial->position[0];
-    //     double dy = robot_state_initial->position[1] - obj_state_initial->position[1];
-    //     double distance = sqrt(dx*dx + dy*dy);
-    //     double robot_radius = robot_size_[0];
-    //     double obj_half_size = sqrt(obj_state_initial->size[0]*obj_state_initial->size[0] + 
-    //                                obj_state_initial->size[1]*obj_state_initial->size[1]);
-    //     double surface_distance = distance - robot_radius - obj_half_size;
-    // }
-    
     // Execute push steps
     // Local stuck diagnostics for controller loop
     int stuck_counter_ctrl = 0;
@@ -470,27 +579,32 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
             }
 
             // Always track collisions for hardness metrics, but only terminate if check_object_collision_ is true
-            std::string robot_body = env_.get_robot_adapter()->get_body_name();
+            const auto robot_bodies_pp = env_.get_robot_adapter()->get_collision_body_names();
 
             // Check ROBOT collision with static objects (walls) during push
             for (size_t i = 0; i < num_static; i++) {
                 const auto& static_obj = static_objects[i];
-                if (env_.bodies_in_collision(robot_body, static_obj.body_name)) {
-                    wall_collision_during_push_ = true;
-                    last_failure_reason_ = "Robot collision during push with static object: " + static_obj.body_name;
-                    last_collision_object_ = static_obj.body_name;
-                    return false;
+                for (const auto& rb : robot_bodies_pp) {
+                    if (env_.bodies_in_collision(rb, static_obj.body_name)) {
+                        wall_collision_during_push_ = true;
+                        last_failure_reason_ = "Robot collision during push with static object: " + static_obj.body_name + " (via " + rb + ")";
+                        last_collision_object_ = static_obj.body_name;
+                        return false;
+                    }
                 }
             }
 
             // Check ROBOT collision with OTHER movable objects during push
             for (size_t i = 0; i < num_movable; i++) {
                 const auto& movable_obj = movable_objects[i];
-                if (movable_obj.name != object_name && env_.bodies_in_collision(robot_body, movable_obj.body_name)) {
-                    movable_collisions_during_push_.insert(movable_obj.name);
-                    last_failure_reason_ = "Robot collision during push with movable object: " + movable_obj.body_name;
-                    last_collision_object_ = movable_obj.body_name;
-                    return false;
+                if (movable_obj.name == object_name) continue;
+                for (const auto& rb : robot_bodies_pp) {
+                    if (env_.bodies_in_collision(rb, movable_obj.body_name)) {
+                        movable_collisions_during_push_.insert(movable_obj.name);
+                        last_failure_reason_ = "Robot collision during push with movable object: " + movable_obj.body_name + " (via " + rb + ")";
+                        last_collision_object_ = movable_obj.body_name;
+                        return false;
+                    }
                 }
             }
 

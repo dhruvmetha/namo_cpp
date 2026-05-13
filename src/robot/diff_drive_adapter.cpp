@@ -50,6 +50,13 @@ std::vector<std::string> DiffDriveAdapter::get_skip_body_names() const {
             "left_wheel", "right_wheel"};
 }
 
+std::vector<std::string> DiffDriveAdapter::get_collision_body_names() const {
+    // Wheels protrude 3mm past chassis sides — include them so wheel-clipping
+    // a wall is treated as a robot collision. Casters sit under the chassis
+    // (z=2.5mm, r=2.5mm) and cannot reach walls before the chassis does.
+    return {"car", "left_wheel", "right_wheel"};
+}
+
 std::array<double, 2> DiffDriveAdapter::get_xy(const mjModel* m, const mjData* d) const {
     // Freejoint qpos is ABSOLUTE world position (not relative to body origin)
     return {d->qpos[freejoint_qpos_adr_ + 0],
@@ -59,6 +66,20 @@ std::array<double, 2> DiffDriveAdapter::get_xy(const mjModel* m, const mjData* d
 double DiffDriveAdapter::get_theta(const mjModel* m, const mjData* d) const {
     // Quaternion starts at qpos[adr+3] in MuJoCo freejoint: (x,y,z,w,qx,qy,qz)
     return quat_to_yaw(&d->qpos[freejoint_qpos_adr_ + 3]);
+}
+
+double DiffDriveAdapter::get_yaw_rate(const mjModel* m, const mjData* d) const {
+    // Freejoint qvel layout: (vx, vy, vz, wx, wy, wz). Yaw rate = wz.
+    (void)m;
+    return d->qvel[freejoint_qvel_adr_ + 5];
+}
+
+double DiffDriveAdapter::get_speed(const mjModel* m, const mjData* d) const {
+    // Planar chassis speed from freejoint linear qvel.
+    (void)m;
+    const double vx = d->qvel[freejoint_qvel_adr_ + 0];
+    const double vy = d->qvel[freejoint_qvel_adr_ + 1];
+    return std::sqrt(vx * vx + vy * vy);
 }
 
 void DiffDriveAdapter::set_xy(const mjModel* m, mjData* d, double x, double y) const {

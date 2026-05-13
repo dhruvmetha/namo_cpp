@@ -7,65 +7,88 @@ namespace namo {
 
 class ConfigManager;
 
-/// Three-phase diff-drive navigation:
-///   Phase 1: rotate in place to face path start
-///   Phase 2: pure pursuit along path (constant linear speed)
-///   Phase 3: rotate in place to target heading
+/// Three-phase diff-drive navigation, closed-loop:
+///   Phase 1: PD on chassis yaw to face path start
+///   Phase 2: P on along-path distance (per straight segment)
+///   Phase 3: PD on chassis yaw to push target heading
 ///
-/// Each phase has:
-///   - Constant control signal (no ramps) for clean dynamics
-///   - Active termination check + zero-control settle phase
-///   - Collision checks (robot vs walls, robot vs any movable)
-///   - Timeout guard
+/// Each phase commands the wheel-velocity inner loop with a continuously
+/// updated reference, so control never jumps to zero. This avoids the
+/// brake-induced friction reversal that produced rebound under bang-bang
+/// control with a passive wait phase.
 ///
-/// Pure pursuit math follows the standard formulation:
-///   α = angle to lookahead point in robot frame
-///   κ = 2·sin(α) / L   (curvature)
-///   (v, ω) = (linear_speed, κ·linear_speed)
-///   (v_left, v_right) wheel speeds = (v - ω·b/2, v + ω·b/2) / r
+/// Outer-loop PD on yaw (rotate phases):
+///   ω_cmd = clamp(Kp_yaw · err - Kd_yaw · yaw_rate, ±angular_speed)
+///   wheel_left  = -ω_cmd · b/2 / r
+///   wheel_right = +ω_cmd · b/2 / r
+/// Outer-loop P on along-distance (drive phase):
+///   v_cmd = clamp(Kp_drive · along, 0, linear_speed)
+///   wheel_left = wheel_right = v_cmd / r
 ///
-/// Reference: Coulter 1992, "Implementation of the Pure Pursuit Path
-/// Tracking Algorithm". Also mirrors ROS Nav2 regulated_pure_pursuit_controller
-/// (without regulation; we use constant speed).
+/// Reference: standard joint-impedance / virtual stiffness-damping form
+/// (Hogan 1985). Inner wheel-velocity loop is the existing <velocity kv=…>
+/// MuJoCo actuator; outer loop is what this file implements.
 class DiffDriveNavigation : public NavigationStrategy {
 public:
+    /// Controller for rotate / drive phases.
+    /// PD: outer-loop PD on chassis pose. Reactive feedback. Works on
+    ///     high-friction plants; prone to limit-cycle on low friction.
+    /// TRAPEZOIDAL: open-loop velocity profile (ramp-up / cruise / ramp-down)
+    ///     respecting plant brake limit α_max. No reactive feedback. Robust
+    ///     to actuator + contact saturation. Default.
+    enum class Mode { PD, TRAPEZOIDAL };
+
     struct Params {
-        // Constant speeds during each phase
-        double linear_speed = 0.10;      // m/s during straight driving
-        double angular_speed = 1.0;      // rad/s — fast; overshoot is bounded by physics, not config
+        // Choose controller for rotate_in_place / drive_straight_to
+        Mode mode = Mode::TRAPEZOIDAL;
 
-        // Pure pursuit
-        double lookahead = 0.10;         // m — larger = smoother steering
+        // ── Saturation / max speeds ──────────────────────────────────────
+        double linear_speed = 0.10;      // m/s — drive saturation
+        double angular_speed = 1.0;      // rad/s — rotate saturation
 
-        // Exit thresholds (trigger zero-control + wait).
-        double xy_threshold = 0.015;     // m — exit drive when within 1.5cm of segment endpoint
-        double theta_threshold = 0.05;   // rad — exit rotation at ~2.9°
+        // ── Trapezoidal profile ──────────────────────────────────────────
+        // Maximum chassis angular acceleration / deceleration to use when
+        // shaping commanded ω(t). Must be ≤ what the plant can deliver
+        // smoothly. Empirical from brake test: ~5 rad/s² is well within
+        // the smooth regime on the matched-friction plant (peak step-brake
+        // exhibits ~25 Hz oscillation; staying well below that bandwidth
+        // avoids exciting it).
+        double alpha_max = 5.0;          // rad/s²
+        // Same idea for linear motion.
+        double accel_max = 0.5;          // m/s²
 
-        // Post-wait final tolerance.
-        // theta_tolerance accommodates ~10° physics overshoot during wait
-        // (wheels grip while chassis still rotating → small reverse bounce).
-        double xy_tolerance = 0.05;      // m — 5cm
-        double theta_tolerance = 0.22;   // rad — ~12.5°
+        // ── Outer-loop gains ─────────────────────────────────────────────
+        // PD on chassis yaw → commanded chassis ω. Kd dominates because the
+        // inner wheel-velocity loop (kv=0.75) introduces phase lag in the
+        // loaded env; higher damping suppresses the resulting oscillation.
+        double Kp_yaw = 3.0;             // [1/s] — proportional yaw gain
+        double Kd_yaw = 3.0;             // [-]  — derivative gain (damping)
+        // P on along-path distance → commanded forward velocity
+        double Kp_drive = 5.0;           // [1/s] — proportional drive gain
 
-        // Wait period after each phase (rotation or linear drive).
-        // Zero control + step simulation, letting wheel brakes and caster
-        // momentum dissipate before transitioning to the next phase.
-        // Not active braking — just passive coast to rest.
-        int wait_steps = 30;              // 0.30s of zero-control coast
+        // ── Convergence ──────────────────────────────────────────────────
+        // A rotation phase exits when |yaw_err| AND |yaw_rate| are both small.
+        double theta_converged = 0.01;   // rad — ~0.6°
+        double rate_converged  = 0.05;   // rad/s
+        // A drive phase exits when along-distance AND chassis speed are both small.
+        double xy_converged    = 0.005;  // m — 5mm
+        double speed_converged = 0.01;   // m/s
 
-        // Linear deceleration ramp before wait (smooth velocity transition).
-        int decel_steps = 50;             // 0.5s ramp
-        int settle_steps = 20;            // unused
-        double velocity_tolerance = 0.01; // unused
+        // ── Skip-if-already-at-goal (top of execute()) ───────────────────
+        double xy_tolerance = 0.05;      // m
+        double theta_tolerance = 0.22;   // rad
 
-        // Safety
-        int max_nav_steps = 6000;         // control steps total
-        double max_path_deviation = 0.15; // m; abort if drifting off path
+        // ── Pure pursuit (legacy, not on the live path) ──────────────────
+        double lookahead = 0.10;
+        double sharp_turn_exit = 0.15;
 
-        // Sharp-turn recovery: if the steering angle to lookahead exceeds
-        // this, switch to in-place rotation until aligned again.
-        double sharp_turn_threshold = 0.35;  // ~20 deg
-        double sharp_turn_exit = 0.15;       // resume when under ~8.6 deg
+        // ── Safety ───────────────────────────────────────────────────────
+        int max_nav_steps = 6000;
+        double max_path_deviation = 0.15;
+
+        // Path segmentation: split waypoints when heading changes by more
+        // than this, so each segment is a straight corridor.
+        double sharp_turn_threshold = 0.35;
     };
 
     explicit DiffDriveNavigation(const Params& params);

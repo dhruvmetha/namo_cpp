@@ -39,6 +39,8 @@ def render_push(
     settle_steps: int = 500,
     fps: int = 30,
     frame_every: int = 5,
+    exit_ramp_ticks: int = 0,
+    entry_ramp_ticks: int = 0,
 ):
     car_params = default_parameters()
     generate_all(PROJECT_ROOT / "assets", params=car_params)
@@ -78,7 +80,7 @@ def render_push(
     cam.lookat[:] = [0, 0, 0.03]
     cam.distance = 0.5
     cam.azimuth = 90
-    cam.elevation = -60
+    cam.elevation = -90  # top-down
 
     # Reset
     mujoco.mj_resetData(model, data)
@@ -109,12 +111,32 @@ def render_push(
     # Record object before
     obj_before = data.qpos[obj_jnt_qpos : obj_jnt_qpos + 3].copy()
 
+    # Phase 1b (optional): Entry ramp — linearly increase ctrl from 0 -> push_speed
+    if entry_ramp_ticks > 0:
+        N = entry_ramp_ticks
+        for k in range(1, N + 1):
+            cmd = push_speed * (k / N)
+            data.ctrl[left_act] = cmd
+            data.ctrl[right_act] = cmd
+            mujoco.mj_step(model, data)
+            capture()
+
     # Phase 2: Push
     data.ctrl[left_act] = push_speed
     data.ctrl[right_act] = push_speed
     for _ in range(push_steps * steps_per_push):
         mujoco.mj_step(model, data)
         capture()
+
+    # Phase 2b (optional): Exit ramp — linearly decrease ctrl from push_speed to 0
+    if exit_ramp_ticks > 0:
+        N = exit_ramp_ticks
+        for k in range(1, N + 1):
+            cmd = push_speed * (1.0 - k / N)
+            data.ctrl[left_act] = cmd
+            data.ctrl[right_act] = cmd
+            mujoco.mj_step(model, data)
+            capture()
 
     # Phase 3: Stop and settle
     data.ctrl[left_act] = 0
@@ -134,33 +156,51 @@ def render_push(
 
 
 def main():
-    output_dir = PROJECT_ROOT / "artifacts" / "push_videos"
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--push-speed", type=float, default=10.0, help="Wheel velocity during push (rad/s)")
+    parser.add_argument("--output-dir", type=Path, default=PROJECT_ROOT / "artifacts" / "push_videos",
+                        help="Directory to write videos to")
+    parser.add_argument("--output-suffix", type=str, default="",
+                        help="Suffix appended to each video filename (e.g. '_20rad') so multiple speeds can coexist")
+    args = parser.parse_args()
+
+    output_dir = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Use square object for demo
-    obj = OBJECT_CONFIGS[0]  # square
-    print(f"Rendering push videos for {obj.description}")
-    print(f"  Object half-sizes: {obj.half_size_x*100:.1f}x{obj.half_size_y*100:.1f}cm")
-    print()
-
-    # Render one push per face at medium depth, plus one at center edge max depth
+    # Render one push per face at medium depth, plus short/max for one face,
+    # plus glancing corner pushes (edge idx 0/15/30/45 = corner-end of each face)
+    # and the opposite corner (idx 14/29/44/59) for one face.
     demos = [
         # (edge_idx, push_steps, label)
+        # Center pushes (face midpoint)
         (7, 5, "face0_center_depth5"),    # +x face, center edge, medium push
         (22, 5, "face1_center_depth5"),   # +y face, center edge, medium push
         (37, 5, "face2_center_depth5"),   # -x face, center edge, medium push
         (52, 5, "face3_center_depth5"),   # -y face, center edge, medium push
         (37, 1, "face2_center_depth1"),   # -x face, short push
         (37, 10, "face2_center_depth10"), # -x face, max push
+        # Corner pushes (edge offset to one end of the face)
+        (0,  5, "face0_corner0_depth5"),  # +x face, low-t corner
+        (14, 5, "face0_corner1_depth5"),  # +x face, high-t corner (opposite)
+        (15, 5, "face1_corner0_depth5"),  # +y face, low-t corner
+        (30, 5, "face2_corner0_depth5"),  # -x face, low-t corner
+        (44, 5, "face2_corner1_depth5"),  # -x face, high-t corner (opposite)
+        (45, 5, "face3_corner0_depth5"),  # -y face, low-t corner
     ]
 
-    for edge_idx, push_steps, label in demos:
-        render_push(
-            obj, edge_idx, push_steps,
-            output_path=output_dir / f"push_{obj.name}_{label}.mp4",
-        )
+    for obj in OBJECT_CONFIGS:
+        print(f"Rendering push videos for {obj.description} @ {args.push_speed} rad/s")
+        print(f"  Object half-sizes: {obj.half_size_x*100:.1f}x{obj.half_size_y*100:.1f}cm")
+        for edge_idx, push_steps, label in demos:
+            render_push(
+                obj, edge_idx, push_steps,
+                output_path=output_dir / f"push_{obj.name}_{label}{args.output_suffix}.mp4",
+                push_speed=args.push_speed,
+            )
+        print()
 
-    print(f"\nVideos saved to: {output_dir}")
+    print(f"Videos saved to: {output_dir}")
 
 
 if __name__ == "__main__":

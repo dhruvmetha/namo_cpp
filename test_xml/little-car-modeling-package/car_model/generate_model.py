@@ -159,7 +159,7 @@ def render_mjcf_car(params: CarParameters) -> str:
         <mujoco model="little_car">
           <compiler angle="radian" autolimits="true"/>
           <default>
-            <geom condim="4" solref="0.004 1" solimp="0.9 0.95 0.001" friction="1.2 0.04 0.01"/>
+            <geom condim="4"/>
             <joint damping="0.01" armature="0.0001"/>
           </default>
           <worldbody>
@@ -235,14 +235,14 @@ def render_mjcf_scene() -> str:
         <mujoco model="little_car_scene">
           <compiler angle="radian"/>
           <include file="little_car.xml"/>
-          <option gravity="0 0 -9.81" timestep="0.002" integrator="implicitfast" iterations="100"/>
+          <option gravity="0 0 -9.81" timestep="0.002" integrator="implicitfast" cone="elliptic" iterations="100"/>
           <visual>
             <global offwidth="960" offheight="720"/>
             <headlight ambient="0.5 0.5 0.5" diffuse="0.6 0.6 0.6" specular="0.1 0.1 0.1"/>
           </visual>
           <worldbody>
             <light name="sun" pos="0 0 2" dir="0 0 -1" directional="true"/>
-            <geom name="ground" type="plane" size="2 2 0.1" rgba="0.85 0.85 0.85 1" friction="1.3 0.05 0.01"/>
+            <geom name="ground" type="plane" size="2 2 0.1" rgba="0.85 0.85 0.85 1" friction="0.5 0.005 0.001"/>
             <camera name="overview" pos="0.35 -0.35 0.22" xyaxes="0.707107 0.707107 0 -0.3 0.3 0.905539"/>
             <camera name="forward_is_positive_x" pos="-0.20 -0.22 0.18" xyaxes="0.739940 -0.672673 0 0.380157 0.418173 0.825336"/>
             <camera name="square_path_capture" pos="0.22 -0.26 0.30" xyaxes="0.766044 0.642788 0 -0.454519 0.541675 0.707107"/>
