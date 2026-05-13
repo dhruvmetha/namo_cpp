@@ -6,8 +6,11 @@ validates the opening, logs an episode, then restores the baseline and proceeds 
 the next neighbour.
 """
 
+import math
 import random
 import time
+
+import numpy as np
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple, Dict, Any, Set, Union
 
@@ -19,6 +22,7 @@ DEFAULT_CAMERA_AZIMUTH = 0.0
 DEFAULT_CAMERA_ELEVATION = -90.0
 from namo.core import BasePlanner, PlannerConfig, PlannerResult
 from namo.planners.connectivity_snapshot import snapshot_region_connectivity, find_robot_label
+from namo.visualization.wavefront_snapshot import RegionGoalSample
 from namo.strategies import (
     PrimitiveGoalStrategy,
     Goal,
@@ -194,8 +198,9 @@ class RegionOpeningPlanner(BasePlanner):
 
         # Get collision termination flag from config.algorithm_params
         # region_allow_collisions=True means ALLOW collisions (don't terminate)
-        # We invert it: terminate_on_collision=True means TERMINATE on collision
-        allow_collisions = algo_params.get("region_allow_collisions", False)
+        # Default True: object-object/object-wall collisions are expected during NAMO
+        # pushes. Strict mode (terminate on collision) is opt-in via region_allow_collisions=False.
+        allow_collisions = algo_params.get("region_allow_collisions", True)
         self.terminate_on_collision = not allow_collisions
 
         # Get max chain depth from config.algorithm_params (default: 1, no chaining)
@@ -229,6 +234,18 @@ class RegionOpeningPlanner(BasePlanner):
         # successful opening is found from the current exploration state.
         # Default is False to preserve legacy behaviour (collect per-neighbour data).
         self.stop_after_first_success = algo_params.get("region_stop_after_first_success", False)
+
+        # When True (default), restrict exploration to the single neighbour containing the env's
+        # goal site (uses target_neighbor="goal"). Each pair file contributes one focused
+        # demonstration tied to its actual NAMO task, avoiding redundant work across pairs that
+        # share R_robot. Set to False to fall back to the legacy "enumerate all neighbours" mode.
+        self.target_goal_only = algo_params.get("region_target_goal_only", True)
+
+        # Stricter success criterion for _validate_opening: at least
+        # `min_reachable_fraction` of the sampled region goals must be reachable.
+        # Rejects "thin opening" demos where only one sampled cell happens to be
+        # reachable (often a flake from the planner barely moving the blocker).
+        self.min_reachable_fraction = float(algo_params.get("region_min_reachable_fraction", 0.5))
 
         # Optional: cap number of frontier nodes per chain level (beam width)
         # None or 0 => unbounded frontier (complete)
@@ -641,6 +658,10 @@ class RegionOpeningPlanner(BasePlanner):
             self._debug(f"Max chain depth: {self.max_chain_depth} | Collision checking: {'ON' if collision_checking_enabled else 'OFF'}")
             self._debug(f"{'='*60}\n")
 
+        # If region_target_goal_only is set and caller didn't override, target the env-goal's region
+        if target_neighbor is None and self.target_goal_only:
+            target_neighbor = "goal"
+
         # Explore from initial state only (Level 0)
         self.attempt_results = self._explore_from_state(baseline, level=0, target_neighbor=target_neighbor)
 
@@ -754,6 +775,33 @@ class RegionOpeningPlanner(BasePlanner):
             generate_training_data=True,
             use_current_state=True,
         )
+
+        # Replace the goal-region's random samples with dense cell-center samples
+        # on the goal-site disc (radius 0.05m, wavefront resolution 0.02m → ~20 cells).
+        # `_validate_opening` will then check reachability of every cell on the
+        # goal site; with min_reachable_fraction=1.0 this becomes "full goal site
+        # reachable" — a tight, geometry-grounded success criterion.
+        try:
+            scenario_goal = self.env.get_robot_goal()
+            if scenario_goal is not None:
+                gx, gy = float(scenario_goal[0]), float(scenario_goal[1])
+                gtheta = float(scenario_goal[2]) if len(scenario_goal) > 2 else 0.0
+                cell_size = 0.02
+                radius = 0.05
+                disc_samples = []
+                n_cells = int(np.ceil(radius / cell_size))
+                r2 = radius * radius
+                for dx in range(-n_cells, n_cells + 1):
+                    for dy in range(-n_cells, n_cells + 1):
+                        ox = dx * cell_size
+                        oy = dy * cell_size
+                        if ox * ox + oy * oy <= r2:
+                            disc_samples.append(RegionGoalSample(gx + ox, gy + oy, gtheta))
+                for region_label, bundle in region_goals.items():
+                    if "goal" in region_label.lower():
+                        bundle.goals = disc_samples
+        except Exception:
+            pass
 
         # Identify robot region
         robot_label = find_robot_label(region_labels)
@@ -1518,12 +1566,15 @@ class RegionOpeningPlanner(BasePlanner):
             state_obs.append(pre_obs)
             reachable_before.append(pre_reachable)
 
-            # Execute action
+            # Execute action — pass explicit edge_idx/depth so the C++ skill executes the SAME
+            # primitive the search picked, not an MPC-reselected one (which would diverge).
             action = namo_rl.Action()
             action.object_id = object_id
             action.x = goal.x
             action.y = goal.y
             action.theta = goal.theta
+            action.edge_idx = getattr(goal, "edge_idx", -1)
+            action.depth = getattr(goal, "depth", -1)
             step_result = self.env.step(action)
 
             # Extract collision info from step result
@@ -2530,8 +2581,11 @@ class RegionOpeningPlanner(BasePlanner):
             except Exception:
                 pass
 
-            # Success if at least 1 goal is reachable
-            if reachable_count >= 1:
+            # Stricter success criterion: at least min_reachable_fraction of sampled
+            # region goals must be reachable.
+            total_goals = len(bundle.goals)
+            reachable_fraction = (reachable_count / total_goals) if total_goals > 0 else 0.0
+            if reachable_fraction >= self.min_reachable_fraction:
                 return True, reachable_count, first_reachable_goal, all_goals
             else:
                 return False, reachable_count, None, all_goals

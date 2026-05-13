@@ -116,7 +116,22 @@ def snapshot_region_connectivity(
         sure to cache any planner state that depends on the current simulation before invoking it.
     """
 
-    exporter = WavefrontSnapshotExporter(env, resolution=resolution)
+    # Read robot_size from the namo_config so the wavefront uses the authoritative
+    # robot footprint (matches the C++ runtime + the env generator). Without this,
+    # the exporter falls back to the env's first-geom guess which under-inflates for
+    # multi-geom robots (e.g. the diff-drive car's chassis is just one of several geoms).
+    robot_half_extent_override = None
+    try:
+        import yaml as _yaml
+        with open(config_path) as _f:
+            _cfg = _yaml.safe_load(_f) or {}
+        _rs = (_cfg.get("planning") or {}).get("robot_size")
+        if isinstance(_rs, (list, tuple)) and len(_rs) >= 2:
+            robot_half_extent_override = (float(_rs[0]), float(_rs[1]))
+    except Exception:
+        pass
+    exporter = WavefrontSnapshotExporter(env, resolution=resolution,
+                                          robot_half_extent_override=robot_half_extent_override)
     # Use fixed seed for deterministic region goal sampling
     region_rng = rng if rng is not None else np.random.default_rng(42)
     snapshot = exporter.build_snapshot(

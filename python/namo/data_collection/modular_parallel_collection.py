@@ -478,14 +478,18 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                                 for goal in attempt.goal_chain:
                                     action_sequence.append({
                                         "object_id": attempt.chosen_object_id,
-                                        "target": (goal.x, goal.y, goal.theta)
+                                        "target": (goal.x, goal.y, goal.theta),
+                                        "edge_idx": int(getattr(goal, "edge_idx", -1)),
+                                        "depth": int(getattr(goal, "depth", -1)),
                                     })
                                 solution_depth = len(attempt.goal_chain)
                             elif attempt.chosen_goal:
                                 # Single push
                                 action_sequence = [{
                                     "object_id": attempt.chosen_object_id,
-                                    "target": attempt.chosen_goal
+                                    "target": attempt.chosen_goal,
+                                    "edge_idx": -1,
+                                    "depth": -1,
                                 }]
                                 solution_depth = 1
 
@@ -627,7 +631,9 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                         original_action_sequence = [
                             {
                                 "object_id": action.object_id,
-                                "target": (action.x, action.y, action.theta)
+                                "target": (action.x, action.y, action.theta),
+                                "edge_idx": int(getattr(action, "edge_idx", -1)),
+                                "depth": int(getattr(action, "depth", -1)),
                             }
                             for action in actions
                         ]
@@ -674,7 +680,9 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                         original_action_sequence = [
                             {
                                 "object_id": action.object_id,
-                                "target": (action.x, action.y, action.theta)
+                                "target": (action.x, action.y, action.theta),
+                                "edge_idx": int(getattr(action, "edge_idx", -1)),
+                                "depth": int(getattr(action, "depth", -1)),
                             }
                             for action in planner_result.action_sequence
                         ]
@@ -1095,8 +1103,8 @@ def main():
                         help="Number of robot goal samples per region for validation (default: 5)")
 
     # Region opening planner arguments (only those used by RegionOpeningPlanner)
-    parser.add_argument("--region-allow-collisions", action="store_true",
-                        help="Allow object collisions during region opening pushes (default: False, terminate on collision)")
+    parser.add_argument("--region-allow-collisions", action=argparse.BooleanOptionalAction, default=True,
+                        help="Allow object collisions during region opening pushes (default: True). Use --no-region-allow-collisions for strict mode where any object collision aborts the push (intended for evaluation, not data collection). Robot-collisions always abort regardless.")
     parser.add_argument("--region-max-chain-depth", type=int, default=1,
                         help="Maximum chain depth for region opening: 1=single push, 2=2-push chains, 3=3-push chains (default: 1)")
     parser.add_argument("--region-max-solutions-per-neighbor", type=int, default=10,
@@ -1107,6 +1115,8 @@ def main():
                         help="Optional beam width (K) to cap frontier per chain depth; None/<=0 disables")
     parser.add_argument("--region-chain-link-cost", type=int, default=0,
                         help="Additional cost per chain link beyond first push (default: 0)")
+    parser.add_argument("--region-min-reachable-fraction", type=float, default=0.5,
+                        help="Fraction of goal-region samples that must be reachable for an opening to count as success (default: 0.5). With dense disc samples on the goal site, 1.0 = full goal site reachable.")
     parser.add_argument("--region-ml-ignore-blacklist", action="store_true",
                         help="Allow ML-scored primitives to bypass edge blacklist")
     parser.add_argument("--region-selection-strategy", type=str, default="ml_first",
@@ -1214,6 +1224,7 @@ def main():
             "region_max_chain_depth": args.region_max_chain_depth,
             "region_max_solutions_per_neighbor": args.region_max_solutions_per_neighbor,
             "region_chain_link_cost": args.region_chain_link_cost,
+            "region_min_reachable_fraction": args.region_min_reachable_fraction,
             "region_ml_ignore_blacklist": args.region_ml_ignore_blacklist,
             "region_selection_strategy": args.region_selection_strategy,
             "profile_geometric": args.profile_geometric,

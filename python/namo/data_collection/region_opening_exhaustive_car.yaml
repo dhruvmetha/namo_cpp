@@ -1,0 +1,45 @@
+# Sister of region_opening_exhaustive.yaml — car variant.
+# Only difference: config_file points at namo_config_car.yaml so the C++
+# pipeline loads the diff-drive adapter, car robot size, and the car
+# motion-primitive .dat files.
+
+# Core execution
+output_dir: /common/home/dm1487/scratch_namo/car_run
+algorithm: region_opening
+workers: 12
+episodes_per_env: 1
+
+# Generic planner limits
+max_depth: 5
+max_goals_per_object: 5
+max_terminal_checks: 5000
+search_timeout: 600.0
+goals_per_region: 50  # Used for non-goal regions only; goal region uses dense disc samples.
+region_min_reachable_fraction: 0.5  # ≥50% of goal-site disc cells reachable. Allows partial obstacle overlap with the disc while rejecting flake openings.
+
+# Region opening parameters — greedy: stop at first solution per neighbor.
+points_per_face: 15
+region_allow_collisions: true
+region_max_chain_depth: 2
+region_max_solutions_per_neighbor: 1
+region_max_recorded_solutions_per_neighbor: 1
+region_frontier_beam_width: 10000
+region_chain_link_cost: 11
+region_ml_ignore_blacklist: false
+region_selection_strategy: cost_first
+region_exhaustive_mode: false
+
+# Goal strategy: pure primitive (no ML)
+goal_strategy: primitive
+
+# Paths
+xml_dir: /common/home/dm1487/robotics_research/ktamp/namo/test_xml/little-car-modeling-package/artifacts
+config_file: config/namo_config_car.yaml
+manifest: /tmp/manifest_car_3000e.txt
+
+# Pipeline features — no smoothing/refinement needed
+verbose: true
+filter_minimum_length: false
+smooth_solutions: false
+refine_actions: false
+validate_refinement: false

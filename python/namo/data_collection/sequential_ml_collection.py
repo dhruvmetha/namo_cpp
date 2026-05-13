@@ -747,7 +747,8 @@ def main():
                         help="Number of robot goal samples per region for validation (default: 5)")
     
     # Region opening params
-    parser.add_argument("--region-allow-collisions", action="store_true")
+    parser.add_argument("--region-allow-collisions", action=argparse.BooleanOptionalAction, default=True,
+                        help="Allow object collisions during region opening pushes (default: True). Use --no-region-allow-collisions for strict mode.")
     parser.add_argument("--region-max-chain-depth", type=int, default=1)
     parser.add_argument("--region-max-solutions-per-neighbor", type=int, default=10)
     parser.add_argument("--region-max-recorded-solutions-per-neighbor", type=int, default=2)

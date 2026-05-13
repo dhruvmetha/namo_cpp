@@ -354,8 +354,8 @@ def main():
                         help="Search timeout in seconds (default: 60.0)")
     parser.add_argument("--goals-per-region", type=int, default=5,
                         help="Number of robot goal samples per region for validation (default: 5)")
-    parser.add_argument("--region-allow-collisions", action="store_true",
-                        help="Allow object collisions during region opening pushes (default: False, terminate on collision)")
+    parser.add_argument("--region-allow-collisions", action=argparse.BooleanOptionalAction, default=True,
+                        help="Allow object collisions during region opening pushes (default: True). Use --no-region-allow-collisions for strict mode (any object collision aborts the push). Robot-collisions always abort regardless.")
     parser.add_argument("--region-max-chain-depth", type=int, default=1,
                         help="Maximum chain depth for region opening: 1=single push, 2=2-push chains, 3=3-push chains (default: 1)")
     parser.add_argument("--region-max-solutions-per-neighbor", type=int, default=10,
