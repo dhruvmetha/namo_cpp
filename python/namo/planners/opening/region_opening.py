@@ -616,7 +616,9 @@ class RegionOpeningPlanner(BasePlanner):
     def search(
         self,
         robot_goal: Tuple[float, float, float],
-        target_neighbor: Optional[str] = None
+        target_neighbor: Optional[str] = None,
+        local_info_only: bool = True,
+        accessible_regions: Optional[set] = None,
     ) -> PlannerResult:
         """Execute region opening planner (single-level exploration from initial state only).
 
@@ -628,6 +630,11 @@ class RegionOpeningPlanner(BasePlanner):
             robot_goal: Target robot position (x, y, theta) - stored but not directly used
             target_neighbor: If set, only attempt to open path to this specific neighbor.
                            If None, attempt to open paths to ALL neighbors (default behavior).
+            local_info_only: If True (default), only consider robot's immediate neighbors.
+                           Set to False when targeting a non-adjacent region (e.g., via
+                           an already-accessible intermediate region).
+            accessible_regions: Set of region labels already reachable from robot without
+                              pushing. Their neighbors are added to the candidate list.
 
         Returns:
             PlannerResult with all attempt results from initial state
@@ -650,7 +657,11 @@ class RegionOpeningPlanner(BasePlanner):
             self._debug(f"{'='*60}\n")
 
         # Explore from initial state only (Level 0)
-        self.attempt_results = self._explore_from_state(baseline, level=0, target_neighbor=target_neighbor)
+        self.attempt_results = self._explore_from_state(
+            baseline, level=0, target_neighbor=target_neighbor,
+            local_info_only=local_info_only,
+            accessible_regions=accessible_regions,
+        )
 
         if self.config.verbose:
             successful_attempts = sum(1 for a in self.attempt_results if a.success)
@@ -723,7 +734,9 @@ class RegionOpeningPlanner(BasePlanner):
         self,
         state: 'namo_rl.RLState',
         level: int = 0,
-        target_neighbor: Optional[str] = None
+        target_neighbor: Optional[str] = None,
+        local_info_only: bool = True,
+        accessible_regions: Optional[set] = None,
     ) -> List[AttemptResult]:
         """Explore region openings from a given state.
 
@@ -771,8 +784,15 @@ class RegionOpeningPlanner(BasePlanner):
                 print(f"  ⚠ Could not identify robot region")
             return []
 
-        # Get neighbours
-        neighbours = sorted(list(adjacency.get(robot_label, set())))
+        # Get neighbours — include neighbours of already-accessible regions
+        # (the robot can physically reach those regions without pushing)
+        robot_adj = set(adjacency.get(robot_label, set()))
+        if accessible_regions:
+            for acc in accessible_regions:
+                for extended_neighbor in adjacency.get(acc, set()):
+                    if extended_neighbor != robot_label:
+                        robot_adj.add(extended_neighbor)
+        neighbours = sorted(list(robot_adj))
 
         # Apply region skip filter (blacklist)
         # Skip entire regions that have empty object lists in region_object_skip
@@ -936,6 +956,15 @@ class RegionOpeningPlanner(BasePlanner):
 
         # Get candidate objects blocking the edge
         candidates = list(edge_objects.get(robot_label, {}).get(neighbour_label, set()))
+
+        # If no direct edge from robot, check edges from other regions
+        # (the neighbour may be reachable via an already-accessible intermediate region)
+        if not candidates:
+            for region, edges in edge_objects.items():
+                if region != robot_label and neighbour_label in edges:
+                    candidates = list(edges[neighbour_label])
+                    if candidates:
+                        break
 
         # Filter out objects specified in region_object_skip for this neighbour
         if self.region_object_skip and neighbour_label in self.region_object_skip:
@@ -1159,7 +1188,7 @@ class RegionOpeningPlanner(BasePlanner):
 
                     # Create AttemptResult
                     if len(goal_chain) == 1:
-                        # Single push
+                        # Single push - also set goal_chain to preserve edge_idx/depth
                         goal = goal_chain[0]
                         total_solutions_collected += 1
                         all_goal_attempts.append(AttemptResult(
@@ -1167,7 +1196,7 @@ class RegionOpeningPlanner(BasePlanner):
                             neighbour_region_label=neighbour_label,
                             chosen_object_id=object_id,
                             chosen_goal=(goal.x, goal.y, goal.theta),
-                            goal_chain=goal_chain,
+                            goal_chain=goal_chain,  # Preserve Goal objects with edge_idx/depth
                             chain_depth=1,
                             validation_method="reachability_validated",
                             connectivity_before=conn_before,

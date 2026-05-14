@@ -79,6 +79,7 @@ public:
         
         // Object interaction
         double object_clearance = 0.1;           // meters around objects for edge point sampling
+        double push_offset_margin = 0.02;        // meters - additional margin beyond robot radius for push spawn points
         int points_per_face = 3;                // points per object face (4 faces total)
         int num_edge_points = 12;               // points around object perimeter (backward compatibility)
     };

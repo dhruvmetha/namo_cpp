@@ -306,12 +306,14 @@ class WavefrontSnapshotExporter:
         goals_per_region: int = 0,
         rng: Optional[np.random.Generator] = None,
         use_current_state: bool = False,
+        verbose: bool = False,
     ) -> WavefrontSnapshot:
         """Construct grids, regions, and adjacency information.
 
         Args:
             use_current_state: If True, use current env state instead of resetting.
                               Useful for multi-level exploration where state was set via set_full_state().
+            verbose: If True, print detailed logging for debugging connectivity issues.
         """
 
         if not use_current_state:
@@ -334,6 +336,16 @@ class WavefrontSnapshotExporter:
 
         movable_instances = self._instantiate_movable_objects(observation)
 
+        if verbose:
+            print(f"[WavefrontSnapshot] Robot pose: ({robot_pose[0]:.3f}, {robot_pose[1]:.3f})")
+            print(f"[WavefrontSnapshot] Goal pose: {goal_pose}")
+            print(f"[WavefrontSnapshot] Movable objects: {len(movable_instances)}")
+            for inst in movable_instances:
+                print(f"  - {inst.name}: pos=({inst.position[0]:.3f}, {inst.position[1]:.3f}) half_ext=({inst.half_extent[0]:.3f}, {inst.half_extent[1]:.3f})")
+            print(f"[WavefrontSnapshot] Static objects: {len(self.static_objects)}")
+            for inst in self.static_objects:
+                print(f"  - {inst.name}: pos=({inst.position[0]:.3f}, {inst.position[1]:.3f}) half_ext=({inst.half_extent[0]:.3f}, {inst.half_extent[1]:.3f})")
+
         grids = self._build_grids(self.static_objects, movable_instances)
 
         robot_cell = (
@@ -354,13 +366,37 @@ class WavefrontSnapshotExporter:
             else self._inflation_radius_m()
         )
         goal_cells = self._goal_cells(goal_pose, effective_goal_radius)
-        region_map, region_labels = self._compute_regions(grids["dynamic"], robot_pose, goal_cells)
+
+        if verbose:
+            blocked_count = sum(1 for gx, gy in goal_cells if grids["dynamic"][gx, gy] == -1)
+            free_count = len(goal_cells) - blocked_count
+            print(f"[WavefrontSnapshot] Goal cells: {len(goal_cells)} total, {free_count} free, {blocked_count} blocked")
+
+        region_map, region_labels = self._compute_regions(
+            grids["dynamic"],
+            robot_pose,
+            goal_cells,
+            verbose=verbose,
+        )
+
+        if verbose:
+            print(f"[WavefrontSnapshot] Computed regions: {len(region_labels)}")
+            for rid, label in region_labels.items():
+                cell_count = np.sum(region_map == rid)
+                print(f"  - region {rid} ({label}): {cell_count} cells")
+
         adjacency, edge_objects = self._build_connectivity(
             grids["dynamic"].copy(),
             region_map,
             region_labels,
             movable_instances,
+            verbose=verbose,
         )
+
+        if verbose:
+            print(f"[WavefrontSnapshot] Connectivity result:")
+            print(f"  - Adjacency: {dict(adjacency)}")
+            print(f"  - Edge objects: {dict(edge_objects)}")
 
         region_goals: Dict[str, RegionGoalBundle] = {}
         if goals_per_region > 0:
@@ -537,6 +573,7 @@ class WavefrontSnapshotExporter:
         dynamic_grid: GridArray,
         robot_pose: Tuple[float, float, float],
         goal_cells: Set[Tuple[int, int]],
+        verbose: bool = False,
     ) -> Tuple[GridArray, Dict[int, str]]:
         region_map = np.zeros_like(dynamic_grid, dtype=np.int32)
         visited = np.zeros_like(dynamic_grid, dtype=bool)
@@ -609,14 +646,24 @@ class WavefrontSnapshotExporter:
             for gx, gy in robot_region:
                 region_map[gx, gy] = region_id
 
-            if valid_goal_cells and any(cell in robot_region_set for cell in free_goal_cells):
+            goal_in_robot_region = any(cell in robot_region_set for cell in free_goal_cells)
+            if valid_goal_cells and goal_in_robot_region:
                 region_labels[region_id] = "robot_goal"
+                if verbose:
+                    print(f"[WavefrontSnapshot] Robot region contains goal (already reachable)")
             else:
                 region_labels[region_id] = "robot"
+                if verbose:
+                    print(f"[WavefrontSnapshot] Robot region ({len(robot_region)} cells) does NOT contain goal")
             region_id += 1
+        else:
+            if verbose:
+                print(f"[WavefrontSnapshot] WARNING: Robot cell is blocked!")
 
         goal_region_cells: List[Tuple[int, int]] = []
         if valid_goal_cells and free_goal_cells and not (robot_region_set & free_goal_cells):
+            if verbose:
+                print(f"[WavefrontSnapshot] Goal is NOT in robot region - creating separate goal region")
             for cell in free_goal_cells:
                 if visited[cell]:
                     continue
@@ -628,19 +675,40 @@ class WavefrontSnapshotExporter:
                     region_map[gx, gy] = region_id
                 region_labels[region_id] = "goal"
                 region_id += 1
+                if verbose:
+                    print(f"[WavefrontSnapshot] Created goal region with {len(goal_region_cells)} cells")
+            else:
+                if verbose:
+                    print(f"[WavefrontSnapshot] WARNING: Free goal cells exist but couldn't create goal region (all visited)")
+        elif verbose:
+            if not valid_goal_cells:
+                print(f"[WavefrontSnapshot] No valid goal cells")
+            elif not free_goal_cells:
+                print(f"[WavefrontSnapshot] All goal cells are BLOCKED by obstacles")
+            else:
+                print(f"[WavefrontSnapshot] Goal cells overlap with robot region")
 
         # Remaining free space regions (excluding border-touching components)
+        skipped_border_regions = 0
         for gx in range(width):
             for gy in range(height):
                 if visited[gx, gy] or dynamic_grid[gx, gy] == -1:
                     continue
                 region_cells = bfs((gx, gy))
-                if not region_cells or touches_border(region_cells):
+                if not region_cells:
+                    continue
+                if touches_border(region_cells):
+                    skipped_border_regions += 1
+                    if verbose:
+                        print(f"[WavefrontSnapshot] Skipping border-touching region with {len(region_cells)} cells")
                     continue
                 for cell in region_cells:
                     region_map[cell] = region_id
                 region_labels[region_id] = f"region_{region_id}"
                 region_id += 1
+
+        if verbose and skipped_border_regions > 0:
+            print(f"[WavefrontSnapshot] Skipped {skipped_border_regions} border-touching region(s)")
 
         return region_map, region_labels
 
@@ -653,6 +721,7 @@ class WavefrontSnapshotExporter:
         region_map: GridArray,
         region_labels: Dict[int, str],
         movable_objects: Sequence[ObjectInstance],
+        verbose: bool = False,
     ) -> Tuple[Dict[str, Set[str]], Dict[str, Dict[str, Set[str]]]]:
         adjacency: Dict[str, Set[str]] = {label: set() for label in region_labels.values()}
         edge_objects: Dict[str, Dict[str, Set[str]]] = {
@@ -661,6 +730,9 @@ class WavefrontSnapshotExporter:
         inflate_r = self._inflation_radius_m()
         neighbor_offsets = self.NEIGHBOR_OFFSETS
 
+        if verbose:
+            print(f"[WavefrontSnapshot] Building connectivity for {len(movable_objects)} movable objects...")
+
         for instance in movable_objects:
             inflated_extent = (
                 instance.half_extent[0] + inflate_r,
@@ -668,6 +740,8 @@ class WavefrontSnapshotExporter:
             )
             footprint = self._collect_footprint_cells(instance, inflated_extent)
             if not footprint:
+                if verbose:
+                    print(f"  - {instance.name}: empty footprint (skipped)")
                 continue
 
             removed_cells: List[Tuple[int, int]] = []
@@ -677,6 +751,8 @@ class WavefrontSnapshotExporter:
                     removed_cells.append(cell)
 
             if not removed_cells:
+                if verbose:
+                    print(f"  - {instance.name}: no blocked cells in footprint ({len(footprint)} cells checked)")
                 continue
 
             removed_set: Set[Tuple[int, int]] = set(removed_cells)
@@ -706,6 +782,10 @@ class WavefrontSnapshotExporter:
                         if region_id > 0:
                             connected_regions.add(int(region_id))
 
+            if verbose:
+                region_names = [region_labels.get(rid, f"unknown_{rid}") for rid in connected_regions]
+                print(f"  - {instance.name}: {len(removed_cells)} blocked cells, connects {len(connected_regions)} regions: {region_names}")
+
             if len(connected_regions) >= 2:
                 labels = [region_labels[rid] for rid in connected_regions if rid in region_labels]
                 for i in range(len(labels)):
@@ -716,6 +796,8 @@ class WavefrontSnapshotExporter:
                         adjacency[label_b].add(label_a)
                         edge_objects.setdefault(label_a, {}).setdefault(label_b, set()).add(instance.name)
                         edge_objects.setdefault(label_b, {}).setdefault(label_a, set()).add(instance.name)
+                if verbose:
+                    print(f"    → EDGE OBJECT: connects {labels}")
 
             for cell in removed_cells:
                 dynamic_grid[cell] = -1

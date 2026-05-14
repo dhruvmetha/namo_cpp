@@ -244,20 +244,25 @@ class FullNAMOPlanner(BasePlanner):
             target = path[1]
             edge = (robot_region, target)
 
-            # Check if target is direct neighbor
+            # Check if target is direct neighbor of robot region
             robot_neighbors = set(snapshot['adjacency'].get(robot_region, set()))
             if target not in robot_neighbors:
-                # Target via accessible region - block that edge
-                self._debug(f"Target {target} via accessible region")
+                # Target is reachable via an accessible region — find which one
+                via_region = None
                 for acc in accessible_regions:
                     if target in snapshot['adjacency'].get(acc, set()):
-                        failed_edges.add((acc, target))
+                        via_region = acc
                         break
-                else:
-                    failed_edges.add(edge)
-                continue
 
-            self._debug(f"Opening {target}")
+                if via_region is None:
+                    self._debug(f"Target {target} not reachable via any accessible region")
+                    failed_edges.add(edge)
+                    continue
+
+                self._debug(f"Opening {target} (via accessible {via_region})")
+            else:
+                via_region = None
+                self._debug(f"Opening {target}")
 
             # Try to open
             result = self.region_opener.search(robot_goal, target_neighbor=target)

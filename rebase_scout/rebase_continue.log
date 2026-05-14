@@ -19,3 +19,21 @@ hint: "git add/rm <conflicted_files>", then run "git rebase --continue".
 hint: You can instead skip this commit: run "git rebase --skip".
 hint: To abort and get back to the state before "git rebase", run "git rebase --abort".
 Could not apply 1bd35c1... Enforce canonical namo_rl build_python loading with strict policy and guard checks
+[detached HEAD be69622] Enforce canonical namo_rl build_python loading with strict policy and guard checks
+ 22 files changed, 1075 insertions(+), 237 deletions(-)
+ create mode 100644 IDFS_DATA_PIPELINE.md
+ delete mode 100755 build_python_mjxrl.sh
+ create mode 100644 python/namo/core/binding_loader.py
+ create mode 100644 python/namo/data_collection/parallel_sequential_runner.py
+ create mode 100755 python/scripts/check_binding_provenance.py
+ create mode 100755 python/scripts/check_canonical_binding_policy.py
+Rebasing (6/32)Rebasing (7/32)CONFLICT (modify/delete): MUJOCO_LOG.TXT deleted in HEAD and modified in 288c21f (WIP snapshot: in-flight 2push state as baseline for real-robot work).  Version 288c21f (WIP snapshot: in-flight 2push state as baseline for real-robot work) of MUJOCO_LOG.TXT left in tree.
+Auto-merging python/namo/planners/connectivity_snapshot.py
+Auto-merging src/planning/namo_push_controller.cpp
+Auto-merging src/skills/namo_push_skill.cpp
+error: could not apply 288c21f... WIP snapshot: in-flight 2push state as baseline for real-robot work
+hint: Resolve all conflicts manually, mark them as resolved with
+hint: "git add/rm <conflicted_files>", then run "git rebase --continue".
+hint: You can instead skip this commit: run "git rebase --skip".
+hint: To abort and get back to the state before "git rebase", run "git rebase --abort".
+Could not apply 288c21f... WIP snapshot: in-flight 2push state as baseline for real-robot work

@@ -179,6 +179,9 @@ void ConfigManager::load_skill_config() {
     if (loader_->has_key("skill.object_clearance")) {
         skill_.object_clearance = loader_->get_double("skill.object_clearance");
     }
+    if (loader_->has_key("skill.push_offset_margin")) {
+        skill_.push_offset_margin = loader_->get_double("skill.push_offset_margin");
+    }
     
     // Edge point sampling - prefer points_per_face, fallback to num_edge_points
     if (loader_->has_key("skill.points_per_face")) {
