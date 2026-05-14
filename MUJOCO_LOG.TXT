@@ -2011,3 +2011,12 @@ WARNING: Linesearch objective is not convex
 Tue Jan 20 05:29:05 2026
 WARNING: Linesearch objective is not convex
 
+Thu Jan 29 05:41:09 2026
+ERROR: could not create window
+
+Thu Jan 29 05:41:18 2026
+ERROR: could not create window
+
+Thu Jan 29 05:41:25 2026
+ERROR: could not create window
+

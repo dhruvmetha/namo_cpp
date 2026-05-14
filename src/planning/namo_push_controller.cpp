@@ -91,7 +91,6 @@ void NAMOPushController::generate_rectangular_edge_points(const std::array<doubl
     double w = obj_size[0];  // width with margin
     double d = obj_size[1];  // depth with margin
 
-    
     // Robot offset for close contact pushing (rotation-safe radius + configurable margin)
     const std::vector<double> robot_half_extents = {robot_size_[0], robot_size_[1]};
     const double robot_radius = compute_rotation_safe_robot_radius_m(robot_half_extents);

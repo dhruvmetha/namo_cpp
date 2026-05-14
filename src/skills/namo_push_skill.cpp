@@ -106,9 +106,7 @@ void NAMOPushSkill::initialize_skill() {
         controller.set_stuck_threshold(config_->skill().controller_stuck_threshold);
         controller.set_min_position_change(config_->skill().controller_min_position_change);
         controller.set_min_angle_change(config_->skill().controller_min_angle_change);
-        controller.set_push_offset_margin(config_->planning().wavefront_edge_offset_margin);
-
-        
+        controller.set_push_offset_margin(config_->planning().wavefront_edge_offset_margin);        
     } else {
         // Use legacy hardcoded values
         executor_ = std::make_unique<MPCExecutor>(env_);

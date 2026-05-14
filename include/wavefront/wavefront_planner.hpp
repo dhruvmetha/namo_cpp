@@ -99,7 +99,7 @@ public:
     const std::vector<double>& get_bounds() const { return bounds_; }
     const std::vector<double>& get_robot_size() const { return robot_size_; }
     double get_tier1_inflation_margin() const { return tier1_inflation_margin_; }
-    
+
     /**
      * @brief Get performance statistics
      */

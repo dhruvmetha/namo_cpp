@@ -504,17 +504,51 @@ void NAMOEnvironment::disable_logging() {
 }
 
 std::vector<double> NAMOEnvironment::get_environment_bounds() const {
-    // Start with minimum bounds of [-2,-2] to [2,2]
-    std::vector<double> bounds = {
-        -2.0,  // x_min
-         2.0,  // x_max
-        -2.0,  // y_min
-         2.0   // y_max
-    };
-    
-    // Include static objects
+    // Extract workspace bounds from boundary walls (wall_1 to wall_4)
+    // These define the inner playable area
+    double x_min = -1e9, x_max = 1e9, y_min = -1e9, y_max = 1e9;
+    bool found_walls = false;
+
     for (size_t i = 0; i < num_static_; i++) {
         const auto& obj = static_objects_[i];
+
+        // Use boundary walls to define workspace limits
+        if (obj.name == "wall_1") {  // Left wall
+            x_min = obj.position[0] + obj.size[0];  // Inner edge
+            found_walls = true;
+        } else if (obj.name == "wall_2") {  // Right wall
+            x_max = obj.position[0] - obj.size[0];  // Inner edge
+            found_walls = true;
+        } else if (obj.name == "wall_3") {  // Bottom wall
+            y_min = obj.position[1] + obj.size[1];  // Inner edge
+            found_walls = true;
+        } else if (obj.name == "wall_4") {  // Top wall
+            y_max = obj.position[1] - obj.size[1];  // Inner edge
+            found_walls = true;
+        }
+    }
+
+    // If no boundary walls found, use robot position as fallback
+    if (!found_walls) {
+        double robot_x = robot_state_.position[0];
+        double robot_y = robot_state_.position[1];
+        x_min = robot_x - 0.5;
+        x_max = robot_x + 0.5;
+        y_min = robot_y - 0.5;
+        y_max = robot_y + 0.5;
+    }
+
+    std::vector<double> bounds = {x_min, x_max, y_min, y_max};
+
+    // Expand bounds with other static objects (skip boundary walls)
+    for (size_t i = 0; i < num_static_; i++) {
+        const auto& obj = static_objects_[i];
+
+        // Skip boundary walls - already processed above
+        if (obj.name == "wall_1" || obj.name == "wall_2" ||
+            obj.name == "wall_3" || obj.name == "wall_4") {
+            continue;
+        }
         
         double half_width = obj.size[0] * 0.5;
         double half_height = obj.size[1] * 0.5;
@@ -572,14 +606,14 @@ std::vector<double> NAMOEnvironment::get_environment_bounds() const {
     double robot_x = robot_state_.position[0];
     double robot_y = robot_state_.position[1];
     double robot_radius = robot_info_.size[0]; // Use robot radius for bounds
-    
+
     bounds[0] = std::min(bounds[0], robot_x - robot_radius);  // Expand x_min if needed
     bounds[1] = std::max(bounds[1], robot_x + robot_radius);  // Expand x_max if needed
     bounds[2] = std::min(bounds[2], robot_y - robot_radius);  // Expand y_min if needed
     bounds[3] = std::max(bounds[3], robot_y + robot_radius);  // Expand y_max if needed
     
-    // Add padding
-    const double PADDING = 0.5;
+    // Add small padding for small workspaces (2cm)
+    const double PADDING = 0.02;
     bounds[0] -= PADDING;
     bounds[1] += PADDING;
     bounds[2] -= PADDING;
