@@ -45,7 +45,7 @@ class NAMOPlanningService:
         result = service.plan_from_xml(
             xml_path="/tmp/env.xml",
             robot_goal=(3.0, 2.4, 0.0),  # simulation coordinates (meters)
-            algorithm="region_opening",
+            algorithm="full_namo",
         )
         if result.success:
             for action in result.actions:
@@ -162,7 +162,7 @@ class NAMOPlanningService:
         self,
         xml_path: str,
         robot_goal: Tuple[float, float, float],
-        algorithm: str = "region_opening",
+        algorithm: str = "full_namo",
         goal_strategy: str = "primitive",
         max_chain_depth: int = 1,
         max_solutions_per_neighbor: int = 1,
@@ -179,7 +179,7 @@ class NAMOPlanningService:
         Args:
             xml_path: Path to MuJoCo XML environment file
             robot_goal: Target robot position (x, y, theta) in simulation meters
-            algorithm: Planning algorithm ("region_opening")
+            algorithm: Planning algorithm ("full_namo" or "region_opening")
             goal_strategy: Goal sampling strategy ("primitive", "ml", etc.)
             max_chain_depth: Maximum chain depth for multi-push solutions (1 or 2)
             max_solutions_per_neighbor: Maximum solutions to find per neighbor
