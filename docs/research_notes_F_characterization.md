@@ -520,3 +520,32 @@ The chain_depth=2 GT collection is still running (background, ETA ~hours). When 
 - If ML also misses F₁′ → the shallow bias affects both horizons. The biased teacher is the root cause for everything, and Fix 1 is the only path forward.
 
 Either way, the action items above are unchanged. Fix 1 first, re-evaluate, then decide whether to keep the existing model around for the chain-only use case.
+
+### Round-1 update: the direction test
+
+Following the round-1 finding, the obvious question was whether the model had learned *anything* scene-conditional, or whether it was emitting essentially scene-independent shallow predictions. I claimed informally that it had learned a "direction prior" — which face / contact-point to push — even if it failed at depth. That claim was tested empirically and only partially survived.
+
+The test ([`test_direction_hypothesis.py`](f_characterization/test_direction_hypothesis.py)): project both ML predictions and F to three granularities and compare ML hit@K to random-from-R hit@K at each:
+- **Face** — 4-way (which side of the object); `edge_idx // 15`.
+- **Contact-point** — 60-way (where on the side, ignoring depth); `edge_idx`.
+- **Joint** — full (edge, depth).
+
+Results on the 300-env held-out split, K=1, reachable-filtered:
+
+| level   | very_hard ML | very_hard rand | lift   | hard ML | hard rand | lift   |
+|---------|-------------:|---------------:|-------:|--------:|----------:|-------:|
+| face    | 0.556        | 0.401          | **+0.155** | 0.500 | 0.448  | **+0.052** |
+| contact | 0.000        | 0.118          | -0.118 | 0.111   | 0.190     | -0.079 |
+| joint   | 0.000        | 0.026          | -0.026 | 0.000   | 0.091     | -0.091 |
+
+**Accept H_direction at face granularity.** The model picks the correct face (1 of 4) ~50–56% of the time on hard problems, vs ~40–45% for random-from-R. That's a real, scene-conditional signal worth +5 to +15 pp.
+
+**Reject H_direction at contact-point granularity.** Conditional on the right face, the model has no better idea than random which of the 15 contact points to push. The "direction reasoning" stops at face selection.
+
+**Reject H_direction at joint granularity.** Already known — the depth bias dominates.
+
+Updates to the partial-reasoning frame: the model has learned a **face prior** (which side of the object). It has *not* learned contact-point selection within face, nor push depth. The "direction" capability claimed in earlier discussion is one out of three sub-tasks (face / contact / depth) of action selection. The biased-teacher frame still dominates the explanation; the face prior is a thin scene-conditional layer on top of the depth-bias floor.
+
+Implication for the hybrid use case: a `ml_face_prior` strategy that uses the model to weight face-order in the planner's BFS but runs primitive search within each face would extract real value from this model without depending on its broken contact-or-depth predictions. Modest speedup (~2–4× on hard cases where the face pick is correct ~55% of the time), and cheap to add. Defer until Fix 1 is in flight; revisit if Fix 1 is delayed or partial.
+
+Where this changes the methodology: when evaluating a learned model against F, decompose hit-rate across the natural granularity hierarchy of the action space *first*, not after the joint metric has already disappointed. The face/contact/depth decomposition surfaces partial reasoning that the joint metric hides. Add to the methodology as "step 4.5: per-granularity hit-rate decomposition before drawing conclusions about the model's reasoning content."
