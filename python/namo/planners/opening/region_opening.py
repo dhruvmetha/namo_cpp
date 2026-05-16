@@ -2415,7 +2415,10 @@ class RegionOpeningPlanner(BasePlanner):
                     if self.config.verbose:
                         print(f"        📍 Edge {edge_idx} stuck at depth {depth+1}, depths 1-{depth} still valid")
 
-            # Log this primitive trial for F characterization
+            # Log this primitive trial for F characterization.
+            # chain_depth + parent_* let downstream analysis reconstruct F_n'
+            # (push-1 primitives that enable a successful push-2). Without
+            # them, chain_depth>=2 trial logs are flat and unrecoverable.
             trial_log.append({
                 'edge_idx': edge_idx,
                 'depth': depth,
@@ -2425,6 +2428,9 @@ class RegionOpeningPlanner(BasePlanner):
                 'stuck': stuck_detected,
                 'collision': collision_detected,
                 'reachable_after': reachable_count_after,
+                'chain_depth': current_chain_depth,
+                'parent_edge_idx': parent_node.edge_idx if parent_node is not None else None,
+                'parent_depth': (parent_node.step_cost - 1) if (parent_node is not None and parent_node.step_cost > 0) else None,
             })
 
             total_region_goals = len(region_goals[neighbour_label].goals) if neighbour_label in region_goals else 0

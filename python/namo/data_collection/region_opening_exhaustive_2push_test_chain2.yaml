@@ -1,0 +1,38 @@
+# 2-push exhaustive F characterization on the 2-push held-out split.
+# Same manifest as chain1 but region_max_chain_depth=2 so we can reconstruct
+# F1' (push-1 primitives that enable a successful push-2). Requires the
+# trial_log chain_depth/parent_* fields added in region_opening.py.
+
+output_dir: /common/users/dm1487/namo_data/f_characterization/2push_test_300_chain2
+algorithm: region_opening
+workers: 32
+episodes_per_env: 1
+
+max_depth: 5
+max_goals_per_object: 5
+max_terminal_checks: 50000
+search_timeout: 1800.0   # 30 min per instance — 2-push grid is ~60x larger
+goals_per_region: 10
+
+points_per_face: 15
+region_allow_collisions: true
+region_max_chain_depth: 2
+region_max_solutions_per_neighbor: 9999
+region_max_recorded_solutions_per_neighbor: 9999
+region_frontier_beam_width: 10000
+region_chain_link_cost: 11
+region_ml_ignore_blacklist: false
+region_selection_strategy: cost_first
+region_exhaustive_mode: true
+
+goal_strategy: primitive
+
+xml_dir: /common/users/shared/robot_learning/dm1487/namo/mj_env_configs/aug9/medium
+config_file: config/namo_config_complete_skill15.yaml
+manifest: /tmp/manifest_2push_test_300_xmlonly.txt
+
+verbose: false
+filter_minimum_length: false
+smooth_solutions: false
+refine_actions: false
+validate_refinement: false
