@@ -538,13 +538,13 @@ Results on the 300-env held-out split, K=1, reachable-filtered:
 | contact | 0.000        | 0.118          | -0.118 | 0.111   | 0.190     | -0.079 |
 | joint   | 0.000        | 0.026          | -0.026 | 0.000   | 0.091     | -0.091 |
 
-**Accept H_direction at face granularity.** The model picks the correct face (1 of 4) ~50–56% of the time on hard problems, vs ~40–45% for random-from-R. That's a real, scene-conditional signal worth +5 to +15 pp.
+**Accept H_direction at face granularity (very_hard).** On the 12× rlab7 follow-up (n=30 for very_hard), the model picks the correct face 73.3% of the time vs random 47.3% — **lift +0.267 with 95% CI [+0.03, +0.51], statistically significant**. The original 300-env estimate of +15.5pp was an *underestimate*, not an overstatement. On hard (n=132), the lift is +6pp but ns. On easier buckets, both ML and random hit ~90%+ at face level (ceiling effect, signal saturates).
 
-**Reject H_direction at contact-point granularity.** Conditional on the right face, the model has no better idea than random which of the 15 contact points to push. The "direction reasoning" stops at face selection.
+**Inconclusive at contact-point granularity.** rlab7 contact-prior on very_hard is +10pp, on hard is +8pp — both point estimates positive but CIs cross zero. The model may have learned coarse contact-point preference, but the current sample doesn't support a clean accept/reject.
 
-**Reject H_direction at joint granularity.** Already known — the depth bias dominates.
+**Reject H_direction at joint granularity.** The depth bias dominates: ML matches random at K=1 on hard/very_hard, loses on medium+. The model's failure to scale with K (predictions all cluster in one shallow region) confirms the marginal collapse on depth.
 
-Updates to the partial-reasoning frame: the model has learned a **face prior** (which side of the object). It has *not* learned contact-point selection within face, nor push depth. The "direction" capability claimed in earlier discussion is one out of three sub-tasks (face / contact / depth) of action selection. The biased-teacher frame still dominates the explanation; the face prior is a thin scene-conditional layer on top of the depth-bias floor.
+Updates to the partial-reasoning frame: the model has learned a **face prior** that is significant and substantial on the hardest problems (+27pp on very_hard, where it matters most). It has *not* learned push depth (rock-solid rejection). Contact-point selection within face is inconclusive — point estimates suggest a small positive signal but the data doesn't yet support a definitive claim. So the model has one confirmed capability (face selection), one suggestive but unproven capability (contact-point preference), and one definitively absent capability (depth selection). The biased-teacher frame still dominates the explanation; the face prior is a scene-conditional layer on top of the depth-bias floor, strongest where the depth bias hurts most.
 
 Implication for the hybrid use case: a `ml_face_prior` strategy that uses the model to weight face-order in the planner's BFS but runs primitive search within each face would extract real value from this model without depending on its broken contact-or-depth predictions. Modest speedup (~2–4× on hard cases where the face pick is correct ~55% of the time), and cheap to add. Defer until Fix 1 is in flight; revisit if Fix 1 is delayed or partial.
 

@@ -1,9 +1,32 @@
 # ML vs GT-F — Round 1 Results (Point Robot, 1-Push Horizon)
 
-**Date:** 2026-05-16. Generated during the autonomous AFK churn session.
+**Date:** 2026-05-16. Generated during the autonomous AFK churn session, calibrated with the larger rlab7 follow-up.
 **Model:** `cropped_diffusion_crossattn_2push/2025-12-16/05-36-44` (DiT cross-attn, 5-channel local masks, DDIM/5 steps, seed 42, 32 samples).
-**Test split:** 300-env stratified held-out (`manifest_2push_test_minus_1push_test_filtered_difficulty_100each.txt`), point robot, `config/namo_config_complete_skill15.yaml`.
-**Status:** 1-push horizon (F₁ only) is complete on 295/300 envs / 284 dedup (xml, region, object) instances. **2-push horizon (F₁′) is still collecting** — chain_depth=2 GT is at 10/300 envs and will take hours.
+**Test splits used:**
+- **Primary (held-out, planner-designed):** 300-env stratified split `manifest_2push_test_minus_1push_test_filtered_difficulty_100each.txt`. 284 dedup instances, 177 with `|F|>0`. **Small n on hard/very_hard buckets (18 / 9).**
+- **Confirmation (rlab7 1-push test set):** `manifest_test.txt` filtered to envs disjoint from the 2-push training pool (1651 of 1767 envs). 3474 dedup instances, 3282 with `|F|>0`. **12× larger; what we use to calibrate per-bucket claims.**
+
+**Status:** 1-push horizon (F₁ only) complete on both splits. **2-push horizon (F₁′) still collecting** — chain_depth=2 GT was at ~10–30/300 envs at last check and is the main outstanding piece.
+
+> ⚠️ **Calibration note.** The original round-1 write-up (300-env only) made several per-bucket claims that turned out to be underpowered. The rlab7 follow-up either confirmed, refined, or revised each — see §"Calibrated findings" below.
+
+## Calibrated findings (post-rlab7)
+
+| claim | evidence | verdict |
+|---|---|---|
+| Model emits ≈0% predictions at depth ≥ 7 | 0 of 5000+ predictions across buckets, upper 95% CI < 2% | **rock solid** |
+| Training-target displacement is shallow (97% < 1m, median 0.30m) | direct measurement of 167,965 training rows | **rock solid** |
+| ML actively loses to random-from-R at K=1 on medium/easy/very_easy | rlab7 n=475 / 1079 / 1566; lifts -0.08, -0.11, -0.09; all SIG | **established** |
+| ML **matches** random-from-R at K=1 on hard / very_hard | rlab7 n=132 / 30; lifts -0.02, +0.00; CIs cross 0 | **established — refines round 1** |
+| ML loses badly to random at K=10–32 on every bucket (model fails to scale with K) | large lift magnitudes, narrow CIs even on small n | **established** |
+| **Face-prior is real on very_hard** | rlab7 n=30; ML face hit 0.73 vs random 0.47; lift +0.27, SIG | **confirmed (stronger than round 1)** |
+| Face-prior on hard | rlab7 n=132; lift +0.06; CI [-0.06, +0.18] | inconclusive (point estimate positive) |
+| Contact-point prior within face | rlab7; lifts +0.08 to +0.10; ns | inconclusive |
+| Coverage drops to ~0.55 on very_hard (ML votes for unreachable slots) | rlab7 average | established |
+| **Multimodality / cluster coverage** | not directly measured yet | unknown |
+| **2-push horizon (F₁′) performance** | chain2 GT still collecting | unknown |
+
+The original round-1 claim "ML strictly worse than random on every bucket" was wrong on hard/very_hard — at the larger sample, ML *matches* random there (neither helping nor hurting). It still loses on the bigger buckets where random's floor is already high. The face-prior claim, which I nearly retracted as a small-n artifact, was actually *underestimated* by round 1 — on very_hard it's +27pp, not +15pp.
 
 ## Headline (and it is bad)
 
