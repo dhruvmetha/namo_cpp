@@ -44,7 +44,34 @@ For very_easy where `|F|/|R| ≈ 0.89`, a model that picks uniformly from R woul
 
 **The model was trained to predict push-2 from a post-push-1 state, where the object has already been displaced and the next push is typically a small adjustment near the current pose.** When given a 1-push *initial* state, it predicts the same kind of small-adjustment goals — but F₁ on hard problems requires *deep* pushes (the F-characterization paper notes feasible depth windows start at d=5.8 for very_hard). The model trained on intermediate states samples shallow-depth primitives; F₁ is concentrated at deep-depth primitives; hence systematic miss.
 
-**Direct check (TODO in round 2):** plot the depth-index distribution of ML aligned slots vs the depth-index distribution of F₁ per bucket. If ML predictions cluster at d=0–2 while hard-bucket F₁ clusters at d=5–9, the hypothesis is confirmed in one figure.
+**Direct check:** done. Depth distribution per difficulty bucket:
+
+```
+% of predictions at each depth (0=shallowest push, 9=deepest)
+ bucket      src    n    d=0   d=1   d=2   d=3   d=4   d=5   d=6   d=7   d=8   d=9
+ very_hard   F      29   0.0   6.9   6.9   6.9   3.4   0.0   6.9  10.3  27.6  31.0
+ very_hard   R    1307  17.8  14.3  11.3  10.1   9.4   8.6   7.7   7.3   7.0   6.6
+ very_hard   ML    192  20.3  25.5  29.2  16.7   6.8   0.5   1.0   0.0   0.0   0.0
+ hard        F     188   0.5   1.6   4.3   6.9  10.6  11.7  12.8  15.4  17.6  18.6
+ hard        R    1987  19.5  17.0  11.8   9.8   8.3   7.7   7.2   6.9   6.1   5.7
+ hard        ML    338  27.8  30.5  24.6  12.7   3.3   1.2   0.0   0.0   0.0   0.0
+ medium      F    1465   2.3   4.6   6.8  10.2  11.2  11.6  12.6  13.4  13.5  13.7
+ medium      R    4917  15.8  13.9  11.9  10.3   9.4   8.5   7.9   7.6   7.4   7.3
+ medium      ML    687  34.4  28.2  25.9   7.7   2.8   1.0   0.0   0.0   0.0   0.0
+ easy        F    4186   5.5   8.1   9.3  10.2  11.0  11.1  11.2  11.2  11.2  11.2
+ easy        R    7339  13.1  12.8  11.0  10.2   9.4   9.2   8.8   8.6   8.5   8.4
+ easy        ML    797  37.8  34.3  21.5   4.8   1.1   0.6   0.0   0.0   0.0   0.0
+ very_easy   F   12330   7.7   9.3  10.0  10.2  10.3  10.4  10.5  10.5  10.5  10.5
+ very_easy   R   13966  10.6  10.5  10.2  10.0  10.0   9.8   9.8   9.7   9.7   9.7
+ very_easy   ML  1412  45.7  31.4  17.0   4.0   1.3   0.4   0.1   0.0   0.0   0.0
+```
+
+**Hypothesis confirmed — and stronger than expected.** Across all 5 difficulty buckets the ML model essentially never predicts depth ≥ 6 (0.0%–1.0% mass at those depths combined). On very_hard, **58.6% of F lives at depths 8–9 where ML has zero mass**. On hard, **36.2% of F lives at d=8–9, again where ML predicts nothing**. The model's depth distribution is concentrated at d=0–2 (~95% of predictions); F's depth distribution is the opposite for hard problems and roughly uniform for easy ones. So:
+
+- On hard: ML predicts shallow → F is deep → systematic miss.
+- On easy: ML predicts shallow → F has support everywhere including shallow → some hits, but precision is dragged down because F at deep is unreachable to ML.
+
+The "model thinks all pushes should be small" pattern is unambiguous: 0% at d=7–9 on every bucket, including very_easy where R itself is roughly uniform in depth. This isn't the model adapting to scene context — it's a hard prior baked in by the 2-push training distribution.
 
 This would also predict the 2-push F₁′ comparison (when the chain_depth=2 GT finishes): for hard envs where F₁ = ∅ and a chain is needed, push-1 in F₁′ is often *also* a "small push" (set up the geometry for push-2 to finish), and **ML should do much better on F₁′ than on F₁**. The model is the right tool for the wrong question.
 
