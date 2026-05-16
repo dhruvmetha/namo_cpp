@@ -105,16 +105,57 @@ def load_ml(ml_pkl: str) -> Dict[Tuple[str, str, str], Dict[str, Any]]:
     return out, raw
 
 
-def topk_set(aligned: List[Dict[str, Any]], K: int) -> set:
+def topk_set(aligned: List[Dict[str, Any]], K: int,
+             filter_to: Optional[set] = None) -> set:
+    """Top-K by vote count. If filter_to is given, drop slots not in that set
+    BEFORE picking top-K (mirrors planner's reachable-edge filter)."""
     by_votes = sorted(aligned, key=lambda x: -x.get("votes", 0))
-    return {(int(p["edge_idx"]), int(p["depth_idx"]))
-            for p in by_votes[:K] if p.get("edge_idx") is not None}
+    out = []
+    for p in by_votes:
+        if p.get("edge_idx") is None:
+            continue
+        slot = (int(p["edge_idx"]), int(p["depth_idx"]))
+        if filter_to is not None and slot not in filter_to:
+            continue
+        out.append(slot)
+        if len(out) >= K:
+            break
+    return set(out)
+
+
+def _connected_components(F: set, n_edges: int = 60, n_depths: int = 10) -> List[set]:
+    """4-connected components of F in the (edge_idx, depth) grid."""
+    if not F:
+        return []
+    seen: set = set()
+    comps = []
+    for start in F:
+        if start in seen:
+            continue
+        comp = set()
+        stack = [start]
+        while stack:
+            e, d = stack.pop()
+            if (e, d) in seen or (e, d) not in F:
+                continue
+            seen.add((e, d))
+            comp.add((e, d))
+            for de, dd in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                ne, nd = e + de, d + dd
+                if 0 <= ne < n_edges and 0 <= nd < n_depths:
+                    if (ne, nd) in F and (ne, nd) not in seen:
+                        stack.append((ne, nd))
+        comps.append(comp)
+    return comps
 
 
 def metrics_for(topk: set, F: set, R: set) -> Dict[str, float]:
     if not topk:
         return {"hit": 0.0, "prec": 0.0, "rec": 0.0, "cov": 0.0,
-                "topk_size": 0, "F_size": len(F)}
+                "topk_size": 0, "F_size": len(F),
+                "n_clusters": 0, "clusters_hit": 0, "cluster_cov": 0.0}
+    comps = _connected_components(F)
+    clusters_hit = sum(1 for c in comps if c & topk)
     return {
         "hit": float(len(topk & F) > 0),
         "prec": len(topk & F) / len(topk),
@@ -122,6 +163,9 @@ def metrics_for(topk: set, F: set, R: set) -> Dict[str, float]:
         "cov": len(topk & R) / len(topk),
         "topk_size": len(topk),
         "F_size": len(F),
+        "n_clusters": len(comps),
+        "clusters_hit": clusters_hit,
+        "cluster_cov": clusters_hit / max(1, len(comps)),
     }
 
 
@@ -150,8 +194,11 @@ def main() -> int:
     p.add_argument("--gt-dir", required=True)
     p.add_argument("--ml-preds", required=True)
     p.add_argument("--out-dir", required=True)
-    p.add_argument("--horizon", choices=["1push", "2push"], default="1push",
-                   help="Whether to score against F1 (1push) or F1' (2push)")
+    p.add_argument("--horizon",
+                   choices=["1push", "2push_chain_only", "2push_any"],
+                   default="1push",
+                   help="Score vs F1 (1push), F1' only (2push_chain_only), "
+                        "or F1 ∪ F1' (2push_any).")
     p.add_argument("--ks", default="1,3,5,10,20,32",
                    help="Comma-separated K values to evaluate")
     p.add_argument("--random-draws", type=int, default=50)
@@ -181,7 +228,12 @@ def main() -> int:
     for k in keys:
         g = gt[k]
         m = ml_preds[k]
-        F_target = g["F1_prime"] if args.horizon == "2push" else g["F"]
+        if args.horizon == "1push":
+            F_target = g["F"]
+        elif args.horizon == "2push_chain_only":
+            F_target = g["F1_prime"]
+        else:  # 2push_any
+            F_target = g["F"] | g["F1_prime"]
         R_set = g["R"]
         F_size = len(F_target)
         R_size = len(R_set)
@@ -189,8 +241,12 @@ def main() -> int:
         bucket = bucket_for_ratio(ratio)
         gated = F_size > 0
         for K in Ks:
+            # Raw top-K (ML preds as-is, including unreachable slots).
             tk = topk_set(m["ml_aligned"], K)
             mtr = metrics_for(tk, F_target, R_set)
+            # Reachable-filtered top-K (mirrors what the planner actually tries).
+            tk_r = topk_set(m["ml_aligned"], K, filter_to=R_set)
+            mtr_r = metrics_for(tk_r, F_target, R_set)
             base = random_baseline(R_set, F_target, K, draws=args.random_draws, rng=rng)
             rows.append({
                 "xml": k[0], "region": k[1], "object": k[2],
@@ -201,6 +257,11 @@ def main() -> int:
                 "ml_hit": mtr["hit"], "ml_prec": mtr["prec"],
                 "ml_rec": mtr["rec"], "ml_cov": mtr["cov"],
                 "ml_topk_size": mtr["topk_size"],
+                "ml_clusters_hit": mtr["clusters_hit"],
+                "ml_n_clusters": mtr["n_clusters"],
+                "ml_cluster_cov": mtr["cluster_cov"],
+                "ml_hit_R": mtr_r["hit"], "ml_prec_R": mtr_r["prec"],
+                "ml_rec_R": mtr_r["rec"], "ml_topk_R_size": mtr_r["topk_size"],
                 "rand_hit": base["hit"], "rand_prec": base["prec"],
                 "rand_rec": base["rec"],
             })
@@ -231,9 +292,9 @@ def main() -> int:
 
     bucket_order = [b[0] for b in DIFFICULTY_BINS]
     print(f"\n{'bucket':>11s} {'K':>4s} {'n':>5s} "
-          f"{'ml_hit':>8s} {'rand_hit':>10s} {'lift':>7s} "
-          f"{'ml_prec':>9s} {'ml_rec':>8s} {'ml_cov':>8s} "
-          f"{'avg_|F|':>8s} {'avg_|R|':>8s}")
+          f"{'ml_hit':>8s} {'ml_hitR':>8s} {'rand':>7s} "
+          f"{'liftR':>7s} {'ml_prR':>7s} {'ml_recR':>8s} "
+          f"{'ml_cov':>7s} {'avg|F|':>7s} {'avg|R|':>7s}")
     for b in bucket_order:
         for K in Ks:
             sub = by.get((b, K), [])
@@ -241,16 +302,17 @@ def main() -> int:
                 continue
             n = len(sub)
             mh = np.mean([r["ml_hit"] for r in sub])
+            mhR = np.mean([r["ml_hit_R"] for r in sub])
             rh = np.mean([r["rand_hit"] for r in sub])
-            mp = np.mean([r["ml_prec"] for r in sub])
-            mr = np.mean([r["ml_rec"] for r in sub])
+            mpR = np.mean([r["ml_prec_R"] for r in sub])
+            mrR = np.mean([r["ml_rec_R"] for r in sub])
             mc = np.mean([r["ml_cov"] for r in sub])
             avgF = np.mean([r["F_size"] for r in sub])
             avgR = np.mean([r["R_size"] for r in sub])
             print(f"{b:>11s} {K:>4d} {n:>5d} "
-                  f"{mh:>8.3f} {rh:>10.3f} {mh-rh:>+7.3f} "
-                  f"{mp:>9.3f} {mr:>8.3f} {mc:>8.3f} "
-                  f"{avgF:>8.1f} {avgR:>8.1f}")
+                  f"{mh:>8.3f} {mhR:>8.3f} {rh:>7.3f} "
+                  f"{mhR-rh:>+7.3f} {mpR:>7.3f} {mrR:>8.3f} "
+                  f"{mc:>7.3f} {avgF:>7.1f} {avgR:>7.1f}")
     print(f"\n{'OVERALL':>11s} {'K':>4s} {'n':>5s} "
           f"{'ml_hit':>8s} {'rand_hit':>10s} {'lift':>7s} ml_rec ml_prec")
     for K in Ks:

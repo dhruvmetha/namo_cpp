@@ -250,6 +250,21 @@ def main() -> int:
             print(f"[{idx+1}/{len(instances)}] ok={ok_n} "
                   f"rate={rate:.2f}/s elapsed={elapsed:.0f}s eta={eta:.0f}s",
                   flush=True)
+            # Periodic checkpoint so partial results survive an early kill.
+            if (idx + 1) % 200 == 0:
+                ckpt = Path(str(args.out) + ".partial")
+                ckpt.parent.mkdir(parents=True, exist_ok=True)
+                with open(ckpt, "wb") as f:
+                    pickle.dump({
+                        "ml_model": args.ml_model, "gt_dir": args.gt_dir,
+                        "samples": args.samples, "seed": args.seed,
+                        "sampler": args.sampler, "num_steps": args.num_steps,
+                        "pos_tol": args.pos_tol, "ang_tol": args.ang_tol,
+                        "k_nearest": args.k_nearest,
+                        "results": results,
+                        "partial": True, "n_so_far": idx + 1,
+                        "n_total": len(instances),
+                    }, f)
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
