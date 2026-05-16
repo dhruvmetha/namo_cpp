@@ -31,6 +31,9 @@ region_exhaustive_mode: false
 
 # Goal strategy: pure primitive (no ML)
 goal_strategy: primitive
+# Use car-calibrated primitives (7cm diff-drive). Without this, the planner
+# loads the legacy 30cm point-robot primitives and emits targets ~3-4× too far.
+primitive_prefix: "car_"
 
 # Paths
 xml_dir: /common/home/dm1487/robotics_research/ktamp/namo/test_xml/little-car-modeling-package/artifacts

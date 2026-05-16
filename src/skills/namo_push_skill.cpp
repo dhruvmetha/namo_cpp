@@ -141,13 +141,11 @@ bool NAMOPushSkill::is_applicable(const std::map<std::string, SkillParameterValu
     if (!is_object_movable(object_name)) {
         return false;
     }
-    
-    // Validate target pose is reachable
-    auto target_pose = std::get<SE2State>(parameters.at("target_pose"));
-    if (!is_target_within_bounds(target_pose)) {
-        return false;
-    }
-    
+
+    // (No target-bounds check: the planner picks (edge_idx, depth) over the
+    // primitive table; the target_pose is a derived prediction that may be
+    // mis-calibrated. Rejecting on it caused false negatives. Out-of-bounds
+    // outcomes are harmless — the obstacle just exits the wavefront grid.)
     return true;
 }
 
@@ -607,20 +605,16 @@ std::vector<std::string> NAMOPushSkill::check_preconditions(const std::map<std::
     }
     
     auto object_name = std::get<std::string>(parameters.at("object_name"));
-    auto target_pose = std::get<SE2State>(parameters.at("target_pose"));
-    
+
     // Check object exists and is movable
     if (!is_object_movable(object_name)) {
         unmet.push_back("Object '" + object_name + "' does not exist or is not movable");
     }
-    
-    // Check target is within bounds
-    if (!is_target_within_bounds(target_pose)) {
-        unmet.push_back("Target pose is outside environment bounds");
-    }
-    
-    // Reachability is determined dynamically by wavefront planning during execution
-    
+
+    // (Target-bounds check removed — target is a derived prediction. The
+    // planner enumerates (edge_idx, depth) directly and trusts the C++
+    // primitive table for actual motion.)
+
     return unmet;
 }
 

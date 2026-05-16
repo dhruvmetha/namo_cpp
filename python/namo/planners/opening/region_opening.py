@@ -455,6 +455,10 @@ class RegionOpeningPlanner(BasePlanner):
 
         algo_params = getattr(self, "algorithm_params", {}) or {}
         primitive_data_dir = algo_params.get("primitive_data_dir", "data")
+        # Prefix selecting per-robot primitive calibration:
+        #   ""    → motion_primitives_15_*.dat (30 cm point-robot, legacy)
+        #   "car_" → car_motion_primitives_15_*.dat (7 cm diff-drive car)
+        primitive_prefix = algo_params.get("primitive_prefix", "")
         strategy_name = algo_params.get("goal_strategy")
 
         if strategy_name and strategy_name.lower() in {"ml", "ml_primitive"}:
@@ -536,7 +540,8 @@ class RegionOpeningPlanner(BasePlanner):
             # Store strategies for MLDrivenAsyncSearch
             self._primitive_strategy = PrimitiveGoalStrategy(
                 data_dir=primitive_data_dir,
-                verbose=self.config.verbose
+                verbose=self.config.verbose,
+                primitive_prefix=primitive_prefix,
             )
             self._ml_async_strategy = MLPrimitiveAsyncStrategy(
                 goal_model_path=ml_path,
@@ -572,7 +577,8 @@ class RegionOpeningPlanner(BasePlanner):
                 data_dir=primitive_data_dir,
                 verbose=self.config.verbose,
                 shuffle_edges=algo_params.get("shuffle_edges", False),
-                seed=algo_params.get("shuffle_seed", None)
+                seed=algo_params.get("shuffle_seed", None),
+                primitive_prefix=primitive_prefix,
             )
 
     @property

@@ -40,7 +40,12 @@ def main():
                     help="Render every Nth qpos frame (25 = ~20fps from a 500Hz dump)")
     ap.add_argument("--width", type=int, default=640)
     ap.add_argument("--height", type=int, default=640)
-    ap.add_argument("--cam-dist", type=float, default=1.5)
+    ap.add_argument("--cam-dist", type=float, default=None,
+                    help="Camera distance (m). If omitted, auto-fits to wall extents "
+                         "(longest wall span × cam-fit-multiplier).")
+    ap.add_argument("--cam-fit-multiplier", type=float, default=1.2,
+                    help="When --cam-dist is auto, multiply the longest wall span by this. "
+                         "1.2 leaves a small margin; bump up for more zoom-out.")
     ap.add_argument("--cam-azimuth", type=float, default=90.0)
     ap.add_argument("--cam-elevation", type=float, default=-90.0)
     args = ap.parse_args()
@@ -58,10 +63,32 @@ def main():
     data = mujoco.MjData(model)
     renderer = mujoco.Renderer(model, height=args.height, width=args.width)
 
+    # Compute auto cam_dist from wall extents if not user-supplied
+    cam_dist = args.cam_dist
+    cam_lookat = np.array([0.0, 0.0, 0.03])
+    if cam_dist is None:
+        wall_xs, wall_ys = [], []
+        for gi in range(model.ngeom):
+            name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, gi) or ""
+            if not name.startswith("wall_"):
+                continue
+            px, py = float(model.geom_pos[gi, 0]), float(model.geom_pos[gi, 1])
+            sx, sy = float(model.geom_size[gi, 0]), float(model.geom_size[gi, 1])
+            wall_xs += [px - sx, px + sx]
+            wall_ys += [py - sy, py + sy]
+        if wall_xs and wall_ys:
+            xmin, xmax = min(wall_xs), max(wall_xs)
+            ymin, ymax = min(wall_ys), max(wall_ys)
+            cam_lookat = np.array([0.5 * (xmin + xmax), 0.5 * (ymin + ymax), 0.03])
+            cam_dist = max(xmax - xmin, ymax - ymin) * args.cam_fit_multiplier
+        else:
+            cam_dist = 1.5
+        print(f"auto cam_dist={cam_dist:.3f} lookat=({cam_lookat[0]:.3f},{cam_lookat[1]:.3f})")
+
     cam = mujoco.MjvCamera()
     cam.type = mujoco.mjtCamera.mjCAMERA_FREE
-    cam.lookat[:] = [0, 0, 0.03]
-    cam.distance = args.cam_dist
+    cam.lookat[:] = cam_lookat
+    cam.distance = cam_dist
     cam.azimuth = args.cam_azimuth
     cam.elevation = args.cam_elevation
 

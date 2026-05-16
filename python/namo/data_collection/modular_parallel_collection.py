@@ -1147,6 +1147,11 @@ def main():
                         help="Maximum ML goals to align per sampler call")
     parser.add_argument("--primitive-data-dir", type=str, default="data",
                         help="Directory containing primitive motion databases")
+    parser.add_argument("--primitive-prefix", type=str, default="",
+                        help="Filename prefix for per-robot primitive calibration. "
+                             "'' = motion_primitives_15_*.dat (30cm point-robot, legacy). "
+                             "'car_' = car_motion_primitives_15_*.dat (7cm diff-drive car). "
+                             "MUST match the robot in --config-file/--namo-config.")
     parser.add_argument("--shuffle-edges", action="store_true",
                         help="Randomize edge ordering in primitive strategy (useful for difficulty analysis)")
     parser.add_argument("--shuffle-seed", type=int, default=None,
@@ -1225,6 +1230,7 @@ def main():
             "region_max_solutions_per_neighbor": args.region_max_solutions_per_neighbor,
             "region_chain_link_cost": args.region_chain_link_cost,
             "region_min_reachable_fraction": args.region_min_reachable_fraction,
+            "primitive_prefix": args.primitive_prefix,
             "region_ml_ignore_blacklist": args.region_ml_ignore_blacklist,
             "region_selection_strategy": args.region_selection_strategy,
             "profile_geometric": args.profile_geometric,

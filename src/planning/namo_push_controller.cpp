@@ -27,11 +27,16 @@ NAMOPushController::NAMOPushController(NAMOEnvironment& env,
     robot_size_[1] = planner_robot_size.size() > 1 ? planner_robot_size[1] : 0.15;
     robot_size_[2] = 0.0;  // z not used for 2D planning
     
-    // Create navigation strategy based on robot type
+    // Create navigation strategy based on robot type.
+    // Default: teleport (HolonomicNavigation) for ALL robots — fast, geometry-focused,
+    // good for data collection where we care about the push outcome.
+    // Opt-in real diff-drive nav: set NAMO_REAL_NAV=1 — use when you need kinematic
+    // realism (videos, evaluation, sim-to-real). Legacy NAMO_FORCE_TELEPORT_NAV=1
+    // is still honored but is now a no-op (default behavior).
     auto adapter = env_.get_robot_adapter();
-    const char* force_teleport = std::getenv("NAMO_FORCE_TELEPORT_NAV");
-    bool teleport_override = force_teleport && std::string(force_teleport) == "1";
-    if (adapter && adapter->is_diff_drive() && !teleport_override) {
+    const char* real_nav_env = std::getenv("NAMO_REAL_NAV");
+    bool use_real_nav = real_nav_env && std::string(real_nav_env) == "1";
+    if (adapter && adapter->is_diff_drive() && use_real_nav) {
         nav_strategy_ = std::make_unique<DiffDriveNavigation>(DiffDriveNavigation::Params{});
     } else {
         nav_strategy_ = std::make_unique<HolonomicNavigation>();

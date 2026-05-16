@@ -25,7 +25,9 @@ def main():
     args = ap.parse_args()
 
     os.environ["NAMO_QPOS_DUMP"] = args.qpos_out
-    os.environ.setdefault("NAMO_FORCE_TELEPORT_NAV", "1")
+    # Teleport is now the default for the controller; no env var needed.
+    # If you want a real-nav replay (for kinematic-honest videos), run with
+    # NAMO_REAL_NAV=1 in the environment.
     if Path(args.qpos_out).exists():
         Path(args.qpos_out).unlink()
 

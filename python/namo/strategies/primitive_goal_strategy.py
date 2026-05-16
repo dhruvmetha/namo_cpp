@@ -136,7 +136,8 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
     """
 
     def __init__(self, data_dir: str = "data", verbose: bool = False,
-                 shuffle_edges: bool = False, seed: int = None):
+                 shuffle_edges: bool = False, seed: int = None,
+                 primitive_prefix: str = ""):
         """Initialize primitive goal strategy.
 
         Args:
@@ -144,11 +145,15 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
             verbose: Enable verbose output
             shuffle_edges: If True, randomize edge ordering (useful for averaging difficulty)
             seed: Random seed for reproducible shuffling (None = random each call)
+            primitive_prefix: Prefix on primitive filename to select per-robot calibration.
+                "" → motion_primitives_15_*.dat (30 cm point-robot, legacy)
+                "car_" → car_motion_primitives_15_*.dat (7 cm diff-drive car)
         """
         self.data_dir = data_dir
         self.verbose = verbose
         self.shuffle_edges = shuffle_edges
         self.seed = seed
+        self.primitive_prefix = primitive_prefix
         self._rng = random.Random(seed) if seed is not None else None
         self._primitive_cache: Dict[str, List[Primitive]] = {}
         self._last_edge_ordering: List[int] = []  # Track ordering for analysis
@@ -294,7 +299,7 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
         if object_name not in object_info:
             if self.verbose:
                 print(f"Object {object_name} not in object_info, defaulting to square")
-            return "motion_primitives_15_square.dat"
+            return f"{self.primitive_prefix}motion_primitives_15_square.dat"
 
         info = object_info[object_name]
 
@@ -311,31 +316,23 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
         else:
             if self.verbose:
                 print(f"Could not get dimensions for {object_name}, defaulting to square")
-            return "motion_primitives_15_square.dat"
+            return f"{self.primitive_prefix}motion_primitives_15_square.dat"
 
         if x <= 0.0 or y <= 0.0:
             if self.verbose:
                 print(f"Invalid dimensions for {object_name}: [{x}×{y}], defaulting to square")
-            return "motion_primitives_15_square.dat"
+            return f"{self.primitive_prefix}motion_primitives_15_square.dat"
 
         # Calculate aspect ratio
         ratio = max(x, y) / min(x, y)
 
         if ratio < 1.05:
-            # Square: nearly equal dimensions
-            # if self.verbose:
-            #     print(f"Object {object_name} [{x:.3f}×{y:.3f}] ratio={ratio:.3f} → square")
-            return "motion_primitives_15_square.dat"
+            shape = "square"
         elif x > y:
-            # Wide: width > height
-            # if self.verbose:
-            #     print(f"Object {object_name} [{x:.3f}×{y:.3f}] ratio={ratio:.3f} → wide")
-            return "motion_primitives_15_wide.dat"
+            shape = "wide"
         else:
-            # Tall: height > width
-            # if self.verbose:
-            #     print(f"Object {object_name} [{x:.3f}×{y:.3f}] ratio={ratio:.3f} → tall")
-            return "motion_primitives_15_tall.dat"
+            shape = "tall"
+        return f"{self.primitive_prefix}motion_primitives_15_{shape}.dat"
 
     def _group_by_edge(self, primitives: List[Primitive]) -> Dict[int, List[Primitive]]:
         """Group primitives by edge index.

@@ -66,8 +66,9 @@ def generate_scene_xml(obj_config: ObjectConfig, car_params) -> str:
     # Object at origin
     obj_z = obj_config.half_size_z  # bottom at z=0
 
-    # Physics matched to nav_env_3000e.xml (cone="elliptic", floor friction 0.5/0.005/0.001,
-    # object friction 0.0/0.005/0.001, mass 0.1, geom density 1).
+    # Physics: floor and object friction match the runtime data-collection envs
+    # (generate_envs.py:336 uses obstacle friction "0.5 0.005 0.001"). Effective
+    # obstacle↔floor sliding μ = √(0.5×0.5) = 0.5.
     return f"""\
 <mujoco model="car_primitive_gen_{obj_config.name}">
   <compiler angle="radian"/>
@@ -82,13 +83,13 @@ def generate_scene_xml(obj_config: ObjectConfig, car_params) -> str:
     <geom name="ground" type="plane" size="2 2 0.1" rgba="0.85 0.85 0.85 1"
           condim="4" friction="0.5 0.005 0.001"/>
 
-    <!-- Pushable object at origin (mass/friction matched to 3000e movable obstacles) -->
+    <!-- Pushable object at origin (friction matches generate_envs.py obstacle setting) -->
     <body name="obstacle_1_movable" pos="0 0 {obj_z:.6f}">
       <joint type="free"/>
       <geom name="obstacle_1_movable" type="box"
             size="{obj_config.half_size_x:.6f} {obj_config.half_size_y:.6f} {obj_config.half_size_z:.6f}"
             mass="{obj_config.mass:.6f}"
-            friction="0.0 0.005 0.001"
+            friction="0.5 0.005 0.001"
             rgba="1 0.3 0.3 1" condim="4"/>
     </body>
   </worldbody>
