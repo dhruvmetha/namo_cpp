@@ -444,3 +444,79 @@ The world model is not a design decision. It is a conclusion forced by experimen
 7. **Evaluate on multi-push**: does the classifier generalize to chained problems?
 8. **If needed**: build world model, informed by exactly which failures require it
 9. **Comparison**: classifier vs SAGE diffusion vs baselines on end-to-end task success
+
+---
+
+## Empirical Round 1 (2026-05-16): The Biased-Teacher Discovery
+
+This section documents the first end-to-end ML-vs-F evaluation and the
+unexpected failure mode it surfaced. Full results, plots, and commands are in
+[`ML_vs_GT_F_results_round1.md`](ML_vs_GT_F_results_round1.md); the evaluation
+plan is in [`ML_vs_GT_F_evaluation.md`](ML_vs_GT_F_evaluation.md).
+
+### Setup
+
+Model: `outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44` — 5-channel local-mask DiT cross-attention, trained on `h5_files/dec2/aug9_envs/2_push_train_corrected_overlaps_2.h5`. Evaluated on the 300-env stratified held-out split (`manifest_2push_test_minus_1push_test_filtered_difficulty_100each.txt`) at the 1-push horizon — i.e. asking "of the model's 32 SE(2) samples, how many align to primitives that are in F₁?"
+
+### Headline result
+
+The model is **strictly worse than uniform-random-from-R** at Top-K hit rate against F₁, on every difficulty bucket. The gap is catastrophic on hard problems (random hit@32 = 96%, ML hit@32 = 11%) and persists even on very_easy problems where F density is ~89%.
+
+### The smoking gun (and where I was wrong)
+
+Initial hypothesis: model trained on 2-push intermediate states learned "push small" and is over-applying that prior. *Wrong*, but in an instructive way.
+
+The actual cause, traced by opening the training h5:
+
+1. **The training-target displacement distribution is shallow.** Median 0.30m, p90 0.67m, **97% under 1m**. The model is faithfully reproducing this distribution at inference (≥95% of decoded ML samples at displacement 0.2–0.5m, mapping to primitive depths 0–2).
+2. **F₁ on hard problems lives at deep displacements** (d=7–9, ~1m+). On `very_hard`, 58.6% of F is at d=8–9 — where ML predictions have *zero* mass. Misses are mathematically necessary, not noise.
+3. **The training data is the planner's first solutions, not F.** Every row in the training h5 has `algorithm = "Region Opening Planner"` and `solution_depth ∈ {1, 2}`. The planner's BFS expands depths in order 0, 1, 2, …, so the *shallowest depth that works* is recorded per problem and the rest of F is discarded. Subsequent smoothing further biases the recorded action toward minimal displacement.
+4. **Architectural crop is *not* the bottleneck.** Local mask covers 5m × 5m; model's effective 32×32 output crop covers a 2.5m × 2.5m physical region centered on the object. Only 1.3% of training targets exceed the half-extent (1.25m). The model has plenty of room to represent deep pushes; it just was never *shown* any.
+5. **There is also a selection bias in which envs reach training.** The 300-env held-out split is "minus 1-push test filtered" — exactly the hard envs the original (pre-ML) planner struggled on. Many were probably dropped from training because the planner timed out or failed. So both *what target* and *which env* are biased away from the hard regime.
+
+This is the **biased-teacher problem**: distilling a generative model from a teacher's *first* solutions reproduces the teacher's bias, not the underlying feasible set. Diffusion architecture is doing what generative-from-demonstrations always does — modeling the data distribution — and the data distribution happens to be a narrow projection of F.
+
+### How this updates the hypotheses
+
+- **Hypothesis 1 (|F|/|R| predicts difficulty):** still consistent with everything observed. Random-from-R baseline hit-rate tracks |F|/|R| almost perfectly per bucket. Hypothesis confirmed for the *search* difficulty side; the ML side is decoupled because the model isn't sampling from R at all — it's sampling from a shifted distribution that intersects R poorly.
+- **Hypothesis 2 (F is clustered):** orthogonal to the finding. Not testable from the current data alone since ML never reaches the depth where most clusters live.
+- **Hypothesis 3 (hard problems have fragmented F → need multimodal predictors):** **prematurely tested.** Multimodality only matters once the marginal over depth is even approximately right. Right now the model collapses to a single mode (shallow) regardless of scene — the fragmentation question can't be answered until the depth marginal is fixed.
+- **Hypothesis 4 (depth matters more than direction on hard):** strongly supported. The model gets direction "close enough" via the alignment tolerance (0.2 rad) but has 0% recall on the right depth band, and the resulting hit-rate is essentially zero.
+- **Hypothesis 5 (wall collisions create F):** untestable until ML reaches deep F. Most wall-mediated successes are at deep depths in our F-char data.
+
+### How this updates the methodology
+
+The "Classifier-First, World Model If Needed" sequence in this doc starts from "train a 1-push classifier on the existing data and look at failure modes." Step 4 of the sequence got skipped — we went straight to evaluating SAGE's diffusion model without first re-asking "what is this model actually learning?"
+
+The failure surfaced because of step 1 (exhaustive F characterization). Without F, the failure looks like "model is mediocre on hard problems" with no mechanism. With F, the failure is unambiguous and immediately traceable to data distribution. **F characterization is doing exactly what it was designed for** — making model failures legible.
+
+Add a step 0 to the sequence: *open the training h5 and look at its target distribution*. If the target distribution doesn't match F's distribution, nothing else matters until that's fixed.
+
+### Fixes (ranked by cost / impact)
+
+**Fix 1 — Re-build the training h5 from F-char data.** Free with existing data.
+- For each `(xml, region, object)` instance in `/common/users/dm1487/namo_data/f_characterization/1_push_exhaustive_full/` and `1_push_exhaustive_train/`, sample one or more (edge_idx, depth) uniformly from F per instance. Convert each to an SE(2) goal pose using the primitive lookup. That becomes the training target.
+- Result: target distribution matches F's distribution by construction. Hard envs are included by construction (F-char doesn't filter on planner success).
+- Risk: sample size shrinks. Current h5 has 168k rows; F-char has ~5,925 (train) + 1,767 (test) env pkls with ~2–5 instances each ≈ 20–40k instances. Sampling 4–8 targets per instance gets us back to ~100–300k rows.
+- This is the immediate action.
+
+**Fix 2 — Re-collect with shuffled depth ordering.** Half-day of compute.
+- Modify `region_opening.py` to expose a `--shuffle-depths` flag (analogue of the existing `--shuffle-edges`). Re-run `modular_parallel_collection.py` on the same env pool with shuffled depth order, building a new h5.
+- Result: the recorded "first solution" is now a uniform sample from F (not the BFS-minimum). Less clean than Fix 1 (still one solution per env, not the full F) but easier to integrate into existing pipelines that depend on the planner-output format.
+- Use as a back-pocket if Fix 1's sample size proves insufficient even after augmentation.
+
+**Fix 3 — Collect multiple solutions per env in one pass.** Higher cost.
+- Re-run collection with `region_max_recorded_solutions_per_neighbor` cranked up (e.g. to 20 instead of 1), keeping all distinct (edge, depth) solutions per neighbor.
+- Result: training distribution now reflects the *full multi-modal F* per env, not a single sample. Best for testing Hypothesis 3 (multimodality) downstream.
+- Tradeoff: training set size inflates substantially; storage cost.
+
+**Fix 4 — Architectural changes.** *Not needed yet.* Crop size, model dim, diffusion sampler, k_nearest — none of these matter until the training target distribution covers F. Defer until Fix 1 has been tried and evaluated.
+
+### Open question: does the chain-2 horizon change the picture?
+
+The chain_depth=2 GT collection is still running (background, ETA ~hours). When it lands, the same evaluation against F₁′ (push-1s that *enable* a successful push-2) will tell us:
+
+- If ML hits F₁′ *much* better than F₁ → the model has correctly learned "set-up pushes" for chains, just not "opening pushes." The biased teacher gave it the right tool for the chain-only case. Use this model for chain inference, train a separate model on F-char data for 1-push.
+- If ML also misses F₁′ → the shallow bias affects both horizons. The biased teacher is the root cause for everything, and Fix 1 is the only path forward.
+
+Either way, the action items above are unchanged. Fix 1 first, re-evaluate, then decide whether to keep the existing model around for the chain-only use case.
