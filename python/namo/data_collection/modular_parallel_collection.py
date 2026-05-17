@@ -56,10 +56,10 @@ from namo.planners.opening.region_opening import RegionOpeningPlanner
 from namo.strategies.object_selection_strategy import ObjectSelectionStrategy
 
 # Import failure classification system
-from namo.planners.idfs.failure_codes import FailureCode, FailureClassifier, create_failure_info, get_failure_statistics
+from namo.planners.utils.failure_codes import FailureCode, FailureClassifier, create_failure_info, get_failure_statistics
 
 # Import solution smoothing system
-from namo.planners.idfs.solution_smoother import SolutionSmoother
+from namo.planners.utils.solution_smoother import SolutionSmoother
 
 import random
 DEFAULT_GLOBAL_SEED = int(os.environ.get("NAMO_GLOBAL_SEED", "42"))

@@ -1,9 +1,8 @@
 """
-Solution Smoother for IDFS algorithms.
+Solution Smoother.
 
-This module provides functionality to find minimal subsequences of solution actions
-that still achieve the goal state. The key insight is that the final action must
-always be preserved as it's what achieved the goal.
+Finds minimal subsequences of solution actions that still achieve the goal state.
+The final action must always be preserved as it's what achieved the goal.
 """
 
 from itertools import combinations

@@ -50,7 +50,7 @@ from namo.planners.opening.region_opening import RegionOpeningPlanner
 from namo.planners.full_namo.full_namo_planner import FullNAMOPlanner
 
 # Import solution smoothing system
-from namo.planners.idfs.solution_smoother import SolutionSmoother
+from namo.planners.utils.solution_smoother import SolutionSmoother
 
 
 def get_available_algorithms() -> List[str]:
