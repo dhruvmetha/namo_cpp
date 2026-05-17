@@ -12,16 +12,15 @@ Context for Claude Code when working with NAMO (Navigation Among Movable Obstacl
 - **RLEnvironment** ([rl_env.cpp:1](python/namo/cpp_bindings/rl_env.cpp#L1)): Python bindings exposing C++ environment to planners
 
 ### Python Planning Layer (Search Algorithms)
-- **StandardIterativeDeepeningDFS** ([standard_idfs.py:1](python/namo/planners/idfs/standard_idfs.py#L1)): Restart-based IDFS with pluggable object/goal strategies
-- **ReachabilityExpandingIDFS** ([reachability_expanding_idfs.py:1](python/namo/planners/idfs/reachability_expanding_idfs.py#L1)): Succeeds when new objects become reachable (exploration-focused)
-- **ModularParallelCollection** ([modular_parallel_collection.py:1](python/namo/data_collection/modular_parallel_collection.py#L1)): Multi-worker data collection with smoothing/refinement
+- **RegionOpeningPlanner** ([region_opening.py:178](python/namo/planners/opening/region_opening.py#L178)): Region-by-region opening via push primitives — the active data-collection planner
+- **FullNAMOPlanner** ([full_namo_planner.py:46](python/namo/planners/full_namo/full_namo_planner.py#L46)): Multi-region full NAMO solver
+- **RandomSamplingPlanner** ([random_sampling.py](python/namo/planners/sampling/random_sampling.py)): Baseline sampling planner
+- **ModularParallelCollection** ([modular_parallel_collection.py:1](python/namo/data_collection/modular_parallel_collection.py#L1)): Multi-worker data collection with optional smoothing
 - **VisualTestSingle** ([visual_test_single.py:1](python/namo/visualization/visual_test_single.py#L1)): Single-run planner testing with visualization
 
-## Key Design Patterns
+Registered planners (`PlannerFactory.list_available_planners()`): `region_opening`, `full_namo`, `random_sampling`.
 
-### Two-Tier Success Conditions
-- **Standard**: Robot goal reachable (WavefrontPlanner checks via BFS)
-- **Reachability-Expanding**: Robot goal reachable OR new objects reachable (line 229 in [reachability_expanding_idfs.py:229](python/namo/planners/idfs/reachability_expanding_idfs.py#L229))
+## Key Design Patterns
 
 ### Robot Goal Management
 - Set via `skill.set_robot_goal(x, y, theta)` (line 92 in [namo_push_skill.hpp:92](include/skills/namo_push_skill.hpp#L92))
@@ -48,7 +47,7 @@ NAMOPushSkill uses object size ratio (5% tolerance) to select specialized planne
 ### Running Data Collection
 ```bash
 python python/namo/data_collection/modular_parallel_collection.py \
-  --algorithm reachability_expanding_idfs \
+  --algorithm region_opening \
   --output-dir ./data --start-idx 0 --end-idx 100
 ```
 
@@ -56,7 +55,7 @@ python python/namo/data_collection/modular_parallel_collection.py \
 ```bash
 python python/namo/visualization/visual_test_single.py \
   --xml-file path/to/env.xml \
-  --algorithm standard_idfs \
+  --algorithm region_opening \
   --visualize-search --show-solution auto
 ```
 
@@ -75,27 +74,29 @@ This script handles all CMake configuration, environment setup, and builds the `
 - 8-connected grid with obstacle inflation
 
 ### Terminal State Checks
-- Standard IDFS: `env.is_robot_goal_reachable()` (line 417 in [standard_idfs.py:417](python/namo/planners/idfs/standard_idfs.py#L417))
-- Reachability-expanding: Two conditions checked (lines 218-239 in [reachability_expanding_idfs.py:218-239](python/namo/planners/idfs/reachability_expanding_idfs.py#L218-239))
-- Respects `max_terminal_checks` limit (line 411 in [standard_idfs.py:411](python/namo/planners/idfs/standard_idfs.py#L411))
+- Goal reachability: `env.is_robot_goal_reachable()` — uses the wavefront cached by the last skill execution
+- Region opening succeeds when a target region becomes reachable from the robot's current region
 
 ### State Management
 - `get_full_state()` / `set_full_state()` for search backtracking (lines 78-119 in [rl_env.cpp:78-119](python/namo/cpp_bindings/rl_env.cpp#L78-119))
 - qvel always zeroed for physics consistency (line 114 in [rl_env.cpp:114](python/namo/cpp_bindings/rl_env.cpp#L114))
-- SE(2) observations cached before/after actions (lines 502-509 in [standard_idfs.py:502-509](python/namo/planners/idfs/standard_idfs.py#L502-509))
 
 ## File Organization
 
 ```
 namo/
 ├── include/
-│   ├── skills/namo_push_skill.hpp        # Shape-based skill execution
-│   └── wavefront/wavefront_planner.hpp   # BFS reachability computation
+│   ├── skills/namo_push_skill.hpp                  # Shape-based skill execution
+│   └── wavefront/wavefront_planner.hpp             # BFS reachability computation
 ├── python/namo/
-│   ├── cpp_bindings/rl_env.cpp           # C++ ↔ Python interface
-│   ├── planners/idfs/
-│   │   ├── standard_idfs.py              # Restart-based IDFS
-│   │   └── reachability_expanding_idfs.py # Exploration-focused IDFS
+│   ├── cpp_bindings/rl_env.cpp                     # C++ ↔ Python interface
+│   ├── planners/
+│   │   ├── opening/region_opening.py               # Active: region-opening planner
+│   │   ├── opening/ml_driven_search.py             # ML-guided opening variant
+│   │   ├── full_namo/full_namo_planner.py         # Full NAMO solver
+│   │   ├── sampling/random_sampling.py             # Baseline sampler
+│   │   ├── mcts/hierarchical_mcts.py               # MCTS (not in active rotation)
+│   │   └── utils/                                  # solution_smoother, failure_codes
 │   ├── data_collection/modular_parallel_collection.py
 │   └── visualization/visual_test_single.py
 └── config/
@@ -160,44 +161,18 @@ bounds = env.get_world_bounds()        # [xmin, xmax, ymin, ymax]
 obj_info = env.get_object_info()       # Dict[str, Dict[str, float]] - cached geometry
 ```
 
-### Python BasePlanner Interface ([standard_idfs.py](python/namo/planners/idfs/standard_idfs.py))
+### Python BasePlanner Interface ([base_planner.py](python/namo/core/base_planner.py))
 ```python
-# Main planner methods
+# Every registered planner exposes:
 result = planner.search(robot_goal)    # Returns PlannerResult
 
-# Common workflow pattern in DFS implementations:
+# State-management workflow common to all search implementations:
 state = env.get_full_state()           # Save state
 env.set_full_state(state)              # Restore state for queries
 reachable = env.get_reachable_objects() # Check reachability
 is_done = env.is_robot_goal_reachable() # Check termination
 result = env.step(action)               # Execute action
 new_state = env.get_full_state()       # Capture result
-```
-
-### Common Usage Patterns
-
-**Standard Terminal Check (StandardIDFS):**
-```python
-def _is_terminal_state(self, state):
-    self.env.set_full_state(state)
-    return self.env.is_robot_goal_reachable()
-```
-
-**Reachability-Expanding Terminal Check (ReachabilityExpandingIDFS):**
-```python
-def _is_terminal_state(self, state):
-    self.env.set_full_state(state)
-    # Two conditions: goal reached OR new objects reachable
-    return (self.env.is_robot_goal_reachable() or
-            self._has_reachability_expanded(state))
-```
-
-**Action Execution with State Capture:**
-```python
-def _execute_action(self, state, action):
-    self.env.set_full_state(state)
-    self.env.step(action.to_namo_action())
-    return self.env.get_full_state()
 ```
 
 ## Robots

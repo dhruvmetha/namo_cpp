@@ -352,15 +352,16 @@ python/
 │   │   ├── goal_selection_strategy.py
 │   │   └── ml_strategies.py        # ML-based strategies
 │   ├── planners/           # Planning algorithms
-│   │   ├── idfs/           # Iterative Deepening algorithms
-│   │   │   ├── standard_idfs.py
-│   │   │   ├── tree_idfs.py
-│   │   │   ├── optimal_idfs.py
-│   │   │   └── solution_smoother.py
+│   │   ├── opening/        # Region-opening planners (active)
+│   │   │   ├── region_opening.py
+│   │   │   └── ml_driven_search.py
+│   │   ├── full_namo/      # Multi-region full NAMO solver
+│   │   │   └── full_namo_planner.py
 │   │   ├── mcts/           # Monte Carlo Tree Search
 │   │   │   └── hierarchical_mcts.py
-│   │   └── sampling/       # Sampling-based planners
-│   │       └── random_sampling.py
+│   │   ├── sampling/       # Sampling-based planners
+│   │   │   └── random_sampling.py
+│   │   └── utils/          # Shared utilities (solution_smoother, failure_codes)
 │   ├── data_collection/    # Data collection workflows
 │   │   ├── modular_parallel_collection.py
 │   │   ├── sequential_ml_collection.py
@@ -382,9 +383,9 @@ python/
 import namo_rl
 
 # Planning algorithms
-from namo.planners.idfs import StandardIterativeDeepeningDFS
-from namo.planners.mcts import CleanHierarchicalMCTS
-from namo.planners.sampling import RandomSamplingPlanner
+from namo.planners.opening.region_opening import RegionOpeningPlanner
+from namo.planners.full_namo.full_namo_planner import FullNAMOPlanner
+from namo.planners.sampling.random_sampling import RandomSamplingPlanner
 
 # Selection strategies
 from namo.strategies import ObjectSelectionStrategy, MLObjectSelectionStrategy

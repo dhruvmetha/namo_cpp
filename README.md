@@ -271,10 +271,12 @@ The Python layer provides a sophisticated planning framework with interchangeabl
 
 #### **Planning Algorithms** (`python/namo/planners/`)
 
-**IDFS Family - Iterative Deepening Search:**
-- **`StandardIterativeDeepeningDFS`**: Original algorithm that restarts from root for each depth
-- **`TreeIDFS`**: Maintains search tree between iterations (more efficient)
-- **`OptimalIDFS`**: Finds shortest solutions rather than first solution
+**Region-Opening (active):**
+- **`RegionOpeningPlanner`** (`planners/opening/region_opening.py`): Region-by-region opening via push primitives — the primary data-collection planner
+- **`MLDrivenSearch`** (`planners/opening/ml_driven_search.py`): ML-guided opening variant
+
+**Full NAMO:**
+- **`FullNAMOPlanner`** (`planners/full_namo/full_namo_planner.py`): Multi-region full NAMO solver
 
 **MCTS - Monte Carlo Tree Search:**
 - **`HierarchicalMCTS`**: Two-level tree search with StateNodes (environment states) and ObjectNodes (decisions)
@@ -307,14 +309,14 @@ AdaptiveGoalStrategy()          # Smart placement considering boundaries
 #### **Strategy Integration Example**
 
 ```python
-from namo.planners.idfs import StandardIterativeDeepeningDFS
+from namo.planners.sampling.random_sampling import RandomSamplingPlanner
 from namo.strategies import NearestFirstStrategy, GridGoalStrategy
 
 # Create planner with custom strategies
 object_strategy = NearestFirstStrategy()           # Push nearest objects first
 goal_strategy = GridGoalStrategy(num_angles=8)     # Try 8 directions systematically
 
-planner = StandardIterativeDeepeningDFS(
+planner = RandomSamplingPlanner(
     env, config,
     object_selection_strategy=object_strategy,
     goal_selection_strategy=goal_strategy
@@ -366,7 +368,7 @@ from namo.core import PlannerFactory, compare_planners
 
 # Configure different algorithm variants
 configs = {
-    "idfs_nearest": PlannerConfig(
+    "sampling_nearest": PlannerConfig(
         algorithm_params={
             "object_selection_strategy": "nearest_first",
             "goal_selection_strategy": "random"

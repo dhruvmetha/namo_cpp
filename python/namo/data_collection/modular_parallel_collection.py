@@ -1,19 +1,12 @@
 #!/usr/bin/env python3
 """Modular Parallel Data Collection Pipeline
 
-This module provides a refactored parallel data collection system that supports
-pluggable planning algorithms. Users can easily swap between IDFS, Tree-IDFS, 
-MCTS, or other algorithms without changing the collection infrastructure.
-
-Key features:
-1. Algorithm-agnostic data collection
-2. Pluggable planner interface
-3. Consistent performance metrics across algorithms
-4. Algorithm comparison capabilities
-5. Backward compatibility with existing configs
+Algorithm-agnostic parallel data collection. Planners are pluggable through
+the BasePlanner / PlannerFactory interface; the collection infrastructure
+does not depend on which one is in use.
 
 Usage:
-    python modular_parallel_collection.py --algorithm tree_idfs --output-dir ./data --start-idx 0 --end-idx 10
+    python modular_parallel_collection.py --algorithm region_opening --output-dir ./data --start-idx 0 --end-idx 10
 """
 
 import os

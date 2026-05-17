@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Visual Single-Run IDFS Tester
+"""Visual Single-Run Planner Tester
 
-A script for running single IDFS planning iterations with flexible visualization controls.
+A script for running a single planning iteration with flexible visualization controls.
 Supports separate control over planning visualization and solution visualization.
 
 Usage Examples:
@@ -291,13 +291,13 @@ def visualize_solution(env: namo_rl.RLEnvironment, result: PlannerResult, step_m
 
 
 def main():
-    """Main entry point for visual single-run IDFS testing."""
+    """Main entry point for visual single-run planner testing."""
     # Pre-parse only --config-yaml to allow YAML defaults with CLI overrides
     pre_parser = argparse.ArgumentParser(add_help=False)
     pre_parser.add_argument("--config-yaml", type=str, help="Path to YAML config file for defaults")
     pre_args, remaining_argv = pre_parser.parse_known_args()
 
-    parser = argparse.ArgumentParser(description="Visual Single-Run IDFS Tester", parents=[pre_parser])
+    parser = argparse.ArgumentParser(description="Visual Single-Run Planner Tester", parents=[pre_parser])
     
     # Required arguments
     parser.add_argument("--xml-file", type=str, required=False,
@@ -449,7 +449,7 @@ def main():
     
     try:
         # Print configuration summary
-        print("🚀 Visual Single-Run IDFS Tester")
+        print("🚀 Visual Single-Run Planner Tester")
         print("="*50)
         print(f"📁 Environment: {args.xml_file}")
         print(f"🧠 Algorithm: {args.algorithm}")

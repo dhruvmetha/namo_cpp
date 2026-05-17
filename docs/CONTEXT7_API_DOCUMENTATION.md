@@ -367,9 +367,11 @@ python/namo/
 │   ├── base_planner.py        # Abstract planner interface
 │   └── xml_goal_parser.py     # XML parsing utilities
 ├── planners/                   # Planning algorithms
-│   ├── idfs/                  # Iterative deepening search
+│   ├── opening/               # Region-opening planners (active)
+│   ├── full_namo/             # Full NAMO solver
 │   ├── mcts/                  # Monte Carlo tree search
-│   └── sampling/              # Sampling-based methods
+│   ├── sampling/              # Sampling-based methods
+│   └── utils/                 # Shared utilities (smoother, failure codes)
 ├── strategies/                 # Selection strategies
 │   ├── object_selection_strategy.py
 │   └── goal_selection_strategy.py
@@ -442,21 +444,21 @@ class PlannerResult:
 from namo.core import PlannerFactory, PlannerConfig
 
 # Register planners
-PlannerFactory.register_planner("idfs", StandardIterativeDeepeningDFS)
-PlannerFactory.register_planner("tree_idfs", TreeIterativeDeepeningDFS)
-PlannerFactory.register_planner("mcts", HierarchicalMCTS)
+PlannerFactory.register_planner("region_opening", RegionOpeningPlanner)
+PlannerFactory.register_planner("full_namo", FullNAMOPlanner)
+PlannerFactory.register_planner("random_sampling", RandomSamplingPlanner)
 
 # Create planner instance
 config = PlannerConfig(max_depth=5, random_seed=42)
-planner = PlannerFactory.create_planner("mcts", env, config)
+planner = PlannerFactory.create_planner("region_opening", env, config)
 ```
 
 ### Algorithm Examples
 
-#### IDFS (Iterative Deepening First Search)
+#### Region Opening (active data-collection planner)
 
 ```python
-from namo.planners.idfs import StandardIterativeDeepeningDFS
+from namo.planners.opening.region_opening import RegionOpeningPlanner
 from namo.core import PlannerConfig
 
 # Configure algorithm
@@ -468,7 +470,7 @@ config = PlannerConfig(
 )
 
 # Create and run planner
-planner = StandardIterativeDeepeningDFS(env, config)
+planner = RegionOpeningPlanner(env, config)
 result = planner.search(robot_goal=(5.0, 3.0, 0.0))
 
 if result.success:
@@ -602,8 +604,8 @@ config = PlannerConfig(
     random_seed=42
 )
 
-# Create IDFS planner
-planner = PlannerFactory.create_planner("idfs", env, config)
+# Create planner
+planner = PlannerFactory.create_planner("region_opening", env, config)
 
 # Execute planning
 env.reset()
@@ -651,7 +653,7 @@ planner_config = PlannerConfig(
 
 # Run parallel collection
 collector = ModularParallelCollection(
-    algorithm="tree_idfs",
+    algorithm="region_opening",
     config=planner_config,
     **collection_config
 )

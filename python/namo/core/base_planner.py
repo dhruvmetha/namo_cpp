@@ -64,8 +64,8 @@ class PlannerConfig:
 class BasePlanner(ABC):
     """Abstract base class for NAMO planning algorithms.
     
-    This interface allows different planning algorithms (IDFS, Tree-IDFS, MCTS, etc.)
-    to be used interchangeably in the parallel data collection system.
+    This interface allows different planning algorithms (region_opening, full_namo,
+    MCTS, etc.) to be used interchangeably in the parallel data collection system.
     """
     
     def __init__(self, env: namo_rl.RLEnvironment, config: PlannerConfig):
