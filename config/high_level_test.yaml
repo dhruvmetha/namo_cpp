@@ -7,6 +7,7 @@ planning:
   max_iterations: 10
   verbose: true
   robot_size: [0.15, 0.15]
+  wavefront_edge_offset_margin: 0.1  # Unified robot-edge spawn margin beyond robot radius
   robot_goal: [0.54, -0.84]
   max_bfs_queue: 100000
   max_grid_width: 2000
@@ -37,7 +38,6 @@ skill:
   goal_tolerance: 0.1
   stuck_threshold: 0.01
   max_stuck_iterations: 3
-  object_clearance: 0.1
   num_edge_points: 12
 
 environment:

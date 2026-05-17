@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include <cmath>
+#include <sstream>
 
 namespace namo {
 
@@ -11,6 +12,7 @@ ConfigManager::ConfigManager(const std::string& config_file) {
     try {
         loader_ = std::make_unique<FastParameterLoader>(config_file);
         // std::cout << "ConfigManager: Loading configuration from " << config_file << std::endl;
+        validate_config_schema();
         
         // Load all configuration sections
         load_planning_config();
@@ -23,11 +25,19 @@ ConfigManager::ConfigManager(const std::string& config_file) {
         
         validate_configuration();
         // std::cout << "ConfigManager: Configuration loaded successfully" << std::endl;
-        
+    } catch (const ConfigSchemaError&) {
+        throw;
     } catch (const std::exception& e) {
         // std::cerr << "ConfigManager: Failed to load config file '" << config_file 
                   // << "': " << e.what() << std::endl;
         // std::cout << "ConfigManager: Using default configuration" << std::endl;
+        loader_.reset();
+        planning_ = PlanningConfig{};
+        strategy_ = StrategyConfig{};
+        skill_ = SkillConfig{};
+        environment_ = EnvironmentConfig{};
+        system_ = SystemConfig{};
+        optimization_ = OptimizationConfig{};
         validate_configuration();
     }
 }
@@ -62,6 +72,9 @@ void ConfigManager::load_planning_config() {
     // Robot type
     if (loader_->has_key("planning.robot_type")) {
         planning_.robot_type = loader_->get_string("planning.robot_type");
+    }
+    if (loader_->has_key("planning.wavefront_edge_offset_margin")) {
+        planning_.wavefront_edge_offset_margin = loader_->get_double("planning.wavefront_edge_offset_margin");
     }
     
     // Grid limits
@@ -174,15 +187,6 @@ void ConfigManager::load_skill_config() {
     if (loader_->has_key("skill.controller_min_angle_change")) {
         skill_.controller_min_angle_change = loader_->get_double("skill.controller_min_angle_change");
     }
-
-    // Object interaction
-    if (loader_->has_key("skill.object_clearance")) {
-        skill_.object_clearance = loader_->get_double("skill.object_clearance");
-    }
-    if (loader_->has_key("skill.push_offset_margin")) {
-        skill_.push_offset_margin = loader_->get_double("skill.push_offset_margin");
-    }
-    
     // Edge point sampling - prefer points_per_face, fallback to num_edge_points
     if (loader_->has_key("skill.points_per_face")) {
         skill_.points_per_face = loader_->get_int("skill.points_per_face");
@@ -324,13 +328,38 @@ void ConfigManager::load_wavefront_inflation_config(const std::string& primary_c
             planning_.wavefront_tier1_inflation_margin =
                 wavefront_loader.get_double("tier1.base_inflation_margin_m");
         }
-        if (wavefront_loader.has_key("tier1.edge_offset_margin_m")) {
-            planning_.wavefront_edge_offset_margin =
-                wavefront_loader.get_double("tier1.edge_offset_margin_m");
-        }
     } catch (const std::exception&) {
         // Keep defaults if the auxiliary wavefront inflation config fails to load.
     }
+}
+
+void ConfigManager::validate_config_schema() const {
+    if (!loader_) {
+        return;
+    }
+
+    std::vector<std::string> deprecated_keys;
+    if (loader_->has_key("skill.object_clearance")) {
+        deprecated_keys.emplace_back("skill.object_clearance");
+    }
+    if (loader_->has_key("skill.push_offset_margin")) {
+        deprecated_keys.emplace_back("skill.push_offset_margin");
+    }
+
+    if (deprecated_keys.empty()) {
+        return;
+    }
+
+    std::ostringstream message;
+    message << "Deprecated config key(s) not supported: ";
+    for (size_t i = 0; i < deprecated_keys.size(); ++i) {
+        if (i > 0) {
+            message << ", ";
+        }
+        message << deprecated_keys[i];
+    }
+    message << ". Use planning.wavefront_edge_offset_margin instead.";
+    throw ConfigSchemaError(message.str());
 }
 
 void ConfigManager::validate_configuration() const {
@@ -370,7 +399,8 @@ void ConfigManager::validate_configuration() const {
     if (actual_gap < required_rotation_safe_gap) {
         throw std::invalid_argument(
             "Unsafe wavefront edge offset configuration: "
-            "edge_offset_margin_m - base_inflation_margin_m must be >= sqrt(0.5) * skill_level_resolution");
+            "planning.wavefront_edge_offset_margin - wavefront tier1 inflation margin "
+            "must be >= sqrt(0.5) * skill_level_resolution");
     }
     
     // Environment bounds validation removed - bounds now calculated dynamically

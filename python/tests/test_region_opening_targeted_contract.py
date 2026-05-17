@@ -119,18 +119,16 @@ def test_targeted_non_neighbor_returns_explicit_failure_reason(monkeypatch):
     planner = make_planner(monkeypatch, env)
 
     monkeypatch.setattr(
-        "namo.planners.opening.region_opening.snapshot_region_connectivity",
-        lambda *args, **kwargs: (
-            {"robot": {"a"}, "a": {"robot"}},
-            {},
-            {1: "robot", 2: "a"},
-            {},
-            None,
-        ),
-    )
-    monkeypatch.setattr(
-        "namo.planners.opening.region_opening.find_robot_label",
-        lambda region_labels: "robot",
+        "namo.planners.get_region_snapshot",
+        lambda *args, **kwargs: {
+            "adjacency": {"robot": {"a"}, "a": {"robot"}},
+            "edge_objects": {},
+            "region_labels": {1: "robot", 2: "a"},
+            "region_goals": {},
+            "robot_label": "robot",
+            "goal_label": "",
+            "goal_in_free_space": False,
+        },
     )
 
     result = planner.search((0.0, 0.0, 0.0), target_neighbor="b")

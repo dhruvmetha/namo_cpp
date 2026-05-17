@@ -2,11 +2,17 @@
 
 #include "core/parameter_loader.hpp"
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 #include <array>
 
 namespace namo {
+
+class ConfigSchemaError : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
 
 /**
  * @brief Centralized configuration management for NAMO system
@@ -78,8 +84,6 @@ public:
         double controller_min_angle_change = 0.05;     // radians
         
         // Object interaction
-        double object_clearance = 0.1;           // meters around objects for edge point sampling
-        double push_offset_margin = 0.02;        // meters - additional margin beyond robot radius for push spawn points
         int points_per_face = 3;                // points per object face (4 faces total)
         int num_edge_points = 12;               // points around object perimeter (backward compatibility)
     };
@@ -147,7 +151,7 @@ private:
     void load_system_config();
     void load_optimization_config();
     void load_wavefront_inflation_config(const std::string& primary_config_file);
-    
+    void validate_config_schema() const;
     void validate_configuration() const;
 
 public:
