@@ -13,6 +13,7 @@ planning:
   
   # Robot physical properties
   robot_size: [0.15, 0.15]          # [half_extent_x, half_extent_y] in meters for wavefront inflation
+  wavefront_edge_offset_margin: 0.1  # Unified robot-edge spawn margin beyond robot radius
   robot_goal: [0.31092502361838825, -4.396379816371087]
   
   # Grid system limits
@@ -61,7 +62,7 @@ skill:
   controller_min_angle_change: 0.05      # Min yaw change per check (radians)
   
   # Object interaction parameters
-  object_clearance: 0.1            # Clearance around objects for edge point sampling (meters)
+  # Edge sampling count for push approach generation
   points_per_face: 15               # Number of edge points per object face (4 faces total)
   num_edge_points: 60              # Number of edge points around object perimeter (backward compatibility)
   # push_force_magnitude: 10.0       # REMOVED: unused parameter (force_scaling used instead)

@@ -102,6 +102,15 @@ def make_failure_result(target, reason, *, boundary_exhausted, local_neighbors=N
     )
 
 
+def make_snapshot(adjacency, *, goal_label, robot_label="robot", goal_in_free_space=True):
+    return {
+        "adjacency": adjacency,
+        "robot_label": robot_label,
+        "goal_label": goal_label,
+        "goal_in_free_space": goal_in_free_space,
+    }
+
+
 def test_full_namo_executes_only_first_hop_of_longer_path(monkeypatch):
     env = FakeEnv()
     calls = []
@@ -115,17 +124,16 @@ def test_full_namo_executes_only_first_hop_of_longer_path(monkeypatch):
             return make_success_result(target_neighbor, "opened")
 
     planner = make_planner(monkeypatch, env, FakeOpener())
-    snapshot = {
-        "adjacency": {
+    snapshot = make_snapshot(
+        {
             "robot": {"a"},
             "a": {"robot", "b"},
             "b": {"a", "goal"},
             "goal": {"b"},
-        }
-    }
+        },
+        goal_label="goal",
+    )
     monkeypatch.setattr(planner, "_compute_region_snapshot", lambda: snapshot)
-    monkeypatch.setattr(planner, "_get_robot_region_label", lambda _snapshot: "robot")
-    monkeypatch.setattr(planner, "_get_region_label_at_position", lambda *_args: "goal")
 
     result = planner.search((1.0, 2.0, 0.0))
 
@@ -156,17 +164,16 @@ def test_full_namo_region_path_exhausted_after_boundary_exhaustions(monkeypatch)
             )
 
     planner = make_planner(monkeypatch, env, FakeOpener())
-    snapshot = {
-        "adjacency": {
+    snapshot = make_snapshot(
+        {
             "robot": {"a", "b"},
             "a": {"robot", "goal"},
             "b": {"robot", "goal"},
             "goal": {"a", "b"},
-        }
-    }
+        },
+        goal_label="goal",
+    )
     monkeypatch.setattr(planner, "_compute_region_snapshot", lambda: snapshot)
-    monkeypatch.setattr(planner, "_get_robot_region_label", lambda _snapshot: "robot")
-    monkeypatch.setattr(planner, "_get_region_label_at_position", lambda *_args: "goal")
 
     result = planner.search((0.0, 0.0, 0.0))
 
@@ -189,16 +196,15 @@ def test_full_namo_non_exhaustive_failure_does_not_block_boundary(monkeypatch):
             return make_failure_result(target_neighbor, "timeout", boundary_exhausted=False)
 
     planner = make_planner(monkeypatch, env, FakeOpener())
-    snapshot = {
-        "adjacency": {
+    snapshot = make_snapshot(
+        {
             "robot": {"a"},
             "a": {"robot", "goal"},
             "goal": {"a"},
-        }
-    }
+        },
+        goal_label="goal",
+    )
     monkeypatch.setattr(planner, "_compute_region_snapshot", lambda: snapshot)
-    monkeypatch.setattr(planner, "_get_robot_region_label", lambda _snapshot: "robot")
-    monkeypatch.setattr(planner, "_get_region_label_at_position", lambda *_args: "goal")
 
     result = planner.search((0.0, 0.0, 0.0))
 
@@ -223,16 +229,15 @@ def test_full_namo_snapshot_mismatch_is_explicit_invariant(monkeypatch):
             )
 
     planner = make_planner(monkeypatch, env, FakeOpener())
-    snapshot = {
-        "adjacency": {
+    snapshot = make_snapshot(
+        {
             "robot": {"a"},
             "a": {"robot", "goal"},
             "goal": {"a"},
-        }
-    }
+        },
+        goal_label="goal",
+    )
     monkeypatch.setattr(planner, "_compute_region_snapshot", lambda: snapshot)
-    monkeypatch.setattr(planner, "_get_robot_region_label", lambda _snapshot: "robot")
-    monkeypatch.setattr(planner, "_get_region_label_at_position", lambda *_args: "goal")
 
     result = planner.search((0.0, 0.0, 0.0))
 
@@ -246,7 +251,6 @@ def test_full_namo_snapshot_mismatch_is_explicit_invariant(monkeypatch):
 def test_full_namo_recomputes_goal_region_each_iteration(monkeypatch):
     env = FakeEnv()
     calls = []
-    goal_regions = iter(["goal_left", "goal_right"])
 
     class FakeOpener:
         def reset(self):
@@ -259,48 +263,27 @@ def test_full_namo_recomputes_goal_region_each_iteration(monkeypatch):
             return make_success_result(target_neighbor, "opened2")
 
     planner = make_planner(monkeypatch, env, FakeOpener())
-    snapshots = iter(
-        [
-            {
-                "adjacency": {
-                    "robot": {"a"},
-                    "a": {"robot", "goal_left"},
-                    "goal_left": {"a"},
-                }
-            },
-            {
-                "adjacency": {
-                    "robot": {"c"},
-                    "c": {"robot", "goal_right"},
-                    "goal_right": {"c"},
-                }
-            },
-        ]
-    )
 
     def compute_snapshot():
         if env.current_state == "opened1":
-            return {
-                "adjacency": {
+            return make_snapshot(
+                {
                     "robot": {"c"},
                     "c": {"robot", "goal_right"},
                     "goal_right": {"c"},
-                }
-            }
-        return {
-            "adjacency": {
+                },
+                goal_label="goal_right",
+            )
+        return make_snapshot(
+            {
                 "robot": {"a"},
                 "a": {"robot", "goal_left"},
                 "goal_left": {"a"},
-            }
-        }
-
-    def goal_region(*_args):
-        return next(goal_regions)
+            },
+            goal_label="goal_left",
+        )
 
     monkeypatch.setattr(planner, "_compute_region_snapshot", compute_snapshot)
-    monkeypatch.setattr(planner, "_get_robot_region_label", lambda _snapshot: "robot")
-    monkeypatch.setattr(planner, "_get_region_label_at_position", goal_region)
     monkeypatch.setattr(env, "is_robot_goal_reachable", lambda: env.current_state == "opened2")
 
     result = planner.search((0.0, 0.0, 0.0))

@@ -330,6 +330,22 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_link_libraries(generate_motion_primitives_db gomp)
 endif()
 
+# Lightweight ConfigManager schema regression test
+add_executable(test_config_manager_schema
+    tests/core/test_config_manager_schema.cpp
+    ${CORE_SOURCES}
+    ${CONFIG_SOURCES}
+)
+
+target_include_directories(test_config_manager_schema PRIVATE
+    include
+)
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(test_config_manager_schema PRIVATE -fopenmp -ffast-math)
+    target_link_libraries(test_config_manager_schema gomp)
+endif()
+
 # Test executable for planner output with visualization
 add_executable(test_planner_output
     tests/planning/test_planner_output.cpp

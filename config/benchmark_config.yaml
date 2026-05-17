@@ -13,6 +13,7 @@ planning:
   
   # Robot physical properties
   robot_size: [0.15, 0.15]          # [half_extent_x, half_extent_y] in meters for wavefront inflation
+  wavefront_edge_offset_margin: 0.15  # Unified robot-edge spawn margin beyond robot radius
   
   # Grid system limits
   max_bfs_queue: 100000            # Maximum BFS queue size
@@ -55,7 +56,7 @@ skill:
   max_stuck_iterations: 3         # Maximum stuck iterations before failure
   
   # Object interaction parameters
-  object_clearance: 0.15            # Clearance around objects for edge point sampling (meters)
+  # Edge sampling count for push approach generation
   num_edge_points: 12              # Number of edge points around object perimeter
   # push_force_magnitude: 10.0       # REMOVED: unused parameter (force_scaling used instead)
 
