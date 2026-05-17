@@ -6,7 +6,7 @@ set -e  # Exit on any error
 echo "Building NAMO Python Bindings for mjxrl environment"
 echo "=================================================="
 
-PYTHON_ENV="/common/users/dm1487/envs/mjxrl"
+PYTHON_ENV="/scratch/dm1487/envs/namo"
 PYTHON_BIN="$PYTHON_ENV/bin/python"
 
 # Check if the Python environment exists
