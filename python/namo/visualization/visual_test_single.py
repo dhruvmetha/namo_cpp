@@ -43,8 +43,6 @@ from namo.core import BasePlanner, PlannerConfig, PlannerResult, PlannerFactory
 from namo.core.xml_goal_parser import extract_goal_with_fallback
 
 # Import and register all available planners
-from namo.planners.idfs.standard_idfs import StandardIterativeDeepeningDFS
-from namo.planners.idfs.tree_idfs import TreeIterativeDeepeningDFS
 from namo.planners.sampling.random_sampling import RandomSamplingPlanner
 from namo.planners.opening.region_opening import RegionOpeningPlanner
 from namo.planners.full_namo.full_namo_planner import FullNAMOPlanner
@@ -307,7 +305,7 @@ def main():
     
     # Algorithm selection
     available_algorithms = get_available_algorithms()
-    parser.add_argument("--algorithm", type=str, default="idfs", choices=available_algorithms,
+    parser.add_argument("--algorithm", type=str, default="region_opening", choices=available_algorithms,
                         help=f"Planning algorithm to use. Options: {available_algorithms}")
     
     # Strategy selection

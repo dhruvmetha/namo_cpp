@@ -7,7 +7,6 @@ try:  # pragma: no cover - optional during static analysis
 except ImportError:  # pragma: no cover
 	namo_rl = None  # type: ignore[assignment]
 
-from . import idfs
 from . import mcts
 from . import sampling
 from . import full_namo
@@ -152,7 +151,6 @@ def get_region_goal_samples(env: Any, goals_per_region: int) -> RegionGoalSample
 
 
 __all__ = [
-	"idfs",
 	"mcts",
 	"sampling",
 	"full_namo",

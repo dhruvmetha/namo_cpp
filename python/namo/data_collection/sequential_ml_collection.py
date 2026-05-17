@@ -62,7 +62,6 @@ from namo.data_collection.modular_parallel_collection import (
     discover_environment_files,
     create_failure_info,
     apply_solution_smoothing,
-    apply_action_refinement,
     _sanitize_run_name,
     get_failure_statistics
 )
@@ -452,7 +451,6 @@ def process_single_environment(
                         planner_result.state_observations, planner_result.post_action_state_observations,
                         robot_goal, task
                     )
-                    apply_action_refinement(episode_result, env, robot_goal, task)
 
                 if not planner_result.success:
                     episode_result.error_message = planner_result.error_message
@@ -616,8 +614,6 @@ class SequentialCollectionManager:
                 filter_minimum_length=self.config.filter_minimum_length,
                 smooth_solutions=self.config.smooth_solutions,
                 max_smooth_actions=self.config.max_smooth_actions,
-                refine_actions=self.config.refine_actions,
-                validate_refinement=self.config.validate_refinement,
                 region_object_skip=region_object_skip
             )
             tasks.append(task)
@@ -864,8 +860,6 @@ def main():
         algorithm=args.algorithm,
         smooth_solutions=args.smooth_solutions,
         max_smooth_actions=args.max_smooth_actions,
-        refine_actions=args.refine_actions,
-        validate_refinement=args.validate_refinement,
         filter_minimum_length=args.filter_minimum_length,
         planner_config=planner_config,
         run_name=args.run_name,

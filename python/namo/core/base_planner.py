@@ -130,7 +130,7 @@ class PlannerFactory:
         """Register a planner algorithm.
         
         Args:
-            name: Algorithm identifier (e.g., "idfs", "tree_idfs", "mcts")
+            name: Algorithm identifier (e.g., "region_opening", "full_namo", "mcts")
             planner_class: Class implementing BasePlanner interface
         """
         cls._planners[name] = planner_class
