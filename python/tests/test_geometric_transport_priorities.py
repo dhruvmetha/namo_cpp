@@ -62,9 +62,8 @@ def test_priority_movable_collision_opening(namo_env):
 
 def test_priority_clean_no_opening(namo_env):
     # On the robot->goal path, no collisions => Priority 4
-    # Use y=-0.25 to avoid overlapping obstacle_3_movable (used for Priority 5 test).
-    # y=-0.25 is too close to the corridor wall after discretization/inflation in some builds.
-    p = _priority_for_pose(namo_env, "obstacle_1_movable", [2.0, -0.2, 0.0])
+    # y=-0.10 stays on-path while avoiding static-wall inflation and movable overlap bands.
+    p = _priority_for_pose(namo_env, "obstacle_1_movable", [2.0, -0.1, 0.0])
     assert p == 4
 
 

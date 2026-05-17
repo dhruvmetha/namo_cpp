@@ -15,6 +15,7 @@ import networkx as nx  # type: ignore[import]
 import numpy as np
 from matplotlib.figure import Figure  # type: ignore[import]
 import matplotlib.patheffects as patheffects  # type: ignore[import]
+from matplotlib.patches import Polygon as MplPolygon  # type: ignore[import]
 from numpy.typing import NDArray
 
 plt = cast(Any, plt)
@@ -751,16 +752,7 @@ def _plot_environment(ax: Any, data: WavefrontSnapshotData) -> None:
     ax.set_axis_off()
 
     text_effects = [patheffects.withStroke(linewidth=2, foreground="white")]
-    ax.scatter(
-        [data.robot_pose[0]],
-        [data.robot_pose[1]],
-        c=COLOR_ROBOT_MARKER,
-        marker="o",
-        s=90,
-        edgecolors=COLOR_ROBOT_MARKER_OUTLINE,
-        linewidths=1.2,
-        label="Robot",
-    )
+    _draw_robot_footprint(ax, data, label="Robot")
     if data.goal_pose:
         ax.scatter([data.goal_pose[0]], [data.goal_pose[1]], c=COLOR_GOAL_MARKER_HALO, marker="*", s=210, label=None)
         ax.scatter(
@@ -867,17 +859,7 @@ def _plot_heatmap(ax: Any, data: WavefrontSnapshotData) -> None:
     ax.set_ylim(data.bounds[2], data.bounds[3])
     ax.set_axis_off()
 
-    robot_x, robot_y, _ = data.robot_pose
-    ax.scatter(
-        [robot_x],
-        [robot_y],
-        c=COLOR_ROBOT_MARKER,
-        marker="o",
-        edgecolors=COLOR_ROBOT_MARKER_OUTLINE,
-        linewidths=1.2,
-        s=90,
-        label="Robot",
-    )
+    _draw_robot_footprint(ax, data, label="Robot")
 
     if data.goal_pose:
         goal_x, goal_y, _ = data.goal_pose
@@ -1237,6 +1219,57 @@ def _plot_region_graph(ax: Any, data: WavefrontSnapshotData) -> None:
         ax.set_xlim(-(a + m), (a + m))
         ax.set_ylim(-(b + m), (b + m))
         ax.set_aspect("equal", adjustable="box")
+
+
+def _draw_robot_footprint(ax: Any, data: WavefrontSnapshotData, label: Optional[str] = None) -> None:
+    hx = abs(float(data.robot_half_extent[0]))
+    hy = abs(float(data.robot_half_extent[1]))
+    x, y, theta = float(data.robot_pose[0]), float(data.robot_pose[1]), float(data.robot_pose[2])
+
+    # Fallback marker for malformed metadata.
+    if hx <= 0.0 or hy <= 0.0:
+        ax.scatter(
+            [x],
+            [y],
+            c=COLOR_ROBOT_MARKER,
+            marker="o",
+            s=90,
+            edgecolors=COLOR_ROBOT_MARKER_OUTLINE,
+            linewidths=1.2,
+            label=label,
+        )
+        return
+
+    corners_local = [(-hx, -hy), (hx, -hy), (hx, hy), (-hx, hy)]
+    c = math.cos(theta)
+    s = math.sin(theta)
+    corners_world: List[Tuple[float, float]] = []
+    for lx, ly in corners_local:
+        wx = x + c * lx - s * ly
+        wy = y + s * lx + c * ly
+        corners_world.append((wx, wy))
+
+    footprint = MplPolygon(
+        corners_world,
+        closed=True,
+        facecolor=COLOR_ROBOT_MARKER,
+        edgecolor=COLOR_ROBOT_MARKER_OUTLINE,
+        linewidth=1.2,
+        label=label,
+        zorder=5,
+    )
+    ax.add_patch(footprint)
+
+    # Heading cue from center to front face.
+    front_x = x + c * hx
+    front_y = y + s * hx
+    ax.plot(
+        [x, front_x],
+        [y, front_y],
+        color=COLOR_ROBOT_MARKER_OUTLINE,
+        linewidth=1.2,
+        zorder=6,
+    )
 
 
 def create_figure(data: WavefrontSnapshotData) -> Figure:
