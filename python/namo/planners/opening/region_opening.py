@@ -327,6 +327,7 @@ class RegionOpeningPlanner(BasePlanner):
         # Rejection-reason tally — surfaced in algorithm_stats so callers can
         # render a diagnostic breakdown when planning fails to find a plan.
         self._rejection_stats: Dict[str, int] = {}
+        self._last_explore_context: Optional[Dict[str, Any]] = None
 
         super().__init__(env, config)
 
@@ -600,10 +601,91 @@ class RegionOpeningPlanner(BasePlanner):
     def reset(self):
         """Reset internal algorithm state for new planning episode."""
         self.attempt_results = []
+        self._last_explore_context = None
 
     def _debug(self, message: str):
         if getattr(self.config, "verbose", False):
             print(message)
+
+    @staticmethod
+    def _normalize_boundary_object_ids(objects: Optional[Set[str]]) -> Set[str]:
+        if not objects:
+            return set()
+        return {str(obj) for obj in objects}
+
+    def _get_boundary_objects(
+        self,
+        edge_objects: Dict[str, Dict[str, Set[str]]],
+        source_label: str,
+        neighbour_label: str,
+    ) -> Tuple[Optional[List[str]], Optional[str]]:
+        forward = edge_objects.get(source_label, {}).get(neighbour_label)
+        reverse = edge_objects.get(neighbour_label, {}).get(source_label)
+
+        if forward is not None and reverse is not None:
+            forward_ids = self._normalize_boundary_object_ids(forward)
+            reverse_ids = self._normalize_boundary_object_ids(reverse)
+            if forward_ids != reverse_ids:
+                return None, "boundary_object_map_inconsistent"
+            return sorted(forward_ids), None
+
+        if forward is not None:
+            return sorted(self._normalize_boundary_object_ids(forward)), None
+        if reverse is not None:
+            return sorted(self._normalize_boundary_object_ids(reverse)), None
+        return [], None
+
+    def _build_target_summary(self, target_neighbor: Optional[str]) -> Optional[Dict[str, Any]]:
+        if target_neighbor is None:
+            return None
+
+        context = self._last_explore_context or {}
+        local_robot_label = context.get("local_robot_label")
+        local_neighbors = sorted(context.get("local_neighbors", []))
+        target_is_immediate = bool(context.get("target_is_immediate_neighbor", False))
+        attempts = list(self.attempt_results or [])
+        detail_reasons = sorted(
+            {
+                str(getattr(attempt, "failure_reason", "") or "unknown")
+                for attempt in attempts
+            }
+        )
+        success_found = any(getattr(attempt, "success", False) for attempt in attempts)
+
+        if not attempts:
+            failure_reason = "no_attempt_results"
+        elif not target_is_immediate:
+            failure_reason = "target_not_immediate_neighbor"
+        elif any(reason == "boundary_object_map_inconsistent" for reason in detail_reasons):
+            failure_reason = "boundary_object_map_inconsistent"
+        elif any(reason == "already_accessible" for reason in detail_reasons):
+            failure_reason = "already_accessible"
+        elif any(reason == "no_blocking_objects" for reason in detail_reasons):
+            failure_reason = "no_blocking_objects"
+        elif success_found:
+            failure_reason = "success"
+        elif len(detail_reasons) == 1:
+            failure_reason = detail_reasons[0]
+        else:
+            failure_reason = "mixed_failure_reasons"
+
+        boundary_exhausted = (
+            target_is_immediate
+            and not success_found
+            and bool(detail_reasons)
+            and set(detail_reasons).issubset({"all_pushes_failed", "no_reachable_objects"})
+        )
+
+        return {
+            "target_neighbor": target_neighbor,
+            "local_robot_label": local_robot_label,
+            "local_neighbors": local_neighbors,
+            "target_is_immediate_neighbor": target_is_immediate,
+            "failure_reason": failure_reason,
+            "attempt_count": len(attempts),
+            "detail_reasons": detail_reasons,
+            "boundary_exhausted": boundary_exhausted,
+        }
 
     def _focus_camera_on_object(self, object_id: str):
         """Focus camera on the specified object from above and render.
@@ -638,8 +720,6 @@ class RegionOpeningPlanner(BasePlanner):
         self,
         robot_goal: Tuple[float, float, float],
         target_neighbor: Optional[str] = None,
-        local_info_only: bool = True,
-        accessible_regions: Optional[set] = None,
     ) -> PlannerResult:
         """Execute region opening planner (single-level exploration from initial state only).
 
@@ -651,17 +731,13 @@ class RegionOpeningPlanner(BasePlanner):
             robot_goal: Target robot position (x, y, theta) - stored but not directly used
             target_neighbor: If set, only attempt to open path to this specific neighbor.
                            If None, attempt to open paths to ALL neighbors (default behavior).
-            local_info_only: If True (default), only consider robot's immediate neighbors.
-                           Set to False when targeting a non-adjacent region (e.g., via
-                           an already-accessible intermediate region).
-            accessible_regions: Set of region labels already reachable from robot without
-                              pushing. Their neighbors are added to the candidate list.
 
         Returns:
             PlannerResult with all attempt results from initial state
         """
         start_time = time.time()
         self.attempt_results = []
+        self._last_explore_context = None
 
         # Reset progress reporter for this search
         self._progress_total_primitives = 0
@@ -677,97 +753,97 @@ class RegionOpeningPlanner(BasePlanner):
 
         # Save baseline state
         baseline = self.env.get_full_state()
+        try:
+            if self.config.verbose:
+                self._debug(f"\n{'='*60}")
+                target_info = f" (target: {target_neighbor})" if target_neighbor else ""
+                self._debug(f"Region Opening Planner - Single-Level Exploration{target_info}")
+                self._debug(
+                    f"Max chain depth: {self.max_chain_depth} | Collision checking: {'ON' if collision_checking_enabled else 'OFF'}"
+                )
+                self._debug(f"{'='*60}\n")
 
-        if self.config.verbose:
-            self._debug(f"\n{'='*60}")
-            target_info = f" (target: {target_neighbor})" if target_neighbor else ""
-            self._debug(f"Region Opening Planner - Single-Level Exploration{target_info}")
-            self._debug(f"Max chain depth: {self.max_chain_depth} | Collision checking: {'ON' if collision_checking_enabled else 'OFF'}")
-            self._debug(f"{'='*60}\n")
+            # Explore from initial state only (Level 0)
+            self.attempt_results = self._explore_from_state(
+                baseline,
+                level=0,
+                target_neighbor=target_neighbor,
+            )
 
-        # Explore from initial state only (Level 0)
-        self.attempt_results = self._explore_from_state(
-            baseline, level=0, target_neighbor=target_neighbor,
-            local_info_only=local_info_only,
-            accessible_regions=accessible_regions,
-        )
+            if self.config.verbose:
+                successful_attempts = sum(1 for a in self.attempt_results if a.success)
+                self._debug(f"\n{'='*60}")
+                self._debug(
+                    f"Exploration Complete: {successful_attempts}/{len(self.attempt_results)} successful openings"
+                )
+                self._debug(f"{'='*60}\n")
 
-        if self.config.verbose:
+            total_time = (time.time() - start_time) * 1000
             successful_attempts = sum(1 for a in self.attempt_results if a.success)
-            self._debug(f"\n{'='*60}")
-            self._debug(f"Exploration Complete: {successful_attempts}/{len(self.attempt_results)} successful openings")
-            self._debug(f"{'='*60}\n")
 
-        # Calculate statistics
-        total_time = (time.time() - start_time) * 1000  # ms
-        successful_attempts = sum(1 for a in self.attempt_results if a.success)
+            action_sequence = []
+            all_solutions = []
+            for attempt in self.attempt_results:
+                if not attempt.success:
+                    continue
 
-        # Build action_sequence from the first successful attempt for visualization
-        action_sequence = []
-        all_solutions = []  # Store ALL successful attempts as separate action sequences
-
-        for attempt in self.attempt_results:
-            if not attempt.success:
-                continue
-
-            # Build action sequence for this attempt
-            attempt_actions = []
-
-            # Handle both single goal and goal chain
-            # Build actions from goal_chain (has edge_idx/depth for direct C++ execution)
-            if attempt.goal_chain:
-                for goal in attempt.goal_chain:
+                attempt_actions = []
+                if attempt.goal_chain:
+                    for goal in attempt.goal_chain:
+                        action = namo_rl.Action()
+                        action.object_id = attempt.chosen_object_id
+                        action.x = goal.x
+                        action.y = goal.y
+                        action.theta = goal.theta
+                        action.edge_idx = getattr(goal, "edge_idx", -1)
+                        action.depth = getattr(goal, "depth", -1)
+                        attempt_actions.append(action)
+                elif attempt.chosen_goal:
                     action = namo_rl.Action()
                     action.object_id = attempt.chosen_object_id
-                    action.x = goal.x
-                    action.y = goal.y
-                    action.theta = goal.theta
-                    action.edge_idx = getattr(goal, 'edge_idx', -1)
-                    action.depth = getattr(goal, 'depth', -1)
+                    action.x = attempt.chosen_goal[0]
+                    action.y = attempt.chosen_goal[1]
+                    action.theta = attempt.chosen_goal[2]
                     attempt_actions.append(action)
-            elif attempt.chosen_goal:
-                # Fallback to chosen_goal tuple (no edge_idx/depth)
-                action = namo_rl.Action()
-                action.object_id = attempt.chosen_object_id
-                action.x = attempt.chosen_goal[0]
-                action.y = attempt.chosen_goal[1]
-                action.theta = attempt.chosen_goal[2]
-                attempt_actions.append(action)
 
-            all_solutions.append({
-                "actions": attempt_actions,
-                "neighbor": attempt.neighbour_region_label,
-                "object": attempt.chosen_object_id
-            })
+                all_solutions.append(
+                    {
+                        "actions": attempt_actions,
+                        "neighbor": attempt.neighbour_region_label,
+                        "object": attempt.chosen_object_id,
+                    }
+                )
+                if not action_sequence:
+                    action_sequence = attempt_actions
 
-            # Keep first success as primary action_sequence for backward compatibility
-            if not action_sequence:
-                action_sequence = attempt_actions
-
-        # Return PlannerResult with action_sequence for visualization
-        return PlannerResult(
-            success=successful_attempts > 0,
-            solution_found=successful_attempts > 0,
-            action_sequence=action_sequence,
-            solution_depth=len(action_sequence) if action_sequence else None,
-            search_time_ms=total_time,
-            algorithm_stats={
+            algorithm_stats: Dict[str, Any] = {
                 "attempt_results": self.attempt_results,
-                "all_solutions": all_solutions,  # ALL successful openings from initial state
+                "all_solutions": all_solutions,
                 "successful_openings": successful_attempts,
                 "total_attempts": len(self.attempt_results),
                 "rejection_breakdown": dict(self._rejection_stats),
                 "total_primitives_attempted": self._progress_total_primitives,
             }
-        )
+            target_summary = self._build_target_summary(target_neighbor)
+            if target_summary is not None:
+                algorithm_stats["target_summary"] = target_summary
+
+            return PlannerResult(
+                success=successful_attempts > 0,
+                solution_found=successful_attempts > 0,
+                action_sequence=action_sequence,
+                solution_depth=len(action_sequence) if action_sequence else None,
+                search_time_ms=total_time,
+                algorithm_stats=algorithm_stats,
+            )
+        finally:
+            self.env.set_full_state(baseline)
 
     def _explore_from_state(
         self,
         state: 'namo_rl.RLState',
         level: int = 0,
         target_neighbor: Optional[str] = None,
-        local_info_only: bool = True,
-        accessible_regions: Optional[set] = None,
     ) -> List[AttemptResult]:
         """Explore region openings from a given state.
 
@@ -811,19 +887,26 @@ class RegionOpeningPlanner(BasePlanner):
         # Identify robot region
         robot_label = snapshot.get("robot_label") or find_robot_label(region_labels)
         if not robot_label:
+            self._last_explore_context = {
+                "local_robot_label": None,
+                "local_neighbors": [],
+                "target_neighbor": target_neighbor,
+                "target_is_immediate_neighbor": False,
+            }
             if self.config.verbose:
                 print(f"  ⚠ Could not identify robot region")
+            if target_neighbor is not None:
+                return [AttemptResult(
+                    success=False,
+                    neighbour_region_label=target_neighbor,
+                    error_message="Could not identify robot region",
+                    failure_reason="missing_robot_region",
+                    timing_ms=0.0,
+                )]
             return []
 
-        # Get neighbours — include neighbours of already-accessible regions
-        # (the robot can physically reach those regions without pushing)
-        robot_adj = set(adjacency.get(robot_label, set()))
-        if accessible_regions:
-            for acc in accessible_regions:
-                for extended_neighbor in adjacency.get(acc, set()):
-                    if extended_neighbor != robot_label:
-                        robot_adj.add(extended_neighbor)
-        neighbours = sorted(list(robot_adj))
+        raw_neighbours = sorted(list(adjacency.get(robot_label, set())))
+        neighbours = list(raw_neighbours)
 
         # Apply region skip filter (blacklist)
         # Skip entire regions that have empty object lists in region_object_skip
@@ -838,6 +921,13 @@ class RegionOpeningPlanner(BasePlanner):
                     print(f"   ⏭ Neighbor '{region}': SKIPPED (from manifest)")
             # Regions with specific objects will be filtered later in _attempt_opening_to_neighbour
 
+        self._last_explore_context = {
+            "local_robot_label": robot_label,
+            "local_neighbors": list(raw_neighbours),
+            "target_neighbor": target_neighbor,
+            "target_is_immediate_neighbor": target_neighbor in raw_neighbours if target_neighbor is not None else None,
+        }
+
         # Filter to target_neighbor if specified (for FullNAMOPlanner)
         if target_neighbor is not None:
             if target_neighbor in neighbours:
@@ -847,7 +937,13 @@ class RegionOpeningPlanner(BasePlanner):
             else:
                 if self.config.verbose:
                     print(f"  ⚠ Target neighbor '{target_neighbor}' not in immediate neighbors: {neighbours}")
-                return []
+                return [AttemptResult(
+                    success=False,
+                    neighbour_region_label=target_neighbor,
+                    error_message=f"Target neighbor '{target_neighbor}' is not an immediate neighbor",
+                    failure_reason="target_not_immediate_neighbor",
+                    timing_ms=0.0,
+                )]
 
         if self.config.verbose:
             # Print region snapshot details
@@ -985,17 +1081,19 @@ class RegionOpeningPlanner(BasePlanner):
             )
             return [already_result]
 
-        # Get candidate objects blocking the edge
-        candidates = list(edge_objects.get(robot_label, {}).get(neighbour_label, set()))
-
-        # If no direct edge from robot, check edges from other regions
-        # (the neighbour may be reachable via an already-accessible intermediate region)
-        if not candidates:
-            for region, edges in edge_objects.items():
-                if region != robot_label and neighbour_label in edges:
-                    candidates = list(edges[neighbour_label])
-                    if candidates:
-                        break
+        # Get candidate objects blocking the boundary between the robot and neighbour region.
+        candidates, boundary_error = self._get_boundary_objects(edge_objects, robot_label, neighbour_label)
+        if boundary_error is not None:
+            if self.config.verbose:
+                print(f"    ✗ '{neighbour_label}' - {boundary_error}")
+            return [AttemptResult(
+                success=False,
+                neighbour_region_label=neighbour_label,
+                error_message="Boundary object map is inconsistent across directions",
+                timing_ms=(time.time() - attempt_start) * 1000,
+                failure_reason=boundary_error,
+                candidate_objects_count=0,
+            )]
 
         # Filter out objects specified in region_object_skip for this neighbour
         if self.region_object_skip and neighbour_label in self.region_object_skip:

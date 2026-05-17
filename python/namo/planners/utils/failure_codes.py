@@ -46,6 +46,7 @@ class FailureCode(IntEnum):
     # System/resource failures
     MEMORY_ERROR = 16             # Out of memory
     SYSTEM_ERROR = 17             # System-level error (disk, network, etc.)
+    PLANNER_INVARIANT_VIOLATION = 18  # Planner graph/reachability/contract mismatch
     
     # Unknown/unclassified failures
     UNKNOWN_ERROR = 99            # Catch-all for unclassified errors
@@ -164,6 +165,9 @@ class FailureClassifier:
             r"disk.*error",
             r"io.*error",
             r"network.*error"
+        ],
+        FailureCode.PLANNER_INVARIANT_VIOLATION: [
+            r"planner invariant violation:"
         ]
     }
     
@@ -225,6 +229,7 @@ class FailureClassifier:
             FailureCode.INVALID_STATE: "Environment state is invalid or corrupted",
             FailureCode.MEMORY_ERROR: "Insufficient memory for operation",
             FailureCode.SYSTEM_ERROR: "System-level error (I/O, network, etc.)",
+            FailureCode.PLANNER_INVARIANT_VIOLATION: "Planner invariant violation (graph/reachability inconsistency)",
             FailureCode.UNKNOWN_ERROR: "Unclassified error"
         }
         return descriptions.get(failure_code, f"Unknown failure code: {failure_code}")
