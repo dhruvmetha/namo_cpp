@@ -284,7 +284,7 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
             }
             // Check for stuck condition
             if (step_result.failure_reason.find("Controller-level stuck") != std::string::npos) {
-                result.outputs["stuck"] = "true";
+                result.outputs["stuck"] = std::string("true");  // explicit string to avoid implicit const char* → bool
                 result.failure_type = FailureType::OBJECT_STUCK;
             }
         }
@@ -342,7 +342,7 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
 
                 if (stuck_counter >= max_stuck_iterations) {
                     // debug disabled
-                    result.outputs["stuck"] = "true";
+                    result.outputs["stuck"] = std::string("true");  // explicit string to avoid implicit const char* → bool
                     result.failure_reason = "Object stuck for " + std::to_string(stuck_counter) + " iterations at MPC iteration " + std::to_string(mpc_iter);
                     result.failure_type = FailureType::OBJECT_STUCK;
                     result.outputs["steps_executed"] = mpc_iter;
@@ -512,7 +512,7 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
             // Check for controller-level stuck propagated up by MPC executor
             if (!step_result.collision_object.empty() == false &&
                 step_result.failure_reason.find("Controller-level stuck") != std::string::npos) {
-                result.outputs["stuck"] = "true";
+                result.outputs["stuck"] = std::string("true");  // explicit string to avoid implicit const char* → bool
                 result.failure_reason = step_result.failure_reason;
                 result.failure_type = FailureType::OBJECT_STUCK;
                 result.outputs["steps_executed"] = mpc_iter;
@@ -767,6 +767,12 @@ void NAMOPushSkill::set_collision_checking(bool enabled) {
     // Propagate collision checking setting to the executor's controller
     if (executor_) {
         executor_->set_collision_checking(enabled);
+    }
+}
+
+void NAMOPushSkill::set_robot_trajectory_collision_checking(bool enabled) {
+    if (executor_) {
+        executor_->set_robot_trajectory_collision_checking(enabled);
     }
 }
 

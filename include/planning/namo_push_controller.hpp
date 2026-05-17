@@ -106,6 +106,7 @@ private:
     std::array<double, 3> robot_size_;
     double push_offset_margin_ = 0.02;  // Additional offset beyond robot radius for spawn points
     bool check_object_collision_ = true;
+    bool check_robot_trajectory_collision_ = true;  // Robot-body collisions during push trajectory
     int stuck_ctrl_iterations_threshold_ = 3;   // controller-level stuck threshold (checks)
     int last_stuck_counter_ = 0;             // last observed stuck counter (for diagnostics)
     int stuck_check_stride_ = 20;            // check every N control steps
@@ -235,10 +236,21 @@ public:
     const std::string& get_last_collision_object() const { return last_collision_object_; }
 
     /**
-     * @brief Set collision checking mode
+     * @brief Set collision checking mode for pushed-object trajectory
      */
     void set_collision_checking(bool enabled) {
         check_object_collision_ = enabled;
+    }
+
+    /**
+     * @brief Set whether robot-body collisions during push trajectory abort the push.
+     * Always-strict by design, but can be disabled for debugging / less-strict modes.
+     */
+    void set_robot_trajectory_collision_checking(bool enabled) {
+        check_robot_trajectory_collision_ = enabled;
+    }
+    bool get_robot_trajectory_collision_checking() const {
+        return check_robot_trajectory_collision_;
     }
 
     /**

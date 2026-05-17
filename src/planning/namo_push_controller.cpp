@@ -641,6 +641,32 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
                     }
                 }
             }
+
+            // ROBOT-TRAJECTORY COLLISION CHECK (gated by check_robot_trajectory_collision_):
+            // The robot body should not pass through walls or non-target objects during
+            // the push trajectory. Robot collisions in sim correspond to physical jamming
+            // on real hardware, so this is strict by default. Can be disabled at runtime
+            // via set_robot_trajectory_collision_checking(false) for debugging or for
+            // environments where sim robot bounds are conservative.
+            if (check_robot_trajectory_collision_) {
+                for (size_t i = 0; i < num_static; i++) {
+                    const auto& static_obj = static_objects[i];
+                    if (env_.bodies_in_collision("robot", static_obj.body_name)) {
+                        last_failure_reason_ = "Robot trajectory collision during push with static object: " + static_obj.body_name;
+                        last_collision_object_ = static_obj.body_name;
+                        return false;
+                    }
+                }
+                for (size_t i = 0; i < num_movable; i++) {
+                    const auto& movable_obj = movable_objects[i];
+                    // Robot-target contact is expected (that's how pushing works); skip it.
+                    if (movable_obj.name != object_name && env_.bodies_in_collision("robot", movable_obj.body_name)) {
+                        last_failure_reason_ = "Robot trajectory collision during push with movable object: " + movable_obj.body_name;
+                        last_collision_object_ = movable_obj.body_name;
+                        return false;
+                    }
+                }
+            }
         }
 
         // Reset velocities between push steps

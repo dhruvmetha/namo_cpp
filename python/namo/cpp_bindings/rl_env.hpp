@@ -123,6 +123,7 @@ public:
 
     // Collision checking control (for region opening planner)
     void set_collision_checking(bool enable);
+    void set_robot_trajectory_collision_checking(bool enable);
     bool get_collision_checking() const;
 
     // Robot goal termination control (defaults to false)

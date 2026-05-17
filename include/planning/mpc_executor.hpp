@@ -120,6 +120,13 @@ public:
     }
 
     /**
+     * @brief Set robot-trajectory collision checking on the underlying controller
+     */
+    void set_robot_trajectory_collision_checking(bool enabled) {
+        controller_.set_robot_trajectory_collision_checking(enabled);
+    }
+
+    /**
      * @brief Execute a sequence of primitive plans with MPC
      * 
      * Follows old implementation approach:
