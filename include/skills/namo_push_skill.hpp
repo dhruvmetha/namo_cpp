@@ -126,6 +126,7 @@ public:
      * @brief Runtime configuration for collision checking
      */
     void set_collision_checking(bool enabled);
+    void set_robot_trajectory_collision_checking(bool enabled);
 
 private:
     /**

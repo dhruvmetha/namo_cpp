@@ -2,14 +2,17 @@
 #include "core/types.hpp"
 #include "wavefront/goal_tolerance_utils.hpp"
 #include "wavefront/wavefront_grid.hpp"
+#include "skills/manipulation_skill.hpp"  // For SkillResult
 #include <iostream>
 #include <fstream>
 #include <regex>
 #include <sstream>
 #include <queue>
 #include <algorithm>
+#include <variant>
 
 namespace namo {
+
 
 namespace {
 
@@ -239,43 +242,89 @@ RLEnvironment::StepResult RLEnvironment::step(const Action& action) {
         {"depth", action.depth}         // Pass to skill for direct primitive execution
     };
 
-    if (!skill_->is_applicable(params)) {
-        return {false, -10.0, {{"failure_reason", "Action not applicable"}}};
+    try {
+        if (!skill_->is_applicable(params)) {
+            return {false, -10.0, {{"failure_reason", "Action not applicable"}}};
+        }
+    } catch (const std::bad_variant_access& e) {
+        std::cerr << "[rl_env::step] bad_variant_access in is_applicable: " << e.what()
+                  << " | action: obj=" << action.object_id
+                  << " edge=" << action.edge_idx << " depth=" << action.depth
+                  << " pose=(" << action.x << "," << action.y << "," << action.theta << ")"
+                  << std::endl;
+        return {false, -10.0, {{"failure_reason", std::string("bad_variant_access in is_applicable: ") + e.what()}}};
     }
 
-    auto result = skill_->execute(params);
-    
+    SkillResult result;
+    try {
+        result = skill_->execute(params);
+    } catch (const std::bad_variant_access& e) {
+        std::cerr << "[rl_env::step] bad_variant_access in execute: " << e.what()
+                  << " | action: obj=" << action.object_id
+                  << " edge=" << action.edge_idx << " depth=" << action.depth
+                  << " pose=(" << action.x << "," << action.y << "," << action.theta << ")"
+                  << std::endl;
+        return {false, -10.0, {{"failure_reason", std::string("bad_variant_access in execute: ") + e.what()}}};
+    } catch (const std::exception& e) {
+        std::cerr << "[rl_env::step] std::exception in execute: " << e.what()
+                  << " | action: obj=" << action.object_id
+                  << " edge=" << action.edge_idx << " depth=" << action.depth
+                  << std::endl;
+        return {false, -10.0, {{"failure_reason", std::string("exception in execute: ") + e.what()}}};
+    }
+
     StepResult rl_result;
     rl_result.done = result.success;
-    
+
+    // Diagnostic helper: extract a variant alternative safely. If the variant
+    // currently holds a different type than expected, log the mismatch and
+    // return a sentinel — never throw bad_variant_access.
+    auto get_or_warn_bool = [&](const char* key, const SkillParameterValue& v) -> bool {
+        if (auto* p = std::get_if<bool>(&v)) return *p;
+        std::cerr << "[rl_env::step WARN] outputs['" << key << "'] expected bool, got variant index "
+                  << v.index() << " — returning false" << std::endl;
+        return false;
+    };
+    auto get_or_warn_int = [&](const char* key, const SkillParameterValue& v) -> int {
+        if (auto* p = std::get_if<int>(&v)) return *p;
+        std::cerr << "[rl_env::step WARN] outputs['" << key << "'] expected int, got variant index "
+                  << v.index() << " — returning 0" << std::endl;
+        return 0;
+    };
+    auto get_or_warn_string = [&](const char* key, const SkillParameterValue& v) -> std::string {
+        if (auto* p = std::get_if<std::string>(&v)) return *p;
+        std::cerr << "[rl_env::step WARN] outputs['" << key << "'] expected string, got variant index "
+                  << v.index() << " — returning empty" << std::endl;
+        return std::string{};
+    };
+
     // MCTS sparse reward: +1 if robot goal reachable, -1 otherwise
     bool goal_reached = false;
     if (auto it = result.outputs.find("robot_goal_reached"); it != result.outputs.end()) {
-        goal_reached = std::get<bool>(it->second);
+        goal_reached = get_or_warn_bool("robot_goal_reached", it->second);
     }
     rl_result.reward = goal_reached ? 1.0 : -1.0;
-    
+
     rl_result.info["failure_reason"] = result.failure_reason;
     rl_result.info["failure_type"] = std::to_string(static_cast<int>(result.failure_type));
 
     if (auto it = result.outputs.find("steps_executed"); it != result.outputs.end()) {
-        rl_result.info["steps_executed"] = std::to_string(std::get<int>(it->second));
+        rl_result.info["steps_executed"] = std::to_string(get_or_warn_int("steps_executed", it->second));
     }
     if (auto it = result.outputs.find("robot_goal_reached"); it != result.outputs.end()) {
-        rl_result.info["robot_goal_reached"] = std::get<bool>(it->second) ? "true" : "false";
+        rl_result.info["robot_goal_reached"] = get_or_warn_bool("robot_goal_reached", it->second) ? "true" : "false";
     }
     if (auto it = result.outputs.find("collision_object"); it != result.outputs.end()) {
-        rl_result.info["collision_object"] = std::get<std::string>(it->second);
+        rl_result.info["collision_object"] = get_or_warn_string("collision_object", it->second);
     }
     if (auto it = result.outputs.find("stuck"); it != result.outputs.end()) {
-        rl_result.info["stuck"] = std::get<std::string>(it->second);
+        rl_result.info["stuck"] = get_or_warn_string("stuck", it->second);
     }
-    // Collision tracking outputs for hardness metrics
     if (auto it = result.outputs.find("wall_collision"); it != result.outputs.end()) {
-        rl_result.info["wall_collision"] = std::get<bool>(it->second) ? "true" : "false";
+        rl_result.info["wall_collision"] = get_or_warn_bool("wall_collision", it->second) ? "true" : "false";
     }
     if (auto it = result.outputs.find("movable_collisions"); it != result.outputs.end()) {
-        rl_result.info["movable_collisions"] = std::get<std::string>(it->second);
+        rl_result.info["movable_collisions"] = get_or_warn_string("movable_collisions", it->second);
     }
 
     return rl_result;
@@ -461,6 +510,12 @@ void RLEnvironment::set_collision_checking(bool enable) {
     // Propagate to the skill's controller
     if (skill_) {
         skill_->set_collision_checking(enable);
+    }
+}
+
+void RLEnvironment::set_robot_trajectory_collision_checking(bool enable) {
+    if (skill_) {
+        skill_->set_robot_trajectory_collision_checking(enable);
     }
 }
 

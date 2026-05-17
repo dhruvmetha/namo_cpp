@@ -79,6 +79,12 @@ class FullNAMOPlanner(BasePlanner):
         # Statistics
         self.stats = FullNAMOStats()
 
+        # Aggregated rejection breakdown across all inner region_opener calls
+        # during a single search(). Surfaced in algorithm_stats so a failing
+        # plan can produce a real diagnostic instead of a canned blurb.
+        self._aggregated_rejections: Dict[str, int] = {}
+        self._aggregated_primitives: int = 0
+
         super().__init__(env, config)
 
     def _setup_constraints(self):
@@ -172,6 +178,8 @@ class FullNAMOPlanner(BasePlanner):
         """
         start_time = time.time()
         self.stats = FullNAMOStats()
+        self._aggregated_rejections = {}
+        self._aggregated_primitives = 0
 
         self.env.set_robot_goal(robot_goal[0], robot_goal[1], robot_goal[2])
 
@@ -267,6 +275,14 @@ class FullNAMOPlanner(BasePlanner):
             # Try to open
             result = self.region_opener.search(robot_goal, target_neighbor=target)
             self.stats.total_attempted_pushes += self._extract_attempted_pushes_from_region_result(result)
+
+            # Aggregate inner rejection stats so the outer failure_result can
+            # surface a real diagnostic breakdown.
+            _inner_stats = result.algorithm_stats or {}
+            _inner_breakdown = _inner_stats.get("rejection_breakdown") or {}
+            for _k, _v in _inner_breakdown.items():
+                self._aggregated_rejections[_k] = self._aggregated_rejections.get(_k, 0) + int(_v)
+            self._aggregated_primitives += int(_inner_stats.get("total_primitives_attempted", 0))
 
             if not result.success:
                 self._debug(f"Failed, marking edge {edge}")
@@ -458,6 +474,8 @@ class FullNAMOPlanner(BasePlanner):
                 "total_pushes": self.stats.total_pushes,
                 "total_attempted_pushes": self.stats.total_attempted_pushes,
                 "regions_opened": self.stats.regions_opened,
+                "rejection_breakdown": dict(self._aggregated_rejections),
+                "total_primitives_attempted": self._aggregated_primitives,
             }
         )
 

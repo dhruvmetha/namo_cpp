@@ -105,8 +105,9 @@ PYBIND11_MODULE(namo_rl, m) {
         .def("clear_robot_goal", &namo::RLEnvironment::clear_robot_goal, "Clear robot goal (resets to XML goal for snapshot consistency).")
         .def("set_goal_site_visible", &namo::RLEnvironment::set_goal_site_visible, py::arg("visible"),
              "Show/hide the XML `<site name='goal'>` marker when present (visualization only).")
-        .def("set_collision_checking", &namo::RLEnvironment::set_collision_checking, py::arg("enable"), "Enable or disable collision checking during push execution.")
+        .def("set_collision_checking", &namo::RLEnvironment::set_collision_checking, py::arg("enable"), "Enable or disable pushed-object collision checking during push execution.")
         .def("get_collision_checking", &namo::RLEnvironment::get_collision_checking, "Get current collision checking state.")
+        .def("set_robot_trajectory_collision_checking", &namo::RLEnvironment::set_robot_trajectory_collision_checking, py::arg("enable"), "Enable or disable robot-body collision checking during push trajectory.")
         .def("set_robot_goal_termination", &namo::RLEnvironment::set_robot_goal_termination, py::arg("enable"), "Enable or disable robot goal termination during MPC execution.")
         .def("get_robot_goal_termination", &namo::RLEnvironment::get_robot_goal_termination, "Get current robot goal termination state.")
         .def("evaluate_primitive_priorities", &namo::RLEnvironment::evaluate_primitive_priorities,

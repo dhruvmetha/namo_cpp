@@ -32,6 +32,7 @@ class NAMOPlanResult:
     actions: List[NAMOAction] = field(default_factory=list)
     search_time_ms: float = 0.0
     error_message: str = ""
+    algorithm_stats: Optional[Dict[str, Any]] = None
 
 
 class NAMOPlanningService:
@@ -285,6 +286,7 @@ class NAMOPlanningService:
                 success=result.success and len(actions) > 0,
                 actions=actions,
                 search_time_ms=total_ms,
+                algorithm_stats=result.algorithm_stats,
             )
 
         except Exception as e:

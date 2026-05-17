@@ -211,6 +211,16 @@ class RegionOpeningPlanner(BasePlanner):
         # Exhaustive mode: disable search pruning, log all primitive outcomes for F characterization
         self.exhaustive_mode = algo_params.get("region_exhaustive_mode", False)
 
+        # Early-exit the candidate-object loop in _attempt_opening_to_neighbour after
+        # the first object yields a successful opening. This skips evaluating remaining
+        # candidate objects for the same neighbor — fine for execution (we only need
+        # ONE valid push per region transition; outer FullNAMOPlanner picks the next
+        # region after that). For data collection we want per-object outcomes, so the
+        # default is False to preserve eval coverage.
+        self.early_exit_on_first_success = algo_params.get(
+            "region_early_exit_on_first_success", False
+        )
+
         # Get max recorded solutions per neighbor (subset of found solutions to keep), default: 2
         self.max_recorded_solutions_per_neighbor = algo_params.get(
             "region_max_recorded_solutions_per_neighbor", 2
@@ -306,6 +316,17 @@ class RegionOpeningPlanner(BasePlanner):
         self._primitive_strategy = None
         self._ml_async_strategy = None
         self._runtime_timing_stats = self._new_runtime_timing_stats()
+
+        # Progress reporter state — prints [Progress] line every progress_interval_sec
+        # while the BFS is grinding through primitives. Reset each search() call.
+        self._progress_total_primitives = 0
+        self._progress_last_print_time = 0.0
+        self._progress_last_print_count = 0
+        self._progress_interval_sec = 2.0
+
+        # Rejection-reason tally — surfaced in algorithm_stats so callers can
+        # render a diagnostic breakdown when planning fails to find a plan.
+        self._rejection_stats: Dict[str, int] = {}
 
         super().__init__(env, config)
 
@@ -642,6 +663,14 @@ class RegionOpeningPlanner(BasePlanner):
         start_time = time.time()
         self.attempt_results = []
 
+        # Reset progress reporter for this search
+        self._progress_total_primitives = 0
+        self._progress_last_print_time = time.time()
+        self._progress_last_print_count = 0
+
+        # Reset rejection tally for this search
+        self._rejection_stats = {}
+
         # Configure collision checking based on region_allow_collisions setting
         collision_checking_enabled = self.terminate_on_collision
         self.env.set_collision_checking(collision_checking_enabled)
@@ -726,7 +755,9 @@ class RegionOpeningPlanner(BasePlanner):
                 "attempt_results": self.attempt_results,
                 "all_solutions": all_solutions,  # ALL successful openings from initial state
                 "successful_openings": successful_attempts,
-                "total_attempts": len(self.attempt_results)
+                "total_attempts": len(self.attempt_results),
+                "rejection_breakdown": dict(self._rejection_stats),
+                "total_primitives_attempted": self._progress_total_primitives,
             }
         )
 
@@ -858,7 +889,7 @@ class RegionOpeningPlanner(BasePlanner):
             else:
                 state_attempts.append(attempts)
 
-            if self.stop_after_first_success:
+            if not self.exhaustive_mode and self.stop_after_first_success:
                 # Stop exploring other neighbours once any successful opening exists.
                 if any(a.success for a in (attempts if isinstance(attempts, list) else [attempts])):
                     if self.config.verbose:
@@ -1032,7 +1063,7 @@ class RegionOpeningPlanner(BasePlanner):
         # NOTE: We try ALL objects (no early termination) to record per-object triplets for eval
         timed_out = False
         for obj_idx, object_id in enumerate(candidates, 1):
-            if self.stop_after_max_solutions and total_solutions_collected >= max_solutions:
+            if not self.exhaustive_mode and self.stop_after_max_solutions and total_solutions_collected >= max_solutions:
                 if self.config.verbose:
                     print(
                         f"    🛑 Collected {total_solutions_collected}/{max_solutions} solutions for '{neighbour_label}', "
@@ -1074,7 +1105,7 @@ class RegionOpeningPlanner(BasePlanner):
             pushes_before_object = neighbour_push_counter.get("count", 0)
 
             # Use per-object solution limit (not global remaining) unless explicitly stopping early.
-            if self.stop_after_max_solutions:
+            if not self.exhaustive_mode and self.stop_after_max_solutions:
                 remaining = max(0, max_solutions - total_solutions_collected)
                 max_solutions_for_object = max(1, remaining) if remaining > 0 else 1
             else:
@@ -1180,7 +1211,7 @@ class RegionOpeningPlanner(BasePlanner):
                 # State observations were already captured during BFS search
 
                 per_object_limit = max_solutions
-                if self.stop_after_max_solutions:
+                if not self.exhaustive_mode and self.stop_after_max_solutions:
                     per_object_limit = max(0, max_solutions - total_solutions_collected)
                 for goal_idx, (goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used, region_goals_sampled, reachable_before, reachable_after, total_cost, skill_calls_before_success, success_timestamp, any_wall_collision, unique_movable_collision_count) in enumerate(successful_goals[:per_object_limit]):
 
@@ -1263,7 +1294,7 @@ class RegionOpeningPlanner(BasePlanner):
                         if self.config.verbose:
                             print(f"        → Object {object_id} solutions: {goal_idx + 1}/{per_object_limit}")
 
-                        if self.stop_after_max_solutions and total_solutions_collected >= max_solutions:
+                        if not self.exhaustive_mode and self.stop_after_max_solutions and total_solutions_collected >= max_solutions:
                             if self.config.verbose:
                                 print(
                                     f"        🛑 Collected {total_solutions_collected}/{max_solutions} solutions for '{neighbour_label}', "
@@ -1345,7 +1376,7 @@ class RegionOpeningPlanner(BasePlanner):
                         if self.config.verbose:
                             print(f"        → Object {object_id} solutions: {goal_idx + 1}/{per_object_limit}")
 
-                        if self.stop_after_max_solutions and total_solutions_collected >= max_solutions:
+                        if not self.exhaustive_mode and self.stop_after_max_solutions and total_solutions_collected >= max_solutions:
                             if self.config.verbose:
                                 print(
                                     f"        🛑 Collected {total_solutions_collected}/{max_solutions} solutions for '{neighbour_label}', "
@@ -1437,6 +1468,22 @@ class RegionOpeningPlanner(BasePlanner):
                     unique_movable_collision_count=search_unique_movable_collision_count,
                     primitive_trial_log=object_trial_log if self.exhaustive_mode else None,
                 ))
+
+            # Execution-mode early exit: once we have at least one successful opening
+            # for this neighbor, skip the remaining candidate objects. FullNAMOPlanner
+            # picks the next region on the path after this, so additional openings to
+            # the same neighbor are wasted compute in execution. Disabled by default
+            # so data-collection runs still gather per-object outcomes for every
+            # candidate.
+            if not self.exhaustive_mode and self.early_exit_on_first_success and total_solutions_collected >= 1:
+                remaining = len(candidates) - obj_idx
+                if remaining > 0 and self.config.verbose:
+                    print(
+                        f"      ⤴ Early exit: {object_id} opened '{neighbour_label}' "
+                        f"({total_solutions_collected} solution(s)); "
+                        f"skipping remaining {remaining} candidate object(s)"
+                    )
+                break
 
         # After trying all objects, return results
         if all_goal_attempts:
@@ -1786,7 +1833,7 @@ class RegionOpeningPlanner(BasePlanner):
                     current_solutions_count = len(all_chains_across_depths)
 
                     inner_max_solutions = None
-                    if max_solutions_to_collect is not None:
+                    if not self.exhaustive_mode and max_solutions_to_collect is not None:
                         if current_solutions_count >= max_solutions_to_collect:
                             reached_cap = True
                             break
@@ -1884,7 +1931,7 @@ class RegionOpeningPlanner(BasePlanner):
                                     print(f"        → Solutions so far (object, best_cost={best_total_cost}): {len(all_chains_across_depths)}")
 
                                 # Early stop if we reached the per-object cap
-                                if max_solutions_to_collect is not None and len(all_chains_across_depths) >= max_solutions_to_collect:
+                                if not self.exhaustive_mode and max_solutions_to_collect is not None and len(all_chains_across_depths) >= max_solutions_to_collect:
                                     reached_cap = True
                                     break
 
@@ -2269,11 +2316,13 @@ class RegionOpeningPlanner(BasePlanner):
                     if self.config.verbose:
                         print(f"        🔓 Bypassing blacklist for ML-scored slot (edge {edge_idx}, depth {depth+1})")
                 else:
+                    self._rejection_stats["skipped_edge_blacklisted_deeper"] = self._rejection_stats.get("skipped_edge_blacklisted_deeper", 0) + 1
                     continue
 
             # Filter: skip edges that have already produced a successful opening
             # (disabled in exhaustive mode — evaluate all depths on all edges)
             if not self.exhaustive_mode and edge_idx in solved_edges_this_skill:
+                self._rejection_stats["skipped_edge_already_solved"] = self._rejection_stats.get("skipped_edge_already_solved", 0) + 1
                 continue
 
             self.env.set_full_state(baseline_state)
@@ -2319,6 +2368,28 @@ class RegionOpeningPlanner(BasePlanner):
             if push_counter is not None:
                 push_counter["count"] += 1
 
+            # Progress reporter: print a one-liner every progress_interval_sec
+            # so the user can see the BFS is alive and tracking its throughput.
+            # NOTE: `print` is rebound to self._debug at top of this function, so
+            # we use sys.stdout.write+flush to bypass and always emit (even when
+            # verbose is off).
+            self._progress_total_primitives += 1
+            _now = time.time()
+            if _now - self._progress_last_print_time >= self._progress_interval_sec:
+                _delta = self._progress_total_primitives - self._progress_last_print_count
+                _elapsed = _now - self._progress_last_print_time
+                _rate = _delta / _elapsed if _elapsed > 0 else 0.0
+                import sys
+                sys.stdout.write(
+                    f"  [Progress] {self._progress_total_primitives} primitives tried "
+                    f"({_rate:.1f}/sec) — current: obj={object_id} "
+                    f"edge={goal.edge_idx} depth={goal.depth + 1} "
+                    f"neighbour='{neighbour_label}'\n"
+                )
+                sys.stdout.flush()
+                self._progress_last_print_time = _now
+                self._progress_last_print_count = self._progress_total_primitives
+
             try:
                 if self.config.verbose:
                     print(f"        DEBUG: goal.edge_idx={goal.edge_idx}, goal.depth={goal.depth}")
@@ -2343,6 +2414,7 @@ class RegionOpeningPlanner(BasePlanner):
                     print(f"        ❌ EXCEPTION during env.step(): {type(e).__name__}: {e}")
                 import traceback
                 traceback.print_exc()
+                self._rejection_stats["env_step_exception"] = self._rejection_stats.get("env_step_exception", 0) + 1
                 continue
 
             wall_collision = step_result.info.get("wall_collision", "false")
@@ -2364,7 +2436,29 @@ class RegionOpeningPlanner(BasePlanner):
                     if obj_str:
                         movable_collisions_during_search.add(obj_str)
 
+            # Categorize the outcome from step_result.info for diagnostic stats.
+            # Each push gets exactly ONE outcome bucket; the final assignment
+            # is decided below after we've also seen the post-step region check.
+            # `_sim_outcome` holds the sim-side categorization (if any); the
+            # post-step block decides between push_opened_region /
+            # push_did_not_open_region for pushes with no sim-side failure.
+            self._rejection_stats["executed_in_sim"] = self._rejection_stats.get("executed_in_sim", 0) + 1
+            _info = step_result.info or {}
+            _ftype = str(_info.get("failure_type", ""))
+            _sim_outcome: Optional[str] = None
+            if _ftype == "4":
+                _sim_outcome = "edge_unreachable"
+            elif _info.get("stuck") == "true" or _ftype == "3":
+                _sim_outcome = "controller_stuck"
+            elif _info.get("wall_collision") == "true" or _ftype == "2":
+                _sim_outcome = "push_collided_with_wall"
+            elif _ftype and _ftype != "0":
+                _sim_outcome = f"failure_type_{_ftype}"
+            if _sim_outcome is not None:
+                self._rejection_stats[_sim_outcome] = self._rejection_stats.get(_sim_outcome, 0) + 1
+
             # We have a post-action state - ALWAYS capture observation and check goal condition
+
             post_state_obs = self.env.get_observation()
 
             # Check reachability AFTER push (ALWAYS - this is the goal check for post-action state)
@@ -2410,9 +2504,18 @@ class RegionOpeningPlanner(BasePlanner):
 
             total_region_goals = len(region_goals[neighbour_label].goals) if neighbour_label in region_goals else 0
             if is_accessible_after and not is_accessible_before:
+                # Successful opening — but only count if there was no sim-side
+                # failure (otherwise this push was already bucketed by _sim_outcome).
+                if _sim_outcome is None:
+                    self._rejection_stats["push_opened_region"] = self._rejection_stats.get("push_opened_region", 0) + 1
                 print(f"      ✅ SUCCESS! {object_id} edge {edge_idx} depth {depth+1}: {reachable_count_before}/{total_region_goals} → {reachable_count_after}/{total_region_goals} reachable")
-            elif depth == 0 and goal is not None:  # Show failures only for first depth and only ML-aligned goals
-                if self.config.verbose:
+            else:
+                # Push ran without any sim-side failure but didn't change region
+                # accessibility. Only bucket here if not already attributed to
+                # a sim-side outcome — ensures each push is counted exactly once.
+                if _sim_outcome is None:
+                    self._rejection_stats["push_did_not_open_region"] = self._rejection_stats.get("push_did_not_open_region", 0) + 1
+                if depth == 0 and goal is not None and self.config.verbose:
                     print(f"        ✗ Failed edge {edge_idx} depth {depth+1}: {reachable_count_before}/{total_region_goals} → {reachable_count_after}/{total_region_goals}")
 
             # Check if we IMPROVED accessibility (goal condition for opening creation)
@@ -2457,7 +2560,7 @@ class RegionOpeningPlanner(BasePlanner):
 
                 # If we're only collecting a fixed number of solutions, stop immediately
                 # once we reach the cap (don’t wait for the next candidate iteration).
-                if max_solutions_to_collect is not None and len(all_successful_results) >= max_solutions_to_collect:
+                if not self.exhaustive_mode and max_solutions_to_collect is not None and len(all_successful_results) >= max_solutions_to_collect:
                     if self.config.verbose:
                         print(
                             f"        🛑 Reached max solutions ({len(all_successful_results)}/{max_solutions_to_collect}), stopping search"
