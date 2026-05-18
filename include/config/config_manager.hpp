@@ -77,6 +77,7 @@ public:
         double stuck_threshold = 0.01;           // meters - minimum movement to avoid stuck detection
         int max_stuck_iterations = 3;
         bool check_object_collision = true;      // Check pushed object collisions during execution
+        bool check_robot_trajectory_collision = true;  // Abort push if robot body collides with walls/other objects during push trajectory (set false to disable wall-collision rejection)
         // Controller-level stuck detection tuning
         int stuck_check_stride = 20;            // control steps between checks
         int controller_stuck_threshold = 3;     // number of stuck detections before abort

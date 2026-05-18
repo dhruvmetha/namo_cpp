@@ -12,8 +12,13 @@ planning:
   verbose: true                    # Enable verbose planning output
   
   # Robot physical properties
-  robot_size: [0.15, 0.15]          # [half_extent_x, half_extent_y] in meters for wavefront inflation
-  wavefront_edge_offset_margin: 0.1  # Unified robot-edge spawn margin beyond robot radius
+  # Inflation half-extent per axis, in XML-scale units (scale_factor=6 vs real cm).
+  # Value = axis-aligned half-extent of 7×7 cm robot footprint = 3.5 cm,
+  # scaled to XML units: 3.5 * 6 / 100 = 0.21. The wavefront helper applies
+  # rotation-safe (diagonal) inflation on top → effective inflation ≈ 4.95 cm real.
+  # Must stay in sync with robot_control real.yaml (width_cm=7, height_cm=7).
+  robot_size: [0.21, 0.21]          # 7×7 robot, 3.5 cm half-extent per axis
+  wavefront_edge_offset_margin: 0.033  # 0.55 cm — push offset past inflated boundary (one wavefront cell)
   robot_goal: [0.31092502361838825, -4.396379816371087]
   
   # Grid system limits
@@ -55,6 +60,7 @@ skill:
   stuck_threshold: 0.01            # Minimum movement to avoid stuck detection (meters)
   max_stuck_iterations: 2         # Maximum stuck iterations before failure
   check_object_collision: true     # Terminate push if pushed object collides with non-robot objects
+  check_robot_trajectory_collision: false  # Terminate push if robot body hits walls/objects during push trajectory. Set false to allow such pushes (e.g., when planning aggressively or debugging)
   # Controller-level stuck detection (push controller)
   stuck_check_stride: 30           # Control steps between stuck checks
   controller_stuck_threshold: 3    # Checks before aborting due to stuck
