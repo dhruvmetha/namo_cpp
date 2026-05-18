@@ -21,6 +21,7 @@ from namo.core import BasePlanner, PlannerConfig, PlannerResult
 from namo.planners.connectivity_snapshot import find_robot_label
 from namo.strategies import (
     PrimitiveGoalStrategy,
+    RandomRolloutGoalStrategy,
     Goal,
     MLPrimitiveGoalStrategy,
     MLPrimitiveFallbackStrategy,
@@ -306,6 +307,19 @@ class RegionOpeningPlanner(BasePlanner):
                 parts.append(f"objects={skip_objects}")
             print(f"🔧 Skip config: {', '.join(parts)}")
 
+        # Externally-provided per-object edge blacklist, fed in from the caller
+        # (e.g. the real-robot executor reports edges that failed at runtime).
+        # Format: Dict[object_id, Iterable[int]] — edges to skip at ALL depths
+        # for that object. Seeds the per-node `edge_min_stuck_depth` map with
+        # depth=0 so the BFS treats these edges as already-stuck.
+        external_blacklist = algo_params.get("external_edge_blacklist", None) or {}
+        self.external_edge_blacklist: Dict[str, Set[int]] = {
+            str(obj): {int(e) for e in edges}
+            for obj, edges in external_blacklist.items()
+        }
+        if self.external_edge_blacklist and config.verbose:
+            print(f"🚫 External edge blacklist: {dict(self.external_edge_blacklist)}")
+
         # Visualization settings (can be set after init, like IDFS planners)
         self.visualize_search = False
         self.search_delay = 0.5
@@ -579,6 +593,20 @@ class RegionOpeningPlanner(BasePlanner):
                 profile=bool(algo_params.get("profile_geometric", False)),
             )
             self._debug("▶ Using geometric transport goal strategy")
+        elif strategy_name and strategy_name.lower() in {"random_rollout", "random"}:
+            # Random rollouts: same primitive enumeration, but random scores
+            # (uniform per-state ordering) and optional cap on candidates per
+            # state. Combined with max_chain_depth, gives trial-style search.
+            self.goal_strategy = RandomRolloutGoalStrategy(
+                data_dir=primitive_data_dir,
+                verbose=self.config.verbose,
+                samples_per_state=algo_params.get("rollout_samples_per_state", None),
+                seed=algo_params.get("shuffle_seed", None),
+            )
+            self._debug(
+                "▶ Using random-rollout goal strategy "
+                f"(samples_per_state={algo_params.get('rollout_samples_per_state', None)})"
+            )
         else:
             # Use primitive goal strategy for push goals
             self.goal_strategy = PrimitiveGoalStrategy(
@@ -1852,10 +1880,16 @@ class RegionOpeningPlanner(BasePlanner):
                     chain_label = f"{chain_depth}-chain"
                     print(f"    ▶ Searching {chain_label} (frontier={len(frontier)})")
 
-                # Ensure blacklists exist for frontier nodes (reuse if already created)
+                # Ensure blacklists exist for frontier nodes (reuse if already created).
+                # Seed each new blacklist with externally-reported failed edges for
+                # this object_id (depth=0 means "skip at all depths" because the
+                # check is `depth >= edge_min_stuck_depth[edge_idx]`).
+                external_for_object = self.external_edge_blacklist.get(object_id, ())
                 for node in frontier:
                     if id(node) not in node_blacklists:
-                        node_blacklists[id(node)] = {}
+                        node_blacklists[id(node)] = {
+                            edge_idx: 0 for edge_idx in external_for_object
+                        }
 
                 depth_start_pushes = skill_call_counter.get("count", 0)
 
