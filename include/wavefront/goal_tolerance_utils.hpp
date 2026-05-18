@@ -10,12 +10,16 @@ constexpr double kDefaultWavefrontRobotRadiusM = 0.15;
 constexpr double kDefaultWavefrontTier1MarginM = 0.005;
 
 inline double compute_rotation_safe_robot_radius_m(const std::vector<double>& robot_size) {
+    // Axis-aligned max(hx, hy) — the pre-merge local convention. The function
+    // name is kept for API compatibility but no longer returns a diagonal;
+    // the diagonal proved too conservative for our scenes (effective inflation
+    // of 4.95 cm for a 7×7 robot crowded out push approaches).
     double robot_radius_m = kDefaultWavefrontRobotRadiusM;
     if (!robot_size.empty()) {
         if (robot_size.size() >= 2) {
             const double hx = std::abs(robot_size[0]);
             const double hy = std::abs(robot_size[1]);
-            robot_radius_m = std::sqrt(hx * hx + hy * hy);
+            robot_radius_m = std::max(hx, hy);
         } else {
             robot_radius_m = std::abs(robot_size[0]);
         }
