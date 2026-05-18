@@ -4,6 +4,13 @@ Context for Claude Code when working with NAMO (Navigation Among Movable Obstacl
 
 **→ For data collection instructions, see [DATA_COLLECTION_GUIDE.md](DATA_COLLECTION_GUIDE.md)**
 
+## Python Environment
+
+- Use `/common/home/tdn39/.virtualenvs/mujoco/bin/python` for Python commands in this repo.
+- Do not default to system `python` or `python3`.
+- When commands need the compiled bindings or in-repo Python package, prefer `PYTHONPATH="$PWD/build_python:$PWD/python"` with that interpreter.
+- After changing files under `src/`, `include/`, or `python/namo/cpp_bindings/`, rebuild the canonical module with `MJ_PATH=/common/home/tdn39/mujoco/mujoco-3.3.6 ./build_python_bindings.sh` before running Python validation.
+
 ## Core Architecture
 
 ### C++ Backend (High-Performance Physics & Planning)

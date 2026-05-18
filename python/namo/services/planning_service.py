@@ -159,6 +159,29 @@ class NAMOPlanningService:
         """
         self._get_or_load_goal_model(goal_strategy, kwargs)
 
+    def analyze_reachability_from_xml(
+        self,
+        xml_path: str,
+        robot_goal: Tuple[float, float, float],
+        analysis_mode: bool = False,
+    ) -> Dict[str, Any]:
+        """Compute unified C++ wavefront reachability for one XML state."""
+        start_time = time.time()
+        try:
+            env = namo_rl.RLEnvironment(xml_path, self._config_path, self._enable_viewer)
+            env.set_robot_goal(robot_goal[0], robot_goal[1], robot_goal[2])
+            summary = env.get_reachability_summary(analysis_mode)
+            summary["compute_time_ms"] = (time.time() - start_time) * 1000
+            return summary
+        except Exception as e:
+            return {
+                "goal_reachable": False,
+                "analysis_mode": analysis_mode,
+                "objects": {},
+                "compute_time_ms": (time.time() - start_time) * 1000,
+                "error_message": str(e),
+            }
+
     def plan_from_xml(
         self,
         xml_path: str,
