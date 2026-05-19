@@ -122,7 +122,14 @@ system:
   num_threads: 1                   # Number of threads for parallel processing
   
   # File paths
-  motion_primitives_file: "data/motion_primitives_15.dat"  # Motion primitives database
+  # Base PREFIX for the motion primitive database. The skill loads three
+  # shape-specific files derived from this prefix:
+  #   data/motion_primitives_15_square.dat
+  #   data/motion_primitives_15_wide.dat
+  #   data/motion_primitives_15_tall.dat
+  # The literal path here does NOT need to exist as a file — it's only
+  # used to derive the suffixed siblings.
+  motion_primitives_file: "data/motion_primitives_15.dat"
   default_scene_file: "/common/home/dm1487/robotics_research/ktamp/ml4kp_ktamp/resources/models/custom_walled_envs/aug9/easy/set1/benchmark_1/env_config_7b.xml"         # Default MuJoCo scene
   
   # Data collection
