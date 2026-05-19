@@ -106,26 +106,21 @@ def push_good_params():
 
 @pytest.fixture
 def make_action():
-    """Factory for namo_rl.Action. Reduces test boilerplate from 5 lines
-    to 1. Defaults `target_pose` to (10, 10, 0) — NOT the origin — so the
-    MPC executor's is_object_at_target short-circuit (Fix 3 bug) doesn't
-    trip on prim-gen scenes where the object is at (0, 0, 0). Tests can
-    override x/y/theta if they need a specific target.
+    """Factory for namo_rl.Action with sensible defaults. Reduces test
+    boilerplate from 5 lines to 1.
+
+    Default target_pose is (0, 0, 0) — a placeholder commonly used by
+    direct-edge callers that care about edge_idx + depth and don't have
+    a meaningful target. Pre-Fix-3 this would silently no-op on scenes
+    where the object started at the origin; post-Fix-3 the push runs
+    regardless.
     """
     if not REAL_NAMO_RL:
         pytest.skip("requires real namo_rl")
     import namo_rl
 
-    # Non-origin target that's inside the ±5m walled workspace (so skill's
-    # is_applicable reachability check passes) but different enough from
-    # the prim-gen object's (0,0,0) that MPC's is_object_at_target
-    # short-circuit doesn't fire (Fix 3 bug).
-    NONORIGIN_TARGET_X = 1.0
-    NONORIGIN_TARGET_Y = 1.0
-
     def _make(object_id: str, edge_idx: int, depth: int,
-              x: float = NONORIGIN_TARGET_X, y: float = NONORIGIN_TARGET_Y,
-              theta: float = 0.0):
+              x: float = 0.0, y: float = 0.0, theta: float = 0.0):
         a = namo_rl.Action()
         a.object_id = object_id
         a.edge_idx = edge_idx
