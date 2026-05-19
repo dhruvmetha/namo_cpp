@@ -85,7 +85,8 @@ public:
     MPCExecutor(NAMOEnvironment& env, double resolution, const std::vector<double>& robot_size,
                 double wavefront_tier1_inflation_margin,
                 int max_push_steps, int control_steps_per_push, double force_scaling, int points_per_face = 3,
-                bool check_object_collision = true);
+                bool check_object_collision = true,
+                bool dynamic_direction = true);
     
     /**
      * @brief Set execution parameters

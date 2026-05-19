@@ -51,7 +51,8 @@ std::vector<NominalPrimitive> generate_primitives_for_scene(
     int points_per_face,
     int control_steps,
     int max_push_steps,
-    double force_scaling
+    double force_scaling,
+    bool dynamic_direction
 ) {
     std::cout << "\n=== Generating primitives for " << scene_config.name << " ===" << std::endl;
     std::cout << "XML: " << scene_config.xml_path << std::endl;
@@ -72,7 +73,7 @@ std::vector<NominalPrimitive> generate_primitives_for_scene(
     env.set_robot_goal(robot_goal);
     
     // Create push controller
-    NAMOPushController push_controller(env, *wavefront_planner, max_push_steps, control_steps, force_scaling, points_per_face);
+    NAMOPushController push_controller(env, *wavefront_planner, max_push_steps, control_steps, force_scaling, points_per_face, dynamic_direction);
     
     // Get movable objects (should be our nominal object)
     std::array<std::string, 20> reachable_objects;
@@ -308,11 +309,22 @@ resolution=0.05
             max_push_steps = params.get_int("skill.max_push_steps");
         }
         
+        // Velocity command magnitude (m/s) under the <velocity> actuator.
+        // Prefer the new push_velocity key; fall back to legacy force_scaling.
         double force_scaling = 1.0;
-        if (params.has_key("skill.force_scaling")) {
+        if (params.has_key("skill.push_velocity")) {
+            force_scaling = params.get_double("skill.push_velocity");
+        } else if (params.has_key("skill.force_scaling")) {
             force_scaling = params.get_double("skill.force_scaling");
         }
-        
+
+        // Whether the controller re-derives push direction every tick.
+        bool dynamic_direction = true;
+        if (params.has_key("skill.dynamic_direction")) {
+            dynamic_direction = params.get_bool("skill.dynamic_direction");
+        }
+
+
         // Determine base output file. CLI --output wins over the config
         // setting; without either, default to a generic name.
         std::string base_output = "data/motion_primitives.dat";
@@ -330,15 +342,16 @@ resolution=0.05
         std::cout << "  Points per face: " << points_per_face << std::endl;
         std::cout << "  Control steps: " << control_steps << std::endl;
         std::cout << "  Max push steps: " << max_push_steps << std::endl;
-        std::cout << "  Force scaling: " << force_scaling << std::endl;
+        std::cout << "  Push velocity (m/s): " << force_scaling << std::endl;
+        std::cout << "  Dynamic direction: " << (dynamic_direction ? "true" : "false") << std::endl;
         std::cout << "  Base output: " << base_output << std::endl;
-        
+
         // Generate primitives for each scene
         for (const auto& scene : existing_scenes) {
             try {
                 auto primitives = generate_primitives_for_scene(
-                    scene, visualize, resolution, points_per_face, 
-                    control_steps, max_push_steps, force_scaling
+                    scene, visualize, resolution, points_per_face,
+                    control_steps, max_push_steps, force_scaling, dynamic_direction
                 );
                 
                 // Save to suffixed output file
