@@ -354,21 +354,14 @@ resolution=0.05
                     control_steps, max_push_steps, force_scaling, dynamic_direction
                 );
                 
-                // Save to suffixed output file
+                // Save to suffixed output file. The base path is used as a
+                // PREFIX — only the shape-suffixed files are written, never
+                // a duplicate unsuffixed base file. The skill loads only
+                // the suffixed siblings; an unsuffixed base file would
+                // be a byte-duplicate of _square and a maintenance hazard.
                 std::string output_file = add_suffix_to_filename(base_output, scene.name);
                 save_primitives_to_file(output_file, primitives);
-                
-                // For backward compatibility: if this is the square scene, also write to base file
-                if (scene.name == "square" && output_file != base_output) {
-                    try {
-                        save_primitives_to_file(base_output, primitives);
-                        std::cout << "Also saved square primitives to base file: " << base_output << std::endl;
-                    } catch (const std::exception& e) {
-                        std::cout << "Warning: Failed to write base file: " << e.what() << std::endl;
-                        // Continue - the suffixed file is the primary output
-                    }
-                }
-                
+
             } catch (const std::exception& e) {
                 std::cerr << "Failed to generate primitives for scene " << scene.name << ": " << e.what() << std::endl;
                 // Continue with other scenes
