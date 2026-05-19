@@ -450,10 +450,24 @@ void ConfigManager::print_configuration() const {
 bool ConfigManager::validate_paths() const {
     bool all_valid = true;
     
-    // Check motion primitives file
-    if (!std::filesystem::exists(system_.motion_primitives_file)) {
-        std::cerr << "Warning: Motion primitives file not found: " << system_.motion_primitives_file << std::endl;
-        all_valid = false;
+    // Check motion primitives files. The configured value is a base
+    // PREFIX (see NAMOPushSkill::initialize_skill); the actual files
+    // loaded are <prefix>_{square,wide,tall}.dat. Warn only if any of
+    // the shape-suffixed siblings are missing.
+    {
+        auto add_suffix = [](const std::string& base, const std::string& shape) {
+            auto dot = base.find_last_of('.');
+            return dot == std::string::npos
+                ? base + "_" + shape
+                : base.substr(0, dot) + "_" + shape + base.substr(dot);
+        };
+        for (const auto& shape : {"square", "wide", "tall"}) {
+            std::string path = add_suffix(system_.motion_primitives_file, shape);
+            if (!std::filesystem::exists(path)) {
+                std::cerr << "Warning: Motion primitives file not found: " << path << std::endl;
+                all_valid = false;
+            }
+        }
     }
     
     // Check default scene file
