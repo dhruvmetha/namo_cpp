@@ -230,7 +230,14 @@ Optionally, the number of frontier nodes carried forward at each chain depth can
 
 ## 7) Goal strategies (primitive-only vs ML-guided)
 
-All strategies ultimately execute the same discrete primitives; the difference is how candidates are ordered and/or filtered.
+All strategies ultimately execute the same discrete primitives; the difference is how candidates are ordered and/or filtered. The active set of strategies (`region_opening.py` dispatch):
+
+- `primitive` — exhaustive primitive enumeration (with optional edge shuffling).
+- `geometric` — primitive enumeration with geometric transport priority scoring.
+- `ml` (alias `ml_primitive`) — ML-aligned primitives only.
+- `ml_fallback` — ML-first scored slots + full primitive fallback.
+- `ml_async` — same semantics as ml/ml_fallback but ML inference is dispatched on a background thread.
+- `ml_driven_async` — event-driven async search that prioritizes ML results while keeping CPU busy with fallback (see `ML_DRIVEN_ASYNC_ALGORITHM.md`).
 
 ### 7.1 Primitive strategy
 
@@ -324,6 +331,45 @@ For each predicted goal, the alignment procedure:
 - votes for the top-`k` nearest slots.
 
 The number of votes becomes the discrete slot score used for planning priority.
+
+### 8.5 Inference request schema (concrete)
+
+The inference model is invoked with a JSON scene description plus a selected object. The selected object must be present in `objects`.
+
+```
+{
+  "xml_path": "...",
+  "robot_goal": [x, y],
+  "reachable_objects": ["obj_a", "obj_b", ...],
+  "robot": {"position": [x, y, theta]},
+  "objects": {
+    "obj_name": {
+      "position": [x, y, theta],
+      "quaternion": [w, x, y, z]
+    },
+    ...
+  }
+}
+```
+
+The JSON is converted into the local masks of §8.1 using the same code used for training. Context channels are stacked in this order (must match training): `local_static`, `local_movable`, `local_target_object`, `local_robot_region`, `local_goal_sample_region`. If `use_coord_grid` was enabled during training, a 2-channel (x, y) grid is appended.
+
+### 8.6 Per-sample model output
+
+After diffusion sampling, each accepted sample is decoded to:
+
+```
+{
+  "index": i,
+  "x": world_x,
+  "y": world_y,
+  "theta": goal_theta,
+  "goal_sample": goal_mask,
+  "input_channels": input_tensor
+}
+```
+
+These continuous SE(2) goals are then aligned to primitive slots (§8.4) before any of them is executed.
 
 ---
 
