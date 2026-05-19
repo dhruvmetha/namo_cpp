@@ -53,8 +53,27 @@ skill:
   max_push_steps: 10               # Maximum push steps per skill execution
   max_mpc_iterations: 1         # Maximum MPC iterations per push skill execution
   control_steps_per_push: 250      # Control simulation steps per push step
-  force_scaling: 1.0               # Force scaling factor
-  
+  force_scaling: 1.0               # Force scaling factor (used by motor-actuator path; deprecated by push_velocity below)
+
+  # ── Velocity-actuator control (preferred over force_scaling) ──────────
+  # When XML actuators are <velocity> (see data/*.xml), the controller's
+  # ctrl values are interpreted as desired velocity in m/s (sim units).
+  # push_velocity becomes the magnitude of the velocity command vector.
+  #
+  # Value chosen to roughly match the magnitude of legacy motor+brake
+  # primitive displacement: ~0.20 m per push_step over 250 ticks × 0.01 s
+  # = 2.5 s → 0.08 m/s average. We use 0.10 m/s to also account for
+  # startup transient (actuator ramps up from rest at primitive start).
+  # See velocity_actuator_experiment_log.md for derivation.
+  push_velocity: 0.10              # m/s — commanded robot velocity during push
+
+  # When true, the controller re-derives push direction from the current
+  # object pose every control tick (robot traces an arc as object yaws).
+  # When false, push direction is fixed at primitive start (robot drives
+  # straight in world frame; matches real-side push.py default). See
+  # real_push_pure_pursuit_vs_simplification.md for the design discussion.
+  dynamic_direction: true          # true=track object yaw, false=fixed direction
+
   # Execution parameters
   goal_tolerance: 0.1              # Goal reaching tolerance (meters)
   stuck_threshold: 0.01            # Minimum movement to avoid stuck detection (meters)
