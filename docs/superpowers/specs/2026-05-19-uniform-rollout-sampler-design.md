@@ -169,29 +169,26 @@ Compute savings: each non-root state is sim'd exactly once. Without the trick, t
 
 ### 3.7 Reachability set R(s) — what counts as "reachable"
 
-`R(s)` must be the same notion used by `RegionOpeningPlanner` so the data is comparable. Specifically: the set of (object, face, contact-point, depth) primitives whose contact point the robot can reach via wavefront BFS, restricted to movable objects in the env. This is already exposed by `env.get_reachable_objects()` (Python binding) and the per-object primitive enumeration in `region_opening`.
+`R(s)` must be the same notion used by `RegionOpeningPlanner` so the data is comparable. Specifically: the set of (object, face, contact-point, depth) primitives whose contact point the robot can reach via wavefront BFS, restricted to movable objects in the env.
 
-Extract the per-(object, edge, depth) reachable-primitive enumeration into a shared utility (`python/namo/core/reachable_primitives.py`) so both `RegionOpeningPlanner` and `UniformRolloutSampler` call the same function. The sampler must not reimplement reachability.
+The relevant building blocks already exist in the codebase:
+- `env.get_reachable_objects()` — Python binding returning reachable object names.
+- `env.is_object_reachable(name)` — boolean per-object check.
+- The primitive motion database loader used by `region_opening`'s goal strategies — already shared utility.
+
+What is *not* exposed as a standalone function: enumerating the (object, edge_idx, depth_idx) tuples whose contact points are individually reachable. This logic lives inside `region_opening`'s goal-strategy classes (`PrimitiveGoalStrategy`, `MLPrimitiveGoalStrategy`, etc.), entangled with goal-direction code the sampler doesn't need.
+
+**Plan: a small local helper inside `uniform_rollout_sampler.py`** — ~20–40 LOC that loads the primitive motion database once at sampler init and, given a state, returns the list of (object, edge_idx, depth_idx) tuples whose contact points are reachable. No new shared module. If a third caller ever wants the same enumeration, extract to `python/namo/core/reachable_primitives.py` at that point, not earlier.
+
+The sampler does **not** reimplement reachability — it calls `env.get_reachable_objects()` / `is_object_reachable` for the per-object check and uses the existing motion-database loader. The new code is only the enumeration loop, not the underlying reachability primitive.
 
 ### 3.8 Per-neighbor opening evaluation
 
-For each transition's `state_after`, the sampler must record which neighbor regions are now reachable. This requires the same per-neighbor opening evaluator that `RegionOpeningPlanner` uses today (the `validation_method` / `connectivity_before` / `connectivity_after` machinery on `AttemptResult`).
+For each transition's `state_after`, the sampler records which neighbor regions are now reachable. This uses the existing `snapshot_region_connectivity` and `find_robot_label` functions in `python/namo/planners/connectivity_snapshot.py` — the same module `RegionOpeningPlanner` already imports (line 24 of `region_opening.py`).
 
-Extract that into a shared utility (`python/namo/skills/neighbor_opening_evaluator.py`) with the signature:
+The sampler computes `snapshot_region_connectivity(env, state_before)` and `snapshot_region_connectivity(env, state_after)` once per transition, then diffs which neighbor labels became reachable. Output goes into `transition.per_neighbor_opening`.
 
-```python
-def evaluate_per_neighbor_opening(
-    env: namo_rl.RLEnvironment,
-    state_before: RLState,
-    state_after: RLState,
-    neighbor_regions: List[NeighborRegion],
-) -> Dict[str, bool]:
-    """Returns {neighbor_label: is_opened_after_this_transition}."""
-```
-
-The sampler calls this once per transition. Output goes into `transition.per_neighbor_opening`.
-
-This refactor is part of Spec B's implementation work — we cannot ship the sampler without it without duplicating the evaluator. The `RegionOpeningPlanner` is updated to call the shared utility in the same change.
+**No new evaluator module. No refactor of `region_opening`.** The existing shared utility is used as-is.
 
 ---
 
@@ -307,15 +304,17 @@ Contents are `worker_result_data` (lines 687–696) — a dict with `episode_res
 - Failure-classification system
 
 **New:**
-- `python/namo/planners/sampling/uniform_rollout_sampler.py` — the sampler class itself
-- `python/namo/core/reachable_primitives.py` — shared reachability enumeration utility (extracted from `region_opening`)
-- `python/namo/skills/neighbor_opening_evaluator.py` — shared per-neighbor opening evaluator (extracted from `region_opening`)
-- CLI args in `modular_parallel_collection.py`
-- A loader / analysis utility for reading `rollout_trace` records (small, can be added incrementally)
+- `python/namo/planners/sampling/uniform_rollout_sampler.py` — the sampler class plus a small local helper for enumerating reachable (object, edge, depth) primitives.
+- CLI args in `modular_parallel_collection.py`.
+- A loader / analysis utility for reading `rollout_trace` records (small, can be added incrementally).
 
 **Modified:**
-- `python/namo/planners/opening/region_opening.py` — calls the new shared `reachable_primitives` and `neighbor_opening_evaluator` utilities instead of inlined logic. **Behavior-preserving refactor.** A regression test (Section 8.4) confirms.
 - `python/namo/data_collection/modular_parallel_collection.py` — one import line plus the new argparse args. No control-flow changes.
+
+**Reused as-is (not modified):**
+- `python/namo/planners/connectivity_snapshot.py` — `snapshot_region_connectivity` and `find_robot_label` already shared, no refactor needed.
+- The primitive motion database loader — already a shared utility used by `region_opening`'s goal strategies; the sampler imports and uses it without modification.
+- `python/namo/planners/opening/region_opening.py` — **untouched** by Spec B. No refactor, no behavior change. This was an earlier overproposal in this spec that has been corrected.
 
 ---
 
@@ -521,19 +520,15 @@ Run the sampler twice on the same env with the same seed. Verify the transition 
 
 Construct a synthetic env (or use a known 1-push-solvable env) where a known a₀ has `r=1`. Verify the sampler records that transition at depth 0 and does **not** generate any depth-1/2 transitions stemming from it.
 
-### 8.4 Integration: shared utilities regression
-
-After extracting `reachable_primitives` and `neighbor_opening_evaluator` from `region_opening`, re-run the existing regression test (see memory: `env_config_3000e.xml`, expect 2 successful episodes / 83 pushes after IDFS removal). Verify byte-identical output to current `region_opening` results on a manifest sample.
-
-### 8.5 Integration: F-char regression
+### 8.4 Integration: F-char regression
 
 Run the sampler with `max_chain_depth=1` on a 10-env manifest sample. Compare the resulting depth-0 records to the existing F-char pkls (`/common/users/dm1487/namo_data/f_characterization/1_push_exhaustive_full/`) for the same envs. The set of (object, edge, depth, r) tuples must match exactly (modulo any intentional schema differences, which are documented).
 
-### 8.6 Integration: full pipeline on small manifest
+### 8.5 Integration: full pipeline on small manifest
 
 Run `modular_parallel_collection.py --algorithm uniform_rollout_sampler --manifest <small_manifest.txt> --workers 4 --start-idx 0 --end-idx 10 --sampler-max-chain-depth 3`. Verify: all pkls written, schema loads without error, summary stats are consistent with worst-case bounds.
 
-### 8.7 Sanity: Bellman convergence on a single env
+### 8.6 Sanity: Bellman convergence on a single env
 
 For one env's depth-0 records, train a tiny tabular Q (one parameter per (s, a) tuple, only need ~600 params) via Bellman. With γ=0.9, after enough iterations, Q*(s₀, a) should be 1.0 for a ∈ F₁(s₀) and ≤ γ elsewhere. Confirms the reward signal is wired correctly.
 
@@ -585,18 +580,17 @@ Each env's RNG is seeded by `seed_base + env_idx`, where `seed_base` is `args.se
 
 **New files:**
 - `python/namo/planners/sampling/uniform_rollout_sampler.py`
-- `python/namo/core/reachable_primitives.py`
-- `python/namo/skills/neighbor_opening_evaluator.py`
 - `python/namo/data_collection/rollout_trace_loader.py` (analysis utility)
 - `tests/test_uniform_rollout_sampler.py`
 
 **Modified files:**
 - `python/namo/data_collection/modular_parallel_collection.py` (one import + CLI args; no control flow changes)
-- `python/namo/planners/opening/region_opening.py` (call shared utilities; behavior-preserving)
 
-**Untouched (and verified untouched):**
+**Reused as-is, not modified:**
+- `python/namo/planners/connectivity_snapshot.py` (per-neighbor opening evaluator)
+- The primitive motion database loader (shared by `region_opening`'s goal strategies)
 - `python/namo/core/base_planner.py`
-- All other planners
+- All other planners (including `region_opening.py` — no refactor for Spec B)
 - The parallel-pool / worker / pkl-writer code paths
 
 ---
