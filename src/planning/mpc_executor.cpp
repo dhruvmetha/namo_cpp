@@ -22,10 +22,11 @@ MPCExecutor::MPCExecutor(NAMOEnvironment& env)
 MPCExecutor::MPCExecutor(NAMOEnvironment& env, double resolution, const std::vector<double>& robot_size,
                          double wavefront_tier1_inflation_margin,
                          int max_push_steps, int control_steps_per_push, double force_scaling, int points_per_face,
-                         bool check_object_collision)
+                         bool check_object_collision,
+                         bool dynamic_direction)
     : env_(env),
       planner_(resolution, env_, robot_size, wavefront_tier1_inflation_margin),
-      controller_(env_, planner_, max_push_steps, control_steps_per_push, force_scaling, points_per_face),
+      controller_(env_, planner_, max_push_steps, control_steps_per_push, force_scaling, points_per_face, dynamic_direction),
       has_robot_goal_(false) {
 
     // Set default parameters

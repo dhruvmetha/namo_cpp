@@ -10,17 +10,19 @@
 
 namespace namo {
 
-NAMOPushController::NAMOPushController(NAMOEnvironment& env, 
+NAMOPushController::NAMOPushController(NAMOEnvironment& env,
                                      WavefrontPlanner& planner,
                                      int push_steps,
                                      int control_steps,
                                      double scaling,
-                                     int points_per_edge)
-    : env_(env), planner_(planner), 
+                                     int points_per_edge,
+                                     bool dynamic_direction)
+    : env_(env), planner_(planner),
       default_push_steps_(push_steps),
       control_steps_per_push_(control_steps),
-      force_scaling_(scaling),
-      points_per_edge_(points_per_edge) {
+      push_velocity_(scaling),
+      points_per_edge_(points_per_edge),
+      dynamic_direction_(dynamic_direction) {
     
     // Initialize robot size from wavefront planner (matches inflation)
     const auto& planner_robot_size = planner_.get_robot_size();
@@ -40,7 +42,8 @@ NAMOPushController::NAMOPushController(NAMOEnvironment& env,
     // std::cout << "NAMO Push Controller initialized:" << std::endl;
     // std::cout << "  Push steps: " << default_push_steps_ << std::endl;
     // std::cout << "  Control steps per push: " << control_steps_per_push_ << std::endl;
-    // std::cout << "  Force scaling: " << force_scaling_ << std::endl;
+    // std::cout << "  Push velocity (m/s): " << push_velocity_ << std::endl;
+    // std::cout << "  Dynamic direction: " << dynamic_direction_ << std::endl;
     // std::cout << "  Robot size: [" << robot_size_[0] << ", " << robot_size_[1] << ", " << robot_size_[2] << "]" << std::endl;
 }
 
@@ -196,11 +199,12 @@ std::array<double, 2> NAMOPushController::compute_push_control(const PushState& 
     // Use angle-based normalization like older implementation
     double angle = std::atan2(dy, dx);
     
-    // Apply scaling factor (matching older implementation's approach)
-    double scaling = force_scaling_; // Use configured scaling
+    // Under MuJoCo <velocity> actuators (current XML setup), this vector
+    // is interpreted as the desired robot velocity in m/s. The actuator
+    // tracks it inside the physics solver up to its forcerange limit.
     return {
-        scaling * std::cos(angle),
-        scaling * std::sin(angle)
+        push_velocity_ * std::cos(angle),
+        push_velocity_ * std::sin(angle)
     };
 }
 void NAMOPushController::print_stuck_ctrl_diag(int, int, double, double, int) {}
@@ -406,20 +410,29 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
             return false;
         }
         
-        // Update push state based on current object position
-        update_push_state(push_state, obj_state->position, obj_state->size, obj_state->quaternion);
-        
-        // Apply control for multiple simulation steps (matching original control loop structure)
+        // Update push state based on current object position.
+        // Per-step (outer-loop) and per-tick (inner-loop) updates are gated
+        // by dynamic_direction_: when false, push_state stays at its
+        // primitive-start values so the robot drives a fixed world-frame
+        // direction (matches real-side push.py default).
+        if (dynamic_direction_) {
+            update_push_state(push_state, obj_state->position, obj_state->size, obj_state->quaternion);
+        }
+
+        // Apply control for multiple simulation steps
         for (int ctrl_step = 0; ctrl_step < control_steps_per_push_; ++ctrl_step) {
-            // Get current object state - CRITICAL: update every control step like original
+            // Get current object state — needed for collision / stuck checks
+            // even when dynamic_direction_ is false.
             obj_state = env_.get_object_state(object_name);
             if (!obj_state) {
                 std::cerr << "Lost object state during control step" << std::endl;
                 return false;
             }
-            
-            // Update push state with current object position (matching original lines 80-81, 90-91)
-            update_push_state(push_state, obj_state->position, obj_state->size, obj_state->quaternion);
+
+            // Re-derive push direction from current object pose if dynamic.
+            if (dynamic_direction_) {
+                update_push_state(push_state, obj_state->position, obj_state->size, obj_state->quaternion);
+            }
             
             // Get current robot position
             auto robot_state = env_.get_robot_state();
@@ -549,12 +562,10 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
                 }
             }
         }
-
-        // Reset velocities between push steps
-        env_.set_zero_velocity();
-        env_.step_simulation();
-        env_.get_mujoco_wrapper()->notify_physics_step();  // Video recording hook
-        dump_qpos(env_, /*phase=*/3);
+        // No per-push_step brake. The <velocity> actuator caps the robot's
+        // velocity (and thus the object's induced velocity) so contact is
+        // maintained without periodic resets. The brake's contact-recovery
+        // role from the motor-actuator era is now structural.
     }
 
     auto final_obj_state = env_.get_object_state(object_name);

@@ -159,7 +159,13 @@ void ConfigManager::load_skill_config() {
     if (loader_->has_key("skill.force_scaling")) {
         skill_.force_scaling = loader_->get_double("skill.force_scaling");
     }
-    
+    if (loader_->has_key("skill.push_velocity")) {
+        skill_.push_velocity = loader_->get_double("skill.push_velocity");
+    }
+    if (loader_->has_key("skill.dynamic_direction")) {
+        skill_.dynamic_direction = loader_->get_bool("skill.dynamic_direction");
+    }
+
     // Execution parameters
     if (loader_->has_key("skill.goal_tolerance")) {
         skill_.goal_tolerance = loader_->get_double("skill.goal_tolerance");

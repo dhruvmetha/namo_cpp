@@ -95,9 +95,13 @@ void NAMOPushSkill::initialize_skill() {
             config_->planning().wavefront_tier1_inflation_margin,
             config_->skill().max_push_steps,
             config_->skill().control_steps_per_push,
-            config_->skill().force_scaling,
+            // Velocity actuators interpret this as m/s command magnitude.
+            // Prefer the new push_velocity key; fall back to legacy
+            // force_scaling for configs that haven't been migrated.
+            config_->skill().push_velocity,
             config_->skill().points_per_face,
-            config_->skill().check_object_collision
+            config_->skill().check_object_collision,
+            config_->skill().dynamic_direction
         );
 
         // Configure controller-level stuck parameters from config
