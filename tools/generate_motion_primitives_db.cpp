@@ -198,7 +198,18 @@ void save_primitives_to_file(const std::string& output_file, const std::vector<N
     std::cout << "File size: " << std::filesystem::file_size(output_file) << " bytes" << std::endl;
 }
 
-int main() {
+int main(int argc, char** argv) {
+    // Optional CLI override: --output <path>. When present, replaces
+    // system.motion_primitives_file from the config. Lets us regenerate to
+    // a fresh filename (e.g. when validating a controller change) without
+    // touching the existing .dat files the planner is wired to.
+    std::string output_override;
+    for (int i = 1; i + 1 < argc; ++i) {
+        if (std::string(argv[i]) == "--output") {
+            output_override = argv[i + 1];
+        }
+    }
+
     std::cout << "=== Multi-Scene Nominal Motion Primitive Generator ===" << std::endl;
     std::cout << "Generating primitives for multiple object shapes" << std::endl;
     
@@ -302,10 +313,15 @@ resolution=0.05
             force_scaling = params.get_double("skill.force_scaling");
         }
         
-        // Determine base output file
+        // Determine base output file. CLI --output wins over the config
+        // setting; without either, default to a generic name.
         std::string base_output = "data/motion_primitives.dat";
         if (params.has_key("system.motion_primitives_file")) {
             base_output = params.get_string("system.motion_primitives_file");
+        }
+        if (!output_override.empty()) {
+            base_output = output_override;
+            std::cout << "Output overridden via --output: " << base_output << std::endl;
         }
         
         std::cout << "Generation parameters:" << std::endl;
