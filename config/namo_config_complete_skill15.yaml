@@ -60,12 +60,17 @@ skill:
   # ctrl values are interpreted as desired velocity in m/s (sim units).
   # push_velocity becomes the magnitude of the velocity command vector.
   #
-  # Value chosen to roughly match the magnitude of legacy motor+brake
-  # primitive displacement: ~0.20 m per push_step over 250 ticks × 0.01 s
-  # = 2.5 s → 0.08 m/s average. We use 0.10 m/s to also account for
-  # startup transient (actuator ramps up from rest at primitive start).
-  # See velocity_actuator_experiment_log.md for derivation.
-  push_velocity: 0.10              # m/s — commanded robot velocity during push
+  # Tuned for the SKILL path (MPC executor → controller). The MPC executor
+  # runs the navigation phase between every push_step, with stuck detection
+  # comparing object position every stuck_check_stride=20 ticks. At slower
+  # velocities (≤0.10 m/s), object motion per 20 ticks falls below the
+  # stuck_threshold and the controller aborts. 0.30 m/s gives the object
+  # enough motion-per-tick to clear the stuck threshold reliably across
+  # all 60 edges on all 3 prim-gen shapes (per
+  # test_primitive_generation_integration.py).
+  # Real-equivalent at scale 6: 0.30 / 6 = 5 cm/s, matching typical
+  # micro-MVP-class robot speeds.
+  push_velocity: 0.30              # m/s — commanded robot velocity during push
 
   # When true, the controller re-derives push direction from the current
   # object pose every control tick (robot traces an arc as object yaws).
