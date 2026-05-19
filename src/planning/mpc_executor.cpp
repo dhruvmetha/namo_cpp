@@ -155,10 +155,15 @@ bool MPCExecutor::execute_primitive_step(
             return true;
         }
 
-        // Check if object reached target
-        if (is_object_at_target(object_name, plan_step.pose)) {
-            return true;
-        }
+        // NOTE: an `is_object_at_target` short-circuit used to live here.
+        // It was removed because direct-edge callers (NAMOPushSkill's
+        // "execute primitive E for depth D" path) pass a placeholder
+        // target_pose of (0,0,0); on scenes where the object actually
+        // starts at the origin (e.g. data/nominal_primitive_scene_*.xml),
+        // the check would silently return success without running the
+        // push. Letting the push execute is cheap (the controller
+        // produces zero motion if the object is genuinely at target and
+        // stuck detection terminates normally) and avoids that bug.
 
         bool edge_idx_reachable = false;
         std::vector<int> reachable_edges = get_reachable_edges_with_wavefront(object_name);
@@ -245,18 +250,6 @@ bool MPCExecutor::is_robot_goal_reachable() {
     }
 }
 
-bool MPCExecutor::is_object_at_target(const std::string& object_name, const SE2State& target_state) {
-    SE2State current_state = get_object_se2_state(object_name);
-    
-    double dx = current_state.x - target_state.x;
-    double dy = current_state.y - target_state.y;
-    double distance = std::sqrt(dx*dx + dy*dy);
-    
-    double angle_diff = std::abs(current_state.theta - target_state.theta);
-    while (angle_diff > M_PI) angle_diff = 2.0 * M_PI - angle_diff;
-    
-    return distance < distance_threshold_ && angle_diff < angle_threshold_;
-}
 
 SE2State MPCExecutor::get_object_se2_state(const std::string& object_name) {
     auto object_state = env_.get_object_state(object_name);

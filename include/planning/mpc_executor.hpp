@@ -233,16 +233,6 @@ private:
      */
     ReachableEdgesResult get_reachable_edges_from_current_wavefront(const std::string& object_name);
 
-    
-    /**
-     * @brief Check if object has reached the target state
-     * 
-     * @param object_name Name of object
-     * @param target_state Target SE(2) state
-     * @return bool True if object is close enough to target
-     */
-    bool is_object_at_target(const std::string& object_name, const SE2State& target_state);
-    
     /**
      * @brief Get current object state as SE(2)
      * 
