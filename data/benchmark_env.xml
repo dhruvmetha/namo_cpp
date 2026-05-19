@@ -71,7 +71,7 @@
     <site name="goal" pos="-1.240695909920285 1.2388021920559407 0.0" rgba="0 1 0 0.5" size="0.25 0.25 0.25" type="sphere"/>
   </worldbody>
   <actuator>
-    <motor ctrlrange="-1 1" gear="1" joint="joint_x" name="actuator_x"/>
-    <motor ctrlrange="-1 1" gear="1" joint="joint_y" name="actuator_y"/>
+    <velocity kv="50" ctrlrange="-0.5 0.5" forcerange="-20 20" joint="joint_x" name="actuator_x"/>
+    <velocity kv="50" ctrlrange="-0.5 0.5" forcerange="-20 20" joint="joint_y" name="actuator_y"/>
   </actuator>
 </mujoco>
