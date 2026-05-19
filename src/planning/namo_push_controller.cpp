@@ -549,6 +549,12 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
                 }
             }
         }
+
+        // Reset velocities between push steps
+        env_.set_zero_velocity();
+        env_.step_simulation();
+        env_.get_mujoco_wrapper()->notify_physics_step();  // Video recording hook
+        dump_qpos(env_, /*phase=*/3);
     }
 
     auto final_obj_state = env_.get_object_state(object_name);
