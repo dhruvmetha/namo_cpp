@@ -200,14 +200,25 @@ void save_primitives_to_file(const std::string& output_file, const std::vector<N
 }
 
 int main(int argc, char** argv) {
-    // Optional CLI override: --output <path>. When present, replaces
-    // system.motion_primitives_file from the config. Lets us regenerate to
-    // a fresh filename (e.g. when validating a controller change) without
-    // touching the existing .dat files the planner is wired to.
+    // CLI overrides:
+    //   --output <path>         -- replaces system.motion_primitives_file from
+    //                              config. Used to regenerate to a fresh
+    //                              filename without touching the .dat files
+    //                              the planner is currently wired to.
+    //   --scenes-suffix <text>  -- appended to each scene XML filename before
+    //                              .xml (e.g. "_1x" makes the generator look
+    //                              for nominal_primitive_scene_square_1x.xml).
+    //                              Defaults to "" (current scene set).
+    //                              Lets us host a 1×-scaled scene set
+    //                              alongside the existing 6× scenes without
+    //                              destructively overwriting either.
     std::string output_override;
+    std::string scenes_suffix;
     for (int i = 1; i + 1 < argc; ++i) {
         if (std::string(argv[i]) == "--output") {
             output_override = argv[i + 1];
+        } else if (std::string(argv[i]) == "--scenes-suffix") {
+            scenes_suffix = argv[i + 1];
         }
     }
 
@@ -241,11 +252,22 @@ resolution=0.05
         FastParameterLoader params(config_path);
         std::cout << "Configuration loaded from: " << config_path << std::endl;
         
-        // Define the three scenes to generate primitives for
+        // Define the three scenes to generate primitives for. When
+        // --scenes-suffix is provided, append it before .xml so we can host
+        // multiple scale variants (e.g. "_1x") side-by-side.
+        auto with_suffix = [&scenes_suffix](const std::string& base) {
+            if (scenes_suffix.empty()) return base;
+            const std::string dot_xml = ".xml";
+            if (base.size() > dot_xml.size() &&
+                base.compare(base.size() - dot_xml.size(), dot_xml.size(), dot_xml) == 0) {
+                return base.substr(0, base.size() - dot_xml.size()) + scenes_suffix + dot_xml;
+            }
+            return base + scenes_suffix;
+        };
         std::vector<SceneConfig> scenes = {
-            {"square", "data/nominal_primitive_scene_square.xml", "Square object (0.35x0.35m)"},
-            {"wide", "data/nominal_primitive_scene_wide.xml", "Wide object (0.45x0.25m)"},
-            {"tall", "data/nominal_primitive_scene_tall.xml", "Tall object (0.25x0.45m)"}
+            {"square", with_suffix("data/nominal_primitive_scene_square.xml"), "Square object"},
+            {"wide", with_suffix("data/nominal_primitive_scene_wide.xml"), "Wide object"},
+            {"tall", with_suffix("data/nominal_primitive_scene_tall.xml"), "Tall object"}
         };
         
         // Filter to only existing files, with fallback to legacy
