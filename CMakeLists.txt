@@ -329,6 +329,12 @@ target_link_libraries(generate_motion_primitives_db
     m  # math library
 )
 
+# yaml-cpp: same rationale as namo_rl above — FastParameterLoader's YAML path
+# (gated by HAVE_YAML_CPP) needs the library at link time.
+if(yaml-cpp_FOUND OR YAML_CPP_FOUND OR TARGET yaml-cpp)
+    target_link_libraries(generate_motion_primitives_db yaml-cpp)
+endif()
+
 # Link optional libraries if available
 if(glfw3_FOUND AND OpenGL_FOUND)
     target_link_libraries(generate_motion_primitives_db glfw OpenGL::GL)
