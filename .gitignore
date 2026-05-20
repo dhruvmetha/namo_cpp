@@ -22,3 +22,4 @@ data/_backup_primitives_15rad/
 .claude/
 MUJOCO_LOG.TXT
 test_xml/little-car-modeling-package/artifacts/
+scripts/manifests/
