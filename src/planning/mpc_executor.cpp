@@ -145,79 +145,46 @@ bool MPCExecutor::execute_primitive_step(
     //           << " target_pose=[" << plan_step.pose.x << "," << plan_step.pose.y 
     //           << "," << plan_step.pose.theta << "]" << std::endl;
     
-    // Execute MPC following old implementation approach (namo_planner.hpp lines 217 to 292)
-    int stuck_counter = 0;
-    SE2State previous_state = get_object_se2_state(object_name);
-    // std::cout << "plan push steps: " << plan_step.push_steps << std::endl;
-    for (int mpc_step = 0; mpc_step < plan_step.push_steps; mpc_step++) {
-        // Check if robot goal became reachable during MPC
-        if (has_robot_goal_ && is_robot_goal_reachable()) {
-            return true;
-        }
-
-        // NOTE: an `is_object_at_target` short-circuit used to live here.
-        // It was removed because direct-edge callers (NAMOPushSkill's
-        // "execute primitive E for depth D" path) pass a placeholder
-        // target_pose of (0,0,0); on scenes where the object actually
-        // starts at the origin (e.g. data/nominal_primitive_scene_*.xml),
-        // the check would silently return success without running the
-        // push. Letting the push execute is cheap (the controller
-        // produces zero motion if the object is genuinely at target and
-        // stuck detection terminates normally) and avoids that bug.
-
-        bool edge_idx_reachable = false;
-        std::vector<int> reachable_edges = get_reachable_edges_with_wavefront(object_name);
-        for (int edge_idx : reachable_edges) {
-            if (edge_idx == plan_step.edge_idx) {
-                edge_idx_reachable = true;
-                break;
-            }
-        }
-        if (!edge_idx_reachable) {
-            return false;
-        }
-
-        // std::cout << "reachable_edges: " << reachable_edges.size() << std::endl;
-        // for (int edge_idx : reachable_edges) {
-        //     std::cout << "reachable_edge: " << edge_idx << std::endl;
-        // }
-
-        // Execute one push primitive using the controller
-        // Use edge index and step count from the plan
-        
-        // Save full simulation state before attempting push (zero-allocation)
-        env_.save_full_state();
-        
-        bool push_success = controller_.execute_push_primitive(object_name, plan_step.edge_idx, 1);
-        
-        if (!push_success) {
-            // Restore full simulation state on push failure (e.g., collision during robot placement)
-            env_.restore_full_state();
-            env_.set_zero_velocity();
-            return false;
-        }
-
-        // if (push_success) {
-        //     // std::cout << "Push controller reached target location in MPC step " << mpc_step << std::endl;
-        //     return true;
-        // }
-        
-        // Check if object is stuck
-        SE2State current_state = get_object_se2_state(object_name);
-        // std::cout << "current_state: " << current_state.x << ", " << current_state.y << ", " << current_state.theta << std::endl;
-        // std::cout << "previous_state: " << previous_state.x << ", " << previous_state.y << ", " << previous_state.theta << std::endl;
-        if (is_object_stuck(object_name, previous_state)) {
-            stuck_counter++;
-            if (stuck_counter > max_stuck_iterations_) {
-                return false;
-            }
-        } else {
-            stuck_counter = 0;  // Reset stuck counter if object moved
-        }
-        
-        previous_state = current_state;
+    // Pre-push checks. Goal-reachability and edge-reachability are checked
+    // once BEFORE the primitive, not between push_steps — the unified Path A
+    // in NAMOPushController::execute_push_primitive does one continuous push
+    // for push_steps × control_steps_per_push_ ticks with internal stuck and
+    // collision detection. Wrapping it in a per-mpc_step outer loop here
+    // (which is what this code used to do, calling execute_push_primitive
+    // with push_steps=1 N times) reintroduced the "push-pause-push-pause"
+    // fragmentation that the unified push path was meant to eliminate.
+    if (has_robot_goal_ && is_robot_goal_reachable()) {
+        return true;
     }
-    
+
+    bool edge_idx_reachable = false;
+    std::vector<int> reachable_edges = get_reachable_edges_with_wavefront(object_name);
+    for (int edge_idx : reachable_edges) {
+        if (edge_idx == plan_step.edge_idx) {
+            edge_idx_reachable = true;
+            break;
+        }
+    }
+    if (!edge_idx_reachable) {
+        return false;
+    }
+
+    // Save full simulation state before attempting push (zero-allocation)
+    env_.save_full_state();
+
+    // ONE continuous primitive call. Stuck detection and collision checks
+    // happen INSIDE the controller every stuck_check_stride_ ticks; no need
+    // to chunk by push_step here.
+    bool push_success = controller_.execute_push_primitive(
+        object_name, plan_step.edge_idx, plan_step.push_steps);
+
+    if (!push_success) {
+        // Restore full simulation state on push failure (e.g., collision during robot placement)
+        env_.restore_full_state();
+        env_.set_zero_velocity();
+        return false;
+    }
+
     return true;
 }
 
