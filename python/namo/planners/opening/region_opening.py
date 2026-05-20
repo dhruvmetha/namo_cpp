@@ -2012,11 +2012,20 @@ class RegionOpeningPlanner(BasePlanner):
                                 self.env.set_full_state(baseline_state)
                                 reachable_before = [self.env.get_reachable_objects()]
                                 # Execute the action to get reachable after and collision info.
+                                # CRITICAL: include edge_idx + depth so the C++ env re-runs
+                                # the *same* primitive the search just declared a success.
+                                # Without these, the env falls back to picking a primitive
+                                # from (x, y, theta), which routes to a different edge/depth
+                                # — visible in --viewer as a different last push than what
+                                # gets recorded in the chain. See chain JSON vs viewer
+                                # discrepancy reported 2026-05-20.
                                 action = namo_rl.Action()
                                 action.object_id = object_id
                                 action.x = final_goal.x
                                 action.y = final_goal.y
                                 action.theta = final_goal.theta
+                                action.edge_idx = final_goal.edge_idx
+                                action.depth = final_goal.depth
                                 step_result = self.env.step(action)
                                 reachable_after = [self.env.get_reachable_objects()]
                                 # Extract collision info from step result
