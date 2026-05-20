@@ -8,13 +8,14 @@ records without breaking existing readers. See docs/superpowers/specs/
 
 from __future__ import annotations
 
+import datetime as _datetime
 import time as _time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 import namo_rl
 from namo.core import BasePlanner, PlannerConfig, PlannerFactory, PlannerResult
-from namo.planners.connectivity_snapshot import find_robot_label
+from namo.planners.connectivity_snapshot import find_robot_label, snapshot_region_connectivity
 
 # The robot appears in env.get_reachable_objects() but is never a valid push target.
 # Match the convention used in region_opening's object selection.
@@ -337,21 +338,30 @@ class SamplerAttemptResult:
 class UniformRolloutSampler(BasePlanner):
     """Exhaustively executes every reachable push primitive at the initial scene.
 
-    Does no search. Logs every outcome. Output flows through the existing
-    region_opening-style worker branch by emitting one AttemptResult per
-    (object, neighbor) pair.
+    See module docstring + docs/superpowers/specs/2026-05-19-uniform-rollout-sampler-design.md.
     """
 
     def __init__(self, env: namo_rl.RLEnvironment, config: PlannerConfig):
         super().__init__(env, config)
 
     def _setup_constraints(self) -> None:
-        # No constraints needed: every reachable primitive is enumerated.
         pass
 
     def _initialize_algorithm(self) -> None:
-        # v0 has no internal algorithm state — every search() call is independent.
-        pass
+        algo_params = self.config.algorithm_params or {}
+        self.max_chain_depth: int = int(algo_params.get("max_chain_depth", 1))
+        if self.max_chain_depth != 1:
+            raise ValueError(
+                f"v0 of UniformRolloutSampler only supports max_chain_depth=1; "
+                f"got {self.max_chain_depth}. Chain expansion is a follow-up spec."
+            )
+        self.region_goal_samples_per_neighbor: int = int(
+            algo_params.get("region_goal_samples_per_neighbor", 5)
+        )
+        self.num_depths: int = int(algo_params.get("num_depths", 10))
+        self.xml_file: Optional[str] = algo_params.get("xml_file")
+        self.config_file: Optional[str] = algo_params.get("config_file_path")
+        self.seed: int = int(algo_params.get("seed", 42))
 
     def reset(self) -> None:
         pass
@@ -365,12 +375,146 @@ class UniformRolloutSampler(BasePlanner):
         return "0.1.0"
 
     def search(self, robot_goal: Tuple[float, float, float]) -> PlannerResult:
-        # Skeleton: implemented in later tasks. Returns empty result for now.
+        import numpy as np
+        t_start = _time.perf_counter()
+
+        # 1. Set the robot goal and snapshot the initial state.
+        self.env.set_robot_goal(float(robot_goal[0]), float(robot_goal[1]), float(robot_goal[2]))
+        initial_state = self.env.get_full_state()
+        initial_observation = self.env.get_observation()
+        initial_se2 = _se2_from_observation(initial_observation)
+        reachable_objects_initial = list(self.env.get_reachable_objects())
+
+        # 2. Compute connectivity at s₀, sampling K region goals per neighbor.
+        rng = np.random.default_rng(self.seed)
+        try:
+            before_adj, _edge_objs, before_labels, before_region_goals, _snap = snapshot_region_connectivity(
+                self.env,
+                xml_path=self.xml_file or "",
+                config_path=self.config_file or "",
+                goals_per_region=self.region_goal_samples_per_neighbor,
+                generate_training_data=True,
+                local_info_only=False,
+                use_current_state=True,
+                rng=rng,
+            )
+        except Exception as exc:
+            return PlannerResult(
+                success=False, solution_found=False, action_sequence=None,
+                algorithm_stats={"attempt_results": []},
+                error_message=f"connectivity snapshot at s₀ failed: {exc}",
+                search_time_ms=(_time.perf_counter() - t_start) * 1000.0,
+            )
+
+        robot_label = find_robot_label(before_labels)
+        if robot_label is None:
+            return PlannerResult(
+                success=False, solution_found=False, action_sequence=None,
+                algorithm_stats={"attempt_results": []},
+                error_message="no robot region label at s₀",
+                search_time_ms=(_time.perf_counter() - t_start) * 1000.0,
+            )
+        neighbor_labels = sorted(before_adj.get(robot_label, set()))
+
+        # Convert region_goals to plain tuples (per-neighbor, only non-robot labels).
+        region_goals: Dict[str, List[Tuple[float, float, float]]] = {}
+        for nbr in neighbor_labels:
+            bundle = before_region_goals.get(nbr)
+            if bundle is None:
+                region_goals[nbr] = []
+                continue
+            region_goals[nbr] = [(g.x, g.y, g.theta) for g in bundle.goals]
+
+        # 3. Enumerate every reachable primitive at s₀.
+        primitives = enumerate_reachable_primitives(self.env, num_depths=self.num_depths)
+        if not primitives:
+            return PlannerResult(
+                success=False, solution_found=False, action_sequence=None,
+                algorithm_stats={"attempt_results": []},
+                error_message="no reachable primitives at s₀",
+                search_time_ms=(_time.perf_counter() - t_start) * 1000.0,
+            )
+
+        # 4. For each primitive: execute, snapshot state_after, diff for per-neighbor opening.
+        transitions: List[Dict[str, Any]] = []
+        for tid, (obj, edge_idx, depth_idx) in enumerate(primitives):
+            # Target pose is the primitive's calibrated landing pose; we don't have
+            # it without running the goal strategy. The C++ skill resolves the target
+            # from (object, edge_idx, depth) internally — we pass placeholder zeros and
+            # set edge_idx/depth on the Action so the skill uses the database.
+            target_pose = (0.0, 0.0, 0.0)
+            partial = execute_primitive(
+                env=self.env,
+                initial_state=initial_state,
+                object_id=obj,
+                edge_idx=edge_idx,
+                push_depth_idx=depth_idx,
+                target_pose=target_pose,
+            )
+
+            # Snapshot state_after for per-neighbor opening.
+            try:
+                after_adj, _eo, after_labels, _rg, _snap = snapshot_region_connectivity(
+                    self.env,
+                    xml_path=self.xml_file or "",
+                    config_path=self.config_file or "",
+                    goals_per_region=0,
+                    generate_training_data=False,
+                    local_info_only=False,
+                    use_current_state=True,
+                )
+                per_neighbor = _evaluate_opening_from_snapshots(
+                    before_labels=before_labels, before_adjacency=before_adj,
+                    after_labels=after_labels, after_adjacency=after_adj,
+                )
+            except Exception:
+                per_neighbor = {n: False for n in neighbor_labels}
+
+            partial["per_neighbor_opening"] = per_neighbor
+            partial["transition_id"] = tid
+            transitions.append(partial)
+
+        # Restore env to s₀ once at the end so downstream code sees a stable state.
+        self.env.set_full_state(initial_state)
+
+        # 5. Group into per-(object, neighbor) AttemptResults.
+        attempts = group_transitions_into_attempts(
+            transitions=transitions,
+            neighbor_labels=neighbor_labels,
+            region_goals=region_goals,
+            initial_observation=initial_observation,
+            reachable_objects_before=reachable_objects_initial,
+        )
+
+        # 6. Assemble env metadata.
+        env_meta = EnvMetadata(
+            xml_file=self.xml_file or "",
+            robot_goal=tuple(robot_goal),
+            initial_state_se2=initial_se2,
+            per_neighbor_region_goals=region_goals,
+            neighbor_labels=neighbor_labels,
+            static_object_info=dict(self.env.get_object_info()),
+            collection_timestamp_utc=_datetime.datetime.utcnow().isoformat() + "Z",
+            sampler_version=self.algorithm_version,
+        )
+
+        # 7. Wrap into a PlannerResult.
+        from dataclasses import asdict as _asdict
         return PlannerResult(
-            success=False,
-            solution_found=False,
+            success=any(a.success for a in attempts),
+            solution_found=False,                         # sampler doesn't 'solve' anything
             action_sequence=None,
-            algorithm_stats={"attempt_results": []},
+            algorithm_stats={
+                "attempt_results": attempts,             # consumed by the worker branch
+                "env_metadata": _asdict(env_meta),
+                "sampler_summary_stats": {
+                    "n_transitions": len(transitions),
+                    "n_attempts": len(attempts),
+                    "n_r1": sum(1 for t in transitions if t["r"] == 1),
+                    "n_sim_failures": sum(1 for t in transitions if t["sim_failure"]),
+                },
+            },
+            search_time_ms=(_time.perf_counter() - t_start) * 1000.0,
         )
 
 
