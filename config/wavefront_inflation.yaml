@@ -4,7 +4,14 @@
 # Tier-1 inflation is the base additive margin applied to robot half-extents
 # during obstacle inflation in wavefront occupancy grids.
 tier1:
-  base_inflation_margin_m: 0.0   # was 0.005 — use exactly the rotation-safe robot radius, no extra padding (per merge plan 2026-05-18)
+  base_inflation_margin_m: 0.005   # 5 mm real-world safety margin. Matches
+                                   # robot_control/config/wavefront_inflation.yaml
+                                   # at 1× scale (BUG-001 alignment). At 6× scale
+                                   # this still reads as 0.005 sim-m (~0.83 mm real),
+                                   # which is the legacy "tiny epsilon" value the
+                                   # old comment was reverting to. Either interpretation
+                                   # is fine; the value matters mainly at 1× scale
+                                   # where it agrees with the real-side wavefront.
 
 # Edge-offset geometry is configured per primary YAML via:
 #   planning.wavefront_edge_offset_margin
