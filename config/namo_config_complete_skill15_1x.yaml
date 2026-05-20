@@ -79,7 +79,10 @@ skill:
   # to clear the stuck threshold reliably. Re-tune if stuck-detection trips
   # spuriously after the regeneration.
   push_velocity: 0.05              # m/s — commanded robot velocity during push (was 0.30 at 6×)
-  dynamic_direction: true          # true = re-derive push direction per tick (unscaled)
+  dynamic_direction: false         # false = fix push direction at primitive-start, drive
+                                   # straight in world frame for push_steps×control_steps_per_push
+                                   # ticks. Eliminates the between-push_step direction recompute
+                                   # that creates micro-breaks. Matches real-side push.py default.
 
   # Execution parameters
   goal_tolerance: 0.02             # 2 cm goal reaching tolerance (was 0.1 at 6×)

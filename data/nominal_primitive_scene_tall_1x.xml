@@ -27,7 +27,7 @@
 
     <!-- Tall object: 0.0417 x 0.075 m (depth > width) -->
     <body name="obstacle_1_movable">
-      <geom condim="4" euler="0 0 0" friction="0.5 0.1 0.1" mass="0.1" name="obstacle_1_movable" pos="0.0 0.0 0.05" rgba="1 0 0 1" size="0.0417 0.075 0.05" type="box"/>
+      <geom condim="4" euler="0 0 0" friction="0 0.1 0.1" mass="0.1" name="obstacle_1_movable" pos="0.0 0.0 0.05" rgba="1 0 0 1" size="0.0417 0.075 0.05" type="box"/>
       <joint type="free"/>
     </body>
     <body name="walls">
