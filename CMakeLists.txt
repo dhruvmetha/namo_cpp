@@ -90,8 +90,12 @@ find_package(OpenGL QUIET)
 # JSON library (header-only, will download if needed)
 find_path(NLOHMANN_JSON_INCLUDE_DIR nlohmann/json.hpp PATHS external/nlohmann_json/include)
 
-# YAML-CPP (will use external if system version not found)
-# find_package(yaml-cpp QUIET)
+# YAML-CPP — re-enabled. When disabled, FastParameterLoader falls back to a
+# simple key=value parser that cannot handle block-style YAML sequences
+# (e.g. the temp config the bridge writes via yaml.safe_dump). With yaml-cpp
+# enabled, nested config fields like planning.robot_size are read correctly
+# regardless of YAML formatting. libyaml-cpp-dev provides the dev headers.
+find_package(yaml-cpp QUIET)
 
 # Download external dependencies if not found
 if(NOT NLOHMANN_JSON_INCLUDE_DIR)
@@ -171,7 +175,12 @@ else()
     message(STATUS "GLFW or OpenGL not found - visualization disabled")
 endif()
 
-message(STATUS "yaml-cpp not found - using simple config parser")
+if(yaml-cpp_FOUND OR YAML_CPP_FOUND OR TARGET yaml-cpp)
+    add_compile_definitions(HAVE_YAML_CPP)
+    message(STATUS "yaml-cpp found - using YAML parser")
+else()
+    message(STATUS "yaml-cpp not found - using simple config parser (NOTE: cannot parse block-style YAML lists)")
+endif()
 
 if(ZMQ_FOUND)
     target_link_libraries(high_level_planning_demo ${ZMQ_LIBRARIES})
@@ -256,6 +265,14 @@ if(BUILD_PYTHON_BINDINGS)
         pthread
         m  # math library
     )
+
+    # Link yaml-cpp when found so FastParameterLoader's YAML code path
+    # (compiled in via HAVE_YAML_CPP) can actually resolve YAML::* symbols
+    # at runtime. Without this, the pybind .so links cleanly but fails to
+    # import with "undefined symbol: _ZTIN4YAML13BadConversionE".
+    if(yaml-cpp_FOUND OR YAML_CPP_FOUND OR TARGET yaml-cpp)
+        target_link_libraries(namo_rl PRIVATE yaml-cpp)
+    endif()
     
     # Link optional libraries if available
     if(glfw3_FOUND AND OpenGL_FOUND)
@@ -387,6 +404,60 @@ endif()
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(test_planner_output PRIVATE -fopenmp -ffast-math)
     target_link_libraries(test_planner_output gomp)
+endif()
+
+# Pure free-space A->B navigation test (no Python, no skill, no push)
+add_executable(test_nav_state_machine
+    tests/test_nav_state_machine.cpp
+    ${CORE_SOURCES}
+    ${WAVEFRONT_SOURCES}
+    ${ENVIRONMENT_SOURCES}
+    ${CONFIG_SOURCES}
+    ${ROBOT_SOURCES}
+    ${NAVIGATION_SOURCES}
+)
+
+target_link_libraries(test_nav_state_machine
+    ${MUJOCO_LIB}
+    pthread
+    m
+    yaml-cpp
+)
+
+target_include_directories(test_nav_state_machine PRIVATE
+    include
+    ${MUJOCO_DIR}/include
+)
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(test_nav_state_machine PRIVATE -fopenmp -ffast-math)
+    target_link_libraries(test_nav_state_machine gomp)
+endif()
+
+# Minimal wheel-actuator sanity test (diff-drive only, no wavefront / nav)
+add_executable(test_wheel_spin
+    tests/test_wheel_spin.cpp
+    ${CORE_SOURCES}
+    ${ENVIRONMENT_SOURCES}
+    ${CONFIG_SOURCES}
+    ${ROBOT_SOURCES}
+)
+
+target_link_libraries(test_wheel_spin
+    ${MUJOCO_LIB}
+    pthread
+    m
+    yaml-cpp
+)
+
+target_include_directories(test_wheel_spin PRIVATE
+    include
+    ${MUJOCO_DIR}/include
+)
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(test_wheel_spin PRIVATE -fopenmp -ffast-math)
+    target_link_libraries(test_wheel_spin gomp)
 endif()
 
 # Install targets
