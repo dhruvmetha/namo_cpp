@@ -293,7 +293,29 @@ Contents are `worker_result_data` (lines 687–696) — a dict with `episode_res
 
 **No new pkl files. No new directory layout. No new naming convention.** The downstream analysis code (existing `analyze_F.py`) needs an extension to read `rollout_trace` instead of (or in addition to) `primitive_trial_log`, but the file structure is identical.
 
-### 4.6 Reused vs. new vs. modified
+### 4.6 Backward-compatibility shim: `primitive_trial_log`
+
+The existing `batch_collection_classifier.py` post-processing script reads `episode.algorithm_stats['primitive_trial_log']` to build the (60, 10) `f_grid` consumed by sage_learning's classifier and diffusion data loaders. The sampler emits a `primitive_trial_log` field alongside `rollout_trace`, derived deterministically from depth-0 records:
+
+```python
+primitive_trial_log = [
+    {
+        "edge_idx": rec.edge_idx,
+        "depth": rec.push_depth_idx,
+        "success": bool(rec.r),
+        "wall_collision": rec.wall_collision,
+        "movable_collisions": rec.movable_collisions,
+        "stuck": rec.push_terminated_early,
+        "collision": bool(rec.wall_collision or rec.movable_collisions),
+        "reachable_after": int(rec.r),
+    }
+    for rec in rollout_trace if rec.depth == 0
+]
+```
+
+Result: `batch_collection_classifier.py` runs unchanged on the new pkls. Existing 1-push training paths keep working with zero downstream code edits.
+
+### 4.7 Reused vs. new vs. modified
 
 **Reused unchanged:**
 - `ModularParallelCollectionManager` (parallel pool, signal handling, run-dir layout)
@@ -439,22 +461,31 @@ For ~5,925 train envs: ~30–50 GB total. Manageable. If pkl size becomes operat
 
 ## 6. What this enables downstream
 
-### 6.1 Spec A (1-push model training)
+### 6.1 Scene-mask rendering — the key invariant
 
-A 1-push model trains on the `depth=0` slice of `rollout_trace`. Per-env:
-- Positives: every record with `r=1`.
-- Negatives: every record with `r=0` and `sim_failure=False`.
-- Per-neighbor positives: per-neighbor opening labels available for per-neighbor models.
+The pkl logs enough per-transition state to render scene masks for **any** action — successful or failed — without re-simulating. For every transition the schema records:
 
-The fresh data fixes the round-1 biased-teacher problem at its root — the depth-0 distribution is uniform over R(s₀) by construction (it's exhaustive). Any model trained on these labels is learning F as it actually is, not a planner's preferred slice.
+| Need to render | Where it lives |
+|---|---|
+| Scene at `state_before` (static / movable / target_object / robot_region) | `transition.state_before_se2` + `env_metadata.xml_file` + `env_metadata.static_object_info` |
+| Target-pose mask (where the action was *aimed*) | `transition.target_pose` + `transition.object_id` |
+| Scene at `state_after` (where the object actually landed) | `transition.state_after_se2` |
+| Goal-region mask | `env_metadata.robot_goal` + `env_metadata.neighbor_regions` |
+| Robot's current region (for `robot_region` mask) | derivable from `state_before_se2` + `env_metadata.neighbor_regions` via existing `find_robot_label` |
 
-### 6.2 Chain training (Design X or Y, later spec)
+Successful and failed transitions log the same fields with the same shape. Any mask convention — current (`local_static`, `local_target_goal`, etc.) or future — can be derived offline from the pkls.
 
-**Design X (generative on witnesses):** walk `rollout_trace`, find every `r=1` transition, trace back via `parent_id` to enumerate the witness chain. Every `(state_before, action)` on a successful chain is a positive witness. Train diffusion / flow / autoregressive on these.
+### 6.2 1-push training (Spec A)
 
-**Design Y (Q-function):** every `TransitionRecord` is a Bellman tuple. Reward = `r`. Terminal flag = `(r == 1)`. `max_a' Q(s', a')` restricted to `R_at_state_after`. Train via TD or fitted-Q.
+- Depth-0 records → existing `batch_collection_classifier.py` flow → NPZ files with `f_grid` and scene masks. Unchanged thanks to the `primitive_trial_log` shim (§4.6).
+- Positives = `r=1` transitions. Negatives = `r=0` transitions. Per-neighbor labels also available.
 
-Both designs can be trained from the *same* `rollout_trace` records without going back to the cluster.
+### 6.3 Chain training (Design X or Y, later spec)
+
+- **Design X (generative on witnesses):** walk `rollout_trace`, find `r=1` transitions, trace `parent_id` chain. Every `(state_before, action)` on a successful chain is a positive witness — render its scene + target-pose mask.
+- **Design Y (Q-function):** every transition is a Bellman tuple `(s, a, s', r)`. Reward = `r`. Action-max restricted to `R_at_state_after`. Render scene masks per state as the model's input encoder requires.
+
+The NPZ key convention for chain data is a **downstream choice** — not locked by this spec. Whether the chain NPZs use `local_goal_mask_a1` / `goal_mask_a2` (matching `mask_diffusion_data_multihorizon.py`) or a different convention is decided when the chain-training spec is written, on top of pkls that already contain everything needed.
 
 ---
 
