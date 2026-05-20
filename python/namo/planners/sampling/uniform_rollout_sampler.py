@@ -14,6 +14,46 @@ from typing import Any, Dict, List, Optional, Tuple
 import namo_rl
 from namo.core import BasePlanner, PlannerConfig, PlannerFactory, PlannerResult
 
+# The robot appears in env.get_reachable_objects() but is never a valid push target.
+# Match the convention used in region_opening's object selection.
+_ROBOT_NAME_PATTERNS = ("robot", "car")
+
+
+def _is_pushable_object(object_id: str) -> bool:
+    """True iff this object is a candidate to be pushed (not the robot itself)."""
+    lower = object_id.lower()
+    return not any(pattern in lower for pattern in _ROBOT_NAME_PATTERNS)
+
+
+def enumerate_reachable_primitives(
+    env: namo_rl.RLEnvironment,
+    num_depths: int = 10,
+) -> List[Tuple[str, int, int]]:
+    """Return every (object_id, edge_idx, push_depth_idx) the robot can physically attempt.
+
+    Args:
+        env: NAMO RL environment positioned at the state to enumerate from.
+        num_depths: Number of push depths per edge (matches motion-primitive resolution; 10 in the
+            existing F-char data).
+
+    Returns:
+        Sorted list of (object_id, edge_idx, depth_idx) tuples. Sorting is deterministic
+        for reproducibility.
+
+    Notes:
+        - The robot itself (object name containing "robot" or "car") is excluded.
+        - Objects with empty reachable_edges contribute nothing.
+    """
+    reachable_objects = [o for o in env.get_reachable_objects() if _is_pushable_object(o)]
+
+    prims: List[Tuple[str, int, int]] = []
+    for obj in sorted(reachable_objects):
+        edges = env.get_reachable_edges(obj)
+        for edge_idx in sorted(edges):
+            for depth_idx in range(num_depths):
+                prims.append((obj, edge_idx, depth_idx))
+    return prims
+
 
 @dataclass
 class TransitionRecord:

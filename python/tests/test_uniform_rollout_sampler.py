@@ -88,3 +88,61 @@ def test_sampler_attempt_result_mirrors_region_opening():
                      "state_observations", "post_action_state_observations",
                      "reachable_objects_before_action", "reachable_objects_after_action"):
         assert required in d, f"missing required field: {required}"
+
+
+from unittest.mock import MagicMock
+
+
+def test_enumerate_reachable_primitives_combines_objects_edges_depths():
+    """Enumeration is the Cartesian product of (reachable objects) × (their reachable edges) × (depths 0..9)."""
+    from namo.planners.sampling.uniform_rollout_sampler import enumerate_reachable_primitives
+
+    env = MagicMock()
+    env.get_reachable_objects.return_value = ["obj_1", "obj_2"]
+    env.get_reachable_edges.side_effect = lambda name: {
+        "obj_1": [0, 1, 2],
+        "obj_2": [10],
+    }[name]
+
+    NUM_DEPTHS = 10
+    prims = enumerate_reachable_primitives(env, num_depths=NUM_DEPTHS)
+
+    # obj_1: 3 edges × 10 depths = 30
+    # obj_2: 1 edge × 10 depths = 10
+    assert len(prims) == 40
+
+    # Deterministic ordering: sorted by (object_id, edge_idx, depth_idx)
+    assert prims[0] == ("obj_1", 0, 0)
+    assert prims[1] == ("obj_1", 0, 1)
+    assert prims[9] == ("obj_1", 0, 9)
+    assert prims[10] == ("obj_1", 1, 0)
+    assert prims[30] == ("obj_2", 10, 0)
+    assert prims[-1] == ("obj_2", 10, 9)
+
+
+def test_enumerate_reachable_primitives_excludes_robot():
+    """Robot is in get_reachable_objects but should not be a pushable object."""
+    from namo.planners.sampling.uniform_rollout_sampler import enumerate_reachable_primitives
+
+    env = MagicMock()
+    env.get_reachable_objects.return_value = ["robot", "obj_1"]
+    env.get_reachable_edges.side_effect = lambda name: {"obj_1": [0]}[name]
+
+    prims = enumerate_reachable_primitives(env, num_depths=10)
+
+    assert all(p[0] != "robot" for p in prims)
+    assert len(prims) == 10
+
+
+def test_enumerate_reachable_primitives_handles_no_reachable_edges():
+    """Object with empty reachable_edges contributes nothing."""
+    from namo.planners.sampling.uniform_rollout_sampler import enumerate_reachable_primitives
+
+    env = MagicMock()
+    env.get_reachable_objects.return_value = ["obj_1", "obj_2"]
+    env.get_reachable_edges.side_effect = lambda name: {"obj_1": [], "obj_2": [0]}[name]
+
+    prims = enumerate_reachable_primitives(env, num_depths=10)
+
+    assert len(prims) == 10
+    assert all(p[0] == "obj_2" for p in prims)
