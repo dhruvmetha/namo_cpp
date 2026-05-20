@@ -30,12 +30,12 @@
     <body name="robot">
       <joint axis="1 0 0" name="joint_x" pos="0 0 0" type="slide"/>
       <joint axis="0 1 0" name="joint_y" pos="0 0 0" type="slide"/>
-      <geom condim="4" friction="1.0 0.005 0.0001" mass="5.0" name="robot" pos="-0.3333 0.0 0.025" size="0.025 0.025 0.025" type="sphere"/>
+      <geom condim="4" friction="0.5 0.1 0.1" mass="5.0" name="robot" pos="-0.3333 0.0 0.05" size="0.035 0.035 0.035" type="sphere"/>
     </body>
 
     <!-- Square object: 0.0583 x 0.0583 m (= 0.35 / 6) -->
     <body name="obstacle_1_movable">
-      <geom condim="4" euler="0 0 0" friction="0.0 0.005 0.001" mass="0.1" name="obstacle_1_movable" pos="0.0 0.0 0.0333" rgba="1 0 0 1" size="0.0583 0.0583 0.0333" type="box"/>
+      <geom condim="4" euler="0 0 0" friction="0.5 0.1 0.1" mass="0.1" name="obstacle_1_movable" pos="0.0 0.0 0.05" rgba="1 0 0 1" size="0.0583 0.0583 0.05" type="box"/>
       <joint type="free"/>
     </body>
     <body name="walls">

@@ -52,7 +52,8 @@ std::vector<NominalPrimitive> generate_primitives_for_scene(
     int control_steps,
     int max_push_steps,
     double force_scaling,
-    bool dynamic_direction
+    bool dynamic_direction,
+    double push_offset_margin
 ) {
     std::cout << "\n=== Generating primitives for " << scene_config.name << " ===" << std::endl;
     std::cout << "XML: " << scene_config.xml_path << std::endl;
@@ -74,7 +75,14 @@ std::vector<NominalPrimitive> generate_primitives_for_scene(
     
     // Create push controller
     NAMOPushController push_controller(env, *wavefront_planner, max_push_steps, control_steps, force_scaling, points_per_face, dynamic_direction);
-    
+
+    // Apply config-driven push_offset_margin so generator-side edge points
+    // match what the skill runtime uses. Without this the controller falls
+    // back to its hardcoded default (0.02 m) — invisible at 6× scale (~3 mm
+    // real) but a 2 cm real gap at 1× scale, which makes the robot land
+    // far from the object face.
+    push_controller.set_push_offset_margin(push_offset_margin);
+
     // Get movable objects (should be our nominal object)
     std::array<std::string, 20> reachable_objects;
     size_t reachable_count;
@@ -129,10 +137,12 @@ std::vector<NominalPrimitive> generate_primitives_for_scene(
         
         // Generate primitives for all step counts (1 to max_push_steps) - pyramid approach
         for (int push_steps = 1; push_steps <= max_push_steps; push_steps++) {
+            std::cout << "  push_steps=" << push_steps << std::endl;
+
             // Reset environment to initial state for each primitive
             env.reset();
             env.step_simulation();
-            
+
             // Execute push primitive for this number of steps
             bool success = push_controller.execute_push_primitive(target_object, edge_idx, push_steps);
             
@@ -165,11 +175,9 @@ std::vector<NominalPrimitive> generate_primitives_for_scene(
             }
         }
         
-        // Pause between edges for observation
-        if (visualize) {
-            std::cout << "Press Enter to continue to next edge..." << std::endl;
-            std::cin.get();
-        }
+        // No interactive pause between edges — viewer just streams through.
+        // (Was: prompt + std::cin.get() to step through manually; removed
+        // because it blocks unattended runs.)
     }
     
     std::cout << "Generated " << all_primitives.size() << " primitives for " << scene_config.name << std::endl;
@@ -337,6 +345,15 @@ resolution=0.05
         if (params.has_key("skill.control_steps_per_push")) {
             control_steps = params.get_int("skill.control_steps_per_push");
         }
+
+        // Extra spawn offset added to robot radius when computing edge points.
+        // Reads the same config key the runtime skill reads, so generator-side
+        // and skill-side edge points agree. Falls back to 0.02 (legacy default
+        // hardcoded in NAMOPushController) only when the config doesn't set it.
+        double push_offset_margin = 0.02;
+        if (params.has_key("planning.wavefront_edge_offset_margin")) {
+            push_offset_margin = params.get_double("planning.wavefront_edge_offset_margin");
+        }
         
         int max_push_steps = 10;
         if (params.has_key("motion_primitives.max_push_steps")) {
@@ -387,7 +404,8 @@ resolution=0.05
             try {
                 auto primitives = generate_primitives_for_scene(
                     scene, visualize, resolution, points_per_face,
-                    control_steps, max_push_steps, force_scaling, dynamic_direction
+                    control_steps, max_push_steps, force_scaling, dynamic_direction,
+                    push_offset_margin
                 );
                 
                 // Save to suffixed output file. The base path is used as a
