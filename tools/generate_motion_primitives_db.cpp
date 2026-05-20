@@ -212,13 +212,23 @@ int main(int argc, char** argv) {
     //                              Lets us host a 1×-scaled scene set
     //                              alongside the existing 6× scenes without
     //                              destructively overwriting either.
+    //   --config <path>         -- overrides the hardcoded config path. Use
+    //                              the 1× config when generating 1× primitives
+    //                              so push_velocity / stuck_threshold / grid
+    //                              resolutions match the scene scale. Without
+    //                              this, the generator runs with the 6× config
+    //                              and produces primitives whose magnitudes
+    //                              don't match the scaled-down scenes.
     std::string output_override;
     std::string scenes_suffix;
+    std::string config_override;
     for (int i = 1; i + 1 < argc; ++i) {
         if (std::string(argv[i]) == "--output") {
             output_override = argv[i + 1];
         } else if (std::string(argv[i]) == "--scenes-suffix") {
             scenes_suffix = argv[i + 1];
+        } else if (std::string(argv[i]) == "--config") {
+            config_override = argv[i + 1];
         }
     }
 
@@ -226,8 +236,12 @@ int main(int argc, char** argv) {
     std::cout << "Generating primitives for multiple object shapes" << std::endl;
     
     try {
-        // Prefer unified config if present, fallback to minimal local config
-        std::string config_path = "config/namo_config_complete_skill15.yaml";
+        // Prefer unified config if present, fallback to minimal local config.
+        // --config overrides the hardcoded default (e.g. _1x.yaml when
+        // generating 1×-scale primitives).
+        std::string config_path = config_override.empty()
+            ? std::string("config/namo_config_complete_skill15.yaml")
+            : config_override;
         bool using_unified_config = std::filesystem::exists(config_path);
         
         if (!using_unified_config) {
