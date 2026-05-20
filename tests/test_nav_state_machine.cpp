@@ -92,7 +92,12 @@ int main(int argc, char** argv) {
               << adapter->get_theta(model, data) * 180.0 / M_PI << " deg\n";
 
     // 3. Wavefront plan
-    namo::WavefrontPlanner planner;
+    // Matches HighLevelPlanner construction: 0.05 m grid, robot half-extents
+    // from the namo_config_complete_skill15.yaml defaults. Robot size only
+    // governs obstacle-inflation footprint for path extraction here.
+    const double WAVEFRONT_RESOLUTION_M = 0.05;
+    const std::vector<double> ROBOT_HALF_EXTENTS_M = {0.21, 0.21};
+    namo::WavefrontPlanner planner(WAVEFRONT_RESOLUTION_M, env, ROBOT_HALF_EXTENTS_M);
     std::vector<double> start_pos = {rs0->position[0], rs0->position[1]};
     if (!planner.update_wavefront(env, start_pos)) {
         std::cerr << "Wavefront update failed\n";
