@@ -175,6 +175,87 @@ def _evaluate_opening_from_snapshots(
     return {n: (n not in after_label_set) for n in neighbors_before}
 
 
+def group_transitions_into_attempts(
+    transitions: List[Dict[str, Any]],
+    neighbor_labels: List[str],
+    region_goals: Dict[str, List[Tuple[float, float, float]]],
+    initial_observation: Dict[str, List[float]],
+    reachable_objects_before: List[str],
+) -> List["SamplerAttemptResult"]:
+    """Build one SamplerAttemptResult per (object, neighbor) pair.
+
+    Each attempt's primitive_trial_log contains the subset of transitions involving
+    that object, with success labeled per-neighbor (true iff the push opened
+    THIS neighbor).
+
+    Args:
+        transitions: Flat list of dicts as produced by execute_primitive() +
+            per_neighbor_opening dict added by the caller.
+        neighbor_labels: All neighbor labels for the robot region at s₀.
+        region_goals: Per-neighbor sampled goal points (for the region_goals_sampled
+            field consumed by NAMODataVisualizer).
+        initial_observation: env.get_observation() result at s₀, used to populate
+            the single-entry state_observations list (matches how exhaustive-mode
+            region_opening fills it).
+        reachable_objects_before: env.get_reachable_objects() at s₀.
+
+    Returns:
+        List of SamplerAttemptResult, one per (object, neighbor). The order is
+        sorted by (object_id, neighbor_label) for reproducibility.
+    """
+    objects = sorted({t["object_id"] for t in transitions})
+    attempts: List["SamplerAttemptResult"] = []
+
+    for obj in objects:
+        obj_transitions = [t for t in transitions if t["object_id"] == obj]
+        for neighbor in sorted(neighbor_labels):
+            # Build the trial_log for this (obj, neighbor) using the existing F-char schema.
+            trial_log: List[Dict[str, Any]] = []
+            success_target: Optional[Tuple[float, float, float]] = None
+            any_wall = False
+            unique_movable: set = set()
+
+            for t in obj_transitions:
+                opened = bool(t["per_neighbor_opening"].get(neighbor, False))
+                entry = {
+                    "edge_idx": int(t["edge_idx"]),
+                    "depth": int(t["push_depth_idx"]),
+                    "success": opened,
+                    "wall_collision": bool(t["wall_collision"]),
+                    "movable_collisions": ",".join(t["movable_collisions"]),
+                    "stuck": bool(t["push_terminated_early"]),
+                    "collision": bool(t["wall_collision"] or t["movable_collisions"]),
+                    "reachable_after": int(t["r"]),
+                }
+                trial_log.append(entry)
+                if opened and success_target is None:
+                    success_target = tuple(t["target_pose"])
+                if t["wall_collision"]:
+                    any_wall = True
+                for mc in t["movable_collisions"]:
+                    unique_movable.add(mc)
+
+            sampled_goals = region_goals.get(neighbor)
+            attempts.append(SamplerAttemptResult(
+                success=success_target is not None,
+                neighbour_region_label=neighbor,
+                chosen_object_id=obj,
+                chosen_goal=success_target,
+                region_goals_sampled=sampled_goals,
+                region_goal_used=(sampled_goals[0] if sampled_goals else None),
+                primitive_trial_log=trial_log,
+                chain_depth=1,
+                state_observations=[initial_observation],
+                post_action_state_observations=None,
+                reachable_objects_before_action=[reachable_objects_before],
+                reachable_objects_after_action=None,
+                any_wall_collision=any_wall,
+                unique_movable_collision_count=len(unique_movable),
+            ))
+
+    return attempts
+
+
 @dataclass
 class TransitionRecord:
     """One push attempt with its outcome.

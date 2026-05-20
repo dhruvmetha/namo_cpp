@@ -278,3 +278,72 @@ def test_evaluate_per_neighbor_opening_handles_missing_robot_label():
         after_adjacency={"neighbor_A": set()},
     )
     assert result == {}
+
+
+def test_group_transitions_into_attempts_emits_one_per_object_neighbor():
+    """One AttemptResult per (object_id, neighbor_label) seen in transitions."""
+    from namo.planners.sampling.uniform_rollout_sampler import group_transitions_into_attempts
+
+    # Build 4 transitions: 2 objects × pushes opening A or B
+    transitions = [
+        # obj_1 push opens A
+        {"object_id": "obj_1", "edge_idx": 0, "push_depth_idx": 0,
+         "target_pose": (0.1, 0.0, 0.0), "r": 1, "wall_collision": False,
+         "movable_collisions": [], "push_terminated_early": False,
+         "sim_failure": False, "sim_time_ms": 5.0,
+         "state_after_se2": {}, "per_neighbor_opening": {"A": True, "B": False}},
+        # obj_1 push opens nothing
+        {"object_id": "obj_1", "edge_idx": 1, "push_depth_idx": 0,
+         "target_pose": (0.2, 0.0, 0.0), "r": 0, "wall_collision": True,
+         "movable_collisions": [], "push_terminated_early": False,
+         "sim_failure": False, "sim_time_ms": 6.0,
+         "state_after_se2": {}, "per_neighbor_opening": {"A": False, "B": False}},
+        # obj_2 push opens B
+        {"object_id": "obj_2", "edge_idx": 0, "push_depth_idx": 5,
+         "target_pose": (0.3, 0.0, 0.0), "r": 1, "wall_collision": False,
+         "movable_collisions": ["obj_3"], "push_terminated_early": False,
+         "sim_failure": False, "sim_time_ms": 7.0,
+         "state_after_se2": {}, "per_neighbor_opening": {"A": False, "B": True}},
+        # obj_2 push opens nothing
+        {"object_id": "obj_2", "edge_idx": 1, "push_depth_idx": 9,
+         "target_pose": (0.4, 0.0, 0.0), "r": 0, "wall_collision": False,
+         "movable_collisions": [], "push_terminated_early": True,
+         "sim_failure": False, "sim_time_ms": 4.0,
+         "state_after_se2": {}, "per_neighbor_opening": {"A": False, "B": False}},
+    ]
+
+    initial_obs = {"obj_1": [0.0, 0.0, 0.0]}
+    region_goals = {"A": [(0.1, 0.0, 0.0)], "B": [(0.3, 0.0, 0.0)]}
+    neighbor_labels = ["A", "B"]
+    reachable_objects = ["obj_1", "obj_2"]
+
+    attempts = group_transitions_into_attempts(
+        transitions=transitions,
+        neighbor_labels=neighbor_labels,
+        region_goals=region_goals,
+        initial_observation=initial_obs,
+        reachable_objects_before=reachable_objects,
+    )
+
+    # 2 objects × 2 neighbors = 4 attempts (some may be marked unsuccessful)
+    assert len(attempts) == 4
+
+    # obj_1 / A: trial_log has 2 entries (the 2 obj_1 trials), success=True
+    obj1_A = next(a for a in attempts if a.chosen_object_id == "obj_1"
+                  and a.neighbour_region_label == "A")
+    assert obj1_A.success is True
+    assert len(obj1_A.primitive_trial_log) == 2
+    assert obj1_A.region_goals_sampled == [(0.1, 0.0, 0.0)]
+    assert obj1_A.chosen_goal == (0.1, 0.0, 0.0)  # the target of the successful push
+
+    # obj_1 / B: trial_log has 2 entries, success=False
+    obj1_B = next(a for a in attempts if a.chosen_object_id == "obj_1"
+                  and a.neighbour_region_label == "B")
+    assert obj1_B.success is False
+    assert obj1_B.chosen_goal is None
+
+    # Verify trial-log entry shape matches existing F-char format
+    entry = obj1_A.primitive_trial_log[0]
+    for required_key in ("edge_idx", "depth", "success", "wall_collision",
+                         "movable_collisions", "stuck", "collision", "reachable_after"):
+        assert required_key in entry, f"trial_log entry missing {required_key}"
