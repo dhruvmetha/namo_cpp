@@ -316,9 +316,16 @@ void WavefrontPlanner::recompute_wavefront(NAMOEnvironment& env, const std::vect
     }
 
     // 3. Simple BFS for reachability from start position
+    //
+    // The trapped-start handling below (dilation + force-enqueue) is
+    // mirrored in Python at
+    // `robot_control/src/robot_control/utils/wavefront.py`
+    // (`WavefrontPlanner.apply_trapped_start_recovery`). Keep both
+    // sides in sync — divergence here is what produced the 2026-05-19
+    // "Goal REACHABLE / path FAILED" incident.
     int start_x = world_to_grid_x(start_pos[0]);
     int start_y = world_to_grid_y(start_pos[1]);
-    
+
     // ADAPTIVE CLEARING: Check if robot is trapped and clear area accordingly
     bool is_trapped = true;
     
