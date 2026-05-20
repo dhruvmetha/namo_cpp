@@ -41,6 +41,7 @@ from namo.core.xml_goal_parser import extract_goal_with_fallback
 # Import all available planners (self-register on import)
 from namo.planners.sampling.random_sampling import RandomSamplingPlanner
 from namo.planners.opening.region_opening import RegionOpeningPlanner
+from namo.planners.sampling.uniform_rollout_sampler import UniformRolloutSampler  # noqa: F401 — registers on import
 
 # Import strategies for validation
 from namo.strategies.object_selection_strategy import ObjectSelectionStrategy
@@ -396,8 +397,9 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
 
                 # Special handling for region_opening planner: convert AttemptResults to episodes
                 is_region_opening = task.algorithm == "region_opening"
+                emits_attempt_results = task.algorithm in ("region_opening", "uniform_rollout_sampler")
 
-                if is_region_opening and planner_result.algorithm_stats and 'attempt_results' in planner_result.algorithm_stats:
+                if emits_attempt_results and planner_result.algorithm_stats and 'attempt_results' in planner_result.algorithm_stats:
                     # Process each AttemptResult as a separate episode
                     for attempt_idx, attempt in enumerate(planner_result.algorithm_stats['attempt_results']):
                         attempt_episode_id = f"{episode_id}_neighbour_{attempt_idx}_{attempt.neighbour_region_label}"
@@ -1081,6 +1083,15 @@ def main():
                         help="Randomize edge ordering in primitive strategy (useful for difficulty analysis)")
     parser.add_argument("--shuffle-seed", type=int, default=None,
                         help="Random seed for reproducible edge shuffling (None = random each call)")
+    # ----------------- Uniform rollout sampler arguments -----------------
+    parser.add_argument("--sampler-max-chain-depth", type=int, default=1, choices=[1],
+                        help="v0 supports depth 0 only (max_chain_depth=1). "
+                             "Deeper depths are a follow-up spec.")
+    parser.add_argument("--sampler-region-goal-samples", type=int, default=5,
+                        help="K points to sample per neighbor region for goal_sample_region mask "
+                             "(stored in env_metadata.per_neighbor_region_goals).")
+    parser.add_argument("--sampler-num-depths", type=int, default=10,
+                        help="Number of push depths per edge (matches motion-primitive resolution).")
     parser.add_argument("--seed", type=int, default=None,
                         help="Global RNG seed for deterministic planning (default: NAMO_GLOBAL_SEED env var or 42)")
     parser.add_argument("--xml-dir", type=str,
@@ -1194,6 +1205,15 @@ def main():
                 "ml_match_max_per_call": args.ml_match_max_per_call,
                 "primitive_data_dir": args.primitive_data_dir,
             })
+
+    if args.algorithm == "uniform_rollout_sampler":
+        algorithm_params["max_chain_depth"] = args.sampler_max_chain_depth
+        algorithm_params["region_goal_samples_per_neighbor"] = args.sampler_region_goal_samples
+        algorithm_params["num_depths"] = args.sampler_num_depths
+        algorithm_params["primitive_prefix"] = args.primitive_prefix
+        algorithm_params["primitive_data_dir"] = args.primitive_data_dir
+        algorithm_params["config_file_path"] = args.config_file
+        algorithm_params["seed"] = args.seed if args.seed is not None else DEFAULT_GLOBAL_SEED
 
     planner_config = PlannerConfig(
         max_depth=args.max_depth,
