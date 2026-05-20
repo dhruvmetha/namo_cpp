@@ -222,3 +222,59 @@ def test_execute_primitive_catches_sim_failure():
     assert partial["sim_failure"] is True
     assert partial["r"] == 0
     assert partial["wall_collision"] is False
+
+
+def test_evaluate_per_neighbor_opening_detects_merged_neighbors():
+    """A neighbor present at state_before but absent at state_after is 'opened'."""
+    from namo.planners.sampling.uniform_rollout_sampler import _evaluate_opening_from_snapshots
+
+    # state_before: robot_region with two neighbors A and B
+    before_labels = {0: "robot_region_0", 1: "neighbor_A", 2: "neighbor_B"}
+    before_adjacency = {
+        "robot_region_0": {"neighbor_A", "neighbor_B"},
+        "neighbor_A": {"robot_region_0"},
+        "neighbor_B": {"robot_region_0"},
+    }
+
+    # state_after: robot_region merged with A (the passage to A opened),
+    # B still separate.
+    after_labels = {0: "robot_region_0", 2: "neighbor_B"}
+    after_adjacency = {
+        "robot_region_0": {"neighbor_B"},
+        "neighbor_B": {"robot_region_0"},
+    }
+
+    result = _evaluate_opening_from_snapshots(
+        before_labels=before_labels,
+        before_adjacency=before_adjacency,
+        after_labels=after_labels,
+        after_adjacency=after_adjacency,
+    )
+    assert result == {"neighbor_A": True, "neighbor_B": False}
+
+
+def test_evaluate_per_neighbor_opening_no_change():
+    """If nothing changes, every neighbor is False."""
+    from namo.planners.sampling.uniform_rollout_sampler import _evaluate_opening_from_snapshots
+
+    labels = {0: "robot_region_0", 1: "neighbor_A"}
+    adj = {"robot_region_0": {"neighbor_A"}, "neighbor_A": {"robot_region_0"}}
+
+    result = _evaluate_opening_from_snapshots(
+        before_labels=labels, before_adjacency=adj,
+        after_labels=labels, after_adjacency=adj,
+    )
+    assert result == {"neighbor_A": False}
+
+
+def test_evaluate_per_neighbor_opening_handles_missing_robot_label():
+    """If robot label is missing entirely (degenerate env), return empty dict."""
+    from namo.planners.sampling.uniform_rollout_sampler import _evaluate_opening_from_snapshots
+
+    result = _evaluate_opening_from_snapshots(
+        before_labels={0: "neighbor_A"},
+        before_adjacency={"neighbor_A": set()},
+        after_labels={0: "neighbor_A"},
+        after_adjacency={"neighbor_A": set()},
+    )
+    assert result == {}

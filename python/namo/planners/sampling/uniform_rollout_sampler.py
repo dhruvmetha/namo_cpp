@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import namo_rl
 from namo.core import BasePlanner, PlannerConfig, PlannerFactory, PlannerResult
+from namo.planners.connectivity_snapshot import find_robot_label
 
 # The robot appears in env.get_reachable_objects() but is never a valid push target.
 # Match the convention used in region_opening's object selection.
@@ -145,6 +146,33 @@ def execute_primitive(
         "sim_time_ms": sim_time_ms,
         "state_after_se2": state_after_se2,
     }
+
+
+def _evaluate_opening_from_snapshots(
+    before_labels: Dict[int, str],
+    before_adjacency: Dict[str, Any],
+    after_labels: Dict[int, str],
+    after_adjacency: Dict[str, Any],
+) -> Dict[str, bool]:
+    """Diff two connectivity snapshots to determine per-neighbor opening.
+
+    A neighbor X of the robot's region at state_before is 'opened' iff X no longer
+    appears as a distinct region label at state_after — it merged into the robot's
+    region (the passage between robot and X became open).
+
+    Returns a dict mapping each neighbor label seen at state_before to a bool.
+    Returns {} if robot label is missing at state_before (degenerate env).
+    """
+    robot_label = find_robot_label(before_labels)
+    if robot_label is None:
+        return {}
+
+    neighbors_before = set(before_adjacency.get(robot_label, set()))
+    if not neighbors_before:
+        return {}
+
+    after_label_set = set(after_labels.values())
+    return {n: (n not in after_label_set) for n in neighbors_before}
 
 
 @dataclass
