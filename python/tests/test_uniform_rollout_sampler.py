@@ -146,3 +146,79 @@ def test_enumerate_reachable_primitives_handles_no_reachable_edges():
 
     assert len(prims) == 10
     assert all(p[0] == "obj_2" for p in prims)
+
+
+from typing import Tuple
+
+
+def _make_action(object_id: str, target: Tuple[float, float, float],
+                 edge_idx: int, depth: int):
+    """Helper: build a namo_rl.Action shaped object for tests."""
+    a = MagicMock()
+    a.object_id = object_id
+    a.x = target[0]
+    a.y = target[1]
+    a.theta = target[2]
+    a.edge_idx = edge_idx
+    a.depth = depth
+    return a
+
+
+def test_execute_primitive_returns_partial_record_with_outcome():
+    """execute_primitive runs env.step, captures wall_collision/stuck/movable_collisions from info."""
+    from namo.planners.sampling.uniform_rollout_sampler import execute_primitive
+
+    env = MagicMock()
+    initial_state = MagicMock()
+    # set_full_state returns nothing; env.step returns a StepResult-like with info dict
+    step_result = MagicMock()
+    step_result.info = {
+        "wall_collision": "true",
+        "stuck": "false",
+        "movable_collisions": "obj_2",
+        "robot_goal_reached": "true",
+    }
+    env.step.return_value = step_result
+    env.is_robot_goal_reachable.return_value = True
+    env.get_observation.return_value = {"obj_1": [0.5, 0.5, 0.1]}
+
+    partial = execute_primitive(
+        env=env,
+        initial_state=initial_state,
+        object_id="obj_1",
+        edge_idx=3,
+        push_depth_idx=5,
+        target_pose=(0.5, 0.5, 0.1),
+    )
+
+    assert partial["object_id"] == "obj_1"
+    assert partial["edge_idx"] == 3
+    assert partial["push_depth_idx"] == 5
+    assert partial["r"] == 1
+    assert partial["wall_collision"] is True
+    assert partial["push_terminated_early"] is False
+    assert partial["movable_collisions"] == ["obj_2"]
+    assert partial["sim_failure"] is False
+    assert partial["state_after_se2"] == {"obj_1": (0.5, 0.5, 0.1)}
+    env.set_full_state.assert_called_with(initial_state)
+    env.step.assert_called_once()
+
+
+def test_execute_primitive_catches_sim_failure():
+    """If env.step raises, partial record has sim_failure=True and r=0."""
+    from namo.planners.sampling.uniform_rollout_sampler import execute_primitive
+
+    env = MagicMock()
+    env.step.side_effect = RuntimeError("contact resolver failed")
+
+    partial = execute_primitive(
+        env=env,
+        initial_state=MagicMock(),
+        object_id="obj_1",
+        edge_idx=0,
+        push_depth_idx=0,
+        target_pose=(0.0, 0.0, 0.0),
+    )
+    assert partial["sim_failure"] is True
+    assert partial["r"] == 0
+    assert partial["wall_collision"] is False

@@ -8,6 +8,7 @@ records without breaking existing readers. See docs/superpowers/specs/
 
 from __future__ import annotations
 
+import time as _time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -53,6 +54,97 @@ def enumerate_reachable_primitives(
             for depth_idx in range(num_depths):
                 prims.append((obj, edge_idx, depth_idx))
     return prims
+
+
+def _parse_movable_collisions(raw: str) -> List[str]:
+    """info['movable_collisions'] is a comma-separated string of object IDs (or empty)."""
+    if not raw:
+        return []
+    return [x.strip() for x in raw.split(",") if x.strip()]
+
+
+def _se2_from_observation(obs: Dict[str, List[float]]) -> Dict[str, Tuple[float, float, float]]:
+    """Convert env.get_observation() output to per-object SE(2) tuples."""
+    out: Dict[str, Tuple[float, float, float]] = {}
+    for name, pose in obs.items():
+        if pose is None or len(pose) < 3:
+            continue
+        out[name] = (float(pose[0]), float(pose[1]), float(pose[2]))
+    return out
+
+
+def execute_primitive(
+    env: namo_rl.RLEnvironment,
+    initial_state: "namo_rl.RLState",
+    object_id: str,
+    edge_idx: int,
+    push_depth_idx: int,
+    target_pose: Tuple[float, float, float],
+) -> Dict[str, Any]:
+    """Execute one primitive from `initial_state` and return a partial transition record.
+
+    The partial record is missing `transition_id`, `per_neighbor_opening`, and the
+    canonical dataclass wrap — the caller composes the final `TransitionRecord`.
+
+    Restores env to `initial_state` before stepping. Captures wall_collision,
+    movable_collisions, stuck, and the per-object SE(2) after the push. If the
+    underlying sim raises, returns a record with sim_failure=True and r=0.
+    """
+    env.set_full_state(initial_state)
+
+    action = namo_rl.Action()
+    action.object_id = object_id
+    action.x = float(target_pose[0])
+    action.y = float(target_pose[1])
+    action.theta = float(target_pose[2])
+    action.edge_idx = int(edge_idx)
+    action.depth = int(push_depth_idx)
+
+    t0 = _time.perf_counter()
+    sim_failure = False
+    info: Dict[str, str] = {}
+    try:
+        step_result = env.step(action)
+        info = dict(step_result.info or {})
+    except Exception:
+        sim_failure = True
+
+    sim_time_ms = (_time.perf_counter() - t0) * 1000.0
+
+    if sim_failure:
+        return {
+            "object_id": object_id,
+            "edge_idx": edge_idx,
+            "push_depth_idx": push_depth_idx,
+            "target_pose": tuple(target_pose),
+            "r": 0,
+            "wall_collision": False,
+            "movable_collisions": [],
+            "push_terminated_early": False,
+            "sim_failure": True,
+            "sim_time_ms": sim_time_ms,
+            "state_after_se2": {},
+        }
+
+    r = 1 if env.is_robot_goal_reachable() else 0
+    wall_collision = info.get("wall_collision", "false").lower() == "true"
+    push_terminated_early = info.get("stuck", "false").lower() == "true"
+    movable_collisions = _parse_movable_collisions(info.get("movable_collisions", ""))
+    state_after_se2 = _se2_from_observation(env.get_observation())
+
+    return {
+        "object_id": object_id,
+        "edge_idx": edge_idx,
+        "push_depth_idx": push_depth_idx,
+        "target_pose": tuple(target_pose),
+        "r": r,
+        "wall_collision": wall_collision,
+        "movable_collisions": movable_collisions,
+        "push_terminated_early": push_terminated_early,
+        "sim_failure": False,
+        "sim_time_ms": sim_time_ms,
+        "state_after_se2": state_after_se2,
+    }
 
 
 @dataclass
