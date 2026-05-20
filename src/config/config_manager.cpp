@@ -245,7 +245,7 @@ void ConfigManager::load_environment_config() {
 
 void ConfigManager::load_system_config() {
     if (!loader_) return;
-    
+
     // Performance options
     if (loader_->has_key("system.enable_visualization")) {
         system_.enable_visualization = loader_->get_bool("system.enable_visualization");

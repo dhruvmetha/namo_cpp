@@ -25,33 +25,42 @@ YAML::Node FastParameterLoader::get_node(const std::string& key) const {
     if (it != cache_.end()) {
         return it->second;
     }
-    
-    // Navigate through nested keys (e.g., "motion_primitives.control_steps")
-    YAML::Node node = root_;
-    std::istringstream ss(key);
-    std::string token;
-    
-    while (std::getline(ss, token, '.')) {
-        if (!node.IsMap()) {
-            // Current node is not a map, can't traverse further
-            YAML::Node null_node;
-            cache_[key] = null_node;
-            return null_node;
+
+    // Navigate through nested keys (e.g., "motion_primitives.control_steps").
+    //
+    // yaml-cpp 0.6 quirk: declaring `YAML::Node node = root_;` and then
+    // reassigning via `node = node[token]` inside the loop does not behave
+    // like one would expect — operator= on Node has reference-semantics that
+    // can leave the rebound `node` disconnected from the parsed document.
+    // The robust pattern is to track the *path* with std::vector<std::string>
+    // and resolve via chained operator[] from root_ each iteration.
+    std::vector<std::string> tokens;
+    {
+        std::istringstream ss(key);
+        std::string token;
+        while (std::getline(ss, token, '.')) {
+            tokens.push_back(token);
         }
-        
-        // Check if the token exists as a key
-        if (!node[token].IsDefined()) {
-            // Key doesn't exist
-            YAML::Node null_node;
-            cache_[key] = null_node;
-            return null_node;
-        }
-        
-        node = node[token];
     }
-    
-    cache_[key] = node;
-    return node;
+
+    YAML::Node cur = YAML::Clone(root_);  // Clone to avoid mutating root_
+    for (const auto& tok : tokens) {
+        if (!cur.IsMap()) {
+            YAML::Node null_node;
+            cache_[key] = null_node;
+            return null_node;
+        }
+        YAML::Node child = cur[tok];
+        if (!child.IsDefined()) {
+            YAML::Node null_node;
+            cache_[key] = null_node;
+            return null_node;
+        }
+        cur.reset(child);  // rebind cur to point at child, preserving semantics
+    }
+
+    cache_[key] = cur;
+    return cur;
 }
 
 bool FastParameterLoader::get_bool(const std::string& key) const {
