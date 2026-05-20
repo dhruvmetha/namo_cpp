@@ -182,13 +182,15 @@ What is *not* exposed as a standalone function: enumerating the (object, edge_id
 
 The sampler does **not** reimplement reachability — it calls `env.get_reachable_objects()` / `is_object_reachable` for the per-object check and uses the existing motion-database loader. The new code is only the enumeration loop, not the underlying reachability primitive.
 
-### 3.8 Per-neighbor opening evaluation
+### 3.8 Per-neighbor opening evaluation + region-goal sampling
 
-For each transition's `state_after`, the sampler records which neighbor regions are now reachable. This uses the existing `snapshot_region_connectivity` and `find_robot_label` functions in `python/namo/planners/connectivity_snapshot.py` — the same module `RegionOpeningPlanner` already imports (line 24 of `region_opening.py`).
+Per transition, the sampler does two things using `snapshot_region_connectivity` and `find_robot_label` from `python/namo/planners/connectivity_snapshot.py` (already imported by `region_opening`):
 
-The sampler computes `snapshot_region_connectivity(env, state_before)` and `snapshot_region_connectivity(env, state_after)` once per transition, then diffs which neighbor labels became reachable. Output goes into `transition.per_neighbor_opening`.
+1. **Per-neighbor opening labels.** Compute the snapshot at `state_before` and at `state_after`; diff which neighbor labels became reachable. Result → `transition.per_neighbor_opening`.
 
-**No new evaluator module. No refactor of `region_opening`.** The existing shared utility is used as-is.
+2. **Per-neighbor region-goal sampling.** At `state_before`, for each current neighbor region, sample K points (e.g. K=5) uniformly inside that neighbor's polygon. Result → `transition.per_neighbor_region_goals`. This is required because region polygons reshape as objects move, so points sampled at s₀ become stale at s₁/s₂.
+
+Both reuse the same connectivity-snapshot calls; the second only adds a per-polygon point sampler (the same utility `region_opening`'s goal strategies already use). **No new evaluator module. No refactor of `region_opening`.**
 
 ---
 
@@ -401,6 +403,14 @@ class TransitionRecord:
     r: int                                # 0 or 1; 1 iff is_robot_goal_reachable(state_after)
     per_neighbor_opening: Dict[str, bool] # {neighbor_label: opened?}
 
+    # Per-neighbor region goal samples — sampled at state_before from each
+    # current neighbor region's polygon. Required by NAMODataVisualizer to
+    # render the goal_sample_region / local_goal_sample_region mask channels.
+    # Sampled at state_before only; state_after of transition N equals
+    # state_before of transition N+1 (already covered), and the terminal
+    # state_after is never a decision point we render masks for.
+    per_neighbor_region_goals: Dict[str, List[Tuple[float, float, float]]]
+
     # Reachable-set bookkeeping (for Q-learning's max_a' term)
     R_at_state_before: List[Tuple[str, int, int]]   # (object, edge_idx, depth_idx) tuples
     R_at_state_after: List[Tuple[str, int, int]]    # same shape; needed for Q max over R(s')
@@ -421,6 +431,7 @@ class TransitionRecord:
 | `state_before_se2`, `state_after_se2` | Fast inspection / plotting without unpacking qpos. Derived from qpos but cached for analysis convenience. |
 | `R_at_state_after` | Required by Q-learning's `max_a' Q(s', a')` term. Without it, the Q-loss either has to re-run wavefront BFS at every training step (slow) or learn to ignore unreachable actions (wrong). |
 | `per_neighbor_opening` | Allows per-neighbor Q (v1) without re-collection. The scalar `r` is a useful summary but loses per-neighbor structure. |
+| `per_neighbor_region_goals` | Required to render the `goal_sample_region` mask channel (one of the 5 NN inputs). Region polygons reshape between transitions as objects move, so points must be sampled at each transition's `state_before`, not pre-sampled once per env. |
 | `wall_collision`, `movable_collisions` | Structural feature analysis (your finding: 76% of very-hard-F involves wall contact). Already used by existing F-char analysis. |
 | `parent_id` chain | Reconstruct any chain (s₀ → s₁ → s₂ → s₃) by walking parents. Required for X (witness reconstruction). |
 | `sim_time_ms`, `sim_failure`, `push_terminated_early` | Filter pathological transitions during analysis without re-sim. Sim failures are real data, not bugs. |
@@ -470,8 +481,9 @@ The pkl logs enough per-transition state to render scene masks for **any** actio
 | Scene at `state_before` (static / movable / target_object / robot_region) | `transition.state_before_se2` + `env_metadata.xml_file` + `env_metadata.static_object_info` |
 | Target-pose mask (where the action was *aimed*) | `transition.target_pose` + `transition.object_id` |
 | Scene at `state_after` (where the object actually landed) | `transition.state_after_se2` |
-| Goal-region mask | `env_metadata.robot_goal` + `env_metadata.neighbor_regions` |
-| Robot's current region (for `robot_region` mask) | derivable from `state_before_se2` + `env_metadata.neighbor_regions` via existing `find_robot_label` |
+| `goal_sample_region` mask (the NN input channel for the neighbor region) | `transition.per_neighbor_region_goals` — points sampled at this transition's state_before |
+| Goal-pose mask (robot's target XML pose) | `env_metadata.robot_goal` |
+| Robot's current region (for `robot_region` mask) | derivable from `state_before_se2` via wavefront BFS at that state |
 
 Successful and failed transitions log the same fields with the same shape. Any mask convention — current (`local_static`, `local_target_goal`, etc.) or future — can be derived offline from the pkls.
 
