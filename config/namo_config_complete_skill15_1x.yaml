@@ -1,0 +1,140 @@
+# Complete NAMO Configuration — 1× REAL-WORLD SCALE variant.
+#
+# Sibling of namo_config_complete_skill15.yaml. Every geometric/velocity
+# value below is the 6× config's value divided by 6, so a planner running
+# on this config sees the workspace in real meters/cm instead of the
+# 6×-scaled simulation units the older config assumes.
+#
+# Picked by NAMOPlanBridge / find_namo_config() when scale_factor == 1.0.
+# The 6× config remains the default while scale_factor defaults to 6.0;
+# this file is the destination for the final flip (see
+# SCALE_UNIFICATION_PLAN.md Phase 4).
+#
+# IMPORTANT: this config references data/motion_primitives_1x.dat which
+# must be generated separately:
+#   ./build_python/generate_motion_primitives_db --scenes-suffix _1x \
+#       --output data/motion_primitives_1x.dat
+# (See scene XMLs nominal_primitive_scene_*_1x.xml.)
+
+# High-level planning configuration
+planning:
+  # Grid resolutions for different planning levels
+  high_level_resolution: 0.01     # 1cm grid for reachability analysis (was 0.05 at 6×)
+  skill_level_resolution: 0.005    # 5mm grid for detailed skill planning (was 0.02 at 6×)
+
+  # Planning limits
+  max_iterations: 10               # Maximum high-level planning iterations
+  verbose: true                    # Enable verbose planning output
+
+  # Robot physical properties — REAL-WORLD CM.
+  # Half-extent of 7×7 cm robot footprint = 3.5 cm = 0.035 m.
+  # Must stay in sync with robot_control real.yaml (width_cm=7, height_cm=7).
+  robot_size: [0.035, 0.035]       # 7×7 robot, 3.5 cm half-extent per axis
+  wavefront_edge_offset_margin: 0.0055  # 0.55 cm — push offset past inflated boundary (was 0.033 at 6×)
+  robot_goal: [0.052, -0.733]      # Placeholder — overridden at runtime
+
+  # Grid system limits
+  max_bfs_queue: 100000            # Maximum BFS queue size
+  max_grid_width: 2000             # Maximum grid width in cells
+  max_grid_height: 2000            # Maximum grid height in cells
+  max_changes: 10000               # Maximum tracked grid changes
+
+  # Motion detection thresholds
+  position_threshold: 0.00002      # ~20 µm minimum position change (was 0.0001 at 6×)
+  rotation_threshold: 0.001        # ~0.06 deg minimum rotation change (radians, unscaled)
+  small_rotation_limit: 0.05       # ~3 deg threshold for small rotations (radians, unscaled)
+
+# Selection strategy configuration
+strategy:
+  # Random strategy parameters
+  random:
+    min_goal_distance: 0.05        # 5 cm minimum (was 0.30 at 6×)
+    max_goal_distance: 0.17        # 17 cm maximum (was 1.0 at 6×)
+    max_goal_attempts: 100         # Maximum polar coordinate sampling attempts
+    max_object_retries: 100        # Maximum object selection retries
+
+  # ML/Diffusion strategy parameters
+  ml:
+    zmq_endpoint: "tcp://localhost:5555"  # ZMQ endpoint for ML communication
+    timeout_ms: 1000               # ZMQ communication timeout
+    fallback_to_random: true       # Use random strategy if ML fails
+
+# Skill execution configuration
+skill:
+  # Push skill parameters
+  max_push_steps: 10               # Maximum push steps per skill execution
+  max_mpc_iterations: 1            # Maximum MPC iterations per push skill execution
+  control_steps_per_push: 250      # Control simulation steps per push step (count, unscaled)
+  force_scaling: 1.0               # Force scaling (dimensionless, unscaled)
+
+  # Velocity-actuator control (preferred over force_scaling).
+  # 0.05 m/s = 5 cm/s real — matches the original sim-equivalent push speed
+  # (0.30 / 6 = 0.05). Empirically this gives enough object motion per tick
+  # to clear the stuck threshold reliably. Re-tune if stuck-detection trips
+  # spuriously after the regeneration.
+  push_velocity: 0.05              # m/s — commanded robot velocity during push (was 0.30 at 6×)
+  dynamic_direction: true          # true = re-derive push direction per tick (unscaled)
+
+  # Execution parameters
+  goal_tolerance: 0.02             # 2 cm goal reaching tolerance (was 0.1 at 6×)
+  stuck_threshold: 0.002           # 2 mm minimum movement to avoid stuck (was 0.01 at 6×)
+  max_stuck_iterations: 2          # Maximum stuck iterations before failure (count, unscaled)
+  check_object_collision: true     # Terminate push on object-object collision
+  check_robot_trajectory_collision: false  # Terminate push if robot body hits walls during push
+  stuck_check_stride: 30           # Control steps between stuck checks (count, unscaled)
+  controller_stuck_threshold: 3    # Checks before aborting due to stuck (count, unscaled)
+  controller_min_position_change: 0.0002  # 0.2 mm min motion per check (was 0.001 at 6×)
+  controller_min_angle_change: 0.05      # ~3 deg min yaw change per check (radians, unscaled)
+
+  # Edge sampling for push approach
+  points_per_face: 15              # Number of edge points per object face (count, unscaled)
+  num_edge_points: 60              # = 4 × points_per_face (count, unscaled)
+
+# Environment configuration
+environment:
+  max_static_objects: 30
+  max_movable_objects: 30
+  max_actions: 100
+  max_motion_primitives: 1000
+  max_planning_nodes: 10000
+  log_buffer_size: 100000
+  enable_logging: false
+  log_directory: "logs/"
+
+# System configuration
+system:
+  enable_visualization: false
+  enable_profiling: false
+  num_threads: 1
+
+  # File paths — REGENERATED 1× primitives expected at this prefix.
+  # The skill loads three shape-specific files derived from this prefix:
+  #   data/motion_primitives_1x_square.dat
+  #   data/motion_primitives_1x_wide.dat
+  #   data/motion_primitives_1x_tall.dat
+  # See SCALE_UNIFICATION_PLAN.md Phase 6 for the regeneration command.
+  motion_primitives_file: "data/motion_primitives_1x.dat"
+  default_scene_file: ""           # Set at runtime by the bridge
+
+  collect_training_data: false
+  training_data_directory: "training_data/"
+
+# Wavefront planner specific configuration
+wavefront_planner:
+  resolution: 0.002                # 2mm grid (was 0.01 at 6×). The cell size used
+                                   # by the C++ wavefront for reachability checks.
+  robot_inflation: 0.0083          # Dead config — read by no code path. Kept
+                                   # for backward compat with old logging tools.
+
+  max_distance: 1000               # Maximum distance value (cell count, unscaled)
+  diagonal_cost: 1.414             # sqrt(2) (dimensionless, unscaled)
+
+  enable_incremental_updates: true
+  cache_static_obstacles: true
+
+  save_debug_grids: false
+  debug_grid_directory: "debug_grids/"
+
+# Motion primitive configuration
+motion_primitives:
+  max_push_steps: 10               # Maximum steps per primitive (count, unscaled)
