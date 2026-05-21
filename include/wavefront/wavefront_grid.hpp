@@ -48,9 +48,11 @@ public:
     * @note Uses a fixed grid resolution of 0.01 meters
      * @param env Environment (used to determine bounds)
      * @param robot_size Robot size for inflation [width, height]
+     * @param tier1_inflation_margin Tier-1 additive inflation margin in meters
      */
     WavefrontGrid(NAMOEnvironment& env, 
-                  const std::vector<double>& robot_size);
+                  const std::vector<double>& robot_size,
+                  double tier1_inflation_margin = 0.005);
     
     /**
      * @brief Update dynamic grid with current object positions
@@ -76,13 +78,13 @@ public:
     
     /**
      * @brief Get the current dynamic grid (includes all obstacles)
-     * @return Reference to dynamic grid (-2 = obstacle, -1 = free)
+     * @return Reference to dynamic grid (-1 = obstacle, 0 = free)
      */
     const std::vector<std::vector<int>>& get_dynamic_grid() const { return dynamic_grid_; }
     
     /**
      * @brief Get the static obstacles grid only
-     * @return Reference to static grid (-2 = obstacle, -1 = free)
+     * @return Reference to static grid (-1 = obstacle, 0 = free)
      */
     const std::vector<std::vector<int>>& get_static_grid() const { return static_grid_; }
     
@@ -181,6 +183,7 @@ public:
     get_region_edge_objects() const { return adjacency_object_map_; }
 
     std::unordered_map<std::string, RegionGoalBundle> sample_region_goals(int goals_per_region) const;
+    std::unordered_map<std::string, RegionGoalBundle> sample_region_goals(int goals_per_region, uint32_t seed) const;
 
 private:
     // Grid parameters
@@ -189,6 +192,7 @@ private:
     int grid_width_;
     int grid_height_;
     std::vector<double> robot_size_;
+    double tier1_inflation_margin_;
     
     // Grid storage
     std::vector<std::vector<int>> uninflated_grid_;    // Original obstacles without inflation (for visualization)

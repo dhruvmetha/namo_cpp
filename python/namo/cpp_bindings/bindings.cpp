@@ -44,17 +44,8 @@ PYBIND11_MODULE(namo_rl, m) {
         .def_readwrite("reward", &namo::RLEnvironment::StepResult::reward)
         .def_readwrite("info", &namo::RLEnvironment::StepResult::info);
 
-    py::class_<namo::RLEnvironment::NavigateResult>(m, "NavigateResult")
-        .def(py::init<>())
-        .def_readwrite("success",          &namo::RLEnvironment::NavigateResult::success)
-        .def_readwrite("failure_reason",   &namo::RLEnvironment::NavigateResult::failure_reason)
-        .def_readwrite("collision_object", &namo::RLEnvironment::NavigateResult::collision_object)
-        .def_readwrite("steps_used",       &namo::RLEnvironment::NavigateResult::steps_used)
-        .def_readwrite("final_x",          &namo::RLEnvironment::NavigateResult::final_x)
-        .def_readwrite("final_y",          &namo::RLEnvironment::NavigateResult::final_y)
-        .def_readwrite("final_theta",      &namo::RLEnvironment::NavigateResult::final_theta)
-        .def_readwrite("pos_error_m",      &namo::RLEnvironment::NavigateResult::pos_error_m)
-        .def_readwrite("yaw_error_rad",    &namo::RLEnvironment::NavigateResult::yaw_error_rad);
+    // NavigateResult py::class_ removed alongside navigate_to (see comment
+    // on the .def("navigate_to") removal below).
 
     py::class_<namo::RLEnvironment::ActionConstraints>(m, "ActionConstraints")
         .def(py::init<>())
@@ -68,10 +59,10 @@ PYBIND11_MODULE(namo_rl, m) {
              py::arg("xml_path"), py::arg("config_path"), py::arg("visualize") = false)
         .def("reset", &namo::RLEnvironment::reset)
         .def("step", &namo::RLEnvironment::step, py::arg("action"))
-        .def("navigate_to", &namo::RLEnvironment::navigate_to,
-             py::arg("x"), py::arg("y"), py::arg("theta"),
-             "Free-space nav-only: wavefront-plan from current pose to (x, y) and run "
-             "the diff-drive state machine to settle at heading theta. No push, no skill.")
+        // navigate_to binding removed: the C++ impl was deleted in commit 254e5c7
+        // ("Unify wavefront semantics..."), 2026-04-14, but the header decl + this
+        // binding were left orphaned. Nothing in Python calls env.navigate_to() —
+        // all callers go through robot_control's NavigationController instead.
         .def("get_observation", &namo::RLEnvironment::get_observation, "Returns a map of object names to their SE(2) poses.")
         .def("get_full_state", &namo::RLEnvironment::get_full_state, "Returns a full snapshot of the simulation state (qpos, qvel).")
         .def("set_full_state", &namo::RLEnvironment::set_full_state, py::arg("state"), "Sets the simulation to a specific state snapshot.")
@@ -85,6 +76,32 @@ PYBIND11_MODULE(namo_rl, m) {
         .def("get_reachable_objects", &namo::RLEnvironment::get_reachable_objects, "Returns a list of object names that are reachable through push actions.")
         .def("is_object_reachable", &namo::RLEnvironment::is_object_reachable, py::arg("object_name"), "Returns true if the specified object is reachable through push actions.")
         .def("get_reachable_edges", &namo::RLEnvironment::get_reachable_edges, py::arg("object_name"), "Returns list of reachable edge indices (0-59) for the specified object using wavefront analysis.")
+        .def("get_reachability_summary",
+             [](const namo::RLEnvironment& env, bool analysis_mode) {
+                 auto summary = env.get_reachability_summary(analysis_mode);
+                 py::dict output;
+                 output["goal_reachable"] = summary.goal_reachable;
+                 output["analysis_mode"] = analysis_mode;
+
+                 py::dict objects;
+                 for (const auto& [name, obj] : summary.objects) {
+                     py::dict entry;
+                     entry["reachable"] = obj.reachable;
+                     entry["reachable_edges"] = obj.reachable_edges;
+                     entry["total_edges"] = obj.total_edges;
+                     entry["reachable_primitives"] = obj.reachable_primitives;
+                     entry["total_primitives"] = obj.total_primitives;
+                     if (analysis_mode) {
+                         entry["reachable_edge_indices"] = obj.reachable_edge_indices;
+                     }
+                     objects[py::str(name)] = std::move(entry);
+                 }
+                 output["objects"] = std::move(objects);
+                 return output;
+             },
+             py::arg("analysis_mode") = false,
+             "Return unified reachability from one C++ wavefront snapshot. "
+             "Includes goal reachability plus per-object edge/primitive reachability stats.")
         .def("get_object_info", &namo::RLEnvironment::get_object_info, "Returns object geometry information (sizes, positions, orientations) for all objects including static walls.")
         .def("get_world_bounds", &namo::RLEnvironment::get_world_bounds, "Returns world bounds [x_min, x_max, y_min, y_max] calculated from all objects.")
         .def("set_robot_goal", &namo::RLEnvironment::set_robot_goal, py::arg("x"), py::arg("y"), py::arg("theta") = 0.0, "Set robot goal for MCTS planning.")
@@ -92,11 +109,12 @@ PYBIND11_MODULE(namo_rl, m) {
              "Set robot goal without updating the visualization marker (useful for repeated reachability checks).")
         .def("is_robot_goal_reachable", &namo::RLEnvironment::is_robot_goal_reachable, "Check if robot goal is reachable from current state.")
         .def("get_robot_goal", &namo::RLEnvironment::get_robot_goal, "Get current robot goal.")
-        .def("clear_robot_goal", &namo::RLEnvironment::clear_robot_goal, "Clear robot goal (resets to XML goal for snapshot consistency).")
+        .def("clear_robot_goal", &namo::RLEnvironment::clear_robot_goal, "Clear the skill's robot goal and hide the visualization marker.")
         .def("set_goal_site_visible", &namo::RLEnvironment::set_goal_site_visible, py::arg("visible"),
              "Show/hide the XML `<site name='goal'>` marker when present (visualization only).")
-        .def("set_collision_checking", &namo::RLEnvironment::set_collision_checking, py::arg("enable"), "Enable or disable collision checking during push execution.")
+        .def("set_collision_checking", &namo::RLEnvironment::set_collision_checking, py::arg("enable"), "Enable or disable pushed-object collision checking during push execution.")
         .def("get_collision_checking", &namo::RLEnvironment::get_collision_checking, "Get current collision checking state.")
+        .def("set_robot_trajectory_collision_checking", &namo::RLEnvironment::set_robot_trajectory_collision_checking, py::arg("enable"), "Enable or disable robot-body collision checking during push trajectory.")
         .def("set_robot_goal_termination", &namo::RLEnvironment::set_robot_goal_termination, py::arg("enable"), "Enable or disable robot goal termination during MPC execution.")
         .def("get_robot_goal_termination", &namo::RLEnvironment::get_robot_goal_termination, "Get current robot goal termination state.")
         .def("evaluate_primitive_priorities", &namo::RLEnvironment::evaluate_primitive_priorities,
@@ -156,8 +174,40 @@ PYBIND11_MODULE(namo_rl, m) {
         "Useful for streaming to encoders without materializing a full (N,H,W,3) array.")
         .def("clear_frames", &namo::RLEnvironment::clear_frames,
              "Clear captured frames to free memory.")
-        .def("get_recording_dimensions", &namo::RLEnvironment::get_recording_dimensions,
+       .def("get_recording_dimensions", &namo::RLEnvironment::get_recording_dimensions,
              "Get recording dimensions as (width, height) tuple.")
+       .def("get_region_snapshot",
+            [](const namo::RLEnvironment& env,
+               int goals_per_region,
+               double goal_radius,
+               bool local_info_only,
+               unsigned int seed,
+               bool use_xml_goal) {
+                auto snapshot = env.get_region_snapshot(
+                    goals_per_region,
+                    goal_radius,
+                    local_info_only,
+                    seed,
+                    use_xml_goal
+                );
+                py::dict out;
+                out["adjacency"] = snapshot.adjacency;
+                out["edge_objects"] = snapshot.edge_objects;
+                out["region_labels"] = snapshot.region_labels;
+                out["region_goals"] = snapshot.region_goals;
+                out["robot_label"] = snapshot.robot_label;
+                out["goal_label"] = snapshot.goal_label;
+                out["goal_reachable"] = snapshot.goal_reachable;
+                out["goal_in_free_space"] = snapshot.goal_in_free_space;
+                return out;
+            },
+            py::arg("goals_per_region") = 0,
+            py::arg("goal_radius") = -1.0,
+            py::arg("local_info_only") = false,
+            py::arg("seed") = 42,
+            py::arg("use_xml_goal") = true,
+            "Return one unified C++ wavefront snapshot: region connectivity, sampled goals, "
+            "robot/goal labels, and goal reachability flags.")
        .def("get_region_connectivity", &namo::RLEnvironment::get_region_connectivity,
            "Return region adjacency, boundary objects, and region labels from the wavefront grid.")
        .def("sample_region_goals", &namo::RLEnvironment::sample_region_goals,

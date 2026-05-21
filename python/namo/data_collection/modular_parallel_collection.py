@@ -419,12 +419,23 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                                     })
                                 solution_depth = len(attempt.goal_chain)
                             elif attempt.chosen_goal:
-                                # Single push
+                                # Single push (sampler success path: goal_chain is None).
+                                # Backfill primitive identity from the first winning entry
+                                # in primitive_trial_log so action_sequence matches what
+                                # the trial log records — otherwise replay tools see -1/-1.
+                                winning_edge_idx = -1
+                                winning_depth = -1
+                                if attempt.primitive_trial_log:
+                                    for entry in attempt.primitive_trial_log:
+                                        if entry.get("success"):
+                                            winning_edge_idx = int(entry.get("edge_idx", -1))
+                                            winning_depth = int(entry.get("depth", -1))
+                                            break
                                 action_sequence = [{
                                     "object_id": attempt.chosen_object_id,
                                     "target": attempt.chosen_goal,
-                                    "edge_idx": -1,
-                                    "depth": -1,
+                                    "edge_idx": winning_edge_idx,
+                                    "depth": winning_depth,
                                 }]
                                 solution_depth = 1
 

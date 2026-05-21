@@ -25,11 +25,17 @@ NAMOPushSkill::NAMOPushSkill(NAMOEnvironment& env, std::shared_ptr<ConfigManager
 }
 
 void NAMOPushSkill::initialize_skill() {
-    // Get base primitive database path
-    std::string base_db_path = config_ ? config_->system().motion_primitives_file 
+    // The configured `motion_primitives_file` is treated as a BASE PREFIX,
+    // not a literal file path. We always load the shape-specific
+    // siblings: `<prefix>_square.dat`, `<prefix>_wide.dat`,
+    // `<prefix>_tall.dat`. The literal `<prefix>.dat` file is not
+    // required to exist — older code had it as a fallback, but that
+    // path was either dead (suffixed files always present in normal
+    // operation) or actively wrong (would load square primitives for
+    // wide/tall objects, silently). Eliminated.
+    std::string base_db_path = config_ ? config_->system().motion_primitives_file
                                        : legacy_config_.primitive_database_path;
-    
-    // Helper function to add suffix to filename
+
     auto add_suffix_to_filename = [](const std::string& base_path, const std::string& suffix) {
         auto dot_pos = base_path.find_last_of('.');
         if (dot_pos == std::string::npos) {
@@ -37,53 +43,31 @@ void NAMOPushSkill::initialize_skill() {
         }
         return base_path.substr(0, dot_pos) + "_" + suffix + base_path.substr(dot_pos);
     };
-    
-    // Helper function to try loading a planner with fallback
-    auto try_load_planner = [&](const std::string& preferred_path, const std::string& shape_name) -> std::unique_ptr<GreedyPlanner> {
+
+    // Load the shape-specific planner. No fallback — if the suffixed
+    // file is missing, that's a configuration error and we report it
+    // clearly rather than silently substituting wrong data.
+    auto load_shape_planner = [&](const std::string& shape_name) -> std::unique_ptr<GreedyPlanner> {
+        std::string path = add_suffix_to_filename(base_db_path, shape_name);
+        if (!std::filesystem::exists(path)) {
+            throw std::runtime_error(
+                "Motion primitives missing for shape '" + shape_name +
+                "': expected " + path + " (derived from system.motion_primitives_file='" +
+                base_db_path + "'). Regenerate with: "
+                "./build_python/generate_motion_primitives_db --output " + base_db_path);
+        }
         auto planner = std::make_unique<GreedyPlanner>();
-        
-        // Try preferred path first
-        if (std::filesystem::exists(preferred_path)) {
-            if (planner->initialize(preferred_path)) {
-                return planner;
-            }
+        if (!planner->initialize(path)) {
+            throw std::runtime_error("Failed to initialize " + shape_name +
+                                     " planner from " + path);
         }
-        
-        // Fallback to base path
-        if (std::filesystem::exists(base_db_path)) {
-            if (planner->initialize(base_db_path)) {
-                return planner;
-            }
-        }
-        
-        // Last resort: try default path
-        std::string default_path = "data/motion_primitives.dat";
-        if (std::filesystem::exists(default_path)) {
-            if (planner->initialize(default_path)) {
-                return planner;
-            }
-        }
-        
-        throw std::runtime_error("Failed to initialize " + shape_name + " planner. Tried: " + 
-                                preferred_path + ", " + base_db_path + ", " + default_path);
+        planner->set_name(shape_name);
+        return planner;
     };
-    
-    // Initialize all three planners with their respective databases
-    std::string square_path = add_suffix_to_filename(base_db_path, "square");
-    std::string wide_path = add_suffix_to_filename(base_db_path, "wide");
-    std::string tall_path = add_suffix_to_filename(base_db_path, "tall");
-    
-    planner_square_ = try_load_planner(square_path, "square");
-    planner_square_->set_name("square");
-    // std::cout << "Initialized square planner" << std::endl;
-    
-    planner_wide_ = try_load_planner(wide_path, "wide");
-    planner_wide_->set_name("wide");
-    // std::cout << "Initialized wide planner" << std::endl;
-    
-    planner_tall_ = try_load_planner(tall_path, "tall");
-    planner_tall_->set_name("tall");
-    // std::cout << "Initialized tall planner" << std::endl;
+
+    planner_square_ = load_shape_planner("square");
+    planner_wide_   = load_shape_planner("wide");
+    planner_tall_   = load_shape_planner("tall");
     
     // Initialize executor with configuration parameters
     if (config_) {
@@ -92,11 +76,16 @@ void NAMOPushSkill::initialize_skill() {
             env_,
             config_->planning().skill_level_resolution,
             config_->planning().robot_size,
+            config_->planning().wavefront_tier1_inflation_margin,
             config_->skill().max_push_steps,
             config_->skill().control_steps_per_push,
-            config_->skill().force_scaling,
+            // Velocity actuators interpret this as m/s command magnitude.
+            // Prefer the new push_velocity key; fall back to legacy
+            // force_scaling for configs that haven't been migrated.
+            config_->skill().push_velocity,
             config_->skill().points_per_face,
-            config_->skill().check_object_collision
+            config_->skill().check_object_collision,
+            config_->skill().dynamic_direction
         );
 
         // Configure controller-level stuck parameters from config
@@ -105,8 +94,8 @@ void NAMOPushSkill::initialize_skill() {
         controller.set_stuck_threshold(config_->skill().controller_stuck_threshold);
         controller.set_min_position_change(config_->skill().controller_min_position_change);
         controller.set_min_angle_change(config_->skill().controller_min_angle_change);
-
-        
+        controller.set_push_offset_margin(config_->planning().wavefront_edge_offset_margin);
+        controller.set_robot_trajectory_collision_checking(config_->skill().check_robot_trajectory_collision);
     } else {
         // Use legacy hardcoded values
         executor_ = std::make_unique<MPCExecutor>(env_);
@@ -284,7 +273,7 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
             }
             // Check for stuck condition
             if (step_result.failure_reason.find("Controller-level stuck") != std::string::npos) {
-                result.outputs["stuck"] = "true";
+                result.outputs["stuck"] = std::string("true");  // explicit string to avoid implicit const char* → bool
                 result.failure_type = FailureType::OBJECT_STUCK;
             }
         }
@@ -342,7 +331,7 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
 
                 if (stuck_counter >= max_stuck_iterations) {
                     // debug disabled
-                    result.outputs["stuck"] = "true";
+                    result.outputs["stuck"] = std::string("true");  // explicit string to avoid implicit const char* → bool
                     result.failure_reason = "Object stuck for " + std::to_string(stuck_counter) + " iterations at MPC iteration " + std::to_string(mpc_iter);
                     result.failure_type = FailureType::OBJECT_STUCK;
                     result.outputs["steps_executed"] = mpc_iter;
@@ -512,7 +501,7 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
             // Check for controller-level stuck propagated up by MPC executor
             if (!step_result.collision_object.empty() == false &&
                 step_result.failure_reason.find("Controller-level stuck") != std::string::npos) {
-                result.outputs["stuck"] = "true";
+                result.outputs["stuck"] = std::string("true");  // explicit string to avoid implicit const char* → bool
                 result.failure_reason = step_result.failure_reason;
                 result.failure_type = FailureType::OBJECT_STUCK;
                 result.outputs["steps_executed"] = mpc_iter;
@@ -693,6 +682,14 @@ std::vector<int> NAMOPushSkill::get_reachable_edges(const std::string& object_na
     return const_cast<MPCExecutor*>(executor_.get())->get_reachable_edges_with_wavefront(object_name);
 }
 
+MPCExecutor::ReachabilitySnapshot NAMOPushSkill::get_reachability_snapshot() const {
+    if (!executor_) {
+        return MPCExecutor::ReachabilitySnapshot{};
+    }
+    // executor methods are non-const because they refresh internal wavefront caches.
+    return const_cast<MPCExecutor*>(executor_.get())->compute_reachability_snapshot();
+}
+
 std::vector<std::string> NAMOPushSkill::get_reachable_objects() const {
     std::vector<std::string> reachable_objects;
     
@@ -759,6 +756,12 @@ void NAMOPushSkill::set_collision_checking(bool enabled) {
     // Propagate collision checking setting to the executor's controller
     if (executor_) {
         executor_->set_collision_checking(enabled);
+    }
+}
+
+void NAMOPushSkill::set_robot_trajectory_collision_checking(bool enabled) {
+    if (executor_) {
+        executor_->set_robot_trajectory_collision_checking(enabled);
     }
 }
 

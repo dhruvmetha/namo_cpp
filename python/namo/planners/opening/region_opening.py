@@ -6,11 +6,8 @@ validates the opening, logs an episode, then restores the baseline and proceeds 
 the next neighbour.
 """
 
-import math
 import random
 import time
-
-import numpy as np
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple, Dict, Any, Set, Union
 
@@ -21,10 +18,10 @@ DEFAULT_CAMERA_DISTANCE = 15.0
 DEFAULT_CAMERA_AZIMUTH = 0.0
 DEFAULT_CAMERA_ELEVATION = -90.0
 from namo.core import BasePlanner, PlannerConfig, PlannerResult
-from namo.planners.connectivity_snapshot import snapshot_region_connectivity, find_robot_label
-from namo.visualization.wavefront_snapshot import RegionGoalSample
+from namo.planners.connectivity_snapshot import find_robot_label
 from namo.strategies import (
     PrimitiveGoalStrategy,
+    RandomRolloutGoalStrategy,
     Goal,
     MLPrimitiveGoalStrategy,
     MLPrimitiveFallbackStrategy,
@@ -198,9 +195,8 @@ class RegionOpeningPlanner(BasePlanner):
 
         # Get collision termination flag from config.algorithm_params
         # region_allow_collisions=True means ALLOW collisions (don't terminate)
-        # Default True: object-object/object-wall collisions are expected during NAMO
-        # pushes. Strict mode (terminate on collision) is opt-in via region_allow_collisions=False.
-        allow_collisions = algo_params.get("region_allow_collisions", True)
+        # We invert it: terminate_on_collision=True means TERMINATE on collision
+        allow_collisions = algo_params.get("region_allow_collisions", False)
         self.terminate_on_collision = not allow_collisions
 
         # Get max chain depth from config.algorithm_params (default: 1, no chaining)
@@ -215,6 +211,16 @@ class RegionOpeningPlanner(BasePlanner):
 
         # Exhaustive mode: disable search pruning, log all primitive outcomes for F characterization
         self.exhaustive_mode = algo_params.get("region_exhaustive_mode", False)
+
+        # Early-exit the candidate-object loop in _attempt_opening_to_neighbour after
+        # the first object yields a successful opening. This skips evaluating remaining
+        # candidate objects for the same neighbor — fine for execution (we only need
+        # ONE valid push per region transition; outer FullNAMOPlanner picks the next
+        # region after that). For data collection we want per-object outcomes, so the
+        # default is False to preserve eval coverage.
+        self.early_exit_on_first_success = algo_params.get(
+            "region_early_exit_on_first_success", False
+        )
 
         # Get max recorded solutions per neighbor (subset of found solutions to keep), default: 2
         self.max_recorded_solutions_per_neighbor = algo_params.get(
@@ -235,18 +241,6 @@ class RegionOpeningPlanner(BasePlanner):
         # Default is False to preserve legacy behaviour (collect per-neighbour data).
         self.stop_after_first_success = algo_params.get("region_stop_after_first_success", False)
 
-        # When True (default), restrict exploration to the single neighbour containing the env's
-        # goal site (uses target_neighbor="goal"). Each pair file contributes one focused
-        # demonstration tied to its actual NAMO task, avoiding redundant work across pairs that
-        # share R_robot. Set to False to fall back to the legacy "enumerate all neighbours" mode.
-        self.target_goal_only = algo_params.get("region_target_goal_only", True)
-
-        # Stricter success criterion for _validate_opening: at least
-        # `min_reachable_fraction` of the sampled region goals must be reachable.
-        # Rejects "thin opening" demos where only one sampled cell happens to be
-        # reachable (often a flake from the planner barely moving the blocker).
-        self.min_reachable_fraction = float(algo_params.get("region_min_reachable_fraction", 0.5))
-
         # Optional: cap number of frontier nodes per chain level (beam width)
         # None or 0 => unbounded frontier (complete)
         beam_width = algo_params.get("region_frontier_beam_width", None)
@@ -260,6 +254,14 @@ class RegionOpeningPlanner(BasePlanner):
         if timeout_sec is not None and timeout_sec <= 0:
             timeout_sec = None
         self.timeout_per_neighbour_sec = timeout_sec
+
+        # Unified wavefront snapshot backend:
+        # - True: prefer C++ `env.get_region_snapshot(...)`
+        # - False: fallback to Python snapshot exporter
+        self.use_cpp_unified_wavefront = algo_params.get("region_use_cpp_unified_wavefront", True)
+        self.region_snapshot_seed = int(algo_params.get("region_snapshot_seed", 42))
+        region_goal_radius = algo_params.get("region_goal_radius_m", None)
+        self.region_goal_radius_m = float(region_goal_radius) if region_goal_radius is not None else None
 
         # ML blacklist override: when True, ML-scored primitives bypass the
         # edge blacklist built during pre-ML exhaustive phase. This allows
@@ -305,6 +307,19 @@ class RegionOpeningPlanner(BasePlanner):
                 parts.append(f"objects={skip_objects}")
             print(f"🔧 Skip config: {', '.join(parts)}")
 
+        # Externally-provided per-object edge blacklist, fed in from the caller
+        # (e.g. the real-robot executor reports edges that failed at runtime).
+        # Format: Dict[object_id, Iterable[int]] — edges to skip at ALL depths
+        # for that object. Seeds the per-node `edge_min_stuck_depth` map with
+        # depth=0 so the BFS treats these edges as already-stuck.
+        external_blacklist = algo_params.get("external_edge_blacklist", None) or {}
+        self.external_edge_blacklist: Dict[str, Set[int]] = {
+            str(obj): {int(e) for e in edges}
+            for obj, edges in external_blacklist.items()
+        }
+        if self.external_edge_blacklist and config.verbose:
+            print(f"🚫 External edge blacklist: {dict(self.external_edge_blacklist)}")
+
         # Visualization settings (can be set after init, like IDFS planners)
         self.visualize_search = False
         self.search_delay = 0.5
@@ -315,6 +330,18 @@ class RegionOpeningPlanner(BasePlanner):
         self._primitive_strategy = None
         self._ml_async_strategy = None
         self._runtime_timing_stats = self._new_runtime_timing_stats()
+
+        # Progress reporter state — prints [Progress] line every progress_interval_sec
+        # while the BFS is grinding through primitives. Reset each search() call.
+        self._progress_total_primitives = 0
+        self._progress_last_print_time = 0.0
+        self._progress_last_print_count = 0
+        self._progress_interval_sec = 2.0
+
+        # Rejection-reason tally — surfaced in algorithm_stats so callers can
+        # render a diagnostic breakdown when planning fails to find a plan.
+        self._rejection_stats: Dict[str, int] = {}
+        self._last_explore_context: Optional[Dict[str, Any]] = None
 
         super().__init__(env, config)
 
@@ -455,10 +482,6 @@ class RegionOpeningPlanner(BasePlanner):
 
         algo_params = getattr(self, "algorithm_params", {}) or {}
         primitive_data_dir = algo_params.get("primitive_data_dir", "data")
-        # Prefix selecting per-robot primitive calibration:
-        #   ""    → motion_primitives_15_*.dat (30 cm point-robot, legacy)
-        #   "car_" → car_motion_primitives_15_*.dat (7 cm diff-drive car)
-        primitive_prefix = algo_params.get("primitive_prefix", "")
         strategy_name = algo_params.get("goal_strategy")
 
         if strategy_name and strategy_name.lower() in {"ml", "ml_primitive"}:
@@ -540,8 +563,7 @@ class RegionOpeningPlanner(BasePlanner):
             # Store strategies for MLDrivenAsyncSearch
             self._primitive_strategy = PrimitiveGoalStrategy(
                 data_dir=primitive_data_dir,
-                verbose=self.config.verbose,
-                primitive_prefix=primitive_prefix,
+                verbose=self.config.verbose
             )
             self._ml_async_strategy = MLPrimitiveAsyncStrategy(
                 goal_model_path=ml_path,
@@ -571,14 +593,27 @@ class RegionOpeningPlanner(BasePlanner):
                 profile=bool(algo_params.get("profile_geometric", False)),
             )
             self._debug("▶ Using geometric transport goal strategy")
+        elif strategy_name and strategy_name.lower() in {"random_rollout", "random"}:
+            # Random rollouts: same primitive enumeration, but random scores
+            # (uniform per-state ordering) and optional cap on candidates per
+            # state. Combined with max_chain_depth, gives trial-style search.
+            self.goal_strategy = RandomRolloutGoalStrategy(
+                data_dir=primitive_data_dir,
+                verbose=self.config.verbose,
+                samples_per_state=algo_params.get("rollout_samples_per_state", None),
+                seed=algo_params.get("shuffle_seed", None),
+            )
+            self._debug(
+                "▶ Using random-rollout goal strategy "
+                f"(samples_per_state={algo_params.get('rollout_samples_per_state', None)})"
+            )
         else:
             # Use primitive goal strategy for push goals
             self.goal_strategy = PrimitiveGoalStrategy(
                 data_dir=primitive_data_dir,
                 verbose=self.config.verbose,
                 shuffle_edges=algo_params.get("shuffle_edges", False),
-                seed=algo_params.get("shuffle_seed", None),
-                primitive_prefix=primitive_prefix,
+                seed=algo_params.get("shuffle_seed", None)
             )
 
     @property
@@ -594,10 +629,91 @@ class RegionOpeningPlanner(BasePlanner):
     def reset(self):
         """Reset internal algorithm state for new planning episode."""
         self.attempt_results = []
+        self._last_explore_context = None
 
     def _debug(self, message: str):
         if getattr(self.config, "verbose", False):
             print(message)
+
+    @staticmethod
+    def _normalize_boundary_object_ids(objects: Optional[Set[str]]) -> Set[str]:
+        if not objects:
+            return set()
+        return {str(obj) for obj in objects}
+
+    def _get_boundary_objects(
+        self,
+        edge_objects: Dict[str, Dict[str, Set[str]]],
+        source_label: str,
+        neighbour_label: str,
+    ) -> Tuple[Optional[List[str]], Optional[str]]:
+        forward = edge_objects.get(source_label, {}).get(neighbour_label)
+        reverse = edge_objects.get(neighbour_label, {}).get(source_label)
+
+        if forward is not None and reverse is not None:
+            forward_ids = self._normalize_boundary_object_ids(forward)
+            reverse_ids = self._normalize_boundary_object_ids(reverse)
+            if forward_ids != reverse_ids:
+                return None, "boundary_object_map_inconsistent"
+            return sorted(forward_ids), None
+
+        if forward is not None:
+            return sorted(self._normalize_boundary_object_ids(forward)), None
+        if reverse is not None:
+            return sorted(self._normalize_boundary_object_ids(reverse)), None
+        return [], None
+
+    def _build_target_summary(self, target_neighbor: Optional[str]) -> Optional[Dict[str, Any]]:
+        if target_neighbor is None:
+            return None
+
+        context = self._last_explore_context or {}
+        local_robot_label = context.get("local_robot_label")
+        local_neighbors = sorted(context.get("local_neighbors", []))
+        target_is_immediate = bool(context.get("target_is_immediate_neighbor", False))
+        attempts = list(self.attempt_results or [])
+        detail_reasons = sorted(
+            {
+                str(getattr(attempt, "failure_reason", "") or "unknown")
+                for attempt in attempts
+            }
+        )
+        success_found = any(getattr(attempt, "success", False) for attempt in attempts)
+
+        if not attempts:
+            failure_reason = "no_attempt_results"
+        elif not target_is_immediate:
+            failure_reason = "target_not_immediate_neighbor"
+        elif any(reason == "boundary_object_map_inconsistent" for reason in detail_reasons):
+            failure_reason = "boundary_object_map_inconsistent"
+        elif any(reason == "already_accessible" for reason in detail_reasons):
+            failure_reason = "already_accessible"
+        elif any(reason == "no_blocking_objects" for reason in detail_reasons):
+            failure_reason = "no_blocking_objects"
+        elif success_found:
+            failure_reason = "success"
+        elif len(detail_reasons) == 1:
+            failure_reason = detail_reasons[0]
+        else:
+            failure_reason = "mixed_failure_reasons"
+
+        boundary_exhausted = (
+            target_is_immediate
+            and not success_found
+            and bool(detail_reasons)
+            and set(detail_reasons).issubset({"all_pushes_failed", "no_reachable_objects"})
+        )
+
+        return {
+            "target_neighbor": target_neighbor,
+            "local_robot_label": local_robot_label,
+            "local_neighbors": local_neighbors,
+            "target_is_immediate_neighbor": target_is_immediate,
+            "failure_reason": failure_reason,
+            "attempt_count": len(attempts),
+            "detail_reasons": detail_reasons,
+            "boundary_exhausted": boundary_exhausted,
+        }
 
     def _focus_camera_on_object(self, object_id: str):
         """Focus camera on the specified object from above and render.
@@ -631,7 +747,7 @@ class RegionOpeningPlanner(BasePlanner):
     def search(
         self,
         robot_goal: Tuple[float, float, float],
-        target_neighbor: Optional[str] = None
+        target_neighbor: Optional[str] = None,
     ) -> PlannerResult:
         """Execute region opening planner (single-level exploration from initial state only).
 
@@ -649,6 +765,15 @@ class RegionOpeningPlanner(BasePlanner):
         """
         start_time = time.time()
         self.attempt_results = []
+        self._last_explore_context = None
+
+        # Reset progress reporter for this search
+        self._progress_total_primitives = 0
+        self._progress_last_print_time = time.time()
+        self._progress_last_print_count = 0
+
+        # Reset rejection tally for this search
+        self._rejection_stats = {}
 
         # Configure collision checking based on region_allow_collisions setting
         collision_checking_enabled = self.terminate_on_collision
@@ -656,93 +781,97 @@ class RegionOpeningPlanner(BasePlanner):
 
         # Save baseline state
         baseline = self.env.get_full_state()
+        try:
+            if self.config.verbose:
+                self._debug(f"\n{'='*60}")
+                target_info = f" (target: {target_neighbor})" if target_neighbor else ""
+                self._debug(f"Region Opening Planner - Single-Level Exploration{target_info}")
+                self._debug(
+                    f"Max chain depth: {self.max_chain_depth} | Collision checking: {'ON' if collision_checking_enabled else 'OFF'}"
+                )
+                self._debug(f"{'='*60}\n")
 
-        if self.config.verbose:
-            self._debug(f"\n{'='*60}")
-            target_info = f" (target: {target_neighbor})" if target_neighbor else ""
-            self._debug(f"Region Opening Planner - Single-Level Exploration{target_info}")
-            self._debug(f"Max chain depth: {self.max_chain_depth} | Collision checking: {'ON' if collision_checking_enabled else 'OFF'}")
-            self._debug(f"{'='*60}\n")
+            # Explore from initial state only (Level 0)
+            self.attempt_results = self._explore_from_state(
+                baseline,
+                level=0,
+                target_neighbor=target_neighbor,
+            )
 
-        # If region_target_goal_only is set and caller didn't override, target the env-goal's region
-        if target_neighbor is None and self.target_goal_only:
-            target_neighbor = "goal"
+            if self.config.verbose:
+                successful_attempts = sum(1 for a in self.attempt_results if a.success)
+                self._debug(f"\n{'='*60}")
+                self._debug(
+                    f"Exploration Complete: {successful_attempts}/{len(self.attempt_results)} successful openings"
+                )
+                self._debug(f"{'='*60}\n")
 
-        # Explore from initial state only (Level 0)
-        self.attempt_results = self._explore_from_state(baseline, level=0, target_neighbor=target_neighbor)
-
-        if self.config.verbose:
+            total_time = (time.time() - start_time) * 1000
             successful_attempts = sum(1 for a in self.attempt_results if a.success)
-            self._debug(f"\n{'='*60}")
-            self._debug(f"Exploration Complete: {successful_attempts}/{len(self.attempt_results)} successful openings")
-            self._debug(f"{'='*60}\n")
 
-        # Calculate statistics
-        total_time = (time.time() - start_time) * 1000  # ms
-        successful_attempts = sum(1 for a in self.attempt_results if a.success)
+            action_sequence = []
+            all_solutions = []
+            for attempt in self.attempt_results:
+                if not attempt.success:
+                    continue
 
-        # Build action_sequence from the first successful attempt for visualization
-        action_sequence = []
-        all_solutions = []  # Store ALL successful attempts as separate action sequences
-
-        for attempt in self.attempt_results:
-            if not attempt.success:
-                continue
-
-            # Build action sequence for this attempt
-            attempt_actions = []
-
-            # Handle both single goal and goal chain
-            # Build actions from goal_chain (has edge_idx/depth for direct C++ execution)
-            if attempt.goal_chain:
-                for goal in attempt.goal_chain:
+                attempt_actions = []
+                if attempt.goal_chain:
+                    for goal in attempt.goal_chain:
+                        action = namo_rl.Action()
+                        action.object_id = attempt.chosen_object_id
+                        action.x = goal.x
+                        action.y = goal.y
+                        action.theta = goal.theta
+                        action.edge_idx = getattr(goal, "edge_idx", -1)
+                        action.depth = getattr(goal, "depth", -1)
+                        attempt_actions.append(action)
+                elif attempt.chosen_goal:
                     action = namo_rl.Action()
                     action.object_id = attempt.chosen_object_id
-                    action.x = goal.x
-                    action.y = goal.y
-                    action.theta = goal.theta
-                    action.edge_idx = getattr(goal, 'edge_idx', -1)
-                    action.depth = getattr(goal, 'depth', -1)
+                    action.x = attempt.chosen_goal[0]
+                    action.y = attempt.chosen_goal[1]
+                    action.theta = attempt.chosen_goal[2]
                     attempt_actions.append(action)
-            elif attempt.chosen_goal:
-                # Fallback to chosen_goal tuple (no edge_idx/depth)
-                action = namo_rl.Action()
-                action.object_id = attempt.chosen_object_id
-                action.x = attempt.chosen_goal[0]
-                action.y = attempt.chosen_goal[1]
-                action.theta = attempt.chosen_goal[2]
-                attempt_actions.append(action)
 
-            all_solutions.append({
-                "actions": attempt_actions,
-                "neighbor": attempt.neighbour_region_label,
-                "object": attempt.chosen_object_id
-            })
+                all_solutions.append(
+                    {
+                        "actions": attempt_actions,
+                        "neighbor": attempt.neighbour_region_label,
+                        "object": attempt.chosen_object_id,
+                    }
+                )
+                if not action_sequence:
+                    action_sequence = attempt_actions
 
-            # Keep first success as primary action_sequence for backward compatibility
-            if not action_sequence:
-                action_sequence = attempt_actions
-
-        # Return PlannerResult with action_sequence for visualization
-        return PlannerResult(
-            success=successful_attempts > 0,
-            solution_found=successful_attempts > 0,
-            action_sequence=action_sequence,
-            solution_depth=len(action_sequence) if action_sequence else None,
-            search_time_ms=total_time,
-            algorithm_stats={
+            algorithm_stats: Dict[str, Any] = {
                 "attempt_results": self.attempt_results,
-                "all_solutions": all_solutions,  # ALL successful openings from initial state
+                "all_solutions": all_solutions,
                 "successful_openings": successful_attempts,
-                "total_attempts": len(self.attempt_results)
+                "total_attempts": len(self.attempt_results),
+                "rejection_breakdown": dict(self._rejection_stats),
+                "total_primitives_attempted": self._progress_total_primitives,
             }
-        )
+            target_summary = self._build_target_summary(target_neighbor)
+            if target_summary is not None:
+                algorithm_stats["target_summary"] = target_summary
+
+            return PlannerResult(
+                success=successful_attempts > 0,
+                solution_found=successful_attempts > 0,
+                action_sequence=action_sequence,
+                solution_depth=len(action_sequence) if action_sequence else None,
+                search_time_ms=total_time,
+                algorithm_stats=algorithm_stats,
+            )
+        finally:
+            self.env.set_full_state(baseline)
 
     def _explore_from_state(
         self,
         state: 'namo_rl.RLState',
         level: int = 0,
-        target_neighbor: Optional[str] = None
+        target_neighbor: Optional[str] = None,
     ) -> List[AttemptResult]:
         """Explore region openings from a given state.
 
@@ -766,58 +895,46 @@ class RegionOpeningPlanner(BasePlanner):
         # Set environment to exploration state
         self.env.set_full_state(state)
 
-        # Get region connectivity and goals from snapshot
-        # use_current_state=True ensures snapshot uses current object positions (not initial XML state)
-        # and always uses XML goal (not whatever was last set via set_robot_goal during validation)
-        xml_path = self.env.get_xml_path()
-        config_path = self.env.get_config_path()
-        adjacency, edge_objects, region_labels, region_goals, _ = snapshot_region_connectivity(
-            self.env,
-            xml_path,
-            config_path,
-            include_snapshot=False,
-            local_info_only=True,
-            goals_per_region=self.config.goals_per_region,
-            generate_training_data=True,
-            use_current_state=True,
-        )
+        # Get unified region connectivity + sampled goals from one wavefront source.
+        from namo.planners import get_region_snapshot as _get_region_snapshot
 
-        # Replace the goal-region's random samples with dense cell-center samples
-        # on the goal-site disc (radius 0.05m, wavefront resolution 0.02m → ~20 cells).
-        # `_validate_opening` will then check reachability of every cell on the
-        # goal site; with min_reachable_fraction=1.0 this becomes "full goal site
-        # reachable" — a tight, geometry-grounded success criterion.
-        try:
-            scenario_goal = self.env.get_robot_goal()
-            if scenario_goal is not None:
-                gx, gy = float(scenario_goal[0]), float(scenario_goal[1])
-                gtheta = float(scenario_goal[2]) if len(scenario_goal) > 2 else 0.0
-                cell_size = 0.02
-                radius = 0.05
-                disc_samples = []
-                n_cells = int(np.ceil(radius / cell_size))
-                r2 = radius * radius
-                for dx in range(-n_cells, n_cells + 1):
-                    for dy in range(-n_cells, n_cells + 1):
-                        ox = dx * cell_size
-                        oy = dy * cell_size
-                        if ox * ox + oy * oy <= r2:
-                            disc_samples.append(RegionGoalSample(gx + ox, gy + oy, gtheta))
-                for region_label, bundle in region_goals.items():
-                    if "goal" in region_label.lower():
-                        bundle.goals = disc_samples
-        except Exception:
-            pass
+        snapshot = _get_region_snapshot(
+            self.env,
+            goals_per_region=self.config.goals_per_region,
+            goal_radius=self.region_goal_radius_m,
+            local_info_only=True,
+            seed=self.region_snapshot_seed,
+            use_cpp_unified=self.use_cpp_unified_wavefront,
+            use_xml_goal=True,
+        )
+        adjacency = snapshot["adjacency"]
+        edge_objects = snapshot["edge_objects"]
+        region_labels = snapshot["region_labels"]
+        region_goals = snapshot["region_goals"]
 
         # Identify robot region
-        robot_label = find_robot_label(region_labels)
-        if robot_label is None:
+        robot_label = snapshot.get("robot_label") or find_robot_label(region_labels)
+        if not robot_label:
+            self._last_explore_context = {
+                "local_robot_label": None,
+                "local_neighbors": [],
+                "target_neighbor": target_neighbor,
+                "target_is_immediate_neighbor": False,
+            }
             if self.config.verbose:
                 print(f"  ⚠ Could not identify robot region")
+            if target_neighbor is not None:
+                return [AttemptResult(
+                    success=False,
+                    neighbour_region_label=target_neighbor,
+                    error_message="Could not identify robot region",
+                    failure_reason="missing_robot_region",
+                    timing_ms=0.0,
+                )]
             return []
 
-        # Get neighbours
-        neighbours = sorted(list(adjacency.get(robot_label, set())))
+        raw_neighbours = sorted(list(adjacency.get(robot_label, set())))
+        neighbours = list(raw_neighbours)
 
         # Apply region skip filter (blacklist)
         # Skip entire regions that have empty object lists in region_object_skip
@@ -832,6 +949,13 @@ class RegionOpeningPlanner(BasePlanner):
                     print(f"   ⏭ Neighbor '{region}': SKIPPED (from manifest)")
             # Regions with specific objects will be filtered later in _attempt_opening_to_neighbour
 
+        self._last_explore_context = {
+            "local_robot_label": robot_label,
+            "local_neighbors": list(raw_neighbours),
+            "target_neighbor": target_neighbor,
+            "target_is_immediate_neighbor": target_neighbor in raw_neighbours if target_neighbor is not None else None,
+        }
+
         # Filter to target_neighbor if specified (for FullNAMOPlanner)
         if target_neighbor is not None:
             if target_neighbor in neighbours:
@@ -841,7 +965,13 @@ class RegionOpeningPlanner(BasePlanner):
             else:
                 if self.config.verbose:
                     print(f"  ⚠ Target neighbor '{target_neighbor}' not in immediate neighbors: {neighbours}")
-                return []
+                return [AttemptResult(
+                    success=False,
+                    neighbour_region_label=target_neighbor,
+                    error_message=f"Target neighbor '{target_neighbor}' is not an immediate neighbor",
+                    failure_reason="target_not_immediate_neighbor",
+                    timing_ms=0.0,
+                )]
 
         if self.config.verbose:
             # Print region snapshot details
@@ -883,7 +1013,7 @@ class RegionOpeningPlanner(BasePlanner):
             else:
                 state_attempts.append(attempts)
 
-            if self.stop_after_first_success:
+            if not self.exhaustive_mode and self.stop_after_first_success:
                 # Stop exploring other neighbours once any successful opening exists.
                 if any(a.success for a in (attempts if isinstance(attempts, list) else [attempts])):
                     if self.config.verbose:
@@ -979,8 +1109,19 @@ class RegionOpeningPlanner(BasePlanner):
             )
             return [already_result]
 
-        # Get candidate objects blocking the edge
-        candidates = list(edge_objects.get(robot_label, {}).get(neighbour_label, set()))
+        # Get candidate objects blocking the boundary between the robot and neighbour region.
+        candidates, boundary_error = self._get_boundary_objects(edge_objects, robot_label, neighbour_label)
+        if boundary_error is not None:
+            if self.config.verbose:
+                print(f"    ✗ '{neighbour_label}' - {boundary_error}")
+            return [AttemptResult(
+                success=False,
+                neighbour_region_label=neighbour_label,
+                error_message="Boundary object map is inconsistent across directions",
+                timing_ms=(time.time() - attempt_start) * 1000,
+                failure_reason=boundary_error,
+                candidate_objects_count=0,
+            )]
 
         # Filter out objects specified in region_object_skip for this neighbour
         if self.region_object_skip and neighbour_label in self.region_object_skip:
@@ -1048,7 +1189,7 @@ class RegionOpeningPlanner(BasePlanner):
         # NOTE: We try ALL objects (no early termination) to record per-object triplets for eval
         timed_out = False
         for obj_idx, object_id in enumerate(candidates, 1):
-            if self.stop_after_max_solutions and total_solutions_collected >= max_solutions:
+            if not self.exhaustive_mode and self.stop_after_max_solutions and total_solutions_collected >= max_solutions:
                 if self.config.verbose:
                     print(
                         f"    🛑 Collected {total_solutions_collected}/{max_solutions} solutions for '{neighbour_label}', "
@@ -1090,7 +1231,7 @@ class RegionOpeningPlanner(BasePlanner):
             pushes_before_object = neighbour_push_counter.get("count", 0)
 
             # Use per-object solution limit (not global remaining) unless explicitly stopping early.
-            if self.stop_after_max_solutions:
+            if not self.exhaustive_mode and self.stop_after_max_solutions:
                 remaining = max(0, max_solutions - total_solutions_collected)
                 max_solutions_for_object = max(1, remaining) if remaining > 0 else 1
             else:
@@ -1196,7 +1337,7 @@ class RegionOpeningPlanner(BasePlanner):
                 # State observations were already captured during BFS search
 
                 per_object_limit = max_solutions
-                if self.stop_after_max_solutions:
+                if not self.exhaustive_mode and self.stop_after_max_solutions:
                     per_object_limit = max(0, max_solutions - total_solutions_collected)
                 for goal_idx, (goal_chain, state_obs, post_state_obs, resulting_state, region_goal_used, region_goals_sampled, reachable_before, reachable_after, total_cost, skill_calls_before_success, success_timestamp, any_wall_collision, unique_movable_collision_count) in enumerate(successful_goals[:per_object_limit]):
 
@@ -1204,7 +1345,7 @@ class RegionOpeningPlanner(BasePlanner):
 
                     # Create AttemptResult
                     if len(goal_chain) == 1:
-                        # Single push
+                        # Single push - also set goal_chain to preserve edge_idx/depth
                         goal = goal_chain[0]
                         total_solutions_collected += 1
                         all_goal_attempts.append(AttemptResult(
@@ -1212,7 +1353,7 @@ class RegionOpeningPlanner(BasePlanner):
                             neighbour_region_label=neighbour_label,
                             chosen_object_id=object_id,
                             chosen_goal=(goal.x, goal.y, goal.theta),
-                            goal_chain=goal_chain,
+                            goal_chain=goal_chain,  # Preserve Goal objects with edge_idx/depth
                             chain_depth=1,
                             validation_method="reachability_validated",
                             connectivity_before=conn_before,
@@ -1279,7 +1420,7 @@ class RegionOpeningPlanner(BasePlanner):
                         if self.config.verbose:
                             print(f"        → Object {object_id} solutions: {goal_idx + 1}/{per_object_limit}")
 
-                        if self.stop_after_max_solutions and total_solutions_collected >= max_solutions:
+                        if not self.exhaustive_mode and self.stop_after_max_solutions and total_solutions_collected >= max_solutions:
                             if self.config.verbose:
                                 print(
                                     f"        🛑 Collected {total_solutions_collected}/{max_solutions} solutions for '{neighbour_label}', "
@@ -1361,7 +1502,7 @@ class RegionOpeningPlanner(BasePlanner):
                         if self.config.verbose:
                             print(f"        → Object {object_id} solutions: {goal_idx + 1}/{per_object_limit}")
 
-                        if self.stop_after_max_solutions and total_solutions_collected >= max_solutions:
+                        if not self.exhaustive_mode and self.stop_after_max_solutions and total_solutions_collected >= max_solutions:
                             if self.config.verbose:
                                 print(
                                     f"        🛑 Collected {total_solutions_collected}/{max_solutions} solutions for '{neighbour_label}', "
@@ -1453,6 +1594,22 @@ class RegionOpeningPlanner(BasePlanner):
                     unique_movable_collision_count=search_unique_movable_collision_count,
                     primitive_trial_log=object_trial_log if self.exhaustive_mode else None,
                 ))
+
+            # Execution-mode early exit: once we have at least one successful opening
+            # for this neighbor, skip the remaining candidate objects. FullNAMOPlanner
+            # picks the next region on the path after this, so additional openings to
+            # the same neighbor are wasted compute in execution. Disabled by default
+            # so data-collection runs still gather per-object outcomes for every
+            # candidate.
+            if not self.exhaustive_mode and self.early_exit_on_first_success and total_solutions_collected >= 1:
+                remaining = len(candidates) - obj_idx
+                if remaining > 0 and self.config.verbose:
+                    print(
+                        f"      ⤴ Early exit: {object_id} opened '{neighbour_label}' "
+                        f"({total_solutions_collected} solution(s)); "
+                        f"skipping remaining {remaining} candidate object(s)"
+                    )
+                break
 
         # After trying all objects, return results
         if all_goal_attempts:
@@ -1572,15 +1729,12 @@ class RegionOpeningPlanner(BasePlanner):
             state_obs.append(pre_obs)
             reachable_before.append(pre_reachable)
 
-            # Execute action — pass explicit edge_idx/depth so the C++ skill executes the SAME
-            # primitive the search picked, not an MPC-reselected one (which would diverge).
+            # Execute action
             action = namo_rl.Action()
             action.object_id = object_id
             action.x = goal.x
             action.y = goal.y
             action.theta = goal.theta
-            action.edge_idx = getattr(goal, "edge_idx", -1)
-            action.depth = getattr(goal, "depth", -1)
             step_result = self.env.step(action)
 
             # Extract collision info from step result
@@ -1726,10 +1880,16 @@ class RegionOpeningPlanner(BasePlanner):
                     chain_label = f"{chain_depth}-chain"
                     print(f"    ▶ Searching {chain_label} (frontier={len(frontier)})")
 
-                # Ensure blacklists exist for frontier nodes (reuse if already created)
+                # Ensure blacklists exist for frontier nodes (reuse if already created).
+                # Seed each new blacklist with externally-reported failed edges for
+                # this object_id (depth=0 means "skip at all depths" because the
+                # check is `depth >= edge_min_stuck_depth[edge_idx]`).
+                external_for_object = self.external_edge_blacklist.get(object_id, ())
                 for node in frontier:
                     if id(node) not in node_blacklists:
-                        node_blacklists[id(node)] = {}
+                        node_blacklists[id(node)] = {
+                            edge_idx: 0 for edge_idx in external_for_object
+                        }
 
                 depth_start_pushes = skill_call_counter.get("count", 0)
 
@@ -1805,7 +1965,7 @@ class RegionOpeningPlanner(BasePlanner):
                     current_solutions_count = len(all_chains_across_depths)
 
                     inner_max_solutions = None
-                    if max_solutions_to_collect is not None:
+                    if not self.exhaustive_mode and max_solutions_to_collect is not None:
                         if current_solutions_count >= max_solutions_to_collect:
                             reached_cap = True
                             break
@@ -1903,7 +2063,7 @@ class RegionOpeningPlanner(BasePlanner):
                                     print(f"        → Solutions so far (object, best_cost={best_total_cost}): {len(all_chains_across_depths)}")
 
                                 # Early stop if we reached the per-object cap
-                                if max_solutions_to_collect is not None and len(all_chains_across_depths) >= max_solutions_to_collect:
+                                if not self.exhaustive_mode and max_solutions_to_collect is not None and len(all_chains_across_depths) >= max_solutions_to_collect:
                                     reached_cap = True
                                     break
 
@@ -2288,11 +2448,13 @@ class RegionOpeningPlanner(BasePlanner):
                     if self.config.verbose:
                         print(f"        🔓 Bypassing blacklist for ML-scored slot (edge {edge_idx}, depth {depth+1})")
                 else:
+                    self._rejection_stats["skipped_edge_blacklisted_deeper"] = self._rejection_stats.get("skipped_edge_blacklisted_deeper", 0) + 1
                     continue
 
             # Filter: skip edges that have already produced a successful opening
             # (disabled in exhaustive mode — evaluate all depths on all edges)
             if not self.exhaustive_mode and edge_idx in solved_edges_this_skill:
+                self._rejection_stats["skipped_edge_already_solved"] = self._rejection_stats.get("skipped_edge_already_solved", 0) + 1
                 continue
 
             self.env.set_full_state(baseline_state)
@@ -2338,6 +2500,28 @@ class RegionOpeningPlanner(BasePlanner):
             if push_counter is not None:
                 push_counter["count"] += 1
 
+            # Progress reporter: print a one-liner every progress_interval_sec
+            # so the user can see the BFS is alive and tracking its throughput.
+            # NOTE: `print` is rebound to self._debug at top of this function, so
+            # we use sys.stdout.write+flush to bypass and always emit (even when
+            # verbose is off).
+            self._progress_total_primitives += 1
+            _now = time.time()
+            if _now - self._progress_last_print_time >= self._progress_interval_sec:
+                _delta = self._progress_total_primitives - self._progress_last_print_count
+                _elapsed = _now - self._progress_last_print_time
+                _rate = _delta / _elapsed if _elapsed > 0 else 0.0
+                import sys
+                sys.stdout.write(
+                    f"  [Progress] {self._progress_total_primitives} primitives tried "
+                    f"({_rate:.1f}/sec) — current: obj={object_id} "
+                    f"edge={goal.edge_idx} depth={goal.depth + 1} "
+                    f"neighbour='{neighbour_label}'\n"
+                )
+                sys.stdout.flush()
+                self._progress_last_print_time = _now
+                self._progress_last_print_count = self._progress_total_primitives
+
             try:
                 if self.config.verbose:
                     print(f"        DEBUG: goal.edge_idx={goal.edge_idx}, goal.depth={goal.depth}")
@@ -2362,6 +2546,7 @@ class RegionOpeningPlanner(BasePlanner):
                     print(f"        ❌ EXCEPTION during env.step(): {type(e).__name__}: {e}")
                 import traceback
                 traceback.print_exc()
+                self._rejection_stats["env_step_exception"] = self._rejection_stats.get("env_step_exception", 0) + 1
                 continue
 
             wall_collision = step_result.info.get("wall_collision", "false")
@@ -2383,7 +2568,29 @@ class RegionOpeningPlanner(BasePlanner):
                     if obj_str:
                         movable_collisions_during_search.add(obj_str)
 
+            # Categorize the outcome from step_result.info for diagnostic stats.
+            # Each push gets exactly ONE outcome bucket; the final assignment
+            # is decided below after we've also seen the post-step region check.
+            # `_sim_outcome` holds the sim-side categorization (if any); the
+            # post-step block decides between push_opened_region /
+            # push_did_not_open_region for pushes with no sim-side failure.
+            self._rejection_stats["executed_in_sim"] = self._rejection_stats.get("executed_in_sim", 0) + 1
+            _info = step_result.info or {}
+            _ftype = str(_info.get("failure_type", ""))
+            _sim_outcome: Optional[str] = None
+            if _ftype == "4":
+                _sim_outcome = "edge_unreachable"
+            elif _info.get("stuck") == "true" or _ftype == "3":
+                _sim_outcome = "controller_stuck"
+            elif _info.get("wall_collision") == "true" or _ftype == "2":
+                _sim_outcome = "push_collided_with_wall"
+            elif _ftype and _ftype != "0":
+                _sim_outcome = f"failure_type_{_ftype}"
+            if _sim_outcome is not None:
+                self._rejection_stats[_sim_outcome] = self._rejection_stats.get(_sim_outcome, 0) + 1
+
             # We have a post-action state - ALWAYS capture observation and check goal condition
+
             post_state_obs = self.env.get_observation()
 
             # Check reachability AFTER push (ALWAYS - this is the goal check for post-action state)
@@ -2415,10 +2622,7 @@ class RegionOpeningPlanner(BasePlanner):
                     if self.config.verbose:
                         print(f"        📍 Edge {edge_idx} stuck at depth {depth+1}, depths 1-{depth} still valid")
 
-            # Log this primitive trial for F characterization.
-            # chain_depth + parent_* let downstream analysis reconstruct F_n'
-            # (push-1 primitives that enable a successful push-2). Without
-            # them, chain_depth>=2 trial logs are flat and unrecoverable.
+            # Log this primitive trial for F characterization
             trial_log.append({
                 'edge_idx': edge_idx,
                 'depth': depth,
@@ -2428,16 +2632,22 @@ class RegionOpeningPlanner(BasePlanner):
                 'stuck': stuck_detected,
                 'collision': collision_detected,
                 'reachable_after': reachable_count_after,
-                'chain_depth': current_chain_depth,
-                'parent_edge_idx': parent_node.edge_idx if parent_node is not None else None,
-                'parent_depth': (parent_node.step_cost - 1) if (parent_node is not None and parent_node.step_cost > 0) else None,
             })
 
             total_region_goals = len(region_goals[neighbour_label].goals) if neighbour_label in region_goals else 0
             if is_accessible_after and not is_accessible_before:
+                # Successful opening — but only count if there was no sim-side
+                # failure (otherwise this push was already bucketed by _sim_outcome).
+                if _sim_outcome is None:
+                    self._rejection_stats["push_opened_region"] = self._rejection_stats.get("push_opened_region", 0) + 1
                 print(f"      ✅ SUCCESS! {object_id} edge {edge_idx} depth {depth+1}: {reachable_count_before}/{total_region_goals} → {reachable_count_after}/{total_region_goals} reachable")
-            elif depth == 0 and goal is not None:  # Show failures only for first depth and only ML-aligned goals
-                if self.config.verbose:
+            else:
+                # Push ran without any sim-side failure but didn't change region
+                # accessibility. Only bucket here if not already attributed to
+                # a sim-side outcome — ensures each push is counted exactly once.
+                if _sim_outcome is None:
+                    self._rejection_stats["push_did_not_open_region"] = self._rejection_stats.get("push_did_not_open_region", 0) + 1
+                if depth == 0 and goal is not None and self.config.verbose:
                     print(f"        ✗ Failed edge {edge_idx} depth {depth+1}: {reachable_count_before}/{total_region_goals} → {reachable_count_after}/{total_region_goals}")
 
             # Check if we IMPROVED accessibility (goal condition for opening creation)
@@ -2482,7 +2692,7 @@ class RegionOpeningPlanner(BasePlanner):
 
                 # If we're only collecting a fixed number of solutions, stop immediately
                 # once we reach the cap (don’t wait for the next candidate iteration).
-                if max_solutions_to_collect is not None and len(all_successful_results) >= max_solutions_to_collect:
+                if not self.exhaustive_mode and max_solutions_to_collect is not None and len(all_successful_results) >= max_solutions_to_collect:
                     if self.config.verbose:
                         print(
                             f"        🛑 Reached max solutions ({len(all_successful_results)}/{max_solutions_to_collect}), stopping search"
@@ -2593,11 +2803,8 @@ class RegionOpeningPlanner(BasePlanner):
             except Exception:
                 pass
 
-            # Stricter success criterion: at least min_reachable_fraction of sampled
-            # region goals must be reachable.
-            total_goals = len(bundle.goals)
-            reachable_fraction = (reachable_count / total_goals) if total_goals > 0 else 0.0
-            if reachable_fraction >= self.min_reachable_fraction:
+            # Success if at least 1 goal is reachable
+            if reachable_count >= 1:
                 return True, reachable_count, first_reachable_goal, all_goals
             else:
                 return False, reachable_count, None, all_goals

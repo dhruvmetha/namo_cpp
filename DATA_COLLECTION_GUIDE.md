@@ -355,11 +355,17 @@ With `region_max_chain_depth: 2` and 100 environments:
 pwd  # Should be .../namo
 
 # Check if C++ bindings are built
-ls build_python_mjxrl_man/namo_rl*.so
+ls build_python/namo_rl*.so
 
 # If not built, compile:
-cmake -B build_python_mjxrl_man -DCMAKE_BUILD_TYPE=Release
-cmake --build build_python_mjxrl_man --parallel 8
+cmake -S . -B build_python -DCMAKE_BUILD_TYPE=Release -DBUILD_PYTHON_BINDINGS=ON
+cmake --build build_python --target namo_rl -j$(nproc)
+
+# Verify canonical namo_rl provenance
+python python/scripts/check_binding_provenance.py
+
+# Enforce strict canonical binding policy
+python python/scripts/check_canonical_binding_policy.py
 ```
 
 ### Issue: "Permission denied" for output directory

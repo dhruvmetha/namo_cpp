@@ -104,9 +104,12 @@ public:
     // Batch object info for efficient access (returns all immutable object data)
     std::map<std::string, std::map<std::string, double>> get_all_object_info() const;
     
-	    // Goal management
-	    void set_robot_goal(const std::array<double, 2>& goal) { robot_goal_ = goal; }
-	    std::array<double, 2> get_robot_goal() const { return robot_goal_; }
+	    // Goal management — stored as SE(2) {x, y, θ}. The 2-element overload
+	    // pads θ=0 for backward compatibility with callers (main.cpp + the
+	    // primitive generator) that only care about position.
+	    void set_robot_goal(const std::array<double, 2>& goal) { robot_goal_ = {goal[0], goal[1], 0.0}; }
+	    void set_robot_goal(const std::array<double, 3>& goal) { robot_goal_ = goal; }
+	    std::array<double, 3> get_robot_goal() const { return robot_goal_; }
 
 	    // Visualization: some XMLs include a fixed `<site name="goal"...>` marker.
 	    // For region-opening visual debugging, it can be confusing (region-opening cares
@@ -121,12 +124,16 @@ public:
 	    }
     
     // Visualization
-    void visualize_edge_reachability(const std::string& object_name, 
-                                   const std::vector<int>& reachable_edges);
+    void visualize_edge_reachability(
+        const std::string& object_name,
+        const std::vector<int>& reachable_edges,
+        double edge_offset_margin_m = 0.020);
                                    
     // Visualization for goal marker (like old MuJoCo implementation)
-    void visualize_goal_marker(const std::array<double, 3>& goal_position, 
-                              const std::array<float, 4>& color = {0.0f, 1.0f, 0.0f, 1.0f});
+    void visualize_goal_marker(
+        const std::array<double, 3>& goal_position,
+        const std::array<float, 4>& color = {0.0f, 1.0f, 0.0f, 1.0f},
+        double goal_radius_m = -1.0);
                               
     // Visualization for object goal marker with object-specific size
     void visualize_object_goal_marker(const std::array<double, 3>& goal_position,
@@ -207,7 +214,7 @@ private:
     // Robot properties
     int robot_id_ = -1;
     std::array<double, 3> init_robot_pos_ = {0.0, 0.0, 0.0};
-    std::array<double, 2> robot_goal_ = {0.0, 0.0};
+    std::array<double, 3> robot_goal_ = {0.0, 0.0, 0.0};
     
     // Configuration
     std::string config_name_;

@@ -1,48 +1,43 @@
 #!/bin/bash
-# Build script for NAMO Python bindings
+# Canonical build script for NAMO Python bindings.
+#
+# NFS-friendly: builds into ./build_python_mjxrl_<host>/ so multiple machines
+# sharing the same checkout don't clobber each other. Host is auto-detected
+# via `hostname -s`; override with NAMO_BUILD_HOST=<name> if needed.
 
-set -e  # Exit on any error
+set -euo pipefail
 
-echo "Building NAMO Python Bindings"
-echo "============================="
-
-# Check if MJ_PATH is set
-if [[ -z "${MJ_PATH}" ]]; then
+if [[ -z "${MJ_PATH:-}" ]]; then
     echo "Error: MJ_PATH environment variable is not set."
-    echo "Please set it to your MuJoCo installation directory:"
-    echo "export MJ_PATH=/path/to/mujoco"
+    echo "Set it to your MuJoCo installation directory, for example:"
+    echo "  export MJ_PATH=/path/to/mujoco"
     exit 1
 fi
 
+BUILD_HOST="${NAMO_BUILD_HOST:-$(hostname -s)}"
+BUILD_DIR="build_python_mjxrl_${BUILD_HOST}"
+
+echo "Building namo_rl (Release) into ./${BUILD_DIR}"
 echo "Using MuJoCo from: ${MJ_PATH}"
 
-# Create build directory
-BUILD_DIR="build_python"
-if [[ -d "$BUILD_DIR" ]]; then
-    echo "Removing existing build directory..."
-    rm -rf "$BUILD_DIR"
-fi
+# Resolve the active Python and its SOABI explicitly. CMake's FindPython3
+# sometimes leaves Python3_SOABI empty on certain CMake/Python combinations,
+# which produces a broken module file like "namo_rl..so". Pass them through.
+PYTHON_BIN="${PYTHON_BIN:-$(command -v python3)}"
+PYTHON_INCLUDE="$("$PYTHON_BIN" -c "import sysconfig; print(sysconfig.get_path('include'))")"
+PYTHON_LIBDIR="$("$PYTHON_BIN" -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")"
+PYTHON_LIBVER="$("$PYTHON_BIN" -c "import sysconfig; print(sysconfig.get_config_var('LDVERSION') or sysconfig.get_config_var('VERSION'))")"
+PYTHON_SOABI="$("$PYTHON_BIN" -c "import sysconfig; print(sysconfig.get_config_var('SOABI'))")"
+echo "Using Python: $($PYTHON_BIN --version) ($PYTHON_BIN), SOABI=$PYTHON_SOABI"
 
-mkdir -p "$BUILD_DIR"
-cd "$BUILD_DIR"
+cmake -S . -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release -DBUILD_PYTHON_BINDINGS=ON \
+    -DPython3_EXECUTABLE="$PYTHON_BIN" \
+    -DPython3_INCLUDE_DIR="$PYTHON_INCLUDE" \
+    -DPython3_LIBRARY_RELEASE="$PYTHON_LIBDIR/libpython$PYTHON_LIBVER.so" \
+    -DPython3_SOABI="$PYTHON_SOABI"
+cmake --build "$BUILD_DIR" --target namo_rl -j"$(nproc)"
 
-echo "Configuring CMake..."
-cmake .. -DCMAKE_BUILD_TYPE=Debug -DBUILD_PYTHON_BINDINGS=ON
-
-echo "Building..."
-make -j$(nproc) namo_rl
-
-echo ""
-echo "Build completed successfully!"
-echo ""
-echo "The Python module 'namo_rl' has been built in: $(pwd)"
-echo ""
-echo "To test the module:"
-echo "1. Add the build directory to your Python path:"
-echo "   export PYTHONPATH=$(pwd):\$PYTHONPATH"
-echo "2. Run the test script:"
-echo "   cd ../python"
-echo "   python test_rl_env.py"
-echo ""
-echo "Or run the test directly:"
-echo "   cd ../python && PYTHONPATH=$(pwd) python test_rl_env.py"
+echo
+echo "Build completed successfully."
+echo "Canonical PYTHONPATH usage:"
+echo "  export PYTHONPATH=$(pwd)/${BUILD_DIR}:\$PYTHONPATH"

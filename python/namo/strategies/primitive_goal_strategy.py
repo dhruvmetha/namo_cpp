@@ -359,6 +359,78 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
         return "Primitive-Based Goal Generation"
 
 
+class RandomRolloutGoalStrategy(PrimitiveGoalStrategy):
+    """Random-rollout goal strategy.
+
+    Returns the same primitive-aligned goals as PrimitiveGoalStrategy, but:
+      1. Assigns each candidate a random score in (0, 1), so the chain-depth
+         BFS's `sort by (-score, depth, edge_idx)` produces a uniformly
+         random ordering of candidates per state.
+      2. Optionally caps the number of non-None candidates returned
+         (`samples_per_state`) so the BFS tries only K random primitives per
+         state instead of all ~600. Combined with `max_chain_depth`, this
+         yields trial-style exploration: each chain through the BFS is a
+         short random walk through primitive-aligned pushes.
+
+    Because the BFS caches goals per node (see region_opening:1305), each
+    frontier node at chain depth 2 gets its own independent random ordering
+    — different trials explore different trajectories.
+    """
+
+    def __init__(self, data_dir: str = "data", verbose: bool = False,
+                 samples_per_state: Optional[int] = None, seed: Optional[int] = None):
+        super().__init__(data_dir=data_dir, verbose=verbose, shuffle_edges=False, seed=seed)
+        self.samples_per_state = samples_per_state
+        self._score_rng = random.Random(seed) if seed is not None else random
+
+    def generate_goals(self,
+                       object_id: str,
+                       state: namo_rl.RLState,
+                       env: namo_rl.RLEnvironment,
+                       max_goals: int,
+                       region_goals_sampled: Optional[List[Tuple[float, float, float]]] = None) -> List[List[Goal]]:
+        # Get the 600 primitive-aligned goals (all with score=0).
+        goals_per_edge = super().generate_goals(
+            object_id, state, env, max_goals, region_goals_sampled
+        )
+
+        # Assign each non-None goal a random score in (0, 1). The BFS sort by
+        # `-score` then orders them uniformly at random per state.
+        for edge_goals in goals_per_edge:
+            for goal in edge_goals:
+                if goal is not None:
+                    goal.score = self._score_rng.random() * 0.9 + 0.05
+
+        # Optional thinning: keep only K random candidates per state,
+        # blank the rest. This is the lever that makes each chain "thin".
+        if self.samples_per_state is not None and self.samples_per_state > 0:
+            all_candidates = [
+                (e_idx, d_idx)
+                for e_idx, edge_goals in enumerate(goals_per_edge)
+                for d_idx, goal in enumerate(edge_goals)
+                if goal is not None
+            ]
+            k = min(self.samples_per_state, len(all_candidates))
+            if k < len(all_candidates):
+                kept = set(self._score_rng.sample(all_candidates, k))
+                for e_idx, edge_goals in enumerate(goals_per_edge):
+                    for d_idx in range(len(edge_goals)):
+                        if (e_idx, d_idx) not in kept:
+                            edge_goals[d_idx] = None
+
+        if self.verbose:
+            kept_count = sum(
+                1 for edge_goals in goals_per_edge for g in edge_goals if g is not None
+            )
+            print(f"      🎲 RandomRollout: {kept_count} candidates (samples_per_state={self.samples_per_state})")
+
+        return goals_per_edge
+
+    @property
+    def strategy_name(self) -> str:
+        return "Random-Rollout Goal Generation"
+
+
 class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
     """Align diffusion goal samples with discrete primitive slots."""
 
@@ -1682,21 +1754,12 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
             try:
                 # Get the actual model and run a dummy forward pass
                 model = self._ml_strategy._goal_model
-                if model is not None and hasattr(model, 'model'):
-                    device = self._ml_strategy.device
-                    # Create dummy input matching model's expected shape
-                    # The model expects 5 context channels: static, movable, target, reachable, goal_region
-                    context_channels = 5
-                    dummy_input = torch.randn(1, context_channels, 64, 64, device=device)
-                    with torch.no_grad():
-                        # Run full inference with actual number of steps
-                        # This ensures all CUDA kernels are compiled
-                        _ = model.model.sample_from_model(
-                            dummy_input,
-                            samples=self._default_ml_samples,  # Use actual sample count
-                            num_steps=5  # Typical DDIM steps
-                        )
-                    torch.cuda.synchronize()
+                if model is not None and hasattr(model, 'warmup'):
+                    model.warmup(
+                        samples=self._default_ml_samples,
+                        num_steps=5,  # Typical DDIM steps
+                        repeats=1,
+                    )
                 else:
                     # Fallback to simple tensor warmup
                     device = self._ml_strategy.device

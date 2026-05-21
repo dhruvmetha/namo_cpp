@@ -51,7 +51,9 @@ std::vector<NominalPrimitive> generate_primitives_for_scene(
     int points_per_face,
     int control_steps,
     int max_push_steps,
-    double force_scaling
+    double force_scaling,
+    bool dynamic_direction,
+    double push_offset_margin
 ) {
     std::cout << "\n=== Generating primitives for " << scene_config.name << " ===" << std::endl;
     std::cout << "XML: " << scene_config.xml_path << std::endl;
@@ -72,8 +74,15 @@ std::vector<NominalPrimitive> generate_primitives_for_scene(
     env.set_robot_goal(robot_goal);
     
     // Create push controller
-    NAMOPushController push_controller(env, *wavefront_planner, max_push_steps, control_steps, force_scaling, points_per_face);
-    
+    NAMOPushController push_controller(env, *wavefront_planner, max_push_steps, control_steps, force_scaling, points_per_face, dynamic_direction);
+
+    // Apply config-driven push_offset_margin so generator-side edge points
+    // match what the skill runtime uses. Without this the controller falls
+    // back to its hardcoded default (0.02 m) — invisible at 6× scale (~3 mm
+    // real) but a 2 cm real gap at 1× scale, which makes the robot land
+    // far from the object face.
+    push_controller.set_push_offset_margin(push_offset_margin);
+
     // Get movable objects (should be our nominal object)
     std::array<std::string, 20> reachable_objects;
     size_t reachable_count;
@@ -128,10 +137,12 @@ std::vector<NominalPrimitive> generate_primitives_for_scene(
         
         // Generate primitives for all step counts (1 to max_push_steps) - pyramid approach
         for (int push_steps = 1; push_steps <= max_push_steps; push_steps++) {
+            std::cout << "  push_steps=" << push_steps << std::endl;
+
             // Reset environment to initial state for each primitive
             env.reset();
             env.step_simulation();
-            
+
             // Execute push primitive for this number of steps
             bool success = push_controller.execute_push_primitive(target_object, edge_idx, push_steps);
             
@@ -164,11 +175,9 @@ std::vector<NominalPrimitive> generate_primitives_for_scene(
             }
         }
         
-        // Pause between edges for observation
-        if (visualize) {
-            std::cout << "Press Enter to continue to next edge..." << std::endl;
-            std::cin.get();
-        }
+        // No interactive pause between edges — viewer just streams through.
+        // (Was: prompt + std::cin.get() to step through manually; removed
+        // because it blocks unattended runs.)
     }
     
     std::cout << "Generated " << all_primitives.size() << " primitives for " << scene_config.name << std::endl;
@@ -198,13 +207,49 @@ void save_primitives_to_file(const std::string& output_file, const std::vector<N
     std::cout << "File size: " << std::filesystem::file_size(output_file) << " bytes" << std::endl;
 }
 
-int main() {
+int main(int argc, char** argv) {
+    // CLI overrides:
+    //   --output <path>         -- replaces system.motion_primitives_file from
+    //                              config. Used to regenerate to a fresh
+    //                              filename without touching the .dat files
+    //                              the planner is currently wired to.
+    //   --scenes-suffix <text>  -- appended to each scene XML filename before
+    //                              .xml (e.g. "_1x" makes the generator look
+    //                              for nominal_primitive_scene_square_1x.xml).
+    //                              Defaults to "" (current scene set).
+    //                              Lets us host a 1×-scaled scene set
+    //                              alongside the existing 6× scenes without
+    //                              destructively overwriting either.
+    //   --config <path>         -- overrides the hardcoded config path. Use
+    //                              the 1× config when generating 1× primitives
+    //                              so push_velocity / stuck_threshold / grid
+    //                              resolutions match the scene scale. Without
+    //                              this, the generator runs with the 6× config
+    //                              and produces primitives whose magnitudes
+    //                              don't match the scaled-down scenes.
+    std::string output_override;
+    std::string scenes_suffix;
+    std::string config_override;
+    for (int i = 1; i + 1 < argc; ++i) {
+        if (std::string(argv[i]) == "--output") {
+            output_override = argv[i + 1];
+        } else if (std::string(argv[i]) == "--scenes-suffix") {
+            scenes_suffix = argv[i + 1];
+        } else if (std::string(argv[i]) == "--config") {
+            config_override = argv[i + 1];
+        }
+    }
+
     std::cout << "=== Multi-Scene Nominal Motion Primitive Generator ===" << std::endl;
     std::cout << "Generating primitives for multiple object shapes" << std::endl;
     
     try {
-        // Prefer unified config if present, fallback to minimal local config
-        std::string config_path = "config/namo_config_complete_skill15.yaml";
+        // Prefer unified config if present, fallback to minimal local config.
+        // --config overrides the hardcoded default (e.g. _1x.yaml when
+        // generating 1×-scale primitives).
+        std::string config_path = config_override.empty()
+            ? std::string("config/namo_config_complete_skill15.yaml")
+            : config_override;
         bool using_unified_config = std::filesystem::exists(config_path);
         
         if (!using_unified_config) {
@@ -229,11 +274,22 @@ resolution=0.05
         FastParameterLoader params(config_path);
         std::cout << "Configuration loaded from: " << config_path << std::endl;
         
-        // Define the three scenes to generate primitives for
+        // Define the three scenes to generate primitives for. When
+        // --scenes-suffix is provided, append it before .xml so we can host
+        // multiple scale variants (e.g. "_1x") side-by-side.
+        auto with_suffix = [&scenes_suffix](const std::string& base) {
+            if (scenes_suffix.empty()) return base;
+            const std::string dot_xml = ".xml";
+            if (base.size() > dot_xml.size() &&
+                base.compare(base.size() - dot_xml.size(), dot_xml.size(), dot_xml) == 0) {
+                return base.substr(0, base.size() - dot_xml.size()) + scenes_suffix + dot_xml;
+            }
+            return base + scenes_suffix;
+        };
         std::vector<SceneConfig> scenes = {
-            {"square", "data/nominal_primitive_scene_square.xml", "Square object (0.35x0.35m)"},
-            {"wide", "data/nominal_primitive_scene_wide.xml", "Wide object (0.45x0.25m)"},
-            {"tall", "data/nominal_primitive_scene_tall.xml", "Tall object (0.25x0.45m)"}
+            {"square", with_suffix("data/nominal_primitive_scene_square.xml"), "Square object"},
+            {"wide", with_suffix("data/nominal_primitive_scene_wide.xml"), "Wide object"},
+            {"tall", with_suffix("data/nominal_primitive_scene_tall.xml"), "Tall object"}
         };
         
         // Filter to only existing files, with fallback to legacy
@@ -289,6 +345,15 @@ resolution=0.05
         if (params.has_key("skill.control_steps_per_push")) {
             control_steps = params.get_int("skill.control_steps_per_push");
         }
+
+        // Extra spawn offset added to robot radius when computing edge points.
+        // Reads the same config key the runtime skill reads, so generator-side
+        // and skill-side edge points agree. Falls back to 0.02 (legacy default
+        // hardcoded in NAMOPushController) only when the config doesn't set it.
+        double push_offset_margin = 0.02;
+        if (params.has_key("planning.wavefront_edge_offset_margin")) {
+            push_offset_margin = params.get_double("planning.wavefront_edge_offset_margin");
+        }
         
         int max_push_steps = 10;
         if (params.has_key("motion_primitives.max_push_steps")) {
@@ -297,15 +362,31 @@ resolution=0.05
             max_push_steps = params.get_int("skill.max_push_steps");
         }
         
+        // Velocity command magnitude (m/s) under the <velocity> actuator.
+        // Prefer the new push_velocity key; fall back to legacy force_scaling.
         double force_scaling = 1.0;
-        if (params.has_key("skill.force_scaling")) {
+        if (params.has_key("skill.push_velocity")) {
+            force_scaling = params.get_double("skill.push_velocity");
+        } else if (params.has_key("skill.force_scaling")) {
             force_scaling = params.get_double("skill.force_scaling");
         }
-        
-        // Determine base output file
+
+        // Whether the controller re-derives push direction every tick.
+        bool dynamic_direction = true;
+        if (params.has_key("skill.dynamic_direction")) {
+            dynamic_direction = params.get_bool("skill.dynamic_direction");
+        }
+
+
+        // Determine base output file. CLI --output wins over the config
+        // setting; without either, default to a generic name.
         std::string base_output = "data/motion_primitives.dat";
         if (params.has_key("system.motion_primitives_file")) {
             base_output = params.get_string("system.motion_primitives_file");
+        }
+        if (!output_override.empty()) {
+            base_output = output_override;
+            std::cout << "Output overridden via --output: " << base_output << std::endl;
         }
         
         std::cout << "Generation parameters:" << std::endl;
@@ -314,32 +395,27 @@ resolution=0.05
         std::cout << "  Points per face: " << points_per_face << std::endl;
         std::cout << "  Control steps: " << control_steps << std::endl;
         std::cout << "  Max push steps: " << max_push_steps << std::endl;
-        std::cout << "  Force scaling: " << force_scaling << std::endl;
+        std::cout << "  Push velocity (m/s): " << force_scaling << std::endl;
+        std::cout << "  Dynamic direction: " << (dynamic_direction ? "true" : "false") << std::endl;
         std::cout << "  Base output: " << base_output << std::endl;
-        
+
         // Generate primitives for each scene
         for (const auto& scene : existing_scenes) {
             try {
                 auto primitives = generate_primitives_for_scene(
-                    scene, visualize, resolution, points_per_face, 
-                    control_steps, max_push_steps, force_scaling
+                    scene, visualize, resolution, points_per_face,
+                    control_steps, max_push_steps, force_scaling, dynamic_direction,
+                    push_offset_margin
                 );
                 
-                // Save to suffixed output file
+                // Save to suffixed output file. The base path is used as a
+                // PREFIX — only the shape-suffixed files are written, never
+                // a duplicate unsuffixed base file. The skill loads only
+                // the suffixed siblings; an unsuffixed base file would
+                // be a byte-duplicate of _square and a maintenance hazard.
                 std::string output_file = add_suffix_to_filename(base_output, scene.name);
                 save_primitives_to_file(output_file, primitives);
-                
-                // For backward compatibility: if this is the square scene, also write to base file
-                if (scene.name == "square" && output_file != base_output) {
-                    try {
-                        save_primitives_to_file(base_output, primitives);
-                        std::cout << "Also saved square primitives to base file: " << base_output << std::endl;
-                    } catch (const std::exception& e) {
-                        std::cout << "Warning: Failed to write base file: " << e.what() << std::endl;
-                        // Continue - the suffixed file is the primary output
-                    }
-                }
-                
+
             } catch (const std::exception& e) {
                 std::cerr << "Failed to generate primitives for scene " << scene.name << ": " << e.what() << std::endl;
                 // Continue with other scenes

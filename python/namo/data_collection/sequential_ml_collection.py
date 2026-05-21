@@ -154,48 +154,18 @@ def preload_ml_models(config: ModularCollectionConfig) -> Tuple[Optional[Any], O
         print(f"🔥 Warming up goal model (compiling CUDA kernels)...")
         warmup_start = time.time()
         try:
-            import torch
             num_samples = algo_params.get("ml_samples", 32)
             num_steps = algo_params.get("ml_num_steps") or 20
 
-            # Check if this is an SE2 model (outputs pose vectors) vs image model
-            is_se2_model = getattr(goal_model, 'is_se2_model', False)
-
-            if is_se2_model:
-                # SE2 models use sample_pose() with image context input
-                # Input: (batch=1, channels=5 or 7, height=224, width=224)
-                context_size = 224
-                num_channels = 7 if getattr(goal_model, 'use_coord_grid', False) else 5
-                dummy_input = torch.zeros(1, num_channels, context_size, context_size, device=device)
-
-                for i in range(3):
-                    with torch.no_grad():
-                        _ = goal_model.model.sample_pose(
-                            dummy_input,
-                            num_samples=num_samples,
-                            num_steps=num_steps,
-                            denormalize=True
-                        )
-            else:
-                # Image-based models use sample_from_model()
-                context_size = getattr(goal_model, 'context_size', 64)
-                dummy_input = torch.zeros(1, 5, context_size, context_size, device=device)
-
-                for i in range(3):
-                    with torch.no_grad():
-                        _ = goal_model.model.sample_from_model(
-                            dummy_input,
-                            samples=num_samples,
-                            num_steps=num_steps,
-                            seed=ml_seed
-                        )
-
-            # Synchronize CUDA to ensure all operations complete
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
+            goal_model.warmup(
+                samples=num_samples,
+                num_steps=num_steps,
+                seed=ml_seed,
+                repeats=3,
+            )
 
             warmup_time = time.time() - warmup_start
-            model_type = "SE2 pose" if is_se2_model else "image"
+            model_type = "SE2 pose" if getattr(goal_model, 'is_se2_model', False) else "image"
             print(f"✅ Goal model ({model_type}) warmed up in {warmup_time:.2f}s ({num_samples} samples x 3 runs)")
         except Exception as e:
             print(f"⚠️ Warmup failed (will warmup on first real inference): {e}")
@@ -280,13 +250,15 @@ def process_single_environment(
                 # Search
                 planner_result = planner.search(robot_goal)
 
-                # Handle Region Opening Results (multiple attempts)
+                # Handle planners that emit per-(object, neighbor) attempt_results
+                # (region_opening and uniform_rollout_sampler share this shape).
                 is_region_opening = task.algorithm == "region_opening"
-                
-                if is_region_opening and planner_result.algorithm_stats and 'attempt_results' in planner_result.algorithm_stats:
+                emits_attempt_results = task.algorithm in ("region_opening", "uniform_rollout_sampler")
+
+                if emits_attempt_results and planner_result.algorithm_stats and 'attempt_results' in planner_result.algorithm_stats:
                     for attempt_idx, attempt in enumerate(planner_result.algorithm_stats['attempt_results']):
                         attempt_episode_id = f"{episode_id}_neighbour_{attempt_idx}_{attempt.neighbour_region_label}"
-                        
+
                         # Convert attempt to action sequence
                         action_sequence = []
                         solution_depth = 0
@@ -307,11 +279,23 @@ def process_single_environment(
                                     )
                                 solution_depth = len(attempt.goal_chain)
                             elif attempt.chosen_goal:
+                                # Single push (sampler success path: goal_chain is None).
+                                # Backfill primitive identity from the first winning entry
+                                # in primitive_trial_log so action_sequence matches what
+                                # the trial log records — otherwise replay tools see None/None.
+                                winning_edge_idx = None
+                                winning_depth = None
+                                if attempt.primitive_trial_log:
+                                    for entry in attempt.primitive_trial_log:
+                                        if entry.get("success"):
+                                            winning_edge_idx = int(entry.get("edge_idx")) if entry.get("edge_idx") is not None else None
+                                            winning_depth = int(entry.get("depth")) if entry.get("depth") is not None else None
+                                            break
                                 action_sequence = [{
                                     "object_id": attempt.chosen_object_id,
                                     "target": attempt.chosen_goal,
-                                    "edge_idx": None,
-                                    "depth": None,
+                                    "edge_idx": winning_edge_idx,
+                                    "depth": winning_depth,
                                 }]
                                 solution_depth = 1
                         

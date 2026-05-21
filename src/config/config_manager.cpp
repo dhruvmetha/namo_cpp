@@ -3,6 +3,8 @@
 #include <filesystem>
 #include <stdexcept>
 #include <algorithm>
+#include <cmath>
+#include <sstream>
 
 namespace namo {
 
@@ -10,6 +12,7 @@ ConfigManager::ConfigManager(const std::string& config_file) {
     try {
         loader_ = std::make_unique<FastParameterLoader>(config_file);
         // std::cout << "ConfigManager: Loading configuration from " << config_file << std::endl;
+        validate_config_schema();
         
         // Load all configuration sections
         load_planning_config();
@@ -18,14 +21,23 @@ ConfigManager::ConfigManager(const std::string& config_file) {
         load_environment_config();
         load_system_config();
         load_optimization_config();
+        load_wavefront_inflation_config(config_file);
         
         validate_configuration();
         // std::cout << "ConfigManager: Configuration loaded successfully" << std::endl;
-        
+    } catch (const ConfigSchemaError&) {
+        throw;
     } catch (const std::exception& e) {
         // std::cerr << "ConfigManager: Failed to load config file '" << config_file 
                   // << "': " << e.what() << std::endl;
         // std::cout << "ConfigManager: Using default configuration" << std::endl;
+        loader_.reset();
+        planning_ = PlanningConfig{};
+        strategy_ = StrategyConfig{};
+        skill_ = SkillConfig{};
+        environment_ = EnvironmentConfig{};
+        system_ = SystemConfig{};
+        optimization_ = OptimizationConfig{};
         validate_configuration();
     }
 }
@@ -60,6 +72,9 @@ void ConfigManager::load_planning_config() {
     // Robot type
     if (loader_->has_key("planning.robot_type")) {
         planning_.robot_type = loader_->get_string("planning.robot_type");
+    }
+    if (loader_->has_key("planning.wavefront_edge_offset_margin")) {
+        planning_.wavefront_edge_offset_margin = loader_->get_double("planning.wavefront_edge_offset_margin");
     }
     
     // Grid limits
@@ -144,7 +159,13 @@ void ConfigManager::load_skill_config() {
     if (loader_->has_key("skill.force_scaling")) {
         skill_.force_scaling = loader_->get_double("skill.force_scaling");
     }
-    
+    if (loader_->has_key("skill.push_velocity")) {
+        skill_.push_velocity = loader_->get_double("skill.push_velocity");
+    }
+    if (loader_->has_key("skill.dynamic_direction")) {
+        skill_.dynamic_direction = loader_->get_bool("skill.dynamic_direction");
+    }
+
     // Execution parameters
     if (loader_->has_key("skill.goal_tolerance")) {
         skill_.goal_tolerance = loader_->get_double("skill.goal_tolerance");
@@ -157,6 +178,9 @@ void ConfigManager::load_skill_config() {
     }
     if (loader_->has_key("skill.check_object_collision")) {
         skill_.check_object_collision = loader_->get_bool("skill.check_object_collision");
+    }
+    if (loader_->has_key("skill.check_robot_trajectory_collision")) {
+        skill_.check_robot_trajectory_collision = loader_->get_bool("skill.check_robot_trajectory_collision");
     }
 
     // Controller-level stuck detection tuning
@@ -172,12 +196,6 @@ void ConfigManager::load_skill_config() {
     if (loader_->has_key("skill.controller_min_angle_change")) {
         skill_.controller_min_angle_change = loader_->get_double("skill.controller_min_angle_change");
     }
-
-    // Object interaction
-    if (loader_->has_key("skill.object_clearance")) {
-        skill_.object_clearance = loader_->get_double("skill.object_clearance");
-    }
-    
     // Edge point sampling - prefer points_per_face, fallback to num_edge_points
     if (loader_->has_key("skill.points_per_face")) {
         skill_.points_per_face = loader_->get_int("skill.points_per_face");
@@ -227,7 +245,7 @@ void ConfigManager::load_environment_config() {
 
 void ConfigManager::load_system_config() {
     if (!loader_) return;
-    
+
     // Performance options
     if (loader_->has_key("system.enable_visualization")) {
         system_.enable_visualization = loader_->get_bool("system.enable_visualization");
@@ -285,6 +303,82 @@ void ConfigManager::load_optimization_config() {
     }
 }
 
+void ConfigManager::load_wavefront_inflation_config(const std::string& primary_config_file) {
+    try {
+        const std::filesystem::path primary_path = std::filesystem::absolute(primary_config_file);
+        std::filesystem::path wavefront_path =
+            primary_path.parent_path() / "wavefront_inflation.yaml";
+
+        // Support both config locations:
+        //   - <config_dir>/wavefront_inflation.yaml
+        //   - <repo_root>/config/wavefront_inflation.yaml (when main config lives in python/config)
+        if (!std::filesystem::exists(wavefront_path)) {
+            std::filesystem::path cursor = primary_path.parent_path();
+            while (!cursor.empty()) {
+                const std::filesystem::path candidate = cursor / "config" / "wavefront_inflation.yaml";
+                if (std::filesystem::exists(candidate)) {
+                    wavefront_path = candidate;
+                    break;
+                }
+
+                if (cursor == cursor.root_path()) {
+                    break;
+                }
+                cursor = cursor.parent_path();
+            }
+        }
+
+        if (!std::filesystem::exists(wavefront_path)) {
+            // Discovery failed — fall back to the C++ defaults. Warn so the
+            // user notices when their config doesn't pick up sidecar values
+            // (e.g., main config loaded from an absolute path outside the
+            // repo tree, where the relative discovery walk can't find it).
+            std::cerr << "[ConfigManager] wavefront_inflation.yaml not found near "
+                      << primary_path.parent_path().string()
+                      << " — using defaults (tier1_inflation_margin="
+                      << planning_.wavefront_tier1_inflation_margin << ")\n";
+            return;
+        }
+
+        FastParameterLoader wavefront_loader(wavefront_path.string());
+        if (wavefront_loader.has_key("tier1.base_inflation_margin_m")) {
+            planning_.wavefront_tier1_inflation_margin =
+                wavefront_loader.get_double("tier1.base_inflation_margin_m");
+        }
+    } catch (const std::exception&) {
+        // Keep defaults if the auxiliary wavefront inflation config fails to load.
+    }
+}
+
+void ConfigManager::validate_config_schema() const {
+    if (!loader_) {
+        return;
+    }
+
+    std::vector<std::string> deprecated_keys;
+    if (loader_->has_key("skill.object_clearance")) {
+        deprecated_keys.emplace_back("skill.object_clearance");
+    }
+    if (loader_->has_key("skill.push_offset_margin")) {
+        deprecated_keys.emplace_back("skill.push_offset_margin");
+    }
+
+    if (deprecated_keys.empty()) {
+        return;
+    }
+
+    std::ostringstream message;
+    message << "Deprecated config key(s) not supported: ";
+    for (size_t i = 0; i < deprecated_keys.size(); ++i) {
+        if (i > 0) {
+            message << ", ";
+        }
+        message << deprecated_keys[i];
+    }
+    message << ". Use planning.wavefront_edge_offset_margin instead.";
+    throw ConfigSchemaError(message.str());
+}
+
 void ConfigManager::validate_configuration() const {
     // Validate critical parameters
     if (planning_.high_level_resolution <= 0 || planning_.skill_level_resolution <= 0) {
@@ -305,6 +399,25 @@ void ConfigManager::validate_configuration() const {
     
     if (planning_.robot_size.size() != 2) {
         throw std::invalid_argument("Planning robot size vector must have 2 dimensions");
+    }
+
+    if (planning_.wavefront_tier1_inflation_margin < 0.0) {
+        throw std::invalid_argument("Wavefront tier1 inflation margin must be non-negative");
+    }
+
+    if (planning_.wavefront_edge_offset_margin < 0.0) {
+        throw std::invalid_argument("Wavefront edge offset margin must be non-negative");
+    }
+
+    const double required_rotation_safe_gap =
+        std::sqrt(0.5) * planning_.skill_level_resolution;
+    const double actual_gap =
+        planning_.wavefront_edge_offset_margin - planning_.wavefront_tier1_inflation_margin;
+    if (actual_gap < required_rotation_safe_gap) {
+        throw std::invalid_argument(
+            "Unsafe wavefront edge offset configuration: "
+            "planning.wavefront_edge_offset_margin - wavefront tier1 inflation margin "
+            "must be >= sqrt(0.5) * skill_level_resolution");
     }
     
     // Environment bounds validation removed - bounds now calculated dynamically
@@ -345,10 +458,24 @@ void ConfigManager::print_configuration() const {
 bool ConfigManager::validate_paths() const {
     bool all_valid = true;
     
-    // Check motion primitives file
-    if (!std::filesystem::exists(system_.motion_primitives_file)) {
-        std::cerr << "Warning: Motion primitives file not found: " << system_.motion_primitives_file << std::endl;
-        all_valid = false;
+    // Check motion primitives files. The configured value is a base
+    // PREFIX (see NAMOPushSkill::initialize_skill); the actual files
+    // loaded are <prefix>_{square,wide,tall}.dat. Warn only if any of
+    // the shape-suffixed siblings are missing.
+    {
+        auto add_suffix = [](const std::string& base, const std::string& shape) {
+            auto dot = base.find_last_of('.');
+            return dot == std::string::npos
+                ? base + "_" + shape
+                : base.substr(0, dot) + "_" + shape + base.substr(dot);
+        };
+        for (const auto& shape : {"square", "wide", "tall"}) {
+            std::string path = add_suffix(system_.motion_primitives_file, shape);
+            if (!std::filesystem::exists(path)) {
+                std::cerr << "Warning: Motion primitives file not found: " << path << std::endl;
+                all_valid = false;
+            }
+        }
     }
     
     // Check default scene file

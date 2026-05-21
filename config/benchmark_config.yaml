@@ -12,7 +12,8 @@ planning:
   verbose: false                   # Enable verbose planning output
   
   # Robot physical properties
-  robot_size: [0.15, 0.15]          # [width, height] in meters for wavefront inflation
+  robot_size: [0.15, 0.15]          # [half_extent_x, half_extent_y] in meters for wavefront inflation
+  wavefront_edge_offset_margin: 0.15  # Unified robot-edge spawn margin beyond robot radius
   
   # Grid system limits
   max_bfs_queue: 100000            # Maximum BFS queue size
@@ -46,16 +47,14 @@ skill:
   max_push_steps: 10               # Maximum push steps per skill execution
   control_steps_per_push: 250      # Control simulation steps per push step
   force_scaling: 1.0               # Force scaling factor
-  robot_size: [0.15, 0.15, 0.15]  # [x, y, z] robot dimensions for skill planning
-  
+
   # Execution parameters
-  execution_timeout: 30.0          # Maximum skill execution time (seconds)
   goal_tolerance: 0.1              # Goal reaching tolerance (meters)
   stuck_threshold: 0.01            # Minimum movement to avoid stuck detection (meters)
   max_stuck_iterations: 3         # Maximum stuck iterations before failure
   
   # Object interaction parameters
-  object_clearance: 0.15            # Clearance around objects for edge point sampling (meters)
+  # Edge sampling count for push approach generation
   num_edge_points: 12              # Number of edge points around object perimeter
   # push_force_magnitude: 10.0       # REMOVED: unused parameter (force_scaling used instead)
 
@@ -105,23 +104,6 @@ simulation:
   camera_distance: 5.0             # Default camera distance
   camera_azimuth: 90.0             # Default camera azimuth (degrees)
   camera_elevation: -45.0          # Default camera elevation (degrees)
-
-# Wavefront planner specific configuration
-wavefront_planner:
-  resolution: 0.05                 # Grid resolution (inherited from planning.high_level_resolution)
-  robot_inflation: 0.1             # Robot inflation radius (meters)
-  
-  # Algorithm parameters
-  max_distance: 1000               # Maximum distance value in grid
-  diagonal_cost: 1.414             # Cost multiplier for diagonal moves (sqrt(2))
-  
-  # Performance optimization
-  enable_incremental_updates: true  # Use incremental updates vs full recomputation
-  cache_static_obstacles: true     # Cache static obstacle grid
-  
-  # Debug options
-  save_debug_grids: false          # Save wavefront grids for debugging
-  debug_grid_directory: "debug_grids/"  # Directory for debug grid files
 
 # Motion primitive configuration
 motion_primitives:

@@ -3,23 +3,26 @@
 #include "navigation/holonomic_navigation.hpp"
 #include "navigation/diff_drive_navigation.hpp"
 #include "navigation/qpos_dump.hpp"
+#include "wavefront/goal_tolerance_utils.hpp"
 #include <cmath>
 #include <iostream>
 #include <iomanip>
 
 namespace namo {
 
-NAMOPushController::NAMOPushController(NAMOEnvironment& env, 
+NAMOPushController::NAMOPushController(NAMOEnvironment& env,
                                      WavefrontPlanner& planner,
                                      int push_steps,
                                      int control_steps,
                                      double scaling,
-                                     int points_per_edge)
-    : env_(env), planner_(planner), 
+                                     int points_per_edge,
+                                     bool dynamic_direction)
+    : env_(env), planner_(planner),
       default_push_steps_(push_steps),
       control_steps_per_push_(control_steps),
-      force_scaling_(scaling),
-      points_per_edge_(points_per_edge) {
+      push_velocity_(scaling),
+      points_per_edge_(points_per_edge),
+      dynamic_direction_(dynamic_direction) {
     
     // Initialize robot size from wavefront planner (matches inflation)
     const auto& planner_robot_size = planner_.get_robot_size();
@@ -46,7 +49,8 @@ NAMOPushController::NAMOPushController(NAMOEnvironment& env,
     // std::cout << "NAMO Push Controller initialized:" << std::endl;
     // std::cout << "  Push steps: " << default_push_steps_ << std::endl;
     // std::cout << "  Control steps per push: " << control_steps_per_push_ << std::endl;
-    // std::cout << "  Force scaling: " << force_scaling_ << std::endl;
+    // std::cout << "  Push velocity (m/s): " << push_velocity_ << std::endl;
+    // std::cout << "  Dynamic direction: " << dynamic_direction_ << std::endl;
     // std::cout << "  Robot size: [" << robot_size_[0] << ", " << robot_size_[1] << ", " << robot_size_[2] << "]" << std::endl;
 }
 
@@ -97,9 +101,10 @@ void NAMOPushController::generate_rectangular_edge_points(const std::array<doubl
     double w = obj_size[0];  // width with margin
     double d = obj_size[1];  // depth with margin
 
-    
-    // Robot offset for close contact pushing
-    double offset = robot_size_[0] + 0.02; // offset = 0.02
+    // Robot offset for close contact pushing (rotation-safe radius + configurable margin)
+    const std::vector<double> robot_half_extents = {robot_size_[0], robot_size_[1]};
+    const double robot_radius = compute_rotation_safe_robot_radius_m(robot_half_extents);
+    double offset = robot_radius + push_offset_margin_;
     
     int n = points_per_edge_;
     double eps_u = std::min(0.05, 0.25 * w);  // margin from corners
@@ -201,11 +206,12 @@ std::array<double, 2> NAMOPushController::compute_push_control(const PushState& 
     // Use angle-based normalization like older implementation
     double angle = std::atan2(dy, dx);
     
-    // Apply scaling factor (matching older implementation's approach)
-    double scaling = force_scaling_; // Use configured scaling
+    // Under MuJoCo <velocity> actuators (current XML setup), this vector
+    // is interpreted as the desired robot velocity in m/s. The actuator
+    // tracks it inside the physics solver up to its forcerange limit.
     return {
-        scaling * std::cos(angle),
-        scaling * std::sin(angle)
+        push_velocity_ * std::cos(angle),
+        push_velocity_ * std::sin(angle)
     };
 }
 void NAMOPushController::print_stuck_ctrl_diag(int, int, double, double, int) {}
@@ -388,16 +394,21 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
             }
         }
     }
-    // ===== Diff-drive path: match the standalone primitive generator exactly =====
-    // Generator does: mj_resetData → place obj/car → 500 settle steps (ctrl=0) →
-    //                 push_steps * 250 sim steps continuous wheel drive →
-    //                 500 settle steps (ctrl=0). No mid-push velocity zeroing.
-    // We can't full-reset the sim at runtime (other objects matter), but we can mirror
-    // the velocity/control hygiene around this primitive.
-    bool diff_drive = env_.get_robot_adapter() && env_.get_robot_adapter()->is_diff_drive();
-    if (diff_drive) {
-        constexpr int kSettleSteps = 500;
-        constexpr int kSimStepsPerPushStep = 250;  // matches generator: 0.5s / 0.002s tick
+    // ===== Unified push execution (was Path A for car, Path B for sphere) =====
+    // Originally gated by is_diff_drive(): cars used one continuous loop ("Path
+    // A"), spheres used a nested per-push-step loop ("Path B"). The split made
+    // primitive .dat values encode different physics than the runtime sim for
+    // the sphere robot, even when both went through this same function.
+    // Unified to Path A semantics for all robots: zero velocities, pre-settle,
+    // compute control ONCE, continuous push of push_steps × control_steps_per_push_
+    // ticks (no mid-flight recomputation), post-settle. control_steps_per_push_
+    // is no longer hardcoded to 250 — uses control_steps_per_push_ from config
+    // so the sphere's 0.01s timestep × 75 ticks = 0.75s push step works
+    // correctly. Settle phase shrunk 500 → 50 ticks because at the sphere's
+    // 0.01s timestep, 50 × 0.01 = 0.5s damping is enough; the original 500
+    // was tuned for the car's 0.002s timestep (= 1s damping).
+    {
+        constexpr int kSettleSteps = 50;
 
         // 1) Zero all velocities (chassis + wheels + casters + every object) and stop wheel ctrl
         env_.set_zero_velocity();
@@ -424,7 +435,7 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
         env_.apply_robot_control(control[0], control[1]);
 
         // 5) Continuous push for push_steps × 250 sim ticks
-        const int total_sim_steps = push_steps * kSimStepsPerPushStep;
+        const int total_sim_steps = push_steps * control_steps_per_push_;
         std::array<double, 3> prev_pos_sample = obj_state0->position;
         std::array<double, 4> prev_quat_sample = obj_state0->quaternion;
         const auto robot_bodies = env_.get_robot_adapter()->get_collision_body_names();
@@ -442,7 +453,7 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
                 bool abort = update_stuck_counter_and_check_abort(
                     prev_pos_sample, prev_quat_sample,
                     obj_now->position, obj_now->quaternion,
-                    t / kSimStepsPerPushStep, t % kSimStepsPerPushStep);
+                    t / control_steps_per_push_, t % control_steps_per_push_);
                 if (abort) return false;
                 prev_pos_sample = obj_now->position;
                 prev_quat_sample = obj_now->quaternion;
@@ -499,162 +510,6 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
 
         return true;
     }
-
-    // ===== Point-robot path (unchanged) =====
-    env_.step_simulation();
-    env_.get_mujoco_wrapper()->notify_physics_step();  // Video recording hook
-
-    // Execute push steps
-    // Local stuck diagnostics for controller loop
-    int stuck_counter_ctrl = 0;
-    bool has_prev_sample = false;
-    std::array<double, 3> prev_pos_sample = {0.0, 0.0, 0.0};
-    std::array<double, 4> prev_quat_sample = {0.0, 0.0, 0.0, 1.0};
-    for (int step = 0; step < push_steps; ++step) {
-        // Get current object state
-        auto obj_state = env_.get_object_state(object_name);
-        if (!obj_state) {
-            std::cerr << "Lost object state during push execution" << std::endl;
-            return false;
-        }
-        
-        // Update push state based on current object position
-        update_push_state(push_state, obj_state->position, obj_state->size, obj_state->quaternion);
-        
-        // Apply control for multiple simulation steps (matching original control loop structure)
-        for (int ctrl_step = 0; ctrl_step < control_steps_per_push_; ++ctrl_step) {
-            // Get current object state - CRITICAL: update every control step like original
-            obj_state = env_.get_object_state(object_name);
-            if (!obj_state) {
-                std::cerr << "Lost object state during control step" << std::endl;
-                return false;
-            }
-            
-            // Update push state with current object position (matching original lines 80-81, 90-91)
-            update_push_state(push_state, obj_state->position, obj_state->size, obj_state->quaternion);
-            
-            // Get current robot position
-            auto robot_state = env_.get_robot_state();
-            
-            // Compute control forces based on updated push state
-            auto control = compute_push_control(push_state);
-            
-            // Debug output for first control step of each push step
-            if (ctrl_step == 0) {
-                // std::cout << "  Step " << step << ": Robot at [" 
-                          // << (robot_state ? robot_state->position[0] : 0.0) << ", "
-                          // << (robot_state ? robot_state->position[1] : 0.0) 
-                          // << "], Object at [" << obj_state->position[0] << ", " << obj_state->position[1]
-                          // << "], Control: [" << control[0] << ", " << control[1] << "]" << std::endl;
-            }
-            
-            // Apply control through environment dynamics system
-            env_.apply_control(control[0], control[1], 0.01);  // 0.01 second timestep
-            env_.get_mujoco_wrapper()->notify_physics_step();  // Video recording hook
-            dump_qpos(env_, /*phase=*/3);  // phase 3 = push execution
-
-            // Fetch updated object state AFTER applying control
-            auto obj_state_after = env_.get_object_state(object_name);
-            if (!obj_state_after) {
-                std::cerr << "Lost object state after control application" << std::endl;
-                return false;
-            }
-
-            // ---- Stuck diagnostics (controller-level) ----
-            // Check only every N control steps using snapshot copies (avoid aliasing same internal state)
-            if (ctrl_step % stuck_check_stride_ == 0) {
-                if (!has_prev_sample) {
-                    prev_pos_sample = obj_state_after->position;
-                    prev_quat_sample = obj_state_after->quaternion;
-                    has_prev_sample = true;
-                } else {
-                    // debug disabled
-                    bool abort = update_stuck_counter_and_check_abort(
-                        prev_pos_sample, prev_quat_sample,
-                        obj_state_after->position, obj_state_after->quaternion,
-                        step, ctrl_step
-                    );
-                    if (abort) {
-                        return false;
-                    }
-                    // Advance prev snapshot to current
-                    prev_pos_sample = obj_state_after->position;
-                    prev_quat_sample = obj_state_after->quaternion;
-                }
-            }
-
-            // Always track collisions for hardness metrics, but only terminate if check_object_collision_ is true
-            const auto robot_bodies_pp = env_.get_robot_adapter()->get_collision_body_names();
-
-            // Check ROBOT collision with static objects (walls) during push
-            for (size_t i = 0; i < num_static; i++) {
-                const auto& static_obj = static_objects[i];
-                for (const auto& rb : robot_bodies_pp) {
-                    if (env_.bodies_in_collision(rb, static_obj.body_name)) {
-                        wall_collision_during_push_ = true;
-                        last_failure_reason_ = "Robot collision during push with static object: " + static_obj.body_name + " (via " + rb + ")";
-                        last_collision_object_ = static_obj.body_name;
-                        return false;
-                    }
-                }
-            }
-
-            // Check ROBOT collision with OTHER movable objects during push
-            for (size_t i = 0; i < num_movable; i++) {
-                const auto& movable_obj = movable_objects[i];
-                if (movable_obj.name == object_name) continue;
-                for (const auto& rb : robot_bodies_pp) {
-                    if (env_.bodies_in_collision(rb, movable_obj.body_name)) {
-                        movable_collisions_during_push_.insert(movable_obj.name);
-                        last_failure_reason_ = "Robot collision during push with movable object: " + movable_obj.body_name + " (via " + rb + ")";
-                        last_collision_object_ = movable_obj.body_name;
-                        return false;
-                    }
-                }
-            }
-
-            // Check TARGET OBJECT collision with static objects (walls)
-            for (size_t i = 0; i < num_static; i++) {
-                const auto& static_obj = static_objects[i];
-                if (env_.bodies_in_collision(object_name, static_obj.body_name)) {
-                    wall_collision_during_push_ = true;
-                    if (check_object_collision_) {
-                        last_failure_reason_ = "Object collision during push with static object: " + static_obj.body_name;
-                        last_collision_object_ = static_obj.body_name;
-                        return false;
-                    }
-                    break;
-                }
-            }
-
-            // Check TARGET OBJECT collision with OTHER movable objects
-            for (size_t i = 0; i < num_movable; i++) {
-                const auto& movable_obj = movable_objects[i];
-                if (movable_obj.name != object_name && env_.bodies_in_collision(object_name, movable_obj.body_name)) {
-                    movable_collisions_during_push_.insert(movable_obj.name);
-                    if (check_object_collision_) {
-                        last_failure_reason_ = "Object collision during push with movable object: " + movable_obj.body_name;
-                        last_collision_object_ = movable_obj.body_name;
-                        return false;
-                    }
-                }
-            }
-        }
-
-        // Reset velocities between push steps
-        env_.set_zero_velocity();
-        env_.step_simulation();
-        env_.get_mujoco_wrapper()->notify_physics_step();  // Video recording hook
-        dump_qpos(env_, /*phase=*/3);
-    }
-
-    auto final_obj_state = env_.get_object_state(object_name);
-    if (final_obj_state) {
-        // std::cout << "Push completed. Object moved to: [" 
-                  // << final_obj_state->position[0] << ", " << final_obj_state->position[1] << "]" << std::endl;
-    }
-    
-    return true;
 }
 
 bool NAMOPushController::execute_action(const NAMOAction& action) {

@@ -73,8 +73,8 @@ OptimizationResult ActionSequenceOptimizer::optimize_sequence(
         return result;
     }
     
-    // Convert to ActionStep format
-    std::vector<ActionStep> action_steps;
+    // Convert to OptimizerActionStep format
+    std::vector<OptimizerActionStep> action_steps;
     action_steps.reserve(object_sequence.size());
     
     for (const auto& object_name : object_sequence) {
@@ -206,7 +206,7 @@ void ActionSequenceOptimizer::print_optimization_summary(const OptimizationResul
 
 bool ActionSequenceOptimizer::test_action_sequence(
     const std::vector<int>& sequence_indices,
-    const std::vector<ActionStep>& action_steps,
+    const std::vector<OptimizerActionStep>& action_steps,
     const SE2State& robot_goal,
     NAMOEnvironment& env,
     WavefrontPlanner& wavefront_planner,
@@ -221,7 +221,7 @@ bool ActionSequenceOptimizer::test_action_sequence(
             return false;  // Invalid index
         }
         
-        const ActionStep& action = action_steps[idx];
+        const OptimizerActionStep& action = action_steps[idx];
         if (!execute_single_action(action, env, skill)) {
             return false;  // Action execution failed
         }
@@ -233,7 +233,7 @@ bool ActionSequenceOptimizer::test_action_sequence(
 }
 
 bool ActionSequenceOptimizer::execute_single_action(
-    const ActionStep& action,
+    const OptimizerActionStep& action,
     NAMOEnvironment& env,
     NAMOPushSkill& skill) {
     
@@ -282,7 +282,7 @@ std::unique_ptr<OptimizationStrategy> ActionSequenceOptimizer::create_strategy(
 //=============================================================================
 
 OptimizationResult ReverseOrderStrategy::optimize(
-    const std::vector<ActionStep>& action_steps,
+    const std::vector<OptimizerActionStep>& action_steps,
     const SE2State& robot_goal,
     NAMOEnvironment& env,
     WavefrontPlanner& wavefront_planner,
@@ -313,7 +313,7 @@ OptimizationResult ReverseOrderStrategy::optimize(
                 return false;  // Invalid index
             }
             
-            const ActionStep& action = action_steps[idx];
+            const OptimizerActionStep& action = action_steps[idx];
             
             // Create parameters for skill execution
             std::map<std::string, SkillParameterValue> params;
@@ -431,7 +431,7 @@ OptimizationResult ReverseOrderStrategy::optimize(
 //=============================================================================
 
 OptimizationResult ExhaustiveStrategy::optimize(
-    const std::vector<ActionStep>& action_steps,
+    const std::vector<OptimizerActionStep>& action_steps,
     const SE2State& robot_goal,
     NAMOEnvironment& env,
     WavefrontPlanner& wavefront_planner,
@@ -445,7 +445,7 @@ OptimizationResult ExhaustiveStrategy::optimize(
 }
 
 OptimizationResult GreedyRemovalStrategy::optimize(
-    const std::vector<ActionStep>& action_steps,
+    const std::vector<OptimizerActionStep>& action_steps,
     const SE2State& robot_goal,
     NAMOEnvironment& env,
     WavefrontPlanner& wavefront_planner,

@@ -2,11 +2,17 @@
 
 #include "core/parameter_loader.hpp"
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 #include <array>
 
 namespace namo {
+
+class ConfigSchemaError : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
 
 /**
  * @brief Centralized configuration management for NAMO system
@@ -24,10 +30,14 @@ public:
 
         // Wavefront planning
         double skill_level_resolution = 0.02;    // 2cm grid for detailed planning
-        std::vector<double> robot_size = {0.15, 0.15};  // [width, height] for inflation
+        std::vector<double> robot_size = {0.15, 0.15};  // [half_extent_x, half_extent_y] in meters
 
         // Robot type: "holonomic" (default point robot) or "diff_drive" (car)
         std::string robot_type = "holonomic";
+
+        double wavefront_tier1_inflation_margin = 0.005;  // meters
+        double wavefront_edge_offset_margin = 0.020;      // meters beyond robot radius for edge spawn points
+
         std::vector<double> robot_goal = {0.5455398969960719, -0.8430872280407762};  // [x, y] for goal
         
         // Grid limits
@@ -61,12 +71,26 @@ public:
         int max_mpc_iterations = 10;
         int control_steps_per_push = 250;
         double force_scaling = 1.0;
-        
+
+        // Push velocity (m/s) when the actuator is MuJoCo <velocity>.
+        // compute_push_control() returns a vector of this magnitude in
+        // the push direction; the velocity actuator tracks it.
+        // Default 0.10 m/s ≈ 10 cm/s sim ≈ 1.7 cm/s real-equivalent at
+        // scale 6. See namo/velocity_actuator_experiment_log.md.
+        double push_velocity = 0.10;
+
+        // When true, the controller re-derives push direction from the
+        // current object pose every control tick (robot traces an arc
+        // as object yaws). When false, direction is fixed at primitive
+        // start (matches real-side push.py default).
+        bool dynamic_direction = true;
+
         // Skill execution
         double goal_tolerance = 0.1;             // meters
         double stuck_threshold = 0.01;           // meters - minimum movement to avoid stuck detection
         int max_stuck_iterations = 3;
         bool check_object_collision = true;      // Check pushed object collisions during execution
+        bool check_robot_trajectory_collision = true;  // Abort push if robot body collides with walls/other objects during push trajectory (set false to disable wall-collision rejection)
         // Controller-level stuck detection tuning
         int stuck_check_stride = 20;            // control steps between checks
         int controller_stuck_threshold = 3;     // number of stuck detections before abort
@@ -74,7 +98,6 @@ public:
         double controller_min_angle_change = 0.05;     // radians
         
         // Object interaction
-        double object_clearance = 0.1;           // meters around objects for edge point sampling
         int points_per_face = 3;                // points per object face (4 faces total)
         int num_edge_points = 12;               // points around object perimeter (backward compatibility)
     };
@@ -141,7 +164,8 @@ private:
     void load_environment_config();
     void load_system_config();
     void load_optimization_config();
-    
+    void load_wavefront_inflation_config(const std::string& primary_config_file);
+    void validate_config_schema() const;
     void validate_configuration() const;
 
 public:

@@ -1,0 +1,45 @@
+<?xml version="1.0" ?>
+<!--
+  1×-scale variant of nominal_primitive_scene_tall.xml. See
+  nominal_primitive_scene_square_1x.xml for the scaling convention.
+-->
+<mujoco model="nominal_primitive_generation_1x">
+  <option cone="elliptic" integrator="RK4" timestep="0.01"/>
+  <default>
+    <geom density="1"/>
+  </default>
+  <asset>
+    <texture builtin="gradient" height="3072" rgb1="0.3 0.5 0.7" rgb2="0 0 0" type="skybox" width="512"/>
+    <texture builtin="checker" height="300" mark="edge" markrgb="0.8 0.8 0.8" name="groundplane" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3" type="2d" width="300"/>
+    <material name="groundplane" reflectance="0.2" texrepeat="5 5" texture="groundplane" texuniform="true"/>
+    <material name="robot" rgba="1.0 1.0 0.0 1.0"/>
+  </asset>
+  <worldbody>
+    <light dir="0 0 -1" directional="true" pos="0 0 0.25"/>
+    <geom condim="4" friction="0.5 0.005 0.001" material="groundplane" name="floor" size="0 0 0.05" type="plane"/>
+
+    <!-- Robot positioned away from origin for primitive generation -->
+    <body name="robot">
+      <joint axis="1 0 0" name="joint_x" pos="0 0 0" type="slide"/>
+      <joint axis="0 1 0" name="joint_y" pos="0 0 0" type="slide"/>
+      <geom condim="4" friction="0.5 0.1 0.1" mass="5.0" name="robot" pos="-0.3333 0.0 0.05" size="0.035 0.035 0.035" type="sphere"/>
+    </body>
+
+    <!-- Tall object: 0.0417 x 0.075 m (depth > width) -->
+    <body name="obstacle_1_movable">
+      <geom condim="4" euler="0 0 0" friction="0 0.1 0.1" mass="0.1" name="obstacle_1_movable" pos="0.0 0.0 0.05" rgba="1 0 0 1" size="0.0417 0.075 0.05" type="box"/>
+      <joint type="free"/>
+    </body>
+    <body name="walls">
+      <geom condim="4" name="wall_1" pos="-0.8333 0.0 0.05" rgba="0.8 0.8 0.8 1" size="0.0083 0.8333 0.05" type="box"/>
+      <geom condim="4" name="wall_2" pos="0.8333 0.0 0.05" rgba="0.8 0.8 0.8 1" size="0.0083 0.8333 0.05" type="box"/>
+      <geom condim="4" name="wall_3" pos="0.0 -0.8333 0.05" rgba="0.8 0.8 0.8 1" size="0.8333 0.0083 0.05" type="box"/>
+      <geom condim="4" name="wall_4" pos="0.0 0.8333 0.05" rgba="0.8 0.8 0.8 1" size="0.8333 0.0083 0.05" type="box"/>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <velocity kv="50" ctrlrange="-0.5 0.5" forcerange="-20 20" joint="joint_x" name="actuator_x"/>
+    <velocity kv="50" ctrlrange="-0.5 0.5" forcerange="-20 20" joint="joint_y" name="actuator_y"/>
+  </actuator>
+</mujoco>

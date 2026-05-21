@@ -6,7 +6,7 @@ This implementation uses a clean 2-level hierarchy:
 
 Key principles:
 1. ObjectNodes are pure aggregation/selection nodes
-2. Only StateNodes (post-action) are simulation targets  
+2. Only StateNodes (post-action) are simulation targets
 3. Progressive Widening only at ObjectNode level (goal selection)
 4. Clean MCTS semantics: simulate only from executed action results
 
@@ -14,6 +14,8 @@ References:
 - Coulom, R. (2006). Efficient Selectivity and Backup Operators in Monte-Carlo Tree Search
 - Browne et al. (2012). A Survey of Monte Carlo Tree Search Methods
 """
+
+from __future__ import annotations  # defer annotation evaluation (e.g. Tree from optional `rich`)
 
 import math
 import random

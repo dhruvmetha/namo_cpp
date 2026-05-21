@@ -101,10 +101,23 @@ private:
     // Configuration parameters
     int default_push_steps_;
     int control_steps_per_push_;
-    double force_scaling_;
+    // Magnitude of the velocity command (m/s) emitted by compute_push_control.
+    // Under MuJoCo <velocity> actuators (the holonomic robot setup) this is
+    // tracked by the actuator inside the solver. Historic name was
+    // "force_scaling" from the motor-actuator era; semantics changed when
+    // we switched actuators in commit 61efd1e.
+    double push_velocity_;
     int points_per_edge_;
+    // When true, the controller re-derives push direction from current
+    // object pose every control tick (robot's world-frame path arcs as
+    // object yaws). When false, direction is set once at primitive start
+    // (robot drives straight in world frame; matches real-side
+    // push.py's default).
+    bool dynamic_direction_ = true;
     std::array<double, 3> robot_size_;
+    double push_offset_margin_ = 0.02;  // Additional offset beyond robot radius for spawn points
     bool check_object_collision_ = true;
+    bool check_robot_trajectory_collision_ = true;  // Robot-body collisions during push trajectory
     int stuck_ctrl_iterations_threshold_ = 3;   // controller-level stuck threshold (checks)
     int last_stuck_counter_ = 0;             // last observed stuck counter (for diagnostics)
     int stuck_check_stride_ = 20;            // check every N control steps
@@ -133,12 +146,13 @@ public:
      * @param scaling Force scaling factor
      * @param points_per_edge Number of approach points per edge (default 3)
      */
-    NAMOPushController(NAMOEnvironment& env, 
+    NAMOPushController(NAMOEnvironment& env,
                       WavefrontPlanner& planner,
                       int push_steps = 20,
                       int control_steps = 500,
                       double scaling = 0.5,
-                      int points_per_edge = 3);
+                      int points_per_edge = 3,
+                      bool dynamic_direction = true);
     
     /**
      * @brief Generate edge points for pushing an object
@@ -234,11 +248,30 @@ public:
     const std::string& get_last_collision_object() const { return last_collision_object_; }
 
     /**
-     * @brief Set collision checking mode
+     * @brief Set collision checking mode for pushed-object trajectory
      */
     void set_collision_checking(bool enabled) {
         check_object_collision_ = enabled;
     }
+
+    /**
+     * @brief Set whether robot-body collisions during push trajectory abort the push.
+     * Always-strict by design, but can be disabled for debugging / less-strict modes.
+     */
+    void set_robot_trajectory_collision_checking(bool enabled) {
+        check_robot_trajectory_collision_ = enabled;
+    }
+    bool get_robot_trajectory_collision_checking() const {
+        return check_robot_trajectory_collision_;
+    }
+
+    /**
+     * @brief Set push offset margin (additional distance beyond robot radius)
+     */
+    void set_push_offset_margin(double margin) {
+        push_offset_margin_ = margin;
+    }
+    double get_push_offset_margin() const { return push_offset_margin_; }
 
     /**
      * @brief Get whether wall was hit during last push

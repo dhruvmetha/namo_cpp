@@ -14,11 +14,7 @@ random_seed: 42
 # 0: random, 1: closest, 2: diffusion-based
 object_strategy: 1
 
-# Wavefront planner settings
-wavefront_planner:
-  resolution: 0.05
-
-# Control planner settings  
+# Control planner settings
 control_planner:
   distance_threshold: 0.1
   angle_threshold: 0.1

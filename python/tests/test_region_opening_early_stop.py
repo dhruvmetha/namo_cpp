@@ -58,7 +58,7 @@ def test_attempt_opening_stops_after_max_solutions(monkeypatch):
                 0,               # unique_movable_collision_count
             )
         ]
-        return successful_goals, 0, {"ML-only": 1}, "ML-only", False, 0
+        return successful_goals, 0, {"ML-only": 1}, "ML-only", False, 0, []
 
     monkeypatch.setattr(planner, "_search_with_chaining_bfs", _fake_search)
 
@@ -92,18 +92,22 @@ def test_explore_stops_after_first_neighbour_success(monkeypatch):
     )
     planner = RegionOpeningPlanner(env, config)
 
-    # Snapshot generation is heavy; stub it out at the module level.
+    # Snapshot generation is heavy; stub it out at the planner API boundary.
+    import namo.planners
     import namo.planners.opening.region_opening as region_opening_mod
 
     def _fake_snapshot(*_args, **_kwargs):
-        adjacency = {"region_0": {"region_1", "region_2"}}
-        edge_objects = {"region_0": {"region_1": {"obj1"}, "region_2": {"obj1"}}}
-        region_labels = {"robot": "region_0"}
-        region_goals = {}
-        return adjacency, edge_objects, region_labels, region_goals, None
+        return {
+            "adjacency": {"region_0": {"region_1", "region_2"}},
+            "edge_objects": {"region_0": {"region_1": {"obj1"}, "region_2": {"obj1"}}},
+            "region_labels": {1: "robot", 2: "region_1", 3: "region_2"},
+            "region_goals": {},
+            "robot_label": "region_0",
+            "goal_label": "",
+            "goal_in_free_space": False,
+        }
 
-    monkeypatch.setattr(region_opening_mod, "snapshot_region_connectivity", _fake_snapshot)
-    monkeypatch.setattr(region_opening_mod, "find_robot_label", lambda _labels: "region_0")
+    monkeypatch.setattr(namo.planners, "get_region_snapshot", _fake_snapshot)
 
     # Only the first neighbour returns a success.
     calls = []

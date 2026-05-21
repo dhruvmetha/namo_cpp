@@ -22,6 +22,31 @@ struct RLState {
 
 class RLEnvironment {
 public:
+    struct ObjectReachabilitySummary {
+        bool reachable = false;
+        int reachable_edges = 0;
+        int total_edges = 0;
+        int reachable_primitives = 0;
+        int total_primitives = 0;
+        std::vector<int> reachable_edge_indices;
+    };
+
+    struct ReachabilitySummary {
+        bool goal_reachable = false;
+        std::map<std::string, ObjectReachabilitySummary> objects;
+    };
+
+    struct RegionSnapshot {
+        std::unordered_map<std::string, std::unordered_set<std::string>> adjacency;
+        std::unordered_map<std::string, std::unordered_map<std::string, std::unordered_set<std::string>>> edge_objects;
+        std::unordered_map<int, std::string> region_labels;
+        std::unordered_map<std::string, RegionGoalBundle> region_goals;
+        std::string robot_label;
+        std::string goal_label;
+        bool goal_reachable = false;
+        bool goal_in_free_space = false;
+    };
+
     struct Action {
         std::string object_id;
         double x, y, theta;
@@ -35,24 +60,11 @@ public:
         std::map<std::string, std::string> info;
     };
 
-    /// Result of a free-space nav-only call (no push).
-    struct NavigateResult {
-        bool success = false;
-        std::string failure_reason;     // "no_path", "rotation timeout", etc.
-        std::string collision_object;
-        int steps_used = 0;
-        double final_x = 0.0, final_y = 0.0, final_theta = 0.0;
-        double pos_error_m = 0.0;       // ||goal - final||
-        double yaw_error_rad = 0.0;     // wrap(target_theta - final_theta)
-    };
+    // NavigateResult struct and navigate_to() declaration removed: the impl
+    // was deleted in commit 254e5c7 (2026-04-14, "Unify wavefront semantics
+    // and C++ region snapshot") and no consumer exists — all Python
+    // navigation goes through robot_control's NavigationController.
 
-    /// Free-space navigation only — no push, no skill, no Action.
-    /// 1. Compute wavefront from current robot pose to (x, y).
-    /// 2. Extract a 2D path.
-    /// 3. Run DiffDriveNavigation::execute (state machine: rotate-drive
-    ///    per segment, then final rotate to `theta`).
-    /// 4. Return outcome + final pose error.
-    NavigateResult navigate_to(double x, double y, double theta);
 
     RLEnvironment(const std::string& xml_path, const std::string& config_path, bool visualize = false);
     ~RLEnvironment();
@@ -75,6 +87,7 @@ public:
     std::vector<std::string> get_reachable_objects() const;
     bool is_object_reachable(const std::string& object_name) const;
     std::vector<int> get_reachable_edges(const std::string& object_name) const;
+    ReachabilitySummary get_reachability_summary(bool analysis_mode = false) const;
 
     // Edge point queries (for visualization)
     std::vector<std::array<double, 2>> get_edge_points(const std::string& object_name) const;
@@ -97,6 +110,7 @@ public:
 
     // Collision checking control (for region opening planner)
     void set_collision_checking(bool enable);
+    void set_robot_trajectory_collision_checking(bool enable);
     bool get_collision_checking() const;
 
     // Robot goal termination control (defaults to false)
@@ -138,6 +152,12 @@ public:
 
     std::tuple<RegionAdjacency, RegionEdgeObjects, RegionLabels> get_region_connectivity() const;
     RegionGoalSamples sample_region_goals(int goals_per_region) const;
+    RegionSnapshot get_region_snapshot(
+        int goals_per_region = 0,
+        double goal_radius = -1.0,
+        bool local_info_only = false,
+        unsigned int seed = 42,
+        bool use_xml_goal = true) const;
 
     const std::string& get_xml_path() const { return xml_path_; }
     const std::string& get_config_path() const { return config_path_; }

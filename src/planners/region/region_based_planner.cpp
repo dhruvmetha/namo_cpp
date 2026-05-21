@@ -267,8 +267,9 @@ void RegionBasedPlanner::load_configuration() {
         // Use planning section for some values
         const auto& planning_config = config_->planning();
         
-        // Adapt existing configuration values where possible
-        goal_tolerance_ = std::min(goal_tolerance_, planning_config.position_threshold * 1000.0); // Convert to reasonable scale
+        // Use skill goal tolerance from config
+        const auto& skill_config = config_->skill();
+        goal_tolerance_ = skill_config.goal_tolerance;
         
         // std::cout << "RegionBasedPlanner: Using default configuration with some adapted values" << std::endl;
         

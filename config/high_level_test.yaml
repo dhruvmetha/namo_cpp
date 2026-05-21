@@ -7,7 +7,7 @@ planning:
   max_iterations: 10
   verbose: true
   robot_size: [0.15, 0.15]
-  robot_goal: [0.54, -0.84]
+  wavefront_edge_offset_margin: 0.1  # Unified robot-edge spawn margin beyond robot radius
   max_bfs_queue: 100000
   max_grid_width: 2000
   max_grid_height: 2000
@@ -32,12 +32,9 @@ skill:
   max_mpc_iterations: 2
   control_steps_per_push: 250
   force_scaling: 1.0
-  robot_size: [0.15, 0.15, 0.15]
-  execution_timeout: 30.0
   goal_tolerance: 0.1
   stuck_threshold: 0.01
   max_stuck_iterations: 3
-  object_clearance: 0.1
   num_edge_points: 12
 
 environment:
@@ -68,16 +65,6 @@ simulation:
   camera_distance: 5.0
   camera_azimuth: 90.0
   camera_elevation: -45.0
-
-wavefront_planner:
-  resolution: 0.01
-  robot_inflation: 0.05
-  max_distance: 1000
-  diagonal_cost: 1.414
-  enable_incremental_updates: true
-  cache_static_obstacles: true
-  save_debug_grids: false
-  debug_grid_directory: "debug_grids/"
 
 motion_primitives:
   max_push_steps: 10

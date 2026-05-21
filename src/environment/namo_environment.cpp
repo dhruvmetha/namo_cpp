@@ -1,6 +1,7 @@
 #include "environment/namo_environment.hpp"
 #include "robot/holonomic_adapter.hpp"
 #include "robot/diff_drive_adapter.hpp"
+#include "wavefront/goal_tolerance_utils.hpp"
 #include <iostream>
 #include <filesystem>
 #include <algorithm>
@@ -503,17 +504,51 @@ void NAMOEnvironment::disable_logging() {
 }
 
 std::vector<double> NAMOEnvironment::get_environment_bounds() const {
-    // Start with minimum bounds of [-2,-2] to [2,2]
-    std::vector<double> bounds = {
-        -2.0,  // x_min
-         2.0,  // x_max
-        -2.0,  // y_min
-         2.0   // y_max
-    };
-    
-    // Include static objects
+    // Extract workspace bounds from boundary walls (wall_1 to wall_4)
+    // These define the inner playable area
+    double x_min = -1e9, x_max = 1e9, y_min = -1e9, y_max = 1e9;
+    bool found_walls = false;
+
     for (size_t i = 0; i < num_static_; i++) {
         const auto& obj = static_objects_[i];
+
+        // Use boundary walls to define workspace limits
+        if (obj.name == "wall_1") {  // Left wall
+            x_min = obj.position[0] + obj.size[0];  // Inner edge
+            found_walls = true;
+        } else if (obj.name == "wall_2") {  // Right wall
+            x_max = obj.position[0] - obj.size[0];  // Inner edge
+            found_walls = true;
+        } else if (obj.name == "wall_3") {  // Bottom wall
+            y_min = obj.position[1] + obj.size[1];  // Inner edge
+            found_walls = true;
+        } else if (obj.name == "wall_4") {  // Top wall
+            y_max = obj.position[1] - obj.size[1];  // Inner edge
+            found_walls = true;
+        }
+    }
+
+    // If no boundary walls found, use robot position as fallback
+    if (!found_walls) {
+        double robot_x = robot_state_.position[0];
+        double robot_y = robot_state_.position[1];
+        x_min = robot_x - 0.5;
+        x_max = robot_x + 0.5;
+        y_min = robot_y - 0.5;
+        y_max = robot_y + 0.5;
+    }
+
+    std::vector<double> bounds = {x_min, x_max, y_min, y_max};
+
+    // Expand bounds with other static objects (skip boundary walls)
+    for (size_t i = 0; i < num_static_; i++) {
+        const auto& obj = static_objects_[i];
+
+        // Skip boundary walls - already processed above
+        if (obj.name == "wall_1" || obj.name == "wall_2" ||
+            obj.name == "wall_3" || obj.name == "wall_4") {
+            continue;
+        }
         
         double half_width = obj.size[0] * 0.5;
         double half_height = obj.size[1] * 0.5;
@@ -571,14 +606,14 @@ std::vector<double> NAMOEnvironment::get_environment_bounds() const {
     double robot_x = robot_state_.position[0];
     double robot_y = robot_state_.position[1];
     double robot_radius = robot_info_.size[0]; // Use robot radius for bounds
-    
+
     bounds[0] = std::min(bounds[0], robot_x - robot_radius);  // Expand x_min if needed
     bounds[1] = std::max(bounds[1], robot_x + robot_radius);  // Expand x_max if needed
     bounds[2] = std::min(bounds[2], robot_y - robot_radius);  // Expand y_min if needed
     bounds[3] = std::max(bounds[3], robot_y + robot_radius);  // Expand y_max if needed
     
-    // Add padding
-    const double PADDING = 0.5;
+    // Add small padding for small workspaces (2cm)
+    const double PADDING = 0.02;
     bounds[0] -= PADDING;
     bounds[1] += PADDING;
     bounds[2] -= PADDING;
@@ -587,8 +622,10 @@ std::vector<double> NAMOEnvironment::get_environment_bounds() const {
     return bounds;
 }
 
-void NAMOEnvironment::visualize_edge_reachability(const std::string& object_name, 
-                                                const std::vector<int>& reachable_edges) {
+void NAMOEnvironment::visualize_edge_reachability(
+    const std::string& object_name,
+    const std::vector<int>& reachable_edges,
+    double edge_offset_margin_m) {
     // Get object state
     const ObjectState* obj_state = get_object_state(object_name);
     if (!obj_state) {
@@ -605,7 +642,14 @@ void NAMOEnvironment::visualize_edge_reachability(const std::string& object_name
     double x = obj_state->position[0], y = obj_state->position[1];
     double w = obj_state->size[0] - 0.05;  // width with margin
     double d = obj_state->size[1] - 0.05;  // depth with margin
-    double offset = robot_info_.size[0] + 0.05; // robot radius + margin
+    std::vector<double> robot_half_extents = {
+        robot_info_.size[0],
+        robot_info_.size[1],
+    };
+    const double rotation_safe_robot_radius =
+        compute_rotation_safe_robot_radius_m(robot_half_extents);
+    const double margin = (edge_offset_margin_m > 0.0) ? edge_offset_margin_m : 0.020;
+    const double offset = rotation_safe_robot_radius + margin;
     
     // Generate 12 edge points (same pattern as push controller)
     std::array<std::array<double, 2>, 12> local_edge_points = {{
@@ -778,19 +822,26 @@ void NAMOEnvironment::save_objects_to_file(const std::string& filename) const {
     file.close();
 }
 
-void NAMOEnvironment::visualize_goal_marker(const std::array<double, 3>& goal_position, 
-                                           const std::array<float, 4>& color) {
+void NAMOEnvironment::visualize_goal_marker(
+    const std::array<double, 3>& goal_position,
+    const std::array<float, 4>& color,
+    double goal_radius_m) {
     if (!sim_) return;
     
     // Visualization-only marker for the current robot goal (also used by region-opening
     // scripts to show the sampled neighbour-region goal). Use a sphere so it matches the
     // XML `<site name="goal" type="sphere" ...>` style that users are familiar with.
     //
-    // Radius chosen to approximately match the reachability goal radius used by the
-    // wavefront snapshot utilities (default goal_radius=0.15).
-    constexpr double kGoalVizRadius = 0.15;
+    std::vector<double> robot_half_extents = {
+        robot_info_.size[0],
+        robot_info_.size[1],
+    };
+    const double auto_goal_radius =
+        compute_goal_tolerance_m(robot_half_extents, kDefaultWavefrontTier1MarginM);
+    const double goal_viz_radius = (goal_radius_m > 0.0) ? goal_radius_m : auto_goal_radius;
+
     std::array<double, 4> orientation = {1.0, 0.0, 0.0, 0.0}; // Identity quaternion
-    std::array<double, 3> size = {kGoalVizRadius, kGoalVizRadius, kGoalVizRadius};
+    std::array<double, 3> size = {goal_viz_radius, goal_viz_radius, goal_viz_radius};
     int geom_type = 2; // mjGEOM_SPHERE = 2
     
     sim_->set_goal_marker(goal_position, orientation, size, geom_type);

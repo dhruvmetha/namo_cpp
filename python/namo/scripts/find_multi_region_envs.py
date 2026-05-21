@@ -28,9 +28,10 @@ from typing import Dict, List, Optional, Set, Tuple
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root / "python"))
-
-import namo_rl
+from namo.core.binding_loader import load_canonical_namo_rl
 from namo.visualization.wavefront_snapshot import WavefrontSnapshotExporter
+
+namo_rl, module_path, expected_build = load_canonical_namo_rl(project_root)
 
 
 def find_shortest_path_length(
@@ -82,7 +83,7 @@ def analyze_environment(
         snapshot = exporter.build_snapshot(
             xml_path=xml_path,
             config_path=config_path,
-            goal_radius=0.15,
+            goal_radius=None,  # auto: sqrt(hx^2 + hy^2) + tier1_margin
             goals_per_region=0,
             use_current_state=False,
         )

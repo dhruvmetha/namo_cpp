@@ -1,74 +1,54 @@
-# Fast Region Connectivity Helper
+# Unified Region Snapshot (C++-First)
 
-This note documents the snapshot-based helper that exposes wavefront region connectivity to Python planners without touching the C++ skill code.
+This note documents the planner-facing region/connectivity snapshot API.
+
+Cell-value conventions are documented in [`WAVEFRONT_CELL_SEMANTICS.md`](WAVEFRONT_CELL_SEMANTICS.md).
 
 ## Overview
-- Module: `namo.planners.connectivity_snapshot`
-- Entry point: `snapshot_region_connectivity(env, xml_path, config_path, *, goal_radius=0.15, include_snapshot=False)`
-- Planner helper: `namo.planners.get_region_connectivity(env)` now prefers the snapshot route automatically when the environment exposes `get_xml_path()` and `get_config_path()`.
+- Primary API (C++ binding): `env.get_region_snapshot(...)`
+- Python helper: `namo.planners.get_region_snapshot(...)`
+- Planner wrappers:
+  - `namo.planners.get_region_connectivity(...)`
+  - `namo.planners.get_region_goal_samples(...)`
 
-## Returned Data
-The helper returns a tuple `(adjacency, edge_objects, region_labels, snapshot)` where:
-- `adjacency` maps region labels to neighbouring region labels (`Dict[str, Set[str]]`).
-- `edge_objects` maps `(region -> neighbour)` pairs to movable object names that unblock that edge (`Dict[str, Dict[str, Set[str]]]`).
-- `region_labels` maps numeric IDs to human readable names (`Dict[int, str]`).
-- `snapshot` is a `WavefrontSnapshot` when `include_snapshot=True`, otherwise `None`.
+The Python helper prefers the C++ unified API and only falls back to Python raster snapshotting when explicitly requested (`use_cpp_unified=False`) or when the binding is unavailable.
 
-These structures mirror the outputs previously produced by the C++ `WavefrontGrid` implementation, so existing planners can consume them without modification.
+## C++ API Shape
+`env.get_region_snapshot(goals_per_region=0, goal_radius=-1.0, local_info_only=False, seed=42, use_xml_goal=True)` returns:
+- `adjacency`: `Dict[str, Set[str]]`
+- `edge_objects`: `Dict[str, Dict[str, Set[str]]]`
+- `region_labels`: `Dict[int, str]`
+- `region_goals`: `Dict[str, {"points": List[(x, y, theta)], "blocking_objects": List[str]}]`
+- `robot_label`: `str`
+- `goal_label`: `str`
+- `goal_reachable`: `bool`
+- `goal_in_free_space`: `bool`
 
-## Usage Example
+## Usage
 ```python
-from namo.planners import get_region_connectivity
+from namo.planners import get_region_snapshot
 
-# "env" is an active namo_rl.RLEnvironment
-adjacency, edge_objects, labels = get_region_connectivity(env)
-```
-
-The helper automatically:
-1. Calls the snapshot exporter (`WavefrontSnapshotExporter`) when the environment was constructed through the Python bindings (fast path).
-2. Falls back to the legacy `env.get_region_connectivity()` C++ binding when XML/config paths are unavailable (e.g., custom environments).
-
-## Console Helper
-For quick inspection without writing a script, use the module runner:
-
-```bash
-python -m scripts.snapshot_connectivity_cli \
-    --xml /common/users/shared/robot_learning/dm1487/namo/mj_env_configs/aug9/easy/set1/benchmark_1/env_config_100a.xml \
-    --config python/config/namo_config.yaml \
-    --max-regions 5 --verbose
-```
-
-Flags:
-- `--max-regions` controls how many regions to print (`-1` prints all).
-- `--verbose` includes blocking object details per edge.
-- `--resolution` and `--goal-radius` mirror the helper kwargs when tuning the snapshot.
-
-## Performance Notes
-- Snapshot export reuses NumPy-based rasterisation and avoids round-tripping through pybind.
-- In local tests the fast path completes in milliseconds, even on large benchmark scenes.
-- The exporter temporarily resets MuJoCo to gather geometry. Cache planner state before calling it if you depend on transient simulation changes.
-
-## Prerequisites
-Activate the MuJoCo virtual environment before importing `namo` modules:
-```bash
-workon mujoco
-export PYTHONPATH=/path/to/namo_cpp/python:$PYTHONPATH
-```
-Replace the `PYTHONPATH` snippet with the workspace-specific path if different.
-
-## Validation
-A simple inline script can validate the helper:
-```python
-from namo.planners import snapshot_region_connectivity
-from namo_rl import RLEnvironment
-
-env = RLEnvironment("templates/benchmark_empty.xml", "config/simple_test.yaml", seed=0)
-adj, edge_objects, labels, _ = snapshot_region_connectivity(
+snapshot = get_region_snapshot(
     env,
-    env.get_xml_path(),
-    env.get_config_path(),
+    goals_per_region=10,
+    use_cpp_unified=True,
+    goal_radius=None,  # auto: sqrt(hx^2 + hy^2) + tier1_margin
+    seed=42,
 )
-print(f"regions: {len(adj)}")
-print(f"robot neighbours: {sorted(adj['robot'])}")
+
+adjacency = snapshot["adjacency"]
+edge_objects = snapshot["edge_objects"]
+region_labels = snapshot["region_labels"]
+robot_label = snapshot["robot_label"]
+goal_reachable = snapshot["goal_reachable"]
 ```
-The output should list a small number of regions and neighbours, confirming the helper is wired correctly.
+
+## Determinism
+- Region-goal sampling is seeded (`seed` argument).
+- Region traversal and representative point selection are deterministic.
+
+## Fallback / Debug Path
+Legacy Python snapshotting remains available through:
+- `namo.planners.connectivity_snapshot.snapshot_region_connectivity(...)`
+
+Use this for parity checks or debugging only; execution planners should consume the unified C++ snapshot path.

@@ -4,6 +4,17 @@ Context for Claude Code when working with NAMO (Navigation Among Movable Obstacl
 
 **→ For data collection instructions, see [DATA_COLLECTION_GUIDE.md](DATA_COLLECTION_GUIDE.md)**
 
+## How to talk to me
+
+Default to plain English. Short, sharp sentences. No jargon unless I'm already using it back at you. If you have to use a technical term, give the one-sentence intuition the first time. Walls of text are a failure mode — prefer a 3-line answer with a "want more?" hook over a 30-line essay I have to skim. Code snippets and numbers belong in the answer when they're load-bearing, not as decoration.
+
+## Python Environment
+
+- Use `/common/home/tdn39/.virtualenvs/mujoco/bin/python` for Python commands in this repo.
+- Do not default to system `python` or `python3`.
+- When commands need the compiled bindings or in-repo Python package, prefer `PYTHONPATH="$PWD/build_python:$PWD/python"` with that interpreter.
+- After changing files under `src/`, `include/`, or `python/namo/cpp_bindings/`, rebuild the canonical module with `MJ_PATH=/common/home/tdn39/mujoco/mujoco-3.3.6 ./build_python_bindings.sh` before running Python validation.
+
 ## Core Architecture
 
 ### C++ Backend (High-Performance Physics & Planning)
@@ -62,7 +73,7 @@ python python/namo/visualization/visual_test_single.py \
 ### Build C++ Components
 **Always use the build script** (not cmake directly):
 ```bash
-./build_python_mjxrl.sh
+./build_python_bindings.sh
 ```
 This script handles all CMake configuration, environment setup, and builds the `namo_rl` Python module.
 

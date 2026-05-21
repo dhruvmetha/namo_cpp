@@ -18,13 +18,13 @@ class ConfigManager;
 /**
  * @brief Represents a single action step in an optimization sequence
  */
-struct ActionStep {
+struct OptimizerActionStep {
     std::string object_name;
     SE2State target_state;      // Where we want to move the object
     SE2State final_state;       // Where the object actually ended up
     bool execution_success;     // Whether the action succeeded
     
-    ActionStep(const std::string& name, const SE2State& target, const SE2State& final, bool success)
+    OptimizerActionStep(const std::string& name, const SE2State& target, const SE2State& final, bool success)
         : object_name(name), target_state(target), final_state(final), execution_success(success) {}
 };
 
@@ -65,7 +65,7 @@ public:
     virtual ~OptimizationStrategy() = default;
     
     virtual OptimizationResult optimize(
-        const std::vector<ActionStep>& action_steps,
+        const std::vector<OptimizerActionStep>& action_steps,
         const SE2State& robot_goal,
         NAMOEnvironment& env,
         WavefrontPlanner& wavefront_planner,
@@ -89,7 +89,7 @@ public:
         : timeout_seconds_(timeout), max_sequence_length_(max_length) {}
     
     OptimizationResult optimize(
-        const std::vector<ActionStep>& action_steps,
+        const std::vector<OptimizerActionStep>& action_steps,
         const SE2State& robot_goal,
         NAMOEnvironment& env,
         WavefrontPlanner& wavefront_planner,
@@ -113,7 +113,7 @@ public:
         : timeout_seconds_(timeout), max_sequence_length_(max_length) {}
     
     OptimizationResult optimize(
-        const std::vector<ActionStep>& action_steps,
+        const std::vector<OptimizerActionStep>& action_steps,
         const SE2State& robot_goal,
         NAMOEnvironment& env,
         WavefrontPlanner& wavefront_planner,
@@ -136,7 +136,7 @@ public:
         : timeout_seconds_(timeout) {}
     
     OptimizationResult optimize(
-        const std::vector<ActionStep>& action_steps,
+        const std::vector<OptimizerActionStep>& action_steps,
         const SE2State& robot_goal,
         NAMOEnvironment& env,
         WavefrontPlanner& wavefront_planner,
@@ -161,7 +161,7 @@ private:
     // Helper methods
     bool test_action_sequence(
         const std::vector<int>& sequence_indices,
-        const std::vector<ActionStep>& action_steps,
+        const std::vector<OptimizerActionStep>& action_steps,
         const SE2State& robot_goal,
         NAMOEnvironment& env,
         WavefrontPlanner& wavefront_planner,
@@ -169,7 +169,7 @@ private:
     );
     
     bool execute_single_action(
-        const ActionStep& action,
+        const OptimizerActionStep& action,
         NAMOEnvironment& env,
         NAMOPushSkill& skill
     );

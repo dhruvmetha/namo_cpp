@@ -6,23 +6,25 @@ planning:
   skill_level_resolution: 0.005   # Finer grid for smaller robot
   robot_size: [0.052, 0.052]      # Diagonal half-reach of the 7x7.6cm car (sqrt(3.5^2 + 3.8^2) ≈ 5.17cm) — covers corner extent so diagonal pinch points are correctly marked occupied.
   robot_type: "diff_drive"
+  wavefront_edge_offset_margin: 0.03  # Unified robot-edge spawn margin beyond robot radius
 
 skill:
   max_push_steps: 10
   max_mpc_iterations: 1
   # Match primitive generator: one push step = 250 sim steps (0.5s).
   # apply_control runs 5 sim steps per ctrl call (0.01s / 0.002s tick) → 50 ctrl × 5 = 250 sim steps.
-  # force_scaling = 0.2 m/s → wheel cmd = 0.2 / 0.015 = 13.333 rad/s (no ctrlrange clamp).
+  # push_velocity = 0.2 m/s → wheel cmd = 0.2 / 0.015 = 13.333 rad/s (no ctrlrange clamp).
   # Primitives must also be regenerated at --push-speed 13.333 to stay aligned.
   control_steps_per_push: 50
-  force_scaling: 0.2
+  push_velocity: 0.2              # m/s — replaces legacy force_scaling for <velocity> actuators
+  dynamic_direction: false        # diff-drive can't strafe — fix push direction at primitive start
   goal_tolerance: 0.03            # Tighter tolerance for small robot
   check_object_collision: false     # Disabled — region_opening sets this dynamically
+  check_robot_trajectory_collision: false  # Disabled — diff-drive body arcs during push; grazing aborts every approach
   stuck_check_stride: 80           # Car needs time to cross gap to object
   controller_stuck_threshold: 5    # More lenient — car pushes intermittently
   controller_min_position_change: 0.0003
   controller_min_angle_change: 0.05
-  object_clearance: 0.03
   points_per_face: 15
 
 system:
