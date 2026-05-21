@@ -2,6 +2,7 @@
 
 #include "core/types.hpp"
 #include "environment/namo_environment.hpp"
+#include "navigation/push_path_follower.hpp"
 #include "wavefront/wavefront_planner.hpp"
 #include "navigation/navigation_strategy.hpp"
 #include <array>
@@ -139,6 +140,7 @@ private:
 
     // Navigation strategy (holonomic = teleport, diff-drive = rotate-drive-rotate)
     std::unique_ptr<NavigationStrategy> nav_strategy_;
+    std::unique_ptr<PushPathFollower> push_path_follower_;
 
 public:
     /**
@@ -366,6 +368,19 @@ private:
                                              const std::array<double, 4>& curr_quat,
                                              int step,
                                              int ctrl_step);
+
+    PushPathFollower::Pose get_current_robot_pose() const;
+    std::vector<std::array<double, 2>> build_push_tracking_path(
+        const PushState& state,
+        const std::array<double, 2>& actual_pos) const;
+    void log_push_path(
+        int tick,
+        const std::vector<std::array<double, 2>>& push_path) const;
+    void log_push_control(
+        int tick,
+        double omega_left,
+        double omega_right,
+        PushPathFollower::Mode mode) const;
 };
 
 } // namespace namo

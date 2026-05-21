@@ -182,9 +182,9 @@ std::vector<NominalPrimitive> generate_primitives_for_scene(
     // sphere geom's `pos="-0.3333 …"`, so the holonomic adapter sees the
     // robot 33 cm from the obstacle at origin. Car scenes include little_car.xml
     // which spawns the car body at (0, 0, 0.01) — overlapping the obstacle at
-    // origin. env.reset() reverts MuJoCo to the XML spawn, so even after the
-    // one-time teleport above, every per-edge reset puts the car back inside
-    // the obstacle. Re-teleport after every reset.
+    // origin. This tool uses a plain post-construction teleport rather than
+    // the deferred-warmup API, so env.reset() correctly returns to the ctor
+    // baseline (the XML spawn). Re-teleport after every reset.
     const std::array<double, 2> robot_spawn_offset = {-0.3333, 0.0};
 
     // After teleport, the car body's z stays at the XML's spawn z (= 0.01 m

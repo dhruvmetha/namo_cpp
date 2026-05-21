@@ -4,9 +4,18 @@
 #include "navigation/diff_drive_navigation.hpp"
 #include "navigation/qpos_dump.hpp"
 #include "wavefront/goal_tolerance_utils.hpp"
+#include <algorithm>
 #include <cmath>
-#include <iostream>
 #include <iomanip>
+#include <iostream>
+
+namespace {
+
+constexpr double kPushLookaheadRatio = 0.3;
+constexpr double kPushGoalToleranceRatio = 0.3;
+constexpr double kPushPathExtendDistanceM = 0.50;
+
+}  // namespace
 
 namespace namo {
 
@@ -43,6 +52,27 @@ NAMOPushController::NAMOPushController(NAMOEnvironment& env,
         nav_strategy_ = std::make_unique<DiffDriveNavigation>(DiffDriveNavigation::Params{});
     } else {
         nav_strategy_ = std::make_unique<HolonomicNavigation>();
+    }
+
+    if (adapter && adapter->is_diff_drive()) {
+        const double full_width = 2.0 * std::abs(robot_size_[0]);
+        const double full_height = 2.0 * std::abs(robot_size_[1]);
+        const double car_size = std::max(
+            std::max(full_width, full_height),
+            1e-6);
+
+        PushPathFollower::Params follower_params;
+        follower_params.robot_width_m = (full_width > 0.0) ? full_width : 0.07;
+        follower_params.robot_height_m = (full_height > 0.0) ? full_height : 0.07;
+        follower_params.wheel_base_m =
+            (adapter->get_wheelbase() > 0.0) ? adapter->get_wheelbase() : 0.075;
+        follower_params.lookahead_distance_m = kPushLookaheadRatio * car_size;
+        follower_params.goal_tolerance_m = kPushGoalToleranceRatio * car_size;
+        follower_params.max_speed = 1.0;
+        follower_params.max_point_gap_ratio = 0.01;
+        follower_params.no_skip_ratio = 0.5;
+        follower_params.wheel_deadband = 0.05;
+        push_path_follower_ = std::make_unique<PushPathFollower>(follower_params);
     }
 
     // Pre-allocate memory pools (they're already initialized as empty)
@@ -274,6 +304,75 @@ void NAMOPushController::update_push_state(PushState& state,
     }
 }
 
+PushPathFollower::Pose NAMOPushController::get_current_robot_pose() const {
+    PushPathFollower::Pose pose;
+    const auto* adapter = env_.get_robot_adapter();
+    const auto* sim = env_.get_mujoco_wrapper();
+    if (!adapter || !sim) {
+        return pose;
+    }
+
+    const auto xy = adapter->get_xy(sim->model(), sim->data());
+    pose.x_m = xy[0];
+    pose.y_m = xy[1];
+    pose.theta_rad = adapter->get_theta(sim->model(), sim->data());
+    return pose;
+}
+
+std::vector<std::array<double, 2>> NAMOPushController::build_push_tracking_path(
+    const PushState& state,
+    const std::array<double, 2>& actual_pos) const {
+    const double dx = state.current_mid_point[0] - state.current_edge_point[0];
+    const double dy = state.current_mid_point[1] - state.current_edge_point[1];
+    const double length = std::hypot(dx, dy);
+
+    if (length <= 1e-6) {
+        return {actual_pos, state.current_mid_point, state.current_mid_point};
+    }
+
+    const double dir_x = dx / length;
+    const double dir_y = dy / length;
+    const std::array<double, 2> shifted_mid = {
+        actual_pos[0] + dir_x * length,
+        actual_pos[1] + dir_y * length,
+    };
+    const std::array<double, 2> extended_target = {
+        shifted_mid[0] + dir_x * kPushPathExtendDistanceM,
+        shifted_mid[1] + dir_y * kPushPathExtendDistanceM,
+    };
+    return {actual_pos, shifted_mid, extended_target};
+}
+
+void NAMOPushController::log_push_path(
+    int tick,
+    const std::vector<std::array<double, 2>>& push_path) const {
+    if (!std::getenv("NAMO_NAV_LOG")) {
+        return;
+    }
+
+    std::cerr << "[PUSH_PATH] " << tick;
+    for (const auto& point : push_path) {
+        std::cerr << " " << point[0] << "," << point[1];
+    }
+    std::cerr << std::endl;
+}
+
+void NAMOPushController::log_push_control(
+    int tick,
+    double omega_left,
+    double omega_right,
+    PushPathFollower::Mode mode) const {
+    if (!std::getenv("NAMO_NAV_LOG")) {
+        return;
+    }
+
+    std::cerr << "[PUSH_CTRL] " << tick
+              << " " << omega_left
+              << " " << omega_right
+              << " " << PushPathFollower::mode_name(mode)
+              << std::endl;
+}
+
 bool NAMOPushController::execute_push_primitive(const std::string& object_name,
                                                int edge_idx,
                                                int push_steps) {
@@ -414,10 +513,19 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
         // nav-strategy teleport. Configurable via set_settle_steps() so
         // visualization runs can shrink it for faster iteration.
         const int kSettleSteps = settle_steps_override_ > 0 ? settle_steps_override_ : 500;
+        const auto* robot_adapter = env_.get_robot_adapter();
+        const bool use_diff_drive_tracking =
+            robot_adapter && robot_adapter->is_diff_drive() && push_path_follower_;
 
         // 1) Zero all velocities (chassis + wheels + casters + every object) and stop wheel ctrl
         env_.set_zero_velocity();
-        env_.apply_robot_control(0.0, 0.0);
+        if (use_diff_drive_tracking) {
+            env_.apply_wheel_control(0.0, 0.0);
+            push_path_follower_->reset();
+            push_path_follower_->set_speed(1.0);
+        } else {
+            env_.apply_robot_control(0.0, 0.0);
+        }
 
         // 2) Pre-push settle
         for (int i = 0; i < kSettleSteps; ++i) {
@@ -434,18 +542,52 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
         }
         update_push_state(push_state, obj_state0->position, obj_state0->size, obj_state0->quaternion);
 
-        // 4) Compute push control once and command wheels (direction discarded by adapter,
-        //    only magnitude == force_scaling drives wheel rad/s)
-        auto control = compute_push_control(push_state);
-        env_.apply_robot_control(control[0], control[1]);
+        // 4) For holonomic robots keep the legacy held push command.
+        if (!use_diff_drive_tracking) {
+            auto control = compute_push_control(push_state);
+            env_.apply_robot_control(control[0], control[1]);
+        }
 
-        // 5) Continuous push for push_steps × 250 sim ticks
+        // 5) Continuous push for push_steps × control_steps_per_push_ sim ticks
         const int total_sim_steps = push_steps * control_steps_per_push_;
         std::array<double, 3> prev_pos_sample = obj_state0->position;
         std::array<double, 4> prev_quat_sample = obj_state0->quaternion;
         const auto robot_bodies = env_.get_robot_adapter()->get_collision_body_names();
+        const double wheel_radius =
+            (robot_adapter && robot_adapter->get_wheel_radius() > 0.0)
+                ? robot_adapter->get_wheel_radius()
+                : 0.015;
 
         for (int t = 0; t < total_sim_steps; ++t) {
+            if (use_diff_drive_tracking) {
+                if (dynamic_direction_ || t == 0) {
+                    auto obj_for_path = env_.get_object_state(object_name);
+                    if (!obj_for_path) {
+                        return false;
+                    }
+                    update_push_state(
+                        push_state,
+                        obj_for_path->position,
+                        obj_for_path->size,
+                        obj_for_path->quaternion);
+
+                    const PushPathFollower::Pose robot_pose = get_current_robot_pose();
+                    const std::array<double, 2> actual_pos = {robot_pose.x_m, robot_pose.y_m};
+                    const auto push_path = build_push_tracking_path(push_state, actual_pos);
+                    push_path_follower_->set_path(push_path);
+                    push_path_follower_->set_speed(1.0);
+                    log_push_path(t, push_path);
+                }
+
+                const PushPathFollower::Pose robot_pose = get_current_robot_pose();
+                const double timestamp_s = env_.get_mujoco_wrapper()->data()->time;
+                const auto follower_step = push_path_follower_->step(robot_pose, timestamp_s);
+                const double left_omega = (follower_step.left_speed * push_velocity_) / wheel_radius;
+                const double right_omega = (follower_step.right_speed * push_velocity_) / wheel_radius;
+                env_.apply_wheel_control(left_omega, right_omega);
+                log_push_control(t, left_omega, right_omega, follower_step.mode);
+            }
+
             env_.step_simulation();
             env_.get_mujoco_wrapper()->notify_physics_step();
             dump_qpos(env_, /*phase=*/3);
@@ -506,7 +648,11 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
         }
 
         // 6) Stop wheels and post-push settle
-        env_.apply_robot_control(0.0, 0.0);
+        if (use_diff_drive_tracking) {
+            env_.apply_wheel_control(0.0, 0.0);
+        } else {
+            env_.apply_robot_control(0.0, 0.0);
+        }
         for (int i = 0; i < kSettleSteps; ++i) {
             env_.step_simulation();
             env_.get_mujoco_wrapper()->notify_physics_step();

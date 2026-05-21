@@ -63,11 +63,16 @@ PYBIND11_MODULE(namo_rl, m) {
              "overlaps obstacles (e.g. car planning, where the included "
              "little_car.xml fixes the freejoint spawn at the origin). "
              "After teleporting the robot to a safe pose with "
-             "set_robot_pose(), call warm_up() explicitly to settle physics.")
+             "set_robot_pose(), call warm_up() explicitly to settle physics "
+             "and establish the state that later reset() calls restore.")
         .def("warm_up", &namo::RLEnvironment::warm_up,
              "Run the post-load 3-tick physics warm-up. Only needed when the "
-             "env was constructed with skip_warmup=True.")
-        .def("reset", &namo::RLEnvironment::reset)
+             "env was constructed with skip_warmup=True. The first explicit "
+             "call also establishes the initialized reset baseline.")
+        .def("reset", &namo::RLEnvironment::reset,
+             "Reset to the initialized baseline state. For skip_warmup=True "
+             "this returns to the first post-teleport warm_up() state, not "
+             "the raw XML spawn.")
         .def("step", &namo::RLEnvironment::step, py::arg("action"))
         // navigate_to binding removed: the C++ impl was deleted in commit 254e5c7
         // ("Unify wavefront semantics..."), 2026-04-14, but the header decl + this

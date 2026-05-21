@@ -33,14 +33,16 @@ public:
     /// XML may load the robot in a state that overlaps obstacles (e.g. car planning,
     /// where the freejoint spawn lives inside the included little_car.xml and can't be
     /// parameterised through a top-level <include>). The caller is then responsible for
-    /// teleporting the robot to a safe pose and invoking warm_up() explicitly.
+    /// teleporting the robot to a safe pose and invoking warm_up() explicitly; that
+    /// first explicit warm_up() becomes the reset baseline for later reset() calls.
     NAMOEnvironment(const std::string& xml_path, std::shared_ptr<ConfigManager> config,
                     bool visualize = false, bool enable_logging = false,
                     bool skip_warmup = false);
 
     /// Run the 3-tick physics warm-up that the constructors normally invoke. Public so
     /// that callers who passed skip_warmup=true can run it themselves after teleporting
-    /// the robot to a safe pose.
+    /// the robot to a safe pose. For deferred-warmup envs, the first explicit call also
+    /// establishes the post-warmup reset baseline that reset() restores.
     void warm_up();
 
     /**
@@ -51,6 +53,9 @@ public:
     // Simulation control
     void step(const Control& control, double dt);
     void step_simulation();
+    /// Reset to the initialized baseline state. For normal startup this is the settled
+    /// post-constructor state; for deferred-warmup startup it is the first explicit
+    /// post-teleport warm_up() state.
     void reset();
     void update_object_states();
     
@@ -89,6 +94,7 @@ public:
 
     // Robot control
     void apply_robot_control(double control_x, double control_y);
+    void apply_wheel_control(double omega_left, double omega_right);
     void set_robot_control(double control_x, double control_y);
     void apply_control(double control_x, double control_y, double dt);
 
@@ -246,12 +252,16 @@ private:
     // Full state management (zero-allocation)
     FullSimState saved_full_state_;
     bool has_saved_full_state_ = false;
+    FullSimState reset_baseline_;
+    bool has_reset_baseline_ = false;
+    bool reset_baseline_capture_pending_ = false;
     
     static constexpr size_t LOG_BUFFER_SIZE = 100000;
     std::array<char, LOG_BUFFER_SIZE> log_buffer_;
     size_t log_position_ = 0;
     
     // Initialization helpers
+    void capture_reset_baseline();
     void init_robot_from_adapter();   // Read robot info using adapter
     void process_environment_objects();
     

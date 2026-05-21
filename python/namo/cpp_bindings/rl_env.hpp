@@ -72,11 +72,14 @@ public:
     /// Run the env's post-load physics warm-up explicitly. Only needed when
     /// the env was constructed with skip_warmup=true (e.g. car planning,
     /// where the caller teleports the robot to a safe pose before allowing
-    /// physics to integrate).
+    /// physics to integrate). That first explicit warm_up() also establishes
+    /// the initialized state that later reset() calls restore.
     void warm_up();
     ~RLEnvironment();
 
     // Standard RL methods
+    /// Reset to the initialized baseline state. For skip_warmup=true this is
+    /// the first post-teleport warm_up() state, not the raw XML spawn.
     void reset();
     StepResult step(const Action& action);
     std::map<std::string, std::vector<double>> get_observation() const;
@@ -108,11 +111,10 @@ public:
 	    // Override the robot's pose loaded from the XML. Needed for car
 	    // (diff-drive) planning where the freejoint spawn position lives
 	    // inside the included little_car.xml and can't be parameterized
-	    // through a top-level <include>. The bridge calls this once
-	    // right after the env is constructed, with the live observation
-	    // pose, so the planner searches from the correct starting state.
-	    // Sphere XMLs bake the pose into the geom directly and don't
-	    // need this call.
+	    // through a top-level <include>. Call this before the first explicit
+	    // warm_up() when using skip_warmup=true so reset() returns to the
+	    // correct initialized pose thereafter. Sphere XMLs bake the pose
+	    // into the geom directly and don't need this call.
 	    void set_robot_pose(double x, double y, double theta);
 
 	    // Robot goal management for MCTS
