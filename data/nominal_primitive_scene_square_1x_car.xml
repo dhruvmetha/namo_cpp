@@ -1,0 +1,60 @@
+<?xml version="1.0" ?>
+<!--
+  1×-scale car variant of nominal_primitive_scene_square.xml.
+
+  Identical to nominal_primitive_scene_square_1x.xml except the robot
+  body is a diff-drive car instead of a holonomic sphere. Same world
+  (floor + walls + obstacle), same physical parameters (obstacle mass,
+  friction, dimensions), same MuJoCo timestep. Only the robot — its
+  body, joints, and actuators — differs.
+
+  - The sphere `<body name="robot">` + slide joints + sphere geom are
+    replaced with `<include>` of little_car.xml, which brings in the
+    car chassis, wheels, casters, and wheel velocity actuators.
+  - The sphere actuator block is dropped (little_car.xml has its own).
+  - The asset block keeps the "robot" material entry unused; harmless
+    and lets us share asset definitions verbatim across scenes.
+
+  Selected by the generator with --scenes-suffix 1x_car.
+-->
+<mujoco model="nominal_primitive_generation_square_1x_car">
+  <!-- Stable car-contact dynamics: implicitfast + 100 solver iterations + 2 ms
+       timestep. RK4 + 10 ms (the sphere setting) causes wheel-floor contact
+       to bounce, casters to wobble, and the chassis to yaw rapidly during
+       what should be a straight push. Matches the Python car-primitive
+       generator's option block. -->
+  <option cone="elliptic" integrator="implicitfast" iterations="100" timestep="0.002"/>
+  <default>
+    <geom density="1"/>
+  </default>
+  <asset>
+    <texture builtin="gradient" height="3072" rgb1="0.3 0.5 0.7" rgb2="0 0 0" type="skybox" width="512"/>
+    <texture builtin="checker" height="300" mark="edge" markrgb="0.8 0.8 0.8" name="groundplane" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3" type="2d" width="300"/>
+    <material name="groundplane" reflectance="0.2" texrepeat="5 5" texture="groundplane" texuniform="true"/>
+    <material name="robot" rgba="1.0 1.0 0.0 1.0"/>
+  </asset>
+  <!-- Diff-drive car body, wheels, casters + their actuators. Lives at
+       top level (NOT inside worldbody) because little_car.xml carries a
+       <compiler> element that MuJoCo only accepts as a model-level child;
+       a worldbody-nested include errors out with "Schema violation:
+       unrecognized element compiler". The car body itself ends up in
+       worldbody after merging. -->
+  <include file="../test_xml/little-car-modeling-package/assets/mjcf/little_car.xml"/>
+
+  <worldbody>
+    <light dir="0 0 -1" directional="true" pos="0 0 0.25"/>
+    <geom condim="4" friction="0.5 0.005 0.001" material="groundplane" name="floor" size="0 0 0.05" type="plane"/>
+
+    <!-- Square object: 0.0583 x 0.0583 m (= 0.35 / 6) -->
+    <body name="obstacle_1_movable">
+      <geom condim="4" euler="0 0 0" friction="0 0.1 0.1" mass="0.1" name="obstacle_1_movable" pos="0.0 0.0 0.05" rgba="1 0 0 1" size="0.0583 0.0583 0.05" type="box"/>
+      <joint type="free"/>
+    </body>
+    <body name="walls">
+      <geom condim="4" name="wall_1" pos="-0.8333 0.0 0.05" rgba="0.8 0.8 0.8 1" size="0.0083 0.8333 0.05" type="box"/>
+      <geom condim="4" name="wall_2" pos="0.8333 0.0 0.05" rgba="0.8 0.8 0.8 1" size="0.0083 0.8333 0.05" type="box"/>
+      <geom condim="4" name="wall_3" pos="0.0 -0.8333 0.05" rgba="0.8 0.8 0.8 1" size="0.8333 0.0083 0.05" type="box"/>
+      <geom condim="4" name="wall_4" pos="0.0 0.8333 0.05" rgba="0.8 0.8 0.8 1" size="0.8333 0.0083 0.05" type="box"/>
+    </body>
+  </worldbody>
+</mujoco>

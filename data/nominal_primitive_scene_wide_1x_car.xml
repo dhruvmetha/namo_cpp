@@ -1,0 +1,40 @@
+<?xml version="1.0" ?>
+<!--
+  1×-scale car variant of nominal_primitive_scene_wide.xml. See
+  nominal_primitive_scene_square_1x_car.xml for the rationale; only
+  the obstacle dimensions differ from the square variant.
+-->
+<mujoco model="nominal_primitive_generation_wide_1x_car">
+  <!-- See square_1x_car.xml — stable car contact requires implicitfast +
+       iterations=100 + 0.002 s timestep. -->
+  <option cone="elliptic" integrator="implicitfast" iterations="100" timestep="0.002"/>
+  <default>
+    <geom density="1"/>
+  </default>
+  <asset>
+    <texture builtin="gradient" height="3072" rgb1="0.3 0.5 0.7" rgb2="0 0 0" type="skybox" width="512"/>
+    <texture builtin="checker" height="300" mark="edge" markrgb="0.8 0.8 0.8" name="groundplane" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3" type="2d" width="300"/>
+    <material name="groundplane" reflectance="0.2" texrepeat="5 5" texture="groundplane" texuniform="true"/>
+    <material name="robot" rgba="1.0 1.0 0.0 1.0"/>
+  </asset>
+  <!-- Diff-drive car body. See square_1x_car.xml for why this lives at
+       top level rather than inside worldbody. -->
+  <include file="../test_xml/little-car-modeling-package/assets/mjcf/little_car.xml"/>
+
+  <worldbody>
+    <light dir="0 0 -1" directional="true" pos="0 0 0.25"/>
+    <geom condim="4" friction="0.5 0.005 0.001" material="groundplane" name="floor" size="0 0 0.05" type="plane"/>
+
+    <!-- Wide object: 0.075 x 0.0417 m (width > depth) -->
+    <body name="obstacle_1_movable">
+      <geom condim="4" euler="0 0 0" friction="0 0.1 0.1" mass="0.1" name="obstacle_1_movable" pos="0.0 0.0 0.05" rgba="1 0 0 1" size="0.075 0.0417 0.05" type="box"/>
+      <joint type="free"/>
+    </body>
+    <body name="walls">
+      <geom condim="4" name="wall_1" pos="-0.8333 0.0 0.05" rgba="0.8 0.8 0.8 1" size="0.0083 0.8333 0.05" type="box"/>
+      <geom condim="4" name="wall_2" pos="0.8333 0.0 0.05" rgba="0.8 0.8 0.8 1" size="0.0083 0.8333 0.05" type="box"/>
+      <geom condim="4" name="wall_3" pos="0.0 -0.8333 0.05" rgba="0.8 0.8 0.8 1" size="0.8333 0.0083 0.05" type="box"/>
+      <geom condim="4" name="wall_4" pos="0.0 0.8333 0.05" rgba="0.8 0.8 0.8 1" size="0.8333 0.0083 0.05" type="box"/>
+    </body>
+  </worldbody>
+</mujoco>
