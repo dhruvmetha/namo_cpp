@@ -1,7 +1,5 @@
 #include "planning/namo_push_controller.hpp"
 #include "core/mujoco_wrapper.hpp"
-#include "navigation/holonomic_navigation.hpp"
-#include "navigation/diff_drive_navigation.hpp"
 #include "navigation/qpos_dump.hpp"
 #include "wavefront/goal_tolerance_utils.hpp"
 #include <algorithm>
@@ -39,20 +37,11 @@ NAMOPushController::NAMOPushController(NAMOEnvironment& env,
     robot_size_[1] = planner_robot_size.size() > 1 ? planner_robot_size[1] : 0.15;
     robot_size_[2] = 0.0;  // z not used for 2D planning
     
-    // Create navigation strategy based on robot type.
-    // Default: teleport (HolonomicNavigation) for ALL robots — fast, geometry-focused,
-    // good for data collection where we care about the push outcome.
-    // Opt-in real diff-drive nav: set NAMO_REAL_NAV=1 — use when you need kinematic
-    // realism (videos, evaluation, sim-to-real). Legacy NAMO_FORCE_TELEPORT_NAV=1
-    // is still honored but is now a no-op (default behavior).
+    // Navigation is teleport-only in sim (point robot and car alike): we
+    // snap the robot to the final waypoint of the wavefront path and let
+    // physics settle. Kinematic diff-drive navigation lived in a separate
+    // strategy and has been removed.
     auto adapter = env_.get_robot_adapter();
-    const char* real_nav_env = std::getenv("NAMO_REAL_NAV");
-    bool use_real_nav = real_nav_env && std::string(real_nav_env) == "1";
-    if (adapter && adapter->is_diff_drive() && use_real_nav) {
-        nav_strategy_ = std::make_unique<DiffDriveNavigation>(DiffDriveNavigation::Params{});
-    } else {
-        nav_strategy_ = std::make_unique<HolonomicNavigation>();
-    }
 
     if (adapter && adapter->is_diff_drive()) {
         const double full_width = 2.0 * std::abs(robot_size_[0]);
@@ -432,31 +421,22 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
             return false;
         }
 
-        auto nav_result = nav_strategy_->execute(env_, path, push_theta, object_name);
-        // Emit trajectory + path for visualization tooling.
+        // Teleport navigation: snap the robot to the final wavefront waypoint
+        // with the target heading. Path-emptiness is already handled above.
+        // The push controller does its own placement-collision check after this.
+        const auto& goal_pt = path.back();
+        env_.set_robot_se2(goal_pt[0], goal_pt[1], push_theta);
+        (void)object_name;  // unused: collisions handled by the placement check below
+
+        // Emit path for visualization tooling. Trajectory is empty under
+        // teleport nav so we just emit the waypoint list and the phase marker.
         if (std::getenv("NAMO_NAV_LOG")) {
             std::cerr << "[NAV_PATH]";
             for (const auto& p : path) {
                 std::cerr << " " << p[0] << "," << p[1];
             }
             std::cerr << std::endl;
-            for (const auto& t : nav_result.trajectory) {
-                std::cerr << "[NAV_POSE] " << t[0] << " " << t[1]
-                          << " " << t[2] << " " << (int)t[3] << std::endl;
-            }
-            // Also emit push phase start marker
             std::cerr << "[NAV_END]" << std::endl;
-        }
-        if (!nav_result.success) {
-            std::cerr << "[NAV] Failed: " << nav_result.failure_reason
-                      << " (steps=" << nav_result.steps_used
-                      << ", collision=" << nav_result.collision_object
-                      << ", path_len=" << path.size() << ")" << std::endl;
-            last_failure_reason_ = "Navigation failed: " + nav_result.failure_reason;
-            if (!nav_result.collision_object.empty()) {
-                last_collision_object_ = nav_result.collision_object;
-            }
-            return false;
         }
     }
     
@@ -507,12 +487,12 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
     // 0.01s timestep, 50 × 0.01 = 0.5s damping is enough; the original 500
     // was tuned for the car's 0.002s timestep (= 1s damping).
     {
-        // Pre/post-push settle. Default 500 at sphere's 0.01 s timestep = 5 s
-        // (overkill but harmless); at car's 0.002 s timestep = 1 s, the
-        // minimum needed for the chassis to drop onto its wheels after the
-        // nav-strategy teleport. Configurable via set_settle_steps() so
-        // visualization runs can shrink it for faster iteration.
-        const int kSettleSteps = settle_steps_override_ > 0 ? settle_steps_override_ : 500;
+        // Pre/post-push settle. Default 100 ticks: at sphere's 0.01 s timestep
+        // = 1 s damping; at car's 0.002 s timestep = 0.2 s. Both are enough
+        // for the chassis to drop onto its wheels after the teleport nav
+        // and for object velocities to bleed off. Configurable via
+        // set_settle_steps() for visualization or stricter physics runs.
+        const int kSettleSteps = settle_steps_override_ > 0 ? settle_steps_override_ : 100;
         const auto* robot_adapter = env_.get_robot_adapter();
         const bool use_diff_drive_tracking =
             robot_adapter && robot_adapter->is_diff_drive() && push_path_follower_;

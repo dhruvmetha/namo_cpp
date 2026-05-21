@@ -412,34 +412,6 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_link_libraries(test_planner_output gomp)
 endif()
 
-# Pure free-space A->B navigation test (no Python, no skill, no push)
-add_executable(test_nav_state_machine
-    tests/test_nav_state_machine.cpp
-    ${CORE_SOURCES}
-    ${WAVEFRONT_SOURCES}
-    ${ENVIRONMENT_SOURCES}
-    ${CONFIG_SOURCES}
-    ${ROBOT_SOURCES}
-    ${NAVIGATION_SOURCES}
-)
-
-target_link_libraries(test_nav_state_machine
-    ${MUJOCO_LIB}
-    pthread
-    m
-    yaml-cpp
-)
-
-target_include_directories(test_nav_state_machine PRIVATE
-    include
-    ${MUJOCO_DIR}/include
-)
-
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    target_compile_options(test_nav_state_machine PRIVATE -fopenmp -ffast-math)
-    target_link_libraries(test_nav_state_machine gomp)
-endif()
-
 # Minimal wheel-actuator sanity test (diff-drive only, no wavefront / nav)
 add_executable(test_wheel_spin
     tests/test_wheel_spin.cpp

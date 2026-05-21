@@ -31,9 +31,6 @@ public:
 
     enum class Mode {
         IDLE,
-        ALIGN,
-        ROTATE_IN_PLACE,
-        ACQUIRE,
         TRACK,
         FINISHED,
     };
@@ -119,7 +116,6 @@ private:
     std::vector<double> path_s_;
     int path_index_ = 0;
 
-    bool align_active_ = false;
     double prev_cte_ = 0.0;
     double prev_cte_time_ = 0.0;
     bool has_prev_cte_ = false;

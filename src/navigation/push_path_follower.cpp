@@ -6,13 +6,6 @@
 
 namespace namo {
 
-namespace {
-
-constexpr double kAlignEnterDeg = 60.0;
-constexpr double kAlignExitDeg = 45.0;
-
-}  // namespace
-
 PushPathFollower::PushPathFollower(const Params& params)
     : params_(params) {
     car_size_m_ = std::max(std::abs(params_.robot_width_m), std::abs(params_.robot_height_m));
@@ -35,7 +28,6 @@ void PushPathFollower::set_path(const std::vector<Point>& path) {
     build_prefix_s();
 
     path_index_ = 0;
-    align_active_ = false;
     has_prev_cte_ = false;
     prev_cte_ = 0.0;
     prev_cte_time_ = 0.0;
@@ -49,7 +41,6 @@ void PushPathFollower::clear_path() {
     path_.clear();
     path_s_.clear();
     path_index_ = 0;
-    align_active_ = false;
     has_prev_cte_ = false;
     prev_cte_ = 0.0;
     prev_cte_time_ = 0.0;
@@ -93,32 +84,10 @@ PushPathFollower::StepOutput PushPathFollower::step(const Pose& pose, double tim
     const CurvatureResult curvature_pp = pure_pursuit_curvature(
         pose.x_m, pose.y_m, pose.theta_rad, target_point);
 
-    const double heading_deg = std::abs(curvature_pp.heading_error_rad) * 180.0 / M_PI;
-    if (align_active_) {
-        if (heading_deg <= kAlignExitDeg) {
-            align_active_ = false;
-        }
-    } else if (heading_deg >= kAlignEnterDeg) {
-        align_active_ = true;
-    }
-
     output.target_point = target_point;
     output.path_index = path_index_;
     output.heading_error_rad = curvature_pp.heading_error_rad;
     output.cte = ref.cte;
-
-    if (align_active_) {
-        const double w = 0.6 * max_speed_;
-        double left_speed = (curvature_pp.heading_error_rad > 0.0) ? -w : w;
-        double right_speed = (curvature_pp.heading_error_rad > 0.0) ? w : -w;
-        std::tie(left_speed, right_speed) = enforce_deadband_scale(left_speed, right_speed);
-
-        mode_ = Mode::ALIGN;
-        output.left_speed = clamp(left_speed, -1.0, 1.0);
-        output.right_speed = clamp(right_speed, -1.0, 1.0);
-        output.mode = mode_;
-        return output;
-    }
 
     const double dist_to_path = std::abs(ref.cte);
     const double cte_pd_enable_dist = 2.5 * car_size_m_;
@@ -126,7 +95,6 @@ PushPathFollower::StepOutput PushPathFollower::step(const Pose& pose, double tim
     const double cte_deadband = 0.10 * car_size_m_;
     const double curv_pd_max = 2.0 / std::max(car_size_m_, 1e-9);
     const double curvature_max = 3.5 / std::max(car_size_m_, 1e-9);
-    const double rotate_in_place_rad = 110.0 * M_PI / 180.0;
 
     double turn_factor = std::cos(std::abs(curvature_pp.heading_error_rad));
     turn_factor = std::max(min_turn_factor_, turn_factor);
@@ -178,19 +146,6 @@ PushPathFollower::StepOutput PushPathFollower::step(const Pose& pose, double tim
     curv_slow = clamp(curv_slow, 0.35, 1.0);
     base_speed *= curv_slow;
 
-    if (!use_pd && (std::abs(curvature_pp.heading_error_rad) > rotate_in_place_rad)) {
-        const double w = 0.6 * max_speed_;
-        double left_speed = (curvature_pp.heading_error_rad > 0.0) ? -w : w;
-        double right_speed = (curvature_pp.heading_error_rad > 0.0) ? w : -w;
-        std::tie(left_speed, right_speed) = enforce_deadband_scale(left_speed, right_speed);
-
-        mode_ = Mode::ROTATE_IN_PLACE;
-        output.left_speed = clamp(left_speed, -1.0, 1.0);
-        output.right_speed = clamp(right_speed, -1.0, 1.0);
-        output.mode = mode_;
-        return output;
-    }
-
     const double diff = curvature_cmd * params_.wheel_base_m / 2.0;
     double left_speed = base_speed * (1.0 - diff);
     double right_speed = base_speed * (1.0 + diff);
@@ -206,7 +161,7 @@ PushPathFollower::StepOutput PushPathFollower::step(const Pose& pose, double tim
 
     output.left_speed = clamp(left_speed, -1.0, 1.0);
     output.right_speed = clamp(right_speed, -1.0, 1.0);
-    mode_ = use_pd ? Mode::TRACK : Mode::ACQUIRE;
+    mode_ = Mode::TRACK;
     output.mode = mode_;
     return output;
 }
@@ -215,12 +170,6 @@ const char* PushPathFollower::mode_name(Mode mode) {
     switch (mode) {
     case Mode::IDLE:
         return "IDLE";
-    case Mode::ALIGN:
-        return "ALIGN";
-    case Mode::ROTATE_IN_PLACE:
-        return "ROTATE_IN_PLACE";
-    case Mode::ACQUIRE:
-        return "ACQUIRE";
     case Mode::TRACK:
         return "TRACK";
     case Mode::FINISHED:

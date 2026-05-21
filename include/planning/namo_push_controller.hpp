@@ -4,7 +4,6 @@
 #include "environment/namo_environment.hpp"
 #include "navigation/push_path_follower.hpp"
 #include "wavefront/wavefront_planner.hpp"
-#include "navigation/navigation_strategy.hpp"
 #include <array>
 #include <memory>
 #include <unordered_set>
@@ -124,7 +123,7 @@ private:
     int stuck_check_stride_ = 20;            // check every N control steps
     double min_position_change_ = 0.001;     // meters
     double min_angle_change_ = 0.05;         // radians
-    // When > 0, overrides the default 500-tick pre/post-push settle inside
+    // When > 0, overrides the default 100-tick pre/post-push settle inside
     // execute_push_primitive. Used by the primitive generator to make
     // visualization runs faster (smaller settle = less idle wall-clock per
     // primitive). 0 means "keep default".
@@ -138,8 +137,6 @@ private:
     bool wall_collision_during_push_ = false;
     std::unordered_set<std::string> movable_collisions_during_push_;
 
-    // Navigation strategy (holonomic = teleport, diff-drive = rotate-drive-rotate)
-    std::unique_ptr<NavigationStrategy> nav_strategy_;
     std::unique_ptr<PushPathFollower> push_path_follower_;
 
 public:
