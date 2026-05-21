@@ -66,7 +66,14 @@ public:
     // navigation goes through robot_control's NavigationController.
 
 
-    RLEnvironment(const std::string& xml_path, const std::string& config_path, bool visualize = false);
+    RLEnvironment(const std::string& xml_path, const std::string& config_path, bool visualize = false,
+                  bool skip_warmup = false);
+
+    /// Run the env's post-load physics warm-up explicitly. Only needed when
+    /// the env was constructed with skip_warmup=true (e.g. car planning,
+    /// where the caller teleports the robot to a safe pose before allowing
+    /// physics to integrate).
+    void warm_up();
     ~RLEnvironment();
 
     // Standard RL methods
@@ -97,6 +104,16 @@ public:
     
     // World bounds information
     std::vector<double> get_world_bounds() const;
+
+	    // Override the robot's pose loaded from the XML. Needed for car
+	    // (diff-drive) planning where the freejoint spawn position lives
+	    // inside the included little_car.xml and can't be parameterized
+	    // through a top-level <include>. The bridge calls this once
+	    // right after the env is constructed, with the live observation
+	    // pose, so the planner searches from the correct starting state.
+	    // Sphere XMLs bake the pose into the geom directly and don't
+	    // need this call.
+	    void set_robot_pose(double x, double y, double theta);
 
 	    // Robot goal management for MCTS
 	    void set_robot_goal(double x, double y, double theta = 0.0);

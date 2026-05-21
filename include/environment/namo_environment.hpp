@@ -25,11 +25,23 @@ public:
      * @param visualize Enable visualization
      * @param enable_logging Enable state logging
      */
-    NAMOEnvironment(const std::string& xml_path, bool visualize = false, bool enable_logging = false);
+    NAMOEnvironment(const std::string& xml_path, bool visualize = false, bool enable_logging = false,
+                    bool skip_warmup = false);
 
-    /// Config-aware constructor: creates the correct RobotAdapter from config.robot_type
+    /// Config-aware constructor: creates the correct RobotAdapter from config.robot_type.
+    /// skip_warmup=true skips the post-load 3-tick physics warm-up — required when the
+    /// XML may load the robot in a state that overlaps obstacles (e.g. car planning,
+    /// where the freejoint spawn lives inside the included little_car.xml and can't be
+    /// parameterised through a top-level <include>). The caller is then responsible for
+    /// teleporting the robot to a safe pose and invoking warm_up() explicitly.
     NAMOEnvironment(const std::string& xml_path, std::shared_ptr<ConfigManager> config,
-                    bool visualize = false, bool enable_logging = false);
+                    bool visualize = false, bool enable_logging = false,
+                    bool skip_warmup = false);
+
+    /// Run the 3-tick physics warm-up that the constructors normally invoke. Public so
+    /// that callers who passed skip_warmup=true can run it themselves after teleporting
+    /// the robot to a safe pose.
+    void warm_up();
 
     /**
      * @brief Destructor
@@ -242,7 +254,6 @@ private:
     // Initialization helpers
     void init_robot_from_adapter();   // Read robot info using adapter
     void process_environment_objects();
-    void warm_up();
     
     // Logging helpers
     void log_state();

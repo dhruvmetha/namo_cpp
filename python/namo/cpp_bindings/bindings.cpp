@@ -55,8 +55,18 @@ PYBIND11_MODULE(namo_rl, m) {
         .def_readwrite("theta_max", &namo::RLEnvironment::ActionConstraints::theta_max);
 
     py::class_<namo::RLEnvironment>(m, "RLEnvironment")
-        .def(py::init<const std::string&, const std::string&, bool>(), 
-             py::arg("xml_path"), py::arg("config_path"), py::arg("visualize") = false)
+        .def(py::init<const std::string&, const std::string&, bool, bool>(),
+             py::arg("xml_path"), py::arg("config_path"),
+             py::arg("visualize") = false, py::arg("skip_warmup") = false,
+             "skip_warmup=true skips the post-load 3-tick physics warm-up. "
+             "Use this when the XML may load the robot in a state that "
+             "overlaps obstacles (e.g. car planning, where the included "
+             "little_car.xml fixes the freejoint spawn at the origin). "
+             "After teleporting the robot to a safe pose with "
+             "set_robot_pose(), call warm_up() explicitly to settle physics.")
+        .def("warm_up", &namo::RLEnvironment::warm_up,
+             "Run the post-load 3-tick physics warm-up. Only needed when the "
+             "env was constructed with skip_warmup=True.")
         .def("reset", &namo::RLEnvironment::reset)
         .def("step", &namo::RLEnvironment::step, py::arg("action"))
         // navigate_to binding removed: the C++ impl was deleted in commit 254e5c7
@@ -104,6 +114,15 @@ PYBIND11_MODULE(namo_rl, m) {
              "Includes goal reachability plus per-object edge/primitive reachability stats.")
         .def("get_object_info", &namo::RLEnvironment::get_object_info, "Returns object geometry information (sizes, positions, orientations) for all objects including static walls.")
         .def("get_world_bounds", &namo::RLEnvironment::get_world_bounds, "Returns world bounds [x_min, x_max, y_min, y_max] calculated from all objects.")
+        .def("set_robot_pose", &namo::RLEnvironment::set_robot_pose, py::arg("x"), py::arg("y"), py::arg("theta"),
+             "Override the robot's pose loaded from the XML. Used by the "
+             "robot_control bridge for car (diff-drive) planning, where the "
+             "freejoint spawn pose lives inside the included little_car.xml "
+             "and can't be parameterized through a top-level <include>. The "
+             "bridge calls this once with the live observation pose right "
+             "after env construction so the planner searches from the "
+             "correct starting state. Sphere XMLs bake the pose into the "
+             "geom and don't need to call this.")
         .def("set_robot_goal", &namo::RLEnvironment::set_robot_goal, py::arg("x"), py::arg("y"), py::arg("theta") = 0.0, "Set robot goal for MCTS planning.")
         .def("set_robot_goal_silent", &namo::RLEnvironment::set_robot_goal_silent, py::arg("x"), py::arg("y"), py::arg("theta") = 0.0,
              "Set robot goal without updating the visualization marker (useful for repeated reachability checks).")

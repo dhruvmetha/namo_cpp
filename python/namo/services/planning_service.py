@@ -196,6 +196,7 @@ class NAMOPlanningService:
         chain_link_cost: int = 11,
         selection_strategy: str = "cost_first",
         goals_per_region: int = 10,
+        starting_robot_pose: Optional[Tuple[float, float, float]] = None,
         **kwargs: Any,
     ) -> NAMOPlanResult:
         """Plan from an XML environment file.
@@ -221,8 +222,27 @@ class NAMOPlanningService:
         start_time = time.time()
 
         try:
-            # Create environment from XML
-            env = namo_rl.RLEnvironment(xml_path, self._config_path, self._enable_viewer)
+            # When the caller provides starting_robot_pose, we know the XML's
+            # XML-default robot pose may overlap obstacles (the car case —
+            # little_car.xml fixes the freejoint spawn at the origin and we
+            # can't override it through a top-level <include>). Skip the
+            # ctor's built-in warm_up, teleport the robot to the actual
+            # observation pose, THEN run warm_up so the 3 physics ticks
+            # integrate with the correct starting state.
+            #
+            # Sphere XMLs bake the robot pose into the geom and don't need
+            # this — pass starting_robot_pose=None for them and the env
+            # behaves exactly as before.
+            defer_warmup = starting_robot_pose is not None
+            env = namo_rl.RLEnvironment(
+                xml_path,
+                self._config_path,
+                self._enable_viewer,
+                defer_warmup,
+            )
+            if defer_warmup:
+                env.set_robot_pose(*starting_robot_pose)
+                env.warm_up()
 
             # Pause for inspection if requested
             if self._pause_after_load and self._enable_viewer:

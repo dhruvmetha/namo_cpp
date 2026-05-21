@@ -14,19 +14,23 @@ extern "C" {
 
 namespace namo {
 
-NAMOEnvironment::NAMOEnvironment(const std::string& xml_path, bool visualize, bool enable_logging) 
+NAMOEnvironment::NAMOEnvironment(const std::string& xml_path, bool visualize, bool enable_logging,
+                                 bool skip_warmup)
     : logging_enabled_(enable_logging) {
-    
+
     // Create MuJoCo wrapper
     sim_ = std::make_unique<OptimizedMujocoWrapper>(xml_path, visualize);
     sim_->initialize();
-    
+
     // Set reasonable camera defaults (top-down view)
     sim_->set_camera_lookat({0.0, 0.0, 0.0});
     sim_->set_camera_position(15.0, 0.0, -90.0);
-    
-    // Warm up simulation
-    warm_up();
+
+    // Warm up simulation (unless caller is going to teleport the robot first
+    // and then call warm_up() explicitly — see header doc).
+    if (!skip_warmup) {
+        warm_up();
+    }
     
     // Extract config name from XML path
     std::filesystem::path xml_file_path(xml_path);
@@ -75,14 +79,16 @@ NAMOEnvironment::~NAMOEnvironment() {
 }
 
 NAMOEnvironment::NAMOEnvironment(const std::string& xml_path, std::shared_ptr<ConfigManager> config,
-                                 bool visualize, bool enable_logging)
+                                 bool visualize, bool enable_logging, bool skip_warmup)
     : logging_enabled_(enable_logging) {
 
     sim_ = std::make_unique<OptimizedMujocoWrapper>(xml_path, visualize);
     sim_->initialize();
     sim_->set_camera_lookat({0.0, 0.0, 0.0});
     sim_->set_camera_position(15.0, 0.0, -90.0);
-    warm_up();
+    if (!skip_warmup) {
+        warm_up();
+    }
 
     std::filesystem::path xml_file_path(xml_path);
     config_name_ = xml_file_path.stem().string();
