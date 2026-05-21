@@ -79,6 +79,14 @@ public:
         // scale 6. See namo/velocity_actuator_experiment_log.md.
         double push_velocity = 0.10;
 
+        // Max-speed fraction (∈ [0, 1]) for the diff-drive push path
+        // tracker. The follower outputs left/right wheel speeds as a
+        // fraction of full-speed; the controller scales by push_velocity
+        // to get actual rad/s for the wheel actuators. Default 0.3 keeps
+        // the car gentle during the push (mirrors robot_control's
+        // FollowPathController behavior).
+        double push_tracker_max_speed = 0.3;
+
         // When true, the controller re-derives push direction from the
         // current object pose every control tick (robot traces an arc
         // as object yaws). When false, direction is fixed at primitive

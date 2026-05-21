@@ -17,7 +17,7 @@ public:
         double wheel_base_m = 0.075;
         double lookahead_distance_m = -1.0;
         double goal_tolerance_m = -1.0;
-        double max_speed = 1.0;
+        double max_speed = 0.3;
         double max_point_gap_ratio = 0.01;
         double no_skip_ratio = 0.5;
         double wheel_deadband = 0.05;
@@ -106,7 +106,7 @@ private:
     double car_size_m_ = 0.0;
     double lookahead_distance_m_ = 0.0;
     double goal_tolerance_m_ = 0.0;
-    double max_speed_ = 1.0;
+    double max_speed_ = 0.3;
 
     double cte_dot_alpha_ = 0.25;
     double min_turn_factor_ = 0.25;

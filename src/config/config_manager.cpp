@@ -162,6 +162,9 @@ void ConfigManager::load_skill_config() {
     if (loader_->has_key("skill.push_velocity")) {
         skill_.push_velocity = loader_->get_double("skill.push_velocity");
     }
+    if (loader_->has_key("skill.push_tracker_max_speed")) {
+        skill_.push_tracker_max_speed = loader_->get_double("skill.push_tracker_max_speed");
+    }
     if (loader_->has_key("skill.dynamic_direction")) {
         skill_.dynamic_direction = loader_->get_bool("skill.dynamic_direction");
     }

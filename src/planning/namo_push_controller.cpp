@@ -57,7 +57,8 @@ NAMOPushController::NAMOPushController(NAMOEnvironment& env,
             (adapter->get_wheelbase() > 0.0) ? adapter->get_wheelbase() : 0.075;
         follower_params.lookahead_distance_m = kPushLookaheadRatio * car_size;
         follower_params.goal_tolerance_m = kPushGoalToleranceRatio * car_size;
-        follower_params.max_speed = 1.0;
+        // max_speed left at its Params default (the single source of truth
+        // for the push tracking speed; see push_path_follower.hpp).
         follower_params.max_point_gap_ratio = 0.01;
         follower_params.no_skip_ratio = 0.5;
         follower_params.wheel_deadband = 0.05;
@@ -502,7 +503,6 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
         if (use_diff_drive_tracking) {
             env_.apply_wheel_control(0.0, 0.0);
             push_path_follower_->reset();
-            push_path_follower_->set_speed(1.0);
         } else {
             env_.apply_robot_control(0.0, 0.0);
         }
@@ -555,7 +555,6 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
                     const std::array<double, 2> actual_pos = {robot_pose.x_m, robot_pose.y_m};
                     const auto push_path = build_push_tracking_path(push_state, actual_pos);
                     push_path_follower_->set_path(push_path);
-                    push_path_follower_->set_speed(1.0);
                     log_push_path(t, push_path);
                 }
 

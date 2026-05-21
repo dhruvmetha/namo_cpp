@@ -324,6 +324,19 @@ public:
     void set_min_position_change(double v) { min_position_change_ = v; }
     void set_min_angle_change(double v) { min_angle_change_ = v; }
     void set_settle_steps(int n) { settle_steps_override_ = n; }
+
+    /**
+     * @brief Set the diff-drive push path tracker's max-speed fraction.
+     *
+     * Sticky: once set, persists across reset() and set_path() calls.
+     * Pass a value in [0, 1]; it's clamped internally by the follower.
+     * No-op on holonomic robots (no follower constructed).
+     */
+    void set_push_tracker_max_speed(double v) {
+        if (push_path_follower_) {
+            push_path_follower_->set_speed(v);
+        }
+    }
     double get_min_position_change() const { return min_position_change_; }
     double get_min_angle_change() const { return min_angle_change_; }
 
