@@ -99,7 +99,11 @@ void DiffDriveAdapter::set_se2(const mjModel* m, mjData* d,
                                 double x, double y, double theta) const {
     d->qpos[freejoint_qpos_adr_ + 0] = x;
     d->qpos[freejoint_qpos_adr_ + 1] = y;
-    d->qpos[freejoint_qpos_adr_ + 2] = init_pos_[2];  // maintain ground height
+    // Preserve current z rather than resetting to init_pos_[2] (= XML spawn,
+    // 0.01 m for little_car.xml — wheels park 1 cm above the floor). Caller
+    // is expected to have settled the chassis onto the wheels already; we'd
+    // just lift it back into the air and the next mj_step would re-drop it
+    // through a brief bounce, perturbing the chassis yaw mid-primitive.
 
     auto q = yaw_to_quat(theta);
     d->qpos[freejoint_qpos_adr_ + 3] = q[0];  // w

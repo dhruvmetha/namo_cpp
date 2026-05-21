@@ -123,6 +123,11 @@ private:
     int stuck_check_stride_ = 20;            // check every N control steps
     double min_position_change_ = 0.001;     // meters
     double min_angle_change_ = 0.05;         // radians
+    // When > 0, overrides the default 500-tick pre/post-push settle inside
+    // execute_push_primitive. Used by the primitive generator to make
+    // visualization runs faster (smaller settle = less idle wall-clock per
+    // primitive). 0 means "keep default".
+    int settle_steps_override_ = 0;
 
     // Failure tracking
     std::string last_failure_reason_;
@@ -319,6 +324,7 @@ public:
      */
     void set_min_position_change(double v) { min_position_change_ = v; }
     void set_min_angle_change(double v) { min_angle_change_ = v; }
+    void set_settle_steps(int n) { settle_steps_override_ = n; }
     double get_min_position_change() const { return min_position_change_; }
     double get_min_angle_change() const { return min_angle_change_; }
 

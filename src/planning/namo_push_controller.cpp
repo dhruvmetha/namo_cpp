@@ -408,7 +408,12 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
     // 0.01s timestep, 50 × 0.01 = 0.5s damping is enough; the original 500
     // was tuned for the car's 0.002s timestep (= 1s damping).
     {
-        constexpr int kSettleSteps = 50;
+        // Pre/post-push settle. Default 500 at sphere's 0.01 s timestep = 5 s
+        // (overkill but harmless); at car's 0.002 s timestep = 1 s, the
+        // minimum needed for the chassis to drop onto its wheels after the
+        // nav-strategy teleport. Configurable via set_settle_steps() so
+        // visualization runs can shrink it for faster iteration.
+        const int kSettleSteps = settle_steps_override_ > 0 ? settle_steps_override_ : 500;
 
         // 1) Zero all velocities (chassis + wheels + casters + every object) and stop wheel ctrl
         env_.set_zero_velocity();
