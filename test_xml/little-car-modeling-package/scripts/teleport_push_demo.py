@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Run a few teleport+push sequences on the car and dump qpos for video render.
 
-Uses the real NAMOPushSkill pipeline but forces nav to teleport via
-NAMO_FORCE_TELEPORT_NAV=1, so each step looks like: instant SE(2) teleport
-to the chosen edge point, then diff-drive wheel push.
+Each step is: instant SE(2) teleport to the chosen edge point, then
+diff-drive wheel push.
 """
 from __future__ import annotations
 
@@ -22,7 +21,6 @@ import namo_rl  # noqa: E402
 
 def run(xml: str, config: str, qpos_out: str, path_out: str | None,
         episodes: list[tuple[str, int, int]]) -> None:
-    os.environ["NAMO_FORCE_TELEPORT_NAV"] = "1"
     os.environ["NAMO_QPOS_DUMP"] = qpos_out
     if path_out:
         os.environ["NAMO_NAV_LOG"] = "1"

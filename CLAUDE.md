@@ -190,17 +190,18 @@ Two robots share the C++ backend via `RobotAdapter` ([include/robot/robot_adapte
 
 Pick the robot via `config/namo_config.yaml` (point) vs `config/namo_config_car.yaml` (car). The skip-body list and pose source come from the adapter — code outside should not branch on robot type.
 
-### Diff-drive nav (`DiffDriveNavigation`)
-State machine: rotate-in-place → drive-straight → ... → final rotate. Heading changes >`sharp_turn_threshold` split the wavefront path into segments. Each phase ends with a passive coast (`wait_steps` × 10 ms) so wheel/caster momentum dissipates before the next phase. Tunables in [diff_drive_navigation.hpp:32](include/navigation/diff_drive_navigation.hpp#L32).
+### Navigation
 
-Wheel actuators are MuJoCo `<velocity>` (kv=0.75, forcerange ±0.3 Nm). A motor + custom PI experiment was tried and reverted — explicit PI saturated against MuJoCo's implicit velocity solver and produced worse startup slip. The motor+PI architecture lives in commit `9e7f1c5` if we ever need it for sim-to-real.
+Both robots use teleport navigation — set the chassis pose to the target SE(2) via `env.set_robot_se2(x, y, theta)`, zero velocities, settle for `kSettleSteps` physics ticks (default 100, override via `NAMOPushController::set_settle_steps`). The push that follows tracks a pure-pursuit + CTE-PD path; see [push_path_follower.hpp](include/navigation/push_path_follower.hpp).
+
+Wheel actuators on the car are MuJoCo `<velocity>` (kv=0.75, forcerange ±0.3 Nm). A motor + custom PI experiment was tried and reverted — explicit PI saturated against MuJoCo's implicit velocity solver and produced worse startup slip. The motor+PI architecture lives in commit `9e7f1c5` if we ever need it for sim-to-real.
 
 ### Car XML generation
 - `test_xml/little-car-modeling-package/scripts/make_empty_env.py` — minimal 4-wall + 1-obstacle test env
 - `test_xml/little-car-modeling-package/scripts/scale_environment.py` — scales any point-robot env (SCALE=0.233) and swaps the robot body for a car
 
 ### Trajectory recording for videos
-`NAMO_QPOS_DUMP=path NAMO_NAV_LOG=1` makes a run dump per-tick qpos + emit `[NAV_PATH]/[NAV_POSE]` to stderr. The shared dumper ([navigation/qpos_dump.hpp](include/navigation/qpos_dump.hpp)) is wired into both nav (phases 0/1/2) and the push primitive (phase 3) so a single run captures the full nav+push trajectory. Render with `test_xml/little-car-modeling-package/scripts/render_nav_video.py` (needs GPU/EGL — `srun -w rlab2 --gres=gpu:1`).
+`NAMO_QPOS_DUMP=path` makes a run dump per-tick qpos to that file. `NAMO_NAV_LOG=1` adds per-tick `[PUSH_PATH]` and `[PUSH_CTRL]` lines to stderr during the push. The shared dumper ([navigation/qpos_dump.hpp](include/navigation/qpos_dump.hpp)) is wired into the push primitive (phase 3) — pre/post-push settle ticks are included.
 
 ## Coding Guidelines
 
