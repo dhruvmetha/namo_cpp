@@ -49,8 +49,11 @@ void PushPathFollower::clear_path() {
 }
 
 void PushPathFollower::reset() {
+    // reset() clears path/PD state only — it does NOT touch the speed knob.
+    // The caller is expected to set_speed() explicitly if needed (mirrors
+    // robot_control's FollowPathController; a sticky speed across resets
+    // avoids surprises when one push tweaks speed and the next reuses it).
     clear_path();
-    set_speed(params_.max_speed);
 }
 
 void PushPathFollower::set_speed(double speed) {
