@@ -14,19 +14,23 @@ extern "C" {
 
 namespace namo {
 
-NAMOEnvironment::NAMOEnvironment(const std::string& xml_path, bool visualize, bool enable_logging) 
+NAMOEnvironment::NAMOEnvironment(const std::string& xml_path, bool visualize, bool enable_logging,
+                                 bool skip_warmup)
     : logging_enabled_(enable_logging) {
-    
+
     // Create MuJoCo wrapper
     sim_ = std::make_unique<OptimizedMujocoWrapper>(xml_path, visualize);
     sim_->initialize();
-    
+
     // Set reasonable camera defaults (top-down view)
     sim_->set_camera_lookat({0.0, 0.0, 0.0});
     sim_->set_camera_position(15.0, 0.0, -90.0);
-    
-    // Warm up simulation
-    warm_up();
+
+    // Warm up simulation (unless caller is going to teleport the robot first
+    // and then call warm_up() explicitly — see header doc).
+    if (!skip_warmup) {
+        warm_up();
+    }
     
     // Extract config name from XML path
     std::filesystem::path xml_file_path(xml_path);
@@ -57,6 +61,11 @@ NAMOEnvironment::NAMOEnvironment(const std::string& xml_path, bool visualize, bo
     
     // Initial state update
     update_object_states();
+    if (skip_warmup) {
+        reset_baseline_capture_pending_ = true;
+    } else {
+        capture_reset_baseline();
+    }
     
     // std::cout << "NAMO Environment initialized:" << std::endl;
     // std::cout << "  Config: " << config_name_ << std::endl;
@@ -75,14 +84,16 @@ NAMOEnvironment::~NAMOEnvironment() {
 }
 
 NAMOEnvironment::NAMOEnvironment(const std::string& xml_path, std::shared_ptr<ConfigManager> config,
-                                 bool visualize, bool enable_logging)
+                                 bool visualize, bool enable_logging, bool skip_warmup)
     : logging_enabled_(enable_logging) {
 
     sim_ = std::make_unique<OptimizedMujocoWrapper>(xml_path, visualize);
     sim_->initialize();
     sim_->set_camera_lookat({0.0, 0.0, 0.0});
     sim_->set_camera_position(15.0, 0.0, -90.0);
-    warm_up();
+    if (!skip_warmup) {
+        warm_up();
+    }
 
     std::filesystem::path xml_file_path(xml_path);
     config_name_ = xml_file_path.stem().string();
@@ -121,6 +132,11 @@ NAMOEnvironment::NAMOEnvironment(const std::string& xml_path, std::shared_ptr<Co
     }
 
     update_object_states();
+    if (skip_warmup) {
+        reset_baseline_capture_pending_ = true;
+    } else {
+        capture_reset_baseline();
+    }
 }
 
 void NAMOEnvironment::init_robot_from_adapter() {
@@ -173,6 +189,14 @@ void NAMOEnvironment::warm_up() {
     // Step simulation a few times to stabilize physics
     for (int i = 0; i < 3; i++) {
         sim_->step();
+    }
+
+    if (robot_adapter_) {
+        update_object_states();
+    }
+    if (reset_baseline_capture_pending_) {
+        capture_reset_baseline();
+        reset_baseline_capture_pending_ = false;
     }
     
     // // Save initial state for optimization reset
@@ -291,8 +315,13 @@ void NAMOEnvironment::step_simulation() {
 }
 
 void NAMOEnvironment::reset() {
-    sim_->reset();
-    warm_up();
+    if (has_reset_baseline_) {
+        set_full_state(reset_baseline_);
+        sim_->set_zero_control();
+    } else {
+        sim_->reset();
+        warm_up();
+    }
     
     if (logging_enabled_) {
         flush_log_buffer();
@@ -330,6 +359,10 @@ void NAMOEnvironment::set_zero_velocity() {
 
 void NAMOEnvironment::apply_robot_control(double control_x, double control_y) {
     robot_adapter_->apply_control(sim_->model(), sim_->data(), control_x, control_y);
+}
+
+void NAMOEnvironment::apply_wheel_control(double omega_left, double omega_right) {
+    robot_adapter_->apply_wheel_control(sim_->model(), sim_->data(), omega_left, omega_right);
 }
 
 void NAMOEnvironment::set_robot_control(double control_x, double control_y) {
@@ -910,6 +943,12 @@ void NAMOEnvironment::reset_to_initial_state() {
 //=============================================================================
 // Full state management (zero-allocation)
 //=============================================================================
+
+void NAMOEnvironment::capture_reset_baseline() {
+    if (!sim_) return;
+    reset_baseline_ = get_full_state();
+    has_reset_baseline_ = true;
+}
 
 NAMOEnvironment::FullSimState NAMOEnvironment::get_full_state() const {
     FullSimState state;

@@ -6,7 +6,7 @@
 #include "environment/namo_environment.hpp"
 #include "planning/primitive_loader.hpp"
 #include "planning/greedy_planner.hpp"
-#include "planning/mpc_executor.hpp"
+#include "planning/push_primitive_executor.hpp"
 #include "planning/namo_push_controller.hpp"
 #include "wavefront/wavefront_planner.hpp"
 #include <iostream>
@@ -30,9 +30,9 @@ int main() {
         }
         // std::cout << "✓ GreedyPlanner created" << std::endl;
         
-        // std::cout << "Step 3: Creating MPCExecutor..." << std::endl;
-        MPCExecutor executor(env);
-        // std::cout << "✓ MPCExecutor created" << std::endl;
+        // std::cout << "Step 3: Creating PushPrimitiveExecutor..." << std::endl;
+        PushPrimitiveExecutor executor(env);
+        // std::cout << "✓ PushPrimitiveExecutor created" << std::endl;
         
         // std::cout << "Step 4: Creating WavefrontPlanner..." << std::endl;
         std::vector<double> robot_size = {0.15, 0.15};

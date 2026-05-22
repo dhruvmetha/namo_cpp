@@ -9,6 +9,7 @@
 #include <algorithm>
 
 #include "../include/core/parameter_loader.hpp"
+#include "../include/config/config_manager.hpp"
 #include "../include/environment/namo_environment.hpp"
 #include "../include/planning/namo_push_controller.hpp"
 #include "../include/wavefront/wavefront_planner.hpp"
@@ -51,20 +52,51 @@ std::vector<NominalPrimitive> generate_primitives_for_scene(
     int points_per_face,
     int control_steps,
     int max_push_steps,
-    double force_scaling,
+    double push_velocity,
     bool dynamic_direction,
-    double push_offset_margin
+    double push_offset_margin,
+    std::shared_ptr<ConfigManager> config,
+    int min_push_steps_override = 0,
+    int settle_ticks_override = 0
 ) {
     std::cout << "\n=== Generating primitives for " << scene_config.name << " ===" << std::endl;
     std::cout << "XML: " << scene_config.xml_path << std::endl;
     std::cout << "Description: " << scene_config.description << std::endl;
+
+    // Create NAMO environment for this scene. Pass the ConfigManager so the
+    // env can select the right RobotAdapter (holonomic vs diff_drive). Without
+    // this, the env defaults to holonomic and looks for a body named "robot",
+    // which the car scene XMLs don't have — robot_info ends up with garbage
+    // size, WavefrontPlanner uses it as inflation radius, and the obstacle
+    // footprint blows out GridFootprint::MAX_CELLS (200k), segfaulting.
+    NAMOEnvironment env(scene_config.xml_path, config, visualize, false);
+
+    // The car scene XMLs <include> little_car.xml, which spawns the car body
+    // at (0, 0, 0.01). The obstacle is at (0, 0, 0.05) — so without an offset
+    // the car overlaps the obstacle and wavefront BFS from the robot finds
+    // no reachable movables. Teleport to the same starting offset the sphere
+    // scenes use (-0.3333 m in x). For sphere scenes, this is a no-op write
+    // back to roughly where the geom already sits — harmless.
+    env.set_robot_position(std::array<double, 2>{-0.3333, 0.0});
     
-    // Create NAMO environment for this scene
-    NAMOEnvironment env(scene_config.xml_path, visualize, false);
-    
-    // Get robot info
-    const auto& robot_info = env.get_robot_info();
-    std::vector<double> robot_size = {robot_info.size[0], robot_info.size[1]};
+    // Robot footprint half-extents used to compute (a) wavefront inflation
+    // and (b) edge-point standoff from the obstacle face. Prefer the
+    // authoritative `planning.robot_size` from the config because reading
+    // from robot_info.size grabs ONLY the first geom of the robot body
+    // (e.g. the car's front_chassis_collision, half-X = 0.0175), which
+    // under-represents the full car footprint (the two chassis halves
+    // span ±0.035). With a too-small robot_size, edge points land
+    // 1.75 cm closer to the obstacle than they should — the car
+    // teleports INSIDE the obstacle, contact resolution pushes it out,
+    // and "drive forward" produces zero displacement.
+    std::vector<double> robot_size;
+    if (config && !config->planning().robot_size.empty()) {
+        robot_size = {config->planning().robot_size[0],
+                      config->planning().robot_size[1]};
+    } else {
+        const auto& robot_info = env.get_robot_info();
+        robot_size = {robot_info.size[0], robot_info.size[1]};
+    }
     
     // Create wavefront planner (heap allocation to avoid 32MB stack array)
     auto wavefront_planner = std::make_unique<WavefrontPlanner>(resolution, env, robot_size);
@@ -74,7 +106,25 @@ std::vector<NominalPrimitive> generate_primitives_for_scene(
     env.set_robot_goal(robot_goal);
     
     // Create push controller
-    NAMOPushController push_controller(env, *wavefront_planner, max_push_steps, control_steps, force_scaling, points_per_face, dynamic_direction);
+    NAMOPushController push_controller(env, *wavefront_planner, max_push_steps, control_steps, push_velocity, points_per_face, dynamic_direction);
+
+    // Apply config-driven stuck-check parameters. NAMOPushSkill does this in
+    // its own ctor (src/skills/namo_push_skill.cpp:93-96) but the generator
+    // bypasses the skill and drives the controller directly, so without
+    // this block the controller falls back to its header defaults
+    // (stride=20, threshold=3, min_pos=0.001 m, min_angle=0.05 rad). At the
+    // car's 0.002 s timestep that aborts the push at tick 60 — before the
+    // car has even traversed the 1 cm standoff to make contact, so every
+    // primitive records Δ=0.
+    if (config) {
+        push_controller.set_stuck_check_stride(config->skill().stuck_check_stride);
+        push_controller.set_stuck_threshold(config->skill().controller_stuck_threshold);
+        push_controller.set_min_position_change(config->skill().controller_min_position_change);
+        push_controller.set_min_angle_change(config->skill().controller_min_angle_change);
+    }
+    if (settle_ticks_override > 0) {
+        push_controller.set_settle_steps(settle_ticks_override);
+    }
 
     // Apply config-driven push_offset_margin so generator-side edge points
     // match what the skill runtime uses. Without this the controller falls
@@ -128,20 +178,52 @@ std::vector<NominalPrimitive> generate_primitives_for_scene(
     std::vector<NominalPrimitive> all_primitives;
     all_primitives.reserve(num_edges * max_push_steps);
     
-    for (size_t edge_idx = 0; edge_idx < num_edges; edge_idx++) {
-        std::cout << "Generating primitives for edge " << edge_idx << " / " << num_edges << std::endl;
-        
-        // Reset environment to initial state
+    // Initial spawn offset for the robot. Sphere scenes encode this on the
+    // sphere geom's `pos="-0.3333 …"`, so the holonomic adapter sees the
+    // robot 33 cm from the obstacle at origin. Car scenes include little_car.xml
+    // which spawns the car body at (0, 0, 0.01) — overlapping the obstacle at
+    // origin. This tool uses a plain post-construction teleport rather than
+    // the deferred-warmup API, so env.reset() correctly returns to the ctor
+    // baseline (the XML spawn). Re-teleport after every reset.
+    const std::array<double, 2> robot_spawn_offset = {-0.3333, 0.0};
+
+    // After teleport, the car body's z stays at the XML's spawn z (= 0.01 m
+    // in little_car.xml). The wheel centres are at z = 0.025 m with radius
+    // 0.015 m, so the wheel bottoms sit at z = 0.010 m — 1 cm above the
+    // floor. Wheels spin in the air and the car never moves the obstacle.
+    // Step the simulation a few times after each teleport so gravity drops
+    // the chassis onto the wheels and onto the floor. Settle for ~1 s of
+    // wall-clock at the scene's timestep — sphere scenes use 0.01 s/tick
+    // so 100 ticks = 1 s, car scenes use 0.002 s/tick so 500 ticks = 1 s.
+    // The 1 s window matches the Python car-primitive generator.
+    const double scene_timestep = env.get_mujoco_wrapper()->model()->opt.timestep;
+    const int kSettleStepsAfterReset = settle_ticks_override > 0
+        ? settle_ticks_override
+        : std::max(100, static_cast<int>(1.0 / scene_timestep));
+    auto reset_and_settle = [&]() {
         env.reset();
         env.step_simulation();
-        
-        // Generate primitives for all step counts (1 to max_push_steps) - pyramid approach
-        for (int push_steps = 1; push_steps <= max_push_steps; push_steps++) {
+        env.set_robot_position(robot_spawn_offset);
+        for (int s = 0; s < kSettleStepsAfterReset; s++) {
+            env.step_simulation();
+        }
+    };
+
+    for (size_t edge_idx = 0; edge_idx < num_edges; edge_idx++) {
+        std::cout << "Generating primitives for edge " << edge_idx << " / " << num_edges << std::endl;
+
+        // Reset environment to initial state
+        reset_and_settle();
+
+        // Generate primitives for all step counts. By default starts at 1
+        // (pyramid). --min-push-steps lets viz runs skip the small depths
+        // so each window-tick is informative motion.
+        const int first_ps = std::max(1, min_push_steps_override > 0 ? min_push_steps_override : 1);
+        for (int push_steps = first_ps; push_steps <= max_push_steps; push_steps++) {
             std::cout << "  push_steps=" << push_steps << std::endl;
 
             // Reset environment to initial state for each primitive
-            env.reset();
-            env.step_simulation();
+            reset_and_settle();
 
             // Execute push primitive for this number of steps
             bool success = push_controller.execute_push_primitive(target_object, edge_idx, push_steps);
@@ -222,14 +304,17 @@ int main(int argc, char** argv) {
     //                              destructively overwriting either.
     //   --config <path>         -- overrides the hardcoded config path. Use
     //                              the 1× config when generating 1× primitives
-    //                              so push_velocity / stuck_threshold / grid
-    //                              resolutions match the scene scale. Without
-    //                              this, the generator runs with the 6× config
-    //                              and produces primitives whose magnitudes
-    //                              don't match the scaled-down scenes.
+    //                              so push_velocity / grid resolutions match
+    //                              the scene scale. Without this, the generator
+    //                              runs with the 6× config and produces
+    //                              primitives whose magnitudes don't match the
+    //                              scaled-down scenes.
     std::string output_override;
     std::string scenes_suffix;
     std::string config_override;
+    // Optional viz-speedup knobs: skip lower depths, and shrink settle.
+    int min_push_steps_override = 0;     // 0 = no override (start at 1)
+    int settle_ticks_override = 0;       // 0 = use scene-derived defaults
     for (int i = 1; i + 1 < argc; ++i) {
         if (std::string(argv[i]) == "--output") {
             output_override = argv[i + 1];
@@ -237,6 +322,10 @@ int main(int argc, char** argv) {
             scenes_suffix = argv[i + 1];
         } else if (std::string(argv[i]) == "--config") {
             config_override = argv[i + 1];
+        } else if (std::string(argv[i]) == "--min-push-steps") {
+            min_push_steps_override = std::atoi(argv[i + 1]);
+        } else if (std::string(argv[i]) == "--settle-ticks") {
+            settle_ticks_override = std::atoi(argv[i + 1]);
         }
     }
 
@@ -363,12 +452,9 @@ resolution=0.05
         }
         
         // Velocity command magnitude (m/s) under the <velocity> actuator.
-        // Prefer the new push_velocity key; fall back to legacy force_scaling.
-        double force_scaling = 1.0;
+        double push_velocity = 0.10;
         if (params.has_key("skill.push_velocity")) {
-            force_scaling = params.get_double("skill.push_velocity");
-        } else if (params.has_key("skill.force_scaling")) {
-            force_scaling = params.get_double("skill.force_scaling");
+            push_velocity = params.get_double("skill.push_velocity");
         }
 
         // Whether the controller re-derives push direction every tick.
@@ -395,17 +481,25 @@ resolution=0.05
         std::cout << "  Points per face: " << points_per_face << std::endl;
         std::cout << "  Control steps: " << control_steps << std::endl;
         std::cout << "  Max push steps: " << max_push_steps << std::endl;
-        std::cout << "  Push velocity (m/s): " << force_scaling << std::endl;
+        std::cout << "  Push velocity (m/s): " << push_velocity << std::endl;
         std::cout << "  Dynamic direction: " << (dynamic_direction ? "true" : "false") << std::endl;
         std::cout << "  Base output: " << base_output << std::endl;
+
+        // Build a ConfigManager from the same YAML so the env constructed
+        // for each scene picks the correct RobotAdapter (sphere/holonomic
+        // vs car/diff_drive). The FastParameterLoader above only reads scalar
+        // generation parameters; it doesn't drive adapter selection.
+        auto config = std::make_shared<ConfigManager>(config_path);
+        std::cout << "  Robot type: " << config->get_robot_type() << std::endl;
 
         // Generate primitives for each scene
         for (const auto& scene : existing_scenes) {
             try {
                 auto primitives = generate_primitives_for_scene(
                     scene, visualize, resolution, points_per_face,
-                    control_steps, max_push_steps, force_scaling, dynamic_direction,
-                    push_offset_margin
+                    control_steps, max_push_steps, push_velocity, dynamic_direction,
+                    push_offset_margin, config,
+                    min_push_steps_override, settle_ticks_override
                 );
                 
                 // Save to suffixed output file. The base path is used as a

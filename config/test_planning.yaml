@@ -14,4 +14,3 @@ max_expansion_limit = 5000
 max_mpc_steps = 10
 distance_threshold = 0.02
 angle_threshold = 0.15
-max_stuck_iterations = 3

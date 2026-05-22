@@ -138,29 +138,14 @@ void ConfigManager::load_skill_config() {
     if (loader_->has_key("skill.max_push_steps")) {
         skill_.max_push_steps = loader_->get_int("skill.max_push_steps");
     }
-    // std::cout << "ConfigManager: Checking for key 'skill.max_mpc_iterations'" << std::endl;
-    if (loader_->has_key("skill.max_mpc_iterations")) {
-        skill_.max_mpc_iterations = loader_->get_int("skill.max_mpc_iterations");
-        // std::cout << "ConfigManager: Loaded skill.max_mpc_iterations = " << skill_.max_mpc_iterations << std::endl;
-    } else {
-        // std::cout << "ConfigManager: skill.max_mpc_iterations key not found, using default = " << skill_.max_mpc_iterations << std::endl;
-        // Debug: Let's see what keys are actually available
-        // std::cout << "ConfigManager: Available keys with 'skill' prefix:" << std::endl;
-        // This is a debug hack - we'll check some known keys to see the pattern
-        if (loader_->has_key("skill.max_push_steps")) {
-            // std::cout << "  - skill.max_push_steps: FOUND" << std::endl;
-        } else {
-            // std::cout << "  - skill.max_push_steps: NOT FOUND" << std::endl;
-        }
-    }
     if (loader_->has_key("skill.control_steps_per_push")) {
         skill_.control_steps_per_push = loader_->get_int("skill.control_steps_per_push");
     }
-    if (loader_->has_key("skill.force_scaling")) {
-        skill_.force_scaling = loader_->get_double("skill.force_scaling");
-    }
     if (loader_->has_key("skill.push_velocity")) {
         skill_.push_velocity = loader_->get_double("skill.push_velocity");
+    }
+    if (loader_->has_key("skill.push_tracker_max_speed")) {
+        skill_.push_tracker_max_speed = loader_->get_double("skill.push_tracker_max_speed");
     }
     if (loader_->has_key("skill.dynamic_direction")) {
         skill_.dynamic_direction = loader_->get_bool("skill.dynamic_direction");
@@ -169,12 +154,6 @@ void ConfigManager::load_skill_config() {
     // Execution parameters
     if (loader_->has_key("skill.goal_tolerance")) {
         skill_.goal_tolerance = loader_->get_double("skill.goal_tolerance");
-    }
-    if (loader_->has_key("skill.stuck_threshold")) {
-        skill_.stuck_threshold = loader_->get_double("skill.stuck_threshold");
-    }
-    if (loader_->has_key("skill.max_stuck_iterations")) {
-        skill_.max_stuck_iterations = loader_->get_int("skill.max_stuck_iterations");
     }
     if (loader_->has_key("skill.check_object_collision")) {
         skill_.check_object_collision = loader_->get_bool("skill.check_object_collision");
@@ -205,7 +184,6 @@ void ConfigManager::load_skill_config() {
         skill_.num_edge_points = loader_->get_int("skill.num_edge_points");
         skill_.points_per_face = std::max(1, skill_.num_edge_points / 4); // Derive per-face
     }
-    // push_force_magnitude parameter removed - unused (force_scaling used instead)
 }
 
 void ConfigManager::load_environment_config() {

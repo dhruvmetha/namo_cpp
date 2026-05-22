@@ -210,12 +210,13 @@ std::vector<std::array<double, 2>> build_goal_cells(
 
 }  // namespace
 
-RLEnvironment::RLEnvironment(const std::string& xml_path, const std::string& config_path, bool visualize)
+RLEnvironment::RLEnvironment(const std::string& xml_path, const std::string& config_path, bool visualize,
+                             bool skip_warmup)
     : xml_path_(xml_path), config_path_(config_path) {
     // std::cout << "Initializing RLEnvironment..." << std::endl;
     try {
         config_ = std::shared_ptr<ConfigManager>(ConfigManager::create_from_file(config_path).release());
-        env_ = std::make_unique<NAMOEnvironment>(xml_path, config_, visualize);
+        env_ = std::make_unique<NAMOEnvironment>(xml_path, config_, visualize, /*enable_logging=*/false, skip_warmup);
         skill_ = std::make_unique<NAMOPushSkill>(*env_, config_);
         
         // Cache immutable object info once during initialization
@@ -418,7 +419,7 @@ RLEnvironment::ReachabilitySummary RLEnvironment::get_reachability_summary(bool 
     }
 
     const int push_depth_count = config_ ? config_->skill().max_push_steps : 10;
-    MPCExecutor::ReachabilitySnapshot snapshot = skill_->get_reachability_snapshot();
+    PushPrimitiveExecutor::ReachabilitySnapshot snapshot = skill_->get_reachability_snapshot();
     summary.goal_reachable = snapshot.goal_reachable;
 
     const auto& movable_objects = env_->get_movable_objects();
@@ -450,6 +451,25 @@ RLEnvironment::ReachabilitySummary RLEnvironment::get_reachability_summary(bool 
 const std::map<std::string, std::map<std::string, double>>& RLEnvironment::get_object_info() const {
     // Return cached reference - zero cost operation!
     return cached_object_info_;
+}
+
+void RLEnvironment::warm_up() {
+    if (!env_) {
+        throw std::runtime_error("RLEnvironment::warm_up called before env init");
+    }
+    env_->warm_up();
+}
+
+void RLEnvironment::set_robot_pose(double x, double y, double theta) {
+    if (!env_) {
+        throw std::runtime_error("RLEnvironment::set_robot_pose called before env init");
+    }
+    // Delegate to the robot adapter's set_se2 via NAMOEnvironment::
+    // set_robot_position. The 3-arg overload takes {x, y, theta} (theta in
+    // radians, x/y in meters, world frame). Zero qvel is handled inside the
+    // adapter so we don't get a spurious push from leftover wheel velocity
+    // after the teleport.
+    env_->set_robot_position(std::array<double, 3>{x, y, theta});
 }
 
 void RLEnvironment::set_robot_goal(double x, double y, double theta) {
@@ -698,19 +718,6 @@ RLEnvironment::RegionSnapshot RLEnvironment::get_region_snapshot(
     }
 
     return snapshot;
-}
-
-void RLEnvironment::set_robot_goal_termination(bool enable) {
-    if (skill_) {
-        skill_->set_robot_goal_termination(enable);
-    }
-}
-
-bool RLEnvironment::get_robot_goal_termination() const {
-    if (skill_) {
-        return skill_->get_robot_goal_termination();
-    }
-    return false;
 }
 
 std::vector<int> RLEnvironment::evaluate_primitive_priorities(

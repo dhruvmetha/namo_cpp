@@ -5,14 +5,14 @@
  * Tests the complete workflow:
  * 1. Load universal primitives from binary database
  * 2. Abstract planning in empty environment (GreedyPlanner)
- * 3. MPC execution with real physics (MPCExecutor)
+ * 3. MPC execution with real physics (PushPrimitiveExecutor)
  * 4. Validation and performance measurement
  */
 
 #include "environment/namo_environment.hpp"
 #include "planning/primitive_loader.hpp"
 #include "planning/greedy_planner.hpp"
-#include "planning/mpc_executor.hpp"
+#include "planning/push_primitive_executor.hpp"
 #include <iostream>
 #include <chrono>
 #include <iomanip>
@@ -54,7 +54,7 @@ int main() {
         }
         // std::cout << "✓ Planner initialized with 120 universal primitives" << std::endl;
         
-        MPCExecutor executor(env);
+        PushPrimitiveExecutor executor(env);
         // std::cout << "✓ MPC Executor initialized" << std::endl;
         
         // Get test object

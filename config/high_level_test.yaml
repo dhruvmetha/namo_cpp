@@ -29,12 +29,10 @@ strategy:
 
 skill:
   max_push_steps: 10
-  max_mpc_iterations: 2
   control_steps_per_push: 250
-  force_scaling: 1.0
+  robot_size: [0.15, 0.15, 0.15]
+  execution_timeout: 30.0
   goal_tolerance: 0.1
-  stuck_threshold: 0.01
-  max_stuck_iterations: 3
   num_edge_points: 12
 
 environment:

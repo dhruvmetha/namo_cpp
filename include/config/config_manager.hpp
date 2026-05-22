@@ -68,9 +68,7 @@ public:
     struct SkillConfig {
         // NAMO push skill parameters
         int max_push_steps = 10;
-        int max_mpc_iterations = 10;
         int control_steps_per_push = 250;
-        double force_scaling = 1.0;
 
         // Push velocity (m/s) when the actuator is MuJoCo <velocity>.
         // compute_push_control() returns a vector of this magnitude in
@@ -78,6 +76,14 @@ public:
         // Default 0.10 m/s ≈ 10 cm/s sim ≈ 1.7 cm/s real-equivalent at
         // scale 6. See namo/velocity_actuator_experiment_log.md.
         double push_velocity = 0.10;
+
+        // Max-speed fraction (∈ [0, 1]) for the diff-drive push path
+        // tracker. The follower outputs left/right wheel speeds as a
+        // fraction of full-speed; the controller scales by push_velocity
+        // to get actual rad/s for the wheel actuators. Default 0.3 keeps
+        // the car gentle during the push (mirrors robot_control's
+        // FollowPathController behavior).
+        double push_tracker_max_speed = 0.3;
 
         // When true, the controller re-derives push direction from the
         // current object pose every control tick (robot traces an arc
@@ -87,8 +93,6 @@ public:
 
         // Skill execution
         double goal_tolerance = 0.1;             // meters
-        double stuck_threshold = 0.01;           // meters - minimum movement to avoid stuck detection
-        int max_stuck_iterations = 3;
         bool check_object_collision = true;      // Check pushed object collisions during execution
         bool check_robot_trajectory_collision = true;  // Abort push if robot body collides with walls/other objects during push trajectory (set false to disable wall-collision rejection)
         // Controller-level stuck detection tuning

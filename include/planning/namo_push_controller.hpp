@@ -2,8 +2,8 @@
 
 #include "core/types.hpp"
 #include "environment/namo_environment.hpp"
+#include "navigation/push_path_follower.hpp"
 #include "wavefront/wavefront_planner.hpp"
-#include "navigation/navigation_strategy.hpp"
 #include <array>
 #include <memory>
 #include <unordered_set>
@@ -103,9 +103,7 @@ private:
     int control_steps_per_push_;
     // Magnitude of the velocity command (m/s) emitted by compute_push_control.
     // Under MuJoCo <velocity> actuators (the holonomic robot setup) this is
-    // tracked by the actuator inside the solver. Historic name was
-    // "force_scaling" from the motor-actuator era; semantics changed when
-    // we switched actuators in commit 61efd1e.
+    // tracked by the actuator inside the solver.
     double push_velocity_;
     int points_per_edge_;
     // When true, the controller re-derives push direction from current
@@ -123,6 +121,11 @@ private:
     int stuck_check_stride_ = 20;            // check every N control steps
     double min_position_change_ = 0.001;     // meters
     double min_angle_change_ = 0.05;         // radians
+    // When > 0, overrides the default 100-tick pre/post-push settle inside
+    // execute_push_primitive. Used by the primitive generator to make
+    // visualization runs faster (smaller settle = less idle wall-clock per
+    // primitive). 0 means "keep default".
+    int settle_steps_override_ = 0;
 
     // Failure tracking
     std::string last_failure_reason_;
@@ -132,8 +135,7 @@ private:
     bool wall_collision_during_push_ = false;
     std::unordered_set<std::string> movable_collisions_during_push_;
 
-    // Navigation strategy (holonomic = teleport, diff-drive = rotate-drive-rotate)
-    std::unique_ptr<NavigationStrategy> nav_strategy_;
+    std::unique_ptr<PushPathFollower> push_path_follower_;
 
 public:
     /**
@@ -319,6 +321,20 @@ public:
      */
     void set_min_position_change(double v) { min_position_change_ = v; }
     void set_min_angle_change(double v) { min_angle_change_ = v; }
+    void set_settle_steps(int n) { settle_steps_override_ = n; }
+
+    /**
+     * @brief Set the diff-drive push path tracker's max-speed fraction.
+     *
+     * Sticky: once set, persists across reset() and set_path() calls.
+     * Pass a value in [0, 1]; it's clamped internally by the follower.
+     * No-op on holonomic robots (no follower constructed).
+     */
+    void set_push_tracker_max_speed(double v) {
+        if (push_path_follower_) {
+            push_path_follower_->set_speed(v);
+        }
+    }
     double get_min_position_change() const { return min_position_change_; }
     double get_min_angle_change() const { return min_angle_change_; }
 
@@ -360,6 +376,19 @@ private:
                                              const std::array<double, 4>& curr_quat,
                                              int step,
                                              int ctrl_step);
+
+    PushPathFollower::Pose get_current_robot_pose() const;
+    std::vector<std::array<double, 2>> build_push_tracking_path(
+        const PushState& state,
+        const std::array<double, 2>& actual_pos) const;
+    void log_push_path(
+        int tick,
+        const std::vector<std::array<double, 2>>& push_path) const;
+    void log_push_control(
+        int tick,
+        double omega_left,
+        double omega_right,
+        PushPathFollower::Mode mode) const;
 };
 
 } // namespace namo

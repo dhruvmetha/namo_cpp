@@ -9,7 +9,7 @@
 #include "environment/namo_environment.hpp"
 #include "planning/primitive_loader.hpp"
 #include "planning/greedy_planner.hpp"
-#include "planning/mpc_executor.hpp"
+#include "planning/push_primitive_executor.hpp"
 #include "planning/namo_push_controller.hpp"
 #include "wavefront/wavefront_planner.hpp"
 #include <iostream>
@@ -26,7 +26,7 @@ class IterativeMPCExecutor {
 private:
     NAMOEnvironment& env_;
     GreedyPlanner& planner_;
-    MPCExecutor& single_step_executor_;
+    PushPrimitiveExecutor& single_step_executor_;
     NAMOPushController& controller_;
     WavefrontPlanner& wavefront_planner_;
     
@@ -41,7 +41,7 @@ private:
     std::array<double, 2> robot_goal_;
     
 public:
-    IterativeMPCExecutor(NAMOEnvironment& env, GreedyPlanner& planner, MPCExecutor& executor, NAMOPushController& controller, WavefrontPlanner& wavefront_planner)
+    IterativeMPCExecutor(NAMOEnvironment& env, GreedyPlanner& planner, PushPrimitiveExecutor& executor, NAMOPushController& controller, WavefrontPlanner& wavefront_planner)
         : env_(env), planner_(planner), single_step_executor_(executor), controller_(controller), wavefront_planner_(wavefront_planner),
           max_mpc_iterations_(10), distance_threshold_(0.01), angle_threshold_(0.1),
           stuck_iterations_threshold_(3), has_robot_goal_(false) {}
@@ -285,7 +285,7 @@ int main() {
             std::cerr << "Failed to initialize planner" << std::endl;
             return 1;
         }
-        MPCExecutor executor(env);
+        PushPrimitiveExecutor executor(env);
         
         // Test step-by-step initialization to isolate segfault
         // std::cout << "Testing step-by-step initialization..." << std::endl;

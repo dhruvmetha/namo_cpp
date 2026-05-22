@@ -10,14 +10,14 @@ planning:
 
 skill:
   max_push_steps: 10
-  max_mpc_iterations: 1
   # Match primitive generator: one push step = 250 sim steps (0.5s).
   # apply_control runs 5 sim steps per ctrl call (0.01s / 0.002s tick) → 50 ctrl × 5 = 250 sim steps.
-  # push_velocity = 0.2 m/s → wheel cmd = 0.2 / 0.015 = 13.333 rad/s (no ctrlrange clamp).
-  # Primitives must also be regenerated at --push-speed 13.333 to stay aligned.
   control_steps_per_push: 50
-  push_velocity: 0.2              # m/s — replaces legacy force_scaling for <velocity> actuators
-  dynamic_direction: false        # diff-drive can't strafe — fix push direction at primitive start
+  # Car's chassis push speed is set via `push_tracker_max_speed` (the
+  # follower fraction). With kCarWheelMaxSpeedMs = 1.0 in code, the fraction
+  # IS the chassis m/s during a smooth straight push. push_velocity is not
+  # used by the car path — it's a holonomic-only knob.
+  push_tracker_max_speed: 0.3
   goal_tolerance: 0.03            # Tighter tolerance for small robot
   check_object_collision: false     # Disabled — region_opening sets this dynamically
   check_robot_trajectory_collision: false  # Disabled — diff-drive body arcs during push; grazing aborts every approach

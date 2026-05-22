@@ -46,17 +46,14 @@ skill:
   # Push skill parameters
   max_push_steps: 10               # Maximum push steps per skill execution
   control_steps_per_push: 250      # Control simulation steps per push step
-  force_scaling: 1.0               # Force scaling factor
+  robot_size: [0.15, 0.15, 0.15]  # [x, y, z] robot dimensions for skill planning
 
   # Execution parameters
   goal_tolerance: 0.1              # Goal reaching tolerance (meters)
-  stuck_threshold: 0.01            # Minimum movement to avoid stuck detection (meters)
-  max_stuck_iterations: 3         # Maximum stuck iterations before failure
   
   # Object interaction parameters
   # Edge sampling count for push approach generation
   num_edge_points: 12              # Number of edge points around object perimeter
-  # push_force_magnitude: 10.0       # REMOVED: unused parameter (force_scaling used instead)
 
 # Environment configuration
 environment:
