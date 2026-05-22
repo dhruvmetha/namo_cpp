@@ -82,6 +82,18 @@ public:
     void clear_robot_goal();
 
     /**
+     * @brief Count how many of the given (x, y) points are reachable from the
+     * robot's current position. Does NOT mutate the robot goal — use this for
+     * subgoal probes (e.g., region opening) instead of overwriting the task goal.
+     *
+     * @param points List of (x, y) world coordinates to test.
+     * @return std::pair<int, int> (count, first_reachable_index). The second
+     *         element is -1 if none are reachable.
+     */
+    std::pair<int, int> count_reachable_points(
+        const std::vector<std::array<double, 2>>& points) const;
+
+    /**
      * @brief Evaluate geometric transport priorities for primitive target poses
      * @param object_name Object to evaluate
      * @param target_poses Vector of target poses [x, y, theta]

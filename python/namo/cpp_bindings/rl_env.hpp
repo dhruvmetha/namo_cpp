@@ -123,6 +123,12 @@ public:
 	    // reachability checks over many sampled goals without flickering the marker).
 	    void set_robot_goal_silent(double x, double y, double theta = 0.0);
 	    bool is_robot_goal_reachable() const;
+	    // Count how many of the given (x, y) points are reachable from the
+	    // robot's current position. Does NOT mutate the robot goal — use for
+	    // subgoal probes (e.g. region opening) instead of overwriting the goal.
+	    // Returns (count, first_reachable_index); first index is -1 if none.
+	    std::pair<int, int> count_reachable_points(
+	        const std::vector<std::array<double, 2>>& points) const;
 	    std::array<double, 3> get_robot_goal() const;
 	    void clear_robot_goal();
 	    void set_goal_site_visible(bool visible);

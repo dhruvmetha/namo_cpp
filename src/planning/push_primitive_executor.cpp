@@ -206,7 +206,7 @@ bool PushPrimitiveExecutor::is_robot_goal_reachable() {
     if (!has_robot_goal_) {
         return false;
     }
-    
+
     // Use the incremental wavefront planner to check reachability
     try {
         if (!update_wavefront_from_robot_position()) {
@@ -220,6 +220,33 @@ bool PushPrimitiveExecutor::is_robot_goal_reachable() {
         std::cerr << "Error checking robot goal reachability: " << e.what() << std::endl;
         return false;
     }
+}
+
+std::pair<int, int> PushPrimitiveExecutor::count_reachable_points(
+    const std::vector<std::array<double, 2>>& points) {
+    if (points.empty()) {
+        return {0, -1};
+    }
+    try {
+        if (!update_wavefront_from_robot_position()) {
+            return {0, -1};
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Error updating wavefront for count_reachable_points: " << e.what() << std::endl;
+        return {0, -1};
+    }
+    const double goal_tolerance = compute_goal_tolerance_m(
+        planner_.get_robot_size(),
+        planner_.get_tier1_inflation_margin());
+    int count = 0;
+    int first_idx = -1;
+    for (int i = 0; i < static_cast<int>(points.size()); ++i) {
+        if (planner_.is_goal_reachable(points[i], goal_tolerance)) {
+            ++count;
+            if (first_idx == -1) first_idx = i;
+        }
+    }
+    return {count, first_idx};
 }
 
 

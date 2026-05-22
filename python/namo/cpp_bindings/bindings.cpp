@@ -132,6 +132,10 @@ PYBIND11_MODULE(namo_rl, m) {
         .def("set_robot_goal_silent", &namo::RLEnvironment::set_robot_goal_silent, py::arg("x"), py::arg("y"), py::arg("theta") = 0.0,
              "Set robot goal without updating the visualization marker (useful for repeated reachability checks).")
         .def("is_robot_goal_reachable", &namo::RLEnvironment::is_robot_goal_reachable, "Check if robot goal is reachable from current state.")
+        .def("count_reachable_points", &namo::RLEnvironment::count_reachable_points, py::arg("points"),
+             "Count how many of the given (x, y) points are reachable from the robot's current position. "
+             "Does NOT mutate the robot goal — use for subgoal probes (e.g. region opening). "
+             "Returns (count, first_reachable_index); first index is -1 if none reachable.")
         .def("get_robot_goal", &namo::RLEnvironment::get_robot_goal, "Get current robot goal.")
         .def("clear_robot_goal", &namo::RLEnvironment::clear_robot_goal, "Clear the skill's robot goal and hide the visualization marker.")
         .def("set_goal_site_visible", &namo::RLEnvironment::set_goal_site_visible, py::arg("visible"),

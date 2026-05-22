@@ -515,6 +515,11 @@ bool RLEnvironment::is_robot_goal_reachable() const {
     return skill_->is_robot_goal_reachable();
 }
 
+std::pair<int, int> RLEnvironment::count_reachable_points(
+    const std::vector<std::array<double, 2>>& points) const {
+    return skill_->count_reachable_points(points);
+}
+
 std::array<double, 3> RLEnvironment::get_robot_goal() const {
     return skill_->get_robot_goal();
 }

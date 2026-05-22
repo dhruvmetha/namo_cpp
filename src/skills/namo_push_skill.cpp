@@ -389,6 +389,11 @@ void NAMOPushSkill::clear_robot_goal() {
     executor_->clear_robot_goal();
 }
 
+std::pair<int, int> NAMOPushSkill::count_reachable_points(
+    const std::vector<std::array<double, 2>>& points) const {
+    return executor_->count_reachable_points(points);
+}
+
 void NAMOPushSkill::set_collision_checking(bool enabled) {
     // Propagate collision checking setting to the executor's controller
     if (executor_) {

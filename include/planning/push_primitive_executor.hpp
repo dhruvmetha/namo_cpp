@@ -169,6 +169,18 @@ public:
     bool is_robot_goal_reachable();
 
     /**
+     * @brief Count how many of the given points are reachable from the robot's
+     * current position, using the cached wavefront. Does NOT mutate the robot
+     * goal. Updates the wavefront once, then performs cheap grid lookups.
+     *
+     * @param points List of (x, y) world coordinates to test.
+     * @return std::pair<int, int> (count, first_reachable_index). The second
+     *         element is -1 if no point is reachable.
+     */
+    std::pair<int, int> count_reachable_points(
+        const std::vector<std::array<double, 2>>& points);
+
+    /**
      * @brief Save wavefront for debugging at a specific iteration
      *
      * @param iteration Iteration number

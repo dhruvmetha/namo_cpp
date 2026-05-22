@@ -2770,47 +2770,20 @@ class RegionOpeningPlanner(BasePlanner):
             if not bundle.goals:
                 return False, 0, None, None
 
-            # `_validate_opening` is used as a pure predicate/count for region opening,
-            # but it must temporarily call `set_robot_goal()` to reuse the wavefront
-            # reachability check. Preserve the caller’s goal so we don’t “sample a new”
-            # goal as a side-effect (which can confuse visualization/replay).
-            previous_goal = None
-            try:
-                previous_goal = self.env.get_robot_goal()
-            except Exception:
-                previous_goal = None
-
-            reachable_count = 0
-            first_reachable_goal = None
-
-            # Collect all goal samples for visualization
+            # Collect all goal samples for visualization / return value.
             all_goals = [(g.x, g.y, g.theta) for g in bundle.goals]
 
-            set_goal = getattr(self.env, "set_robot_goal_silent", self.env.set_robot_goal)
+            # Single C++ call: updates the wavefront once, then performs cheap
+            # grid lookups for every (x, y) point. Does NOT mutate the env's
+            # robot goal, so the user's task goal is preserved across this call.
+            xy_points = [(g.x, g.y) for g in bundle.goals]
+            reachability_start = time.perf_counter()
+            reachable_count, first_idx = self.env.count_reachable_points(xy_points)
+            reachability_ms_total = (time.perf_counter() - reachability_start) * 1000.0
+            reachability_calls = 1
+            goal_checks = len(bundle.goals)
 
-            # Check ALL goals and count how many are reachable
-            for goal_sample in bundle.goals:
-                goal_checks += 1
-                set_goal(goal_sample.x, goal_sample.y, goal_sample.theta)
-                reachability_start = time.perf_counter()
-                is_reachable = self.env.is_robot_goal_reachable()
-                reachability_ms_total += (time.perf_counter() - reachability_start) * 1000.0
-                reachability_calls += 1
-                if is_reachable:
-                    reachable_count += 1
-                    if first_reachable_goal is None:
-                        first_reachable_goal = (goal_sample.x, goal_sample.y, goal_sample.theta)
-
-            # Restore goal to avoid leaking the "last checked" sampled goal.
-            # If we found a reachable goal, pin the env goal to that exact goal so
-            # search-time visualization and solution replay use the same goal.
-            try:
-                if first_reachable_goal is not None:
-                    self.env.set_robot_goal(first_reachable_goal[0], first_reachable_goal[1], first_reachable_goal[2])
-                elif previous_goal is not None:
-                    self.env.set_robot_goal(previous_goal[0], previous_goal[1], previous_goal[2] if len(previous_goal) > 2 else 0.0)
-            except Exception:
-                pass
+            first_reachable_goal = all_goals[first_idx] if first_idx >= 0 else None
 
             # Success if at least 1 goal is reachable
             if reachable_count >= 1:
