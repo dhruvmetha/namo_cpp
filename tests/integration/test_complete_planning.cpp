@@ -4,7 +4,7 @@
  * 
  * Tests the two-stage approach:
  * 1. Abstract planning in empty environment (GreedyPlanner)
- * 2. MPC execution with real physics (MPCExecutor)
+ * 2. MPC execution with real physics (PushPrimitiveExecutor)
  */
 
 #include "core/parameter_loader.hpp"
@@ -12,7 +12,7 @@
 #include "planning/namo_push_controller.hpp"
 #include "planning/primitive_loader.hpp"
 #include "planning/greedy_planner.hpp"
-#include "planning/mpc_executor.hpp"
+#include "planning/push_primitive_executor.hpp"
 #include <iostream>
 #include <chrono>
 #include <vector>
@@ -57,7 +57,7 @@ private:
     NAMOPushController controller_;
     PrimitiveLoader loader_;
     GreedyPlanner planner_;
-    MPCExecutor executor_;
+    PushPrimitiveExecutor executor_;
     
     std::vector<TestCase> test_cases_;
     

@@ -132,10 +132,6 @@ public:
     void set_robot_trajectory_collision_checking(bool enable);
     bool get_collision_checking() const;
 
-    // Robot goal termination control (defaults to false)
-    void set_robot_goal_termination(bool enable);
-    bool get_robot_goal_termination() const;
-
     // Video recording interface
     void start_recording(int width = 640, int height = 480,
                         int capture_frequency = 100, size_t max_frames = 10000);

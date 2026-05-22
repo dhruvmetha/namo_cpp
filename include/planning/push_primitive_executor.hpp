@@ -29,28 +29,33 @@ struct ExecutionResult {
 };
 
 /**
- * @brief MPC execution layer for primitive plans
- * 
- * Takes abstract primitive sequences from GreedyPlanner and executes them
- * with real MuJoCo physics using existing NAMO infrastructure.
- * Handles discrepancies between universal primitives and actual dynamics.
+ * @brief Executes a single push primitive (edge_idx, push_steps) with real MuJoCo physics.
+ *
+ * Wraps NAMOPushController + WavefrontPlanner. Given an object name and a
+ * PlanStep (edge_idx, push_steps), it checks reachability against the
+ * current wavefront, executes one continuous push primitive through the
+ * controller, and reports collisions / stuck conditions.
+ *
+ * Historical note: this class used to drive an outer MPC retry loop (hence
+ * the original name "MPCExecutor"). The retry loop was removed — the class
+ * now just executes one primitive.
  */
-class MPCExecutor {
+class PushPrimitiveExecutor {
 private:
     NAMOEnvironment& env_;
     WavefrontPlanner planner_;
     NAMOPushController controller_;
-    
+
     // Execution parameters
     int max_mpc_steps_;              // Maximum MPC steps per primitive
     double distance_threshold_;      // Distance threshold for goal checking
-    double angle_threshold_;         // Angle threshold for goal checking  
+    double angle_threshold_;         // Angle threshold for goal checking
     int max_stuck_iterations_;       // Max iterations before considering object stuck
-    
+
     // Robot goal for early termination
     bool has_robot_goal_;
     std::array<double, 2> robot_goal_;
-    
+
 public:
     struct ReachableEdgesResult {
         std::vector<int> edge_indices;
@@ -64,11 +69,11 @@ public:
 
     /**
      * @brief Constructor with default hardcoded values
-     * 
+     *
      * @param env Reference to NAMO environment
      */
-    MPCExecutor(NAMOEnvironment& env);
-    
+    PushPrimitiveExecutor(NAMOEnvironment& env);
+
     /**
      * @brief Constructor with ConfigManager parameters
      *
@@ -78,36 +83,36 @@ public:
      * @param wavefront_tier1_inflation_margin Wavefront tier-1 inflation margin
      * @param max_push_steps Max push steps per primitive
      * @param control_steps_per_push Control steps per push
-     * @param force_scaling Force scaling factor
+     * @param push_velocity Velocity-command magnitude (m/s) for the push actuator
      * @param points_per_face Number of edge points per object face
      * @param check_object_collision Enable object collision checking during push
      */
-    MPCExecutor(NAMOEnvironment& env, double resolution, const std::vector<double>& robot_size,
+    PushPrimitiveExecutor(NAMOEnvironment& env, double resolution, const std::vector<double>& robot_size,
                 double wavefront_tier1_inflation_margin,
-                int max_push_steps, int control_steps_per_push, double force_scaling, int points_per_face = 3,
+                int max_push_steps, int control_steps_per_push, double push_velocity, int points_per_face = 3,
                 bool check_object_collision = true,
                 bool dynamic_direction = true);
-    
+
     /**
      * @brief Set execution parameters
-     * 
+     *
      * @param max_mpc_steps Maximum MPC steps per primitive (default: 10)
      * @param distance_threshold Distance threshold for goal reaching (default: 0.01)
      * @param angle_threshold Angle threshold for goal reaching (default: 0.1)
      * @param max_stuck_iterations Max stuck iterations before failure (default: 2)
      */
-    void set_parameters(int max_mpc_steps = 10, 
+    void set_parameters(int max_mpc_steps = 10,
                        double distance_threshold = 0.01,
                        double angle_threshold = 0.1,
                        int max_stuck_iterations = 2);
-    
+
     /**
      * @brief Set robot goal for early termination checking
-     * 
+     *
      * @param robot_goal Robot goal position [x, y]
      */
     void set_robot_goal(const std::array<double, 2>& robot_goal);
-    
+
     /**
      * @brief Clear robot goal (disable early termination)
      */
@@ -128,14 +133,13 @@ public:
     }
 
     /**
-     * @brief Execute a sequence of primitive plans with MPC
-     * 
-     * Follows old implementation approach:
+     * @brief Execute a sequence of primitive plans
+     *
      * 1. For each primitive in sequence, set goal state in environment
      * 2. Use existing push controller to execute primitive with real physics
      * 3. Check if robot goal becomes reachable (early termination)
      * 4. Handle stuck situations and dynamic discrepancies
-     * 
+     *
      * @param object_name Name of object to manipulate
      * @param plan_sequence Sequence of primitive actions from GreedyPlanner
      * @return ExecutionResult Result of execution with success/failure info
@@ -144,10 +148,10 @@ public:
         const std::string& object_name,
         const std::vector<PlanStep>& plan_sequence
     );
-    
+
     /**
-     * @brief Execute a single primitive step with MPC
-     * 
+     * @brief Execute a single primitive step
+     *
      * @param object_name Name of object to manipulate
      * @param plan_step Single primitive action to execute
      * @return bool True if execution succeeded
@@ -156,22 +160,22 @@ public:
         const std::string& object_name,
         const PlanStep& plan_step
     );
-    
+
     /**
-     * @brief Check if robot goal is reachable (public access for iterative MPC)
-     * 
+     * @brief Check if robot goal is reachable
+     *
      * @return bool True if robot goal is reachable
      */
     bool is_robot_goal_reachable();
-    
+
     /**
-     * @brief Save wavefront for debugging at specific MPC iteration
-     * 
-     * @param iteration MPC iteration number
+     * @brief Save wavefront for debugging at a specific iteration
+     *
+     * @param iteration Iteration number
      * @param base_filename Base filename for wavefront files
      */
-    void save_debug_wavefront(int iteration, const std::string& base_filename = "mpc_wavefront");
-    
+    void save_debug_wavefront(int iteration, const std::string& base_filename = "wavefront");
+
     /**
      * @brief Get controller for configuration access
      *
@@ -235,23 +239,23 @@ private:
 
     /**
      * @brief Get current object state as SE(2)
-     * 
+     *
      * @param object_name Name of object
      * @return SE2State Current object pose
      */
     SE2State get_object_se2_state(const std::string& object_name);
-    
+
     /**
      * @brief Convert SE2State to goal state vector format
-     * 
+     *
      * @param se2_state SE(2) state
      * @return std::vector<double> Goal state in [x, y, z, qw, qx, qy, qz] format
      */
     std::vector<double> se2_to_goal_state(const SE2State& se2_state);
-    
+
     /**
      * @brief Check if object is stuck (not moving)
-     * 
+     *
      * @param object_name Name of object
      * @param previous_state Previous object state
      * @return bool True if object appears stuck

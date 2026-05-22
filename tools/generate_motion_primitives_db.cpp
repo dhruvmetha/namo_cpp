@@ -52,7 +52,7 @@ std::vector<NominalPrimitive> generate_primitives_for_scene(
     int points_per_face,
     int control_steps,
     int max_push_steps,
-    double force_scaling,
+    double push_velocity,
     bool dynamic_direction,
     double push_offset_margin,
     std::shared_ptr<ConfigManager> config,
@@ -106,7 +106,7 @@ std::vector<NominalPrimitive> generate_primitives_for_scene(
     env.set_robot_goal(robot_goal);
     
     // Create push controller
-    NAMOPushController push_controller(env, *wavefront_planner, max_push_steps, control_steps, force_scaling, points_per_face, dynamic_direction);
+    NAMOPushController push_controller(env, *wavefront_planner, max_push_steps, control_steps, push_velocity, points_per_face, dynamic_direction);
 
     // Apply config-driven stuck-check parameters. NAMOPushSkill does this in
     // its own ctor (src/skills/namo_push_skill.cpp:93-96) but the generator
@@ -304,11 +304,11 @@ int main(int argc, char** argv) {
     //                              destructively overwriting either.
     //   --config <path>         -- overrides the hardcoded config path. Use
     //                              the 1× config when generating 1× primitives
-    //                              so push_velocity / stuck_threshold / grid
-    //                              resolutions match the scene scale. Without
-    //                              this, the generator runs with the 6× config
-    //                              and produces primitives whose magnitudes
-    //                              don't match the scaled-down scenes.
+    //                              so push_velocity / grid resolutions match
+    //                              the scene scale. Without this, the generator
+    //                              runs with the 6× config and produces
+    //                              primitives whose magnitudes don't match the
+    //                              scaled-down scenes.
     std::string output_override;
     std::string scenes_suffix;
     std::string config_override;
@@ -452,12 +452,9 @@ resolution=0.05
         }
         
         // Velocity command magnitude (m/s) under the <velocity> actuator.
-        // Prefer the new push_velocity key; fall back to legacy force_scaling.
-        double force_scaling = 1.0;
+        double push_velocity = 0.10;
         if (params.has_key("skill.push_velocity")) {
-            force_scaling = params.get_double("skill.push_velocity");
-        } else if (params.has_key("skill.force_scaling")) {
-            force_scaling = params.get_double("skill.force_scaling");
+            push_velocity = params.get_double("skill.push_velocity");
         }
 
         // Whether the controller re-derives push direction every tick.
@@ -484,7 +481,7 @@ resolution=0.05
         std::cout << "  Points per face: " << points_per_face << std::endl;
         std::cout << "  Control steps: " << control_steps << std::endl;
         std::cout << "  Max push steps: " << max_push_steps << std::endl;
-        std::cout << "  Push velocity (m/s): " << force_scaling << std::endl;
+        std::cout << "  Push velocity (m/s): " << push_velocity << std::endl;
         std::cout << "  Dynamic direction: " << (dynamic_direction ? "true" : "false") << std::endl;
         std::cout << "  Base output: " << base_output << std::endl;
 
@@ -500,7 +497,7 @@ resolution=0.05
             try {
                 auto primitives = generate_primitives_for_scene(
                     scene, visualize, resolution, points_per_face,
-                    control_steps, max_push_steps, force_scaling, dynamic_direction,
+                    control_steps, max_push_steps, push_velocity, dynamic_direction,
                     push_offset_margin, config,
                     min_push_steps_override, settle_ticks_override
                 );

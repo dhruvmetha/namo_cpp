@@ -419,7 +419,7 @@ RLEnvironment::ReachabilitySummary RLEnvironment::get_reachability_summary(bool 
     }
 
     const int push_depth_count = config_ ? config_->skill().max_push_steps : 10;
-    MPCExecutor::ReachabilitySnapshot snapshot = skill_->get_reachability_snapshot();
+    PushPrimitiveExecutor::ReachabilitySnapshot snapshot = skill_->get_reachability_snapshot();
     summary.goal_reachable = snapshot.goal_reachable;
 
     const auto& movable_objects = env_->get_movable_objects();
@@ -708,19 +708,6 @@ RLEnvironment::RegionSnapshot RLEnvironment::get_region_snapshot(
     }
 
     return snapshot;
-}
-
-void RLEnvironment::set_robot_goal_termination(bool enable) {
-    if (skill_) {
-        skill_->set_robot_goal_termination(enable);
-    }
-}
-
-bool RLEnvironment::get_robot_goal_termination() const {
-    if (skill_) {
-        return skill_->get_robot_goal_termination();
-    }
-    return false;
 }
 
 std::vector<int> RLEnvironment::evaluate_primitive_priorities(

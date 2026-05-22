@@ -9,12 +9,12 @@
 namespace namo {
 
 
-NAMOPushSkill::NAMOPushSkill(NAMOEnvironment& env) 
+NAMOPushSkill::NAMOPushSkill(NAMOEnvironment& env)
     : env_(env), config_(nullptr), legacy_config_() {
     initialize_skill();
 }
 
-NAMOPushSkill::NAMOPushSkill(NAMOEnvironment& env, const Config& config) 
+NAMOPushSkill::NAMOPushSkill(NAMOEnvironment& env, const Config& config)
     : env_(env), config_(nullptr), legacy_config_(config) {
     initialize_skill();
 }
@@ -25,54 +25,10 @@ NAMOPushSkill::NAMOPushSkill(NAMOEnvironment& env, std::shared_ptr<ConfigManager
 }
 
 void NAMOPushSkill::initialize_skill() {
-    // The configured `motion_primitives_file` is treated as a BASE PREFIX,
-    // not a literal file path. We always load the shape-specific
-    // siblings: `<prefix>_square.dat`, `<prefix>_wide.dat`,
-    // `<prefix>_tall.dat`. The literal `<prefix>.dat` file is not
-    // required to exist — older code had it as a fallback, but that
-    // path was either dead (suffixed files always present in normal
-    // operation) or actively wrong (would load square primitives for
-    // wide/tall objects, silently). Eliminated.
-    std::string base_db_path = config_ ? config_->system().motion_primitives_file
-                                       : legacy_config_.primitive_database_path;
-
-    auto add_suffix_to_filename = [](const std::string& base_path, const std::string& suffix) {
-        auto dot_pos = base_path.find_last_of('.');
-        if (dot_pos == std::string::npos) {
-            return base_path + "_" + suffix;
-        }
-        return base_path.substr(0, dot_pos) + "_" + suffix + base_path.substr(dot_pos);
-    };
-
-    // Load the shape-specific planner. No fallback — if the suffixed
-    // file is missing, that's a configuration error and we report it
-    // clearly rather than silently substituting wrong data.
-    auto load_shape_planner = [&](const std::string& shape_name) -> std::unique_ptr<GreedyPlanner> {
-        std::string path = add_suffix_to_filename(base_db_path, shape_name);
-        if (!std::filesystem::exists(path)) {
-            throw std::runtime_error(
-                "Motion primitives missing for shape '" + shape_name +
-                "': expected " + path + " (derived from system.motion_primitives_file='" +
-                base_db_path + "'). Regenerate with: "
-                "./build_python/generate_motion_primitives_db --output " + base_db_path);
-        }
-        auto planner = std::make_unique<GreedyPlanner>();
-        if (!planner->initialize(path)) {
-            throw std::runtime_error("Failed to initialize " + shape_name +
-                                     " planner from " + path);
-        }
-        planner->set_name(shape_name);
-        return planner;
-    };
-
-    planner_square_ = load_shape_planner("square");
-    planner_wide_   = load_shape_planner("wide");
-    planner_tall_   = load_shape_planner("tall");
-    
     // Initialize executor with configuration parameters
     if (config_) {
         // Use ConfigManager parameters
-        executor_ = std::make_unique<MPCExecutor>(
+        executor_ = std::make_unique<PushPrimitiveExecutor>(
             env_,
             config_->planning().skill_level_resolution,
             config_->planning().robot_size,
@@ -80,8 +36,6 @@ void NAMOPushSkill::initialize_skill() {
             config_->skill().max_push_steps,
             config_->skill().control_steps_per_push,
             // Velocity actuators interpret this as m/s command magnitude.
-            // Prefer the new push_velocity key; fall back to legacy
-            // force_scaling for configs that haven't been migrated.
             config_->skill().push_velocity,
             config_->skill().points_per_face,
             config_->skill().check_object_collision,
@@ -99,7 +53,7 @@ void NAMOPushSkill::initialize_skill() {
         controller.set_push_tracker_max_speed(config_->skill().push_tracker_max_speed);
     } else {
         // Use legacy hardcoded values
-        executor_ = std::make_unique<MPCExecutor>(env_);
+        executor_ = std::make_unique<PushPrimitiveExecutor>(env_);
     }
 }
 
@@ -111,12 +65,10 @@ std::map<std::string, ParameterSchema> NAMOPushSkill::get_parameter_schema() con
                        SkillParameterValue(SE2State())}},  // Optional with default
         {"tolerance", {ParameterSchema::DOUBLE, "Goal tolerance in meters",
                       SkillParameterValue(config_ ? config_->skill().goal_tolerance : legacy_config_.tolerance)}},
-        {"max_attempts", {ParameterSchema::INT, "Maximum MPC iterations",
-                         SkillParameterValue(config_ ? config_->skill().max_mpc_iterations : legacy_config_.max_mpc_iterations)}},
-        {"edge_idx", {ParameterSchema::INT, "Primitive edge index for direct execution (-1 = use MPC search)",
-                     SkillParameterValue(-1)}},  // Optional with default -1
-        {"depth", {ParameterSchema::INT, "Primitive depth for direct execution (-1 = use MPC search)",
-                  SkillParameterValue(-1)}}  // Optional with default -1
+        {"edge_idx", {ParameterSchema::INT, "Primitive edge index for direct execution",
+                     SkillParameterValue(-1)}},  // Required for execution; -1 = invalid
+        {"depth", {ParameterSchema::INT, "Primitive depth for direct execution",
+                  SkillParameterValue(-1)}}  // Required for execution; -1 = invalid
     };
 }
 
@@ -125,7 +77,7 @@ bool NAMOPushSkill::is_applicable(const std::map<std::string, SkillParameterValu
     if (!validate_parameters(parameters, error)) {
         return false;
     }
-    
+
     // Extract and validate object
     auto object_name = std::get<std::string>(parameters.at("object_name"));
     if (!is_object_movable(object_name)) {
@@ -143,75 +95,42 @@ std::chrono::milliseconds NAMOPushSkill::estimate_duration(const std::map<std::s
     if (!is_applicable(parameters)) {
         return std::chrono::milliseconds::max();
     }
-    
+
     auto object_name = std::get<std::string>(parameters.at("object_name"));
     auto target_pose = std::get<SE2State>(parameters.at("target_pose"));
-    
+
     auto current_pose = get_object_current_pose(object_name);
     if (!current_pose) {
         return std::chrono::milliseconds::max();
     }
-    
-    // Distance-based cost estimation  
+
+    // Distance-based cost estimation
     double distance = std::sqrt(
-        std::pow(target_pose.x - current_pose->x, 2) + 
+        std::pow(target_pose.x - current_pose->x, 2) +
         std::pow(target_pose.y - current_pose->y, 2)
     );
-    
+
     // Empirical formula: 500ms base + 1000ms per meter
     return std::chrono::milliseconds(static_cast<long>(500 + distance * 1000));
 }
 
 SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterValue>& parameters) {
     auto start_time = std::chrono::high_resolution_clock::now();
-    
+
     SkillResult result;
     result.skill_name = get_name();
-    
+
     // Validate parameters
     std::string validation_error;
     if (!validate_parameters(parameters, validation_error)) {
         result.failure_reason = "Parameter validation failed: " + validation_error;
         return result;
     }
-    
+
     // Extract parameters with proper type safety
     auto object_name = std::get<std::string>(parameters.at("object_name"));
     auto target_pose = std::get<SE2State>(parameters.at("target_pose"));
-    
-    // Get optional parameters with defaults
-    double tolerance = config_ ? config_->skill().goal_tolerance : legacy_config_.tolerance;
-    if (auto it = parameters.find("tolerance"); it != parameters.end()) {
-        tolerance = std::get<double>(it->second);
-    }
-    
-    int max_mpc_iterations = config_ ? config_->skill().max_mpc_iterations : legacy_config_.max_mpc_iterations;
-    if (auto it = parameters.find("max_attempts"); it != parameters.end()) {
-        max_mpc_iterations = std::get<int>(it->second);
-    }
-    
-    // Debug output to verify parameter loading
-    // std::cout << "NAMOPushSkill: config_ = " << (config_ ? "valid" : "null") << std::endl;
-    // if (config_) {
-    //     std::cout << "NAMOPushSkill: config_->skill().max_mpc_iterations = " << config_->skill().max_mpc_iterations << std::endl;
-    // } else {
-    //     std::cout << "NAMOPushSkill: legacy_config_.max_mpc_iterations = " << legacy_config_.max_mpc_iterations << std::endl;
-    // }
-    // std::cout << "NAMOPushSkill: Using max_mpc_iterations = " << max_mpc_iterations << std::endl;
-    
-    // Set robot goal if provided
-    // bool has_robot_goal = false;
-    // if (auto it = parameters.find("robot_goal"); it != parameters.end()) {
-    //     auto robot_goal = std::get<SE2State>(it->second);
-    //     executor_->set_robot_goal({robot_goal.x, robot_goal.y});
-    //     has_robot_goal = true;
-    // } else {
-    //     executor_->clear_robot_goal();
-    // }
-    
-    // std::cout << "Starting iterative MPC execution for object: " << object_name << std::endl;
-    // std::cout << "Target: [" << target_pose.x << "," << target_pose.y << "," << target_pose.theta << "]" << std::endl;
-    
+
     // Visualize the target object goal in MuJoCo using the actual object size (cyan color)
     const ObjectInfo* obj_info = env_.get_object_info(object_name);
     if (obj_info) {
@@ -220,7 +139,9 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         env_.visualize_object_goal_marker(target_3d, obj_info->size, target_pose.theta, cyan_color);
     }
 
-    // Check if Python provided explicit primitive selection (bypass MPC loop)
+    // Python must provide explicit (edge_idx, depth). This skill is a thin
+    // wrapper around a single primitive execution — the MPC retry loop that
+    // used to back the (edge_idx=-1, depth=-1) sentinel was removed.
     int provided_edge_idx = -1;
     int provided_depth = -1;
     if (auto it = parameters.find("edge_idx"); it != parameters.end()) {
@@ -230,335 +151,80 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
         provided_depth = std::get<int>(it->second);
     }
 
-    // If edge_idx provided (>=0), bypass MPC loop and execute directly
-    if (provided_edge_idx >= 0 && provided_depth >= 0) {
-        // Get reachable edges to verify the requested edge is accessible
-        std::vector<int> reachable_edges = executor_->get_reachable_edges_with_wavefront(object_name);
-
-        // Check if requested edge is reachable
-        bool edge_reachable = std::find(reachable_edges.begin(), reachable_edges.end(),
-                                         provided_edge_idx) != reachable_edges.end();
-
-        if (!edge_reachable) {
-            result.failure_reason = "Requested edge " + std::to_string(provided_edge_idx) + " not reachable";
-            result.failure_type = FailureType::NO_REACHABLE_EDGES;
-            auto end_time = std::chrono::high_resolution_clock::now();
-            result.execution_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-            return result;
-        }
-
-        // Execute the specific primitive directly (no search, no MPC loop)
-        int push_steps = provided_depth + 1;  // Convert 0-indexed depth to 1-indexed push_steps
-        std::vector<PlanStep> single_step = {PlanStep(provided_edge_idx, push_steps, target_pose)};
-
-        auto step_result = executor_->execute_plan(object_name, single_step);
-
-        // Populate result
-        auto final_pose = get_object_current_pose(object_name);
-        result.success = step_result.success;
-        result.outputs["steps_executed"] = 1;
-        result.outputs["final_pose"] = final_pose ? *final_pose : SE2State();
-        result.outputs["object_name"] = object_name;
-        result.outputs["direct_execution"] = true;  // Flag indicating MPC was bypassed
-
-        // Report robot-goal reachability regardless of whether early-termination is enabled.
-        // Early termination only controls whether we *stop* on reachability, not whether we *report* it.
-        result.outputs["robot_goal_reached"] = (has_robot_goal_ && executor_->is_robot_goal_reachable());
-
-        if (!step_result.success) {
-            result.failure_reason = step_result.failure_reason;
-            // Copy collision info if present
-            if (!step_result.collision_object.empty()) {
-                result.outputs["collision_object"] = step_result.collision_object;
-                result.failure_type = FailureType::OBJECT_COLLISION_DURING_PUSH;
-            }
-            // Check for stuck condition
-            if (step_result.failure_reason.find("Controller-level stuck") != std::string::npos) {
-                result.outputs["stuck"] = std::string("true");  // explicit string to avoid implicit const char* → bool
-                result.failure_type = FailureType::OBJECT_STUCK;
-            }
-        }
-
-        // Collision tracking outputs
-        result.outputs["wall_collision"] = step_result.wall_collision_during_push;
-        {
-            std::string movable_str;
-            for (auto it = step_result.movable_collisions_during_push.begin();
-                 it != step_result.movable_collisions_during_push.end(); ++it) {
-                if (it != step_result.movable_collisions_during_push.begin()) movable_str += ",";
-                movable_str += *it;
-            }
-            result.outputs["movable_collisions"] = movable_str;
-        }
-
+    if (provided_edge_idx < 0 || provided_depth < 0) {
+        result.failure_reason = "edge_idx and depth must both be >= 0; "
+                                "this skill no longer supports the MPC search fallback.";
         auto end_time = std::chrono::high_resolution_clock::now();
         result.execution_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
         return result;
     }
 
-    // **ITERATIVE MPC LOOP** (original behavior when edge_idx == -1)
-    SE2State previous_state = *get_object_current_pose(object_name); // Initialize for stuck detection
-    int stuck_counter = 0;
-    int previous_edge_idx = -1;
-    const int max_stuck_iterations = config_ ? config_->skill().max_stuck_iterations : 2;
-    std::unordered_set<int> stuck_edges;  // edges that caused a stuck outcome recently
+    // Get reachable edges to verify the requested edge is accessible
+    std::vector<int> reachable_edges = executor_->get_reachable_edges_with_wavefront(object_name);
 
-    // Collision accumulation across all MPC iterations
-    bool accumulated_wall_collision = false;
-    std::unordered_set<std::string> accumulated_movable_collisions;
+    // Check if requested edge is reachable
+    bool edge_reachable = std::find(reachable_edges.begin(), reachable_edges.end(),
+                                     provided_edge_idx) != reachable_edges.end();
 
-    for (int mpc_iter = 0; mpc_iter < max_mpc_iterations; mpc_iter++) {
-        // std::cout << "\n--- MPC Iteration " << (mpc_iter + 1) << "/" << max_mpc_iterations << " ---" << std::endl;
-        
-        // 1. Get current object state
-        auto current_pose = get_object_current_pose(object_name);
-        if (!current_pose) {
-            std::cout << "Could not get current pose for object: " << object_name << " at iteration " << mpc_iter << std::endl;
-            result.failure_reason = "Could not get current pose for object: " + object_name + " at iteration " + std::to_string(mpc_iter);
-            return result;
-        }
-        
-        SE2State current_state = *current_pose;
-        
-        // 2. Check if object is stuck (after first iteration)
-        if (mpc_iter > 0) {
-            if (is_object_stuck(previous_state, current_state)) {
-                stuck_counter++;
-                // Add the previously executed edge to stuck edges list
-                if (previous_edge_idx >= 0) {
-                    stuck_edges.insert(previous_edge_idx);
-                    // debug disabled
-                }
-
-                if (stuck_counter >= max_stuck_iterations) {
-                    // debug disabled
-                    result.outputs["stuck"] = std::string("true");  // explicit string to avoid implicit const char* → bool
-                    result.failure_reason = "Object stuck for " + std::to_string(stuck_counter) + " iterations at MPC iteration " + std::to_string(mpc_iter);
-                    result.failure_type = FailureType::OBJECT_STUCK;
-                    result.outputs["steps_executed"] = mpc_iter;
-                    result.outputs["final_pose"] = current_state;
-                    result.outputs["object_name"] = object_name;
-                    // Collision tracking outputs
-                    result.outputs["wall_collision"] = accumulated_wall_collision;
-                    { std::string movable_str; for (auto it = accumulated_movable_collisions.begin(); it != accumulated_movable_collisions.end(); ++it) { if (it != accumulated_movable_collisions.begin()) movable_str += ","; movable_str += *it; } result.outputs["movable_collisions"] = movable_str; }
-
-                    auto end_time = std::chrono::high_resolution_clock::now();
-                    result.execution_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-                    return result;
-                }
-            } else {
-                stuck_counter = 0; // Reset stuck counter if object moved
-                stuck_edges.clear(); // Object moved → forgive all previously stuck edges
-                // debug disabled
-            }
-        }
-        // std::cout << "Current state: [" << std::fixed << std::setprecision(3)
-        //           << current_state.x << "," << current_state.y << "," << current_state.theta << "]" << std::endl;
-        
-        // 3. Check if robot goal is reachable (early termination) - only if enabled
-        if (enable_robot_goal_termination_ && has_robot_goal_ && executor_->is_robot_goal_reachable()) {
-            // std::cout << "Robot goal became reachable at iteration " << mpc_iter << std::endl;
-            result.success = true;
-            result.outputs["robot_goal_reached"] = true;
-            result.outputs["steps_executed"] = mpc_iter;
-            result.outputs["final_pose"] = current_state;
-            result.outputs["object_name"] = object_name;
-            // Collision tracking outputs
-            result.outputs["wall_collision"] = accumulated_wall_collision;
-            { std::string movable_str; for (auto it = accumulated_movable_collisions.begin(); it != accumulated_movable_collisions.end(); ++it) { if (it != accumulated_movable_collisions.begin()) movable_str += ","; movable_str += *it; } result.outputs["movable_collisions"] = movable_str; }
-
-            auto end_time = std::chrono::high_resolution_clock::now();
-            result.execution_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-            return result;
-        }
-        
-        // 4. Check if object reached target goal
-        if (is_object_at_goal(current_state, target_pose, tolerance)) {
-            // std::cout << "Object reached goal at iteration " << mpc_iter << std::endl;
-            result.success = true;
-            // Report robot-goal reachability even when the push goal (object pose) is achieved.
-            result.outputs["robot_goal_reached"] = (has_robot_goal_ && executor_->is_robot_goal_reachable());
-            result.outputs["steps_executed"] = mpc_iter;
-            result.outputs["final_pose"] = current_state;
-            result.outputs["object_name"] = object_name;
-            // Collision tracking outputs
-            result.outputs["wall_collision"] = accumulated_wall_collision;
-            { std::string movable_str; for (auto it = accumulated_movable_collisions.begin(); it != accumulated_movable_collisions.end(); ++it) { if (it != accumulated_movable_collisions.begin()) movable_str += ","; movable_str += *it; } result.outputs["movable_collisions"] = movable_str; }
-
-            auto end_time = std::chrono::high_resolution_clock::now();
-            result.execution_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-            return result;
-        }
-        
-        // 5. Update reachability using wavefront planner and save for debugging
-        // std::cout << "Updating wavefront and checking reachability..." << std::endl;
-        // executor_->save_debug_wavefront(mpc_iter, "mpc_wavefront_reachability");
-        
-        std::vector<int> reachable_edges = executor_->get_reachable_edges_with_wavefront(object_name);
-        // debug disabled
-        
-        // Filter out edges that previously led to a stuck outcome
-        std::vector<int> filtered_edges;
-        filtered_edges.reserve(reachable_edges.size());
-        for (int edge : reachable_edges) {
-            if (stuck_edges.count(edge) == 0) {
-                filtered_edges.push_back(edge);
-            }
-            else {
-                // debug disabled
-            }
-        }
-        
-        // debug disabled
-        
-        // Save wavefront for debugging BEFORE checking reachability
-        
-        if (filtered_edges.empty()) {
-            // std::cout << "No reachable edges for object " << object_name << " after filtering stuck edges - stopping MPC" << std::endl;
-            // executor_->save_debug_wavefront(mpc_iter, "mpc_wavefront_no_reachable_edges_after_filter");
-            result.failure_reason = "No reachable edges after filtering stuck edges at iteration " + std::to_string(mpc_iter);
-            result.failure_type = FailureType::NO_REACHABLE_EDGES;
-            result.outputs["steps_executed"] = mpc_iter;
-            result.outputs["final_pose"] = current_state;
-            result.outputs["object_name"] = object_name;
-            
-            auto end_time = std::chrono::high_resolution_clock::now();
-            result.execution_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-            return result;
-        }
-        // std::cout << "Found " << filtered_edges.size() << " filtered reachable edges" << std::endl;
-        
-        // 6. Plan from current state to goal
-        // std::cout << "Planning from current state to goal..." << std::endl;
-        std::vector<PlanStep> plan;
-        try {
-            GreedyPlanner* planner = get_planner_for_object(object_name);
-            // std::cout << "Selected planner: " << planner->get_name() << " for object: " << object_name << std::endl;
-            
-            plan = planner->plan_push_sequence(current_state, target_pose, filtered_edges, 25000);
-            // std::cout << "filtered_edges: " << filtered_edges.size() << std::endl;
-        } catch (const std::exception& e) {
-            std::cout << "Planning failed: " << e.what() << std::endl;
-            result.failure_reason = "Planning failed at iteration " + std::to_string(mpc_iter) + ": " + e.what();
-            result.outputs["steps_executed"] = mpc_iter;
-            result.outputs["final_pose"] = current_state;
-            result.outputs["object_name"] = object_name;
-            
-            auto end_time = std::chrono::high_resolution_clock::now();
-            result.execution_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-            return result;
-        }
-        
-        if (plan.empty()) {
-            // std::cout << "No plan found from current state" << std::endl;
-            result.failure_reason = "No plan found at iteration " + std::to_string(mpc_iter);
-            result.failure_type = FailureType::NO_PLAN_FOUND;
-            result.outputs["steps_executed"] = mpc_iter;
-            result.outputs["final_pose"] = current_state;
-            result.outputs["object_name"] = object_name;
-            
-            auto end_time = std::chrono::high_resolution_clock::now();
-            result.execution_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-            return result;
-        }
-        
-        // std::cout << "Found plan with " << plan.size() << " steps, executing first step only" << std::endl;
-        // std::cout << "First step: Edge=" << plan[0].edge_idx << " Steps=" << plan[0].push_steps << std::endl;
-        
-        // 7. Execute ONLY the first primitive step (key difference from full sequence execution)
-        std::vector<PlanStep> single_step = {plan[0]};
-        
-        previous_edge_idx = single_step[0].edge_idx;  // Remember which edge we're executing for next iteration's stuck check
-        // debug disabled
-        auto step_result = executor_->execute_plan(object_name, single_step);
-
-        // Accumulate collision info from this step (even on failure)
-        if (step_result.wall_collision_during_push) {
-            accumulated_wall_collision = true;
-        }
-        for (const auto& obj : step_result.movable_collisions_during_push) {
-            accumulated_movable_collisions.insert(obj);
-        }
-
-        if (!step_result.success) {
-            // Blacklist this edge and continue trying other edges
-            stuck_edges.insert(previous_edge_idx);
-            // debug disabled
-
-            // Propagate collision info if present
-            if (!step_result.collision_object.empty()) {
-                result.outputs["collision_object"] = step_result.collision_object;
-                result.failure_reason = "Collision with " + step_result.collision_object;
-                result.failure_type = FailureType::OBJECT_COLLISION_DURING_PUSH;
-                result.outputs["steps_executed"] = mpc_iter;
-                result.outputs["final_pose"] = current_state;
-                result.outputs["object_name"] = object_name;
-                // Collision tracking outputs
-                result.outputs["wall_collision"] = accumulated_wall_collision;
-                { std::string movable_str; for (auto it = accumulated_movable_collisions.begin(); it != accumulated_movable_collisions.end(); ++it) { if (it != accumulated_movable_collisions.begin()) movable_str += ","; movable_str += *it; } result.outputs["movable_collisions"] = movable_str; }
-                return result;
-            }
-
-            // Check for controller-level stuck propagated up by MPC executor
-            if (!step_result.collision_object.empty() == false &&
-                step_result.failure_reason.find("Controller-level stuck") != std::string::npos) {
-                result.outputs["stuck"] = std::string("true");  // explicit string to avoid implicit const char* → bool
-                result.failure_reason = step_result.failure_reason;
-                result.failure_type = FailureType::OBJECT_STUCK;
-                result.outputs["steps_executed"] = mpc_iter;
-                result.outputs["final_pose"] = current_state;
-                result.outputs["object_name"] = object_name;
-                // Collision tracking outputs
-                result.outputs["wall_collision"] = accumulated_wall_collision;
-                { std::string movable_str; for (auto it = accumulated_movable_collisions.begin(); it != accumulated_movable_collisions.end(); ++it) { if (it != accumulated_movable_collisions.begin()) movable_str += ","; movable_str += *it; } result.outputs["movable_collisions"] = movable_str; }
-                return result;
-            }
-        }
-        previous_state = current_state;
+    if (!edge_reachable) {
+        result.failure_reason = "Requested edge " + std::to_string(provided_edge_idx) + " not reachable";
+        result.failure_type = FailureType::NO_REACHABLE_EDGES;
+        auto end_time = std::chrono::high_resolution_clock::now();
+        result.execution_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+        return result;
     }
-    
-    // If we reach here, we hit the iteration limit
+
+    // Execute the specific primitive directly
+    int push_steps = provided_depth + 1;  // Convert 0-indexed depth to 1-indexed push_steps
+    std::vector<PlanStep> single_step = {PlanStep(provided_edge_idx, push_steps, target_pose)};
+
+    auto step_result = executor_->execute_plan(object_name, single_step);
+
+    // Populate result
     auto final_pose = get_object_current_pose(object_name);
+    result.success = step_result.success;
+    result.outputs["steps_executed"] = 1;
+    result.outputs["final_pose"] = final_pose ? *final_pose : SE2State();
+    result.outputs["object_name"] = object_name;
+    result.outputs["direct_execution"] = true;  // Flag indicating direct primitive execution
 
-    // Check if robot goal is reachable even though we hit iteration limit (only if enabled)
-    bool robot_goal_reachable = false;
-    if (enable_robot_goal_termination_ && has_robot_goal_ && executor_->is_robot_goal_reachable()) {
-        robot_goal_reachable = true;
+    // Report robot-goal reachability after the push.
+    result.outputs["robot_goal_reached"] = (has_robot_goal_ && executor_->is_robot_goal_reachable());
+
+    if (!step_result.success) {
+        result.failure_reason = step_result.failure_reason;
+        // Copy collision info if present
+        if (!step_result.collision_object.empty()) {
+            result.outputs["collision_object"] = step_result.collision_object;
+            result.failure_type = FailureType::OBJECT_COLLISION_DURING_PUSH;
+        }
+        // Check for stuck condition
+        if (step_result.failure_reason.find("Controller-level stuck") != std::string::npos) {
+            result.outputs["stuck"] = std::string("true");  // explicit string to avoid implicit const char* → bool
+            result.failure_type = FailureType::OBJECT_STUCK;
+        }
     }
 
-    // If robot goal termination is enabled and goal is reachable, treat as success despite iteration limit
-    if (robot_goal_reachable) {
-        result.success = true;
-        result.outputs["robot_goal_reached"] = true;
-        result.outputs["steps_executed"] = max_mpc_iterations;
-        result.outputs["final_pose"] = final_pose ? *final_pose : SE2State();
-        result.outputs["object_name"] = object_name;
-    } else {
-        // Robot goal not reachable or termination disabled - treat as failure
-        result.failure_reason = "MPC reached iteration limit (" + std::to_string(max_mpc_iterations) + ") without reaching goal";
-        result.failure_type = FailureType::ITERATION_LIMIT_REACHED;
-        result.outputs["steps_executed"] = max_mpc_iterations;
-        result.outputs["final_pose"] = final_pose ? *final_pose : SE2State();
-        result.outputs["object_name"] = object_name;
-        result.outputs["robot_goal_reached"] = false;
+    // Collision tracking outputs
+    result.outputs["wall_collision"] = step_result.wall_collision_during_push;
+    {
+        std::string movable_str;
+        for (auto it = step_result.movable_collisions_during_push.begin();
+             it != step_result.movable_collisions_during_push.end(); ++it) {
+            if (it != step_result.movable_collisions_during_push.begin()) movable_str += ",";
+            movable_str += *it;
+        }
+        result.outputs["movable_collisions"] = movable_str;
     }
-
-    // Collision tracking outputs (for both success and failure paths)
-    result.outputs["wall_collision"] = accumulated_wall_collision;
-    { std::string movable_str; for (auto it = accumulated_movable_collisions.begin(); it != accumulated_movable_collisions.end(); ++it) { if (it != accumulated_movable_collisions.begin()) movable_str += ","; movable_str += *it; } result.outputs["movable_collisions"] = movable_str; }
-
-    // Note: Don't clear object target marker here - let Python render it first
-    // The next push will overwrite it anyway
 
     auto end_time = std::chrono::high_resolution_clock::now();
     result.execution_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-
     return result;
 }
 
 std::map<std::string, SkillParameterValue> NAMOPushSkill::get_world_state() const {
     std::map<std::string, SkillParameterValue> state;
-    
+
     // Robot state
     if (auto robot_state = env_.get_robot_state()) {
         SE2State robot_pose;
@@ -569,8 +235,8 @@ std::map<std::string, SkillParameterValue> NAMOPushSkill::get_world_state() cons
                                                          env_.get_mujoco_wrapper()->data()) : 0.0;
         state["robot_pose"] = robot_pose;
     }
-    
-    // All movable objects  
+
+    // All movable objects
     const auto& movable_objects = env_.get_movable_objects();
     for (size_t i = 0; i < env_.get_num_movable(); i++) {
         const auto& obj_info = movable_objects[i];
@@ -580,20 +246,20 @@ std::map<std::string, SkillParameterValue> NAMOPushSkill::get_world_state() cons
             }
         }
     }
-    
+
     return state;
 }
 
 std::vector<std::string> NAMOPushSkill::check_preconditions(const std::map<std::string, SkillParameterValue>& parameters) const {
     std::vector<std::string> unmet;
-    
+
     // Basic parameter validation
     std::string validation_error;
     if (!validate_parameters(parameters, validation_error)) {
         unmet.push_back(validation_error);
         return unmet;
     }
-    
+
     auto object_name = std::get<std::string>(parameters.at("object_name"));
 
     // Check object exists and is movable
@@ -620,57 +286,27 @@ std::optional<SE2State> NAMOPushSkill::get_object_current_pose(const std::string
     if (!obj_state) {
         return std::nullopt;
     }
-    
+
     SE2State pose;
     pose.x = obj_state->position[0];
     pose.y = obj_state->position[1];
-    
+
     // Proper quaternion to yaw conversion (NO HACK!)
     const auto& q = obj_state->quaternion;
     pose.theta = std::atan2(
         2.0 * (q[0] * q[3] + q[1] * q[2]),  // w*z + x*y
         1.0 - 2.0 * (q[2] * q[2] + q[3] * q[3])  // 1 - 2*(y^2 + z^2)
     );
-    
+
     return pose;
 }
 
 bool NAMOPushSkill::is_target_within_bounds(const SE2State& target_pose) const {
     auto bounds = env_.get_environment_bounds();
     if (bounds.size() < 4) return false;
-    
+
     return target_pose.x >= bounds[0] && target_pose.x <= bounds[1] &&
            target_pose.y >= bounds[2] && target_pose.y <= bounds[3];
-}
-
-bool NAMOPushSkill::is_object_at_goal(const SE2State& current, const SE2State& goal, double tolerance) const {
-    double position_error = std::sqrt(
-        std::pow(current.x - goal.x, 2) + 
-        std::pow(current.y - goal.y, 2)
-    );
-    
-    double rotation_error = std::abs(current.theta - goal.theta);
-    // Handle angle wrapping
-    while (rotation_error > M_PI) rotation_error -= 2 * M_PI;
-    while (rotation_error < -M_PI) rotation_error += 2 * M_PI;
-    rotation_error = std::abs(rotation_error);
-    
-    return position_error <= tolerance && rotation_error <= (tolerance * 2); // More lenient on rotation
-}
-
-bool NAMOPushSkill::is_object_stuck(const SE2State& previous_state, const SE2State& current_state) const {
-    double dx = current_state.x - previous_state.x;
-    double dy = current_state.y - previous_state.y;
-    double distance_moved = std::sqrt(dx*dx + dy*dy);
-    
-    double angle_change = std::abs(current_state.theta - previous_state.theta);
-    while (angle_change > M_PI) angle_change = 2.0 * M_PI - angle_change;
-    
-    // Consider stuck if both position and orientation changes are very small
-    const double min_position_change = config_ ? config_->skill().stuck_threshold : 0.001;  // tighter default 1mm
-    const double min_angle_change = 0.05;      // tighter yaw threshold
-    
-    return distance_moved < min_position_change && angle_change < min_angle_change;
 }
 
 std::vector<int> NAMOPushSkill::get_reachable_edges(const std::string& object_name) const {
@@ -680,30 +316,30 @@ std::vector<int> NAMOPushSkill::get_reachable_edges(const std::string& object_na
     }
 
     // Note: executor_->get_reachable_edges_with_wavefront() is non-const, so we need to cast
-    return const_cast<MPCExecutor*>(executor_.get())->get_reachable_edges_with_wavefront(object_name);
+    return const_cast<PushPrimitiveExecutor*>(executor_.get())->get_reachable_edges_with_wavefront(object_name);
 }
 
-MPCExecutor::ReachabilitySnapshot NAMOPushSkill::get_reachability_snapshot() const {
+PushPrimitiveExecutor::ReachabilitySnapshot NAMOPushSkill::get_reachability_snapshot() const {
     if (!executor_) {
-        return MPCExecutor::ReachabilitySnapshot{};
+        return PushPrimitiveExecutor::ReachabilitySnapshot{};
     }
     // executor methods are non-const because they refresh internal wavefront caches.
-    return const_cast<MPCExecutor*>(executor_.get())->compute_reachability_snapshot();
+    return const_cast<PushPrimitiveExecutor*>(executor_.get())->compute_reachability_snapshot();
 }
 
 std::vector<std::string> NAMOPushSkill::get_reachable_objects() const {
     std::vector<std::string> reachable_objects;
-    
+
     // Get all movable objects
     const auto& movable_objects = env_.get_movable_objects();
-    
+
     for (size_t i = 0; i < env_.get_num_movable(); i++) {
         const auto& obj_info = movable_objects[i];
         if (!obj_info.name.empty() && is_object_reachable(obj_info.name)) {
             reachable_objects.push_back(obj_info.name);
         }
     }
-    
+
     return reachable_objects;
 }
 
@@ -712,14 +348,14 @@ bool NAMOPushSkill::is_object_reachable(const std::string& object_name) const {
     if (!is_object_movable(object_name)) {
         return false;
     }
-    
+
     // Get robot current state
     auto robot_state = env_.get_robot_state();
     if (!robot_state) {
         return false;
     }
-    
-    // Use the MPC executor to check reachability via wavefront
+
+    // Use the executor to check reachability via wavefront
     try {
         std::vector<int> reachable_edges = executor_->get_reachable_edges_with_wavefront(object_name);
         return !reachable_edges.empty();
@@ -766,14 +402,6 @@ void NAMOPushSkill::set_robot_trajectory_collision_checking(bool enabled) {
     }
 }
 
-void NAMOPushSkill::set_robot_goal_termination(bool enabled) {
-    enable_robot_goal_termination_ = enabled;
-}
-
-bool NAMOPushSkill::get_robot_goal_termination() const {
-    return enable_robot_goal_termination_;
-}
-
 std::vector<int> NAMOPushSkill::evaluate_primitive_priorities(
     const std::string& object_name,
     const std::vector<std::array<double, 3>>& target_poses,
@@ -787,59 +415,6 @@ std::map<std::string, double> NAMOPushSkill::get_last_priority_profile() const {
         return {};
     }
     return executor_->get_last_priority_profile();
-}
-
-GreedyPlanner* NAMOPushSkill::get_planner_for_object(const std::string& object_name) const {
-    const ObjectInfo* info = env_.get_object_info(object_name);
-    GreedyPlanner* selected_planner = nullptr;
-    int symmetry_rotations = 1;  // Default: no symmetry
-
-    if (!info) {
-        // std::cout << "Object info not available for " << object_name << ", defaulting to square planner" << std::endl;
-        selected_planner = planner_square_.get();
-        symmetry_rotations = 4;  // Assume square symmetry for unknown objects
-    } else {
-        double x = info->size[0];
-        double y = info->size[1];
-
-        if (x <= 0.0 || y <= 0.0) {
-            // std::cout << "Invalid dimensions for " << object_name << " [" << x << "x" << y << "], defaulting to square planner" << std::endl;
-            selected_planner = planner_square_.get();
-            symmetry_rotations = 4;
-        } else {
-            // Use same 5% tolerance as ObjectInfo symmetry detection
-            double ratio = std::max(x, y) / std::min(x, y);
-            // std::cout << "Object " << object_name << " dimensions: [" << x << "x" << y << "], ratio: " << ratio << std::endl;
-
-            if (ratio < 1.05) {
-                // Square object: 4-way rotational symmetry
-                // std::cout << "Ratio < 1.05, selecting square planner with 4-way symmetry" << std::endl;
-                selected_planner = planner_square_.get();
-                symmetry_rotations = 4;
-            } else {
-                // Rectangle object: 2-way rotational symmetry
-                symmetry_rotations = 2;
-
-                if (x > y) {
-                    // std::cout << "x > y, selecting wide planner with 2-way symmetry" << std::endl;
-                    selected_planner = planner_wide_.get();
-                } else {
-                    // std::cout << "y > x, selecting tall planner with 2-way symmetry" << std::endl;
-                    selected_planner = planner_tall_.get();
-                }
-            }
-        }
-
-        // Use the ObjectInfo's computed symmetry if available (should match our calculation)
-        if (info->symmetry_rotations > 0) {
-            symmetry_rotations = info->symmetry_rotations;
-        }
-    }
-
-    // Set symmetry information on the selected planner
-    selected_planner->set_object_symmetry(symmetry_rotations);
-
-    return selected_planner;
 }
 
 } // namespace namo

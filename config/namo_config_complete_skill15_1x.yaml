@@ -69,11 +69,9 @@ strategy:
 skill:
   # Push skill parameters
   max_push_steps: 10               # Maximum push steps per skill execution
-  max_mpc_iterations: 1            # Maximum MPC iterations per push skill execution
   control_steps_per_push: 75       # Control simulation steps per push step → 0.75 s sim per step (count, unscaled)
-  force_scaling: 1.0               # Force scaling (dimensionless, unscaled)
 
-  # Velocity-actuator control (preferred over force_scaling).
+  # Velocity-actuator control.
   # 0.05 m/s = 5 cm/s real — matches the original sim-equivalent push speed
   # (0.30 / 6 = 0.05). Empirically this gives enough object motion per tick
   # to clear the stuck threshold reliably. Re-tune if stuck-detection trips
@@ -86,8 +84,6 @@ skill:
 
   # Execution parameters
   goal_tolerance: 0.02             # 2 cm goal reaching tolerance (was 0.1 at 6×)
-  stuck_threshold: 0.002           # 2 mm minimum movement to avoid stuck (was 0.01 at 6×)
-  max_stuck_iterations: 2          # Maximum stuck iterations before failure (count, unscaled)
   check_object_collision: true     # Terminate push on object-object collision
   check_robot_trajectory_collision: false  # Terminate push if robot body hits walls during push
   stuck_check_stride: 30           # Control steps between stuck checks (count, unscaled)

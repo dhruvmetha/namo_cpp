@@ -103,9 +103,7 @@ private:
     int control_steps_per_push_;
     // Magnitude of the velocity command (m/s) emitted by compute_push_control.
     // Under MuJoCo <velocity> actuators (the holonomic robot setup) this is
-    // tracked by the actuator inside the solver. Historic name was
-    // "force_scaling" from the motor-actuator era; semantics changed when
-    // we switched actuators in commit 61efd1e.
+    // tracked by the actuator inside the solver.
     double push_velocity_;
     int points_per_edge_;
     // When true, the controller re-derives push direction from current

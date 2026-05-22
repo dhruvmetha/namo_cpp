@@ -1,4 +1,4 @@
-#include "planning/mpc_executor.hpp"
+#include "planning/push_primitive_executor.hpp"
 #include "planning/namo_push_controller.hpp"
 #include "core/types.hpp"
 #include "wavefront/goal_tolerance_utils.hpp"
@@ -9,7 +9,7 @@
 
 namespace namo {
 
-MPCExecutor::MPCExecutor(NAMOEnvironment& env)
+PushPrimitiveExecutor::PushPrimitiveExecutor(NAMOEnvironment& env)
     : env_(env),
       planner_(0.02, env_, {env.get_robot_info().size[0], env.get_robot_info().size[1]}, 0.005),
       controller_(env_, planner_, 10, 250, 1.0),
@@ -19,14 +19,14 @@ MPCExecutor::MPCExecutor(NAMOEnvironment& env)
     set_parameters();
 }
 
-MPCExecutor::MPCExecutor(NAMOEnvironment& env, double resolution, const std::vector<double>& robot_size,
+PushPrimitiveExecutor::PushPrimitiveExecutor(NAMOEnvironment& env, double resolution, const std::vector<double>& robot_size,
                          double wavefront_tier1_inflation_margin,
-                         int max_push_steps, int control_steps_per_push, double force_scaling, int points_per_face,
+                         int max_push_steps, int control_steps_per_push, double push_velocity, int points_per_face,
                          bool check_object_collision,
                          bool dynamic_direction)
     : env_(env),
       planner_(resolution, env_, robot_size, wavefront_tier1_inflation_margin),
-      controller_(env_, planner_, max_push_steps, control_steps_per_push, force_scaling, points_per_face, dynamic_direction),
+      controller_(env_, planner_, max_push_steps, control_steps_per_push, push_velocity, points_per_face, dynamic_direction),
       has_robot_goal_(false) {
 
     // Set default parameters
@@ -36,7 +36,7 @@ MPCExecutor::MPCExecutor(NAMOEnvironment& env, double resolution, const std::vec
     controller_.set_collision_checking(check_object_collision);
 }
 
-void MPCExecutor::set_parameters(int max_mpc_steps, 
+void PushPrimitiveExecutor::set_parameters(int max_mpc_steps, 
                                 double distance_threshold,
                                 double angle_threshold,
                                 int max_stuck_iterations) {
@@ -46,12 +46,12 @@ void MPCExecutor::set_parameters(int max_mpc_steps,
     max_stuck_iterations_ = max_stuck_iterations;
 }
 
-void MPCExecutor::set_robot_goal(const std::array<double, 2>& robot_goal) {
+void PushPrimitiveExecutor::set_robot_goal(const std::array<double, 2>& robot_goal) {
     robot_goal_ = robot_goal;
     has_robot_goal_ = true;
 }
 
-ExecutionResult MPCExecutor::execute_plan(
+ExecutionResult PushPrimitiveExecutor::execute_plan(
     const std::string& object_name,
     const std::vector<PlanStep>& plan_sequence) {
     
@@ -134,7 +134,7 @@ ExecutionResult MPCExecutor::execute_plan(
     return result;
 }
 
-bool MPCExecutor::execute_primitive_step(
+bool PushPrimitiveExecutor::execute_primitive_step(
     const std::string& object_name,
     const PlanStep& plan_step) {
     
@@ -188,7 +188,7 @@ bool MPCExecutor::execute_primitive_step(
     return true;
 }
 
-bool MPCExecutor::update_wavefront_from_robot_position() {
+bool PushPrimitiveExecutor::update_wavefront_from_robot_position() {
     auto robot_state = env_.get_robot_state();
     if (!robot_state) {
         return false;
@@ -197,7 +197,7 @@ bool MPCExecutor::update_wavefront_from_robot_position() {
     return planner_.update_wavefront(env_, robot_pos);
 }
 
-bool MPCExecutor::is_robot_goal_reachable() {
+bool PushPrimitiveExecutor::is_robot_goal_reachable() {
     if (!has_robot_goal_) {
         return false;
     }
@@ -218,7 +218,7 @@ bool MPCExecutor::is_robot_goal_reachable() {
 }
 
 
-SE2State MPCExecutor::get_object_se2_state(const std::string& object_name) {
+SE2State PushPrimitiveExecutor::get_object_se2_state(const std::string& object_name) {
     auto object_state = env_.get_object_state(object_name);
     if (!object_state) {
         std::cerr << "Failed to get object state for: " << object_name << std::endl;
@@ -236,7 +236,7 @@ SE2State MPCExecutor::get_object_se2_state(const std::string& object_name) {
     return SE2State(object_state->position[0], object_state->position[1], yaw);
 }
 
-std::vector<double> MPCExecutor::se2_to_goal_state(const SE2State& se2_state) {
+std::vector<double> PushPrimitiveExecutor::se2_to_goal_state(const SE2State& se2_state) {
     // Convert SE(2) to goal state format: [x, y, z, qw, qx, qy, qz]
     // Z is set to 0.0, quaternion represents yaw rotation
     
@@ -249,7 +249,7 @@ std::vector<double> MPCExecutor::se2_to_goal_state(const SE2State& se2_state) {
     return {se2_state.x, se2_state.y, 0.0, qw, qx, qy, qz};
 }
 
-bool MPCExecutor::is_object_stuck(const std::string& object_name, const SE2State& previous_state) {
+bool PushPrimitiveExecutor::is_object_stuck(const std::string& object_name, const SE2State& previous_state) {
     SE2State current_state = get_object_se2_state(object_name);
     
     double dx = current_state.x - previous_state.x;
@@ -268,16 +268,16 @@ bool MPCExecutor::is_object_stuck(const std::string& object_name, const SE2State
     return distance_moved < min_position_change && angle_change < min_angle_change;
 }
 
-void MPCExecutor::save_debug_wavefront(int iteration, const std::string& base_filename) {
+void PushPrimitiveExecutor::save_debug_wavefront(int iteration, const std::string& base_filename) {
     planner_.save_wavefront_iteration(base_filename, iteration);
 }
 
-std::vector<int> MPCExecutor::get_reachable_edges_with_wavefront(const std::string& object_name) {
+std::vector<int> PushPrimitiveExecutor::get_reachable_edges_with_wavefront(const std::string& object_name) {
     auto detailed = get_reachable_edges_with_wavefront_detailed(object_name);
     return detailed.edge_indices;
 }
 
-MPCExecutor::ReachableEdgesResult MPCExecutor::get_reachable_edges_with_wavefront_detailed(
+PushPrimitiveExecutor::ReachableEdgesResult PushPrimitiveExecutor::get_reachable_edges_with_wavefront_detailed(
     const std::string& object_name) {
     ReachableEdgesResult result;
     if (!update_wavefront_from_robot_position()) {
@@ -286,8 +286,8 @@ MPCExecutor::ReachableEdgesResult MPCExecutor::get_reachable_edges_with_wavefron
     return get_reachable_edges_from_current_wavefront(object_name);
 }
 
-std::map<std::string, MPCExecutor::ReachableEdgesResult>
-MPCExecutor::get_reachable_edges_for_all_objects_with_wavefront() {
+std::map<std::string, PushPrimitiveExecutor::ReachableEdgesResult>
+PushPrimitiveExecutor::get_reachable_edges_for_all_objects_with_wavefront() {
     std::map<std::string, ReachableEdgesResult> per_object;
     if (!update_wavefront_from_robot_position()) {
         return per_object;
@@ -303,7 +303,7 @@ MPCExecutor::get_reachable_edges_for_all_objects_with_wavefront() {
     return per_object;
 }
 
-MPCExecutor::ReachabilitySnapshot MPCExecutor::compute_reachability_snapshot() {
+PushPrimitiveExecutor::ReachabilitySnapshot PushPrimitiveExecutor::compute_reachability_snapshot() {
     ReachabilitySnapshot snapshot;
     if (!update_wavefront_from_robot_position()) {
         return snapshot;
@@ -327,7 +327,7 @@ MPCExecutor::ReachabilitySnapshot MPCExecutor::compute_reachability_snapshot() {
     return snapshot;
 }
 
-MPCExecutor::ReachableEdgesResult MPCExecutor::get_reachable_edges_from_current_wavefront(
+PushPrimitiveExecutor::ReachableEdgesResult PushPrimitiveExecutor::get_reachable_edges_from_current_wavefront(
     const std::string& object_name) {
     ReachableEdgesResult result;
 
@@ -373,7 +373,7 @@ MPCExecutor::ReachableEdgesResult MPCExecutor::get_reachable_edges_from_current_
     return result;
 }
 
-std::vector<int> MPCExecutor::evaluate_primitive_priorities(
+std::vector<int> PushPrimitiveExecutor::evaluate_primitive_priorities(
     NAMOEnvironment& env,
     const std::string& object_name,
     const std::vector<std::array<double, 3>>& target_poses,
@@ -382,7 +382,7 @@ std::vector<int> MPCExecutor::evaluate_primitive_priorities(
     return planner_.evaluate_primitive_priorities(env, object_name, target_poses, robot_goal);
 }
 
-std::map<std::string, double> MPCExecutor::get_last_priority_profile() const {
+std::map<std::string, double> PushPrimitiveExecutor::get_last_priority_profile() const {
     return planner_.get_last_priority_profile();
 }
 

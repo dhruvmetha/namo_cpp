@@ -51,22 +51,20 @@ strategy:
 skill:
   # Push skill parameters
   max_push_steps: 10               # Maximum push steps per skill execution
-  max_mpc_iterations: 1         # Maximum MPC iterations per push skill execution
   control_steps_per_push: 250      # Control simulation steps per push step
-  force_scaling: 1.0               # Force scaling factor (used by motor-actuator path; deprecated by push_velocity below)
 
-  # ── Velocity-actuator control (preferred over force_scaling) ──────────
+  # ── Velocity-actuator control ─────────────────────────────────────────
   # When XML actuators are <velocity> (see data/*.xml), the controller's
   # ctrl values are interpreted as desired velocity in m/s (sim units).
   # push_velocity becomes the magnitude of the velocity command vector.
   #
-  # Tuned for the SKILL path (MPC executor → controller). The MPC executor
-  # runs the navigation phase between every push_step, with stuck detection
+  # Tuned for the SKILL path (push primitive executor → controller). The
+  # executor runs the navigation phase before the push, with stuck detection
   # comparing object position every stuck_check_stride=20 ticks. At slower
   # velocities (≤0.10 m/s), object motion per 20 ticks falls below the
-  # stuck_threshold and the controller aborts. 0.30 m/s gives the object
-  # enough motion-per-tick to clear the stuck threshold reliably across
-  # all 60 edges on all 3 prim-gen shapes (per
+  # controller stuck threshold and the controller aborts. 0.30 m/s gives the
+  # object enough motion-per-tick to clear the stuck threshold reliably
+  # across all 60 edges on all 3 prim-gen shapes (per
   # test_primitive_generation_integration.py).
   # Real-equivalent at scale 6: 0.30 / 6 = 5 cm/s, matching typical
   # micro-MVP-class robot speeds.
@@ -81,8 +79,6 @@ skill:
 
   # Execution parameters
   goal_tolerance: 0.1              # Goal reaching tolerance (meters)
-  stuck_threshold: 0.01            # Minimum movement to avoid stuck detection (meters)
-  max_stuck_iterations: 2         # Maximum stuck iterations before failure
   check_object_collision: true     # Terminate push if pushed object collides with non-robot objects
   check_robot_trajectory_collision: false  # Terminate push if robot body hits walls/objects during push trajectory. Set false to allow such pushes (e.g., when planning aggressively or debugging)
   # Controller-level stuck detection (push controller)
@@ -95,7 +91,6 @@ skill:
   # Edge sampling count for push approach generation
   points_per_face: 15               # Number of edge points per object face (4 faces total)
   num_edge_points: 60              # Number of edge points around object perimeter (backward compatibility)
-  # push_force_magnitude: 10.0       # REMOVED: unused parameter (force_scaling used instead)
 
 # Environment configuration
 environment:

@@ -76,11 +76,9 @@ strategy:
 skill:
   # Push skill parameters
   max_push_steps: 10               # Maximum push steps per skill execution
-  max_mpc_iterations: 1            # Maximum MPC iterations per push skill execution
   control_steps_per_push: 375      # Control sim steps per push step → 0.75 s sim per step at car timestep 0.002 (sphere uses 75 at timestep 0.01; same wall-clock per push step)
-  force_scaling: 1.0               # Legacy actuator gain; push_velocity below takes precedence.
 
-  # Velocity-actuator control — preferred over force_scaling.
+  # Velocity-actuator control.
   # 0.05 m/s = 5 cm/s. For the diff-drive car this becomes a wheel
   # command of push_velocity / wheel_radius = 0.05 / 0.015 ≈ 3.33 rad/s,
   # well within little_car.xml's wheel ctrlrange ±25 rad/s.
@@ -91,8 +89,6 @@ skill:
 
   # Execution parameters
   goal_tolerance: 0.02             # 2 cm goal reaching tolerance
-  stuck_threshold: 0.002           # 2 mm minimum movement to avoid stuck
-  max_stuck_iterations: 2          # Maximum stuck iterations before failure
   check_object_collision: true     # Terminate push on object-object collision
   check_robot_trajectory_collision: false  # Terminate push if robot body hits walls during push
   stuck_check_stride: 150          # Sphere uses 30 ticks at 0.01 s = 0.3 s; match at car's 0.002 s timestep (150 × 0.002 = 0.3 s). Required so the stuck check doesn't fire before the car traverses the 1 cm standoff gap (~0.2 s at 0.05 m/s).

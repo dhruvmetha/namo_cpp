@@ -6,7 +6,7 @@
 #include "environment/namo_environment.hpp"
 #include "planning/primitive_loader.hpp"
 #include "planning/greedy_planner.hpp"
-#include "planning/mpc_executor.hpp"
+#include "planning/push_primitive_executor.hpp"
 #include <iostream>
 
 using namespace namo;
@@ -21,7 +21,7 @@ int main() {
         NAMOEnvironment env("data/nominal_primitive_scene.xml", false);
         // std::cout << "✓ Environment created" << std::endl;
         
-        MPCExecutor executor(env);
+        PushPrimitiveExecutor executor(env);
         // std::cout << "✓ MPC Executor created" << std::endl;
         
         // Test 2: Primitive Loading and Planning

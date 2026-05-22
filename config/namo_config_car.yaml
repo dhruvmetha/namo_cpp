@@ -10,13 +10,12 @@ planning:
 
 skill:
   max_push_steps: 10
-  max_mpc_iterations: 1
   # Match primitive generator: one push step = 250 sim steps (0.5s).
   # apply_control runs 5 sim steps per ctrl call (0.01s / 0.002s tick) → 50 ctrl × 5 = 250 sim steps.
-  # force_scaling = 0.2 m/s → wheel cmd = 0.2 / 0.015 = 13.333 rad/s (no ctrlrange clamp).
-  # Primitives must also be regenerated at --push-speed 13.333 to stay aligned.
+  # Note: the previous `force_scaling: 0.2` here was dead — runtime read
+  # `push_velocity` (default 0.10), not `force_scaling`. Behavior preserved
+  # by not setting `push_velocity` (default kicks in).
   control_steps_per_push: 50
-  force_scaling: 0.2
   goal_tolerance: 0.03            # Tighter tolerance for small robot
   check_object_collision: false     # Disabled — region_opening sets this dynamically
   stuck_check_stride: 80           # Car needs time to cross gap to object
