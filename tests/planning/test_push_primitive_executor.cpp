@@ -1,6 +1,6 @@
 /**
- * @file test_mpc_executor.cpp  
- * @brief Simple test for MPC executor integration
+ * @file test_push_primitive_executor.cpp
+ * @brief Simple test for push-primitive executor integration
  */
 
 #include "environment/namo_environment.hpp"
