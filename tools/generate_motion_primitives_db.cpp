@@ -57,7 +57,8 @@ std::vector<NominalPrimitive> generate_primitives_for_scene(
     double push_offset_margin,
     std::shared_ptr<ConfigManager> config,
     int min_push_steps_override = 0,
-    int settle_ticks_override = 0
+    int settle_ticks_override = 0,
+    int single_edge_override = -1
 ) {
     std::cout << "\n=== Generating primitives for " << scene_config.name << " ===" << std::endl;
     std::cout << "XML: " << scene_config.xml_path << std::endl;
@@ -210,6 +211,9 @@ std::vector<NominalPrimitive> generate_primitives_for_scene(
     };
 
     for (size_t edge_idx = 0; edge_idx < num_edges; edge_idx++) {
+        if (single_edge_override >= 0 && static_cast<int>(edge_idx) != single_edge_override) {
+            continue;
+        }
         std::cout << "Generating primitives for edge " << edge_idx << " / " << num_edges << std::endl;
 
         // Reset environment to initial state
@@ -315,6 +319,7 @@ int main(int argc, char** argv) {
     // Optional viz-speedup knobs: skip lower depths, and shrink settle.
     int min_push_steps_override = 0;     // 0 = no override (start at 1)
     int settle_ticks_override = 0;       // 0 = use scene-derived defaults
+    int single_edge_override = -1;       // -1 = run all edges
     for (int i = 1; i + 1 < argc; ++i) {
         if (std::string(argv[i]) == "--output") {
             output_override = argv[i + 1];
@@ -326,6 +331,8 @@ int main(int argc, char** argv) {
             min_push_steps_override = std::atoi(argv[i + 1]);
         } else if (std::string(argv[i]) == "--settle-ticks") {
             settle_ticks_override = std::atoi(argv[i + 1]);
+        } else if (std::string(argv[i]) == "--single-edge") {
+            single_edge_override = std::atoi(argv[i + 1]);
         }
     }
 
@@ -339,29 +346,22 @@ int main(int argc, char** argv) {
         std::string config_path = config_override.empty()
             ? std::string("config/namo_config_complete_skill15.yaml")
             : config_override;
-        bool using_unified_config = std::filesystem::exists(config_path);
-        
-        if (!using_unified_config) {
-            // Fallback: create minimal config for standalone use
-            std::string config_content = R"(visualize=false
-
-[data_collection]
-enabled=false
-
-[wavefront_planner]
-resolution=0.05
-)";
-            
-            // Write temporary config file
-            std::ofstream config_file("tools/primitive_gen_config.yaml");
-            config_file << config_content;
-            config_file.close();
-            config_path = "tools/primitive_gen_config.yaml";
+        if (!std::filesystem::exists(config_path)) {
+            throw std::runtime_error(
+                "Config file not found: " + config_path +
+                " (override via --config <path>)");
         }
-        
-        // Load configuration using our parameter loader
-        FastParameterLoader params(config_path);
+
+        // Single source of truth for every generation parameter — same
+        // ConfigManager the runtime skill uses. All defaults live in the
+        // struct definitions in include/config/config_manager.hpp; we don't
+        // duplicate them here. Legacy key fallbacks (wavefront_planner.resolution,
+        // skill.num_edge_points, motion_primitives.max_push_steps, top-level
+        // `visualize`) are gone — every active config uses the unified names
+        // after commit d9e7d6b ("Unify wavefront semantics ...").
+        auto config = std::make_shared<ConfigManager>(config_path);
         std::cout << "Configuration loaded from: " << config_path << std::endl;
+        std::cout << "  Robot type: " << config->get_robot_type() << std::endl;
         
         // Define the three scenes to generate primitives for. When
         // --scenes-suffix is provided, append it before .xml so we can host
@@ -405,76 +405,26 @@ resolution=0.05
         
         std::cout << "Found " << existing_scenes.size() << " scene(s) to process" << std::endl;
         
-        // Get generation parameters with fallbacks
-        bool visualize = false;
-        if (params.has_key("visualize")) {
-            visualize = params.get_bool("visualize");
-        } else if (params.has_key("system.enable_visualization")) {
-            visualize = params.get_bool("system.enable_visualization");
-        }
-        
-        double resolution = 0.05;
-        if (params.has_key("wavefront_planner.resolution")) {
-            resolution = params.get_double("wavefront_planner.resolution");
-        }
-        
-        // Edge sampling density (points per object face)
-        int points_per_face = 3; // Default fallback
-        if (params.has_key("skill.points_per_face")) {
-            points_per_face = params.get_int("skill.points_per_face");
-        } else if (params.has_key("skill.num_edge_points")) {
-            int total = params.get_int("skill.num_edge_points");
-            points_per_face = std::max(1, total / 4);
-        }
-        // Clamp to respect MAX_EDGE_POINTS capacity (4 faces * 16 points = 64 max)
-        points_per_face = std::clamp(points_per_face, 1, 16);
-        
-        // Push controller parameters
-        int control_steps = 250;
-        if (params.has_key("skill.control_steps_per_push")) {
-            control_steps = params.get_int("skill.control_steps_per_push");
-        }
-
-        // Extra spawn offset added to robot radius when computing edge points.
-        // Reads the same config key the runtime skill reads, so generator-side
-        // and skill-side edge points agree. Falls back to 0.02 (legacy default
-        // hardcoded in NAMOPushController) only when the config doesn't set it.
-        double push_offset_margin = 0.02;
-        if (params.has_key("planning.wavefront_edge_offset_margin")) {
-            push_offset_margin = params.get_double("planning.wavefront_edge_offset_margin");
-        }
-        
-        int max_push_steps = 10;
-        if (params.has_key("motion_primitives.max_push_steps")) {
-            max_push_steps = params.get_int("motion_primitives.max_push_steps");
-        } else if (params.has_key("skill.max_push_steps")) {
-            max_push_steps = params.get_int("skill.max_push_steps");
-        }
-        
-        // Velocity command magnitude (m/s) under the <velocity> actuator.
-        double push_velocity = 0.10;
-        if (params.has_key("skill.push_velocity")) {
-            push_velocity = params.get_double("skill.push_velocity");
-        }
-
-        // Whether the controller re-derives push direction every tick.
-        bool dynamic_direction = true;
-        if (params.has_key("skill.dynamic_direction")) {
-            dynamic_direction = params.get_bool("skill.dynamic_direction");
-        }
-
+        // All generation parameters come from the ConfigManager — same struct
+        // defaults the runtime uses. Clamp points_per_face to respect the
+        // MAX_EDGE_POINTS capacity (4 faces × 16 = 64 max).
+        const bool visualize         = config->system().enable_visualization;
+        const double resolution      = config->planning().skill_level_resolution;
+        const int points_per_face    = std::clamp(config->skill().points_per_face, 1, 16);
+        const int control_steps      = config->skill().control_steps_per_push;
+        const double push_offset_margin = config->planning().wavefront_edge_offset_margin;
+        const int max_push_steps     = config->skill().max_push_steps;
+        const double push_velocity   = config->skill().push_velocity;
+        const bool dynamic_direction = config->skill().dynamic_direction;
 
         // Determine base output file. CLI --output wins over the config
-        // setting; without either, default to a generic name.
-        std::string base_output = "data/motion_primitives.dat";
-        if (params.has_key("system.motion_primitives_file")) {
-            base_output = params.get_string("system.motion_primitives_file");
-        }
+        // setting; without either, ConfigManager's default kicks in.
+        std::string base_output = config->system().motion_primitives_file;
         if (!output_override.empty()) {
             base_output = output_override;
             std::cout << "Output overridden via --output: " << base_output << std::endl;
         }
-        
+
         std::cout << "Generation parameters:" << std::endl;
         std::cout << "  Visualize: " << (visualize ? "true" : "false") << std::endl;
         std::cout << "  Resolution: " << resolution << std::endl;
@@ -485,13 +435,6 @@ resolution=0.05
         std::cout << "  Dynamic direction: " << (dynamic_direction ? "true" : "false") << std::endl;
         std::cout << "  Base output: " << base_output << std::endl;
 
-        // Build a ConfigManager from the same YAML so the env constructed
-        // for each scene picks the correct RobotAdapter (sphere/holonomic
-        // vs car/diff_drive). The FastParameterLoader above only reads scalar
-        // generation parameters; it doesn't drive adapter selection.
-        auto config = std::make_shared<ConfigManager>(config_path);
-        std::cout << "  Robot type: " << config->get_robot_type() << std::endl;
-
         // Generate primitives for each scene
         for (const auto& scene : existing_scenes) {
             try {
@@ -499,7 +442,8 @@ resolution=0.05
                     scene, visualize, resolution, points_per_face,
                     control_steps, max_push_steps, push_velocity, dynamic_direction,
                     push_offset_margin, config,
-                    min_push_steps_override, settle_ticks_override
+                    min_push_steps_override, settle_ticks_override,
+                    single_edge_override
                 );
                 
                 // Save to suffixed output file. The base path is used as a
@@ -514,11 +458,6 @@ resolution=0.05
                 std::cerr << "Failed to generate primitives for scene " << scene.name << ": " << e.what() << std::endl;
                 // Continue with other scenes
             }
-        }
-        
-        // Clean up temporary config if we created one
-        if (!using_unified_config) {
-            std::filesystem::remove("tools/primitive_gen_config.yaml");
         }
         
         std::cout << "\n=== Generation Complete ===" << std::endl;
