@@ -1,9 +1,9 @@
 #!/bin/bash
 # Canonical build script for NAMO Python bindings.
 #
-# NFS-friendly: builds into ./build_python_mjxrl_<host>/ so multiple machines
-# sharing the same checkout don't clobber each other. Host is auto-detected
-# via `hostname -s`; override with NAMO_BUILD_HOST=<name> if needed.
+# Builds into ./build_python/ — the location every consumer in the repo
+# expects (see python/namo/core/binding_loader.py and
+# python/scripts/check_canonical_binding_policy.py).
 
 set -euo pipefail
 
@@ -14,8 +14,7 @@ if [[ -z "${MJ_PATH:-}" ]]; then
     exit 1
 fi
 
-BUILD_HOST="${NAMO_BUILD_HOST:-$(hostname -s)}"
-BUILD_DIR="build_python_mjxrl_${BUILD_HOST}"
+BUILD_DIR="build_python"
 
 echo "Building namo_rl (Release) into ./${BUILD_DIR}"
 echo "Using MuJoCo from: ${MJ_PATH}"
