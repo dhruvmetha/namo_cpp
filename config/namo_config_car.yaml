@@ -13,9 +13,11 @@ skill:
   # Match primitive generator: one push step = 250 sim steps (0.5s).
   # apply_control runs 5 sim steps per ctrl call (0.01s / 0.002s tick) → 50 ctrl × 5 = 250 sim steps.
   control_steps_per_push: 50
-  # Linear push speed in m/s. With push_tracker_max_speed = 0.3 (the
-  # follower fraction), the wheel command is 0.3 × 0.2 / wheel_radius.
-  push_velocity: 0.2
+  # Car's chassis push speed is set via `push_tracker_max_speed` (the
+  # follower fraction). With kCarWheelMaxSpeedMs = 1.0 in code, the fraction
+  # IS the chassis m/s during a smooth straight push. push_velocity is not
+  # used by the car path — it's a holonomic-only knob.
+  push_tracker_max_speed: 0.3
   goal_tolerance: 0.03            # Tighter tolerance for small robot
   check_object_collision: false     # Disabled — region_opening sets this dynamically
   stuck_check_stride: 80           # Car needs time to cross gap to object

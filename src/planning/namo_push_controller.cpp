@@ -13,6 +13,14 @@ constexpr double kPushLookaheadRatio = 0.3;
 constexpr double kPushGoalToleranceRatio = 0.3;
 constexpr double kPushPathExtendDistanceM = 0.50;
 
+// Calibration constant: the chassis m/s the diff-drive wheels are commanded
+// to produce when the follower outputs a fraction of 1.0. Mirrors the role
+// of the real MicroMVP firmware's max-speed-at-PWM-1.0 mapping. With this at
+// 1.0, `push_tracker_max_speed` (the follower's fraction cap, set via the
+// skill config) reads directly as chassis m/s during a smooth straight push.
+// Recalibrate against real-robot measurements for sim-real parity.
+constexpr double kCarWheelMaxSpeedMs = 1.0;
+
 }  // namespace
 
 namespace namo {
@@ -561,8 +569,13 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
                 const PushPathFollower::Pose robot_pose = get_current_robot_pose();
                 const double timestamp_s = env_.get_mujoco_wrapper()->data()->time;
                 const auto follower_step = push_path_follower_->step(robot_pose, timestamp_s);
-                const double left_omega = (follower_step.left_speed * push_velocity_) / wheel_radius;
-                const double right_omega = (follower_step.right_speed * push_velocity_) / wheel_radius;
+                // Diff-drive: chassis m/s comes from the calibration constant,
+                // NOT push_velocity_ (which is only used by the holonomic robot).
+                // The follower's fraction × kCarWheelMaxSpeedMs is the chassis
+                // speed contribution from that wheel; divide by wheel radius to
+                // get the angular velocity the actuator wants.
+                const double left_omega = (follower_step.left_speed * kCarWheelMaxSpeedMs) / wheel_radius;
+                const double right_omega = (follower_step.right_speed * kCarWheelMaxSpeedMs) / wheel_radius;
                 env_.apply_wheel_control(left_omega, right_omega);
                 log_push_control(t, left_omega, right_omega, follower_step.mode);
             }
