@@ -111,14 +111,20 @@ algorithm_params = {
     "region_goal_samples_per_neighbor": int, # default 5
     "seed": int,                             # base seed; default 42
     "primitive_data_dir": str,               # default "data"
-    "primitive_prefix": str,                 # default "" (point robot)
+    "primitive_prefix": str,                 # IMPORTANT: use "1x_" for current physics
     "xml_file": str,                         # per-env, injected by collection script
     "env_idx": int,                          # NEW: per-env index for derived seeding
-    "config_file_path": str,
+    "config_file_path": str,                 # use namo_config_complete_skill15_1x.yaml
 }
 ```
 
 Default operating point: **N=10000, n=2, S=1.** n=1 falls back to v0 exhaustive behavior.
+
+**Config note (verified 2026-05-23):** For the current point-robot physics on
+aug9 envs, use `primitive_prefix="1x_"` + `config/namo_config_complete_skill15_1x.yaml`.
+The legacy skill15 (6×) + default primitives produce all-stuck pushes on these
+envs today — primitive cookbook has been recalibrated since the legacy
+F-characterization data was collected.
 
 ### 3.6 Per-env determinism
 
