@@ -164,11 +164,26 @@ class NAMOPlanningService:
         xml_path: str,
         robot_goal: Tuple[float, float, float],
         analysis_mode: bool = False,
+        starting_robot_pose: Optional[Tuple[float, float, float]] = None,
     ) -> Dict[str, Any]:
-        """Compute unified C++ wavefront reachability for one XML state."""
+        """Compute unified C++ wavefront reachability for one XML state.
+
+        ``starting_robot_pose`` (x_m, y_m, theta_rad) is required for the car
+        robot — its freejoint spawn pos in the included little_car.xml can't
+        be overridden through a top-level <include>, so without teleport the
+        wavefront BFS starts from the XML spawn (typically the origin) and
+        reachability answers describe the wrong world. Mirrors plan_from_xml's
+        defer_warmup branch. Sphere XMLs bake pose into the geom; pass None.
+        """
         start_time = time.time()
         try:
-            env = namo_rl.RLEnvironment(xml_path, self._config_path, self._enable_viewer)
+            defer_warmup = starting_robot_pose is not None
+            env = namo_rl.RLEnvironment(
+                xml_path, self._config_path, self._enable_viewer, defer_warmup
+            )
+            if defer_warmup:
+                env.set_robot_pose(*starting_robot_pose)
+                env.warm_up()
             env.set_robot_goal(robot_goal[0], robot_goal[1], robot_goal[2])
             summary = env.get_reachability_summary(analysis_mode)
             summary["compute_time_ms"] = (time.time() - start_time) * 1000
