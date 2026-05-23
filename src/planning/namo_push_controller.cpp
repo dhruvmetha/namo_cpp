@@ -9,7 +9,11 @@
 
 namespace {
 
-constexpr double kPushLookaheadRatio = 0.3;
+constexpr double kPushLookaheadRatio = 1.0;   // Was 0.3 — short lookahead amplifies heading
+                                                // noise into PP curvature corrections; 1.0
+                                                // matches robot_control's PushController/Nav
+                                                // and the Tier-1 PP calibration so sim PP has
+                                                // the same noise sensitivity as real PP.
 constexpr double kPushGoalToleranceRatio = 0.3;
 constexpr double kPushPathExtendDistanceM = 0.50;
 
