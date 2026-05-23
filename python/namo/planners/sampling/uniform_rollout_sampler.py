@@ -350,18 +350,29 @@ class UniformRolloutSampler(BasePlanner):
     def _initialize_algorithm(self) -> None:
         algo_params = self.config.algorithm_params or {}
         self.max_chain_depth: int = int(algo_params.get("max_chain_depth", 1))
-        if self.max_chain_depth != 1:
+        if self.max_chain_depth < 1 or self.max_chain_depth > 10:
             raise ValueError(
-                f"v0 of UniformRolloutSampler only supports max_chain_depth=1; "
-                f"got {self.max_chain_depth}. Chain expansion is a follow-up spec."
+                f"max_chain_depth must be in [1, 10]; got {self.max_chain_depth}"
             )
+        # Chain-mode knobs (used when max_chain_depth > 1).
+        self.num_rollouts_per_env: int = int(algo_params.get("num_rollouts_per_env", 10000))
+        self.max_solutions_per_env: int = int(algo_params.get("max_solutions_per_env", 1))
+        if self.num_rollouts_per_env < 1:
+            raise ValueError(f"num_rollouts_per_env must be >= 1; got {self.num_rollouts_per_env}")
+        if self.max_solutions_per_env < 1:
+            raise ValueError(f"max_solutions_per_env must be >= 1; got {self.max_solutions_per_env}")
         self.region_goal_samples_per_neighbor: int = int(
             algo_params.get("region_goal_samples_per_neighbor", 5)
         )
         self.num_depths: int = int(algo_params.get("num_depths", 10))
         self.xml_file: Optional[str] = algo_params.get("xml_file")
         self.config_file: Optional[str] = algo_params.get("config_file_path")
-        self.seed: int = int(algo_params.get("seed", 42))
+        # Per-env determinism: seed = base + env_idx. The collection script injects
+        # env_idx per-task (mirror of how xml_file is injected). Without env_idx,
+        # all envs in a worker share the same seed (legacy v0 behaviour).
+        seed_base = int(algo_params.get("seed", 42))
+        env_idx = int(algo_params.get("env_idx", 0))
+        self.seed: int = seed_base + env_idx
 
     def reset(self) -> None:
         pass
@@ -372,7 +383,9 @@ class UniformRolloutSampler(BasePlanner):
 
     @property
     def algorithm_version(self) -> str:
-        return "0.1.0"
+        # 0.1.0 = v0 (depth-0 exhaustive)
+        # 1.0.0 = v1 (chain mode added; n=1 still gives v0 behaviour)
+        return "1.0.0"
 
     def search(self, robot_goal: Tuple[float, float, float]) -> PlannerResult:
         import numpy as np
@@ -424,6 +437,25 @@ class UniformRolloutSampler(BasePlanner):
                 region_goals[nbr] = []
                 continue
             region_goals[nbr] = [(g.x, g.y, g.theta) for g in bundle.goals]
+
+        # 3a. Chain mode (max_chain_depth > 1): N random rollouts per blocking object
+        # on the R₀ ↔ "goal" boundary. Dispatches to its own code path; v0
+        # exhaustive logic continues below for max_chain_depth == 1.
+        if self.max_chain_depth > 1:
+            return self._run_chain_mode(
+                robot_goal=robot_goal,
+                initial_state=initial_state,
+                initial_observation=initial_observation,
+                initial_se2=initial_se2,
+                reachable_objects_initial=reachable_objects_initial,
+                before_adj=before_adj,
+                before_labels=before_labels,
+                edge_objects=_edge_objs,
+                robot_label=robot_label,
+                neighbor_labels=neighbor_labels,
+                region_goals=region_goals,
+                t_start=t_start,
+            )
 
         # 3. Enumerate every reachable primitive at s₀.
         primitives = enumerate_reachable_primitives(self.env, num_depths=self.num_depths)
@@ -515,6 +547,411 @@ class UniformRolloutSampler(BasePlanner):
                 },
             },
             search_time_ms=(_time.perf_counter() - t_start) * 1000.0,
+        )
+
+    # ------------------------------------------------------------------
+    # Chain mode (v1): N random rollouts per blocking object on R₀↔goal.
+    # ------------------------------------------------------------------
+
+    def _run_chain_mode(
+        self,
+        *,
+        robot_goal: Tuple[float, float, float],
+        initial_state: "namo_rl.RLState",
+        initial_observation: Dict[str, List[float]],
+        initial_se2: Dict[str, Tuple[float, float, float]],
+        reachable_objects_initial: List[str],
+        before_adj: Dict[str, Any],
+        before_labels: Dict[int, str],
+        edge_objects: Dict[str, Dict[str, Any]],
+        robot_label: str,
+        neighbor_labels: List[str],
+        region_goals: Dict[str, List[Tuple[float, float, float]]],
+        t_start: float,
+    ) -> PlannerResult:
+        """v1 chain mode: random n-push rollouts per (blocking object, 'goal').
+
+        Per env:
+        - Identify the "goal" region (must be immediate neighbor of R₀).
+        - Identify blocking objects on the R₀↔goal boundary.
+        - For each blocking object: run up to N rollouts of up to n random pushes.
+        - Per rollout: stop on goal opened, sim_failure, or no reachable primitives.
+          Stuck does NOT stop.
+        - Per (object, goal): stop after S solutions or N rollouts.
+        """
+        import numpy as np
+
+        # 1. Goal region must be an immediate neighbor.
+        if "goal" not in neighbor_labels:
+            attempt = SamplerAttemptResult(
+                success=False,
+                neighbour_region_label="goal",
+                chosen_object_id=None,
+                primitive_trial_log=[],
+                state_observations=[initial_observation],
+                reachable_objects_before_action=[reachable_objects_initial],
+                error_message="goal region not an immediate neighbor of robot region at s_0",
+            )
+            attempt.timing_ms = (_time.perf_counter() - t_start) * 1000.0
+            attempt.any_wall_collision = False
+            attempt.unique_movable_collision_count = 0
+            # Attach failure reason via setattr (field exists on region_opening's
+            # AttemptResult but not on SamplerAttemptResult; getattr in worker is safe).
+            try:
+                attempt.failure_reason = "goal_not_immediate_neighbor"
+            except Exception:
+                pass
+            return PlannerResult(
+                success=False, solution_found=False, action_sequence=None,
+                algorithm_stats={
+                    "attempt_results": [attempt],
+                    "sampler_summary_stats": {
+                        "mode": "chain", "n_rollouts": 0, "n_solutions": 0,
+                        "n_pushes": 0, "n_blocking_objects": 0,
+                    },
+                },
+                search_time_ms=(_time.perf_counter() - t_start) * 1000.0,
+            )
+
+        # 2. Boundary objects on R₀ ↔ "goal" edge.
+        # edge_objects shape: Dict[str, Dict[str, Set[str]]]
+        forward = edge_objects.get(robot_label, {}).get("goal", set()) or set()
+        reverse = edge_objects.get("goal", {}).get(robot_label, set()) or set()
+        boundary_objects = sorted({str(o) for o in (forward | reverse)})
+
+        if not boundary_objects:
+            attempt = SamplerAttemptResult(
+                success=False,
+                neighbour_region_label="goal",
+                chosen_object_id=None,
+                primitive_trial_log=[],
+                state_observations=[initial_observation],
+                reachable_objects_before_action=[reachable_objects_initial],
+                error_message="no blocking objects on robot↔goal boundary",
+            )
+            attempt.timing_ms = (_time.perf_counter() - t_start) * 1000.0
+            attempt.any_wall_collision = False
+            attempt.unique_movable_collision_count = 0
+            try:
+                attempt.failure_reason = "no_blocking_objects"
+            except Exception:
+                pass
+            return PlannerResult(
+                success=False, solution_found=False, action_sequence=None,
+                algorithm_stats={
+                    "attempt_results": [attempt],
+                    "sampler_summary_stats": {
+                        "mode": "chain", "n_rollouts": 0, "n_solutions": 0,
+                        "n_pushes": 0, "n_blocking_objects": 0,
+                    },
+                },
+                search_time_ms=(_time.perf_counter() - t_start) * 1000.0,
+            )
+
+        # 3. RNG and outer per-object loop.
+        rng = np.random.default_rng(self.seed)
+        attempts: List[SamplerAttemptResult] = []
+        total_rollouts = 0
+        total_pushes = 0
+        total_solutions = 0
+        global_transition_id = 0
+
+        goal_region_goals = region_goals.get("goal", [])
+        goal_region_goal_used: Optional[Tuple[float, float, float]] = (
+            goal_region_goals[0] if goal_region_goals else None
+        )
+
+        for committed_object in boundary_objects:
+            attempt_start = _time.perf_counter()
+            (
+                attempt,
+                rollouts_for_obj,
+                pushes_for_obj,
+                solutions_for_obj,
+                global_transition_id,
+            ) = self._run_rollouts_for_object(
+                committed_object=committed_object,
+                initial_state=initial_state,
+                initial_observation=initial_observation,
+                reachable_objects_initial=reachable_objects_initial,
+                before_adj=before_adj,
+                before_labels=before_labels,
+                neighbor_labels=neighbor_labels,
+                rng=rng,
+                global_transition_id=global_transition_id,
+                goal_region_goals=goal_region_goals,
+                goal_region_goal_used=goal_region_goal_used,
+            )
+            attempt.timing_ms = (_time.perf_counter() - attempt_start) * 1000.0
+            attempts.append(attempt)
+            total_rollouts += rollouts_for_obj
+            total_pushes += pushes_for_obj
+            total_solutions += solutions_for_obj
+
+        # 4. Env metadata.
+        env_meta = EnvMetadata(
+            xml_file=self.xml_file or "",
+            robot_goal=tuple(robot_goal),
+            initial_state_se2=initial_se2,
+            per_neighbor_region_goals=region_goals,
+            neighbor_labels=neighbor_labels,
+            static_object_info=dict(self.env.get_object_info()),
+            collection_timestamp_utc=_datetime.datetime.utcnow().isoformat() + "Z",
+            sampler_version=self.algorithm_version,
+        )
+
+        from dataclasses import asdict as _asdict
+        return PlannerResult(
+            success=any(a.success for a in attempts),
+            solution_found=False,
+            action_sequence=None,
+            algorithm_stats={
+                "attempt_results": attempts,
+                "env_metadata": _asdict(env_meta),
+                "sampler_summary_stats": {
+                    "mode": "chain",
+                    "max_chain_depth": self.max_chain_depth,
+                    "num_rollouts_per_env": self.num_rollouts_per_env,
+                    "max_solutions_per_env": self.max_solutions_per_env,
+                    "n_blocking_objects": len(boundary_objects),
+                    "n_rollouts": total_rollouts,
+                    "n_solutions": total_solutions,
+                    "n_pushes": total_pushes,
+                },
+            },
+            search_time_ms=(_time.perf_counter() - t_start) * 1000.0,
+        )
+
+    def _run_rollouts_for_object(
+        self,
+        *,
+        committed_object: str,
+        initial_state: "namo_rl.RLState",
+        initial_observation: Dict[str, List[float]],
+        reachable_objects_initial: List[str],
+        before_adj: Dict[str, Any],
+        before_labels: Dict[int, str],
+        neighbor_labels: List[str],
+        rng,
+        global_transition_id: int,
+        goal_region_goals: List[Tuple[float, float, float]],
+        goal_region_goal_used: Optional[Tuple[float, float, float]],
+    ) -> Tuple["SamplerAttemptResult", int, int, int, int]:
+        """Run up to N random rollouts on `committed_object`. Returns
+        (attempt, rollouts_executed, pushes_executed, solutions_found, new_global_tid)."""
+        rollouts_executed = 0
+        pushes_executed = 0
+        solutions_found = 0
+        primitive_trial_log: List[Dict[str, Any]] = []
+        rollout_trace: List[Dict[str, Any]] = []
+        solving_chains: List[List[Dict[str, Any]]] = []
+        # State observation streams for the FIRST solving chain (worker reads these).
+        solving_state_obs: List[Dict[str, List[float]]] = []
+        solving_post_state_obs: List[Dict[str, List[float]]] = []
+        solving_reachable_before: List[List[str]] = []
+        solving_reachable_after: List[List[str]] = []
+        any_wall_collision = False
+        unique_movable_collisions: set = set()
+
+        for rollout_idx in range(self.num_rollouts_per_env):
+            rollouts_executed += 1
+            # Restore env to s₀ for fresh start.
+            self.env.set_full_state(initial_state)
+
+            chain_records: List[Dict[str, Any]] = []
+            chain_state_obs: List[Dict[str, List[float]]] = []
+            chain_post_state_obs: List[Dict[str, List[float]]] = []
+            chain_reachable_before: List[List[str]] = []
+            chain_reachable_after: List[List[str]] = []
+            chain_solved = False
+            parent_tid: Optional[int] = None
+
+            for chain_step in range(self.max_chain_depth):
+                # Enumerate reachable primitives for committed_object only.
+                all_reach = enumerate_reachable_primitives(self.env, num_depths=self.num_depths)
+                candidates = [
+                    (o, e, d) for (o, e, d) in all_reach if o == committed_object
+                ]
+                if not candidates:
+                    # Object wedged / no longer reachable. End this rollout.
+                    break
+
+                idx = int(rng.integers(len(candidates)))
+                obj, edge_idx, push_depth_idx = candidates[idx]
+
+                # Capture pre-push observation.
+                pre_state_obs = self.env.get_observation()
+                pre_reachable = list(self.env.get_reachable_objects())
+
+                # Execute primitive in place (no state restore — chain continues).
+                current_state = self.env.get_full_state()
+                partial = execute_primitive(
+                    env=self.env,
+                    initial_state=current_state,
+                    object_id=obj,
+                    edge_idx=edge_idx,
+                    push_depth_idx=push_depth_idx,
+                    target_pose=(0.0, 0.0, 0.0),
+                )
+                pushes_executed += 1
+
+                # Cheap stop signal: partial["r"] is is_robot_goal_reachable() result
+                # from execute_primitive. When "goal" is an immediate neighbor of R₀
+                # (precondition for this code path), r=1 iff goal region is now open.
+                # Avoids expensive per-push connectivity snapshots.
+                goal_now_reachable = bool(partial["r"] == 1)
+                per_neighbor = {n: False for n in neighbor_labels}
+                per_neighbor["goal"] = goal_now_reachable
+
+                # Capture post-push observation.
+                post_state_obs = self.env.get_observation()
+                post_reachable = list(self.env.get_reachable_objects())
+
+                # Build transition record.
+                record = {
+                    "transition_id": global_transition_id,
+                    "parent_id": parent_tid,
+                    "chain_depth": chain_step,
+                    "rollout_id": rollout_idx,
+                    "object_id": obj,
+                    "edge_idx": int(edge_idx),
+                    "push_depth_idx": int(push_depth_idx),
+                    "target_pose": tuple(partial["target_pose"]),
+                    "r": int(partial["r"]),
+                    "per_neighbor_opening": dict(per_neighbor),
+                    "wall_collision": bool(partial["wall_collision"]),
+                    "movable_collisions": list(partial["movable_collisions"]),
+                    "push_terminated_early": bool(partial["push_terminated_early"]),
+                    "sim_failure": bool(partial["sim_failure"]),
+                    "sim_time_ms": float(partial["sim_time_ms"]),
+                    "state_after_se2": dict(partial["state_after_se2"]),
+                }
+                chain_records.append(record)
+                chain_state_obs.append(pre_state_obs)
+                chain_post_state_obs.append(post_state_obs)
+                chain_reachable_before.append(pre_reachable)
+                chain_reachable_after.append(post_reachable)
+
+                if partial["wall_collision"]:
+                    any_wall_collision = True
+                for mc in partial["movable_collisions"]:
+                    unique_movable_collisions.add(mc)
+
+                parent_tid = global_transition_id
+                global_transition_id += 1
+
+                # Stop conditions: goal opened, sim_failure. Stuck continues.
+                goal_opened = bool(per_neighbor.get("goal", False))
+                if goal_opened:
+                    chain_solved = True
+                    break
+                if partial["sim_failure"]:
+                    break
+
+            # Record this rollout's transitions into the global trace.
+            rollout_trace.extend(chain_records)
+
+            # primitive_trial_log: chain_depth==0 entry per rollout (the first push).
+            # This is what downstream f_grid-filling readers expect — single-push
+            # outcomes from s₀ for the committed object.
+            if chain_records:
+                first = chain_records[0]
+                # The legacy `depth` key in primitive_trial_log means cookbook push_depth_idx.
+                primitive_trial_log.append({
+                    "edge_idx": first["edge_idx"],
+                    "depth": first["push_depth_idx"],
+                    "chain_depth": 0,
+                    "success": bool(first["per_neighbor_opening"].get("goal", False)),
+                    "wall_collision": first["wall_collision"],
+                    "movable_collisions": ",".join(first["movable_collisions"]),
+                    "stuck": first["push_terminated_early"],
+                    "collision": bool(first["wall_collision"] or first["movable_collisions"]),
+                    "reachable_after": int(first["r"]),
+                })
+
+            if chain_solved:
+                solutions_found += 1
+                solving_chains.append(chain_records)
+                if not solving_state_obs:
+                    # Record observations for the FIRST solving chain.
+                    solving_state_obs = chain_state_obs
+                    solving_post_state_obs = chain_post_state_obs
+                    solving_reachable_before = chain_reachable_before
+                    solving_reachable_after = chain_reachable_after
+
+            if solutions_found >= self.max_solutions_per_env:
+                break
+
+        # Restore env at the end so downstream code sees a stable state.
+        self.env.set_full_state(initial_state)
+
+        # Build AttemptResult.
+        solved = solutions_found > 0
+        if solved:
+            chosen_chain = solving_chains[0]
+            last_record = chosen_chain[-1]
+            chosen_goal = tuple(last_record["target_pose"])
+            chain_depth = len(chosen_chain)
+            goal_chain = [_ChainGoal.from_record(r) for r in chosen_chain]
+            failure_reason = "success"
+        else:
+            chosen_goal = None
+            chain_depth = 0
+            goal_chain = []
+            failure_reason = "all_pushes_failed"
+
+        attempt = SamplerAttemptResult(
+            success=solved,
+            neighbour_region_label="goal",
+            chosen_object_id=committed_object,
+            chosen_goal=chosen_goal,
+            region_goals_sampled=list(goal_region_goals) if goal_region_goals else None,
+            region_goal_used=goal_region_goal_used,
+            primitive_trial_log=primitive_trial_log,
+            chain_depth=chain_depth,
+            state_observations=solving_state_obs or [initial_observation],
+            post_action_state_observations=solving_post_state_obs or None,
+            reachable_objects_before_action=solving_reachable_before or [reachable_objects_initial],
+            reachable_objects_after_action=solving_reachable_after or None,
+            any_wall_collision=any_wall_collision,
+            unique_movable_collision_count=len(unique_movable_collisions),
+        )
+        # Per-attempt extras (read by worker via getattr).
+        attempt.goal_chain = goal_chain if goal_chain else None
+        try:
+            attempt.failure_reason = failure_reason
+            attempt.solutions_found_for_neighbour = solutions_found
+            attempt.solutions_total_for_neighbour = solutions_found
+            attempt.pushes_total_for_neighbour = pushes_executed
+            attempt.rollouts_total_for_neighbour = rollouts_executed
+            attempt.rollout_trace = rollout_trace
+        except Exception:
+            pass
+
+        return attempt, rollouts_executed, pushes_executed, solutions_found, global_transition_id
+
+
+@dataclass
+class _ChainGoal:
+    """Goal-shaped record consumed by the worker when building action_sequence.
+
+    Mirrors the fields the worker reads from `goal_chain[i]`:
+    `.x, .y, .theta, .edge_idx, .depth`. `depth` here is cookbook push_depth_idx
+    (matches region_opening's Goal convention).
+    """
+    x: float
+    y: float
+    theta: float
+    edge_idx: int
+    depth: int  # cookbook push_depth_idx
+
+    @classmethod
+    def from_record(cls, rec: Dict[str, Any]) -> "_ChainGoal":
+        tp = rec["target_pose"]
+        return cls(
+            x=float(tp[0]), y=float(tp[1]), theta=float(tp[2]),
+            edge_idx=int(rec["edge_idx"]),
+            depth=int(rec["push_depth_idx"]),
         )
 
 

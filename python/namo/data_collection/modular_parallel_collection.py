@@ -822,6 +822,9 @@ class ModularParallelCollectionManager:
                 base_algorithm_params = task_planner_config.algorithm_params or {}
                 task_algorithm_params = dict(base_algorithm_params)
                 task_algorithm_params['xml_file'] = xml_file
+                # Per-env index for derived seeding (sampler uses seed_base + env_idx).
+                # Without this every env in a worker would share the same RNG seed.
+                task_algorithm_params['env_idx'] = self.config.start_idx + i
                 # Pass region_object_skip to planner (from manifest or None)
                 if region_object_skip:
                     task_algorithm_params['region_object_skip'] = region_object_skip
@@ -1133,9 +1136,15 @@ def main():
     parser.add_argument("--shuffle-seed", type=int, default=None,
                         help="Random seed for reproducible edge shuffling (None = random each call)")
     # ----------------- Uniform rollout sampler arguments -----------------
-    parser.add_argument("--sampler-max-chain-depth", type=int, default=1, choices=[1],
-                        help="v0 supports depth 0 only (max_chain_depth=1). "
-                             "Deeper depths are a follow-up spec.")
+    parser.add_argument("--sampler-max-chain-depth", type=int, default=1,
+                        help="n: max pushes per random chain. 1 = v0 exhaustive depth-0; "
+                             ">1 = chain mode (N random rollouts per blocking object).")
+    parser.add_argument("--sampler-num-rollouts-per-env", type=int, default=10000,
+                        help="N: number of random chains per (blocking object, 'goal') in chain mode. "
+                             "Ignored when --sampler-max-chain-depth=1.")
+    parser.add_argument("--sampler-max-solutions-per-env", type=int, default=1,
+                        help="S: stop per (blocking object, 'goal') after collecting S solving chains. "
+                             "Ignored when --sampler-max-chain-depth=1.")
     parser.add_argument("--sampler-region-goal-samples", type=int, default=5,
                         help="K points to sample per neighbor region for goal_sample_region mask "
                              "(stored in env_metadata.per_neighbor_region_goals).")
@@ -1257,6 +1266,8 @@ def main():
 
     if args.algorithm == "uniform_rollout_sampler":
         algorithm_params["max_chain_depth"] = args.sampler_max_chain_depth
+        algorithm_params["num_rollouts_per_env"] = args.sampler_num_rollouts_per_env
+        algorithm_params["max_solutions_per_env"] = args.sampler_max_solutions_per_env
         algorithm_params["region_goal_samples_per_neighbor"] = args.sampler_region_goal_samples
         algorithm_params["num_depths"] = args.sampler_num_depths
         algorithm_params["primitive_prefix"] = args.primitive_prefix
