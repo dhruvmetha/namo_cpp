@@ -122,6 +122,15 @@ std::vector<NominalPrimitive> generate_primitives_for_scene(
         push_controller.set_stuck_threshold(config->skill().controller_stuck_threshold);
         push_controller.set_min_position_change(config->skill().controller_min_position_change);
         push_controller.set_min_angle_change(config->skill().controller_min_angle_change);
+        // Wire the calibrated push-tracker fraction cap into the follower.
+        // NAMOPushSkill does this in src/skills/namo_push_skill.cpp:53, but
+        // the generator bypasses the skill and drives the controller
+        // directly — without this, the follower stays at
+        // PushPathFollower::Params::max_speed (0.3), making sim push ~5.6×
+        // faster than the calibrated value (0.05381 per 2026-05-22 chassis
+        // calibration). Symptom: wheel ctrl logs show ~20 rad/s instead of
+        // the expected ~3.6 rad/s for diff-drive runs.
+        push_controller.set_push_tracker_max_speed(config->skill().push_tracker_max_speed);
     }
     if (settle_ticks_override > 0) {
         push_controller.set_settle_steps(settle_ticks_override);
