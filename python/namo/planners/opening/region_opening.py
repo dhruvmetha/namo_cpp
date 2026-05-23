@@ -21,7 +21,6 @@ from namo.core import BasePlanner, PlannerConfig, PlannerResult
 from namo.planners.connectivity_snapshot import find_robot_label
 from namo.strategies import (
     PrimitiveGoalStrategy,
-    RandomRolloutGoalStrategy,
     Goal,
     MLPrimitiveGoalStrategy,
     MLPrimitiveFallbackStrategy,
@@ -593,20 +592,6 @@ class RegionOpeningPlanner(BasePlanner):
                 profile=bool(algo_params.get("profile_geometric", False)),
             )
             self._debug("▶ Using geometric transport goal strategy")
-        elif strategy_name and strategy_name.lower() in {"random_rollout", "random"}:
-            # Random rollouts: same primitive enumeration, but random scores
-            # (uniform per-state ordering) and optional cap on candidates per
-            # state. Combined with max_chain_depth, gives trial-style search.
-            self.goal_strategy = RandomRolloutGoalStrategy(
-                data_dir=primitive_data_dir,
-                verbose=self.config.verbose,
-                samples_per_state=algo_params.get("rollout_samples_per_state", None),
-                seed=algo_params.get("shuffle_seed", None),
-            )
-            self._debug(
-                "▶ Using random-rollout goal strategy "
-                f"(samples_per_state={algo_params.get('rollout_samples_per_state', None)})"
-            )
         else:
             # Use primitive goal strategy for push goals
             self.goal_strategy = PrimitiveGoalStrategy(

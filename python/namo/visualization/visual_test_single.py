@@ -43,7 +43,6 @@ from namo.core import BasePlanner, PlannerConfig, PlannerResult, PlannerFactory
 from namo.core.xml_goal_parser import extract_goal_with_fallback
 
 # Import and register all available planners
-from namo.planners.sampling.random_sampling import RandomSamplingPlanner
 from namo.planners.opening.region_opening import RegionOpeningPlanner
 from namo.planners.full_namo.full_namo_planner import FullNAMOPlanner
 

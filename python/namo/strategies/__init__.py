@@ -9,8 +9,6 @@ from .object_selection_strategy import (
 )
 from .goal_selection_strategy import (
     GoalSelectionStrategy,
-    RandomGoalStrategy,
-    AdaptiveGoalStrategy,
     Goal
 )
 from .ml_strategies import (
@@ -19,7 +17,6 @@ from .ml_strategies import (
 )
 from .primitive_goal_strategy import (
     PrimitiveGoalStrategy,
-    RandomRolloutGoalStrategy,
     MotionPrimitiveLoader,
     Primitive,
     MLPrimitiveGoalStrategy,
@@ -36,17 +33,15 @@ __all__ = [
     "GoalProximityStrategy",
     "FarthestFirstStrategy",
     "GoalSelectionStrategy",
-    "RandomGoalStrategy",
-    "AdaptiveGoalStrategy",
     "Goal",
     "MLObjectSelectionStrategy",
     "MLGoalSelectionStrategy",
     "PrimitiveGoalStrategy",
-    "RandomRolloutGoalStrategy",
     "MotionPrimitiveLoader",
     "Primitive",
     "MLPrimitiveGoalStrategy",
     "MLPrimitiveFallbackStrategy",
     "MLPrimitiveAsyncStrategy",
-    "AsyncGoalResult"
+    "AsyncGoalResult",
+    "GeometricTransportStrategy",
 ]

@@ -1,9 +1,7 @@
 """Sampling-based planners."""
 
-from .random_sampling import RandomSamplingPlanner, Goal, Action
+from .uniform_rollout_sampler import UniformRolloutSampler
 
 __all__ = [
-    "RandomSamplingPlanner",
-    "Goal",
-    "Action"
+    "UniformRolloutSampler",
 ]
