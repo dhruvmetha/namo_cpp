@@ -62,6 +62,35 @@ def set_global_seed(seed: int) -> None:
     random.seed(int(seed))
 
 
+def _filter_trial_log_to_chain_depth_zero(trial_log):
+    """Keep only chain_depth==0 entries in primitive_trial_log.
+
+    The `depth` key in primitive_trial_log entries means cookbook push_depth_idx
+    (0-9) and is used by downstream readers to fill an (edge, depth) f_grid.
+    Chain records (chain_depth>=1) have a different state context (post-first-push)
+    and must NOT be written into this list — they'd silently corrupt f_grid labels
+    in rollout_trace_loader.py, batch_collection_classifier.py, etc. Chain records
+    go into algorithm_stats["rollout_trace"] instead.
+
+    For v0 records (no chain_depth field) this is a pass-through.
+    """
+    if not trial_log:
+        return trial_log
+    has_chain_depth_key = any('chain_depth' in entry for entry in trial_log)
+    if not has_chain_depth_key:
+        return trial_log
+    filtered = []
+    for entry in trial_log:
+        chain_depth = entry.get('chain_depth', 0)
+        if chain_depth == 0:
+            filtered.append(entry)
+        elif not isinstance(chain_depth, int) or chain_depth < 0:
+            raise ValueError(
+                f"primitive_trial_log entry has invalid chain_depth: {chain_depth!r}"
+            )
+    return filtered
+
+
 def _sanitize_run_name(name: str) -> str:
     """Collapse run labels to filesystem-safe tokens."""
     sanitized = re.sub(r"[^0-9A-Za-z._-]", "_", name.strip())
@@ -509,8 +538,17 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                                 # Hybrid decomposition tracking
                                 'phase_push_counts': getattr(attempt, 'phase_push_counts', None),
                                 'solved_in_phase': getattr(attempt, 'solved_in_phase', ''),
-                                # F characterization: per-primitive trial log (exhaustive mode only)
-                                'primitive_trial_log': getattr(attempt, 'primitive_trial_log', None),
+                                # F characterization: per-primitive trial log.
+                                # Filtered to chain_depth==0 entries — cookbook push_depth_idx
+                                # lives in the `depth` key here, so chain-step>=1 records
+                                # must not be mixed in (would silently corrupt f_grid labels).
+                                'primitive_trial_log': _filter_trial_log_to_chain_depth_zero(
+                                    getattr(attempt, 'primitive_trial_log', None)
+                                ),
+                                # Chain rollout trace for v1 chain sampler (None for v0/region_opening).
+                                # Contains full per-step records with explicit chain_depth and
+                                # push_depth_idx keys.
+                                'rollout_trace': getattr(attempt, 'rollout_trace', None),
                             },
                             action_sequence=action_sequence,
                             state_observations=attempt.state_observations,
