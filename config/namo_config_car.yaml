@@ -17,7 +17,15 @@ skill:
   # follower fraction). With kCarWheelMaxSpeedMs = 1.0 in code, the fraction
   # IS the chassis m/s during a smooth straight push. push_velocity is not
   # used by the car path — it's a holonomic-only knob.
-  push_tracker_max_speed: 0.3
+  #
+  # Value calibrated 2026-05-22 via closed-loop PP at PWM 0.4 on the real
+  # robot (robot_control/scripts/collect_pp_trial_real.py + find_sim_fraction.py).
+  # Real median cruise = 5.125 cm/s ± 0.010; sim at fraction 0.05381 cruises
+  # at 5.123 cm/s (binary-search converged in 8 iter, ε = 1×SE_real).
+  # Previously 0.3 → sim was running ~5.6× faster than real for the same
+  # nominal fraction, which made primitive predictions overshoot real outcomes.
+  # Session: chassis_calibration/20260523_002800_pp_session/sim/search_result.json
+  push_tracker_max_speed: 0.05381
   goal_tolerance: 0.03            # Tighter tolerance for small robot
   check_object_collision: false     # Disabled — region_opening sets this dynamically
   check_robot_trajectory_collision: false  # Disabled — diff-drive body arcs during push; grazing aborts every approach

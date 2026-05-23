@@ -82,10 +82,20 @@ skill:
   # 0.05 m/s = 5 cm/s. For the diff-drive car this becomes a wheel
   # command of push_velocity / wheel_radius = 0.05 / 0.015 ≈ 3.33 rad/s,
   # well within little_car.xml's wheel ctrlrange ±25 rad/s.
-  push_velocity: 0.2               # m/s — commanded robot velocity during push (wheel cmd 13.3 rad/s, within ±25 rad/s range)
+  push_velocity: 0.2               # m/s — holonomic-only knob; ignored by diff-drive car (which uses push_tracker_max_speed below)
   dynamic_direction: false         # false = fix push direction at primitive-start, drive
                                    # straight in world frame for push_steps×control_steps_per_push
                                    # ticks. Path A relies on this.
+
+  # Diff-drive push fraction cap. Calibrated 2026-05-22 via closed-loop
+  # PP at PWM 0.4 on the real robot (robot_control/scripts/collect_pp_trial_real.py
+  # + find_sim_fraction.py). Real median cruise = 5.125 cm/s ± 0.010; sim
+  # at fraction 0.05381 cruises at 5.123 cm/s (binary-search 8 iter,
+  # ε = 1×SE_real). Same value as in config/namo_config_car.yaml — keep
+  # in sync. Without this line the C++ side falls back to ConfigManager's
+  # default of 0.3, which makes sim ~5.6× faster than real.
+  # Session: chassis_calibration/20260523_002800_pp_session/sim/search_result.json
+  push_tracker_max_speed: 0.05381
 
   # Execution parameters
   goal_tolerance: 0.02             # 2 cm goal reaching tolerance
