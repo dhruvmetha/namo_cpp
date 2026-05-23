@@ -1,0 +1,43 @@
+# Region-opening F-characterization config — Amarel + diff-drive car.
+# Same shape as region_opening_amarel_car.yaml but with exhaustive_mode=true
+# so the planner doesn't early-out: every primitive trial on every reachable
+# edge is recorded in the per-episode primitive_trial_log.
+
+algorithm: region_opening
+episodes_per_env: 1
+
+# Generic planner limits
+max_depth: 5
+max_goals_per_object: 5
+max_terminal_checks: 5000
+search_timeout: 600.0
+goals_per_region: 10          # F-char canonical (lower than 50)
+region_min_reachable_fraction: 0.5
+
+# Region opening — EXHAUSTIVE for F characterization
+points_per_face: 15
+region_allow_collisions: true
+region_max_chain_depth: 1                       # F-char = single-push only
+region_max_solutions_per_neighbor: 9999         # don't cap; log every primitive
+region_max_recorded_solutions_per_neighbor: 9999
+region_frontier_beam_width: 10000
+region_chain_link_cost: 11
+region_ml_ignore_blacklist: false
+region_selection_strategy: cost_first
+region_exhaustive_mode: true                    # ← the flag
+
+# Goal strategy: pure primitive (no ML)
+goal_strategy: primitive
+primitive_prefix: "car_"     # 7cm car primitives (matches namo_config_car.yaml)
+
+# Robot adapter — diff-drive car
+config_file: config/namo_config_car.yaml
+
+# Manifest passed via sbatch CLI; xml_dir kept for fallback.
+xml_dir: /scratch/dm1487/datasets/car_envs
+
+verbose: false
+filter_minimum_length: false
+smooth_solutions: false
+refine_actions: false
+validate_refinement: false
