@@ -76,21 +76,7 @@ strategy:
 skill:
   # Push skill parameters
   max_push_steps: 10               # Maximum push steps per skill execution
-  control_steps_per_push: 347      # 347 × 0.002 s = 0.694 s sim time per NAMO push step.
-                                   # Calibrated (Tier 2) via tune_control_steps.py against
-                                   # push_calibration/obj_1/ with --exclude-edges 59
-                                   # (2026-05-25). Bisection converged in 6 iters with
-                                   # mean signed gap −0.16 cm vs ε=0.625 cm (~4× under
-                                   # noise floor). See push_calibration/obj_1/
-                                   # tune_control_steps/tune_summary.json for full history.
-                                   #
-                                   # Pre-calibration history (kept for reference):
-                                   #   * 482 (= 0.964 s) — derived to match real per-step wall
-                                   #     time (26 runtime ticks / 27 Hz = 0.963 s). Assumed sim
-                                   #     and real had matching per-step displacement at the
-                                   #     Tier 1 chassis-vel match — false for *pushing* under
-                                   #     contact, which is what Tier 2 measures and corrects.
-                                   #   * 375 (= 0.75 s) — earlier guess; undershot.
+  control_steps_per_push: 550
 
   # Velocity-actuator control.
   # 0.05 m/s = 5 cm/s. For the diff-drive car this becomes a wheel
@@ -116,7 +102,7 @@ skill:
   check_object_collision: true     # Terminate push on object-object collision
   check_robot_trajectory_collision: false  # Terminate push if robot body hits walls during push
   stuck_check_stride: 150          # Sphere uses 30 ticks at 0.01 s = 0.3 s; match at car's 0.002 s timestep (150 × 0.002 = 0.3 s). Required so the stuck check doesn't fire before the car traverses the 1 cm standoff gap (~0.2 s at 0.05 m/s).
-  controller_stuck_threshold: 5    # Allow extra slack — pre-contact phase has zero object motion which would otherwise spike the counter.
+  controller_stuck_threshold: 1000000  # Effectively disabled (was 5) — exploring whether transient deadlocks resolve given more time. Revert before production.
   controller_min_position_change: 0.0002  # 0.2 mm min motion per check
   controller_min_angle_change: 0.05      # ~3 deg min yaw change per check (radians)
 
