@@ -76,13 +76,21 @@ strategy:
 skill:
   # Push skill parameters
   max_push_steps: 10               # Maximum push steps per skill execution
-  control_steps_per_push: 482      # 482 × 0.002 s = 0.964 s sim time per NAMO push step.
-                                   # Matches real per-step wall time (26 production runtime
-                                   # ticks / 27 Hz effective rate = 0.963 s). With Tier-1
-                                   # chassis-vel match (sim 5.123 ≈ real 5.125 cm/s), sim
-                                   # per-step displacement = 4.94 cm matches real free-running
-                                   # per-step = 4.94 cm. Was 375 (= 0.75 s sim per step) which
-                                   # undershot real by 25% in time/displacement.
+  control_steps_per_push: 347      # 347 × 0.002 s = 0.694 s sim time per NAMO push step.
+                                   # Calibrated (Tier 2) via tune_control_steps.py against
+                                   # push_calibration/obj_1/ with --exclude-edges 59
+                                   # (2026-05-25). Bisection converged in 6 iters with
+                                   # mean signed gap −0.16 cm vs ε=0.625 cm (~4× under
+                                   # noise floor). See push_calibration/obj_1/
+                                   # tune_control_steps/tune_summary.json for full history.
+                                   #
+                                   # Pre-calibration history (kept for reference):
+                                   #   * 482 (= 0.964 s) — derived to match real per-step wall
+                                   #     time (26 runtime ticks / 27 Hz = 0.963 s). Assumed sim
+                                   #     and real had matching per-step displacement at the
+                                   #     Tier 1 chassis-vel match — false for *pushing* under
+                                   #     contact, which is what Tier 2 measures and corrects.
+                                   #   * 375 (= 0.75 s) — earlier guess; undershot.
 
   # Velocity-actuator control.
   # 0.05 m/s = 5 cm/s. For the diff-drive car this becomes a wheel
