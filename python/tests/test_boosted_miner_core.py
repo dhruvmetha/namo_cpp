@@ -53,6 +53,15 @@ class _FakeEnv:
         # Keep target pose always valid for direct primitive execution.
         return {"box_1_pose": [0.0, 0.0, 0.0], "robot_pose": [0.0, 0.0, 0.0]}
 
+    def get_object_info(self):
+        return {
+            "robot": {"size_x": 0.2, "size_y": 0.2},
+            "box_1": {"size_x": 0.5, "size_y": 0.25},
+        }
+
+    def get_reachable_objects(self):
+        return ["box_1"]
+
     def get_primitive_library_target_pose(self, _object_id, edge_idx, depth_idx):
         # Deterministic stub for primitive-library target lookup.
         return [0.1 * float(edge_idx), 0.01 * float(depth_idx), 0.0]
@@ -125,6 +134,61 @@ class _FakeEnv:
         return _FakeStepResult(done=False, info={"failure_reason": "Action not applicable"})
 
 
+class _NewlyReachableEnv(_FakeEnv):
+    def get_reachability_summary(self, _analysis_mode=False):
+        return {
+            "objects": {
+                "box_1": {
+                    "total_edges": 3,
+                    "total_primitives": 6,
+                }
+            }
+        }
+
+    def get_valid_primitive_depth_indices(self, _object_id, edge_idx):
+        if int(edge_idx) == 1:
+            return []
+        return [0]
+
+    def get_wavefront_snapshot_for_object(self, _object_id):
+        if self.state_id == 0:
+            free = np.asarray([[1, 0], [1, 1]], dtype=np.uint8)
+            reachable = np.asarray([[1, 0], [0, 1]], dtype=np.uint8)
+            edges = [0, 1, 2]
+        elif self.state_id == 1:
+            free = np.asarray([[1, 1], [1, 1]], dtype=np.uint8)
+            reachable = np.asarray([[1, 1], [0, 1]], dtype=np.uint8)
+            edges = []
+        elif self.state_id == 2:
+            free = np.asarray([[1, 0], [1, 1]], dtype=np.uint8)
+            reachable = np.asarray([[1, 0], [1, 1]], dtype=np.uint8)
+            edges = []
+        else:
+            free = np.asarray([[1, 1], [1, 1]], dtype=np.uint8)
+            reachable = np.asarray([[1, 1], [1, 1]], dtype=np.uint8)
+            edges = []
+
+        return {
+            "free_mask": free,
+            "reachable_mask": reachable,
+            "reachable_edges": edges,
+            "resolution": 0.1,
+            "bounds": [0.0, 1.0, 0.0, 1.0],
+            "grid_shape": [2, 2],
+        }
+
+    def step(self, action):
+        if self.state_id == 0 and action.edge_idx == 0 and action.depth == 0:
+            self.state_id = 1
+            return _FakeStepResult(done=True, info={"failure_reason": ""})
+
+        if self.state_id == 0 and action.edge_idx == 2 and action.depth == 0:
+            self.state_id = 2
+            return _FakeStepResult(done=True, info={"failure_reason": ""})
+
+        return _FakeStepResult(done=False, info={"failure_reason": "Action not applicable"})
+
+
 def test_earliest_horizon_index_invariants():
     idx = EarliestHorizonIndex(num_cells=10)
     h1 = {}
@@ -176,6 +240,11 @@ def test_mine_object_manifest_collision_does_not_prune_but_stuck_does():
 
     # One newly opened cell at horizon-1 from edge=0 depth=1.
     assert out["horizon_cell_ids"][0].tolist() == [1]
+    assert out["baseline_state_key"]
+    assert out["renderer_state_table"]["state_key"].tolist() == [
+        out["baseline_state_key"],
+        out["chain_pool"]["result_state_key"][1],
+    ]
 
     stats = out["stats"]
     # Evaluated transitions:
@@ -214,3 +283,22 @@ def test_mine_object_manifest_requires_cpp_wavefront_snapshot_helper(monkeypatch
 
     with pytest.raises(RuntimeError, match="get_wavefront_snapshot_for_object"):
         mine_object_manifest(env, baseline_state=baseline, object_id="box_1", boosted_config=cfg)
+
+
+def test_mine_object_manifest_newly_reachable_includes_free_before_unreachable_cells():
+    env = _NewlyReachableEnv()
+    baseline = env.get_full_state()
+
+    cfg = {
+        "boosted_max_horizon": 1,
+        "boosted_same_object_only": True,
+        "boosted_use_cpp_grid_fastpath": True,
+        "boosted_cell_filter": "newly_reachable",
+    }
+
+    out = mine_object_manifest(env, baseline_state=baseline, object_id="box_1", boosted_config=cfg)
+
+    # Cell 1 becomes newly free+reachable; cell 2 was already free but becomes reachable.
+    assert out["horizon_cell_ids"][0].tolist() == [1, 2]
+    assert out["stats"]["edges_without_valid_depths"] == 1
+    assert out["stats"]["cell_filter"] == "newly_reachable"

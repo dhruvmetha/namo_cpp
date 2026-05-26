@@ -41,6 +41,7 @@ def test_build_boosted_config_alias_and_legacy_preservation():
     assert cfg["boosted_max_horizon"] == 3
     assert cfg["boosted_output_compression"] == "gzip"
     assert cfg["boosted_ignore_xml_goal"] is True
+    assert cfg["boosted_cell_filter"] == "newly_reachable"
     assert cfg["legacy_unknown_yaml_keys"]["region_allow_collisions"] is True
     assert cfg["unknown_flag"] == "123"
     assert cfg["unknown_cli_tokens"] == ["--unknown-flag", "123"]

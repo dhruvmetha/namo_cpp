@@ -26,7 +26,7 @@ boosted_max_horizon: 2
 # alias accepted:
 # region_max_chain_depth: 2
 boosted_ignore_xml_goal: true
-boosted_cell_filter: newly_free_and_reachable
+boosted_cell_filter: newly_reachable
 boosted_same_object_only: true
 boosted_use_cpp_grid_fastpath: true
 

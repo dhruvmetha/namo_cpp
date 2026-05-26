@@ -104,3 +104,21 @@ def test_holonomic_reset_still_restores_constructor_baseline(make_action):
 
     reachable_after = env.get_reachable_edges(OBJECT_ID)
     assert len(reachable_after) == len(reachable_before)
+
+
+def test_car_config_resolves_motion_primitives_relative_to_config(monkeypatch):
+    _assert_scene_files_exist()
+
+    import namo_rl
+
+    # The car config stores primitive paths as repo-relative "data/...".
+    # This must keep working even when the process CWD is not namo_cpp/.
+    monkeypatch.chdir(REPO_ROOT.parent)
+
+    env = namo_rl.RLEnvironment(str(CAR_SCENE), str(CAR_CONFIG), False, True)
+    env.set_robot_pose(*CAR_START_POSE)
+    env.warm_up()
+
+    depths = env.get_valid_primitive_depth_indices(OBJECT_ID, CAR_PUSH_EDGE)
+    assert depths, "primitive library failed to resolve from non-repo CWD"
+    assert CAR_PUSH_DEPTH in depths

@@ -152,6 +152,7 @@ public:
 
 private:
     std::unique_ptr<FastParameterLoader> loader_;
+    std::string config_file_path_;
     
     // Configuration sections
     PlanningConfig planning_;

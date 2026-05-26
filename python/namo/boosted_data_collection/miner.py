@@ -26,6 +26,74 @@ def deterministic_state_hash(state: Any) -> int:
     return int.from_bytes(h.digest(), byteorder="little", signed=False)
 
 
+def state_hash_to_key(state_hash: int) -> str:
+    """Return fixed-width hex key for a deterministic state hash."""
+
+    return f"{int(state_hash):032x}"
+
+
+def _pythonize_nested(value: Any) -> Any:
+    """Convert nested numpy/scalar containers to plain Python objects."""
+
+    if isinstance(value, Mapping):
+        return {str(k): _pythonize_nested(v) for k, v in value.items()}
+    if isinstance(value, np.ndarray):
+        return [_pythonize_nested(v) for v in value.tolist()]
+    if isinstance(value, (list, tuple)):
+        return [_pythonize_nested(v) for v in value]
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
+
+
+def _serialize_observation(obs: Mapping[str, Any]) -> Dict[str, List[float]]:
+    """Freeze observation payload to renderer-ready pose lists."""
+
+    out: Dict[str, List[float]] = {}
+    for raw_key, raw_value in obs.items():
+        key = str(raw_key)
+        if not isinstance(raw_value, (list, tuple, np.ndarray)):
+            continue
+
+        values = list(raw_value)
+        if len(values) < 2:
+            continue
+
+        try:
+            pose = [float(v) for v in values[:3]]
+        except Exception:
+            continue
+
+        if len(pose) == 2:
+            pose.append(0.0)
+        out[key] = pose
+    return out
+
+
+def _capture_observation(env: Any) -> Dict[str, List[float]]:
+    if not hasattr(env, "get_observation"):
+        raise RuntimeError(
+            "Environment missing get_observation; boosted collection requires "
+            "renderer-ready observation capture for sage export."
+        )
+    raw = env.get_observation()
+    if not isinstance(raw, Mapping):
+        raise RuntimeError(f"Environment returned invalid observation payload: {raw!r}")
+    return _serialize_observation(raw)
+
+
+def _capture_static_object_info(env: Any) -> Dict[str, Any]:
+    if not hasattr(env, "get_object_info"):
+        return {}
+    try:
+        raw = env.get_object_info()
+    except Exception:
+        return {}
+    if not isinstance(raw, Mapping):
+        return {}
+    return _pythonize_nested(raw)
+
+
 @dataclass(frozen=True)
 class WavefrontSnapshot:
     free_mask: np.ndarray
@@ -48,6 +116,7 @@ class TransitionResult:
     goal_pose: Tuple[float, float, float]
     child_state_hash: Optional[int] = None
     child_state: Any = None
+    child_observation: Optional[Dict[str, List[float]]] = None
     child_snapshot: Optional[WavefrontSnapshot] = None
     opened_cell_ids: np.ndarray = field(default_factory=lambda: np.zeros((0,), dtype=np.int32))
 
@@ -56,6 +125,7 @@ class TransitionResult:
 class StateNode:
     state_hash: int
     state: Any
+    observation: Dict[str, List[float]]
     snapshot: WavefrontSnapshot
     chain_ids: List[int]
 
@@ -81,15 +151,23 @@ class TransitionMemo:
 class ChainPool:
     """Compact parent-pointer chain storage."""
 
-    def __init__(self) -> None:
+    def __init__(self, baseline_state_key: str) -> None:
         self.parent_id: List[int] = [-1]
         self.edge_idx: List[int] = [-1]
         self.depth_idx: List[int] = [-1]
         self.goal_x: List[float] = [math.nan]
         self.goal_y: List[float] = [math.nan]
         self.goal_theta: List[float] = [math.nan]
+        self.result_state_key: List[str] = [str(baseline_state_key)]
 
-    def add(self, parent_id: int, edge_idx: int, depth_idx: int, goal_pose: Tuple[float, float, float]) -> int:
+    def add(
+        self,
+        parent_id: int,
+        edge_idx: int,
+        depth_idx: int,
+        goal_pose: Tuple[float, float, float],
+        result_state_key: str,
+    ) -> int:
         cid = len(self.parent_id)
         self.parent_id.append(int(parent_id))
         self.edge_idx.append(int(edge_idx))
@@ -97,6 +175,7 @@ class ChainPool:
         self.goal_x.append(float(goal_pose[0]))
         self.goal_y.append(float(goal_pose[1]))
         self.goal_theta.append(float(goal_pose[2]))
+        self.result_state_key.append(str(result_state_key))
         return cid
 
     def to_arrays(self) -> Dict[str, np.ndarray]:
@@ -109,6 +188,7 @@ class ChainPool:
             "goal_x": np.asarray(self.goal_x, dtype=np.float32),
             "goal_y": np.asarray(self.goal_y, dtype=np.float32),
             "goal_theta": np.asarray(self.goal_theta, dtype=np.float32),
+            "result_state_key": np.asarray(self.result_state_key, dtype="U32"),
         }
 
 
@@ -136,6 +216,17 @@ class EarliestHorizonIndex:
                 horizon_cell_to_chain_ids.setdefault(cell_id, set()).add(chain_id)
             elif current == horizon:
                 horizon_cell_to_chain_ids.setdefault(cell_id, set()).add(chain_id)
+
+
+def _build_renderer_state_table(state_cache: Mapping[int, StateNode]) -> Dict[str, Any]:
+    entries = list(state_cache.values())
+    return {
+        "state_key": np.asarray(
+            [state_hash_to_key(int(node.state_hash)) for node in entries],
+            dtype="U32",
+        ),
+        "observation": [_pythonize_nested(dict(node.observation)) for node in entries],
+    }
 
 
 def _parse_observation_pose(obs: Mapping[str, Sequence[float]], object_id: str) -> Tuple[float, float, float]:
@@ -229,6 +320,30 @@ def get_wavefront_snapshot(
     )
 
 
+def _compute_opened_cell_ids(
+    parent_snapshot: WavefrontSnapshot,
+    child_snapshot: WavefrontSnapshot,
+    cell_filter: str,
+) -> np.ndarray:
+    """Return flattened cell ids that became newly relevant at this transition."""
+
+    if cell_filter == "newly_free_and_reachable":
+        opened_mask = (
+            (~parent_snapshot.free_mask)
+            & child_snapshot.free_mask
+            & child_snapshot.reachable_mask
+        )
+    elif cell_filter == "newly_reachable":
+        opened_mask = (~parent_snapshot.reachable_mask) & child_snapshot.reachable_mask
+    else:
+        raise ValueError(
+            f"Unsupported boosted_cell_filter={cell_filter!r}. "
+            "Supported values: 'newly_free_and_reachable', 'newly_reachable'."
+        )
+
+    return np.flatnonzero(opened_mask.reshape(-1, order="C")).astype(np.int32)
+
+
 def classify_step_result(step_result: Any) -> Dict[str, Any]:
     """Normalize status flags from ``env.step`` result."""
 
@@ -306,10 +421,6 @@ def _resolve_depth_indices_for_edge(
         )
 
     depth_indices = sorted({int(v) for v in raw if int(v) >= 0})
-    if not depth_indices:
-        raise ValueError(
-            f"{method_name} returned no valid depth slots for object={object_id} edge={edge_idx}"
-        )
     return tuple(depth_indices)
 
 
@@ -374,15 +485,18 @@ def _evaluate_transition(
 
     child_state = env.get_full_state()
     child_state_hash = deterministic_state_hash(child_state)
+    child_observation = _capture_observation(env)
     child_snapshot = get_wavefront_snapshot(
         env,
         object_id,
         use_cpp_grid_fastpath=bool(boosted_config.get("boosted_use_cpp_grid_fastpath", True)),
         fallback_resolution=float(parent_snapshot.resolution) if parent_snapshot.resolution > 0.0 else None,
     )
-
-    opened_mask = (~parent_snapshot.free_mask) & child_snapshot.free_mask & child_snapshot.reachable_mask
-    opened_cell_ids = np.flatnonzero(opened_mask.reshape(-1, order="C")).astype(np.int32)
+    opened_cell_ids = _compute_opened_cell_ids(
+        parent_snapshot,
+        child_snapshot,
+        str(boosted_config.get("boosted_cell_filter", "newly_reachable")),
+    )
 
     return TransitionResult(
         success=True,
@@ -394,6 +508,7 @@ def _evaluate_transition(
         goal_pose=action_target_pose,
         child_state_hash=child_state_hash,
         child_state=child_state,
+        child_observation=child_observation,
         child_snapshot=child_snapshot,
         opened_cell_ids=opened_cell_ids,
     )
@@ -451,17 +566,18 @@ def mine_object_manifest(
 
     if not bool(boosted_config.get("boosted_same_object_only", True)):
         raise ValueError("boosted_same_object_only=false is not supported in phase-1 implementation")
-    cell_filter = str(boosted_config.get("boosted_cell_filter", "newly_free_and_reachable"))
-    if cell_filter != "newly_free_and_reachable":
+    cell_filter = str(boosted_config.get("boosted_cell_filter", "newly_reachable"))
+    if cell_filter not in {"newly_free_and_reachable", "newly_reachable"}:
         raise ValueError(
             f"Unsupported boosted_cell_filter={cell_filter!r}. "
-            "Phase-1 supports only 'newly_free_and_reachable'."
+            "Supported values: 'newly_free_and_reachable', 'newly_reachable'."
         )
 
     max_horizon = max(1, int(boosted_config.get("boosted_max_horizon", 1)))
     primitive_depth_count = _infer_primitive_depth_count(env, object_id, boosted_config)
 
     env.set_full_state(baseline_state)
+    baseline_observation = _capture_observation(env)
     initial_snapshot = get_wavefront_snapshot(
         env,
         object_id,
@@ -473,14 +589,15 @@ def mine_object_manifest(
     earliest = EarliestHorizonIndex(num_cells=num_cells)
     horizon_cell_to_chain_ids: List[Dict[int, Set[int]]] = [dict() for _ in range(max_horizon)]
 
-    chain_pool = ChainPool()
-    transition_cache = TransitionMemo()
-
     baseline_hash = deterministic_state_hash(baseline_state)
+    baseline_state_key = state_hash_to_key(baseline_hash)
+    chain_pool = ChainPool(baseline_state_key=baseline_state_key)
+    transition_cache = TransitionMemo()
     state_cache: Dict[int, StateNode] = {
         baseline_hash: StateNode(
             state_hash=baseline_hash,
             state=baseline_state,
+            observation=baseline_observation,
             snapshot=initial_snapshot,
             chain_ids=[0],
         )
@@ -500,6 +617,8 @@ def mine_object_manifest(
         "source_initial_snapshot": initial_snapshot.source,
         "primitive_depth_count": primitive_depth_count,
         "depth_slots_source": "primitive_library",
+        "edges_without_valid_depths": 0,
+        "cell_filter": cell_filter,
     }
 
     for horizon in range(1, max_horizon + 1):
@@ -518,6 +637,9 @@ def mine_object_manifest(
                     object_id=object_id,
                     edge_idx=int(edge_idx),
                 )
+                if not depth_indices:
+                    stats["edges_without_valid_depths"] += 1
+                    continue
 
                 for depth_idx in depth_indices:
                     if prune_edge_depths:
@@ -543,6 +665,7 @@ def mine_object_manifest(
                                 state_cache[tr.child_state_hash] = StateNode(
                                     state_hash=tr.child_state_hash,
                                     state=tr.child_state,
+                                    observation=dict(tr.child_observation or {}),
                                     snapshot=tr.child_snapshot,
                                     chain_ids=[],
                                 )
@@ -569,6 +692,7 @@ def mine_object_manifest(
                             edge_idx=int(edge_idx),
                             depth_idx=int(depth_idx),
                             goal_pose=tr.goal_pose,
+                            result_state_key=state_hash_to_key(tr.child_state_hash),
                         )
 
                         earliest.record_cells(
@@ -611,6 +735,8 @@ def mine_object_manifest(
     return {
         "object_id": object_id,
         "max_horizon": max_horizon,
+        "baseline_state_key": baseline_state_key,
+        "renderer_state_table": _build_renderer_state_table(state_cache),
         "horizon_cell_ids": horizon_cell_ids,
         "horizon_cell_to_chain_csr": horizon_csr,
         "chain_pool": chain_pool.to_arrays(),
@@ -625,6 +751,8 @@ def mine_environment_manifest(
     """Mine boosted manifest blocks for all candidate blocking objects in env."""
 
     baseline_state = env.get_full_state()
+    static_object_info = _capture_static_object_info(env)
+    baseline_reachable_objects = sorted(str(v) for v in env.get_reachable_objects())
     object_ids, region_snapshot = select_candidate_blocking_objects(env, boosted_config)
 
     per_object = []
@@ -640,6 +768,8 @@ def mine_environment_manifest(
         )
 
     return {
+        "static_object_info": static_object_info,
+        "baseline_reachable_objects": baseline_reachable_objects,
         "candidate_object_ids": object_ids,
         "region_snapshot_source": region_snapshot.get("source", "unknown"),
         "region_snapshot_robot_label": region_snapshot.get("robot_label", ""),

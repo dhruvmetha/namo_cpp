@@ -163,9 +163,11 @@ def _run_single_task(task: WorkerTask) -> Dict[str, Any]:
                 "task_id": task.task_id,
                 "xml_path": task.xml_path,
                 "config_file": task.config_file,
+                "static_object_info": mined.get("static_object_info", {}),
             },
             "objects": mined["objects"],
             "summary": {
+                "baseline_reachable_objects": mined.get("baseline_reachable_objects", []),
                 "candidate_object_ids": candidate_object_ids,
                 "region_snapshot_source": mined["region_snapshot_source"],
                 "region_snapshot_robot_label": mined["region_snapshot_robot_label"],
@@ -233,7 +235,7 @@ def _build_boosted_config(namespace: argparse.Namespace, yaml_cfg: Mapping[str, 
     cfg["boosted_cell_filter"] = str(
         namespace.boosted_cell_filter
         if namespace.boosted_cell_filter is not None
-        else cfg.get("boosted_cell_filter", "newly_free_and_reachable")
+        else cfg.get("boosted_cell_filter", "newly_reachable")
     )
     cfg["boosted_same_object_only"] = bool(
         namespace.boosted_same_object_only

@@ -7,8 +7,8 @@ from typing import Dict, Iterable, List, Mapping, MutableMapping, Sequence, Tupl
 
 import numpy as np
 
-SCHEMA_VERSION = 1
-SCHEMA_NAME = "boosted_cell_manifest_v1"
+SCHEMA_VERSION = 2
+SCHEMA_NAME = "boosted_cell_manifest_v2"
 CELL_INDEXING_CONVENTION = (
     "x_major_flat_index=x*grid_height+y; cell_center_world=(xmin+(x+0.5)*res, ymin+(y+0.5)*res)"
 )
@@ -90,6 +90,50 @@ def reconstruct_chain(
     return out_rev
 
 
+def reconstruct_chain_records(
+    chain_pool: Mapping[str, np.ndarray],
+    chain_id: int,
+) -> List[Dict[str, object]]:
+    """Reconstruct chain records from root to ``chain_id``.
+
+    Each record includes the primitive parameters and, when present in the schema,
+    the renderer-ready resulting state key for that chain node.
+    """
+
+    parent = chain_pool["parent_id"]
+    edge = chain_pool["edge_idx"]
+    depth = chain_pool["depth_idx"]
+    gx = chain_pool["goal_x"]
+    gy = chain_pool["goal_y"]
+    gt = chain_pool["goal_theta"]
+    result_state_key = chain_pool.get("result_state_key")
+
+    out_rev: List[Dict[str, object]] = []
+    cursor = int(chain_id)
+
+    while cursor >= 0:
+        if cursor == 0:
+            break
+
+        record: Dict[str, object] = {
+            "chain_id": cursor,
+            "edge_idx": int(edge[cursor]),
+            "depth_idx": int(depth[cursor]),
+            "goal_pose": (
+                float(gx[cursor]),
+                float(gy[cursor]),
+                float(gt[cursor]),
+            ),
+        }
+        if isinstance(result_state_key, np.ndarray):
+            record["result_state_key"] = str(result_state_key[cursor])
+        out_rev.append(record)
+        cursor = int(parent[cursor])
+
+    out_rev.reverse()
+    return out_rev
+
+
 
 def validate_manifest_schema(manifest: Mapping[str, object]) -> List[str]:
     """Return a list of schema validation errors (empty list means valid)."""
@@ -119,6 +163,13 @@ def validate_manifest_schema(manifest: Mapping[str, object]) -> List[str]:
     else:
         errors.append("grid_metadata must be a mapping")
 
+    env_meta = top.get("environment")
+    if isinstance(env_meta, Mapping):
+        for key in ["task_id", "xml_path", "config_file", "static_object_info"]:
+            require_key(env_meta, key, "environment")
+    else:
+        errors.append("environment must be a mapping")
+
     objs = top.get("objects")
     if not isinstance(objs, Sequence):
         errors.append("objects must be a sequence")
@@ -133,6 +184,8 @@ def validate_manifest_schema(manifest: Mapping[str, object]) -> List[str]:
         for key in [
             "object_id",
             "max_horizon",
+            "baseline_state_key",
+            "renderer_state_table",
             "horizon_cell_ids",
             "horizon_cell_to_chain_csr",
             "chain_pool",
@@ -150,6 +203,7 @@ def validate_manifest_schema(manifest: Mapping[str, object]) -> List[str]:
                 "goal_x",
                 "goal_y",
                 "goal_theta",
+                "result_state_key",
             ]
             for key in expected_chain_keys:
                 require_key(chain_pool, key, f"{ctx}.chain_pool")
@@ -165,6 +219,31 @@ def validate_manifest_schema(manifest: Mapping[str, object]) -> List[str]:
                 errors.append(f"{ctx}.chain_pool arrays must share same length")
         else:
             errors.append(f"{ctx}.chain_pool must be a mapping")
+
+        renderer_state_table = obj.get("renderer_state_table")
+        if isinstance(renderer_state_table, Mapping):
+            for key in ["state_key", "observation"]:
+                require_key(renderer_state_table, key, f"{ctx}.renderer_state_table")
+
+            state_keys = renderer_state_table.get("state_key")
+            observations = renderer_state_table.get("observation")
+            if not isinstance(state_keys, np.ndarray):
+                errors.append(f"{ctx}.renderer_state_table.state_key must be np.ndarray")
+            if not isinstance(observations, Sequence):
+                errors.append(f"{ctx}.renderer_state_table.observation must be a sequence")
+            elif isinstance(state_keys, np.ndarray) and len(observations) != int(state_keys.shape[0]):
+                errors.append(
+                    f"{ctx}.renderer_state_table.state_key and observation length mismatch"
+                )
+
+            if isinstance(observations, Sequence):
+                for obs_idx, obs in enumerate(observations):
+                    if not isinstance(obs, Mapping):
+                        errors.append(
+                            f"{ctx}.renderer_state_table.observation[{obs_idx}] must be a mapping"
+                        )
+        else:
+            errors.append(f"{ctx}.renderer_state_table must be a mapping")
 
         horizon_cell_ids = obj.get("horizon_cell_ids")
         horizon_csr = obj.get("horizon_cell_to_chain_csr")

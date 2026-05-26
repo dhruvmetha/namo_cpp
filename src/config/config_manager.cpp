@@ -8,8 +8,63 @@
 
 namespace namo {
 
+namespace {
+
+bool path_or_shape_suffixed_siblings_exist(const std::filesystem::path& path) {
+    if (std::filesystem::exists(path)) {
+        return true;
+    }
+
+    const auto dot = path.string().find_last_of('.');
+    for (const auto& shape : {"square", "wide", "tall"}) {
+        std::filesystem::path candidate;
+        if (dot == std::string::npos) {
+            candidate = std::filesystem::path(path.string() + "_" + shape);
+        } else {
+            const std::string base = path.string();
+            candidate = std::filesystem::path(
+                base.substr(0, dot) + "_" + shape + base.substr(dot));
+        }
+        if (std::filesystem::exists(candidate)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::string resolve_path_relative_to_config(
+    const std::string& config_file_path,
+    const std::string& raw_path) {
+    if (raw_path.empty()) {
+        return raw_path;
+    }
+
+    const std::filesystem::path path(raw_path);
+    if (path.is_absolute() || config_file_path.empty()) {
+        return raw_path;
+    }
+
+    const std::filesystem::path config_path = std::filesystem::absolute(config_file_path);
+    std::filesystem::path cursor = config_path.parent_path();
+    while (!cursor.empty()) {
+        const std::filesystem::path candidate = cursor / path;
+        if (path_or_shape_suffixed_siblings_exist(candidate)) {
+            return std::filesystem::absolute(candidate).lexically_normal().string();
+        }
+        if (cursor == cursor.root_path()) {
+            break;
+        }
+        cursor = cursor.parent_path();
+    }
+
+    return raw_path;
+}
+
+}  // namespace
+
 ConfigManager::ConfigManager(const std::string& config_file) {
     try {
+        config_file_path_ = std::filesystem::absolute(config_file).string();
         loader_ = std::make_unique<FastParameterLoader>(config_file);
         // std::cout << "ConfigManager: Loading configuration from " << config_file << std::endl;
         validate_config_schema();
@@ -237,10 +292,14 @@ void ConfigManager::load_system_config() {
     
     // File paths
     if (loader_->has_key("system.motion_primitives_file")) {
-        system_.motion_primitives_file = loader_->get_string("system.motion_primitives_file");
+        system_.motion_primitives_file = resolve_path_relative_to_config(
+            config_file_path_,
+            loader_->get_string("system.motion_primitives_file"));
     }
     if (loader_->has_key("system.default_scene_file")) {
-        system_.default_scene_file = loader_->get_string("system.default_scene_file");
+        system_.default_scene_file = resolve_path_relative_to_config(
+            config_file_path_,
+            loader_->get_string("system.default_scene_file"));
     }
     
     // Data collection
