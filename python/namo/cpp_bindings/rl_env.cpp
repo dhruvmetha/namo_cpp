@@ -741,6 +741,66 @@ RLEnvironment::RegionGoalSamples RLEnvironment::sample_region_goals(int goals_pe
     ).region_goals;
 }
 
+RLEnvironment::WavefrontObjectSnapshot
+RLEnvironment::get_wavefront_snapshot_for_object(const std::string& object_name) const {
+    WavefrontObjectSnapshot snapshot;
+
+    std::vector<double> robot_size = {kDefaultWavefrontRobotRadiusM, kDefaultWavefrontRobotRadiusM};
+    double tier1_margin = kDefaultWavefrontTier1MarginM;
+    if (config_) {
+        const auto& cfg_size = config_->planning().robot_size;
+        if (cfg_size.size() >= 2) {
+            robot_size[0] = cfg_size[0];
+            robot_size[1] = cfg_size[1];
+        }
+        tier1_margin = config_->planning().wavefront_tier1_inflation_margin;
+    }
+
+    const ObjectState* robot_state = env_->get_robot_state();
+    if (!robot_state) {
+        return snapshot;
+    }
+
+    struct CoutSilencer {
+        std::streambuf* original_buf;
+        std::ostringstream null_stream;
+
+        CoutSilencer() : original_buf(std::cout.rdbuf(null_stream.rdbuf())) {}
+        ~CoutSilencer() { std::cout.rdbuf(original_buf); }
+    } silencer;
+
+    WavefrontGrid grid(*env_, robot_size, tier1_margin);
+    grid.update_dynamic_grid(*env_);
+    grid.find_connected_components(
+        {robot_state->position[0], robot_state->position[1]},
+        /*goal_cells=*/{}
+    );
+
+    const auto& dynamic_grid = grid.get_dynamic_grid();
+    const int grid_width = grid.get_grid_width();
+    const int grid_height = grid.get_grid_height();
+
+    snapshot.grid_width = grid_width;
+    snapshot.grid_height = grid_height;
+    snapshot.resolution = grid.get_resolution();
+    snapshot.bounds = grid.get_bounds();
+    snapshot.free_mask.resize(static_cast<size_t>(grid_width) * static_cast<size_t>(grid_height), 0);
+    snapshot.reachable_mask.resize(static_cast<size_t>(grid_width) * static_cast<size_t>(grid_height), 0);
+
+    for (int x = 0; x < grid_width; ++x) {
+        for (int y = 0; y < grid_height; ++y) {
+            const size_t flat_idx = static_cast<size_t>(x) * static_cast<size_t>(grid_height) + static_cast<size_t>(y);
+            const bool free = dynamic_grid[x][y] != -1;
+            snapshot.free_mask[flat_idx] = free ? 1 : 0;
+            snapshot.reachable_mask[flat_idx] =
+                (free && grid.get_cell_region_id(x, y) == 1) ? 1 : 0;
+        }
+    }
+
+    snapshot.reachable_edges = get_reachable_edges(object_name);
+    return snapshot;
+}
+
 RLEnvironment::RegionSnapshot RLEnvironment::get_region_snapshot(
     int goals_per_region,
     double goal_radius,

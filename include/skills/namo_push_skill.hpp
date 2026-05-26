@@ -22,6 +22,7 @@ private:
 
     std::unique_ptr<PushPrimitiveExecutor> executor_;
     std::shared_ptr<ConfigManager> config_;
+    mutable std::map<std::string, std::unique_ptr<GreedyPlanner>> primitive_library_planners_;
 
     // Deprecated - kept for backward compatibility
     struct Config {
@@ -72,6 +73,15 @@ public:
     bool is_object_reachable(const std::string& object_name) const;
     std::vector<int> get_reachable_edges(const std::string& object_name) const;
     PushPrimitiveExecutor::ReachabilitySnapshot get_reachability_snapshot() const;
+    bool get_primitive_library_target_pose(
+        const std::string& object_name,
+        int edge_idx,
+        int depth_idx,
+        SE2State& out_target_pose,
+        std::string* error_message = nullptr) const;
+    std::vector<int> get_valid_primitive_depth_indices(
+        const std::string& object_name,
+        int edge_idx) const;
 
     /**
      * @brief Robot goal management for MCTS (leverages cached wavefront)
@@ -123,6 +133,8 @@ private:
     bool is_object_movable(const std::string& object_name) const;
     std::optional<SE2State> get_object_current_pose(const std::string& object_name) const;
     bool is_target_within_bounds(const SE2State& target_pose) const;
+    std::string resolve_motion_primitives_file_for_object(const std::string& object_name) const;
+    GreedyPlanner* get_planner_for_object(const std::string& object_name) const;
 };
 
 } // namespace namo

@@ -8,6 +8,31 @@
 
 namespace namo {
 
+namespace {
+
+std::string add_shape_suffix(const std::string& base, const std::string& shape) {
+    auto dot = base.find_last_of('.');
+    return dot == std::string::npos
+        ? base + "_" + shape
+        : base.substr(0, dot) + "_" + shape + base.substr(dot);
+}
+
+std::string infer_primitive_shape_suffix(const ObjectInfo& obj_info) {
+    const double min_extent = std::min(obj_info.size[0], obj_info.size[1]);
+    const double max_extent = std::max(obj_info.size[0], obj_info.size[1]);
+    if (min_extent <= 0.0) {
+        return "square";
+    }
+
+    const double size_ratio = max_extent / min_extent;
+    if (size_ratio < 1.05) {
+        return "square";
+    }
+    return obj_info.size[0] >= obj_info.size[1] ? "wide" : "tall";
+}
+
+}  // namespace
+
 
 NAMOPushSkill::NAMOPushSkill(NAMOEnvironment& env)
     : env_(env), config_(nullptr), legacy_config_() {
@@ -309,6 +334,47 @@ bool NAMOPushSkill::is_target_within_bounds(const SE2State& target_pose) const {
            target_pose.y >= bounds[2] && target_pose.y <= bounds[3];
 }
 
+std::string NAMOPushSkill::resolve_motion_primitives_file_for_object(const std::string& object_name) const {
+    const ObjectInfo* obj_info = env_.get_object_info(object_name);
+    if (!obj_info) {
+        return {};
+    }
+
+    const std::string base_path = config_
+        ? config_->system().motion_primitives_file
+        : legacy_config_.primitive_database_path;
+    if (base_path.empty()) {
+        return {};
+    }
+
+    return add_shape_suffix(base_path, infer_primitive_shape_suffix(*obj_info));
+}
+
+GreedyPlanner* NAMOPushSkill::get_planner_for_object(const std::string& object_name) const {
+    if (auto it = primitive_library_planners_.find(object_name); it != primitive_library_planners_.end()) {
+        return it->second.get();
+    }
+
+    const std::string primitive_path = resolve_motion_primitives_file_for_object(object_name);
+    if (primitive_path.empty() || !std::filesystem::exists(primitive_path)) {
+        return nullptr;
+    }
+
+    auto planner = std::make_unique<GreedyPlanner>();
+    if (!planner->initialize(primitive_path)) {
+        return nullptr;
+    }
+
+    if (const ObjectInfo* obj_info = env_.get_object_info(object_name)) {
+        planner->set_object_symmetry(obj_info->symmetry_rotations);
+    }
+    planner->set_name(object_name);
+
+    GreedyPlanner* raw = planner.get();
+    primitive_library_planners_[object_name] = std::move(planner);
+    return raw;
+}
+
 std::vector<int> NAMOPushSkill::get_reachable_edges(const std::string& object_name) const {
     // Use executor's wavefront-based reachability analysis
     if (!executor_) {
@@ -325,14 +391,6 @@ PushPrimitiveExecutor::ReachabilitySnapshot NAMOPushSkill::get_reachability_snap
     }
     // executor methods are non-const because they refresh internal wavefront caches.
     return const_cast<PushPrimitiveExecutor*>(executor_.get())->compute_reachability_snapshot();
-}
-
-MPCExecutor::ReachabilitySnapshot NAMOPushSkill::get_reachability_snapshot() const {
-    if (!executor_) {
-        return MPCExecutor::ReachabilitySnapshot{};
-    }
-    // executor methods are non-const because they refresh internal wavefront caches.
-    return const_cast<MPCExecutor*>(executor_.get())->compute_reachability_snapshot();
 }
 
 bool NAMOPushSkill::get_primitive_library_target_pose(

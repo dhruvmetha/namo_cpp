@@ -33,7 +33,6 @@ from namo.boosted_data_collection.schema import (
     SCHEMA_VERSION,
     ensure_schema_or_raise,
 )
-from namo.visualization.wavefront_snapshot import WavefrontSnapshotExporter
 
 
 def _sanitize_run_name(name: str) -> str:
@@ -120,18 +119,10 @@ def _resolve_grid_metadata(
             "snapshot_source": snap.source,
         }
 
-    # Rare fallback when no movable/reachable objects are present.
-    exporter = WavefrontSnapshotExporter(env)
-    xml_path = env.get_xml_path() if hasattr(env, "get_xml_path") else ""
-    config_path = env.get_config_path() if hasattr(env, "get_config_path") else ""
-    snap = exporter.build_snapshot(xml_path=xml_path, config_path=config_path, use_current_state=True)
-    return {
-        "grid_shape": [int(snap.dynamic_grid.shape[0]), int(snap.dynamic_grid.shape[1])],
-        "resolution": float(snap.resolution),
-        "bounds": [float(snap.bounds[0]), float(snap.bounds[1]), float(snap.bounds[2]), float(snap.bounds[3])],
-        "cell_indexing_convention": CELL_INDEXING_CONVENTION,
-        "snapshot_source": "python_fallback",
-    }
+    raise RuntimeError(
+        "Unable to resolve boosted grid metadata from the namo_cpp C++ wavefront path: "
+        "no candidate or reachable probe object is available in this environment."
+    )
 
 
 def _run_single_task(task: WorkerTask) -> Dict[str, Any]:

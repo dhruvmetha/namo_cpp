@@ -5,14 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Set, Tuple
 
 import numpy as np
 
 from namo.planners import get_region_snapshot
-from namo.visualization.wavefront_snapshot import WavefrontSnapshotExporter
 
 from .schema import build_cell_chain_csr
 
@@ -166,77 +164,26 @@ def _resolve_library_target_pose(
 ) -> Tuple[float, float, float]:
     """Resolve target pose for direct primitive execution from primitive library."""
 
-    method_name = "get_primitive_library_target_pose"
-    require_library = bool(boosted_config.get("boosted_require_primitive_library", True))
-
-    if hasattr(env, method_name):
-        raw = getattr(env, method_name)(object_id, int(edge_idx), int(depth_idx))
-        if isinstance(raw, (tuple, list)) and len(raw) >= 3:
-            return float(raw[0]), float(raw[1]), float(raw[2])
+    if not bool(boosted_config.get("boosted_require_primitive_library", True)):
         raise ValueError(
-            f"{method_name} returned invalid payload for object={object_id} "
-            f"edge={edge_idx} depth={depth_idx}: {raw!r}"
+            "boosted_require_primitive_library=false is unsupported. "
+            "Boosted collection requires C++ primitive-library target lookup."
         )
 
-    if require_library:
+    method_name = "get_primitive_library_target_pose"
+    if not hasattr(env, method_name):
         raise RuntimeError(
-            f"Environment missing {method_name}; cannot execute boosted direct primitives "
-            "with primitive-library targets"
+            f"Environment missing {method_name}; boosted collection requires "
+            "the namo_cpp primitive-library target-pose helper."
         )
 
-    # Backward-compatibility fallback for test doubles that do not expose C++ helper.
-    obs = env.get_observation()
-    return _parse_observation_pose(obs, object_id)
-
-
-def _bfs_reachable_mask(
-    free_mask: np.ndarray,
-    robot_xy: Tuple[float, float],
-    bounds: Tuple[float, float, float, float],
-    resolution: float,
-) -> np.ndarray:
-    """8-connected BFS reachability on a boolean free mask."""
-
-    grid_w, grid_h = int(free_mask.shape[0]), int(free_mask.shape[1])
-    reachable = np.zeros((grid_w, grid_h), dtype=np.bool_)
-    if grid_w <= 0 or grid_h <= 0 or resolution <= 0.0:
-        return reachable
-
-    start_x = int(math.floor((robot_xy[0] - bounds[0]) / resolution))
-    start_y = int(math.floor((robot_xy[1] - bounds[2]) / resolution))
-    if not (0 <= start_x < grid_w and 0 <= start_y < grid_h):
-        return reachable
-
-    q: deque[Tuple[int, int]] = deque()
-    q.append((start_x, start_y))
-    reachable[start_x, start_y] = True
-
-    directions = (
-        (1, 0),
-        (-1, 0),
-        (0, 1),
-        (0, -1),
-        (1, 1),
-        (1, -1),
-        (-1, 1),
-        (-1, -1),
+    raw = getattr(env, method_name)(object_id, int(edge_idx), int(depth_idx))
+    if isinstance(raw, (tuple, list)) and len(raw) >= 3:
+        return float(raw[0]), float(raw[1]), float(raw[2])
+    raise ValueError(
+        f"{method_name} returned invalid payload for object={object_id} "
+        f"edge={edge_idx} depth={depth_idx}: {raw!r}"
     )
-
-    while q:
-        cx, cy = q.popleft()
-        for dx, dy in directions:
-            nx = cx + dx
-            ny = cy + dy
-            if nx < 0 or nx >= grid_w or ny < 0 or ny >= grid_h:
-                continue
-            if reachable[nx, ny]:
-                continue
-            if not bool(free_mask[nx, ny]):
-                continue
-            reachable[nx, ny] = True
-            q.append((nx, ny))
-
-    return reachable
 
 
 def get_wavefront_snapshot(
@@ -248,60 +195,37 @@ def get_wavefront_snapshot(
 ) -> WavefrontSnapshot:
     """Get free/reachable masks + reachable edges for current state."""
 
-    if use_cpp_grid_fastpath and hasattr(env, "get_wavefront_snapshot_for_object"):
-        raw = env.get_wavefront_snapshot_for_object(object_id)
-        free_mask = np.asarray(raw["free_mask"], dtype=np.uint8).astype(np.bool_, copy=False)
-        reachable_mask = np.asarray(raw["reachable_mask"], dtype=np.uint8).astype(np.bool_, copy=False)
+    del fallback_resolution  # compatibility placeholder; boosted collection requires the C++ path
 
-        grid_shape_raw = raw.get("grid_shape")
-        if isinstance(grid_shape_raw, (tuple, list)) and len(grid_shape_raw) == 2:
-            grid_shape = (int(grid_shape_raw[0]), int(grid_shape_raw[1]))
-        else:
-            grid_shape = (int(free_mask.shape[0]), int(free_mask.shape[1]))
-
-        return WavefrontSnapshot(
-            free_mask=free_mask,
-            reachable_mask=reachable_mask,
-            reachable_edges=tuple(sorted(int(v) for v in raw.get("reachable_edges", []))),
-            resolution=float(raw.get("resolution", 0.0)),
-            bounds=tuple(float(v) for v in raw.get("bounds", [0.0, 0.0, 0.0, 0.0])),
-            grid_shape=grid_shape,
-            source="cpp_fastpath",
+    if not use_cpp_grid_fastpath:
+        raise ValueError(
+            "boosted_use_cpp_grid_fastpath=false is unsupported. "
+            "Boosted collection requires the namo_cpp unified wavefront grid fast path."
+        )
+    if not hasattr(env, "get_wavefront_snapshot_for_object"):
+        raise RuntimeError(
+            "Environment missing get_wavefront_snapshot_for_object; boosted collection "
+            "requires the namo_cpp unified wavefront object-snapshot helper."
         )
 
-    exporter = WavefrontSnapshotExporter(env, resolution=fallback_resolution)
+    raw = env.get_wavefront_snapshot_for_object(object_id)
+    free_mask = np.asarray(raw["free_mask"], dtype=np.uint8).astype(np.bool_, copy=False)
+    reachable_mask = np.asarray(raw["reachable_mask"], dtype=np.uint8).astype(np.bool_, copy=False)
 
-    xml_path_fn = getattr(env, "get_xml_path", None)
-    config_path_fn = getattr(env, "get_config_path", None)
-    xml_path = xml_path_fn() if callable(xml_path_fn) else ""
-    config_path = config_path_fn() if callable(config_path_fn) else ""
+    grid_shape_raw = raw.get("grid_shape")
+    if isinstance(grid_shape_raw, (tuple, list)) and len(grid_shape_raw) == 2:
+        grid_shape = (int(grid_shape_raw[0]), int(grid_shape_raw[1]))
+    else:
+        grid_shape = (int(free_mask.shape[0]), int(free_mask.shape[1]))
 
-    snap = exporter.build_snapshot(
-        xml_path=xml_path,
-        config_path=config_path,
-        use_current_state=True,
-        goals_per_region=0,
-    )
-
-    free_mask = np.asarray(snap.dynamic_grid != -1, dtype=np.bool_)
-    obs = env.get_observation()
-    robot_pose = _parse_observation_pose(obs, "robot")
-    reachable_mask = _bfs_reachable_mask(
-        free_mask=free_mask,
-        robot_xy=(robot_pose[0], robot_pose[1]),
-        bounds=(float(snap.bounds[0]), float(snap.bounds[1]), float(snap.bounds[2]), float(snap.bounds[3])),
-        resolution=float(snap.resolution),
-    )
-
-    reachable_edges = tuple(sorted(int(v) for v in env.get_reachable_edges(object_id)))
     return WavefrontSnapshot(
         free_mask=free_mask,
         reachable_mask=reachable_mask,
-        reachable_edges=reachable_edges,
-        resolution=float(snap.resolution),
-        bounds=(float(snap.bounds[0]), float(snap.bounds[1]), float(snap.bounds[2]), float(snap.bounds[3])),
-        grid_shape=(int(free_mask.shape[0]), int(free_mask.shape[1])),
-        source="python_fallback",
+        reachable_edges=tuple(sorted(int(v) for v in raw.get("reachable_edges", []))),
+        resolution=float(raw.get("resolution", 0.0)),
+        bounds=tuple(float(v) for v in raw.get("bounds", [0.0, 0.0, 0.0, 0.0])),
+        grid_shape=grid_shape,
+        source="cpp_fastpath",
     )
 
 
@@ -364,22 +288,29 @@ def _resolve_depth_indices_for_edge(
     env: Any,
     object_id: str,
     edge_idx: int,
-    fallback_depth_count: int,
 ) -> Tuple[int, ...]:
-    """Return deterministic depth indices for this edge from primitive library when available."""
+    """Return deterministic depth indices for this edge from the primitive library."""
 
     method_name = "get_valid_primitive_depth_indices"
-    if hasattr(env, method_name):
-        try:
-            raw = getattr(env, method_name)(object_id, int(edge_idx))
-            if isinstance(raw, (tuple, list)):
-                depth_indices = sorted({int(v) for v in raw if int(v) >= 0})
-                if depth_indices:
-                    return tuple(depth_indices)
-        except Exception:
-            pass
+    if not hasattr(env, method_name):
+        raise RuntimeError(
+            f"Environment missing {method_name}; boosted collection requires "
+            "the namo_cpp primitive-library depth-slot helper."
+        )
 
-    return tuple(range(max(1, int(fallback_depth_count))))
+    raw = getattr(env, method_name)(object_id, int(edge_idx))
+    if not isinstance(raw, (tuple, list)):
+        raise ValueError(
+            f"{method_name} returned invalid payload for object={object_id} "
+            f"edge={edge_idx}: {raw!r}"
+        )
+
+    depth_indices = sorted({int(v) for v in raw if int(v) >= 0})
+    if not depth_indices:
+        raise ValueError(
+            f"{method_name} returned no valid depth slots for object={object_id} edge={edge_idx}"
+        )
+    return tuple(depth_indices)
 
 
 def _evaluate_transition(
@@ -474,6 +405,12 @@ def select_candidate_blocking_objects(
 ) -> Tuple[List[str], Dict[str, Any]]:
     """Collect deterministic candidate blocking objects for robot-adjacent regions."""
 
+    if not hasattr(env, "get_region_snapshot"):
+        raise RuntimeError(
+            "Environment missing get_region_snapshot; boosted collection requires "
+            "the namo_cpp unified C++ region snapshot."
+        )
+
     snapshot = get_region_snapshot(
         env,
         goals_per_region=0,
@@ -562,7 +499,7 @@ def mine_object_manifest(
         "pruned_same_edge_depth": 0,
         "source_initial_snapshot": initial_snapshot.source,
         "primitive_depth_count": primitive_depth_count,
-        "depth_slots_source": "primitive_library_or_fallback",
+        "depth_slots_source": "primitive_library",
     }
 
     for horizon in range(1, max_horizon + 1):
@@ -580,7 +517,6 @@ def mine_object_manifest(
                     env=env,
                     object_id=object_id,
                     edge_idx=int(edge_idx),
-                    fallback_depth_count=primitive_depth_count,
                 )
 
                 for depth_idx in depth_indices:

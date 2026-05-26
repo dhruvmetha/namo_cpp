@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 import numpy as np
+import pytest
 
 from namo.boosted_data_collection.miner import (
     EarliestHorizonIndex,
@@ -182,3 +183,34 @@ def test_mine_object_manifest_collision_does_not_prune_but_stuck_does():
     assert stats["transitions_evaluated"] == 3
     assert stats["collision_transitions"] >= 1
     assert stats["pruned_same_edge_depth"] >= 1
+
+
+def test_mine_object_manifest_requires_cpp_grid_fastpath():
+    env = _FakeEnv()
+    baseline = env.get_full_state()
+
+    cfg = {
+        "boosted_max_horizon": 1,
+        "boosted_same_object_only": True,
+        "boosted_use_cpp_grid_fastpath": False,
+        "boosted_primitive_depth_count": 2,
+    }
+
+    with pytest.raises(ValueError, match="boosted_use_cpp_grid_fastpath=false"):
+        mine_object_manifest(env, baseline_state=baseline, object_id="box_1", boosted_config=cfg)
+
+
+def test_mine_object_manifest_requires_cpp_wavefront_snapshot_helper(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delattr(_FakeEnv, "get_wavefront_snapshot_for_object")
+
+    env = _FakeEnv()
+    baseline = env.get_full_state()
+    cfg = {
+        "boosted_max_horizon": 1,
+        "boosted_same_object_only": True,
+        "boosted_use_cpp_grid_fastpath": True,
+        "boosted_primitive_depth_count": 2,
+    }
+
+    with pytest.raises(RuntimeError, match="get_wavefront_snapshot_for_object"):
+        mine_object_manifest(env, baseline_state=baseline, object_id="box_1", boosted_config=cfg)
