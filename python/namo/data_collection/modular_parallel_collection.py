@@ -1035,10 +1035,10 @@ def main():
                         help="Maximum goals to sample per object")
     parser.add_argument("--max-terminal-checks", type=int, default=5000,
                         help="Maximum terminal checks before stopping search (default: 5000)")
-    parser.add_argument("--search-timeout", type=float, default=300.0,
-                        help="Search timeout in seconds (default: 300.0 = 5 minutes)")
-    parser.add_argument("--goals-per-region", type=int, default=5,
-                        help="Number of robot goal samples per region for validation (default: 5)")
+    parser.add_argument("--search-timeout", type=float, default=600.0,
+                        help="Search timeout in seconds (default: 600.0 = 10 minutes)")
+    parser.add_argument("--goals-per-region", type=int, default=100,
+                        help="Number of robot goal samples per region for validation (default: 100)")
 
     # Region opening planner arguments (only those used by RegionOpeningPlanner)
     parser.add_argument("--region-allow-collisions", action=argparse.BooleanOptionalAction, default=True,
@@ -1053,8 +1053,8 @@ def main():
                         help="Optional beam width (K) to cap frontier per chain depth; None/<=0 disables")
     parser.add_argument("--region-chain-link-cost", type=int, default=0,
                         help="Additional cost per chain link beyond first push (default: 0)")
-    parser.add_argument("--region-min-reachable-fraction", type=float, default=0.5,
-                        help="Fraction of goal-region samples that must be reachable for an opening to count as success (default: 0.5). With dense disc samples on the goal site, 1.0 = full goal site reachable.")
+    parser.add_argument("--region-min-reachable-fraction", type=float, default=0.2,
+                        help="Fraction of goal-region samples that must be reachable for an opening to count as success (default: 0.2). With dense disc samples on the goal site, 1.0 = full goal site reachable.")
     parser.add_argument("--region-ml-ignore-blacklist", action="store_true",
                         help="Allow ML-scored primitives to bypass edge blacklist")
     parser.add_argument("--region-selection-strategy", type=str, default="ml_first",
