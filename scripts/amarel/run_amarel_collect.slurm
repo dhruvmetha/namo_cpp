@@ -23,8 +23,16 @@ export MJ_PATH=/scratch/dm1487/mujoco/mujoco-3.2.7
 export LD_LIBRARY_PATH="$MJ_PATH/lib:/scratch/dm1487/envs/namo/lib:${LD_LIBRARY_PATH:-}"
 
 REPO=/cache/home/dm1487/projects/namo/namo_cpp
-BUILD_DIR=$REPO/build_python_mjxrl_amarel2
+BUILD_DIR=$REPO/build_python
 export PYTHONPATH="$BUILD_DIR:$REPO/python:${PYTHONPATH:-}"
+
+# Sanity-check the canonical build exists before workers fork; otherwise
+# every worker fails identically and the array burns a 24h wall clock.
+if ! ls "$BUILD_DIR"/namo_rl*.so >/dev/null 2>&1; then
+    echo "ERROR: no namo_rl*.so in $BUILD_DIR — build it once with"
+    echo "  NAMO_MARCH=x86-64-v3 ./build_python_bindings.sh"
+    exit 1
+fi
 
 cd "$REPO"
 

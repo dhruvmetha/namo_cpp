@@ -16,8 +16,16 @@ fi
 
 BUILD_DIR="build_python"
 
+# Architecture target. Defaults to "native" for local dev (fastest on the
+# build host). Override to a portable baseline like "x86-64-v3" when the
+# resulting .so must run on a heterogeneous fleet — e.g. Amarel shards
+# scattered across skylake -> emeraldrapids:
+#   NAMO_MARCH=x86-64-v3 ./build_python_bindings.sh
+NAMO_MARCH="${NAMO_MARCH:-native}"
+
 echo "Building namo_rl (Release) into ./${BUILD_DIR}"
 echo "Using MuJoCo from: ${MJ_PATH}"
+echo "Target arch (-march): ${NAMO_MARCH}"
 
 # Resolve the active Python and its SOABI explicitly. CMake's FindPython3
 # sometimes leaves Python3_SOABI empty on certain CMake/Python combinations,
@@ -30,6 +38,7 @@ PYTHON_SOABI="$("$PYTHON_BIN" -c "import sysconfig; print(sysconfig.get_config_v
 echo "Using Python: $($PYTHON_BIN --version) ($PYTHON_BIN), SOABI=$PYTHON_SOABI"
 
 cmake -S . -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release -DBUILD_PYTHON_BINDINGS=ON \
+    -DCMAKE_CXX_FLAGS_RELEASE="-O3 -DNDEBUG -march=${NAMO_MARCH} -flto" \
     -DPython3_EXECUTABLE="$PYTHON_BIN" \
     -DPython3_INCLUDE_DIR="$PYTHON_INCLUDE" \
     -DPython3_LIBRARY_RELEASE="$PYTHON_LIBDIR/libpython$PYTHON_LIBVER.so" \

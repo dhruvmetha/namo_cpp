@@ -32,6 +32,13 @@ Companion configuration file (kept with sibling YAMLs, not here):
 ## Quickstart
 
 ```bash
+# 0. (One-time per source change) Build the canonical .so with a portable ISA
+unset SLURM_JOB_ID
+srun --partition=main --cpus-per-task=8 --mem=16G --time=1:00:00 --pty bash
+source scripts/amarel/activate.sh
+NAMO_MARCH=x86-64-v3 ./build_python_bindings.sh    # writes ./build_python/
+exit
+
 # 1. Grab a compute node and source the env
 unset SLURM_JOB_ID
 srun --partition=main-redhat --cpus-per-task=4 --mem=8G --time=2:00:00 --pty bash
@@ -48,6 +55,12 @@ EXTRA_ARGS="--region-max-chain-depth 1 --search-timeout 120" \
 OUTPUT_DIR=/scratch/dm1487/outputs_fast \
 sbatch scripts/amarel/run_amarel_collect_array.slurm
 ```
+
+> **Why `NAMO_MARCH=x86-64-v3`?** The default `-march=native` build bakes in
+> whatever CPU instructions the build node had — so a binary compiled on
+> Emerald Rapids SIGILLs the moment a shard lands on Skylake. `x86-64-v3`
+> (Haswell+ baseline: AVX2/FMA/BMI2) runs on every Amarel CPU at a ~few-%
+> perf cost vs. native — invisible against MuJoCo physics. See §4 below.
 
 ---
 
@@ -306,6 +319,38 @@ torchrun --standalone --nproc_per_node=2 train.py
 
 All three live at `scripts/amarel/`.
 
+### Build the C++ binding (one-time, portable)
+
+The slurm shard scripts import `namo_rl` from the canonical `build_python/`
+directory at the repo root. They **do not build it for you** — every shard
+loads the same `.so`. Build it once before submitting:
+
+```bash
+unset SLURM_JOB_ID
+srun --partition=main --cpus-per-task=8 --mem=16G --time=1:00:00 --pty bash
+source scripts/amarel/activate.sh
+cd /cache/home/dm1487/projects/namo/namo_cpp
+NAMO_MARCH=x86-64-v3 ./build_python_bindings.sh
+```
+
+Two knobs that matter for fleet portability:
+
+| Knob | Use | Why |
+|---|---|---|
+| `NAMO_MARCH=x86-64-v3` | Always for Amarel array jobs | Default `native` bakes in build-node ISA → shards crash on older CPUs. `v3` = Haswell+ baseline, runs on every node. |
+| Build OS = run OS | el7 build for `--partition=main`, el9 build for `--partition=main-redhat` | libstdc++ / glibc ABI mismatch between CentOS 7 and RHEL 9. |
+
+After the build:
+```bash
+ls build_python/namo_rl*.so          # should exist
+PYTHONPATH=$PWD/build_python:$PWD/python python -c \
+    "import namo_rl; print(namo_rl.__file__)"   # confirms canonical path
+```
+
+The shard scripts hard-fail with a clear error if `build_python/namo_rl*.so`
+is missing, so you can't accidentally launch a 30-shard array against a
+stale or absent binding.
+
 ### Smoke test (interactive, validate one shard)
 ```bash
 unset SLURM_JOB_ID
@@ -317,7 +362,7 @@ source /cache/home/dm1487/miniforge3/etc/profile.d/conda.sh
 conda activate /scratch/dm1487/envs/namo
 export MJ_PATH=/scratch/dm1487/mujoco/mujoco-3.2.7
 export LD_LIBRARY_PATH=$MJ_PATH/lib:$LD_LIBRARY_PATH
-export PYTHONPATH=/cache/home/dm1487/projects/namo/namo_cpp/build_python_mjxrl_amarel2:/cache/home/dm1487/projects/namo/namo_cpp/python:$PYTHONPATH
+export PYTHONPATH=/cache/home/dm1487/projects/namo/namo_cpp/build_python:/cache/home/dm1487/projects/namo/namo_cpp/python:$PYTHONPATH
 cd /cache/home/dm1487/projects/namo/namo_cpp
 python python/namo/data_collection/modular_parallel_collection.py \
     --config-yaml python/namo/data_collection/region_opening_amarel_car.yaml \
@@ -365,9 +410,11 @@ The two scripts in this directory still use `--partition=main` (the CentOS 7 fle
 ```bash
 #SBATCH --partition=main-redhat
 ```
-You may also need to rebuild the C++ bindings on a `main-redhat` allocation if the existing `build_python_mjxrl_amarel2/` was built on el7. To check at runtime:
+You must also **rebuild `build_python/` on a `main-redhat` allocation** — el7
+and el9 libstdc++/glibc ABIs are not compatible. To verify the existing
+binding loads on the target partition:
 ```bash
-python -c "import namo_rl; print(namo_rl.__file__)"  # imports cleanly = compatible
+PYTHONPATH=$PWD/build_python:$PWD/python python -c "import namo_rl; print(namo_rl.__file__)"
 ```
 
 ---
