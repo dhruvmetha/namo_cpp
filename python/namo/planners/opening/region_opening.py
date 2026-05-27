@@ -241,6 +241,14 @@ class RegionOpeningPlanner(BasePlanner):
         # Default is False to preserve legacy behaviour (collect per-neighbour data).
         self.stop_after_first_success = algo_params.get("region_stop_after_first_success", False)
 
+        # When True, auto-target the region containing the XML's <site name="goal">
+        # (which the snapshot labels as "goal") instead of opening all unreachable
+        # neighbours. If the robot is already in the goal region, no episodes are
+        # recorded. If the goal region is not an immediate neighbour, one fail
+        # AttemptResult is recorded with failure_reason="target_not_immediate_neighbor"
+        # (signal for phase-2 deeper-chain retries).
+        self.target_goal_region = bool(algo_params.get("target_goal_region", False))
+
         # Optional: cap number of frontier nodes per chain level (beam width)
         # None or 0 => unbounded frontier (complete)
         beam_width = algo_params.get("region_frontier_beam_width", None)
@@ -563,7 +571,8 @@ class RegionOpeningPlanner(BasePlanner):
             # Store strategies for MLDrivenAsyncSearch
             self._primitive_strategy = PrimitiveGoalStrategy(
                 data_dir=primitive_data_dir,
-                verbose=self.config.verbose
+                verbose=self.config.verbose,
+                primitive_prefix=algo_params.get("primitive_prefix", ""),
             )
             self._ml_async_strategy = MLPrimitiveAsyncStrategy(
                 goal_model_path=ml_path,
@@ -602,6 +611,7 @@ class RegionOpeningPlanner(BasePlanner):
                 verbose=self.config.verbose,
                 samples_per_state=algo_params.get("rollout_samples_per_state", None),
                 seed=algo_params.get("shuffle_seed", None),
+                primitive_prefix=algo_params.get("primitive_prefix", ""),
             )
             self._debug(
                 "▶ Using random-rollout goal strategy "
@@ -613,7 +623,8 @@ class RegionOpeningPlanner(BasePlanner):
                 data_dir=primitive_data_dir,
                 verbose=self.config.verbose,
                 shuffle_edges=algo_params.get("shuffle_edges", False),
-                seed=algo_params.get("shuffle_seed", None)
+                seed=algo_params.get("shuffle_seed", None),
+                primitive_prefix=algo_params.get("primitive_prefix", ""),
             )
 
     @property
@@ -935,6 +946,59 @@ class RegionOpeningPlanner(BasePlanner):
 
         raw_neighbours = sorted(list(adjacency.get(robot_label, set())))
         neighbours = list(raw_neighbours)
+
+        # Auto-target the XML goal region when the planner is configured for it.
+        # Done here (vs. in search()) so it runs after the snapshot is computed,
+        # avoiding a duplicate snapshot call.
+        #
+        # The snapshot uses these region-label conventions:
+        #   "robot"       — region containing the robot only
+        #   "goal"        — region containing the XML goal only
+        #   "robot_goal"  — robot's region also contains the goal (no opening needed)
+        #   "region_N"    — any other region
+        if target_neighbor is None and getattr(self, "target_goal_region", False):
+            robot_already_at_goal = (
+                robot_label == "robot_goal" or robot_label == "goal"
+            )
+            if robot_already_at_goal:
+                if self.config.verbose:
+                    print(f"  ✓ target_goal_region: robot region '{robot_label}' already contains the goal, no episodes to record")
+                self._last_explore_context = {
+                    "local_robot_label": robot_label,
+                    "local_neighbors": list(raw_neighbours),
+                    "target_neighbor": "goal",
+                    "target_is_immediate_neighbor": False,
+                }
+                return []
+            elif "goal" in region_labels.values():
+                target_neighbor = "goal"
+                if self.config.verbose:
+                    print("  ▶ target_goal_region: auto-targeting 'goal' region")
+            else:
+                # Goal region exists in the env but is not wavefront-reachable from
+                # the robot — i.e. completely walled off + blocked by obstacles such
+                # that no immediate-neighbour transition leads toward it. Record one
+                # failure AttemptResult so phase-2 (deeper chain) picks it up.
+                msg = (
+                    f"target_goal_region: no 'goal' label in snapshot "
+                    f"(labels={list(region_labels.values())}) — goal region not "
+                    f"wavefront-reachable from robot, phase-2 candidate"
+                )
+                if self.config.verbose:
+                    print(f"  ⚠ {msg}")
+                self._last_explore_context = {
+                    "local_robot_label": robot_label,
+                    "local_neighbors": list(raw_neighbours),
+                    "target_neighbor": "goal",
+                    "target_is_immediate_neighbor": False,
+                }
+                return [AttemptResult(
+                    success=False,
+                    neighbour_region_label="goal",
+                    error_message=msg,
+                    failure_reason="goal_region_not_in_snapshot",
+                    timing_ms=0.0,
+                )]
 
         # Apply region skip filter (blacklist)
         # Skip entire regions that have empty object lists in region_object_skip
@@ -1538,6 +1602,19 @@ class RegionOpeningPlanner(BasePlanner):
                 else:
                     obj_failure_reason = "no_valid_goals"
 
+                # Build a one-line human-readable summary surfacing the most actionable
+                # numbers for post-hoc analysis (PKL inspection / failure mining).
+                obj_error_msg = (
+                    f"{obj_failure_reason}: object={object_id}, "
+                    f"neighbour={neighbour_label}, "
+                    f"pushes={pushes_for_this_object}, "
+                    f"candidates={len(candidates)}, "
+                    f"ml_goals_generated={obj_ml_goals}, "
+                    f"ml_goals_aligned={obj_ml_aligned}, "
+                    f"reachable_edges={obj_reachable_edges}, "
+                    f"timing_ms={object_timing_ms:.0f}"
+                )
+
                 if self.config.verbose:
                     print(f"      ✗ {object_id}: No solutions found ({obj_failure_reason}, {pushes_for_this_object} pushes)")
 
@@ -1546,6 +1623,7 @@ class RegionOpeningPlanner(BasePlanner):
                     neighbour_region_label=neighbour_label,
                     chosen_object_id=object_id,  # KEY: Include object_id for triplet tracking
                     chosen_goal=None,
+                    error_message=obj_error_msg,
                     validation_method="failed",
                     connectivity_before=conn_before,
                     connectivity_after=None,

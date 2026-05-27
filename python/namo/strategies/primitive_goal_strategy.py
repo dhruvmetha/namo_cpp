@@ -378,8 +378,10 @@ class RandomRolloutGoalStrategy(PrimitiveGoalStrategy):
     """
 
     def __init__(self, data_dir: str = "data", verbose: bool = False,
-                 samples_per_state: Optional[int] = None, seed: Optional[int] = None):
-        super().__init__(data_dir=data_dir, verbose=verbose, shuffle_edges=False, seed=seed)
+                 samples_per_state: Optional[int] = None, seed: Optional[int] = None,
+                 primitive_prefix: str = ""):
+        super().__init__(data_dir=data_dir, verbose=verbose, shuffle_edges=False,
+                         seed=seed, primitive_prefix=primitive_prefix)
         self.samples_per_state = samples_per_state
         self._score_rng = random.Random(seed) if seed is not None else random
 

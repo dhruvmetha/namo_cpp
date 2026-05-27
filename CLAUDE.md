@@ -10,10 +10,10 @@ Default to plain English. Short, sharp sentences. No jargon unless I'm already u
 
 ## Python Environment
 
-- Use `/common/home/tdn39/.virtualenvs/mujoco/bin/python` for Python commands in this repo.
-- Do not default to system `python` or `python3`.
+- Use `/scratch/dm1487/envs/namo/bin/python` (Python 3.11) for Python commands in this repo. It's already on `PATH` here, so plain `python` resolves to it — but reference the absolute path when writing scripts or docs.
+- Do not default to the system `python3` (different env).
 - When commands need the compiled bindings or in-repo Python package, prefer `PYTHONPATH="$PWD/build_python:$PWD/python"` with that interpreter.
-- After changing files under `src/`, `include/`, or `python/namo/cpp_bindings/`, rebuild the canonical module with `./build_python_bindings.sh` before running Python validation. The script expects `MJ_PATH` to be set in your shell (e.g., `/common/users/dm1487/ktamp/mujoco`).
+- After changing files under `src/`, `include/`, or `python/namo/cpp_bindings/`, rebuild the canonical module with `./build_python_bindings.sh` before running Python validation. The script expects `MJ_PATH` to be set in your shell — currently `/scratch/dm1487/mujoco/mujoco-3.2.7` (MuJoCo 3.2.7 prebuilt; `LD_LIBRARY_PATH` already includes its `lib/`).
 
 ## Core Architecture
 

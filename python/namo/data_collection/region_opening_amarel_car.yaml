@@ -12,7 +12,11 @@ max_goals_per_object: 5
 max_terminal_checks: 5000
 search_timeout: 600.0
 goals_per_region: 50
-region_min_reachable_fraction: 0.5
+# Fraction of goal-region samples that must be reachable for a push to count
+# as "opening". Lowered from 0.5 -> 0.2 in line with origin/main commit 9653e29
+# ("rejected partial openings that only cleared a corner of the goal region").
+# Bumps phase-1 yield without changing what the planner physically tries.
+region_min_reachable_fraction: 0.2
 
 # Region opening parameters — greedy: stop at first solution per neighbor.
 points_per_face: 15
@@ -28,12 +32,17 @@ region_exhaustive_mode: false
 
 # Goal strategy: pure primitive (no ML)
 goal_strategy: primitive
-# Car-calibrated 7cm diff-drive primitives. Without this prefix the planner
-# loads the legacy 30cm point-robot primitives and emits targets ~3-4× too far.
-primitive_prefix: "car_"
+# 1x_car-calibrated 7cm diff-drive primitives. These come from a regen at
+# commit 548249a (config namo_config_complete_skill15_car_1x.yaml). Loaded
+# via prefix "1x_car_" — symlinks at data/1x_car_motion_primitives_15_*.dat
+# point at the canonical data/motion_primitives_1x_car_*.dat files.
+primitive_prefix: "1x_car_"
 
-# Robot adapter selection — diff-drive
-config_file: config/namo_config_car.yaml
+# Robot adapter selection — diff-drive, 1x scale.
+# Uses 1cm wavefront resolution + 3.5cm half-extent (matches the primitive-gen
+# config); the earlier namo_config_car.yaml used 5cm resolution + 5.2cm extent,
+# which mismatched the recalibrated primitives and caused 0% success rates.
+config_file: config/namo_config_complete_skill15_car_1x.yaml
 
 # xml_dir is unused when manifest is given. Manifest is passed via sbatch.
 xml_dir: /scratch/dm1487/datasets/car_envs

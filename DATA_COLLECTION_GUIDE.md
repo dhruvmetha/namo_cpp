@@ -12,7 +12,8 @@ Complete guide for collecting region opening data and generating training masks.
 4. [Step 3: Generate Training Masks](#step-3-generate-training-masks)
 5. [Step 4: Load and Use Data](#step-4-load-and-use-data)
 6. [Understanding the Output](#understanding-the-output)
-7. [Troubleshooting](#troubleshooting)
+7. [Multi-Phase Mining Pipeline (Amarel)](#multi-phase-mining-pipeline-amarel)
+8. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -293,6 +294,126 @@ def load_dataset(data_dir):
 dataset = load_dataset('/path/to/masks/')
 print(f"Loaded {len(dataset)} training examples")
 ```
+
+---
+
+## Multi-Phase Mining Pipeline (Amarel)
+
+For large corpora (e.g. the car-robot `aug9_car` set with ~226K envs), we run a
+cascade of collection passes that re-attempt environments the prior pass couldn't
+solve, progressively trading breadth for depth. This is what produced the
+`car_v1_aug9_phase{1..5}` directories under `/scratch/dm1487/outputs/`.
+
+All phases use the same algorithm: `region_opening` with
+`--goal-strategy random_rollout --target-goal-region`, varying only **chain
+depth** (how many pushes the planner may chain) and **K = samples-per-state**
+(how many primitive samples to try per BFS node).
+
+### Phase spec
+
+| Phase | Input manifest | Depth | K | Notes |
+|---|---|---:|---:|---|
+| **1** | full env manifest (`car_envs_v1_aug9.txt`) | 1 | all candidates | broad shallow sweep — solves ~98% of envs |
+| **2** | phase-1 fails (`*_phase2.txt`) | 2 | 20 | deeper search, narrow K |
+| **3** | phase-2 fails (`*_phase3.txt`) | 2 | 50 | wider K at the same depth |
+| **4** | union of partial-fail (p1∪p2∪p3) + p3 still-failing (`*_phase4.txt`) | 2 | 50 | retries envs that solved only by one object but failed on another |
+| **5A–E** | phase-4 residual, then each pass's residual (`*_phase5{A..E}.txt`) | 2 | 50 | seed sweep — 5 passes with different `--shuffle-seed` to escape unlucky random rollouts |
+
+**Partial-fail vs still-failing** (phase-4 input set):
+
+- *Partial-fail* — env had ≥1 successful episode but ≥1 failure on another
+  object. The failed object isn't carried into the next phase because the env
+  is considered solved, so phase 4 retries it at higher K.
+- *Still-failing* — env never succeeded in any phase, retryable failure reason
+  (excludes `goal_region_not_in_snapshot`, which is fundamentally unsolvable).
+
+### Drivers
+
+Both drivers run inside a SLURM allocation so they survive client/`srun`
+disconnects. Each child collection array is submitted, polled to completion,
+then the next phase is mined and submitted.
+
+```bash
+# Phases 2 → 3 → 4 → 5 (delegates 5 to phase5_driver_sbatch.slurm at the end).
+sbatch scripts/amarel/phases2345_driver_sbatch.slurm
+
+# Phase 5 only (if you already have a phase-5 starting manifest).
+START_PASS=A INITIAL_MANIFEST=/scratch/dm1487/manifests/<your_initial>.txt \
+  sbatch scripts/amarel/phase5_driver_sbatch.slurm
+```
+
+Shard sizing in the drivers: `shards = min(60, max(1, ceil(n_envs / 100)))`,
+`shard_size = ceil(n_envs / shards)`. Each shard is one task in a SLURM
+array (`--array=0-N`), 32 cores / 100 GB / 8 h wall.
+
+### Manifest builders
+
+| Script | Purpose |
+|---|---|
+| `scripts/build_phase2_manifest.py` | Aggregate failed envs from one phase's PKL dir into a next-phase manifest. Used by `scripts/amarel/mine_residual.slurm`. |
+| `scripts/build_phase4_manifest.py` | Union the partial-fail + still-failing sets across p1/p2/p3 for phase 4. |
+
+The miners walk `modular_data_*/*_results.pkl`, aggregate per-env success
+and failure reasons, and write one XML path per line into the new manifest
+(seed-shuffled for reproducibility, default `--seed 42`).
+
+### Output layout
+
+```
+/scratch/dm1487/
+├── manifests/
+│   ├── car_envs_v1_aug9.txt                          # base manifest (full set)
+│   ├── car_envs_v1_aug9_phase2.txt                   # phase-2 input (p1 fails)
+│   ├── car_envs_v1_aug9_phase3.txt                   # phase-3 input
+│   ├── car_envs_v1_aug9_phase4.txt                   # phase-4 input (union)
+│   ├── car_envs_v1_aug9_phase5_init.txt              # phase-5 starting set
+│   └── car_envs_v1_aug9_post_phase5{A..E}_residual.txt
+├── outputs/
+│   ├── car_v1_aug9_phase1/   modular_data_<host>_arr<jobid>_t<task>/...
+│   ├── car_v1_aug9_phase2/   ...
+│   ├── car_v1_aug9_phase3/   ...
+│   ├── car_v1_aug9_phase4/   ...
+│   └── car_v1_aug9_phase5{A..E}/...
+└── logs/
+    ├── phases2345_driver-<jobid>.{out,err}
+    └── phase5_sbatch_driver-<jobid>.{out,err}
+```
+
+### Mask generation (sharded)
+
+After collection finishes for a phase, generate training NPZs with the
+sharded sbatch:
+
+```bash
+# 1) Build a PKL list from the phase output dir
+find /scratch/dm1487/outputs/car_v1_aug9_phase1 -name "*_results.pkl" \
+  > /scratch/dm1487/manifests/car_v1_aug9_phase1_pkls.txt
+
+# 2) Submit sharded mask-gen (env vars consumed by the sbatch)
+PKL_MANIFEST=/scratch/dm1487/manifests/car_v1_aug9_phase1_pkls.txt \
+SHARD_SIZE=11200 \
+OUTPUT_DIR=/scratch/dm1487/outputs/car_v1_aug9_phase1_masks \
+  sbatch --array=0-19 scripts/amarel/run_batch_collection_smoke.slurm
+```
+
+`SHARD_SIZE × (n_array + 1)` should cover the full PKL count.
+
+**Observed throughput** (32-CPU node, 200-PKL benchmark): ~8.5 PKLs/sec →
+~510 PKLs/min/node. Suggested shard count by phase:
+
+| Phase | Expected PKLs | Shards | PKLs/shard | Wall/shard |
+|---|---:|---:|---:|---|
+| 1 | ~222K | 20 | ~11,200 | ~22 min |
+| 2 | ~3–10K | 2 | ~3,000 | ~6 min |
+| 3 | ~1–5K | 1–2 | ~2,500 | ~5 min |
+| 4 | ~10–30K | 5 | ~5,000 | ~10 min |
+| 5A–E | ~200–2K each | 1 each | full | ~3 min |
+
+**Important**: `batch_collection.py` defaults `--namo-config` to
+`config/namo_config_complete_skill15_car_1x.yaml`, matching the C++ wavefront
+the planner used. For point-robot data, pass `--namo-config config/namo_config.yaml`.
+A mismatched config inflates obstacles by the wrong radius and makes the
+visible `robot_region` mask disagree with the actual action targets.
 
 ---
 

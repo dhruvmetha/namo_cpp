@@ -517,7 +517,7 @@ def assign_difficulty_annotation(episode: Dict[str, Any]) -> None:
 def process_episode(episode: Dict[str, Any], visualizer: NAMODataVisualizer,
                     generate_local: bool = True,
                     local_only: bool = False,
-                    local_crop_size: float = 5.0,
+                    local_crop_size: Optional[float] = None,
                     use_highres: bool = True) -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
     """Process a single episode to generate masks and metadata.
 
@@ -526,7 +526,10 @@ def process_episode(episode: Dict[str, Any], visualizer: NAMODataVisualizer,
         visualizer: NAMODataVisualizer instance
         generate_local: Whether to generate local object-centered masks (default: True)
         local_only: If True, only generate local masks (skip global) (default: False)
-        local_crop_size: Size of local crop region in meters (default: 5.0)
+        local_crop_size: Side length (meters) of the local object-centered crop.
+            If None (default), auto-fits to the env's largest world-bound — i.e.
+            crop = env_size so the whole arena fits without padding. Pass a float
+            to override (e.g. 5.0 for legacy parity with old point-robot runs).
         use_highres: Use unified highres rendering for both global and local (default: True)
 
     Returns:
@@ -717,7 +720,8 @@ def process_pkl_file_worker(pkl_file: str, output_dir: str, filter_minimum_lengt
                             split_difficulty: bool = False,
                             generate_local: bool = True,
                             local_only: bool = False,
-                            filter_overlaps: bool = False) -> Tuple[int, int, str, List[str]]:
+                            filter_overlaps: bool = False,
+                            namo_config_path: Optional[str] = None) -> Tuple[int, int, str, List[str]]:
     """Worker function to process a single pickle file.
 
     This function is designed to be called by multiprocessing workers.
@@ -731,13 +735,17 @@ def process_pkl_file_worker(pkl_file: str, output_dir: str, filter_minimum_lengt
         generate_local: Whether to generate local (object-centered) masks
         local_only: If True, only generate local masks (skip global)
         filter_overlaps: If True, skip episodes where robot_region and goal_region overlap
+        namo_config_path: Path to the namo YAML config. Enables unified wavefront
+            (region masks use WavefrontSnapshotExporter, matching the C++ wavefront
+            the planner used during collection). Strongly recommended for car-robot
+            runs — without it, masks fall back to under-inflated regions.
 
     Returns:
         Tuple of (total_episodes, processed_episodes, pkl_file, skipped_episodes)
         skipped_episodes is a list of "pkl_file:episode_id" strings for overlapping episodes
     """
     # Create visualizer instance for this worker
-    visualizer = NAMODataVisualizer(figsize=(10, 8))
+    visualizer = NAMODataVisualizer(figsize=(10, 8), namo_config_path=namo_config_path)
     skipped_episodes = []
 
     try:
@@ -837,16 +845,22 @@ def _process_pkl_file_for_hdf5(args: Tuple[str, bool, bool, bool, bool]) -> List
     """Worker function to process an entire pkl file for HDF5 output.
 
     Args:
-        args: Tuple of (pkl_file, filter_minimum_length, split_difficulty, generate_local, local_only)
+        args: Tuple of (pkl_file, filter_minimum_length, split_difficulty,
+                        generate_local, local_only, namo_config_path)
 
     Returns:
         List of (masks, metadata) tuples for all episodes in the file
     """
-    pkl_file, filter_minimum_length, split_difficulty, generate_local, local_only = args
+    if len(args) == 6:
+        pkl_file, filter_minimum_length, split_difficulty, generate_local, local_only, namo_config_path = args
+    else:
+        # Backward-compat with the old 5-arg signature
+        pkl_file, filter_minimum_length, split_difficulty, generate_local, local_only = args
+        namo_config_path = None
     results = []
 
     # One visualizer per pkl file (reused for all episodes in file)
-    visualizer = NAMODataVisualizer(figsize=(10, 8))
+    visualizer = NAMODataVisualizer(figsize=(10, 8), namo_config_path=namo_config_path)
 
     try:
         with open(pkl_file, 'rb') as f:
@@ -927,7 +941,8 @@ def process_to_hdf5(pkl_files: List[str], output_path: str,
                     split_difficulty: bool = False,
                     num_workers: int = None,
                     generate_local: bool = True,
-                    local_only: bool = False) -> Tuple[int, int]:
+                    local_only: bool = False,
+                    namo_config_path: Optional[str] = None) -> Tuple[int, int]:
     """Process all pkl files and write directly to a single HDF5 file.
 
     Args:
@@ -959,7 +974,7 @@ def process_to_hdf5(pkl_files: List[str], output_path: str,
 
     # Prepare args for workers - process whole pkl files (like NPZ mode)
     worker_args = [
-        (pkl_file, filter_minimum_length, split_difficulty, generate_local, local_only)
+        (pkl_file, filter_minimum_length, split_difficulty, generate_local, local_only, namo_config_path)
         for pkl_file in pkl_files
     ]
 
@@ -970,7 +985,7 @@ def process_to_hdf5(pkl_files: List[str], output_path: str,
             # Serial processing
             for args in tqdm(pkl_files, desc="Processing pkl files"):
                 results = _process_pkl_file_for_hdf5(
-                    (args, filter_minimum_length, split_difficulty, generate_local, local_only)
+                    (args, filter_minimum_length, split_difficulty, generate_local, local_only, namo_config_path)
                 )
                 for masks, metadata in results:
                     h5_writer.add_sample(masks, metadata)
@@ -991,9 +1006,11 @@ def process_to_hdf5(pkl_files: List[str], output_path: str,
 
 def main():
     parser = argparse.ArgumentParser(description='Batch NAMO mask collection pipeline')
-    parser.add_argument('--input-dir', required=True, help='Directory containing .pkl files')
+    parser.add_argument('--input-dir', required=False, default=None, help='Directory containing .pkl files (mutually exclusive with --pkl-list)')
+    parser.add_argument('--pkl-list', required=False, default=None,
+                        help='Path to a text file listing absolute PKL paths, one per line. Use this for sharded sbatch runs where each shard processes a different subset.')
     parser.add_argument('--output-dir', required=True, help='Output directory for .npz files')
-    parser.add_argument('--pattern', default='*_results.pkl', help='File pattern to match (default: *_results.pkl)')
+    parser.add_argument('--pattern', default='*_results.pkl', help='File pattern to match (default: *_results.pkl, only used with --input-dir)')
     parser.add_argument('--workers', type=int, default=None,
                        help='Number of parallel workers (default: auto-detect CPU count)')
     parser.add_argument('--serial', action='store_true',
@@ -1013,6 +1030,16 @@ def main():
                        help='Maximum number of pkl files to process (for testing)')
     parser.add_argument('--filter-overlaps', action='store_true',
                        help='Skip episodes where robot_region and goal_region overlap (connected regions)')
+    parser.add_argument('--namo-config', type=str,
+                       default='config/namo_config_complete_skill15_car_1x.yaml',
+                       help=('Path to the namo YAML config the planner used during '
+                             'data collection. Region masks are computed via '
+                             'WavefrontSnapshotExporter and the robot footprint MUST '
+                             'match the C++ runtime — otherwise the visible robot '
+                             'region disagrees with the action targets in the data. '
+                             'Default targets the car (matches '
+                             'region_opening_amarel_car.yaml). For point-robot data, '
+                             'pass config/namo_config.yaml.'))
 
     args = parser.parse_args()
 
@@ -1024,19 +1051,37 @@ def main():
     # Determine mask generation mode
     generate_local = not args.global_only  # True unless --global-only is set
 
-    # Validate input directory
-    if not os.path.exists(args.input_dir):
-        print(f"Error: Input directory does not exist: {args.input_dir}")
+    # Resolve PKL input (either --input-dir scan or --pkl-list file)
+    if not args.input_dir and not args.pkl_list:
+        print("Error: must provide either --input-dir or --pkl-list")
+        sys.exit(1)
+    if args.input_dir and args.pkl_list:
+        print("Error: --input-dir and --pkl-list are mutually exclusive")
         sys.exit(1)
 
-    # Find all pickle files - support recursive pattern from run_mask_generation.py
-    if '**' in args.pattern:
-        pkl_files = glob.glob(os.path.join(args.input_dir, args.pattern), recursive=True)
+    if args.pkl_list:
+        if not os.path.isfile(args.pkl_list):
+            print(f"Error: --pkl-list file not found: {args.pkl_list}")
+            sys.exit(1)
+        with open(args.pkl_list, "r") as f:
+            pkl_files = [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
+        # Filter out missing files (warn but continue)
+        existing = [p for p in pkl_files if os.path.isfile(p)]
+        if len(existing) < len(pkl_files):
+            print(f"WARNING: {len(pkl_files) - len(existing)} PKL paths in list not found, skipping them")
+        pkl_files = existing
     else:
-        pkl_files = glob.glob(os.path.join(args.input_dir, args.pattern))
+        if not os.path.exists(args.input_dir):
+            print(f"Error: Input directory does not exist: {args.input_dir}")
+            sys.exit(1)
+        # Find all pickle files - support recursive pattern from run_mask_generation.py
+        if '**' in args.pattern:
+            pkl_files = glob.glob(os.path.join(args.input_dir, args.pattern), recursive=True)
+        else:
+            pkl_files = glob.glob(os.path.join(args.input_dir, args.pattern))
 
     if not pkl_files:
-        print(f"Error: No files found matching pattern: {os.path.join(args.input_dir, args.pattern)}")
+        print(f"Error: No PKL files to process (from {'pkl-list' if args.pkl_list else 'input-dir glob'})")
         sys.exit(1)
 
     # Limit number of files if --max-files specified
@@ -1072,7 +1117,8 @@ def main():
             args.filter_minimum_length, args.split_difficulty,
             num_workers=num_workers,
             generate_local=generate_local,
-            local_only=args.local_only
+            local_only=args.local_only,
+            namo_config_path=args.namo_config,
         )
 
         # Print summary
@@ -1118,7 +1164,8 @@ def main():
             file_episodes, file_processed, _, skipped = process_pkl_file_worker(
                 pkl_file, args.output_dir,
                 args.filter_minimum_length, args.split_difficulty,
-                generate_local, args.local_only, args.filter_overlaps)
+                generate_local, args.local_only, args.filter_overlaps,
+                namo_config_path=args.namo_config)
             total_episodes += file_episodes
             total_processed += file_processed
             all_skipped_episodes.extend(skipped)
@@ -1135,7 +1182,8 @@ def main():
                 split_difficulty=args.split_difficulty,
                 generate_local=generate_local,
                 local_only=args.local_only,
-                filter_overlaps=args.filter_overlaps)
+                filter_overlaps=args.filter_overlaps,
+                namo_config_path=args.namo_config)
 
             # Process files with progress bar
             results = []

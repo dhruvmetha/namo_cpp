@@ -1065,7 +1065,8 @@ def main():
     parser.add_argument("--goal-strategy", type=str, default=None,
                         choices=["primitive", "ml", "ml_primitive", "ml_fallback", "ml_primitive_fallback",
                                  "ml_async", "ml_primitive_async", "ml_driven_async",
-                                 "geometric", "geometric_transport"],
+                                 "geometric", "geometric_transport",
+                                 "random_rollout", "random"],
                         help="Goal strategy for region opening (primitive default)")
     parser.add_argument("--ml-goal-model", type=str,
                         help="Hydra output directory containing diffusion goal model")
@@ -1094,6 +1095,17 @@ def main():
                         help="Randomize edge ordering in primitive strategy (useful for difficulty analysis)")
     parser.add_argument("--shuffle-seed", type=int, default=None,
                         help="Random seed for reproducible edge shuffling (None = random each call)")
+    parser.add_argument("--target-goal-region", action="store_true",
+                        help="Region opening only attempts to open the XML's goal region "
+                             "(label='goal' in the snapshot), not all unreachable neighbors. "
+                             "Robot already in goal region → no episodes recorded. "
+                             "Goal region not an immediate neighbor → one fail attempt with "
+                             "failure_reason='target_not_immediate_neighbor' (phase-2 candidate).")
+    parser.add_argument("--rollout-samples-per-state", type=int, default=None,
+                        help="When --goal-strategy random_rollout is set, cap the number of "
+                             "primitive candidates per state to K (random subset). Combined "
+                             "with --region-max-chain-depth, gives thin random walks. "
+                             "Default None = no cap (all ~600 candidates, just random order).")
     # ----------------- Uniform rollout sampler arguments -----------------
     parser.add_argument("--sampler-max-chain-depth", type=int, default=1, choices=[1],
                         help="v0 supports depth 0 only (max_chain_depth=1). "
@@ -1180,6 +1192,8 @@ def main():
             "region_exhaustive_mode": getattr(args, 'region_exhaustive_mode', False),
             "shuffle_edges": args.shuffle_edges,
             "shuffle_seed": args.shuffle_seed,
+            "target_goal_region": args.target_goal_region,
+            "rollout_samples_per_state": args.rollout_samples_per_state,
         })
         # Optionally cap how many of the found solutions are recorded/saved per neighbor
         algorithm_params["region_max_recorded_solutions_per_neighbor"] = args.region_max_recorded_solutions_per_neighbor

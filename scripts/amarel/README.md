@@ -21,46 +21,164 @@ Everything below is verified against the live cluster (`sinfo`, `scontrol`), not
 
 | File | Purpose |
 |---|---|
-| `activate.sh` | Source inside an `srun --pty bash` shell to set MJ_PATH, conda env, PYTHONPATH, BLAS thread caps. |
-| `run_amarel_collect.slurm` | Single-job sbatch — one shard. Override via env vars (`START_IDX`, `END_IDX`, `OUTPUT_DIR`, `CONFIG_YAML`, `MANIFEST`, `EXTRA_ARGS`). |
-| `run_amarel_collect_array.slurm` | Array sbatch — 30 shards × 1000 envs by default. Override `--array=`, `SHARD_SIZE`, etc. |
+| `activate.sh` | The canonical env. Sourcing it sets modules, conda, MJ_PATH, PYTHONPATH, BLAS pins, and every `NAMO_*` path. All sbatch scripts source it too. |
+| `run_amarel_collect.slurm` | Single-shard sbatch. Requires `MANIFEST=<path>` at submit. Optional: `START_IDX`, `END_IDX`, `OUTPUT_DIR`, `CONFIG_YAML`. |
+| `run_amarel_collect_array.slurm` | Array sbatch (default `--array=0-29`). Same overrides + `SHARD_SIZE` (default 1000), `GLOBAL_START` (default 0), `EXTRA_ARGS`. |
 | `README.md` | This file. |
 
-Companion configuration file (kept with sibling YAMLs, not here):
-- `python/namo/data_collection/region_opening_amarel_car.yaml` — Amarel + diff-drive car defaults for `region_opening`.
+Companion configs (sibling, not in this dir):
+- `python/namo/data_collection/region_opening_amarel_car.yaml` — diff-drive car defaults for `region_opening`.
+- `config/namo_config_car.yaml` — car robot adapter config.
 
-## Quickstart
+## Workspace layout & env vars
+
+`activate.sh` exports the values below. Each uses `${VAR:-default}`, so any
+of them can be overridden by exporting before sourcing — no need to edit
+the script.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `NAMO_PARENT` | `/cache/home/dm1487/projects/namo` | Parent dir holding all NAMO repos |
+| `NAMO_REPO` | `$NAMO_PARENT/namo_cpp` | This repo |
+| `NAMO_SAGE` | `$NAMO_PARENT/sage_learning` | Diffusion / flow-matching training |
+| `NAMO_ENV_CREATOR` | `$NAMO_PARENT/mujoco_env_creator` | XML env generator |
+| `NAMO_DATA_ROOT` | `/scratch/dm1487` | Big-data root |
+| `NAMO_DATASETS` | `$NAMO_DATA_ROOT/datasets` | Env XML pools (`car_envs/v1/`, …) |
+| `NAMO_MANIFESTS` | `$NAMO_DATA_ROOT/manifests` | Per-version manifest files |
+| `NAMO_OUTPUTS` | `$NAMO_DATA_ROOT/outputs` | Collection PKLs |
+| `NAMO_LOGS` | `$NAMO_DATA_ROOT/logs` | Slurm stdout/stderr |
+| `NAMO_CONDA_ENV` | `/scratch/dm1487/envs/namo` | Conda environment |
+| `MJ_PATH` | `/scratch/dm1487/mujoco/mujoco-3.2.7` | MuJoCo install |
+
+**Filesystem rule:** code on `/cache/home` (NFS, persistent, no purge). Datasets,
+outputs, conda envs, MuJoCo on `/scratch` (large, fast, **not backed up**,
+90-day inactive purge — touch files or stash a tar on `/home` monthly).
+
+## First-time setup (one-time per Amarel account)
+
+Two steps: sibling repos → canonical `.so`. (Cross-cluster data transfer is
+not a setup step — see the "Staging envs from ilab" section below.)
+
+### 1. Sibling repos
+
+Clone alongside this repo so generator + training paths resolve:
 
 ```bash
-# 0. (One-time per source change) Build the canonical .so with a portable ISA
-unset SLURM_JOB_ID
-srun --partition=main --cpus-per-task=8 --mem=16G --time=1:00:00 --pty bash
-source scripts/amarel/activate.sh
-NAMO_MARCH=x86-64-v3 ./build_python_bindings.sh    # writes ./build_python/
-exit
-
-# 1. Grab a compute node and source the env
-unset SLURM_JOB_ID
-srun --partition=main-redhat --cpus-per-task=4 --mem=8G --time=2:00:00 --pty bash
-source scripts/amarel/activate.sh
-
-# 2. Submit a single shard (defaults: envs 0..1000, 32 workers, 24h)
-sbatch scripts/amarel/run_amarel_collect.slurm
-
-# 3. Or submit the full array (30 × 1000 envs)
-sbatch scripts/amarel/run_amarel_collect_array.slurm
-
-# 4. Override anything via env vars at submit time
-EXTRA_ARGS="--region-max-chain-depth 1 --search-timeout 120" \
-OUTPUT_DIR=/scratch/dm1487/outputs_fast \
-sbatch scripts/amarel/run_amarel_collect_array.slurm
+cd "${NAMO_PARENT:-/cache/home/dm1487/projects/namo}"
+[ -d mujoco_env_creator ] || git clone https://github.com/dhruvmetha/mujoco_env_creator.git
+[ -d sage_learning ]      || git clone https://github.com/dhruvmetha/sage_learning.git
 ```
 
-> **Why `NAMO_MARCH=x86-64-v3`?** The default `-march=native` build bakes in
-> whatever CPU instructions the build node had — so a binary compiled on
-> Emerald Rapids SIGILLs the moment a shard lands on Skylake. `x86-64-v3`
-> (Haswell+ baseline: AVX2/FMA/BMI2) runs on every Amarel CPU at a ~few-%
-> perf cost vs. native — invisible against MuJoCo physics. See §4 below.
+### 2. Build the canonical `.so` (portable across CPU generations)
+
+```bash
+unset SLURM_JOB_ID
+srun --partition=main --cpus-per-task=8 --mem=16G --time=1:00:00 --pty bash
+source "$NAMO_REPO/scripts/amarel/activate.sh"
+NAMO_MARCH=x86-64-v3 ./build_python_bindings.sh
+exit
+```
+
+Result: `$NAMO_REPO/build_python/namo_rl*.so` — every shard loads this same
+binary at startup.
+
+| Knob | Why |
+|---|---|
+| `NAMO_MARCH=x86-64-v3` | Default `-march=native` bakes in build-node ISA → shards on older CPUs SIGILL. `v3` (Haswell+: AVX2/FMA/BMI2) runs everywhere on Amarel at ~few-% cost vs. native, lost in MuJoCo noise. |
+| Build OS = run OS | el7 build for `--partition=main`, el9 for `--partition=main-redhat`. libstdc++/glibc ABIs don't cross. |
+
+The slurm scripts hard-fail if `build_python/namo_rl*.so` is missing, so a
+stale or absent binding can never silently launch a 30-shard array.
+
+## Staging envs from ilab → Amarel
+
+ilab.cs.rutgers.edu's sshd does not accept SSH public-key auth (server
+policy: only `password`, `keyboard-interactive`, `gssapi-keyex`,
+`gssapi-with-mic`). That makes Amarel→ilab `rsync` impractical to script.
+
+**Solution: invert the direction. Push from ilab → Amarel.** Amarel's sshd
+accepts public-key auth normally, so you set up ilab→Amarel key auth once
+and `rsync` runs unattended afterwards.
+
+### One-time setup (from your laptop)
+
+```bash
+ssh dm1487@ilab.cs.rutgers.edu                                  # password to ilab
+[ -f ~/.ssh/id_ed25519 ] || ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
+ssh-copy-id dm1487@amarel.rutgers.edu                           # ONE Amarel password
+ssh dm1487@amarel.rutgers.edu hostname                          # verify, no prompt
+exit
+```
+
+### Stage a version
+
+From your laptop, in one line — runs the rsync on ilab, lands on Amarel:
+
+```bash
+ssh dm1487@ilab.cs.rutgers.edu \
+  'rsync -av --info=progress2 --no-compress --inplace \
+    /common/users/dm1487/corl2026/namo/envs/v1/ \
+    dm1487@amarel.rutgers.edu:/scratch/dm1487/datasets/car_envs/v1/'
+```
+
+For large transfers, wrap it in tmux on ilab so it survives your laptop sleeping:
+```bash
+ssh dm1487@ilab.cs.rutgers.edu
+tmux new -s namo_rsync
+rsync -av --info=progress2 --no-compress --inplace \
+    /common/users/dm1487/corl2026/namo/envs/v1/ \
+    dm1487@amarel.rutgers.edu:/scratch/dm1487/datasets/car_envs/v1/
+# Ctrl-b d to detach; reattach later with: tmux attach -t namo_rsync
+```
+
+### Build the manifest (on Amarel, after rsync finishes)
+
+```bash
+# Inside an srun + after source scripts/amarel/activate.sh
+python scripts/generate_xml_manifest.py \
+    --input-dir $NAMO_DATASETS/car_envs/v1 \
+    --output    $NAMO_MANIFESTS/car_envs_v1.txt
+```
+
+## Quickstart — submitting shards
+
+Once v1 is staged and its manifest is built:
+
+```bash
+# Grab a compute node, source env
+unset SLURM_JOB_ID
+srun --partition=main --cpus-per-task=4 --mem=8G --time=2:00:00 --pty bash
+source /cache/home/dm1487/projects/namo/namo_cpp/scripts/amarel/activate.sh
+
+# Smoke test (2 envs, foreground, ~minutes)
+python python/namo/data_collection/modular_parallel_collection.py \
+    --config-yaml python/namo/data_collection/region_opening_amarel_car.yaml \
+    --workers 2 --start-idx 0 --end-idx 2 \
+    --manifest "$NAMO_MANIFESTS/car_envs_v1.txt" \
+    --output-dir "$NAMO_OUTPUTS/smoke" --run-name smoke
+
+exit   # leave the interactive srun
+
+# Submit one shard (32 cores × 1000 envs × ≤24h)
+MANIFEST=$NAMO_MANIFESTS/car_envs_v1.txt \
+OUTPUT_DIR=$NAMO_OUTPUTS/car_v1 \
+sbatch $NAMO_REPO/scripts/amarel/run_amarel_collect.slurm
+
+# Or fire the full array (30 shards × 1000 envs, scheduled independently)
+MANIFEST=$NAMO_MANIFESTS/car_envs_v1.txt \
+OUTPUT_DIR=$NAMO_OUTPUTS/car_v1 \
+sbatch $NAMO_REPO/scripts/amarel/run_amarel_collect_array.slurm
+
+# Override planner params per-run via EXTRA_ARGS
+EXTRA_ARGS="--region-max-chain-depth 1 --search-timeout 120" \
+MANIFEST=$NAMO_MANIFESTS/car_envs_v1.txt \
+OUTPUT_DIR=$NAMO_OUTPUTS/car_v1_fast \
+sbatch $NAMO_REPO/scripts/amarel/run_amarel_collect_array.slurm
+```
+
+`MANIFEST=` is required at submit (no default). Each version of the dataset
+gets its own manifest, and forcing the path at submit makes the run record
+self-explanatory in slurm logs.
 
 ---
 
@@ -317,104 +435,74 @@ torchrun --standalone --nproc_per_node=2 train.py
 
 ## 4. NAMO-specific recipes
 
-All three live at `scripts/amarel/`.
+The first-time setup and Quickstart at the top of this file cover the
+common path. Below are situational variations.
 
-### Build the C++ binding (one-time, portable)
+### Fatter pool per node (>32 workers)
 
-The slurm shard scripts import `namo_rl` from the canonical `build_python/`
-directory at the repo root. They **do not build it for you** — every shard
-loads the same `.so`. Build it once before submitting:
-
-```bash
-unset SLURM_JOB_ID
-srun --partition=main --cpus-per-task=8 --mem=16G --time=1:00:00 --pty bash
-source scripts/amarel/activate.sh
-cd /cache/home/dm1487/projects/namo/namo_cpp
-NAMO_MARCH=x86-64-v3 ./build_python_bindings.sh
-```
-
-Two knobs that matter for fleet portability:
-
-| Knob | Use | Why |
-|---|---|---|
-| `NAMO_MARCH=x86-64-v3` | Always for Amarel array jobs | Default `native` bakes in build-node ISA → shards crash on older CPUs. `v3` = Haswell+ baseline, runs on every node. |
-| Build OS = run OS | el7 build for `--partition=main`, el9 build for `--partition=main-redhat` | libstdc++ / glibc ABI mismatch between CentOS 7 and RHEL 9. |
-
-After the build:
-```bash
-ls build_python/namo_rl*.so          # should exist
-PYTHONPATH=$PWD/build_python:$PWD/python python -c \
-    "import namo_rl; print(namo_rl.__file__)"   # confirms canonical path
-```
-
-The shard scripts hard-fail with a clear error if `build_python/namo_rl*.so`
-is missing, so you can't accidentally launch a 30-shard array against a
-stale or absent binding.
-
-### Smoke test (interactive, validate one shard)
-```bash
-unset SLURM_JOB_ID
-srun --partition=main-redhat --cpus-per-task=2 --mem=8G --time=00:30:00 --pty bash
-# Inside the shell:
-module use /projects/community/modulefiles
-module load gcc/14.2.0-cermak cmake/3.31.8-rdp135
-source /cache/home/dm1487/miniforge3/etc/profile.d/conda.sh
-conda activate /scratch/dm1487/envs/namo
-export MJ_PATH=/scratch/dm1487/mujoco/mujoco-3.2.7
-export LD_LIBRARY_PATH=$MJ_PATH/lib:$LD_LIBRARY_PATH
-export PYTHONPATH=/cache/home/dm1487/projects/namo/namo_cpp/build_python:/cache/home/dm1487/projects/namo/namo_cpp/python:$PYTHONPATH
-cd /cache/home/dm1487/projects/namo/namo_cpp
-python python/namo/data_collection/modular_parallel_collection.py \
-    --config-yaml python/namo/data_collection/region_opening_amarel_car.yaml \
-    --workers 2 --start-idx 0 --end-idx 2 \
-    --manifest /scratch/dm1487/manifests/car_envs.txt \
-    --output-dir /scratch/dm1487/outputs --run-name smoke
-```
-
-### Single 32-core production job (24h)
-```bash
-sbatch scripts/amarel/run_amarel_collect.slurm
-# override defaults via env vars at submit:
-START_IDX=0 END_IDX=1000 sbatch scripts/amarel/run_amarel_collect.slurm
-```
-
-### Job array — full 30k envs in 30 shards × 32 cores each
-```bash
-sbatch scripts/amarel/run_amarel_collect_array.slurm
-# Each array task: 32 cores, 1000 envs. 30 tasks scheduled independently.
-```
-
-### If you want a fatter pool per node
 Edit the sbatch directives:
 ```bash
 #SBATCH --cpus-per-task=64           # one whole node
 #SBATCH --exclusive                  # lock it down
 #SBATCH --mem=200G
 ```
-With 64 workers, expect ~2× the per-shard throughput of 32-worker runs (assuming the workload scales — region_opening's mujoco physics step doesn't share global state, so it scales well).
+Throughput scales roughly linearly with workers — `region_opening` physics
+steps are independent across workers, no shared global state.
+
+### Switching to RHEL 9 (`--partition=main-redhat`)
+
+Two things:
+1. Rebuild `$NAMO_REPO/build_python/` on a `main-redhat` srun — el7 and el9
+   libstdc++/glibc ABIs are incompatible.
+2. Change one line in the sbatch script: `#SBATCH --partition=main-redhat`.
+
+Verify the binding loads on the target partition:
+```bash
+srun --partition=main-redhat --pty bash -c \
+    "source $NAMO_REPO/scripts/amarel/activate.sh && \
+     python -c 'import namo_rl; print(namo_rl.__file__)'"
+```
 
 ### GPU for ML goal strategy (region_opening with `goal_strategy=ml*`)
-The diffusion model wants CUDA. Switch the partition + add gres; CPU count can stay modest because the heavy lifting moves to the GPU.
+
+The diffusion model wants CUDA. Switch partition + add gres; CPU count
+can stay modest since the heavy lifting moves to the GPU.
 ```bash
 #SBATCH --partition=gpu-redhat
 #SBATCH --gres=gpu:1
 #SBATCH --constraint=ampere|adalovelace
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
-# pass --goal-strategy ml + --ml-goal-model <hydra-dir> in the python command
+# add to EXTRA_ARGS: --goal-strategy ml --ml-goal-model <hydra-dir>
 ```
 
-### Migrating existing sbatch scripts to `-redhat`
+### Staging a new env version (e.g. `v2`)
 
-The two scripts in this directory still use `--partition=main` (the CentOS 7 fleet). To move to RHEL 9, change one line:
+Same flow as v1 above — change the version in the path. From your laptop:
 ```bash
-#SBATCH --partition=main-redhat
+ssh dm1487@ilab.cs.rutgers.edu \
+  'rsync -av --info=progress2 --no-compress --inplace \
+    /common/users/dm1487/corl2026/namo/envs/v2/ \
+    dm1487@amarel.rutgers.edu:/scratch/dm1487/datasets/car_envs/v2/'
 ```
-You must also **rebuild `build_python/` on a `main-redhat` allocation** — el7
-and el9 libstdc++/glibc ABIs are not compatible. To verify the existing
-binding loads on the target partition:
+Then on Amarel (inside an srun + sourced env):
 ```bash
-PYTHONPATH=$PWD/build_python:$PWD/python python -c "import namo_rl; print(namo_rl.__file__)"
+python scripts/generate_xml_manifest.py \
+    --input-dir $NAMO_DATASETS/car_envs/v2 \
+    --output    $NAMO_MANIFESTS/car_envs_v2.txt
+```
+Versions coexist — submit shards against whichever you want via `MANIFEST=` at submit time.
+
+### Keeping `/scratch` from being purged
+
+OARC garbage-collects `/scratch` files inactive for 90 days (per-file `atime`).
+For datasets you don't touch weekly:
+```bash
+# Touch a sentinel monthly from anywhere on Amarel
+touch $NAMO_DATASETS/car_envs/v1/.keep $NAMO_CONDA_ENV/.keep $MJ_PATH/.keep
+
+# Or stash a compressed copy of the manifest + a sample env on /home as insurance
+tar c $NAMO_MANIFESTS | zstd > ~/backups/manifests-$(date +%Y%m%d).tar.zst
 ```
 
 ---

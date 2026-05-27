@@ -199,11 +199,20 @@ class WavefrontSnapshotExporter:
                 float(robot_half_extent_override[1]),
             )
         else:
-            robot_info = object_info["robot"]
-            self.robot_half_extent = (
-                float(robot_info.get("size_x", 0.25)),
-                float(robot_info.get("size_y", 0.25)),
-            )
+            # Prefer the namo config's `planning.robot_size` (what the C++ wavefront uses).
+            # Fall back to env.get_object_info()['robot'] only if the config isn't readable.
+            # The config value is authoritative because multi-geom bodies (e.g. diff-drive
+            # car with separate front + rear chassis boxes) report only the first geom's
+            # half-extent in get_object_info(), which underestimates the real footprint.
+            from_config = self._load_robot_size_from_env()
+            if from_config is not None:
+                self.robot_half_extent = from_config
+            else:
+                robot_info = object_info["robot"]
+                self.robot_half_extent = (
+                    float(robot_info.get("size_x", 0.25)),
+                    float(robot_info.get("size_y", 0.25)),
+                )
 
         self.static_objects = self._build_static_objects(object_info)
         self.movable_templates = self._build_movable_templates(object_info)
@@ -310,6 +319,134 @@ class WavefrontSnapshotExporter:
             except Exception:
                 return self.DEFAULT_TIER1_INFLATION_MARGIN_M
         return self.DEFAULT_TIER1_INFLATION_MARGIN_M
+
+    @classmethod
+    def _load_robot_size_from_config(
+        cls,
+        primary_config_path: Optional[Union[str, Path]],
+    ) -> Optional[Tuple[float, float]]:
+        """Parse `planning.robot_size: [hx, hy]` out of the namo config YAML.
+
+        This is the canonical source the C++ wavefront uses
+        (`ConfigManager::get_robot_size()` → `WavefrontPlanner` ctor →
+        `compute_wavefront_inflation_radius_m`). The Python `env.get_object_info()`
+        path reports per-geom data which, for multi-geom bodies like the diff-drive
+        car (front + rear chassis boxes), returns only the first geom's half-extent
+        and underestimates the true footprint by ~2x. Reading from config keeps
+        Python aligned with C++.
+        """
+        if not primary_config_path:
+            return None
+        path = Path(primary_config_path).expanduser()
+        if not path.exists():
+            return None
+        try:
+            in_planning = False
+            for raw_line in path.read_text(encoding="utf-8").splitlines():
+                content = raw_line.split("#", 1)[0].rstrip()
+                stripped = content.strip()
+                if not stripped:
+                    continue
+                indent = len(content) - len(content.lstrip(" "))
+                if indent == 0 and stripped.endswith(":"):
+                    in_planning = stripped[:-1].strip() == "planning"
+                    continue
+                if not in_planning:
+                    continue
+                if indent == 0:
+                    in_planning = False
+                    continue
+                match = re.match(r"^robot_size\s*:\s*\[\s*([^,\]]+)\s*,\s*([^,\]]+)\s*\]", stripped)
+                if match:
+                    try:
+                        hx = float(match.group(1))
+                        hy = float(match.group(2))
+                    except ValueError:
+                        return None
+                    if hx > 0.0 and hy > 0.0:
+                        return (hx, hy)
+                    return None
+            return None
+        except Exception:
+            return None
+
+    def _load_robot_size_from_env(self) -> Optional[Tuple[float, float]]:
+        """Try to read planning.robot_size from the env's config path."""
+        get_config_path = getattr(self._env, "get_config_path", None)
+        if not callable(get_config_path):
+            return None
+        try:
+            config_path = get_config_path()
+        except Exception:
+            return None
+        return self._load_robot_size_from_config(config_path)
+
+    # ------------------------------------------------------------------
+    # Env-less factory (for tooling that has PKL data but no RLEnvironment)
+    # ------------------------------------------------------------------
+    @classmethod
+    def from_geometry(
+        cls,
+        world_bounds: Tuple[float, float, float, float],
+        object_info: Dict[str, Dict[str, float]],
+        observation: Dict[str, Sequence[float]],
+        config_path: Optional[Union[str, Path]] = None,
+        robot_goal: Optional[Sequence[float]] = None,
+        resolution: Optional[float] = None,
+    ) -> "WavefrontSnapshotExporter":
+        """Build a snapshot exporter from raw geometry data — no live env required.
+
+        Used by batch-collection / training pipelines that operate on saved PKL
+        episodes. Mirrors the env-backed path: same inflation rules, same robot
+        radius source (the namo config YAML).
+
+        Args:
+            world_bounds: (xmin, xmax, ymin, ymax)
+            object_info: same shape as `env.get_object_info()` — required keys per
+                obstacle: size_x, size_y, pos_x, pos_y, quat_{w,x,y,z}.
+            observation: same shape as `env.get_observation()` — must include
+                'robot_pose' + per-movable '<name>_pose' entries.
+            config_path: path to the namo YAML (used to load planning.robot_size
+                + tier1_inflation_margin). If None, falls back to defaults.
+            robot_goal: optional (x, y, theta) tuple — returned by adapter's
+                get_robot_goal(). Snapshot will still try the XML goal site first.
+        """
+        adapter = cls._GeometryAdapter(world_bounds, object_info, observation,
+                                       config_path, robot_goal)
+        return cls(adapter, resolution=resolution)
+
+    class _GeometryAdapter:
+        """Minimal RLEnvironment surface for WavefrontSnapshotExporter."""
+
+        def __init__(self, world_bounds, object_info, observation,
+                     config_path=None, robot_goal=None):
+            self._world_bounds = tuple(float(v) for v in world_bounds)
+            self._object_info = dict(object_info)
+            self._observation = dict(observation)
+            self._config_path = str(config_path) if config_path else ""
+            self._robot_goal = (
+                tuple(float(v) for v in robot_goal) if robot_goal is not None
+                else (0.0, 0.0, 0.0)
+            )
+
+        def get_world_bounds(self):
+            return list(self._world_bounds)
+
+        def get_object_info(self):
+            return self._object_info
+
+        def get_observation(self):
+            return self._observation
+
+        def get_robot_goal(self):
+            return list(self._robot_goal)
+
+        def get_config_path(self):
+            return self._config_path
+
+        def reset(self):
+            # No-op: the adapter already represents the desired state.
+            pass
 
     # ------------------------------------------------------------------
     # Public API
