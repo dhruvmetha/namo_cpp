@@ -1807,12 +1807,17 @@ class RegionOpeningPlanner(BasePlanner):
             state_obs.append(pre_obs)
             reachable_before.append(pre_reachable)
 
-            # Execute action
+            # Execute action — MUST include edge_idx/depth or the C++ skill rejects
+            # the push with "edge_idx and depth must both be >= 0; this skill no
+            # longer supports the MPC search fallback", leaving the object frozen
+            # at baseline. Same fix as the single-push branch at line ~2105.
             action = namo_rl.Action()
             action.object_id = object_id
             action.x = goal.x
             action.y = goal.y
             action.theta = goal.theta
+            action.edge_idx = goal.edge_idx
+            action.depth = goal.depth
             step_result = self.env.step(action)
 
             # Extract collision info from step result
