@@ -1,0 +1,6 @@
+# Phase-1 override for TRUE pattern B — enumerate all primitives per attempt
+# (disables early-stop pruning). Pass via --config-yaml to
+# modular_parallel_collection. Used only by phase 1; phases 2-5 omit it.
+region_exhaustive_mode: true
+region_stop_after_max_solutions: false
+region_stop_after_first_success: false

@@ -517,72 +517,59 @@ def assign_difficulty_annotation(episode: Dict[str, Any]) -> None:
 def process_episode(episode: Dict[str, Any], visualizer: NAMODataVisualizer,
                     generate_local: bool = True,
                     local_only: bool = False,
-                    local_crop_size: Optional[float] = None,
-                    use_highres: bool = True) -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
-    """Process a single episode to generate masks and metadata.
+                    wide_crop_size: Optional[float] = None,
+                    tight_crop_size: Optional[float] = None) -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
+    """Process a single episode to generate dual-crop masks + SE(2) targets.
+
+    The visualizer renders the env once and emits both crops:
+      - wide (1.2 m default): mask-prediction supervision, includes goal_mask_a*
+      - tight (0.5 m default): SE(2)/index supervision, object-centered context
+
+    SE(2) targets and primitive indices (edge_idx, depth_idx) are
+    crop-independent and emitted alongside.
 
     Args:
         episode: Episode data dictionary
         visualizer: NAMODataVisualizer instance
-        generate_local: Whether to generate local object-centered masks (default: True)
-        local_only: If True, only generate local masks (skip global) (default: False)
-        local_crop_size: Side length (meters) of the local object-centered crop.
-            If None (default), auto-fits to the env's largest world-bound — i.e.
-            crop = env_size so the whole arena fits without padding. Pass a float
-            to override (e.g. 5.0 for legacy parity with old point-robot runs).
-        use_highres: Use unified highres rendering for both global and local (default: True)
+        generate_local: Whether to generate local (dual-crop) masks
+        local_only: If True, skip global masks
+        wide_crop_size: Side length (m) of the wide crop. None → visualizer default (1.2).
+        tight_crop_size: Side length (m) of the tight crop. None → visualizer default (0.5).
 
     Returns:
-        Tuple of (masks_dict, metadata_dict)
+        Tuple of (masks_dict, metadata_dict). The masks_dict contains keys with
+        `local_wide_*`, `local_tight_*` prefixes (plus optional `<name>` global
+        keys) and `se2_target_a{i}` / `edge_idx_a{i}` / `depth_idx_a{i}` scalars.
     """
-    local_metadata = None
+    local_wide_metadata = None
+    local_tight_metadata = None
 
-    if use_highres:
-        # Use unified high-res rendering (renders once, creates both global and local)
-        result = visualizer.generate_all_masks_highres(
-            episode, local_crop_size_meters=local_crop_size
-        )
+    result = visualizer.generate_all_masks_highres(
+        episode,
+        wide_crop_size_meters=wide_crop_size,
+        tight_crop_size_meters=tight_crop_size,
+    )
 
-        # Skip if no region_goals_sampled available
-        if result is None:
-            return {}, None
+    if result is None:
+        return {}, None
 
-        if local_only:
-            # Only local masks
-            if result['local'] is not None:
-                masks = result['local']
-                local_metadata = result['local_metadata']
-            else:
-                masks = {}  # No local masks available
-        else:
-            # Global masks, optionally with local
-            masks = result['global']
-            if generate_local and result['local'] is not None:
-                masks.update(result['local'])
-                local_metadata = result['local_metadata']
-    else:
-        # Legacy path: separate generation
-        if local_only:
-            masks = {}
-            local_masks = visualizer.generate_local_episode_masks(
-                episode, crop_size_meters=local_crop_size
-            )
-            if local_masks is not None:
-                local_metadata = local_masks.pop('local_metadata', None)
-                masks = local_masks
-        else:
-            if 'all_future_states' in episode and episode['all_future_states']:
-                masks = visualizer.generate_episode_masks_multihorizon(episode)
-            else:
-                masks = visualizer.generate_episode_masks_batch(episode)
+    masks: Dict[str, np.ndarray] = {}
+    if not local_only:
+        masks.update(result['global'])
 
-            if generate_local:
-                local_masks = visualizer.generate_local_episode_masks(
-                    episode, crop_size_meters=local_crop_size
-                )
-                if local_masks is not None:
-                    local_metadata = local_masks.pop('local_metadata', None)
-                    masks.update(local_masks)
+    if generate_local:
+        if result['local_wide'] is not None:
+            masks.update(result['local_wide'])
+            local_wide_metadata = result['local_wide_metadata']
+        if result['local_tight'] is not None:
+            masks.update(result['local_tight'])
+            local_tight_metadata = result['local_tight_metadata']
+
+    # SE(2)/edge/depth scalars are always carried — they're per-action targets,
+    # not per-crop image data, so cheap to keep alongside any combination.
+    se2_targets = result.get('se2_targets') or {}
+    for k, v in se2_targets.items():
+        masks[k] = v
 
     # Extract metadata
     metadata = {
@@ -607,9 +594,10 @@ def process_episode(episode: Dict[str, Any], visualizer: NAMODataVisualizer,
         metadata['difficulty_label'] = episode.get('difficulty_label', 'unknown')
         metadata['difficulty_score'] = episode.get('difficulty_score')
 
-    # Add local mask metadata if available
-    if local_metadata is not None:
-        metadata['local_metadata'] = local_metadata
+    if local_wide_metadata is not None:
+        metadata['local_wide_metadata'] = local_wide_metadata
+    if local_tight_metadata is not None:
+        metadata['local_tight_metadata'] = local_tight_metadata
 
     return masks, metadata
 
@@ -677,17 +665,21 @@ def save_episode_data(masks: Dict[str, np.ndarray], metadata: Dict[str, Any],
         save_dict['action_object_ids'] = np.array([], dtype='U')
         save_dict['action_targets'] = np.array([[]], dtype=np.float32)
 
-    # Save local mask metadata if present
-    local_meta = metadata.get('local_metadata')
-    if local_meta is not None:
-        save_dict['local_object_center'] = np.array(local_meta['object_center'], dtype=np.float32)
-        save_dict['local_object_theta'] = np.array([local_meta['object_theta']], dtype=np.float32)
-        save_dict['local_bounds'] = np.array(local_meta['local_bounds'], dtype=np.float32)
-        save_dict['local_crop_size_meters'] = np.array([local_meta['crop_size_meters']], dtype=np.float32)
-        save_dict['local_resolution'] = np.array([local_meta['resolution']], dtype=np.float32)
-        save_dict['has_local_masks'] = np.array([True], dtype=bool)
-    else:
-        save_dict['has_local_masks'] = np.array([False], dtype=bool)
+    # Per-crop metadata (wide + tight). Both share the same object_center /
+    # object_theta — saved once under each prefix so downstream loaders can
+    # read either independently.
+    for prefix_key, meta_key in (('local_wide', 'local_wide_metadata'),
+                                 ('local_tight', 'local_tight_metadata')):
+        meta = metadata.get(meta_key)
+        if meta is None:
+            save_dict[f'has_{prefix_key}_masks'] = np.array([False], dtype=bool)
+            continue
+        save_dict[f'{prefix_key}_object_center'] = np.array(meta['object_center'], dtype=np.float32)
+        save_dict[f'{prefix_key}_object_theta'] = np.array([meta['object_theta']], dtype=np.float32)
+        save_dict[f'{prefix_key}_bounds'] = np.array(meta['local_bounds'], dtype=np.float32)
+        save_dict[f'{prefix_key}_crop_size_meters'] = np.array([meta['crop_size_meters']], dtype=np.float32)
+        save_dict[f'{prefix_key}_resolution'] = np.array([meta['resolution']], dtype=np.float32)
+        save_dict[f'has_{prefix_key}_masks'] = np.array([True], dtype=bool)
 
     # Save as compressed npz
     np.savez_compressed(output_path, **save_dict)
@@ -721,7 +713,9 @@ def process_pkl_file_worker(pkl_file: str, output_dir: str, filter_minimum_lengt
                             generate_local: bool = True,
                             local_only: bool = False,
                             filter_overlaps: bool = False,
-                            namo_config_path: Optional[str] = None) -> Tuple[int, int, str, List[str]]:
+                            namo_config_path: Optional[str] = None,
+                            wide_crop_size: Optional[float] = None,
+                            tight_crop_size: Optional[float] = None) -> Tuple[int, int, str, List[str]]:
     """Worker function to process a single pickle file.
 
     This function is designed to be called by multiprocessing workers.
@@ -788,7 +782,9 @@ def process_pkl_file_worker(pkl_file: str, output_dir: str, filter_minimum_lengt
                     # Generate masks and metadata
                     masks, metadata = process_episode(
                         suffix_episode, visualizer,
-                        generate_local=generate_local, local_only=local_only
+                        generate_local=generate_local, local_only=local_only,
+                        wide_crop_size=wide_crop_size,
+                        tight_crop_size=tight_crop_size,
                     )
 
                     # Skip if no masks (e.g., missing region_goals_sampled)
@@ -841,22 +837,32 @@ def process_pkl_file(pkl_file: str, visualizer: NAMODataVisualizer,
     return total_episodes, processed_episodes
 
 
-def _process_pkl_file_for_hdf5(args: Tuple[str, bool, bool, bool, bool]) -> List[Tuple[Dict[str, np.ndarray], Dict[str, Any]]]:
+def _process_pkl_file_for_hdf5(args: Tuple) -> List[Tuple[Dict[str, np.ndarray], Dict[str, Any]]]:
     """Worker function to process an entire pkl file for HDF5 output.
 
     Args:
         args: Tuple of (pkl_file, filter_minimum_length, split_difficulty,
-                        generate_local, local_only, namo_config_path)
+                        generate_local, local_only, namo_config_path,
+                        wide_crop_size, tight_crop_size)
 
     Returns:
         List of (masks, metadata) tuples for all episodes in the file
     """
-    if len(args) == 6:
+    if len(args) == 8:
+        (pkl_file, filter_minimum_length, split_difficulty,
+         generate_local, local_only, namo_config_path,
+         wide_crop_size, tight_crop_size) = args
+    elif len(args) == 6:
+        # Older 6-arg signature (no per-crop sizes — fall back to visualizer defaults)
         pkl_file, filter_minimum_length, split_difficulty, generate_local, local_only, namo_config_path = args
+        wide_crop_size = None
+        tight_crop_size = None
     else:
-        # Backward-compat with the old 5-arg signature
+        # Older 5-arg signature
         pkl_file, filter_minimum_length, split_difficulty, generate_local, local_only = args
         namo_config_path = None
+        wide_crop_size = None
+        tight_crop_size = None
     results = []
 
     # One visualizer per pkl file (reused for all episodes in file)
@@ -896,7 +902,9 @@ def _process_pkl_file_for_hdf5(args: Tuple[str, bool, bool, bool, bool]) -> List
                 for suffix_episode in suffix_episodes:
                     masks, metadata = process_episode(
                         suffix_episode, visualizer,
-                        generate_local=generate_local, local_only=local_only
+                        generate_local=generate_local, local_only=local_only,
+                        wide_crop_size=wide_crop_size,
+                        tight_crop_size=tight_crop_size,
                     )
                     if masks:
                         results.append((masks, metadata))
@@ -942,7 +950,9 @@ def process_to_hdf5(pkl_files: List[str], output_path: str,
                     num_workers: int = None,
                     generate_local: bool = True,
                     local_only: bool = False,
-                    namo_config_path: Optional[str] = None) -> Tuple[int, int]:
+                    namo_config_path: Optional[str] = None,
+                    wide_crop_size: Optional[float] = None,
+                    tight_crop_size: Optional[float] = None) -> Tuple[int, int]:
     """Process all pkl files and write directly to a single HDF5 file.
 
     Args:
@@ -974,7 +984,9 @@ def process_to_hdf5(pkl_files: List[str], output_path: str,
 
     # Prepare args for workers - process whole pkl files (like NPZ mode)
     worker_args = [
-        (pkl_file, filter_minimum_length, split_difficulty, generate_local, local_only, namo_config_path)
+        (pkl_file, filter_minimum_length, split_difficulty,
+         generate_local, local_only, namo_config_path,
+         wide_crop_size, tight_crop_size)
         for pkl_file in pkl_files
     ]
 
@@ -985,7 +997,9 @@ def process_to_hdf5(pkl_files: List[str], output_path: str,
             # Serial processing
             for args in tqdm(pkl_files, desc="Processing pkl files"):
                 results = _process_pkl_file_for_hdf5(
-                    (args, filter_minimum_length, split_difficulty, generate_local, local_only, namo_config_path)
+                    (args, filter_minimum_length, split_difficulty,
+                     generate_local, local_only, namo_config_path,
+                     wide_crop_size, tight_crop_size)
                 )
                 for masks, metadata in results:
                     h5_writer.add_sample(masks, metadata)
@@ -1040,6 +1054,15 @@ def main():
                              'Default targets the car (matches '
                              'region_opening_amarel_car.yaml). For point-robot data, '
                              'pass config/namo_config.yaml.'))
+    parser.add_argument('--wide-crop-size', type=float, default=1.2,
+                        help=('Side length (m) of the WIDE object-centered crop. '
+                              'Used for mask-prediction supervision (must contain a '
+                              'full push: max primitive delta + obj half-extent ≈ '
+                              '1.14 m). Default 1.2 m.'))
+    parser.add_argument('--tight-crop-size', type=float, default=0.5,
+                        help=('Side length (m) of the TIGHT object-centered crop. '
+                              'Used for SE(2)/primitive-index supervision (output is '
+                              'scalars). Default 0.5 m.'))
 
     args = parser.parse_args()
 
@@ -1119,6 +1142,8 @@ def main():
             generate_local=generate_local,
             local_only=args.local_only,
             namo_config_path=args.namo_config,
+            wide_crop_size=args.wide_crop_size,
+            tight_crop_size=args.tight_crop_size,
         )
 
         # Print summary
@@ -1165,7 +1190,9 @@ def main():
                 pkl_file, args.output_dir,
                 args.filter_minimum_length, args.split_difficulty,
                 generate_local, args.local_only, args.filter_overlaps,
-                namo_config_path=args.namo_config)
+                namo_config_path=args.namo_config,
+                wide_crop_size=args.wide_crop_size,
+                tight_crop_size=args.tight_crop_size)
             total_episodes += file_episodes
             total_processed += file_processed
             all_skipped_episodes.extend(skipped)
@@ -1183,7 +1210,9 @@ def main():
                 generate_local=generate_local,
                 local_only=args.local_only,
                 filter_overlaps=args.filter_overlaps,
-                namo_config_path=args.namo_config)
+                namo_config_path=args.namo_config,
+                wide_crop_size=args.wide_crop_size,
+                tight_crop_size=args.tight_crop_size)
 
             # Process files with progress bar
             results = []

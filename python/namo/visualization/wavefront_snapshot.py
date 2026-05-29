@@ -161,8 +161,16 @@ class WavefrontSnapshot:
 class WavefrontSnapshotExporter:
     """Recreates wavefront grid data within Python for visualisation."""
 
-    # Match the fixed resolution used by the C++ implementation
-    DEFAULT_RESOLUTION: float = 0.01
+    # Snapshot-exporter (mask-generation) resolution.
+    # 5mm — finer than the C++ planner's 1cm wavefront, coarse enough to
+    # be ~6x cheaper than 2mm. For v3 feb_car (0.49 × 0.775 m envs with
+    # 6-8cm passages and 6-16cm objects), 5mm gives 12-16 cells across the
+    # narrowest passage — still topology-correct. The stored 224x224
+    # masks are downsampled to 64x64 (9.4mm/px) at training time, so
+    # 2mm vs 5mm makes no perceivable training-side difference.
+    # NOTE: this does NOT change the planner's grid at collection time; it
+    # only affects the exported region masks used for training/visualization.
+    DEFAULT_RESOLUTION: float = 0.005
     DEFAULT_TIER1_INFLATION_MARGIN_M: float = 0.005
     NEIGHBOR_OFFSETS: Tuple[Tuple[int, int], ...] = (
         (-1, -1), (-1, 0), (-1, 1),

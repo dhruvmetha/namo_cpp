@@ -78,7 +78,13 @@ def main():
         print(f"ERROR: phase1-dir not a directory: {phase1_dir}", file=sys.stderr)
         return 1
 
-    pkls = sorted(glob.glob(str(phase1_dir / "modular_data_*" / "*_results.pkl")))
+    # Explicit patterns (NOT recursive **): a recursive glob walks the entire
+    # tree including each shard's envs/ symlink forest (~250k symlinks) and
+    # stalls on networked /scratch. Match only the real pkl locations.
+    pkls = sorted(
+        glob.glob(str(phase1_dir / "modular_data_*" / "*_results.pkl"))          # flat layout
+        + glob.glob(str(phase1_dir / "shard_*" / "pkls" / "modular_data_*" / "*_results.pkl"))  # sharded layout
+    )
     print(f"Scanning {len(pkls)} phase-1 PKL files in {phase1_dir} with {args.workers} workers", file=sys.stderr)
 
     include = set(args.include_reasons)

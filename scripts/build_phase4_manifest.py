@@ -70,7 +70,12 @@ def _walk_pkl(pkl_path: str):
 
 def collect_env_state(pkl_dir: Path, workers: int):
     """Aggregate per-env: did any episode succeed, what failure reasons appeared."""
-    pkls = sorted(glob.glob(str(pkl_dir / "modular_data_*" / "*_results.pkl")))
+    # Explicit patterns (flat + sharded). Avoid recursive ** which would walk
+    # each shard's envs/ symlink forest and stall on networked /scratch.
+    pkls = sorted(
+        glob.glob(str(pkl_dir / "modular_data_*" / "*_results.pkl"))
+        + glob.glob(str(pkl_dir / "shard_*" / "pkls" / "modular_data_*" / "*_results.pkl"))
+    )
     print(f"  Scanning {len(pkls)} PKLs in {pkl_dir} with {workers} workers", file=sys.stderr)
     by_env = {}
     with Pool(processes=workers) as pool:
