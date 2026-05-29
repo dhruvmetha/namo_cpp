@@ -222,6 +222,21 @@ class RegionOpeningPlanner(BasePlanner):
             "region_early_exit_on_first_success", False
         )
 
+        # Minimum number of sampled region-goal points that must be reachable
+        # for a region to count as "opened" (success). Paired with
+        # goals_per_region (how many points are sampled): e.g. 100 sampled / 20
+        # reachable is a stricter "meaningfully open" bar than the legacy
+        # 10 sampled / >=1. Default 1 preserves the historical criterion so
+        # other callers (data collection, eval) are unaffected.
+        self._success_min_reachable = int(
+            algo_params.get("region_success_min_reachable", 1)
+        )
+        if self._success_min_reachable < 1:
+            raise ValueError(
+                f"Invalid region_success_min_reachable: "
+                f"{self._success_min_reachable}. Must be at least 1"
+            )
+
         # Get max recorded solutions per neighbor (subset of found solutions to keep), default: 2
         self.max_recorded_solutions_per_neighbor = algo_params.get(
             "region_max_recorded_solutions_per_neighbor", 2
@@ -491,6 +506,7 @@ class RegionOpeningPlanner(BasePlanner):
         algo_params = getattr(self, "algorithm_params", {}) or {}
         primitive_data_dir = algo_params.get("primitive_data_dir", "data")
         strategy_name = algo_params.get("goal_strategy")
+        max_push_steps = algo_params.get("max_push_steps", None)
 
         if strategy_name and strategy_name.lower() in {"ml", "ml_primitive"}:
             ml_path = algo_params.get("ml_goal_model_path")
@@ -514,6 +530,9 @@ class RegionOpeningPlanner(BasePlanner):
                 preview_aligned_primitives=algo_params.get("preview_aligned_primitives", False),
                 k_nearest=algo_params.get("ml_k_nearest", 1),
                 seed=algo_params.get("ml_seed"),
+                primitive_prefix=algo_params.get("primitive_prefix", ""),
+                max_push_steps=max_push_steps,
+                namo_config_path=algo_params.get("namo_config_path"),
             )
             self._debug("▶ Using ML-aligned primitive goal strategy")
         elif strategy_name and strategy_name.lower() in {"ml_fallback", "ml_primitive_fallback"}:
@@ -612,6 +631,7 @@ class RegionOpeningPlanner(BasePlanner):
                 samples_per_state=algo_params.get("rollout_samples_per_state", None),
                 seed=algo_params.get("shuffle_seed", None),
                 primitive_prefix=algo_params.get("primitive_prefix", ""),
+                max_push_steps=max_push_steps,
             )
             self._debug(
                 "▶ Using random-rollout goal strategy "
@@ -625,6 +645,7 @@ class RegionOpeningPlanner(BasePlanner):
                 shuffle_edges=algo_params.get("shuffle_edges", False),
                 seed=algo_params.get("shuffle_seed", None),
                 primitive_prefix=algo_params.get("primitive_prefix", ""),
+                max_push_steps=max_push_steps,
             )
 
     @property
@@ -2827,7 +2848,9 @@ class RegionOpeningPlanner(BasePlanner):
     ) -> Tuple[bool, int, Optional[Tuple[float, float, float]], Optional[List[Tuple[float, float, float]]]]:
         """Validate that opening to neighbour was created using reachability.
 
-        Success criterion: At least 1 region goal must be reachable.
+        Success criterion: at least ``self._success_min_reachable`` of the
+        sampled region goals must be reachable (default 1; configurable via
+        algo_params["region_success_min_reachable"]).
 
         Args:
             neighbour_label: Target neighbour region
@@ -2835,7 +2858,7 @@ class RegionOpeningPlanner(BasePlanner):
 
         Returns:
             Tuple of (success, reachable_count, first_reachable_goal, all_region_goals):
-                - success: True if at least 1 region goal is reachable
+                - success: True if >= self._success_min_reachable goals reachable
                 - reachable_count: Number of reachable goals
                 - first_reachable_goal: First reachable goal found (for validation)
                 - all_region_goals: All goal samples for this region (for visualization)
@@ -2868,8 +2891,8 @@ class RegionOpeningPlanner(BasePlanner):
 
             first_reachable_goal = all_goals[first_idx] if first_idx >= 0 else None
 
-            # Success if at least 1 goal is reachable
-            if reachable_count >= 1:
+            # Success if at least self._success_min_reachable goals are reachable
+            if reachable_count >= self._success_min_reachable:
                 return True, reachable_count, first_reachable_goal, all_goals
             else:
                 return False, reachable_count, None, all_goals

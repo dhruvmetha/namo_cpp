@@ -226,13 +226,21 @@ class MLObjectSelectionStrategy(ObjectSelectionStrategy):
                         if pos_x is None or pos_y is None or obj_name == 'robot':
                             continue
                             
-                        angle_deg = obj_data.get('angle_deg', 0.0)
-                        
-                        # Convert angle from degrees to quaternion
-                        quat = R.from_euler('xyz', [0, 0, angle_deg], degrees=True).as_quat(scalar_first=True)
+                        # Use the REAL orientation from get_object_info()
+                        # (quat_w/x/y/z). The previous code read a non-existent
+                        # 'angle_deg' key and defaulted to 0, dropping every
+                        # static-object rotation from the mask (walls drawn
+                        # axis-aligned). get_object_info() always provides the
+                        # quaternion — use it so masks match the live env/training.
+                        qw = float(obj_data.get('quat_w', 1.0))
+                        qx = float(obj_data.get('quat_x', 0.0))
+                        qy = float(obj_data.get('quat_y', 0.0))
+                        qz = float(obj_data.get('quat_z', 0.0))
+                        theta = float(np.arctan2(2.0 * (qw * qz + qx * qy),
+                                                 1.0 - 2.0 * (qy * qy + qz * qz)))
                         objects_dict[obj_name] = {
-                            "position": [float(pos_x), float(pos_y), float(angle_deg * np.pi / 180.0)],  # Keep theta in position for compatibility
-                            "quaternion": [float(quat[0]), float(quat[1]), float(quat[2]), float(quat[3])]
+                            "position": [float(pos_x), float(pos_y), theta],
+                            "quaternion": [qw, qx, qy, qz],
                         }
             except Exception as e:
                 # If get_object_info fails, continue without static objects
@@ -371,6 +379,7 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
                  preloaded_model: Optional[Any] = None,
                  preview_mask_count: int = 0,
                  seed: Optional[int] = None,
+                 namo_config_path: Optional[str] = None,
                  **unused_kwargs):
         """Initialize ML goal selection strategy.
 
@@ -398,6 +407,9 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
         self.verbose = verbose
         self.preview_mask_count = max(0, preview_mask_count)
         self.seed = seed
+        # Path to the NAMO config so lazily-loaded GoalInferenceModel builds
+        # region masks with the correct robot footprint (matches training).
+        self.namo_config_path = namo_config_path
         self._pending_preview = None  # Store preview data to save later (before push)
         self._artifact_lock = threading.Lock()
         self._artifact_call_counter = 0
@@ -454,7 +466,8 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
             
             self._goal_model = GoalInferenceModel(
                 model_path=self.goal_model_path,
-                device=self.device
+                device=self.device,
+                namo_config_path=self.namo_config_path,
             )
             self._goal_model = self._wrap_goal_model(self._goal_model)
             
@@ -519,6 +532,12 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
 
             # One diffusion call per infer() invocation.
             self._diffusion_calls_since_reset += 1
+            # Build episode_data straight from the live env (same source as
+            # training). When available, the model uses it and bypasses the JSON
+            # round-trip; None falls back to the JSON path.
+            episode_data = self._build_episode_data_from_env(
+                object_id, state, env, region_goals_sampled
+            )
             goals = self._goal_model.infer(
                 json_message=json_message,
                 xml_path=json_message["xml_path"],
@@ -526,7 +545,8 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
                 selected_object=object_id,
                 samples=self.samples,
                 seed=self.seed,
-                region_goals_sampled=region_goals_sampled
+                region_goals_sampled=region_goals_sampled,
+                episode_data=episode_data,
             )
 
             if self.verbose:
@@ -889,6 +909,78 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
             import traceback
             traceback.print_exc()
     
+    def _build_episode_data_from_env(self,
+                                     object_id: str,
+                                     state: namo_rl.RLState,
+                                     env: namo_rl.RLEnvironment,
+                                     region_goals_sampled: Optional[List[Tuple[float, float, float]]]
+                                     ) -> Optional[Dict[str, Any]]:
+        """Build episode_data DIRECTLY from the live env — same source training uses.
+
+        Training (modular_parallel_collection) builds masks from
+        env.get_object_info() + env.get_observation(); this mirrors that exactly,
+        bypassing the lossy JSON round-trip. So robot footprint, static-object
+        rotations, and sizes all come straight from the env — no hand-rolled
+        serialization to drop fields. Returns None if the env can't supply what's
+        needed, in which case the caller falls back to the JSON path.
+        """
+        original_state = env.get_full_state()
+        try:
+            env.set_full_state(state)
+            obs = env.get_observation()
+            robot_pose = obs.get('robot_pose')
+            if robot_pose is None or len(robot_pose) < 3:
+                return None
+
+            robot_goal = None
+            if hasattr(env, 'get_robot_goal'):
+                try:
+                    robot_goal = env.get_robot_goal()
+                except Exception:
+                    robot_goal = None
+            if (robot_goal is None or len(robot_goal) < 2) and 'robot_goal' in obs:
+                robot_goal = obs['robot_goal']
+            if robot_goal is None or len(robot_goal) < 2:
+                return None
+
+            # object_info: cached geometry incl. 'robot' (footprint), static walls
+            # (pos + quat), and movable sizes — exactly env.get_object_info().
+            object_info = dict(env.get_object_info())
+            world_bounds = list(env.get_world_bounds())
+
+            xml_path = self.xml_path
+            if xml_path is None and hasattr(env, 'get_xml_path'):
+                xml_path = env.get_xml_path()
+
+            # Dummy target = selected object's current pose (inference predicts the
+            # real goal; the target channel isn't used as a model input).
+            sel = obs.get(f"{object_id}_pose")
+            target = ((float(sel[0]), float(sel[1]), float(sel[2]))
+                      if sel is not None and len(sel) >= 3 else (0.0, 0.0, 0.0))
+
+            return {
+                'state_observations': [dict(obs)],
+                'static_object_info': object_info,
+                'action_sequence': [{'object_id': object_id, 'target': target}],
+                'robot_goal': (float(robot_goal[0]), float(robot_goal[1]), 0.0),
+                'world_bounds': world_bounds,
+                'xml_file': xml_path,
+                'algorithm_stats': {
+                    'region_goals_sampled': region_goals_sampled,
+                    'region_goal_used': ((float(robot_goal[0]), float(robot_goal[1]), 0.0)
+                                         if not region_goals_sampled else None),
+                },
+            }
+        except Exception as e:
+            if self.verbose:
+                print(f"  ⚠️ _build_episode_data_from_env failed ({e}); using JSON fallback")
+            return None
+        finally:
+            try:
+                env.set_full_state(original_state)
+            except Exception:
+                pass
+
     def _create_json_message_for_goals(self,
                                      object_id: str,
                                      state: namo_rl.RLState,
@@ -962,13 +1054,21 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
                         if pos_x is None or pos_y is None or obj_name == 'robot':
                             continue
 
-                        angle_deg = obj_data.get('angle_deg', 0.0)
-
-                        # Convert angle from degrees to quaternion
-                        quat = R.from_euler('xyz', [0, 0, angle_deg], degrees=True).as_quat(scalar_first=True)
+                        # Use the REAL orientation from get_object_info()
+                        # (quat_w/x/y/z). The previous code read a non-existent
+                        # 'angle_deg' key and defaulted to 0, dropping every
+                        # static-object rotation from the mask (walls drawn
+                        # axis-aligned). get_object_info() always provides the
+                        # quaternion — use it so masks match the live env/training.
+                        qw = float(obj_data.get('quat_w', 1.0))
+                        qx = float(obj_data.get('quat_x', 0.0))
+                        qy = float(obj_data.get('quat_y', 0.0))
+                        qz = float(obj_data.get('quat_z', 0.0))
+                        theta = float(np.arctan2(2.0 * (qw * qz + qx * qy),
+                                                 1.0 - 2.0 * (qy * qy + qz * qz)))
                         objects_dict[obj_name] = {
-                            "position": [float(pos_x), float(pos_y), float(angle_deg * np.pi / 180.0)],  # Keep theta in position for compatibility
-                            "quaternion": [float(quat[0]), float(quat[1]), float(quat[2]), float(quat[3])]
+                            "position": [float(pos_x), float(pos_y), theta],
+                            "quaternion": [qw, qx, qy, qz],
                         }
             except Exception as e:
                 # If get_object_info fails, continue without static objects

@@ -109,6 +109,7 @@ class NAMOPlanningService:
             self._cached_goal_model = GoalInferenceModel(
                 model_path=model_path,
                 device=device,
+                namo_config_path=self._config_path,  # unified wavefront for region masks
             )
             load_ms = (time.time() - load_start) * 1000
             print(f"GoalInferenceModel cached in NAMOPlanningService ({load_ms:.0f}ms)")
@@ -158,6 +159,63 @@ class NAMOPlanningService:
         in planning time.
         """
         self._get_or_load_goal_model(goal_strategy, kwargs)
+
+    # Python primitive files are named '{prefix}motion_primitives_15_{shape}.dat'.
+    # The C++ executor instead reads system.motion_primitives_file from the namo
+    # config. These helpers bridge the two so both halves use the same robot's
+    # primitives, sourced from one place (the config). Parsing is best-effort and
+    # cached; any failure degrades to the prior no-prefix / no-cap behavior.
+    _MP_FILENAME_MARKER = "motion_primitives_"
+
+    def _load_namo_config(self) -> Dict[str, Any]:
+        """Parse the namo config YAML once and cache it. {} on any failure."""
+        cached = getattr(self, "_parsed_namo_config", None)
+        if cached is None:
+            try:
+                import yaml
+                with open(self._config_path) as f:
+                    cached = yaml.safe_load(f) or {}
+            except Exception:
+                cached = {}
+            self._parsed_namo_config = cached
+        return cached
+
+    def _derive_primitive_prefix(self) -> str:
+        """Map the config's motion_primitives_file to a Python primitive prefix.
+
+        'data/motion_primitives_1x_car.dat' -> variant '1x_car' -> prefix
+        '1x_car_'. Returns '' unless '{prefix}motion_primitives_15_square.dat'
+        actually exists under primitive_data_dir, so a config whose naming we
+        don't recognize (or a missing set) safely falls back to legacy behavior.
+        """
+        import os
+        cfg = self._load_namo_config()
+        mp_file = (cfg.get("system", {}) or {}).get("motion_primitives_file")
+        if not mp_file:
+            return ""
+        stem = os.path.splitext(os.path.basename(str(mp_file)))[0]
+        if not stem.startswith(self._MP_FILENAME_MARKER):
+            return ""
+        variant = stem[len(self._MP_FILENAME_MARKER):]
+        if not variant:
+            return ""
+        prefix = f"{variant}_"
+        sentinel = os.path.join(
+            self._primitive_data_dir,
+            f"{prefix}motion_primitives_15_square.dat",
+        )
+        return prefix if os.path.exists(sentinel) else ""
+
+    def _max_push_steps_from_config(self) -> Optional[int]:
+        """Read motion_primitives.max_push_steps from the config, or None."""
+        cfg = self._load_namo_config()
+        val = (cfg.get("motion_primitives", {}) or {}).get("max_push_steps")
+        if val is None:
+            return None
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            return None
 
     def analyze_reachability_from_xml(
         self,
@@ -294,6 +352,11 @@ class NAMOPlanningService:
                 "primitive_data_dir": self._primitive_data_dir,
                 "goal_strategy": goal_strategy,
                 "xml_file": xml_path,
+                # Path to the NAMO config, so ML strategies that lazily build
+                # their own GoalInferenceModel generate region masks with the
+                # correct robot footprint (the preloaded model already carries
+                # this; this covers the non-preloaded path).
+                "namo_config_path": self._config_path,
                 # Region opening specific parameters
                 "region_max_chain_depth": max_chain_depth,
                 "region_max_solutions_per_neighbor": max_solutions_per_neighbor,
@@ -307,6 +370,24 @@ class NAMOPlanningService:
             if timeout_per_neighbour_sec is not None:
                 algo_params["region_timeout_per_neighbour_sec"] = timeout_per_neighbour_sec
             algo_params.update(kwargs)
+
+            # Keep Python goal-generation primitives in sync with the C++ executor.
+            # Only C++ reads the namo config YAML; the Python strategies pick a
+            # primitive file by filename prefix. Derive that prefix (and the
+            # push-step cap) from the SAME config so goal generation/alignment
+            # never silently uses a different robot's primitives than the
+            # executor (e.g. legacy 30 cm point-robot pushes of 0.5-6 m vs the
+            # 7 cm car's 0.02-0.43 m). Caller-supplied values win; we only fill
+            # defaults, and _derive_primitive_prefix() returns "" (legacy) unless
+            # the resolved file actually exists — so existing setups never break.
+            if "primitive_prefix" not in algo_params:
+                derived_prefix = self._derive_primitive_prefix()
+                if derived_prefix:
+                    algo_params["primitive_prefix"] = derived_prefix
+            if "max_push_steps" not in algo_params:
+                cap = self._max_push_steps_from_config()
+                if cap is not None:
+                    algo_params["max_push_steps"] = cap
 
             # Inject cached ML goal model (avoids reloading on every replan)
             cached_model = self._get_or_load_goal_model(goal_strategy, algo_params)

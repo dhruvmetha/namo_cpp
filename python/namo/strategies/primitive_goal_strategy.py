@@ -137,7 +137,7 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
 
     def __init__(self, data_dir: str = "data", verbose: bool = False,
                  shuffle_edges: bool = False, seed: int = None,
-                 primitive_prefix: str = ""):
+                 primitive_prefix: str = "", max_push_steps: Optional[int] = None):
         """Initialize primitive goal strategy.
 
         Args:
@@ -148,12 +148,16 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
             primitive_prefix: Prefix on primitive filename to select per-robot calibration.
                 "" → motion_primitives_15_*.dat (30 cm point-robot, legacy)
                 "car_" → car_motion_primitives_15_*.dat (7 cm diff-drive car)
+            max_push_steps: Optional cap on primitive depth enumeration. When set,
+                primitives with push_steps > max_push_steps are discarded before
+                edge grouping so all downstream strategies share the same cap.
         """
         self.data_dir = data_dir
         self.verbose = verbose
         self.shuffle_edges = shuffle_edges
         self.seed = seed
         self.primitive_prefix = primitive_prefix
+        self.max_push_steps = max_push_steps
         self._rng = random.Random(seed) if seed is not None else None
         self._primitive_cache: Dict[str, List[Primitive]] = {}
         self._last_edge_ordering: List[int] = []  # Track ordering for analysis
@@ -221,6 +225,12 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
                 self._primitive_cache[primitive_file] = MotionPrimitiveLoader.load_primitives(filepath)
 
             primitives = self._primitive_cache[primitive_file]
+            if self.max_push_steps is not None:
+                primitives = [
+                    primitive
+                    for primitive in primitives
+                    if primitive.push_steps <= self.max_push_steps
+                ]
 
             # Group primitives by edge_idx
             edge_groups = self._group_by_edge(primitives)
@@ -379,9 +389,15 @@ class RandomRolloutGoalStrategy(PrimitiveGoalStrategy):
 
     def __init__(self, data_dir: str = "data", verbose: bool = False,
                  samples_per_state: Optional[int] = None, seed: Optional[int] = None,
-                 primitive_prefix: str = ""):
-        super().__init__(data_dir=data_dir, verbose=verbose, shuffle_edges=False,
-                         seed=seed, primitive_prefix=primitive_prefix)
+                 primitive_prefix: str = "", max_push_steps: Optional[int] = None):
+        super().__init__(
+            data_dir=data_dir,
+            verbose=verbose,
+            shuffle_edges=False,
+            seed=seed,
+            primitive_prefix=primitive_prefix,
+            max_push_steps=max_push_steps,
+        )
         self.samples_per_state = samples_per_state
         self._score_rng = random.Random(seed) if seed is not None else random
 
@@ -454,6 +470,9 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
         preview_aligned_primitives: bool = False,
         k_nearest: int = 1,
         seed: int = None,
+        primitive_prefix: str = "",
+        max_push_steps: Optional[int] = None,
+        namo_config_path: Optional[str] = None,
     ):
         """
         Args:
@@ -472,6 +491,13 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             preview_aligned_primitives: If True, save visualization of aligned primitives.
             k_nearest: Number of nearest primitive slots to vote for per ML goal (within tolerance). Default: 1.
             seed: Random seed for diffusion noise (None = random each time).
+            primitive_prefix: Filename prefix selecting the per-robot primitive set
+                (e.g. "1x_car_"). MUST match the robot the diffusion model was
+                trained for, otherwise ML goals (small car-scale moves) cannot
+                align to the slot poses (legacy point-robot pushes are 0.5-6 m).
+                Forwarded to the inner PrimitiveGoalStrategy. Default "" (legacy).
+            max_push_steps: Optional cap on primitive depth enumeration, mirroring
+                the executor's motion_primitives.max_push_steps. Forwarded too.
         """
         self.verbose = verbose
         self.max_matches = max_matches
@@ -483,7 +509,9 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
 
         self._primitive_strategy = PrimitiveGoalStrategy(
             data_dir=primitive_data_dir,
-            verbose=verbose
+            verbose=verbose,
+            primitive_prefix=primitive_prefix,
+            max_push_steps=max_push_steps,
         )
         self._ml_strategy = MLGoalSelectionStrategy(
             goal_model_path=goal_model_path,
@@ -494,7 +522,8 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             xml_path=xml_path,
             preview_mask_count=preview_mask_count,
             preloaded_model=preloaded_model,
-            seed=seed
+            seed=seed,
+            namo_config_path=namo_config_path,
         )
         self._default_ml_samples = samples
 
@@ -834,9 +863,13 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             'ml_mask_vote_attach_ms': max(0.0, float(vote_attach_ms)),
         }
 
-        # Best-effort: persist per-sample vote mapping alongside saved masks.
+        # Best-effort: persist per-sample vote mapping + the aggregated
+        # vote-ranked primitive slots, alongside the saved masks. The ranked
+        # list is aligned_primitives_info, already sorted high->low vote, so a
+        # reader gets the executed-push candidates in priority order and can
+        # join to the local/action masks via ml_call_id.
         artifacts_root = _namo_get_ml_artifacts_dir()
-        if artifacts_root is not None and ml_goal_vote_details:
+        if artifacts_root is not None and (ml_goal_vote_details or aligned_primitives_info):
             call_id = -1
             for g in ml_goals:
                 cid = getattr(g, "ml_call_id", -1)
@@ -849,6 +882,21 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
                 out_dir = artifacts_root / "primitive_votes" / str(object_id)
             try:
                 out_dir.mkdir(parents=True, exist_ok=True)
+                # JSON-safe, vote-ranked (high->low) aligned slots.
+                # push_steps = depth_idx + 1 (executor convention).
+                ranked_aligned_slots = []
+                for rank, p in enumerate(aligned_primitives_info):
+                    g = p.get("goal")
+                    ranked_aligned_slots.append({
+                        "rank": int(rank),
+                        "edge_idx": int(p["edge_idx"]),
+                        "depth_idx": int(p["depth_idx"]),
+                        "push_steps": int(p["depth_idx"]) + 1,
+                        "votes": float(p["votes"]),
+                        "x": float(g.x) if g is not None else None,
+                        "y": float(g.y) if g is not None else None,
+                        "theta": float(g.theta) if g is not None else None,
+                    })
                 payload = {
                     "object_id": str(object_id),
                     "ml_call_id": int(call_id),
@@ -857,6 +905,9 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
                     "match_angle_tolerance": float(self.match_angle_tolerance),
                     "angle_weight": float(self.angle_weight),
                     "created_unix_sec": time.time(),
+                    "total_ml_goals": int(len(ml_goals)),
+                    "total_aligned_slots": int(len(ranked_aligned_slots)),
+                    "ranked_aligned_slots": ranked_aligned_slots,
                     "ml_goal_votes": ml_goal_vote_details,
                 }
                 out_path = _namo_unique_path(out_dir / "primitive_votes.json")
@@ -1441,9 +1492,13 @@ class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
             'ml_mask_vote_attach_ms': max(0.0, float(vote_attach_ms)),
         }
 
-        # Best-effort: persist per-sample vote mapping alongside saved masks.
+        # Best-effort: persist per-sample vote mapping + the aggregated
+        # vote-ranked primitive slots, alongside the saved masks. The ranked
+        # list is aligned_primitives_info, already sorted high->low vote, so a
+        # reader gets the executed-push candidates in priority order and can
+        # join to the local/action masks via ml_call_id.
         artifacts_root = _namo_get_ml_artifacts_dir()
-        if artifacts_root is not None and ml_goal_vote_details:
+        if artifacts_root is not None and (ml_goal_vote_details or aligned_primitives_info):
             call_id = -1
             for g in ml_goals:
                 cid = getattr(g, "ml_call_id", -1)
@@ -1456,6 +1511,21 @@ class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
                 out_dir = artifacts_root / "primitive_votes" / str(object_id)
             try:
                 out_dir.mkdir(parents=True, exist_ok=True)
+                # JSON-safe, vote-ranked (high->low) aligned slots.
+                # push_steps = depth_idx + 1 (executor convention).
+                ranked_aligned_slots = []
+                for rank, p in enumerate(aligned_primitives_info):
+                    g = p.get("goal")
+                    ranked_aligned_slots.append({
+                        "rank": int(rank),
+                        "edge_idx": int(p["edge_idx"]),
+                        "depth_idx": int(p["depth_idx"]),
+                        "push_steps": int(p["depth_idx"]) + 1,
+                        "votes": float(p["votes"]),
+                        "x": float(g.x) if g is not None else None,
+                        "y": float(g.y) if g is not None else None,
+                        "theta": float(g.theta) if g is not None else None,
+                    })
                 payload = {
                     "object_id": str(object_id),
                     "ml_call_id": int(call_id),
@@ -1464,6 +1534,9 @@ class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
                     "match_angle_tolerance": float(self.match_angle_tolerance),
                     "angle_weight": float(self.angle_weight),
                     "created_unix_sec": time.time(),
+                    "total_ml_goals": int(len(ml_goals)),
+                    "total_aligned_slots": int(len(ranked_aligned_slots)),
+                    "ranked_aligned_slots": ranked_aligned_slots,
                     "ml_goal_votes": ml_goal_vote_details,
                 }
                 out_path = _namo_unique_path(out_dir / "primitive_votes.json")
@@ -2071,9 +2144,13 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
             'ml_goal_votes': ml_goal_vote_details,
         }
 
-        # Best-effort: persist per-sample vote mapping alongside saved masks.
+        # Best-effort: persist per-sample vote mapping + the aggregated
+        # vote-ranked primitive slots, alongside the saved masks. The ranked
+        # list is aligned_primitives_info, already sorted high->low vote, so a
+        # reader gets the executed-push candidates in priority order and can
+        # join to the local/action masks via ml_call_id.
         artifacts_root = _namo_get_ml_artifacts_dir()
-        if artifacts_root is not None and ml_goal_vote_details:
+        if artifacts_root is not None and (ml_goal_vote_details or aligned_primitives_info):
             call_id = -1
             for g in ml_goals:
                 cid = getattr(g, "ml_call_id", -1)
@@ -2086,6 +2163,21 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
                 out_dir = artifacts_root / "primitive_votes" / str(object_id)
             try:
                 out_dir.mkdir(parents=True, exist_ok=True)
+                # JSON-safe, vote-ranked (high->low) aligned slots.
+                # push_steps = depth_idx + 1 (executor convention).
+                ranked_aligned_slots = []
+                for rank, p in enumerate(aligned_primitives_info):
+                    g = p.get("goal")
+                    ranked_aligned_slots.append({
+                        "rank": int(rank),
+                        "edge_idx": int(p["edge_idx"]),
+                        "depth_idx": int(p["depth_idx"]),
+                        "push_steps": int(p["depth_idx"]) + 1,
+                        "votes": float(p["votes"]),
+                        "x": float(g.x) if g is not None else None,
+                        "y": float(g.y) if g is not None else None,
+                        "theta": float(g.theta) if g is not None else None,
+                    })
                 payload = {
                     "object_id": str(object_id),
                     "ml_call_id": int(call_id),
@@ -2094,6 +2186,9 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
                     "match_angle_tolerance": float(self.match_angle_tolerance),
                     "angle_weight": float(self.angle_weight),
                     "created_unix_sec": time.time(),
+                    "total_ml_goals": int(len(ml_goals)),
+                    "total_aligned_slots": int(len(ranked_aligned_slots)),
+                    "ranked_aligned_slots": ranked_aligned_slots,
                     "ml_goal_votes": ml_goal_vote_details,
                 }
                 out_path = _namo_unique_path(out_dir / "primitive_votes.json")
