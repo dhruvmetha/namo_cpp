@@ -178,6 +178,8 @@ class RandomSamplingPlanner(BasePlanner):
             ml_goal_model_path = self.config.algorithm_params.get('ml_goal_model_path')
             ml_samples = self.config.algorithm_params.get('ml_samples', 32)
             ml_device = self.config.algorithm_params.get('ml_device', 'cuda')
+            ml_num_steps = self.config.algorithm_params.get('ml_num_steps')
+            ml_sampler_method = self.config.algorithm_params.get('ml_sampler_method')
             xml_file = self.config.algorithm_params.get('xml_file', '')
             epsilon = self.config.algorithm_params.get('epsilon')
             preloaded_model = self.config.algorithm_params.get('preloaded_goal_model')
@@ -199,7 +201,9 @@ class RandomSamplingPlanner(BasePlanner):
                 ),
                 verbose=self.config.verbose,
                 preloaded_model=preloaded_model,
-                preview_mask_count=self.config.algorithm_params.get('preview_ml_goal_masks', 0)
+                preview_mask_count=self.config.algorithm_params.get('preview_ml_goal_masks', 0),
+                sampler_method=ml_sampler_method,
+                num_steps=ml_num_steps,
             )
         else:
             raise ValueError(f"Unknown goal selection strategy: {strategy_name}")

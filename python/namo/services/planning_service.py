@@ -6,6 +6,7 @@ Wraps RegionOpeningPlanner with a clean interface for use by robot_control.
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple, Dict, Any
 
@@ -76,6 +77,7 @@ class NAMOPlanningService:
         self._enable_viewer = enable_viewer
         self._pause_after_load = pause_after_load
         self._cached_goal_model = None
+        self._cached_goal_model_signature = None
 
     # Strategy names that use a GoalInferenceModel
     _ML_GOAL_STRATEGIES = frozenset({
@@ -93,14 +95,28 @@ class NAMOPlanningService:
         if goal_strategy.lower() not in self._ML_GOAL_STRATEGIES:
             return None
 
-        if self._cached_goal_model is not None:
-            return self._cached_goal_model
-
         model_path = algo_params.get("ml_goal_model_path")
         if not model_path:
             return None
 
         device = algo_params.get("ml_device", "cuda")
+        sampler_method = algo_params.get("ml_sampler_method")
+        num_steps = algo_params.get("ml_num_steps")
+        requested_signature = (
+            str(Path(model_path).expanduser().resolve(strict=False)),
+            str(device),
+            sampler_method,
+            None if num_steps is None else int(num_steps),
+        )
+
+        if (
+            self._cached_goal_model is not None
+            and self._cached_goal_model_signature == requested_signature
+        ):
+            return self._cached_goal_model
+
+        self._cached_goal_model = None
+        self._cached_goal_model_signature = None
         try:
             from sage_learning.goal_inference_model import GoalInferenceModel
 
@@ -109,8 +125,11 @@ class NAMOPlanningService:
             self._cached_goal_model = GoalInferenceModel(
                 model_path=model_path,
                 device=device,
-                namo_config_path=self._config_path,  # unified wavefront for region masks
+                sampler_method=sampler_method,
+                num_steps=num_steps,
+                namo_config_path=self._config_path,
             )
+            self._cached_goal_model_signature = requested_signature
             load_ms = (time.time() - load_start) * 1000
             print(f"GoalInferenceModel cached in NAMOPlanningService ({load_ms:.0f}ms)")
 
@@ -118,6 +137,8 @@ class NAMOPlanningService:
             self._warmup_goal_model(algo_params, device)
         except Exception as e:
             print(f"Failed to load GoalInferenceModel: {e}")
+            self._cached_goal_model = None
+            self._cached_goal_model_signature = None
             return None
 
         return self._cached_goal_model
@@ -125,27 +146,19 @@ class NAMOPlanningService:
     def _warmup_goal_model(self, algo_params: Dict[str, Any], device: str) -> None:
         """Run dummy inferences to compile CUDA kernels."""
         try:
-            import torch
-
             model = self._cached_goal_model
-            context_size = getattr(model, 'context_size', 64)
             num_samples = algo_params.get("ml_samples", 32)
             num_steps = algo_params.get("ml_num_steps") or 20
 
             print(f"Warming up goal model ({num_samples} samples x 3 runs)...")
             warmup_start = time.time()
 
-            dummy_input = torch.zeros(1, 5, context_size, context_size, device=device)
-            for _ in range(3):
-                with torch.no_grad():
-                    _ = model.model.sample_from_model(
-                        dummy_input,
-                        samples=num_samples,
-                        num_steps=num_steps,
-                    )
-
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
+            if model is not None and hasattr(model, "warmup"):
+                model.warmup(
+                    samples=num_samples,
+                    num_steps=num_steps,
+                    repeats=3,
+                )
 
             warmup_ms = (time.time() - warmup_start) * 1000
             print(f"Goal model warmed up ({warmup_ms:.0f}ms)")

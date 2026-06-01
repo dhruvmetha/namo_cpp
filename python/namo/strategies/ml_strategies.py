@@ -380,6 +380,8 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
                  preview_mask_count: int = 0,
                  seed: Optional[int] = None,
                  namo_config_path: Optional[str] = None,
+                 sampler_method: Optional[str] = None,
+                 num_steps: Optional[int] = None,
                  **unused_kwargs):
         """Initialize ML goal selection strategy.
 
@@ -393,6 +395,8 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
             preloaded_model: Optional pre-loaded model to avoid repeated loading
             preview_mask_count: Number of ML goal masks to preview (0 disables)
             seed: Random seed for diffusion noise (None = random each time)
+            sampler_method: Optional inference sampler override
+            num_steps: Optional inference step-count override
             **unused_kwargs: Compatibility placeholder for legacy keyword args
 
         Note:
@@ -407,6 +411,8 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
         self.verbose = verbose
         self.preview_mask_count = max(0, preview_mask_count)
         self.seed = seed
+        self.sampler_method = sampler_method
+        self.num_steps = num_steps
         # Path to the NAMO config so lazily-loaded GoalInferenceModel builds
         # region masks with the correct robot footprint (matches training).
         self.namo_config_path = namo_config_path
@@ -468,6 +474,8 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
                 model_path=self.goal_model_path,
                 device=self.device,
                 namo_config_path=self.namo_config_path,
+                sampler_method=self.sampler_method,
+                num_steps=self.num_steps,
             )
             self._goal_model = self._wrap_goal_model(self._goal_model)
             
@@ -581,6 +589,7 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
                         x=float(goal_data['x']),
                         y=float(goal_data['y']),
                         theta=float(goal_data['theta']),
+                        score=float(goal_data.get('vote_weight', 1.0)),
                         sample_index=sample_index_int,
                         ml_call_id=int(ml_call_id),
                         mask_path=goal_data.get("_namo_saved_mask_path"),

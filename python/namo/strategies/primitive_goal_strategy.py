@@ -473,6 +473,8 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
         primitive_prefix: str = "",
         max_push_steps: Optional[int] = None,
         namo_config_path: Optional[str] = None,
+        sampler_method: Optional[str] = None,
+        num_steps: Optional[int] = None,
     ):
         """
         Args:
@@ -524,6 +526,8 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             preloaded_model=preloaded_model,
             seed=seed,
             namo_config_path=namo_config_path,
+            sampler_method=sampler_method,
+            num_steps=num_steps,
         )
         self._default_ml_samples = samples
 
@@ -745,6 +749,10 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             except Exception:
                 ml_call_id = -1
 
+            goal_weight = float(getattr(ml_goal, "score", 1.0))
+            if not math.isfinite(goal_weight) or goal_weight <= 0.0:
+                goal_weight = 1.0
+
             ml_goal_vote_details.append(
                 {
                     "sample_index": sample_index,
@@ -753,6 +761,7 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
                     "x": float(ml_goal.x),
                     "y": float(ml_goal.y),
                     "theta": float(ml_goal.theta),
+                    "vote_weight": goal_weight,
                     "voted_primitives": [
                         {
                             "edge_idx": int(edge_idx),
@@ -768,7 +777,7 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             # Vote for each of the k-nearest slots
             for score, slot_id, edge_idx, depth_idx in top_k_candidates:
                 acc = slot_accumulators[slot_id]
-                acc["count"] += 1
+                acc["count"] += goal_weight
 
                 if "goal" not in acc:
                     # Retrieve the correct primitive goal from metadata using slot_id
@@ -1156,6 +1165,8 @@ class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
         preview_aligned_primitives: bool = False,
         k_nearest: int = 1,
         seed: int = None,
+        sampler_method: Optional[str] = None,
+        num_steps: Optional[int] = None,
     ):
         """
         Args:
@@ -1197,7 +1208,9 @@ class MLPrimitiveFallbackStrategy(GoalSelectionStrategy):
             xml_path=xml_path,
             preview_mask_count=preview_mask_count,
             preloaded_model=preloaded_model,
-            seed=seed
+            seed=seed,
+            sampler_method=sampler_method,
+            num_steps=num_steps,
         )
         self._default_ml_samples = samples
 
@@ -1709,6 +1722,8 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
         k_nearest: int = 1,
         max_workers: int = 1,
         seed: int = None,
+        sampler_method: Optional[str] = None,
+        num_steps: Optional[int] = None,
         **kwargs,  # Accept extra kwargs for compatibility
     ):
         """Initialize async ML primitive strategy.
@@ -1751,7 +1766,9 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
             verbose=verbose,
             xml_path=xml_path,
             preloaded_model=preloaded_model,
-            seed=seed
+            seed=seed,
+            sampler_method=sampler_method,
+            num_steps=num_steps,
         )
 
         # Initialize thread pool
@@ -1923,7 +1940,8 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
             self._run_ml_inference_only,
             json_message,
             object_id,
-            ml_budget
+            ml_budget,
+            region_goals_sampled,
         )
 
         total_setup_ms = (time.time() - start_time) * 1000
@@ -1949,7 +1967,8 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
         self,
         json_message: Dict[str, Any],
         object_id: str,
-        ml_budget: int
+        ml_budget: int,
+        region_goals_sampled: Optional[List[Tuple[float, float, float]]] = None,
     ) -> Dict[str, Any]:
         """Run ML inference in background thread (no env access).
 
@@ -1984,7 +2003,8 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
                 xml_path=json_message["xml_path"],
                 robot_goal=json_message["robot_goal"],
                 selected_object=object_id,
-                samples=ml_budget
+                samples=ml_budget,
+                region_goals_sampled=region_goals_sampled,
             )
 
             # Persist masks if configured via NAMO_ML_ARTIFACTS_DIR (thread-safe).

@@ -530,6 +530,8 @@ class RegionOpeningPlanner(BasePlanner):
                 preview_aligned_primitives=algo_params.get("preview_aligned_primitives", False),
                 k_nearest=algo_params.get("ml_k_nearest", 1),
                 seed=algo_params.get("ml_seed"),
+                sampler_method=algo_params.get("ml_sampler_method"),
+                num_steps=algo_params.get("ml_num_steps"),
                 primitive_prefix=algo_params.get("primitive_prefix", ""),
                 max_push_steps=max_push_steps,
                 namo_config_path=algo_params.get("namo_config_path"),
@@ -557,6 +559,8 @@ class RegionOpeningPlanner(BasePlanner):
                 preview_aligned_primitives=algo_params.get("preview_aligned_primitives", False),
                 k_nearest=algo_params.get("ml_k_nearest", 1),
                 seed=algo_params.get("ml_seed"),
+                sampler_method=algo_params.get("ml_sampler_method"),
+                num_steps=algo_params.get("ml_num_steps"),
             )
             self._debug("▶ Using ML-first with primitive fallback goal strategy")
         elif strategy_name and strategy_name.lower() in {"ml_async", "ml_primitive_async"}:
@@ -579,6 +583,8 @@ class RegionOpeningPlanner(BasePlanner):
                 k_nearest=algo_params.get("ml_k_nearest", 1),
                 max_workers=algo_params.get("ml_async_workers", 1),
                 seed=algo_params.get("ml_seed"),
+                sampler_method=algo_params.get("ml_sampler_method"),
+                num_steps=algo_params.get("ml_num_steps"),
             )
             self._debug("▶ Using async ML with primitive pre-execution goal strategy")
         elif strategy_name and strategy_name.lower() in {"ml_driven_async"}:
@@ -608,6 +614,8 @@ class RegionOpeningPlanner(BasePlanner):
                 k_nearest=algo_params.get("ml_k_nearest", 1),
                 max_workers=1,  # Always 1 - GPU runs 1 ML inference at a time
                 seed=algo_params.get("ml_seed"),
+                sampler_method=algo_params.get("ml_sampler_method"),
+                num_steps=algo_params.get("ml_num_steps"),
             )
             # Set goal_strategy to primitive for compatibility (MLDrivenAsyncSearch handles ML internally)
             self.goal_strategy = self._primitive_strategy
