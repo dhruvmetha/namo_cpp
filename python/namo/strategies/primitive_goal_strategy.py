@@ -2004,6 +2004,7 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
                 robot_goal=json_message["robot_goal"],
                 selected_object=object_id,
                 samples=ml_budget,
+                seed=getattr(self._ml_strategy, "seed", None),
                 region_goals_sampled=region_goals_sampled,
             )
 
