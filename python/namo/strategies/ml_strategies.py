@@ -540,12 +540,6 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
 
             # One diffusion call per infer() invocation.
             self._diffusion_calls_since_reset += 1
-            # Build episode_data straight from the live env (same source as
-            # training). When available, the model uses it and bypasses the JSON
-            # round-trip; None falls back to the JSON path.
-            episode_data = self._build_episode_data_from_env(
-                object_id, state, env, region_goals_sampled
-            )
             goals = self._goal_model.infer(
                 json_message=json_message,
                 xml_path=json_message["xml_path"],
@@ -554,7 +548,6 @@ class MLGoalSelectionStrategy(GoalSelectionStrategy):
                 samples=self.samples,
                 seed=self.seed,
                 region_goals_sampled=region_goals_sampled,
-                episode_data=episode_data,
             )
 
             if self.verbose:

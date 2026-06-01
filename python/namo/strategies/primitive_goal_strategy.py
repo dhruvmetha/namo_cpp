@@ -2032,6 +2032,7 @@ class MLPrimitiveAsyncStrategy(GoalSelectionStrategy):
                         x=float(goal_data['x']),
                         y=float(goal_data['y']),
                         theta=float(goal_data['theta']),
+                        score=float(goal_data.get('vote_weight', 1.0)),
                         sample_index=sample_index_int,
                         ml_call_id=int(ml_call_id),
                         mask_path=goal_data.get("_namo_saved_mask_path"),
