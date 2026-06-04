@@ -24,3 +24,5 @@ data/_backup_primitives_15rad/
 MUJOCO_LOG.TXT
 test_xml/little-car-modeling-package/artifacts/
 scripts/manifests/
+scripts/amarel/build_balanced_eval_h5.slurm
+scripts/amarel/pull_balanced_eval_h5_from_amarel.sh
