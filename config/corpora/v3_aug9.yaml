@@ -1,0 +1,34 @@
+# Corpus declaration — single source of truth for ONE data-generation batch.
+# Paths are DERIVED from `id` by scripts/corpus.py; never written here.
+# This file IS the registry entry (no separate hand-maintained doc).
+id: v3_aug9
+description: aug9_car rescaled to v3 (~0.49x0.49m square) region-opening corpus
+status: active                 # active | archived  → drives cleanup/lifecycle
+layout: flat                   # flat = $OUTPUTS/<id>_<phase> (matches on-disk v3); nested = $OUTPUTS/<id>/<phase> (go-forward)
+
+# --- inputs / provenance ---
+env_family: car_envs/v3/aug9_car                       # under $NAMO_DATASETS
+templates: mujoco_env_creator/templates/aug9_car_v3    # how the envs were made
+
+# --- collection (C++ planner) ---
+robot_config: config/namo_config_complete_skill15_car_1x.yaml
+primitive_prefix: 1x_car_d5_   # d5 = push_steps<=5 (~22cm), fits small v3 envs
+goal_strategy: random_rollout
+target_goal_region: true
+
+# Phase cascade. depth = chain length (pushes); k = rollout-samples-per-state;
+# mine_from = which prior phase's failures seed this phase.
+phases:
+  - {name: phase1, depth: 1, k: 600, mine_from: null,                 exhaustive: true}
+  - {name: phase2, depth: 2, k: 20,  mine_from: phase1}
+  - {name: phase3, depth: 2, k: 50,  mine_from: phase2}
+  - {name: phase4, depth: 2, k: 50,  mine_from: [phase1, phase2, phase3]}  # partial-fail union
+  - {name: phase5, depth: 2, k: 50,  mine_from: phase4, seed_sweep: [101, 102, 103, 104, 105], mine_reasons: [all_pushes_failed, ml_no_goals_extracted, no_reachable_edges]}
+
+# --- npz / mask generation ---
+npz:
+  wide_crop_m: 0.6
+  tight_crop_m: 0.5
+  wavefront_mm: 2
+  local_only: true
+  filter_overlaps: true

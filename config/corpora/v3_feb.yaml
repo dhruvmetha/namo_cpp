@@ -1,0 +1,23 @@
+# Second corpus — note how little changes vs v3_aug9.yaml: a new corpus is a
+# ~5-line declaration, NOT a new copy-pasted script family. That is the point.
+id: v3_feb
+description: feb_car (v3) region-opening corpus — 0.49x0.775m rectangular envs
+status: active
+layout: flat
+
+env_family: car_envs/v3/feb_car
+templates: mujoco_env_creator/templates/feb_car
+
+robot_config: config/namo_config_complete_skill15_car_1x.yaml
+primitive_prefix: 1x_car_d5_
+goal_strategy: random_rollout
+target_goal_region: true
+
+phases:
+  - {name: phase1, depth: 1, k: 600, mine_from: null,                 exhaustive: true}
+  - {name: phase2, depth: 2, k: 20,  mine_from: phase1}
+  - {name: phase3, depth: 2, k: 50,  mine_from: phase2}
+  - {name: phase4, depth: 2, k: 50,  mine_from: [phase1, phase2, phase3]}
+  - {name: phase5, depth: 2, k: 50,  mine_from: phase4, seed_sweep: [101, 102, 103, 104, 105], mine_reasons: [all_pushes_failed, ml_no_goals_extracted, no_reachable_edges]}
+
+npz: {wide_crop_m: 0.6, tight_crop_m: 0.5, wavefront_mm: 2, local_only: true, filter_overlaps: true}

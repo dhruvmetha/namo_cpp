@@ -161,14 +161,37 @@ Then NPZ generation:
 
 ---
 
-## Slurm array template
+## Slurm orchestration (v3 cascade)
 
-`scripts/amarel/run_batch_collection_smoke.slurm` is the canonical template — reads `PKL_MANIFEST`, `SHARD_SIZE`, `OUTPUT_DIR` env vars and slices the manifest by `SLURM_ARRAY_TASK_ID`.
+`scripts/amarel/run_batch_collection_smoke.slurm` is the canonical collection-array template — reads `PKL_MANIFEST`, `SHARD_SIZE`, `OUTPUT_DIR` and slices the manifest by `SLURM_ARRAY_TASK_ID`.
 
-Existing v2_500k cascade examples:
-- `scripts/amarel/phase5_v2_500k_driver_sbatch.slurm`
-- `scripts/amarel/phases12345_v2_500k_driver_sbatch.slurm`
-- `scripts/amarel/phases2345_driver_v2_sbatch.slurm`
+The v3 cascade:
+- `scripts/amarel/v3_phase1_collect.slurm` — phase-1 sharded array (single-push, exhaustive, pattern B).
+- `scripts/amarel/v3_cascade_driver.slurm` — sequential driver: waits for phase 1, then mines + runs phases 2→3→4→5A-E in one allocation (survives disconnects).
+- `scripts/amarel/v3_cascade_collect.slurm` — reusable per-phase collection (env vars `MANIFEST`, `OUTPUT_DIR`, `DEPTH`, `KROLL`, `NUM_SHARDS`, `GOAL_SEED`).
+- Inter-phase mining: `scripts/build_phase2_manifest.py` (sharded-aware) + `scripts/build_phase4_manifest.py` (partial-fail union).
+
+All paths and per-phase params (depth / K / seeds / mining) come from **`config/corpora/<id>.yaml`**, resolved by **`scripts/corpus.py`** — the driver is corpus-agnostic, so a new corpus is a new config, not a new script:
+
+```bash
+CORPUS=v3_aug9 PHASE1_JID=<phase-1 array id> sbatch scripts/amarel/v3_cascade_driver.slurm
+# preview the plan, no SLURM:  CORPUS=v3_aug9 PHASE1_JID=0 DRYRUN=1 NAMO_PY=<py> bash <driver>
+```
+
+`layout: flat` in the config matches the existing on-disk v3 dirs (`outputs/<id>_phaseN`); new corpora can set `nested` (`outputs/<id>/phaseN`) for one-prefix cleanup.
+
+---
+
+## NPZ → H5 (training corpus)
+
+Phases produce PKLs → NPZ masks → a single HDF5 the trainer reads. End to end:
+
+1. **NPZ gen (dual-crop, overlap-filtered)**: `scripts/amarel/submit_npz_gen.sh <phase_dir> <out_masks_dir>` builds a PKL manifest and submits the mask array → `outputs/<corpus>_<phase>_masks`. Defaults (car): wide 0.6 m + tight 0.5 m crop, 2 mm wavefront, `--local-only`, `--filter-overlaps`. (Rolling per-phase variant for the aug9 cascade: `aug9_post_phase4_5_npz.slurm` / `aug9_rolling_npz_driver.slurm`.)
+2. **Cross-phase overlap filter**: `scripts/amarel/filter_npz_overlaps.slurm` dedups masks shared across phases → `*_masks_overlap_filtered`.
+3. **Build the balanced H5** (in `sage_learning`): `scripts/build_v3_balanced_h5.slurm` → `/scratch/dm1487/h5/v3_balanced_1to1*` — 1:1 balanced, lzf-compressed, tight crop. This is the trainer's input.
+   - Generic raw-concat alternative (no balancing): `scripts/amarel/build_h5_all.slurm` (env vars `STAGE_DIR`, `OUTPUT_H5`).
+   - Optional chain-depth filter on a built H5: `scripts/amarel/filter_h5_chain_depth.slurm`.
+4. **Train** in `sage_learning` with `data_dir=/scratch/dm1487/h5/v3_balanced_1to1_lzf_tight_data`, `use_h5=true`, `crop_prefix=local_tight`.
 
 ---
 
