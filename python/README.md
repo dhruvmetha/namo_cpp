@@ -362,23 +362,16 @@ python/
 │   │   │   └── ml_driven_search.py
 │   │   ├── full_namo/      # Multi-region full NAMO solver
 │   │   │   └── full_namo_planner.py
-│   │   ├── mcts/           # Monte Carlo Tree Search
-│   │   │   └── hierarchical_mcts.py
 │   │   ├── sampling/       # Sampling-based planners
 │   │   │   └── random_sampling.py
 │   │   └── utils/          # Shared utilities (solution_smoother, failure_codes)
 │   ├── data_collection/    # Data collection workflows
 │   │   ├── modular_parallel_collection.py
-│   │   ├── sequential_ml_collection.py
-│   │   ├── parallel_data_collection.py
-│   │   └── alphazero_data_collection.py
+│   │   └── sequential_ml_collection.py
 │   ├── visualization/      # Image processing & visualization
 │   │   ├── run_mask_generation.py
-│   │   ├── mask_generation/
-│   │   └── mcts_mask_generation/
+│   │   └── mask_generation/
 │   └── cpp_bindings/       # C++ interface files
-└── scripts/                # Standalone executables
-    └── test_clean_mcts.py
 ```
 
 ## Import Examples
@@ -404,7 +397,6 @@ from namo.visualization import run_mask_generation
 
 # Core utilities
 from namo.core import BasePlanner, PlannerConfig
-from namo.config import MCTSConfig
 ```
 
 ## Quick Start
@@ -414,14 +406,7 @@ from namo.config import MCTSConfig
 import namo_rl
 env = namo_rl.RLEnvironment("scene.xml", "config.yaml")
 
-# 2. MCTS planning
-from namo.planners.mcts import CleanHierarchicalMCTS
-from namo.config import MCTSConfig
-
-config = MCTSConfig(budget=100, k=2.0, alpha=0.5)
-mcts = CleanHierarchicalMCTS(config)
-
-# 3. Data collection
+# 2. Data collection
 from namo.data_collection import modular_parallel_collection
 # See DATA_COLLECTION_GUIDE.md for complete examples
 ```
