@@ -21,144 +21,15 @@ Usage:
 import argparse
 import os
 import sys
-from collections import deque
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root / "python"))
 from namo.core.binding_loader import load_canonical_namo_rl
-from namo.visualization.wavefront_snapshot import WavefrontSnapshotExporter
+from namo.environment_selection import analyze_environment_path_length, get_xml_files
 
 namo_rl, module_path, expected_build = load_canonical_namo_rl(project_root)
-
-
-def find_shortest_path_length(
-    adjacency: Dict[str, Set[str]], start: str, end: str
-) -> int:
-    """Find shortest path length between two regions using BFS.
-
-    Returns the number of regions traversed (edges), or -1 if unreachable.
-    A direct connection returns 1, going through one intermediate region returns 2, etc.
-    """
-    if start == end:
-        return 0
-    if start not in adjacency:
-        return -1
-
-    visited = {start}
-    queue = deque([(start, 0)])
-
-    while queue:
-        current, depth = queue.popleft()
-
-        for neighbor in adjacency.get(current, set()):
-            if neighbor == end:
-                return depth + 1
-            if neighbor not in visited:
-                visited.add(neighbor)
-                queue.append((neighbor, depth + 1))
-
-    return -1  # Unreachable
-
-
-def analyze_environment(
-    xml_path: str,
-    config_path: str,
-    resolution: float = 0.02,
-) -> Tuple[int, Dict[str, Set[str]], str, str]:
-    """Analyze an environment and return the region path length from robot to goal.
-
-    Returns:
-        Tuple of (path_length, adjacency_dict, robot_label, goal_label)
-        path_length is -1 if unreachable, 0 if same region, N for N regions to traverse
-    """
-    try:
-        # Create environment (visualize=False for headless)
-        env = namo_rl.RLEnvironment(xml_path, config_path, False)
-
-        # Create exporter and build snapshot
-        exporter = WavefrontSnapshotExporter(env, resolution=resolution)
-        snapshot = exporter.build_snapshot(
-            xml_path=xml_path,
-            config_path=config_path,
-            goal_radius=None,  # auto: sqrt(hx^2 + hy^2) + tier1_margin
-            goals_per_region=0,
-            use_current_state=False,
-        )
-
-        # Get adjacency and region labels
-        adjacency: Dict[str, Set[str]] = {
-            region: set(neighbours) for region, neighbours in snapshot.adjacency.items()
-        }
-        region_labels = dict(snapshot.region_labels)
-
-        # Find robot and goal labels
-        robot_label = None
-        goal_label = None
-        for label in region_labels.values():
-            if "robot" in label.lower():
-                robot_label = label
-            if "goal" in label.lower():
-                goal_label = label
-
-        if robot_label is None or goal_label is None:
-            return -1, adjacency, robot_label or "unknown", goal_label or "unknown"
-
-        # Find shortest path
-        path_length = find_shortest_path_length(adjacency, robot_label, goal_label)
-
-        return path_length, adjacency, robot_label, goal_label
-
-    except Exception as e:
-        print(f"  Error analyzing {xml_path}: {e}")
-        return -1, {}, "error", "error"
-
-
-def get_xml_files(
-    input_dir: Optional[str] = None,
-    manifest_path: Optional[str] = None,
-    limit: Optional[int] = None,
-) -> List[str]:
-    """Get list of XML files to analyze."""
-    xml_files = []
-
-    if manifest_path:
-        # Read from manifest file
-        manifest = Path(manifest_path)
-        if not manifest.exists():
-            print(f"Error: Manifest file not found: {manifest_path}")
-            sys.exit(1)
-
-        base_dir = manifest.parent
-        with open(manifest, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line and line.endswith(".xml"):
-                    # Handle both absolute and relative paths
-                    if os.path.isabs(line):
-                        xml_files.append(line)
-                    else:
-                        xml_files.append(str(base_dir / line))
-
-    elif input_dir:
-        # Scan directory for XML files
-        input_path = Path(input_dir)
-        if not input_path.exists():
-            print(f"Error: Input directory not found: {input_dir}")
-            sys.exit(1)
-
-        xml_files = sorted([str(f) for f in input_path.glob("*.xml")])
-
-    else:
-        print("Error: Must provide either --input-dir or --manifest")
-        sys.exit(1)
-
-    if limit:
-        xml_files = xml_files[:limit]
-
-    return xml_files
 
 
 def main():
@@ -197,7 +68,7 @@ def main():
         "--resolution",
         type=float,
         default=0.02,
-        help="Grid resolution for region analysis (default: 0.02)",
+        help="Deprecated compatibility flag; unified snapshot path ignores this value",
     )
     parser.add_argument(
         "--limit",
@@ -239,15 +110,24 @@ def main():
             print(f"Analyzing {i + 1}/{len(xml_files)}: {os.path.basename(xml_path)}")
 
         stats["total"] += 1
-        path_length, adjacency, robot_label, goal_label = analyze_environment(
-            xml_path, config_path, args.resolution
+        analysis = analyze_environment_path_length(
+            xml_path,
+            config_path,
+            use_cpp_snapshot=True,
         )
+        path_length = analysis.path_length_n
+        adjacency = analysis.adjacency
+        robot_label = analysis.robot_label
+        goal_label = analysis.goal_label
+
+        if analysis.selection_error:
+            stats["errors"] += 1
+            if args.verbose:
+                print(f"  Error: {analysis.selection_error}")
+            continue
 
         if path_length == -1:
-            if robot_label == "error":
-                stats["errors"] += 1
-            else:
-                stats["unreachable"] += 1
+            stats["unreachable"] += 1
             continue
 
         # Track path length distribution
