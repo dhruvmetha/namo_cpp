@@ -57,7 +57,12 @@ class FullNAMOPlanner(BasePlanner):
 
     def __init__(self, env: namo_rl.RLEnvironment, config: PlannerConfig):
         algo_params = config.algorithm_params or {}
-        self.max_iterations = algo_params.get("full_namo_max_iterations", 20)
+        raw_max_iterations = algo_params.get("full_namo_max_iterations")
+        self.max_iterations = None if raw_max_iterations is None else int(raw_max_iterations)
+        if self.max_iterations is not None and self.max_iterations < 1:
+            raise ValueError(
+                f"Invalid full_namo_max_iterations: {self.max_iterations}. Must be at least 1."
+            )
         self.use_cpp_unified_wavefront = algo_params.get(
             "full_namo_use_cpp_unified_wavefront",
             algo_params.get("region_use_cpp_unified_wavefront", True),
@@ -72,6 +77,7 @@ class FullNAMOPlanner(BasePlanner):
         self._aggregated_rejections: Dict[str, int] = {}
         self._aggregated_primitives: int = 0
         self._iteration_trace: List[Dict[str, Any]] = []
+        self.push_budget = algo_params.get("push_budget")
         super().__init__(env, config)
 
     def _setup_constraints(self):
@@ -101,6 +107,15 @@ class FullNAMOPlanner(BasePlanner):
     def _debug(self, message: str):
         if getattr(self.config, "verbose", False):
             print(message)
+
+    def _current_budget_stats(self) -> Dict[str, int]:
+        if self.push_budget is None:
+            return {}
+        return {
+            "simulation_budget_limit": int(self.push_budget.limit),
+            "simulation_budget_used": int(self.push_budget.used),
+            "simulation_budget_remaining": int(self.push_budget.remaining),
+        }
 
     @staticmethod
     def _as_int(value: Any) -> Optional[int]:
@@ -171,7 +186,15 @@ class FullNAMOPlanner(BasePlanner):
             self._record_iteration_trace({"iteration": 0, "outcome": "goal_reachable_immediately"})
             return self._success_result(start_time, actions, region_openings)
 
-        for iteration in range(1, self.max_iterations + 1):
+        iteration = 1
+        while True:
+            if self.max_iterations is not None and iteration > self.max_iterations:
+                return self._failure_result(
+                    "Max iterations exceeded",
+                    start_time,
+                    actions,
+                    failure_kind="max_iterations_exceeded",
+                )
             self.stats.iterations = iteration
             self._debug(f"\n--- Iteration {iteration} ---")
 
@@ -272,6 +295,9 @@ class FullNAMOPlanner(BasePlanner):
             target = path[1]
             result = self.region_opener.search(robot_goal, target_neighbor=target)
             self.stats.total_attempted_pushes += self._extract_attempted_pushes_from_region_result(result)
+            budget_used = self._as_int((result.algorithm_stats or {}).get("simulation_budget_used"))
+            if budget_used is not None:
+                self.stats.total_attempted_pushes = max(self.stats.total_attempted_pushes, budget_used)
             self._aggregate_region_result(result)
             target_summary = self._get_target_summary(result)
             context = self._build_iteration_context(
@@ -284,6 +310,17 @@ class FullNAMOPlanner(BasePlanner):
                 target_region=target,
                 target_summary=target_summary,
             )
+
+            inner_failure_kind = str((result.algorithm_stats or {}).get("failure_kind") or "")
+            if inner_failure_kind == "simulation_budget_exhausted":
+                self._record_iteration_trace({**context, "outcome": "simulation_budget_exhausted"})
+                return self._failure_result(
+                    result.error_message or "Simulation budget exhausted",
+                    start_time,
+                    actions,
+                    failure_kind="simulation_budget_exhausted",
+                    context=context,
+                )
 
             invariant_subkind = self._classify_target_invariant(result, target_summary)
             if invariant_subkind is not None:
@@ -335,6 +372,7 @@ class FullNAMOPlanner(BasePlanner):
                 blocked_boundaries = set()
                 self._record_iteration_trace({**context, "outcome": "opened_target"})
                 self._debug(f"Opened {target}")
+                iteration += 1
                 continue
 
             if bool(target_summary.get("boundary_exhausted", False)):
@@ -342,6 +380,7 @@ class FullNAMOPlanner(BasePlanner):
                 self.stats.boundary_exhaustions += 1
                 self._record_iteration_trace({**context, "outcome": "boundary_exhausted"})
                 self._debug(f"Boundary exhausted for {target}; retrying with blocked boundary")
+                iteration += 1
                 continue
 
             self._record_iteration_trace({**context, "outcome": "opener_failure_not_boundary_exhausted"})
@@ -353,38 +392,33 @@ class FullNAMOPlanner(BasePlanner):
                 context=context,
             )
 
-        return self._failure_result(
-            "Max iterations exceeded",
-            start_time,
-            actions,
-            failure_kind="max_iterations_exceeded",
-        )
-
     def _success_result(
         self,
         start_time: float,
         actions: List[namo_rl.Action],
         region_openings: List[RegionOpeningResult],
     ) -> PlannerResult:
+        algorithm_stats = {
+            "full_namo_stats": self.stats,
+            "iterations": self.stats.iterations,
+            "total_pushes": self.stats.total_pushes,
+            "total_attempted_pushes": self.stats.total_attempted_pushes,
+            "successful_region_steps": self.stats.successful_region_steps,
+            "boundary_exhaustions": self.stats.boundary_exhaustions,
+            "regions_opened": list(self.stats.regions_opened),
+            "region_opening_sequence": region_openings,
+            "rejection_breakdown": dict(self._aggregated_rejections),
+            "total_primitives_attempted": self._aggregated_primitives,
+            "iteration_trace": list(self._iteration_trace),
+        }
+        algorithm_stats.update(self._current_budget_stats())
         return PlannerResult(
             success=True,
             solution_found=True,
             action_sequence=actions,
             solution_depth=len(actions),
             search_time_ms=(time.time() - start_time) * 1000,
-            algorithm_stats={
-                "full_namo_stats": self.stats,
-                "iterations": self.stats.iterations,
-                "total_pushes": self.stats.total_pushes,
-                "total_attempted_pushes": self.stats.total_attempted_pushes,
-                "successful_region_steps": self.stats.successful_region_steps,
-                "boundary_exhaustions": self.stats.boundary_exhaustions,
-                "regions_opened": list(self.stats.regions_opened),
-                "region_opening_sequence": region_openings,
-                "rejection_breakdown": dict(self._aggregated_rejections),
-                "total_primitives_attempted": self._aggregated_primitives,
-                "iteration_trace": list(self._iteration_trace),
-            },
+            algorithm_stats=algorithm_stats,
         )
     def _failure_result(
         self,
@@ -417,6 +451,7 @@ class FullNAMOPlanner(BasePlanner):
         if context is not None:
             key = "invariant_context" if failure_kind == "planner_invariant_violation" else "failure_context"
             algorithm_stats[key] = context
+        algorithm_stats.update(self._current_budget_stats())
 
         return PlannerResult(
             success=False,

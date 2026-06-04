@@ -30,6 +30,7 @@ from namo.strategies import (
     GeometricTransportStrategy
 )
 from namo.planners.opening.ml_driven_search import MLDrivenAsyncSearch
+from namo.planners.utils import PushBudgetExceeded
 
 
 def _sort_candidates_sync(
@@ -192,6 +193,7 @@ class RegionOpeningPlanner(BasePlanner):
 
         algo_params = config.algorithm_params or {}
         self.algorithm_params = algo_params
+        self.push_budget = algo_params.get("push_budget")
 
         # Get collision termination flag from config.algorithm_params
         # region_allow_collisions=True means ALLOW collisions (don't terminate)
@@ -675,6 +677,20 @@ class RegionOpeningPlanner(BasePlanner):
         if getattr(self.config, "verbose", False):
             print(message)
 
+    def _current_budget_stats(self) -> Dict[str, Any]:
+        if self.push_budget is None:
+            return {}
+        return {
+            "simulation_budget_limit": int(self.push_budget.limit),
+            "simulation_budget_used": int(self.push_budget.used),
+            "simulation_budget_remaining": int(self.push_budget.remaining),
+        }
+
+    def _consume_push_budget(self):
+        if self.push_budget is None:
+            return
+        self.push_budget.consume_or_raise()
+
     @staticmethod
     def _normalize_boundary_object_ids(objects: Optional[Set[str]]) -> Set[str]:
         if not objects:
@@ -832,11 +848,34 @@ class RegionOpeningPlanner(BasePlanner):
                 self._debug(f"{'='*60}\n")
 
             # Explore from initial state only (Level 0)
-            self.attempt_results = self._explore_from_state(
-                baseline,
-                level=0,
-                target_neighbor=target_neighbor,
-            )
+            try:
+                self.attempt_results = self._explore_from_state(
+                    baseline,
+                    level=0,
+                    target_neighbor=target_neighbor,
+                )
+            except PushBudgetExceeded as exc:
+                total_time = (time.time() - start_time) * 1000
+                algorithm_stats: Dict[str, Any] = {
+                    "attempt_results": self.attempt_results,
+                    "all_solutions": [],
+                    "successful_openings": 0,
+                    "total_attempts": len(self.attempt_results),
+                    "rejection_breakdown": dict(self._rejection_stats),
+                    "total_primitives_attempted": self._progress_total_primitives,
+                    "failure_kind": "simulation_budget_exhausted",
+                }
+                algorithm_stats.update(self._current_budget_stats())
+                target_summary = self._build_target_summary(target_neighbor)
+                if target_summary is not None:
+                    algorithm_stats["target_summary"] = target_summary
+                return PlannerResult(
+                    success=False,
+                    solution_found=False,
+                    search_time_ms=total_time,
+                    error_message=str(exc),
+                    algorithm_stats=algorithm_stats,
+                )
 
             if self.config.verbose:
                 successful_attempts = sum(1 for a in self.attempt_results if a.success)
@@ -892,6 +931,7 @@ class RegionOpeningPlanner(BasePlanner):
                 "rejection_breakdown": dict(self._rejection_stats),
                 "total_primitives_attempted": self._progress_total_primitives,
             }
+            algorithm_stats.update(self._current_budget_stats())
             target_summary = self._build_target_summary(target_neighbor)
             if target_summary is not None:
                 algorithm_stats["target_summary"] = target_summary
@@ -1847,6 +1887,7 @@ class RegionOpeningPlanner(BasePlanner):
             action.theta = goal.theta
             action.edge_idx = goal.edge_idx
             action.depth = goal.depth
+            self._consume_push_budget()
             step_result = self.env.step(action)
 
             # Extract collision info from step result
@@ -2138,6 +2179,7 @@ class RegionOpeningPlanner(BasePlanner):
                                 action.theta = final_goal.theta
                                 action.edge_idx = final_goal.edge_idx
                                 action.depth = final_goal.depth
+                                self._consume_push_budget()
                                 step_result = self.env.step(action)
                                 reachable_after = [self.env.get_reachable_objects()]
                                 # Extract collision info from step result
@@ -2647,6 +2689,7 @@ class RegionOpeningPlanner(BasePlanner):
                 if self.config.verbose:
                     print(f"        DEBUG: goal.edge_idx={goal.edge_idx}, goal.depth={goal.depth}")
                     print(f"        ⏳ Calling env.step()...")
+                self._consume_push_budget()
                 step_start = time.perf_counter()
                 step_result = self.env.step(action)
                 step_elapsed_ms = (time.perf_counter() - step_start) * 1000.0
@@ -2662,6 +2705,8 @@ class RegionOpeningPlanner(BasePlanner):
                 # Visualize after action if enabled
                 self._focus_camera_on_object(object_id)
 
+            except PushBudgetExceeded:
+                raise
             except Exception as e:
                 if self.config.verbose:
                     print(f"        ❌ EXCEPTION during env.step(): {type(e).__name__}: {e}")

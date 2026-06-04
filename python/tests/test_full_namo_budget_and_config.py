@@ -1,0 +1,135 @@
+import sys
+import types
+
+if "namo_rl" not in sys.modules:
+    namo_rl_stub = types.ModuleType("namo_rl")
+    namo_rl_stub.Action = type("Action", (), {})
+    namo_rl_stub.RLEnvironment = object
+    namo_rl_stub.RLState = object
+    sys.modules["namo_rl"] = namo_rl_stub
+
+from namo.core import PlannerConfig, PlannerResult
+from namo.planners.full_namo.full_namo_planner import FullNAMOPlanner
+from namo.planners.opening.region_opening import RegionOpeningPlanner
+from namo.solvability_runner import SolveTask, build_full_namo_planner_config
+
+
+class FakeEnv:
+    def __init__(self):
+        self.goal = None
+        self.current_state = "baseline"
+
+    def set_robot_goal(self, x, y, theta):
+        self.goal = (x, y, theta)
+
+    def is_robot_goal_reachable(self):
+        return False
+
+    def set_full_state(self, state):
+        self.current_state = state
+
+    def get_xml_path(self):
+        return "dummy.xml"
+
+    def get_config_path(self):
+        return "dummy.yaml"
+
+
+def test_build_full_namo_planner_config_forwards_nested_region_settings(monkeypatch):
+    monkeypatch.setattr(RegionOpeningPlanner, "_setup_constraints", lambda self: None)
+    monkeypatch.setattr(
+        RegionOpeningPlanner,
+        "_initialize_algorithm",
+        lambda self: setattr(self, "goal_strategy", object()),
+    )
+
+    task = SolveTask(
+        xml_path="scene.xml",
+        path_length_n=2,
+        config_path="config.yaml",
+        goal_strategy="random_rollout",
+        region_max_chain_depth=2,
+        region_allow_collisions=True,
+        primitive_data_dir="data",
+        primitive_prefix="car_",
+        rollout_samples_per_state=7,
+        region_frontier_beam_width=11,
+        region_success_min_reachable=3,
+        goals_per_region=10,
+        seed=42,
+        use_cpp_snapshot=True,
+        simulation_budget=100000,
+        full_namo_max_iterations=None,
+        max_push_steps=15,
+    )
+    config = build_full_namo_planner_config(task)
+    planner = FullNAMOPlanner(FakeEnv(), config)
+
+    assert planner.max_iterations is None
+    assert planner.use_cpp_unified_wavefront is True
+    assert planner.region_snapshot_seed == 42
+    assert planner.region_opener.max_chain_depth == 2
+    assert planner.region_opener.terminate_on_collision is False
+    assert planner.region_opener.push_budget.limit == 100000
+    assert planner.region_opener.push_budget is config.algorithm_params["push_budget"]
+    assert config.algorithm_params["primitive_prefix"] == "car_"
+    assert config.algorithm_params["rollout_samples_per_state"] == 7
+    assert config.algorithm_params["region_frontier_beam_width"] == 11
+    assert config.algorithm_params["region_success_min_reachable"] == 3
+    assert config.algorithm_params["max_push_steps"] == 15
+
+
+def test_full_namo_propagates_simulation_budget_exhaustion(monkeypatch):
+    env = FakeEnv()
+
+    class FakeOpener:
+        def reset(self):
+            pass
+
+        def search(self, robot_goal, target_neighbor=None):
+            return PlannerResult(
+                success=False,
+                solution_found=False,
+                algorithm_stats={
+                    "attempt_results": [],
+                    "target_summary": {
+                        "target_neighbor": target_neighbor,
+                        "local_robot_label": "robot",
+                        "local_neighbors": [target_neighbor],
+                        "target_is_immediate_neighbor": True,
+                        "failure_reason": "simulation_budget_exhausted",
+                        "attempt_count": 0,
+                        "detail_reasons": [],
+                        "boundary_exhausted": False,
+                    },
+                    "rejection_breakdown": {},
+                    "total_primitives_attempted": 4,
+                    "failure_kind": "simulation_budget_exhausted",
+                    "simulation_budget_limit": 9,
+                    "simulation_budget_used": 9,
+                    "simulation_budget_remaining": 0,
+                },
+                error_message="Simulation budget exhausted after 9 env.step() calls",
+            )
+
+    def fake_initialize(self):
+        self.region_opener = FakeOpener()
+
+    monkeypatch.setattr(FullNAMOPlanner, "_initialize_algorithm", fake_initialize)
+    planner = FullNAMOPlanner(env, PlannerConfig())
+    monkeypatch.setattr(
+        planner,
+        "_compute_region_snapshot",
+        lambda: {
+            "adjacency": {"robot": {"a"}, "a": {"robot", "goal"}, "goal": {"a"}},
+            "robot_label": "robot",
+            "goal_label": "goal",
+            "goal_in_free_space": True,
+        },
+    )
+
+    result = planner.search((0.0, 0.0, 0.0))
+
+    assert result.success is False
+    assert result.algorithm_stats["failure_kind"] == "simulation_budget_exhausted"
+    assert result.algorithm_stats["failure_context"]["chosen_target_region"] == "a"

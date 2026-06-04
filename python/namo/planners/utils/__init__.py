@@ -12,6 +12,7 @@ from .failure_codes import (
     create_failure_info,
     get_failure_statistics,
 )
+from .push_budget import PushAttemptBudget, PushBudgetExceeded
 
 __all__ = [
     "SolutionSmoother",
@@ -19,4 +20,6 @@ __all__ = [
     "FailureClassifier",
     "create_failure_info",
     "get_failure_statistics",
+    "PushAttemptBudget",
+    "PushBudgetExceeded",
 ]
