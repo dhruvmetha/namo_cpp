@@ -24,6 +24,7 @@ Everything below is verified against the live cluster (`sinfo`, `scontrol`), not
 | `activate.sh` | The canonical env. Sourcing it sets modules, conda, MJ_PATH, PYTHONPATH, BLAS pins, and every `NAMO_*` path. All sbatch scripts source it too. |
 | `run_amarel_collect.slurm` | Single-shard sbatch. Requires `MANIFEST=<path>` at submit. Optional: `START_IDX`, `END_IDX`, `OUTPUT_DIR`, `CONFIG_YAML`. |
 | `run_amarel_collect_array.slurm` | Array sbatch (default `--array=0-29`). Same overrides + `SHARD_SIZE` (default 1000), `GLOBAL_START` (default 0), `EXTRA_ARGS`. |
+| `run_full_namo_solvability_unfiltered.slurm` | CPU-only exact-`n` full-pipeline solvability sweep. Auto-discovers path lengths in an XML dir and writes one output subdir per `n`. |
 | `README.md` | This file. |
 
 Companion configs (sibling, not in this dir):
