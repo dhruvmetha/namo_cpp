@@ -329,17 +329,17 @@ depth** (how many pushes the planner may chain) and **K = samples-per-state**
 
 ### Drivers
 
-Both drivers run inside a SLURM allocation so they survive client/`srun`
-disconnects. Each child collection array is submitted, polled to completion,
-then the next phase is mined and submitted.
+The v3 cascade driver runs inside a SLURM allocation so it survives
+client/`srun` disconnects. Each child collection array is submitted, polled to
+completion, then the next phase is mined and submitted.
 
 ```bash
-# Phases 2 → 3 → 4 → 5 (delegates 5 to phase5_driver_sbatch.slurm at the end).
-sbatch scripts/amarel/phases2345_driver_sbatch.slurm
+# Phase 1 (single-push, sharded array — reads its phase-1 manifest).
+sbatch scripts/amarel/v3_phase1_collect.slurm
 
-# Phase 5 only (if you already have a phase-5 starting manifest).
-START_PASS=A INITIAL_MANIFEST=/scratch/dm1487/manifests/<your_initial>.txt \
-  sbatch scripts/amarel/phase5_driver_sbatch.slurm
+# Then the cascade driver waits for phase 1 and mines + runs phases
+# 2 → 3 → 4 → 5A-E in one allocation. Set CORPUS_TAG (e.g. v3_aug9 / v3_feb).
+CORPUS_TAG=v3_aug9 sbatch scripts/amarel/v3_cascade_driver.slurm
 ```
 
 Shard sizing in the drivers: `shards = min(60, max(1, ceil(n_envs / 100)))`,
