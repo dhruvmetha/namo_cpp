@@ -1,0 +1,40 @@
+# NAMO mask-dataset schema — the cross-repo contract between:
+#   producer: namo_cpp  python/namo/visualization/mask_generation/batch_collection.py
+#   consumer: sage_learning  src/data/mask_diffusion_data_cropped.py
+# Keep this in sync with both; it replaces tribal knowledge / scattered notes.
+#
+# One NPZ = one (scene, recorded-solution) example, rendered as two
+# object-centered crops:
+#   wide  — larger context (collection default 1.2 m; v3 overrides to 0.6 m).
+#           Carries the goal-mask supervision (goal_mask_a*).
+#   tight — 0.5 m. What the v3 DiT trains on (crop_prefix: local_tight).
+#
+# Each crop is a stack of single-channel masks, prefixed local_wide_ / local_tight_.
+
+channels:                 # the 5 context channels (model input)
+  - static               # walls / immovable obstacles
+  - movable              # other movable objects (not the target)
+  - target_object        # the object being pushed
+  - robot_region         # robot's wavefront-reachable area (carries reachability ~ partial A)
+  - goal_sample_region   # candidate goal-region samples
+
+supervision:
+  - target_goal          # ground truth: where the target object should end up
+  - goal_mask_a<N>       # per-push goal masks; goal_mask_a1 == target_goal (first push).
+                         # count of goal_mask_a* keys = chain depth / push horizon.
+
+keys:
+  per_crop: "local_{wide,tight}_{<channel>, target_goal, goal_mask_a<N>, metadata}"
+  global:   "target_goal, goal_mask_a<N>"
+
+metadata:                # local_wide_metadata / local_tight_metadata
+  - object_center        # (x, y) world position the crop is centered on
+  - object_theta         # target object rotation (rad)
+  - crop_size_meters
+  - resolution           # m / pixel
+
+invariants:
+  - "goal_mask_a1 == target_goal (primary / first-push goal)."
+  - "wavefront resolution: 2 mm at mask-gen, 1 cm at C++ planning time."
+  - "render -> model: 224 px rendered, resized to context_size 64; crop_size 64 (v3)."
+  - "normalize to [-1, 1] before the network."

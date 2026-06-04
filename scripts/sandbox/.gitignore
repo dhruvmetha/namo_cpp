@@ -1,0 +1,6 @@
+# Quarantine for one-off / disposable scripts: diagnostics, experiments,
+# point-in-time cleanups. NOT committed (that's the point — see README.md).
+# Durable pipeline/eval tooling belongs in scripts/, not here.
+*
+!.gitignore
+!README.md

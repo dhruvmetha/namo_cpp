@@ -125,6 +125,7 @@ if [ "$DRYRUN" != 1 ] && [ -n "$jids" ]; then
 fi
 
 echo "===== $CORPUS cascade COMPLETE @ $(date -Is) ====="
+[ "$DRYRUN" = 1 ] || "$PY" scripts/corpus.py "$CORPUS" stamp || true   # self-describing lineage (meta.json)
 echo "PKL counts:"
 for v in PHASE1_OUT PHASE2_OUT PHASE3_OUT PHASE4_OUT; do
     d=${!v}

@@ -180,6 +180,8 @@ CORPUS=v3_aug9 PHASE1_JID=<phase-1 array id> sbatch scripts/amarel/v3_cascade_dr
 
 `layout: flat` in the config matches the existing on-disk v3 dirs (`outputs/<id>_phaseN`); new corpora can set `nested` (`outputs/<id>/phaseN`) for one-prefix cleanup.
 
+`v3_phase1_collect.slurm` and `submit_npz_gen.sh` are already env-parameterized (`MANIFEST`, `OUTPUT_DIR`, `PHASE_DIR`) — fill them from `corpus.py <id> paths` (e.g. `PHASE1_OUT`) to keep phase-1 and NPZ-gen on the same layout as the cascade. The driver also writes a `meta.json` lineage stamp (`corpus.py <id> stamp`) on completion. The combined training H5 is its own declaration in `config/datasets/` (e.g. `v3_balanced_1to1.yaml`), and the NPZ/H5 key contract lives in `config/dataset_schema.yaml`.
+
 ---
 
 ## NPZ → H5 (training corpus)

@@ -29,6 +29,7 @@ except ImportError:
 
 REPO = Path(__file__).resolve().parent.parent
 CORPORA_DIR = REPO / "config" / "corpora"
+DATASET_CFG_DIR = REPO / "config" / "datasets"
 
 SCRATCH = Path(os.environ.get("NAMO_SCRATCH", "/scratch/dm1487"))
 DATASETS = Path(os.environ.get("NAMO_DATASETS", SCRATCH / "datasets"))
@@ -110,10 +111,76 @@ def _cmd_phasevars(cid):
             print(f'{pre}_REASONS="{" ".join(ph["mine_reasons"])}"')
 
 
+def _meta_path(cfg):
+    cid = cfg["id"]
+    if cfg.get("layout", "nested") == "flat":
+        return OUTPUTS / f"{cid}_meta.json"
+    return OUTPUTS / cid / "meta.json"
+
+
+def _git_sha():
+    import subprocess
+    try:
+        return subprocess.check_output(
+            ["git", "-C", str(REPO), "rev-parse", "--short", "HEAD"], text=True
+        ).strip()
+    except Exception:
+        return "unknown"
+
+
+def _cmd_stamp(cid):
+    """Write meta.json next to the corpus output — self-describing lineage, at production time."""
+    import datetime
+    cfg = load(cid)
+    mp = _meta_path(cfg)
+    mp.parent.mkdir(parents=True, exist_ok=True)
+    meta = {
+        "corpus": cid,
+        "status": cfg.get("status", "active"),
+        "layout": cfg.get("layout", "nested"),
+        "config": f"config/corpora/{cid}.yaml",
+        "git_sha": _git_sha(),
+        "stamped_utc": datetime.datetime.utcnow().isoformat() + "Z",
+    }
+    mp.write_text(json.dumps(meta, indent=2))
+    print(f"wrote {mp}")
+
+
+def load_dataset(name):
+    f = DATASET_CFG_DIR / f"{name}.yaml"
+    if not f.exists():
+        sys.exit(f"no dataset config: {f}")
+    if yaml is None:
+        sys.exit("PyYAML not installed in this interpreter")
+    cfg = yaml.safe_load(f.read_text())
+    cfg.setdefault("id", name)
+    return cfg
+
+
+def _cmd_dataset(name):
+    """Resolve a training-dataset declaration (which corpora it combines + its H5)."""
+    cfg = load_dataset(name)
+    out = {
+        "config": cfg,
+        "sources": cfg.get("sources", []),
+        "h5": str(H5 / cfg.get("h5", f"{name}.h5")),
+        "stage_npz": str(H5 / cfg.get("stage_npz", f"{name}_npz")),
+    }
+    print(json.dumps(out, indent=2, default=str))
+
+
 def main():
-    cmds = {"paths": _cmd_paths, "show": _cmd_show, "phasevars": _cmd_phasevars}
+    if len(sys.argv) >= 3 and sys.argv[1] == "dataset":
+        _cmd_dataset(sys.argv[2])
+        return
+    cmds = {
+        "paths": _cmd_paths,
+        "show": _cmd_show,
+        "phasevars": _cmd_phasevars,
+        "stamp": _cmd_stamp,
+    }
     if len(sys.argv) < 3 or sys.argv[2] not in cmds:
-        sys.exit("usage: corpus.py <id> {paths|show|phasevars}")
+        sys.exit("usage: corpus.py <id> {paths|show|phasevars|stamp}  |  corpus.py dataset <name>")
     cmds[sys.argv[2]](sys.argv[1])
 
 

@@ -1,0 +1,25 @@
+# Dataset declaration — a training corpus that COMBINES one-or-more corpora into
+# a single balanced H5. This is the registry entry for what the DiT trains on.
+# (A corpus = raw data-gen; a dataset = the balanced/combined H5 over corpora.)
+id: v3_balanced_1to1
+description: v3 combined feb+aug9, 1:1 single:multi-push balance, tight crop — the DiT's input
+status: active
+
+sources: [v3_feb, v3_aug9]        # corpus ids (see config/corpora/)
+balance: 1to1                     # 1 single-push : 1 multi-push example
+crop: tight                       # trainer reads local_tight_* (crop_prefix: local_tight)
+difficulty_weighting: primitive_trial_log   # weights the 1-push side by env difficulty
+
+# which phases feed each side of the balance
+phases:
+  one_push:   [phase1, phase4]
+  multi_push: [phase2, phase3, phase4, phase5]
+
+h5: v3_balanced_1to1.h5           # under $NAMO_H5
+stage_npz: v3_balanced_1to1_npz   # under $NAMO_H5 (1:1 picked NPZ stage)
+
+# Build: sage_learning/scripts/build_v3_balanced_h5.slurm
+#   (1) pick_balanced_npz_v3.py picks the 1:1 stage, (2) convert to H5.
+# NOTE: the existing H5 was built with explicit mask roots in that script
+# (feb phase5 = single dir; aug9 phase5 = A-E sweep). This file is the
+# intent / registry entry, not a re-derivation of the legacy roots.
