@@ -197,6 +197,12 @@ Phases produce PKLs → NPZ masks → a single HDF5 the trainer reads. End to en
 
 ---
 
+## Multi-push → training examples (suffix decomposition)
+
+A recorded n-push episode is split into n training examples by **trajectory suffix decomposition**: from each intermediate state `S_i`, the target is the *remaining* goals `[A_i … A_{n-1}]`. A 3-push solution yields 3 examples (all-from-start, remaining-from-S1, final-from-S2). This is why the NPZ carries per-push goal masks `goal_mask_a1..aN` (`a1` = the next push from the current state; count = remaining horizon) — it teaches the model to predict goals from *any* intermediate state, not just the initial one.
+
+---
+
 ## Pitfalls
 
 1. **`--target-goal-region` vs all-neighbours**: without the flag, the planner attempts to open every unreachable region per env, producing 5-10× more episodes per env but with non-goal-aligned semantics. The flag restricts to the labeled 'goal' region only.
