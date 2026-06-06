@@ -4,6 +4,17 @@ Context for Claude Code when working with NAMO (Navigation Among Movable Obstacl
 
 **→ For data collection instructions, see [DATA_COLLECTION_GUIDE.md](DATA_COLLECTION_GUIDE.md)**
 
+**→ GOTCHA: one room (`xml`) has MANY episodes (different object/goal each).** Never key analyses,
+difficulty buckets, dedup, or train/val splits on `xml` alone — the unit is **(pushed object, goal
+region)**. Match samples to episodes by `object_center` (~0 mm), bin difficulty per episode, hold out
+by room. See [docs/pipeline/multi_episode_rooms.md](docs/pipeline/multi_episode_rooms.md).
+
+**→ Skills & tools.** Data / eval / training-data / manifest / split work auto-triggers the
+**`namo-data-pipeline`** skill (`.claude/skills/`) — reuse-an-existing-script-first + the per-episode
+invariant gate above. Amarel GPU helpers live in `~/bin` (global, on PATH): **`getgpu`** (interactive
+node, reuse without re-queue), **`gpufree`** (idle GPUs now), **`gpueta`** (job ETAs, flags >1h).
+GPU/SLURM policy: submit `gpu,gpu-redhat`, never Camden, never wait >1h (relax/resubmit).
+
 ## How to talk to me
 
 Default to plain English. Short, sharp sentences. No jargon unless I'm already using it back at you. If you have to use a technical term, give the one-sentence intuition the first time. Walls of text are a failure mode — prefer a 3-line answer with a "want more?" hook over a 30-line essay I have to skim. Code snippets and numbers belong in the answer when they're load-bearing, not as decoration.

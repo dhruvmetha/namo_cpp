@@ -1,0 +1,30 @@
+# Dataset declaration — informative-hard 1-PUSH experiment.
+# Selects exhaustive phase-1 scenes that are SOLVABLE but HARD:
+#   solve_rate (successes / reachable push+depth points) in (0, 0.10].
+# 1-push only → no multi-push side, no 1:1 balancing.
+id: v3_1push_le10
+description: 1-push-only, informative-hard — solvable phase-1 scenes, solve_rate <= 10% (feb+aug9)
+status: active
+
+sources: [v3_feb, v3_aug9]          # corpus ids (phase-1 PKLs)
+push_only: true                     # single-push; no multi_push side, no balance
+crop: tight                         # trainer reads local_tight
+
+# difficulty-band selection (the experiment knob; see docs/pipeline/difficulty_stratification.md)
+select_solve_rate: {min: 0.0001, max: 0.10}   # exclude 0-solve (no goal); informative/hard <=10%
+phases:
+  one_push: [phase1]                # exhaustive trial_log only exists in phase-1
+  multi_push: []
+
+# Measured 2026-06-04: ~20,323 scenes in (0,0.10]  (<5% = 9,852 ; 5-10% = 10,471).
+
+# Derived scratch artifacts (flat v3 convention; raw NPZs were deleted in cleanup,
+# so they are REGENERATED from the kept phase-1 PKLs):
+manifest:  v3_1push_le10_pkls.txt          # under $NAMO_MANIFESTS (informative result.pkls)
+masks:     v3_1push_le10_masks             # under $NAMO_OUTPUTS  (regenerated NPZs)
+h5:        v3_1push_le10.h5                # under $NAMO_H5
+stage_npz: v3_1push_le10_lzf_tight_data    # under $NAMO_H5 (the trainer's data_dir)
+train_out: v3_1push_le10                   # under $NAMO_SCRATCH/sage_outputs
+
+# Build: emit manifest (solve_rate scan) -> regen NPZs (run_batch_collection_smoke) ->
+#        convert_to_hdf5.py --minimal --tight-only -> train on gpu,gpu-redhat (see docs/cluster_resources.md).
