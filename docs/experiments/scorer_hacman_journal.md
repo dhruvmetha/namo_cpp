@@ -233,7 +233,25 @@ and record why — negative results are results.
     earlier bit the single-ckpt reads. (2) These baseline seeds = **E4's real error bar 29.3 ± 1.7**, all 3
     clear E2's old ~25.6 (24–27.4) → **the "+3 from data" looks SOLID** (le10 matched-seed arm will confirm,
     paired). Note 29.3 > the single-ckpt E4 reads (28.3–29.8) — seed-averaging lands a touch higher.
-- decision: **keep reachability supervision — it gives a small consistent +1.5** (helps, not a wash).
+- **⚠️⚠️ ROBUST RE-EVAL (2026-06-06 ~17:10 — the FINAL word; supersedes the +1.5 above).** The +1.5 used
+  *single best-val ckpts*, but hard@1 wobbles **±4 within a run** across nearby epochs (measured: e4seed_s1
+  26.9→31.2 with flat val_loss). Seed 1's baseline landed on a lucky 31.2 ckpt → inflated the paired diff.
+  Fix: average hard@1 over each seed's **3 saved ckpts**, then pair (`resolve_robust.sh`). Result:
+  | group | per-seed (3-ckpt avg) | group |
+  |-------|------------------------|-------|
+  | le10 (E2-data) | 23.3 / 23.4 / 25.2 | **23.9 ± 1.1** |
+  | E4 (more data) | 28.3 / 28.2 / 27.7 | **28.1 ± 0.3** |
+  | reach-only BCE | 29.4 / 27.7 / 28.4 | **28.5 ± 0.8** |
+  - **REACHABILITY: NEUTRAL** — BCE-all − reach-only = −1.0/+0.5/−0.7 → **−0.4 (mixed signs)**. The "+1.5
+    helps" was within-run ckpt noise; robust averaging removes it. **Final: reachability supervision
+    neither helps nor hurts.** (Progression: wash→+1.5→neutral; the ckpt-averaged neutral is the truth.)
+  - **DATA: SOLID +4.1** — E4 − le10 = +5.1/+4.8/+2.5, **all seeds, t≈5.2.** More data is a real, strong
+    hard-lever (~+4). Error bars shrank ±1.7→±0.3 under ckpt-averaging — so 28.1 (not the noisy 29.3) is
+    E4's true hard@1, and le10 is 23.9.
+  - **METHOD LESSON (now standard):** hard@1 (n=413) needs BOTH **seed-averaging AND checkpoint-averaging**
+    — single-ckpt (even paired) is too noisy (±4 within-run + ±1.7 cross-seed). `resolve_robust.sh` does both.
+- decision: **DATA is the lever (+4, solid). Reachability supervision = neutral** (keep it, harmless, but
+  it's not a lever). Next robust verdict: zoom (dual), pending its training.
 
 ### E7 — de-alias the per-edge gather (zoom, not raw 224)   [PLANNED]
 - **[USER] hypothesis:** the contact-pixel aliasing (~5 pts/feature-cell, 4 corners coincident) is the
