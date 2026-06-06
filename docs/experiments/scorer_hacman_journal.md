@@ -248,8 +248,10 @@ and record why — negative results are results.
   incomplete (no `n_samples` attr) + the dependent seeds went `DependencyNeverSatisfied`. Fix: cancelled
   the stuck seeds, resubmitted the build on the **non-preemptible `main`** partition with `--requeue`
   (job 55610210), re-chained dual seeds 55610211/12/13. Evidence it was preemption: `sacct` State=PREEMPTED
-  + the `.out` epilog line "CANCELLED ... DUE TO PREEMPTION". **Lesson [per USER]: `main-redhat` is fine to
-  use (it's not off-limits) — just submit with `--requeue` so a preemption auto-restarts the job.**
+  + the `.out` epilog line "CANCELLED ... DUE TO PREEMPTION". **Lesson [per USER]: use `main-redhat` as the
+  PRIMARY CPU partition (big pool, starts instantly) + `--requeue` to survive preemption — do NOT switch to
+  plain `main` (it can leave you queued). The current rebuild on `main` already got a CPU, so it stays;
+  future CPU jobs → `main-redhat --requeue`.**
 - result: REBUILDING (main) → dual seeds queued (dependency).
 
 ---
