@@ -83,7 +83,16 @@ and record why — negative results are results.
   on this data → test the two orthogonal levers: **E2b (more capacity, same data)** and **E4 (same arch,
   3.6× data)**. Both LAUNCHED. E3 (zoom) held unless these stall on the edge-precision residual.
 
-### E4 — more data (the data lever for the lost core)   [DATA-GEN RUNNING, 2026-06-06 ~02:40]
+### E3-fine — resolution lever (finer per-edge gather)   [TRAINING, job 55588744]
+- **Hypothesis (H2, refined):** the per-edge gather from the coarse 16×16 feature map blurs adjacent
+  edges (~8 edges/cell), capping edge precision; a finer **32×32 map (patch=2 vs 4)** resolves them
+  (~4 edges/cell) → wrong-edge% ↓, first-valid rank ↓, hard @1 ↑. *This is the cleanest resolution test —
+  pure config change, same data/model, no rebuild* (vs the originally-planned 2nd zoomed crop, held as
+  the heavier alternative if this helps but isn't enough).
+- **Test:** vs E2 (patch=4). ACCEPT if hard @1 ↑ / wrong-edge ↓.
+- result: PENDING (training).
+
+### E4 — more data (the data lever for the lost core)   [TRAINING, 2026-06-06 ~04:40]
 - **Hypothesis (H3):** E2 left the ~36% no-signal "lost core" of hard scenes unchanged → it's
   data-limited, not arch-limited. ~3.6× more (hard-inclusive) data should raise positive-separation% and
   hard @1/coverage. *Uses the E2 architecture — isolates the DATA variable.*
@@ -130,6 +139,30 @@ Grounding for the per-edge / point-critic architecture we built:
 **My recommendation for what to read first:** the HACMan per-point feature-extractor + PointNet++ section
 — it makes the "each edge gets its own local+global summary" idea concrete and shows why the global
 readout (our E0) was the bottleneck.
+
+### E-oracle — geometric+wavefront oracle: is the lost core feature/FOV-limited or model-limited?   [RUNNING]
+- **Sharpened hypothesis (the big one).** The scorer's input is ONLY the **tight 0.5 m crop** (confirmed:
+  scorer H5 `ctx` = 5×64×64 from `local_tight_*`, `crop_size_meters`=0.5). So it reasons about "does a path
+  to the goal open" through a 0.5 m keyhole around the object. **Hypothesis H5: the lost core is a
+  field-of-view problem** — for ~36% of hard scenes the corridor that opens when you move the object lies
+  (partly) outside 0.5 m, so the answer is *not in the crop* and NO model on this input can recover it.
+  The competing hypothesis H5′: the answer IS in the crop and the model just can't extract it (arch/res).
+- **Decisive test — `scripts/sandbox/geom_oracle.py`.** A PERFECT geometric reasoner that uses only the
+  crop the model sees. Per candidate (edge, depth): look up the object's SE(2) displacement from the
+  calibrated `1x_car_d5` primitive .dat → move the target footprint (rigid) → obstacle = static ∪
+  other-movables ∪ moved-target → inflate by the robot radius (the wavefront's obstacle inflation) →
+  8-conn flood from the robot region → "opens" iff goal-sample region joins the robot's component.
+  Predicted-valid vs TRUE-valid (from sim) gives the oracle's recall.
+  - **Decision rule:** oracle hard-recall ≈ easy-recall → info is in the crop → **model-limited** (push
+    resolution E3 / better arch / explicit wavefront feature). Oracle hard-recall collapses → crop lacks
+    the answer → **FOV/physics-limited** → bigger crop (wide 1.2 m — data must be regen, none exists yet)
+    or full-map features / multi-push.
+- **Every assumption gated before trusting the number:** G1 render-IoU (rendered object pose matches the
+  real target mask) — smoke **0.948** ✓. G2 nopush-IoU (flood reproduces `robot_region`) — first naive
+  flood **FAILED at 0.219** (leaked through 1-px gaps a 7 cm car can't fit) → **fixed** by calibrating an
+  obstacle-inflation radius r* to reproduce `robot_region` (this is exactly the wavefront's inflation).
+  G3 easy-recall must be high or the oracle itself is broken.
+- result: PENDING (calibrating inflation + full-test pass).
 
 ## Key open question for the lost core (see E4 realization)
 We have ALL the hard training data already (le10 = every ≤10% scene). So the ~35% "lost core" of hard
