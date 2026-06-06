@@ -162,12 +162,42 @@ readout (our E0) was the bottleneck.
   flood **FAILED at 0.219** (leaked through 1-px gaps a 7 cm car can't fit) → **fixed** by calibrating an
   obstacle-inflation radius r* to reproduce `robot_region` (this is exactly the wavefront's inflation).
   G3 easy-recall must be high or the oracle itself is broken.
-- result: PENDING (calibrating inflation + full-test pass).
+- **RESULT — H5 ACCEPTED: the lost core is substantially FOV-LIMITED.** Full test set (n=413/491/752),
+  both gates pass (G1 render-IoU **0.952**, G2 reproduce-robot_region **0.815** at calibrated r*=20px
+  ≈ 4.5 cm robot radius). A *perfect* geometric reasoner with the same 0.5 m crop:
 
-## Key open question for the lost core (see E4 realization)
-We have ALL the hard training data already (le10 = every ≤10% scene). So the ~35% "lost core" of hard
-scenes is most likely **feature-limited**, not data-limited. The decisive next measurement is the
-**geometric+wavefront oracle** (render each push's footprint → recompute reachability → does the goal
-open?). If the oracle solves the lost-core scenes, the info is in the geometry → add wavefront/distance-
-field features (this H5 lacks them — only a binary robot-region blob). If the oracle can't, those scenes
-need multi-push. This is the highest-value next experiment after the current batch.
+  | bin  | oracle recall | oracle precision | base-rate | goal clipped by crop | misses via off-crop path |
+  |------|---------------|------------------|-----------|----------------------|--------------------------|
+  | hard | 67.3%         | **5.9%**         | 2.7%      | 26.9%                | **89.4%**                |
+  | med  | 65.7%         | 29.6%            | ~16%      | 25.7%                | 89.8%                    |
+  | easy | 85.6%         | 81.9%            | ~65%      | 19.5%                | 88.0%                    |
+
+  Reading: even with perfect geometry, the 0.5 m crop caps hard recall at 67% and gives precision barely
+  2× the random base-rate (within-crop connectivity is a near-useless signal on hard). The oracle's own
+  precision collapse easy→hard (82%→6%) mirrors the *model's* easy→hard collapse — strong evidence the
+  model's hard difficulty is **information-limited by the crop, not capacity/data-limited.** And ~89% of
+  the oracle's missed valids are explained by the goal connecting through an **off-crop** path.
+- **Honest caveats:** the oracle approximates (rigid single-object motion, within-crop reachability with
+  ~18% modeling error per G2, sampled goal region) → absolute recall ±~15%. But the *pattern* (hard
+  precision collapse + off-crop dominance of misses) is gate-validated and robust.
+- **Falsifiable PREDICTION (pre-registered):** because E2b (capacity), E3-fine (resolution), and E4 (data)
+  ALL keep the 0.5 m FOV, the oracle predicts **all three are ~flat on hard@1** (≈ E2's 24). E2b already
+  confirmed (24.2). If E3/E4 also land flat on hard, that triple-confirms FOV as the bottleneck.
+- **Decision → the lever is FIELD OF VIEW.** The wide 1.2 m crop already exists in the le10 NPZs
+  (`local_wide_*`, all 5 channels, object centered to <3 mm — verified). Two routes:
+  - **E5-wide** (wide-only): isolates the FOV variable. *Caveat measured:* in a 1.2 m crop the object
+    spans only ~11 px (vs ~27 px tight) so the 60 edge contact points squish into ~11 px → per-edge
+    gather loses edge resolution. So wide-only trades FOV-gain against edge-precision-loss (ambiguous).
+  - **E5-dual** (tight+wide, like the diffusion's dual-crop): tight encoder for edge precision + wide
+    encoder for FOV context, per-edge feature gathered from BOTH. The principled fix; more model surgery.
+  - **Cleanest model-free check first:** run THIS oracle on the WIDE crop. If wide-oracle hard
+    recall/precision ≫ tight, the answer is in 1.2 m → spend GPU on E5. If not, even 1.2 m is too small →
+    need full-map / wavefront-distance features or genuine multi-push. (Pipeline `--crop wide` verified.)
+
+## Key open question for the lost core — ANSWERED (E-oracle, 2026-06-06)
+Hypothesis history: first thought data-limited (E3/E4) → E4 realization showed le10 already has ALL hard
+data → suspected feature-limited → **E-oracle proved it is largely FIELD-OF-VIEW limited.** The 0.5 m
+crop simply does not contain the goal/corridor for ~1/4–1/3 of hard scenes; ~89% of even a perfect
+oracle's missed valids connect off-crop. So the lever is a **wider receptive field** (1.2 m wide crop /
+dual-crop / full-map features), NOT more data, capacity, or within-crop resolution. Next: confirm with
+the **wide-crop oracle** (model-free), then E5-wide / E5-dual. See the E-oracle entry above.
