@@ -232,7 +232,15 @@ and record why — negative results are results.
     clutter-aware push *outcomes* / task sparsity (~2 valid of 63), not local edge sharpness.
   - **Resolution rule:** zoom/dual-crop hard@1 vs E4 baseline, ≥3 seeds (noise is ±3-4); ACCEPT if >+3
     beyond the seed spread.
-- result: PLANNED (queue after E6 seeds free the GPUs).
+- **[CLAUDE] build (2026-06-06 ~14:40) — DONE, gated.** Engineering choice **[CLAUDE]: a `use_zoom` TOGGLE
+  in `EdgeCrossAttn`, not a new file** — reproducibility-gated (use_zoom=False is byte-identical: E2 ckpt
+  loads 0/0, +0 params; use_zoom=True +1.1M). Verified config **[USER instinct → CLAUDE sized it]: zoom
+  window 0.24 m @ 128 px** (not raw-224): sanity viz (`viz_zoom_matching.py`) showed wide↔zoom match
+  0.0000 px, 100% contacts in-bounds, de-alias **4.2 → 1.0 pts/feature-cell**, object 1.6%→17% of frame.
+  Dual H5 via `add_zoom_crop.py` (center-crop the 224 masks → context_zoom 5×128×128 + contact_px_zoom;
+  smoke 200 rows miss=0). End-to-end pipeline smoke passed (5.4M params, loss computes). Full dual H5 build
+  = job 55608957 (CPU). Next: GPU-smoke for OOM/batch, then 3 dual seeds vs E4 baseline.
+- result: BUILDING (full dual H5), then training.
 
 ---
 
