@@ -247,8 +247,9 @@ and record why — negative results are results.
 - **[CLAUDE] ops note:** first dual-build (job 55608957, `main-redhat`) was **preempted at ~59%** → H5
   incomplete (no `n_samples` attr) + the dependent seeds went `DependencyNeverSatisfied`. Fix: cancelled
   the stuck seeds, resubmitted the build on the **non-preemptible `main`** partition with `--requeue`
-  (job 55610210), re-chained dual seeds 55610211/12/13. Lesson: heavy CPU builds → `main`, not the
-  preemptible `main-redhat`/scavenger.
+  (job 55610210), re-chained dual seeds 55610211/12/13. Evidence it was preemption: `sacct` State=PREEMPTED
+  + the `.out` epilog line "CANCELLED ... DUE TO PREEMPTION". **Lesson [per USER]: `main-redhat` is fine to
+  use (it's not off-limits) — just submit with `--requeue` so a preemption auto-restarts the job.**
 - result: REBUILDING (main) → dual seeds queued (dependency).
 
 ---
