@@ -1,4 +1,28 @@
-# 1-push SCORER (HACMan-critic / F-classifier) — v1 results
+# 1-push SCORER (HACMan-critic / F-classifier) — results
+
+> **HEADLINE (2026-06-06, after the overnight HACMan-faithful build).** The per-edge cross-attention
+> scorer **E2** is the winner: **hard 24.0 / med 70.7 / easy 94.9 @1** (hard @20 89.8) — **~1.7× the
+> DiT baseline (E0, below), ~4× the diffusion, ~9× the random floor, and ~4× a calibrated geometric
+> oracle.** A full lever sweep (capacity E2b, data E4, FOV oracle; resolution E3 pending) shows
+> **hard@1 is a genuine ~24 plateau** — not fixable by capacity/data/FOV. Recommended next step:
+> **2-push search using E2 as the value function** (the objective), not more 1-push tuning.
+> Full reasoning + the falsified-FOV correction: **`scorer_hacman_journal.md`**.
+>
+> | model | hard@1 | med@1 | easy@1 | hard@20 | what it tests | verdict |
+> |---|---|---|---|---|---|---|
+> | E0 DiT (global readout) | 14.3 | 46.4 | 84.2 | 82.6 | baseline | — |
+> | **E2 per-edge cross-attn** | **24.0** | **70.7** | **94.9** | **89.8** | per-point critic (HACMan) | **WIN, kept** |
+> | E2b 2× capacity | 24.2 | 64.6 | 93.4 | — | capacity lever | flat → reject |
+> | E4 3.6× data | 24.0 | 80.4† | 99.3† | 88.1 | data lever | hard flat → data not the lever |
+> | E3-fine patch=2 | _pending_ | | | | resolution lever | predicted flat |
+> | geometric oracle (hard) | ~6%‡ | | | ~40%‡ | rigid-geom baseline | model beats it ~4× |
+>
+> † E4's med/easy rose only because it added med/easy data; hard was already saturated (le10 = every
+> ≤10% scene). ‡ oracle precision / est. @20-as-ranker — it's a weak baseline, NOT a ceiling.
+
+---
+
+## v1 baseline (E0 — global-readout DiT)
 
 **What it is.** A discriminative per-push success scorer: `f(scene masks) → P(opens path)` for every
 (edge, depth) primitive — the supervised version of HACMan's per-location Q-map (confirmed vs the real
@@ -45,13 +69,23 @@ depths, so no depth-blocked "wasted" cells.)
 The discriminative scorer **beats both the floor and the generative diffusion baseline** on a clean
 held-out set — the hypothesis holds. Reachability-safe by construction, deterministic, exact eval.
 
-## Next levers (not yet done)
-1. **10× data** — le10 is ~10% of the 211k-scene pool; generate masks for more scenes.
-2. **Spatially-grounded head** — gather per-edge features at contact pixels (HACMan's per-point variant;
-   the global-pool readout here is HACMan's weaker variant).
-3. **Recipe** — plateaued at epoch 22; lr/capacity/longer-schedule has headroom.
-4. **2-push = search over this scorer** (no new labels): roll push-1 forward, recompute reachability,
-   score push-2 with the same net; validate against the existing 2-push winning chains.
+## Levers — status after the overnight sweep
+1. ✅ **Spatially-grounded head (E2)** — per-edge tokens cross-attending the scene at contact pixels
+   (HACMan's per-point critic). **+10 pts hard@1 (14.3→24.0). The big win.**
+2. ✅ **Capacity (E2b)** — 2× params: flat (24.2). Not the lever.
+3. ✅ **Data (E4)** — 3.6× scenes: hard flat (24.0); med/easy up only from added med/easy data. Not the
+   hard lever (le10 already had all ≤10% scenes).
+4. ⏳ **Resolution (E3-fine, patch=2)** — finer per-edge gather; eval pending (predicted flat).
+5. ✅ **FOV (geometric oracle, tight vs wide)** — *rejected*: widening to 1.2 m removes goal-clipping but
+   doesn't move hard recall/precision; and the model already beats the rigid oracle ~4× → oracle is a
+   weak baseline, not a ceiling. Real but secondary: ~27% of hard goals are clipped at 0.5 m.
+6. → **NEXT: 2-push = search over this scorer** (no new labels): roll push-1 forward, recompute
+   reachability, score push-2 with the SAME net; validate against existing 2-push winning chains.
+   This is where hard scenes (few valid single pushes) actually get solved — hard@20 89.8% means the
+   right first push is almost always inside the top-20 a search would expand.
+7. (optional 1-push gains, low priority given plateau) **dual-crop** (tight edges + wide context;
+   pipeline built & gate-verified) addresses the ~27% goal-clipping; **continuous-duration depth actor
+   (H4)** for the always-d4 depth collapse.
 
 _Ckpt: `…/scorer/scorer_1push_v1/namo-classifier/pwbgz10f/checkpoints/epoch022-val_loss0.8638.ckpt`.
 Eval json: `/scratch/dm1487/eval_grounding/scorer_mid.json`. Scripts: `build_scorer_dataset.py`,
