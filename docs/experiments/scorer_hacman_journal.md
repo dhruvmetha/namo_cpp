@@ -162,9 +162,10 @@ readout (our E0) was the bottleneck.
   flood **FAILED at 0.219** (leaked through 1-px gaps a 7 cm car can't fit) → **fixed** by calibrating an
   obstacle-inflation radius r* to reproduce `robot_region` (this is exactly the wavefront's inflation).
   G3 easy-recall must be high or the oracle itself is broken.
-- **RESULT — H5 ACCEPTED: the lost core is substantially FOV-LIMITED.** Full test set (n=413/491/752),
-  both gates pass (G1 render-IoU **0.952**, G2 reproduce-robot_region **0.815** at calibrated r*=20px
-  ≈ 4.5 cm robot radius). A *perfect* geometric reasoner with the same 0.5 m crop:
+- **RESULT (tight crop) — initially read as FOV-limited; ⚠️ THIS READ WAS WRONG, corrected below by the
+  wide-crop oracle + the model-beats-oracle check. Read the CORRECTION before citing anything here.**
+  Full test set (n=413/491/752), both gates pass (G1 render-IoU **0.952**, G2 reproduce-robot_region
+  **0.815** at calibrated r*=20px ≈ 4.5 cm robot radius). A *perfect* geometric reasoner with the 0.5 m crop:
 
   | bin  | oracle recall | oracle precision | base-rate | goal clipped by crop | misses via off-crop path |
   |------|---------------|------------------|-----------|----------------------|--------------------------|
@@ -194,10 +195,60 @@ readout (our E0) was the bottleneck.
     recall/precision ≫ tight, the answer is in 1.2 m → spend GPU on E5. If not, even 1.2 m is too small →
     need full-map / wavefront-distance features or genuine multi-push. (Pipeline `--crop wide` verified.)
 
-## Key open question for the lost core — ANSWERED (E-oracle, 2026-06-06)
-Hypothesis history: first thought data-limited (E3/E4) → E4 realization showed le10 already has ALL hard
-data → suspected feature-limited → **E-oracle proved it is largely FIELD-OF-VIEW limited.** The 0.5 m
-crop simply does not contain the goal/corridor for ~1/4–1/3 of hard scenes; ~89% of even a perfect
-oracle's missed valids connect off-crop. So the lever is a **wider receptive field** (1.2 m wide crop /
-dual-crop / full-map features), NOT more data, capacity, or within-crop resolution. Next: confirm with
-the **wide-crop oracle** (model-free), then E5-wide / E5-dual. See the E-oracle entry above.
+- **⚠️ CORRECTION (the wide-crop oracle ran — it FALSIFIES the FOV conclusion).** Ran the same oracle on
+  the 1.2 m wide crop (built `v3_test_*_lzf_both_data` from the test NPZs; gates pass G1 0.887, G2 0.832
+  at the correctly re-calibrated r*=8px = the same ~4.5 cm radius in coarser px). Result vs tight:
+
+  | bin  | recall (tight→wide) | precision (tight→wide) | goal clipped (tight→wide) | misses off-crop (tight→wide) |
+  |------|---------------------|------------------------|---------------------------|------------------------------|
+  | hard | 67.3 → **68.8**     | 5.9 → **5.8**          | 26.9% → **1.7%**          | 89.4% → **3.1%**             |
+  | med  | 65.7 → 67.5         | 29.6 → 29.3            | 25.7% → 1.4%              | 89.8% → 8.6%                 |
+  | easy | 85.6 → 87.5         | 81.9 → 81.0            | 19.5% → 2.0%              | 88.0% → 16.0%                |
+
+  The wider crop **removes the goal-clipping** (26.9%→1.7%) and the off-crop misses (89%→3%) — the goal is
+  now fully in view — **yet recall and precision on hard are UNCHANGED (68.8/5.8 ≈ 67.3/5.9).** So
+  goal-visibility was NOT the binding constraint. The "89% off-crop" attribution in the tight read was a
+  *proxy artifact* (goal-touches-border ≠ answer-is-off-crop): the same scenes stay unsolved at full FOV.
+- **⚠️ AND the oracle is a WEAK BASELINE, not a ceiling — the trained model already beats it.** The
+  geometric oracle's hard *precision* (≈ its success@1 as a ranker, since it emits binary open/closed) is
+  **~6%**; E2 gets **24% hard@1** and **89.8% hard@20** (the oracle as a random pick among its ~34 "opens"
+  would be ~6%@1 and only ~40%@20). So E2 extracts **~4× more** signal from the SAME crop than the rigid
+  free-space oracle. The oracle over-predicts wildly on hard (~6% precision = it thinks half of all pushes
+  open the goal) because rigid free-space motion ignores clutter (the object stops early / nudges
+  neighbors). **The model has learned clutter-aware push outcomes the oracle cannot.** ⇒ this oracle
+  **cannot upper-bound** the model; my "FOV-limited lost core" claim is **rejected**.
+- **What actually holds (durable, honest):** (1) ~27% of hard goals ARE clipped by the 0.5 m crop — a real
+  but *secondary* FOV limitation (fixing it didn't move the needle). (2) The hard plateau is NOT explained
+  by capacity (E2b flat), data (E4 flat — see below), FOV (this), or — pending — resolution (E3). It looks
+  like **genuine 1-push task difficulty**: hard scenes have few valid single pushes (median |valid| ~2 of
+  ~63 reachable) and marginal geometry. (3) E2 is a strong converged 1-push scorer: beats diffusion ~4×,
+  the random floor ~9×, AND a calibrated geometric oracle ~4× on hard@1.
+- **Lesson logged:** a cheap proxy (goal-touches-border) over-attributed the cause; the decisive move was
+  the *direct counterfactual* (actually widen the FOV and re-measure) + checking the baseline against the
+  model. Pre-register the falsifier, not just the confirmer.
+
+### E4 — more data (the data lever)   [PRELIM eval mid-training, epoch~17]
+- **RESULT — H3 confirmed: data is NOT the hard lever.** E4 (3.6× data, easy-skewed) hard@1 = **24.0**,
+  *identical* to E2's 24.0 (le10). Med **80.4** (>E2 70.7) and easy **99.3** (>E2 94.9) rose — but only
+  because E4 added med/easy examples; hard was already saturated (le10 = every ≤10% scene). Exactly the
+  E4-realization prediction. (Mid-training; hard@1 converges early/flat as in E2, so this is firm.)
+
+## Key open question for the lost core — RESOLVED, with a corrected answer (E-oracle, 2026-06-06)
+Hypothesis history (each step tested, several rejected — this is the audit trail):
+1. data-limited? → **NO.** E4 realization: le10 already has ALL hard data; E4 (3.6× data) hard@1 flat 24.0.
+2. capacity-limited? → **NO.** E2b (2× params) hard@1 flat 24.2.
+3. FOV-limited? → tight oracle *suggested yes* (89% misses "off-crop"), but the **wide-crop oracle FALSIFIED
+   it**: widening to 1.2 m removes goal-clipping (27%→1.7%) yet hard recall/precision don't move. Off-crop
+   was a proxy artifact.
+4. resolution-limited? → E3-fine **pending** (prediction: flat, same 0.5 m FOV / same task).
+5. Is the geometric oracle even a ceiling? → **NO** — the trained E2 (24% hard@1) beats the oracle's ~6%
+   precision ~4×. The oracle is a weak rigid-free-space baseline, not an upper bound.
+
+**Corrected answer:** the hard plateau (~24 @1) is **genuine 1-push difficulty**, not a fixable input/arch
+gap — hard scenes simply have very few valid single pushes (median ~2/63) and the model already extracts
+more than rigid geometry can. The right move toward the **objective** (multi-push via search over the
+scorer) is **2-push search using E2 as the value function** — where hard scenes get solved by *composing*
+pushes (89.8% hard@20 means the right push is almost always in the top-20 the search would expand), not by
+squeezing 1-push @1 further. Secondary/optional levers if we still want 1-push gains: dual-crop (addresses
+the real ~27% goal-clipping) and a faithful sim-based oracle / wavefront-distance features (the rigid
+oracle's failure says clutter-aware push *outcomes* are the missing signal). See the E-oracle entry above.
