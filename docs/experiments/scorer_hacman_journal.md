@@ -96,6 +96,22 @@ and record why — negative results are results.
 - **Data:** same `v3_scorer_1push` H5 + new `contact_px` (60,2) added via `add_contact_px.py` (pose
   math, in-bounds 100%). Same room-grouped split, same masked BCE+Dice loss. *Only the readout changed*
   vs E0 — so a win is attributable to per-edge reasoning, not data/loss.
+- **⚠️ Contact-point fidelity vs namo_cpp [CLAUDE simplification, surfaced by USER question 2026-06-06]:**
+  compared my `contact_px` (sage) against C++ `generate_rectangular_edge_points`
+  (`src/planning/namo_push_controller.cpp:120`). **Matches:** the 60-edge *ordering* (interleaved
+  Top0,Bottom0,Top1,…, then Right0,Left0,… — even<30=Top/odd<30=Bottom, even≥30=Right/odd≥30=Left) and
+  the along-face sampling (`sample_lin(-w,w,n)` with n=15, full half-extent span). This index↔label
+  mapping is verified independently (`edge_align_err=0`). **Does NOT match:** the C++ pushes each contact
+  point OUT along the face normal by `offset = robot_radius + push_offset_margin` (~5–6 cm ≈ ~7 px in the
+  64-px crop ≈ ~1.5 cells of the coarse 16×16 feature map) — that standoff is where the *robot* stands to
+  push. My gather point sits ON the object face (no offset). **Why:** a deliberate simplification — I used
+  the face point as the per-edge positional anchor and didn't replicate the robot standoff.
+  **Does it matter?** For label alignment, no (the *index* mapping is what aligns predictions to labels,
+  and that's exact). For the feature gather, it's a ~1.5-cell shift in *where* each edge reads the scene;
+  train and eval use the *same* convention so the model is self-consistent — but the C++ standoff point
+  (in the robot's approach space) is arguably a *more informative* gather location than a point on the
+  object body. **Candidate test (not yet run):** regenerate `contact_px` WITH the C++ offset → re-eval E2
+  → does hard@1 move? Clean, cheap; logged as a follow-up.
 - **Test:** eval on the SAME test episodes → compare hard @1 + wrong-edge% + grid viz vs E0
   (14.3 @1, 96.6% wrong-edge). ACCEPT if @1 ↑ and wrong-edge ↓.
 - **RESULT — H1 ACCEPTED (strongly).** Mid-training read (epoch 41, val_loss 0.60 vs E0's 0.86 plateau;
