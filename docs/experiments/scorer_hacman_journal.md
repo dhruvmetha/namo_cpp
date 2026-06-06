@@ -38,6 +38,10 @@ test accepts; otherwise reverted/iterated. Bars: held-out **by room**, binned by
 honest **without-replacement** floor, success@k + the failure decomposition (wrong-edge% / wrong-depth%
 / rank-of-first-valid). Primary metric to move: **hard @1** and **hard wrong-edge%**.
 
+**Decision attribution (convention, user request 2026-06-06):** every design choice is tagged **[USER]**
+(Dhruv's call) or **[CLAUDE]** (mine), so we can trace which decisions drove which results. Predictions
+are pre-registered (stated *before* the result) and tagged the same way.
+
 ---
 
 ## Baseline (E0) — global-readout DiT classifier  [DONE, established]
@@ -155,6 +159,30 @@ and record why — negative results are results.
   help — likely under-trained at the lower lr, but regardless, **E2 (4.3M) is already the right size.**
 - **Conclusion:** the limit is NOT capacity. With the lost core also unchanged E0→E2 (65% positive-sep),
   the evidence converges on **data** as the lever → E4 is the decisive test. (Negative result = result.)
+
+### E6 — seed variance on the best setting + reachability-supervision ablation   [RUNNING, 2026-06-06 ~13:38]
+- **Motivation [CLAUDE]:** hard@1 on n=413 has ±3-4 single-checkpoint noise (E2 ckpts 24.0/25.4/25.4/27.4),
+  so the "E4 data +3" needs a real error bar (seeds), not point estimates.
+- **[USER] decision:** run a few seeds of the best setting we had (E4 = edge_crossattn on 3.6× data) to
+  get variance on the performance.
+- **[USER] hypothesis (reachability):** supervising the model to predict reachability (BCE on *all* 300
+  cells, pushing unreachable→0) helps it interpret the robot-region channel and understand what a good
+  push is — so removing that supervision should *hurt*.
+- **[CLAUDE] design:** 3 baseline seeds (BCE-on-all) + 3 ablation seeds (BCE on *reachable-only*), all on
+  E4 data, same fixed room split (seed 0), vary only model-init seed (1/2/3). Implemented via a
+  `bce_reachable_only` flag (`classifier_module.py`) + configurable `seed` (`train_classifier.py`);
+  unit-tested loss finite for both, Hydra overrides dry-run-checked. Jobs: baseline 55606688/90/92,
+  ablation 55606689/91/93 (gpu,gpu-redhat, 1 GPU each, all RUNNING — no queue).
+- **Pre-registered predictions (the bet, stated before results):**
+  - **[USER]:** reachability supervision matters → ablation (reachable-only) is **clearly worse** (the
+    "it helps the model read the robot region" position).
+  - **[CLAUDE]:** **small effect**, |baseline − ablation| ≤ ~2 pts hard@1 either way (lean slightly
+    "helps but small"); rationale — the reachable region is *already an input channel*, so the ablation
+    only removes the *supervision* to predict it, not the information itself.
+  - **Resolution rule:** mean±std hard@1 over 3 seeds each; "clearly worse" = baseline−ablation > 2 pts
+    with non-overlapping spread.
+- **Test:** eval all 6 converged ckpts on the fixed test set; report baseline vs ablation mean±std.
+- result: PENDING (training, ~4-6 h).
 
 ---
 
