@@ -240,7 +240,11 @@ and record why — negative results are results.
   Dual H5 via `add_zoom_crop.py` (center-crop the 224 masks → context_zoom 5×128×128 + contact_px_zoom;
   smoke 200 rows miss=0). End-to-end pipeline smoke passed (5.4M params, loss computes). Full dual H5 build
   = job 55608957 (CPU). Next: GPU-smoke for OOM/batch, then 3 dual seeds vs E4 baseline.
-- result: BUILDING (full dual H5), then training.
+- **[CLAUDE] launch:** 3 dual seeds 55609443/44/45 submitted with `--dependency=afterok:55608957` (auto-fire
+  when the build's gate-asserts pass — clean hands-off chain). **batch_size=64** (the 128-px zoom stem is
+  heavier; 64 is safely under E3-fine's OOM line; minor confound vs E4-baseline-at-128 — re-run matched if
+  the signal is promising). Bet stands: [USER] helps / [CLAUDE] small (+1–3).
+- result: BUILDING → dual seeds queued (dependency).
 
 ---
 
