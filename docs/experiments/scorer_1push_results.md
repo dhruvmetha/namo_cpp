@@ -14,7 +14,7 @@
 > | **E2 per-edge cross-attn** | **24.0** | **70.7** | **94.9** | **89.8** | per-point critic (HACMan) | **WIN, kept** |
 > | E2b 2× capacity | 24.2 | 64.6 | 93.4 | — | capacity lever | flat → reject |
 > | E4 3.6× data | 24.0 | 80.4† | 99.3† | 88.1 | data lever | hard flat → data not the lever |
-> | E3-fine patch=2 | _pending_ | | | | resolution lever | predicted flat |
+> | E3-fine patch=2 | 25.2 | 69.7 | 94.5 | 88.6 | resolution lever | flat → resolution not the lever |
 > | geometric oracle (hard) | ~6%‡ | | | ~40%‡ | rigid-geom baseline | model beats it ~4× |
 >
 > † E4's med/easy rose only because it added med/easy data; hard was already saturated (le10 = every
@@ -75,7 +75,8 @@ held-out set — the hypothesis holds. Reachability-safe by construction, determ
 2. ✅ **Capacity (E2b)** — 2× params: flat (24.2). Not the lever.
 3. ✅ **Data (E4)** — 3.6× scenes: hard flat (24.0); med/easy up only from added med/easy data. Not the
    hard lever (le10 already had all ≤10% scenes).
-4. ⏳ **Resolution (E3-fine, patch=2)** — finer per-edge gather; eval pending (predicted flat).
+4. ✅ **Resolution (E3-fine, patch=2)** — finer 32×32 per-edge gather: flat (hard 25.2 ≈ 24, within
+   noise). Not the lever.
 5. ✅ **FOV (geometric oracle, tight vs wide)** — *rejected*: widening to 1.2 m removes goal-clipping but
    doesn't move hard recall/precision; and the model already beats the rigid oracle ~4× → oracle is a
    weak baseline, not a ceiling. Real but secondary: ~27% of hard goals are clipped at 0.5 m.

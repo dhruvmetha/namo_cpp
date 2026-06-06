@@ -90,7 +90,11 @@ and record why — negative results are results.
   pure config change, same data/model, no rebuild* (vs the originally-planned 2nd zoomed crop, held as
   the heavier alternative if this helps but isn't enough).
 - **Test:** vs E2 (patch=4). ACCEPT if hard @1 ↑ / wrong-edge ↓.
-- result: PENDING (training).
+- **RESULT — H2 REJECTED (flat): hard @1 = 25.2** (vs E2 24.0; med 69.7 / easy 94.5), @20 88.6. Within the
+  n=413 noise band and mid-training (val_loss 0.602 > E2's 0.594, patch=2 trains slower) — no meaningful
+  hard gain from the finer 32×32 gather. Resolution is NOT the lever. **Completes the lever sweep:
+  capacity (24.2) / data (24.0) / resolution (25.2) ALL flat at ~24-25 → the pre-registered
+  "flat on hard" prediction is fully confirmed; the ~24 hard@1 plateau is robust.**
 
 ### E4 — more data (the data lever for the lost core)   [TRAINING, 2026-06-06 ~04:40]
 - **Hypothesis (H3):** E2 left the ~36% no-signal "lost core" of hard scenes unchanged → it's
