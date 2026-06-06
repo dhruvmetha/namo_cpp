@@ -213,14 +213,27 @@ and record why — negative results are results.
   best ckpts are final):**
   - baseline BCE-on-all: hard@1 **[31.2, 28.1, 28.6] → 29.3 ± 1.7**
   - ablation reachable-only: **[29.5, 26.2, 27.8] → 27.8 ± 1.7**
-  - diff **+1.5 pts**, *within* the ±1.7 seed std (overlapping) → **NOT significant. Reachability
-    supervision is ~neutral** (a hair positive, in [USER]'s predicted direction, but not beyond noise).
-    **[CLAUDE] wins the strict bet (≤2 pts); [USER]'s intuition has a non-significant directional lean.**
+  - **⚠️ CORRECTED VERDICT (initial "wash" was wrong — [USER] caught it).** First I compared the two
+    groups *unpaired* (ranges 28.1–31.2 vs 26.2–29.5 overlap → looked "not significant, ~neutral"). But
+    the design is **PAIRED**: `seed-k-with` and `seed-k-without` are the SAME init + SAME data + SAME batch
+    order — *only the reachability loss term differs*. So the correct test is paired, per seed:
+    | seed | with-sup | without | gain |
+    |------|----------|---------|------|
+    | 1 | 31.2 | 29.5 | +1.7 |
+    | 2 | 28.1 | 26.2 | +1.9 |
+    | 3 | 28.6 | 27.8 | +0.8 |
+    **All 3 seeds: with > without, by +1.5 ± 0.6 (paired, t≈4.3).** → **reachability supervision gives a
+    small but CONSISTENT +1.5 — it helps. [USER]'s intuition was right; [CLAUDE]'s "wash" was wrong.** The
+    unpaired view masked it because the **seed-wobble (±1.7) is bigger than the effect (+1.5)** and cancels
+    in the paired diff. (Caveat: 3 seeds, small effect → "likely real, small"; more seeds to be certain.)
+  - **Methodology lesson [important]:** ALL our scorer experiments use **matched seeds** (only one knob
+    differs) → always compare **PAIRED** (per-seed diff), never group-mean±std. Group/overlap tests hide
+    any effect smaller than the seed-wobble. *(Fixing `resolve_all.sh` to report paired diffs.)*
   - **Two bonus results:** (1) **seed noise on hard@1 = ±1.7** (n=413) — quantifies the wobble that
-    earlier bit the single-ckpt reads. (2) These baseline seeds = **E4's real error bar 29.3 ± 1.7**, and
-    all 3 clear E2's old ~25.6 (24–27.4) → **the "+3 from data" looks SOLID** (the le10 matched-seed arm
-    will confirm). Note 29.3 > the single-ckpt E4 reads (28.3–29.8) — seed-averaging lands a touch higher.
-- decision: reachability supervision stays (harmless, marginally positive); not a lever to chase.
+    earlier bit the single-ckpt reads. (2) These baseline seeds = **E4's real error bar 29.3 ± 1.7**, all 3
+    clear E2's old ~25.6 (24–27.4) → **the "+3 from data" looks SOLID** (le10 matched-seed arm will confirm,
+    paired). Note 29.3 > the single-ckpt E4 reads (28.3–29.8) — seed-averaging lands a touch higher.
+- decision: **keep reachability supervision — it gives a small consistent +1.5** (helps, not a wash).
 
 ### E7 — de-alias the per-edge gather (zoom, not raw 224)   [PLANNED]
 - **[USER] hypothesis:** the contact-pixel aliasing (~5 pts/feature-cell, 4 corners coincident) is the
