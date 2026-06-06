@@ -244,7 +244,12 @@ and record why — negative results are results.
   when the build's gate-asserts pass — clean hands-off chain). **batch_size=64** (the 128-px zoom stem is
   heavier; 64 is safely under E3-fine's OOM line; minor confound vs E4-baseline-at-128 — re-run matched if
   the signal is promising). Bet stands: [USER] helps / [CLAUDE] small (+1–3).
-- result: BUILDING → dual seeds queued (dependency).
+- **[CLAUDE] ops note:** first dual-build (job 55608957, `main-redhat`) was **preempted at ~59%** → H5
+  incomplete (no `n_samples` attr) + the dependent seeds went `DependencyNeverSatisfied`. Fix: cancelled
+  the stuck seeds, resubmitted the build on the **non-preemptible `main`** partition with `--requeue`
+  (job 55610210), re-chained dual seeds 55610211/12/13. Lesson: heavy CPU builds → `main`, not the
+  preemptible `main-redhat`/scavenger.
+- result: REBUILDING (main) → dual seeds queued (dependency).
 
 ---
 
