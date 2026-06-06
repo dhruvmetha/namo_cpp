@@ -209,7 +209,18 @@ and record why — negative results are results.
   - **Resolution rule:** mean±std hard@1 over 3 seeds each; "clearly worse" = baseline−ablation > 2 pts
     with non-overlapping spread.
 - **Test:** eval all 6 converged ckpts on the fixed test set; report baseline vs ablation mean±std.
-- result: PENDING (training, ~4-6 h).
+- **RESULT (2026-06-06 ~16:20, evaled at past-peak best ckpts — both groups overfitting, val rising, so
+  best ckpts are final):**
+  - baseline BCE-on-all: hard@1 **[31.2, 28.1, 28.6] → 29.3 ± 1.7**
+  - ablation reachable-only: **[29.5, 26.2, 27.8] → 27.8 ± 1.7**
+  - diff **+1.5 pts**, *within* the ±1.7 seed std (overlapping) → **NOT significant. Reachability
+    supervision is ~neutral** (a hair positive, in [USER]'s predicted direction, but not beyond noise).
+    **[CLAUDE] wins the strict bet (≤2 pts); [USER]'s intuition has a non-significant directional lean.**
+  - **Two bonus results:** (1) **seed noise on hard@1 = ±1.7** (n=413) — quantifies the wobble that
+    earlier bit the single-ckpt reads. (2) These baseline seeds = **E4's real error bar 29.3 ± 1.7**, and
+    all 3 clear E2's old ~25.6 (24–27.4) → **the "+3 from data" looks SOLID** (the le10 matched-seed arm
+    will confirm). Note 29.3 > the single-ckpt E4 reads (28.3–29.8) — seed-averaging lands a touch higher.
+- decision: reachability supervision stays (harmless, marginally positive); not a lever to chase.
 
 ### E7 — de-alias the per-edge gather (zoom, not raw 224)   [PLANNED]
 - **[USER] hypothesis:** the contact-pixel aliasing (~5 pts/feature-cell, 4 corners coincident) is the
