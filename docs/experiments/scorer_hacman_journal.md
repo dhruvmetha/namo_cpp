@@ -211,6 +211,29 @@ and record why — negative results are results.
 - **Test:** eval all 6 converged ckpts on the fixed test set; report baseline vs ablation mean±std.
 - result: PENDING (training, ~4-6 h).
 
+### E7 — de-alias the per-edge gather (zoom, not raw 224)   [PLANNED]
+- **[USER] hypothesis:** the contact-pixel aliasing (~5 pts/feature-cell, 4 corners coincident) is the
+  64×64 resolution; going to 224 will give each contact point its own pixel and help further.
+- **[CLAUDE] analysis (the correction):** raw 224 on the *wide 0.5 m crop* does NOT cleanly fix it. The
+  object is only ~12% of the crop, so "1 point per feature cell" needs a feature grid ≥ ~125 across
+  (15 pts / 0.12) → ~15k tokens → compute-infeasible (E3-fine at 64/patch2 = 1024 tokens already OOM'd at
+  batch 128). 224-input *does* sharpen the rendered object (27 px vs 12.5 px) — a real, untested effect —
+  but 224+patch4 is still ~2 pts/feature-cell and ~3k tokens (heavy). **The efficient fix is to ZOOM so the
+  object fills the frame:** at a ~2× object-bbox crop (~12 cm), even 64–96 px + patch 4 gives ~1 pt/cell
+  (grid ≥ 2.5·crop_cm ≈ 30) — cheap (~256–1024 tokens). Best design = **dual input**: keep the 0.5 m crop
+  feeding scene tokens (context via cross-attn) + gather per-edge *local* features from the zoom crop
+  (sharp, de-aliased). Data is cheap — 224 masks are object-centered, so the zoom is a center-crop+resize,
+  no re-simulation.
+- **Pre-registered predictions:**
+  - **[USER]:** it will help further (resolution is the lever).
+  - **[CLAUDE]:** worth testing (real measured flaw + the *sharper-object* mechanism is untested — E3-fine
+    only sampled the blurry 64 finer), but I bet a **small gain (~+1–3 hard@1)**, not a breakthrough —
+    because (i) E3-fine (5→2.5 pts/cell) was ~flat, and (ii) the geom-oracle says the deeper bottleneck is
+    clutter-aware push *outcomes* / task sparsity (~2 valid of 63), not local edge sharpness.
+  - **Resolution rule:** zoom/dual-crop hard@1 vs E4 baseline, ≥3 seeds (noise is ±3-4); ACCEPT if >+3
+    beyond the seed spread.
+- result: PLANNED (queue after E6 seeds free the GPUs).
+
 ---
 
 ## Reading list (for the user on waking)
