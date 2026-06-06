@@ -1,24 +1,28 @@
 # 1-push SCORER (HACMan-critic / F-classifier) — results
 
-> **HEADLINE (2026-06-06, after the overnight HACMan-faithful build).** The per-edge cross-attention
-> scorer **E2** is the winner: **hard 24.0 / med 70.7 / easy 94.9 @1** (hard @20 89.8) — **~1.7× the
-> DiT baseline (E0, below), ~4× the diffusion, ~9× the random floor, and ~4× a calibrated geometric
-> oracle.** A full lever sweep (capacity E2b, data E4, FOV oracle; resolution E3 pending) shows
-> **hard@1 is a genuine ~24 plateau** — not fixable by capacity/data/FOV. Recommended next step:
-> **2-push search using E2 as the value function** (the objective), not more 1-push tuning.
-> Full reasoning + the falsified-FOV correction: **`scorer_hacman_journal.md`**.
+> **HEADLINE (2026-06-06, overnight HACMan-faithful build — numbers are multi-checkpoint; hard@1 on
+> n=413 carries ±3-4 noise so treat single points accordingly).** The per-edge cross-attention scorer
+> **E2** is the architecture win: **hard ~25.6 @1** (range 24.0–27.4 across ckpts), hard@20 ~89.5 —
+> **~1.8× the DiT baseline E0 (+11, far beyond noise), ~4× the diffusion, ~9× the random floor, and ~4×
+> a calibrated geometric oracle.** Lever sweep: capacity (E2b) and resolution (E3-fine) **flat within
+> noise**; **data (E4, 3.6×) gives a modest REAL +3** (converged ~28.8, all 3 converged ckpts > E2's
+> best). FOV is NOT the lever (wide-crop oracle falsified it; the oracle is a weak baseline the model
+> beats ~4×, not a ceiling). Recommended next: **2-push search using the best scorer (E4) as the value
+> function** (the objective), plus **data scaling** as the live 1-push lever. Full audit trail + both
+> mid-session corrections: **`scorer_hacman_journal.md`** (⭐ FINAL SYNTHESIS at top).
 >
-> | model | hard@1 | med@1 | easy@1 | hard@20 | what it tests | verdict |
+> | model | data | hard@1 (ckpt range) | med@1 | easy@1 | hard@20 | verdict |
 > |---|---|---|---|---|---|---|
-> | E0 DiT (global readout) | 14.3 | 46.4 | 84.2 | 82.6 | baseline | — |
-> | **E2 per-edge cross-attn** | **24.0** | **70.7** | **94.9** | **89.8** | per-point critic (HACMan) | **WIN, kept** |
-> | E2b 2× capacity | 24.2 | 64.6 | 93.4 | — | capacity lever | flat → reject |
-> | E4 3.6× data | 24.0 | 80.4† | 99.3† | 88.1 | data lever | hard flat → data not the lever |
-> | E3-fine patch=2 | 25.2 | 69.7 | 94.5 | 88.6 | resolution lever | flat → resolution not the lever |
-> | geometric oracle (hard) | ~6%‡ | | | ~40%‡ | rigid-geom baseline | model beats it ~4× |
+> | E0 DiT (global readout) | le10 | 14.3 | 46.4 | 84.2 | 82.6 | baseline |
+> | **E2 per-edge cross-attn** | le10 | **25.6** (24.0–27.4) | 70.7 | 94.9 | ~89.5 | **arch WIN (+11 vs E0), kept** |
+> | E2b 2× capacity | le10 | 24.2 | 64.6 | 93.4 | — | flat (noise) → not a lever |
+> | E3-fine patch=2 | le10 | 25.6 (25.2–25.9) | 72.9 | 96.3 | ~90 | flat (noise) → not a lever |
+> | **E4 same arch** | **3.6×** | **28.8** (conv. 28.3–29.8) | 80.4 | 99.5 | ~87.5 | **modest REAL +3 (data lever)** |
+> | geometric oracle (hard) | — | ~6%† | | | ~40%† | weak baseline, NOT a ceiling |
 >
-> † E4's med/easy rose only because it added med/easy data; hard was already saturated (le10 = every
-> ≤10% scene). ‡ oracle precision / est. @20-as-ranker — it's a weak baseline, NOT a ceiling.
+> † oracle precision / est. @20-as-ranker. The model beats it ~4× → it can't bound the model.
+> *Correction note: I first read E4 as "flat 24.0" — that was a mid-training checkpoint; converged E4 is
+> ~28.8. Always eval converged checkpoints, and characterize ±3-4 ckpt noise before reading point diffs.*
 
 ---
 
@@ -71,22 +75,25 @@ held-out set — the hypothesis holds. Reachability-safe by construction, determ
 
 ## Levers — status after the overnight sweep
 1. ✅ **Spatially-grounded head (E2)** — per-edge tokens cross-attending the scene at contact pixels
-   (HACMan's per-point critic). **+10 pts hard@1 (14.3→24.0). The big win.**
-2. ✅ **Capacity (E2b)** — 2× params: flat (24.2). Not the lever.
-3. ✅ **Data (E4)** — 3.6× scenes: hard flat (24.0); med/easy up only from added med/easy data. Not the
-   hard lever (le10 already had all ≤10% scenes).
-4. ✅ **Resolution (E3-fine, patch=2)** — finer 32×32 per-edge gather: flat (hard 25.2 ≈ 24, within
-   noise). Not the lever.
+   (HACMan's per-point critic). **+11 pts hard@1 (14.3→25.6). The big win, far beyond noise.**
+2. ✅ **Capacity (E2b)** — 2× params: flat (24.2, within noise). Not a lever.
+3. ✅ **Data (E4)** — 3.6× scenes: **modest REAL gain, hard ~28.8 (+3 over E2)** on converged ckpts (all 3
+   > E2's best). Via better representation, not new hard data (le10 already had all ≤10% scenes). → **data
+   SCALING (10×) is the live 1-push lever.** [My first read "flat 24.0" was a mid-training ckpt — corrected.]
+4. ✅ **Resolution (E3-fine, patch=2)** — finer 32×32 per-edge gather: flat (hard 25.6 ≈ E2, within
+   noise). Not a lever.
 5. ✅ **FOV (geometric oracle, tight vs wide)** — *rejected*: widening to 1.2 m removes goal-clipping but
    doesn't move hard recall/precision; and the model already beats the rigid oracle ~4× → oracle is a
    weak baseline, not a ceiling. Real but secondary: ~27% of hard goals are clipped at 0.5 m.
-6. → **NEXT: 2-push = search over this scorer** (no new labels): roll push-1 forward, recompute
-   reachability, score push-2 with the SAME net; validate against existing 2-push winning chains.
-   This is where hard scenes (few valid single pushes) actually get solved — hard@20 89.8% means the
-   right first push is almost always inside the top-20 a search would expand.
-7. (optional 1-push gains, low priority given plateau) **dual-crop** (tight edges + wide context;
-   pipeline built & gate-verified) addresses the ~27% goal-clipping; **continuous-duration depth actor
-   (H4)** for the always-d4 depth collapse.
+6. → **NEXT (the objective): 2-push = search over the best scorer (E4)** (no new labels): roll push-1
+   forward, recompute reachability, score push-2 with the SAME net; validate against existing 2-push
+   winning chains. This is where hard scenes (few valid single pushes) get solved — hard@20 ~88% means
+   the right first push is almost always inside the top-20 a search would expand.
+7. → **Parallel live 1-push lever: SCALE DATA** (E4's +3 came from 3.6×; try 10× / hard-enriched — the
+   gain is representational, not from new hard scenes). Lower priority: **dual-crop** (tight edges + wide
+   context; pipeline built & gate-verified) for the real ~27% goal-clipping; **continuous-duration depth
+   actor (H4)** for the always-d4 depth collapse; **clutter-aware push-outcome features** (the rigid
+   oracle's failure mode points here).
 
 _Ckpt: `…/scorer/scorer_1push_v1/namo-classifier/pwbgz10f/checkpoints/epoch022-val_loss0.8638.ckpt`.
 Eval json: `/scratch/dm1487/eval_grounding/scorer_mid.json`. Scripts: `build_scorer_dataset.py`,

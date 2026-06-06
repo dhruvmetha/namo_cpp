@@ -1,5 +1,32 @@
 # Scorer → HACMan-faithful: experiment journal
 
+> ## ⭐ FINAL SYNTHESIS (2026-06-06 ~08:10, converged + multi-checkpoint numbers — READ THIS FIRST)
+> Earlier entries below report **single-checkpoint** hard@1 point estimates that turned out to carry
+> **±3-4 noise on n=413** (demonstrated: E2 across its 4 ckpts = 24.0/25.4/25.4/27.4). Two conclusions in
+> the body were CORRECTED once I (a) evaluated *converged* checkpoints and (b) measured the per-model
+> checkpoint spread. The verified picture (hard@1, multiple ckpts per model):
+>
+> | model | data / change | hard@1 (ckpt range) | hard@20 | verdict |
+> |---|---|---|---|---|
+> | E0 DiT global readout | le10 tight | 14.3 | 82.6 | baseline |
+> | **E2 per-edge cross-attn** | le10 tight | **25.6** (24.0–27.4) | ~89.5 | **the big win (+11 over E0), solid** |
+> | E2b 2× capacity | le10 tight | 24.2 | — | flat (within noise) → not a lever |
+> | E3-fine patch=2 | le10 tight | 25.6 (25.2–25.9) | ~90 | flat (within noise) → not a lever |
+> | **E4 same arch** | **3.6× data** tight | **28.8** (conv. 28.3–29.8) | ~87.5 | **modest REAL gain ~+3** (all 3 converged ckpts > E2's best) |
+>
+> **Robust takeaways:** (1) E2's per-edge architecture is the big win over E0 (+11, far beyond noise).
+> (2) Capacity and resolution are flat → not levers. (3) **Data IS a modest lever (~+3 hard@1)** — even
+> easy-skewed data helps via better *representation* (le10 already had all hard scenes), so data *scaling*
+> (H3, 10×) is live; my earlier "data flat" was an artifact of evaluating E4 mid-training (epoch17=24.0,
+> converged=28-30). (4) FOV is NOT the lever (wide-crop oracle falsified it) and the geometric oracle is a
+> weak baseline the model already beats ~4× — not a ceiling. (5) Hard remains genuinely hard for 1-push
+> (~2 valid pushes of ~63); the route to *solving* it is **2-push search over the best scorer (E4)**,
+> while **data scaling** is the live 1-push lever. **Methodology lessons:** eval CONVERGED checkpoints;
+> characterize checkpoint noise before reading ±3 differences as signal; pre-register the falsifier.
+> *(Below this banner, treat any single "hard@1 = X" as ±3-4 and superseded by this table.)*
+
+---
+
 **Owner:** autonomous overnight session (started 2026-06-06, user asleep ~8h).
 **Objective (do not drift):** a 1-push *push-success scorer* — given a scene, score every (edge, depth)
 primitive by P(opens a path to the goal) — that (a) beats the diffusion baseline and the honest floor,
@@ -90,11 +117,14 @@ and record why — negative results are results.
   pure config change, same data/model, no rebuild* (vs the originally-planned 2nd zoomed crop, held as
   the heavier alternative if this helps but isn't enough).
 - **Test:** vs E2 (patch=4). ACCEPT if hard @1 ↑ / wrong-edge ↓.
-- **RESULT — H2 REJECTED (flat): hard @1 = 25.2** (vs E2 24.0; med 69.7 / easy 94.5), @20 88.6. Within the
-  n=413 noise band and mid-training (val_loss 0.602 > E2's 0.594, patch=2 trains slower) — no meaningful
-  hard gain from the finer 32×32 gather. Resolution is NOT the lever. **Completes the lever sweep:
-  capacity (24.2) / data (24.0) / resolution (25.2) ALL flat at ~24-25 → the pre-registered
-  "flat on hard" prediction is fully confirmed; the ~24 hard@1 plateau is robust.**
+- **RESULT — H2 mostly rejected; resolution is a MARGINAL lever.** Converged (early-stopped epoch042,
+  val_loss **0.5883** < E2's 0.5936): hard @1 **25.9** / med **72.9** / easy **96.3**, hard@20 **90.3** —
+  a *small but consistent* lift over E2 (24.0/70.7/94.9, @20 89.8) across all three bins + val_loss. (The
+  mid-training prelim read 25.2; converged is 25.9.) So the finer 32×32 per-edge gather *does* help a bit
+  (less contact-pixel aliasing: ~4 edges/cell vs ~8 at patch=4) — **E3-fine is now the best single model**
+  — but it's ~flat vs E2 (within the ±3-4 ckpt noise). **Lever sweep (see ⭐ FINAL SYNTHESIS for the
+  verified ranges): capacity 24.2 ≈ flat / resolution 25.6 ≈ flat / DATA 28.8 = modest real +3. Data is
+  the only clear 1-push lever; the rest are within noise.** For 2-push search, prefer the E4 checkpoint.
 
 ### E4 — more data (the data lever for the lost core)   [TRAINING, 2026-06-06 ~04:40]
 - **Hypothesis (H3):** E2 left the ~36% no-signal "lost core" of hard scenes unchanged → it's
@@ -222,37 +252,44 @@ readout (our E0) was the bottleneck.
   neighbors). **The model has learned clutter-aware push outcomes the oracle cannot.** ⇒ this oracle
   **cannot upper-bound** the model; my "FOV-limited lost core" claim is **rejected**.
 - **What actually holds (durable, honest):** (1) ~27% of hard goals ARE clipped by the 0.5 m crop — a real
-  but *secondary* FOV limitation (fixing it didn't move the needle). (2) The hard plateau is NOT explained
-  by capacity (E2b flat), data (E4 flat — see below), FOV (this), or — pending — resolution (E3). It looks
-  like **genuine 1-push task difficulty**: hard scenes have few valid single pushes (median |valid| ~2 of
-  ~63 reachable) and marginal geometry. (3) E2 is a strong converged 1-push scorer: beats diffusion ~4×,
-  the random floor ~9×, AND a calibrated geometric oracle ~4× on hard@1.
+  but *secondary* FOV limitation (fixing it didn't move the needle). (2) hard@1 sits mid-to-high 20s;
+  capacity (E2b) and resolution (E3) are flat within noise, FOV is not the lever (this), but **data
+  scaling (E4) gives a modest real ~+3** (see corrected E4 entry — my "E4 flat" was a mid-training read).
+  Remaining difficulty is **genuine 1-push hardness** (median |valid| ~2 of ~63). (3) E2 is a strong
+  converged 1-push scorer: beats diffusion ~4×, the random floor ~9×, AND a calibrated geometric oracle
+  ~4× on hard@1. (Note: the "~6%" / "24%" / "89.8%" figures in the two bullets above are single-checkpoint
+  reads; the per-model ranges are in the ⭐ FINAL SYNTHESIS at the top — the oracle-vs-model gap holds.)
 - **Lesson logged:** a cheap proxy (goal-touches-border) over-attributed the cause; the decisive move was
   the *direct counterfactual* (actually widen the FOV and re-measure) + checking the baseline against the
   model. Pre-register the falsifier, not just the confirmer.
 
-### E4 — more data (the data lever)   [PRELIM eval mid-training, epoch~17]
-- **RESULT — H3 confirmed: data is NOT the hard lever.** E4 (3.6× data, easy-skewed) hard@1 = **24.0**,
-  *identical* to E2's 24.0 (le10). Med **80.4** (>E2 70.7) and easy **99.3** (>E2 94.9) rose — but only
-  because E4 added med/easy examples; hard was already saturated (le10 = every ≤10% scene). Exactly the
-  E4-realization prediction. (Mid-training; hard@1 converges early/flat as in E2, so this is firm.)
+### E4 — more data (the data lever)   [DONE — H3 partially ACCEPTED: modest real gain]
+- **⚠️ CORRECTED RESULT.** First prelim (epoch017, mid-training) read hard@1 = 24.0 and I wrongly called
+  it "flat, data not the lever." Evaluating **converged** checkpoints overturns that: epoch025 **29.8**,
+  epoch029 **28.3**, last **28.3** — converged E4 ≈ **28.8 hard@1**, and **all three converged ckpts exceed
+  E2's best (27.4)**. So **3.6× data gives a modest REAL gain of ~+3 hard@1** over E2 (25.6). Med 80.4 /
+  easy 99.5 also up. Caveat: E4's hard@**20** is ~87.5 (slightly *below* E2's ~89.5) — the data gain is in
+  top-1 sharpness, not coverage. Mechanism: the gain is NOT from new hard scenes (le10 already had them
+  all) but from a better learned **representation** off 3.6× more diverse (easy-skewed) data. ⇒ data
+  *scaling* (H3, 10×) is a live lever worth pursuing; **lesson: I evaluated mid-training and called it
+  flat — always eval converged checkpoints.**
 
 ## Key open question for the lost core — RESOLVED, with a corrected answer (E-oracle, 2026-06-06)
-Hypothesis history (each step tested, several rejected — this is the audit trail):
-1. data-limited? → **NO.** E4 realization: le10 already has ALL hard data; E4 (3.6× data) hard@1 flat 24.0.
-2. capacity-limited? → **NO.** E2b (2× params) hard@1 flat 24.2.
-3. FOV-limited? → tight oracle *suggested yes* (89% misses "off-crop"), but the **wide-crop oracle FALSIFIED
-   it**: widening to 1.2 m removes goal-clipping (27%→1.7%) yet hard recall/precision don't move. Off-crop
-   was a proxy artifact.
-4. resolution-limited? → E3-fine **pending** (prediction: flat, same 0.5 m FOV / same task).
-5. Is the geometric oracle even a ceiling? → **NO** — the trained E2 (24% hard@1) beats the oracle's ~6%
-   precision ~4×. The oracle is a weak rigid-free-space baseline, not an upper bound.
+Hypothesis history (each step tested — this is the audit trail; see the ⭐ FINAL SYNTHESIS at top for the
+verified multi-checkpoint numbers that supersede the noisy point estimates below):
+1. data-limited? → **partially YES (modest).** Converged E4 (3.6× data) ≈ 28.8 hard@1 vs E2's 25.6 — a
+   real ~+3 via better representation. (My first read "flat 24.0" was a *mid-training* artifact — corrected.)
+2. capacity-limited? → **NO.** E2b (2× params) hard@1 24.2 ≈ E2 (within noise).
+3. FOV-limited? → **NO.** Tight oracle *suggested yes* (89% misses "off-crop"), but the **wide-crop oracle
+   FALSIFIED it**: widening to 1.2 m removes goal-clipping (27%→1.7%) yet hard recall/precision don't move.
+4. resolution-limited? → **NO.** E3-fine (patch=2) 25.6 ≈ E2 (within noise).
+5. Is the geometric oracle even a ceiling? → **NO** — the trained model beats the oracle's ~6% hard
+   precision ~4×. It's a weak rigid-free-space baseline, not an upper bound.
 
-**Corrected answer:** the hard plateau (~24 @1) is **genuine 1-push difficulty**, not a fixable input/arch
-gap — hard scenes simply have very few valid single pushes (median ~2/63) and the model already extracts
-more than rigid geometry can. The right move toward the **objective** (multi-push via search over the
-scorer) is **2-push search using E2 as the value function** — where hard scenes get solved by *composing*
-pushes (89.8% hard@20 means the right push is almost always in the top-20 the search would expand), not by
-squeezing 1-push @1 further. Secondary/optional levers if we still want 1-push gains: dual-crop (addresses
-the real ~27% goal-clipping) and a faithful sim-based oracle / wavefront-distance features (the rigid
-oracle's failure says clutter-aware push *outcomes* are the missing signal). See the E-oracle entry above.
+**Corrected answer:** hard@1 sits in the **mid-to-high 20s** and the only lever that clearly moves it is
+**data scaling** (modest ~+3 from 3.6×; 10× is worth trying). Capacity / resolution / FOV are flat. Hard
+is genuinely hard for 1-push (~2 valid pushes of ~63) and the model already extracts more than rigid
+geometry. The route toward the **objective** is **2-push search over the best scorer (E4)** — hard scenes
+get solved by *composing* pushes (~88% hard@20 = the right first push is almost always in the top-20 a
+search would expand). Parallel 1-push lever: **scale data** (the live one). Lower-priority: dual-crop
+(the real ~27% goal-clipping) and clutter-aware push-outcome features (the rigid oracle's failure mode).
