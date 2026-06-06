@@ -112,6 +112,17 @@ and record why — negative results are results.
   (in the robot's approach space) is arguably a *more informative* gather location than a point on the
   object body. **Candidate test (not yet run):** regenerate `contact_px` WITH the C++ offset → re-eval E2
   → does hard@1 move? Clean, cheap; logged as a follow-up.
+- **⚠️ Contact-pixel ALIASING [measured on real H5, surfaced by USER question 2026-06-06]:** checked
+  `contact_px` on n=200. (a) **The 4 corners are EXACTLY coincident** — edge pairs (0,59),(1,31),(28,58),
+  (29,30) sit at **0.000 px** apart — a direct consequence of omitting the standoff offset (adjacent faces
+  share their endpoint; the C++ offset would separate them). So **4 of 60 edges are geometric duplicates**.
+  (b) **Within a face**, the 15 points span only ~12.5 px (the object is *tiny* in the 0.5 m crop) → ~**0.9
+  px apart**, while the E2 feature cell is **4 px** (patch=4) → **~5 contact points read the SAME feature
+  cell.** ⇒ per-edge *local* features are near-identical among neighbours; the model separates edges mostly
+  via the **positional-id MLP**, not the local gather. Mechanistic reason resolution was a candidate lever
+  (E3-fine patch=2 → 2 px cells) and why it helped only marginally (even at 2 px, points are 0.9 px apart →
+  aliasing persists). **Implication:** genuine per-edge local discrimination needs a finer map *at the
+  object* or a **zoomed object crop** (the planned-but-unbuilt zoom) — not just patch=2 on the same 0.5 m field.
 - **Test:** eval on the SAME test episodes → compare hard @1 + wrong-edge% + grid viz vs E0
   (14.3 @1, 96.6% wrong-edge). ACCEPT if @1 ↑ and wrong-edge ↓.
 - **RESULT — H1 ACCEPTED (strongly).** Mid-training read (epoch 41, val_loss 0.60 vs E0's 0.86 plateau;
