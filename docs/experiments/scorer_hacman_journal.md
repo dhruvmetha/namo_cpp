@@ -734,3 +734,26 @@ V(s₁) lookahead, not the raw s₀ scorer. result: IN PROGRESS.
 - **Verdict: REJECT soft-label. `sharp` remains champion AND beam value function** (best @1 AND best @k).
 - Side note: embed alone ≈ sharp on recall@k (@10 77.4 vs 77.6); fourier adds little to @k, mainly a
   marginal @1 bump. sharp still best overall.
+
+### 2-PUSH EVAL — HEADLINE RESULT [2026-06-07] ✅
+**Training-match (collisions OFF, matches scorer training), champion=sharp, K1=K2=10 N1=5 max_first=40:**
+| manifest | n | %≤1 push | %≤2 push | LIFT | t/scene | sims/scene |
+|---|---|---|---|---|---|---|
+| test_1push_solvable | 30 | 73.3 | 76.7 | +3.3 | 88s | 27 |
+| **test_2push_solvable** | 30 | 33.3 | **63.3** | **+30.0 pp** | 94s | 44 |
+- depth hist 2push: {1:10, 2:9, None:11} → **9/30 solved by genuine verified depth-2 chains**; 1-push alone
+  gets only 10/30. **The 2-push search NEARLY DOUBLES the solve rate on scenes that need two pushes.**
+  Pre-registered prediction CONFIRMED. Clean depth-2 example env_0413: push1 P=0.000 (setup) → push2
+  P=1.000 (opener) — exactly the V(s1) mechanism working.
+- 1-push manifest: depth-2 adds little (+3.3) — expected, they're 1-push problems.
+
+**STRICT (collisions ON = real-robot-faithful; any object collision aborts the push):**
+- **1-push: 43.3% ≤1** (vs 73.3% off) → **~30pp "push-through tax"** — ~30% of the scorer's 1-push
+  solutions rely on shoving THROUGH an object (the scorer was trained collisions-allowed), invalid on a
+  real robot where you'd displace it. depth-2 added 0 here (13→13).
+- Strict is ~5× slower (~148s/scene — most scenes miss depth-1 and fall to the depth-2 sweep). The full
+  n=30×2 strict run hit the 2h SLURM limit after finishing 1-push + 10/30 of 2-push. Re-running strict
+  2-push (n=20, job 55685381) for the deployable-strict 2-push number.
+- **Honest framing for deployment:** OFF = optimistic upper bound (pushes ignore obstacles), STRICT =
+  conservative lower bound (pushes abort on any touch). The REAL robot is between (it displaces objects).
+  The strict number is the safe deployable floor; the off number is the scorer's native capability.
