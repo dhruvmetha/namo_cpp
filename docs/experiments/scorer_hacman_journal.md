@@ -757,3 +757,25 @@ V(s₁) lookahead, not the raw s₀ scorer. result: IN PROGRESS.
 - **Honest framing for deployment:** OFF = optimistic upper bound (pushes ignore obstacles), STRICT =
   conservative lower bound (pushes abort on any touch). The REAL robot is between (it displaces objects).
   The strict number is the safe deployable floor; the off number is the scorer's native capability.
+
+### STRICT (real-robot) verdict + the deployment blocker [2026-06-07] ⚠️
+- **Strict 2-push (n=20): 10% ≤1, 10% ≤2 (ZERO depth-2), 18/20 unsolved.** vs training-match 33%/63%.
+- **Confound RULED OUT:** skill15_car_1x config has `check_object_collision: true`,
+  `check_robot_trajectory_collision: false`. So strict aborts only on OBJECT-OBJECT collision (true
+  push-through), NOT on car-grazing. The 63%→10% collapse is the genuine push-through tax, not an artifact.
+- **deploy_plan.py works** (env_0068: training-match SOLVES 1-push edge43 push_steps2 P=0.999; strict
+  UNSOLVED — that P=0.999 solution is a push-through). The PIPELINE + METHOD are sound; the gap is the
+  scorer's training regime.
+- **ROOT CAUSE:** the scorer was trained on collisions-ALLOWED labels (v3 region_allow_collisions=True), so
+  it rates push-through pushes high. On a real robot (object collisions matter) those abort → solve rate
+  collapses. The 2-push chains are hit hardest (more pushes = more chances to push through something).
+- **NUANCE (don't overstate the 10%):** the test_2push_solvable manifest was DEFINED under collisions-
+  allowed, so some of the 18 unsolved may have NO physically-valid solution at all (their defining
+  "solution" was a push-through). So 10% conflates (a) scorer mis-trained for strict + (b) scenes not
+  strict-solvable. Need a strict-defined benchmark to isolate (a).
+- **HONEST DEPLOYMENT VERDICT:** method + pipeline + deployable entrypoint = DONE and working; training-
+  regime 2-push lift is large and real (+30pp). But the current scorer is NOT real-robot-ready as-is — its
+  solutions are dominantly push-throughs. **#1 next step for real deployment: re-collect/relabel data with
+  check_object_collision=true (strict), retrain `sharp` on physically-valid labels, re-define the test
+  benchmark as strict-solvable. Then the SAME search/bridge/deploy_plan should carry over** (they're
+  regime-agnostic — only the scorer's training labels need to change).
