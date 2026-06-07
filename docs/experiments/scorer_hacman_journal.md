@@ -700,3 +700,26 @@ V(s₁) lookahead, not the raw s₀ scorer. result: IN PROGRESS.
 - **TEST (running, job 55661355):** fixed solver on 4 one-push + 10 two-push scenes (incl. ones UNSOLVED by
   the broken version). **Pre-registered prediction: now finds verified depth-2 solutions on the 2-push set.**
   If 0 again → escalate (check 2-push-solvability of these scenes by primitives; terminal check at s1).
+
+### 2-push search WORKS + collision investigation [2026-06-07]
+- **Quicktest (both fixes, 6 two-push-solvable scenes): 5/6 SOLVE at DEPTH-1** (P=1.0, ~3s, 1 sim each;
+  obstacle_2/3/5/0 various edges). 1 unsolved (env_0087) had bestV(s1)=0.999 — the search FOUND a 2-push
+  path whose 2nd push scores 0.999, but the sim-verify failed → scorer false-positive at the 2nd step, not
+  a search bug. **The deployable search works** (verified-by-sim).
+- **DOMINANT bug was the COLLISION setting, not (only) first-push ranking.** Scenes UNSOLVED in the broken
+  run (env_0068/0093/0119/0171) now solve in ONE push once collisions match training. With collisions ON,
+  scorer-recommended pushes aborted mid-execution.
+- **Collision investigation (verified the agent's fix):** `modular_parallel_collection.py:1044`
+  `--region-allow-collisions default=True` ("strict mode ... intended for evaluation, NOT data collection").
+  So v3 DATA = object-collisions ALLOWED during pushes (robot-traj collisions always abort). The search's
+  `set_collision_checking(False)` correctly matches this. (NOTE: DATA_COLLECTION_GUIDE.md:61 says default
+  false — STALE/misleading vs the code default True. Worth a doc fix.)
+- **Deployment caveat [CLAUDE, important]:** "object collisions allowed" means a push may DISPLACE other
+  objects — on a real robot you can't push an object THROUGH another, you'd shove it. So I run the eval BOTH
+  ways: `--collisions off` (training-match, the scorer's native solve rate) AND `--collisions on` (STRICT =
+  real-robot-faithful). **The off→on gap = the "push-through tax"** = solutions that rely on object overlap
+  and won't transfer to the real robot. The STRICT number is the honest deployable one.
+- Eval running: jobs 55665961 (off) + 55665962 (on), n=30 per manifest each, K1=10 K2=10 N1=5 max_first=40.
+- **Open finding:** many "2-push-solvable" scenes are actually 1-push-solvable by the scorer (collisions
+  off). The depth-2 LIFT (scenes where 1-push fails, 2-push works) is what the eval will quantify — may be
+  modest if most are 1-push. Honest either way.
