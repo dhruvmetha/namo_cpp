@@ -582,3 +582,42 @@ geometry. The route toward the **objective** is **2-push search over the best sc
 get solved by *composing* pushes (~88% hard@20 = the right first push is almost always in the top-20 a
 search would expand). Parallel 1-push lever: **scale data** (the live one). Lower-priority: dual-crop
 (the real ~27% goal-clipping) and clutter-aware push-outcome features (the rigid oracle's failure mode).
+
+---
+
+## 🎯 2-PUSH (deployable) — overnight autonomous run [2026-06-07, USER asleep 8h]
+**[USER] mandate:** "have a 2-push model that ALSO works on 1-push, deployable to a real robot tomorrow.
+Go crazy, parallelize, stick to hypothesis→result, use the research."
+
+**[CLAUDE] framing (the thesis):** there is NO separately-trained 2-push model and NO exhaustive 2-push
+labels. "2-push" = **depth-≤2 search using the 1-push scorer as the value function**, with **MuJoCo as the
+(real) transition model** (we don't need a learned one — VFT/DIPN do because they lack a sim; we have one).
+Search checks depth-1 first ⇒ returns a 1-push plan when one suffices, 2-push otherwise ⇒ ONE system does
+both. Grounded in VFT (2105.02857), MORE (2202.01426), Bejjani RHP (1803.08100), Stilman SFG.
+
+**Key algorithm trick (no 2-push labels):** the scorer predicts P(this push opens path to GOAL), so a
+2-push chain's FIRST push scores ~0 (it doesn't open the goal alone). To rank first pushes, use a one-ply
+Bellman lookahead with the SAME scorer: **V(s₁) = max over second-push scorer(s₁)** after simulating the
+first push. Expand first pushes by V(s₁). Edge cost = −log P so probs compose (SoRB/Q* 2102.04518).
+
+**Plan (each step hypothesis→result):**
+1. **Live-scorer bridge** (GATING): env state → 5-ch tight crop + contact_px → scorer → (60,5) P. Validate
+   vs H5 (crop MAE) AND functionally (does scorer top-k contain the known solving push; live recall@k ≈
+   H5 success@k). If the live crop ≠ training crop, everything downstream is poisoned — so this gates.
+2. **scorer_beam planner** (BasePlanner): depth-1 (sim top-K1, terminal=is_robot_goal_reachable) → 1-push;
+   else depth-2 (re-score at s₁, V(s₁), sim top-K2) → 2-push. Reuse region_opening enumeration + env.step.
+3. **Eval**: % solved ≤1 push (baseline) vs ≤2 push on room-held-out test, per difficulty.
+   **Pre-registered prediction [CLAUDE]:** depth-2 lifts HARD solve-rate substantially (88% hard@20 says
+   the right first push is almost always in a small top-k a search expands); easy/med already near-solved
+   at depth-1. Accept the 2-push lever if hard(≤2) ≫ hard(≤1).
+4. **Deployable inference**: scene+goal → plan of (edge_idx, push_steps) — verified to map to the real
+   motion primitives (1x_car_d5, 60 edges×5 depths, edge convention matched to generate_rectangular_edge_points).
+5. **Research levers in parallel (compute is free):**
+   - **E9 resolution** → champion 1-push scorer (the beam's value fn); swap champion in once known.
+   - **Soft Gaussian edge labels + focal β=4** (CenterNet 1904.07850) — cheap loss-only lever, composes
+     with E9 winner; 3-seed retrain, paired on hard@1 + wrong-edge%.
+   - stretch: ranking loss (search-friendly value), C₄-equivariance (4× data, escnn), MORE self-distill.
+
+**Risks logged:** (a) live-crop fidelity (gated in step 1); (b) wavefront warmup before get_reachable_edges/
+is_robot_goal_reachable (must run a skill/snapshot first); (c) first-push ranking for 2-push needs the
+V(s₁) lookahead, not the raw s₀ scorer. result: IN PROGRESS.
