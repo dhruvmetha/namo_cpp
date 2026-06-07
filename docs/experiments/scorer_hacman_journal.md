@@ -723,3 +723,14 @@ V(s₁) lookahead, not the raw s₀ scorer. result: IN PROGRESS.
 - **Open finding:** many "2-push-solvable" scenes are actually 1-push-solvable by the scorer (collisions
   off). The depth-2 LIFT (scenes where 1-push fails, 2-push works) is what the eval will quantify — may be
   modest if most are 1-push. Honest either way.
+
+### Soft-label lever: REJECTED (converged) [2026-06-07]
+- sharp+softlabel converged (6/6/5 ckpts): **25.9 hard@1, −7.3 vs sharp (t≈−9.3, all seeds).**
+- **[CLAUDE] pre-registered salvage hypothesis FALSIFIED:** I expected soft labels might HURT @1 but HELP
+  recall@k (the metric the beam actually uses). They do NOT — softlabel is worse at EVERY k:
+  sharp @1/@5/@10/@20 = 33.2/64.3/77.6/89.4 vs softlabel 25.8/59.7/72.7/86.1. The CenterNet
+  neighbor-blurring just degraded the signal everywhere for this problem (the target really is sharp:
+  only ~2 of ~75 pushes work, and spreading credit to non-working neighbors is pure noise here).
+- **Verdict: REJECT soft-label. `sharp` remains champion AND beam value function** (best @1 AND best @k).
+- Side note: embed alone ≈ sharp on recall@k (@10 77.4 vs 77.6); fourier adds little to @k, mainly a
+  marginal @1 bump. sharp still best overall.
