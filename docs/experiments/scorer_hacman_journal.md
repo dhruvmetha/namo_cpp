@@ -678,3 +678,25 @@ V(s₁) lookahead, not the raw s₀ scorer. result: IN PROGRESS.
   So judge softlabel (and pick the beam's scorer) on **recall@10 / actual beam solve-rate**, not hard@1.
   The beam currently uses sharp (best hard@1 AND, from the mechanism check, rank≤10=78%); re-evaluate vs
   softlabel on recall@10 once it converges.
+
+### 2-push search: BUG found → fixed [2026-06-07, autonomous]
+- **First build (a038... agent): search runs but finds 0 two-push solutions.** Validation on ~30
+  2-push-solvable scenes: 0 verified depth-2 (it DID find depth-1 solutions env_0000/env_0119 at P=1.0,
+  terminal check works; ~110 sims/scene, no crash). So mechanically correct, but the 2-push capability —
+  the whole point — was absent.
+- **Diagnosis (from the code, scorer_beam.py:140 original):** depth-1 took the top-K1 first pushes ranked
+  by the s0 scorer P, and **depth-2 only reused those same K1**. But a 2-push chain's FIRST push opens
+  nothing yet → its P≈0 → it sits at the BOTTOM of the P-sorted pool → never simulated. The beam was
+  STRUCTURALLY blind to 2-push first moves. This is EXACTLY the risk pre-registered ("first-push ranking
+  for 2-push needs V(s1), not the raw s0 scorer"). [USER hypothesis-style: confirm before fixing — done via
+  code + the 0/30 validation.]
+- **Fix [CLAUDE]:** decouple the two depths. Depth-1 still uses top-K1 by P (P IS predictive for 1-push
+  solutions — fast path). Depth-2 now sweeps a **broad first-push budget that is NOT P-ranked**
+  (`_first_budget`: all reachable obj × reachable edges × first_depths {4,3,2}, capped at max_first=60),
+  simulates each, then ranks ALL simulated first pushes by **V(s1)=max second-push P** (one-ply Bellman),
+  and verifies the top-N1 first pushes × top-K2 seconds. Verified-by-sim throughout.
+- **Cost:** ~max_first first sims + a render per s1 (for V) + N1×K2 second sims → ~2-4 min/scene (vs ~1 min
+  broken). Acceptable for deployment-class planning.
+- **TEST (running, job 55661355):** fixed solver on 4 one-push + 10 two-push scenes (incl. ones UNSOLVED by
+  the broken version). **Pre-registered prediction: now finds verified depth-2 solutions on the 2-push set.**
+  If 0 again → escalate (check 2-push-solvability of these scenes by primitives; terminal check at s1).
