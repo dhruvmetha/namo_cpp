@@ -294,7 +294,63 @@ and record why — negative results are results.
   PRIMARY CPU partition (big pool, starts instantly) + `--requeue` to survive preemption — do NOT switch to
   plain `main` (it can leave you queued). The current rebuild on `main` already got a CPU, so it stays;
   future CPU jobs → `main-redhat --requeue`.**
-- result: REBUILDING (main) → dual seeds queued (dependency).
+- result: REBUILDING (main) → dual seeds queued (dependency). **[SUPERSEDED by E8/E9 — the zoom was
+  compute-bound (1024-token self-attn, no HACMan analog) AND the deeper question (do we need the local
+  gather at all?) reframed it. Zoom parked; pursuing edge-differentiation instead.]**
+
+### E8 — is the per-edge local GATHER needed at all?   [RUNNING, 2026-06-06 ~20:30]
+- **Chain of thought (how we got here):** [USER] asked to compare *exactly* to HACMan. Reading their code:
+  HACMan = PointNet++ U-Net over a goal-conditioned point cloud (SA local grouping → global max-pool → FP
+  upsample w/ skips); points are explicit **coordinates** (no rasterization → no aliasing). [CLAUDE]
+  realized our per-edge gather reads a **coarse 16×16 map where ~5 edges share a cell** (aliased), and
+  HACMan never has this because it stays in coordinate space. [USER] pushed: *"isn't the gather important?
+  HACMan has everything in one coordinate system."* → key insight: HACMan's global step (`max_pool`) is a
+  **bottleneck that destroys local info**, so they MUST re-inject it via the SA gather; **our** global step
+  (cross-attention) has **no bottleneck** — every scene token stays available — so the edge can reach its
+  local content via cross-attention too. ⇒ the explicit gather may be **redundant**, not because local
+  doesn't matter, but because cross-attn already provides it.
+- **[USER] hypothesis:** the gather (local link) matters. **[CLAUDE] hypothesis:** cross-attn + coord
+  recovers it → no-gather ≈ gather.
+- **Design [CLAUDE]:** `use_local=False` (edge = positional-id + cross-attn only, no gather). 3 seeds on E4
+  data, paired vs e4seed (gather). `local_proj` omitted → no-gather ckpt auto-detected at eval.
+- **Pre-registered:** [CLAUDE] within ±1.5 of gather (gather redundant); [USER] no-gather worse (gather
+  needed). Jobs 55628182/83/84. result: PENDING.
+
+### E9 — edge DIFFERENTIATION (sharp positional id): the dominant-error lever   [RUNNING, 2026-06-06 ~20:35]
+- **Chain of thought:** [USER] asked *"is the positional-id enough to differentiate two nearby edges?"*
+  [CLAUDE]: with the **raw-coord MLP** we use — probably NOT. (1) MLP **spectral bias**: nearby coords →
+  near-identical encodings; (2) the **4 corners coincide exactly** (measured 0.000 px) → identical id →
+  literally indistinguishable. And E2's residual error is **~88% wrong-EDGE** — so edge-differentiation is
+  plausibly the real bottleneck, bigger than gather/zoom.
+- **Literature [CLAUDE, fanned out 4 Sonnet agents — see Reading list]:** strong convergence —
+  • positional encoding: **Fourier features** (Tancik 2020; NeRF) + **per-element `Embedding(60)`** (ViT)
+    is the textbook fix; the embedding *guarantees* distinct ids (fixes the corners). • per-location action
+    nets (HACMan, VAT-MART, Where2Act, Transporter, Spatial-Action-Maps) **all** add an explicit
+    contact-point positional encoding for exactly this; "load-bearing" for nearby candidates. • aliasing
+    fix = sample a **fine** feature map (RoIAlign/PointRend/Deformable) or drop the gather. • NAMO/search:
+    a learned per-push scorer used as a **value function for multi-push search is a validated pattern**
+    (Visual Foresight Trees, MORE, Bejjani RHP) — confirms our 2-push direction.
+- **[USER+CLAUDE] hypothesis:** edge-differentiation is the dominant bottleneck → a **sharp id** (Fourier
+  + per-edge embed) lowers wrong-edge% and raises hard@1.
+- **Design [CLAUDE]:** a 2×2 (id ∈ {raw, sharp} × gather ∈ {on, off}) + component ablation, all 3 seeds,
+  E4 data, paired + ckpt-averaged eval, lean gpu-redhat (max parallel per [USER]):
+  | run | id | gather | tests |
+  |-----|----|--------|-------|
+  | e4seed (done) | raw | yes | baseline |
+  | nogather (E8) | raw | no | gather needed? |
+  | **fourier** | Fourier | yes | does Fourier alone help? |
+  | **embed** | +embed | yes | does per-edge identity alone help? |
+  | **sharp** | Fourier+embed | yes | the lit hybrid |
+  | **sharpng** | Fourier+embed | no | sharp id *without* gather (the HACMan-true design) |
+  Implemented via `pos_fourier`/`use_edge_embed`/`use_local` flags (eval auto-detects all). Unit-tested all
+  5 variants + baseline-repro (default loads e4seed 0/0). Jobs 55630676–87 (12).
+- **Pre-registered predictions:** [CLAUDE] **sharp ≥ +2 hard@1 over baseline** and **wrong-edge% drops**
+  (high confidence — lit + the 88% wrong-edge); embed alone likely helps most (fixes corners + identity);
+  if **sharpng ≈ sharp** → gather redundant even with sharp id (→ adopt the simplest no-gather model);
+  if **sharp > sharpng** → local matters → de-alias the gather next (fine-feature-map stem, phase 2).
+- **Accept/reject:** paired ckpt-avg hard@1 (3 seeds, ±1.7 noise; >+2 consistent = real) **+ wrong-edge%**
+  from the failure decomposition (the mechanism check — the hypothesis is specifically about edges).
+- result: PENDING (~hours; 15 jobs in parallel).
 
 ---
 
@@ -313,6 +369,22 @@ Grounding for the per-edge / point-critic architecture we built:
 **My recommendation for what to read first:** the HACMan per-point feature-extractor + PointNet++ section
 — it makes the "each edge gets its own local+global summary" idea concrete and shows why the global
 readout (our E0) was the bottleneck.
+
+**E9 literature (fanned-out agents, 2026-06-06) — edge-differentiation + per-location scoring:**
+- **Fourier Features Let Networks Learn High-Frequency Functions** (Tancik et al., NeurIPS 2020,
+  arxiv 2006.10739) + **NeRF** positional encoding (arxiv 2003.08934) — the fix for the raw-coord MLP
+  spectral bias that blurs nearby edges. Recipe: NeRF sin/cos, L≈8 bands.
+- **ViT** (Dosovitskiy 2021, arxiv 2010.11929) — learned per-element embeddings for a fixed token set ≈
+  our per-edge `Embedding(60)` (guarantees distinct ids; fixes coincident corners).
+- **VAT-MART** (arxiv 2106.14440), **Where2Act** (2103.15454), **Transporter Nets** (2010.14406),
+  **Spatial Action Maps** (2004.09141) — per-location manipulation scorers; ALL add an explicit
+  contact-point positional encoding; "load-bearing" for separating nearby candidates.
+- Aliasing fix (if local matters): **RoIAlign** (1703.06870), **PointRend** (1912.08193), **Deformable
+  DETR** (2010.04159), **Conv Occupancy Nets** (2003.04618) — sample a *fine* feature map, not a coarse grid.
+- **2-push search direction is validated:** learned per-action scorer as a search value fn — **Visual
+  Foresight Trees** (2105.02857), **MORE** (MCTS+self-supervised, 2202.01426), **Bejjani RHP**
+  (1803.08100); learned-NAMO (Scholz IROS'16; Yang 2506.15380). Use beam/MCTS with the scorer as leaf value.
+- Full agent reports (4) are in the session transcript task outputs.
 
 ### E-oracle — geometric+wavefront oracle: is the lost core feature/FOV-limited or model-limited?   [RUNNING]
 - **Sharpened hypothesis (the big one).** The scorer's input is ONLY the **tight 0.5 m crop** (confirmed:
