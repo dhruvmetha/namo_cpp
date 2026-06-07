@@ -319,8 +319,10 @@ and record why — negative results are results.
 ### E9 — edge DIFFERENTIATION (sharp positional id): the dominant-error lever   [RUNNING, 2026-06-06 ~20:35]
 - **Chain of thought:** [USER] asked *"is the positional-id enough to differentiate two nearby edges?"*
   [CLAUDE]: with the **raw-coord MLP** we use — probably NOT. (1) MLP **spectral bias**: nearby coords →
-  near-identical encodings; (2) the **4 corners coincide exactly** (measured 0.000 px) → identical id →
-  literally indistinguishable. And E2's residual error is **~88% wrong-EDGE** — so edge-differentiation is
+  near-identical encodings; (2) at each corner **two DISTINCT edges (different push faces) share an
+  identical contact pixel** — pairs (0,59),(1,31),(28,58),(29,30), verified 0.000 px apart in ALL 98k
+  training samples — so a coordinate-only id is provably unable to separate e.g. a top-face push from a
+  left-face push at that corner → literally indistinguishable by coordinate. And E2's residual error is **~88% wrong-EDGE** — so edge-differentiation is
   plausibly the real bottleneck, bigger than gather/zoom.
 - **Literature [CLAUDE, fanned out 4 Sonnet agents — see Reading list]:** strong convergence —
   • positional encoding: **Fourier features** (Tancik 2020; NeRF) + **per-element `Embedding(60)`** (ViT)
