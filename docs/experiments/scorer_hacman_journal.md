@@ -342,15 +342,26 @@ and record why — negative results are results.
   | **embed** | +embed | yes | does per-edge identity alone help? |
   | **sharp** | Fourier+embed | yes | the lit hybrid |
   | **sharpng** | Fourier+embed | no | sharp id *without* gather (the HACMan-true design) |
-  Implemented via `pos_fourier`/`use_edge_embed`/`use_local` flags (eval auto-detects all). Unit-tested all
-  5 variants + baseline-repro (default loads e4seed 0/0). Jobs 55630676–87 (12).
+  | **finegather** | raw | yes (FINE 32×32) | de-aliased gather alone (aliasing-agent's fix) |
+  | **sharpfine** | Fourier+embed | yes (FINE 32×32) | sharp id AND sharp gather together |
+  Implemented via `pos_fourier`/`use_edge_embed`/`use_local`/`fine_stem` flags (eval auto-detects all).
+  Unit-tested all 7 variants + baseline-repro (default loads e4seed 0/0). Jobs 55630676–87 (12) +
+  nogather 55628182–84 (3) + fine 55631655–60 (6) = **21 jobs**.
+- **[CLAUDE] note on running fine-stem NOW (not as conditional phase-2):** [USER] said "use as many GPUs as
+  possible, everything in parallel." The aliasing literature (RoIAlign/PointRend/Deformable-DETR) says a
+  COARSE 16×16 gather bilinearly mixes neighbouring edges' content (aliasing) → the de-aliasing fix is to
+  gather from a FINE map. Rather than wait for the sharpng-vs-sharp verdict to *decide* whether to test it,
+  we run it in parallel — GPUs are free, so the 2×2 (id × gather-sharpness) all-at-once is strictly more
+  informative than staged. `fine_stem`: one stride-2 conv → 32×32 feature map, gather at the same wide
+  contact coord (+0.01M params).
 - **Pre-registered predictions:** [CLAUDE] **sharp ≥ +2 hard@1 over baseline** and **wrong-edge% drops**
   (high confidence — lit + the 88% wrong-edge); embed alone likely helps most (fixes corners + identity);
   if **sharpng ≈ sharp** → gather redundant even with sharp id (→ adopt the simplest no-gather model);
-  if **sharp > sharpng** → local matters → de-alias the gather next (fine-feature-map stem, phase 2).
+  if **sharp > sharpng** → local matters → expect **finegather > e4seed** and **sharpfine ≥ sharp** (sharp
+  gather beats aliased gather); if **finegather ≈ e4seed** → coarse-gather aliasing was NOT the limiter.
 - **Accept/reject:** paired ckpt-avg hard@1 (3 seeds, ±1.7 noise; >+2 consistent = real) **+ wrong-edge%**
   from the failure decomposition (the mechanism check — the hypothesis is specifically about edges).
-- result: PENDING (~hours; 15 jobs in parallel).
+- result: PENDING (~hours; 21 jobs in parallel).
 
 ---
 
