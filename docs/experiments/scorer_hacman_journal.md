@@ -665,3 +665,16 @@ V(s₁) lookahead, not the raw s₀ scorer. result: IN PROGRESS.
   training (55656001-03); flag-gated (off==identity, E9 reproducible); resolve_robust wired for the paired
   comparison vs sharp.
 - E9 final resolver: 4 jobs left → confirms prelim.
+
+### E9 FINAL (all 21 done) + soft-label caveat [2026-06-07]
+- **FINAL resolver CONFIRMS the prelim exactly:** sharp 33.2 (+5.1, t≈11), embed 32.4 (+4.3), fourier +0.6
+  neutral, no-gather −3.2, finegather −1.8, sharp+fine −5.5. Champion = **sharp**, locked.
+- **soft-label is INCONCLUSIVE (undertrained):** sharp+softlabel showed 21.9 (−11.3) BUT those jobs are at
+  epoch 6-7 vs sharp's converged 17-21 — invalid apples-to-oranges. ~6 min/epoch (soft-target build adds
+  overhead); converges in ~3-4h. Re-resolve on convergence. DO NOT conclude soft-label is bad yet.
+- **[CLAUDE] methodological correction (important):** hard@1 is the WRONG metric to judge the beam's value
+  function. The beam expands **top-k**, so what matters is **recall@k** (is the correct push in the top-10).
+  Soft labels deliberately blur top-1 → may HURT hard@1 while HELPING recall@10 — exactly what search uses.
+  So judge softlabel (and pick the beam's scorer) on **recall@10 / actual beam solve-rate**, not hard@1.
+  The beam currently uses sharp (best hard@1 AND, from the mechanism check, rank≤10=78%); re-evaluate vs
+  softlabel on recall@10 once it converges.
