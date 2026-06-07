@@ -387,8 +387,17 @@ and record why — negative results are results.
     patch features (which also carry context via the shared scene encoder) beat a fine map. Lesson: the win
     came from EDGE IDENTITY (embed/fourier), not from local-feature sharpness.
   - **CHAMPION for 2-push value fn = `sharp` (+network.pos_fourier=true +network.use_edge_embed=true).**
-  - TODO: wrong_edge_compare.sh mechanism check (expect wrong-edge% drops for sharp/embed — confirms the
-    win is edge-disambiguation, the pre-registered mechanism). Final resolver confirms when all 21 done.
+  - **MECHANISM CHECK (wrong_edge_compare, 2026-06-07) — pre-registered mechanism PARTIALLY REJECTED:**
+    I predicted sharp/embed would LOWER the wrong-edge fraction. It does NOT. failure-analysis @1 / wrongE%:
+    baseline 29.7 / 88.6 · embed_s1 31.7 / 87.6 · sharp 32.4 / 89.0. So @1 rises (+2-3) but the wrong-edge
+    FRACTION of the residual stays ~88%. Interpretation: the edge-id levers make the model rank the correct
+    push #1 MORE OFTEN, but WHEN it still fails it's just as wrong-edge as before — the win is "more exact
+    hits," not "a different error character." The wrong-edge problem is largely IRREDUCIBLE at 1-push
+    (median |valid|=2 of ~75 reachable; you must also reason WHICH edge opens the path, not just tell edges
+    apart). **This REINFORCES 2-push search:** rank≤5 = 65%, rank≤10 = 78% → a beam that expands top-k
+    catches the right first push ~78% of the time at k=10, then composes a 2nd push. **Design input: beam
+    width ≈ 10.** (Caveat: wrong_edge_compare.sh aggregation dropped embed/1 sharp seed to NA — a transient
+    race with mid-write ckpts; individual reruns confirm the pattern. Hard@1 win itself is solid via resolve_robust.)
 
 ---
 
