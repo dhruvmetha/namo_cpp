@@ -29,8 +29,30 @@ Request **either** with the OR-constraint (the guide's own AlphaFold example use
 --constraint=ampere|adalovelace
 ```
 Most GPU nodes expose `gpu:2`, `gpu:3`, or `gpu:4`, so **2-GPU jobs are widely available.**
+(2026-06-06: A6000 / A4500-Ada are **not** on Amarel — those are iLab cards. Amarel GPU = L40S + A100 + a few V100.)
+
+## ⚡ Finding a free GPU fast — CPUs are the real bottleneck, not GPUs
+
+**Observation (2026-06-06).** A `--gres=gpu:1 --cpus-per-task=24 --mem=48G` job sat `PENDING(Resources)`
+for ~20 min while L40S/A100 GPUs sat **idle** — because the idle-GPU nodes already had most CPUs taken by
+other jobs (e.g. `gpu031`: 3 GPUs free but only 16 of 32 CPUs free → a 24-CPU job can't fit).
+**Outcome.** Dropping to `--cpus-per-task=8 --mem=32G` (same `--gres=gpu:1`) **landed instantly on gpu018.**
+
+**Rule: to always find a GPU, lean the CPU + mem ask, not just the GPU count — GPU nodes are CPU-contended.**
+Default lean job that backfills almost anywhere:
+```bash
+sbatch --partition=gpu-redhat --gres=gpu:1 --cpus-per-task=8 --mem=32G ...   # RHEL9 partition; gpu is draining
+```
+- **Diagnose a stuck job:** `scontrol show job <id>` (`Reason=Resources`) + `scontrol show node <n>`
+  (`CPUTot`/`CPUAlloc`, `AllocMem`). If a node's free CPUs < your `--cpus-per-task`, that's the blocker.
+- **Find real free capacity:** `gpufree`, or `sinfo -N -o "%N %t %C %G %f" -p gpu-redhat` (`%C` = Alloc/Idle/Other/Total CPUs).
+- **Our scorers are tiny (≤~6 M params)** → `gpu:1` + 8 CPUs is plenty. Don't request 24 CPUs / 2 GPUs / 120 G — that's what queues you next to idle GPUs.
 
 ## Training GPU policy (standing preference)
+
+> ⚠️ **Reality check (2026-06-06):** the "prefer 2× GPU + 16 cpu / 120 G" recipe below is what *causes*
+> long `PD` waits. For our small models, **lead with the lean single-GPU `gpu-redhat` job above** and only
+> scale up if a model genuinely needs it. Lean-first is the reliable way to "always find a GPU."
 
 1. **Prefer multi-GPU (2×) on A100 or L40S:**
    ```bash
