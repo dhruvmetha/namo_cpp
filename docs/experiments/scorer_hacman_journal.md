@@ -370,7 +370,25 @@ and record why — negative results are results.
   gather beats aliased gather); if **finegather ≈ e4seed** → coarse-gather aliasing was NOT the limiter.
 - **Accept/reject:** paired ckpt-avg hard@1 (3 seeds, ±1.7 noise; >+2 consistent = real) **+ wrong-edge%**
   from the failure decomposition (the mechanism check — the hypothesis is specifically about edges).
-- result: PENDING (~hours; 21 jobs in parallel).
+- result (PRELIM, 11/21 final but robust — paired ckpt-avg, t-stats high; baseline e4seed=28.1 hard@1):
+  | lever | hard@1 | vs base | verdict |
+  |---|---|---|---|
+  | **sharp (fourier+embed, coarse gather)** | **33.2** | **+5.1 (t≈11)** | ✅ **CHAMPION** |
+  | embed alone | 32.4 | +4.3 (t≈6.5) | ✅ the main driver (fixes corners+identity) |
+  | fourier alone | 28.6 | +0.6 | ~neutral (only helps WITH embed) |
+  | sharp+no-gather | 27.4 | sharp−sharpng=+5.8 | ❌ gather needed even with sharp id |
+  | no-gather | 24.8 | −3.2 (t≈2.5) | ❌ gather IS needed |
+  | finegather | 26.2 | −1.8 (t≈2.9) | ❌ de-aliasing HURTS vs coarse |
+  | sharp+fine | 27.7 | sharpfine−sharp=−5.5 | ❌ fine stem hurts on sharp too |
+  - **ACCEPT/REJECT vs pre-registration:** ✅ "sharp ≥ +2 & embed helps most" → +5.1 / embed +4.3, ACCEPTED.
+    ❌ **[CLAUDE] hypothesis "cross-attn makes gather redundant" FALSIFIED** (no-gather −3.2); **[USER] was
+    right, the gather matters.** ❌ **fine-stem de-aliasing hypothesis FALSIFIED** (finegather −1.8 vs coarse,
+    −5.5 on sharp) — the gather matters but sharpening it via a stride-2 conv stem does NOT; coarse 16×16
+    patch features (which also carry context via the shared scene encoder) beat a fine map. Lesson: the win
+    came from EDGE IDENTITY (embed/fourier), not from local-feature sharpness.
+  - **CHAMPION for 2-push value fn = `sharp` (+network.pos_fourier=true +network.use_edge_embed=true).**
+  - TODO: wrong_edge_compare.sh mechanism check (expect wrong-edge% drops for sharp/embed — confirms the
+    win is edge-disambiguation, the pre-registered mechanism). Final resolver confirms when all 21 done.
 
 ---
 
