@@ -397,6 +397,63 @@ readout (our E0) was the bottleneck.
   (1803.08100); learned-NAMO (Scholz IROS'16; Yang 2506.15380). Use beam/MCTS with the scorer as leaf value.
 - Full agent reports (4) are in the session transcript task outputs.
 
+## Deep-dive literature (6-agent fan-out, 2026-06-06) — "how do people learn such a thing?"   [USER asked]
+Six Sonnet finders over distinct slices (NAMO; learn-1-step-search-multi-step; per-point affordance;
+nearby-location discrimination; pushing prediction; spatial-action-maps + value-fns). The through-line:
+
+**The field's recurring recipe — and we already follow it (good news, validates the whole approach):**
+1. **Spatial per-candidate scoring map in ONE forward pass**, grounded to the scene — HACMan critic map,
+   VPG dense Q-maps (1803.09956), Spatial Action Maps (2004.09141), Transporter (2010.14406), Where2Act
+   per-point, Contact-GraspNet (2103.14127). NOT scalar-then-index. Our 60×5 head = this. ✓
+2. **Supervise by downstream task OUTCOME** (grasp succeeded / part moved / **path opened**), per-candidate
+   BCE. Everyone else pays for the label with slow RL (HACMan, VPG, VAT-MART) or a learned image-predictor
+   (DIPN 2011.04692, VFT 2105.02857). **We get it free from deterministic wavefront reachability — our one
+   structural advantage; lean on it.**
+3. **Use the 1-step scorer as a VALUE/HEURISTIC for search, not a one-shot policy** — VFT, MORE (2202.01426),
+   Bejjani RHP (1803.08100), SoRB (1906.05253), Q*/DeepCubeA (2102.04518), SaIL (1707.03034). This is our
+   2-push plan, and it's a well-validated pattern. Classical root: Stilman's Scene-Feasibility-Graph — "does
+   this push reconnect robot-region to goal-region?" is literally our label; his "artificial constraints"
+   lookahead = our multi-push expansion.
+
+**Our 88%-wrong-edge IS a localization problem; the keypoint/detection field has a deep playbook:**
+- **Cross-validates E9 (running now):** explicit position features (CoordConv 1807.03247; Fourier/embed) ≈
+  our `fourier`/`embed` arms; anti-aliased sampling (BlurPool 1904.11486; RoIAlign; PointRend) ≈ our
+  `fine_stem`. So the architecture levers we're testing tonight are the textbook fixes — not flailing.
+- **NEW lever #1 — soft/Gaussian edge labels + focal down-weight** (CenterNet 1904.07850 β=4; Stacked
+  Hourglass): replace one-hot CE with a label that tapers with **arc-distance** around the perimeter, so
+  adjacent edges get partial credit and we STOP training near-neighbors hard to zero. Cheap (loss only),
+  composes with whatever E9 winner emerges. Attacks the confusing gradient directly.
+- **NEW lever #2 — two-stage coarse→fine: actionability GATE then fine score** (Where2Act 2101.02692;
+  Graspness ICCV'21; Kloss "Contact Reasoning" 1911.03112). Gate the ~60 edges first; the fine head only
+  has to rank the ~6 survivors → a far easier discrimination problem. Most direct attack on the 88%.
+- **NEW lever #3 — continuous offset head / soft-argmax** (DSNT 1801.07372; DARK 1910.06278; Integral Pose):
+  decouple "which edge" from "exact contact point along the face" — also mops up the ~11% wrong-DEPTH.
+- Supporting: class-imbalance BCE (only ~1-5/300 positive → check pos_weight/focal γ=2); HRNet keep-high-res
+  near the boundary; ATSS/OTA label-assignment for the shared-corner ambiguity.
+
+**NEW lever #4 (orthogonal, big-ticket) — C₄ EQUIVARIANCE.** Our obstacle has 4 symmetric faces. An
+equivariant encoder (escnn, cyclic C₄) makes data from one face train all four ≈ **4× effective data** —
+and DATA is our one proven lever (+4.1). SO(2)/SE(2)-equivariant manipulation shows 10-100× sample
+efficiency (Wang ICLR'22 2203.04439; Zhu RSS'22 grasp 2202.09468; Q* invariance proof). Higher effort
+(new backbone) but principled and distinct from edge-id.
+
+**For the 2-push search (the goal):** scorer = BOTH policy (top-k branching) AND value (leaf re-score), the
+AlphaZero pattern (MORE/VFT). We DON'T need a learned transition model (VFT/DIPN do) — we have MuJoCo: expand
+top-k edges → simulate → re-score from new state → check reachable. Bejjani: cap depth, price the tail with
+the scorer. SoRB/Q*: edge cost = −log P(scorer), log-probs ADD → principled multi-push combination; for
+A*-style use, a **ranking loss beats MSE** (search needs correct order, not calibrated magnitude).
+Goal-condition the scorer + **HER relabel** (1707.01495): a push that opened a *different* region is a free
+positive for that region — fills intermediate-subgoal data during search with zero new collection.
+
+**Ranked next experiments (impact × cheapness), after E9 names a winner:**
+1. soft Gaussian edge labels + focal (loss-only, composes with E9 winner) — cheapest shot at the 88%.
+2. two-stage actionability gate → fine head — shrinks the discrimination set; biggest direct attack.
+3. C₄-equivariant encoder — 4× data for free; ties to the proven data lever.
+4. ranking/list loss (search-friendly) + continuous depth-offset head — better for the search use + the 11%.
+5. then build 2-push search: top-k expand → MuJoCo sim → re-score → reachable, w/ −log P edge costs.
+
+Full 6 agent reports are in the session transcript task outputs.
+
 ### E-oracle — geometric+wavefront oracle: is the lost core feature/FOV-limited or model-limited?   [RUNNING]
 - **Sharpened hypothesis (the big one).** The scorer's input is ONLY the **tight 0.5 m crop** (confirmed:
   scorer H5 `ctx` = 5×64×64 from `local_tight_*`, `crop_size_meters`=0.5). So it reasons about "does a path
