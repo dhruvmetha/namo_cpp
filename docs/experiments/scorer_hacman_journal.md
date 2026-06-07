@@ -779,3 +779,49 @@ V(s₁) lookahead, not the raw s₀ scorer. result: IN PROGRESS.
   check_object_collision=true (strict), retrain `sharp` on physically-valid labels, re-define the test
   benchmark as strict-solvable. Then the SAME search/bridge/deploy_plan should carry over** (they're
   regime-agnostic — only the scorer's training labels need to change).
+
+---
+## ⭐ DEPLOYABLE 2-PUSH — FINAL STATUS & HANDOFF [2026-06-07 ~05:30]
+
+**What was built (all working, verified):**
+1. **Champion 1-push scorer** `sharp` (EdgeCrossAttn + Fourier PE + per-edge Embedding(60)): 33.2 hard@1,
+   +5.1 vs E4 baseline (t≈11, all seeds). Ckpt: `/scratch/dm1487/sage_outputs/scorer/sharp_s1/namo-classifier/9yizg6i8/checkpoints/epoch017-val_loss0.2713.ckpt`
+2. **Live-scorer bridge** `scripts/sandbox/live_scorer.py` — env state → 5-ch crop + contact_px → (60,5) P.
+   Validated bit-for-bit vs the H5. Config: `namo_config_complete_skill15_car_1x.yaml`.
+3. **Depth-≤2 scorer-beam search** `scripts/sandbox/scorer_beam.py` — 1-push scorer as the value function,
+   MuJoCo as the transition model, NO 2-push labels. depth-1 = top-K1 by P; depth-2 = broad un-P-ranked
+   first-push budget ranked by V(s1)=max 2nd-push P, verified-by-sim.
+4. **Deployable entrypoint** `scripts/sandbox/deploy_plan.py` — scene → executable plan
+   `(object, edge_idx, push_steps, target_se2)`. Defaults to STRICT (real-robot).
+
+**Results (champion=sharp, K1=K2=10 N1=5 max_first=40):**
+| eval | regime | %≤1 | %≤2 | note |
+|---|---|---|---|---|
+| 1push_solvable (n30) | train-match | 73.3 | 76.7 | depth-2 adds little (they're 1-push) |
+| **2push_solvable (n30)** | **train-match** | 33.3 | **63.3** | **+30pp — method works** |
+| 1push_solvable | STRICT | 43.3 | 43.3 | push-through tax ~30pp |
+| 2push_solvable (n20) | STRICT | 10.0 | 10.0 | scorer's solutions are mostly push-throughs |
+
+**THE blocker for real-robot deployment:** the scorer was trained collisions-ALLOWED (v3
+region_allow_collisions=True), so its high-P pushes often pass THROUGH objects → abort under real physics
+→ strict solve rate collapses. Confound ruled out (robot-traj checking off; strict = object-collision only).
+The 10% is also a confounded lower bound: test_2push_solvable was defined collisions-allowed, so some scenes
+may have no strict solution at all.
+
+**HOW TO RUN:**
+- plan one scene: `python scripts/sandbox/deploy_plan.py --xml <env.xml>` (strict) `[--no-strict]` `[--goal X Y TH]`
+- eval: `python scripts/sandbox/scorer_beam.py --eval --n 30 --collisions {off|on} [--manifest <path>] [--only 1push|2push]`
+- env=namo_rl.RLEnvironment(xml, config/namo_config_complete_skill15_car_1x.yaml, False)
+
+**RANKED NEXT STEPS (for real-robot deployment):**
+1. **Re-collect/relabel data STRICT** (`--no-region-allow-collisions`, check_object_collision=true) and
+   retrain `sharp` on physically-valid labels. The bridge/search/deploy_plan are regime-agnostic — only the
+   scorer's labels change. THIS is the deployment unblock.
+2. **Re-define a STRICT test benchmark** (strict-solvable scenes) to cleanly measure real-robot quality
+   (the current 10% conflates scorer-quality with scene-unsolvability). `test_pure2push_combined.txt` is a
+   cleaner genuine-2-push set (eval running).
+3. Then: bigger beam / better first-push heuristic for strict (the scorer mis-guides under strict);
+   data-scaling the strict scorer (data was the one proven 1-push lever, +4.1).
+
+**Negative results (cleanly recorded, don't retry):** soft-label (−7.3, worse at every k), fine-stem
+de-aliasing (−1.8), reachability ablation (neutral), dual-crop zoom (−15.5).
