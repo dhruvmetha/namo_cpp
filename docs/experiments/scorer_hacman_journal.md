@@ -648,3 +648,20 @@ first push. Expand first pushes by V(s₁). Edge cost = −log P so probs compos
 **Risks logged:** (a) live-crop fidelity (gated in step 1); (b) wavefront warmup before get_reachable_edges/
 is_robot_goal_reachable (must run a skill/snapshot first); (c) first-push ranking for 2-push needs the
 V(s₁) lookahead, not the raw s₀ scorer. result: IN PROGRESS.
+
+### 2-push progress log [2026-06-07, autonomous]
+- **E9 champion picked:** `sharp` (fourier+embed) 33.2 hard@1 (+5.1). Best ckpt sharp_s1 epoch017 (val 0.2713).
+- **Step 1 — live-scorer bridge: GATE PASSED bit-for-bit.** scripts/sandbox/live_scorer.py renders the 5-ch
+  tight crop from the LIVE env and runs the scorer. vs H5: crop 0.0 MAE on ALL 5 channels, contact_px 100%
+  <0.5px, functional recall live==H5 bit-for-bit (hard 50/55/68, med 77/95/95, easy 100). CRITICAL config:
+  `namo_config_complete_skill15_car_1x.yaml` (robot 0.035, motion_primitives_1x_car.dat) — NOT
+  namo_config_car.yaml. Region masks via Python wavefront exporter → works at arbitrary mid-search states.
+- **Step 2 — scorer_beam search: BUILDING** (scripts/sandbox/scorer_beam.py). Depth-≤2: depth-1 = top-K1 by
+  scorer P, sim, terminal=is_robot_goal_reachable → 1-push; else depth-2 = reuse saved s1, V(s1)=max
+  second-push P (1-ply Bellman), expand by V(s1), sim top-K2 → 2-push. K1=K2=10 (rank≤10=78% finding).
+  Champion sharp as value fn. Eval on test_{1,2}push_solvable_combined manifests (539 / 1186 scenes):
+  **prediction — depth-2 lifts the 2-push-solvable solve rate FAR above depth-1.** Verified-by-sim only.
+- **Research lever in parallel:** soft-label retrain (sharp+CenterNet soft edge labels, σe=1.0/σd=0.7) 3 seeds
+  training (55656001-03); flag-gated (off==identity, E9 reproducible); resolve_robust wired for the paired
+  comparison vs sharp.
+- E9 final resolver: 4 jobs left → confirms prelim.
