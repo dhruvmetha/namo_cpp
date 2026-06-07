@@ -825,3 +825,9 @@ may have no strict solution at all.
 
 **Negative results (cleanly recorded, don't retry):** soft-label (−7.3, worse at every k), fine-stem
 de-aliasing (−1.8), reachability ablation (neutral), dual-crop zoom (−15.5).
+
+### PURE-2-PUSH eval — cleanest 2-push-value number [2026-06-07]
+- **test_pure2push_combined (genuine 2-push-only, n=25, train-match): 16% ≤1 → 56% ≤2 (+40pp).**
+  depth hist {1:4, 2:10, None:11} → **10/25 solved by verified depth-2 chains.** Depth-1 alone is low (16%)
+  BECAUSE these scenes genuinely need 2 pushes — exactly where the search earns its keep. Strongest
+  validation of the no-2-push-labels search thesis. (Train-match; strict would be lower, same push-through caveat.)
