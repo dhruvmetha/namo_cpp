@@ -322,7 +322,14 @@ and record why — negative results are results.
   near-identical encodings; (2) at each corner **two DISTINCT edges (different push faces) share an
   identical contact pixel** — pairs (0,59),(1,31),(28,58),(29,30), verified 0.000 px apart in ALL 98k
   training samples — so a coordinate-only id is provably unable to separate e.g. a top-face push from a
-  left-face push at that corner → literally indistinguishable by coordinate. And E2's residual error is **~88% wrong-EDGE** — so edge-differentiation is
+  left-face push at that corner → literally indistinguishable by coordinate.
+  **MEASURED cost (20k episodes, 2026-06-07):** the two edges in each corner pair are byte-identical model
+  inputs (same coord→same id, same pixel→same gather) AND have DIFFERENT push directions (paired-midpoint
+  rule, edge_mapping.py L18-20), so they genuinely differ. When a corner contact is relevant (~24% of
+  episodes), **~75% of the time EXACTLY ONE of the pair opens the path** → without `embed` the model MUST
+  tie them and gets one wrong every time. But it's only 8/60 edges → `embed` fixes a real but BOUNDED slice;
+  `fourier` (spectral bias) + `fine_stem` (gather aliasing) handle the other 52 distinct-but-nearby edges.
+  Edge indexing == motion-primitive edge_idx (generate_rectangular_edge_points) — same edges we execute. And E2's residual error is **~88% wrong-EDGE** — so edge-differentiation is
   plausibly the real bottleneck, bigger than gather/zoom.
 - **Literature [CLAUDE, fanned out 4 Sonnet agents — see Reading list]:** strong convergence —
   • positional encoding: **Fourier features** (Tancik 2020; NeRF) + **per-element `Embedding(60)`** (ViT)
