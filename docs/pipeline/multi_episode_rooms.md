@@ -79,7 +79,9 @@ If you build a filtered set, filter **per episode** at NPZ-gen, not per pkl.
 
 ## Note on script locations
 
-The eval-side enforcers (`build_episode_validsets.py`, `eval_grounding.py`) currently live under
-`scripts/sandbox/` (gitignored). This doc is the durable record of the *rules*; if those scripts are
-pruned or rewritten, re-apply the rules above. The training-side fix is in the committed
+`build_episode_validsets.py` and the scorer-data builders (`build_scorer_dataset.py`,
+`add_contact_px.py`) are now **committed under `scripts/pipeline/`** (promoted from sandbox 2026-06-08);
+the scorer dataset is registered at `config/datasets/v3_scorer_e4.yaml` with lineage in
+`docs/pipeline/scorer_dataset.md`. `eval_grounding.py` still lives under `scripts/sandbox/` (gitignored)
+— promote next. This doc is the durable record of the *rules*; the training-side fix is in the committed
 `sage_learning` repo (`src/data/se2_data_cropped.py`).

@@ -1,0 +1,37 @@
+# Dataset declaration — the 1-push F-SCORER (HACMan per-edge critic) training corpus.
+# This is the DISCRIMINATIVE scorer data, NOT the generative DiT data (see v3_balanced_1to1.yaml).
+# Trained the champion `sharp` model (EdgeCrossAttn + Fourier PE + per-edge Embedding).
+id: v3_scorer_e4
+description: v3 combined feb+aug9, exhaustive 1-push open/fail labels on the DiT's car masks, tight crop — the F-scorer's (Q1) input
+status: active
+
+sources: [v3_feb, v3_aug9]          # same corpora as the DiT — REUSES its rendered masks (no re-render)
+crop: tight                         # ctx = local_tight 5 channels, resized 224 -> 64
+model: f_scorer                     # EdgeCrossAttn per-edge critic  (cf. v3_balanced_1to1 -> the DiT)
+
+# ---- Lineage / how it's built (the part that was undocumented before) ----
+# 1. region-opening pkls (exhaustive chain-1) -> scripts/pipeline/build_episode_validsets.py
+#       => per-episode answer key {xml:[episodes]} with object_center, valid, tried, solve_rate
+# 2. scene MASKS (local_tight 5ch) are LIFTED from the diffusion H5 (v3_balanced_1to1) — verified
+#    car masks, apples-to-apples with the DiT baseline, NO re-rendering / NO point-robot generator.
+# 3. scripts/pipeline/build_scorer_dataset.py  JOINs (masks) + (exhaustive 1-push f_grid 60x5 + r_mask)
+# 4. scripts/pipeline/add_contact_px.py        adds contact_px (60,2) per-edge contact pixels
+build: scripts/pipeline/build_scorer_dataset.py   # (+ add_contact_px.py ; upstream: build_episode_validsets.py)
+
+h5: v3_scorer_e4_data            # under $NAMO_H5 ; data.h5  (N = 98,387 episodes)
+keys:
+  ctx:        [5, 64, 64]        # static, movable, target_object, robot_region, goal_sample_region
+  f_grid:     [60, 5]            # 1 = push opens path, 0 = tried&failed, NaN = unreachable  (EXHAUSTIVE 1-push)
+  r_mask:     [60, 5]            # 1 = reachable/tried (the candidate set / action mask)
+  contact_px: [60, 2]           # per-edge contact pixels (pure geometry, no robot standoff)
+  object_center: [2]            # match key for the per-episode invariant
+  ratio:      [1]               # F/R (difficulty proxy)
+
+split: held out BY ROOM (xml) downstream — never by row (see docs/pipeline/multi_episode_rooms.md)
+
+# IMPORTANT — what this is and is NOT, so it stops getting confused with the DiT data:
+#   * F-scorer / Q1 = "P(this push opens the goal region)" — discriminative, exhaustive 1-push labels.
+#   * v3_balanced_1to1 = the DiT (diffusion) goal-proposer — generative, single+multi-push SOLUTION
+#     first-pushes (a1 + solution_depth), NON-exhaustive. Different model, different label.
+# There is NO exhaustive 2-push f_grid (combinatorially too expensive). Multi-push capability comes
+# from SEARCH over this Q1 scorer (simulator as the model), not from a learned 2-push scorer.
