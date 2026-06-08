@@ -27,7 +27,8 @@ from namo.strategies import (
     MLPrimitiveFallbackStrategy,
     MLPrimitiveAsyncStrategy,
     AsyncGoalResult,
-    GeometricTransportStrategy
+    GeometricTransportStrategy,
+    ScorerGoalStrategy,
 )
 from namo.planners.opening.ml_driven_search import MLDrivenAsyncSearch
 from namo.planners.utils import PushBudgetExceeded
@@ -623,6 +624,24 @@ class RegionOpeningPlanner(BasePlanner):
             self.goal_strategy = self._primitive_strategy
             self._use_ml_driven_async = True
             self._debug("▶ Using ML-driven async search (zero idle time, ML priority)")
+        elif strategy_name and strategy_name.lower() in {"scorer", "f_scorer"}:
+            # Champion 1-push F-scorer ranks candidate pushes by P(opens neighbour region).
+            # Same primitive enumeration as the default; only goal.score changes -> RO tries
+            # high-P pushes first -> fewer forward sims to find the opening.
+            scorer_kwargs = dict(
+                namo_config_path=algo_params.get("namo_config_path"),
+                xml_path=algo_params.get("xml_file"),
+                device=algo_params.get("ml_device", "cuda"),
+                data_dir=primitive_data_dir,
+                primitive_prefix=algo_params.get("primitive_prefix", ""),
+                verbose=self.config.verbose,
+                max_push_steps=max_push_steps,
+            )
+            scorer_ckpt = algo_params.get("scorer_ckpt")
+            if scorer_ckpt:
+                scorer_kwargs["ckpt"] = scorer_ckpt
+            self.goal_strategy = ScorerGoalStrategy(**scorer_kwargs)
+            self._debug("▶ Using scorer-guided goal strategy (F-scorer ranks pushes)")
         elif strategy_name and strategy_name.lower() in {"geometric", "geometric_transport"}:
             # Use geometric transport heuristic for goal prioritization
             self.goal_strategy = GeometricTransportStrategy(

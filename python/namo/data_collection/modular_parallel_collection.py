@@ -1066,8 +1066,11 @@ def main():
                         choices=["primitive", "ml", "ml_primitive", "ml_fallback", "ml_primitive_fallback",
                                  "ml_async", "ml_primitive_async", "ml_driven_async",
                                  "geometric", "geometric_transport",
+                                 "scorer", "f_scorer",
                                  "random_rollout", "random"],
                         help="Goal strategy for region opening (primitive default)")
+    parser.add_argument("--scorer-ckpt", type=str, default=None,
+                        help="Checkpoint for the 'scorer' goal strategy (defaults to champion sharp)")
     parser.add_argument("--ml-goal-model", type=str,
                         help="Hydra output directory containing diffusion goal model")
     parser.add_argument("--ml-device", type=str, default="cuda",
@@ -1202,6 +1205,12 @@ def main():
 
         if args.goal_strategy:
             algorithm_params["goal_strategy"] = args.goal_strategy
+        if args.goal_strategy and args.goal_strategy.lower() in {"scorer", "f_scorer"}:
+            # F-scorer goal ranking: renderer must use the SAME namo config as the env so the
+            # scorer's crop matches its training distribution. scorer_ckpt optional (defaults to sharp).
+            algorithm_params["namo_config_path"] = args.config_file
+            if getattr(args, "scorer_ckpt", None):
+                algorithm_params["scorer_ckpt"] = args.scorer_ckpt
         if args.goal_strategy and args.goal_strategy.lower() in {"ml", "ml_primitive"}:
             if not args.ml_goal_model:
                 parser.error("--ml-goal-model is required when goal strategy is 'ml'")

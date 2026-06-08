@@ -27,8 +27,10 @@ from .primitive_goal_strategy import (
     AsyncGoalResult
 )
 from .geometric_transport_strategy import GeometricTransportStrategy
+from .scorer_goal_strategy import ScorerGoalStrategy
 
 __all__ = [
+    "ScorerGoalStrategy",
     "ObjectSelectionStrategy",
     "NoHeuristicStrategy",
     "NearestFirstStrategy",
