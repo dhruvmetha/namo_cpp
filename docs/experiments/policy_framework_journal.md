@@ -53,6 +53,34 @@ Metric: **hard@1** (does argmax solve) + recall@{5,10,20}, per difficulty (`eval
 
 ---
 
+## GATE RESULT — recall@k of the champion scorer on the CLEAN test set [2026-06-09]
+First measurement on the geometry-verified canonical test set (`namo_testset_v1`, `v3_test_episodes.json`, 0 train-leak —
+see [[project_canonical_testset]]). Champion `sharp` ckpt (`epoch017-val_loss0.2713`), `eval_scorer.py`, 1656 episodes.
+
+| bucket | n | success@1 | recall@5 | **recall@10** | recall@20 | rank-1st-valid median |
+|---|---|---|---|---|---|---|
+| hard (sr 2.8%) | 413 | 32.9 | 62.5 | **75.8** | 88.1 | 3.0 |
+| med  (sr 16.8%)| 491 | 81.3 | 94.5 | **96.7** | 98.6 | 1.0 |
+| easy (sr 65%)  | 752 | 99.6 | 99.9 | **100** | 100 | 1.0 |
+
+**Verdict on the GATE (pre-registered: high recall → scorer already surfaces solutions → may not need policy+value;
+poor recall on hard → learned policy justified):** SPLIT by difficulty.
+- **easy/med: recall@10 ≥ 97%** → a ~10-sim search almost always contains the solving 1-push; per-action scorer is
+  near-sufficient there, policy+value adds little. (Floor@10 is 98%/81% though — easy is near-saturated, weak signal.)
+- **hard: recall@10 = 75.8% (vs floor 25.6%)** → real headroom; 24% of hard episodes don't even have the solving push
+  in the top-10. **This is where first-push selection is the bottleneck — exactly the policy+value/search target.**
+
+**Failure analysis (why hard misses) — actionable:** of hard fail@1, **90.3% are WRONG-EDGE** (contact point), only
+6.5% right-edge-wrong-depth; depth-acc GIVEN right edge = 83.4%. So the model's depth head is fine; the gap is
+**which contact edge** to push on hard scenes. ⇒ the next lever is better *edge/contact* ranking on hard (the
+training-free `mean_top5` first-push ranker, then learned policy), NOT depth modeling. Pairs with the 2-push tier:
+hard 1-push scenes (sr<5%) are the bridge to genuine depth-2.
+
+Result JSON: `namo_testset_v1/stats/champion_1push_recall_gate.json`. This also end-to-end VALIDATES the test set
+(eval ran clean against it).
+
+---
+
 ## RED-TEAM RISKS (background agent, 2026-06-09; 1 of 3 reports — the other 2 pending)
 **[USER] motivation: justify the machinery — don't over-apply. The red-team supports this.**
 

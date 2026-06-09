@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
-"""Build the 2-PUSH answer key (F1') from the exhaustive depth-2 collection pkls.
+"""Build the 2-PUSH answer key (F + F1') from the exhaustive depth-2 collection pkls.
 
-Companion to build_episode_validsets.py (which builds the 1-push key). A depth-2 exhaustive run records
-EVERY solution as its own episode_result; a 2-push solution's action_sequence = [first_push, second_push],
-each a {edge_idx, depth, target} primitive. We aggregate per episode (pushed object + goal region):
+Companion to build_episode_validsets.py (1-push key). Derives labels from the EXHAUSTIVE
+`primitive_trial_log` (NOT the recorded episode_results, which are only a SAMPLE of solutions). The trial
+log is tagged per entry with `chain_depth` + `parent_{edge,depth}` (region_opening.py), so per episode
+(pushed object + goal region):
 
-  F1'  (valid_first_push)  = { action_sequence[0].(edge,depth) : success, chain_depth==2 }   <- ENABLING first pushes
-  F    (valid_1push)       = { action_sequence[0].(edge,depth) : success, chain_depth==1 }    <- cross-check vs 1-push key
-  tried                    = depth-1 reachable cells from primitive_trial_log (the denominator)
+  F   (valid_1push)        = { (edge,depth)            : success, chain_depth==1 }   <- exhaustive 1-push solving cells
+  F1' (valid_first_push)   = { (parent_edge,parent_dep): success, chain_depth==2 }   <- first-pushes ENABLING a 2-push solve
+  tried_1push              = { (edge,depth)            : chain_depth==1 }            <- reachable depth-1 cells (denominator)
+  tried_first_push         = { (parent_edge,parent_dep): chain_depth==2 }            <- first-pushes expanded to depth-2
 
-Output: {realpath: [{object_id, object_center:[x,y], object_theta, region,
-                     valid_1push:[[e,d]...], valid_first_push:[[e,d]...], tried:[[e,d]...],
-                     is_2push_solvable, solve_rate_first_push}, ...]}
+Output: {realpath: [{object_id, object_center, object_theta, region,
+                     valid_1push, valid_first_push, tried_1push, tried_first_push,
+                     is_1push_solvable, is_2push_solvable, solve_rate_1push, solve_rate_first_push}, ...]}
 
-Match an eval sample to its episode exactly like the 1-push key: nearest object_center (<=0.01 m).
-Reuses NOTHING that would fork build_episode_validsets — different label (chain) so it is a sibling, not a copy.
+Match an eval sample to its episode by nearest object_center (<=1mm), same rule as the 1-push key.
 """
 import argparse
 import json
@@ -28,24 +29,20 @@ from multiprocessing import Pool
 RP = os.path.realpath
 
 
-def _cell(step):
-    return (int(step.get("edge_idx", -1)), int(step.get("depth", -1)))
-
-
 def pkl_episodes(pkl):
-    """Returns list of raw (epkey, fields) contributions; aggregation happens in main across pkls."""
+    """Per pkl -> list of (epkey, pose, trial-entries). The trial log is object-level (same on every
+    episode_result for that object), so we dedup by epkey downstream."""
     out = []
     try:
         d = pickle.load(open(pkl, "rb"))
     except Exception:
         return out
+    seen_obj = set()
     for ep in d.get("episode_results") or []:
         st = ep.get("algorithm_stats") or {}
         obj = st.get("chosen_object_id")
         region = st.get("neighbour_region_label")
-        xml = ep.get("xml_file") or pkl
-        real = RP(xml)
-        # pushed object's INITIAL pose (anchors the episode, matches H5 local_tight_object_center)
+        real = RP(ep.get("xml_file") or pkl)
         pose = None
         for key in ("state_observations", "original_state_observations"):
             so = ep.get(key) or []
@@ -55,66 +52,84 @@ def pkl_episodes(pkl):
             continue
         oc = (round(float(pose[0]), 4), round(float(pose[1]), 4))
         epkey = (real, obj, oc, region)
-        seq = ep.get("action_sequence") or []
+        if epkey in seen_obj:                 # object-level trial log is identical across its episode_results
+            continue
+        seen_obj.add(epkey)
         log = st.get("primitive_trial_log") or []
-        chain = st.get("chain_depth")
-        first = _cell(seq[0]) if seq else None
-        out.append({
-            "epkey": epkey, "real": real, "obj": obj, "oc": oc, "region": region,
-            "theta": float(pose[2]),
-            "success": bool(ep.get("success")),
-            "chain": int(chain) if chain is not None else len(seq),
-            "first": first,
-            "tried": [(t["edge_idx"], t["depth"]) for t in log],
-        })
+        out.append({"epkey": epkey, "theta": float(pose[2]), "log": log})
     return out
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--pkls-root", required=True, help="root containing shard_*/pkls/**/*.pkl")
+    ap.add_argument("--pkls-root", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--workers", type=int, default=32)
     a = ap.parse_args()
 
     pkls = glob(os.path.join(a.pkls_root, "**", "*.pkl"), recursive=True)
+    pkls = [p for p in pkls if "collection_summary" not in os.path.basename(p)]
     print(f"reading {len(pkls)} pkls", file=sys.stderr)
 
-    agg = {}   # epkey -> {f1, f1p, tried, theta, ...}
+    agg = {}
+    n_untagged = 0
     with Pool(a.workers) as pool:
         for recs in pool.imap_unordered(pkl_episodes, pkls, chunksize=8):
             for r in recs:
                 e = agg.setdefault(r["epkey"], {
-                    "real": r["real"], "obj": r["obj"], "oc": r["oc"], "region": r["region"],
-                    "theta": r["theta"], "f1": set(), "f1p": set(), "tried": set()})
-                e["tried"].update(r["tried"])
-                if r["success"] and r["first"] is not None:
-                    if r["chain"] >= 2:
-                        e["f1p"].add(r["first"])
-                    elif r["chain"] == 1:
-                        e["f1"].add(r["first"])
+                    "theta": r["theta"], "f1": set(), "f1p": set(),
+                    "tried1": set(), "triedfp": set(), "tagged": False})
+                for t in r["log"]:
+                    cd = t.get("chain_depth")
+                    if cd is None:
+                        n_untagged += 1
+                        continue
+                    e["tagged"] = True
+                    if cd == 1:
+                        cell = (t["edge_idx"], t["depth"])
+                        e["tried1"].add(cell)
+                        if t.get("success"):
+                            e["f1"].add(cell)
+                    elif cd == 2:
+                        pe, pd = t.get("parent_edge"), t.get("parent_depth")
+                        if pe is None:
+                            continue
+                        pcell = (pe, pd)
+                        e["triedfp"].add(pcell)
+                        if t.get("success"):
+                            e["f1p"].add(pcell)
 
     by_real = defaultdict(list)
-    n_2solvable = 0
+    n_1, n_2only, n_unsolved = 0, 0, 0
     for (real, obj, oc, region), e in agg.items():
-        tried = sorted(e["tried"])
         f1 = sorted(e["f1"]); f1p = sorted(e["f1p"])
-        solvable = len(f1p) > 0
-        n_2solvable += solvable
+        t1 = sorted(e["tried1"]); tfp = sorted(e["triedfp"])
+        is1 = len(f1) > 0
+        is2 = is1 or len(f1p) > 0
+        if is1:
+            n_1 += 1
+        elif len(f1p) > 0:
+            n_2only += 1
+        else:
+            n_unsolved += 1
         by_real[real].append({
-            "object_id": obj,
-            "object_center": [oc[0], oc[1]],
-            "object_theta": e["theta"],
-            "region": region,
+            "object_id": obj, "object_center": [oc[0], oc[1]], "object_theta": e["theta"], "region": region,
             "valid_1push": [list(t) for t in f1],
             "valid_first_push": [list(t) for t in f1p],
-            "tried": [list(t) for t in tried],
-            "is_2push_solvable": solvable,
-            "solve_rate_first_push": (len(f1p) / len(tried)) if tried else 0.0,
+            "tried_1push": [list(t) for t in t1],
+            "tried_first_push": [list(t) for t in tfp],
+            "is_1push_solvable": is1,
+            "is_2push_solvable": is2,
+            "solve_rate_1push": (len(f1) / len(t1)) if t1 else 0.0,
+            "solve_rate_first_push": (len(f1p) / len(tfp)) if tfp else 0.0,
         })
 
     json.dump(dict(by_real), open(a.out, "w"))
-    print(f"{len(by_real)} scenes, {len(agg)} episodes, {n_2solvable} 2-push-solvable episodes", file=sys.stderr)
+    print(f"{len(by_real)} scenes, {len(agg)} episodes "
+          f"(1push-solvable {n_1}, 2push-only {n_2only}, unsolved-<=2 {n_unsolved})", file=sys.stderr)
+    if n_untagged:
+        print(f"⚠ {n_untagged} UNTAGGED trial entries skipped — re-collect with the tagged region_opening.py",
+              file=sys.stderr)
     print(f"wrote {a.out}", file=sys.stderr)
 
 

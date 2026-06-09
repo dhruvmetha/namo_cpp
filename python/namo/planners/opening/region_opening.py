@@ -2807,7 +2807,12 @@ class RegionOpeningPlanner(BasePlanner):
                     if self.config.verbose:
                         print(f"        📍 Edge {edge_idx} stuck at depth {depth+1}, depths 1-{depth} still valid")
 
-            # Log this primitive trial for F characterization
+            # Log this primitive trial for F characterization.
+            # chain_depth + parent_{edge,depth} make the EXHAUSTIVE trial log self-describing:
+            #   depth-1 successes -> F (1-push solving cells);
+            #   depth-2 successes -> their parent first-push enabled a 2-push solve -> F1'.
+            # (The recorded episode_results are only a SAMPLE of solutions; the trial log is exhaustive.)
+            _parent_goal = getattr(parent_node, "goal", None) if parent_node is not None else None
             trial_log.append({
                 'edge_idx': edge_idx,
                 'depth': depth,
@@ -2817,6 +2822,9 @@ class RegionOpeningPlanner(BasePlanner):
                 'stuck': stuck_detected,
                 'collision': collision_detected,
                 'reachable_after': reachable_count_after,
+                'chain_depth': current_chain_depth,
+                'parent_edge': getattr(_parent_goal, "edge_idx", None) if _parent_goal is not None else None,
+                'parent_depth': getattr(_parent_goal, "depth", None) if _parent_goal is not None else None,
             })
 
             total_region_goals = len(region_goals[neighbour_label].goals) if neighbour_label in region_goals else 0
