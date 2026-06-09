@@ -77,6 +77,21 @@ all-difficulty set used uniformly. **But** building a difficulty-*filtered* trai
 would dilute it with the pkl's other (out-of-band) episodes — the exact analog of failure mode #2.
 If you build a filtered set, filter **per episode** at NPZ-gen, not per pkl.
 
+## Failure mode #4: name-based disjointness checks (the test-set trap)
+
+Train and test reference the **same physical rooms under incompatible path schemes** — train via
+`outputs/v3_*_phase1/...run_NNNN_env_NNNN_pair...` SYMLINKS, the test pool via `car_envs/v3/test/...`
+real paths, and `run_NNNN` even *repeats across shards* for unrelated rooms. So a name-based
+"0 overlap with train" check is **meaningless** and silently passes on a leaky split. **Always verify
+test/train disjointness by ROOM GEOMETRY** — `md5(sorted wall pos/size/euler + sorted obstacle
+pos/size/euler)`, goal + robot excluded (committed: `scripts/pipeline/verify_geom_disjoint.py`). The
+canonical car test set built this way is `namo_testset_v1` (`docs/pipeline/canonical_testset.md`):
+2173 scenes, geometry-proven 0-leak.
+
+Related gotcha: the canonical 1-push eval key is **`v3_test_episodes.json`** (per-xml LIST of episodes
+WITH `object_center`, the thing `eval_scorer.py --episodes` consumes). `v3_test_validsets.json` is a
+simpler 1-per-xml form with NO `object_center` — **not** the eval key; don't confuse them.
+
 ## Note on script locations
 
 `build_episode_validsets.py` and the scorer-data builders (`build_scorer_dataset.py`,
