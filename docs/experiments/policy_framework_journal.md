@@ -45,6 +45,45 @@ Every hypothesis below now grades against this, not the old confusing/leaky mani
 
 ---
 
+## H5 — SAMPLED+MASKED labels vs exhaustive f_grid [PROMOTED to after Step-0 — [USER] question 2026-06-09]
+**[USER] framing:** "for 2-push we cannot possibly get exhaustive data — stick to that framing even for 1-push. Does
+masking help given sampled data? Should we continue sampling? Is this some loop training thing?"
+**Why promoted:** every later step (H3 value collection, H4, ExIt) trains on SAMPLED data; H5 decides whether that's
+viable and how much sampling is enough. 1-push is the ONLY place with an oracle (exhaustive f_grid + namo_testset_v1)
+— measure the lesson here, apply it on 2-push where it can never be measured. Lit grounding: this is
+positive-unlabeled / partial-label learning (Xu & Denil PU-reward; iterative PU constraint learning) — unsampled
+cells are UNKNOWN, not negative; treating them as negative = false-negative pessimism (the known RO failure mode).
+
+**Design (5 conditions × 3 matched seeds, champion sharp recipe; loss mask/labels are the ONLY difference):**
+| cond | labels | loss on |
+|---|---|---|
+| Aexh | exhaustive f_grid | all reachable (ceiling CONTROL, retrained with bce_reachable_only) |
+| B5/B15/B30 | k sampled cells/scene (outcome known only there) | the k sampled cells (MASKED) |
+| C15 | 15 sampled; unsampled FORCED to 0 (false negatives) | all reachable (the PU-BUG baseline) |
+Confound control: ALL conditions (incl. Aexh) use `bce_reachable_only=true` so BCE scope is identical; sampling
+applies to TRAIN only (val stays exhaustive); `sample_seed=seed` so seed-variance includes sampling variance.
+Impl: `scorer_data.py` (`sample_k`/`unsampled_negative` → `loss_mask`) + `classifier_module.py` (training uses
+`loss_mask`); data-path unit-asserts PASS (row0: 36 positives → bug-mode creates 27 false negatives).
+Runner: `sage_learning/scripts/train_h5_sampling.slurm` (15 runs). Eval: `eval_scorer.py` on namo_testset_v1.
+
+**Pre-registered predictions:**
+- **H5a [CLAUDE]:** masked-B15 lands within a few pp of Aexh on easy/med recall@10 but loses meaningfully on HARD
+  (hard scenes have few positives; sampling 15/75 rarely hits them → weaker hard signal).
+- **H5b [CLAUDE, high confidence]:** C15 ≪ B15 on recall@k (false negatives suppress valid pushes) AND C15 scores
+  saturate low/miscalibrated — masking is necessary. If C15 ≈ B15, masking doesn't matter and the PU framing is moot.
+- **H5c [CLAUDE]:** monotone in k (B5 < B15 < B30 ≤ Aexh); the B30→Aexh gap tells us how much MORE sampling buys
+  (Aexh ≈ k=75 avg). Gap closed by B30 → "sample more" beats "loop". Large persistent gap at B30 → justifies the
+  ExIt-style relabel loop (round-2 samples where round-1 proposes).
+**Decision rule:** B15 ≈ Aexh on hard → sampled collection is fine as-is for 2-push (just mask). Gap that shrinks
+with k → spend sims on more samples. Gap that doesn't shrink with k → the loop (on-distribution resampling) is the
+mechanism, design it for H3 collection.
+
+**Status:** smoke PASSED (job 55856466: B15 val_loss 0.884→0.749 healthy; C15 1.92→2.12 — the bug baseline already
+diverging on the exhaustive val after 2 epochs, early corroboration of H5b). **Full 15-run matrix = job 55856898**
+(launched 2026-06-09 23:40, gpu,gpu-redhat, ~2.6 h/run). Next: eval all ckpts on namo_testset_v1 → paired verdict.
+
+---
+
 ## H1 — FRAMING: policy vs scorer, and is action-smoothing a *policy* thing? [NOW]
 Controlled 2×2 on the `sharp` backbone, E4 data, fixed room-split, matched seeds {1,2,3}, paired.
 
