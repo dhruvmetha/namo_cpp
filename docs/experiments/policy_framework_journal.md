@@ -28,6 +28,18 @@ Eval = `eval_scorer.py` on `namo_testset_v1` (geometry-verified, [[project_canon
 
 ---
 
+## BASELINE REGISTRY [USER rule 2026-06-10: never retrain a baseline that already exists]
+| asset (3 seeds each) | reusable as |
+|---|---|
+| `h5samp_Aexh_s{1,2,3}` (exhaustive, bce_reachable_only, self-attn ON) | H5 ceiling · H2 ON×exh arm · **H1 sigmoid-sharp cell C1** |
+| `h5samp_B15_s{1,2,3}` (masked k=15) | H5 curve · H2 ON×masked arm |
+| `h5samp_B30_s{1,2,3}` (masked k=30) | H5 curve · standing masked-operating-point baseline |
+| champion `sharp_s1` ckpt | historical reference (re-eval only) |
+Snapshot-feeler protocol (matched-epoch last.ckpt + CPU eval array) makes new conditions comparable to these
+without retraining. ⇒ H1 = 9 new runs (not 12; C1:=Aexh — also removes the BCE-scope footnote), H2 = 6.
+
+---
+
 ## H5 — MASKING: sampled+masked labels vs exhaustive f_grid [RUNNING — the data-cost question]
 **[USER] question:** collection is the expensive thing. If we train knowing only k pushes/scene (masked — unsampled
 cells excluded from the loss, treated as UNKNOWN not negative), how much score quality do we lose vs exhaustive?
@@ -106,7 +118,7 @@ Red-team σ caveat stands: single σ conflates amount-vs-goodness of smoothing; 
 - **H1b [CLAUDE, the key test]:** soft HELPS the policy but HURTS/neutral the sigmoid (C4 > C3 AND C2 ≤ C1) —
   action-smoothing is a *policy* thing. ACCEPT → policy+soft is a live champion candidate. REJECT if soft hurts
   both (smoothing just bad) or helps both (framing-independent).
-Runner: `sage_learning/scripts/train_h1_framing.slurm` (smoke + 12 runs). LAUNCH AFTER H5 VERDICT [USER].
+Runner: `sage_learning/scripts/train_h1_framing.slurm` — C1 reuses Aexh (registry), so launch array=3-11 only (9 runs: sig_soft, pol_sharp, pol_soft × 3 seeds). LAUNCH AFTER H5 VERDICT [USER].
 
 ---
 
