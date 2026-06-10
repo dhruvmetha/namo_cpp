@@ -35,6 +35,31 @@ Every hypothesis below now grades against this, not the old confusing/leaky mani
 
 ---
 
+## H3′ — HORIZON-Q: the converged design [2026-06-10 早晨 synthesis, USER+CLAUDE discussion]
+**Decision trail (revises the journal thesis):** ONE function, not two — Q_H(s,a)="this push leads to success within
+the remaining budget", same EdgeCrossAttn + per-cell sigmoid training. Policy = top-k(map) [USER: "treat the ranker as
+a policy"]; Value = max(map) (calibration head only if max proves optimistic — H0b showed maxP is bias-prone, mean_all
+more honest → pooling may be the patch). WHY Q-not-policy-CE for sampled data: per-cell labels are ABSOLUTE facts that
+survive sampling+masking; softmax-CE targets are RELATIVE verdicts that sampling corrupts ("best of the 15 sampled" can
+be a lie). A policy also cannot express hopelessness (sums to 1) — the no-hopeless-scenes diagnosis requires it.
+H1 retains one card: if CE ordering wins big on exhaustive data, consider CE-finetune for ordering on top of Q values.
+
+**Data = the 5 species:** s0 direct openers, s0 ENABLERS (F1′-style, the new knowledge), post-push s1 states with
+their 1-push labels, HOPELESS s1 states (all-zeros — mandatory, diagnosis #2), soft negatives (budget-limited).
+Sampled k per state (k = H5 verdict) + masked loss; dead-ends included; collection = the tagged depth-2 machinery
+pointed at TRAIN scenes.
+
+**[USER] DECISION — robustness over optimality:** when a dense 2-push route and a rare 1-push needle coexist, PREFER
+the easy 2-push. ⇒ single blended head ("succeeds in ≤2"), no two-channel/budget read-out (labels still recorded
+per-horizon in the data — reversible at training time, zero cost). H5a's sampling bias (needles under-sampled on hard
+scenes) is thereby ALIGNED with the objective, not a bug. Eval metric = success within push budget, NOT min-push.
+
+**Search compatibility:** Q orders, sim VERIFIES top-3 (vs the beam's blind ~49), V=max prunes hopeless branches;
+every verified push = a new training sample (the ExIt loop, if H5c says random sampling has a ceiling).
+**Target to beat (pre-registered):** H0b's 34.5% @1 at ~49 sims/scene — beat it at ZERO lookahead sims.
+
+---
+
 ## Ablation backlog (ordered; each makes one design choice concrete)
 1. **[NOW] FRAMING — scorer (sigmoid-BCE) vs policy (softmax-CE), × sharp vs soft target.** Existing f_grid data.
 2. **Edge self-attention** on / off / reachability-masked, × **label density** (100/25/10%). Existing data (subsample). [USER]: sparsity should favor independent edges.
