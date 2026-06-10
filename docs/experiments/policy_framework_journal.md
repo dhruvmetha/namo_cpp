@@ -28,9 +28,8 @@ Every hypothesis below now grades against this, not the old confusing/leaky mani
 
 **Where we are in the ordered program** (cheapest-and-most-decisive first; each early step can kill the need for later ones):
 - ✅ **H0a — GATE** (recall@k, 1-push) — DONE → hard recall@10 = 75.8% (misses are wrong-EDGE), med 97%, easy 100%.
-- 🔄 **H0b — training-free first-push baseline (mean_top5)** (1-ply lookahead, graded vs F1′ on `pure2push.json`) — LAUNCHING. If a free
-  1-ply lookahead surfaces the enabling first-pushes into top-k, a learned policy/value may be unnecessary. Reuses
-  `scripts/sandbox/diag_leaf_s1.py` (logs per-first-push scalars + edge1/depth1 → post-hoc recall@k vs F1′).
+- ✅ **H0b — training-free first-push baseline (mean_top5)** — DONE, verdict below: signal at @1 (3× floor, ~9 SE)
+  but collapses to ≈floor by @10-20 → NOT sufficient → **learned first-push value (H3) is JUSTIFIED by measurement**.
 - ⏳ H1 framing → H1.5 post-push probe → H2 self-attn → policy-only search → H3 value head → H4 deploy → H5 masked targets.
   H1+ need GPU + the `head_mode` flag (and [USER] design green-light); the free steps gate whether we go there at all.
 
@@ -81,6 +80,39 @@ mechanism, design it for H3 collection.
 **Status:** smoke PASSED (job 55856466: B15 val_loss 0.884→0.749 healthy; C15 1.92→2.12 — the bug baseline already
 diverging on the exhaustive val after 2 epochs, early corroboration of H5b). **Full 15-run matrix = job 55856898**
 (launched 2026-06-09 23:40, gpu,gpu-redhat, ~2.6 h/run). Next: eval all ckpts on namo_testset_v1 → paired verdict.
+
+---
+
+## H0b RESULT — training-free first-push baseline vs exhaustive F1′ [2026-06-10, FINAL]
+**Setup:** 787 pure-2-push scenes; per scene, EVERY reachable first-push simulated (38,689 sims), the post-push state
+scored by the champion, first-pushes ranked by training-free scalars, recall@k graded vs the exhaustive F1′
+(`labels/pure2push.json`). Graded on the 391 episodes where ≥1 enabling first-push was inside the swept candidate set
+(coverage filter — this measures RANKING quality given coverage). Result: `namo_testset_v1/stats/fpv_step0_final.json`.
+
+| ranker | @1 | @3 | @5 | @10 | @20 |
+|---|---|---|---|---|---|
+| mean_top5 | **34.5** | 52.9 | 63.4 | 72.6 | 90.3 |
+| mean_all | 30.9 | 53.7 | 62.7 | **79.0** | 91.8 |
+| maxP | 24.6 | 42.7 | 51.9 | 65.5 | 85.7 |
+| random floor | 11.8 | 29.7 | 43.0 | 64.6 | 86.5 |
+
+(95% CI ≈ ±4.7pp @1, ±4.3pp @10, n=391.)
+
+**Verdicts:**
+- **ACCEPT: the lookahead carries real top-rank signal.** 34.5 vs 11.8 @1 = ~9 SE. A 1-ply sim + recycled scorer is
+  3× random at naming THE best first push.
+- **ACCEPT (the operative one): NOT sufficient for few-try selection.** By @10 the margin is 8pp (~2 SE); by @20
+  indistinguishable from random. A search granted 10 first-push tries does barely better than guessing.
+  ⇒ **a learned first-push value/policy (H3 direction) is justified by measurement, not taste.**
+- **Diagnosis (why it fails):** the scorer SATURATES on post-push states (~0.99 on dead s1's — OOD; it never trained
+  there). Confirms RISK-1/H1.5: post-push states are off-distribution for the champion.
+- **Surprise worth keeping:** `mean_all` (mean over ALL pushes, not top-5) beats mean_top5 at k≥10 (79.0 vs 72.6 @10)
+  — breadth of opportunity is more robust to saturation than peak quality. maxP (the naive choice) is the worst of
+  the mean-family — single-cell flukes dominate it.
+- **Cost note [honest]:** verdict was already stable at ~300 episodes; the full 787-scene sweep bought CI tightness,
+  not a different answer. Next eval of this shape: half the scenes.
+**Status: H0 pair CLOSED (H0a + H0b).** Both free options measured; both insufficient on hard/2-push. The learned
+machinery now has its empirical license. → H5 (data strategy) running, H1 (framing) chained behind it.
 
 ---
 
