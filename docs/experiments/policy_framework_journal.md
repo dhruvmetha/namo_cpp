@@ -1,179 +1,117 @@
-# Policy-framework journal — scorer → (policy + value)
+# 1-push ARCHITECTURE journal — what makes the scorer good, and what data it needs
 
-**Why a new journal [USER+CLAUDE]:** this is a distinct *architecture/framework* line — "should the (60,5) head be a
-per-action sigmoid value (scorer) or a softmax policy, and do we move to policy+value (actor-critic) à la AlphaZero?"
-— separate from 1-push scorer tuning ([scorer_hacman_journal.md]) and the 2-push value diagnostic
-([informed_2push_journal.md]). Keep it hypothesis → pre-registered prediction → accept/reject with numbers; tag
-[USER]/[CLAUDE]; **paired matched-seed** comparisons (the E6 lesson: effects < seed-wobble ±1.7 → always pair).
+**[USER] scope (2026-06-10):** this journal = **1-push, architecture + data-efficiency ONLY**. The questions:
+(1) **MASKING** — how does training on sampled+masked labels (vs exhaustive) impact the score? This prices data
+collection, the binding constraint. (2) **SELF-ATTN** — does inter-edge aggregation help or hurt the score map
+(the score is a pseudo-policy: it tells us what edge-info aggregation buys)? (3) **FRAMING** — sigmoid-value vs
+softmax-policy training of the same head. Everything 2-push / AlphaZero / horizon-Q is **parked** in
+[multipush_horizonQ_journal.md](multipush_horizonQ_journal.md) — do not let it drive experiments here.
 
-**Thesis (from the 3-agent AlphaZero/MuZero sweep, see [[project_policy_value_not_q]]):** when you act via SEARCH, the
-net should output a **policy prior** (which pushes) + a **value V(s)** (how good a state) — NOT a standalone Q (the
-search computes Q). Soft/Gaussian action-smoothing is principled for a *policy* (cross-entropy over a distribution) but
-biased for a *Q* (independent absolute values) — which retro-explains our sharp-beat-soft result (the scorer is Q-like).
+**Rules:** hypothesis → pre-registered prediction → accept/reject with numbers; tag [USER]/[CLAUDE];
+**paired matched-seed** comparisons (the E6 lesson: effects < seed-wobble ±1.7 → always pair; 3 seeds minimum).
+Eval = `eval_scorer.py` on `namo_testset_v1` (geometry-verified, [[project_canonical_testset]]); verdicts via
+`resolve_robust.sh`-style paired reads. All sampling-ablation runs use `+model.bce_reachable_only=true`
+(BCE-scope confound control), sampling on the TRAIN split only (val stays exhaustive).
 
-**Translation feasibility:** same `EdgeCrossAttn` backbone, same (60,5) output. Only changes: output sigmoid→softmax,
-loss BCE→cross-entropy, target {0,1 per cell}→{normalized distribution}. Reuse `train_classifier.py`,
-`classifier_module.py` (its `soft_edge_sigma`/`soft_depth_sigma` already build soft targets), `scorer_data.py` (f_grid),
-`eval_scorer.py` (hard@1/recall — argmax of a policy = argmax of the map, same metric), `resolve_robust.sh` (paired).
-Add one flag: `head_mode ∈ {sigmoid_bce, softmax_ce}`. No new data for the framing study (uses the 1-push f_grid).
-
----
-
-## STATE — 2026-06-09 PM (running record)
-**Milestone: the measurement foundation exists.** Built the canonical car test set `namo_testset_v1`
-([[project_canonical_testset]], `docs/pipeline/canonical_testset.md`) — geometry-verified 0-leak, 1-push tier
-(1228 sc / 1671 eps, exhaustive) + 2-push tier (**808 pure-2-push eps** with exhaustive **F1′** in `labels/pure2push.json`).
-Every hypothesis below now grades against this, not the old confusing/leaky manifests. The 1-push GATE already ran on it
-(see below).
-
-**Where we are in the ordered program** (cheapest-and-most-decisive first; each early step can kill the need for later ones):
-- ✅ **H0a — GATE** (recall@k, 1-push) — DONE → hard recall@10 = 75.8% (misses are wrong-EDGE), med 97%, easy 100%.
-- ✅ **H0b — training-free first-push baseline (mean_top5)** — DONE, verdict below: signal at @1 (3× floor, ~9 SE)
-  but collapses to ≈floor by @10-20 → NOT sufficient → **learned first-push value (H3) is JUSTIFIED by measurement**.
-- ⏳ H1 framing → H1.5 post-push probe → H2 self-attn → policy-only search → H3 value head → H4 deploy → H5 masked targets.
-  H1+ need GPU + the `head_mode` flag (and [USER] design green-light); the free steps gate whether we go there at all.
+**Ordering [USER 2026-06-10]: H5 (masking) FIRST → read + understand the verdict → then decide/launch H1 + H2.**
+(H1/H2 auto-chains were cancelled; implementations are ready and smoke-tested, launch is one sbatch each.)
 
 ---
 
-## H3′ — HORIZON-Q: the converged design [2026-06-10 synthesis, USER+CLAUDE discussion]
-**Decision trail (revises the journal thesis):** ONE function, not two — Q_H(s,a)="this push leads to success within
-the remaining budget", same EdgeCrossAttn + per-cell sigmoid training. Policy = top-k(map) [USER: "treat the ranker as
-a policy"]; Value = max(map) (calibration head only if max proves optimistic — H0b showed maxP is bias-prone, mean_all
-more honest → pooling may be the patch). WHY Q-not-policy-CE for sampled data: per-cell labels are ABSOLUTE facts that
-survive sampling+masking; softmax-CE targets are RELATIVE verdicts that sampling corrupts ("best of the 15 sampled" can
-be a lie). A policy also cannot express hopelessness (sums to 1) — the no-hopeless-scenes diagnosis requires it.
-H1 retains one card: if CE ordering wins big on exhaustive data, consider CE-finetune for ordering on top of Q values.
-
-**Data = the 5 species:** s0 direct openers, s0 ENABLERS (F1′-style, the new knowledge), post-push s1 states with
-their 1-push labels, HOPELESS s1 states (all-zeros — mandatory, diagnosis #2), soft negatives (budget-limited).
-Sampled k per state (k = H5 verdict) + masked loss; dead-ends included; collection = the tagged depth-2 machinery
-pointed at TRAIN scenes.
-
-**[USER] DECISION — robustness over optimality:** when a dense 2-push route and a rare 1-push needle coexist, PREFER
-the easy 2-push. ⇒ single blended head ("succeeds in ≤2"), no two-channel/budget read-out (labels still recorded
-per-horizon in the data — reversible at training time, zero cost). H5a's sampling bias (needles under-sampled on hard
-scenes) is thereby ALIGNED with the objective, not a bug. Eval metric = success within push budget, NOT min-push.
-
-**Search compatibility:** Q orders, sim VERIFIES top-3 (vs the beam's blind ~49), V=max prunes hopeless branches;
-every verified push = a new training sample (the ExIt loop, if H5c says random sampling has a ceiling).
-**Target to beat (pre-registered):** H0b's 34.5% @1 at ~49 sims/scene — beat it at ZERO lookahead sims.
+## STATE — 2026-06-10 ~01:00
+- ✅ **H0a — baseline**: champion scorer on the clean test set (table below). Hard recall@10=75.8, misses 90% wrong-EDGE.
+- 🔄 **H5 — MASKING (the headline question)**: 15-run matrix training (job 55856898; 10 running, 5 queued).
+  Eval + paired verdict when done (~morning).
+- ⏸ **H1 — framing**: implemented (`head_mode=softmax_ce`, CPU-asserts pass), GATED on H5 verdict [USER].
+- ⏸ **H2 — self-attn**: implemented (`edge_self_attn=false`, both arms CPU-smoke OK; ON-arms = H5's Aexh/B15 runs,
+  only 6 OFF-runs needed), GATED on H5 verdict [USER].
 
 ---
 
-## Ablation backlog (ordered; each makes one design choice concrete)
-1. **[NOW] FRAMING — scorer (sigmoid-BCE) vs policy (softmax-CE), × sharp vs soft target.** Existing f_grid data.
-2. **Edge self-attention** on / off / reachability-masked, × **label density** (100/25/10%). Existing data (subsample). [USER]: sparsity should favor independent edges.
-3. **Value head** — present/absent; pool method; classification (Stop-Regressing) vs MSE. Needs value-target collection.
-4. **Q vs policy+value in the search (deploy):** does policy-prior + V + search beat the current beam on solve@k / sims? Needs heads + search integration.
-5. **Targets from SEARCH (partial, masked) vs exhaustive f_grid** — the "label what you tried, mask the rest" scheme for depth ≥2. Needs the search-target collection.
+## H5 — MASKING: sampled+masked labels vs exhaustive f_grid [RUNNING — the data-cost question]
+**[USER] question:** collection is the expensive thing. If we train knowing only k pushes/scene (masked — unsampled
+cells excluded from the loss, treated as UNKNOWN not negative), how much score quality do we lose vs exhaustive?
+And is masking itself sound? If a lot of data is needed, so be it — but measure it. A validated masking verdict
+also means **any future signal can be trained the same masked way** (the recipe transfers).
+Lit grounding: positive-unlabeled / partial-label learning — unsampled ≠ negative; forcing unsampled-to-0 creates
+false negatives (the PU bug).
 
----
-
-## H5 — SAMPLED+MASKED labels vs exhaustive f_grid [PROMOTED to after H0b — [USER] question 2026-06-09]
-**[USER] framing:** "for 2-push we cannot possibly get exhaustive data — stick to that framing even for 1-push. Does
-masking help given sampled data? Should we continue sampling? Is this some loop training thing?"
-**Why promoted:** every later step (H3 value collection, H4, ExIt) trains on SAMPLED data; H5 decides whether that's
-viable and how much sampling is enough. 1-push is the ONLY place with an oracle (exhaustive f_grid + namo_testset_v1)
-— measure the lesson here, apply it on 2-push where it can never be measured. Lit grounding: this is
-positive-unlabeled / partial-label learning (Xu & Denil PU-reward; iterative PU constraint learning) — unsampled
-cells are UNKNOWN, not negative; treating them as negative = false-negative pessimism (the known RO failure mode).
-
-**Design (5 conditions × 3 matched seeds, champion sharp recipe; loss mask/labels are the ONLY difference):**
+**Design (5 conditions × 3 matched seeds = 15 runs, champion sharp recipe; loss mask/labels the ONLY difference):**
 | cond | labels | loss on |
 |---|---|---|
 | Aexh | exhaustive f_grid | all reachable (ceiling CONTROL, retrained with bce_reachable_only) |
 | B5/B15/B30 | k sampled cells/scene (outcome known only there) | the k sampled cells (MASKED) |
 | C15 | 15 sampled; unsampled FORCED to 0 (false negatives) | all reachable (the PU-BUG baseline) |
-Confound control: ALL conditions (incl. Aexh) use `bce_reachable_only=true` so BCE scope is identical; sampling
-applies to TRAIN only (val stays exhaustive); `sample_seed=seed` so seed-variance includes sampling variance.
+`sample_seed=seed` → seed variance includes sampling variance (honest for "is k enough").
 Impl: `scorer_data.py` (`sample_k`/`unsampled_negative` → `loss_mask`) + `classifier_module.py` (training uses
 `loss_mask`); data-path unit-asserts PASS (row0: 36 positives → bug-mode creates 27 false negatives).
-Runner: `sage_learning/scripts/train_h5_sampling.slurm` (15 runs). Eval: `eval_scorer.py` on namo_testset_v1.
+Runner: `sage_learning/scripts/train_h5_sampling.slurm`.
 
 **Pre-registered predictions:**
-- **H5a [CLAUDE]:** masked-B15 lands within a few pp of Aexh on easy/med recall@10 but loses meaningfully on HARD
-  (hard scenes have few positives; sampling 15/75 rarely hits them → weaker hard signal).
-- **H5b [CLAUDE, high confidence]:** C15 ≪ B15 on recall@k (false negatives suppress valid pushes) AND C15 scores
-  saturate low/miscalibrated — masking is necessary. If C15 ≈ B15, masking doesn't matter and the PU framing is moot.
-- **H5c [CLAUDE]:** monotone in k (B5 < B15 < B30 ≤ Aexh); the B30→Aexh gap tells us how much MORE sampling buys
-  (Aexh ≈ k=75 avg). Gap closed by B30 → "sample more" beats "loop". Large persistent gap at B30 → justifies the
-  ExIt-style relabel loop (round-2 samples where round-1 proposes).
-**Decision rule:** B15 ≈ Aexh on hard → sampled collection is fine as-is for 2-push (just mask). Gap that shrinks
-with k → spend sims on more samples. Gap that doesn't shrink with k → the loop (on-distribution resampling) is the
-mechanism, design it for H3 collection.
+- **H5a [CLAUDE]:** masked-B15 ≈ Aexh on easy/med recall@10 but loses meaningfully on HARD (few positives per hard
+  scene; k=15/75 rarely samples them → weaker hard signal).
+- **H5b [CLAUDE, high confidence]:** C15 ≪ B15 — false negatives suppress valid pushes; masking is NECESSARY.
+  If C15 ≈ B15, masking doesn't matter and the PU framing is moot.
+- **H5c [CLAUDE]:** monotone in k (B5 < B15 < B30 ≤ Aexh). B30→Aexh gap = what more random sampling buys.
+  Gap closed by B30 → "sample more" suffices. Persistent gap → smarter (on-distribution) sampling needed.
+**Decision rule:** B15 ≈ Aexh on hard → sampled collection at k≈15 is fine (just mask). Gap shrinking with k →
+budget more samples/scene. Gap not shrinking → where you sample matters more than how much.
 
-**Status:** smoke PASSED (job 55856466: B15 val_loss 0.884→0.749 healthy; C15 1.92→2.12 — the bug baseline already
-diverging on the exhaustive val after 2 epochs, early corroboration of H5b). **Full 15-run matrix = job 55856898**
-(launched 2026-06-09 23:40, gpu,gpu-redhat, ~2.6 h/run). Next: eval all ckpts on namo_testset_v1 → paired verdict.
+**Status:** 2-epoch smoke PASSED (B15 val_loss 0.884→0.749 healthy; C15 1.92→2.12 — bug baseline already diverging
+on the exhaustive val, early corroboration of H5b). Full matrix = job 55856898. Next: eval all 15 ckpts on
+namo_testset_v1 → paired verdict → [USER] reads it → then H1/H2.
 
 ---
 
-## H0b RESULT — training-free first-push baseline vs exhaustive F1′ [2026-06-10, FINAL]
-**Setup:** 787 pure-2-push scenes; per scene, EVERY reachable first-push simulated (38,689 sims), the post-push state
-scored by the champion, first-pushes ranked by training-free scalars, recall@k graded vs the exhaustive F1′
-(`labels/pure2push.json`). Graded on the 391 episodes where ≥1 enabling first-push was inside the swept candidate set
-(coverage filter — this measures RANKING quality given coverage). Result: `namo_testset_v1/stats/fpv_step0_final.json`.
+## H2 — EDGE SELF-ATTENTION: does inter-edge aggregation help the score map? [READY, gated on H5]
+**[USER] question + hypothesis:** the score is a pseudo-policy — what does edge-info aggregation buy it?
+[USER] prediction: under sparse/masked labels, INDEPENDENT edges should hold up better (self-attn is a
+co-adaptation channel that sparse supervision can't discipline).
 
-| ranker | @1 | @3 | @5 | @10 | @20 |
-|---|---|---|---|---|---|
-| mean_top5 | **34.5** | 52.9 | 63.4 | 72.6 | 90.3 |
-| mean_all | 30.9 | 53.7 | 62.7 | **79.0** | 91.8 |
-| maxP | 24.6 | 42.7 | 51.9 | 65.5 | 85.7 |
-| random floor | 11.8 | 29.7 | 43.0 | 64.6 | 86.5 |
-
-(95% CI ≈ ±4.7pp @1, ±4.3pp @10, n=391.)
-
-**Verdicts:**
-- **ACCEPT: the lookahead carries real top-rank signal.** 34.5 vs 11.8 @1 = ~9 SE. A 1-ply sim + recycled scorer is
-  3× random at naming THE best first push.
-- **ACCEPT (the operative one): NOT sufficient for few-try selection.** By @10 the margin is 8pp (~2 SE); by @20
-  indistinguishable from random. A search granted 10 first-push tries does barely better than guessing.
-  ⇒ **a learned first-push value/policy (H3 direction) is justified by measurement, not taste.**
-- **Diagnosis (why it fails):** the scorer SATURATES on post-push states (~0.99 on dead s1's — OOD; it never trained
-  there). Confirms RISK-1/H1.5: post-push states are off-distribution for the champion.
-- **Diagnosis #2 [USER catch, verified on the H5]:** the training data contains **0 hopeless scenes** — all 98,387
-  rows have ≥1 valid push (mean 54% of reachable pushes succeed; p10=12.5%). The model was never taught that
-  "all-low" is a legal output, so on dead post-push states its prior says "about half of these should work."
-  ⇒ HARD REQUIREMENT for H3 value data: include dead-end/unsolvable states (already mandated in policy_value_v1
-  README rule 5/7 — now with measured evidence).
-- **Surprise worth keeping:** `mean_all` (mean over ALL pushes, not top-5) beats mean_top5 at k≥10 (79.0 vs 72.6 @10)
-  — breadth of opportunity is more robust to saturation than peak quality. maxP (the naive choice) is the worst of
-  the mean-family — single-cell flukes dominate it.
-- **Cost note [honest]:** verdict was already stable at ~300 episodes; the full 787-scene sweep bought CI tightness,
-  not a different answer. Next eval of this shape: half the scenes.
-**Status: H0 pair CLOSED (H0a + H0b).** Both free options measured; both insufficient on hard/2-push. The learned
-machinery now has its empirical license. → H5 (data strategy) running, H1 (framing) chained behind it.
-
----
-
-## H1 — FRAMING: policy vs scorer, and is action-smoothing a *policy* thing? [NOW]
-Controlled 2×2 on the `sharp` backbone, E4 data, fixed room-split, matched seeds {1,2,3}, paired.
-
-```
-                       sharp target            soft target (Gaussian σ over edge×depth)
- sigmoid-BCE (scorer)  C1 = current champion   C2  (journal: soft was REJECTED here)
- softmax-CE  (policy)  C3                       C4  (hypothesized winner)
-```
-Targets: sigmoid sharp = f_grid {0,1}; sigmoid soft = Gaussian-spread f_grid (existing `_build_soft_target`).
-policy sharp = normalize(f_grid) (uniform over solving cells); policy soft = Gaussian-smoothed multimodal distribution.
-Metric: **hard@1** (does argmax solve) + recall@{5,10,20}, per difficulty (`eval_scorer.py`).
+**Design (2×2; the self-attn=ON arms are H5's runs — same recipe/seeds — so only 6 new runs):**
+| | exhaustive labels | masked k=15 |
+|---|---|---|
+| self-attn ON | = h5samp_Aexh_s{1,2,3} | = h5samp_B15_s{1,2,3} |
+| self-attn OFF | h2_noattn_exh_s{1,2,3} | h2_noattn_k15_s{1,2,3} |
+OFF = `+network.edge_self_attn=false` — the per-layer `slf` module is NOT constructed (3.75M vs 4.35M params);
+edges are scored truly independently given the scene (cross-attn only — the HACMan-faithful control the red-team
+asked for). Both arms CPU-smoke verified (shapes/finiteness).
+"Best kind of masking" for the masked arm = the PU-correct loss_mask masking H5 validates, at its recommended k
+(k=15 placeholder; re-run the arm if H5 says a different operating point).
 
 **Pre-registered predictions:**
-- **H1a [CLAUDE] framing alone is ~a wash at sharp:** C3 ≈ C1 on hard@1 (within ±1.7), because argmax is argmax. (If C3 ≪ C1 → softmax framing hurts; if C3 ≫ C1 → it helps even sharp.)
-- **H1b [CLAUDE] action-smoothing is a POLICY thing (the key test):** soft HELPS the policy but HURTS/neutral the sigmoid → **C4 > C3** AND **C2 ≤ C1**. ACCEPT if the soft×policy gain is positive (paired) while soft×sigmoid is ≤0 → confirms the theory and makes **policy+soft the new champion**. REJECT if soft hurts both framings (smoothing is just bad) or helps both (framing-independent).
-
-**Decision rule → architecture:**
-- H1b accepted → adopt **softmax-policy head + soft manifold targets**; carry into the value-head build.
-- H1b rejected, H1a wash → keep the sigmoid scorer as the proposal head (simpler), revisit smoothing.
-
-**Status:** designed, not launched (GPU compute — awaiting [USER] green-light). Implementation = `head_mode` flag in
-`classifier_module.py` + relabel hook; 2×2 × 3 seeds = 12 runs, `gpu,gpu-redhat`, paired via `resolve_robust.sh`.
+- **H2a [USER]:** with masked labels the OFF arm ≥ ON arm on hard recall@10 (sparsity favors independence).
+- **H2b [CLAUDE]:** with exhaustive labels ON ≥ OFF by a small margin (the champion always had self-attn; if OFF
+  matches it, self-attn was dead weight all along and the simpler arch wins).
+- **Interaction is the real readout:** ON−OFF gap shrinking (or flipping) from exhaustive → masked = "aggregation
+  is a luxury of dense supervision."
+Runner: `sage_learning/scripts/train_h2_selfattn.slurm` (smoke + 6 runs). LAUNCH AFTER H5 VERDICT [USER].
 
 ---
 
-## H0a — GATE: recall@k of the champion scorer on the CLEAN test set [2026-06-09]
-First measurement on the geometry-verified canonical test set (`namo_testset_v1`, `v3_test_episodes.json`, 0 train-leak —
-see [[project_canonical_testset]]). Champion `sharp` ckpt (`epoch017-val_loss0.2713`), `eval_scorer.py`, 1656 episodes.
+## H1 — FRAMING: sigmoid-value vs softmax-policy training of the same head [READY, gated on H5]
+Controlled 2×2 on the sharp backbone, E4 data, matched seeds {1,2,3}, paired:
+```
+                       sharp target            soft target (Gaussian σ=1.0 edge/depth)
+ sigmoid-BCE (scorer)  C1 = champion replica   C2  (soft was REJECTED here historically)
+ softmax-CE  (policy)  C3                       C4  (theory says soft is principled here)
+```
+softmax-CE = legal-move-masked CE over reachable cells, multimodal targets normalized (impl `head_mode=softmax_ce`,
+CPU-asserts pass: finite, masked-cells zero-grad, no-positive rows skipped, converges, sigmoid path regression-OK).
+NOTE: C1/C2 keep the champion loss package (BCE all-600 + Dice); C3/C4 are CE-over-reachable — compares PACKAGES.
+Red-team σ caveat stands: single σ conflates amount-vs-goodness of smoothing; sweep σ only if the interaction shows.
+
+**Pre-registered predictions:**
+- **H1a [CLAUDE]:** framing alone ≈ wash at sharp targets (C3 ≈ C1 within seed noise) — argmax is argmax.
+- **H1b [CLAUDE, the key test]:** soft HELPS the policy but HURTS/neutral the sigmoid (C4 > C3 AND C2 ≤ C1) —
+  action-smoothing is a *policy* thing. ACCEPT → policy+soft is a live champion candidate. REJECT if soft hurts
+  both (smoothing just bad) or helps both (framing-independent).
+Runner: `sage_learning/scripts/train_h1_framing.slurm` (smoke + 12 runs). LAUNCH AFTER H5 VERDICT [USER].
+
+---
+
+## H0a — BASELINE: champion scorer on the clean test set [2026-06-09, DONE]
+Champion `sharp` ckpt (`epoch017-val_loss0.2713`), `eval_scorer.py`, 1656 episodes, `namo_testset_v1`.
 
 | bucket | n | success@1 | recall@5 | **recall@10** | recall@20 | rank-1st-valid median |
 |---|---|---|---|---|---|---|
@@ -181,57 +119,17 @@ see [[project_canonical_testset]]). Champion `sharp` ckpt (`epoch017-val_loss0.2
 | med  (sr 16.8%)| 491 | 81.3 | 94.5 | **96.7** | 98.6 | 1.0 |
 | easy (sr 65%)  | 752 | 99.6 | 99.9 | **100** | 100 | 1.0 |
 
-**Verdict on the GATE (pre-registered: high recall → scorer already surfaces solutions → may not need policy+value;
-poor recall on hard → learned policy justified):** SPLIT by difficulty.
-- **easy/med: recall@10 ≥ 97%** → a ~10-sim search almost always contains the solving 1-push; per-action scorer is
-  near-sufficient there, policy+value adds little. (Floor@10 is 98%/81% though — easy is near-saturated, weak signal.)
-- **hard: recall@10 = 75.8% (vs floor 25.6%)** → real headroom; 24% of hard episodes don't even have the solving push
-  in the top-10. **This is where first-push selection is the bottleneck — exactly the policy+value/search target.**
+- easy/med ≈ saturated (floor@10 is 98/81 — weak signal up there). **Hard is the battleground**: 24% of episodes
+  lack a winner in the top-10.
+- **Failure anatomy (actionable):** of hard fail@1, **90.3% wrong-EDGE**, 6.5% right-edge-wrong-depth
+  (depth-acc|right-edge = 83.4%). The depth head is fine; **contact-edge selection on hard scenes is the gap** —
+  exactly what H2 (edge aggregation) and H1 (ranking-shaped loss) poke at.
+- Every arch variant below is judged on this table's metric, hard bucket first.
+Result JSON: `namo_testset_v1/stats/champion_1push_recall_gate.json`.
 
-**Failure analysis (why hard misses) — actionable:** of hard fail@1, **90.3% are WRONG-EDGE** (contact point), only
-6.5% right-edge-wrong-depth; depth-acc GIVEN right edge = 83.4%. So the model's depth head is fine; the gap is
-**which contact edge** to push on hard scenes. ⇒ the next lever is better *edge/contact* ranking on hard (the
-training-free `mean_top5` first-push ranker, then learned policy), NOT depth modeling. Pairs with the 2-push tier:
-hard 1-push scenes (sr<5%) are the bridge to genuine depth-2.
-
-Result JSON: `namo_testset_v1/stats/champion_1push_recall_gate.json`. This also end-to-end VALIDATES the test set
-(eval ran clean against it).
-
----
-
-## RED-TEAM RISKS (background agent, 2026-06-09; 1 of 3 reports — the other 2 pending)
-**[USER] motivation: justify the machinery — don't over-apply. The red-team supports this.**
-
-- **RISK-2 (biggest): few-sim search amplifies policy errors; per-action scorer may be the RIGHT minimal tool.**
-  In the few-sim regime (our goal), the search visits ~k≪300 actions. The policy prior IS the search — if the solving
-  push isn't in its top-k, the search never tries it, and V(s) can't rescue it (V doesn't score unvisited actions).
-  The existing per-action scorer ranks ALL 300 (recall@10≈89% from the overnight diag) → can't miss that way.
-  ⇒ **"policy+value not Q" is NOT settled for few-sim.** [[project_policy_value_not_q]] assumed "search computes Q",
-  which is false for the unvisited 280 actions. DEMOTE policy-vs-Q from decision → hypothesis, adjudicated by H1 + the gate below.
-
-- **GATE (cheap, run FIRST): policy recall@k from the existing f_grid.** Is the solving push in the model's top-k?
-  High recall → per-action scorer already surfaces solutions → may not need policy+value (just a better value/ordering,
-  e.g. the training-free `mean_top5` H0b). Poor recall on hard cases → learned policy justified. **This gates H3+.**
-
-- **RISK-1: H1 tests the wrong distribution.** f_grid = INITIAL states; we deploy on POST-PUSH (mid-chain) states (OOD).
-  H1 winner may not transfer. → **H1.5 [NEW]: post-push probe** — score ~50 post-push states exhaustively, re-check the
-  framing/recall there. Without it H1's conclusion is contingent.
-
-- **RISK-3: H3 bootstrap/ordering.** Value labels are search-collected, but search quality depends on the policy →
-  early data biased. Fix ordering: H1/H2 → **policy-only search (no value)** intermediate → H3 collect → full H4. Likely
-  needs DAgger-style re-collection, not one-shot.
-
-- **2×2 confound [fix]:** sharp/soft sigma is a per-head hyperparam; a single σ conflates "amount" vs "goodness of"
-  smoothing. Sweep σ ∈ {0,0.5,1,2 cells} (or verify the head×smoothing interaction holds across σ), don't fix one σ.
-
-- **Missing baseline:** independent action scoring (scene cross-attn only, NO inter-action self-attn) — that's literally
-  the current per-action scorer; it's the obvious control for "does inter-action attention help or hurt." Add to H2.
-
-- **Metric gap:** hard@1 on 1-push is NOT predictive of solve@k/sims (different distribution; conflates policy/value/search).
-  Add **policy recall@k** as the bridge metric; ablate policy-only vs +value separately in H4.
-
-- **Negatives are heterogeneous:** dead-end from wrong-first-push vs impossible-config vs wrong-second-push are different;
-  treating all as one "unsolvable" may teach "looks unfamiliar" not "is a dead end." Tag negative TYPE in the collection.
-
-**Revised order:** H0a recall@k GATE (free) → H0b mean_top5 baseline (free) → H1+H1.5 (framing, +post-push probe) →
-H2 (self-attn incl. independent-scoring control) → policy-only search → H3 (value collect, tag negative types) → H4.
+## Red-team notes retained for the arch line
+- **σ confound (H1):** one σ conflates "amount" vs "goodness" of smoothing — sweep σ ∈ {0.5,1,2} before believing
+  an interaction.
+- **Independent-scoring control (H2 OFF arm):** scene-cross-attn-only is the obvious control for "does inter-action
+  attention help or hurt" — now implemented as `edge_self_attn=false`.
+- (2-push / deploy-metric / value-collection risks → parked journal.)
