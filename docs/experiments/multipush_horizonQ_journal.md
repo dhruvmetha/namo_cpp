@@ -8,6 +8,13 @@ back into the collection design below when this line un-parks.
 
 ---
 
+## 📖 Companion primer [2026-06-10]
+[multipush_learning_primer.md](multipush_learning_primer.md) — plain-language map of all model families + training
+schemes + 10 case studies (3-agent lit sweep). **Independent convergence:** the sweep's recommended path (spatial
+Q-map + value, search-generated MC labels, supervised fit, optional 2-3 ExIt rounds, shallow verify-search, never
+TD at horizon 2-3) IS the H3′ design below. Also: tonight's 1-push verdicts (arch journal) pin the architecture
+(sigmoid-sharp + self-attn) and the data price (~30 sampled labels/state, masked).
+
 ## Original thesis (now revised — see H3′ below)
 From the 3-agent AlphaZero/MuZero sweep ([[project_policy_value_not_q]]): when you act via SEARCH, the net should
 output a **policy prior** + a **value V(s)** — NOT a standalone Q (the search computes Q). Soft/Gaussian
