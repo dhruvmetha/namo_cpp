@@ -40,7 +40,7 @@ without retraining. ⇒ H1 = 9 new runs (not 12; C1:=Aexh — also removes the B
 
 ---
 
-## H5 — MASKING: sampled+masked labels vs exhaustive f_grid [RUNNING — the data-cost question]
+## H5 — MASKING: sampled+masked labels vs exhaustive f_grid [DONE 2026-06-10 — the data-cost question]
 **[USER] question:** collection is the expensive thing. If we train knowing only k pushes/scene (masked — unsampled
 cells excluded from the loss, treated as UNKNOWN not negative), how much score quality do we lose vs exhaustive?
 And is masking itself sound? If a lot of data is needed, so be it — but measure it. A validated masking verdict
@@ -69,13 +69,29 @@ Runner: `sage_learning/scripts/train_h5_sampling.slurm`.
 **Decision rule:** B15 ≈ Aexh on hard → sampled collection at k≈15 is fine (just mask). Gap shrinking with k →
 budget more samples/scene. Gap not shrinking → where you sample matters more than how much.
 
-**Status:** 2-epoch smoke PASSED (B15 val_loss 0.884→0.749 healthy; C15 1.92→2.12 — bug baseline already diverging
-on the exhaustive val, early corroboration of H5b). Full matrix = job 55856898. Next: eval all 15 ckpts on
-namo_testset_v1 → paired verdict → [USER] reads it → then H1/H2.
+**RESULT [2026-06-10 FINAL — best ckpt (ep≤21) per run, n=3 seeds, namo_testset_v1]:**
+| cond | hard@1 | hard@5 | hard@10 | med@10 | easy@10 |
+|---|---|---|---|---|---|
+| Aexh | **31.3** ±3.6 | 64.3 ±2.0 | **78.6** ±0.8 | 98.2 | 100 |
+| B30 | 28.5 ±0.9 | 61.1 ±1.4 | 75.3 ±3.8 | 97.5 | 99.9 |
+| B15 | 26.0 ±3.7 | 56.5 ±0.9 | 72.3 ±1.0 | 96.9 | 100 |
+| B5 | 18.1 ±0.2 | 50.2 ±0.6 | 66.1 ±0.7 | 96.2 | 100 |
+| C15 (bug) | **13.4** ±2.0 | 41.9 ±5.8 | 58.5 ±5.6 | 92.1 | 99.6 |
+
+**Verdicts:**
+- **H5b ACCEPT (loud):** C15 vs B15 = −12.6 @1 / −14.6 @5 / −13.8 @10. The unsampled-as-negative bug is
+  CATASTROPHIC — C15 is even worse than B5 (5 honest labels beat 15 labels + ~60 lies). **Masking is NECESSARY.**
+- **H5c ACCEPT:** strictly monotone in k on every hard metric (B5 < B15 < B30 < Aexh).
+- **H5a ACCEPT:** med/easy unaffected (96–100 across masked conditions); ALL damage concentrates on hard.
+- **MAINTENANCE ([USER]'s question):** B30 = −2.8 @1 / −3.3 @10 vs exhaustive — at the seed-noise boundary (±3.6).
+  **~30 labels/scene ≈ maintains; 15/scene costs ~5–6pp hard; 5/scene costs ~13pp.** THE PRICE LIST for future
+  collection: ~30 sims/scene is the operating point (2.5× cheaper than exhaustive); the residual ~3pp gap is what
+  smarter-than-random sampling could still recover.
+**Mid-training feelers (ep~15) predicted every ordering correctly** — snapshot-feeler protocol validated.
 
 ---
 
-## H2 — EDGE SELF-ATTENTION: does inter-edge aggregation help the score map? [READY, gated on H5]
+## H2 — EDGE SELF-ATTENTION: does inter-edge aggregation help the score map? [DONE 2026-06-10]
 **[USER] question + hypothesis:** the score is a pseudo-policy — what does edge-info aggregation buy it?
 [USER] prediction: under sparse/masked labels, INDEPENDENT edges should hold up better (self-attn is a
 co-adaptation channel that sparse supervision can't discipline).
@@ -97,11 +113,30 @@ asked for). Both arms CPU-smoke verified (shapes/finiteness).
   matches it, self-attn was dead weight all along and the simpler arch wins).
 - **Interaction is the real readout:** ON−OFF gap shrinking (or flipping) from exhaustive → masked = "aggregation
   is a luxury of dense supervision."
-Runner: `sage_learning/scripts/train_h2_selfattn.slurm` (smoke + 6 runs). LAUNCH AFTER H5 VERDICT [USER].
+**RESULT [2026-06-10 FINAL — n=3 each; OFF runs ep20-capped (peak ~ep15); +k30 arm added per [USER]]:**
+| | hard@1 | hard@5 | hard@10 | med@10 |
+|---|---|---|---|---|
+| ON × exh (=Aexh) | **31.3** ±3.6 | 64.3 | 78.6 ±0.8 | 98.2 |
+| OFF × exh | 27.2 ±2.4 | 59.6 | 75.0 ±0.6 | 97.1 |
+| ON × k15 (=B15) | **26.0** ±3.7 | 56.5 | 72.3 ±1.0 | 96.9 |
+| OFF × k15 | 20.9 ±1.7 | 51.9 | 68.4 ±0.5 | 95.8 |
+| ON × k30 (=B30) | **28.5** ±0.9 | 61.1 | 75.3 ±3.8 | 97.5 |
+| OFF × k30 | 25.5 ±2.0 | 58.0 | 72.5 ±0.4 | 96.8 |
+
+**Verdicts:**
+- **H2a [USER] REJECT:** sparsity does NOT favor independence — the ON advantage holds in every regime and is, if
+  anything, LARGEST at k15 (−5.1 @1) where the hypothesis predicted it would flip. The "unaccountable whisperers"
+  mechanism didn't materialize; inter-edge attention appears to PROPAGATE sparse supervision (a labeled edge's
+  gradient shapes its neighbors through the attention weights), helping precisely when labels are few.
+- **H2b ACCEPT (stronger than predicted):** ON > OFF by ~4pp @1 at exhaustive — self-attention was never dead
+  weight; it earns its 0.6M params in all regimes.
+- **Interaction readout:** ON−OFF gap @1 = 4.1 (exh) / 5.1 (k15) / 3.0 (k30) — no shrink under masking.
+**DECISION → keep edge self-attention ON, in every data regime.**
+(Runner: `train_h2_selfattn.slurm`; ON arms reused from H5 per the registry.)
 
 ---
 
-## H1 — FRAMING: sigmoid-value vs softmax-policy training of the same head [READY, gated on H5]
+## H1 — FRAMING: sigmoid-value vs softmax-policy training of the same head [DONE 2026-06-10]
 Controlled 2×2 on the sharp backbone, E4 data, matched seeds {1,2,3}, paired:
 ```
                        sharp target            soft target (Gaussian σ=1.0 edge/depth)
@@ -118,7 +153,23 @@ Red-team σ caveat stands: single σ conflates amount-vs-goodness of smoothing; 
 - **H1b [CLAUDE, the key test]:** soft HELPS the policy but HURTS/neutral the sigmoid (C4 > C3 AND C2 ≤ C1) —
   action-smoothing is a *policy* thing. ACCEPT → policy+soft is a live champion candidate. REJECT if soft hurts
   both (smoothing just bad) or helps both (framing-independent).
-Runner: `sage_learning/scripts/train_h1_framing.slurm` — C1 reuses Aexh (registry), so launch array=3-11 only (9 runs: sig_soft, pol_sharp, pol_soft × 3 seeds). LAUNCH AFTER H5 VERDICT [USER].
+**RESULT [2026-06-10 FINAL — n=3, ep20-capped; all cells peaked ep12–19 (no cut-mid-climb; one pol_soft seed at 19)]:**
+| cell | hard@1 | hard@5 | hard@10 | med@10 |
+|---|---|---|---|---|
+| C1 sig_sharp (=Aexh) | **31.3** ±3.6 | 64.3 ±2.0 | 78.6 ±0.8 | 98.2 |
+| C2 sig_soft | 30.0 ±0.3 | 63.4 ±0.4 | 75.2 ±0.5 | 96.4 |
+| C3 pol_sharp | 30.7 ±0.4 | **66.7** ±1.2 | **80.2** ±1.3 | 97.2 |
+| C4 pol_soft | 27.7 ±1.5 | 63.6 ±2.5 | 76.4 ±1.6 | 95.8 |
+
+**Verdicts:**
+- **H1a ACCEPT:** sharp framing is a wash at @1 (30.7 vs 31.3) — argmax is argmax.
+- **H1b REJECT (theory killed by data):** soft hurts the POLICY too (C4 < C3, −3.0 @1) and the sigmoid as always
+  (C2 ≤ C1, −3.4 @10). At σ=1 smoothing is just bad — framing-INDEPENDENT. [USER skepticism vindicated.]
+- **Noted (not pre-registered):** pol_sharp shows a small consistent recall bump @5/@10 (+2.4/+1.6, ~1–1.5σ) — CE
+  ordering may buy some top-k recall on EXHAUSTIVE labels. Not actionable: CE targets are corrupted by sampled data
+  (the masking asymmetry) and the sampled regime is where we're headed. Parked as an "ordering finetune" footnote.
+**DECISION → keep sigmoid-sharp:** simpler, per-cell calibrated, masking-compatible, not measurably worse.
+(Runner: array 3-11; C1 reused Aexh per the registry.)
 
 ---
 
