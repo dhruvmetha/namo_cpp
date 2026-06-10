@@ -35,7 +35,7 @@ Every hypothesis below now grades against this, not the old confusing/leaky mani
 
 ---
 
-## H3′ — HORIZON-Q: the converged design [2026-06-10 早晨 synthesis, USER+CLAUDE discussion]
+## H3′ — HORIZON-Q: the converged design [2026-06-10 synthesis, USER+CLAUDE discussion]
 **Decision trail (revises the journal thesis):** ONE function, not two — Q_H(s,a)="this push leads to success within
 the remaining budget", same EdgeCrossAttn + per-cell sigmoid training. Policy = top-k(map) [USER: "treat the ranker as
 a policy"]; Value = max(map) (calibration head only if max proves optimistic — H0b showed maxP is bias-prone, mean_all
