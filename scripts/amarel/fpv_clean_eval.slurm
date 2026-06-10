@@ -30,7 +30,7 @@ END=$(( START + SHARD ))
 echo "task ${SLURM_ARRAY_TASK_ID}: scenes [${START}, ${END}) on $(hostname)"
 /scratch/dm1487/envs/namo/bin/python -u scripts/sandbox/diag_leaf_s1.py \
   --manifest "$MANIFEST" --start "${START}" --end "${END}" \
-  --first-cap 60 --topk 20 \
+  --first-cap 60 --scalars-only \
   --out      "$OUT/fpv_shard${SLURM_ARRAY_TASK_ID}.json" \
   --leaf-out "$OUT/fpv_shard${SLURM_ARRAY_TASK_ID}.jsonl"
 echo "task ${SLURM_ARRAY_TASK_ID} DONE"
