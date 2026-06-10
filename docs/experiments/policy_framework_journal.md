@@ -27,8 +27,8 @@ Every hypothesis below now grades against this, not the old confusing/leaky mani
 (see below).
 
 **Where we are in the ordered program** (cheapest-and-most-decisive first; each early step can kill the need for later ones):
-- ✅ **GATE** (recall@k, 1-push) — DONE → hard recall@10 = 75.8% (misses are wrong-EDGE), med 97%, easy 100%.
-- 🔄 **Step-0 mean_top5** (training-free first-push lookahead, graded vs F1′ on `pure2push.json`) — LAUNCHING. If a free
+- ✅ **H0a — GATE** (recall@k, 1-push) — DONE → hard recall@10 = 75.8% (misses are wrong-EDGE), med 97%, easy 100%.
+- 🔄 **H0b — training-free first-push baseline (mean_top5)** (1-ply lookahead, graded vs F1′ on `pure2push.json`) — LAUNCHING. If a free
   1-ply lookahead surfaces the enabling first-pushes into top-k, a learned policy/value may be unnecessary. Reuses
   `scripts/sandbox/diag_leaf_s1.py` (logs per-first-push scalars + edge1/depth1 → post-hoc recall@k vs F1′).
 - ⏳ H1 framing → H1.5 post-push probe → H2 self-attn → policy-only search → H3 value head → H4 deploy → H5 masked targets.
@@ -45,7 +45,7 @@ Every hypothesis below now grades against this, not the old confusing/leaky mani
 
 ---
 
-## H5 — SAMPLED+MASKED labels vs exhaustive f_grid [PROMOTED to after Step-0 — [USER] question 2026-06-09]
+## H5 — SAMPLED+MASKED labels vs exhaustive f_grid [PROMOTED to after H0b — [USER] question 2026-06-09]
 **[USER] framing:** "for 2-push we cannot possibly get exhaustive data — stick to that framing even for 1-push. Does
 masking help given sampled data? Should we continue sampling? Is this some loop training thing?"
 **Why promoted:** every later step (H3 value collection, H4, ExIt) trains on SAMPLED data; H5 decides whether that's
@@ -109,7 +109,7 @@ Metric: **hard@1** (does argmax solve) + recall@{5,10,20}, per difficulty (`eval
 
 ---
 
-## GATE RESULT — recall@k of the champion scorer on the CLEAN test set [2026-06-09]
+## H0a — GATE: recall@k of the champion scorer on the CLEAN test set [2026-06-09]
 First measurement on the geometry-verified canonical test set (`namo_testset_v1`, `v3_test_episodes.json`, 0 train-leak —
 see [[project_canonical_testset]]). Champion `sharp` ckpt (`epoch017-val_loss0.2713`), `eval_scorer.py`, 1656 episodes.
 
@@ -149,7 +149,7 @@ Result JSON: `namo_testset_v1/stats/champion_1push_recall_gate.json`. This also 
 
 - **GATE (cheap, run FIRST): policy recall@k from the existing f_grid.** Is the solving push in the model's top-k?
   High recall → per-action scorer already surfaces solutions → may not need policy+value (just a better value/ordering,
-  e.g. the training-free `mean_top5` Step-0). Poor recall on hard cases → learned policy justified. **This gates H3+.**
+  e.g. the training-free `mean_top5` H0b). Poor recall on hard cases → learned policy justified. **This gates H3+.**
 
 - **RISK-1: H1 tests the wrong distribution.** f_grid = INITIAL states; we deploy on POST-PUSH (mid-chain) states (OOD).
   H1 winner may not transfer. → **H1.5 [NEW]: post-push probe** — score ~50 post-push states exhaustively, re-check the
@@ -171,5 +171,5 @@ Result JSON: `namo_testset_v1/stats/champion_1push_recall_gate.json`. This also 
 - **Negatives are heterogeneous:** dead-end from wrong-first-push vs impossible-config vs wrong-second-push are different;
   treating all as one "unsolvable" may teach "looks unfamiliar" not "is a dead end." Tag negative TYPE in the collection.
 
-**Revised order:** recall@k GATE (free) → Step-0 mean_top5 swap (free) → H1+H1.5 (framing, +post-push probe) →
+**Revised order:** H0a recall@k GATE (free) → H0b mean_top5 baseline (free) → H1+H1.5 (framing, +post-push probe) →
 H2 (self-attn incl. independent-scoring control) → policy-only search → H3 (value collect, tag negative types) → H4.
