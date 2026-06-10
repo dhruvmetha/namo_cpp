@@ -18,13 +18,33 @@ Eval = `eval_scorer.py` on `namo_testset_v1` (geometry-verified, [[project_canon
 
 ---
 
-## STATE — 2026-06-10 ~01:00
-- ✅ **H0a — baseline**: champion scorer on the clean test set (table below). Hard recall@10=75.8, misses 90% wrong-EDGE.
-- 🔄 **H5 — MASKING (the headline question)**: 15-run matrix training (job 55856898; 10 running, 5 queued).
-  Eval + paired verdict when done (~morning).
-- ⏸ **H1 — framing**: implemented (`head_mode=softmax_ce`, CPU-asserts pass), GATED on H5 verdict [USER].
-- ⏸ **H2 — self-attn**: implemented (`edge_self_attn=false`, both arms CPU-smoke OK; ON-arms = H5's Aexh/B15 runs,
-  only 6 OFF-runs needed), GATED on H5 verdict [USER].
+## STATE — 2026-06-10 morning: ALL CLOSED ✅ (33 runs, 0 crashes, verdicts below)
+- ✅ **H0a** — baseline on the clean test set: hard recall@10=75.8, misses 90% wrong-EDGE.
+- ✅ **H5 — masking**: NECESSARY (unmasked bug catastrophic) and ~30 labels/scene MAINTAINS exhaustive quality.
+- ✅ **H1 — framing**: wash @1; soft hurts BOTH framings → keep sigmoid-sharp.
+- ✅ **H2 — self-attn**: helps in EVERY regime, most under sparsity → keep ON.
+
+### NIGHT SUMMARY — the cross-cutting observations [2026-06-10]
+1. **The champion architecture survived both challengers.** Sigmoid-sharp (H1) and self-attention (H2) were each
+   put on trial with pre-registered alternatives; both alternatives lost. The architecture is now evidence-backed,
+   not historical accident.
+2. **The night's genuinely NEW knowledge is the DATA recipe:** sampled+masked training works. Diminishing-returns
+   curve on hard@1: 5→15 labels = +7.9, 15→30 = +2.5, 30→75 = +2.8 (≈ seed noise ±3.6). **k≈30/scene is the knee**
+   — 2.5× cheaper than exhaustive, indistinguishable quality. More never hurts; planning shouldn't require it.
+3. **The PU lesson, quantified:** treating untried pushes as failures (C15) is worse than having 10 FEWER honest
+   labels (B5). False negatives are ~not a degradation — they're poison. Masking is not optional.
+4. **Self-attention surprise [USER hypothesis rejected, mechanism revised]:** the predicted failure mode
+   ("unaccountable edges pollute via attention under sparse labels") inverted — the ON−OFF gap is LARGEST at k15
+   (+5.1). Revised mechanism: attention PROPAGATES sparse supervision (labeled edges teach unlabeled neighbors).
+   The co-adaptation channel is a communication channel.
+5. **Theories died properly:** H1b (action-smoothing is a policy thing — CLAUDE theory) and H2a (sparsity favors
+   independence — USER theory) both rejected with numbers. Pre-registration kept us honest both ways.
+6. **Process validations:** snapshot-feeler (ep~15) predicted every final ordering → cheap mid-training previews
+   are trustworthy. Baseline registry saved 10 of 33 runs. Masked-loss bug audit (exact-zero grads outside mask,
+   per-run config dumps) came back clean — the verdicts stand on audited code.
+7. **Carry-forward to multi-push (parked journal + primer):** architecture unchanged; collect at ~30 sampled
+   pushes/state, masked; search-generated MC labels; the residual ~3pp (B30→exh) is the "sample smarter (ExIt
+   round)" question, deferred until something needs it.
 
 ---
 
