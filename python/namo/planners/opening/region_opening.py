@@ -6,6 +6,7 @@ validates the opening, logs an episode, then restores the baseline and proceeds 
 the next neighbour.
 """
 
+import math
 import random
 import time
 from dataclasses import dataclass, field
@@ -238,6 +239,20 @@ class RegionOpeningPlanner(BasePlanner):
             raise ValueError(
                 f"Invalid region_success_min_reachable: "
                 f"{self._success_min_reachable}. Must be at least 1"
+            )
+
+        # Fractional success bar (OPT-IN): a region counts as "opened" only when at least
+        # ``fraction × (#sampled goal points in that region)`` are reachable — a stricter,
+        # area-aware criterion than the absolute count above (rejects flake openings where a
+        # sliver of the goal disc becomes reachable). 0.0 (default) = disabled → fall back to
+        # the absolute ``region_success_min_reachable`` count (backward-compatible).
+        self._min_reachable_fraction = float(
+            algo_params.get("region_min_reachable_fraction", 0.0)
+        )
+        if not (0.0 <= self._min_reachable_fraction <= 1.0):
+            raise ValueError(
+                f"Invalid region_min_reachable_fraction: "
+                f"{self._min_reachable_fraction}. Must be in [0, 1]"
             )
 
         # Get max recorded solutions per neighbor (subset of found solutions to keep), default: 2
@@ -2971,8 +2986,15 @@ class RegionOpeningPlanner(BasePlanner):
 
             first_reachable_goal = all_goals[first_idx] if first_idx >= 0 else None
 
-            # Success if at least self._success_min_reachable goals are reachable
-            if reachable_count >= self._success_min_reachable:
+            # Success bar: fractional (area-aware) if region_min_reachable_fraction > 0,
+            # else the absolute region_success_min_reachable count. Fraction is computed
+            # against the points ACTUALLY sampled in this region, floored at 1.
+            if self._min_reachable_fraction > 0.0:
+                min_needed = max(1, math.ceil(self._min_reachable_fraction * len(bundle.goals)))
+            else:
+                min_needed = self._success_min_reachable
+
+            if reachable_count >= min_needed:
                 return True, reachable_count, first_reachable_goal, all_goals
             else:
                 return False, reachable_count, None, all_goals

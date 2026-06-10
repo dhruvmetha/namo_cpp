@@ -40,7 +40,8 @@ END_IDX=$(( START_IDX + SHARD_SIZE ))
 if [ $END_IDX -gt $TOTAL_ENVS ]; then END_IDX=$TOTAL_ENVS; fi
 if [ $START_IDX -ge $TOTAL_ENVS ]; then echo "shard $TASK_ID beyond manifest, nothing to do"; exit 0; fi
 
-SHARD_DIR=$HOME_DIR/pkls_2push/shard_${TASK_ID}
+PKL_SUBDIR=${PKL_SUBDIR:-pkls_2push_v2}
+SHARD_DIR=$HOME_DIR/${PKL_SUBDIR}/shard_${TASK_ID}
 mkdir -p "$SHARD_DIR"
 SHARD_MANIFEST="$SHARD_DIR/shard_manifest.txt"
 sed -n "$((START_IDX+1)),${END_IDX}p" "$MANIFEST" > "$SHARD_MANIFEST"
@@ -81,7 +82,7 @@ python -m namo.data_collection.modular_parallel_collection \
     --primitive-prefix "1x_car_d5_" \
     --goal-strategy primitive \
     --target-goal-region \
-    --goals-per-region 10 \
+    --goals-per-region ${GOALS_PER_REGION:-100} \
     --region-allow-collisions \
     --region-min-reachable-fraction 0.2 \
     --search-timeout ${SEARCH_TIMEOUT:-1800} \
