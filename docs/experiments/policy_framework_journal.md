@@ -106,6 +106,11 @@ scored by the champion, first-pushes ranked by training-free scalars, recall@k g
   ⇒ **a learned first-push value/policy (H3 direction) is justified by measurement, not taste.**
 - **Diagnosis (why it fails):** the scorer SATURATES on post-push states (~0.99 on dead s1's — OOD; it never trained
   there). Confirms RISK-1/H1.5: post-push states are off-distribution for the champion.
+- **Diagnosis #2 [USER catch, verified on the H5]:** the training data contains **0 hopeless scenes** — all 98,387
+  rows have ≥1 valid push (mean 54% of reachable pushes succeed; p10=12.5%). The model was never taught that
+  "all-low" is a legal output, so on dead post-push states its prior says "about half of these should work."
+  ⇒ HARD REQUIREMENT for H3 value data: include dead-end/unsolvable states (already mandated in policy_value_v1
+  README rule 5/7 — now with measured evidence).
 - **Surprise worth keeping:** `mean_all` (mean over ALL pushes, not top-5) beats mean_top5 at k≥10 (79.0 vs 72.6 @10)
   — breadth of opportunity is more robust to saturation than peak quality. maxP (the naive choice) is the worst of
   the mean-family — single-cell flukes dominate it.
