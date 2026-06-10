@@ -85,6 +85,8 @@ def load_scorer(ckpt, num_depths, device, network="dit_classifier"):
         if "network.fine_conv.weight" in sd:             # de-aliased fine-stem gather
             kw["fine_stem"] = True
             kw["fine_stride"] = sd["network.fine_conv.weight"].shape[-1]
+        if "network.edge_blocks.0.slf.in_proj_weight" not in sd:   # H2 ablation: no inter-edge self-attn
+            kw["edge_self_attn"] = False
         net = EdgeCrossAttn(**kw)
     else:
         from src.model.dit.dit_classifier import DiTClassifier
