@@ -19,6 +19,23 @@ Add one flag: `head_mode ∈ {sigmoid_bce, softmax_ce}`. No new data for the fra
 
 ---
 
+## STATE — 2026-06-09 PM (running record)
+**Milestone: the measurement foundation exists.** Built the canonical car test set `namo_testset_v1`
+([[project_canonical_testset]], `docs/pipeline/canonical_testset.md`) — geometry-verified 0-leak, 1-push tier
+(1228 sc / 1671 eps, exhaustive) + 2-push tier (**808 pure-2-push eps** with exhaustive **F1′** in `labels/pure2push.json`).
+Every hypothesis below now grades against this, not the old confusing/leaky manifests. The 1-push GATE already ran on it
+(see below).
+
+**Where we are in the ordered program** (cheapest-and-most-decisive first; each early step can kill the need for later ones):
+- ✅ **GATE** (recall@k, 1-push) — DONE → hard recall@10 = 75.8% (misses are wrong-EDGE), med 97%, easy 100%.
+- 🔄 **Step-0 mean_top5** (training-free first-push lookahead, graded vs F1′ on `pure2push.json`) — LAUNCHING. If a free
+  1-ply lookahead surfaces the enabling first-pushes into top-k, a learned policy/value may be unnecessary. Reuses
+  `scripts/sandbox/diag_leaf_s1.py` (logs per-first-push scalars + edge1/depth1 → post-hoc recall@k vs F1′).
+- ⏳ H1 framing → H1.5 post-push probe → H2 self-attn → policy-only search → H3 value head → H4 deploy → H5 masked targets.
+  H1+ need GPU + the `head_mode` flag (and [USER] design green-light); the free steps gate whether we go there at all.
+
+---
+
 ## Ablation backlog (ordered; each makes one design choice concrete)
 1. **[NOW] FRAMING — scorer (sigmoid-BCE) vs policy (softmax-CE), × sharp vs soft target.** Existing f_grid data.
 2. **Edge self-attention** on / off / reachability-masked, × **label density** (100/25/10%). Existing data (subsample). [USER]: sparsity should favor independent edges.
