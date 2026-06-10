@@ -64,6 +64,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--pkls-root", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--pure-out", help="optional: also write the PURE-2-push view "
+                    "(episodes with is_1push_solvable==False & is_2push_solvable==True)")
     ap.add_argument("--workers", type=int, default=32)
     a = ap.parse_args()
 
@@ -131,6 +133,18 @@ def main():
         print(f"⚠ {n_untagged} UNTAGGED trial entries skipped — re-collect with the tagged region_opening.py",
               file=sys.stderr)
     print(f"wrote {a.out}", file=sys.stderr)
+
+    if a.pure_out:
+        # PURE-2-push VIEW: exhaustively no 1-push, but 2-push-solvable. A derived subset of --out, not a new source.
+        pure = {}
+        n_ep = 0
+        for real, eps in by_real.items():
+            keep = [e for e in eps if (not e["is_1push_solvable"]) and e["is_2push_solvable"]]
+            if keep:
+                pure[real] = keep
+                n_ep += len(keep)
+        json.dump(pure, open(a.pure_out, "w"))
+        print(f"pure-2-push view: {len(pure)} scenes, {n_ep} episodes -> {a.pure_out}", file=sys.stderr)
 
 
 if __name__ == "__main__":
