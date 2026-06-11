@@ -80,7 +80,7 @@ python -m namo.data_collection.modular_parallel_collection \
     --primitive-prefix "1x_car_d5_" \
     --goal-strategy random_rollout \
     --target-goal-region \
-    --goals-per-region 50 \
+    --goals-per-region "${GOALS_PER_REGION:-50}" \
     --region-allow-collisions \
     --region-min-reachable-fraction 0.2 \
     --search-timeout 60 \
