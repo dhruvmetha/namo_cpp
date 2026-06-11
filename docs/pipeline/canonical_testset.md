@@ -18,10 +18,10 @@ repo-side record so the build is reproducible and we stop confusing test artifac
 ## What it is
 - **2173** geometry-clean scenes from the held-out `car_envs/v3/test/{feb,aug9}_car` pool, **0 leaks** into the
   `v3_scorer_e4` training corpus (proven by geometry, not file names — see below).
-- **1-push tier**: 1228 scenes / 1671 episodes, EXHAUSTIVE 1-push answer key (`valid`/`tried`/`solve_rate`),
-  difficulty easy 759 / med 496 / hard 416. This IS the champion test set (`v3_test_episodes.json`).
-- **2-push tier**: exhaustive depth-2 ground truth (F1′ = first-pushes that enable a solving second push), collected
-  over all 2173 scenes; 985 of them (`twopush_scenes.txt`) are the genuine-2-push analysis subset.
+- **1-push tier** (20% bar): **1323 episodes / 991 scenes**, key `labels/onepush_episodes.json` (drop-in for
+  `eval_scorer.py --episodes`).
+- **2-push tier** (20% bar): **1018 genuine-2-push episodes / 983 scenes** (F1′ = first-pushes that enable a solving
+  second push), key `labels/pure2push.json`. Both tiers from ONE unified depth-2 collection (`pkls_2push_v2`).
 
 ## Why the old setup was confusing (and the fix)
 The 1-push key was keyed by `outputs/test_*_phase1/...` **symlinks**; the 2-push manifest by `car_envs/v3/test/...`
@@ -32,7 +32,8 @@ share full geometry with any of 66 135 train scenes.
 
 **Deprecated, do not use:** `v3_test_validsets.json` (no `object_center`, not the eval key),
 `test_2push_solvable_combined.txt` (1-push-contaminated), `test_pure2push_hardness.csv` (capped, builder-less).
-**Canonical 1-push eval key = `v3_test_episodes.json`.**
+**Canonical 1-push eval key = `namo_testset_v1/labels/onepush_episodes.json`** (20% bar; the old
+`v3_test_episodes.json` was the looser "≥1 point" bar and is superseded).
 
 ## Pipeline (all committed, reuse-don't-fork)
 | step | script | output |

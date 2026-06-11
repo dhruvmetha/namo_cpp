@@ -114,7 +114,10 @@ def topk_hit(scores, valid_cells, cand_idx, ks):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ckpt", required=True)
-    ap.add_argument("--episodes", default="/scratch/dm1487/manifests/v3_test_episodes.json")
+    # Canonical 1-push answer key = namo_testset_v1 under the stricter 20% success bar (2026-06-10).
+    # (Old key /scratch/dm1487/manifests/v3_test_episodes.json was the "any point reachable" bar.)
+    ap.add_argument("--episodes",
+                    default="/scratch/dm1487/datasets/namo_testset_v1/labels/onepush_episodes.json")
     ap.add_argument("--h5-root", default="/scratch/dm1487/h5")
     ap.add_argument("--divisions", default="hard,med,easy")
     ap.add_argument("--num-depths", type=int, default=5)
