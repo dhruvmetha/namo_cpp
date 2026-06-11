@@ -1,5 +1,13 @@
 # Canonical NAMO test set (`namo_testset_v1`)
 
+> ✅ **2026-06-11 REUSED AS-IS for the 0.034 car (horizon-Q build).** The car geometry changed (wheels
+> 0.0375→0.034, inside the chassis). The test set was collected at `car=0.0375 / control_steps=550`, but the
+> **pure car effect is NEGLIGIBLE: ±0.5% push reach, sub-3 mm, ≤0.02°/depth** (controlled regen diff — regenerate
+> primitives at 0.0375 AND 0.034 both at 550, compare). The ~14% "significant" primitive shift seen during the
+> car change was the unrelated `482→550` push-duration config change, not the wheels. ⇒ this test set ≈ the new
+> 0.034/550 world within eval noise: **no re-collection, no re-labeling — valid for grading 0.034/550 models.**
+> See [horizon_q_datasets.md](horizon_q_datasets.md) §1 and [../experiments/horizon_q_build_journal.md](../experiments/horizon_q_build_journal.md) §3.
+
 > ⚠ **2026-06-10 SUCCESS-BAR REGENERATION [USER].** The set was re-collected under a stricter "opened" bar.
 > The original `--region-min-reachable-fraction 0.2` flag was **inert** — the real success criterion was the
 > default `region_success_min_reachable=1` ("≥1 sampled goal point reachable"). Now **wired** into
