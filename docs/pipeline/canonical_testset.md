@@ -1,5 +1,16 @@
 # Canonical NAMO test set (`namo_testset_v1`)
 
+> ⚠ **2026-06-10 SUCCESS-BAR REGENERATION [USER].** The set was re-collected under a stricter "opened" bar.
+> The original `--region-min-reachable-fraction 0.2` flag was **inert** — the real success criterion was the
+> default `region_success_min_reachable=1` ("≥1 sampled goal point reachable"). Now **wired** into
+> `region_opening.py:_validate_opening` (opt-in; fraction × #goal-points) and the whole set re-collected with
+> **goals-per-region=100 + fraction=0.2** = *"≥20% of the goal region reachable"*. Unified depth-2 collection
+> over all 2173 scenes (`pkls_2push_v2`) → both tiers, one bar. **Composition shift: genuine-2-push 808 → 1018
+> episodes (+26%).** Live labels: `onepush_episodes.json` (1323 eps), `pure2push.json` (1018 eps), `twopush.json`.
+> Stale-pyc gotcha: one node (halk0014) ran a pre-tagging `.pyc` → 32 untagged pkls; fixed by clearing
+> `__pycache__` + `PYTHONDONTWRITEBYTECODE=1` and re-collecting that shard.
+
+
 The single source of truth for evaluating Region-Opening scorers / policies / value functions on the **car**.
 Lives at `/scratch/dm1487/datasets/namo_testset_v1/` (full datasheet + stats in its `README.md`). This doc is the
 repo-side record so the build is reproducible and we stop confusing test artifacts.
