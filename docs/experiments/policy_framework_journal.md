@@ -24,6 +24,24 @@ Eval = `eval_scorer.py` on `namo_testset_v1` (geometry-verified, [[project_canon
 - ✅ **H1 — framing**: wash @1; soft hurts BOTH framings → keep sigmoid-sharp.
 - ✅ **H2 — self-attn**: helps in EVERY regime, most under sparsity → keep ON.
 
+### RE-EVAL on the STRICTER 20% test set [2026-06-11] — verdicts ROBUST
+All 33 H5/H1/H2 ckpts re-evaluated on `namo_testset_v1` regenerated under the wired 20% success bar
+(`labels/onepush_episodes.json`, 1323 1-push eps; see [[project_canonical_testset]]). Result table:
+`namo_testset_v1/stats/newbar_reeval_h5h1h2.json`. Format: hard@1 NEW(20%) vs OLD(≥1pt).
+
+| | NEW hard@1 | OLD hard@1 | verdict |
+|---|---|---|---|
+| H5 staircase | Aexh 26.1 > B30 23.3 > B15 22.4 > B5 14.1 | 31.3/28.5/26.0/18.1 | **HOLDS** (monotone; ~30 maintains) |
+| H5 masking-necessity | C15 12.4 < **even B5 14.1** | 13.4 < 18.1 | **HOLDS** (false-negatives poison) |
+| H1 soft | C2 24.7<C1 26.1 AND C4 22.9<C3 24.0 | both < | **HOLDS** (soft hurts both → keep sigmoid-sharp) |
+| H2 self-attn | ON>OFF every regime, +6.2 @k15 (>old +5.1) | +4.1/+5.1/+3.0 | **HOLDS** (keep ON) |
+
+**Conclusion: every architecture/data verdict is ROBUST to the success-bar change.** Caveat [honest]: all
+absolute numbers drop ~5pp (Aexh 31.3→26.1) — a **train(old-bar)/test(new-bar) MISMATCH**, since these models were
+trained on the ≥1-point f_grid but graded on the ≥20% ground truth. RELATIVE orderings (what the verdicts are) are
+unchanged. The clean follow-up if ever needed: re-collect the TRAIN f_grid under the 20% bar so train/test match —
+separate larger run, NOT required to trust the H1/H2/H5 decisions. Eval key for all future runs is now the 20% one.
+
 ### NIGHT SUMMARY — the cross-cutting observations [2026-06-10]
 1. **The champion architecture survived both challengers.** Sigmoid-sharp (H1) and self-attention (H2) were each
    put on trial with pre-registered alternatives; both alternatives lost. The architecture is now evidence-backed,
