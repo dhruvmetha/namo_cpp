@@ -158,6 +158,28 @@ filtered datasets filter **per-episode at source**. Root doc: `docs/pipeline/mul
 **Constraints/judgment for autonomous work:** do NOT launch a big training run on unverified/incomplete data.
 Smoke-test before scaling. Keep this §9 log current so a compaction can resume. Slack the user at each milestone.
 
+## 9.1 READY-TO-RUN when collection (job 55944720) finishes
+```bash
+# 1. manifest of v4_hq_h1 pkls
+find /scratch/dm1487/outputs/v4_hq_h1 -name '*_results.pkl' > /scratch/dm1487/manifests/v4_hq_h1_pkls.txt
+# 2. per-episode validset WITH dead-ends (H0b) — the --keep-dead-ends flag is the fix added this session
+/scratch/dm1487/envs/namo/bin/python scripts/pipeline/build_episode_validsets.py \
+   --manifests /scratch/dm1487/manifests/v4_hq_h1_pkls.txt \
+   --out /scratch/dm1487/datasets/v4_hq_h1/episodes_deadends.json --keep-dead-ends --workers 32
+# 3. scorer H5 = JOIN masks (src-h5) + the new f_grid labels (episodes). NOTE: masks lifted from DiT solution
+#    data have NO dead-end scenes (task #23) -> this H5 = SOLVABLE scenes only until masks are rendered for dead-ends.
+/scratch/dm1487/envs/namo/bin/python scripts/pipeline/build_scorer_dataset.py \
+   --src-h5 /scratch/dm1487/h5/v3_balanced_1to1_lzf_tight_data/data.h5 \
+   --episodes /scratch/dm1487/datasets/v4_hq_h1/episodes_deadends.json \
+   --out-h5 /scratch/dm1487/h5/v4_hq_h1_scorer/data.h5
+# then add_contact_px.py (contact_px 60x2), then train.
+```
+**Training wiring (sage_learning `classifier_module.py` + `scorer_data.py`):** add `head_mode="hl_gauss"`
+(uses `src/model/hl_gauss.py` on gamma targets + `loss_mask`); pass `H` through `forward` (currently calls
+`network(x, contact_px, ...)` — add H); `scorer_data` emits `H` (=1 for H=1 rows) + gamma target (= f_grid in
+{0,1} for H=1). For M1/M2: train budget-Q with `budget_cond=True, value_bins=51, H≡1`, gamma=f_grid; verify ≈
+champion hard@k via `eval_scorer.py` (default episodes = `namo_testset_v1/labels/onepush_episodes.json`).
+
 ## 10. Open tunables (pin by experiment)
 γ exact value · k₂ (2nd-push breadth) · verify→bootstrap schedule · informative-subset threshold · dead-end ratio ·
 #ExIt rounds · recall-tilt timing · one-head-vs-split.
