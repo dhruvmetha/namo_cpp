@@ -102,7 +102,7 @@ skill:
   check_object_collision: true     # Terminate push on object-object collision
   check_robot_trajectory_collision: false  # Terminate push if robot body hits walls during push
   stuck_check_stride: 150          # Sphere uses 30 ticks at 0.01 s = 0.3 s; match at car's 0.002 s timestep (150 × 0.002 = 0.3 s). Required so the stuck check doesn't fire before the car traverses the 1 cm standoff gap (~0.2 s at 0.05 m/s).
-  controller_stuck_threshold: 1000000  # Effectively disabled (was 5) — exploring whether transient deadlocks resolve given more time. Revert before production.
+  controller_stuck_threshold: 5  # Restored for production horizon-Q collection (was 1000000 experimental; e198b47 flagged "revert before production"). The auto-abort safety net is needed for multi-push data collection.
   controller_min_position_change: 0.0002  # 0.2 mm min motion per check
   controller_min_angle_change: 0.05      # ~3 deg min yaw change per check (radians)
 
