@@ -129,25 +129,34 @@ Each: deliverable · milestone (M#) · reuse-vs-new · status.
 filtered datasets filter **per-episode at source**. Root doc: `docs/pipeline/multi_episode_rooms.md`.
 
 ## 9. Progress log + NEXT ACTIONS  ← **RESUME HERE**
-**Done (2026-06-11):**
-- Car 0.034 + exclude across both copies, MuJoCo-verified, committed (ea0f5ff, c8144cc).
-- Primitives regenerated at 0.034/550, committed. Backup saved.
-- **Controlled diff → car effect NEGLIGIBLE (±0.5%); the ~14% was the 482→550 config. TEST SET REUSABLE AS-IS.**
+**Done (2026-06-11, autonomous session):**
+- Car 0.034 + exclude across both copies, MuJoCo-verified, committed (ea0f5ff namo_cpp, c8144cc env_creator).
+- Primitives regenerated at 0.034/550, committed. Backup in `data/_primitive_backup_pre0034/`.
+- **Controlled diff → pure car effect NEGLIGIBLE (±0.5%); the ~14% was the 482→550 config. TEST SET REUSABLE AS-IS.**
 - 3-agent lit sweep → closest neighbors (MORE, Bejjani, HACMan, Go-Exploit, Soemers, DeepCubeA, Ferber, SAVE);
-  reading list Slacked to user. 37-decision grounded spec committed.
-- This journal created.
+  reading list Slacked. 37-decision grounded spec committed.
+- **feat/horizon-q branch across all 3 repos.** Restored `controller_stuck_threshold`→5 (committed dee0b59).
+- **Budget-Q model scaffold (committed df198f0, sage_learning feat/horizon-q):** EdgeCrossAttn `budget_cond`
+  (H-embedding) + `value_bins` (HL-Gauss head) opt-in flags (default OFF=unchanged); `src/model/hl_gauss.py`;
+  `scripts/smoke_budget_q.py` PASSES (forward, masked CE, grads, value∈[0,1], pool, backward-compat).
+- **H=1 collection VALIDATED + LAUNCHED:** 6-scene smoke + dead-end scene both collect cleanly at 0.034/550 + 20%
+  bar; dead-ends RECORDED (all-fail trial_log → H0b bug is in the BUILDER not collection). Driver parameterized
+  (GOALS_PER_REGION, committed). **SLURM job 55944720** (array 0-59, 250k feb, goals 100) → `/scratch/dm1487/outputs/v4_hq_h1`. RUNNING.
+- **Datasheets** (committed): `docs/pipeline/horizon_q_datasets.md` + canonical_testset.md reuse banner.
 
 **NEXT ACTIONS (in order):**
-1. [Phase 0.2] `feat/horizon-q` branches across 3 repos; restore `controller_stuck_threshold`→5 in collection config.
-2. [Phase 0.3 / 1] Smoke-test region_opening collection at 0.034/550 + 20% bar + KEEP-dead-ends on ~5 scenes
-   (verify: dead-end scenes retained as all-low; gamma depth tag present). Then launch full H=1 SLURM collection (task #21).
-3. [Phase 2] Scaffold budget-Q in sage_learning (H-embedding + HL-Gauss head + gamma + top-k-mean) + smoke train
-   on existing v3_scorer_e4 (as H=1, γ=1) to verify the arch (task #20).
-4. Datasheets (task #18); update `docs/pipeline/canonical_testset.md` (note: reusable at 0.034 — car effect negligible).
-5. Slack the user at each milestone.
+1. **Monitor job 55944720** → when done, count pkls per shard, spot-check a dead-end + a solved pkl.
+2. [Task #22, H0b] **Fix `build_scorer_dataset.py` to KEEP dead-ends** (all-zero f_grid retained). Validate on the
+   dead-end pkl at `/scratch/dm1487/hq_deadend/`. CRITICAL before building the H5.
+3. **Build the H5** from v4_hq_h1 pkls (join DiT masks from v3_balanced_1to1 + f_grid + r_mask + contact_px),
+   room-grouped split. Then **M1**: plain 1-push scorer reproduces champion hard@k on v4_hq_h1.
+4. **Wire budget-Q training:** `classifier_module.py` training_step (gamma targets + H + HL-Gauss loss via
+   `hl_gauss.py`) + `scorer_data.py` (emit H + gamma label + keep dead-ends). Then train budget-Q(H=1) → **M2**.
+5. [Phase 3] H=2 search-distilled collection on the informative subset (see §5).
+- Smoke artifacts (delete when done): `/scratch/dm1487/hq_smoke/`, `/scratch/dm1487/hq_deadend/`.
 
 **Constraints/judgment for autonomous work:** do NOT launch a big training run on unverified/incomplete data.
-Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
+Smoke-test before scaling. Keep this §9 log current so a compaction can resume. Slack the user at each milestone.
 
 ## 10. Open tunables (pin by experiment)
 γ exact value · k₂ (2nd-push breadth) · verify→bootstrap schedule · informative-subset threshold · dead-end ratio ·
