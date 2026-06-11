@@ -19,6 +19,28 @@ import json
 import pickle
 import sys
 from multiprocessing import Pool
+import math
+import re
+
+# horizon-Q (H0b): keep dead-end episodes (no successful push -> valid=[], solve_rate=0) so the budget-Q
+# value can learn "low"/unsolvable. Default OFF preserves the legacy 1-push key. Set from --keep-dead-ends in main().
+_KEEP_DEAD_ENDS = False
+
+
+def _pose_from_xml(xml_path, obj_id):
+    """Dead-end episodes record NO observations (no successful action), so anchor by the object's INITIAL geom
+    pose parsed from the scene XML (object_center matches the H5's local_tight_object_center). -> (x,y,theta_rad) or None."""
+    try:
+        txt = open(xml_path).read()
+    except Exception:
+        return None
+    m = re.search(rf'<geom name="{re.escape(obj_id)}"[^>]*?pos="([^"]+)"', txt)
+    if not m:
+        return None
+    p = m.group(1).split()
+    em = re.search(rf'<geom name="{re.escape(obj_id)}"[^>]*?euler="([^"]+)"', txt)
+    theta = math.radians(float(em.group(1).split()[2])) if em else 0.0   # scene euler in degrees
+    return (float(p[0]), float(p[1]), theta)
 
 
 def pkl_episodes(pkl):
@@ -34,8 +56,8 @@ def pkl_episodes(pkl):
             continue
         tried = sorted({(t["edge_idx"], t["depth"]) for t in log})
         valid = sorted({(t["edge_idx"], t["depth"]) for t in log if t.get("success")})
-        if not valid:
-            continue
+        if not valid and not _KEEP_DEAD_ENDS:
+            continue   # default: drop dead-ends (legacy 1-push key). horizon-Q opts in via --keep-dead-ends.
         obj = st.get("chosen_object_id")
         # pushed object's INITIAL pose (object_center matches the H5's local_tight_object_center)
         pose = None
@@ -43,8 +65,11 @@ def pkl_episodes(pkl):
             so = ep.get(key) or []
             if so and isinstance(so[0], dict) and f"{obj}_pose" in so[0]:
                 pose = so[0][f"{obj}_pose"]; break
+        if pose is None and _KEEP_DEAD_ENDS:
+            xmlf = ep.get("xml_file")
+            pose = _pose_from_xml(xmlf, obj) if xmlf else None   # dead-ends carry no obs -> anchor by initial XML pose
         if pose is None:
-            continue  # can't anchor it -> skip (rare; only valid episodes are kept)
+            continue  # can't anchor it -> skip (rare)
         out.append({
             "xml": ep.get("xml_file") or pkl,
             "object_id": obj,
@@ -63,7 +88,12 @@ def main():
     ap.add_argument("--manifests", nargs="+", required=True)  # the locked per-division pkl lists
     ap.add_argument("--out", required=True)
     ap.add_argument("--workers", type=int, default=32)
+    ap.add_argument("--keep-dead-ends", action="store_true",
+                    help="Retain episodes with no successful push (valid=[], solve_rate=0) as DEAD-ENDS so the "
+                         "horizon-Q value can learn 'low'/unsolvable (H0b). Default off = legacy 1-push key.")
     a = ap.parse_args()
+    global _KEEP_DEAD_ENDS
+    _KEEP_DEAD_ENDS = a.keep_dead_ends
 
     pkls = set()
     for m in a.manifests:
