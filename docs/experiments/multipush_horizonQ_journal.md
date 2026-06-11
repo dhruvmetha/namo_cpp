@@ -15,6 +15,119 @@ Q-map + value, search-generated MC labels, supervised fit, optional 2-3 ExIt rou
 TD at horizon 2-3) IS the H3′ design below. Also: tonight's 1-push verdicts (arch journal) pin the architecture
 (sigmoid-sharp + self-attn) and the data price (~30 sampled labels/state, masked).
 
+## 🟢 UN-PARKING BUILD SPEC — every choice grounded [2026-06-11, USER+CLAUDE]
+**Status:** un-parks this line. Refines H3′ below; the **gamma decision (#9) REVISES the 2026-06-10
+robustness-over-optimality call** (now: prefer shorter; robustness recorded, not trained — #12). [USER] locked the 9
+load-bearing forks this session; [CLAUDE] defaults the tunables (vetoable). Each choice carries a reason + grounding
+(literature or our own H-series). Tag key: [USER] decided · [validated] = our experiment · [CLAUDE] = defaulted.
+
+### What we're learning
+1. **Budget-conditioned horizon-Q `Q(s,a,H)`** — one net, H as input; policy=top-k, value=pool. *Why:* one object
+   acts + evaluates + handles unknown-H by querying H; H-input generalizes the framework. *Grounding:* finite-horizon
+   DP (value is time-indexed); Pardo "Time Limits in RL" (ICML'18); Decision Transformer (timestep cond.); Fedus
+   multi-horizon value (ICLR'19); UVFA (ICML'15); [[project_policy_value_not_q]]. [USER framing + CLAUDE]
+2. **H_max = 2** — prove recursion/value-bootstrap on the horizon we have a test set for; extends to 3. *Grounding:*
+   namo_testset_v1 2-push tier. [USER]
+3. **One head** (map = policy = value) — simplest; split only if calibration tension bites. *Grounding:* AlphaZero
+   shared trunk; [[project_policy_value_not_q]]. [USER]
+4. **Single object, 1-hop RO** — the problem is a push-sequence on ONE object opening ONE adjacent region.
+   *Grounding:* [[project_ro_single_object]]; generator require-adjacent default. [USER prior]
+
+### Architecture
+5. **EdgeCrossAttn spatial per-edge critic (60×5)** — spatial grounding generalizes across geometry; the WHERE choice
+   is load-bearing. *Grounding:* HACMan (2305.03942) + its ablation; our H2. [validated]
+6. **Self-attn ON + Fourier PE + per-edge embed** — *Grounding:* our H2 (+4–5pp); HACMan inter-point attn. [validated]
+7. **H = learned embedding over {1,2}** — standard conditioning mechanism. *Grounding:* UVFA/FiLM; DT timestep
+   embed. [CLAUDE default]
+
+### Target / labels
+8. **Target = "solvable within H, best play"; MC/search targets, NEVER TD** — perfect short-horizon sim ⇒ MC unbiased
+   + cheap; TD's edge only past horizon ~10; avoids deadly triad. *Grounding:* TD-or-not-TD (1806.01175); AlphaZero
+   final-outcome targets; primer. [validated-direction / USER prior]
+9. **Gamma discounting (prefer shorter): 1.0 / γ≈0.9 / 0** — single-map argmax prefers the cheaper solution;
+   one-query deploy; depth-readable value; zero extra sims. **REVISES 2026-06-10 robustness-over-optimality.**
+   *Grounding:* discounted return = standard cost-aware value (Bellman). [USER 2026-06-11]
+10. **Binary per-push success (20% reachable bar, FROZEN)** — per-push outcome is inherently binary; the bar is the
+    wired criterion. *Grounding:* `region_opening._validate_opening`; test set calibrated to it. [USER]
+11. **Recursion `Q(s,a,H)=open OR V(child,H−1)`; budget decrements through the transition** — budget is the scarce
+    resource (expensive oracle); clean decrement is what enables truncated search. *Grounding:* Bellman finite-horizon;
+    budget = direct consequence of the expensive-oracle setting. [derivation]
+12. **Record success-fraction (robustness) alongside gamma; re-record per round** — reactive (no-verify) regime needs
+    robustness; ~free to log (don't early-exit the second level); it's POLICY-CONDITIONED ⇒ must Reanalyze each round,
+    never freeze. *Grounding:* journal "labels recorded per-horizon (reversible)"; Reanalyze; reactive deploy need.
+    [USER + CLAUDE reconciliation]
+
+### Value head / loss
+13. **Pool = top-k mean, NOT raw max** — *Grounding:* H0b (mean_top5 34.5 > maxP 24.6 @1; max is fluke-dominated).
+    [validated]
+14. **Classification value head (HL-Gauss bins), not regression** — *Grounding:* Stop-Regressing (2403.03950); primer
+    "we already follow this style". [CLAUDE default]
+15. **PU masking (untried = UNKNOWN)** — untried ≠ failure; FNs catastrophic. *Grounding:* our H5 (untried-as-fail
+    −15pp); PU learning. [validated]
+16. **Loss: balanced masked BCE first; recall-tilt later** — ranking by calibrated probability is Bayes-optimal (PRP);
+    tilt toward top-k only after measuring the 26→70 hard@1→@10 gap. *Grounding:* Probability Ranking Principle
+    (Robertson'77); our H1 (sigmoid-sharp beat softmax). [validated + CLAUDE]
+
+### Data generation
+17. **Climb the horizon ladder (H=1 model-free → H=2 search-distilled)** — bottom rung needs no model (sim labels
+    directly), so no cold-start chicken-and-egg; higher rungs reuse lower (bootstrap). *Grounding:* value iteration;
+    curriculum; Bejjani RHP "planner→supervised→refine" (1803.08100); Contact-MCTS (2206.09023). [CLAUDE + USER cold-start]
+18. **Regenerate H=1 @ 20% bar + KEEP dead-ends** — old f_grid is old-bar + 0 hopeless scenes ⇒ value can't represent
+    "low"/unsolvable. *Grounding:* H0b diagnosis #2; bar-mismatch re-eval. [USER]
+19. **Sample ~30 cells/scene, masked** — ≈ exhaustive at a fraction of sims. *Grounding:* our H5. [validated]
+20. **H=2 only on the informative subset (no 1-push opener)** — concentrate sims on the setup signal; easy scenes'
+    H=2 labels are free by monotonicity. *Grounding:* value-of-information; budget-Q monotonicity. [CLAUDE]
+21. **H=2 leaf: verify early, bootstrap late** — Q₁ is OOD on post-push early (H0b) ⇒ verify; trust value only once
+    in-distribution. *Grounding:* H0b; CQL/IQL pessimism (2006.04779 / 2110.06169). [CLAUDE]
+22. **H=2 collection harvests post-push H=1 labels for free** — the s′ you generate ARE the post-push data H0b
+    requires. *Grounding:* H0b requirement. [efficiency]
+23. **Tag negative TYPE** (dead-end / useless / second-unsolvable) — heterogeneous negatives, don't collapse.
+    *Grounding:* journal red-team item. [CLAUDE]
+
+### Sampling / exploration (the bootstrapping discipline)
+24. **First-push selection: uniform / uncertainty, NEVER policy-confidence** — the 1-push policy is STRUCTURALLY blind
+    to setup pushes (warm-start paradox); confidence-gating starves the exact signal we need. *Grounding:* PUCT
+    (guide-but-don't-gate); offline-RL coverage assumption. [CLAUDE, USER-prompted]
+25. **Exploration floor ≥ 25–30% every round** — iteration heals only REVISITED regions; floors prevent policy-gated
+    blind spots. *Grounding:* ε-greedy / Boltzmann (HACMan's trick); exploration lit. [CLAUDE]
+26. **Acquire by disagreement, not confidence** — surface buried winners; doubles as the aleatoric-floor probe.
+    *Grounding:* query-by-committee (Seung'92); Bootstrapped DQN (Osband'16); RND/ICM. [CLAUDE]
+27. **Ramp policy-bootstrap explore→exploit over rounds** — bootstrap only as fast as the policy earns trust.
+    *Grounding:* AlphaZero temperature annealing. [CLAUDE]
+
+### Iteration / training
+28. **ExIt/DAgger 2–3 rounds, Reanalyze, not one-shot** — search labels are biased by the current policy.
+    *Grounding:* ExIt (NeurIPS'17); DAgger (Ross'11); Reanalyze (2104.06294); our RISK-3. [validated-direction]
+29. **DAgger on the policy's own greedy-rollout states** — no-verify reactive visits policy-CREATED post-push states;
+    must be in-distribution there. *Grounding:* DAgger covariate shift; reactive-extensible goal. [CLAUDE, USER Q8]
+30. **Budget-cond training: H=1 first, then mixed batches + replay** — avoid H=1 drowning sparse H=2; trunk transfers;
+    replay avoids forgetting. *Grounding:* continual-learning replay; multi-task training. [CLAUDE]
+31. **Warm-start encoder from champion scorer; RE-INIT the value / H head** — reuse the validated 1-push representation,
+    but the high-H value canNOT inherit the 1-push head (warm-start paradox poisons setup values). *Grounding:* transfer
+    learning; the warm-start paradox. [CLAUDE]
+
+### Deploy — BOTH regimes (standing lens [[feedback_search_nosearch_lens]])
+32. **No-search:** query `Q(s,·,H)` at decrementing budget, top-k, execute/verify. Lookahead amortized; needs strong
+    HIGH-H head. *Grounding:* HACMan greedy argmax deploy. [lens]
+33. **Search:** net = prior (top-k breadth), sim = expand, value @ leaf at `H−1`, back up. Truncated explicit search +
+    learned value covers the depth. *Grounding:* AlphaZero (value truncates the tree); TD-MPC2; Contact-MCTS. [lens]
+34. **Unknown difficulty → iterative-deepen over H** (no-search trusts V(s,H) readout; search deepens + verifies).
+    *Grounding:* iterative deepening; the difficulty-readout. [USER-derived]
+35. **No-verify reactive = closed-loop greedy argmax** — re-ground on the real state each step so errors don't compound.
+    *Grounding:* HACMan deploy; MPC / receding-horizon re-planning. [USER Q8]
+36. **Verify = check COMPLETE proposals (not search); recall@k suffices** — perfect sim ⇒ propose-and-check; the map
+    needs recall@k, not rank-1. *Grounding:* hacman_comparison verify edge; TAMP feasibility checking. [validated-framing]
+
+### Evaluation
+37. **hit@k (recall@k) on namo_testset_v1 (20% bar), BOTH regimes, + post-push slice + dead-end slice** — hit@k is the
+    deploy metric; both regimes per the lens; slices probe H0b's blind spots (post-push reliability; does it say "low"
+    on hopeless?). *Grounding:* deploy objective = success@k; H0b; the canonical test set. [CLAUDE]
+
+**Still to pin by experiment (not yet grounded — open tunables):** γ exact value; k₂; informative-subset threshold;
+dead-end ratio; #ExIt rounds; recall-tilt timing; one-head-vs-split.
+
+---
+
 ## Original thesis (now revised — see H3′ below)
 From the 3-agent AlphaZero/MuZero sweep ([[project_policy_value_not_q]]): when you act via SEARCH, the net should
 output a **policy prior** + a **value V(s)** — NOT a standalone Q (the search computes Q). Soft/Gaussian
