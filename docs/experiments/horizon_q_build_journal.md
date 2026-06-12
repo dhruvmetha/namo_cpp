@@ -351,6 +351,19 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   at-or-above prediction CONFIRMING at 5/200 epochs; single-ckpt ±3-4 noise ⇒ preview only, M1 verdict =
   end-of-training 3-seed paired compare. Next feeler ~ep15.
 
+- **✅ M1 PASSED [2026-06-12 ~12:10] — hard@1 = 29.40 ± 1.50 vs champion 23.27 ± 1.38 (+6.1pp, ALL seeds
+  positive: +4.1/+7.8/+6.6).** Protocol: 9 top-val ckpts (3 seeds × ~3), full eval panel each
+  (`/scratch/dm1487/eval/m1_verdict/`), per-seed means vs the registered newbar_verdict B30 numbers.
+  Training: all 3 seeds early-stopped by recipe at best ep18-19 (~3.3h) — SAME behavior as the original
+  champion runs (B30_s1 ~ep20, B30_s2 ep39, wandb-verified) ⇒ no confound. Attribution [CLAUDE]: train/test
+  bar match (predicted ~5pp) + 25% more data (123k vs 98k, the proven lever) + 65:35 composition — all
+  aligned, same direction. **CONSEQUENCES: (a) v4 data factory CERTIFIED end-to-end; (b) m1_v4hq = the new
+  1-push baseline — M2a's "≈ champion" gate now reads "≈ 29.40 ± 1.50 (m1_v4hq)"; BASELINE REGISTRY +=
+  m1_v4hq_s{1,2,3} (do not retrain); (c) M2a warm-start source = best m1_v4hq ckpt (s3 ep19 31.2 is the
+  single best; use per-seed bests).** NEXT: M2a (budget_cond=true value_bins=51 head_mode=hl_gauss
+  budget_h=true, H≡1, SAME H5) + M2b (same flags on v4_hq_m2b_scorer with dead rows) — M2a/M2b per the
+  two-cell split (arch vs data isolation).
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
