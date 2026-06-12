@@ -472,6 +472,21 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   planned regardless — folding the reachability-carrying recollect into round 2 may get it for free.
   Decision deferred until the M2c/M2d verdicts say whether the signal is worth it.
 
+- **📋 BASELINE PLAN FOR THE RESULTS WRITE-UP [logged 2026-06-12, execute when M3/M4/M5 results are in]:**
+  No public benchmark for this setting ⇒ external comparison = re-implement algorithmic alternatives on
+  OUR benchmark. **Internal (banked, never retrain):** random 11.8@1 · sims-matched random · geometric
+  oracle (~6% hard) · champion B30 23.27 · M1 29.40 · M2a 29.62 · M2b 32.86 (+ dead-slice controls) ·
+  old-champ+49sims 34.5 · M2b+49sims (tonight) · h1_pol policy-distillation arms (=BC baseline, registry).
+  **Must add (cheap):** (a) Q-full's OWN H=1 head queried at the root, 0 sims — THE internal control for
+  M3 (if H=2 head ≤ own-H=1 ranking, H-conditioning learned nothing); (b) marginal-prior ranker (global
+  per-cell success frequency, no scene input — measures dataset-prior leakage in all scores); (c) expert-
+  at-budget curve (region_opening at capped sims = the classical Stilman-lineage anchor for the M5 plot,
+  far-right oracle ~750 sims). **One real new training:** IQL on the SAME data (TD vs our distilled-MC —
+  the offline-RL reviewer baseline; spec pre-registers MC>TD at our horizon via TD-or-not-TD). **Adapted/
+  positioning only:** Bejjani value-RHP (≈M2a+search, label as adapted protocol) · HACMan (arch absorbed;
+  delta isolated by our own M1→M2a→M2b→M2c/d ladder) · MORE (different sub-question, no number).
+  DECISION DEFERRED [USER]: queue IQL after Q-full vs park until paper push.
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
