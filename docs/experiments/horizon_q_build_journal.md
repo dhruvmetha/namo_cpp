@@ -152,6 +152,13 @@ filtered datasets filter **per-episode at source**. Root doc: `docs/pipeline/mul
   (array 0-20 → `/scratch/dm1487/outputs/v4_hq_h1_masks`). NOTE: the mask renderer ALSO drops dead-ends (same H0b
   filter as the validset) — so the rendered masks = SOLVABLE only; dead-end masks need a `batch_collection` fix (task #23).
 
+
+- **MASKS RENDERED:** 213,789 npz (solvable) → SLURM 55949895 done. **npz→H5 pack LAUNCHED: SLURM 55951271**
+  (`convert_to_hdf5 --minimal` → `/scratch/dm1487/h5/v4_hq_h1_masks/data.h5`). Then: `build_scorer_dataset`
+  (join masks + f_grid, SAME scenes) → `add_contact_px` → train. **M1 uses the EXISTING champion recipe**
+  (edge_crossattn + pos_fourier + use_edge_embed + sigmoid_bce) on the v4_hq_h1 H5, graded on namo_testset_v1 —
+  no budget-Q wiring needed for M1 (that's M2+).
+
 **CORRECTED H5 pipeline (supersedes §9.1's mask-lift):** collect ✓ → validset ✓ → **render masks from v4_hq_h1
 pkls (job 55949895)** → npz→H5 (`convert_to_hdf5`/`build_h5`) → `build_scorer_dataset` join (masks + f_grid, now
 SAME scenes) → `add_contact_px` → train. For M1: solvable scenes; dead-end masks (task #23) for the value.
