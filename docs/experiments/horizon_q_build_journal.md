@@ -371,6 +371,13 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   m1_v4hq (head/conditioning), same init protocol. Warm-start remains the fallback if from-scratch
   underperforms. GATE: hard@k ≈ m1_v4hq 29.40 ± 1.50 (rankings via E[bin], monotone-invariant).
 
+- **SAMPLED H2 COLLECTION COMPLETE [2026-06-12 ~14:20]: job 55960285 — 110,824/110,824 scenes, 64/64
+  COMPLETED, ~7h wall** (vs 24h+ exhaustive trajectory; the [USER] k30+restarts recipe at scale).
+  Total H2 inventory: `pkls_2push_s30` (110,824 sampled) + `pkls_2push_unified` (14,670 exhaustive remnant).
+  **Label builds LAUNCHED:** 55967155 (sampled → labels_s30.json + pure-2push view) + 55967156
+  (exhaustive remnant → labels_exhaustive.json + pure view) via the extended build_2push_validset
+  (γ-derivable, frac_first_push robustness, dead-end XML-anchor recovery). M2a ep17+/M2b ep2+ training.
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
