@@ -364,6 +364,13 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   budget_h=true, H≡1, SAME H5) + M2b (same flags on v4_hq_m2b_scorer with dead rows) — M2a/M2b per the
   two-cell split (arch vs data isolation).
 
+- **M2a LAUNCHED [2026-06-12 ~12:25]: job 55964116** (`m2a_v4hq_s{1,2,3}`, SAME M1 H5 + B30 recipe, flags:
+  budget_cond=true value_bins=51 head_mode=hl_gauss budget_h=true, H≡1). **DEVIATION from the 37-spec
+  [CLAUDE]: FROM-SCRATCH, not warm-start** — the spec chose warm-start when training was assumed expensive;
+  measured cost is ~3.3h to early-stop, and from-scratch keeps the M2a cell to exactly ONE change vs
+  m1_v4hq (head/conditioning), same init protocol. Warm-start remains the fallback if from-scratch
+  underperforms. GATE: hard@k ≈ m1_v4hq 29.40 ± 1.50 (rankings via E[bin], monotone-invariant).
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
