@@ -48,9 +48,8 @@ objects/regions, which is why every invariant in the pipeline keys on the episod
   object-centered crop (64×64, from a 0.5 m window): static walls · movables · the target object ·
   the robot's wavefront-reachable region · the goal-region sample area.
 - **Action space:** a = (contact point e, push depth d) with e ∈ 60 discrete points around the object
-  perimeter (4 faces × 15) and d ∈ 5 depths → **300 cells**. Executing a cell = navigate to the contact
-  point, then push along the face normal for a depth-dependent duration (motion primitives at 550
-  control steps; pure-pursuit + CTE-PD path tracking on the diff-drive).
+  perimeter (4 faces × 15) and d ∈ 5 depths → **300 cells**. Each cell names a SKILL invocation, not a
+  motor command — see "Skill primitives" below.
 - **Legality A(s):** the robot must be able to REACH the contact point — wavefront (BFS over the
   inflated obstacle map) marks ~40-75 of the 300 cells reachable in a typical state. Exact in sim,
   approximate from perception on a real robot; deployment always post-filters to A(s).
@@ -66,10 +65,43 @@ objects/regions, which is why every invariant in the pipeline keys on the episod
   Gamma-discounted targets (1.0 / 0.9 / 0) encode prefer-shorter; per-setup success FRACTIONS record
   robustness (8/24 robust vs 1/30 brittle).
 
-### 2.1 Similarity to HACMan
+### 2.1 Skill primitives (the action abstraction)
 
-The architecture and action decomposition are deliberately HACMan-style (Zhou et al., 2023 — per-point
-critics for non-prehensile manipulation):
+The Q-function's "action" is one invocation of a **push skill** (NAMOPushSkill) — a whole
+navigate-contact-push routine, not a torque:
+
+1. **Navigate:** the robot is placed at the pre-push pose for contact point e (teleport-style in sim:
+   set chassis SE(2), zero velocities, settle ~100 physics ticks — the navigation problem is considered
+   solved by the wavefront; that is exactly why legality A(s) = "contact point reachable").
+2. **Push:** the car tracks a precomputed straight-line push path through the object along the face
+   normal (pure-pursuit + cross-track-error PD on the diff-drive wheels, 550 control steps), shoving the
+   object a depth-dependent distance.
+3. **Primitive library:** the (e,d) → expected object displacement map comes from a precomputed motion
+   primitive database — 300 primitives per object shape class, with **shape-based selection** (square /
+   wide / tall by side ratio, 5% tolerance). Primitives are regenerated whenever robot geometry or push
+   duration changes (the car-geometry saga of §3 in the build journal); `se2_target` is object-local.
+
+Two consequences for learning: (a) the action space is genuinely DISCRETE and small enough to score
+densely — no continuous actor needed; (b) each action is temporally extended (~seconds of physics), so
+H=2 means two long skill executions, not two timesteps — which is why even a 2-push tree is expensive
+and why budgets are tiny.
+
+### 2.2 Similarity to HACMan
+
+**HACMan's setting** (Zhou et al., CoRL 2023): a fixed ARM doing 6D object pose alignment on a
+tabletop — push/slide/FLIP one object in a bin until its full 6D pose (rotations included) matches a
+target. Observation: segmented point clouds; goal given as per-point flow toward the target pose.
+Action: hybrid — a DISCRETE contact point chosen on the object point cloud + a CONTINUOUS learned
+end-effector motion vector after contact; one short poke per step, greedy replanning. Trained with
+online off-policy RL on dense pose-distance rewards in sim, then sim-to-real on a Franka.
+
+Ours swaps: arm → mobile robot in walled rooms (so reachability/navigation enters the action's
+legality); pose-matching → binary REGION OPENING (a connectivity objective about the SCENE, not the
+object's pose); continuous motion parameter → a discrete primitive library depth; dense reward + online
+RL → sparse success + offline search distillation; greedy replanning → an explicit push BUDGET.
+
+The architecture and action decomposition are deliberately HACMan-style (per-point critics for
+non-prehensile manipulation):
 
 - **Shared idea:** score a dense map of contact-parameterized actions — WHERE to touch the object ×
   HOW to push — with a per-contact-point critic that attends to scene context. Our per-edge tokens
