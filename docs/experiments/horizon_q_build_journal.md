@@ -378,6 +378,16 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   (exhaustive remnant → labels_exhaustive.json + pure view) via the extended build_2push_validset
   (γ-derivable, frac_first_push robustness, dead-end XML-anchor recovery). M2a ep17+/M2b ep2+ training.
 
+- **H2 LABELS DONE [2026-06-12 ~14:35] — SAMPLED ≈ EXHAUSTIVE AT THE POPULATION LEVEL (the [USER]
+  ensemble-statistics argument empirically CONFIRMED):** sampled tree 140,062 eps = 16.2% 1p-solvable /
+  **28.5% 2-push-only (39,871 setup episodes)** / 55.4% unsolved-≤2; exhaustive remnant 18,143 eps =
+  15.6% / **28.5%** / 56.0% — identical composition incl. the 2-push discovery rate ⇒ k30+restarts lost
+  nothing distributionally. Artifacts: `labels_s30.json` (+`labels_s30_pure2push.json`, 38,771 scenes /
+  39,871 eps = the M3 informative subset), `labels_exhaustive.json` (+pure view). Note: 1p-solvables on
+  "dead-end scenes" = OTHER episodes (object/goal pairs) than the H1-dead one — per-episode invariant as
+  always. NEXT (Phase 3/4): post-push H=1 harvest + H2 H5 build (gamma + frac labels via the new fields,
+  mixed-H batches) — after M2a/M2b verdicts.
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
