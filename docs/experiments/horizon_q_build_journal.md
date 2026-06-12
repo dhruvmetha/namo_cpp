@@ -388,6 +388,13 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   always. NEXT (Phase 3/4): post-push H=1 harvest + H2 H5 build (gamma + frac labels via the new fields,
   mixed-H batches) — after M2a/M2b verdicts.
 
+- **✅ M2a PASSED [2026-06-12 ~15:10] — hard@1 = 29.62 ± 0.93 vs m1_v4hq 29.40 ± 1.50 (+0.2pp, per-seed
+  +2.1/+0.9/−2.3 = within noise).** The budget-Q architecture (H-embedding + HL-Gauss 51-bin head,
+  from-scratch, same H5/recipe as M1) preserves 1-push ranking exactly — the conditioning/value machinery
+  is FREE. Evals: `/scratch/dm1487/eval/m2a_verdict/` (eval_scorer gained budget-Q ckpt support: auto-detect
+  from state_dict, H=1 forward, E[bin] ranking — committed). M2b (same flags + 129,536 dead rows) training;
+  its verdict = ranking ≈ M1 AND dead→low-V probe (top-k-mean V on dead vs solvable val rows).
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
