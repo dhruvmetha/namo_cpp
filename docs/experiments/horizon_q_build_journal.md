@@ -443,6 +443,14 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   (both pools), HL-Gauss bimodality on boundary cells (M2d), val_loss. Note val split scores full-R for
   all cells (comparable); M2c's mask change is train-only.
 
+- **M2b FEELER [2026-06-12 ~18:45] (best ckpt s3 ep13, single-ckpt preview): ALL THREE READOUTS PASS.**
+  hard@1 = 29.6 (M2a 29.62 / M1 29.40 ⇒ 51% dead rows cost NOTHING on ranking); dead-slice
+  candidate-pool V_dead = **0.065 vs control 0.313 (5x lower)**, AUC 0.987 vs 0.959 — the H0b gate
+  closing decisively; all-cells V_dead **halved (0.710 → 0.359)**, AUC 0.955 vs 0.907 — dead-row
+  supervision generalizes to UNTRIED cells of the same state (whole-scene hopelessness), pre-empting
+  part of M2c's hypothesized role WITHOUT any unreachable supervision. JSONs:
+  /scratch/dm1487/eval/{m2b_feeler,dead_slice_m2b_feeler}.json. Full 3-seed verdict after wall-kill.
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
