@@ -177,6 +177,13 @@ SAME scenes) → `add_contact_px` → train. For M1: solvable scenes; dead-end m
 **Constraints/judgment for autonomous work:** do NOT launch a big training run on unverified/incomplete data.
 Smoke-test before scaling. Keep this §9 log current so a compaction can resume. Slack the user at each milestone.
 
+
+- **⚠ COMPOSITION FIX [USER catch]:** v4_hq_h1 was 100% feb (reused v3_feb_top250k manifest, unreasoned).
+  Test set = 59% feb / 41% aug9; champion = ~0 feb. A feb-only model is OOD on 41% of the eval. FIX: collect
+  aug9 H=1 (SLURM 55954585, 100k aug9 -> v4_hq_aug9_h1). **Killed the premature feb-only pack** (would double-pack).
+  Revised M1 path: aug9 collect -> render aug9 -> pack feb+aug9 npz TOGETHER -> validset (feb+aug9, --keep-dead-ends)
+  -> join -> M1, target ~60:40 (subsample feb 250k at build). aug9 H=2 queued after aug9 H=1.
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
