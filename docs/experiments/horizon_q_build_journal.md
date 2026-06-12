@@ -487,6 +487,21 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   delta isolated by our own M1→M2a→M2b→M2c/d ladder) · MORE (different sub-question, no number).
   DECISION DEFERRED [USER]: queue IQL after Q-full vs park until paper push.
 
+- **🚀 M2b+SEARCH (fpv protocol, preliminary 49/50 shards) [2026-06-12 ~22:25]: the 34.5 BASELINE
+  DOUBLED.** Per-scene first-push pick (mean_top5, n=561 scenes with ≥1 good leaf, protocol identical to
+  H0b incl. the good-leaf filter): **75.2 @1** / 83.2 @3 / 85.7 @5 / 89.3 @10 / 94.3 @20 (old champion:
+  34.5/52.9/63.4/72.6/90.3 — and old was ≈floor by @10; new has signal at every depth). Leaf-level:
+  48,171 first-push sims, 8,697 good leaves (18%); scalar AUC good-vs-dead 0.856 (maxP≈mean_top5).
+  **Second stage on OOD post-push states (the rank_succ question): model's #1 second push opens 69.8%
+  (median rank 0 = first try), @3 83.9, @10 95.2** — the old champion's post-push saturation failure is
+  FIXED by generalization alone (M2b never trained on a post-push state). Dead-training did NOT flatten
+  within-dead-state ordering. **END-TO-END 2-push solve (new metric, old system couldn't): top-1 first
+  push + model-ranked second pushes = 61.7% at exactly 2 executed pushes; 69.0% ≤3 tries; 75.2% ceiling.**
+  ⇒ the SEARCH regime with M2b is a working 2-push agent today (~49+verify sims/scene); this is the M5
+  reference line. M3's registered gate stays 34.5 @ 0 sims; the honest modern bar for amortization is
+  this 75.2-with-sims line. Files: /scratch/dm1487/eval/fpv_m2b/ + diag_fpv_aggregate.json. Final table
+  after the straggler shard.
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
