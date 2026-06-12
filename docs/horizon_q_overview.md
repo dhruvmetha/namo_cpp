@@ -6,7 +6,97 @@
 > [experiments/multipush_horizonQ_journal.md](experiments/multipush_horizonQ_journal.md).
 > Status snapshot in this file: **2026-06-12**.
 
-## 1. The problem
+## 1. The abstract problem
+
+Strip away the robots and the rooms, and the problem is this:
+
+> **A sequential decision problem with a large discrete action menu, a small move budget, and a
+> ground-truth evaluator that is perfect but expensive.** Each state offers ~hundreds of candidate
+> actions; only a state-dependent subset is legal; success is sparse and binary ("did it open or not");
+> outcomes can only be known by querying an oracle (a simulator) that costs ~1 second per query; and at
+> deployment the agent gets few or zero oracle queries per decision.
+
+The objective: from a bounded offline budget of oracle interactions, learn a **budget-conditioned value**
+
+```
+Q(s, a, H) = P(action a succeeds within the remaining budget H, under best play afterward)
+```
+
+such that one function supports BOTH deployment regimes — **act with zero queries** (rank by Q, execute)
+and **aim a tiny query budget** (use Q as prior + leaf evaluator for shallow search). This is amortized
+search: the tree the oracle explored at training time, compressed into a forward pass.
+
+Four structural facts shape every design choice, and none is NAMO-specific:
+1. **Legality is state-dependent and known** — a per-state candidate subset A(s) (here: reachability),
+   so evaluation and pooling always happen over the candidate set.
+2. **Labels cost oracle queries** — so supervision is SAMPLED with known masks (never exhaustive beyond
+   the cheapest tier), and the loss only scores what was actually tried.
+3. **Absence claims ("nothing works here") are ensemble facts** — single instances can't certify a
+   dead-end under sampling, but across 100k+ instances the model learns hopelessness statistically.
+4. **One budget-conditioned function beats H separate ones** — the recursion
+   Q(s,a,H) = [a succeeds] OR V(T(s,a), H−1) ties the horizons together, and the remaining-budget input
+   lets the same weights serve any H (UVFA/Decision-Transformer-style conditioning).
+
+## 2. The problem setting (the concrete instantiation)
+
+**Region Opening (RO) for Navigation Among Movable Obstacles.** A 7 cm differential-drive car in a
+walled room must reach a goal region whose access is blocked by ONE movable object. An episode is the
+triple **(scene, target object, goal region)** — the same room hosts many episodes with different
+objects/regions, which is why every invariant in the pipeline keys on the episode, never the room.
+
+- **State:** SE(2) poses of the robot and all movables in the room. The model sees a 5-channel
+  object-centered crop (64×64, from a 0.5 m window): static walls · movables · the target object ·
+  the robot's wavefront-reachable region · the goal-region sample area.
+- **Action space:** a = (contact point e, push depth d) with e ∈ 60 discrete points around the object
+  perimeter (4 faces × 15) and d ∈ 5 depths → **300 cells**. Executing a cell = navigate to the contact
+  point, then push along the face normal for a depth-dependent duration (motion primitives at 550
+  control steps; pure-pursuit + CTE-PD path tracking on the diff-drive).
+- **Legality A(s):** the robot must be able to REACH the contact point — wavefront (BFS over the
+  inflated obstacle map) marks ~40-75 of the 300 cells reachable in a typical state. Exact in sim,
+  approximate from perception on a real robot; deployment always post-filters to A(s).
+- **Oracle:** MuJoCo physics, ~1 s per push, deterministic given the state. Perfect ground truth,
+  unaffordable at decision time, gone entirely on the real car.
+- **Success ("opens"):** after the push, ≥20% of the goal region's sampled points are
+  wavefront-reachable from the robot (frozen criterion).
+- **Budget:** H ≤ 2 pushes for now (architecture supports more). Episodes can be dead at a given
+  horizon: 1-push-dead but 2-push-solvable episodes are exactly the interesting middle (28.5% of our
+  H1-dead episodes), and some episodes are dead at any budget we test.
+- **Data:** offline only. The expert is a sampled tree search over pushes (k=30 per level, ≤3 restarts
+  on failure); per tried cell we record the exact binary outcome; the tried set is the loss mask.
+  Gamma-discounted targets (1.0 / 0.9 / 0) encode prefer-shorter; per-setup success FRACTIONS record
+  robustness (8/24 robust vs 1/30 brittle).
+
+### 2.1 Similarity to HACMan
+
+The architecture and action decomposition are deliberately HACMan-style (Zhou et al., 2023 — per-point
+critics for non-prehensile manipulation):
+
+- **Shared idea:** score a dense map of contact-parameterized actions — WHERE to touch the object ×
+  HOW to push — with a per-contact-point critic that attends to scene context. Our per-edge tokens
+  (Fourier-encoded contact pixels + edge embeddings, cross-attending the scene crop, self-attending each
+  other) producing a 60×5 value map are exactly that pattern; a dense map makes argmax/top-k action
+  selection trivial at decision time.
+
+- **Where we deliberately diverge (each divergence is one of our measured gates):**
+  1. **Training signal:** HACMan learns by online RL (TD on its own sim rollouts). We train on
+     search-distilled MC targets — outcomes verified by the expert's tree, never bootstrapped from the
+     model's own guesses at this horizon (online-TD baseline explicitly parked; TD-or-not-TD argues MC
+     at short horizons; IQL-on-our-data is the planned head-to-head).
+  2. **Budget conditioning:** HACMan is effectively single-step greedy with replanning; our H input
+     makes one network answer "within 1" vs "within 2" — the foresight that M3 tests.
+  3. **Negative knowledge:** we explicitly train on dead-ends (51% of rows) and measure dead→low-V;
+     this turned out to also IMPROVE ranking (+3.2pp @1) — supervision HACMan's setup never sees.
+  4. **Objective:** theirs is goal-conditioned object repositioning (continuous pose rewards); ours is
+     binary region-opening under a push budget — value = P(open within H), which is also why
+     classification value heads (HL-Gauss) fit naturally.
+  5. **Legality:** our candidate set comes from wavefront reachability with deploy-time post-filtering
+     (and reachability-as-signal is an active ablation, M2c/M2d).
+
+So: HACMan supplies the *shape* of the critic; the contribution under test here is everything about the
+*training signal* — sampled masks, dead-ends, gamma/budget conditioning, search distillation, and the
+ExIt loop on top.
+
+## 3. The problem in one paragraph (as deployed)
 
 A robot (7 cm diff-drive car) needs to reach a region that is blocked by a movable object. It can fix
 this by pushing **that one object** — maybe one push, maybe a chain of two or three (Region Opening; the
@@ -42,7 +132,7 @@ What the function must know (each is a gated milestone below):
 2. when **nothing** works, so it stops wasting budget (dead-ends),
 3. what a push is worth **as a setup** for the next one (foresight).
 
-## 2. The method — one change per rung, a number at every gate
+## 4. The method — one change per rung, a number at every gate
 
 | stage | one change | gate (pre-registered) | result |
 |---|---|---|---|
@@ -56,7 +146,7 @@ What the function must know (each is a gated milestone below):
 | **M5** headline | deployment, both regimes | solve@k vs sims dominates the 49-sim beam | ⏳ |
 | **M6** the loop | ExIt rounds 2-3: Q-guided re-collection | per-round hit@k climbs | ⏳ |
 
-## 3. How the data is made (the part that took the discipline)
+## 5. How the data is made (the part that took the discipline)
 
 - **Scenes:** feb_car + aug9_car v3 pools; training composition matched to the test set at the EPISODE
   level (65:35), held out BY ROOM; episodes matched by object_center (multi_episode_rooms invariants).
@@ -75,7 +165,7 @@ What the function must know (each is a gated milestone below):
 - **Certified ground truth lives only in the test set** (namo_testset_v1: exhaustive at both depths,
   geometry-disjoint). Training data is judged by test performance, never by its own construction.
 
-## 4. Measurement rules (locked)
+## 6. Measurement rules (locked)
 
 - **Always evaluate/pool over the candidate set** (r_mask=1 / wavefront-reachable; edge-level). Scores on
   unreachable cells are a robustness diagnostic only — deploy post-filters reachable contact points.
@@ -84,7 +174,7 @@ What the function must know (each is a gated milestone below):
   noise). Never compare single checkpoints. Pre-register predictions before numbers exist.
 - Gates before trusting any eval: gt_in_valid ≈ 1.0, bad_match = 0, edge_align_err = 0, room leakage = 0.
 
-## 5. Baselines (for the results write-up)
+## 7. Baselines (for the results write-up)
 
 Internal ladder (banked, never retrain): random 11.8@1 · geometric oracle (~6% hard) · champion 23.27 ·
 M1/M2a/M2b · old-champion+49sims 34.5 · M2b+49sims (in flight) · policy-distillation arms (=BC).
@@ -93,7 +183,7 @@ marginal-prior ranker (dataset-prior leakage check) · expert-at-budget curve (c
 One new training: IQL on the same data (TD vs distilled-MC). Adapted-protocol/positioning only:
 Bejjani-style value-RHP, HACMan (arch absorbed; deltas isolated by our own ladder), MORE.
 
-## 6. Why this might matter beyond this robot
+## 8. Why this might matter beyond this robot
 
 The recipe — sample-don't-enumerate with known masks, keep the failures, condition on remaining budget,
 distill search outcomes as MC targets, verify-before-bootstrap, then let the model aim the next round's
