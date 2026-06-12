@@ -319,6 +319,24 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   `v4_hq_h2_s30_remaining.txt` (~110k scenes, PKL_SUBDIR=pkls_2push_s30). ⚠ ETA caveat measured in smoke #1:
   restarts trigger on every truly-dead instance (3x ≈ 2,500 trials > exhaustive 1,860) — net cost depends on
   the 2p-solvable fraction; measure rate from a pilot before resizing shards if needed.
+  **SMOKES #2 + #3 PASSED → SCALED [2026-06-12 ~05:15]:** #2 (10 feb scenes): 26/26 episodes solved, ALL
+  early-stopped at attempt 1 (root ≤30) ✓. #3 (3 known-dead aug9 scenes): restarts fired 3x with fresh draws
+  + MERGED logs (root trials 87/76/48; the 48 = only 16 reachable cells x3) ✓; dead cost ~1.0-2.3k sims as
+  predicted. **FULL LAUNCH: job 55960285** — 110,824 remaining scenes (125,494 − 14,670 exhaustive-done),
+  64 shards, `pkls_2push_s30` (kept separate from exhaustive `pkls_2push_unified` for the datasheet).
+  M1 chain same night: pack DONE (123,269 npz → 4.7 GB src-h5) → join 55960012 RUNNING → cpx 55960013
+  (afterok) → gate check → M1 train (RUN_PREFIX=m1_v4hq DATA_DIR=v4_hq_m1_scorer, array 9-11 = B30 x s1-3).
+  M2b packs 55959968/9 running (105,864 + 23,672 = 129,536 dead-end npz).
+
+- **M1 TRAINING LAUNCHED [2026-06-12 ~05:55]: job 55961140** (`m1_v4hq_s{1,2,3}`, B30 champion recipe,
+  array 9-11). Data chain ALL GATES GREEN: join 123,269/123,269 unique episodes (solvable-only ✓),
+  bad_match=0, gt_in_valid=100.00%, edge_align_err=0; contact_px N=123,269 miss=0 in-bounds=1.000;
+  **composition 65.0:35.0 EXACT** (feb 80,125 / aug9_b1 25,938 + aug9_rest 17,206). Final H5:
+  `/scratch/dm1487/h5/v4_hq_m1_scorer/data.h5`. ⚠ probe gotcha for the record: H5 `xml` paths are
+  collection-shard symlinks (`outputs/v4_hq_*/shard_*/envs/...`) — discriminate feb/aug9 by OUTPUT ROOT
+  (`/v4_hq_h1/` vs `/v4_hq_aug9_h1[_rest]/`), NEVER by 'feb_car'/'aug9_car' substrings (always absent).
+  M1 verdict protocol: eval_scorer per ckpt → resolve_robust-style 3-seed paired compare vs champion 23.8
+  hard@1 (pre-registered: at-or-above). Snapshot-feelers at ~ep8/~ep15 per [[feedback_periodic_feelers]].
 
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
