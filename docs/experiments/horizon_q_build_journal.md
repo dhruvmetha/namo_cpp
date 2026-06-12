@@ -338,6 +338,19 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   M1 verdict protocol: eval_scorer per ckpt → resolve_robust-style 3-seed paired compare vs champion 23.8
   hard@1 (pre-registered: at-or-above). Snapshot-feelers at ~ep8/~ep15 per [[feedback_periodic_feelers]].
 
+- **H2 LABEL BUILDER READY [2026-06-12 ~07:45] (commit 95017b4):** `build_2push_validset.py` extended:
+  (a) `frac_first_push` = [pe,pd,n_succ_2,n_tried_2] per expanded first push over UNIQUE child cells
+  (restart-union; denominator is part of the label under sampling — 1/30 brittle vs 6/22 robust);
+  (b) dead-end episode recovery via `_pose_from_xml` (the obs-only pose lookup DROPPED dead episodes —
+  H0b pattern again; smoke-dead: 0→3 episodes, tried unions match smoke #3 exactly). Gamma targets derive
+  downstream (1.0/γ/0 from valid_1push/valid_first_push/tried) — γ stays a tunable, not baked in.
+  Validated on both restart smokes (dead + solvable). Ready to run on `pkls_2push_s30` + the kept
+  exhaustive `pkls_2push_unified` when collection lands. M1 ep5 feeler (job 55961584) in flight.
+- **M1 FEELER @ep5 [2026-06-12 ~08:00]: hard@1 = 25.4 — ABOVE champion 23.8** (m1_v4hq_s1
+  epoch005-val_loss0.5833, eval JSON `/scratch/dm1487/eval/m1_feeler_s1_ep5.json`). Pre-registered
+  at-or-above prediction CONFIRMING at 5/200 epochs; single-ckpt ±3-4 noise ⇒ preview only, M1 verdict =
+  end-of-training 3-seed paired compare. Next feeler ~ep15.
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
