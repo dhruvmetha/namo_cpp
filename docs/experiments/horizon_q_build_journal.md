@@ -499,8 +499,7 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   push + model-ranked second pushes = 61.7% at exactly 2 executed pushes; 69.0% ≤3 tries; 75.2% ceiling.**
   ⇒ the SEARCH regime with M2b is a working 2-push agent today (~49+verify sims/scene); this is the M5
   reference line. M3's registered gate stays 34.5 @ 0 sims; the honest modern bar for amortization is
-  this 75.2-with-sims line. Files: /scratch/dm1487/eval/fpv_m2b/ + diag_fpv_aggregate.json. Final table
-  after the straggler shard.
+  this 75.2-with-sims line. Files: /scratch/dm1487/eval/fpv_m2b/ + diag_fpv_aggregate.json. FINAL 50/50 confirmed identical: 75.2@1 / e2e 61.9 / 2nd-stage 69.8 (48,209 leaves).
 
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
