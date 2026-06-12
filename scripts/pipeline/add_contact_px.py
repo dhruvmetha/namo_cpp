@@ -27,19 +27,22 @@ def contact_px(edge, hw, hd, theta, crop_m, S=64):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--scorer-h5", default="/scratch/dm1487/h5/v3_scorer_1push/data.h5")
-    ap.add_argument("--src-h5", default="/scratch/dm1487/h5/v3_1push_le10_lzf_tight_data/data.h5")
+    ap.add_argument("--src-h5", nargs="+", default=["/scratch/dm1487/h5/v3_1push_le10_lzf_tight_data/data.h5"],
+                    help="one or MORE mask H5s (parallel pack shards / solvable+dead-end packs); the pose "
+                         "map is the union — same object_center key in two files carries the same pose")
     ap.add_argument("--crop", default="tight", choices=["tight", "wide"])
     a = ap.parse_args()
 
     # source pose map: round(object_center) -> (theta, hw, hd, crop_m). crop_m differs tight(0.5)/wide(1.2)
-    s = h5py.File(a.src_h5, "r")
-    soc = s[f"local_{a.crop}_object_center"][:]; sth = s[f"local_{a.crop}_object_theta"][:, 0]
-    ssz = s["target_object_size"][:]; scm = s[f"local_{a.crop}_crop_size_meters"][:, 0]
     pose = {}
-    for i in range(soc.shape[0]):
-        key = (round(float(soc[i, 0]), 4), round(float(soc[i, 1]), 4))
-        pose[key] = (float(sth[i]), float(ssz[i, 0]), float(ssz[i, 1]), float(scm[i]))
-    s.close()
+    for src in a.src_h5:
+        s = h5py.File(src, "r")
+        soc = s[f"local_{a.crop}_object_center"][:]; sth = s[f"local_{a.crop}_object_theta"][:, 0]
+        ssz = s["target_object_size"][:]; scm = s[f"local_{a.crop}_crop_size_meters"][:, 0]
+        for i in range(soc.shape[0]):
+            key = (round(float(soc[i, 0]), 4), round(float(soc[i, 1]), 4))
+            pose[key] = (float(sth[i]), float(ssz[i, 0]), float(ssz[i, 1]), float(scm[i]))
+        s.close()
 
     d = h5py.File(a.scorer_h5, "a")
     oc = d["object_center"][:]; N = oc.shape[0]
