@@ -420,6 +420,18 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   (3) all-cells gap closure = robustness bonus, not a gate. Note: even M2a (zero dead rows) separates
   dead states on the candidate pool — per-cell zeros generalize; M2b widens, not creates.
 
+- **[USER 2026-06-12] M2c/M2d PARKED as representation-only experiments.** Deployment ALWAYS post-filters
+  to reachable contact points (candidate-pool rule) — so unreachable-cell supervision (M2c: 30+20 mask)
+  and the reachability input-flag (M2d) have NO deployment consequence; their only possible value is
+  "learn better" (auxiliary signal for the encoder), judged by ranking metrics. Key semantic findings
+  from the discussion: (a) "would it open if executed" is a well-defined COUNTERFACTUAL on all cells —
+  M2c changes the question (operational = affordance x outcome), not completes it; (b) the robot_region
+  input channel IS the wavefront rendered — M2c teaches a lossy pixel re-derivation of a bit M2d can
+  hand over exactly (same source ⇒ NO independent robustness, correcting an earlier CLAUDE claim);
+  (c) the one surviving M2c case = dense connectivity-reading supervision might transfer to the outcome
+  task (the 20% bar is itself a connectivity question). Run on idle GPUs only, if at all.
+  Reachability recording (bd54571) stands regardless — it serves any future variant + post-push rows.
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
