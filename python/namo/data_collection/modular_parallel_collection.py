@@ -1193,6 +1193,10 @@ def main():
             "region_selection_strategy": args.region_selection_strategy,
             "profile_geometric": args.profile_geometric,
             "region_exhaustive_mode": getattr(args, 'region_exhaustive_mode', False),
+            # horizon-Q sampled collection: uniform k-subset of (edge,depth) candidates per chain level
+            # (0 = off). Set via --config-yaml (region_sample_k), like the exhaustive-mode keys.
+            "region_sample_k": getattr(args, 'region_sample_k', 0),
+            "region_sample_restarts": getattr(args, 'region_sample_restarts', 1),
             "shuffle_edges": args.shuffle_edges,
             "shuffle_seed": args.shuffle_seed,
             "target_goal_region": args.target_goal_region,

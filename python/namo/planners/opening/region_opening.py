@@ -216,6 +216,19 @@ class RegionOpeningPlanner(BasePlanner):
         # Exhaustive mode: disable search pruning, log all primitive outcomes for F characterization
         self.exhaustive_mode = algo_params.get("region_exhaustive_mode", False)
 
+        # SAMPLED collection (horizon-Q, [USER 2026-06-12]: "sample all levels at 30; keep the data and
+        # know the mask during training"): cap the per-node candidate list at a UNIFORM random subset of
+        # k (edge, depth) cells. Applies at EVERY chain level (each node's expansion passes through the
+        # same candidate build). Labels stay exact per tried cell; training uses the tried set as the
+        # loss mask (B30). Uses the worker RNG unseeded-per-scene, so REPEATING an instance draws a fresh
+        # subset (randomized-repeats lever). 0 = off (legacy exhaustive-over-reachable).
+        self.sample_k = int(algo_params.get("region_sample_k", 0))
+        # Restart-on-failure ([USER]: "run the same instance up to 3 times with different seeds, only if
+        # we don't find a solution"): total search attempts per (object, neighbour); each retry draws
+        # fresh random subsets at every level; trial logs are MERGED (union of tried cells = the training
+        # mask); stops at the first attempt that finds any chain. 1 = off.
+        self.sample_restarts = int(algo_params.get("region_sample_restarts", 1))
+
         # Early-exit the candidate-object loop in _attempt_opening_to_neighbour after
         # the first object yields a successful opening. This skips evaluating remaining
         # candidate objects for the same neighbor — fine for execution (we only need
@@ -1421,15 +1434,23 @@ class RegionOpeningPlanner(BasePlanner):
                 search_unique_movable_collision_count = 0
                 object_trial_log = []
             else:
-                # Use standard BFS search
-                successful_goals, min_depth, phase_push_counts, solved_in_phase, search_any_wall_collision, search_unique_movable_collision_count, object_trial_log = self._search_with_chaining_bfs(
-                    object_id,
-                    exploration_state,
-                    neighbour_label,
-                    region_goals,
-                    max_solutions_to_collect=max_solutions_for_object,
-                    push_counter=neighbour_push_counter,
-                )
+                # Use standard BFS search. With sampled collection (sample_k>0), restart with FRESH
+                # random subsets up to sample_restarts times, ONLY while no chain has been found;
+                # merge trial logs across attempts (union of tried cells = the training loss mask).
+                n_attempts = self.sample_restarts if self.sample_k > 0 else 1
+                object_trial_log = []
+                for _attempt in range(max(1, n_attempts)):
+                    successful_goals, min_depth, phase_push_counts, solved_in_phase, search_any_wall_collision, search_unique_movable_collision_count, attempt_trial_log = self._search_with_chaining_bfs(
+                        object_id,
+                        exploration_state,
+                        neighbour_label,
+                        region_goals,
+                        max_solutions_to_collect=max_solutions_for_object,
+                        push_counter=neighbour_push_counter,
+                    )
+                    object_trial_log.extend(attempt_trial_log or [])
+                    if successful_goals:
+                        break
 
             pushes_for_this_object = neighbour_push_counter.get("count", 0) - pushes_before_object
             obj_goal_strategy_profile = None
@@ -2538,6 +2559,10 @@ class RegionOpeningPlanner(BasePlanner):
             for depth, goal in enumerate(edge_goals):
                 if goal is not None:
                     candidates.append([true_edge_idx, depth, goal])  # Use list for mutability
+
+        # Sampled collection: uniform k-subset of the reachable candidates (every chain level hits this).
+        if self.sample_k > 0 and len(candidates) > self.sample_k:
+            candidates = random.sample(candidates, self.sample_k)
 
         # Initial sort depends on whether we have async ML
         if async_result is not None and async_result.ml_future is not None:

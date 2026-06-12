@@ -66,9 +66,11 @@ echo "manifest=$MANIFEST shard=[$START_IDX,$END_IDX) envs=$N"
 echo "start=$(date -Is)"
 
 cd "$NAMO_REPO"
+CONFIG_YAML=${CONFIG_YAML:-$HOME_DIR/configs/exhaustive_depth2.yaml}
+echo "config=$CONFIG_YAML"
 PYTHONPATH="$NAMO_REPO/build_python:$NAMO_REPO/python" \
 python -m namo.data_collection.modular_parallel_collection \
-    --config-yaml "$HOME_DIR/configs/exhaustive_depth2.yaml" \
+    --config-yaml "$CONFIG_YAML" \
     --algorithm region_opening \
     --output-dir "$SHARD_DIR/pkls" \
     --xml-dir "$SHARD_ENVS" \
