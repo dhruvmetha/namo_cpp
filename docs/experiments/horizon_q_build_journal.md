@@ -451,6 +451,17 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   part of M2c's hypothesized role WITHOUT any unreachable supervision. JSONs:
   /scratch/dm1487/eval/{m2b_feeler,dead_slice_m2b_feeler}.json. Full 3-seed verdict after wall-kill.
 
+- **✅ M2b VERDICT [2026-06-12 ~19:00]: PASSED — dead-end data IMPROVES ranking. hard@1 = 32.86 ± 2.38**
+  (s1 31.4 / s2 35.6 / s3 31.6) vs M2a 29.62 ± 0.93, M1 29.40 ± 1.50; @5 = 65.44 ± 1.25 vs 60.9;
+  @10 = 80.07; @20 = 90.87. Dead-slice (per-seed best ckpts): cand-pool V_dead 0.061/0.071/0.065,
+  AUC 0.989/0.983/0.987 (control 0.313/0.959); all-cells V_dead 0.26-0.36 (control 0.71). Evals:
+  /scratch/dm1487/eval/m2b_verdict/. INTERPRETATION [CLAUDE]: 51% dead rows acted as massive negative
+  supervision — junk families pushed down ⇒ fewer impostors at top-k (the @5 +4.5pp) AND top-1 gains.
+  **M2 PHASE CLOSED: arch free (M2a) + dead data = pure gain (M2b). m2b_v4hq = the new best 1-push
+  model / the warm-start + comparison baseline for Q-full (M4).** BASELINE REGISTRY += m2b_v4hq_s{1,2,3}.
+  Note for the H0b record: the old champion's post-push saturation left only 2nd-3rd-decimal ordering
+  (the 34.5 sliver, ≈floor by @10) — M2b's 13x dead/solvable value ratio is the corrected contrast.
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
