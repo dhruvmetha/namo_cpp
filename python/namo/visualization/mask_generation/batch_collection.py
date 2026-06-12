@@ -797,6 +797,7 @@ def process_pkl_file_worker(pkl_file: str, output_dir: str, filter_minimum_lengt
                             wide_crop_size: Optional[float] = None,
                             tight_crop_size: Optional[float] = None,
                             include_dead_ends: bool = False,
+                            dead_ends_only: bool = False,
                             reachable_sidecar: Optional[Dict[str, List[str]]] = None) -> Tuple[int, int, str, List[str]]:
     """Worker function to process a single pickle file.
 
@@ -873,7 +874,7 @@ def process_pkl_file_worker(pkl_file: str, output_dir: str, filter_minimum_lengt
                 processed_episodes += 1
             except Exception:
                 continue
-        elif is_valid_episode(episode):
+        elif is_valid_episode(episode) and not dead_ends_only:
             try:
                 # Inject correct solutions_found count from episode counting
                 # (solutions_found_for_neighbour is broken in existing data)
@@ -1160,6 +1161,9 @@ def main():
                              'scene XML, pseudo-a1 (edge/depth_idx_a1=-1 sentinel). The 5 scorer channels '
                              '(static/movable/target_object/robot_region/goal_sample_region) are all derivable '
                              'at render time. Default off = legacy behavior. (horizon-Q H0b, task #23)')
+    parser.add_argument('--dead-ends-only', action='store_true',
+                        help='Render ONLY dead-end episodes (implies --include-dead-ends). Use to add dead-end '
+                             'npz to an output tree whose solvable npz already exist — no re-render, no dupes.')
     parser.add_argument('--reachable-sidecar', type=str, default=None,
                         help='OPTIONAL JSON {xml_path: [reachable object names]} to fill the global '
                              '"reachable" npz mask for dead-ends (unused by the scorer pipeline; best-effort '
@@ -1310,6 +1314,8 @@ def main():
         with open(args.reachable_sidecar) as f:
             reachable_sidecar = json.load(f)
         print(f"Loaded reachable sidecar: {len(reachable_sidecar)} scenes")
+    if args.dead_ends_only:
+        args.include_dead_ends = True
 
     if num_workers == 1:
         # Serial processing (original behavior)
@@ -1322,6 +1328,7 @@ def main():
                 wide_crop_size=args.wide_crop_size,
                 tight_crop_size=args.tight_crop_size,
                 include_dead_ends=args.include_dead_ends,
+                dead_ends_only=args.dead_ends_only,
                 reachable_sidecar=reachable_sidecar)
             total_episodes += file_episodes
             total_processed += file_processed
@@ -1344,6 +1351,7 @@ def main():
                 wide_crop_size=args.wide_crop_size,
                 tight_crop_size=args.tight_crop_size,
                 include_dead_ends=args.include_dead_ends,
+                dead_ends_only=args.dead_ends_only,
                 reachable_sidecar=reachable_sidecar)
 
             # Process files with progress bar
