@@ -510,6 +510,24 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   mechanism exhibit to sit next to M3's headline. Implementation: eval_dead_slice.py --h 2 + a split of the
   dead sample by the H2 labels key.
 
+- **⏰ OVERNIGHT STATE MACHINE [2026-06-12 ~22:45 — READ THIS FIRST AFTER ANY COMPACTION]:**
+  User AFK, full autonomy granted. RUNNING: h2-chain2 55972757 (packs ~done → twopush join ~2.5h → cpx;
+  monitor bya9ik6d3) · m2c-train 55971858 + m2d-train 55971859 (6h walls ~00:10, monitor bvmvrbahb).
+  **ON CHAIN2 COMPLETION → check gates in its log (unique-episodes/bad_match/gt_in_valid/edge_align_err;
+  expect ~280k rows = 2 per episode, dead rows present) → LAUNCH Q-FULL:**
+  `cd sage_learning && RUN_PREFIX=qfull_v4hq DATA_DIR='/scratch/dm1487/h5/v4_hq_m2b_scorer/data.h5;/scratch/dm1487/h5/v4_hq_h2_scorer/data.h5' EXTRA_OVERRIDES="+network.budget_cond=true +network.value_bins=51 +model.head_mode=hl_gauss +data.budget_h=true" sbatch --export=ALL,RUN_PREFIX,DATA_DIR,EXTRA_OVERRIDES --array=9-11 --time=14:00:00 --job-name=qfull-train scripts/train_h5_sampling.slurm`
+  (multi-H5 datamodule f82ac6d handles the ';' list; 14h wall — epochs ~2x M2b's; ~530k rows total).
+  Feeler at ~ep5 (Slack it). ON M2c/M2d WALLS → verdict evals (xargs pattern, m2c_verdict/m2d_verdict
+  dirs) + dead-slice probes; verdict = 3-seed vs M2b 32.86 ± 2.38 [USER hypothesis pre-registered; if
+  good → H2-recollect-with-reachability decision per 4b8b36f]. ON Q-FULL DONE (morning) → verdict suite:
+  (a) eval_scorer panel ×9 ckpts (H=1 parity vs M2b 32.86); (b) M3 = zero-sim setup-pick on the pure2push
+  slice via the fpv protocol with --scalars-only?? NO — M3 eval = rank first pushes by Q(s0,·,H=2) map
+  directly (NO sims): needs a small eval (reuse eval_dead_slice-style load + the pure2push key valid_first_push;
+  ~30 lines) — bars: 34.5 (registered) / 75.2-with-sims (tonight's line, c9d0ec5); (c) H-BIFURCATION probe
+  (525ea31): same dead states, --h 1 vs --h 2, split by 2p-solvability; (d) dead-slice + post-push
+  calibration check (0.549 → toward 0.065). Slack each verdict. Hourly cron continues. NEVER kill
+  sessions/allocations; check squeue before any submit (idempotency).
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
