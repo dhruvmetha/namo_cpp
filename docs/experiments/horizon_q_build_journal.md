@@ -528,6 +528,17 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   calibration check (0.549 → toward 0.065). Slack each verdict. Hourly cron continues. NEVER kill
   sessions/allocations; check squeue before any submit (idempotency).
 
+- **2-PUSH DIFFICULTY DIVISIONS BUILT [USER ask, 2026-06-12 ~22:55]:** keyed on SETUP-CELL density from
+  the canonical exhaustive key (1-push thresholds don't transfer — setups are rarer): **hard = 1-2 setup
+  cells / medium = 3-8 / easy = >8** (371/409/238 of 1,018 episodes) →
+  `namo_testset_v1/labels/pure2push_divisions.json` (per-episode `division` + `n_setups` fields).
+  Tonight's M2b+search per division (n=429 matched; 345 leaves unmatched on (realpath,obj) join — likely
+  multi-episode (xml,obj) region ambiguity + manifest⊃key, investigate at M3 time): hard 76.8@1 / med
+  78.8 / easy 86.2; e2e@2pushes 59.9/62.2/73.4. **GRADIENT NEARLY FLAT ⇒ PRE-REGISTERED PREDICTION:
+  Q-full's ZERO-SIM M3 gradient will be much steeper (recognizing a simulated child is easy; imagining a
+  needle is hard) — the hard-division reactive-vs-search gap = the cleanest measure of what simulation
+  still buys.** M3 verdicts MUST be reported per these divisions.
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
