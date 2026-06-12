@@ -402,6 +402,16 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   (Also in auto-memory: feedback_maximize_parallelism.) Exceptions stand: no full training on unverified
   data; never touch sessions/allocations.
 
+- **DEAD-SLICE CONTROL (M2a, ZERO dead training rows) [2026-06-12 ~17:25] — H0b PARTIALLY PRE-SOLVED:**
+  probe (eval_dead_slice.py, 500v500, V=top5-mean, H=1): candidate-pool V_dead=0.31 vs V_solv=0.90
+  (AUC 0.959); all-cells V_dead=0.71 vs 0.93 (AUC 0.907). Even without dead-end data, per-cell ZEROS on
+  solvable scenes generalize to mostly-low maps on dead states — the OLD H0b "always believes something
+  works" was a property of the old data/bar, not inherent. **BUT the untried-cell optimism leak is REAL
+  and now MEASURED: +0.40 value inflation on dead states when pooling over all 300 cells (0.71) vs the
+  candidate set (0.31).** ⇒ M2b's sharpened gate: close the all-cells gap (V_dead well below 0.71) —
+  the direct test of whether dead-row masked supervision suppresses untried-cell optimism. Deploy note
+  either way: pool V over the CANDIDATE set when reachability is known.
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
