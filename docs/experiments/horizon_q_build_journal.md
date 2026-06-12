@@ -412,6 +412,14 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   the direct test of whether dead-row masked supervision suppresses untried-cell optimism. Deploy note
   either way: pool V over the CANDIDATE set when reachability is known.
 
+- **[USER 2026-06-12] MEASUREMENT RULE: value pooling + all eval ALWAYS over the candidate pool
+  (r_mask=1 / wavefront-reachable at deploy; edge-level — a reachable contact point makes all 5 depths
+  candidates).** r_mask=0 cells are inexecutable; scoring them is meaningless. The all-cells pool is kept
+  ONLY as a no-mask robustness diagnostic. Restated M2b gate accordingly: (1) ranking ≈29.4 (primary),
+  (2) candidate-pool dead separation improves (V_dead < 0.31 / AUC > 0.959 vs the M2a control),
+  (3) all-cells gap closure = robustness bonus, not a gate. Note: even M2a (zero dead rows) separates
+  dead states on the candidate pool — per-cell zeros generalize; M2b widens, not creates.
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
