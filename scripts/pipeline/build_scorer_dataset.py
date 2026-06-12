@@ -25,10 +25,18 @@ CHANS = ["static", "movable", "target_object", "robot_region", "goal_sample_regi
 OUT = 64
 
 
-def match_episode(recs, oci, gt):
+def match_episode(recs, oci, gt, dead=False):
+    """dead=True (npz edge_idx_a1 == -1 sentinel): the row is a DEAD-END — match only among dead-end
+    records (valid == []). gt=(-1,-1) would otherwise fall back to nearest-center, which is ambiguous
+    when the same object serves several goal regions (could attach a SOLVABLE record's labels)."""
     if not recs:
         return None, 1e9
-    pool = [r for r in recs if gt in {tuple(t) for t in r["valid"]}] or recs
+    if dead:
+        pool = [r for r in recs if not r["valid"]]
+    else:
+        pool = [r for r in recs if gt in {tuple(t) for t in r["valid"]}] or [r for r in recs if r["valid"]] or recs
+    if not pool:
+        return None, 1e9
     rec = min(pool, key=lambda r: (r["object_center"][0] - oci[0]) ** 2 + (r["object_center"][1] - oci[1]) ** 2)
     return rec, math.hypot(rec["object_center"][0] - oci[0], rec["object_center"][1] - oci[1])
 
@@ -50,22 +58,30 @@ def main():
     e = f["edge_idx_a1"][:, 0].astype(int); d = f["depth_idx_a1"][:, 0].astype(int)
     oc = f[f"local_{a.crop}_object_center"][:]
 
-    # one row per unique EPISODE (xml, object_center); dedup repeats
-    seen = {}; rows = []; bad = 0; gtok = 0
+    # one row per unique EPISODE = matched validset record; dedup by the record's identity
+    # (object_center + goal region), NOT by npz center alone — the same object can serve several
+    # goal regions (distinct episodes, distinct labels) and dead-end + solvable can share a center.
+    seen = {}; rows = []; bad = 0; gtok = 0; n_solv = 0; n_dead = 0
     for i in range(N):
+        dead = int(e[i]) < 0   # npz dead-end sentinel (edge_idx_a1 == -1)
         gt = (int(e[i]), int(d[i]))
-        rec, dm = match_episode(epf.get(xml[i]), oc[i], gt)
+        rec, dm = match_episode(epf.get(xml[i]), oc[i], gt, dead=dead)
         if rec is None or dm > 0.01:
             bad += 1; continue
-        key = (xml[i], round(float(oc[i, 0]), 4), round(float(oc[i, 1]), 4))
+        key = (xml[i], round(float(rec["object_center"][0]), 4), round(float(rec["object_center"][1]), 4),
+               str(rec.get("region")), bool(rec["valid"]))
         if key in seen:
             continue
         seen[key] = 1
         valid = {tuple(t) for t in rec["valid"]}; tried = {tuple(t) for t in rec["tried"]}
-        gtok += (gt in valid)
-        rows.append((i, valid, tried))
-    print(f"src={N} unique-episodes={len(rows)} bad_match={bad} gt_in_valid={gtok/len(rows)*100:.2f}%", flush=True)
-    assert gtok / len(rows) > 0.99, "per-episode label join failed (gt not in valid)"
+        if dead:
+            n_dead += 1
+        else:
+            n_solv += 1; gtok += (gt in valid)
+        rows.append((i, valid, tried, dead))
+    print(f"src={N} unique-episodes={len(rows)} (solvable={n_solv} dead-end={n_dead}) bad_match={bad} "
+          f"gt_in_valid={gtok/max(n_solv,1)*100:.2f}%", flush=True)
+    assert n_solv == 0 or gtok / n_solv > 0.99, "per-episode label join failed (gt not in valid)"
 
     M = len(rows)
     import os
@@ -77,9 +93,10 @@ def main():
     ratio = dst.create_dataset("ratio", (M,), dtype="float32")
     ocd = dst.create_dataset("object_center", (M, 2), dtype="float32")
     xmld = dst.create_dataset("xml", (M,), dtype=h5py.string_dtype())
+    deadd = dst.create_dataset("dead", (M,), dtype="uint8")   # 1 = dead-end episode (valid==[], H0b)
 
     edge_align_err = 0
-    for j, (i, valid, tried) in enumerate(rows):
+    for j, (i, valid, tried, dead) in enumerate(rows):
         if j % 1000 == 0:
             print(f"  [{j}/{M}]", file=sys.stderr, flush=True)
         chans = []
@@ -99,9 +116,11 @@ def main():
         rm[j] = mask
         R = int(mask.sum()); F = int(np.nansum(grid))
         ratio[j] = F / R if R else 0.0
-        ocd[j] = oc[i]; xmld[j] = xml[i]
-        # gate: the H5 GT push (e,d) must be a reachable+valid cell of this grid
-        if not (mask[int(e[i]), int(d[i])] and grid[int(e[i]), int(d[i])] == 1.0):
+        ocd[j] = oc[i]; xmld[j] = xml[i]; deadd[j] = int(dead)
+        # gate: the H5 GT push (e,d) must be a reachable+valid cell of this grid. Dead-end rows have
+        # NO gt (sentinel -1; negative indexing would silently test cell [59,4]) — skip, their gate is
+        # valid==[] enforced by the dead-aware match.
+        if not dead and not (mask[int(e[i]), int(d[i])] and grid[int(e[i]), int(d[i])] == 1.0):
             edge_align_err += 1
 
     dst.attrs["n_samples"] = M
