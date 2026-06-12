@@ -395,6 +395,13 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   from state_dict, H=1 forward, E[bin] ranking — committed). M2b (same flags + 129,536 dead rows) training;
   its verdict = ranking ≈ M1 AND dead→low-V probe (top-k-mean V on dead vs solvable val rows).
 
+- **⚙ STANDING RULE [USER 2026-06-12]: MAXIMIZE PARALLELISM — never serialize without a true data
+  dependency.** At every state change, re-derive the dependency graph and launch everything whose inputs
+  exist: machine-time steps submit immediately; code is written + smoke-validated WHILE compute runs;
+  known-invocation chains use sbatch --dependency=afterok; verdicts gate ONLY their own downstream.
+  (Also in auto-memory: feedback_maximize_parallelism.) Exceptions stand: no full training on unverified
+  data; never touch sessions/allocations.
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
