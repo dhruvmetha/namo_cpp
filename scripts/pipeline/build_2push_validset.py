@@ -19,14 +19,33 @@ Match an eval sample to its episode by nearest object_center (<=1mm), same rule 
 """
 import argparse
 import json
+import math
 import os
 import pickle
+import re
 import sys
 from collections import defaultdict
 from glob import glob
 from multiprocessing import Pool
 
 RP = os.path.realpath
+
+
+def _pose_from_xml(xml_path, obj_id):
+    """Dead-end episodes record NO observations (no successful action) — anchor by the object's INITIAL
+    geom pose parsed from the scene XML (same regex as build_episode_validsets._pose_from_xml, so all
+    keys/object_centers agree across the 1-push and 2-push answer keys)."""
+    try:
+        txt = open(xml_path).read()
+    except Exception:
+        return None
+    m = re.search(rf'<geom name="{re.escape(obj_id)}"[^>]*?pos="([^"]+)"', txt)
+    if not m:
+        return None
+    p = m.group(1).split()
+    em = re.search(rf'<geom name="{re.escape(obj_id)}"[^>]*?euler="([^"]+)"', txt)
+    theta = math.radians(float(em.group(1).split()[2])) if em else 0.0   # scene euler in degrees
+    return (float(p[0]), float(p[1]), theta)
 
 
 def pkl_episodes(pkl):
@@ -48,6 +67,9 @@ def pkl_episodes(pkl):
             so = ep.get(key) or []
             if so and isinstance(so[0], dict) and f"{obj}_pose" in so[0]:
                 pose = so[0][f"{obj}_pose"]; break
+        if pose is None and obj:
+            xmlf = ep.get("xml_file")
+            pose = _pose_from_xml(xmlf, obj) if xmlf else None   # dead-ends carry no obs -> XML anchor
         if pose is None:
             continue
         oc = (round(float(pose[0]), 4), round(float(pose[1]), 4))
@@ -80,7 +102,11 @@ def main():
             for r in recs:
                 e = agg.setdefault(r["epkey"], {
                     "theta": r["theta"], "f1": set(), "f1p": set(),
-                    "tried1": set(), "triedfp": set(), "tagged": False})
+                    "tried1": set(), "triedfp": set(), "tagged": False,
+                    # per-first-push child outcomes {pcell: {cell: success}} — child state is
+                    # deterministic given the parent, so restart-merged duplicate trials of the same
+                    # child cell collapse here (dict key) instead of inflating the denominator.
+                    "kids": defaultdict(dict)})
                 for t in r["log"]:
                     cd = t.get("chain_depth")
                     if cd is None:
@@ -100,6 +126,7 @@ def main():
                         e["triedfp"].add(pcell)
                         if t.get("success"):
                             e["f1p"].add(pcell)
+                        e["kids"][pcell][(t["edge_idx"], t["depth"])] = bool(t.get("success"))
 
     by_real = defaultdict(list)
     n_1, n_2only, n_unsolved = 0, 0, 0
@@ -124,6 +151,13 @@ def main():
             "is_2push_solvable": is2,
             "solve_rate_1push": (len(f1) / len(t1)) if t1 else 0.0,
             "solve_rate_first_push": (len(f1p) / len(tfp)) if tfp else 0.0,
+            # SUCCESS-FRACTION per first push (robustness signal, locked decision): for each expanded
+            # first-push cell, [pe, pd, n_succ_2, n_tried_2] over its UNIQUE child cells. Under sampled
+            # collection n_tried_2 varies (= the k2 actually drawn) — the denominator is part of the
+            # label (a 1/3 is weaker evidence than 8/24). Gamma targets are derived downstream:
+            # 1.0 if cell in valid_1push, gamma if in valid_first_push, 0 if tried-and-neither.
+            "frac_first_push": [[pe, pd, sum(1 for s in kids.values() if s), len(kids)]
+                                for (pe, pd), kids in sorted(e["kids"].items())],
         })
 
     json.dump(dict(by_real), open(a.out, "w"))
