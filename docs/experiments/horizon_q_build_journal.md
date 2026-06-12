@@ -462,6 +462,16 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   Note for the H0b record: the old champion's post-push saturation left only 2nd-3rd-decimal ordering
   (the 34.5 sliver, ≈floor by @10) — M2b's 13x dead/solvable value ratio is the corrected contrast.
 
+- **[USER 2026-06-12 ~19:24] CONDITIONAL FOLLOW-UP LOGGED: if M2c/M2d show good results, RE-COLLECT the
+  H=2 data so it carries reachability too** (the sampled H2 run pkls_2push_s30 predates the
+  reachability_log recording fix bd54571 — its rows have no recorded reachable-edge sets, root or
+  post-push). Notes for the decision when the verdicts land (~21:00 local): (a) cost is known-affordable
+  now — the full 110k-scene sampled collection took ~7h; (b) a CHEAPER alternative exists: derive
+  reachability retroactively from the npz robot_region channel + contact pixels (validatable against H=1
+  rows where tried==reachable), avoiding re-collection entirely; (c) an ExIt round-2 re-collection is
+  planned regardless — folding the reachability-carrying recollect into round 2 may get it for free.
+  Decision deferred until the M2c/M2d verdicts say whether the signal is worth it.
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
