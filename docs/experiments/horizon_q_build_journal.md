@@ -432,6 +432,17 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   task (the 20% bar is itself a connectivity question). Run on idle GPUs only, if at all.
   Reachability recording (bd54571) stands regardless — it serves any future variant + post-push rows.
 
+- **M2c/M2d LAUNCHED as the reachability-signal ablation [USER hypothesis, 2026-06-12 ~18:10]:**
+  "giving it reachability (M2d) or it learning reachability (M2c) sharpens scene understanding ⇒ better
+  values / hard@k." PRE-REGISTERED: accept iff hard@1 > M2b's by the 3-seed paired compare (same H5
+  v4_hq_m2b_scorer, same recipe, ONE change each). Side-quest on training-signal quality — deploy
+  post-filters reachable regardless. Cells: **M2b** = base (in flight) · **M2c (55971858)** =
+  +unreachable_k=20 (S30∪S20 mask, known-0s on unreachable; smoke: S30 byte-identical + 20 exactly
+  on-unreachable) · **M2d (55971859)** = +reach_flag_input (per-edge bit embedding; the wavefront bit
+  handed over instead of pixel-re-derived). All committed 56e44b0; secondary readouts: dead-slice probe
+  (both pools), HL-Gauss bimodality on boundary cells (M2d), val_loss. Note val split scores full-R for
+  all cells (comparable); M2c's mask change is train-only.
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
