@@ -134,7 +134,10 @@ Step 2/2: Generating masks & writing HDF5  (parallel generation, streaming write
 """
 
 import argparse
+import json
+import math
 import os
+import re
 import sys
 import pickle
 import glob
@@ -362,8 +365,85 @@ def is_valid_episode(episode: Dict[str, Any]) -> bool:
     state_observations = episode.get('state_observations', [])
     if not state_observations:
         return False
-    
+
     return True
+
+
+# --- DEAD-END rendering (horizon-Q H0b, opt-in via --include-dead-ends) -------------------------
+# A dead-end = tried-and-all-failed episode (primitive_trial_log non-empty, no success). These carry
+# NO state_observations and NO action_sequence, so the default path drops them — but the budget-Q
+# VALUE head must see them to learn "low"/unsolvable (horizon_q_build_journal.md §9, task #23).
+
+def _is_dead_end_episode(episode: Dict[str, Any]) -> bool:
+    """Tried-and-all-failed (H0b dead-end): has primitive push trials, none succeeded."""
+    if episode.get('solution_found', False):
+        return False
+    log = (episode.get('algorithm_stats') or {}).get('primitive_trial_log') or []
+    return bool(log) and not any(t.get('success') for t in log)
+
+
+def _initial_state_from_xml(xml_path: str, static_object_info: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Rebuild state_observations[0] for a dead-end episode by parsing the scene XML.
+
+    Dead-ends record no observations, but collection RESETS from the XML, so the initial state IS the
+    XML: movable geom pos/euler + the robot body pos. The parse matches build_episode_validsets.py's
+    `_pose_from_xml` (same regex), so the npz `object_center` anchors identically to the validset key.
+    """
+    try:
+        txt = open(xml_path).read()
+    except Exception:
+        return None
+    state: Dict[str, Any] = {}
+    for name in static_object_info:
+        if not name.endswith('_movable'):
+            continue
+        m = re.search(rf'<geom name="{re.escape(name)}"[^>]*?pos="([^"]+)"', txt)
+        if not m:
+            return None
+        p = m.group(1).split()
+        em = re.search(rf'<geom name="{re.escape(name)}"[^>]*?euler="([^"]+)"', txt)
+        theta = math.radians(float(em.group(1).split()[2])) if em else 0.0  # scene euler in degrees
+        state[f'{name}_pose'] = (float(p[0]), float(p[1]), theta)
+    rb = re.search(r'<body name="(?:car|robot)"[^>]*?pos="([^"]+)"', txt)
+    if not rb:
+        return None
+    rp = rb.group(1).split()
+    state['robot_pose'] = (float(rp[0]), float(rp[1]), 0.0)
+    return state
+
+
+def _synthesize_dead_end_episode(episode: Dict[str, Any],
+                                 reachable_by_xml: Dict[str, List[str]]) -> Optional[Dict[str, Any]]:
+    """Return a render-ready copy of a dead-end episode, or None if it can't be done truthfully.
+
+    - state_observations[0]: rebuilt from the XML (initial state == XML by construction).
+    - action_sequence: ONE pseudo-action carrying ONLY object_id — the visualizer then centers the
+      crops on the chosen object and emits the documented sentinels (edge/depth_idx_a1 = -1,
+      se2_target_a1 = 0, goal_mask_a1 all-zero). No visualizer change needed.
+    - reachable-objects list: BEST-EFFORT from a same-xml sibling episode or the sidecar map. It only
+      fills the GLOBAL 'reachable' npz mask — the scorer's 5 consumed channels (static, movable,
+      target_object, robot_region, goal_sample_region; see build_scorer_dataset.py CHANS) never read
+      it, and robot_region/goal_sample_region are BFS-computed at render time from the synthesized
+      state. So a missing list is left absent (blank global mask, key unused), never fabricated.
+    """
+    st = episode.get('algorithm_stats') or {}
+    obj = st.get('chosen_object_id')
+    xml = episode.get('xml_file')
+    soi = episode.get('static_object_info') or {}
+    if not obj or not xml:
+        return None
+    state = _initial_state_from_xml(xml, soi)
+    if state is None or f'{obj}_pose' not in state:
+        return None
+    synth = episode.copy()
+    synth['state_observations'] = [state]
+    synth['post_action_state_observations'] = []
+    synth['action_sequence'] = [{'object_id': obj}]
+    reach = reachable_by_xml.get(xml)
+    if reach:
+        synth['reachable_objects_before_action'] = [list(reach)]
+    synth['solution_depth'] = 0
+    return synth
 
 
 def filter_episodes_by_minimum_length(episodes: List[Dict[str, Any]], 
@@ -715,7 +795,9 @@ def process_pkl_file_worker(pkl_file: str, output_dir: str, filter_minimum_lengt
                             filter_overlaps: bool = False,
                             namo_config_path: Optional[str] = None,
                             wide_crop_size: Optional[float] = None,
-                            tight_crop_size: Optional[float] = None) -> Tuple[int, int, str, List[str]]:
+                            tight_crop_size: Optional[float] = None,
+                            include_dead_ends: bool = False,
+                            reachable_sidecar: Optional[Dict[str, List[str]]] = None) -> Tuple[int, int, str, List[str]]:
     """Worker function to process a single pickle file.
 
     This function is designed to be called by multiprocessing workers.
@@ -759,8 +841,39 @@ def process_pkl_file_worker(pkl_file: str, output_dir: str, filter_minimum_lengt
 
     processed_episodes = 0
 
+    # DEAD-END support (opt-in): initial reachable set is PER-SCENE (initial state == XML), so a
+    # solvable sibling episode on the same xml supplies it; the sidecar map covers pure-dead-end scenes.
+    reachable_by_xml: Dict[str, List[str]] = {}
+    if include_dead_ends:
+        for ep in episodes:
+            xml = ep.get('xml_file')
+            rl = ep.get('reachable_objects_before_action')
+            if xml and rl and rl[0] and xml not in reachable_by_xml:
+                reachable_by_xml[xml] = list(rl[0])
+        for xml, lst in (reachable_sidecar or {}).items():
+            reachable_by_xml.setdefault(xml, lst)
+
     for episode in filtered_episodes:
-        if is_valid_episode(episode):
+        if include_dead_ends and _is_dead_end_episode(episode):
+            try:
+                synth = _synthesize_dead_end_episode(episode, reachable_by_xml)
+                if synth is None:
+                    skipped_episodes.append(f"{pkl_file}:{episode.get('episode_id', 'unknown')}:deadend_no_reachable_or_pose")
+                    continue
+                masks, metadata = process_episode(
+                    synth, visualizer,
+                    generate_local=generate_local, local_only=local_only,
+                    wide_crop_size=wide_crop_size,
+                    tight_crop_size=tight_crop_size,
+                )
+                if not masks:
+                    continue
+                output_path = os.path.join(output_dir, metadata['task_id'], f"{metadata['episode_id']}.npz")
+                save_episode_data(masks, metadata, output_path)
+                processed_episodes += 1
+            except Exception:
+                continue
+        elif is_valid_episode(episode):
             try:
                 # Inject correct solutions_found count from episode counting
                 # (solutions_found_for_neighbour is broken in existing data)
@@ -1042,6 +1155,15 @@ def main():
                        help='Generate only global masks, skip local masks')
     parser.add_argument('--max-files', type=int, default=None,
                        help='Maximum number of pkl files to process (for testing)')
+    parser.add_argument('--include-dead-ends', action='store_true',
+                        help='ALSO render tried-and-all-failed (dead-end) episodes: state rebuilt from the '
+                             'scene XML, pseudo-a1 (edge/depth_idx_a1=-1 sentinel). The 5 scorer channels '
+                             '(static/movable/target_object/robot_region/goal_sample_region) are all derivable '
+                             'at render time. Default off = legacy behavior. (horizon-Q H0b, task #23)')
+    parser.add_argument('--reachable-sidecar', type=str, default=None,
+                        help='OPTIONAL JSON {xml_path: [reachable object names]} to fill the global '
+                             '"reachable" npz mask for dead-ends (unused by the scorer pipeline; best-effort '
+                             'borrow from a same-xml sibling episode happens regardless).')
     parser.add_argument('--filter-overlaps', action='store_true',
                        help='Skip episodes where robot_region and goal_region overlap (connected regions)')
     parser.add_argument('--namo-config', type=str,
@@ -1183,6 +1305,12 @@ def main():
     total_processed = 0
     all_skipped_episodes = []
 
+    reachable_sidecar = None
+    if args.reachable_sidecar:
+        with open(args.reachable_sidecar) as f:
+            reachable_sidecar = json.load(f)
+        print(f"Loaded reachable sidecar: {len(reachable_sidecar)} scenes")
+
     if num_workers == 1:
         # Serial processing (original behavior)
         for pkl_file in tqdm(pkl_files, desc="Processing files"):
@@ -1192,7 +1320,9 @@ def main():
                 generate_local, args.local_only, args.filter_overlaps,
                 namo_config_path=args.namo_config,
                 wide_crop_size=args.wide_crop_size,
-                tight_crop_size=args.tight_crop_size)
+                tight_crop_size=args.tight_crop_size,
+                include_dead_ends=args.include_dead_ends,
+                reachable_sidecar=reachable_sidecar)
             total_episodes += file_episodes
             total_processed += file_processed
             all_skipped_episodes.extend(skipped)
@@ -1212,7 +1342,9 @@ def main():
                 filter_overlaps=args.filter_overlaps,
                 namo_config_path=args.namo_config,
                 wide_crop_size=args.wide_crop_size,
-                tight_crop_size=args.tight_crop_size)
+                tight_crop_size=args.tight_crop_size,
+                include_dead_ends=args.include_dead_ends,
+                reachable_sidecar=reachable_sidecar)
 
             # Process files with progress bar
             results = []

@@ -181,8 +181,69 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
 - **⚠ COMPOSITION FIX [USER catch]:** v4_hq_h1 was 100% feb (reused v3_feb_top250k manifest, unreasoned).
   Test set = 59% feb / 41% aug9; champion = ~0 feb. A feb-only model is OOD on 41% of the eval. FIX: collect
   aug9 H=1 (SLURM 55954585, 100k aug9 -> v4_hq_aug9_h1). **Killed the premature feb-only pack** (would double-pack).
-  Revised M1 path: aug9 collect -> render aug9 -> pack feb+aug9 npz TOGETHER -> validset (feb+aug9, --keep-dead-ends)
-  -> join -> M1, target ~60:40 (subsample feb 250k at build). aug9 H=2 queued after aug9 H=1.
+  Revised M1 path: aug9 collect -> render aug9 -> pack feb+aug9 npz TOGETHER (one src-h5) -> validset
+  (feb+aug9, --keep-dead-ends) -> join -> M1, target ~60:40 (subsample feb 250k at PACK so src-h5 carries the
+  ratio; validset stays full; join only emits rows present in src-h5). aug9 H=2 queued after aug9 H=1.
+
+- **⚠ H=2 SEQUENCING [USER 2026-06-12]:** KILLED the running feb-only H=2 collection (was 55953042). Reasons:
+  (1) it was composition-wrong (feb-only; H=2 needs the same ~60:40 as H=1/test), (2) it was stealing CPUs from
+  the M1-critical aug9 H=1, (3) sunk cost tiny (~8k pkls, recollected in the unified pass anyway). NEW H=2 ordering:
+  aug9 H=1 done -> render aug9 -> aug9 validset (gives aug9 dead-end scenes) -> MERGE feb dead-end scenes
+  (`v4_hq_h1_deadend_scenes.txt`, 63,892) + aug9 dead-end scenes into ONE manifest -> a SINGLE H=2 pass over the
+  union = composition-correct H=2. H=2 is now OFF the M1 critical path entirely (M1 needs only H=1); M1 pack/join
+  proceeds in parallel with the unified H=2 collection.
+
+- **aug9 H=1 DONE [2026-06-12]:** job 55954585, all 60 shards COMPLETED, **exactly 100,000 pkls** →
+  `/scratch/dm1487/outputs/v4_hq_aug9_h1`. Manifest: `/scratch/dm1487/manifests/v4_hq_aug9_h1_pkls.txt`.
+  Auto-kicked: **aug9 mask render 55955792** (array 0-19, SHARD_SIZE=5000, same driver/args as feb →
+  `/scratch/dm1487/outputs/v4_hq_aug9_h1_masks`) + **aug9 validset 55955793** (`--keep-dead-ends` →
+  `/scratch/dm1487/datasets/v4_hq_h1/episodes_deadends_aug9.json`; its dead-end scenes feed the unified H=2 manifest).
+- **CODE-REGRESSION CHECK [USER ask, 2026-06-12]:** decided NO full retrain on old data (±3-4pp ckpt noise ⇒
+  single run can't detect regression; violates never-retrain-baselines; diff inspection of df198f0 shows
+  `budget_embed` constructed ONLY if budget_cond, head unchanged when value_bins=0, training stack untouched ⇒
+  defaults-off code path is bit-for-bit the champion's). INSTEAD: **inference regression** — job 55955816 re-runs
+  `eval_scorer` on the recorded champion arm **h5samp_B30_s1** (ckpt in final_verdict_snapshot, recorded hard@1=23.8,
+  newbar_verdict JSON) with feat/horizon-q code; deterministic eval ⇒ numbers must match EXACTLY.
+  **RESULT: EXACT MATCH** — full JSON identical (all divisions/@k, 1179 eps, hard@1=23.8). Inference path certified.
+  Remaining gap = TRAINING stack (loader/loss/opt/env); plan [CLAUDE proposal, user not yet confirmed]: 1-epoch
+  training smoke on the OLD H5, same seed/config, compare epoch-1 loss vs champion's wandb curve (~1 GPU-h).
+  Full 3-seed retrain REJECTED (GPU nondeterminism ⇒ 1 run uninformative vs ±3-4pp noise; registry already has
+  the 3-seed champion distribution; never-retrain-baselines). Last-resort control arm only, if M1 fails + data
+  bisects come back clean.
+  Also confirmed [USER ask]: M1 recipe = self-attn ON (`edge_self_attn=True` default; H2 verdict re-validated on
+  the 20% test in 9cb5468) + pos_fourier + use_edge_embed + sigmoid_bce.
+- **M1 SCOPE [USER ask, 2026-06-12]:** M1 = SOLVABLE-ONLY (no dead-ends) — keeps the gate a controlled
+  data-factory test vs champion (dead-ends carry no within-scene ranking signal + masks for them need task #23
+  anyway). Dead-ends enter at **M2b**: M2a = budget-Q head on the SAME solvable H5 (isolates arch), M2b = +dead-ends
+  (isolates data, checks dead-ends→low V). PRE-REGISTERED PREDICTION for M1: hard@k **at or slightly above**
+  champion (train bar now MATCHES test bar — the old mismatch cost ~5pp; sparse-30/composition should be neutral).
+  If clearly below ⇒ factory bug; bisect via exhaustive-subset / feb-only / old-mask cells.
+
+- **aug9 H=1 RESULTS + COMPOSITION CORRECTION [2026-06-12]:** validset (55955793) + render (55955792) done.
+  **aug9 is much harder than feb:** 100k pkls → 55,676 scenes / 65,102 tried episodes; **40.3% solvable / 59.7%
+  dead-ends** (feb: 76.1/23.9). **25,938 solvable npz rendered.** The "missing" ~44% of pkls = **pre-trial setup
+  failures** (taxonomy: `success=False, validation_method='connectivity'`, mostly 0 region goals sampled) — the
+  car-scale rooms often can't stage an episode; no trials → no labels → correctly excluded; BENIGN env property,
+  not a pipeline bug. aug9 dead-end episodes (38,859 / 37,227 scenes) feed the unified H=2 manifest.
+  **CORRECTION: pack target is 65:35 feb:aug9, not 59:41** — the 59:41 was scene-level; the test set's
+  EPISODE-level split is 855 feb : 468 aug9 = 65:35, and episodes are what we train/eval on.
+  **Sizing [CLAUDE, measured]:** pack-now = 25.9k aug9 → ~74k total @65:35 (−25% vs champion's 98k);
+  collect REMAINING ~65k aug9 scenes (~1h, idle CPUs) → ~43k aug9 → **~123k total @65:35 (+25% vs champion)**
+  → removes "less data" as an M1 confound (data scaling = the proven lever, E4). DECISION: collect the rest first.
+  Manifest `v4_aug9_rest.txt` = full pool − used 100k − canonical test (65,008 scenes). **LEAK GATE PASSED:**
+  used∩test=0, pool∩test=0, feb250k∩test=0 (test set path-disjoint from training pools, as designed).
+  **LAUNCHED: job 55956248** (60 shards → `/scratch/dm1487/outputs/v4_hq_aug9_h1_rest`, goals=100). On completion:
+  render rest-masks + extend validset → pack feb+aug9 @65:35 (~123k) → join → M1.
+
+- **[USER GO, 2026-06-12] GPU training smoke + unified H=2 both approved.**
+  (a) **Training-stack regression smoke LAUNCHED: job 55956678** = `train_h5_sampling.slurm` array idx 9
+  (B30 cond, seed 1) with `SMOKE=1` (2 epochs, run name `h5samp_B30_s1_smoke`) on the OLD H5
+  (`v3_scorer_e4_data`) with feat/horizon-q code. VERDICT RULE: epoch-1/2 train+val losses match the recorded
+  `h5samp_B30_s1` wandb curve (same seed+sample_seed ⇒ identical data order; GPU nondeterminism ⇒ near-match,
+  not bit-match). Catches loader/loss/optimizer/env drift that the (passed) inference regression can't see.
+  (b) **Unified H=2 GO:** after rest-validset → merge dead-end scene manifests (feb 63,892 + aug9-b1 37,227 +
+  rest ~24k expected) → ONE `testset_2push_collect.slurm` pass (killed feb-only job's pattern:
+  `sbatch --array=0-63 --job-name=v4-h2`, env MANIFEST/HOME_DIR/PKL_SUBDIR). Runs parallel to M1 pack/train.
 
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
