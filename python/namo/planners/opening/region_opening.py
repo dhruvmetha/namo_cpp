@@ -173,6 +173,13 @@ class AttemptResult:
     #              'wall_collision': bool, 'movable_collisions': str,
     #              'stuck': bool, 'collision': bool, 'reachable_after': int}
     primitive_trial_log: Optional[List[Dict]] = None
+    # Per-EXPANDED-NODE reachable edge set ([USER 2026-06-12]: record reachability going forward): one
+    # entry per node whose candidates were generated: chain_depth (node.depth+1; root=1), parent_edge/
+    # parent_depth (the action that created the node; None for root), reachable_edges (sorted indices
+    # from env.get_reachable_edges at THAT node's state). Joins 1:1 with primitive_trial_log's level/
+    # parent tags; level>=2 entries capture POST-PUSH-state reachability for free. Under sampled
+    # restarts the same node identity may repeat (identical set) — dedupe by identity downstream.
+    reachability_log: Optional[List[Dict]] = None
 
 
 class RegionOpeningPlanner(BasePlanner):
@@ -1433,14 +1440,16 @@ class RegionOpeningPlanner(BasePlanner):
                 search_any_wall_collision = False
                 search_unique_movable_collision_count = 0
                 object_trial_log = []
+                object_reachability_log = []
             else:
                 # Use standard BFS search. With sampled collection (sample_k>0), restart with FRESH
                 # random subsets up to sample_restarts times, ONLY while no chain has been found;
                 # merge trial logs across attempts (union of tried cells = the training loss mask).
                 n_attempts = self.sample_restarts if self.sample_k > 0 else 1
                 object_trial_log = []
+                object_reachability_log = []
                 for _attempt in range(max(1, n_attempts)):
-                    successful_goals, min_depth, phase_push_counts, solved_in_phase, search_any_wall_collision, search_unique_movable_collision_count, attempt_trial_log = self._search_with_chaining_bfs(
+                    successful_goals, min_depth, phase_push_counts, solved_in_phase, search_any_wall_collision, search_unique_movable_collision_count, attempt_trial_log, attempt_reach_log = self._search_with_chaining_bfs(
                         object_id,
                         exploration_state,
                         neighbour_label,
@@ -1449,6 +1458,7 @@ class RegionOpeningPlanner(BasePlanner):
                         push_counter=neighbour_push_counter,
                     )
                     object_trial_log.extend(attempt_trial_log or [])
+                    object_reachability_log.extend(attempt_reach_log or [])
                     if successful_goals:
                         break
 
@@ -1603,6 +1613,7 @@ class RegionOpeningPlanner(BasePlanner):
                             phase_push_counts=phase_push_counts,
                             solved_in_phase=solved_in_phase,
                             primitive_trial_log=object_trial_log if self.exhaustive_mode else None,
+                            reachability_log=object_reachability_log if self.exhaustive_mode else None,
                         ))
                         # Verbose: print running count of solutions for this object
                         if self.config.verbose:
@@ -1685,6 +1696,7 @@ class RegionOpeningPlanner(BasePlanner):
                             phase_push_counts=phase_push_counts,
                             solved_in_phase=solved_in_phase,
                             primitive_trial_log=object_trial_log if self.exhaustive_mode else None,
+                            reachability_log=object_reachability_log if self.exhaustive_mode else None,
                         ))
                         # Verbose: print running count of solutions for this object
                         if self.config.verbose:
@@ -1795,6 +1807,7 @@ class RegionOpeningPlanner(BasePlanner):
                     any_wall_collision=search_any_wall_collision,
                     unique_movable_collision_count=search_unique_movable_collision_count,
                     primitive_trial_log=object_trial_log if self.exhaustive_mode else None,
+                            reachability_log=object_reachability_log if self.exhaustive_mode else None,
                 ))
 
             # Execution-mode early exit: once we have at least one successful opening
@@ -2014,6 +2027,8 @@ class RegionOpeningPlanner(BasePlanner):
 
         # Accumulated trial logs across all chain depths (for F characterization)
         all_trial_logs = []
+        # Per-node reachable-edge recording (see RegionOpeningStats.reachability_log)
+        reachability_log = []
 
         # Two-phase search for ml_first with ml_fallback:
         # Phase 1: Try ONLY ML goals (score > 0) across ALL depths
@@ -2141,6 +2156,13 @@ class RegionOpeningPlanner(BasePlanner):
                                 pass
                         reachable_edge_indices = set(self.env.get_reachable_edges(object_id)) if goals_per_edge else set()
                         node_goals_cache[id(node)] = (goals_per_edge, reachable_edge_indices)
+                        _ng = getattr(node, "goal", None)
+                        reachability_log.append({
+                            'chain_depth': node.depth + 1,
+                            'parent_edge': getattr(_ng, "edge_idx", None) if _ng is not None else None,
+                            'parent_depth': getattr(_ng, "depth", None) if _ng is not None else None,
+                            'reachable_edges': sorted(reachable_edge_indices),
+                        })
 
                         # Verbose: show reachable edges and object state
                         if self.config.verbose:
@@ -2361,9 +2383,9 @@ class RegionOpeningPlanner(BasePlanner):
             min_cost_chains = [entry for entry in all_chains_across_depths if entry[8] == best_cost]
             if self.config.verbose:
                 print(f"    ✔ Returning {len(min_cost_chains)} min-cost solution(s) with cost={best_cost}")
-            return min_cost_chains, min_chain_depth_found if min_chain_depth_found else 0, global_phase_push_counts, solved_in_phase, any_wall_collision_during_search, len(movable_collisions_during_search), all_trial_logs
+            return min_cost_chains, min_chain_depth_found if min_chain_depth_found else 0, global_phase_push_counts, solved_in_phase, any_wall_collision_during_search, len(movable_collisions_during_search), all_trial_logs, reachability_log
         else:
-            return all_chains_across_depths, 0, global_phase_push_counts, solved_in_phase, any_wall_collision_during_search, len(movable_collisions_during_search), all_trial_logs
+            return all_chains_across_depths, 0, global_phase_push_counts, solved_in_phase, any_wall_collision_during_search, len(movable_collisions_during_search), all_trial_logs, reachability_log
 
     def _reconstruct_chain(self, final_node: ChainNode, final_goal: Goal) -> List[Goal]:
         """Reconstruct the chain of goals from root to final goal."""

@@ -511,6 +511,7 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                                 'solved_in_phase': getattr(attempt, 'solved_in_phase', ''),
                                 # F characterization: per-primitive trial log (exhaustive mode only)
                                 'primitive_trial_log': getattr(attempt, 'primitive_trial_log', None),
+                                'reachability_log': getattr(attempt, 'reachability_log', None),
                             },
                             action_sequence=action_sequence,
                             state_observations=attempt.state_observations,
