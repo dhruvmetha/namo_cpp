@@ -241,9 +241,52 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   (`v3_scorer_e4_data`) with feat/horizon-q code. VERDICT RULE: epoch-1/2 train+val losses match the recorded
   `h5samp_B30_s1` wandb curve (same seed+sample_seed ⇒ identical data order; GPU nondeterminism ⇒ near-match,
   not bit-match). Catches loader/loss/optimizer/env drift that the (passed) inference regression can't see.
+  **RESULT (2026-06-12): TRAINING STACK CERTIFIED.** First smoke was LR-horizon-confounded (cosine over
+  max_epochs: 2 vs 200) ⇒ reran schedule-matched (job 55957256, SMOKE_EPOCHS=200 + 55-min wall cap).
+  val_loss ep0/1/2: original 0.8947/0.7186/0.6677 vs smoke200 0.9087/0.7097/0.6493 — ±1-3%, ALTERNATING
+  sign, identical trajectory shape = GPU nondeterminism (+different card), NOT a systematic regression.
+  Full cert: inference byte-exact + training curves interleave within noise + git shows stack untouched.
   (b) **Unified H=2 GO:** after rest-validset → merge dead-end scene manifests (feb 63,892 + aug9-b1 37,227 +
   rest ~24k expected) → ONE `testset_2push_collect.slurm` pass (killed feb-only job's pattern:
   `sbatch --array=0-63 --job-name=v4-h2`, env MANIFEST/HOME_DIR/PKL_SUBDIR). Runs parallel to M1 pack/train.
+
+- **[2026-06-12] ALL H=1 DATA COMPLETE + H=2 UNIFIED LAUNCHED + STACK CERTIFIED:**
+  (a) **aug9-rest done** (55956248, 65,008/65,008 pkls) → render 55957921 (17,206 npz) + validset 55957922
+  (42,720 eps: 17,298 solvable / 25,422 dead) both done. **Full H=1 inventory: feb 213,789 + aug9 43,144
+  solvable npz; validsets feb + aug9 + aug9_rest** (all `--keep-dead-ends`).
+  (b) **Unified H=2 LAUNCHED: job 55958028** — merged manifest `v4_hq_h2_deadend_scenes_unified.txt`
+  (**125,494 dead-end scenes** = feb 63,892 + aug9 61,602; 51/49) → `/scratch/dm1487/datasets/v4_hq_h2/
+  pkls_2push_unified` (64 shards; killed feb-only partial kept aside in pkls_2push/, 15,126 pkls, do not mix).
+  H=2 TRAINING-row composition gets set later at dataset build (match the 2-push test slice).
+  (c) **TRAINING-STACK CERTIFIED:** schedule-matched smoke (SMOKE_EPOCHS=200, killed @5 epochs) tracks the
+  original B30_s1 wandb curve within ±1.6–2.7% with SIGN FLIPS (ep0 +1.6%, ep1-4 slightly better) = GPU
+  nondeterminism, not regression. With the byte-exact inference regression ⇒ full-retrain question CLOSED.
+  `train_h5_sampling.slurm` gained SMOKE_EPOCHS (committed in sage_learning).
+  (d) **Dead-end pipeline COMPLETE (task #23):** renderer `--include-dead-ends` (namo_cpp 8a73945; all 5
+  consumed channels render-time derivable — `robot_region` is the model's reachability channel, the
+  reachable-OBJECTS list only fills the unused global mask ⇒ NO H=2 backfill dependency, M2b unblocked) +
+  scorer join dead-aware matching/dedup/gating + `dead` column (3a8b59a). Decision [CLAUDE]: SKIP the
+  region_opening reachable-recording edit — no longer needed, and H=2 must run byte-identical collector
+  code to H=1 for homogeneity.
+  (e) **M1 pack LAUNCHED: job 55958342** — `v4_hq_m1_npz_65_35.txt` (123,269 npz = feb 80,125 seed-42 sample
+  + aug9 43,144; 65:35 by episode, matching the test set's 855:468) → `/scratch/dm1487/h5/v4_hq_m1_65_35/data.h5`
+  via convert_to_hdf5 `--npz-list` (NEW flag, sage 8fc589e) `--minimal --tight-only --compression lzf`
+  (champion src-H5 convention). **Validset merge: job 55958266** → `episodes_deadends_all.json` (feb+aug9+rest,
+  overlap-asserted). NEXT when both land: `build_scorer_dataset --src-h5 .../v4_hq_m1_65_35/data.h5
+  --episodes .../episodes_deadends_all.json --out-h5 /scratch/dm1487/h5/v4_hq_m1_scorer/data.h5` → gates
+  (gt_in_valid>0.99, bad_match≈0, dead=0 rows in M1 since npz are solvable-only) → **add_contact_px** →
+  M1 train (champion recipe, 3 seeds, GPU). NOTE [parallel session]: budget-Q training wiring landed via
+  sage 770cc9c (head_mode=hl_gauss + H passthrough + budget_h flag; extended smoke PASSES; default-off) —
+  task #20 wiring DONE, M2a can start right after M1.
+
+- **⚠ TWO-SESSION OWNERSHIP SPLIT [2026-06-12 ~02:40, session A]:** two Claude sessions drive this build;
+  coordinate HERE (both read this file). **B owns the M1 chain** (m1-pack 55958342 → join → add_contact_px →
+  M1 train 3 seeds) and unified H2 (55958028) — claimed in the entry above. **A owns the M2b data path**:
+  dead-end mask render **55958356** (feb+aug9-b1 pkls, `--dead-ends-only` → `v4_hq_de_masks`; rest pkls to
+  follow) → de-pack → multi-src join (88ff98d: `--src-h5` now takes MULTIPLE h5s w/ cross-file dedup —
+  backward-compatible, B's single-src call unaffected; mini end-to-end test passed: 240 rows, 40 dead,
+  gt=100%, align_err=0) → M2a/M2b configs. **RULE: before ANY sbatch, check squeue/sacct for an equivalent
+  job; concurrent build_scorer_dataset runs must use DIFFERENT --out-h5 paths (same-path = corrupt H5).**
 
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
