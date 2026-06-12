@@ -501,6 +501,15 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   reference line. M3's registered gate stays 34.5 @ 0 sims; the honest modern bar for amortization is
   this 75.2-with-sims line. Files: /scratch/dm1487/eval/fpv_m2b/ + diag_fpv_aggregate.json. FINAL 50/50 confirmed identical: 75.2@1 / e2e 61.9 / 2nd-stage 69.8 (48,209 leaves).
 
+- **PRE-REGISTERED Q-full diagnostic — the H-BIFURCATION PROBE [2026-06-12 ~22:40]:** take the SAME
+  H=1-dead initial states from the dead-slice probe (where M2b correctly reads 0.065 at H=1; NOTE the
+  population is "dead at H=1" — ~28.5% are 2-push-solvable) and query Q-full at H=2. PREDICTION: values
+  BIFURCATE by ground-truth 2p-solvability — the 2p-solvable subset rises (setup cells toward γ=0.9),
+  truly-deeper-dead stays at the floor; report the two sub-population means + AUC(2p-solvable vs dead-at-2)
+  + the H=1-vs-H=2 delta per state. This is the H-conditioning's semantic test in its purest form, and the
+  mechanism exhibit to sit next to M3's headline. Implementation: eval_dead_slice.py --h 2 + a split of the
+  dead sample by the H2 labels key.
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
