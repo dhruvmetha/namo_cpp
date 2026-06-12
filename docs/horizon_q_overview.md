@@ -100,6 +100,26 @@ legality); pose-matching → binary REGION OPENING (a connectivity objective abo
 object's pose); continuous motion parameter → a discrete primitive library depth; dense reward + online
 RL → sparse success + offline search distillation; greedy replanning → an explicit push BUDGET.
 
+**The action mapping that motivated the architecture** [USER's original design draw]:
+
+| | HACMan | ours |
+|---|---|---|
+| WHERE to touch | contact point p on the segmented point cloud (thousands, perception-dependent) | contact point e, one of 60 FIXED perimeter anchors (4 faces x 15) |
+| HOW to push | continuous motion vector m (learned per-point ACTOR) | depth d in {1..5}; direction baked into the primitive |
+| action | (p, m) hybrid discrete x continuous | (e, d) fully discrete, 60x5 |
+| critic | per-point score map | per-edge token -> 5 depth scores -> 60x5 map |
+| policy | argmax over the map | top-k/argmax over the map (one-head) |
+
+The inherited lesson: **the action's spatial anchor deserves its own representation** — score "push
+HERE" with a feature FOR here, not an index into a global vector. Our translation: each contact point
+is a token (Fourier-encoded pixel coord + learned edge-identity embedding) that cross-attends the scene
+and self-attends the other 59; its head emits the 5 depth values. That is the E2 architecture, and it
+beat the global-readout baseline (E0) for exactly the reason HACMan predicted. Where discretization
+CHANGED the design rather than copied it: (1) the primitive library collapses "how" to 5 enumerable
+depths, so HACMan's continuous actor disappears entirely — the critic map IS the policy; (2) the fixed
+60-anchor topology enables stable per-edge identity embeddings and a fixed-size output map that search
+and eval index directly.
+
 The architecture and action decomposition are deliberately HACMan-style (per-point critics for
 non-prehensile manipulation):
 
