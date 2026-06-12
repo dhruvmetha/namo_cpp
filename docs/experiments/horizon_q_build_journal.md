@@ -288,6 +288,38 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   gt=100%, align_err=0) → M2a/M2b configs. **RULE: before ANY sbatch, check squeue/sacct for an equivalent
   job; concurrent build_scorer_dataset runs must use DIFFERENT --out-h5 paths (same-path = corrupt H5).**
 
+- **⚠ [USER CONSTRAINT, 2026-06-12] EXHAUSTIVE COLLECTION BEYOND 1-PUSH IS NOT SCALABLE FOR US.**
+  The running unified H2 (55958028, exhaustive depth-2 over the 125k dead-end scenes) is the **LAST
+  exhaustive collection beyond 1-push** — kept (CLAUDE recommendation, user not opposed) because it is the
+  one-time calibration asset: (a) certified depth-2 dead-ends (an absence claim needs the swept tree) for the
+  dead-end EVAL slice, (b) exact success-fractions, (c) the complete answer key any sampling scheme can be
+  carved from offline (B30-from-Aexh pattern). ALL FUTURE H>=2 collections (ExIt rounds 2+, H=3) are
+  SAMPLED AT ALL LEVELS [USER 2026-06-12: "Sample all levels"]: sampled first pushes AND sampled (budget-k2)
+  second pushes; a tried first-push cell whose sampled follow-ups all fail is labeled LOW — occasionally a
+  false zero on a single-scene basis, but ACROSS environments E[label|cell] = the fraction of working
+  follow-ups (graded by ROBUSTNESS, not the certified OR), which BCE at scale converges to and which matches
+  the budgeted-attempts deployment reality better than best-play OR [USER argument, CLAUDE concurs — this
+  SUPERSEDES the "level-2 must be swept" rule in the entry above]. Dead-ends arise NATURALLY as all-low
+  grids — "if the network picks up by scale of different environments that the entire f-grid is low-Q,
+  that is what it should pick up" [USER]. The exhaustive H2 run's swept trees remain useful as the
+  certified EVAL slice + offline sampling simulator, NOT as a training requirement. H=3: search-distilled only.
+
+- **SAMPLED H2 COLLECTION — IMPLEMENTED + SMOKED [2026-06-12, overnight]:** [USER killed exhaustive H2
+  55958028 @14,635 pkls — KEPT as ordinary training rows; certified eval = namo_testset_v1 (exhaustive both
+  depths), training data is NEVER exhaustive beyond depth-1 again]. Implementation (committed):
+  `region_sample_k` (uniform random k-subset of reachable (edge,depth) per chain level — ONE cap point, all
+  node expansions flow through the same candidate build in region_opening) + `region_sample_restarts`
+  ([USER]: up to 3 attempts with fresh subsets ONLY while no chain found; trial logs MERGED ⇒ union mask;
+  early-stop on success = adaptive compute). Plumbed via modular_parallel_collection + CONFIG_YAML override
+  in testset_2push_collect.slurm. Config: `v4_hq_h2/configs/sampled_depth2_k30.yaml` (k=30, restarts=3,
+  enumerate-all-sampled + record-all-solutions ON). **SMOKE #1 (k30, no restarts) PASSED:** root ≤30 ✓,
+  ≤30/child ✓, levels tagged (`chain_depth`, `parent_edge`/`parent_depth` ⇒ per-level masks reconstructable),
+  ~850 trials/dead-instance (vs 1,860 exhaustive). SMOKE #2 (restarts=3, 10 feb scenes, job 55959912) in
+  flight — verify early-stop on 2p-solvable + 3x merged logs on dead; THEN scale relaunch on
+  `v4_hq_h2_s30_remaining.txt` (~110k scenes, PKL_SUBDIR=pkls_2push_s30). ⚠ ETA caveat measured in smoke #1:
+  restarts trigger on every truly-dead instance (3x ≈ 2,500 trials > exhaustive 1,860) — net cost depends on
+  the 2p-solvable fraction; measure rate from a pilot before resizing shards if needed.
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
