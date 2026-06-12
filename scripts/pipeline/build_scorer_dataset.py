@@ -43,7 +43,9 @@ def match_episode(recs, oci, gt, dead=False):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--src-h5", default="/scratch/dm1487/h5/v3_1push_le10_lzf_tight_data/data.h5")
+    ap.add_argument("--src-h5", nargs="+", default=["/scratch/dm1487/h5/v3_1push_le10_lzf_tight_data/data.h5"],
+                    help="one or MORE mask H5s (parallel pack shards); rows are matched per-file and "
+                         "deduped across files by episode identity")
     ap.add_argument("--episodes", default="/scratch/dm1487/manifests/v3_train_le10_episodes.json")
     ap.add_argument("--out-h5", default="/scratch/dm1487/h5/v3_scorer_1push/data.h5")
     ap.add_argument("--crop", default="tight", choices=["tight", "wide"],
@@ -52,34 +54,40 @@ def main():
     MASKS = [f"local_{a.crop}_{c}" for c in CHANS]
 
     epf = json.load(open(a.episodes))
-    f = h5py.File(a.src_h5, "r")
-    N = int(f.attrs["n_samples"])
-    xml = [x[0].decode() if isinstance(x[0], bytes) else str(x[0]) for x in f["xml_file"][:]]
-    e = f["edge_idx_a1"][:, 0].astype(int); d = f["depth_idx_a1"][:, 0].astype(int)
-    oc = f[f"local_{a.crop}_object_center"][:]
+    fs = [h5py.File(p, "r") for p in a.src_h5]
 
     # one row per unique EPISODE = matched validset record; dedup by the record's identity
     # (object_center + goal region), NOT by npz center alone — the same object can serve several
     # goal regions (distinct episodes, distinct labels) and dead-end + solvable can share a center.
+    # `seen` spans ALL src files, so overlapping packs can't double-emit an episode.
     seen = {}; rows = []; bad = 0; gtok = 0; n_solv = 0; n_dead = 0
-    for i in range(N):
-        dead = int(e[i]) < 0   # npz dead-end sentinel (edge_idx_a1 == -1)
-        gt = (int(e[i]), int(d[i]))
-        rec, dm = match_episode(epf.get(xml[i]), oc[i], gt, dead=dead)
-        if rec is None or dm > 0.01:
-            bad += 1; continue
-        key = (xml[i], round(float(rec["object_center"][0]), 4), round(float(rec["object_center"][1]), 4),
-               str(rec.get("region")), bool(rec["valid"]))
-        if key in seen:
-            continue
-        seen[key] = 1
-        valid = {tuple(t) for t in rec["valid"]}; tried = {tuple(t) for t in rec["tried"]}
-        if dead:
-            n_dead += 1
-        else:
-            n_solv += 1; gtok += (gt in valid)
-        rows.append((i, valid, tried, dead))
-    print(f"src={N} unique-episodes={len(rows)} (solvable={n_solv} dead-end={n_dead}) bad_match={bad} "
+    metas = []   # per-file (xml, e, d, oc) — the write pass indexes rows by (file, row)
+    for fi, f in enumerate(fs):
+        N = int(f.attrs["n_samples"])
+        xml = [x[0].decode() if isinstance(x[0], bytes) else str(x[0]) for x in f["xml_file"][:]]
+        e = f["edge_idx_a1"][:, 0].astype(int); d = f["depth_idx_a1"][:, 0].astype(int)
+        oc = f[f"local_{a.crop}_object_center"][:]
+        metas.append((xml, e, d, oc))
+        for i in range(N):
+            dead = int(e[i]) < 0   # npz dead-end sentinel (edge_idx_a1 == -1)
+            gt = (int(e[i]), int(d[i]))
+            rec, dm = match_episode(epf.get(xml[i]), oc[i], gt, dead=dead)
+            if rec is None or dm > 0.01:
+                bad += 1; continue
+            key = (xml[i], round(float(rec["object_center"][0]), 4), round(float(rec["object_center"][1]), 4),
+                   str(rec.get("region")), bool(rec["valid"]))
+            if key in seen:
+                continue
+            seen[key] = 1
+            valid = {tuple(t) for t in rec["valid"]}; tried = {tuple(t) for t in rec["tried"]}
+            if dead:
+                n_dead += 1
+            else:
+                n_solv += 1; gtok += (gt in valid)
+            rows.append((fi, i, valid, tried, dead))
+        print(f"  src[{fi}] {a.src_h5[fi]}: {N} rows scanned", flush=True)
+    print(f"src_total={sum(int(f.attrs['n_samples']) for f in fs)} unique-episodes={len(rows)} "
+          f"(solvable={n_solv} dead-end={n_dead}) bad_match={bad} "
           f"gt_in_valid={gtok/max(n_solv,1)*100:.2f}%", flush=True)
     assert n_solv == 0 or gtok / n_solv > 0.99, "per-episode label join failed (gt not in valid)"
 
@@ -96,9 +104,10 @@ def main():
     deadd = dst.create_dataset("dead", (M,), dtype="uint8")   # 1 = dead-end episode (valid==[], H0b)
 
     edge_align_err = 0
-    for j, (i, valid, tried, dead) in enumerate(rows):
+    for j, (fi, i, valid, tried, dead) in enumerate(rows):
         if j % 1000 == 0:
             print(f"  [{j}/{M}]", file=sys.stderr, flush=True)
+        f = fs[fi]; xml, e, d, oc = metas[fi]
         chans = []
         for k in MASKS:
             m = f[k][i].astype(np.float32)
@@ -124,7 +133,7 @@ def main():
             edge_align_err += 1
 
     dst.attrs["n_samples"] = M
-    dst.attrs["source_h5"] = a.src_h5
+    dst.attrs["source_h5"] = ";".join(a.src_h5)
     dst.attrs["channels"] = ",".join(MASKS)
     f.close(); dst.close()
     print(f"wrote {a.out_h5}  rows={M}  edge_align_err={edge_align_err} (must be 0)", flush=True)
