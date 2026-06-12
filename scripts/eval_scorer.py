@@ -87,6 +87,12 @@ def load_scorer(ckpt, num_depths, device, network="dit_classifier"):
             kw["fine_stride"] = sd["network.fine_conv.weight"].shape[-1]
         if "network.edge_blocks.0.slf.in_proj_weight" not in sd:   # H2 ablation: no inter-edge self-attn
             kw["edge_self_attn"] = False
+        if "network.budget_embed.weight" in sd:          # budget-conditioned horizon-Q ckpt
+            kw["budget_cond"] = True
+            kw["max_budget"] = sd["network.budget_embed.weight"].shape[0] - 1
+        head_out = sd["network.head.2.weight"].shape[0]
+        if head_out != num_depths:                       # HL-Gauss value head: num_depths * bins logits
+            kw["value_bins"] = head_out // num_depths
         net = EdgeCrossAttn(**kw)
     else:
         from src.model.dit.dit_classifier import DiTClassifier
@@ -176,7 +182,16 @@ def main():
                 ztup = (torch.from_numpy(np.stack(zc)[None]).float().to(device),
                         torch.from_numpy(cz[None]).float().to(device))
             with torch.no_grad():
-                logits = model(ctx, cpx_t, ztup[0], ztup[1])[0].cpu().numpy()  # (60,5)
+                # budget-Q ckpt: trained with H always present -> eval at H=1 (the 1-push panel);
+                # HL-Gauss head emits (60,5,bins) -> E[bin] value in [0,1]; the sigmoid below is
+                # monotone so all top-k rankings are unchanged.
+                hkw = {"H": torch.ones(1, dtype=torch.long, device=device)} \
+                    if getattr(model.network, "budget_cond", False) else {}
+                t = model(ctx, cpx_t, ztup[0], ztup[1], **hkw)[0]
+                if t.dim() == 3:
+                    from src.model.hl_gauss import HLGauss
+                    t = HLGauss(num_bins=t.shape[-1]).value(t)
+                logits = t.cpu().numpy()  # (60,5)
             scores = 1.0 / (1.0 + np.exp(-logits))
             # candidate sets (flat indices)
             reach_exact = [ee * 5 + dd for (ee, dd) in tried if dd < 5]                 # oracle
