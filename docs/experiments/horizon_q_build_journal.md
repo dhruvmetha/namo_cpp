@@ -560,6 +560,18 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   H5, headline number, and eval dir. The main journal links to it; do NOT scatter ckpt paths in §9 prose.
   NEXT to register: Q-full (qfull_v4hq) on launch; fpv_m2c results when 56008453 lands.
 
+- **[USER PRINCIPLE 2026-06-13] M2c-logic and the main pipeline are DECOUPLED TRACKS — never block each
+  other.** IF fpv_m2c (56008453) shows M2c+search > M2b+search (intrinsic legality travels OOD, worth
+  having) → recollect 2-push data with reachability_log baked into pkls (bd54571 records it going
+  forward; OR derive geometrically from robot_region — cheaper, validatable on H=1 rows). BUT: the
+  critical path (Q-full tonight, M3/M4/M5, early ExIt rounds) KEEPS ITERATING on the EXISTING M2b-style
+  H2 data with NO M2c logic — do not stall the thesis for the robustness upgrade. When the
+  reachability-carrying data is ready (days later is fine), fold M2c's unreachable-supervision into a
+  LATER training round; it catches up to the main line, never gates it. TECHNICAL WHY the recollect is
+  the gate: H2 rows are SAMPLED, so the complement of "tried" mixes unreachable (safe-zero) +
+  reachable-but-unsampled (the C15 poison) — only reachability_log disambiguates, so M2c-on-H2 cannot be
+  a mere flag on current data. (M2c on H=1-type rows where tried==reachable needs no recollect.)
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
