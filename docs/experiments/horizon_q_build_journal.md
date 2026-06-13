@@ -590,6 +590,23 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   ranked: (1) effect-prediction aux head [cheap, data ready]; (2) H=2 distillation [in progress = Q-full];
   (3) latent world model TD-MPC2 [big]; (4) counterfactual/contrastive pairs for causal-feature isolation.
 
+- **🔌 RESUME CHECKLIST [if the session/srun was killed & restarted — DO THESE FIRST, 2026-06-13 ~01:53 ET]:**
+  In-memory monitors + the hourly Slack cron DIE with the session; SLURM jobs + journal + git survive.
+  ON RESUME: (1) `squeue -u dm1487` + `sacct -j 56013237,56013312 -X` — check Q-full (56013312) state;
+  if still RUNNING re-arm its monitor (confirm-alive + ep5-feeler + completion, see below); if DONE run
+  the verdict suite. (2) Re-create the hourly Slack cron (CronCreate "7 * * * *" → squeue + journal §9 →
+  Slack U07N1DR8S94, short, ET times). (3) Q-FULL VERDICT SUITE when it finishes (per a967c31 + registry):
+  eval_scorer panel ×9 ckpts (H=1 parity vs M2b 32.86); M3 = zero-sim setup-pick on pure2push (rank by
+  Q(s,·,H=2) map, NO sims) vs 34.5 (registered) & 75.2-with-sims (fpv_m2b) + per-division
+  (pure2push_divisions); H-bifurcation probe (525ea31, eval_dead_slice --h 1 vs --h 2 on dead states split
+  by 2p-solvability); post-push calibration (0.549→?). Slack + journal + REGISTER in
+  horizon_q_model_registry.md. (4) fpv_qfull (2-push search, reuse diag_leaf_s1 --ckpt qfull) — the
+  reactive-vs-search gap = the causality decomposition. (5) OPTIONAL pending [USER greenlight]: aliasing-floor
+  measurement A (input-neighbor GT-disagreement on test crops; free; isolates aliasing vs consequence-blindness).
+  Q-full launch cmd (if needs relaunch): RUN_PREFIX=qfull_v4hq DATA_DIR='...m2b_scorer/data.h5;...h2_scorer/data.h5'
+  (Hydra-quoted in train_h5_sampling.slurm now) EXTRA_OVERRIDES="+network.budget_cond=true +network.value_bins=51
+  +model.head_mode=hl_gauss +data.budget_h=true" array=9-11 time=14:00:00.
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
