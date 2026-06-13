@@ -13,9 +13,10 @@ M2B=$H5/v4_hq_m2b_scorer/data.h5
 H2=$H5/v4_hq_h2_scorer/data.h5
 AUG=$H5/v4_hq_onepush_h2_aug/data.h5
 PP=$H5/v4_hq_postpush_v2
-PP_SHARDS="$PP/shard_0.h5 $PP/shard_1.h5 $PP/shard_2.h5 $PP/shard_3.h5"
-
-echo "=== validating v2 mix ingredients ==="
+PP_SHARDS=$(ls "$PP"/shard_*.h5 2>/dev/null | sort -V)
+NPP=$(echo "$PP_SHARDS" | grep -c . || true)
+echo "=== validating v2 mix ingredients (postpush shards found: $NPP) ==="
+[ "$NPP" -ge 1 ] || { echo "NO postpush shards in $PP — abort"; exit 1; }
 for f in "$M2B" "$H2" "$AUG" $PP_SHARDS; do
   [ -f "$f" ] || { echo "MISSING: $f — abort"; exit 1; }
 done
@@ -36,8 +37,9 @@ for p in sys.argv[1:]:
 print(f"  aug+postpush rows = {tot}")
 PYEOF
 
-DATA_DIR="$M2B;$H2;$AUG;$PP/shard_0.h5;$PP/shard_1.h5;$PP/shard_2.h5;$PP/shard_3.h5"
-echo "=== DATA_DIR = $DATA_DIR ==="
+PP_JOINED=$(echo "$PP_SHARDS" | paste -sd ';' -)
+DATA_DIR="$M2B;$H2;$AUG;$PP_JOINED"
+echo "=== DATA_DIR ($((NPP+3)) H5s) = $DATA_DIR ==="
 
 # Horizon-v2: budget_cond + budget_h true (H-conditioned), HL-Gauss 51-bin value head.
 HZ_OV="+network.budget_cond=true +data.budget_h=true +model.head_mode=hl_gauss +model.value_bins=51"
