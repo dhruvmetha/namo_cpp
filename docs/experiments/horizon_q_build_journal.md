@@ -131,6 +131,72 @@ Each: deliverable · milestone (M#) · reuse-vs-new · status.
 filtered datasets filter **per-episode at source**. Root doc: `docs/pipeline/multi_episode_rooms.md`.
 
 ## 9. Progress log + NEXT ACTIONS  ← **RESUME HERE**
+
+### ⏩ AUTONOMOUS PIPELINE STATE [updated 2026-06-13 ~14:05 ET — USER AFK ~14:00–18:00, self-driving]
+**GOAL (USER):** the 2×2 model matrix {Horizon, NoHorizon} × {v1 data, v2 data}, ALL trained + TESTED on the
+test set, stats reported. Plus the v2 DATA FIX so H=2 encompasses H=1 (1-push@H2 augmentation + balanced
+sampler — see the [USER DIRECTIVE 14:00] entry below for the why/how). Don't compromise; Slack each milestone.
+
+**MATRIX STATUS:** Horizon-v1 `qfull_v4hq` ✅ ep15 (val .652). NoHorizon-v1 `qfull_nohz_v4hq` ⏳ training
+(56025708, val .731). Horizon-v2 ⬜ TODO. NoHorizon-v2 ⬜ TODO.
+
+**PIPELINE DAG + NEXT ACTION on each completion (drive these as watchers fire):**
+1. post-push RENDER (56025904, ~12 shards left, → /scratch/dm1487/datasets/v4_hq_h2/postpush_npz_v2, ~1.5M npz)
+   → ON DONE: PACK to scorer H5: `build_postpush_h5.py --npz-dir <out> --out-h5 /scratch/dm1487/h5/v4_hq_postpush_v2/data.h5`
+   (1.5M npz = shard the pack or subsample to ~300-400k; then DELETE npz to reclaim ~100GB — quota 617/1024GB).
+2. PACK done → BUILD BALANCED v2 MIX H5(s): root (v4_hq_m2b_scorer H1 + v4_hq_h2_scorer H1/H2) + **1-push@H2
+   AUGMENTATION** (relabel exhaustive 1-push openers as H=2 rows, opener=1.0 rest masked — the H2⊇H1 fix) +
+   post-push. Sampler = WeightedRandomSampler keeping a DECENT OnePush fraction (not full balance). NEW small
+   builder needed for the 1-push@H2 augmentation (sparse-positive H=2 rows from onepush data).
+3. v2 MIX ready → LAUNCH Horizon-v2 (`qfull_v2_v4hq`, budget_cond+value_bins+hl_gauss+budget_h, array 9-11) +
+   NoHorizon-v2 (`qfull_nohz_v2_v4hq`, value_bins+hl_gauss+budget_h=false, array 9-11). Same DATA_DIR (the v2 mix).
+4. Any model ep~8/15 → snapshot feeler (eval_scorer_feeler.slurm + m3_key_feeler). NoHorizon-v1 done → test it.
+5. ALL 4 trained → TEST ALL: eval_scorer H=1 & H=2 (onepush set), best-first pure2 & pure1 (model+random),
+   key-graded m3. Assemble a 4-family stats table → Slack + journal + registry.
+
+**LIVE JOBS + watchers:** best-first ×4 (56045369/839/841/842, watcher reduces→Slack); render 56025904
+(watcher bek3rzkrr→pack); no-horizon 56025708; v1 56015587. Reducers: /scratch/dm1487/eval/reduce_{rollout,bestfirst}.py.
+**TOOLS (all committed):** eval_bestfirst.py, eval_rollout.py, eval_m3.py(--grade key), render_postpush_from_state.py,
+build_postpush_h5.py, render_postpush.slurm, bestfirst_eval.slurm, m3_key_feeler.slurm, eval_scorer_feeler.slurm(EVAL_H).
+**KEY FACTS to not re-fumble:** TEST SET is EXHAUSTIVE 2-push (exhaustive_depth2.yaml; full (a1,a2)→outcome in raw
+pkls' primitive_trial_log) — k=30 sampling was TRAINING only. ckpts get pruned by save_top_k (use current best, not ep11).
+
+### 🔬 HYPOTHESIS LEDGER [USER 2026-06-13: run EVERYTHING as Observation→Hypothesis→Prediction→Verdict; accept/reject ON NUMBERS ONLY, nothing else. Add a new H# for every new design choice/problem; fill Verdict when numbers land.]
+
+- **H1 — Budget-conditioning works (the core bet). VERDICT: ✅ ACCEPTED.**
+  Obs: a setup push is worthless with 1 push left, valuable with 2. Hyp: conditioning Q on remaining budget H
+  lets ONE net value the same push differently per H. Predict(accept iff): H=2 query ranks setups ≫ H=1 query
+  on pure-2-push. Numbers: H=2 hit@1=19.8 (5.5× floor 3.6); H=1=3.4 (AT floor). Reactive solve@1=22.9 (8.4× floor 2.7). → ACCEPT.
+- **H2 — H=2 subsumes H=1 (opener=1.0 at H=2). VERDICT: ❌ REJECTED.**
+  Obs: opens-in-1 ⊆ opens-in-2. Hyp [CLAUDE]: H=2 holds on 1-push scenes (opener 1.0 > setup 0.9). Predict: H=2-on-onepush
+  ≈ H=1-on-onepush. Numbers: H=2-on-onepush hard@1=13.7 vs H=1=38.4 (−25pp; even easy 99→87). → REJECT. H=2 ≠ superset.
+- **H3 — H=2 dilution cause = MISSING 1-push data at H=2. VERDICT: ❌ REJECTED [USER caught].**
+  Hyp [CLAUDE]: H=2 rows are deadend-only. Predict: ~0% of H=2 rows are 1-push-solvable. Numbers: 16.2% ARE 1-push-solvable. → REJECT.
+- **H4 — H=2 dilution cause = IMBALANCE (16% too few). VERDICT: ⏳ PENDING.**
+  Obs: 16% 1-push@H2 but still dilutes (dominated by 84% setup/dead). Hyp: rebalance/augment 1-push@H2 → dilution ↓.
+  Predict(accept iff): Horizon-v2 H=2-on-onepush ≫ 13.7 (toward 38.4). Test: the v2 1-push@H2 augmentation + sampler.
+- **H5 — Budget-Q@H1 ≥ M2b (no 1-push regression). VERDICT: ✅ ACCEPTED.**
+  Predict: budget-Q@H1 hard@1 ≥ M2b 32.86. Numbers: 38.4 (ep15), +5.5pp. → ACCEPT.
+- **H6 — Foresight helps end-to-end (reactive rollout). VERDICT: ✅ ACCEPTED (modest).**
+  Predict: reactive-Q (1st push @H2) > reactive flat-H1. Numbers: 22.7 vs 19.4 (+3.3@1, +7.2@10). → ACCEPT but modest
+  (rollout forgives a mis-ranked 1st push via retries/2nd push).
+- **H7 — Learned prior beats brute search at matched sims (amortization). VERDICT: ⏳ RE-TESTING.**
+  Old flawed-beam numbers: Q-search 30.3 vs brute 11.2 (2.7×); reactive-Q 22.7 > brute-search 11.2. Beam was wrong-design →
+  re-testing with value-guided best-first (H9). Predict: best-first(model) ≫ best-first(uniform).
+- **H8 — mean_top5 > max as the state/leaf value. VERDICT: ✅ ACCEPTED (H0b prior).**
+  Obs: max is fluke-dominated on OOD states. Numbers: mean_top5 34.5 vs maxP 24.6 @1. → ACCEPT (use mean_top5 for selection).
+- **H9 — The search is value-guided GREEDY BEST-FIRST (Q expands, mean5-V selects; min sims), NOT MCTS/beam.
+  VERDICT: ⏳ PENDING.** Obs: deterministic + expensive-sim + shallow tree ⇒ no Monte-Carlo averaging, no PW. Predict(accept iff):
+  best-first(model) solve ≫ best-first(uniform) at fewer avg-sims. Test: jobs 56045369/839/841/842 (pure2 & pure1, model & uniform).
+- **H10 — Do we even NEED the horizon? (NoHorizon ≈ Horizon for ranking). VERDICT: ⏳ PENDING.**
+  Hyp [USER]: a pooled no-H goodness model ranks pushes ≈ as well; horizon's real value = budget-honesty + deeper bootstrapping.
+  Predict: NoHorizon-v1 ≈ Horizon-v1 on the test panel. Test: qfull_nohz_v4hq (training).
+- **H11 — In SEARCH the horizon is REDUNDANT (sim does the lookahead). VERDICT: ⏳ PENDING.**
+  Hyp: best-first(NoHorizon) ≈ best-first(Horizon); horizon only helps the REACTIVE (0-sim) regime. Test: NoHorizon vs Horizon best-first.
+- **H12 — v2 OOD data (post-push + 1-push@H2) fixes the OOD failures. VERDICT: ⏳ PENDING.**
+  Obs: fails on post-push s1 (dead-leaf calib 0.549) + 1-push@H2 (dilution). Hyp: inject OOD samples → both improve.
+  Predict(accept iff): Horizon-v2 > Horizon-v1 on post-push calibration AND best-first-pure1 solve. Test: Horizon-v2.
+
 **Done (2026-06-11, autonomous session):**
 - Car 0.034 + exclude across both copies, MuJoCo-verified, committed (ea0f5ff namo_cpp, c8144cc env_creator).
 - Primitives regenerated at 0.034/550, committed. Backup in `data/_primitive_backup_pre0034/`.
@@ -737,6 +803,21 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
     rollout_eval slurms. ckpts = ep15 best (s1 0.6534/s2 0.6518/s3 0.6543; save_top_k prunes — transient).
   • CAVEAT: H=1 sim bars (fpv 75.2 / champ 34.5) are SEARCH (49 sims) + first-push-graded — NOT comparable
     to the 0-sim rollout; they bound the search ceiling, a different axis.
+
+- **🎯 [USER DIRECTIVE 2026-06-13 ~14:00 ET] — 2×2 MODEL MATRIX + H=2-MUST-ENCOMPASS-H=1 DATA FIX.**
+  TRAIN 4 models: {Horizon, NoHorizon} × {v1 data, v2 data}. Done/in-flight: Horizon-v1 = qfull_v4hq (ep15);
+  NoHorizon-v1 = qfull_nohz_v4hq (training 56025708). TODO when v2 data ready: **Horizon-v2 + NoHorizon-v2**
+  (3 seeds each). Then **TEST ALL 4 on the test set + report stats** (eval_scorer H1&H2, best-first pure2&pure1,
+  key-graded). **DATA FIX [USER, the core ask]: make H=2 ENCOMPASS H=1** — Q(s,a,H=2)="value given 2 pushes
+  left", and solvable-in-1 ⊆ solvable-in-2, so a 1-push opener MUST be 1.0 at H=2. It isn't now (only 16% of
+  H=2 rows are 1-push-solvable → dilution 38→14 on 1-push). FIX in the v2 mix: (1) AUGMENT H=2 with 1-push
+  scenes — relabel exhaustive 1-push openers as H=2 rows (opener=1.0, rest masked; FREE, no new collection);
+  (2) BALANCE the sampler so a DECENT fraction of OnePush samples flow in (not fully balanced — keep 2-push +
+  post-push, but enough 1-push that H=2 sees openers); (3) keep post-push OOD (dead-leaf calibration). GOAL
+  [USER clarified]: **OPTIMIZE FOR OOD** — the two OOD failure modes: (a) post-push states s1 (dead-leaf), (b)
+  1-push scenes queried at H=2 (OOD for the H=2 head, 16% seen → dilution). v2 mix over-represents BOTH
+  (post-push data + 1-push@H2 augmentation), not full balance = "decent amount of OOD samples from OnePush".
+  EXEC: render→pack→build balanced v2 mix→train H-v2 + NoH-v2→test all 4→Slack stats. v2 NOT gated on v1.
 
 - **🧪 NO-HORIZON ABLATION LAUNCHED [2026-06-13 ~11:15 ET, job 56025708, [USER] "do we even need the horizon?"].**
   [USER hypothesis: a single model on all 1+2-push data, NO horizon, just learns "what's a good push" and
