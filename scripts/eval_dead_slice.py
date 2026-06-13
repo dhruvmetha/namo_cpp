@@ -61,6 +61,9 @@ def main():
             ctx = torch.from_numpy(f["ctx"][i][None]).float()
             cpx = torch.from_numpy(f["contact_px"][i][None]).float()
             kw = {"H": torch.full((1,), a.h, dtype=torch.long)} if budget else {}
+            if getattr(model.network, "reach_flag_input", False):
+                rm = f["r_mask"][i]
+                kw["reach_edges"] = torch.from_numpy((rm.sum(axis=1) > 0).astype("int64"))[None]
             with torch.no_grad():
                 t = model(ctx, cpx, **kw)[0]
             if t.dim() == 3:

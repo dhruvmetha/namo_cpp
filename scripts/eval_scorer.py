@@ -90,6 +90,8 @@ def load_scorer(ckpt, num_depths, device, network="dit_classifier"):
         if "network.budget_embed.weight" in sd:          # budget-conditioned horizon-Q ckpt
             kw["budget_cond"] = True
             kw["max_budget"] = sd["network.budget_embed.weight"].shape[0] - 1
+        if "network.reach_embed.weight" in sd:           # M2d: per-edge reachability input flag
+            kw["reach_flag_input"] = True
         head_out = sd["network.head.2.weight"].shape[0]
         if head_out != num_depths:                       # HL-Gauss value head: num_depths * bins logits
             kw["value_bins"] = head_out // num_depths
@@ -187,6 +189,12 @@ def main():
                 # monotone so all top-k rankings are unchanged.
                 hkw = {"H": torch.ones(1, dtype=torch.long, device=device)} \
                     if getattr(model.network, "budget_cond", False) else {}
+                if getattr(model.network, "reach_flag_input", False):
+                    # per-edge contact-point reachability bit from the episode's tried set (edge-level)
+                    rbits = torch.zeros(1, 60, dtype=torch.long, device=device)
+                    for (te, _td) in tried:
+                        if 0 <= te < 60: rbits[0, te] = 1
+                    hkw["reach_edges"] = rbits
                 t = model(ctx, cpx_t, ztup[0], ztup[1], **hkw)[0]
                 if t.dim() == 3:
                     from src.model.hl_gauss import HLGauss
