@@ -129,6 +129,8 @@ def main():
     ap.add_argument("--h5-root", default="/scratch/dm1487/h5")
     ap.add_argument("--divisions", default="hard,med,easy")
     ap.add_argument("--num-depths", type=int, default=5)
+    ap.add_argument("--h", type=int, default=1, help="budget to query for budget-Q ckpts (1=1-push panel; "
+                    "2=does the H=2 query still rank 1-push openers on this 1-push set). Ignored for non-budget ckpts.")
     ap.add_argument("--network", default="dit_classifier", choices=["dit_classifier", "edge_crossattn"])
     ap.add_argument("--zoom-window", type=float, default=0.24, help="dual-crop zoom window (m), must match the build")
     ap.add_argument("--out", required=True)
@@ -184,10 +186,11 @@ def main():
                 ztup = (torch.from_numpy(np.stack(zc)[None]).float().to(device),
                         torch.from_numpy(cz[None]).float().to(device))
             with torch.no_grad():
-                # budget-Q ckpt: trained with H always present -> eval at H=1 (the 1-push panel);
+                # budget-Q ckpt: trained with H always present -> eval at H=`a.h` (default 1 = the 1-push
+                # panel; --h 2 tests whether the H=2 query still nails 1-push openers on this 1-push set).
                 # HL-Gauss head emits (60,5,bins) -> E[bin] value in [0,1]; the sigmoid below is
                 # monotone so all top-k rankings are unchanged.
-                hkw = {"H": torch.ones(1, dtype=torch.long, device=device)} \
+                hkw = {"H": torch.full((1,), int(a.h), dtype=torch.long, device=device)} \
                     if getattr(model.network, "budget_cond", False) else {}
                 if getattr(model.network, "reach_flag_input", False):
                     # per-edge contact-point reachability bit from the episode's tried set (edge-level)

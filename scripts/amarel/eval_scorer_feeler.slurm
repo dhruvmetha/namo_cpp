@@ -30,10 +30,10 @@ IFS=';' read -ra arr <<< "$CKPTS"
 for ck in "${arr[@]}"; do
     [ -z "$ck" ] && continue
     tag=$(echo "$ck" | sed -E 's#.*/scorer/([^/]+)/.*/(epoch[0-9]+).*#\1_\2#')
-    out="$OUT_DIR/${tag}.json"
-    echo "=== eval $tag ==="
+    out="$OUT_DIR/${tag}_h${EVAL_H:-1}.json"
+    echo "=== eval $tag H=${EVAL_H:-1} ==="
     /scratch/dm1487/envs/namo/bin/python -u scripts/eval_scorer.py \
-        --ckpt "$ck" --network edge_crossattn --num-depths 5 --out "$out"
+        --ckpt "$ck" --network edge_crossattn --num-depths 5 --h "${EVAL_H:-1}" --out "$out"
     /scratch/dm1487/envs/namo/bin/python - "$out" <<'PY'
 import json, sys
 r = json.load(open(sys.argv[1])); d = r["divisions"]
