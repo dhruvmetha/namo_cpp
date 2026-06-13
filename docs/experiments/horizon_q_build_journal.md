@@ -745,12 +745,17 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   budget-Q @H=2 on the SAME 1-push scenes: hard@1 = 11.1/15.3/14.8 → MEAN 13.7, easy@1 ~86.8 — DILUTES HARD
   (−25pp hard, −12pp even on EASY).** [CLAUDE prediction "H=2 holds because opener target 1.0 > setup 0.9"
   = FALSIFIED.] The model learned H=1/H=2 as DISTINCT modes, not nested: at H=2 it hunts setups and
-  deprioritizes the 1-push opener. **CAUSE: the H=2 training rows are ~all from the DEADEND (pure-2-push)
-  collection → the H=2 head almost never saw a 1-push-solvable scene with opener=1.0 at H=2 → OOD →
-  setup-hunting.** IMPLICATIONS: (1) DEPLOY = budget-matched query or CASCADE (H=1 first → opener? else H=2),
-  NOT a universal H=2. (2) DATA-COMPOSITION LEVER for v2 [USER decision]: add H=2 rows for 1-push-solvable
-  scenes (opener=1.0 at H=2) so H=2 learns to subsume H=1. (3) the combined-set rollout must use cascade
-  ranking (or max over budgets), not rank-first-push-at-H=B (which underperforms on easy scenes). Registered.
+  deprioritizes the 1-push opener. **CAUSE [CORRECTED — [USER] caught my wrong "deadend-only" claim; VERIFIED
+  in v4_hq_h2_scorer]: NOT absence, IMBALANCE.** The H=2 rows ALREADY include 1-push-solvable scenes —
+  **16.2% have an opener cell =1.0 (~25k rows), 28.7% setup-only (0.9), 55.1% dead.** The head HAS seen
+  "opener=1.0 at H=2" but it's a 16% minority vs 84% setup/dead → dominated by hunt-setups/it's-dead → under-
+  ranks openers on the all-1-push test set. (Reconciles both facts: H=2 nails setups on pure2push = 5.5×
+  floor where setups ARE the answer; dilutes on 1-push where openers are, and are the minority signal.)
+  IMPLICATIONS: (1) DEPLOY = budget-matched query or CASCADE (H=1 first → opener? else H=2), NOT a universal
+  H=2. (2) LEVER for v2 [USER decision] = REBALANCE not re-collect: up-weight the 16% 1-push-solvable H=2
+  rows in the WeightedRandomSampler (cheap, testable, no new data; maybe also up-weight HARD 1-push — the 16%
+  may skew easy, unverified). (3) combined-set rollout must use cascade ranking (max over budgets), not
+  rank-first-push-at-H=B (underperforms on easy). [CLAUDE over-claimed "deadend-only" TWICE before checking.]
 
 - **🔧 RENDER-FROM-SAVED-STATE BUILT [2026-06-13 ~06:45 ET] — `scripts/pipeline/render_postpush_from_state.py`** (autonomous, while v2 collects). OFFLINE renderer (NO env, NO MuJoCo step ⇒ collision-divergence bug structurally impossible — renders the collector's byte-saved state). Spec VALIDATED against real v2 pkls (job 56018429 output `/scratch/dm1487/datasets/v4_hq_h2/pkls_2push_v2`): per episode, object constant ⇒ key kids by (pe,pd); region-goal duplicate post-push nodes are byte-identical (Δpose=0.00000) ⇒ dedup keeps one; no-effect filter = SE(2) (xy<5mm AND |Δθ|<3°), NOT xy-only (rotation-only is a real effect). Each post-push s1 self-carries its label: pp_open_ed/dp (f_grid=1), pp_tried_ed/dp (the ~k sampled a2 = r_mask/loss_mask, rest UNKNOWN/masked — no C15 bug), pp_dead, pp_H=1, pp_parent_edge/depth, pp_reach_edges. **CAUGHT BUG before it bit: `save_episode_data` persists only a HARDCODED whitelist of `metadata` keys — pp_* in `meta` would be silently dropped (replay_postpush.py had this latent too). FIX: inject pp_* into the `masks` dict (save_dict=dict(masks) copies every key).** Smoke (5 pkls) in flight to confirm pp_* land in npz. NEXT (mechanical, after smoke green): `build_postpush_h5.py` = trimmed build_scorer_dataset reading raw npz → scorer H5 (ctx = local_tight_* 5ch resized 224→64 INTER_AREA; f_grid from pp_open; r_mask=pp_tried per existing tried≡r_mask convention; contact_px via add_contact_px's contact_px(); tag state_type=postpush, dead, H=1). **DEFERRED to USER (data-balance calls they own): final v2 H5 COMPOSITION + sampler ratios (existing root-H2 + H1 + new post-push good/dead; "protect H=2 ~30-40%", "don't blow up data") + LAUNCH.** Do NOT pick ratios or launch autonomously.
 
