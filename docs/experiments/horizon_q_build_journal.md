@@ -146,8 +146,10 @@ launch ARMED (watcher fires `launch_v2_training.sh` when postpush pack 56054137 
 - 1-push@H2 aug: `v4_hq_onepush_h2_aug/data.h5` = **80,000 H=2 sparse-positive opener rows** (opener=1.0 @H2,
   loss masked to opener cells; from m2b 1-push-solvable rows, --max-rows subsample). VALIDATED (H=2, ctx 5×64×64,
   contact_px, r_mask==opener mask). The H4 dilution fix: lifts H=2 opener fraction ~16%→~46%.
-- post-push: 1.87M rendered npz → **300k subsample** (good 64% / dead 36%, natural ratio) → 4 shard-H5s
-  (`v4_hq_postpush_v2/shard_{0..3}.h5`, 75k each) packing now (56054137). The OOD s1 calibration data.
+- post-push: 1.87M rendered npz → **300k subsample** (good 64% / dead 36%, natural ratio) → shard-H5s in
+  `v4_hq_postpush_v2/shard_*.h5`. The OOD s1 calibration data. ⚠ PACK THROUGHPUT: build_postpush_h5 is ~5 npz/s
+  (per-row cv2.resize×5 + 60-edge contact_px loop dominate) — the first 4×75k pack (56054137) was ~4h ETA,
+  CANCELLED + **re-sharded to 40×7.5k (56054645, all 40 RUNNING, ~25min)**. launch_v2 now globs shard_*.h5.
 - MIX BALANCE [round-1 decision, CLAUDE]: ScorerDataModule has NO weighted sampler → proportions set by
   ON-DISK COUNTS + uniform sampling. m2b 252k + h2 ~280k + aug 80k + postpush ~280k ⇒ postpush ~33%, aug ~9%
   of the mix = the two OOD modes are OVER-REPRESENTED by counts (USER directive). Weighted sampler = a later lever.
