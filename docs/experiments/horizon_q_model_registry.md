@@ -51,8 +51,13 @@
 - data: `/scratch/dm1487/h5/v4_hq_m2b_scorer/data.h5` · evals: `/scratch/dm1487/eval/m2d_verdict/`
 - **hard@1 = 34.20 ± 2.09** (within noise of M2b) · all-cells V_dead 0.621 (degraded — tell<teach)
 
-### Q-full (M3/M4) — mixed-H, TRAINING (job 56013237, launched 2026-06-13 01:32 ET, 3 seeds, L40S, 14h wall)
-- run dirs `/scratch/dm1487/sage_outputs/scorer/qfull_v4hq_s{1,2,3}/` (BEST ckpts → fill in when done)
+### Q-full (M3/M4) — mixed-H, TRAINING (job **56015587**, 3 seeds, L40S; 56013237/56013312 = dead false-starts)
+- run dirs `/scratch/dm1487/sage_outputs/scorer/qfull_v4hq_s{1,2,3}/`; ep11 BEST ckpts (still training, val↓):
+  - s1 `qfull_v4hq_s1/namo-classifier/zxt3n1tm/checkpoints/epoch011-val_loss0.6572.ckpt`
+  - s2 `qfull_v4hq_s2/namo-classifier/a91eflex/checkpoints/epoch011-val_loss0.6582.ckpt`
+  - s3 `qfull_v4hq_s3/namo-classifier/h2lcraeg/checkpoints/epoch011-val_loss0.6582.ckpt`
+- **ep11 H=1 feeler (job 56022469): hard@1/@5 — s1 34.4/65.1 · s2 41.3/67.2 · s3 30.7/68.3 · MEAN 35.5/66.9
+  vs M2b 32.86/65.4 (+2.6/+1.5pp). H=1 sanity only; M3 foresight = headline. wrong-edge/miss≈89%.**
 - data (multi-H5, ';'-joined): `/scratch/dm1487/h5/v4_hq_m2b_scorer/data.h5` (252,805 H=1 rows) +
   `/scratch/dm1487/h5/v4_hq_h2_scorer/data.h5` (311,324 = 155,662 ep × {H=1,H=2}; 172,104 dead; gamma=0.9,
   format=twopush) → ~564k total rows, room-grouped across files (realpath-normalized)
