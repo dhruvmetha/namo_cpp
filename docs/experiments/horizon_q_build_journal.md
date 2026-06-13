@@ -137,8 +137,28 @@ filtered datasets filter **per-episode at source**. Root doc: `docs/pipeline/mul
 test set, stats reported. Plus the v2 DATA FIX so H=2 encompasses H=1 (1-push@H2 augmentation + balanced
 sampler — see the [USER DIRECTIVE 14:00] entry below for the why/how). Don't compromise; Slack each milestone.
 
-**MATRIX STATUS:** Horizon-v1 `qfull_v4hq` ✅ ep15 (val .652). NoHorizon-v1 `qfull_nohz_v4hq` ⏳ training
-(56025708, val .731). Horizon-v2 ⬜ TODO. NoHorizon-v2 ⬜ TODO.
+**MATRIX STATUS [15:55 ET]:** Horizon-v1 `qfull_v4hq` ✅ ep16 (val .6517, still training 56015587).
+NoHorizon-v1 `qfull_nohz_v4hq` ⏳ training (56025708, val .728). Horizon-v2 + NoHorizon-v2 ⏳ DATA READY,
+launch ARMED (watcher fires `launch_v2_training.sh` when postpush pack 56054137 lands).
+
+**✅ v2 OOD MIX BUILT [15:55 ET] — all ingredients ready, launch recipe LOCKED:**
+- `data_dir = m2b ; h2 ; onepush_h2_aug ; postpush(shard_0..3)` (';'-joined; ScorerDataModule joins them — l.137).
+- 1-push@H2 aug: `v4_hq_onepush_h2_aug/data.h5` = **80,000 H=2 sparse-positive opener rows** (opener=1.0 @H2,
+  loss masked to opener cells; from m2b 1-push-solvable rows, --max-rows subsample). VALIDATED (H=2, ctx 5×64×64,
+  contact_px, r_mask==opener mask). The H4 dilution fix: lifts H=2 opener fraction ~16%→~46%.
+- post-push: 1.87M rendered npz → **300k subsample** (good 64% / dead 36%, natural ratio) → 4 shard-H5s
+  (`v4_hq_postpush_v2/shard_{0..3}.h5`, 75k each) packing now (56054137). The OOD s1 calibration data.
+- MIX BALANCE [round-1 decision, CLAUDE]: ScorerDataModule has NO weighted sampler → proportions set by
+  ON-DISK COUNTS + uniform sampling. m2b 252k + h2 ~280k + aug 80k + postpush ~280k ⇒ postpush ~33%, aug ~9%
+  of the mix = the two OOD modes are OVER-REPRESENTED by counts (USER directive). Weighted sampler = a later lever.
+- v2 launch = SAME slurm/recipe as v1 (array 9-11 = B30 × seeds 1-3). Horizon flags: `budget_cond=true
+  budget_h=true head_mode=hl_gauss value_bins=51`. NoHorizon: same minus budget_cond, `budget_h=false`.
+
+**📈 LIVE EVAL CURVE [partial, n~150 of 1018, 15:50 ET] — the unified 900-cap solve curve is forming cleanly:**
+solve@{2,10,50,100,900}: **MODEL** 17.6 / 48.4 / 72.5 / 80.4 / 90.2 (avg-to-solve 58 sims);
+**RANDOM s0** 3.3 / 18.0 / 46.7 / 54.0 / 74.0 (avg-to-solve 110). @1=0 model (object-constraint holds).
+Model ≫ random at EVERY budget (5× @2sim → 1.2× @900), ~2× more sim-efficient. Final numbers when all 76
+shards × {model + 5 random seeds} land; reduce via `reduce_bestfirst_curve.py --avg-seeds` for random mean±std.
 
 **PIPELINE DAG + NEXT ACTION on each completion (drive these as watchers fire):**
 1. post-push RENDER (56025904, ~12 shards left, → /scratch/dm1487/datasets/v4_hq_h2/postpush_npz_v2, ~1.5M npz)
