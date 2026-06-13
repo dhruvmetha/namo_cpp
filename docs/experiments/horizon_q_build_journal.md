@@ -175,6 +175,13 @@ pkls' primitive_trial_log) — k=30 sampling was TRAINING only. ckpts get pruned
   static vs online-live I/O) but the scoring layer IS unified. TODO consistency check: eval_scorer hit@1 ≈
   best-first first-push top-1 on the same scenes (live_scorer has a rare wavefront-fallback path, last_fell_back).
 
+> **⚠ TEST-SET HYGIENE [2026-06-13 ~14:55]:** the SCENE-LIST manifests (test_pure2push_combined.txt 985)
+> and the KEY (pure2push.json 983) are DIFFERENT sets — only **651 overlap** by full path (env filenames
+> are NOT unique: same run_NNNN basename under different set/benchmark dirs; 985 manifest = 410 unique basenames).
+> ⇒ ALWAYS drive eval from the KEY, never the scene-list manifest. FIX: key-derived manifests
+> test_{pure2,onepush}_fromkey.txt (983/991). The 671-episode object-constrained run used the OLD manifest
+> (651 valid overlap); re-running on the key-derived 983 for the final table.
+
 ### 📋 CANONICAL TEST SETS / EVAL KEYS [2026-06-13, verified inventory — USE THESE, don't guess]
 Dir `/scratch/dm1487/datasets/namo_testset_v1/labels/` (each JSON keyed by scene-xml → list of per-(object,goal) records).
 - **1-PUSH eval → KEY `onepush_episodes.json`** (991 scenes / 1323 records; fields `valid`/`tried` = openers). eval_scorer
