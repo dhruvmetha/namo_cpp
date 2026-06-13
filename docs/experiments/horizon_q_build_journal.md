@@ -272,6 +272,32 @@ Dir `/scratch/dm1487/datasets/namo_testset_v1/labels/` (each JSON keyed by scene
   push via a DIFFERENT object (per-episode (object,goal) constraint NOT enforced — CLAUDE.md GOTCHA; ~7% @1sim). Verify + decide
   whether to constrain the eval to the labeled object. [USER decisions pending: (1) 1-push key = onepush_episodes? (2) constrain eval?]
 
+### 📊 HORIZON-V1 CELL — near-final results [16:34 ET, n=991/1018, 74/76 shards; b7yoiryas → exact final]
+**SOLVE** (best-first @900, object-constrained pure2push, the unified eval):
+| solve@ | 2 | 10 | 50 | 100 | 900 | avg-sims-to-solve |
+|---|---|---|---|---|---|---|
+| **MODEL** (Horizon-v1 ep16) | 17.8 | 39.9 | 57.2 | 63.2 | **73.6** | **60** |
+| **RANDOM** (5-seed mean±std) | 2.9±.2 | 15.2±1.0 | 38.5±2.2 | 47.8±1.3 | **70.2**±.4 | **122** |
+
+→ Model ≫ random at LOW budget (6.1× @2sim, 2.6× @10) but **CONVERGES at 900** (73.6 vs 70.2, +3.4pp). **The win
+is SIM-EFFICIENCY (60 vs 122 avg sims = 2×) + the reactive/low-budget regime, NOT the asymptotic ceiling** — with a
+900-sim budget brute-force random nearly catches up on this object-constrained ≤2-push problem. Neither hits 100%
+(pure2 is all 2-push-solvable) ⇒ best-first@hmax2 doesn't exhaust the hard tail within 900. This is the honest,
+defensible horizon-Q story: amortize search to reach good solutions with far fewer sims; biggest gap where sims are
+scarcest. [Earlier n~150 partial showed model@900=90 — that was the EASY shards finishing first; full set is 73.6.]
+
+**RANKING** (eval_scorer hit@k, onepush key, scorer_realistic @1/@5/@10):
+| division | H=1 | H=2 |
+|---|---|---|
+| hard | **34.4** / 69.3 / 80.4 | **12.2** / 30.2 / 41.3 |
+| med | 84.2 / 95.2 / 97.7 | 59.6 / 76.6 / 84.2 |
+| easy | 98.7 / 100 / 100 | 83.8 / 95.3 / 97.6 |
+
+→ **H=2 DILUTION CONFIRMED on ep16** (hard@1 34.4→12.2; med 84→60; easy 99→84). This is the H2/H4 baseline the v2
+1-push@H2 aug (80k opener=1.0@H2 rows) must lift back toward the H=1 numbers. (H=1 hard@1 34.4 > M2b 32.86 ⇒ H5
+STILL holds at ep16; the earlier 38.4 was a different ckpt.) Note hard@1 H=2 failure_decomp: wrong_edge 71% — at
+budget-2 the model picks a different edge (the setup-vs-opener confusion the aug targets).
+
 ### 🔬 HYPOTHESIS LEDGER [USER 2026-06-13: run EVERYTHING as Observation→Hypothesis→Prediction→Verdict; accept/reject ON NUMBERS ONLY, nothing else. Add a new H# for every new design choice/problem; fill Verdict when numbers land.]
 
 > **✅ EVAL CORRECTION DONE [2026-06-13 ~14:50, object-constrained pure-2, n=671 episodes, budget 100]:**
@@ -307,9 +333,12 @@ Dir `/scratch/dm1487/datasets/namo_testset_v1/labels/` (each JSON keyed by scene
 - **H8 — mean_top5 > max as the state/leaf value. VERDICT: ✅ ACCEPTED (H0b prior).**
   Obs: max is fluke-dominated on OOD states. Numbers: mean_top5 34.5 vs maxP 24.6 @1. → ACCEPT (use mean_top5 for selection).
 - **H9 — The search is value-guided GREEDY BEST-FIRST (Q expands, mean5-V selects; min sims), NOT MCTS/beam.
-  VERDICT: ✅ ACCEPTED [object-constrained, n=671].** model solve 62% vs uniform 46% @budget100 (and 21 vs 3 @2sim);
-  model 14.6 avg-sims-to-solve vs uniform 30.8 (~2× more sim-efficient); guidance gap biggest at low budget (7× @2sim).
-  Greedy best-first (no MCTS/PW) confirmed effective on the deterministic shallow-tree expensive-sim problem.
+  VERDICT: ✅ ACCEPTED [CANONICAL 900-cap, n=991/1018, 5-seed random].** solve@K MODEL vs RANDOM(mean): @2sim
+  17.8 vs 2.9 (6.1×), @10 39.9 vs 15.2 (2.6×), @100 63.2 vs 47.8 (1.3×), **@900 73.6 vs 70.2 (1.05×)**; avg-sims-
+  to-solve 60 vs 122 (2× efficiency). **REFINEMENT: the guidance buys SIM-EFFICIENCY + the reactive/low-budget
+  regime, NOT the asymptotic ceiling — at 900 sims brute-force random nearly catches up** (both ~70-74% on the
+  object-constrained ≤2-push problem; best-first@hmax2 doesn't exhaust the hard tail). Greedy best-first (no
+  MCTS/PW) confirmed effective; the OLD n=671 budget-100 numbers (62 vs 46) match @100 here (63.2 vs 47.8).
 - **H10 — Do we even NEED the horizon? (NoHorizon ≈ Horizon for ranking). VERDICT: ⏳ PENDING.**
   Hyp [USER]: a pooled no-H goodness model ranks pushes ≈ as well; horizon's real value = budget-honesty + deeper bootstrapping.
   Predict: NoHorizon-v1 ≈ Horizon-v1 on the test panel. Test: qfull_nohz_v4hq (training).
