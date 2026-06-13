@@ -49,13 +49,16 @@ HZ_OV="+network.budget_cond=true +data.budget_h=true +model.head_mode=hl_gauss +
 NHZ_OV="+data.budget_h=false +model.head_mode=hl_gauss +network.value_bins=51"
 
 cd "$SAGE"
-echo "=== launching Horizon-v2 (qfull_v2_v4hq, array 9-11) ==="
-JH=$(sbatch --parsable --array=9-11 \
+# --time=14:00:00 = match Horizon-v1/NoHorizon-v1's walltime (the slurm default 6h is too short for the bigger
+# 944k-row v2 mix at ~74min/epoch -> would TIMEOUT at ~ep5, under-trained vs v1's converged ep16).
+WALL=${WALL:-14:00:00}
+echo "=== launching Horizon-v2 (qfull_v2_v4hq, array 9-11, time=$WALL) ==="
+JH=$(sbatch --parsable --array=9-11 --time="$WALL" \
   --export="ALL,RUN_PREFIX=qfull_v2_v4hq,DATA_DIR=$DATA_DIR,EXTRA_OVERRIDES=$HZ_OV" \
   scripts/train_h5_sampling.slurm)
 echo "  Horizon-v2 job=$JH"
-echo "=== launching NoHorizon-v2 (qfull_nohz_v2_v4hq, array 9-11) ==="
-JN=$(sbatch --parsable --array=9-11 \
+echo "=== launching NoHorizon-v2 (qfull_nohz_v2_v4hq, array 9-11, time=$WALL) ==="
+JN=$(sbatch --parsable --array=9-11 --time="$WALL" \
   --export="ALL,RUN_PREFIX=qfull_nohz_v2_v4hq,DATA_DIR=$DATA_DIR,EXTRA_OVERRIDES=$NHZ_OV" \
   scripts/train_h5_sampling.slurm)
 echo "  NoHorizon-v2 job=$JN"
