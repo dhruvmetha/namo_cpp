@@ -17,12 +17,13 @@ export PYTHONPATH="$PWD/build_python:$PWD/python:$PWD/scripts:$PWD/scripts/sandb
 export OMP_NUM_THREADS=2 MKL_NUM_THREADS=2
 
 : "${CKPT:?}"; : "${MANIFEST:?}"; : "${OUT_DIR:?}"
-HMAX=${HMAX:-2}; SIM_BUDGET=${SIM_BUDGET:-30}; PRIOR=${PRIOR:-model}; AGG=${AGG:-mean5}; COMBINE=${COMBINE:-blend}; SHARD=${SHARD:-25}
+HMAX=${HMAX:-2}; SIM_BUDGET=${SIM_BUDGET:-100}; PRIOR=${PRIOR:-model}; AGG=${AGG:-mean5}; COMBINE=${COMBINE:-blend}; SHARD=${SHARD:-25}
+KEY=${KEY:-/scratch/dm1487/datasets/namo_testset_v1/labels/pure2push.json}
 mkdir -p "$OUT_DIR"
 START=$(( SLURM_ARRAY_TASK_ID * SHARD )); END=$(( START + SHARD ))
-echo "task ${SLURM_ARRAY_TASK_ID}: [$START,$END) hmax=$HMAX budget=$SIM_BUDGET prior=$PRIOR agg=$AGG combine=$COMBINE on $(hostname)"
+echo "task ${SLURM_ARRAY_TASK_ID}: [$START,$END) hmax=$HMAX budget=$SIM_BUDGET prior=$PRIOR key=$(basename $KEY) on $(hostname)"
 /scratch/dm1487/envs/namo/bin/python -u scripts/sandbox/eval_bestfirst.py \
-    --ckpt "$CKPT" --manifest "$MANIFEST" --hmax "$HMAX" --sim-budget "$SIM_BUDGET" \
+    --ckpt "$CKPT" --manifest "$MANIFEST" --hmax "$HMAX" --sim-budget "$SIM_BUDGET" --key "$KEY" \
     --prior "$PRIOR" --agg "$AGG" --combine "$COMBINE" --start "$START" --end "$END" \
     --out "$OUT_DIR/shard_${SLURM_ARRAY_TASK_ID}.json" --leaf-out "$OUT_DIR/shard_${SLURM_ARRAY_TASK_ID}.jsonl"
 echo "task ${SLURM_ARRAY_TASK_ID} DONE"

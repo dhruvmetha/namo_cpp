@@ -26,12 +26,15 @@ from namo.core.xml_goal_parser import extract_goal_with_fallback  # noqa: E402
 PURE2PUSH = "/scratch/dm1487/manifests/test_pure2push_combined.txt"
 
 
-def rank_first_pushes_h2(planner, env, robot_goal, xml, s0, h):
-    """Rank ALL reachable (obj, edge, depth) first pushes by Q(s0, ., h). ZERO sims.
-    Returns [(obj, Goal, value)] sorted desc. Mirrors BeamPlanner._candidates' reachability pooling
-    but scores at budget h (the foresight query)."""
+def rank_first_pushes_h2(planner, env, robot_goal, xml, s0, h, restrict_obj=None):
+    """Rank reachable (obj, edge, depth) first pushes by Q(s0, ., h). ZERO sims.
+    Returns [(obj, Goal, value)] sorted desc. restrict_obj (per-episode invariant): if set, consider ONLY
+    that object — the search must push the LABELED blocking object, so it's the true k-push problem on it
+    (not 'open the path via any object'). Mirrors BeamPlanner._candidates' reachability pooling at budget h."""
     env.set_full_state(s0)
     reach_objs = list(env.get_reachable_objects())          # warms wavefront
+    if restrict_obj is not None:
+        reach_objs = [o for o in reach_objs if o == restrict_obj]   # ONLY the labeled object
     redges = {o: set(env.get_reachable_edges(o)) for o in reach_objs}
     pool = []
     for obj in reach_objs:

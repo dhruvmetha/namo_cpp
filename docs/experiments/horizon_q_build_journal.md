@@ -207,6 +207,14 @@ Dir `/scratch/dm1487/datasets/namo_testset_v1/labels/` (each JSON keyed by scene
   Predict: NoHorizon-v1 ≈ Horizon-v1 on the test panel. Test: qfull_nohz_v4hq (training).
 - **H11 — In SEARCH the horizon is REDUNDANT (sim does the lookahead). VERDICT: ⏳ PENDING.**
   Hyp: best-first(NoHorizon) ≈ best-first(Horizon); horizon only helps the REACTIVE (0-sim) regime. Test: NoHorizon vs Horizon best-first.
+- **H13 — Eval MUST be object-constrained / per-episode (push the LABELED object only). VERDICT: ⏳ PENDING [USER design].**
+  Obs: unconstrained best-first solved ~7% of "pure-2-push" scenes in 1 sim — because scenes have MULTIPLE reachable objects
+  (verified: env_0177 has obstacle_1 AND obstacle_3) and the search opened the path via a DIFFERENT (easier) object than the
+  labeled 2-push one. Hyp [USER]: restrict the search to rec.object_id (one-to-one w/ GT key) ⇒ evaluates the TRUE k-push
+  problem on the labeled object; same object-matched eval for ALL models (M1/M2a/M2b/M2c via eval_scorer, which is already
+  object-matched). Predict(accept iff): object-constrained 1-sim "solves" on pure-2 → ~0; solve-rate < unconstrained (no
+  cross-object shortcut) but it's the HONEST 2-push number. Impl: rank_first_pushes_h2(restrict_obj=), eval_bestfirst --key
+  + per-record loop. Test: object-constrained pure-2 run (model+uniform). NOTE: ~2 manifest scenes lack a key record (n_no_record).
 - **H12 — v2 OOD data (post-push + 1-push@H2) fixes the OOD failures. VERDICT: ⏳ PENDING.**
   Obs: fails on post-push s1 (dead-leaf calib 0.549) + 1-push@H2 (dilution). Hyp: inject OOD samples → both improve.
   Predict(accept iff): Horizon-v2 > Horizon-v1 on post-push calibration AND best-first-pure1 solve. Test: Horizon-v2.
