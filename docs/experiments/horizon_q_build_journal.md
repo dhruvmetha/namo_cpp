@@ -572,6 +572,24 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   reachable-but-unsampled (the C15 poison) — only reachability_log disambiguates, so M2c-on-H2 cannot be
   a mere flag on current data. (M2c on H=1-type rows where tried==reachable needs no recollect.)
 
+- **fpv_m2c FINAL (50/50) [2026-06-13 ~01:05]: M2c ≈ M2b, edges to M2b — hypothesis REJECTED, no recollect.**
+  @1 79.8 vs 80.6 · @5 88.4 vs 90.1 · e2e@2push 61.6 vs 63.0 · 2nd-push@1 71.7 vs 69.8 (M2c's only +, noise) ·
+  OOD value margin 0.097 vs 0.106 (M2c THINNER). Intrinsic legality did NOT travel OOD as performance —
+  mechanism: search pools reachable-only, where M2b/M2c were already equal. Per [USER] decoupling
+  (4379917): NO 2-push reachability-recollect triggered; M2c stays a deploy-robustness feature only.
+- **POST-M3 FORK [USER question, causality]: the residual hard-case failure is CONTACT-POINT (edge)
+  selection — 60% of hard@1 misses are wrong-edge, ~90% of all misses; depth is solved (82% given right
+  edge), reachability solved.** Diagnosis: Q(s,a) is a black-box (scene,push)->value with NO explicit
+  forward model — it implicitly composes push->object-displacement->connectivity. Two failure kinds:
+  (a) CONSEQUENCE-BLINDNESS (can't tell which edge sets up better w/o modeling what it produces) =
+  causal/forward-model gap; (b) genuine ALIASING (scenes indistinguishable at 64x64) = resolution, not
+  causality. **THE DECIDING MEASUREMENT: Q-full reactive-vs-search gap on the SAME wrong-edge hard
+  scenes** — if search >> reactive there, it's consequence-blindness → add an EFFECT-PREDICTION auxiliary
+  head (predict post-push reachable region / object pose; data already rendered as _step rows; HACMan-
+  flow / model-based-lite). If reactive ≈ search, it's aliasing → resolution/FOV, not causality. Levers
+  ranked: (1) effect-prediction aux head [cheap, data ready]; (2) H=2 distillation [in progress = Q-full];
+  (3) latent world model TD-MPC2 [big]; (4) counterfactual/contrastive pairs for causal-feature isolation.
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
