@@ -11,6 +11,8 @@
 
 ---
 
+> **MODEL REGISTRY (all ckpt paths/numbers/eval dirs): [horizon_q_model_registry.md](horizon_q_model_registry.md)** — read it, do not glob.
+
 ## 1. The problem (one paragraph)
 Region Opening (RO): a 7 cm diff-drive car opens a path to a goal region by pushing ONE blocking object in a
 sequence of 1–3 pushes, choosing among **300 discrete pushes** (60 contact edges × 5 depths). The sim is a
