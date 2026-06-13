@@ -709,8 +709,7 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   occur since we save the actual collector state); root s0 captured 46/46. The 51/625 "non-moved" post-push
   states all explained: 4 stuck/collision + 47 NO-EFFECT pushes (replay-confirmed: env.step also moves 0mm
   → push genuinely engages nothing → s1==s0 faithful, NOT a capture bug). ⇒ render path must FILTER
-  no-effect post-push states (object pose == s0; redundant with root). Smoke2 (10 scenes, 56017972) running
-  for robustness before the full launch.
+  no-effect post-push states (object pose == s0; redundant with root). Smoke2 (10 scenes, 56017972): ALL GREEN (58 eps, 1418 post-push, good 298 + dead 1120, 100% aligned). FULL v2 RE-COLLECTION LAUNCHED: job 56018429 (125,494 scenes, 64 shards, pkls_2push_v2, ~7h). Monitor b1xdohzj4.
   **FULL v2 RE-COLLECTION (ready, gated on smoke2):** MANIFEST v4_hq_h2_deadend_scenes_unified.txt (125,494
   scenes) → PKL_SUBDIR=pkls_2push_v2, CONFIG sampled_depth2_k30.yaml, 64 shards, 24h wall (~7h). Then
   NEW render-from-saved-state path (reads node_log state_observation, renders each post-push s1 + label
