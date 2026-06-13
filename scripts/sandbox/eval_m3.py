@@ -60,13 +60,29 @@ def main():
     ap.add_argument("--h", type=int, default=2, help="budget to query (2 = foresight; 1 = reactive-1push control)")
     ap.add_argument("--topk", type=int, default=10, help="grade hit@k for k up to this; verify-by-sim budget per first push")
     ap.add_argument("--second-k", type=int, default=15, help="2nd-push verify budget when checking a first push is a setup")
+    ap.add_argument("--grade", default="sim", choices=["sim", "key"],
+                    help="sim = verify each top-k first push by simulation (comparable to the 75.2/34.5 sim bars). "
+                         "key = grade vs the exhaustive pure2push.json setups (ZERO sims, fast feeler; ground-truth).")
+    ap.add_argument("--key", default="/scratch/dm1487/datasets/namo_testset_v1/labels/pure2push.json")
     ap.add_argument("--out", default="/scratch/dm1487/eval/m3.json")
     ap.add_argument("--leaf-out", default="/scratch/dm1487/eval/m3.jsonl")
     a = ap.parse_args()
 
     planner = BeamPlanner(ckpt=a.ckpt)
-    print(f"device={planner.scorer.device}  ckpt={os.path.basename(a.ckpt)}  H={a.h}", flush=True)
+    print(f"device={planner.scorer.device}  ckpt={os.path.basename(a.ckpt)}  H={a.h}  grade={a.grade}", flush=True)
     xmls = read_manifest(a.manifest, None)[a.start:a.end]
+    # key grading: posmap[realpath(xml)][object_id] = set of (e,d) that are setups (valid_first_push ∪ valid_1push,
+    # i.e. opens-within-2). ZERO sims — the exhaustive truth from the 2-push validset.
+    posmap = {}
+    if a.grade == "key":
+        kf = json.load(open(a.key))
+        for kx, recs in kf.items():
+            rp = os.path.realpath(kx)
+            d = {}
+            for r in recs:
+                s = {tuple(t) for t in r.get("valid_first_push", [])} | {tuple(t) for t in r.get("valid_1push", [])}
+                d[r["object_id"]] = s
+            posmap[rp] = d; posmap[kx] = d
     KS = [1, 3, 5, 10]
     hit = {k: 0 for k in KS}; n = 0; n_already = n_onepush = 0; t0 = time.time()
     lf = open(a.leaf_out, "w")
@@ -101,10 +117,16 @@ def main():
                     if env.is_robot_goal_reachable():
                         ok = True; break
                 setup_cache[key] = ok; return ok
+
+            def is_setup_key(obj, g1):
+                pm = posmap.get(xml) or posmap.get(os.path.realpath(xml)) or {}
+                return (int(g1.edge_idx), int(g1.depth)) in pm.get(obj, set())
+
+            graded = is_setup_key if a.grade == "key" else is_setup
             n += 1
             found_rank = None
             for rank, (obj, g1, val) in enumerate(pool[:max(KS)]):
-                if is_setup(obj, g1):
+                if graded(obj, g1):
                     found_rank = rank; break
             for k in KS:
                 if found_rank is not None and found_rank < k:
@@ -117,9 +139,11 @@ def main():
             print(f"  scene {xi} err: {ex}", file=sys.stderr)
             continue
     lf.close()
-    res = {"ckpt": a.ckpt, "H": a.h, "n_graded": n, "n_already_open": n_already,
+    res = {"ckpt": a.ckpt, "H": a.h, "grade": a.grade, "n_graded": n, "n_already_open": n_already,
            "hit_at_k": {str(k): (100.0 * hit[k] / n if n else 0.0) for k in KS},
-           "bars": {"old_champ_49sim": 34.5, "fpv_m2b_49sim": 75.2}}
+           "bars": ({"old_champ_49sim": 34.5, "fpv_m2b_49sim": 75.2} if a.grade == "sim"
+                    else {"note": "key-graded vs exhaustive setups (NOT comparable to the 75.2/34.5 sim bars); "
+                                  "compare H=2 vs H=1 grade=key on the SAME scenes"})}
     json.dump(res, open(a.out, "w"))
     print(json.dumps(res, indent=1), flush=True)
 
