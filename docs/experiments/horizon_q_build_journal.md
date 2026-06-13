@@ -622,6 +622,46 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
     w/ existing solvable) rides free sparse. Sample-don't-enumerate: cap per-episode, ~300k not ~3M.
   • COLLECTOR FUTURE-FIX (separate): persist expanded-node states so ExIt/H=3 never drop them (no replay next time).
 
+- **⏰ AUTONOMOUS STATE [2026-06-13 ~03:05 ET — READ AFTER COMPACTION]:** Q-full **v1 = job 56015450**
+  (3 seeds L40S, training, dataloader-bound ~12-14h, realpath-hang FIXED; monitor b9vojph3w → ep5 feeler +
+  completion). The dead 56013237/56013312 are CANCELLED false-starts. v1 verdict suite = a967c31 +
+  registry gates. **[USER directive] BUILD POST-PUSH v2 DATA NOW; LAUNCH Q-full-v2 AS SOON AS ITS SMOKE
+  PASSES (not gated on v1's M3/M4).** Datasheet the H5 (docs/pipeline/horizon_q_datasets.md).
+
+  **v2 BUILD STEPS (post-push harvest, plan in the [USER directive 02:20] entry above):**
+  1. GOOD post-push (~150k, FREE): sample from the 781,881 `_step_1` npz (manifest
+     v4_hq_h2_postpush_npz.txt; cap ~3/episode); SPARSE label = cell (edge_idx_a1, depth_idx_a1)=1, the
+     single recorded opener, loss_mask = just that cell. Tag H=1, state=post-push, dead=0. NEW small
+     builder (npz → src-h5 via convert_to_hdf5 → sparse-label scorer H5 + add_contact_px).
+  2. DEAD post-push (~150k, REPLAY): from trial_log, per episode pick expanded-dead-a1 (parent in
+     depth-2 entries, ALL children fail); replay `env.step(Action(obj,a1.edge,a1.depth))` from XML→s0
+     (namo_rl, deterministic ⇒ reproduces collector s1); render s1 via batch_collection --include-dead-ends
+     (s1 = dead-end H=1 row anchored at post-push pose); label = all-0 over the ~48 tried a2 from kids[a1].
+     SMOKE FIRST: replay a GOOD a1, verify its render ≈ the existing _step_1 npz for that scene (proves
+     replay correctness). Only scale if smoke clean; else journal blocker, do NOT launch a broken v2.
+  3. SAMPLER: WeightedRandomSampler in scorer_data keyed (H, state-type, dead), tunable; default protect
+     H=2 ~30-40%/batch, post-push ~15-20%. NOT concat.
+  4. LAUNCH v2: same recipe as v1 + the post-push H5(s) in the ';'-joined DATA_DIR + sampler config.
+
+  **[USER ANALYSIS REQUEST — why success% plateaus (hard@1 ~33, 60% of hard misses = WRONG-EDGE)] —
+  THE MOTION-EFFECT GAP (user hunch, CLAUDE concurs it's the strongest lead):** the model gets contact
+  LOCATION (contact_px = Fourier PE of the contact pixel + edge_embed) but NOT the MOTION VECTOR each
+  (edge,depth) induces — i.e. *which direction & how far the object moves*. That Δ (se2_target, object-
+  local, from the primitive DB = "nominal effect in free space", perturbed by clutter) IS in the data
+  (npz se2_target_a1) but is NEVER fed as a per-cell INPUT feature; depth is only an OUTPUT axis. So the
+  model must re-learn (edge,depth)→object-motion from scratch. This maps directly onto the edge-selection
+  failure: picking the right edge = knowing which push DIRECTION clears the corridor, which needs the
+  motion vector. HACMan feeds the motion vector (continuous actor); we feed only WHERE, drop the HOW.
+  **CONCRETE EXPERIMENT (post-v2, cheap, opt-in flag like budget_cond): add se2_target (Δx,Δy,Δθ object-
+  frame) as a per-(edge,depth) input token feature; predict edge-selection improves (wrong-edge ↓).**
+  OTHER DIRECTIONS to investigate + why: (a) effect-prediction aux head (predict s1 reachable region from
+  scene+action — consequence-modeling, the causal route; data = post-push renders); (b) [USER] supervise
+  the OPENED/terminal state (an "is-open" / H=0 connectivity head — grounds WHAT "open" means explicitly
+  vs implicit-via-reward); (c) aliasing-floor measurement A (input-neighbor GT-disagreement — is the
+  residual even reducible, or is 64x64 the ceiling? prior: resolution/FOV were FLAT levers ⇒ leans
+  reducible); (d) v2 post-push (OOD calibration fix, in progress). RANK: motion-effect feature (a-hunch)
+  > effect-pred head > opened-state aux > aliasing-floor (cheap, run first to bound the rest).
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
