@@ -760,3 +760,4 @@ work combines ExIt + disagreement-acquisition-for-setups + continuous manipulati
   H-BIFURCATION probe (525ea31) + H=1 parity (eval_scorer, done at ep5=29.1). This is THE headline; verify
   ctx render matches fpv's (the LiveScorer renders s0 the same way). Run on v1's per-seed best ckpts at
   completion → full M3/M4 verdict.
+- **M3 EVAL TOOL: scripts/sandbox/eval_m3.py** (force-added, sandbox gitignored). Zero-sim H=2 foresight: rank first pushes by Q(s0,.,H=2), verify top-k by sim. Run per-seed at v1 completion: --start 0 --end 985 --h 2 --topk 10. --h 1 = reactive-1push control. Smoke 56021488 (5 scenes, ep7).
