@@ -154,11 +154,12 @@ sampler — see the [USER DIRECTIVE 14:00] entry below for the why/how). Don't c
 5. ALL 4 trained → TEST ALL: eval_scorer H=1 & H=2 (onepush set), best-first pure2 & pure1 (model+random),
    key-graded m3. Assemble a 4-family stats table → Slack + journal + registry.
 
-**LIVE JOBS + watchers [14:38 ET]:** OBJECT-CONSTRAINED best-first pure-2 model 56049238 + uniform 56049239
-(budget 100, watcher bb41b7v2c reduces; obj-constraint VALIDATED = 0 one-sim solves ✓ H13); render 56025904
-(9 tail shards, watcher bek3rzkrr→pack); no-horizon 56025708 (val .728); v1 56015587 (val .652). The capped-30
-best-first ×4 (56045369/839/841/842) were CANCELLED (USER: do object-constrained complete, not capped-30).
-Reducers: /scratch/dm1487/eval/reduce_{rollout,bestfirst}.py.
+**LIVE JOBS + watchers [15:20 ET]:** THE 900-CAP EVAL FLEET (USER: cap everything at 900 sims; random = real
+sims ≥5 seeds, NOT analytic) — MODEL best-first 56052662 (`bf900_model_ep16`, Horizon-v1 s1 ep16 val .6517) +
+RANDOM ×5 seeds 56052663-667 (`bf900_uniform_s0..4`, SEED_BASE 7000..11000), all SIM_BUDGET=900 SHARD=13
+array 0-75, key-driven + object-constrained. Superseded budget-100 model run 56050672 CANCELLED. render 56025904
+(4 tail shards →pack); no-horizon 56025708 (val .728); v1 56015587 (val .652, still training; ep16 is current best).
+Reducer for the curve: `scripts/sandbox/reduce_bestfirst_curve.py` (solve@K from leaf jsonls, --avg-seeds for random).
 **TOOLS (all committed):** eval_bestfirst.py, eval_rollout.py, eval_m3.py(--grade key), render_postpush_from_state.py,
 build_postpush_h5.py, render_postpush.slurm, bestfirst_eval.slurm, m3_key_feeler.slurm, eval_scorer_feeler.slurm(EVAL_H).
 **KEY FACTS to not re-fumble:** TEST SET is EXHAUSTIVE 2-push (exhaustive_depth2.yaml; full (a1,a2)→outcome in raw
@@ -169,6 +170,49 @@ pkls' primitive_trial_log) — k=30 sampling was TRAINING only. ckpts get pruned
 > graded, ~49 sims. THREE different 'pure-2' manifests existed (787/985/983-key), none aligned. ⇒ 75.2/34.5 are
 > NOT comparable to the unified object-constrained key-driven solve numbers; RE-RUN fpv (M2b-as-leaf) on
 > test_pure2_fromkey.txt before citing. All misaligned manifests archived to _archive_misaligned_2026-06-13.
+
+### 🎯 EVAL METHODOLOGY — CANONICAL & UNIFIED (the non-confused version) [2026-06-13 ~15:20 ET, USER-directed]
+This is the ONE eval story. Numbers computed before unification (75.2 / 34.5 / 22.9 / 62.4 / analytic-84.3) are
+SUPERSEDED — do NOT cite them against these. Anything new gets graded exactly this way.
+
+1. **What we grade (the unit).** Region Opening on the car: a path to a goal region is blocked by ONE labeled
+   object; the planner must open it by pushing THAT object via ≤H pushes (H=2 here), choosing among the object's
+   reachable (edge,depth) pushes (≤60 edges × 5 depths). The unit is one EPISODE = (scene-xml, object_id, goal),
+   NEVER the xml — a scene hosts several episodes (CLAUDE.md GOTCHA).
+
+2. **One key drives everything (key, not scene-list).** Pure-2-push set: **`pure2push.json`** (983 scenes / 1018
+   episodes; EVERY episode is_1push_solvable=False & is_2push_solvable=True — needs a real setup-then-open).
+   Key-derived manifest `test_pure2_fromkey.txt` (983). 1-push companion = `onepush_episodes.json` (991/1323).
+   All scene-list manifests that didn't match the key are ARCHIVED (`_archive_misaligned_2026-06-13`). RULE: drive
+   eval FROM THE KEY, per-record; the env-filename scene-lists are non-unique (651/983 overlap) and were the bug.
+
+3. **Object-constrained (per-episode invariant).** The search may push ONLY `rec.object_id`. Unconstrained,
+   best-first "solves" a pure-2 scene in 1 push via a DIFFERENT, easier object in the same room (~7% phantom
+   @1sim). Constrained ⇒ @1sim solves = **0** = the honest 2-push problem (H13 ✅).
+
+4. **Metric = SOLVE-RATE vs SIMS, one curve (reactive→search on the same axis).** A sim = one real env push
+   (~1s). solve@K = fraction of episodes opened within K sims. K=2 ≈ the reactive/0-search anchor (one setup + one
+   open = the minimum 2-push cost); large K = full search. **EVERYTHING CAPPED AT 900 SIMS [USER].** Best-first
+   explores in a budget-INDEPENDENT order, so ONE 900-cap run records the sim-index each episode solved at and
+   yields the WHOLE curve {2,3,5,10,20,50,100,200,500,900} by post-processing the leaf jsonl (no separate per-budget
+   runs). Reducer: `scripts/sandbox/reduce_bestfirst_curve.py` (--avg-seeds → random mean±std).
+
+5. **MODEL = real sims, no shortcuts.** `eval_bestfirst.py --prior model`: value-guided greedy best-first ON THE
+   LABELED OBJECT. Q(s,a,H) expands (which push to add); V=mean_top5(Q(s,·)) selects (which branch to chase);
+   priority=blend(Q,V). Simulates every push it tries; grades by `env.is_robot_goal_reachable()` (includes the real
+   post-push state s1 — the OOD target — so it can't over-credit like a first-push proxy). ckpt = Horizon-v1
+   qfull_v4hq_s1 ep16 (val .6517). → `bf900_model_ep16`.
+
+6. **RANDOM = real sims too, ≥5 seeds [USER: forget the analytic-over-the-map shortcut].** Same script
+   `--prior uniform`: IDENTICAL loop + IDENTICAL candidate SET (the labeled object's reachable pushes), but RANDOM
+   order and NO model — the forward pass is skipped entirely (the baseline must not touch the network; also makes it
+   cheap on CPU). 5 seeds (SEED_BASE 7000..11000), report mean±std. → `bf900_uniform_s0..s4`. This is the
+   brute-force floor the model must beat; the model−random gap = what the learned value buys at each sim budget.
+
+7. **eval_scorer (M-series RANKING referee) is SEPARATE and still valid.** Offline hit@k over pre-rendered H5
+   crops, object-MATCHED per crop, NO sim — "does the model rank the opener high?" (M1 +6.1pp; M2a/M2b verdicts
+   STAND). Best-first answers the complementary "does the search OPEN the path?" Both object-constrained; they share
+   the scoring core (live_scorer imports eval_scorer's loader/contact_px/match) ⇒ consistent, comparable.
 
 ### 🧩 EVAL ARCHITECTURE — two scripts, ONE shared scoring core [2026-06-13, verified — consistent, comparable]
 - **`eval_scorer.py` = RANKING (hit@k)**: offline, reads PRE-rendered H5 crops, NO sim, object-matched per crop.

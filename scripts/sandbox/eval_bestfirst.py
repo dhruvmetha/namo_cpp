@@ -34,7 +34,8 @@ PURE2PUSH = "/scratch/dm1487/manifests/test_pure2_fromkey.txt"
 def candidates(planner, env, goal, xml, state, h, prior, agg, rng, restrict_obj=None):
     """Reachable pushes from `state` (restricted to restrict_obj = the labeled object) with a priority-base
     value + the state value V. model: q = Q(state,a,h); V = agg of top Q (mean5 robust, or max). uniform: random q, V=0."""
-    pool = rank_first_pushes_h2(planner, env, goal, xml, state, h, restrict_obj=restrict_obj)   # [(obj, g, q)]
+    pool = rank_first_pushes_h2(planner, env, goal, xml, state, h, restrict_obj=restrict_obj,
+                                score=(prior != "uniform"))          # uniform: skip the model forward pass
     if not pool:
         return [], 0.0
     if prior == "uniform":
@@ -89,6 +90,9 @@ def main():
     ap.add_argument("--key", default="/scratch/dm1487/datasets/namo_testset_v1/labels/pure2push.json",
                     help="GROUND-TRUTH key (per (object,goal) records). The search is CONSTRAINED to the labeled "
                          "object → true k-push problem, one-to-one w/ GT. Eval is per-EPISODE (record), not per-scene.")
+    ap.add_argument("--seed-base", type=int, default=7000,
+                    help="RNG base for the uniform baseline; vary across runs for multi-seed random (model is "
+                         "deterministic, so --seed-base only matters for --prior uniform).")
     ap.add_argument("--out", default="/scratch/dm1487/eval/bestfirst.json")
     ap.add_argument("--leaf-out", default="/scratch/dm1487/eval/bestfirst.jsonl")
     a = ap.parse_args()
@@ -113,7 +117,7 @@ def main():
                 n_already += 1; continue
             s0 = env.get_full_state()
             for ri, rec in enumerate(recs):                       # one EPISODE per (object,goal) record
-                rng = random.Random(7000 + xi * 17 + ri)
+                rng = random.Random(a.seed_base + xi * 17 + ri)
                 obj = rec.get("object_id")
                 solved, sims, plen = solve_scene(planner, env, goal, xml, s0, a.hmax, a.sim_budget,
                                                  a.prior, a.agg, a.combine, rng, restrict_obj=obj)

@@ -26,11 +26,13 @@ from namo.core.xml_goal_parser import extract_goal_with_fallback  # noqa: E402
 PURE2PUSH = "/scratch/dm1487/manifests/test_pure2_fromkey.txt"
 
 
-def rank_first_pushes_h2(planner, env, robot_goal, xml, s0, h, restrict_obj=None):
+def rank_first_pushes_h2(planner, env, robot_goal, xml, s0, h, restrict_obj=None, score=True):
     """Rank reachable (obj, edge, depth) first pushes by Q(s0, ., h). ZERO sims.
     Returns [(obj, Goal, value)] sorted desc. restrict_obj (per-episode invariant): if set, consider ONLY
     that object — the search must push the LABELED blocking object, so it's the true k-push problem on it
-    (not 'open the path via any object'). Mirrors BeamPlanner._candidates' reachability pooling at budget h."""
+    (not 'open the path via any object'). Mirrors BeamPlanner._candidates' reachability pooling at budget h.
+    score=False: skip the model forward pass entirely, return q=0.0 for every candidate (the RANDOM baseline
+    must not touch the model — same candidate SET, no scores; caller assigns random priority)."""
     env.set_full_state(s0)
     reach_objs = list(env.get_reachable_objects())          # warms wavefront
     if restrict_obj is not None:
@@ -40,16 +42,20 @@ def rank_first_pushes_h2(planner, env, robot_goal, xml, s0, h, restrict_obj=None
     for obj in reach_objs:
         if not redges[obj]:
             continue
-        P = planner.scorer.score_state(env, obj, robot_goal, xml, h=h)   # (60,5) at budget h
-        env.set_full_state(s0)                                            # score_state may move state
+        if score:
+            P = planner.scorer.score_state(env, obj, robot_goal, xml, h=h)   # (60,5) at budget h
+            env.set_full_state(s0)                                            # score_state may move state
+            ndepth = P.shape[1]
+        else:
+            P = None; ndepth = 5                                              # uniform baseline: no model call
         goals_per_edge = planner.prim.generate_goals(obj, s0, env, max_goals=0)
         for edge_goals in goals_per_edge:
             for g in edge_goals:
                 if g is None:
                     continue
                 e = int(getattr(g, "edge_idx", -1)); d = int(getattr(g, "depth", -1))
-                if e in redges[obj] and 0 <= d < P.shape[1]:
-                    pool.append((obj, g, float(P[e, d])))
+                if e in redges[obj] and 0 <= d < ndepth:
+                    pool.append((obj, g, float(P[e, d]) if score else 0.0))
     pool.sort(key=lambda x: -x[2])
     return pool
 
