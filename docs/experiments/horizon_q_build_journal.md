@@ -161,6 +161,17 @@ build_postpush_h5.py, render_postpush.slurm, bestfirst_eval.slurm, m3_key_feeler
 **KEY FACTS to not re-fumble:** TEST SET is EXHAUSTIVE 2-push (exhaustive_depth2.yaml; full (a1,a2)→outcome in raw
 pkls' primitive_trial_log) — k=30 sampling was TRAINING only. ckpts get pruned by save_top_k (use current best, not ep11).
 
+### 🧩 EVAL ARCHITECTURE — two scripts, ONE shared scoring core [2026-06-13, verified — consistent, comparable]
+- **`eval_scorer.py` = RANKING (hit@k)**: offline, reads PRE-rendered H5 crops, NO sim, object-matched per crop.
+  The M-series referee (M1/M2a/M2b/M2c). "Does the model rank the opener high?"
+- **`eval_bestfirst.py` = SOLVE (solve-rate / sims-to-solve)**: live env, runs the SEARCH, SIMULATES, object-
+  constrained via --key. "Does the model's search open the path?" (also: eval_rollout, eval_m3 = same live path.)
+- **SHARED CORE (so the two are consistent):** `live_scorer.py` imports `load_scorer, contact_px, match_episode`
+  FROM eval_scorer + renders with the SAME `NAMODataVisualizer.generate_all_masks_highres` that built the H5
+  crops. ⇒ model-load + contact_px + episode-match + crop-render are IDENTICAL across both. Can't merge (offline-
+  static vs online-live I/O) but the scoring layer IS unified. TODO consistency check: eval_scorer hit@1 ≈
+  best-first first-push top-1 on the same scenes (live_scorer has a rare wavefront-fallback path, last_fell_back).
+
 ### 📋 CANONICAL TEST SETS / EVAL KEYS [2026-06-13, verified inventory — USE THESE, don't guess]
 Dir `/scratch/dm1487/datasets/namo_testset_v1/labels/` (each JSON keyed by scene-xml → list of per-(object,goal) records).
 - **1-PUSH eval → KEY `onepush_episodes.json`** (991 scenes / 1323 records; fields `valid`/`tried` = openers). eval_scorer
@@ -176,6 +187,13 @@ Dir `/scratch/dm1487/datasets/namo_testset_v1/labels/` (each JSON keyed by scene
   whether to constrain the eval to the labeled object. [USER decisions pending: (1) 1-push key = onepush_episodes? (2) constrain eval?]
 
 ### 🔬 HYPOTHESIS LEDGER [USER 2026-06-13: run EVERYTHING as Observation→Hypothesis→Prediction→Verdict; accept/reject ON NUMBERS ONLY, nothing else. Add a new H# for every new design choice/problem; fill Verdict when numbers land.]
+
+> **⚠ EVAL CORRECTION IN PROGRESS [2026-06-13 ~18:30, H13]:** the SEARCH/SOLVE numbers below that used the
+> ALL-OBJECTS ranker are SUPERSEDED, being re-run OBJECT-CONSTRAINED (push only the labeled object). Affected:
+> reactive-rollout **22.9** (H6), key-graded-m3 **19.8/5.5×floor** (H1, now superseded by object-constrained
+> solve-rate), old best-first **44** (H9). NOT affected (eval_scorer is already object-matched, numbers STAND):
+> M1/M2a/M2b/M2c, budget-Q@H1 **+5.5pp** (H5), H=2-dilutes-on-1push (H2), dead-end **+3.2pp**. Corrected numbers
+> fill in when jobs 56049238/9 (+flat-h1) land; ledger verdicts re-stamped then.
 
 - **H1 — Budget-conditioning works (the core bet). VERDICT: ✅ ACCEPTED.**
   Obs: a setup push is worthless with 1 push left, valuable with 2. Hyp: conditioning Q on remaining budget H
