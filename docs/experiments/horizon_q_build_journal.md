@@ -738,6 +738,22 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   • CAVEAT: H=1 sim bars (fpv 75.2 / champ 34.5) are SEARCH (49 sims) + first-push-graded — NOT comparable
     to the 0-sim rollout; they bound the search ceiling, a different axis.
 
+- **🧪 NO-HORIZON ABLATION LAUNCHED [2026-06-13 ~11:15 ET, job 56025708, [USER] "do we even need the horizon?"].**
+  [USER hypothesis: a single model on all 1+2-push data, NO horizon, just learns "what's a good push" and
+  that may suffice.] IDENTICAL recipe to Q-full v1 (same ';'-joined m2b+h2 data, HL-Gauss value head,
+  B30 sample_k=30, 3 seeds) EXCEPT budget_cond OFF + budget_h=false → predicts the gamma-valued f_grid
+  (opener=1.0/setup=0.9/fail=0) WITHOUT the H token. Run `qfull_nohz_v4hq_s{1,2,3}`. The clean control for
+  "does the horizon pull its weight." WHAT THE HORIZON BUYS (honest, the only 3 things): (1) budget-honesty
+  (knows what's achievable in the budget you HAVE; can say "unsolvable-in-1" / "1 push suffices" — the no-hz
+  model can't); (2) a BOOTSTRAPPABLE value for deeper horizons (Q(s,a,H)=[opens]∨V(T(s,a),H−1) → distill to
+  3/4-push, the ExIt arc) — flat goodness has no remaining-depth notion; (3) distance-to-goal gradient
+  (γ^steps) = better search heuristic. The hz may NOT be needed for raw FIRST-PUSH RANKING — a pooled
+  goodness model (opener=1.0>setup=0.9>fail) ranks openers first when present, setups when not, AND avoids
+  the per-horizon imbalance that made our H=2 head dilute (so it could be MORE robust across 1/2-push).
+  CAVEAT in the data: a setup push has CONFLICTING labels across rows (0 in its H=1 row, 0.9 in its H=2 row)
+  → no-hz model averages to ~0.45; ranking order (opener>setup>fail) preserved, absolute values muddied.
+  COMPARE on: rollout (reactive+search) + onepush (H-equiv) + pure2push. Same seeds → paired.
+
 - **⚠️ KEY FINDING — H=2 does NOT subsume H=1; budget-matched/cascade deploy required [2026-06-13 ~10:53 ET,
   jobs 56025283/4, eval_scorer --h].** [USER] intuition "H=2 captures 1push too" tested on the ONEPUSH set
   (3 seeds, ep15). **budget-Q @H=1: hard@1 = 36.5/40.2/38.6 → MEAN 38.4 (vs M2b 32.86 = +5.5pp), easy@1 ~98.8
