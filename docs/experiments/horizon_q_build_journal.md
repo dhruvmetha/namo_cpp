@@ -681,6 +681,27 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   re-collection [USER decision — significant compute + collector change]; v1 (root-only, 56015587) +
   its M3/M4 verdicts are the near-term result. DO NOT autonomously launch a re-collection or a partial v2.
 
+- **[ANALYSIS, developed 2026-06-13 ~03:35] WHY success% plateaus — the motion-effect decomposition,
+  sharpened by tonight's collision finding.** The residual failure is edge (contact-point) selection (60%
+  of hard@1 misses; depth 82% solved, reachability solved). The push EFFECT = nominal free-space primitive
+  motion (deterministic fn of edge,depth = se2_target) PERTURBED by collisions (tonight: free-space 298/298
+  exact, collision 47/47 diverge — the effect is genuinely collision-dependent). The model gets contact
+  LOCATION (contact_px) but NOT the motion effect. So edge-selection failure splits cleanly:
+    (A) NOMINAL-DIRECTION blindness — the model doesn't know "edge 7 pushes the object NW, edge 23 pushes
+        it E" without re-deriving it. FIX: feed se2_target (Δx,Δy,Δθ object-frame, from the primitive DB,
+        already in npz se2_target_a1) as a per-(edge,depth) INPUT token feature. Free, opt-in flag like
+        budget_cond. Predicts wrong-edge ↓. THE TOP LEAD (user hunch).
+    (B) COLLISION-PERTURBATION blindness — for cluttered pushes the effect deviates from nominal; the model
+        must read the scene to predict the deviation. This is the consequence/forward-model part → effect-
+        prediction aux head (predict post-push reachable region from scene+action). Harder.
+  Tonight's collision result QUANTIFIES the split: ~50% of pushes collide, so (B) is ~half the problem and
+  (A) the other half. Test order: add se2_target feature (A, cheap) FIRST — if wrong-edge drops, nominal-
+  direction was the gap; the residual after is (B)/aliasing. Then aliasing-floor measurement (is the (B)
+  residual reducible at 64x64, or observation-limited? prior: resolution/FOV FLAT ⇒ leans reducible ⇒
+  effect-pred head). [USER also raised: supervise the OPENED/terminal state at "H=0" — an is-open
+  connectivity head grounding WHAT open means; speculative, lower priority than A/B.] All gated after
+  v1's M3/M4 (which tell us if foresight distills at all before adding features).
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
