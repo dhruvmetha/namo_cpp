@@ -555,6 +555,11 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   application to sampled H=2 rows would be the C15 bug — needs per-row gating, deferred); (c) Q-full
   recipe UNCHANGED tonight (one-change discipline). Evals: /scratch/dm1487/eval/{m2c,m2d}_verdict/.
 
+- **📌 STANDING RULE [USER 2026-06-13]: EVERY trained model goes in [horizon_q_model_registry.md](horizon_q_model_registry.md)
+  the moment it trains** — its 3 best-val ckpt paths (the wandb-hash dirs are unrecoverable by glob), data
+  H5, headline number, and eval dir. The main journal links to it; do NOT scatter ckpt paths in §9 prose.
+  NEXT to register: Q-full (qfull_v4hq) on launch; fpv_m2c results when 56008453 lands.
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls

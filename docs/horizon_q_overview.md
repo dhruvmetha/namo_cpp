@@ -5,6 +5,7 @@
 > the 37-decision design spec with citations lives in
 > [experiments/multipush_horizonQ_journal.md](experiments/multipush_horizonQ_journal.md).
 > Status snapshot in this file: **2026-06-12**.
+> **All model checkpoints/numbers/eval dirs: [experiments/horizon_q_model_registry.md](experiments/horizon_q_model_registry.md).**
 
 ## 1. The abstract problem
 
