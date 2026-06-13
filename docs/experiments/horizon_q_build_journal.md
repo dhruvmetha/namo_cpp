@@ -607,6 +607,21 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   (Hydra-quoted in train_h5_sampling.slurm now) EXTRA_OVERRIDES="+network.budget_cond=true +network.value_bins=51
   +model.head_mode=hl_gauss +data.budget_h=true" array=9-11 time=14:00:00.
 
+- **[USER directive 2026-06-13 ~02:20] POST-PUSH HARVEST — BUILD NOW, v2 NOT GATED ON v1.** Launch Q-full-v2
+  (root + post-push) as soon as the post-push data is ready, regardless of v1's M3/M4 outcome. Datasheet
+  the H5 when built (docs/pipeline/horizon_q_datasets.md). SOURCING (decided after npz inspection — good-s1
+  npz has edge_idx_a1=opener + object_center but NO parent-a1, so its FULL grid is unrecoverable from the
+  free render; design accordingly):
+  • **GOOD post-push (~150k): FREE from the 781,881 rendered _step_1 npz** — sparse-positive label
+    (cell edge_idx_a1=1, single opener; valid masked row = solvable post-push state). Sample ≤3/episode.
+  • **DEAD post-push (~150k): REPLAY** — load XML→s0, execute the expanded-dead-a1 (from trial_log), render
+    s1 via --include-dead-ends, full all-zero grid from kids[a1] (~48 tried a2, all fail). 782k validates replay.
+  • Total ~300k post-push pool, tagged (horizon=1, state=post-push, outcome). TRAIN ratio = stratified
+    WeightedRandomSampler (tunable), NOT concat — protect H=2 (~30-40%/batch), post-push ~15-20%.
+  • Rationale: dead post-push (the 0.549-calibration fix) gets FULL supervision; good post-push (redundant
+    w/ existing solvable) rides free sparse. Sample-don't-enumerate: cap per-episode, ~300k not ~3M.
+  • COLLECTOR FUTURE-FIX (separate): persist expanded-node states so ExIt/H=3 never drop them (no replay next time).
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
