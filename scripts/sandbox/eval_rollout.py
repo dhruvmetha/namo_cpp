@@ -34,7 +34,7 @@ from scorer_beam import BeamPlanner, make_env, make_action, read_manifest, FALLB
 from eval_m3 import rank_first_pushes_h2  # noqa: E402
 from namo.core.xml_goal_parser import extract_goal_with_fallback  # noqa: E402
 
-PURE2PUSH = "/scratch/dm1487/manifests/test_pure2push_combined.txt"
+PURE2PUSH = "/scratch/dm1487/manifests/test_pure2_fromkey.txt"
 
 
 def ranked(planner, env, goal, xml, s, h, prior, rng):

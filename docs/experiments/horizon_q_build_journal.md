@@ -164,6 +164,12 @@ build_postpush_h5.py, render_postpush.slurm, bestfirst_eval.slurm, m3_key_feeler
 **KEY FACTS to not re-fumble:** TEST SET is EXHAUSTIVE 2-push (exhaustive_depth2.yaml; full (a1,a2)→outcome in raw
 pkls' primitive_trial_log) — k=30 sampling was TRAINING only. ckpts get pruned by save_top_k (use current best, not ep11).
 
+> **⚠ SUSPECT BARS [2026-06-13 ~19:03]:** fpv_m2b **75.2@1** + old-champ **34.5@1** were computed on YET ANOTHER
+> manifest (`pure2push_scenes.txt`, 787 scenes, only 640 overlap the key) — NOT object-constrained, first-push-
+> graded, ~49 sims. THREE different 'pure-2' manifests existed (787/985/983-key), none aligned. ⇒ 75.2/34.5 are
+> NOT comparable to the unified object-constrained key-driven solve numbers; RE-RUN fpv (M2b-as-leaf) on
+> test_pure2_fromkey.txt before citing. All misaligned manifests archived to _archive_misaligned_2026-06-13.
+
 ### 🧩 EVAL ARCHITECTURE — two scripts, ONE shared scoring core [2026-06-13, verified — consistent, comparable]
 - **`eval_scorer.py` = RANKING (hit@k)**: offline, reads PRE-rendered H5 crops, NO sim, object-matched per crop.
   The M-series referee (M1/M2a/M2b/M2c). "Does the model rank the opener high?"

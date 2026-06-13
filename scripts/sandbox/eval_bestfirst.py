@@ -28,7 +28,7 @@ from scorer_beam import BeamPlanner, make_env, make_action, read_manifest, FALLB
 from eval_m3 import rank_first_pushes_h2  # noqa: E402  -> [(obj, Goal, q)] desc by Q(state,.,h)
 from namo.core.xml_goal_parser import extract_goal_with_fallback  # noqa: E402
 
-PURE2PUSH = "/scratch/dm1487/manifests/test_pure2push_combined.txt"
+PURE2PUSH = "/scratch/dm1487/manifests/test_pure2_fromkey.txt"
 
 
 def candidates(planner, env, goal, xml, state, h, prior, agg, rng, restrict_obj=None):
