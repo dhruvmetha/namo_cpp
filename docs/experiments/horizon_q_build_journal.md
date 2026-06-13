@@ -161,6 +161,20 @@ build_postpush_h5.py, render_postpush.slurm, bestfirst_eval.slurm, m3_key_feeler
 **KEY FACTS to not re-fumble:** TEST SET is EXHAUSTIVE 2-push (exhaustive_depth2.yaml; full (a1,a2)→outcome in raw
 pkls' primitive_trial_log) — k=30 sampling was TRAINING only. ckpts get pruned by save_top_k (use current best, not ep11).
 
+### 📋 CANONICAL TEST SETS / EVAL KEYS [2026-06-13, verified inventory — USE THESE, don't guess]
+Dir `/scratch/dm1487/datasets/namo_testset_v1/labels/` (each JSON keyed by scene-xml → list of per-(object,goal) records).
+- **1-PUSH eval → KEY `onepush_episodes.json`** (991 scenes / 1323 records; fields `valid`/`tried` = openers). eval_scorer
+  default. ⚠ For best-first pure-1 I used `test_1push_solvable_combined.txt` (539 = aug9 159 + feb 380) — a SUBSET, not the
+  full 991. STANDARDIZE 1-push eval on onepush_episodes.json [USER decision pending].
+- **PURE-2-PUSH eval → KEY `pure2push.json`** (983 scenes / 1018 records; **ALL is_1push_solvable=False & is_2push_solvable=True**).
+  **Manifest: `test_pure2push_combined.txt` (985 ≈ matches).** The clean pure-2 set — 0 one-push openers in the label. Used = correct.
+  Difficulty bins: `pure2push_divisions.json` (same 983 + divisions).
+- **SUPERSET (any ≤2-push, INCLUDES 1-push) → `twopush.json`** (1830 / 2341; 1323 also 1-push-solvable). NOT pure-2; overall 2-push F1'.
+- **EXHAUSTIVE raw pkls** (full (a1,a2)→outcome map): `namo_testset_v1/pkls_2push_v2/shard_*/` (config exhaustive_depth2.yaml).
+- ⚠ **OPEN ISSUE:** best-first eval pools ALL reachable objects + re-derives goal from xml ⇒ can "solve" a pure-2 scene in 1
+  push via a DIFFERENT object (per-episode (object,goal) constraint NOT enforced — CLAUDE.md GOTCHA; ~7% @1sim). Verify + decide
+  whether to constrain the eval to the labeled object. [USER decisions pending: (1) 1-push key = onepush_episodes? (2) constrain eval?]
+
 ### 🔬 HYPOTHESIS LEDGER [USER 2026-06-13: run EVERYTHING as Observation→Hypothesis→Prediction→Verdict; accept/reject ON NUMBERS ONLY, nothing else. Add a new H# for every new design choice/problem; fill Verdict when numbers land.]
 
 - **H1 — Budget-conditioning works (the core bet). VERDICT: ✅ ACCEPTED.**
