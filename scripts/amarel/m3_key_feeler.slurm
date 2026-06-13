@@ -24,22 +24,25 @@ export PYTHONPATH="$PWD/build_python:$PWD/python:$PWD/scripts:$PWD/scripts/sandb
 : "${CKPTS:?must set CKPTS (semicolon-separated)}"
 : "${OUT_DIR:?must set OUT_DIR}"
 mkdir -p "$OUT_DIR"
+# task index encodes (seed, H): idx//2 = seed, H = {2,1}[idx%2]. ONE H per task (no 50-min sequential
+# wall; a transient on one cell can't take out the seed's other cell). Submit --array=0-(2*nseed-1).
 IFS=';' read -ra arr <<< "$CKPTS"
-ck="${arr[${SLURM_ARRAY_TASK_ID:-0}]}"
+idx=${SLURM_ARRAY_TASK_ID:-0}
+ck="${arr[$(( idx / 2 ))]}"
+H=$(( idx % 2 == 0 ? 2 : 1 ))
 tag=$(echo "$ck" | sed -E 's#.*/scorer/([^/]+)/.*/(epoch[0-9]+).*#\1_\2#')
-echo "task ${SLURM_ARRAY_TASK_ID:-0}: $tag  ($ck)"
+echo "task $idx: $tag H=$H  ($ck)"
 nvidia-smi --query-gpu=name --format=csv,noheader | head -1 || true
 
-for H in 2 1; do
-    out="$OUT_DIR/${tag}_h${H}.json"
-    /scratch/dm1487/envs/namo/bin/python -u scripts/sandbox/eval_m3.py \
-        --ckpt "$ck" --grade key --h "$H" --start 0 --end 985 \
-        --out "$out" --leaf-out "$OUT_DIR/${tag}_h${H}.jsonl"
-    /scratch/dm1487/envs/namo/bin/python - "$out" <<'PY'
+out="$OUT_DIR/${tag}_h${H}.json"
+/scratch/dm1487/envs/namo/bin/python -u scripts/sandbox/eval_m3.py \
+    --ckpt "$ck" --grade key --h "$H" --start 0 --end 985 \
+    --out "$out" --leaf-out "$OUT_DIR/${tag}_h${H}.jsonl"
+/scratch/dm1487/envs/namo/bin/python - "$out" <<'PY'
 import json, sys
-r = json.load(open(sys.argv[1])); h = r["hit_at_k"]
-print(f"  {sys.argv[1].split('/')[-1]}: H={r['H']} grade={r['grade']} n={r['n_graded']} "
-      f"hit@1={h['1']:.1f} @3={h['3']:.1f} @5={h['5']:.1f} @10={h['10']:.1f}")
+r = json.load(open(sys.argv[1])); h = r["hit_at_k"]; fl = r.get("random_floor_at_k", {})
+print(f"  {sys.argv[1].split('/')[-1]}: H={r['H']} n={r['n_graded']} "
+      f"hit@1={h['1']:.1f} @3={h['3']:.1f} @5={h['5']:.1f} @10={h['10']:.1f}  "
+      f"floor@1={fl.get('1','?')} @10={fl.get('10','?')}")
 PY
-done
-echo "M3 FEELER DONE: $tag"
+echo "M3 FEELER DONE: $tag H=$H"

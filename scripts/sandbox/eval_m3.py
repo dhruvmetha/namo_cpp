@@ -84,7 +84,7 @@ def main():
                 d[r["object_id"]] = s
             posmap[rp] = d; posmap[kx] = d
     KS = [1, 3, 5, 10]
-    hit = {k: 0 for k in KS}; n = 0; n_already = n_onepush = 0; t0 = time.time()
+    hit = {k: 0 for k in KS}; floor_acc = {k: 0.0 for k in KS}; n = 0; n_already = n_onepush = 0; t0 = time.time()
     lf = open(a.leaf_out, "w")
     setup_cache = {}  # (xml, obj, e, d) -> is it a real setup (sim-verified)? memoize within a scene
 
@@ -131,7 +131,15 @@ def main():
             for k in KS:
                 if found_rank is not None and found_rank < k:
                     hit[k] += 1
-            lf.write(json.dumps({"xml": xml, "n_cand": len(pool), "found_rank": found_rank}) + "\n")
+            n_pos = 0
+            if a.grade == "key":   # random-floor context: how many of the pool's candidates ARE setups
+                from math import comb
+                n_pos = sum(1 for (o, g, _v) in pool if graded(o, g))
+                nc = len(pool)
+                for k in KS:
+                    floor_acc[k] += (1.0 if n_pos and nc - n_pos < k else
+                                     (1.0 - comb(nc - n_pos, k) / comb(nc, k)) if n_pos and nc >= k else 0.0)
+            lf.write(json.dumps({"xml": xml, "n_cand": len(pool), "n_pos": n_pos, "found_rank": found_rank}) + "\n")
             if xi % 20 == 0:
                 el = time.time() - t0
                 print(f"  [{xi}/{len(xmls)}] graded={n} hit@1={hit[1]} ({el:.0f}s)", file=sys.stderr, flush=True)
@@ -141,6 +149,7 @@ def main():
     lf.close()
     res = {"ckpt": a.ckpt, "H": a.h, "grade": a.grade, "n_graded": n, "n_already_open": n_already,
            "hit_at_k": {str(k): (100.0 * hit[k] / n if n else 0.0) for k in KS},
+           "random_floor_at_k": {str(k): (100.0 * floor_acc[k] / n if n else 0.0) for k in KS},
            "bars": ({"old_champ_49sim": 34.5, "fpv_m2b_49sim": 75.2} if a.grade == "sim"
                     else {"note": "key-graded vs exhaustive setups (NOT comparable to the 75.2/34.5 sim bars); "
                                   "compare H=2 vs H=1 grade=key on the SAME scenes"})}
