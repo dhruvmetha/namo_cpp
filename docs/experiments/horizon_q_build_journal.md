@@ -154,8 +154,11 @@ sampler — see the [USER DIRECTIVE 14:00] entry below for the why/how). Don't c
 5. ALL 4 trained → TEST ALL: eval_scorer H=1 & H=2 (onepush set), best-first pure2 & pure1 (model+random),
    key-graded m3. Assemble a 4-family stats table → Slack + journal + registry.
 
-**LIVE JOBS + watchers:** best-first ×4 (56045369/839/841/842, watcher reduces→Slack); render 56025904
-(watcher bek3rzkrr→pack); no-horizon 56025708; v1 56015587. Reducers: /scratch/dm1487/eval/reduce_{rollout,bestfirst}.py.
+**LIVE JOBS + watchers [14:38 ET]:** OBJECT-CONSTRAINED best-first pure-2 model 56049238 + uniform 56049239
+(budget 100, watcher bb41b7v2c reduces; obj-constraint VALIDATED = 0 one-sim solves ✓ H13); render 56025904
+(9 tail shards, watcher bek3rzkrr→pack); no-horizon 56025708 (val .728); v1 56015587 (val .652). The capped-30
+best-first ×4 (56045369/839/841/842) were CANCELLED (USER: do object-constrained complete, not capped-30).
+Reducers: /scratch/dm1487/eval/reduce_{rollout,bestfirst}.py.
 **TOOLS (all committed):** eval_bestfirst.py, eval_rollout.py, eval_m3.py(--grade key), render_postpush_from_state.py,
 build_postpush_h5.py, render_postpush.slurm, bestfirst_eval.slurm, m3_key_feeler.slurm, eval_scorer_feeler.slurm(EVAL_H).
 **KEY FACTS to not re-fumble:** TEST SET is EXHAUSTIVE 2-push (exhaustive_depth2.yaml; full (a1,a2)→outcome in raw
