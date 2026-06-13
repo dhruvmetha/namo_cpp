@@ -42,9 +42,11 @@ DATA_DIR="$M2B;$H2;$AUG;$PP_JOINED"
 echo "=== DATA_DIR ($((NPP+3)) H5s) = $DATA_DIR ==="
 
 # Horizon-v2: budget_cond + budget_h true (H-conditioned), HL-Gauss 51-bin value head.
-HZ_OV="+network.budget_cond=true +data.budget_h=true +model.head_mode=hl_gauss +model.value_bins=51"
+# NOTE: value_bins + budget_cond are NETWORK params (HL-Gauss bins = network output dim); head_mode is a MODEL
+# param. v1 config confirms: network.{budget_cond,value_bins}, model.head_mode. (model.value_bins -> TypeError.)
+HZ_OV="+network.budget_cond=true +data.budget_h=true +model.head_mode=hl_gauss +network.value_bins=51"
 # NoHorizon-v2: same head, NO horizon conditioning (budget_h=false, budget_cond default false).
-NHZ_OV="+data.budget_h=false +model.head_mode=hl_gauss +model.value_bins=51"
+NHZ_OV="+data.budget_h=false +model.head_mode=hl_gauss +network.value_bins=51"
 
 cd "$SAGE"
 echo "=== launching Horizon-v2 (qfull_v2_v4hq, array 9-11) ==="
