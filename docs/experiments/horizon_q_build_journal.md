@@ -539,6 +539,20 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   needle is hard) — the hard-division reactive-vs-search gap = the cleanest measure of what simulation
   still buys.** M3 verdicts MUST be reported per these divisions.
 
+- **🔬 M2c/M2d VERDICT [2026-06-13 ~00:25]: [USER] hypothesis REJECTED on ranking; "TEACH BEATS TELL"
+  discovered on robustness.** hard@1 3-seed: M2c 32.21 ± 1.48 / M2d 34.20 ± 2.09 vs M2b 32.86 ± 2.38 —
+  neither clears the pre-registered bar (M2d +1.3 mean but paired deltas +1.0/−1.9/+4.9 = mixed-sign).
+  ⇒ the encoder already extracts reachability from robot_region; explicit signal adds no ranking.
+  **Dead-slice all-cells V_dead: M2b 0.327 / M2c 0.072 / M2d 0.621.** M2c (learning from 20 sampled
+  unreachable zeros) ELIMINATED the hallucination zone — unmasked == masked value (0.072 ≈ 0.061): the
+  model is self-contained, the deploy mask becomes optional rather than load-bearing. M2d (given the
+  bit) DEGRADED unmasked behavior — legality outsourced to the flag is never learned by the net.
+  CONSEQUENCES: (a) the [USER] conditional H2-recollect-with-reachability is NOT triggered (4b8b36f);
+  reachability_log recording stays for other uses; (b) M2c's unreachable_k=20 = a FREE robustness
+  upgrade — fold into round-2 recipes for rows where tried==reachable ONLY (H=1-type rows; naive
+  application to sampled H=2 rows would be the C15 bug — needs per-row gating, deferred); (c) Q-full
+  recipe UNCHANGED tonight (one-change discipline). Evals: /scratch/dm1487/eval/{m2c,m2d}_verdict/.
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
