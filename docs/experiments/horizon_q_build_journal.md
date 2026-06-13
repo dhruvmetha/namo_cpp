@@ -622,8 +622,8 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
     w/ existing solvable) rides free sparse. Sample-don't-enumerate: cap per-episode, ~300k not ~3M.
   • COLLECTOR FUTURE-FIX (separate): persist expanded-node states so ExIt/H=3 never drop them (no replay next time).
 
-- **⏰ AUTONOMOUS STATE [2026-06-13 ~03:05 ET — READ AFTER COMPACTION]:** Q-full **v1 = job 56015450**
-  (3 seeds L40S, training, dataloader-bound ~12-14h, realpath-hang FIXED; monitor b9vojph3w → ep5 feeler +
+- **⏰ AUTONOMOUS STATE [2026-06-13 ~03:05 ET — READ AFTER COMPACTION]:** Q-full **v1 = job 56015587** (16 workers/16 CPUs for dataloader throughput; superseded 56015450/56015450@8w)
+  (3 seeds L40S, training, dataloader-bound ~12-14h, realpath-hang FIXED; monitor bevx43njy → ep5 feeler +
   completion). The dead 56013237/56013312 are CANCELLED false-starts. v1 verdict suite = a967c31 +
   registry gates. **[USER directive] BUILD POST-PUSH v2 DATA NOW; LAUNCH Q-full-v2 AS SOON AS ITS SMOKE
   PASSES (not gated on v1's M3/M4).** Datasheet the H5 (docs/pipeline/horizon_q_datasets.md).
