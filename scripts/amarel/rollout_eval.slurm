@@ -24,12 +24,15 @@ export OMP_NUM_THREADS=2 MKL_NUM_THREADS=2
 : "${MANIFEST:?must set MANIFEST}"
 : "${OUT_DIR:?must set OUT_DIR}"
 BUDGET=${BUDGET:-2}; TOPK=${TOPK:-10}; SHARD=${SHARD:-25}
+PRIOR=${PRIOR:-q}; W2=${W2:-1}; FLAT_H1=${FLAT_H1:-0}
+flat_arg=""; [ "$FLAT_H1" = "1" ] && flat_arg="--flat-h1"
 mkdir -p "$OUT_DIR"
 START=$(( SLURM_ARRAY_TASK_ID * SHARD )); END=$(( START + SHARD ))
-echo "task ${SLURM_ARRAY_TASK_ID}: scenes [$START,$END) budget=$BUDGET on $(hostname)"
+echo "task ${SLURM_ARRAY_TASK_ID}: scenes [$START,$END) budget=$BUDGET prior=$PRIOR w2=$W2 flat_h1=$FLAT_H1 on $(hostname)"
 
 /scratch/dm1487/envs/namo/bin/python -u scripts/sandbox/eval_rollout.py \
     --ckpt "$CKPT" --manifest "$MANIFEST" --budget "$BUDGET" --topk "$TOPK" \
+    --prior "$PRIOR" --w2 "$W2" $flat_arg \
     --start "$START" --end "$END" \
     --out "$OUT_DIR/shard_${SLURM_ARRAY_TASK_ID}.json" \
     --leaf-out "$OUT_DIR/shard_${SLURM_ARRAY_TASK_ID}.jsonl"
