@@ -51,10 +51,15 @@
 - data: `/scratch/dm1487/h5/v4_hq_m2b_scorer/data.h5` · evals: `/scratch/dm1487/eval/m2d_verdict/`
 - **hard@1 = 34.20 ± 2.09** (within noise of M2b) · all-cells V_dead 0.621 (degraded — tell<teach)
 
-### Q-full (M3/M4) — mixed-H, PENDING (launches when the H2 H5 chain finishes)
-- run prefix `qfull_v4hq_s{1,2,3}` → `/scratch/dm1487/sage_outputs/scorer/qfull_v4hq_s*/`
-- data: `/scratch/dm1487/h5/v4_hq_m2b_scorer/data.h5` + `/scratch/dm1487/h5/v4_hq_h2_scorer/data.h5` (mixed-H)
+### Q-full (M3/M4) — mixed-H, TRAINING (job 56013237, launched 2026-06-13 01:32 ET, 3 seeds, L40S, 14h wall)
+- run dirs `/scratch/dm1487/sage_outputs/scorer/qfull_v4hq_s{1,2,3}/` (BEST ckpts → fill in when done)
+- data (multi-H5, ';'-joined): `/scratch/dm1487/h5/v4_hq_m2b_scorer/data.h5` (252,805 H=1 rows) +
+  `/scratch/dm1487/h5/v4_hq_h2_scorer/data.h5` (311,324 = 155,662 ep × {H=1,H=2}; 172,104 dead; gamma=0.9,
+  format=twopush) → ~564k total rows, room-grouped across files (realpath-normalized)
+- flags: budget_cond, value_bins=51, head_mode=hl_gauss, budget_h (NO unreachable_k/reach_flag — M2c/M2d parked)
 - evals (planned): `/scratch/dm1487/eval/qfull_verdict/` + `fpv_qfull/` + bifurcation/M3 slices
+- GATES when done: (a) H=1 ranking ≈ M2b 32.86; (b) M3 = zero-sim setup-pick on pure2push vs 34.5 (registered)
+  & 75.2-with-sims (fpv_m2b); (c) H-bifurcation probe (525ea31); (d) per-division (pure2push_divisions)
 
 ## Key H5 datasets
 - `v4_hq_m1_scorer/data.h5` — M1/M2a solvable-only (123,269)
