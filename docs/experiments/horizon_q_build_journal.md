@@ -138,8 +138,14 @@ test set, stats reported. Plus the v2 DATA FIX so H=2 encompasses H=1 (1-push@H2
 sampler — see the [USER DIRECTIVE 14:00] entry below for the why/how). Don't compromise; Slack each milestone.
 
 **MATRIX STATUS [16:00 ET]:** Horizon-v1 `qfull_v4hq` ✅ ep16 (val .6517, still training 56015587).
-NoHorizon-v1 `qfull_nohz_v4hq` ⏳ training (56025708, val .728). **Horizon-v2 `qfull_v2_v4hq` 56055107 +
-NoHorizon-v2 `qfull_nohz_v2_v4hq` 56055108 ⏳ TRAINING 16:03** (all 6 RUNNING L40S, array 9-11 = B30×seeds1-3).
+NoHorizon-v1 `qfull_nohz_v4hq` ⏳ training (56025708, val .728). **Horizon-v2 `qfull_v2_v4hq` 56057675 +
+NoHorizon-v2 `qfull_nohz_v2_v4hq` 56057676 ⏳ TRAINING (RE-LAUNCHED 17:15 w/ 14h walltime)** — L40S, array 9-11.
+⚠⚠ **WALLTIME FAIRNESS FIX [17:12 ET]:** v1 + NoHorizon-v1 ran with **14h** walltime (v1 TIMEOUT'd at ep17, val
+PLATEAUED ⇒ ep16 = its converged best, cell valid). But `launch_v2_training.sh` used the slurm DEFAULT **6h** —
+and v2's 944k-row mix is ~74min/epoch ⇒ would TIMEOUT at ~ep5, SEVERELY under-trained vs v1's ep16 (invalid 2×2
+comparison). `scontrol` extension is admin-only (denied) ⇒ CANCELLED the 6h v2 (only ep0, ~0 lost) + relaunched
+with `--time=14:00:00` (committed to launch_v2). Now all 4 models train at matched 14h. First-launch 56055107/108
+(6h) + the value_bins-bug 56054990/991 are dead. The 56055107/108 entry below is superseded.
 v2 data_dir = 43 H5s; **[scorer setup] n=944,129 rows** (m2b 252k + h2 311k + aug 80k + postpush 300k),
 train 850k/val 94k — **40% of the mix = the two OOD modes** (380k aug+postpush) ⇒ strongly over-represented.
 ⚠ FIRST LAUNCH 56054990/991 FAILED at model-instantiation: `value_bins` is a NETWORK param not model
@@ -180,9 +186,10 @@ Headline: MODEL @900=**73.2** vs RANDOM(5-seed) **69.6**±.4; @2sim 17.7 vs 2.9 
    key-graded m3. Assemble a 4-family stats table → Slack + journal + registry.
 
 **LIVE JOBS + watchers [16:55 ET]:** EVAL FLEET ✅ DONE (n=1018; Horizon-v1 cell FINAL — see CELL block).
-TRAINING in flight: Horizon-v1 56015587 (ep16, early-stopping = its final), NoHorizon-v1 56025708 (ep6 .6994),
-Horizon-v2 56055107 + NoHorizon-v2 56055108 (training, n=944k 40%-OOD mix). **OVERNIGHT 2×2 CHAIN ARMED**
-(watcher `blmzlm0qo`): training done → `eval_one_model.sh` for the 3 remaining models (ranking H1/H2 + best-first
+TRAINING in flight: Horizon-v1 56015587 ✅ DONE (TIMEOUT@14h ep17; ep16 .6517 = converged best, cell FINAL),
+NoHorizon-v1 56025708 (ep6, 14h limit), **Horizon-v2 56057675 + NoHorizon-v2 56057676 (relaunched 14h, n=944k
+40%-OOD)**. **OVERNIGHT 2×2 CHAIN ARMED** (watcher `brjfoskgq`, NEW ids 56057675/676/56025708): training done →
+`eval_one_model.sh` for the 3 remaining models (ranking H1/H2 + best-first
 @900) → I arm the reduce. Random baseline is SHARED (bf900_uniform_s0..4, model-agnostic — don't recompute).
 **2×2 HARNESS (committed):** `eval_one_model.sh <run>` (per-cell evals) + `reduce_2x2.py` (assemble matrix vs
 shared random). Naming convention: solve=`bf900_<run>`, rank=`<run>_rank`; Horizon-v1's custom dirs symlinked in.
