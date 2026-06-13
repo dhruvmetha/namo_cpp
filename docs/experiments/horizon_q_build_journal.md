@@ -138,9 +138,12 @@ test set, stats reported. Plus the v2 DATA FIX so H=2 encompasses H=1 (1-push@H2
 sampler — see the [USER DIRECTIVE 14:00] entry below for the why/how). Don't compromise; Slack each milestone.
 
 **MATRIX STATUS [16:00 ET]:** Horizon-v1 `qfull_v4hq` ✅ ep16 (val .6517, still training 56015587).
-NoHorizon-v1 `qfull_nohz_v4hq` ⏳ training (56025708, val .728). **Horizon-v2 `qfull_v2_v4hq` 56054990 +
-NoHorizon-v2 `qfull_nohz_v2_v4hq` 56054991 ⏳ LAUNCHED 16:00** (all 6 tasks RUNNING on L40S, array 9-11 =
-B30×seeds1-3). v2 data_dir = 43 H5s (m2b;h2;aug80k;postpush 40×7.5k=300k); 380k OOD rows (aug+postpush) added.
+NoHorizon-v1 `qfull_nohz_v4hq` ⏳ training (56025708, val .728). **Horizon-v2 `qfull_v2_v4hq` 56055107 +
+NoHorizon-v2 `qfull_nohz_v2_v4hq` 56055108 ⏳ TRAINING 16:03** (all 6 RUNNING L40S, array 9-11 = B30×seeds1-3).
+v2 data_dir = 43 H5s; **[scorer setup] n=944,129 rows** (m2b 252k + h2 311k + aug 80k + postpush 300k),
+train 850k/val 94k — **40% of the mix = the two OOD modes** (380k aug+postpush) ⇒ strongly over-represented.
+⚠ FIRST LAUNCH 56054990/991 FAILED at model-instantiation: `value_bins` is a NETWORK param not model
+(`+model.value_bins` → TypeError); fixed to `+network.value_bins=51` (head_mode stays `+model.`), relaunched OK.
 
 **✅ v2 OOD MIX BUILT [15:55 ET] — all ingredients ready, launch recipe LOCKED:**
 - `data_dir = m2b ; h2 ; onepush_h2_aug ; postpush(shard_0..3)` (';'-joined; ScorerDataModule joins them — l.137).
