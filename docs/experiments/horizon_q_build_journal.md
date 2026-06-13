@@ -749,3 +749,14 @@ MORE (arXiv:2202.01426) · Bejjani RHP (1803.08100) · HACMan (2305.03942) · Go
 (ICAPS'22) · SAVE (1912.02807) · ExIt (1705.08439) · MuZero Reanalyze (2104.06294) · Stop-Regressing (2403.03950) ·
 CQL/IQL (2006.04779/2110.06169) · Pathak disagreement (1906.04161) · TD-or-not-TD (1806.01175). **Novelty:** no prior
 work combines ExIt + disagreement-acquisition-for-setups + continuous manipulation + verify-before-bootstrap leaf.
+
+<!-- M3-EVAL SCOPING (build fresh, runway until v1 completes ~early afternoon ET) -->
+- **M3 ZERO-SIM FORESIGHT EVAL — scoped, build fresh:** reuse the fpv/LiveScorer infra (scorer_beam.py
+  LiveScorer already handles budget-Q forward, extended earlier), NOT a from-scratch eval. Per pure2push
+  scene (manifest test_pure2push_combined.txt): render s0 LIVE, query Q(s0,·,**H=2**) — ZERO sims (no
+  first-push simulation, unlike fpv which simulated) — rank reachable first pushes, grade hit@k vs the
+  pure2push key's valid_first_push (setups). Per-division (pure2push_divisions: hard≤2/med 3-8/easy>8).
+  Bars: 34.5 (registered, old champ + 49 sims) / 75.2-with-sims (fpv_m2b first-pick). Also run the
+  H-BIFURCATION probe (525ea31) + H=1 parity (eval_scorer, done at ep5=29.1). This is THE headline; verify
+  ctx render matches fpv's (the LiveScorer renders s0 the same way). Run on v1's per-seed best ckpts at
+  completion → full M3/M4 verdict.
