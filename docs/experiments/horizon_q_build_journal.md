@@ -191,12 +191,15 @@ Dir `/scratch/dm1487/datasets/namo_testset_v1/labels/` (each JSON keyed by scene
 
 ### 🔬 HYPOTHESIS LEDGER [USER 2026-06-13: run EVERYTHING as Observation→Hypothesis→Prediction→Verdict; accept/reject ON NUMBERS ONLY, nothing else. Add a new H# for every new design choice/problem; fill Verdict when numbers land.]
 
-> **⚠ EVAL CORRECTION IN PROGRESS [2026-06-13 ~18:30, H13]:** the SEARCH/SOLVE numbers below that used the
-> ALL-OBJECTS ranker are SUPERSEDED, being re-run OBJECT-CONSTRAINED (push only the labeled object). Affected:
-> reactive-rollout **22.9** (H6), key-graded-m3 **19.8/5.5×floor** (H1, now superseded by object-constrained
-> solve-rate), old best-first **44** (H9). NOT affected (eval_scorer is already object-matched, numbers STAND):
-> M1/M2a/M2b/M2c, budget-Q@H1 **+5.5pp** (H5), H=2-dilutes-on-1push (H2), dead-end **+3.2pp**. Corrected numbers
-> fill in when jobs 56049238/9 (+flat-h1) land; ledger verdicts re-stamped then.
+> **✅ EVAL CORRECTION DONE [2026-06-13 ~14:50, object-constrained pure-2, n=671 episodes, budget 100]:**
+> @1sim=**0** both (cross-object 1-push shortcut GONE ✓ H13). solve-rate-vs-sims CURVE:
+> MODEL 21/28/35/42/49/57/**62**% @ sims {2,3,5,10,20,50,100}; UNIFORM 3/4/7/14/23/36/**46**%. Model >> uniform
+> at every budget (7× @2sim → 1.3× @100); model solves in **14.6 avg-sims vs uniform 30.8** (~2× more efficient).
+> CORRECTED reactive 2-push solve (@2sim) = **~21%** (old all-objects 22.9 was barely inflated, +~2pp). Verdicts
+> stamped: **H9 ✅ ACCEPT** (value-guided best-first ≫ uniform), **H13 ✅ ACCEPT** (object constraint = true 2-push,
+> 0 one-sim solves). NOT affected, STAND: M1/M2a/M2b/M2c, budget-Q@H1 +5.5pp (H5), H2-dilutes (H2), dead-end +3.2pp.
+> ⚠ CAVEAT: n=671 of ~1018 — **334 manifest scenes failed xml-key match** (path-convention mismatch; FIX for full
+> coverage — the 671 matched are valid). [TODO: flat-H1 object-constrained for H6 foresight refresh.]
 
 - **H1 — Budget-conditioning works (the core bet). VERDICT: ✅ ACCEPTED.**
   Obs: a setup push is worthless with 1 push left, valuable with 2. Hyp: conditioning Q on remaining budget H
@@ -221,8 +224,9 @@ Dir `/scratch/dm1487/datasets/namo_testset_v1/labels/` (each JSON keyed by scene
 - **H8 — mean_top5 > max as the state/leaf value. VERDICT: ✅ ACCEPTED (H0b prior).**
   Obs: max is fluke-dominated on OOD states. Numbers: mean_top5 34.5 vs maxP 24.6 @1. → ACCEPT (use mean_top5 for selection).
 - **H9 — The search is value-guided GREEDY BEST-FIRST (Q expands, mean5-V selects; min sims), NOT MCTS/beam.
-  VERDICT: ⏳ PENDING.** Obs: deterministic + expensive-sim + shallow tree ⇒ no Monte-Carlo averaging, no PW. Predict(accept iff):
-  best-first(model) solve ≫ best-first(uniform) at fewer avg-sims. Test: jobs 56045369/839/841/842 (pure2 & pure1, model & uniform).
+  VERDICT: ✅ ACCEPTED [object-constrained, n=671].** model solve 62% vs uniform 46% @budget100 (and 21 vs 3 @2sim);
+  model 14.6 avg-sims-to-solve vs uniform 30.8 (~2× more sim-efficient); guidance gap biggest at low budget (7× @2sim).
+  Greedy best-first (no MCTS/PW) confirmed effective on the deterministic shallow-tree expensive-sim problem.
 - **H10 — Do we even NEED the horizon? (NoHorizon ≈ Horizon for ranking). VERDICT: ⏳ PENDING.**
   Hyp [USER]: a pooled no-H goodness model ranks pushes ≈ as well; horizon's real value = budget-honesty + deeper bootstrapping.
   Predict: NoHorizon-v1 ≈ Horizon-v1 on the test panel. Test: qfull_nohz_v4hq (training).
@@ -233,9 +237,9 @@ Dir `/scratch/dm1487/datasets/namo_testset_v1/labels/` (each JSON keyed by scene
   (verified: env_0177 has obstacle_1 AND obstacle_3) and the search opened the path via a DIFFERENT (easier) object than the
   labeled 2-push one. Hyp [USER]: restrict the search to rec.object_id (one-to-one w/ GT key) ⇒ evaluates the TRUE k-push
   problem on the labeled object; same object-matched eval for ALL models (M1/M2a/M2b/M2c via eval_scorer, which is already
-  object-matched). Predict(accept iff): object-constrained 1-sim "solves" on pure-2 → ~0; solve-rate < unconstrained (no
-  cross-object shortcut) but it's the HONEST 2-push number. Impl: rank_first_pushes_h2(restrict_obj=), eval_bestfirst --key
-  + per-record loop. Test: object-constrained pure-2 run (model+uniform). NOTE: ~2 manifest scenes lack a key record (n_no_record).
+  object-matched). VERDICT: ✅ ACCEPTED — object-constrained @1sim=**0** (cross-object 1-push shortcut gone); the honest
+  2-push curve = MODEL 21→62%. Impl: rank_first_pushes_h2(restrict_obj=), eval_bestfirst --key + per-record loop.
+  ⚠ FOLLOW-UP: 334/985 manifest scenes failed xml-key match (only 671 episodes graded) — fix path matching for full coverage.
 - **H12 — v2 OOD data (post-push + 1-push@H2) fixes the OOD failures. VERDICT: ⏳ PENDING.**
   Obs: fails on post-push s1 (dead-leaf calib 0.549) + 1-push@H2 (dilution). Hyp: inject OOD samples → both improve.
   Predict(accept iff): Horizon-v2 > Horizon-v1 on post-push calibration AND best-first-pure1 solve. Test: Horizon-v2.
