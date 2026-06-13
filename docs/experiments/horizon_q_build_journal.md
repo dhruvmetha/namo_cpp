@@ -662,6 +662,25 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   reducible); (d) v2 post-push (OOD calibration fix, in progress). RANK: motion-effect feature (a-hunch)
   > effect-pred head > opened-state aux > aliasing-floor (cheap, run first to bound the rest).
 
+- **⛔ DEAD POST-PUSH REPLAY IS BLOCKED [2026-06-13 ~03:30, USER check caught it].** Validated replay vs
+  GROUND-TRUTH recorded post-states (solution-path post_action_state_observations; smoothing RULED OUT —
+  smoothing_stats None, original_* empty = raw). PERFECT correlation: **free-space pushes 298/298 replay
+  EXACT (<5mm); collision pushes 47/47 DIVERGE (50-160mm).** env.step reproduces the free-space primitive
+  deterministically, but collision dynamics don't reproduce (robot approach/contact differs slightly ⇒
+  different collision ⇒ different s1). So replayed dead s1 does NOT match the s1 whose a2-labels are in the
+  trial log, for the ~50% of pushes that collide (often the cluttered/interesting ones). REPLAY-BASED DEAD
+  POST-PUSH = INVALID. (replay_postpush.py kept as artifact, marked free-space-only/blocked.)
+  **PIVOT — this REVERSES the earlier replay>recollect call (which assumed replay correct):** the CORRECT
+  way to get dead post-push states is to SAVE them at COLLECTION time (the collector future-fix: persist
+  every expanded-node state observation, extend reachability_log bd54571 to full state) + RE-RUN the H2
+  collection. A fresh sampled collection gives a different tree, so rebuild root + good-postpush + dead-
+  postpush all from the same coherent new trees. This is a re-collection (~7h H2 + render), NOT a repack.
+  **GOOD post-push (the 781,881 SAVED renders, sparse-positive) is UNAFFECTED — those are the collector's
+  real s1, valid.** v2 STATUS: HELD. good-only v2 would add solvable post-push but NOT fix the dead-leaf
+  calibration (0.549, the main point) — marginal. Recommend: HOLD v2 for correct dead states via
+  re-collection [USER decision — significant compute + collector change]; v1 (root-only, 56015587) +
+  its M3/M4 verdicts are the near-term result. DO NOT autonomously launch a re-collection or a partial v2.
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
