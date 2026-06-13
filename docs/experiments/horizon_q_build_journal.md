@@ -179,12 +179,14 @@ Headline: MODEL @900=**73.2** vs RANDOM(5-seed) **69.6**±.4; @2sim 17.7 vs 2.9 
 5. ALL 4 trained → TEST ALL: eval_scorer H=1 & H=2 (onepush set), best-first pure2 & pure1 (model+random),
    key-graded m3. Assemble a 4-family stats table → Slack + journal + registry.
 
-**LIVE JOBS + watchers [15:20 ET]:** THE 900-CAP EVAL FLEET (USER: cap everything at 900 sims; random = real
-sims ≥5 seeds, NOT analytic) — MODEL best-first 56052662 (`bf900_model_ep16`, Horizon-v1 s1 ep16 val .6517) +
-RANDOM ×5 seeds 56052663-667 (`bf900_uniform_s0..4`, SEED_BASE 7000..11000), all SIM_BUDGET=900 SHARD=13
-array 0-75, key-driven + object-constrained. Superseded budget-100 model run 56050672 CANCELLED. render 56025904
-(4 tail shards →pack); no-horizon 56025708 (val .728); v1 56015587 (val .652, still training; ep16 is current best).
-Reducer for the curve: `scripts/sandbox/reduce_bestfirst_curve.py` (solve@K from leaf jsonls, --avg-seeds for random).
+**LIVE JOBS + watchers [16:55 ET]:** EVAL FLEET ✅ DONE (n=1018; Horizon-v1 cell FINAL — see CELL block).
+TRAINING in flight: Horizon-v1 56015587 (ep16, early-stopping = its final), NoHorizon-v1 56025708 (ep6 .6994),
+Horizon-v2 56055107 + NoHorizon-v2 56055108 (training, n=944k 40%-OOD mix). **OVERNIGHT 2×2 CHAIN ARMED**
+(watcher `blmzlm0qo`): training done → `eval_one_model.sh` for the 3 remaining models (ranking H1/H2 + best-first
+@900) → I arm the reduce. Random baseline is SHARED (bf900_uniform_s0..4, model-agnostic — don't recompute).
+**2×2 HARNESS (committed):** `eval_one_model.sh <run>` (per-cell evals) + `reduce_2x2.py` (assemble matrix vs
+shared random). Naming convention: solve=`bf900_<run>`, rank=`<run>_rank`; Horizon-v1's custom dirs symlinked in.
+Curve reducer: `reduce_bestfirst_curve.py` (--avg-seeds for random mean±std).
 **TOOLS (all committed):** eval_bestfirst.py, eval_rollout.py, eval_m3.py(--grade key), render_postpush_from_state.py,
 build_postpush_h5.py, render_postpush.slurm, bestfirst_eval.slurm, m3_key_feeler.slurm, eval_scorer_feeler.slurm(EVAL_H).
 **KEY FACTS to not re-fumble:** TEST SET is EXHAUSTIVE 2-push (exhaustive_depth2.yaml; full (a1,a2)→outcome in raw
