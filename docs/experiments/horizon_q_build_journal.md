@@ -715,7 +715,7 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   NEW render-from-saved-state path (reads node_log state_observation, renders each post-push s1 + label
   from kids[parent_a1]; good=openers, dead=all-0; FILTER no-effect; adapt replay_postpush.py MINUS env.step)
   → root + post-push + dead H5 (tagged H/state-type/dead) → stratified sampler → Q-full-v2. v2 NOT gated on
-  v1 [USER]. v1 (56015587) still training, ep0 val 0.777 ~35min/epoch.
+  v1 [USER]. v1 (56015587) training; **ep5 H=1 feeler: hard@1=29.1 @5=61.9** (M2b 32.86/65.4) — healthy/early, H1 head sharing capacity w/ H2, expected to climb by ep15+. NOTE: H=1 sanity only, NOT the M3 foresight number (that needs the zero-sim H=2 setup-pick eval, built before completion).
 
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
