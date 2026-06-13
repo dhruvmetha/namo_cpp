@@ -702,6 +702,22 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   connectivity head grounding WHAT open means; speculative, lower priority than A/B.] All gated after
   v1's M3/M4 (which tell us if foresight distills at all before adding features).
 
+- **✅ v2 COLLECTOR STATE-SAVING VERIFIED [2026-06-13 ~04:05]** (commit: region_opening node
+  state_observation). Smoke1 (3 scenes, 46 eps, 625 post-push nodes): state+object_id present 100%;
+  post-push captured for BOTH good (183) and dead (442) first pushes; 625/625 label-aligned (each s1 has
+  its a2 outcomes from the trial log = correct-by-construction, the replay-collision-divergence bug CANNOT
+  occur since we save the actual collector state); root s0 captured 46/46. The 51/625 "non-moved" post-push
+  states all explained: 4 stuck/collision + 47 NO-EFFECT pushes (replay-confirmed: env.step also moves 0mm
+  → push genuinely engages nothing → s1==s0 faithful, NOT a capture bug). ⇒ render path must FILTER
+  no-effect post-push states (object pose == s0; redundant with root). Smoke2 (10 scenes, 56017972) running
+  for robustness before the full launch.
+  **FULL v2 RE-COLLECTION (ready, gated on smoke2):** MANIFEST v4_hq_h2_deadend_scenes_unified.txt (125,494
+  scenes) → PKL_SUBDIR=pkls_2push_v2, CONFIG sampled_depth2_k30.yaml, 64 shards, 24h wall (~7h). Then
+  NEW render-from-saved-state path (reads node_log state_observation, renders each post-push s1 + label
+  from kids[parent_a1]; good=openers, dead=all-0; FILTER no-effect; adapt replay_postpush.py MINUS env.step)
+  → root + post-push + dead H5 (tagged H/state-type/dead) → stratified sampler → Q-full-v2. v2 NOT gated on
+  v1 [USER]. v1 (56015587) still training, ep0 val 0.777 ~35min/epoch.
+
 ## 9.1 READY-TO-RUN when collection (job 55944720) finishes
 ```bash
 # 1. manifest of v4_hq_h1 pkls
