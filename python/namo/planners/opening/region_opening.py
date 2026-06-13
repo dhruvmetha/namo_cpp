@@ -2162,6 +2162,14 @@ class RegionOpeningPlanner(BasePlanner):
                             'parent_edge': getattr(_ng, "edge_idx", None) if _ng is not None else None,
                             'parent_depth': getattr(_ng, "depth", None) if _ng is not None else None,
                             'reachable_edges': sorted(reachable_edge_indices),
+                            # SAVE THE NODE STATE ([USER 2026-06-13]: re-collect everything incl. post-push).
+                            # env is AT node.state here (set_full_state above) -> for chain_depth>=2 this IS
+                            # the post-push state s1. Persisting it makes dead post-push states first-class
+                            # training rows (correct by construction — the actual s1 the a2 labels came from;
+                            # the replay route DIVERGED on collisions, 86fd9b2). object_id tags whose pose
+                            # is the pushed object so the renderer can anchor the crop.
+                            'state_observation': self.env.get_observation(),
+                            'object_id': object_id,
                         })
 
                         # Verbose: show reachable edges and object state
