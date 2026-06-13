@@ -717,6 +717,27 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   → root + post-push + dead H5 (tagged H/state-type/dead) → stratified sampler → Q-full-v2. v2 NOT gated on
   v1 [USER]. v1 (56015587) training; **ep5 H=1 feeler: hard@1=29.1 @5=61.9** (M2b 32.86/65.4) — healthy/early, H1 head sharing capacity w/ H2, expected to climb by ep15+. NOTE: H=1 sanity only, NOT the M3 foresight number (that needs the zero-sim H=2 setup-pick eval, built before completion).
 
+- **📊 ep15 H=2 EVAL SUITE — FORESIGHT CONFIRMED, FLOOR-ANCHORED [2026-06-13 ~10:48 ET] (pure2push n=985).**
+  Two evals built this session: (A) **key-graded first-push hit@k** (`eval_m3.py --grade key`, zero-sim,
+  vs exhaustive `pure2push.json` setups + random floor); (B) **reactive ROLLOUT** (`eval_rollout.py`, the
+  FAITHFUL deploy-matched number — model drives, sim only committed pushes, grade by reachability, NO key).
+  • **(A) key-graded (3 seeds): H=2 hit@1 = 20.6/19.4/19.5 (~19.8), H=1 = ~3.4, FLOOR = 3.6.** ⇒ H=1 is AT
+    chance (3.4≈3.6; at @10 it's 14.5 < floor 23.6 = ANTI-correlated, it promotes "opens-in-1" pushes that
+    are NOT setups); **H=2 = 5.5× floor.** Budget token flips the SAME net from chance/anti-correlated to
+    5.5×-chance at finding setups. The foresight claim, anchored.
+  • **(B) reactive rollout Q (3 seeds, foresight-on, budget-aware): solve@1 = 22.8/22.7/23.3 (~22.9),
+    @10 ~40.1, ~14 sims/scene.** TIGHT across seeds (0.6pp). Slightly ABOVE the key proxy (19.8) because
+    the key is SAMPLED (k≈30) and misses setups the rollout actually simulates — so rollout is the more
+    faithful number, NOT a ceiling violation. This is THE honest 2-push reactive solve rate.
+  • Eval methodology (the frame, [USER] "understand this first"): decision-sims vs grading-sims; first-push
+    PROXY (key) over-credits (ignores real 2nd push from OOD s1 = v2 target) but ALSO under-counts (sampled
+    key) — rollout resolves both. MUST-BEAT bars: random-policy rollout (floor, ~11:00) + flat-H1 rollout
+    (foresight-off). Search (Q-beam w2=10 vs uniform-beam) = the amortization ceiling/curve (~11:40).
+    Tools: eval_m3.py(grade=key,+floor), eval_rollout.py(--prior q|uniform,--flat-h1,--w2), m3_key_feeler +
+    rollout_eval slurms. ckpts = ep15 best (s1 0.6534/s2 0.6518/s3 0.6543; save_top_k prunes — transient).
+  • CAVEAT: H=1 sim bars (fpv 75.2 / champ 34.5) are SEARCH (49 sims) + first-push-graded — NOT comparable
+    to the 0-sim rollout; they bound the search ceiling, a different axis.
+
 - **🔧 RENDER-FROM-SAVED-STATE BUILT [2026-06-13 ~06:45 ET] — `scripts/pipeline/render_postpush_from_state.py`** (autonomous, while v2 collects). OFFLINE renderer (NO env, NO MuJoCo step ⇒ collision-divergence bug structurally impossible — renders the collector's byte-saved state). Spec VALIDATED against real v2 pkls (job 56018429 output `/scratch/dm1487/datasets/v4_hq_h2/pkls_2push_v2`): per episode, object constant ⇒ key kids by (pe,pd); region-goal duplicate post-push nodes are byte-identical (Δpose=0.00000) ⇒ dedup keeps one; no-effect filter = SE(2) (xy<5mm AND |Δθ|<3°), NOT xy-only (rotation-only is a real effect). Each post-push s1 self-carries its label: pp_open_ed/dp (f_grid=1), pp_tried_ed/dp (the ~k sampled a2 = r_mask/loss_mask, rest UNKNOWN/masked — no C15 bug), pp_dead, pp_H=1, pp_parent_edge/depth, pp_reach_edges. **CAUGHT BUG before it bit: `save_episode_data` persists only a HARDCODED whitelist of `metadata` keys — pp_* in `meta` would be silently dropped (replay_postpush.py had this latent too). FIX: inject pp_* into the `masks` dict (save_dict=dict(masks) copies every key).** Smoke (5 pkls) in flight to confirm pp_* land in npz. NEXT (mechanical, after smoke green): `build_postpush_h5.py` = trimmed build_scorer_dataset reading raw npz → scorer H5 (ctx = local_tight_* 5ch resized 224→64 INTER_AREA; f_grid from pp_open; r_mask=pp_tried per existing tried≡r_mask convention; contact_px via add_contact_px's contact_px(); tag state_type=postpush, dead, H=1). **DEFERRED to USER (data-balance calls they own): final v2 H5 COMPOSITION + sampler ratios (existing root-H2 + H1 + new post-push good/dead; "protect H=2 ~30-40%", "don't blow up data") + LAUNCH.** Do NOT pick ratios or launch autonomously.
 
 - **🎯 v1 ep11 H=1 FEELER CLEARS THE BAR [2026-06-13 ~07:43 ET, job 56022469, eval_scorer_feeler.slurm].**
