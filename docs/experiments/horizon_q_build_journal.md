@@ -1369,3 +1369,13 @@ is even more skewed (19:1) yet H2 selection is great (AUC 0.93) ⇒ imbalance al
 because it's judged on OOD s1 states. **FIX (concrete): mint a large, balanced finish set from the exhaustive
 (a1,a2)→opens map (exact, on-distribution s1 labels) + up-weight the opener class.** Hz-v2 RAW (de-squash) re-run
 running (56206502) for the search-side gain in parallel.
+
+### ✅ TRAIN-vs-TEST FINISH — it's a GENERALIZATION GAP, not skew/wall [2026-06-14 ~17:45 ET, n=400 postpush crops]
+RAW H=1 value, openers vs non-openers: TRAIN sep **0.753** (openers mean 0.807 up to 0.985, non 0.054) vs TEST sep
+**0.273** (openers 0.37). **DECISIVE:** the model reasons SHARPLY on SEEN finish states (confident 0.9/0.05) — it is
+NOT base-rate-skew-following and NOT a representation wall (the crop HAS the info; it nails seen states). The mush is
+purely an **OVERFITTING / generalization gap** (sharpness 0.75→0.27 train→test): it memorized the ~300k narrow
+finish set but doesn't transfer to novel post-setup states. ⇒ rules out the expensive fixes (no new features, not a
+capacity wall). **FIX = DATA DIVERSITY + regularization:** mint a large, diverse, on-distribution finish set from the
+exhaustive (a1,a2)→opens map (»300k post-setup states) + anti-overfit hygiene → carry the 0.75 train sharpness to test
+→ lifts finish + reactive ceiling + search. This is the cheapest-class fix for the deepest problem.
