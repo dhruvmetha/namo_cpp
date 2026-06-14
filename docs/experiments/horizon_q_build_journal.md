@@ -330,7 +330,12 @@ scarcest. [Earlier n~150 partial showed model@900=90 — that was the EASY shard
 STILL holds at ep16; the earlier 38.4 was a different ckpt.) Note hard@1 H=2 failure_decomp: wrong_edge 71% — at
 budget-2 the model picks a different edge (the setup-vs-opener confusion the aug targets).
 
-### 🏁 FULL 2×2 MATRIX — FINAL [2026-06-14 ~08:26 ET, region criterion (corrected), n=1018 all cells]
+> **🔁 SEED-2 ROBUSTNESS CHECK [2026-06-14 ~10:34 ET]:** the FULL 2×2 below is seed-1 only. Launched s2 evals for
+> all 4 model families (56137094-105, corrected region eval) to confirm the qualitative findings (NoHz wins reactive,
+> Horizon wins search) hold across training seeds — half the compute of a full 3-seed, cluster was idle. 2-seed
+> compare lands ~12:30 ET (watcher bm4aq91a7). s3 only if s2 diverges or [USER] wants publication error bars.
+
+### 🏁 FULL 2×2 MATRIX — FINAL [2026-06-14 ~08:26 ET, region criterion (corrected), n=1018 all cells; SEED-1]
 | cell | rankH1 | rankH2 | s@2 | s@10 | s@50 | s@100 | s@900 | avg-sims |
 |---|---|---|---|---|---|---|---|---|
 | Horizon-v1 | 34.4 | 12.2 | 22.3 | 50.4 | 71.5 | 81.8 | 93.8 | 58.5 |
