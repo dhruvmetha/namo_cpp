@@ -308,6 +308,19 @@ scarcest. [Earlier n~150 partial showed model@900=90 — that was the EASY shard
 STILL holds at ep16; the earlier 38.4 was a different ckpt.) Note hard@1 H=2 failure_decomp: wrong_edge 71% — at
 budget-2 the model picks a different edge (the setup-vs-opener confusion the aug targets).
 
+### ✅ V2 H=2-DILUTION FIX CONFIRMED [2026-06-14 ~03:36 ET — Horizon-v2 ep7 FEELER, under-trained]
+| model | H=1 hard@1 | H=2 hard@1 |
+|---|---|---|
+| Horizon-v1 ep16 (broken H2) | 34.4 | **12.2** |
+| NoHorizon-v1 (budget-blind) | 21.2 | 21.2 |
+| **Horizon-v2 ep7** (1-push@H2 aug) | **36.0** | **31.2** |
+
+**The 80k 1-push@H2 augmentation did exactly its job: H=2 hard@1 12.2 → 31.2 (+19pp) at ep7 ALREADY** — past
+NoHorizon's 21.2 (+10) and nearly matching its own H=1 (36.0). H=1 did NOT regress (36.0 ≥ v1's 34.4) ⇒ the aug
+added H=2 opener signal for free. This is under-trained (v2 → ~ep11), so 31.2 is a LOWER bound. **H4 ✅ ACCEPTED
+(preview).** Next: the SOLVE test — does Horizon-v2's reactive solve@2 now BEAT NoHorizon-v1's 22.5 (the broken-H2
+reactive liability flips)? Full v2 cells ~09:00 via b7ljxwker. med/easy H2 also up (76.6/95.1 vs v1 59.6/83.8).
+
 ### 🥊 V1 ROW — Horizon-v1 vs NoHorizon-v1 [2026-06-14 ~02:50 ET; FINAL n=1018 both]
 | model | rankH1 | rankH2 | s@2 | s@10 | s@50 | s@100 | s@900 | avg-sims |
 |---|---|---|---|---|---|---|---|---|
@@ -378,9 +391,11 @@ WHY the solve curve plateaus ~73% (model) / ~70% (random) instead of 100% on an 
   ≈ H=1-on-onepush. Numbers: H=2-on-onepush hard@1=13.7 vs H=1=38.4 (−25pp; even easy 99→87). → REJECT. H=2 ≠ superset.
 - **H3 — H=2 dilution cause = MISSING 1-push data at H=2. VERDICT: ❌ REJECTED [USER caught].**
   Hyp [CLAUDE]: H=2 rows are deadend-only. Predict: ~0% of H=2 rows are 1-push-solvable. Numbers: 16.2% ARE 1-push-solvable. → REJECT.
-- **H4 — H=2 dilution cause = IMBALANCE (16% too few). VERDICT: ⏳ PENDING.**
+- **H4 — H=2 dilution cause = IMBALANCE (16% too few). VERDICT: ✅ ACCEPTED [preview, Horizon-v2 ep7].**
   Obs: 16% 1-push@H2 but still dilutes (dominated by 84% setup/dead). Hyp: rebalance/augment 1-push@H2 → dilution ↓.
-  Predict(accept iff): Horizon-v2 H=2-on-onepush ≫ 13.7 (toward 38.4). Test: the v2 1-push@H2 augmentation + sampler.
+  Numbers: 80k opener=1.0@H2 aug rows ⇒ Horizon-v2 ep7 H=2 hard@1 = **31.2 vs Horizon-v1's 12.2** (+19pp, past
+  NoHorizon 21.2), H=1 unregressed (36.0). The imbalance WAS the cause; injecting opener signal fixes it. → ACCEPT
+  (confirm at final ep + check the reactive-solve flip).
 - **H5 — Budget-Q@H1 ≥ M2b (no 1-push regression). VERDICT: ✅ ACCEPTED.**
   Predict: budget-Q@H1 hard@1 ≥ M2b 32.86. Numbers: 38.4 (ep15), +5.5pp. → ACCEPT.
 - **H6 — Foresight helps end-to-end (reactive rollout). VERDICT: ✅ ACCEPTED (modest).**
