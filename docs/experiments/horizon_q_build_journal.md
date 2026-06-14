@@ -308,6 +308,28 @@ scarcest. [Earlier n~150 partial showed model@900=90 — that was the EASY shard
 STILL holds at ep16; the earlier 38.4 was a different ckpt.) Note hard@1 H=2 failure_decomp: wrong_edge 71% — at
 budget-2 the model picks a different edge (the setup-vs-opener confusion the aug targets).
 
+### 🥊 V1 ROW — Horizon-v1 vs NoHorizon-v1 [2026-06-14 ~02:34 ET; NoHz solve partial n=911/1018, bc9ssymgs→exact]
+| model | rankH1 | rankH2 | s@2 | s@10 | s@50 | s@100 | s@900 | avg-sims |
+|---|---|---|---|---|---|---|---|---|
+| **Horizon-v1** (ep16) | **34.4** | 12.2 | 17.7 | 39.5 | **56.7** | **62.6** | **73.2** | **61.6** |
+| **NoHorizon-v1** (ep14) | 21.2 | **21.2** | **22.7** | 37.7 | 49.5 | 56.2 | 71.5 | 92.7 |
+
+**NoHorizon's ranking is budget-BLIND by construction (H=1≡H=2≡21.2 — no H input).** The interplay:
+- **H=1 ranking: Horizon ≫ NoHorizon (34.4 vs 21.2).** Budget-conditioning sharply helps the 1-push opener ranking.
+- **H=2 ranking: NoHorizon > Horizon (21.2 vs 12.2).** Horizon's H=2 head is the BROKEN/diluted one; the
+  unconditioned single "goodness" head is more robust at budget 2.
+- **SOLVE — REACTIVE (@2sim): NoHorizon WINS (22.7 vs 17.7).** best-first at budget-2 queries H=2, and Horizon's
+  broken H=2 mis-orders the first push ⇒ the conditioned model is WORSE than unconditioned in the 0-search regime.
+- **SOLVE — SEARCH (@50-100): Horizon wins (+6-7pp) + 1.5× more sim-efficient (61.6 vs 92.7);** @900 ~tie (73.2
+  vs 71.5). Once search expands to the post-push state (queried at H=1, where Horizon=34.4≫21.2), Horizon's better
+  H=1 ranking finds the 2nd push faster.
+
+**H10/H11 partial verdict:** the horizon's value is REAL but currently LOPSIDED — it buys a big H=1 ranking gain +
+mid-budget search efficiency, but its broken H=2 head SABOTAGES the pure-reactive regime (loses @2 to the simpler
+unconditioned model). **SHARPENED v2 PREDICTION:** fixing Horizon's H=2 (the 1-push@H2 aug) should lift Horizon-v2's
+reactive solve@2 ABOVE NoHorizon's 22.7 and its rankH2 above 21.2 — IF v2-Horizon-rankH2 stays ≤ NoHorizon's 21.2,
+the horizon isn't worth it and the unconditioned model wins. This is now a crisp, falsifiable v2-cell test.
+
 ### 🔎 PLATEAU / FAILURE ANALYSIS [2026-06-13 ~21:50 ET, on the Horizon-v1 solve curve, n=1018]
 WHY the solve curve plateaus ~73% (model) / ~70% (random) instead of 100% on an all-2-push-solvable set:
 - **273/1018 (27%) unsolved @900 are ALL `is_2push_solvable=True`** → NOT a goal/label problem, NOT unsolvable
@@ -372,11 +394,15 @@ WHY the solve curve plateaus ~73% (model) / ~70% (random) instead of 100% on an 
   regime, NOT the asymptotic ceiling — at 900 sims brute-force random nearly catches up** (both ~70-74% on the
   object-constrained ≤2-push problem; best-first@hmax2 doesn't exhaust the hard tail). Greedy best-first (no
   MCTS/PW) confirmed effective; the OLD n=671 budget-100 numbers (62 vs 46) match @100 here (63.2 vs 47.8).
-- **H10 — Do we even NEED the horizon? (NoHorizon ≈ Horizon for ranking). VERDICT: ⏳ PENDING.**
-  Hyp [USER]: a pooled no-H goodness model ranks pushes ≈ as well; horizon's real value = budget-honesty + deeper bootstrapping.
-  Predict: NoHorizon-v1 ≈ Horizon-v1 on the test panel. Test: qfull_nohz_v4hq (training).
-- **H11 — In SEARCH the horizon is REDUNDANT (sim does the lookahead). VERDICT: ⏳ PENDING.**
-  Hyp: best-first(NoHorizon) ≈ best-first(Horizon); horizon only helps the REACTIVE (0-sim) regime. Test: NoHorizon vs Horizon best-first.
+- **H10 — Do we even NEED the horizon? (NoHorizon ≈ Horizon for ranking). VERDICT: ⏳ DATA IN [v1, partial] —
+  SPLIT, budget-dependent.** NOT ≈: Horizon's H=1 ranking ≫ NoHorizon (34.4 vs 21.2) but its H=2 < NoHorizon
+  (12.2 vs 21.2, broken head). NoHorizon = budget-blind robust 21.2. So the horizon helps IFF its high-budget head
+  is well-trained — currently it isn't (H4 dilution). Re-test with v2-Horizon (the aug fix).
+- **H11 — In SEARCH the horizon is REDUNDANT; horizon only helps REACTIVE. VERDICT: ❌ REJECTED [v1, the OPPOSITE].**
+  Predicted horizon helps reactive, redundant in search. DATA: horizon LOSES the reactive @2 (17.7 < NoHz 22.7,
+  its broken H=2 sabotages budget-2) and WINS the search mid-budget (@50-100 +6-7pp, 1.5× sim-efficiency 61.6 vs
+  92.7); @900 ~tie. So in v1 the horizon's net value is SEARCH-EFFICIENCY, and it's currently a reactive LIABILITY.
+  The v2 H=2 fix is predicted to flip the reactive sign (Horizon-v2 @2 > 22.7).
 - **H13 — Eval MUST be object-constrained / per-episode (push the LABELED object only). VERDICT: ⏳ PENDING [USER design].**
   Obs: unconstrained best-first solved ~7% of "pure-2-push" scenes in 1 sim — because scenes have MULTIPLE reachable objects
   (verified: env_0177 has obstacle_1 AND obstacle_3) and the search opened the path via a DIFFERENT (easier) object than the
