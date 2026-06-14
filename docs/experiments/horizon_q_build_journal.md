@@ -186,10 +186,12 @@ Headline: MODEL @900=**73.2** vs RANDOM(5-seed) **69.6**±.4; @2sim 17.7 vs 2.9 
    key-graded m3. Assemble a 4-family stats table → Slack + journal + registry.
 
 **LIVE JOBS + watchers [16:55 ET]:** EVAL FLEET ✅ DONE (n=1018; Horizon-v1 cell FINAL — see CELL block).
-TRAINING in flight: Horizon-v1 56015587 ✅ DONE (TIMEOUT@14h ep17; ep16 .6517 = converged best, cell FINAL),
-NoHorizon-v1 56025708 (ep6, 14h limit), **Horizon-v2 56057675 + NoHorizon-v2 56057676 (relaunched 14h, n=944k
-40%-OOD)**. **OVERNIGHT 2×2 CHAIN ARMED** (watcher `brjfoskgq`, NEW ids 56057675/676/56025708): training done →
-`eval_one_model.sh` for the 3 remaining models (ranking H1/H2 + best-first
+TRAINING: Horizon-v1 ✅ DONE (ep16 .6517, cell FINAL). **NoHorizon-v1 ✅ DONE [01:18 ET, ep14 .6732 converged]
+— EVAL LAUNCHED 01:34** (rank 56091194/5, best-first 56091196; v1 ROW lands ~03:30, watcher `bc9ssymgs` → reduce_2x2).
+Note NoHz-v1 val .673 > Horizon-v1 .652 = EXPECTED (NoHorizon has no H input → must fit H=1 AND H=2 labels for the
+same state with one head → blurs; the conditioning lets Horizon fit both → lower loss; real test = ranking/solve).
+**Horizon-v2 56057675 + NoHorizon-v2 56057676 still training (~ep5-6, finish ~07am)** — v2 chain re-armed (watcher
+`b7ljxwker`, v2-only ids) → `eval_one_model.sh` (ranking H1/H2 + best-first
 @900) → I arm the reduce. Random baseline is SHARED (bf900_uniform_s0..4, model-agnostic — don't recompute).
 **2×2 HARNESS (committed):** `eval_one_model.sh <run>` (per-cell evals) + `reduce_2x2.py` (assemble matrix vs
 shared random). Naming convention: solve=`bf900_<run>`, rank=`<run>_rank`; Horizon-v1's custom dirs symlinked in.
