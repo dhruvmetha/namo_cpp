@@ -240,6 +240,14 @@ SUPERSEDED — do NOT cite them against these. Anything new gets graded exactly 
 > CORRECTED [56115386-391 +s4]; old point dirs archived `bf900_*_POINT`; ranking (label-based) unchanged.
 > ⇒ **all solve@K numbers in the cells below are SUPERSEDED by the corrected region re-run** (watcher bolef7st5).
 
+> **✅ SCOPE OF THE SUCCESS-CRITERION BUG [2026-06-14, verified]:** it affected ONLY the live-SIM SOLVE evals
+> (best-first solve@K via is_robot_goal_reachable). The M-SERIES (M1/M2a/M2b/M2c) + the v1-row RANKING numbers
+> are `eval_scorer.py` = PURE LABEL-GRADING (topk_hit: top-k ranked candidate ∈ labels' `valid` set; NO env.step,
+> NO is_robot_goal_reachable) ⇒ consistent with the ≥20%-region labels by construction ⇒ UNAFFECTED, verdicts
+> STAND. Only solve@K was wrong. (The old suspect fpv_m2b 75.2 / champ 34.5 WERE single-point sim numbers, but
+> already superseded for the manifest reason.) ROOT-CAUSE of the miss: had the label-vs-eval disagreement (273
+> unsolved + 13 plan_len=1) and rationalized it as search-budget instead of auditing the success predicate.
+
 4. **Metric = SOLVE-RATE vs SIMS, one curve (reactive→search on the same axis).** A sim = one real env push
    (~1s). solve@K = fraction of episodes opened within K sims. K=2 ≈ the reactive/0-search anchor (one setup + one
    open = the minimum 2-push cost); large K = full search. **EVERYTHING CAPPED AT 900 SIMS [USER].** Best-first
