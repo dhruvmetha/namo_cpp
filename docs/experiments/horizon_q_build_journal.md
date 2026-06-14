@@ -1414,3 +1414,18 @@ test=model-setup s1, live-render, test scenes — THREE differences. disentangle
 scene-generalization (val postpush: held-out scenes, same setups+render). ANYTHING MORE: the DEPLOY DISTRIBUTION SHIFT —
 finish trained on collection-setup s1 but queried at deploy on MODEL-setup s1 ⇒ a DAgger/ExIt problem (train on the s1
 the deployed policy visits); 'more data' alone insufficient, needs closed-loop collection.
+
+### 🏁 GEN-GAP DISENTANGLED — it's a DEPLOY DISTRIBUTION SHIFT, not scene memorization [2026-06-14 ~18:40 ET, disentangle_gen.py]
+Finish raw-sep, one variable changed per step:
+| state set | scenes | setups | render | sep |
+|---|---|---|---|---|
+| TRAIN postpush | seen | collection | H5 | 0.750 |
+| VAL postpush | UNSEEN | collection | H5 | **0.598** (scene-gen: −0.15, MODEST) |
+| TEST live | unseen | **MODEL** | live | **0.273** (deploy shift: −0.33, DOMINANT) |
+⇒ of the 0.48 train→test collapse, **~⅓ scene-generalization, ~⅔ DEPLOY DISTRIBUTION SHIFT** (model evaluates on s1
+from ITS OWN setups, never trained on — trained on the collection planner's setups). Model generalizes scenes fine;
+it fails on OFF-POLICY s1. (val→test also flips H5→live render — validated-faithful, so setup-policy dominates; full
+isolation would need H5-rendered model-setup s1.) **RE-PRIORITIZED FIX: the cure is ON-POLICY / closed-loop (DAgger/ExIt)
+finish collection — run the model, collect the s1 IT lands in, exhaustively label, retrain the finish — NOT more static
+data or scene diversity (those buy only the modest ⅓). Static collection-setup data can't fix an off-policy shift.**
+This is the deepest correct statement of the Horizon-v2 finish gap.
