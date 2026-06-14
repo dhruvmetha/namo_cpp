@@ -1232,3 +1232,23 @@ work combines ExIt + disagreement-acquisition-for-setups + continuous manipulati
   completion → full M3/M4 verdict.
 - **M3 EVAL TOOL: scripts/sandbox/eval_m3.py** (force-added, sandbox gitignored). Zero-sim H=2 foresight: rank first pushes by Q(s0,.,H=2), verify top-k by sim. Run per-seed at v1 completion: --start 0 --end 985 --h 2 --topk 10. --h 1 = reactive-1push control. Smoke 56021488 (5 scenes, ep7).
 - **M3 EVAL SMOKE PASSED [2026-06-13 ~06:15 ET]:** eval_m3.py runs end-to-end (5 scenes, ep7 ckpt, no errors, hit@1=60 — NOT meaningful, n=5+early, tool-validation only). Ready for full run at v1 completion: per-seed best ckpts, --start 0 --end 985 --h 2 (+ --h 1 control), per-division.
+
+### 🔬 DEEP FAILURE ANALYSIS [2026-06-14 ~11:15 ET, corrected region eval, seed-1; scripts/sandbox/analyze_failures.py]
+**HEADLINE: failures are RANKING failures, NOT intrinsic hardness.** Of 1018 episodes, only **16 (1.6%) are unsolved
+by ALL 4 models** (truly unsolvable within 900 sims); **155 are model-specific** (one model fails, another solves).
+So the 5-11% failure tails are the model's Q failing to rank a FINDABLE needle into the top-900, not the scene being
+too hard.
+- **Needle EXISTS in the failures:** unsolved (Hz-v2) have median **3 solving (a1,a2) pairs** (vs 13 for solved) /
+  0.1% density (vs 0.8%) — rarer, but only **8/52 are true ≤1-pair needle-in-haystack**. The other 44 have a
+  findable needle the ranking missed.
+- **Failures concentrate in the HARD division:** Hz-v2 hard 89% vs med/easy 98%; NoHz-v2 hard 82% vs 97%. Horizon >
+  NoHorizon in every bin; v2 > v1 in every bin.
+- **92% of NoHorizon-v1's failures are solvable by RANDOM ordering** (103/112); Hz-v2 83% (43/52). ⇒ deterministic
+  guidance steers AWAY from findable needles on its blind spots — random diversity beats it there. **Actionable:
+  ε-exploration / stochastic restarts / ensembling would recover most of the tail** (the needle is reachable, the
+  greedy ranking just doesn't surface it).
+- **REACTIVE gap (NoHz>Hz @2) is on EASY/MEDIUM, not HARD:** Hz-v2 @2 easy35/med23/hard18 vs NoHz-v2 easy53/med34/
+  hard19. The unconditioned head's robustness wins the EASY single-shot pick (many setups, pick a working one fast);
+  the horizon's capacity-split costs reactive sharpness exactly there — hard reactive is ≈ (both ~18-19%, rare setups).
+- **Mechanism summary:** Horizon trades reactive-easy sharpness for search efficiency + fewer ranking blind spots
+  (8 unsolved-only vs NoHz 42). The remaining failure tail is recoverable via exploration, not bigger budget.
