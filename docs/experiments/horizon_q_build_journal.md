@@ -330,6 +330,28 @@ scarcest. [Earlier n~150 partial showed model@900=90 — that was the EASY shard
 STILL holds at ep16; the earlier 38.4 was a different ckpt.) Note hard@1 H=2 failure_decomp: wrong_edge 71% — at
 budget-2 the model picks a different edge (the setup-vs-opener confusion the aug targets).
 
+### 🏁 FULL 2×2 MATRIX — FINAL [2026-06-14 ~08:26 ET, region criterion (corrected), n=1018 all cells]
+| cell | rankH1 | rankH2 | s@2 | s@10 | s@50 | s@100 | s@900 | avg-sims |
+|---|---|---|---|---|---|---|---|---|
+| Horizon-v1 | 34.4 | 12.2 | 22.3 | 50.4 | 71.5 | 81.8 | 93.8 | 58.5 |
+| NoHorizon-v1 | 21.2 | 21.2 | 28.7 | 46.8 | 63.1 | 71.4 | 89.0 | 85.1 |
+| **Horizon-v2** | 36.0 | 30.7 | 24.2 | **55.3** | **76.3** | **82.6** | **94.9** | **54.6** |
+| **NoHorizon-v2** | 31.7 | 31.7 | **32.6** | 52.0 | 67.5 | 74.0 | 91.6 | 76.7 |
+| RANDOM (5-seed) | — | — | 3.3 | 19.8 | 51.0 | 63.6 | 90.8 | 113.6 |
+
+**THE COMPLETE STORY (both deploy regimes, [[feedback_search_nosearch_lens]]):**
+- **REACTIVE (@2sim, no-search): NoHorizon wins in BOTH data versions** (v1 28.7>22.3, v2 32.6>24.2). ⚠ **The
+  reactive-flip prediction FAILED** — fixing Horizon-v2's H=2 ranking (12.2→30.7) did NOT flip reactive; the gap
+  even WIDENED (6.4→8.4) because v2 data helped NoHz's reactive MORE (+3.9 vs +1.9). The unconditioned single
+  "goodness" head is just better single-shot; budget-conditioning splits capacity and stays a reactive handicap.
+- **SEARCH (@50-900): Horizon wins in BOTH versions** (+8-9pp @50-100, 1.4-1.5× efficiency; @900 Horizon>NoHz>random,
+  NoHz≈/<random). The H=1 head guides the 2nd-push lookahead; horizon's value IS the search regime.
+- **v2 data helps BOTH models' solve** (Horizon @50 71.5→76.3, NoHz 63.1→67.5; both +efficiency) AND fixes the
+  H=2 ranking — broadly beneficial.
+- **BEST DEPLOY: reactive → NoHorizon-v2 (32.6@2); search → Horizon-v2 (94.9@900, 54.6 sims).** No single winner;
+  it's regime-dependent. Random @900=90.8 ⇒ at the ceiling only the Horizon models beat brute force.
+- Random caveat: @900 random (90.8) > NoHorizon-v1 (89.0) — unconditioned guidance is net-negative at the ceiling.
+
 ### 📊 RANKING 2×2 — ALL 4 MODELS [2026-06-14 ~07:34 ET, eval_scorer hard@1, converged ckpts; LABEL-graded so correct]
 | model | rankH1 | rankH2 |
 |---|---|---|
@@ -465,10 +487,11 @@ WHY the solve curve plateaus ~73% (model) / ~70% (random) instead of 100% on an 
   regime, NOT the asymptotic ceiling — at 900 sims brute-force random nearly catches up** (both ~70-74% on the
   object-constrained ≤2-push problem; best-first@hmax2 doesn't exhaust the hard tail). Greedy best-first (no
   MCTS/PW) confirmed effective; the OLD n=671 budget-100 numbers (62 vs 46) match @100 here (63.2 vs 47.8).
-- **H10 — Do we even NEED the horizon? (NoHorizon ≈ Horizon for ranking). VERDICT: ⏳ DATA IN [v1, partial] —
-  SPLIT, budget-dependent.** NOT ≈: Horizon's H=1 ranking ≫ NoHorizon (34.4 vs 21.2) but its H=2 < NoHorizon
-  (12.2 vs 21.2, broken head). NoHorizon = budget-blind robust 21.2. So the horizon helps IFF its high-budget head
-  is well-trained — currently it isn't (H4 dilution). Re-test with v2-Horizon (the aug fix).
+- **H10 — Do we even NEED the horizon? VERDICT: ✅ RESOLVED [full 2×2] — REGIME-DEPENDENT, no single winner.**
+  Horizon WINS SEARCH in both data versions (@50-100 +8-9pp, 1.4-1.5× efficiency, @900 beats random where NoHz
+  ≈/<random) and the H=1 ranking (+4-13pp). NoHorizon WINS REACTIVE in both (@2 28.7>22.3 v1, 32.6>24.2 v2). The
+  H=2 fix in v2 (12.2→30.7) did NOT flip reactive (gap widened 6.4→8.4) ⇒ budget-conditioning is intrinsically a
+  reactive handicap (capacity split) but the search asset. DEPLOY: reactive→NoHorizon-v2, search→Horizon-v2.
 - **H11 — In SEARCH the horizon is REDUNDANT; horizon only helps REACTIVE. VERDICT: ❌ REJECTED [v1, the OPPOSITE].**
   Predicted horizon helps reactive, redundant in search. DATA [FINAL n=1018]: horizon LOSES the reactive @2 (17.7 <
   NoHz 22.5, its broken H=2 sabotages budget-2) and WINS search (@50-100 +7-8pp, 1.5× sim-efficiency 61.6 vs 92.9,
