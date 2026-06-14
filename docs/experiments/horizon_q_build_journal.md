@@ -1252,3 +1252,17 @@ too hard.
   the horizon's capacity-split costs reactive sharpness exactly there — hard reactive is ≈ (both ~18-19%, rare setups).
 - **Mechanism summary:** Horizon trades reactive-easy sharpness for search efficiency + fewer ranking blind spots
   (8 unsolved-only vs NoHz 42). The remaining failure tail is recoverable via exploration, not bigger budget.
+
+### ✅ 2-SEED ROBUSTNESS — all 2×2 findings HOLD [2026-06-14 ~11:35 ET, s1 vs s2, corrected region eval]
+| cell | seed | rH1 | rH2 | s@2 | s@50 | s@100 | s@900 | avgSim |
+|---|---|---|---|---|---|---|---|---|
+| Horizon-v1 | s1/s2 | 34.4/40.2 | 12.2/15.3 | 22.3/25.9 | 71.5/71.2 | 81.8/79.3 | 93.8/91.7 | 58.5/59.7 |
+| NoHorizon-v1 | s1/s2 | 21.2/25.4 | 21.2/25.4 | 28.7/29.2 | 63.1/64.9 | 71.4/71.8 | 89.0/89.2 | 85.1/81.8 |
+| Horizon-v2 | s1/s2 | 36.0/35.4 | 30.7/25.4 | 24.2/24.8 | 76.3/75.0 | 82.6/81.3 | 94.9/94.1 | 54.6/55.2 |
+| NoHorizon-v2 | s1/s2 | 31.7/29.1 | 31.7/29.1 | 32.6/33.4 | 67.5/69.7 | 74.0/76.9 | 91.6/92.2 | 76.7/66.0 |
+
+**EVERY key finding holds with CONSISTENT SIGN across both seeds (no flips):** (1) NoHz wins reactive @2 in both
+data versions both seeds; (2) Horizon wins search @50-100 + efficiency both versions both seeds; (3) v2 fixes Hz
+H=2 (30.7/25.4 vs v1 broken 12.2/15.3); (4) Horizon > NoHz @900 both seeds. Seed variance ~2-6pp per cell, no sign
+flips ⇒ the single-seed 2×2 conclusions are ROBUST. (s3 available if publication error bars wanted.) ⇒ **2×2 DONE
++ seed-confirmed; deploy = reactive→NoHorizon-v2, search→Horizon-v2.**
