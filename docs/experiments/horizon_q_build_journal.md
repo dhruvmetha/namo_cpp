@@ -226,6 +226,16 @@ SUPERSEDED — do NOT cite them against these. Anything new gets graded exactly 
    best-first "solves" a pure-2 scene in 1 push via a DIFFERENT, easier object in the same room (~7% phantom
    @1sim). Constrained ⇒ @1sim solves = **0** = the honest 2-push problem (H13 ✅).
 
+> **🔧 SUCCESS-CRITERION FIX [2026-06-14 ~04:20 ET, USER: "labels are correct, fix the eval"].** The best-first
+> SOLVE eval graded success by `env.is_robot_goal_reachable()` = the SINGLE xml-`<site name="goal">` point (±5cm).
+> But the LABELS grade by the COLLECTION criterion: **≥20% of the goal region reachable = ≥20 of 100 sampled
+> goal-region points** (`region_opening._validate_opening`, goals_per_region=100 + fraction=0.2). DIFFERENT
+> criteria ⇒ the label-vs-eval mismatch (273 "unsolved-but-2push-solvable" + 13 plan_len=1). FIX: `goal_region_open`
+> (eval_m3.py) replicates the label criterion via `get_region_snapshot(goals_per_region=100,use_xml_goal=True,seed=42)`
+> + `env.count_reachable_points` ≥ ceil(0.2·100). eval_bestfirst `--success region`(default)|point. ALL solve evals
+> RE-RUN with region [56108540-545 +s4]; old point dirs archived `bf900_*_POINT`; ranking (label-based) unchanged.
+> ⇒ **all solve@K numbers below/in the cells are being SUPERSEDED by the region re-run** (watcher bolef7st5).
+
 4. **Metric = SOLVE-RATE vs SIMS, one curve (reactive→search on the same axis).** A sim = one real env push
    (~1s). solve@K = fraction of episodes opened within K sims. K=2 ≈ the reactive/0-search anchor (one setup + one
    open = the minimum 2-push cost); large K = full search. **EVERYTHING CAPPED AT 900 SIMS [USER].** Best-first
