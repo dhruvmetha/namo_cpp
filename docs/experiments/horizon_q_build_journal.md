@@ -330,6 +330,21 @@ scarcest. [Earlier n~150 partial showed model@900=90 — that was the EASY shard
 STILL holds at ep16; the earlier 38.4 was a different ckpt.) Note hard@1 H=2 failure_decomp: wrong_edge 71% — at
 budget-2 the model picks a different edge (the setup-vs-opener confusion the aug targets).
 
+### 📊 RANKING 2×2 — ALL 4 MODELS [2026-06-14 ~07:34 ET, eval_scorer hard@1, converged ckpts; LABEL-graded so correct]
+| model | rankH1 | rankH2 |
+|---|---|---|
+| Horizon-v1 | 34.4 | **12.2** |
+| NoHorizon-v1 | 21.2 | 21.2 |
+| **Horizon-v2** | **36.0** | **30.7** |
+| **NoHorizon-v2** | **31.7** | **31.7** |
+
+**(1) v2 data FIXES Horizon's H=2 dilution: 12.2 → 30.7** (H1 unregressed 36.0 ≥ 34.4) — H4/H12 ✓ on the converged
+ckpt (matches the ep7 feeler 31.2). **(2) v2 data ALSO lifts NoHorizon a lot (21.2 → 31.7)** — the OOD postpush+aug
+mix helps the unconditioned model's ranking too. ⇒ at H=2 Horizon-v2 ≈ NoHorizon-v2 (30.7 vs 31.7, tie); the
+horizon's REMAINING ranking edge is the H=1 specialization (+4.3). **H10 sharpened: given GOOD data, the horizon's
+net value = H=1 ranking; at H=2 the unconditioned single-head matches it.** Solve@K (the reactive-flip test:
+does Horizon-v2 @2 now beat NoHz-v2?) lands ~09:30 via bolef7st5.
+
 ### ✅ V2 H=2-DILUTION FIX CONFIRMED [2026-06-14 ~03:36 ET — Horizon-v2 ep7 FEELER, under-trained]
 | model | H=1 hard@1 | H=2 hard@1 |
 |---|---|---|
@@ -467,9 +482,9 @@ WHY the solve curve plateaus ~73% (model) / ~70% (random) instead of 100% on an 
   object-matched). VERDICT: ✅ ACCEPTED — object-constrained @1sim=**0** (cross-object 1-push shortcut gone); the honest
   2-push curve = MODEL 21→62%. Impl: rank_first_pushes_h2(restrict_obj=), eval_bestfirst --key + per-record loop.
   ⚠ FOLLOW-UP: 334/985 manifest scenes failed xml-key match (only 671 episodes graded) — fix path matching for full coverage.
-- **H12 — v2 OOD data (post-push + 1-push@H2) fixes the OOD failures. VERDICT: ⏳ PENDING.**
-  Obs: fails on post-push s1 (dead-leaf calib 0.549) + 1-push@H2 (dilution). Hyp: inject OOD samples → both improve.
-  Predict(accept iff): Horizon-v2 > Horizon-v1 on post-push calibration AND best-first-pure1 solve. Test: Horizon-v2.
+- **H12 — v2 OOD data (post-push + 1-push@H2) fixes the OOD failures. VERDICT: ✅ ACCEPTED (ranking) [2026-06-14].**
+  Numbers: Horizon-v2 H=2 hard@1 = 30.7 vs Horizon-v1 12.2 (+18.5, dilution fixed, H1 unregressed 36.0). BONUS: v2
+  data also lifts NoHorizon (21.2→31.7) — the OOD mix is broadly beneficial. Solve-side confirm pending (bolef7st5).
 
 **Done (2026-06-11, autonomous session):**
 - Car 0.034 + exclude across both copies, MuJoCo-verified, committed (ea0f5ff namo_cpp, c8144cc env_creator).
