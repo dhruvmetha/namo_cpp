@@ -1353,3 +1353,19 @@ restarts. (Does NOT change argmax picks ⇒ won't change which finish is chosen.
 — many real openers scored as low as non-openers. This is the ~40%-top-1 weakness; needs RETRAIN (calibrate/sharpen
 H1), independent of the squash. ⇒ TWO separate levers: drop-sigmoid (free, fixes search restart, won't raise ceiling)
 + retrain-finish (raises ceiling). NEXT: re-run best-first with raw=True, measure realized @2 + curve gain.
+
+### 📊 TRAINING DATA SPLIT + SUCCESS/FAIL RATIO [2026-06-14 ~17:30 ET] — the data root of the mushy finish
+Split: ScorerDataModule 90/10 room-grouped; v2 mix n=944,129 → train 849,717 / val 94,412. SUCCESS = push opens (≥20%):
+| source | rows | tried/row | success% | fail:succ |
+|---|---|---|---|---|
+| m2b (1-push H=1, initial states) | 252,805 | 73.5 | 43.5% | 1.3:1 |
+| h2 (2-push SETUP data, H=2) | 311,324 | 30.6 | 5.0% | 18.9:1 |
+| aug (1push@H2 fix) | 80,000 | 34.4 | 100% | 0:1 |
+| **postpush (the FINISH, H=1 on s1)** | 300k | 14.7 | **19.5%** | **4.1:1** |
+**ROOT OF THE MUSHY FINISH (data side):** the H=1 head calibrates well on m2b (balanced 43.5%, initial states) but the
+FINISH happens on post-setup s1 states covered ONLY by postpush — which is **4:1 failure-skewed + a minority** → head
+hedges toward the ~20% base rate, can't push real openers high (matches Step0 raw openers mean 0.37). Setup data (h2)
+is even more skewed (19:1) yet H2 selection is great (AUC 0.93) ⇒ imbalance alone isn't fatal; the finish is worse
+because it's judged on OOD s1 states. **FIX (concrete): mint a large, balanced finish set from the exhaustive
+(a1,a2)→opens map (exact, on-distribution s1 labels) + up-weight the opener class.** Hz-v2 RAW (de-squash) re-run
+running (56206502) for the search-side gain in parallel.
