@@ -308,11 +308,15 @@ scarcest. [Earlier n~150 partial showed model@900=90 — that was the EASY shard
 STILL holds at ep16; the earlier 38.4 was a different ckpt.) Note hard@1 H=2 failure_decomp: wrong_edge 71% — at
 budget-2 the model picks a different edge (the setup-vs-opener confusion the aug targets).
 
-### 🥊 V1 ROW — Horizon-v1 vs NoHorizon-v1 [2026-06-14 ~02:34 ET; NoHz solve partial n=911/1018, bc9ssymgs→exact]
+### 🥊 V1 ROW — Horizon-v1 vs NoHorizon-v1 [2026-06-14 ~02:50 ET; FINAL n=1018 both]
 | model | rankH1 | rankH2 | s@2 | s@10 | s@50 | s@100 | s@900 | avg-sims |
 |---|---|---|---|---|---|---|---|---|
-| **Horizon-v1** (ep16) | **34.4** | 12.2 | 17.7 | 39.5 | **56.7** | **62.6** | **73.2** | **61.6** |
-| **NoHorizon-v1** (ep14) | 21.2 | **21.2** | **22.7** | 37.7 | 49.5 | 56.2 | 71.5 | 92.7 |
+| **Horizon-v1** (ep16) | **34.4** | 12.2 | 17.7 | **39.5** | **56.7** | **62.6** | **73.2** | **61.6** |
+| **NoHorizon-v1** (ep14) | 21.2 | **21.2** | **22.5** | 37.0 | 48.5 | 55.0 | 70.2 | 92.9 |
+| RANDOM (5-seed) | — | — | 2.9 | 15.0 | 38.0 | 47.2 | 69.6 | 124.7 |
+**⭐ NoHorizon's @900 (70.2) ≈ RANDOM (69.6)** — at the search ceiling its guidance adds ~nothing; Horizon (73.2) is
++3.6 over random. So Horizon is the more valuable SEARCHER (higher ceiling + 1.5× efficiency), NoHorizon the better
+REACTIVE picker. Both crush random reactively (22.5/17.7 vs 2.9).
 
 **NoHorizon's ranking is budget-BLIND by construction (H=1≡H=2≡21.2 — no H input).** The interplay:
 - **H=1 ranking: Horizon ≫ NoHorizon (34.4 vs 21.2).** Budget-conditioning sharply helps the 1-push opener ranking.
@@ -399,10 +403,10 @@ WHY the solve curve plateaus ~73% (model) / ~70% (random) instead of 100% on an 
   (12.2 vs 21.2, broken head). NoHorizon = budget-blind robust 21.2. So the horizon helps IFF its high-budget head
   is well-trained — currently it isn't (H4 dilution). Re-test with v2-Horizon (the aug fix).
 - **H11 — In SEARCH the horizon is REDUNDANT; horizon only helps REACTIVE. VERDICT: ❌ REJECTED [v1, the OPPOSITE].**
-  Predicted horizon helps reactive, redundant in search. DATA: horizon LOSES the reactive @2 (17.7 < NoHz 22.7,
-  its broken H=2 sabotages budget-2) and WINS the search mid-budget (@50-100 +6-7pp, 1.5× sim-efficiency 61.6 vs
-  92.7); @900 ~tie. So in v1 the horizon's net value is SEARCH-EFFICIENCY, and it's currently a reactive LIABILITY.
-  The v2 H=2 fix is predicted to flip the reactive sign (Horizon-v2 @2 > 22.7).
+  Predicted horizon helps reactive, redundant in search. DATA [FINAL n=1018]: horizon LOSES the reactive @2 (17.7 <
+  NoHz 22.5, its broken H=2 sabotages budget-2) and WINS search (@50-100 +7-8pp, 1.5× sim-efficiency 61.6 vs 92.9,
+  @900 73.2 > 70.2 where NoHz≈random 69.6). So in v1 the horizon's net value is SEARCH (higher ceiling + efficiency),
+  and it's currently a reactive LIABILITY. The v2 H=2 fix is predicted to flip the reactive sign (Horizon-v2 @2 > 22.5).
 - **H13 — Eval MUST be object-constrained / per-episode (push the LABELED object only). VERDICT: ⏳ PENDING [USER design].**
   Obs: unconstrained best-first solved ~7% of "pure-2-push" scenes in 1 sim — because scenes have MULTIPLE reachable objects
   (verified: env_0177 has obstacle_1 AND obstacle_3) and the search opened the path via a DIFFERENT (easier) object than the
