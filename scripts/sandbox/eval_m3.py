@@ -13,7 +13,7 @@ Bars: 34.5 @1 (registered: old champion + 49-sim beam) | 75.2 @1 (fpv_m2b, M2b +
   python scripts/sandbox/eval_m3.py --ckpt <qfull.ckpt> --start 0 --end 985 --h 2 --topk 10 \
       --out /scratch/dm1487/eval/m3_<name>.json --leaf-out /scratch/dm1487/eval/m3_<name>.jsonl
 """
-import sys, os, json, time, argparse
+import sys, os, json, time, argparse, math
 REPO = "/cache/home/dm1487/projects/namo/namo_cpp"
 SAGE = "/cache/home/dm1487/projects/namo/sage_learning"
 for _p in (f"{REPO}/build_python", f"{REPO}/python", f"{REPO}/scripts", f"{REPO}/scripts/sandbox", SAGE):
@@ -24,6 +24,25 @@ from scorer_beam import BeamPlanner, make_env, make_action, read_manifest, FALLB
 from namo.core.xml_goal_parser import extract_goal_with_fallback  # noqa: E402
 
 PURE2PUSH = "/scratch/dm1487/manifests/test_pure2_fromkey.txt"
+
+
+def goal_region_open(env, goals_per_region=100, frac=0.2, seed=42):
+    """LABEL-CONSISTENT success: the goal region counts as OPEN iff >= frac of its sampled goal points are
+    reachable. This MATCHES the test-set collection exactly (region_opening._validate_opening: goals_per_region=100
+    + region_min_reachable_fraction=0.2 -> >=20 of 100). The old eval used env.is_robot_goal_reachable() = the
+    SINGLE xml-site point (goal_size 0.05) -> a DIFFERENT, looser criterion than the labels (the source of the
+    273 'unsolved-but-2push-solvable' + 13 plan_len=1 mismatches). [USER 2026-06-14: labels are canonical; fix eval.]"""
+    from namo.planners import get_region_snapshot
+    snap = get_region_snapshot(env, goals_per_region=goals_per_region, use_xml_goal=True, seed=seed)
+    glabel = snap.get("goal_label", "")
+    if not glabel:
+        return False
+    bundle = snap["region_goals"].get(glabel)
+    if not bundle or not getattr(bundle, "goals", None):
+        return False
+    pts = [(g.x, g.y) for g in bundle.goals]
+    rc, _first = env.count_reachable_points(pts)
+    return rc >= max(1, math.ceil(frac * len(bundle.goals)))
 
 
 def rank_first_pushes_h2(planner, env, robot_goal, xml, s0, h, restrict_obj=None, score=True):

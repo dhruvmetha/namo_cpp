@@ -25,7 +25,7 @@ for _p in (f"{REPO}/build_python", f"{REPO}/python", f"{REPO}/scripts", f"{REPO}
     if _p not in sys.path:
         sys.path.insert(0, _p)
 from scorer_beam import BeamPlanner, make_env, make_action, read_manifest, FALLBACK_GOAL  # noqa: E402
-from eval_m3 import rank_first_pushes_h2  # noqa: E402  -> [(obj, Goal, q)] desc by Q(state,.,h)
+from eval_m3 import rank_first_pushes_h2, goal_region_open  # noqa: E402  -> [(obj, Goal, q)] desc by Q(state,.,h)
 from namo.core.xml_goal_parser import extract_goal_with_fallback  # noqa: E402
 
 PURE2PUSH = "/scratch/dm1487/manifests/test_pure2_fromkey.txt"
@@ -52,8 +52,10 @@ def priority(q, V, combine):
     return 0.5 * q + 0.5 * V                           # blend (default): action score tempered by state value
 
 
-def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combine, rng, restrict_obj=None):
-    """Greedy best-first ON THE LABELED OBJECT (restrict_obj). Returns (solved, sims_used, plan_len|None)."""
+def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combine, rng, restrict_obj=None,
+                is_open=goal_region_open):
+    """Greedy best-first ON THE LABELED OBJECT (restrict_obj). Returns (solved, sims_used, plan_len|None).
+    is_open(env) = the success predicate; default = LABEL-consistent goal_region_open (>=20% of 100 region pts)."""
     heap = []; ctr = 0; sims = 0
     pool, V0 = candidates(planner, env, goal, xml, s0, hmax, prior, agg, rng, restrict_obj=restrict_obj)
     for (obj, g, q) in pool:
@@ -62,7 +64,7 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
     while heap and sims < sim_budget:
         _negpr, _c, it = heapq.heappop(heap)
         env.set_full_state(it["from"]); env.step(make_action(it["obj"], it["g"])); sims += 1
-        if env.is_robot_goal_reachable():
+        if is_open(env):
             return True, sims, len(it["plan"])
         ndone = it["ndone"] + 1
         if ndone < hmax:                                  # room for another push -> expand the reached state
@@ -93,15 +95,19 @@ def main():
     ap.add_argument("--seed-base", type=int, default=7000,
                     help="RNG base for the uniform baseline; vary across runs for multi-seed random (model is "
                          "deterministic, so --seed-base only matters for --prior uniform).")
+    ap.add_argument("--success", default="region", choices=["region", "point"],
+                    help="success predicate: 'region' = LABEL-consistent (>=20%% of 100 goal-region pts reachable, "
+                         "matches the test-set collection); 'point' = legacy single xml-site point (the OLD bug).")
     ap.add_argument("--out", default="/scratch/dm1487/eval/bestfirst.json")
     ap.add_argument("--leaf-out", default="/scratch/dm1487/eval/bestfirst.jsonl")
     a = ap.parse_args()
 
     import os as _os
+    is_open = goal_region_open if a.success == "region" else (lambda env: env.is_robot_goal_reachable())
     key = json.load(open(a.key)); keyrp = {_os.path.realpath(k): v for k, v in key.items()}
     planner = BeamPlanner(ckpt=a.ckpt)
     print(f"device={planner.scorer.device} hmax={a.hmax} sim_budget={a.sim_budget} prior={a.prior} "
-          f"agg={a.agg} combine={a.combine} key={_os.path.basename(a.key)}", flush=True)
+          f"agg={a.agg} combine={a.combine} key={_os.path.basename(a.key)} success={a.success}", flush=True)
     xmls = read_manifest(a.manifest, None)[a.start:a.end]
     n = n_solved = n_already = n_norec = sims_tot = sims_solved = 0; t0 = time.time()
     lf = open(a.leaf_out, "w")
@@ -113,14 +119,14 @@ def main():
             env = make_env(xml)
             goal = extract_goal_with_fallback(xml, FALLBACK_GOAL)
             env.set_robot_goal(*goal); env.get_reachable_objects()
-            if env.is_robot_goal_reachable():
+            if is_open(env):
                 n_already += 1; continue
             s0 = env.get_full_state()
             for ri, rec in enumerate(recs):                       # one EPISODE per (object,goal) record
                 rng = random.Random(a.seed_base + xi * 17 + ri)
                 obj = rec.get("object_id")
                 solved, sims, plen = solve_scene(planner, env, goal, xml, s0, a.hmax, a.sim_budget,
-                                                 a.prior, a.agg, a.combine, rng, restrict_obj=obj)
+                                                 a.prior, a.agg, a.combine, rng, restrict_obj=obj, is_open=is_open)
                 n += 1; sims_tot += sims; n_solved += int(solved); sims_solved += sims if solved else 0
                 lf.write(json.dumps({"xml": xml, "object_id": obj, "region": rec.get("region"),
                                      "solved": solved, "sims": sims, "plan_len": plen}) + "\n")
