@@ -1302,3 +1302,21 @@ AUC 0.93 vs 0.85) — which CONFLICTS with the full-eval reactive @2 (NoHz 33 > 
 a better handoff** (Hz's is better); it's a SEARCH-PRIORITY / easy-scene effect (the blend priority + flat single head
 surfaces a working pair within 2 pops more often on easy scenes per the division breakdown). My earlier "single head
 sharper on the 2nd push" mechanism was WRONG. Pinning it down needs a per-decision best-first @2 trace [open].
+
+### ✅ REACTIVE MECHANISM RESOLVED — cross-head scale mismatch [2026-06-14 ~13:50 ET, trace_reactive.py n=150]
+Best-first @2 = P(sim2 DIVES into a child) × P(that child opens). Decomposed (matches full-eval @2 24/33):
+| model | V0 (H2 firstpush) | V_s1 (H1 child) | V0−V_s1 | dive-rate | open|dive | @2 |
+|---|---|---|---|---|---|---|
+| Hz-v2 | 0.592 | 0.576 | **+0.016** | **41%** | **66%** | 0.27 |
+| NoHz-v2 | 0.539 | 0.590 | **−0.051** | **78%** | 41% | 0.32 |
+
+**NoHz wins reactive by DIVING 2× more** (78% vs 41%), even though Horizon's handoff is far better (child opens 66%
+vs 41%). **ROOT CAUSE: cross-head SCALE MISMATCH.** Hz's H=2 head values first-pushes (V0=.592) ≥ its H=1 head
+values the resulting children (V_s1=.576) ⇒ the blend priority keeps shopping fresh first-pushes instead of
+committing to a good setup. NoHz uses ONE head ⇒ the post-setup state genuinely scores higher (V_s1 .590 > V0 .539)
+⇒ it dives. **So Horizon's reactive deficit is NOT a value-quality issue — it's that the H1/H2 heads aren't on the
+same scale, so a good setup's child doesn't outrank a fresh first-push.**
+**ACTIONABLE (striking):** if Horizon dove at NoHz's rate (78%) with its OWN better handoff (66% open), its @2 would
+be ~**0.51** — far above NoHz's 0.32. ⇒ normalize/calibrate H1 & H2 onto a common scale (or use V_s1 from the H1
+head only for the dive decision) and Horizon should WIN reactive too. Combine this with the H=1 compression fix
+(§Q-VALUE AUDIT) → lifts reactive AND search. This corrects the earlier (wrong) "single head sharper" mechanism.
