@@ -306,6 +306,29 @@ scarcest. [Earlier n~150 partial showed model@900=90 — that was the EASY shard
 STILL holds at ep16; the earlier 38.4 was a different ckpt.) Note hard@1 H=2 failure_decomp: wrong_edge 71% — at
 budget-2 the model picks a different edge (the setup-vs-opener confusion the aug targets).
 
+### 🔎 PLATEAU / FAILURE ANALYSIS [2026-06-13 ~21:50 ET, on the Horizon-v1 solve curve, n=1018]
+WHY the solve curve plateaus ~73% (model) / ~70% (random) instead of 100% on an all-2-push-solvable set:
+- **273/1018 (27%) unsolved @900 are ALL `is_2push_solvable=True`** → NOT a goal/label problem, NOT unsolvable
+  scenes. It's a **needle-in-haystack search-budget** limit: unsolved scenes have median **3 valid setups among
+  ~60 candidate first-pushes** (rarity 10.5% vs 15.2% solved); the (a1,a2) space is ~60×60 with few openers.
+- **MECHANISM = the H=2 ranking collapse.** At H=1 the first valid setup sits at median rank **2/60**; at H=2 it
+  craters to median rank **15/60** (hard@1 34.4 → 12.2). best-first is greedy on that ranking, so on a rare-needle
+  scene it expands ~15 wrong first-pushes (each spawning 2nd-push sims) before reaching a setup → blows past 900.
+- **Model = EFFICIENCY, not COVERAGE.** model solved 745; random **5-seed UNION solved 777** (model-only 7,
+  random-only 39). The model is deterministic (one fixed, H2-mis-ranked order) → fails the SAME way every time on
+  its blind spots; 5 random orderings have diversity that stumbles into buried needles. Per single search the model
+  dominates (2× fewer sims, 6× @2); pooled, its bias costs coverage. **The win concentrates on the HARDEST scenes:
+  rarest-needle quartile model +10.9pp over random (62.2 vs 51.3); common-needle quartile only +2pp.**
+- **FALSIFIABLE v2 PREDICTION:** the plateau's root cause IS the H=2 dilution the v2 1-push@H2 aug targets. If v2
+  lifts H=2 ranking toward H=1 (setup back near rank 2-3), then (a) a chunk of the 273 flips to solved, (b) the
+  deterministic-coverage gap to random shrinks, (c) **reactive solve@2 (now 17.7%, capped by the 12.2 H2 rank@1)
+  rises**. Check on the v2 cells.
+- **⚠ 13/745 model solves were `plan_len=1`** on `is_1push_solvable=False` scenes = **~1.7% label-vs-eval
+  reachability mismatch** (eval's `is_robot_goal_reachable()` opens in 1 where the label said no). Small but real;
+  this is the drift a goal-condition recompute would clean up — [USER asked 2026-06-14 about redoing the test set
+  "with new goal conditions"; AWAITING the goal spec. If only goal/reachability changed → offline re-grade of the
+  stored states, hours; if scenes/pushes changed → full re-collect. Output to namo_testset_v2, never overwrite v1.]
+
 ### 🔬 HYPOTHESIS LEDGER [USER 2026-06-13: run EVERYTHING as Observation→Hypothesis→Prediction→Verdict; accept/reject ON NUMBERS ONLY, nothing else. Add a new H# for every new design choice/problem; fill Verdict when numbers land.]
 
 > **✅ EVAL CORRECTION DONE [2026-06-13 ~14:50, object-constrained pure-2, n=671 episodes, budget 100]:**
