@@ -25,7 +25,7 @@ for _p in (f"{REPO}/build_python", f"{REPO}/python", f"{REPO}/scripts", f"{REPO}
     if _p not in sys.path:
         sys.path.insert(0, _p)
 from scorer_beam import BeamPlanner, make_env, make_action, read_manifest, FALLBACK_GOAL  # noqa: E402
-from eval_m3 import rank_first_pushes_h2, goal_region_open  # noqa: E402  -> [(obj, Goal, q)] desc by Q(state,.,h)
+from eval_m3 import rank_first_pushes_h2, sample_goal_points, goal_open_pts  # noqa: E402
 from namo.core.xml_goal_parser import extract_goal_with_fallback  # noqa: E402
 
 PURE2PUSH = "/scratch/dm1487/manifests/test_pure2_fromkey.txt"
@@ -53,7 +53,7 @@ def priority(q, V, combine):
 
 
 def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combine, rng, restrict_obj=None,
-                is_open=goal_region_open):
+                is_open=lambda e: e.is_robot_goal_reachable()):
     """Greedy best-first ON THE LABELED OBJECT (restrict_obj). Returns (solved, sims_used, plan_len|None).
     is_open(env) = the success predicate; default = LABEL-consistent goal_region_open (>=20% of 100 region pts)."""
     heap = []; ctr = 0; sims = 0
@@ -103,7 +103,6 @@ def main():
     a = ap.parse_args()
 
     import os as _os
-    is_open = goal_region_open if a.success == "region" else (lambda env: env.is_robot_goal_reachable())
     key = json.load(open(a.key)); keyrp = {_os.path.realpath(k): v for k, v in key.items()}
     planner = BeamPlanner(ckpt=a.ckpt)
     print(f"device={planner.scorer.device} hmax={a.hmax} sim_budget={a.sim_budget} prior={a.prior} "
@@ -119,6 +118,11 @@ def main():
             env = make_env(xml)
             goal = extract_goal_with_fallback(xml, FALLBACK_GOAL)
             env.set_robot_goal(*goal); env.get_reachable_objects()
+            if a.success == "region":                              # sample the goal-region's 100 pts ONCE at s0
+                gp = sample_goal_points(env)                        # (post-push re-sampling = wrong region; see eval_m3)
+                is_open = (lambda e, p=gp: goal_open_pts(e, p))
+            else:
+                is_open = (lambda e: e.is_robot_goal_reachable())
             if is_open(env):
                 n_already += 1; continue
             s0 = env.get_full_state()

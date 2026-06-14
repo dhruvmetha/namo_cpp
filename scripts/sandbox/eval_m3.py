@@ -26,23 +26,28 @@ from namo.core.xml_goal_parser import extract_goal_with_fallback  # noqa: E402
 PURE2PUSH = "/scratch/dm1487/manifests/test_pure2_fromkey.txt"
 
 
-def goal_region_open(env, goals_per_region=100, frac=0.2, seed=42):
-    """LABEL-CONSISTENT success: the goal region counts as OPEN iff >= frac of its sampled goal points are
-    reachable. This MATCHES the test-set collection exactly (region_opening._validate_opening: goals_per_region=100
-    + region_min_reachable_fraction=0.2 -> >=20 of 100). The old eval used env.is_robot_goal_reachable() = the
-    SINGLE xml-site point (goal_size 0.05) -> a DIFFERENT, looser criterion than the labels (the source of the
-    273 'unsolved-but-2push-solvable' + 13 plan_len=1 mismatches). [USER 2026-06-14: labels are canonical; fix eval.]"""
+def sample_goal_points(env, goals_per_region=100, seed=42):
+    """The goal region's sampled goal points AT THE CURRENT (initial) state — sample ONCE per scene at s0, when
+    the goal region is a distinct UNREACHABLE neighbour. Returns [(x,y),...] (<=100). Must be done at s0: after a
+    push opens the path the goal region MERGES with the robot region and gets relabeled, so a post-push re-snapshot
+    samples the WRONG region (verified: post-snapshot matches labels only 20% vs 93% for s0-fixed points)."""
     from namo.planners import get_region_snapshot
     snap = get_region_snapshot(env, goals_per_region=goals_per_region, use_xml_goal=True, seed=seed)
     glabel = snap.get("goal_label", "")
     if not glabel:
-        return False
+        return []
     bundle = snap["region_goals"].get(glabel)
-    if not bundle or not getattr(bundle, "goals", None):
+    return [(g.x, g.y) for g in bundle.goals] if bundle and getattr(bundle, "goals", None) else []
+
+
+def goal_open_pts(env, pts, frac=0.2):
+    """LABEL-CONSISTENT success: the goal region is OPEN iff >= frac of the s0-sampled goal points (pts) are now
+    reachable. Matches the collection exactly (region_opening._validate_opening: 100 pts, fraction 0.2 -> >=20).
+    Supersedes env.is_robot_goal_reachable() (the single xml-site point = the old looser/inconsistent criterion)."""
+    if not pts:
         return False
-    pts = [(g.x, g.y) for g in bundle.goals]
     rc, _first = env.count_reachable_points(pts)
-    return rc >= max(1, math.ceil(frac * len(bundle.goals)))
+    return rc >= max(1, math.ceil(frac * len(pts)))
 
 
 def rank_first_pushes_h2(planner, env, robot_goal, xml, s0, h, restrict_obj=None, score=True):
