@@ -1388,3 +1388,29 @@ states have 563k diverse rows. Same H=1 head generalizes on initial states, not 
 FULL GAP LIST: (1 = THE gap) finish doesn't generalize [diverse s1 data + dropout/aug]; (free) sigmoid double-squash
 [raw=True], cross-head scale mismatch [cascade/bootstrap]; (no gap) setup + 1-push generalize fine. Reactive ceiling /
 data skew / no-reg are symptoms-or-causes of the finish gap. Hz-v2 RAW (sigmoid-off) search re-run still in flight (56206502).
+
+### ⚠ SIGMOID-OFF RE-RUN: NO EFFECT (my fix-#1 claim was WRONG) [2026-06-14 ~18:30 ET]
+Hz-v2 RAW (no sigmoid) best-first = IDENTICAL to sigmoid baseline across the whole curve (@2 24.2=24.2, @900 94.8≈94.9,
+avg 54.7≈54.6). REASON: sigmoid is near-AFFINE over [0,1] (0.5→0.73, ~const slope) ⇒ preserves the blend ORDER ⇒
+search makes the same decisions. So the sigmoid only distorts the calibrated magnitude (irrelevant to the rank-based
+search) — it is NOT the cause of restarts, and dropping it is a NON-fix for search/ranking. (4th over-claim corrected:
+predicted a free search win; empirically zero.) The restart/under-commit is a REAL model property (cross-head scale +
+weak finish), fixable by FORCING the dive (cascade/depth-bonus: forced-dive @2 0.27→0.39 stands) or bootstrap H2←H1.
+
+### 📊 Horizon-v2 on 1-PUSH test (onepush key) H=1 vs H=2 [2026-06-14 ~18:25 ET]
+| div | H=1 @1/@5/@10 | H=2 @1/@5/@10 |
+|---|---|---|
+| hard | 36.0/69.8/82.5 | 30.7/58.7/74.1 |
+| med | 84.2/94.4/96.9 | 76.6/92.1/95.8 |
+| easy | 98.6/99.8/100 | 95.0/99.1/100 |
+H=2 still ranks the 1-push opener HIGH (dilution fixed vs v1's 12.2) but ~5pp BELOW H=1 ⇒ RESIDUAL dilution: a
+1-push win should be value 1.0 (max) at H=2, but the model slightly prefers setups → ranks the opener just under H=1.
+
+### 🔬 GENERALIZATION-GAP DEEP DIVE — coverage + confound [2026-06-14 ~18:30 ET]
+DATA LENS coverage (distinct scene-files): m2b 173k / h2 82k / **postpush (finish s1) only 58k** for 300k rows ⇒ ~5
+clustered s1 states/scene = the narrowest, most-clustered distribution. + 4:1 imbalance. + s1 comes from the COLLECTION's
+setups not the model's. ⚠ CONFOUND in my train(0.75)-vs-test(0.27): train=collection-setup s1, H5-render, train scenes;
+test=model-setup s1, live-render, test scenes — THREE differences. disentangle_gen.py (running, b5vka9shg) isolates pure
+scene-generalization (val postpush: held-out scenes, same setups+render). ANYTHING MORE: the DEPLOY DISTRIBUTION SHIFT —
+finish trained on collection-setup s1 but queried at deploy on MODEL-setup s1 ⇒ a DAgger/ExIt problem (train on the s1
+the deployed policy visits); 'more data' alone insufficient, needs closed-loop collection.
