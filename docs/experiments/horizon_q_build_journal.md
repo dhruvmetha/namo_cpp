@@ -335,7 +335,22 @@ added H=2 opener signal for free. This is under-trained (v2 → ~ep11), so 31.2 
 (preview).** Next: the SOLVE test — does Horizon-v2's reactive solve@2 now BEAT NoHorizon-v1's 22.5 (the broken-H2
 reactive liability flips)? Full v2 cells ~09:00 via b7ljxwker. med/easy H2 also up (76.6/95.1 vs v1 59.6/83.8).
 
-### 🥊 V1 ROW — Horizon-v1 vs NoHorizon-v1 [2026-06-14 ~02:50 ET; FINAL n=1018 both]
+### 🥊 V1 ROW — CORRECTED (region criterion) [2026-06-14 ~06:34 ET; v1 final, random partial ~72/76; bolef7st5→full]
+| model | rankH1 | rankH2 | s@2 | s@10 | s@50 | s@100 | s@900 | avg-sims |
+|---|---|---|---|---|---|---|---|---|
+| **Horizon-v1** | 34.4 | 12.2 | 22.5 | **50.7** | **71.7** | **82.2** | **94.1** | **58.4** |
+| **NoHorizon-v1** | 21.2 | 21.2 | **28.7** | 46.8 | 63.1 | 71.4 | 89.0 | 85.1 |
+| RANDOM (5-seed) | — | — | 3.4 | 20.2 | 51.9 | 64.3 | 91.3 | 111.5 |
+
+**vs the (inflated/inconsistent) single-point numbers: everything is ~+20pp** (≥20%-region is EASIER than reaching the
+exact site point) — Horizon @900 73.2→**94.1**, NoHz 70.2→89.0, random 69.6→91.3. **The QUALITATIVE story is ROBUST to
+the fix:** (1) NoHorizon STILL wins reactive @2 (28.7 vs 22.5 — Horizon's broken H=2 still sabotages budget-2);
+(2) Horizon STILL wins search (+9-11pp @50-100, 1.5× efficiency 58 vs 85 sims). **NEW sharp point: random @900 (91.3)
+BEATS NoHorizon (89.0)** — NoHorizon's budget-blind guidance is WORSE than random ordering at the ceiling (it commits
+to wrong branches deterministically), while Horizon (94.1) still edges random ⇒ horizon's guidance has positive value
+in search, NoHorizon's is net-negative at high budget. [point-criterion v1 row archived below as superseded.]
+
+### 🥊 V1 ROW — Horizon-v1 vs NoHorizon-v1 [SUPERSEDED — single-point criterion, 2026-06-14 ~02:50 ET]
 | model | rankH1 | rankH2 | s@2 | s@10 | s@50 | s@100 | s@900 | avg-sims |
 |---|---|---|---|---|---|---|---|---|
 | **Horizon-v1** (ep16) | **34.4** | 12.2 | 17.7 | **39.5** | **56.7** | **62.6** | **73.2** | **61.6** |
