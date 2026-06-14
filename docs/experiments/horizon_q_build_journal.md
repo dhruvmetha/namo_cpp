@@ -1379,3 +1379,12 @@ finish set but doesn't transfer to novel post-setup states. ⇒ rules out the ex
 capacity wall). **FIX = DATA DIVERSITY + regularization:** mint a large, diverse, on-distribution finish set from the
 exhaustive (a1,a2)→opens map (»300k post-setup states) + anti-overfit hygiene → carry the 0.75 train sharpness to test
 → lifts finish + reactive ceiling + search. This is the cheapest-class fix for the deepest problem.
+
+### 🎯 CONSOLIDATED GAP MAP (Horizon-v2) — the gap is FINISH-ONLY [2026-06-14 ~18:15 ET, train_diag.py n=300]
+TRAIN raw-E[bin] separation per capability (all SHARP on train): m2b 1-push opener @H1 **0.744** | h2 setup @H2 **0.658**
+| postpush finish @H1 **0.750**. vs TEST: setup HOLDS (AUC 0.93), finish COLLAPSES (0.75→**0.27**). ⇒ the ONLY learning
+gap is the FINISH (H=1 on post-setup s1), because s1 is covered only by the narrow 300k postpush set while initial
+states have 563k diverse rows. Same H=1 head generalizes on initial states, not on s1 ⇒ **s1 distribution undertrained**.
+FULL GAP LIST: (1 = THE gap) finish doesn't generalize [diverse s1 data + dropout/aug]; (free) sigmoid double-squash
+[raw=True], cross-head scale mismatch [cascade/bootstrap]; (no gap) setup + 1-push generalize fine. Reactive ceiling /
+data skew / no-reg are symptoms-or-causes of the finish gap. Hz-v2 RAW (sigmoid-off) search re-run still in flight (56206502).
