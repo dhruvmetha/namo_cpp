@@ -50,7 +50,7 @@ def goal_open_pts(env, pts, frac=0.2):
     return rc >= max(1, math.ceil(frac * len(pts)))
 
 
-def rank_first_pushes_h2(planner, env, robot_goal, xml, s0, h, restrict_obj=None, score=True):
+def rank_first_pushes_h2(planner, env, robot_goal, xml, s0, h, restrict_obj=None, score=True, raw=False):
     """Rank reachable (obj, edge, depth) first pushes by Q(s0, ., h). ZERO sims.
     Returns [(obj, Goal, value)] sorted desc. restrict_obj (per-episode invariant): if set, consider ONLY
     that object — the search must push the LABELED blocking object, so it's the true k-push problem on it
@@ -67,7 +67,7 @@ def rank_first_pushes_h2(planner, env, robot_goal, xml, s0, h, restrict_obj=None
         if not redges[obj]:
             continue
         if score:
-            P = planner.scorer.score_state(env, obj, robot_goal, xml, h=h)   # (60,5) at budget h
+            P = planner.scorer.score_state(env, obj, robot_goal, xml, h=h, raw=raw)   # (60,5) at budget h
             env.set_full_state(s0)                                            # score_state may move state
             ndepth = P.shape[1]
         else:

@@ -177,13 +177,13 @@ class LiveScorer:
             return logits
         return 1.0 / (1.0 + np.exp(-logits))
 
-    def score_state(self, env, target_object, robot_goal, xml_file, region_samples=None, h=1):
+    def score_state(self, env, target_object, robot_goal, xml_file, region_samples=None, h=1, raw=False):
         """Return (60,5) P for `target_object` from the LIVE env at its current state.
         region_samples (RO neighbour region) conditions the goal_sample_region channel; see
         _episode_data. Pass it for region-opening; omit for the legacy final-goal conditioning."""
         ctx, _ = self.render_ctx(env, target_object, robot_goal, xml_file, region_samples)
         cpx = self.contact_px_live(env, target_object)
-        return self.score_ctx(ctx, cpx, h=h)
+        return self.score_ctx(ctx, cpx, h=h, raw=raw)
 
     def topk(self, env, target_object, robot_goal, xml_file, k=5, candidate_edges=None):
         """Top-k (edge, depth, P) among reachable candidates (all depths per reachable edge)."""

@@ -25,6 +25,6 @@ START=$(( SLURM_ARRAY_TASK_ID * SHARD )); END=$(( START + SHARD ))
 echo "task ${SLURM_ARRAY_TASK_ID}: [$START,$END) hmax=$HMAX budget=$SIM_BUDGET prior=$PRIOR seed=$SEED_BASE key=$(basename $KEY) on $(hostname)"
 /scratch/dm1487/envs/namo/bin/python -u scripts/sandbox/eval_bestfirst.py \
     --ckpt "$CKPT" --manifest "$MANIFEST" --hmax "$HMAX" --sim-budget "$SIM_BUDGET" --key "$KEY" \
-    --prior "$PRIOR" --agg "$AGG" --combine "$COMBINE" --seed-base "$SEED_BASE" --start "$START" --end "$END" \
+    --prior "$PRIOR" --agg "$AGG" --combine "$COMBINE" --seed-base "$SEED_BASE" ${RAW:+--raw} --start "$START" --end "$END" \
     --out "$OUT_DIR/shard_${SLURM_ARRAY_TASK_ID}.json" --leaf-out "$OUT_DIR/shard_${SLURM_ARRAY_TASK_ID}.jsonl"
 echo "task ${SLURM_ARRAY_TASK_ID} DONE"

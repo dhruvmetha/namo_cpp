@@ -31,11 +31,11 @@ from namo.core.xml_goal_parser import extract_goal_with_fallback  # noqa: E402
 PURE2PUSH = "/scratch/dm1487/manifests/test_pure2_fromkey.txt"
 
 
-def candidates(planner, env, goal, xml, state, h, prior, agg, rng, restrict_obj=None):
+def candidates(planner, env, goal, xml, state, h, prior, agg, rng, restrict_obj=None, raw=False):
     """Reachable pushes from `state` (restricted to restrict_obj = the labeled object) with a priority-base
     value + the state value V. model: q = Q(state,a,h); V = agg of top Q (mean5 robust, or max). uniform: random q, V=0."""
     pool = rank_first_pushes_h2(planner, env, goal, xml, state, h, restrict_obj=restrict_obj,
-                                score=(prior != "uniform"))          # uniform: skip the model forward pass
+                                score=(prior != "uniform"), raw=raw)          # uniform: skip the model forward pass
     if not pool:
         return [], 0.0
     if prior == "uniform":
@@ -53,11 +53,11 @@ def priority(q, V, combine):
 
 
 def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combine, rng, restrict_obj=None,
-                is_open=lambda e: e.is_robot_goal_reachable()):
+                is_open=lambda e: e.is_robot_goal_reachable(), raw=False):
     """Greedy best-first ON THE LABELED OBJECT (restrict_obj). Returns (solved, sims_used, plan_len|None).
     is_open(env) = the success predicate; default = LABEL-consistent goal_region_open (>=20% of 100 region pts)."""
     heap = []; ctr = 0; sims = 0
-    pool, V0 = candidates(planner, env, goal, xml, s0, hmax, prior, agg, rng, restrict_obj=restrict_obj)
+    pool, V0 = candidates(planner, env, goal, xml, s0, hmax, prior, agg, rng, restrict_obj=restrict_obj, raw=raw)
     for (obj, g, q) in pool:
         heapq.heappush(heap, (-priority(q, V0, combine), ctr,
                               {"obj": obj, "g": g, "from": s0, "ndone": 0, "plan": [(obj, g)]})); ctr += 1
@@ -70,7 +70,7 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
         if ndone < hmax:                                  # room for another push -> expand the reached state
             s_new = env.get_full_state()
             h = hmax - ndone
-            pool, V = candidates(planner, env, goal, xml, s_new, h, prior, agg, rng, restrict_obj=restrict_obj)
+            pool, V = candidates(planner, env, goal, xml, s_new, h, prior, agg, rng, restrict_obj=restrict_obj, raw=raw)
             for (obj2, g2, q2) in pool:
                 heapq.heappush(heap, (-priority(q2, V, combine), ctr,
                                       {"obj": obj2, "g": g2, "from": s_new, "ndone": ndone,
@@ -95,6 +95,7 @@ def main():
     ap.add_argument("--seed-base", type=int, default=7000,
                     help="RNG base for the uniform baseline; vary across runs for multi-seed random (model is "
                          "deterministic, so --seed-base only matters for --prior uniform).")
+    ap.add_argument("--raw", action="store_true", help="use raw HL-Gauss E[bin] (no sigmoid squash) for the search priority")
     ap.add_argument("--success", default="region", choices=["region", "point"],
                     help="success predicate: 'region' = LABEL-consistent (>=20%% of 100 goal-region pts reachable, "
                          "matches the test-set collection); 'point' = legacy single xml-site point (the OLD bug).")
@@ -130,7 +131,7 @@ def main():
                 rng = random.Random(a.seed_base + xi * 17 + ri)
                 obj = rec.get("object_id")
                 solved, sims, plen = solve_scene(planner, env, goal, xml, s0, a.hmax, a.sim_budget,
-                                                 a.prior, a.agg, a.combine, rng, restrict_obj=obj, is_open=is_open)
+                                                 a.prior, a.agg, a.combine, rng, restrict_obj=obj, is_open=is_open, raw=a.raw)
                 n += 1; sims_tot += sims; n_solved += int(solved); sims_solved += sims if solved else 0
                 lf.write(json.dumps({"xml": xml, "object_id": obj, "region": rec.get("region"),
                                      "solved": solved, "sims": sims, "plan_len": plen}) + "\n")
