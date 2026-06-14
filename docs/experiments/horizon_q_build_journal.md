@@ -1266,3 +1266,21 @@ data versions both seeds; (2) Horizon wins search @50-100 + efficiency both vers
 H=2 (30.7/25.4 vs v1 broken 12.2/15.3); (4) Horizon > NoHz @900 both seeds. Seed variance ~2-6pp per cell, no sign
 flips ⇒ the single-seed 2×2 conclusions are ROBUST. (s3 available if publication error bars wanted.) ⇒ **2×2 DONE
 + seed-confirmed; deploy = reactive→NoHorizon-v2, search→Horizon-v2.**
+
+### 🎯 Q-VALUE AUDIT — the bottleneck is H=1 second-push value [2026-06-14 ~11:55 ET, n=20→150; analyze_qvalue.py]
+Traced top-H=2 a1 → sim → top-H=1 a2 vs the exhaustive (a1,a2) GT, Hz-v2 & NoHz-v2. **CORE: H=2 setup-selection is
+GOOD; H=1 second-push value is the FAILURE.**
+- **H=2 picks setups (good):** setup-vs-nonsetup AUC=0.86 (Hz); first GT-setup at median rank 1.5; H2(a1) corr 0.59
+  with max-H1(s1) ⇒ coherent handoff. The FIRST push is not the problem.
+- **H=1 does NOT translate (the failure):** H=1 Q is COMPRESSED to [0.4,0.8] (never >0.8). Calibration: Q .4-.6→4%
+  open, Q .6-.8→31% open (signal exists, 8× enrichment, but weak/under-confident). On a confirmed setup the top-H1
+  a2 opens only 40%(Hz)/20%(NoHz); first opener at median rank 3-4.5. ⇒ model reaches s1 then mis-picks the opener
+  60-80% of the greedy first try = the gap between 94% search-solvable and ~25% reactive.
+- **Search:** sound but V=mean_top5(H1) is built on the compressed H1 ⇒ can't separate real vs fake setups ⇒ greedy
+  starves the needle (the 83-92%-random-solvable result). Fix H1 calibration ⇒ the greed becomes justified.
+- **NoHz>Hz reactive:** reactive is gated by the 2nd push (H1), BOTH models' weakness ⇒ horizon's H2 edge buys
+  nothing reactively; the single head is marginally sharper on the easy 2nd-push pick. Not "horizon worse" — reactive
+  is decided where both are weakest + single head is crisper there.
+- **ACTIONABLE LEVER: H=1 value calibration on post-setup s1** (HL-Gauss compressed, can't express high confidence).
+  Sharpen it (temperature/recal, value head that reaches ~1, post-push s1 data targeting 2nd-push openers) → lifts
+  BOTH reactive AND search + justifies the greedy search. v2 postpush helped RANKING but not CALIBRATION. [n=150 refines.]
