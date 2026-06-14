@@ -157,7 +157,7 @@ class LiveScorer:
                         dtype=np.float32)
 
     # -- scoring -----------------------------------------------------------------------------------
-    def score_ctx(self, ctx, contact_px, h=1):
+    def score_ctx(self, ctx, contact_px, h=1, raw=False):
         ct = torch.from_numpy(ctx[None]).float().to(self.device)
         cp = torch.from_numpy(contact_px[None]).float().to(self.device)
         # budget-Q ckpt: query at budget h (default 1; M3 uses h=2 for zero-sim foresight). HL-Gauss
@@ -166,10 +166,15 @@ class LiveScorer:
             if getattr(self.model.network, "budget_cond", False) else {}
         with torch.no_grad():
             t = self.model(ct, cp, **kw)[0]
-            if t.dim() == 3:
+            is_hl = t.dim() == 3
+            if is_hl:
                 from src.model.hl_gauss import HLGauss
                 t = HLGauss(num_bins=t.shape[-1]).value(t)
             logits = t.cpu().numpy()
+        # raw=True + HL-Gauss: return the E[bin] value DIRECTLY (already in [0,1]); the default sigmoid on
+        # top squashes [0,1]->[0.5,0.73] (monotone, ranking-safe, but it MUSHES the magnitudes the search uses).
+        if raw and is_hl:
+            return logits
         return 1.0 / (1.0 + np.exp(-logits))
 
     def score_state(self, env, target_object, robot_goal, xml_file, region_samples=None, h=1):

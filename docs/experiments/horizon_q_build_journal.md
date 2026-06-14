@@ -1337,3 +1337,19 @@ this session: cf. handoff 0.59→0.29, preview "90%". Pattern: small-sample/bias
 (TD, ties heads to one scale = the principled horizon-Q recurrence we skipped) ; #3 de-compress H1 value head (HL-Gauss
 sharpening + post-setup s1 data) for calibration. Root cause: H1/H2 trained as INDEPENDENT supervised heads — good
 rankings, bad magnitudes (uncalibrated + not cross-budget comparable); the mixed-queue search lives on magnitudes.
+
+### 🔬 STEP 0 — sigmoid double-squash CONFIRMED + finish-ranking genuinely weak [2026-06-14 ~17:20 ET, n=120 setups]
+Scored H=1 finishing pushes on post-setup states, RAW E[bin] vs deployed sigmoid(E[bin]), GT openers vs non:
+| | openers mean | non-openers mean | separation | range |
+|---|---|---|---|---|
+| RAW E[bin] | 0.37 | 0.097 | **0.273** | [.03,.88] openers |
+| SIGMOID (deployed) | 0.589 | 0.524 | **0.065** | [.50,.71] all |
+**(1) DOUBLE-SQUASH REAL:** live_scorer.score_ctx runs sigmoid on the HL-Gauss E[bin] (already in [0,1]) → crushes
+[0,1]→[0.5,0.73], compressing opener↔non separation 4× (0.273→0.065). Monotone ⇒ rankings/M-series/2×2-ranking
+UNAFFECTED; only MAGNITUDES (search V/blend, calibration) hit. FIX: score_ctx(raw=True) returns E[bin] for HL-Gauss
+(wired, head-type-aware so sigmoid_bce ckpts unaffected). Expected: un-mushes the search's dive-vs-restart → fewer
+restarts. (Does NOT change argmax picks ⇒ won't change which finish is chosen.)
+**(2) FINISH RANKING GENUINELY WEAK (sigmoid-invariant):** even RAW, openers mean only 0.37 (vs ~0.9 ideal), p10=0.03
+— many real openers scored as low as non-openers. This is the ~40%-top-1 weakness; needs RETRAIN (calibrate/sharpen
+H1), independent of the squash. ⇒ TWO separate levers: drop-sigmoid (free, fixes search restart, won't raise ceiling)
++ retrain-finish (raises ceiling). NEXT: re-run best-first with raw=True, measure realized @2 + curve gain.
