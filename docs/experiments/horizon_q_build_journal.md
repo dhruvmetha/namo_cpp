@@ -1320,3 +1320,20 @@ same scale, so a good setup's child doesn't outrank a fresh first-push.**
 be ~**0.51** — far above NoHz's 0.32. ⇒ normalize/calibrate H1 & H2 onto a common scale (or use V_s1 from the H1
 head only for the dive decision) and Horizon should WIN reactive too. Combine this with the H=1 compression fix
 (§Q-VALUE AUDIT) → lifts reactive AND search. This corrects the earlier (wrong) "single head sharper" mechanism.
+
+### 🧪 FORCED-DIVE CEILING — fix #1 validated [2026-06-14 ~14:55 ET, trace_reactive_forced.json n=150]
+Re-ran @2 forcing the search to ALWAYS dive (take the top setup's best opener at sim2):
+| model | @2 actual | @2 FORCED-DIVE | Δ |
+|---|---|---|---|
+| Hz-v2 | 0.267 | **0.393** | **+0.126** |
+| NoHz-v2 | 0.320 | 0.333 | +0.013 (already dives 78%) |
+**Forced-dive Horizon (0.393) BEATS NoHorizon (0.33)** ⇒ fix #1 (cascade / bias-to-dive at low budget, NO retrain)
+recovers + reverses the reactive gap. WHY clean: in the cases Hz chose NOT to dive, forced child still opens 21%,
+a fresh first-push opens 0% (pure-2 can't solve in 1 more push) ⇒ at low budget DIVING STRICTLY DOMINATES.
+⚠ SELF-CORRECTION: I earlier estimated the ceiling ~0.51 (0.78 dive × 0.66 open) — WRONG, that 0.66 is selection-
+biased (Hz dives when the child looks good). Honest unconditional ceiling = 0.39. (3rd over-stated back-of-envelope
+this session: cf. handoff 0.59→0.29, preview "90%". Pattern: small-sample/biased mental math — verify before citing.)
+**FIX PLAN restated:** #1 cascade/depth-bonus search (free, +12.6pp reactive, test now) ; #2 bootstrap H2←γ·maxH1
+(TD, ties heads to one scale = the principled horizon-Q recurrence we skipped) ; #3 de-compress H1 value head (HL-Gauss
+sharpening + post-setup s1 data) for calibration. Root cause: H1/H2 trained as INDEPENDENT supervised heads — good
+rankings, bad magnitudes (uncalibrated + not cross-budget comparable); the mixed-queue search lives on magnitudes.

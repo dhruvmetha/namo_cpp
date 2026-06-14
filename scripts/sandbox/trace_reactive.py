@@ -30,7 +30,7 @@ def main():
     xmls = read_manifest("/scratch/dm1487/manifests/test_pure2_fromkey.txt", None)
     key = json.load(open("/scratch/dm1487/datasets/namo_testset_v1/labels/pure2push.json"))
     keyrp = {os.path.realpath(k): v for k, v in key.items()}
-    agg = {nm: {"V0": [], "Vs1": [], "sim2_child": [], "sim2_child_opens": [], "at2": []} for nm in pls}
+    agg = {nm: {"V0": [], "Vs1": [], "sim2_child": [], "sim2_child_opens": [], "forced_dive_opens": [], "at2": []} for nm in pls}
     done = 0
     for xml in xmls:
         if done >= a.n:
@@ -67,9 +67,10 @@ def main():
                 sim2_child = pri_child >= pri_firstpush
                 agg[nm]["V0"].append(V0); agg[nm]["Vs1"].append(Vs1)
                 agg[nm]["sim2_child"].append(int(sim2_child))
-                opens = False
-                if sim2_child:                          # sim2 = the top child; does it open?
-                    env.set_full_state(s1); env.step(make_action(obj, Ga2)); opens = goal_open_pts(env, pts0)
+                # ALWAYS sim the top child (for the forced-dive ceiling = "if the search always committed")
+                env.set_full_state(s1); env.step(make_action(obj, Ga2)); opens = goal_open_pts(env, pts0)
+                agg[nm]["forced_dive_opens"].append(int(opens))   # @2 IF it always dived = the head-norm ceiling
+                if sim2_child:
                     agg[nm]["sim2_child_opens"].append(int(opens))
                 agg[nm]["at2"].append(int(sim2_child and opens))
         if done % 25 == 0:
@@ -81,7 +82,8 @@ def main():
                    "V0_minus_Vs1": round((np.mean(d["V0"]) - np.mean(d["Vs1"])), 3) if d["V0"] else None,
                    "sim2_is_child_frac": f(d["sim2_child"]),
                    "sim2_child_opens_frac": f(d["sim2_child_opens"]),
-                   "at2_solve(child&opens)": f(d["at2"])}
+                   "at2_solve(actual)": f(d["at2"]),
+                   "at2_FORCED_DIVE_ceiling": f(d["forced_dive_opens"])}
     json.dump(out, open(a.out, "w"), indent=1); print(json.dumps(out, indent=1))
 
 
