@@ -1284,3 +1284,21 @@ GOOD; H=1 second-push value is the FAILURE.**
 - **ACTIONABLE LEVER: H=1 value calibration on post-setup s1** (HL-Gauss compressed, can't express high confidence).
   Sharpen it (temperature/recal, value head that reaches ~1, post-push s1 data targeting 2nd-push openers) → lifts
   BOTH reactive AND search + justifies the greedy search. v2 postpush helped RANKING but not CALIBRATION. [n=150 refines.]
+
+### 🔧 Q-VALUE AUDIT — n=150 REFINEMENT (confirms core, corrects two claims) [2026-06-14 ~12:40 ET]
+| metric (Hz-v2 / NoHz-v2) | n=150 |
+|---|---|
+| H2 setup-vs-nonsetup AUC | **0.93 / 0.85** (Hz strong; CONFIRMED H2 good) |
+| H1 calibration Q .4-.6 / .6-.8 → open | 4% / **29%** (Hz), 4% / 26% (NoHz) — CONFIRMED compressed [0.4,0.8], 2700+ samples |
+| H1 top-1 a2 opens (on a setup) | **0.40 / 0.28** |
+| H1 first-opener rank (med) | **3.0 / 4.5** |
+| H2(a1) vs max-H1(s1) corr | 0.29 / 0.14 |
+| greedy reactive 2push success | 0.14 / 0.09 |
+
+**CONFIRMED (robust):** H=1 value COMPRESSED/miscalibrated (the bottleneck); H=2 setup-selection EXCELLENT (AUC 0.93).
+**CORRECTION 1:** the H2→H1 handoff correlation is **0.29, not 0.59** (n=20 over-stated) — modest, not strong.
+**CORRECTION 2 (important):** my greedy setup→opener handoff shows **Hz BETTER than NoHz** (top-1 opener 40% vs 28%,
+AUC 0.93 vs 0.85) — which CONFLICTS with the full-eval reactive @2 (NoHz 33 > Hz 24). ⇒ **NoHz's reactive win is NOT
+a better handoff** (Hz's is better); it's a SEARCH-PRIORITY / easy-scene effect (the blend priority + flat single head
+surfaces a working pair within 2 pops more often on easy scenes per the division breakdown). My earlier "single head
+sharper on the 2nd push" mechanism was WRONG. Pinning it down needs a per-decision best-first @2 trace [open].
