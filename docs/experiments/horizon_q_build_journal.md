@@ -1443,3 +1443,12 @@ to confirm ExIt; (c) cascade/forced-dive search = free reactive 24→~39. Phase2
 finish collection [collect the s1 the model lands in, exhaustive label, retrain] + (e) regularization (dropout/aug/
 resample) + (f) sharpen setup top-1. Phase3: (g) bootstrap H2←γ·maxH1 (ties heads, real horizon-Q, fixes residual
 dilution); (h) STRATEGIC re-eval Horizon vs NoHorizon+cascade (2×2 says Horizon's edge is modest).
+
+### 📐 ORACLE HEADROOM result [2026-06-15 ~00:40 ET, oracle_headroom.py n=130] — reactive is MULTIPLICATIVE in both top-1s
+reactive@2: model/model **13.8** | oracle-FINISH (model setup) **36.9** | oracle-SETUP (model finish) **41.5** |
+oracle/oracle **100**. ⇒ reactive@2 ≈ P(top setup real) × P(top finish opens) ≈ 0.37×0.42 ≈ 0.14. Fix ONE head →
+caps at the other's top-1 (~37-42%); need BOTH for ~100%; gains COMPOUND (both 70%→49%, both 90%→81%). SETUP top-1
+(37%) is the WEAKER link (< finish 42%) ⇒ setup-top-1 sharpening is co-equal/bigger reactive lever, NOT a side issue.
+CAVEAT: strict-greedy 13.8 < best-first @2 24.2 (search recovers ~10pp over greedy = the cascade/forced-dive lever);
+oracle caps are pairmap-conservative. Read as STRUCTURE not exact %. PLAN EMPHASIS SHIFT: "sharpen BOTH top-1s"
+(setup via ranking/contrastive+hard-neg; finish via on-policy ExIt) — multiplicative payoff.
