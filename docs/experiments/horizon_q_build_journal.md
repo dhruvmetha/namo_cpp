@@ -1429,3 +1429,17 @@ isolation would need H5-rendered model-setup s1.) **RE-PRIORITIZED FIX: the cure
 finish collection — run the model, collect the s1 IT lands in, exhaustively label, retrain the finish — NOT more static
 data or scene diversity (those buy only the modest ⅓). Static collection-setup data can't fix an off-policy shift.**
 This is the deepest correct statement of the Horizon-v2 finish gap.
+
+### 🧭 NEXT-STEPS PLAN (deep dive) [2026-06-15 ~00:20 ET] — reactive is the prize; needs BOTH top-1s
+HEADROOM: search ~95% (near ceiling; finish-fix → efficiency). REACTIVE @2 = 24% today, ~100% with perfect values.
+Decomposition (top-1 limited): fix-FINISH-only → ~35% (capped by setup top-1=35%); fix-SETUP-only → ~40% (capped by
+finish top-1=40%); fix-BOTH → ~100%. ⇒ **reactive needs BOTH setup-top-1 AND finish-top-1 sharp; fixing one caps at
+the other.** (oracle_headroom.py running b0s9xhqwa for precise numbers.)
+TWO LEVERS: (1) FINISH top-1 (40%) — deploy distribution shift (off-policy s1, ⅔) → on-policy ExIt collection.
+(2) SETUP top-1 (35%) — AUC 0.93 but top-1 weak bc setups RARE (median 3/60, best at rank ~3): high AUC ≠ sharp top-1
+→ NEW under-appreciated gap, needs ranking/contrastive loss + hard negatives to push the rare setup to rank-1.
+PLAN: Phase1 (cheap, days): (a) oracle headroom [running]; (b) clean off-policy isolation (H5-render model-setup s1)
+to confirm ExIt; (c) cascade/forced-dive search = free reactive 24→~39. Phase2 (dominant retrain): (d) on-policy/ExIt
+finish collection [collect the s1 the model lands in, exhaustive label, retrain] + (e) regularization (dropout/aug/
+resample) + (f) sharpen setup top-1. Phase3: (g) bootstrap H2←γ·maxH1 (ties heads, real horizon-Q, fixes residual
+dilution); (h) STRATEGIC re-eval Horizon vs NoHorizon+cascade (2×2 says Horizon's edge is modest).
