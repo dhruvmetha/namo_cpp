@@ -132,81 +132,6 @@ filtered datasets filter **per-episode at source**. Root doc: `docs/pipeline/mul
 
 ## 9. Progress log + NEXT ACTIONS  ← **RESUME HERE**
 
-### ⏩ AUTONOMOUS PIPELINE STATE [updated 2026-06-13 ~14:05 ET — USER AFK ~14:00–18:00, self-driving]
-**GOAL (USER):** the 2×2 model matrix {Horizon, NoHorizon} × {v1 data, v2 data}, ALL trained + TESTED on the
-test set, stats reported. Plus the v2 DATA FIX so H=2 encompasses H=1 (1-push@H2 augmentation + balanced
-sampler — see the [USER DIRECTIVE 14:00] entry below for the why/how). Don't compromise; Slack each milestone.
-
-**MATRIX STATUS [16:00 ET]:** Horizon-v1 `qfull_v4hq` ✅ ep16 (val .6517, still training 56015587).
-NoHorizon-v1 `qfull_nohz_v4hq` ⏳ training (56025708, val .728). **Horizon-v2 `qfull_v2_v4hq` 56057675 +
-NoHorizon-v2 `qfull_nohz_v2_v4hq` 56057676 ⏳ TRAINING (RE-LAUNCHED 17:15 w/ 14h walltime)** — L40S, array 9-11.
-⚠⚠ **WALLTIME FAIRNESS FIX [17:12 ET]:** v1 + NoHorizon-v1 ran with **14h** walltime (v1 TIMEOUT'd at ep17, val
-PLATEAUED ⇒ ep16 = its converged best, cell valid). But `launch_v2_training.sh` used the slurm DEFAULT **6h** —
-and v2's 944k-row mix is ~74min/epoch ⇒ would TIMEOUT at ~ep5, SEVERELY under-trained vs v1's ep16 (invalid 2×2
-comparison). `scontrol` extension is admin-only (denied) ⇒ CANCELLED the 6h v2 (only ep0, ~0 lost) + relaunched
-with `--time=14:00:00` (committed to launch_v2). Now all 4 models train at matched 14h. First-launch 56055107/108
-(6h) + the value_bins-bug 56054990/991 are dead. The 56055107/108 entry below is superseded.
-v2 data_dir = 43 H5s; **[scorer setup] n=944,129 rows** (m2b 252k + h2 311k + aug 80k + postpush 300k),
-train 850k/val 94k — **40% of the mix = the two OOD modes** (380k aug+postpush) ⇒ strongly over-represented.
-⚠ FIRST LAUNCH 56054990/991 FAILED at model-instantiation: `value_bins` is a NETWORK param not model
-(`+model.value_bins` → TypeError); fixed to `+network.value_bins=51` (head_mode stays `+model.`), relaunched OK.
-
-**✅ v2 OOD MIX BUILT [15:55 ET] — all ingredients ready, launch recipe LOCKED:**
-- `data_dir = m2b ; h2 ; onepush_h2_aug ; postpush(shard_0..3)` (';'-joined; ScorerDataModule joins them — l.137).
-- 1-push@H2 aug: `v4_hq_onepush_h2_aug/data.h5` = **80,000 H=2 sparse-positive opener rows** (opener=1.0 @H2,
-  loss masked to opener cells; from m2b 1-push-solvable rows, --max-rows subsample). VALIDATED (H=2, ctx 5×64×64,
-  contact_px, r_mask==opener mask). The H4 dilution fix: lifts H=2 opener fraction ~16%→~46%.
-- post-push: 1.87M rendered npz → **300k subsample** (good 64% / dead 36%, natural ratio) → shard-H5s in
-  `v4_hq_postpush_v2/shard_*.h5`. The OOD s1 calibration data. ⚠ PACK THROUGHPUT: build_postpush_h5 is ~5 npz/s
-  (per-row cv2.resize×5 + 60-edge contact_px loop dominate) — the first 4×75k pack (56054137) was ~4h ETA,
-  CANCELLED + **re-sharded to 40×7.5k (56054645, all 40 RUNNING, ~25min)**. launch_v2 now globs shard_*.h5.
-- MIX BALANCE [round-1 decision, CLAUDE]: ScorerDataModule has NO weighted sampler → proportions set by
-  ON-DISK COUNTS + uniform sampling. m2b 252k + h2 ~280k + aug 80k + postpush ~280k ⇒ postpush ~33%, aug ~9%
-  of the mix = the two OOD modes are OVER-REPRESENTED by counts (USER directive). Weighted sampler = a later lever.
-- v2 launch = SAME slurm/recipe as v1 (array 9-11 = B30 × seeds 1-3). Horizon flags: `budget_cond=true
-  budget_h=true head_mode=hl_gauss value_bins=51`. NoHorizon: same minus budget_cond, `budget_h=false`.
-
-**📈 EVAL CURVE — FINAL [16:49 ET, n=1018, all 76 shards ✓]: see the HORIZON-V1 CELL block below for the full table.**
-Headline: MODEL @900=**73.2** vs RANDOM(5-seed) **69.6**±.4; @2sim 17.7 vs 2.9 (6×); avg-sims-to-solve **61.6 vs
-124.7** (2× efficiency). Model dominates the low/reactive budget, CONVERGES with random at 900 (value = efficiency
-+ reactive regime, not ceiling). [The earlier n~150 "90%" was the easy shards finishing first — disregard.]
-
-**PIPELINE DAG + NEXT ACTION on each completion (drive these as watchers fire):**
-1. post-push RENDER (56025904, ~12 shards left, → /scratch/dm1487/datasets/v4_hq_h2/postpush_npz_v2, ~1.5M npz)
-   → ON DONE: PACK to scorer H5: `build_postpush_h5.py --npz-dir <out> --out-h5 /scratch/dm1487/h5/v4_hq_postpush_v2/data.h5`
-   (1.5M npz = shard the pack or subsample to ~300-400k; then DELETE npz to reclaim ~100GB — quota 617/1024GB).
-2. PACK done → BUILD BALANCED v2 MIX H5(s): root (v4_hq_m2b_scorer H1 + v4_hq_h2_scorer H1/H2) + **1-push@H2
-   AUGMENTATION** (relabel exhaustive 1-push openers as H=2 rows, opener=1.0 rest masked — the H2⊇H1 fix) +
-   post-push. Sampler = WeightedRandomSampler keeping a DECENT OnePush fraction (not full balance). NEW small
-   builder needed for the 1-push@H2 augmentation (sparse-positive H=2 rows from onepush data).
-3. v2 MIX ready → LAUNCH Horizon-v2 (`qfull_v2_v4hq`, budget_cond+value_bins+hl_gauss+budget_h, array 9-11) +
-   NoHorizon-v2 (`qfull_nohz_v2_v4hq`, value_bins+hl_gauss+budget_h=false, array 9-11). Same DATA_DIR (the v2 mix).
-4. Any model ep~8/15 → snapshot feeler (eval_scorer_feeler.slurm + m3_key_feeler). NoHorizon-v1 done → test it.
-5. ALL 4 trained → TEST ALL: eval_scorer H=1 & H=2 (onepush set), best-first pure2 & pure1 (model+random),
-   key-graded m3. Assemble a 4-family stats table → Slack + journal + registry.
-
-**LIVE JOBS + watchers [16:55 ET]:** EVAL FLEET ✅ DONE (n=1018; Horizon-v1 cell FINAL — see CELL block).
-TRAINING: Horizon-v1 ✅ DONE (ep16 .6517, cell FINAL). **NoHorizon-v1 ✅ DONE [01:18 ET, ep14 .6732 converged]
-— EVAL LAUNCHED 01:34** (rank 56091194/5, best-first 56091196; v1 ROW lands ~03:30, watcher `bc9ssymgs` → reduce_2x2).
-Note NoHz-v1 val .673 > Horizon-v1 .652 = EXPECTED (NoHorizon has no H input → must fit H=1 AND H=2 labels for the
-same state with one head → blurs; the conditioning lets Horizon fit both → lower loss; real test = ranking/solve).
-**Horizon-v2 56057675 + NoHorizon-v2 56057676 still training (~ep5-6, finish ~07am)** — v2 chain re-armed (watcher
-`b7ljxwker`, v2-only ids) → `eval_one_model.sh` (ranking H1/H2 + best-first
-@900) → I arm the reduce. Random baseline is SHARED (bf900_uniform_s0..4, model-agnostic — don't recompute).
-**2×2 HARNESS (committed):** `eval_one_model.sh <run>` (per-cell evals) + `reduce_2x2.py` (assemble matrix vs
-shared random). Naming convention: solve=`bf900_<run>`, rank=`<run>_rank`; Horizon-v1's custom dirs symlinked in.
-Curve reducer: `reduce_bestfirst_curve.py` (--avg-seeds for random mean±std).
-**TOOLS (all committed):** eval_bestfirst.py, eval_rollout.py, eval_m3.py(--grade key), render_postpush_from_state.py,
-build_postpush_h5.py, render_postpush.slurm, bestfirst_eval.slurm, m3_key_feeler.slurm, eval_scorer_feeler.slurm(EVAL_H).
-**KEY FACTS to not re-fumble:** TEST SET is EXHAUSTIVE 2-push (exhaustive_depth2.yaml; full (a1,a2)→outcome in raw
-pkls' primitive_trial_log) — k=30 sampling was TRAINING only. ckpts get pruned by save_top_k (use current best, not ep11).
-
-> **⚠ SUSPECT BARS [2026-06-13 ~19:03]:** fpv_m2b **75.2@1** + old-champ **34.5@1** were computed on YET ANOTHER
-> manifest (`pure2push_scenes.txt`, 787 scenes, only 640 overlap the key) — NOT object-constrained, first-push-
-> graded, ~49 sims. THREE different 'pure-2' manifests existed (787/985/983-key), none aligned. ⇒ 75.2/34.5 are
-> NOT comparable to the unified object-constrained key-driven solve numbers; RE-RUN fpv (M2b-as-leaf) on
-> test_pure2_fromkey.txt before citing. All misaligned manifests archived to _archive_misaligned_2026-06-13.
-
 ### 🎯 EVAL METHODOLOGY — CANONICAL & UNIFIED (the non-confused version) [2026-06-13 ~15:20 ET, USER-directed]
 This is the ONE eval story. Numbers computed before unification (75.2 / 34.5 / 22.9 / 62.4 / analytic-84.3) are
 SUPERSEDED — do NOT cite them against these. Anything new gets graded exactly this way.
@@ -304,37 +229,6 @@ Dir `/scratch/dm1487/datasets/namo_testset_v1/labels/` (each JSON keyed by scene
   push via a DIFFERENT object (per-episode (object,goal) constraint NOT enforced — CLAUDE.md GOTCHA; ~7% @1sim). Verify + decide
   whether to constrain the eval to the labeled object. [USER decisions pending: (1) 1-push key = onepush_episodes? (2) constrain eval?]
 
-### 📊 HORIZON-V1 CELL — FINAL results [16:49 ET, n=1018, all 76 shards ✓]
-**SOLVE** (best-first @900, object-constrained pure2push, the unified eval; random = 5-seed real-sim mean±std):
-| solve@ | 2 | 10 | 50 | 100 | 200 | 500 | 900 | avg-sims-to-solve |
-|---|---|---|---|---|---|---|---|---|
-| **MODEL** (Horizon-v1 ep16) | 17.7 | 39.5 | 56.7 | 62.6 | 66.7 | 70.7 | **73.2** | **61.6** |
-| **RANDOM** (5-seed mean±std) | 2.9±.3 | 15.0±.9 | 38.0±2.1 | 47.2±1.2 | 55.6 | 64.9 | **69.6**±.4 | **124.7** |
-
-→ Model ≫ random at LOW budget (6.1× @2sim, 2.6× @10) but **CONVERGES at 900** (73.6 vs 70.2, +3.4pp). **The win
-is SIM-EFFICIENCY (60 vs 122 avg sims = 2×) + the reactive/low-budget regime, NOT the asymptotic ceiling** — with a
-900-sim budget brute-force random nearly catches up on this object-constrained ≤2-push problem. Neither hits 100%
-(pure2 is all 2-push-solvable) ⇒ best-first@hmax2 doesn't exhaust the hard tail within 900. This is the honest,
-defensible horizon-Q story: amortize search to reach good solutions with far fewer sims; biggest gap where sims are
-scarcest. [Earlier n~150 partial showed model@900=90 — that was the EASY shards finishing first; full set is 73.6.]
-
-**RANKING** (eval_scorer hit@k, onepush key, scorer_realistic @1/@5/@10):
-| division | H=1 | H=2 |
-|---|---|---|
-| hard | **34.4** / 69.3 / 80.4 | **12.2** / 30.2 / 41.3 |
-| med | 84.2 / 95.2 / 97.7 | 59.6 / 76.6 / 84.2 |
-| easy | 98.7 / 100 / 100 | 83.8 / 95.3 / 97.6 |
-
-→ **H=2 DILUTION CONFIRMED on ep16** (hard@1 34.4→12.2; med 84→60; easy 99→84). This is the H2/H4 baseline the v2
-1-push@H2 aug (80k opener=1.0@H2 rows) must lift back toward the H=1 numbers. (H=1 hard@1 34.4 > M2b 32.86 ⇒ H5
-STILL holds at ep16; the earlier 38.4 was a different ckpt.) Note hard@1 H=2 failure_decomp: wrong_edge 71% — at
-budget-2 the model picks a different edge (the setup-vs-opener confusion the aug targets).
-
-> **🔁 SEED-2 ROBUSTNESS CHECK [2026-06-14 ~10:34 ET]:** the FULL 2×2 below is seed-1 only. Launched s2 evals for
-> all 4 model families (56137094-105, corrected region eval) to confirm the qualitative findings (NoHz wins reactive,
-> Horizon wins search) hold across training seeds — half the compute of a full 3-seed, cluster was idle. 2-seed
-> compare lands ~12:30 ET (watcher bm4aq91a7). s3 only if s2 diverges or [USER] wants publication error bars.
-
 ### 🏁 FULL 2×2 MATRIX — FINAL [2026-06-14 ~08:26 ET, region criterion (corrected), n=1018 all cells; SEED-1]
 | cell | rankH1 | rankH2 | s@2 | s@10 | s@50 | s@100 | s@900 | avg-sims |
 |---|---|---|---|---|---|---|---|---|
@@ -371,83 +265,6 @@ mix helps the unconditioned model's ranking too. ⇒ at H=2 Horizon-v2 ≈ NoHor
 horizon's REMAINING ranking edge is the H=1 specialization (+4.3). **H10 sharpened: given GOOD data, the horizon's
 net value = H=1 ranking; at H=2 the unconditioned single-head matches it.** Solve@K (the reactive-flip test:
 does Horizon-v2 @2 now beat NoHz-v2?) lands ~09:30 via bolef7st5.
-
-### ✅ V2 H=2-DILUTION FIX CONFIRMED [2026-06-14 ~03:36 ET — Horizon-v2 ep7 FEELER, under-trained]
-| model | H=1 hard@1 | H=2 hard@1 |
-|---|---|---|
-| Horizon-v1 ep16 (broken H2) | 34.4 | **12.2** |
-| NoHorizon-v1 (budget-blind) | 21.2 | 21.2 |
-| **Horizon-v2 ep7** (1-push@H2 aug) | **36.0** | **31.2** |
-
-**The 80k 1-push@H2 augmentation did exactly its job: H=2 hard@1 12.2 → 31.2 (+19pp) at ep7 ALREADY** — past
-NoHorizon's 21.2 (+10) and nearly matching its own H=1 (36.0). H=1 did NOT regress (36.0 ≥ v1's 34.4) ⇒ the aug
-added H=2 opener signal for free. This is under-trained (v2 → ~ep11), so 31.2 is a LOWER bound. **H4 ✅ ACCEPTED
-(preview).** Next: the SOLVE test — does Horizon-v2's reactive solve@2 now BEAT NoHorizon-v1's 22.5 (the broken-H2
-reactive liability flips)? Full v2 cells ~09:00 via b7ljxwker. med/easy H2 also up (76.6/95.1 vs v1 59.6/83.8).
-
-### 🥊 V1 ROW — CORRECTED (region criterion) [2026-06-14 ~06:34 ET; v1 final, random partial ~72/76; bolef7st5→full]
-| model | rankH1 | rankH2 | s@2 | s@10 | s@50 | s@100 | s@900 | avg-sims |
-|---|---|---|---|---|---|---|---|---|
-| **Horizon-v1** | 34.4 | 12.2 | 22.5 | **50.7** | **71.7** | **82.2** | **94.1** | **58.4** |
-| **NoHorizon-v1** | 21.2 | 21.2 | **28.7** | 46.8 | 63.1 | 71.4 | 89.0 | 85.1 |
-| RANDOM (5-seed) | — | — | 3.4 | 20.2 | 51.9 | 64.3 | 91.3 | 111.5 |
-
-**vs the (inflated/inconsistent) single-point numbers: everything is ~+20pp** (≥20%-region is EASIER than reaching the
-exact site point) — Horizon @900 73.2→**94.1**, NoHz 70.2→89.0, random 69.6→91.3. **The QUALITATIVE story is ROBUST to
-the fix:** (1) NoHorizon STILL wins reactive @2 (28.7 vs 22.5 — Horizon's broken H=2 still sabotages budget-2);
-(2) Horizon STILL wins search (+9-11pp @50-100, 1.5× efficiency 58 vs 85 sims). **NEW sharp point: random @900 (91.3)
-BEATS NoHorizon (89.0)** — NoHorizon's budget-blind guidance is WORSE than random ordering at the ceiling (it commits
-to wrong branches deterministically), while Horizon (94.1) still edges random ⇒ horizon's guidance has positive value
-in search, NoHorizon's is net-negative at high budget. [point-criterion v1 row archived below as superseded.]
-
-### 🥊 V1 ROW — Horizon-v1 vs NoHorizon-v1 [SUPERSEDED — single-point criterion, 2026-06-14 ~02:50 ET]
-| model | rankH1 | rankH2 | s@2 | s@10 | s@50 | s@100 | s@900 | avg-sims |
-|---|---|---|---|---|---|---|---|---|
-| **Horizon-v1** (ep16) | **34.4** | 12.2 | 17.7 | **39.5** | **56.7** | **62.6** | **73.2** | **61.6** |
-| **NoHorizon-v1** (ep14) | 21.2 | **21.2** | **22.5** | 37.0 | 48.5 | 55.0 | 70.2 | 92.9 |
-| RANDOM (5-seed) | — | — | 2.9 | 15.0 | 38.0 | 47.2 | 69.6 | 124.7 |
-**⭐ NoHorizon's @900 (70.2) ≈ RANDOM (69.6)** — at the search ceiling its guidance adds ~nothing; Horizon (73.2) is
-+3.6 over random. So Horizon is the more valuable SEARCHER (higher ceiling + 1.5× efficiency), NoHorizon the better
-REACTIVE picker. Both crush random reactively (22.5/17.7 vs 2.9).
-
-**NoHorizon's ranking is budget-BLIND by construction (H=1≡H=2≡21.2 — no H input).** The interplay:
-- **H=1 ranking: Horizon ≫ NoHorizon (34.4 vs 21.2).** Budget-conditioning sharply helps the 1-push opener ranking.
-- **H=2 ranking: NoHorizon > Horizon (21.2 vs 12.2).** Horizon's H=2 head is the BROKEN/diluted one; the
-  unconditioned single "goodness" head is more robust at budget 2.
-- **SOLVE — REACTIVE (@2sim): NoHorizon WINS (22.7 vs 17.7).** best-first at budget-2 queries H=2, and Horizon's
-  broken H=2 mis-orders the first push ⇒ the conditioned model is WORSE than unconditioned in the 0-search regime.
-- **SOLVE — SEARCH (@50-100): Horizon wins (+6-7pp) + 1.5× more sim-efficient (61.6 vs 92.7);** @900 ~tie (73.2
-  vs 71.5). Once search expands to the post-push state (queried at H=1, where Horizon=34.4≫21.2), Horizon's better
-  H=1 ranking finds the 2nd push faster.
-
-**H10/H11 partial verdict:** the horizon's value is REAL but currently LOPSIDED — it buys a big H=1 ranking gain +
-mid-budget search efficiency, but its broken H=2 head SABOTAGES the pure-reactive regime (loses @2 to the simpler
-unconditioned model). **SHARPENED v2 PREDICTION:** fixing Horizon's H=2 (the 1-push@H2 aug) should lift Horizon-v2's
-reactive solve@2 ABOVE NoHorizon's 22.7 and its rankH2 above 21.2 — IF v2-Horizon-rankH2 stays ≤ NoHorizon's 21.2,
-the horizon isn't worth it and the unconditioned model wins. This is now a crisp, falsifiable v2-cell test.
-
-### 🔎 PLATEAU / FAILURE ANALYSIS [2026-06-13 ~21:50 ET, on the Horizon-v1 solve curve, n=1018]
-WHY the solve curve plateaus ~73% (model) / ~70% (random) instead of 100% on an all-2-push-solvable set:
-- **273/1018 (27%) unsolved @900 are ALL `is_2push_solvable=True`** → NOT a goal/label problem, NOT unsolvable
-  scenes. It's a **needle-in-haystack search-budget** limit: unsolved scenes have median **3 valid setups among
-  ~60 candidate first-pushes** (rarity 10.5% vs 15.2% solved); the (a1,a2) space is ~60×60 with few openers.
-- **MECHANISM = the H=2 ranking collapse.** At H=1 the first valid setup sits at median rank **2/60**; at H=2 it
-  craters to median rank **15/60** (hard@1 34.4 → 12.2). best-first is greedy on that ranking, so on a rare-needle
-  scene it expands ~15 wrong first-pushes (each spawning 2nd-push sims) before reaching a setup → blows past 900.
-- **Model = EFFICIENCY, not COVERAGE.** model solved 745; random **5-seed UNION solved 777** (model-only 7,
-  random-only 39). The model is deterministic (one fixed, H2-mis-ranked order) → fails the SAME way every time on
-  its blind spots; 5 random orderings have diversity that stumbles into buried needles. Per single search the model
-  dominates (2× fewer sims, 6× @2); pooled, its bias costs coverage. **The win concentrates on the HARDEST scenes:
-  rarest-needle quartile model +10.9pp over random (62.2 vs 51.3); common-needle quartile only +2pp.**
-- **FALSIFIABLE v2 PREDICTION:** the plateau's root cause IS the H=2 dilution the v2 1-push@H2 aug targets. If v2
-  lifts H=2 ranking toward H=1 (setup back near rank 2-3), then (a) a chunk of the 273 flips to solved, (b) the
-  deterministic-coverage gap to random shrinks, (c) **reactive solve@2 (now 17.7%, capped by the 12.2 H2 rank@1)
-  rises**. Check on the v2 cells.
-- **⚠ 13/745 model solves were `plan_len=1`** on `is_1push_solvable=False` scenes = **~1.7% label-vs-eval
-  reachability mismatch** (eval's `is_robot_goal_reachable()` opens in 1 where the label said no). Small but real;
-  this is the drift a goal-condition recompute would clean up — [USER asked 2026-06-14 about redoing the test set
-  "with new goal conditions"; AWAITING the goal spec. If only goal/reachability changed → offline re-grade of the
-  stored states, hours; if scenes/pushes changed → full re-collect. Output to namo_testset_v2, never overwrite v1.]
 
 ### 🔬 HYPOTHESIS LEDGER [USER 2026-06-13: run EVERYTHING as Observation→Hypothesis→Prediction→Verdict; accept/reject ON NUMBERS ONLY, nothing else. Add a new H# for every new design choice/problem; fill Verdict when numbers land.]
 
@@ -514,164 +331,6 @@ WHY the solve curve plateaus ~73% (model) / ~70% (random) instead of 100% on an 
   Numbers: Horizon-v2 H=2 hard@1 = 30.7 vs Horizon-v1 12.2 (+18.5, dilution fixed, H1 unregressed 36.0). BONUS: v2
   data also lifts NoHorizon (21.2→31.7) — the OOD mix is broadly beneficial. Solve-side confirm pending (bolef7st5).
 
-**Done (2026-06-11, autonomous session):**
-- Car 0.034 + exclude across both copies, MuJoCo-verified, committed (ea0f5ff namo_cpp, c8144cc env_creator).
-- Primitives regenerated at 0.034/550, committed. Backup in `data/_primitive_backup_pre0034/`.
-- **Controlled diff → pure car effect NEGLIGIBLE (±0.5%); the ~14% was the 482→550 config. TEST SET REUSABLE AS-IS.**
-- 3-agent lit sweep → closest neighbors (MORE, Bejjani, HACMan, Go-Exploit, Soemers, DeepCubeA, Ferber, SAVE);
-  reading list Slacked. 37-decision grounded spec committed.
-- **feat/horizon-q branch across all 3 repos.** Restored `controller_stuck_threshold`→5 (committed dee0b59).
-- **Budget-Q model scaffold (committed df198f0, sage_learning feat/horizon-q):** EdgeCrossAttn `budget_cond`
-  (H-embedding) + `value_bins` (HL-Gauss head) opt-in flags (default OFF=unchanged); `src/model/hl_gauss.py`;
-  `scripts/smoke_budget_q.py` PASSES (forward, masked CE, grads, value∈[0,1], pool, backward-compat).
-- **H=1 collection VALIDATED + LAUNCHED:** 6-scene smoke + dead-end scene both collect cleanly at 0.034/550 + 20%
-  bar; dead-ends RECORDED (all-fail trial_log → H0b bug is in the BUILDER not collection). Driver parameterized
-  (GOALS_PER_REGION, committed). **SLURM job 55944720** (array 0-59, 250k feb, goals 100) → `/scratch/dm1487/outputs/v4_hq_h1`. RUNNING.
-- **Datasheets** (committed): `docs/pipeline/horizon_q_datasets.md` + canonical_testset.md reuse banner.
-- **H=1 collection FINISHED** (~242k pkls). **Validset built: 284,406 episodes / 219,881 scenes — 76.1% solvable,
-  23.9% DEAD-ENDS (67,959)** via `--keep-dead-ends`. H0b fixed in the data (`/scratch/dm1487/datasets/v4_hq_h1/episodes_deadends.json`).
-- **⚠ MASK-SOURCE CORRECTION (important):** the H5 builder LIFTS masks from the DiT `v3_balanced` H5 — but that's
-  on DIFFERENT scenes (aug9/v3_phase2; **0 path overlap** with my feb-250k v4_hq_h1 labels). So masks CANNOT be
-  lifted — they must be **RENDERED** from the v4_hq_h1 pkls. Render path validated (`run_mask_generation.py batch`
-  → npz with `local_tight_*` 224x224 + `object_center` + `edge/depth_a1`). **Render LAUNCHED: SLURM job 55949895**
-  (array 0-20 → `/scratch/dm1487/outputs/v4_hq_h1_masks`). NOTE: the mask renderer ALSO drops dead-ends (same H0b
-  filter as the validset) — so the rendered masks = SOLVABLE only; dead-end masks need a `batch_collection` fix (task #23).
-
-
-- **MASKS RENDERED:** 213,789 npz (solvable) → SLURM 55949895 done. **npz→H5 pack LAUNCHED: SLURM 55951271**
-  (`convert_to_hdf5 --minimal` → `/scratch/dm1487/h5/v4_hq_h1_masks/data.h5`). Then: `build_scorer_dataset`
-  (join masks + f_grid, SAME scenes) → `add_contact_px` → train. **M1 uses the EXISTING champion recipe**
-  (edge_crossattn + pos_fourier + use_edge_embed + sigmoid_bce) on the v4_hq_h1 H5, graded on namo_testset_v1 —
-  no budget-Q wiring needed for M1 (that's M2+).
-
-**CORRECTED H5 pipeline (supersedes §9.1's mask-lift):** collect ✓ → validset ✓ → **render masks from v4_hq_h1
-pkls (job 55949895)** → npz→H5 (`convert_to_hdf5`/`build_h5`) → `build_scorer_dataset` join (masks + f_grid, now
-SAME scenes) → `add_contact_px` → train. For M1: solvable scenes; dead-end masks (task #23) for the value.
-
-**NEXT ACTIONS (in order):**
-1. **Monitor job 55944720** → when done, count pkls per shard, spot-check a dead-end + a solved pkl.
-2. [Task #22, H0b] **Fix `build_scorer_dataset.py` to KEEP dead-ends** (all-zero f_grid retained). Validate on the
-   dead-end pkl at `/scratch/dm1487/hq_deadend/`. CRITICAL before building the H5.
-3. **Build the H5** from v4_hq_h1 pkls (join DiT masks from v3_balanced_1to1 + f_grid + r_mask + contact_px),
-   room-grouped split. Then **M1**: plain 1-push scorer reproduces champion hard@k on v4_hq_h1.
-4. **Wire budget-Q training:** `classifier_module.py` training_step (gamma targets + H + HL-Gauss loss via
-   `hl_gauss.py`) + `scorer_data.py` (emit H + gamma label + keep dead-ends). Then train budget-Q(H=1) → **M2**.
-5. [Phase 3] H=2 search-distilled collection on the informative subset (see §5).
-- Smoke artifacts (delete when done): `/scratch/dm1487/hq_smoke/`, `/scratch/dm1487/hq_deadend/`.
-
-**Constraints/judgment for autonomous work:** do NOT launch a big training run on unverified/incomplete data.
-Smoke-test before scaling. Keep this §9 log current so a compaction can resume. Slack the user at each milestone.
-
-
-- **⚠ COMPOSITION FIX [USER catch]:** v4_hq_h1 was 100% feb (reused v3_feb_top250k manifest, unreasoned).
-  Test set = 59% feb / 41% aug9; champion = ~0 feb. A feb-only model is OOD on 41% of the eval. FIX: collect
-  aug9 H=1 (SLURM 55954585, 100k aug9 -> v4_hq_aug9_h1). **Killed the premature feb-only pack** (would double-pack).
-  Revised M1 path: aug9 collect -> render aug9 -> pack feb+aug9 npz TOGETHER (one src-h5) -> validset
-  (feb+aug9, --keep-dead-ends) -> join -> M1, target ~60:40 (subsample feb 250k at PACK so src-h5 carries the
-  ratio; validset stays full; join only emits rows present in src-h5). aug9 H=2 queued after aug9 H=1.
-
-- **⚠ H=2 SEQUENCING [USER 2026-06-12]:** KILLED the running feb-only H=2 collection (was 55953042). Reasons:
-  (1) it was composition-wrong (feb-only; H=2 needs the same ~60:40 as H=1/test), (2) it was stealing CPUs from
-  the M1-critical aug9 H=1, (3) sunk cost tiny (~8k pkls, recollected in the unified pass anyway). NEW H=2 ordering:
-  aug9 H=1 done -> render aug9 -> aug9 validset (gives aug9 dead-end scenes) -> MERGE feb dead-end scenes
-  (`v4_hq_h1_deadend_scenes.txt`, 63,892) + aug9 dead-end scenes into ONE manifest -> a SINGLE H=2 pass over the
-  union = composition-correct H=2. H=2 is now OFF the M1 critical path entirely (M1 needs only H=1); M1 pack/join
-  proceeds in parallel with the unified H=2 collection.
-
-- **aug9 H=1 DONE [2026-06-12]:** job 55954585, all 60 shards COMPLETED, **exactly 100,000 pkls** →
-  `/scratch/dm1487/outputs/v4_hq_aug9_h1`. Manifest: `/scratch/dm1487/manifests/v4_hq_aug9_h1_pkls.txt`.
-  Auto-kicked: **aug9 mask render 55955792** (array 0-19, SHARD_SIZE=5000, same driver/args as feb →
-  `/scratch/dm1487/outputs/v4_hq_aug9_h1_masks`) + **aug9 validset 55955793** (`--keep-dead-ends` →
-  `/scratch/dm1487/datasets/v4_hq_h1/episodes_deadends_aug9.json`; its dead-end scenes feed the unified H=2 manifest).
-- **CODE-REGRESSION CHECK [USER ask, 2026-06-12]:** decided NO full retrain on old data (±3-4pp ckpt noise ⇒
-  single run can't detect regression; violates never-retrain-baselines; diff inspection of df198f0 shows
-  `budget_embed` constructed ONLY if budget_cond, head unchanged when value_bins=0, training stack untouched ⇒
-  defaults-off code path is bit-for-bit the champion's). INSTEAD: **inference regression** — job 55955816 re-runs
-  `eval_scorer` on the recorded champion arm **h5samp_B30_s1** (ckpt in final_verdict_snapshot, recorded hard@1=23.8,
-  newbar_verdict JSON) with feat/horizon-q code; deterministic eval ⇒ numbers must match EXACTLY.
-  **RESULT: EXACT MATCH** — full JSON identical (all divisions/@k, 1179 eps, hard@1=23.8). Inference path certified.
-  Remaining gap = TRAINING stack (loader/loss/opt/env); plan [CLAUDE proposal, user not yet confirmed]: 1-epoch
-  training smoke on the OLD H5, same seed/config, compare epoch-1 loss vs champion's wandb curve (~1 GPU-h).
-  Full 3-seed retrain REJECTED (GPU nondeterminism ⇒ 1 run uninformative vs ±3-4pp noise; registry already has
-  the 3-seed champion distribution; never-retrain-baselines). Last-resort control arm only, if M1 fails + data
-  bisects come back clean.
-  Also confirmed [USER ask]: M1 recipe = self-attn ON (`edge_self_attn=True` default; H2 verdict re-validated on
-  the 20% test in 9cb5468) + pos_fourier + use_edge_embed + sigmoid_bce.
-- **M1 SCOPE [USER ask, 2026-06-12]:** M1 = SOLVABLE-ONLY (no dead-ends) — keeps the gate a controlled
-  data-factory test vs champion (dead-ends carry no within-scene ranking signal + masks for them need task #23
-  anyway). Dead-ends enter at **M2b**: M2a = budget-Q head on the SAME solvable H5 (isolates arch), M2b = +dead-ends
-  (isolates data, checks dead-ends→low V). PRE-REGISTERED PREDICTION for M1: hard@k **at or slightly above**
-  champion (train bar now MATCHES test bar — the old mismatch cost ~5pp; sparse-30/composition should be neutral).
-  If clearly below ⇒ factory bug; bisect via exhaustive-subset / feb-only / old-mask cells.
-
-- **aug9 H=1 RESULTS + COMPOSITION CORRECTION [2026-06-12]:** validset (55955793) + render (55955792) done.
-  **aug9 is much harder than feb:** 100k pkls → 55,676 scenes / 65,102 tried episodes; **40.3% solvable / 59.7%
-  dead-ends** (feb: 76.1/23.9). **25,938 solvable npz rendered.** The "missing" ~44% of pkls = **pre-trial setup
-  failures** (taxonomy: `success=False, validation_method='connectivity'`, mostly 0 region goals sampled) — the
-  car-scale rooms often can't stage an episode; no trials → no labels → correctly excluded; BENIGN env property,
-  not a pipeline bug. aug9 dead-end episodes (38,859 / 37,227 scenes) feed the unified H=2 manifest.
-  **CORRECTION: pack target is 65:35 feb:aug9, not 59:41** — the 59:41 was scene-level; the test set's
-  EPISODE-level split is 855 feb : 468 aug9 = 65:35, and episodes are what we train/eval on.
-  **Sizing [CLAUDE, measured]:** pack-now = 25.9k aug9 → ~74k total @65:35 (−25% vs champion's 98k);
-  collect REMAINING ~65k aug9 scenes (~1h, idle CPUs) → ~43k aug9 → **~123k total @65:35 (+25% vs champion)**
-  → removes "less data" as an M1 confound (data scaling = the proven lever, E4). DECISION: collect the rest first.
-  Manifest `v4_aug9_rest.txt` = full pool − used 100k − canonical test (65,008 scenes). **LEAK GATE PASSED:**
-  used∩test=0, pool∩test=0, feb250k∩test=0 (test set path-disjoint from training pools, as designed).
-  **LAUNCHED: job 55956248** (60 shards → `/scratch/dm1487/outputs/v4_hq_aug9_h1_rest`, goals=100). On completion:
-  render rest-masks + extend validset → pack feb+aug9 @65:35 (~123k) → join → M1.
-
-- **[USER GO, 2026-06-12] GPU training smoke + unified H=2 both approved.**
-  (a) **Training-stack regression smoke LAUNCHED: job 55956678** = `train_h5_sampling.slurm` array idx 9
-  (B30 cond, seed 1) with `SMOKE=1` (2 epochs, run name `h5samp_B30_s1_smoke`) on the OLD H5
-  (`v3_scorer_e4_data`) with feat/horizon-q code. VERDICT RULE: epoch-1/2 train+val losses match the recorded
-  `h5samp_B30_s1` wandb curve (same seed+sample_seed ⇒ identical data order; GPU nondeterminism ⇒ near-match,
-  not bit-match). Catches loader/loss/optimizer/env drift that the (passed) inference regression can't see.
-  **RESULT (2026-06-12): TRAINING STACK CERTIFIED.** First smoke was LR-horizon-confounded (cosine over
-  max_epochs: 2 vs 200) ⇒ reran schedule-matched (job 55957256, SMOKE_EPOCHS=200 + 55-min wall cap).
-  val_loss ep0/1/2: original 0.8947/0.7186/0.6677 vs smoke200 0.9087/0.7097/0.6493 — ±1-3%, ALTERNATING
-  sign, identical trajectory shape = GPU nondeterminism (+different card), NOT a systematic regression.
-  Full cert: inference byte-exact + training curves interleave within noise + git shows stack untouched.
-  (b) **Unified H=2 GO:** after rest-validset → merge dead-end scene manifests (feb 63,892 + aug9-b1 37,227 +
-  rest ~24k expected) → ONE `testset_2push_collect.slurm` pass (killed feb-only job's pattern:
-  `sbatch --array=0-63 --job-name=v4-h2`, env MANIFEST/HOME_DIR/PKL_SUBDIR). Runs parallel to M1 pack/train.
-
-- **[2026-06-12] ALL H=1 DATA COMPLETE + H=2 UNIFIED LAUNCHED + STACK CERTIFIED:**
-  (a) **aug9-rest done** (55956248, 65,008/65,008 pkls) → render 55957921 (17,206 npz) + validset 55957922
-  (42,720 eps: 17,298 solvable / 25,422 dead) both done. **Full H=1 inventory: feb 213,789 + aug9 43,144
-  solvable npz; validsets feb + aug9 + aug9_rest** (all `--keep-dead-ends`).
-  (b) **Unified H=2 LAUNCHED: job 55958028** — merged manifest `v4_hq_h2_deadend_scenes_unified.txt`
-  (**125,494 dead-end scenes** = feb 63,892 + aug9 61,602; 51/49) → `/scratch/dm1487/datasets/v4_hq_h2/
-  pkls_2push_unified` (64 shards; killed feb-only partial kept aside in pkls_2push/, 15,126 pkls, do not mix).
-  H=2 TRAINING-row composition gets set later at dataset build (match the 2-push test slice).
-  (c) **TRAINING-STACK CERTIFIED:** schedule-matched smoke (SMOKE_EPOCHS=200, killed @5 epochs) tracks the
-  original B30_s1 wandb curve within ±1.6–2.7% with SIGN FLIPS (ep0 +1.6%, ep1-4 slightly better) = GPU
-  nondeterminism, not regression. With the byte-exact inference regression ⇒ full-retrain question CLOSED.
-  `train_h5_sampling.slurm` gained SMOKE_EPOCHS (committed in sage_learning).
-  (d) **Dead-end pipeline COMPLETE (task #23):** renderer `--include-dead-ends` (namo_cpp 8a73945; all 5
-  consumed channels render-time derivable — `robot_region` is the model's reachability channel, the
-  reachable-OBJECTS list only fills the unused global mask ⇒ NO H=2 backfill dependency, M2b unblocked) +
-  scorer join dead-aware matching/dedup/gating + `dead` column (3a8b59a). Decision [CLAUDE]: SKIP the
-  region_opening reachable-recording edit — no longer needed, and H=2 must run byte-identical collector
-  code to H=1 for homogeneity.
-  (e) **M1 pack LAUNCHED: job 55958342** — `v4_hq_m1_npz_65_35.txt` (123,269 npz = feb 80,125 seed-42 sample
-  + aug9 43,144; 65:35 by episode, matching the test set's 855:468) → `/scratch/dm1487/h5/v4_hq_m1_65_35/data.h5`
-  via convert_to_hdf5 `--npz-list` (NEW flag, sage 8fc589e) `--minimal --tight-only --compression lzf`
-  (champion src-H5 convention). **Validset merge: job 55958266** → `episodes_deadends_all.json` (feb+aug9+rest,
-  overlap-asserted). NEXT when both land: `build_scorer_dataset --src-h5 .../v4_hq_m1_65_35/data.h5
-  --episodes .../episodes_deadends_all.json --out-h5 /scratch/dm1487/h5/v4_hq_m1_scorer/data.h5` → gates
-  (gt_in_valid>0.99, bad_match≈0, dead=0 rows in M1 since npz are solvable-only) → **add_contact_px** →
-  M1 train (champion recipe, 3 seeds, GPU). NOTE [parallel session]: budget-Q training wiring landed via
-  sage 770cc9c (head_mode=hl_gauss + H passthrough + budget_h flag; extended smoke PASSES; default-off) —
-  task #20 wiring DONE, M2a can start right after M1.
-
-- **⚠ TWO-SESSION OWNERSHIP SPLIT [2026-06-12 ~02:40, session A]:** two Claude sessions drive this build;
-  coordinate HERE (both read this file). **B owns the M1 chain** (m1-pack 55958342 → join → add_contact_px →
-  M1 train 3 seeds) and unified H2 (55958028) — claimed in the entry above. **A owns the M2b data path**:
-  dead-end mask render **55958356** (feb+aug9-b1 pkls, `--dead-ends-only` → `v4_hq_de_masks`; rest pkls to
-  follow) → de-pack → multi-src join (88ff98d: `--src-h5` now takes MULTIPLE h5s w/ cross-file dedup —
-  backward-compatible, B's single-src call unaffected; mini end-to-end test passed: 240 rows, 40 dead,
-  gt=100%, align_err=0) → M2a/M2b configs. **RULE: before ANY sbatch, check squeue/sacct for an equivalent
-  job; concurrent build_scorer_dataset runs must use DIFFERENT --out-h5 paths (same-path = corrupt H5).**
 
 - **⚠ [USER CONSTRAINT, 2026-06-12] EXHAUSTIVE COLLECTION BEYOND 1-PUSH IS NOT SCALABLE FOR US.**
   The running unified H2 (55958028, exhaustive depth-2 over the 125k dead-end scenes) is the **LAST
@@ -689,52 +348,6 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   that is what it should pick up" [USER]. The exhaustive H2 run's swept trees remain useful as the
   certified EVAL slice + offline sampling simulator, NOT as a training requirement. H=3: search-distilled only.
 
-- **SAMPLED H2 COLLECTION — IMPLEMENTED + SMOKED [2026-06-12, overnight]:** [USER killed exhaustive H2
-  55958028 @14,635 pkls — KEPT as ordinary training rows; certified eval = namo_testset_v1 (exhaustive both
-  depths), training data is NEVER exhaustive beyond depth-1 again]. Implementation (committed):
-  `region_sample_k` (uniform random k-subset of reachable (edge,depth) per chain level — ONE cap point, all
-  node expansions flow through the same candidate build in region_opening) + `region_sample_restarts`
-  ([USER]: up to 3 attempts with fresh subsets ONLY while no chain found; trial logs MERGED ⇒ union mask;
-  early-stop on success = adaptive compute). Plumbed via modular_parallel_collection + CONFIG_YAML override
-  in testset_2push_collect.slurm. Config: `v4_hq_h2/configs/sampled_depth2_k30.yaml` (k=30, restarts=3,
-  enumerate-all-sampled + record-all-solutions ON). **SMOKE #1 (k30, no restarts) PASSED:** root ≤30 ✓,
-  ≤30/child ✓, levels tagged (`chain_depth`, `parent_edge`/`parent_depth` ⇒ per-level masks reconstructable),
-  ~850 trials/dead-instance (vs 1,860 exhaustive). SMOKE #2 (restarts=3, 10 feb scenes, job 55959912) in
-  flight — verify early-stop on 2p-solvable + 3x merged logs on dead; THEN scale relaunch on
-  `v4_hq_h2_s30_remaining.txt` (~110k scenes, PKL_SUBDIR=pkls_2push_s30). ⚠ ETA caveat measured in smoke #1:
-  restarts trigger on every truly-dead instance (3x ≈ 2,500 trials > exhaustive 1,860) — net cost depends on
-  the 2p-solvable fraction; measure rate from a pilot before resizing shards if needed.
-  **SMOKES #2 + #3 PASSED → SCALED [2026-06-12 ~05:15]:** #2 (10 feb scenes): 26/26 episodes solved, ALL
-  early-stopped at attempt 1 (root ≤30) ✓. #3 (3 known-dead aug9 scenes): restarts fired 3x with fresh draws
-  + MERGED logs (root trials 87/76/48; the 48 = only 16 reachable cells x3) ✓; dead cost ~1.0-2.3k sims as
-  predicted. **FULL LAUNCH: job 55960285** — 110,824 remaining scenes (125,494 − 14,670 exhaustive-done),
-  64 shards, `pkls_2push_s30` (kept separate from exhaustive `pkls_2push_unified` for the datasheet).
-  M1 chain same night: pack DONE (123,269 npz → 4.7 GB src-h5) → join 55960012 RUNNING → cpx 55960013
-  (afterok) → gate check → M1 train (RUN_PREFIX=m1_v4hq DATA_DIR=v4_hq_m1_scorer, array 9-11 = B30 x s1-3).
-  M2b packs 55959968/9 running (105,864 + 23,672 = 129,536 dead-end npz).
-
-- **M1 TRAINING LAUNCHED [2026-06-12 ~05:55]: job 55961140** (`m1_v4hq_s{1,2,3}`, B30 champion recipe,
-  array 9-11). Data chain ALL GATES GREEN: join 123,269/123,269 unique episodes (solvable-only ✓),
-  bad_match=0, gt_in_valid=100.00%, edge_align_err=0; contact_px N=123,269 miss=0 in-bounds=1.000;
-  **composition 65.0:35.0 EXACT** (feb 80,125 / aug9_b1 25,938 + aug9_rest 17,206). Final H5:
-  `/scratch/dm1487/h5/v4_hq_m1_scorer/data.h5`. ⚠ probe gotcha for the record: H5 `xml` paths are
-  collection-shard symlinks (`outputs/v4_hq_*/shard_*/envs/...`) — discriminate feb/aug9 by OUTPUT ROOT
-  (`/v4_hq_h1/` vs `/v4_hq_aug9_h1[_rest]/`), NEVER by 'feb_car'/'aug9_car' substrings (always absent).
-  M1 verdict protocol: eval_scorer per ckpt → resolve_robust-style 3-seed paired compare vs champion 23.8
-  hard@1 (pre-registered: at-or-above). Snapshot-feelers at ~ep8/~ep15 per [[feedback_periodic_feelers]].
-
-- **H2 LABEL BUILDER READY [2026-06-12 ~07:45] (commit 95017b4):** `build_2push_validset.py` extended:
-  (a) `frac_first_push` = [pe,pd,n_succ_2,n_tried_2] per expanded first push over UNIQUE child cells
-  (restart-union; denominator is part of the label under sampling — 1/30 brittle vs 6/22 robust);
-  (b) dead-end episode recovery via `_pose_from_xml` (the obs-only pose lookup DROPPED dead episodes —
-  H0b pattern again; smoke-dead: 0→3 episodes, tried unions match smoke #3 exactly). Gamma targets derive
-  downstream (1.0/γ/0 from valid_1push/valid_first_push/tried) — γ stays a tunable, not baked in.
-  Validated on both restart smokes (dead + solvable). Ready to run on `pkls_2push_s30` + the kept
-  exhaustive `pkls_2push_unified` when collection lands. M1 ep5 feeler (job 55961584) in flight.
-- **M1 FEELER @ep5 [2026-06-12 ~08:00]: hard@1 = 25.4 — ABOVE champion 23.8** (m1_v4hq_s1
-  epoch005-val_loss0.5833, eval JSON `/scratch/dm1487/eval/m1_feeler_s1_ep5.json`). Pre-registered
-  at-or-above prediction CONFIRMING at 5/200 epochs; single-ckpt ±3-4 noise ⇒ preview only, M1 verdict =
-  end-of-training 3-seed paired compare. Next feeler ~ep15.
 
 - **✅ M1 PASSED [2026-06-12 ~12:10] — hard@1 = 29.40 ± 1.50 vs champion 23.27 ± 1.38 (+6.1pp, ALL seeds
   positive: +4.1/+7.8/+6.6).** Protocol: 9 top-val ckpts (3 seeds × ~3), full eval panel each
@@ -749,19 +362,6 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   budget_h=true, H≡1, SAME H5) + M2b (same flags on v4_hq_m2b_scorer with dead rows) — M2a/M2b per the
   two-cell split (arch vs data isolation).
 
-- **M2a LAUNCHED [2026-06-12 ~12:25]: job 55964116** (`m2a_v4hq_s{1,2,3}`, SAME M1 H5 + B30 recipe, flags:
-  budget_cond=true value_bins=51 head_mode=hl_gauss budget_h=true, H≡1). **DEVIATION from the 37-spec
-  [CLAUDE]: FROM-SCRATCH, not warm-start** — the spec chose warm-start when training was assumed expensive;
-  measured cost is ~3.3h to early-stop, and from-scratch keeps the M2a cell to exactly ONE change vs
-  m1_v4hq (head/conditioning), same init protocol. Warm-start remains the fallback if from-scratch
-  underperforms. GATE: hard@k ≈ m1_v4hq 29.40 ± 1.50 (rankings via E[bin], monotone-invariant).
-
-- **SAMPLED H2 COLLECTION COMPLETE [2026-06-12 ~14:20]: job 55960285 — 110,824/110,824 scenes, 64/64
-  COMPLETED, ~7h wall** (vs 24h+ exhaustive trajectory; the [USER] k30+restarts recipe at scale).
-  Total H2 inventory: `pkls_2push_s30` (110,824 sampled) + `pkls_2push_unified` (14,670 exhaustive remnant).
-  **Label builds LAUNCHED:** 55967155 (sampled → labels_s30.json + pure-2push view) + 55967156
-  (exhaustive remnant → labels_exhaustive.json + pure view) via the extended build_2push_validset
-  (γ-derivable, frac_first_push robustness, dead-end XML-anchor recovery). M2a ep17+/M2b ep2+ training.
 
 - **H2 LABELS DONE [2026-06-12 ~14:35] — SAMPLED ≈ EXHAUSTIVE AT THE POPULATION LEVEL (the [USER]
   ensemble-statistics argument empirically CONFIRMED):** sampled tree 140,062 eps = 16.2% 1p-solvable /
@@ -817,24 +417,6 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
   task (the 20% bar is itself a connectivity question). Run on idle GPUs only, if at all.
   Reachability recording (bd54571) stands regardless — it serves any future variant + post-push rows.
 
-- **M2c/M2d LAUNCHED as the reachability-signal ablation [USER hypothesis, 2026-06-12 ~18:10]:**
-  "giving it reachability (M2d) or it learning reachability (M2c) sharpens scene understanding ⇒ better
-  values / hard@k." PRE-REGISTERED: accept iff hard@1 > M2b's by the 3-seed paired compare (same H5
-  v4_hq_m2b_scorer, same recipe, ONE change each). Side-quest on training-signal quality — deploy
-  post-filters reachable regardless. Cells: **M2b** = base (in flight) · **M2c (55971858)** =
-  +unreachable_k=20 (S30∪S20 mask, known-0s on unreachable; smoke: S30 byte-identical + 20 exactly
-  on-unreachable) · **M2d (55971859)** = +reach_flag_input (per-edge bit embedding; the wavefront bit
-  handed over instead of pixel-re-derived). All committed 56e44b0; secondary readouts: dead-slice probe
-  (both pools), HL-Gauss bimodality on boundary cells (M2d), val_loss. Note val split scores full-R for
-  all cells (comparable); M2c's mask change is train-only.
-
-- **M2b FEELER [2026-06-12 ~18:45] (best ckpt s3 ep13, single-ckpt preview): ALL THREE READOUTS PASS.**
-  hard@1 = 29.6 (M2a 29.62 / M1 29.40 ⇒ 51% dead rows cost NOTHING on ranking); dead-slice
-  candidate-pool V_dead = **0.065 vs control 0.313 (5x lower)**, AUC 0.987 vs 0.959 — the H0b gate
-  closing decisively; all-cells V_dead **halved (0.710 → 0.359)**, AUC 0.955 vs 0.907 — dead-row
-  supervision generalizes to UNTRIED cells of the same state (whole-scene hopelessness), pre-empting
-  part of M2c's hypothesized role WITHOUT any unreachable supervision. JSONs:
-  /scratch/dm1487/eval/{m2b_feeler,dead_slice_m2b_feeler}.json. Full 3-seed verdict after wall-kill.
 
 - **✅ M2b VERDICT [2026-06-12 ~19:00]: PASSED — dead-end data IMPROVES ranking. hard@1 = 32.86 ± 2.38**
   (s1 31.4 / s2 35.6 / s3 31.6) vs M2a 29.62 ± 0.93, M1 29.40 ± 1.50; @5 = 65.44 ± 1.25 vs 60.9;
@@ -1187,28 +769,6 @@ Smoke-test before scaling. Keep this §9 log current so a compaction can resume.
 
 - **✅ POST-PUSH PIPELINE VALIDATED END-TO-END + COMMITTED [2026-06-13 ~07:30 ET, commit 6155032 + render slurm].** Fixed render (pp_* in masks dict): all 10 pp_* keys land. 5-pkl smoke: 598 rendered (good 308 / dead 290), 132 no-effect filtered, 0 skipped. Packer (`build_postpush_h5.py`) on 203 npz → 203 rows (good 66 / dead 137), 0 bad. **Coherence ALL CLEAN: f_grid>0 outside r_mask=0; positives in dead rows=0; good rows mean 4.23 positives (sparse); contact_px 100% in-bounds [21,43]; H all=1, postpush all=1.** Real `ScorerDataModule(budget_h=True)` consumes it → batch dict {context,f_labels,loss_mask,r_mask,cp_reachable,ratio,H,contact_px} = exactly ClassifierModule's expected input. Schema is a SUPERSET of the root H5s (m2b_scorer 252k + h2_scorer 311k) ⇒ `;`-joins cleanly; xml grouping keeps each scene's post-push s1 on the same split side as its root (no leak). **Full-scale render driver READY (not submitted): `scripts/amarel/render_postpush.slurm`** — CPU main/main-redhat, slices PKL manifest by array task, bash-fans across 32 CPUs (renderer is single-proc), MAX_PER_EPISODE env [USER tunable — bounds total post-push volume; K≈3 over 125k scenes ≈ ~375k balanced pool, the journal's ~300k target without blowing up vs 564k root]. **WHEN v2 COLLECTION LANDS (~9:10 ET):** build PKL manifest from pkls_2push_v2 → submit render_postpush.slurm (decide MAX_PER_EPISODE) → build_postpush_h5 per shard → merge → datasheet → present composition/sampler to USER → launch Q-full-v2.
 
-## 9.1 READY-TO-RUN when collection (job 55944720) finishes
-```bash
-# 1. manifest of v4_hq_h1 pkls
-find /scratch/dm1487/outputs/v4_hq_h1 -name '*_results.pkl' > /scratch/dm1487/manifests/v4_hq_h1_pkls.txt
-# 2. per-episode validset WITH dead-ends (H0b) — the --keep-dead-ends flag is the fix added this session
-/scratch/dm1487/envs/namo/bin/python scripts/pipeline/build_episode_validsets.py \
-   --manifests /scratch/dm1487/manifests/v4_hq_h1_pkls.txt \
-   --out /scratch/dm1487/datasets/v4_hq_h1/episodes_deadends.json --keep-dead-ends --workers 32
-# 3. scorer H5 = JOIN masks (src-h5) + the new f_grid labels (episodes). NOTE: masks lifted from DiT solution
-#    data have NO dead-end scenes (task #23) -> this H5 = SOLVABLE scenes only until masks are rendered for dead-ends.
-/scratch/dm1487/envs/namo/bin/python scripts/pipeline/build_scorer_dataset.py \
-   --src-h5 /scratch/dm1487/h5/v3_balanced_1to1_lzf_tight_data/data.h5 \
-   --episodes /scratch/dm1487/datasets/v4_hq_h1/episodes_deadends.json \
-   --out-h5 /scratch/dm1487/h5/v4_hq_h1_scorer/data.h5
-# then add_contact_px.py (contact_px 60x2), then train.
-```
-**Training wiring (sage_learning `classifier_module.py` + `scorer_data.py`):** add `head_mode="hl_gauss"`
-(uses `src/model/hl_gauss.py` on gamma targets + `loss_mask`); pass `H` through `forward` (currently calls
-`network(x, contact_px, ...)` — add H); `scorer_data` emits `H` (=1 for H=1 rows) + gamma target (= f_grid in
-{0,1} for H=1). For M1/M2: train budget-Q with `budget_cond=True, value_bins=51, H≡1`, gamma=f_grid; verify ≈
-champion hard@k via `eval_scorer.py` (default episodes = `namo_testset_v1/labels/onepush_episodes.json`).
-
 ## 10. Open tunables (pin by experiment)
 γ exact value · k₂ (2nd-push breadth) · verify→bootstrap schedule · informative-subset threshold · dead-end ratio ·
 #ExIt rounds · recall-tilt timing · one-head-vs-split.
@@ -1267,24 +827,6 @@ H=2 (30.7/25.4 vs v1 broken 12.2/15.3); (4) Horizon > NoHz @900 both seeds. Seed
 flips ⇒ the single-seed 2×2 conclusions are ROBUST. (s3 available if publication error bars wanted.) ⇒ **2×2 DONE
 + seed-confirmed; deploy = reactive→NoHorizon-v2, search→Horizon-v2.**
 
-### 🎯 Q-VALUE AUDIT — the bottleneck is H=1 second-push value [2026-06-14 ~11:55 ET, n=20→150; analyze_qvalue.py]
-Traced top-H=2 a1 → sim → top-H=1 a2 vs the exhaustive (a1,a2) GT, Hz-v2 & NoHz-v2. **CORE: H=2 setup-selection is
-GOOD; H=1 second-push value is the FAILURE.**
-- **H=2 picks setups (good):** setup-vs-nonsetup AUC=0.86 (Hz); first GT-setup at median rank 1.5; H2(a1) corr 0.59
-  with max-H1(s1) ⇒ coherent handoff. The FIRST push is not the problem.
-- **H=1 does NOT translate (the failure):** H=1 Q is COMPRESSED to [0.4,0.8] (never >0.8). Calibration: Q .4-.6→4%
-  open, Q .6-.8→31% open (signal exists, 8× enrichment, but weak/under-confident). On a confirmed setup the top-H1
-  a2 opens only 40%(Hz)/20%(NoHz); first opener at median rank 3-4.5. ⇒ model reaches s1 then mis-picks the opener
-  60-80% of the greedy first try = the gap between 94% search-solvable and ~25% reactive.
-- **Search:** sound but V=mean_top5(H1) is built on the compressed H1 ⇒ can't separate real vs fake setups ⇒ greedy
-  starves the needle (the 83-92%-random-solvable result). Fix H1 calibration ⇒ the greed becomes justified.
-- **NoHz>Hz reactive:** reactive is gated by the 2nd push (H1), BOTH models' weakness ⇒ horizon's H2 edge buys
-  nothing reactively; the single head is marginally sharper on the easy 2nd-push pick. Not "horizon worse" — reactive
-  is decided where both are weakest + single head is crisper there.
-- **ACTIONABLE LEVER: H=1 value calibration on post-setup s1** (HL-Gauss compressed, can't express high confidence).
-  Sharpen it (temperature/recal, value head that reaches ~1, post-push s1 data targeting 2nd-push openers) → lifts
-  BOTH reactive AND search + justifies the greedy search. v2 postpush helped RANKING but not CALIBRATION. [n=150 refines.]
-
 ### 🔧 Q-VALUE AUDIT — n=150 REFINEMENT (confirms core, corrects two claims) [2026-06-14 ~12:40 ET]
 | metric (Hz-v2 / NoHz-v2) | n=150 |
 |---|---|
@@ -1315,7 +857,10 @@ vs 41%). **ROOT CAUSE: cross-head SCALE MISMATCH.** Hz's H=2 head values first-p
 values the resulting children (V_s1=.576) ⇒ the blend priority keeps shopping fresh first-pushes instead of
 committing to a good setup. NoHz uses ONE head ⇒ the post-setup state genuinely scores higher (V_s1 .590 > V0 .539)
 ⇒ it dives. **So Horizon's reactive deficit is NOT a value-quality issue — it's that the H1/H2 heads aren't on the
-same scale, so a good setup's child doesn't outrank a fresh first-push.**
+same scale, so a good setup's child doesn't outrank a fresh first-push.** [⚠ CORRECTED 2026-06-15 ~03:10 — this
+"NOT value-quality / scale-mismatch" framing is WRONG. Targets DO encode opener=1.0 > setup=0.9 (verified), so a
+FIT model dives; the won't-dive is the FINISH failing to GENERALIZE (V_s1 should be ~1.0 but fits to 0.576 on novel
+s1). It IS value-quality (= Problem 1). See "CORRECTION — won't-dive is finish generalization" entry below.]
 **ACTIONABLE (striking):** if Horizon dove at NoHz's rate (78%) with its OWN better handoff (66% open), its @2 would
 be ~**0.51** — far above NoHz's 0.32. ⇒ normalize/calibrate H1 & H2 onto a common scale (or use V_s1 from the H1
 head only for the dive decision) and Horizon should WIN reactive too. Combine this with the H=1 compression fix
@@ -1430,20 +975,6 @@ finish collection — run the model, collect the s1 IT lands in, exhaustively la
 data or scene diversity (those buy only the modest ⅓). Static collection-setup data can't fix an off-policy shift.**
 This is the deepest correct statement of the Horizon-v2 finish gap.
 
-### 🧭 NEXT-STEPS PLAN (deep dive) [2026-06-15 ~00:20 ET] — reactive is the prize; needs BOTH top-1s
-HEADROOM: search ~95% (near ceiling; finish-fix → efficiency). REACTIVE @2 = 24% today, ~100% with perfect values.
-Decomposition (top-1 limited): fix-FINISH-only → ~35% (capped by setup top-1=35%); fix-SETUP-only → ~40% (capped by
-finish top-1=40%); fix-BOTH → ~100%. ⇒ **reactive needs BOTH setup-top-1 AND finish-top-1 sharp; fixing one caps at
-the other.** (oracle_headroom.py running b0s9xhqwa for precise numbers.)
-TWO LEVERS: (1) FINISH top-1 (40%) — deploy distribution shift (off-policy s1, ⅔) → on-policy ExIt collection.
-(2) SETUP top-1 (35%) — AUC 0.93 but top-1 weak bc setups RARE (median 3/60, best at rank ~3): high AUC ≠ sharp top-1
-→ NEW under-appreciated gap, needs ranking/contrastive loss + hard negatives to push the rare setup to rank-1.
-PLAN: Phase1 (cheap, days): (a) oracle headroom [running]; (b) clean off-policy isolation (H5-render model-setup s1)
-to confirm ExIt; (c) cascade/forced-dive search = free reactive 24→~39. Phase2 (dominant retrain): (d) on-policy/ExIt
-finish collection [collect the s1 the model lands in, exhaustive label, retrain] + (e) regularization (dropout/aug/
-resample) + (f) sharpen setup top-1. Phase3: (g) bootstrap H2←γ·maxH1 (ties heads, real horizon-Q, fixes residual
-dilution); (h) STRATEGIC re-eval Horizon vs NoHorizon+cascade (2×2 says Horizon's edge is modest).
-
 ### 📐 ORACLE HEADROOM result [2026-06-15 ~00:40 ET, oracle_headroom.py n=130] — reactive is MULTIPLICATIVE in both top-1s
 reactive@2: model/model **13.8** | oracle-FINISH (model setup) **36.9** | oracle-SETUP (model finish) **41.5** |
 oracle/oracle **100**. ⇒ reactive@2 ≈ P(top setup real) × P(top finish opens) ≈ 0.37×0.42 ≈ 0.14. Fix ONE head →
@@ -1452,3 +983,216 @@ caps at the other's top-1 (~37-42%); need BOTH for ~100%; gains COMPOUND (both 7
 CAVEAT: strict-greedy 13.8 < best-first @2 24.2 (search recovers ~10pp over greedy = the cascade/forced-dive lever);
 oracle caps are pairmap-conservative. Read as STRUCTURE not exact %. PLAN EMPHASIS SHIFT: "sharpen BOTH top-1s"
 (setup via ranking/contrastive+hard-neg; finish via on-policy ExIt) — multiplicative payoff.
+
+### ✅ CASCADE FULL-1018 (clean record, confirms the subset) [2026-06-14 ~22:55 ET]
+Hz-v2: dive 0 → @2 24.2 @50 76.3 @900 94.9 | 0.05 → 32.9/66.1/89.9 | 0.1 → 37.1/60.5/88.9 | 0.3 → **39.2**/56.9/88.2.
+NoHz-v2: dive 0 → @2 32.6 @900 91.6 | 0.05 → 34.6/87.8 | 0.3 → **35.5**/87.9. Story identical to the n=539 subset:
+cascade is a reactive↔ceiling trade; **Hz+dive=0.3 @2 39.2 BEATS NoHz (32.6 base / 35.5 even with cascade) and Hz
+base 24.2** → Horizon wins reactive with the dial; @900 Hz dive=0 94.9 best for search. dive_bonus = 2nd reactive↔
+search dial. (Over-claim watch: the n=150 trace predicted forced-dive 0.39 — full-1018 lands 39.2, spot on this time.)
+
+### ✅ ExIt FULL collection + headroom [2026-06-14 ~23:35 ET] — GO confirmed at scale
+50-shard collection done: **8,708 on-policy finish rows** (5076 train pure-2 scenes × top-2 model setups, no-effect +
+dead filtered), 32.6% DEAD (model's setup has no opener). Full-collection headroom (current Hz-v2 RAW H=1, n=800
+rows): openers 0.42 / non 0.065 → **sep 0.355** (smoke was 0.315; consistent). vs TRAIN-postpush 0.75 / TEST-live
+0.273. ⇒ deploy shift CONFIRMED at scale; ExIt retrain JUSTIFIED. Dataset at /scratch/dm1487/h5/v4_hq_exit_finish/
+shard_*.h5 (ctx/f_grid/r_mask/contact_px/H=1/dead/postpush+onpolicy). Render-vs-policy isolation still running
+(b0anaccrn) to rule out the live-render confound before committing the retrain. Retrain recipe PARKED for USER.
+
+### 📐 ARCH CLARIFICATION [USER caught loose wording, 2026-06-15 ~00:30 ET — code-verified]
+Earlier entries say "H1/H2 heads" / "cross-head scale mismatch" — IMPRECISE. Verified in code: it is ONE value head
+(edge_crossattn.py:126 `self.head`), budget-conditioned by an ADDITIVE embedding (UVFA-style): `self.budget_embed=
+nn.Embedding(max_budget+1,dim)` (:104), `e = e + budget_embed(H)` (:174). NOT two heads — the SAME head queried at
+H=1 vs H=2. Targets are SUPERVISED, precomputed gamma labels (H=1 opener→1.0, H=2 setup→0.9; verified f_grid positives
+∈{0.9,1.0} only), loaded straight from the H5 and fed to `hl_gauss.loss(logits, labels, mask)` (classifier_module.py
+:293, scorer_data.py). NO bootstrap / NO `.detach` / NO `max` over a next state ANYWHERE — i.e. we DID NOT train the
+horizon-Q recurrence Q(s,a,2)=γ·maxₐ′Q(s′,a′,1); we trained flat per-budget supervised labels. ⇒ both failures follow
+from the MISSING RECURRENCE: (1) finishability-blindness (flat 0.9 for any setup vs γ·V(s1) which would grade it),
+(2) the "scale mismatch" = the recurrence would force Q(s,setup,2)=γ·V(s1)<V(s1) but supervised training enforces no
+such inequality, so empirically Q@H2(first-push) 0.592 > Q@H1(child) 0.576 → search won't dive. [⚠ CORRECTED
+2026-06-15 ~03:10 — overstated: the supervised LABELS DO enforce opener=1.0 > setup=0.9, so a FIT model dives; the
+won't-dive is the finish failing to FIT on novel s1 (Problem 1), not a missing inequality. The recurrence adds a
+RELATIONAL safety-net (setup tracks the mushy child), it isn't the only constraint. See CORRECTION entry below.]
+"cross-head" in prior
+entries := "the one head queried at two budgets, on uncalibrated independent supervised targets." Bootstrap-H2←γ·maxH1
+fix = ADD the omitted recurrence.
+
+### 🎯 [USER DECISION 2026-06-15 ~01:00 ET] — REACTIVE IS THE TARGET. "be as reactive as possible."
+The model is a search-amortizer today (search ~95%, reactive ~25%; vs random @900 90.8 ⇒ the asymptotic win is thin,
+the real win is sim-efficiency). USER commits the objective to REACTIVE (act with ~0 sims), not just search efficiency.
+⇒ optimize reactive@2 = P(top setup real & finishable) × P(top finish opens) — BOTH top-1s (~37% / ~40% today), they
+MULTIPLY (oracle-headroom). REACTIVE ROADMAP (ordered by leverage + dependency):
+  L1 FINISH (ExIt) — recalibrate H=1 on the model's OWN on-policy s1 (8.7k collected, validated). Lifts P(top finish
+     opens). READY — the parked retrain. [biggest unblocked lever]
+  L2 SETUP top-1 — model picks a real setup #1 only ~37% (33% dead picks). Two sub-levers:
+     (a) ranking/contrastive loss + hard negatives → push the RARE real setup to rank-1 (AUC 0.93 but top-1 weak);
+     (b) BOOTSTRAP recurrence Q(s,a,2)=γ·maxQ(s',a',1) → setup value becomes finishability-aware (prefer forgiving
+         setups) + ties H1/H2 to one scale. Needs a GOOD H1 first ⇒ AFTER L1.
+  L3 CASCADE (B) — free +15pp reactive@2 (24→39) IF deploy allows ≥2 sims (it's a dive-on-sim trick, not pure-0-sim).
+REALISTIC UPSIDE: both top-1s 40→70% ⇒ reactive ~0.49 (from ~0.25); 40→80% ⇒ ~0.64; +cascade if sims allowed.
+Oracle ceiling ~100% (perfect values). SEQUENCE: L1 retrain (now) → measure → L2b bootstrap (does double duty) +
+L2a ranking loss → L3 stack at deploy. ExIt retrain recipe = USER to confirm; recommend blend (keep postpush for
+diversity + ExIt upweighted ~35× to dominate the finish signal), fresh retrain, 1-seed feeler @ep8 then 3 seeds.
+
+### ✅ FINISH MUSH = GENERALIZATION (final) + diagnosis UNIFIED [2026-06-15 ~01:20–03:10 ET, USER-skeptic-driven; condensed from 6 correction entries]
+**The 0.75→0.30 finish-sep collapse is PURE GENERALIZATION** — the model memorizes its TRAINING finish states (sep 0.75)
+and doesn't transfer to the novel post-setup s1 its own setups produce (~0.30). Reached by ELIMINATION — four mechanisms
+each MEASURED DEAD (scripts/sandbox/):
+- on-policy / which-setup shift — coll-setup 0.344 vs model-setup 0.287 = **Δ0.057 (minor)** (exit_policy_iso.py n=91).
+- state divergence (replay) — re-exec reproduces the saved s1 **0.00mm / 0.00° on 60/60** (check_replay_divergence.py); the cited "47/47 diverge" was secondhand + FALSE.
+- goal-channel (train full-region vs deploy single-pt) — crops **IoU 1.0, MAE 0.0**, sep WITH==WITHOUT 0.304 (check_goal_channel*.py n=60); the channel is a flood-fill of the robot_goal SEED pocket, identical both paths.
+- H5-builder vs live render — stored crop vs live re-render **MAE ~0.0005, IoU 0.998** (check_builder_match.py n=40).
+⇒ state + goal-channel + builder ALL clean ⇒ NO render bug; the gap is generalization. (3 self-corrections this night — render-path → goal-channel → state-divergence — all USER-caught; lesson: VERIFY a cited mechanism before building on it.)
+
+**DIAGNOSIS UNIFIED [USER connected]:** the "won't-dive" (V0 0.592 ≥ V_s1 0.576, search prefers setups) is the SAME low
+finish-Q as the reactive mush — NOT a separate architecture/scale flaw. Verified targets (h5 f_grid): opener → **1.0**,
+setup → **0.9**, so a model that FIT them WOULD dive (child 1.0 > setup 0.9). The learned values invert ONLY because the
+model fits the setup target but FAILS the finish target on novel s1 (openers score ~0.4-0.6). ⇒ won't-dive = **Problem-1
+(finish generalization) surfacing in search**; the "cross-head scale mismatch" framing is RETIRED.
+**TWO REAL ROOTS → THE FIX:** (1) FINISH GENERALIZATION (drives the reactive mush AND the won't-dive) → ExIt (diverse
+on-distribution finish data); (2) STATIC 0.9 SETUP TARGET = finishability-BLIND (real even for a perfect fit) → recurrence
+makes the setup value RELATIONAL (γ·V_child): fixes blindness + drags setup under a mushy finish (dive safety-net).
+**OPEN:** search SELECTS by V=mean_top5(Q) not max — structurally under-credits a NEEDLE s1; could depress V_s1 even with
+a perfect finish (unmeasured; needs a mean5-vs-max trace).
+**PARKED ALT [USER from-scratch reframe]:** perfect cheap sim ⇒ MODEL for expensive-to-verify (setup foresight, AUC 0.93)
++ SIM for cheap-to-verify (finish, 1 sim): score s0 first-pushes by graded finishability, sim the finish at deploy (~3-5
+sims, near-reactive, drops the horizon). Dissolves the render+finishability bugs; PARKED in favor of ExIt+recurrence.
+
+## 12. THE CORE FIX — ExIt finish + recursive horizon-Q (build plan) [USER 2026-06-15 ~02:40 ET]
+USER directives: (1) fix at the CORE, NO hacks (cascade / H2-on-finish / greedy-first are deploy band-aids, dropped
+from the "fixes"); (2) run every retrain on NoHorizon too (measure the horizon's real effect); (3) order ExIt →
+recurrence; (4) the pre-ExIt "max Q1 vs opener-count" linchpin REJECTED (see ledger H-I).
+
+### 📒 CONSOLIDATED HYPOTHESIS LEDGER — the night's investigation [verdicts on NUMBERS only]
+**PROBLEM (unchanged):** reactive@2 ≈ 24% (search ≈ 95% but barely beats random 90.8 → the model is a search-
+amortizer, the PRIZE is reactive). reactive@2 ≈ P(top setup real) × P(top finish opens) ≈ 0.37 × 0.42 (oracle
+headroom) — two weak top-1s that MULTIPLY; need BOTH. Want ~50-64%.
+| # | hypothesis | evidence (number) | verdict |
+|---|---|---|---|
+| A | fix H=2 dilution ⇒ reactive flips (Hz beats NoHz) | 2×2: NoHz still wins reactive 32.6 > 24.2 | **REJECT** |
+| B | won't-dive = cross-head SCALE mismatch (architecture) | targets encode opener1.0>setup0.9; a FIT model dives | **REJECT** (it's the finish mush, not scale) |
+| C | finish mush = STATE divergence (re-exec lands elsewhere) | re-exec reproduces saved state 0.00mm (n=60) | **REJECT** |
+| D | finish mush = GOAL-CHANNEL render mismatch | train-conv vs deploy-conv crops IoU 1.0, MAE 0.0 | **REJECT** |
+| E | finish mush = H5-builder vs live-builder render | stored-H5 vs live re-render MAE ~0.0005 (n=40) | **REJECT** |
+| F | finish mush = on-policy / which-setup deploy shift | coll-setup 0.344 vs model-setup 0.287 → Δ0.057 | **REJECT** (policy MINOR) |
+| **G** | **finish mush = pure GENERALIZATION** (memorize narrow train s1 0.75, no transfer to novel s1 0.30) | by ELIMINATION (C-F all dead) + 0.75 vs 0.30 | **ACCEPT** |
+| **H** | **setup head finishability-BLIND** (static 0.9 target ignores how finishable a setup is) | 33% of model top-2 setups DEAD; f_grid targets flat {0.9,1.0} | **ACCEPT** |
+| I | pre-ExIt linchpin "max Q1 ↑ with opener-count" tests the recurrence | ARTIFACT of mushiness: perfect finish → max=1.0 for ANY finishable → no correlation; model not trained for it; vanishes when finish fixed | **REJECT** |
+**⇒ two accepted roots (G, H) ⇒ two core fixes: ExIt (G) + recurrence (H).**
+
+### 🏗️ BUILD PLAN (phased, interleaved, both Horizon & NoHorizon)
+- **P1 — ExIt collect (CPU, running).** DIVERSE opener-rich finish data: `exit_collect.py --setups valid` steps the
+  LABELED real setups (valid_first_push) → opener-bearing s1 → exhaustive finish labels. pure2 5076 sc × top-4 →
+  ~17k + existing 8.7k model-setup = ~25k diverse exhaustively-labeled finish rows. Primary lever = DATA DIVERSITY
+  (on-policy barely matters, F=0.057). → /scratch/dm1487/h5/v4_hq_exit_finish_valid.
+- **P2 — finish retrain (GPU), BOTH Hz & NoHz.** v3 mix = m2b + h2 + aug + EXIT (REPLACE the narrow postpush — it's
+  the data that failed to generalize). Same recipe as v2. **GATE: novel-s1 finish separation 0.30 → 0.6+?** = go/no-go
+  for the whole direction. (Hz vs NoHz here = clean data-fix ablation.)
+- **P3 — calibration check (the REAL linchpin, post-ExIt).** Does `mean_top_k Q_finish(s')` (robust aggregate — NOT
+  raw max, which is fluke-dominated per H0b) predict ACTUAL finish-success at s'? Confirms the recurrence target carries
+  signal on the GOOD finish before spending GPU on P4.
+- **P4 — recurrence retrain (GPU), Horizon-ONLY.** Relabel h2 setup cells: target = γ·mean_top_k Q_finish(s1) (s1 from
+  the ExIt collection, Q_finish frozen from P2). Retrain H=2 head. **GATE: setup top-1 ↑ + reactive@2 ↑.** Horizon+
+  recurrence vs NoHorizon+ExIt = THE measurement of the horizon's value-add [USER].
+- **INTERLEAVE:** P1 (CPU) → while it runs build P2 mix-builder + P4 relabel code → P2 (GPU, H+NoH) → P3 → P4 (GPU).
+- **FILES:** exit_collect.py(+--setups ✓), exit_collect.slurm(+SETUPS ✓), launch_v3_training.sh(TODO), recurrence_
+  relabel.py(TODO), check_finish_calib.py(TODO). Outputs: v4_hq_exit_finish_valid, qfull_v3_*/qfull_nohz_v3_*.
+
+### 🔬 DIFFICULTY DEEP-DIVE — "why is reactive ridiculously hard?" [2026-06-15 ~10:10 ET, USER-driven]
+Two artifacts from the exhaustive (a1,a2)→opens pairmap (`/scratch/dm1487/eval/exhaustive_pairmap_pure2.pkl`,
+TEST set, n=1140 solvable instances). Scripts: `scripts/sandbox/finish_difficulty_dist.py`,
+`scripts/sandbox/reduce_by_density.py --cutoffs`.
+
+**(1) FINISH is a needle-in-haystack — mechanical root of the 0.42 ceiling.** Per solvable post-push state s1
+(reachability-filtered a2), finish_density = openers / reachable-a2:
+- **88% of post-push states are DEAD** (64,061 total → only **7,551** finishable). Setup head fights an 88%-dead field.
+- On solvable s1: **median finish density 6.9%** (median **3 openers / 45 reachable a2**), mean 15.7%, p25 3.0%, p90 41.7%.
+- **24.6% are pure 1-needles**; 41% ≤2 openers; 54% ≤3; **61% have ≤10% density.**
+- SETUP side per solvable instance: setup_density (valid-a1/reach-a1) **median 10%** (median 4 valid / 50 reachable).
+⇒ reactive@2 ≈ P(top setup lands solvable s1) × P(top finish opens) = two needle-searches (~10% & ~7%) that MULTIPLY.
+Random finish opens ~16% (mean density); model gets 0.42 ⇒ ~2.7× random, needle caps it. TRAIN finish sep 0.75 (CAN
+find needles) → doesn't generalize ⇒ THE case for ExIt. Chart: `/scratch/dm1487/eval/finish_difficulty_dist.png`.
+
+**(2) 2-push solve@K RE-CUT by TRUE 2-push difficulty = solution density (solving (a1,a2) / reachable (a1,a2);
+scheme A: HARD≤0.5% / MED 0.5-2% / EASY>2% = 434/330/254, hard-skewed).** NOT finish-density (that's R1, per-s1);
+this is the overall pair-solution density. Hz-v2 (`bf900_qfull_v2_v4hq_s1`) vs NoHz-v2 (`bf900_qfull_nohz_v2_v4hq_s1`) vs random(5-seed):
+| tier | @2 Hz / NoHz / rand | @900 Hz / NoHz / rand |
+|---|---|---|
+| EASY (254) | 36 / **50** / 8 | 98 / 97 / **99** |
+| MED (330) | 27 / **37** / 3 | 99 / 99 / **99** |
+| HARD (434) | 15 / **20** / 1 | **90** / 82 / 80 |
+TAKEAWAYS: (a) **NoHorizon wins reactive in EVERY tier** (biggest easy 50>36) — horizon over-prefers setups even when
+a 1-push finish exists. (b) **Horizon's value is SEARCH, decisive on HARD** (@900 90 vs 82; +9-14pp mid-budget).
+(c) **Model beats random@900 ONLY on HARD** (+10pp); easy/med random ties/wins by @900 — model's ceiling-edge is
+hard-only, else pure sim-efficiency. Chart: `/scratch/dm1487/eval/density_recut_2push_schemeA.png`. → ship NoHorizon
+for reactive TODAY; horizon is a search accelerator; reactive lift must come from ExIt(finish)+recurrence.
+NEXT: 1-push rank-at-H2 + analytical-random (hypergeometric) eval binned by 1-push density (greenlit; 56306276-9 already cancelled for the rank version).
+
+### 📊 MULTI-SEED COMPILE + 1-push rank DONE [2026-06-15 ~11:30 ET]
+All 3 results compiled UNIFORM (separate tables + uniform figures), multi-seed, split by TRUE difficulty (solution
+density; [USER] fixed cutoffs, binning-robust vs tertiles). Script `scripts/sandbox/compile_uniform.py` (PRESENT=1
+drops "-v2" for slides); out `/scratch/dm1487/eval/compiled/`. R2=2 seeds (s1/s2; [USER] no expensive s3), R3=3 seeds.
+- **R2** 2-push solve@K: NoHz reactive every tier (EASY @2 51.8±3.1 vs 34.4±1.9), Hz search (HARD @900 88.8±1.5 vs 83.4).
+- **R3** 1-push success@k (3 seeds): **H=2 dilution seed-robust** (HARD @1 34.0±2.9→27.9±2.7); NoHz≈Hz-H1, beats Hz-H2.
+- **DIFFICULTY ASYMMETRY** [USER Q]: 1-push median soln-density 32.6% (100% solvable by selection); 2-push FINISH median
+  6.9% (only 12% of post-push states solvable); 2-push PAIR median 0.75%. ⇒ 2-push ~43× harder than 1-push; even the
+  finish (1-push-from-s1) ~5× harder than standalone 1-push — because 2-push set = the RESIDUE where 1-push failed.
+- **R2 sub-difficulty decomposition** (per tier): EASY setup 27%/finish 11%, HARD setup 3%/finish 3% — HARD = double needle.
+- **DATA MAP** [USER Q]: finish supervision lives ONLY in postpush (300k narrow); H2 ingredient is FIRST-PUSH only
+  (H=1 rows=direct-open 13% pos, H=2 rows=setup 40% pos, SAME state s0, object unmoved). ⇒ swapping postpush=whole finish fix.
+- Folded all into `results_design_report_2026-06-15.md` (Part 1B). Registry updated with Hz-v2/NoHz-v2.
+
+### 🔧 FUTURE ARCH ABLATION (gated behind P2/P4) — inject H better [2026-06-15, USER asked, CLAUDE logged]
+Verified arch (`edge_crossattn.py`): `budget_embed(H)` is added ONCE (`:174`), broadcast to all 60 edge tokens, BEFORE
+the 4 edge blocks; NOT re-injected per layer; scene tokens are H-agnostic. So H rides the residual stream and can dilute.
+**Will better injection matter? Likely SECOND-ORDER, NOT the prize.** Reasoning: (a) H conditioning already WORKS — the
+R3 dilution IS Q(H=1)≠Q(H=2) firing, just pointed wrong; (b) stronger injection amplifies whatever the LABELS teach, so
+fix labels (ExIt/recurrence) FIRST; (c) the dilution is already ~73% closed from the DATA side (v2 AUG cut it 22pp→6pp).
+OPTIONS (ranked): (1) adaLN-Zero on edge blocks (DiT-proven, H→per-block scale/shift, zero-init); (2) cheap per-block
+additive re-inject of budget_embed_ℓ(H); (3) per-edge H-gate (lets "keep THIS opener high at H=2" be expressible vs the
+blunt global add). PLAN: don't do in isolation; after P2/P4 re-measure R3 dilution; if >~3pp, try (2)→(1). PREDICTION ≤~few pp.
+
+### 🎯 ExIt GATE VERDICT (full test set) + DEEP DATA AUTOPSY [2026-06-16 ~03:20 ET, USER-driven]
+**GATE RESULT — ExIt = SMALL-but-REAL, gate NOT cleared.** n=120 feeler over-called it twice (first slice was easy +
+noisy). Re-ran on the FULL test set, sharded 40-way, fixed-s1 (both models scored on the SAME GT-setup s1 — kills the
+setup confound). Scripts: `check_h2_finish.py`(+--start/--end/--fixed-setup), `finish_sep.slurm`, `agg_finish_sep.py`.
+| FULL set, n≈990, fixed-s1 | v2-ep08 | v3-ep11 (ExIt) | Δ |
+|---|---|---|---|
+| finish separation (H1) | 0.338 | 0.385 | +0.044 |
+| top1_finish_opens (H1) | 0.552 | 0.602 | **+0.05 (~3σ, REAL)** |
+v2 baseline 0.31 ≈ journal's 0.30 (right scale) → v3 0.385 << 0.6 gate. ExIt is a MODEST lever (matches the E-series
+"data = modest lever" prior), NOT a finish solver. P2 done (TIMEOUT@14h, converged ep11 = best; ep14 overfits). v3 was
+RETRAINED FROM SCRATCH (no warm-start; fresh wandb run, ~11 ep to converge) on the v3 mix — clean v2-vs-v3 = data effect.
+
+**WHY ExIt only modest — full data autopsy (the root cause, finally mechanical):**
+1. **postpush (old 300k) provenance:** s1 states from the H2 2-push collection's SEARCH TREE — only SOLUTION-PATH s1
+   persisted (dead-branch s1 discarded; `replay_postpush.py` BLOCKED on collision divergence → re-collect not replay).
+   Labels self-carried; `r_mask` = the ~k SAMPLED tried a2 (median **12**), NOT all reachable.
+2. **postpush was the WRONG, EASY task:** trained to rank among ~12 candidates at ~**45%** positive; deploy ranks among
+   **~45–60** at **~7%**. DOUBLE mismatch (pool size + base rate). Only ~2% of 300k is even test-like difficulty. THIS
+   (not "narrow coverage") is why finish memorized train 0.75 → collapsed test 0.30.
+3. **ExIt (24k) fixed the difficulty** — full reachable (~60) at the true ~8% base rate ≈ test 6.9%. BUT it's a 12× VOLUME
+   cut (300k→24k) and a swap, so finish dropped 32%→**3.6%** of the mix. So ExIt = right data, too little of it.
+
+**DATA IMBALANCE LEDGER (v3 mix, 668k rows; `scripts/sandbox/finish_data_analysis.py`):**
+- by decision: direct-open 408k (61%) / setup 236k (35%) / **finish 24k (3.6%)** — finish is 1/28, **17:1** vs direct-open.
+- by budget: H=1 433k (65%) / H=2 236k (35%). by scene: 1-push 333k ≈ 2-push 336k (balanced).
+- dead vs solvable OVERALL 52/48 (balanced) — BUT per decision: direct-open 64% dead, setup 36%, **finish only 12% dead**
+  (ExIt-valid 0.8%!, ExIt-model 33%). Deploy s1 are ~63–88% dead ⇒ finish UNDER-trains dead-detection ~5–7×.
+- H=2 axis: setups 156k vs AUG 80k = **1.95:1** (the dilution pressure). AUG (`onepush_h2_aug`, 1-push openers @H2,
+  opener=1.0 rest-masked, src=M2B) is a representative subsample of 1push-solvable scenes (NOT cherry-easy) but those
+  are inherently opener-rich → only **4.7%** is hard (≤2-opener) ⇒ dilution fix thin exactly where it's needed (hard 1push).
+- VERDICT: not a GLOBAL imbalance — a FINISH imbalance stacked 3 ways (too little 3.6% + too solvable 12%-dead + AUG-skew).
+  Coarse axes fine; ExIt already fixed the hardest sub-axis (density match). Remaining = cheap VOLUME/COVERAGE knobs.
+
+**sample_k=30 finding [USER caught my error]:** B30 SAMPLING still used (array9→COND3=B30; v3 log sample_k:30), but HEAD
+is HL-Gauss not sigmoid_bce. `scorer_data.py:83-97`: sample_k=30 KEEPS a random 30 of the REACHABLE cells in the loss,
+masks the rest (NOT "adds 30 negatives" — I had it backwards). ⇒ trims ExIt's ~60 finish labels to 30/row (mildly
+counterproductive given finish starvation). FIX: sample_k=0 (exhaustive loss) for finish rows.
+
+**H2 ingredient = FIRST-PUSH ONLY** (s0; H=1 rows=direct-open 13% pos, H=2 rows=setup; same state, object unmoved). Finish
+lives ONLY in ExIt/postpush. (verified earlier.)
+
+**v4 REBALANCE SPEC (next, all cheap, no arch change):** (a) up-weight finish to ~15-30% of batches OR scale sampled-ExIt
+24k→~150k at test-difficulty; (b) add DEAD post-setup s1 (target ~40-50% dead in finish, vs 12% now); (c) oversample hard
+(≤2-opener) AUG; (d) sample_k=0 for finish rows. Open fork still: rebalance-ExIt vs recurrence(P4) vs fine-tune-v2-on-ExIt.

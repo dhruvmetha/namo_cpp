@@ -3,7 +3,7 @@
 > THE authoritative location list — every trained model, its exact best-val checkpoint, headline number,
 > training data, and eval-output dir. **Do not reconstruct paths by glob; read here.** Never retrain
 > registered models ([[feedback_reuse_baselines]]). Roots: ckpts `/scratch/dm1487/sage_outputs/scorer/`,
-> evals `/scratch/dm1487/eval/`, H5s `/scratch/dm1487/h5/`. Updated 2026-06-13.
+> evals `/scratch/dm1487/eval/`, H5s `/scratch/dm1487/h5/`. Updated 2026-06-15 (added Horizon-v2 / NoHorizon-v2).
 
 ## Models (all `edge_crossattn`, pos_fourier + use_edge_embed, 3 seeds; "BEST" = lowest val_loss ckpt)
 
@@ -65,6 +65,29 @@
 - evals (planned): `/scratch/dm1487/eval/qfull_verdict/` + `fpv_qfull/` + bifurcation/M3 slices
 - GATES when done: (a) H=1 ranking ≈ M2b 32.86; (b) M3 = zero-sim setup-pick on pure2push vs 34.5 (registered)
   & 75.2-with-sims (fpv_m2b); (c) H-bifurcation probe (525ea31); (d) per-division (pure2push_divisions)
+- NOTE: this Q-full = **Horizon-v1** (`qfull_v4hq`, ep16 converged). Its NoHorizon twin = `qfull_nohz_v4hq`
+  (unregistered; glob if needed). v2 below adds the 1push@H2 augmentation on top of this mix.
+
+### Horizon-v2 / NoHorizon-v2 — Q-full mix + 1push@H2 augmentation (THE 2×2 v2 cells; aug fixes H=2 dilution)
+- **data (v2 mix, ~944k rows):** M2B `v4_hq_m2b_scorer/data.h5` (252,805) + H2 `v4_hq_h2_scorer/data.h5`
+  (311,324) + AUG `v4_hq_onepush_h2_aug/data.h5` (80,000 — sparse-positive 1push@H2 rows, the dilution fix) +
+  postpush `v4_hq_postpush` shards (~300k narrow finish; v3/ExIt REPLACES this). Room-grouped, realpath-normalized.
+- **Horizon-v2** `qfull_v2_v4hq` — flags: budget_cond, value_bins=51, head_mode=hl_gauss, budget_h. BEST-val ckpts:
+  - s1 `qfull_v2_v4hq_s1/namo-classifier/10whb62b/checkpoints/epoch008-val_loss0.6728.ckpt` (HEADLINE seed)
+  - s2 `qfull_v2_v4hq_s2/namo-classifier/whv2sdf3/checkpoints/epoch008-val_loss0.6771.ckpt`
+  - s3 `qfull_v2_v4hq_s3/namo-classifier/a81jq5ob/checkpoints/epoch008-val_loss0.6689.ckpt`
+  - **1-push hard@1: H=1 36.0 / H=2 30.7** (aug fixed v1's H=2 dilution 12.2→30.7) · **2-push s1: s@2 24.2, s@900 94.9** (avg-sims 54.6)
+- **NoHorizon-v2** `qfull_nohz_v2_v4hq` — flags: value_bins=51, head_mode=hl_gauss, budget_h=false (NO budget_cond ⇒ H-invariant). BEST-val ckpts:
+  - s1 `qfull_nohz_v2_v4hq_s1/namo-classifier/4w1hovo4/checkpoints/epoch007-val_loss0.7041.ckpt` (HEADLINE seed)
+  - s2 `qfull_nohz_v2_v4hq_s2/namo-classifier/rbbqq0ya/checkpoints/epoch009-val_loss0.7004.ckpt`
+  - s3 `qfull_nohz_v2_v4hq_s3/namo-classifier/c82jwuw5/checkpoints/epoch010-val_loss0.6968.ckpt`
+  - **1-push hard@1: 31.7** (H-invariant) · **2-push s1: s@2 32.6, s@900 91.6** (avg-sims 76.7)
+- ⚠ s1 headline evals (2-push solve + 1-push rank) used the ADJACENT final epoch (Hz epoch010 val0.6734 / NoHz
+  epoch009 val0.7050) — val Δ<0.001 vs best-val above, ranking-identical. ckpt root `/scratch/dm1487/sage_outputs/scorer/`.
+- **evals:** 2-push solve `/scratch/dm1487/eval/bf900_qfull_v2_v4hq_s1/` + `bf900_qfull_nohz_v2_v4hq_s1/` ·
+  1-push rank `/scratch/dm1487/eval/onepush_rank_v2/` (running 56308524 H1 / 56308525 H2 as of 2026-06-15)
+- **TAKEAWAY:** reactive@2 NoHz>Hz EVERY difficulty tier; search@900 Hz>NoHz (decisive on hard 90 vs 82). Horizon =
+  search accelerator, not a reactive win. See journal DIFFICULTY DEEP-DIVE + `results_design_report_2026-06-15.md`.
 
 ## Key H5 datasets
 - `v4_hq_m1_scorer/data.h5` — M1/M2a solvable-only (123,269)

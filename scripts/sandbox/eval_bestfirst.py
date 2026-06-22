@@ -53,12 +53,15 @@ def priority(q, V, combine):
 
 
 def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combine, rng, restrict_obj=None,
-                is_open=lambda e: e.is_robot_goal_reachable(), raw=False):
+                is_open=lambda e: e.is_robot_goal_reachable(), raw=False, dive_bonus=0.0):
     """Greedy best-first ON THE LABELED OBJECT (restrict_obj). Returns (solved, sims_used, plan_len|None).
-    is_open(env) = the success predicate; default = LABEL-consistent goal_region_open (>=20% of 100 region pts)."""
+    is_open(env) = the success predicate; default = LABEL-consistent goal_region_open (>=20% of 100 region pts).
+    dive_bonus>0 = CASCADE fix: add dive_bonus*ndone to a node's priority so a SIMULATED setup's child (ndone>=1)
+    outranks a fresh first-push (ndone=0) -> the search DIVES instead of restarting. Counters the cross-head scale
+    mismatch (H2 values fresh first-pushes >= H1 values their children). dive_bonus>=priority-range = forced dive."""
     heap = []; ctr = 0; sims = 0
     pool, V0 = candidates(planner, env, goal, xml, s0, hmax, prior, agg, rng, restrict_obj=restrict_obj, raw=raw)
-    for (obj, g, q) in pool:
+    for (obj, g, q) in pool:                              # roots: ndone=0 -> no dive bonus
         heapq.heappush(heap, (-priority(q, V0, combine), ctr,
                               {"obj": obj, "g": g, "from": s0, "ndone": 0, "plan": [(obj, g)]})); ctr += 1
     while heap and sims < sim_budget:
@@ -71,8 +74,8 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
             s_new = env.get_full_state()
             h = hmax - ndone
             pool, V = candidates(planner, env, goal, xml, s_new, h, prior, agg, rng, restrict_obj=restrict_obj, raw=raw)
-            for (obj2, g2, q2) in pool:
-                heapq.heappush(heap, (-priority(q2, V, combine), ctr,
+            for (obj2, g2, q2) in pool:                   # children: +dive_bonus*ndone -> bias to commit/dive
+                heapq.heappush(heap, (-(priority(q2, V, combine) + dive_bonus * ndone), ctr,
                                       {"obj": obj2, "g": g2, "from": s_new, "ndone": ndone,
                                        "plan": it["plan"] + [(obj2, g2)]})); ctr += 1
     return False, sims, None
@@ -96,6 +99,10 @@ def main():
                     help="RNG base for the uniform baseline; vary across runs for multi-seed random (model is "
                          "deterministic, so --seed-base only matters for --prior uniform).")
     ap.add_argument("--raw", action="store_true", help="use raw HL-Gauss E[bin] (no sigmoid squash) for the search priority")
+    ap.add_argument("--dive-bonus", type=float, default=0.0,
+                    help="CASCADE fix: priority bonus per push-already-done (ndone) so a simulated setup's child "
+                         "outranks a fresh first-push -> the search DIVES not restarts. 0=baseline; >=priority range "
+                         "(~0.23 sigmoid / ~1.0 raw)=forced dive. Counters the H1/H2 cross-head scale mismatch.")
     ap.add_argument("--success", default="region", choices=["region", "point"],
                     help="success predicate: 'region' = LABEL-consistent (>=20%% of 100 goal-region pts reachable, "
                          "matches the test-set collection); 'point' = legacy single xml-site point (the OLD bug).")
@@ -131,7 +138,8 @@ def main():
                 rng = random.Random(a.seed_base + xi * 17 + ri)
                 obj = rec.get("object_id")
                 solved, sims, plen = solve_scene(planner, env, goal, xml, s0, a.hmax, a.sim_budget,
-                                                 a.prior, a.agg, a.combine, rng, restrict_obj=obj, is_open=is_open, raw=a.raw)
+                                                 a.prior, a.agg, a.combine, rng, restrict_obj=obj, is_open=is_open,
+                                                 raw=a.raw, dive_bonus=a.dive_bonus)
                 n += 1; sims_tot += sims; n_solved += int(solved); sims_solved += sims if solved else 0
                 lf.write(json.dumps({"xml": xml, "object_id": obj, "region": rec.get("region"),
                                      "solved": solved, "sims": sims, "plan_len": plen}) + "\n")
@@ -142,7 +150,7 @@ def main():
             print(f"  scene {xi} err: {ex}", file=sys.stderr); continue
     lf.close()
     res = {"ckpt": a.ckpt, "hmax": a.hmax, "sim_budget": a.sim_budget, "prior": a.prior, "agg": a.agg,
-           "combine": a.combine, "key": _os.path.basename(a.key), "n_episodes": n,
+           "combine": a.combine, "dive_bonus": a.dive_bonus, "key": _os.path.basename(a.key), "n_episodes": n,
            "n_already_open": n_already, "n_no_record": n_norec,
            "solve_rate": round(100.0 * n_solved / max(n, 1), 1),
            "avg_sims_all": round(sims_tot / max(n, 1), 2),
