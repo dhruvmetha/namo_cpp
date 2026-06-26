@@ -167,3 +167,15 @@ keep the simpler depth value.
   wall-safe). `build_bootstrap_setup.slurm` now an array; `launch_bootstrap.sh` globs `shard_*.h5`. Relaunched (density
   `57176990`, depth `57176991`); watcher `bgjxm9aba` re-armed to fire qboot training on drain. (Lesson: any per-episode
   render job MUST shard + write incrementally.)
+- **2026-06-26 ~13:30 ET — ❌ STAGE 1 GATE FAILED (trained on ilab; GPU backlog forced the move). reactive@2 (n=1018,
+  region):** qboot_density **30.3**, qboot_depth **34.1**, vs **NoHz-v3 40.7** (Hz-v3 45.6). **The bootstrap LOSES by
+  6–10pp** — worse than my pre-registered "matches-not-beats" (that prediction = WRONG, it loses not matches). best-first@2
+  partial: depth ~38.7, density ~30. **depth > density HELD** (34.1 > 30.3; my Stage-3 call). Ckpts (ilab-trained,
+  best-val): density `qboot_density_s1/.../v5x21lsi/epoch012-val0.7152`, depth `.../xdbdc8vv/epoch014-val0.7192`.
+  **⚠ CONFOUND (my error — violated one-change-at-a-time):** the qboot mix differs from NoHz-v3 in THREE ways, not one:
+  (1) setup labels flat-0.9→γ·V_GT [intended], (2) **dropped `aug`**, (3) **finish data `exit_finish_v4` vs NoHz-v3's
+  `exit_finish_valid`**. So "bootstrap regressed 10pp" = "this 3-change mix regressed", NOT cleanly "the bootstrap idea
+  failed." Hint it IS partly the target: density (tiny ~0.1 targets) is the worst arm → grounded γ·V_GT may under-rank
+  setups. **NEXT = CLEAN one-change re-run:** NoHz-v3's EXACT mix (`m2b + h2 + aug + exit_finish_valid`), change ONLY the
+  h2 H=2 setup-cell labels (0.9 → γ·V_GT, matched via `frac_first_push`); train NoHz recipe; gate vs 40.7. Relabel script
+  = new (relabel h2 H5 in place, NOT the separate boot_setup H5). Runs on ilab. [Ranking loss STILL parked — one change.]
