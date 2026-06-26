@@ -41,7 +41,16 @@ is tapped out) is the empirical green-light to switch axes from "more data" to "
 **GATE:** none — this stage *creates* the gates. (Decision rules it sets: rank gaps → is the model or the data the
 bottleneck; (d) → run Stage 3?; (e) → run Stage 2?; (f) → is the signal even there?)
 **Guardrail:** READ-ONLY on training. Touch only eval/logging. Use registered ckpts; never glob.
-**Status:** ⏳ IN PROGRESS (building the harness).
+**Status:** ✅ COMPLETE [2026-06-25 ~22:20 ET]. **CONVERGED VERDICT — the bottleneck is the SETUP value/ranking:**
+- (a) SETUP rank @s0 (HARD): median **5**, top1 **~20%** = THE bottleneck.
+- (b) FINISH rank @s1 (HARD): median **0**, top1 **~58%** = near-ORACLE, already solved.
+- (d) viable-finish-count VARIES (median 5, p10 1→p90 12) ⇒ **Stage 3 gate PASSES** (depth-vs-density testable).
+- (e) collection WELL-COVERED (setups exhaustive=median 45/ep; finishes near-exhaustive=median 44 a2 tried/~45 reachable)
+  ⇒ random-K does NOT starve ⇒ **Stage 2 (guided collection) DEPRIORITIZED — low headroom.**
+- (f) finish signal present (train-sep 0.75 vs test 0.30 — prior); Hz≈NoHz on all ranks ⇒ dropping Horizon is free.
+⇒ **PLAN REORDER: the lever is the SETUP value/ranking (Stage 1 + maybe a setup ranking loss); NOT the finish (D2) and
+NOT collection (Stage 2).** The Stage-1 density-bootstrap already tests a graded (ranking-ish) setup signal via the value
+head (eval-compatible, no new loss); escalate to an explicit setup ranking loss only if density/depth match-not-beat NoHz.
 
 ## STAGE 1 — Single bootstrapped value (drop Horizon)
 **Goal:** remove the dive-tax machinery; establish the clean bootstrapped baseline.
