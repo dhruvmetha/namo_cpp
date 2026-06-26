@@ -31,6 +31,16 @@ REPO = Path(__file__).resolve().parent.parent
 CORPORA_DIR = REPO / "config" / "corpora"
 DATASET_CFG_DIR = REPO / "config" / "datasets"
 
+# Machine-local config: load <parent>/.env so the NAMO_* roots below resolve even
+# when corpus.py runs as a standalone script. override=False keeps any explicit
+# shell export authoritative. No-op without python-dotenv installed.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(REPO.parent / ".env", override=False)
+except ModuleNotFoundError:
+    pass
+
 SCRATCH = Path(os.environ.get("NAMO_SCRATCH", "/scratch/dm1487"))
 DATASETS = Path(os.environ.get("NAMO_DATASETS", SCRATCH / "datasets"))
 OUTPUTS = Path(os.environ.get("NAMO_OUTPUTS", SCRATCH / "outputs"))

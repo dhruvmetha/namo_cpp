@@ -3,6 +3,8 @@ debug_wavefront*.txt
 build_python/
 build_python_local/
 build_python_mjxrl*/
+.env
+.env.local
 __pycache__/
 .DS_Store
 *.png
