@@ -29,7 +29,7 @@ DATA_DIR="$M2B;$EXIT_JOINED;$BOOT_JOINED"
 OV="+data.budget_h=false +model.head_mode=hl_gauss +network.value_bins=51"   # NoHorizon = single Q
 echo "=== STAGE 1 bootstrap: qboot_${VSUMMARY}, $((NEX+2)) H5s, array $ARRAY ==="
 cd "$SAGE"
-J=$(sbatch --parsable --array="$ARRAY" --time="$WALL" \
+J=$(sbatch --parsable --array="$ARRAY" --time="$WALL" --partition="${PART:-gpu-redhat}" \
   --export="ALL,RUN_PREFIX=qboot_${VSUMMARY},DATA_DIR=$DATA_DIR,EXTRA_OVERRIDES=$OV" \
   scripts/train_h5_sampling.slurm)
 echo "BOOT_LAUNCHED qboot_${VSUMMARY} job=$J  (anchor v2/v3/v4 untouched; new run-prefix)"
