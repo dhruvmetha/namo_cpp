@@ -80,7 +80,12 @@ bash scripts/portability/pull_from_amarel.sh          # both
 1. `git clone` both repos (namo_cpp `feat/horizon-q-redesign`, sage_learning `feat/horizon-q`).
 2. Python env: `torch pytorch-lightning h5py hydra-core wandb numpy opencv-python pyyaml mujoco==3.2.7`.
 3. MuJoCo 3.2.7: copy `mujoco/mujoco-3.2.7` (4.5 M) or use the pip wheel; `export MJ_PATH`.
-4. **Build the C++ bindings:** `MJ_PATH=… ./build_python_bindings.sh` → `build_python/namo_rl*.so`. (Needs CMake + g++.) This is the one real compile step; everything physics-y imports `namo_rl`.
+4. **Build the C++ bindings:** `MJ_PATH=… ./build_python_bindings.sh` → `build_python/namo_rl*.so` (everything physics-y imports `namo_rl`). The build is path-clean but has **4 prerequisites that bite a fresh box**:
+   - **CMake ≥3.16 + g++ C++17** (Amarel used cmake 3.26 / gcc 12.3).
+   - **`python3-dev` headers** — CMake does `find_package(Python3 COMPONENTS Development REQUIRED)`.
+   - **OpenCV** — `find_package(OpenCV REQUIRED)`; install `libopencv-dev` (or conda `opencv`) so CMake finds it.
+   - **Internet on the BUILD node** — pybind11 is pulled via `FetchContent` at configure time. Compute nodes often have no internet → build on a **login/internet node**, or pre-vendor pybind11.
+   - **`-march=native` trap:** default targets the *build* CPU. If you build and run on different CPUs you'll get illegal-instruction crashes → build on the run-node CPU, or `NAMO_MARCH=x86-64-v3 ./build_python_bindings.sh`.
 5. `source env.<machine>.sh`.
 6. Run the two rewrites in §3 (scripts + label JSONs).
 
