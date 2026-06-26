@@ -15,6 +15,14 @@ invariant gate above. Amarel GPU helpers live in `~/bin` (global, on PATH): **`g
 node, reuse without re-queue), **`gpufree`** (idle GPUs now), **`gpueta`** (job ETAs, flags >1h).
 GPU/SLURM policy: submit `gpu,gpu-redhat`, never Camden, never wait >1h (relax/resubmit).
 
+**→ HORIZON-Q (the active project). READ THESE FIRST, every session / after any compaction — do not work from memory or glob:**
+0. **▶ ACTIVE WORK [2026-06-25]: staged bootstrapped-value + guided-collection redesign, running AUTONOMOUSLY (user AFK 5-10h).** Branch **`feat/horizon-q-redesign`** (anchor `feat/horizon-q` @ `3d65375` is FROZEN — never overwrite). **EXECUTION journal = [docs/experiments/horizon_q_redesign_execution.md](docs/experiments/horizon_q_redesign_execution.md)** — Stage 0 (instrument) → Stage 1 (drop Horizon, bootstrapped Q) → Stage 2 (guided collection + ε-exploration). **RESUME from its AUTONOMOUS EXECUTION LOG (bottom) + the current Stage's Status.** Slack updates to U07N1DR8S94 at each milestone. Self-contained brief: [horizon_q_HANDOFF.md](docs/experiments/horizon_q_HANDOFF.md).
+1. **🔀 SEARCH-FIRST REDESIGN journal (the thesis/decision ledger behind the redesign) — [docs/experiments/horizon_q_search_redesign_journal.md](docs/experiments/horizon_q_search_redesign_journal.md)** — the 2026-06-23 pivot: the model is a SIMS-MINIMIZING SEARCH HEURISTIC (a ranker); cost-to-go in SIMS not depth; D2 finish-ranker / D3 recurrence. Read §0–§3.
+2. **Build journal (the empirical record) — [docs/experiments/horizon_q_build_journal.md](docs/experiments/horizon_q_build_journal.md)** — state, decisions, hypothesis ledger, v2/v3/v4 numbers. Resume from §9. Design spec: [docs/experiments/multipush_horizonQ_journal.md](docs/experiments/multipush_horizonQ_journal.md).
+3. **Model registry — [docs/experiments/horizon_q_model_registry.md](docs/experiments/horizon_q_model_registry.md)** — every ckpt path / headline number / eval dir. **Read it for paths; NEVER reconstruct ckpt paths by glob** (wandb-hash dirs are unrecoverable that way). Every trained model goes here the moment it trains.
+
+These files survive compaction; the conversation does not. When picking up Horizon-Q work, read the EXECUTION journal (current Stage + log) + registry before launching anything; resume the staged plan where the log left off.
+
 ## How to talk to me
 
 Default to plain English. Short, sharp sentences. No jargon unless I'm already using it back at you. If you have to use a technical term, give the one-sentence intuition the first time. Walls of text are a failure mode — prefer a 3-line answer with a "want more?" hook over a 30-line essay I have to skim. Code snippets and numbers belong in the answer when they're load-bearing, not as decoration.
