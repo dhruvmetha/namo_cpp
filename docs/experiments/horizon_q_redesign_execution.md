@@ -123,7 +123,18 @@ keep the simpler depth value.
   - **Hz ≈ NoHz on both ranks** ⇒ dropping the Horizon (Stage 1) loses nothing. (e) coverage still TODO.
   - **De-risk for Stage 1:** finish VALUES are mushy (sep 0.30) but finish RANK is good ⇒ seed the bootstrap with
     **GT V(s1)** from the true finish labels (`relabel_bootstrap_setup.py`), not the mushy model value → stable iter-0.
-  - **BUILT (committed):** `collect_transitions.py` ((s0,a1,s1) transitions — collector holds both states), 
-    `relabel_bootstrap_setup.py` (γ·V_GT(s1) setup target; `--vsummary depth|density` = the Stage-3 knob). NEXT: smoke
-    → full transition collection → relabel → train single-Q bootstrap (warm-start NoHz-v3, `qboot_*`) → GATE (≥NoHz @2 +
-    dive-tax→0).
+  - **BUILT (committed):** `collect_transitions.py` ((s0,a1,s1) transitions — kept for the later model-V bootstrap), 
+    `relabel_bootstrap_setup.py`. **CHEAPER PATH FOUND:** the training labels (`labels_exhaustive_pure2push.json`)
+    already store `frac_first_push=[[e,d,n_open,n_tried],...]` per setup ⇒ V_GT(s1) is FREE; only render s0.
+    `build_bootstrap_setup.py` (+`.slurm`) does this (no re-sim). Smoke OK (30 ep: 156 solvable / 1660 dead setup
+    cells; density targets graded 0.007→0.48 = the findability signal). Full builds launched (density `57171507`,
+    depth `57171508`). Launcher `launch_bootstrap.sh` (single-Q, drop Horizon, mix m2b+ExIt-finish+boot-setup, NoHz
+    flags, from scratch — grounded targets ⇒ stable, no online divergence = the Stage-1b seed done offline).
+- **2026-06-25 ~22:10 ET — ⚠ HYPOTHESIS from Stage 0 [CLAUDE, pre-registered, the gate decides]:** since the FINISH is
+  **near-oracle** (model finishes any solvable s1 in ~1 sim), the correct `V(s1)` ≈ **existence (DEPTH)**, NOT density —
+  density would wrongly penalize a 1-needle-finish setup the model can actually finish cheaply. ⇒ **predict depth ≥
+  density** (the Stage-3 ablation, run together). DEEPER: depth-bootstrap-with-GT ≈ the status-quo 0.9 setup label ⇒
+  Stage 1 may just MATCH NoHz (pass the gate, not improve); if so, the setup bottleneck (top1 20%) is a **discrimination
+  problem (solvable vs plausible-DEAD setups)** not a value-target one → the real fix would be a **setup RANKING loss**
+  (the setup analog of the finish ranker). Running Stage 1 (both summaries) to TEST this; if it matches-not-beats NoHz,
+  pivot to the setup ranking loss. [Surfaced to USER on Slack.]
