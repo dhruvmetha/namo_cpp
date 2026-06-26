@@ -167,6 +167,61 @@ keep the simpler depth value.
   wall-safe). `build_bootstrap_setup.slurm` now an array; `launch_bootstrap.sh` globs `shard_*.h5`. Relaunched (density
   `57176990`, depth `57176991`); watcher `bgjxm9aba` re-armed to fire qboot training on drain. (Lesson: any per-episode
   render job MUST shard + write incrementally.)
+- **2026-06-26 ~02:30 ET — ✅ PIVOT TO ILAB (Amarel GPU backlog dodged); Stage-1 qboot LAUNCHING.** Resumed on
+  **ilab2** (fresh chat). **ilab has idle GPUs NOW** (ilab2/ilab4 8× each, rlab1 a100×4, rlab4 a4000×8) — the Amarel
+  block doesn't exist here. Data moved to ilab: **`/common/users/dm1487/fresh_start/projects/namo/h5`** — all 4 sources
+  present (m2b `data.h5`; exit_finish_v4 **254** shards [88 absent, harmless]; boot_setup_{density,depth} 20 shards each).
+  - **NEW ilab launcher: `sage_learning/scripts/train_bootstrap_ilab.slurm`** (machine-agnostic via namo
+    `scripts/env/activate.sh` + parent `.env`; mirrors `launch_bootstrap.sh` recipe exactly: m2b+ExIt-v4+boot-setup,
+    NoHz flags `budget_h=false head_mode=hl_gauss value_bins=51`, sample_k=30, from scratch). **ilab gotchas fixed:**
+    (1) ilab REJECTS `--cpus-per-task` ("no limit") → removed; (2) `--partition=unlimited`; (3) `WANDB_MODE=offline`
+    (compute nodes have no net); (4) **`einops` was missing in `mjxrl` env → pip-installed.** Python = `mjxrl`
+    (torch 2.6+cu124, lightning 2.5.3, hydra 1.3.2). Outputs → `$NAMO_OUTPUTS/scorer` = `/common/users/dm1487/scratch_namo/outputs/scorer`.
+  - **SMOKE OK (job 166180, EPOCHS=2, ilab1 RTX A4500):** GPU acquired, model built (4.4M params), all 3 H5 sources
+    joined, NoHz flags + sample_k=30 confirmed in resolved config, WANDB offline. Gate before the real runs = confirm
+    ckpt-write (catches a checkpoint-callback misconfig). **NEXT:** on smoke-ckpt → `VSUMMARY=density sbatch --job-name=qbden`
+    + `VSUMMARY=depth --job-name=qbdep` (200 ep each, seed=1 feelers). Run dirs `qboot_{density,depth}_s1`.
+  - **EVAL on ilab is viable:** `namo_rl` bindings import here (`build_python/namo_rl...so`). Port TODO at eval time:
+    `eval_reactive_argmax.py`/`eval_m3.py`/`reactive_argmax.slurm`/`bestfirst_eval.slurm` hardcode `/scratch`+`/cache`+
+    `--partition=main`+test manifest; `scorer_beam` lives in sage (locate). **Open: is `namo_testset_v1` (xmls+pure2push.json+pairmap) on ilab?** (find running). If absent → move it, or rsync ckpt back to Amarel for the CPU eval.
+  - **GATE unchanged:** reactive@2 + best-first@2(combine=q) vs **NoHz-v3 reactive 40.7 / best-first 37.8 @2** (region, n=1018).
+    Pre-registered [CLAUDE]: bootstrap MATCHES-not-beats NoHz; predict depth ≥ density.
+- **2026-06-26 ~02:45 ET — ⚙ THROUGHPUT FIX (dataloader was GPU-starving) + ⚠ EVAL-DATA BLOCKER.**
+  - **Diagnosis:** first real attempt (8 workers, job 166180) did NOT finish epoch-0 in 16 min. `sstat`: **AveCPU 2h22m
+    over 17m wall = ~8 cores PEGGED** ⇒ NOT cpu-starved (ilab cgroup doesn't cap CPU — "no limit" is literal), it's
+    **CPU-BOUND on dataloading**: `ctx` (5×64×64 f32) is **LZF-compressed** with 32-sample chunks ⇒ every `__getitem__`
+    decompresses on CPU; 8 workers = 8 cores = GPU starves. ilab1 has **64 cores, load ~11 (idle)**. **FIX: `num_workers`
+    8→32** (+ `--mem` 48→128G for prefetch). Launcher now parameterized (`NWORKERS`, default 32). Killed 166180.
+  - **qboot_density RELAUNCHED: job `166181` (ilab1, 32 workers), run dir `qboot_density_s1`.** Monitoring epoch-0 for
+    timing + ckpt-write; depth launches once density epoch-0 confirms (avoids co-location contention muddying the measurement).
+  - **⚠ EVAL BLOCKER (needs USER):** `namo_testset_v1` (test xmls + `pure2push.json` + `exhaustive_pairmap_pure2.pkl`)
+    is **NOT on ilab** (searched `/common/users/dm1487` exhaustively), and **`ssh amarel` TIMES OUT** (banner exchange)
+    ⇒ I can't pull it or push the ckpt to Amarel from this shell. The h5 TRAINING data got here via a USER-side transfer.
+    **To run the gate eval, either:** (a) USER copies `namo_testset_v1` (labels + xmls) to ilab — reactive gate needs only
+    `pure2push.json` + the test xmls (NOT the pairmap), or (b) USER rsyncs the trained ckpt back to Amarel + runs
+    `eval_afterok.slurm` there (CPU partition `main`, not GPU-blocked). Training is the unblocked deliverable tonight;
+    eval is teed up pending this. [To surface to USER on wake.]  (NB: `scorer_beam.py` confirmed ABSENT on ilab — the
+    whole eval toolchain is Amarel-only, reinforcing train-ilab / eval-Amarel.)
+- **2026-06-26 ~02:55 ET — ✅ BOTH qboot RUNS HEALTHY (32-worker fix confirmed).** Density `166181` (ilab1): best-val
+  **`epoch000-val_loss0.8328.ckpt`** saving works (+ last.ckpt), epoch-0 ~8 min incl setup, then **3.8 it/s ≈ 9.4
+  min/epoch** (2145 steps/ep), ~35 cores sustained (AveCPU 4:39/8min), MaxRSS 18.8G, val_loss finite (no divergence).
+  Depth `166182` (ilab2): setup done (305,116 rows, same), epoch-0 in progress ~3.5min behind. **ETA ~6-7h** to early-stop
+  (patience 25; best-val ~ep15-40) — both well inside the 16h wall. Completion monitor `bxyk42dw1` armed (pings both-done).
+  **RESUME on wake:** read completion-monitor output → best-val ckpts in `$NAMO_OUTPUTS/scorer/qboot_{density,depth}_s1/`
+  → register in model registry → hand ckpts to USER for the Amarel gate eval (or USER moves test set to ilab).
+- **2026-06-26 ~08:05 ET — ✅✅ BOTH qboot RUNS CONVERGED & REGISTERED (Stage-1 training DONE).** Both COMPLETED cleanly
+  (~5.25h each, early-stop; State=COMPLETED, NOT killed). **Registered** ([[horizon_q_model_registry.md]] qboot section):
+  - density `epoch012-val_loss0.7152.ckpt` — val_top1 **0.674** / top5 0.745 (job 166181)
+  - depth   `epoch014-val_loss0.7192.ckpt` — val_top1 **0.704** / top5 0.774 (job 166182)
+  - Both overfit after ep12-14 (val_loss rose to ~1.05 by ep37 → early-stop fired); best-val ckpts are the keepers.
+  - **EARLY (non-gate) SIGNAL: depth val-top1 (0.704) > density (0.674)** ⇒ directionally consistent with the
+    pre-registered "depth ≥ density". NOT decisive — val is all-difficulty room-grouped ranking, not the test-set
+    hard-tier reactive gate. The GATE still decides.
+  - **▶ ONLY remaining Stage-1 step = the GATE eval, which is Amarel-bound** (toolchain `scorer_beam.py` + test set both
+    Amarel-only; `ssh amarel` times out from ilab). **USER ACTION on wake** (see ILAB_RESUME / journal): rsync the two
+    best-val ckpts to Amarel `/scratch/dm1487/sage_outputs/scorer/qboot_{density,depth}_s1/...` → `eval_afterok.slurm
+    RUN_DIR=qboot_density_s1 LABEL=boot_density MINEP=8` (+ depth) → compare `reactarg_boot_*`/`bfq_boot_*` to NoHz-v3
+    (reactive 40.7 / best-first 37.8 @2). [Surfaced to USER.]
 - **2026-06-26 ~13:30 ET — ❌ STAGE 1 GATE FAILED (trained on ilab; GPU backlog forced the move). reactive@2 (n=1018,
   region):** qboot_density **30.3**, qboot_depth **34.1**, vs **NoHz-v3 40.7** (Hz-v3 45.6). **The bootstrap LOSES by
   6–10pp** — worse than my pre-registered "matches-not-beats" (that prediction = WRONG, it loses not matches). best-first@2

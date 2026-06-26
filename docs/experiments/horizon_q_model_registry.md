@@ -109,6 +109,26 @@
   reactive regimes vs v2 (Hz 38.5→45.6, NoHz 38.2→40.7) + shrinks the dive tax — error bars pending s2/s3.
 - **evals:** reactive `reactarg_{Hz,NoHz}_v3/` · best-first@2 combine=q `bfq_{hz,nohz}_v3_s1/` · ExIt gate `check_h2_finish`.
 
+### qboot_density / qboot_depth — STAGE-1 bootstrapped single-Q (Horizon DROPPED), trained on ILAB [2026-06-26]
+- **THE Stage-1 redesign model** (search-first redesign, drop-Horizon). Single Q, NoHorizon flags (`budget_h=false
+  head_mode=hl_gauss value_bins=51`), `sample_k=30`, FROM SCRATCH. Mix = M2B + ExIt-finish-v4 + **boot_setup_{density|depth}**
+  (s0 relabeled with grounded target **γ·V_GT(s1)** from `frac_first_push`, no re-sim). **Trained on ilab** (not Amarel):
+  launcher `sage_learning/scripts/train_bootstrap_ilab.slurm` (32 workers — `ctx` is LZF-compressed ⇒ dataloading is
+  CPU-bound), data `/common/users/dm1487/fresh_start/projects/namo/h5`, 305,116 rows (train 274,604 / val 30,512).
+  **ckpt root (ILAB, NOT /scratch):** `/common/users/dm1487/scratch_namo/outputs/scorer/`
+- **qboot_density_s1** (γ·findability target = Stage-1): BEST-val
+  `qboot_density_s1/namo-classifier/v5x21lsi/checkpoints/epoch012-val_loss0.7152.ckpt`
+  · val_top1 **0.674** / top5 0.745 (peak top1 0.697) · job 166181, COMPLETED 5:15h, early-stop ep37.
+- **qboot_depth_s1** (γ·existence target = Stage-3 density-vs-depth control): BEST-val
+  `qboot_depth_s1/namo-classifier/xdbdc8vv/checkpoints/epoch014-val_loss0.7192.ckpt`
+  · val_top1 **0.704** / top5 0.774 (peak 0.704) · job 166182, COMPLETED 5:14h, early-stop ep39.
+- **EARLY VAL SIGNAL (NOT the gate): depth val-top1 0.704 > density 0.674** — directionally matches the pre-registered
+  "depth ≥ density". Caveat: val = all-difficulty room-grouped ranking, NOT test-set hard@1; both overfit after ep12-14.
+- **⏳ GATE PENDING (Amarel — eval toolchain + test set are Amarel-only):** reactive@2 + best-first@2(combine=q) vs
+  **NoHz-v3 reactive 40.7 / best-first 37.8 @2** (region, n=1018). Handoff: rsync best-val ckpt → Amarel
+  `/scratch/dm1487/sage_outputs/scorer/qboot_{density,depth}_s1/.../` then `eval_afterok.slurm RUN_DIR=qboot_density_s1
+  LABEL=boot_density MINEP=8` (+ depth). Eval dirs will be `reactarg_boot_*` + `bfq_boot_*`.
+
 ### Eval tools for the reactive/search comparison (2026-06-22, combine=q standard)
 - **reactive@2 (forced dive):** `scripts/sandbox/eval_reactive_argmax.py` (argmax setup@H2 → argmax finish@H1 → region
   open?, exactly 2 sims, object-constrained). Sharded by `scripts/amarel/reactive_argmax.slurm`. Out `reactarg_*`.
