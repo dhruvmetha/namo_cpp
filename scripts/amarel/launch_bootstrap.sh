@@ -9,18 +9,23 @@ set -euo pipefail
 SAGE=/cache/home/dm1487/projects/namo/sage_learning; H5=/scratch/dm1487/h5; PY=/scratch/dm1487/envs/namo/bin/python
 ARRAY=${ARRAY:-9}; WALL=${WALL:-14:00:00}; VSUMMARY=${VSUMMARY:-density}
 M2B=$H5/v4_hq_m2b_scorer/data.h5
-BOOT=$H5/v4_hq_boot_setup_${VSUMMARY}/data.h5
+BOOT_SHARDS=$(ls $H5/v4_hq_boot_setup_${VSUMMARY}/shard_*.h5 2>/dev/null | sort -V)
+NB=$(echo "$BOOT_SHARDS" | grep -c . || true)
 EXIT_SHARDS=$(ls $H5/v4_hq_exit_finish_v4/shard_*.h5 2>/dev/null | sort -V)
 NEX=$(echo "$EXIT_SHARDS" | grep -c . || true)
-[ -f "$M2B" ] && [ -f "$BOOT" ] && [ "$NEX" -ge 1 ] || { echo "MISSING (M2B=$M2B BOOT=$BOOT exit_shards=$NEX)"; exit 1; }
-$PY - "$BOOT" <<'PYEOF'
+[ -f "$M2B" ] && [ "$NB" -ge 1 ] && [ "$NEX" -ge 1 ] || { echo "MISSING (M2B=$M2B boot_shards=$NB exit_shards=$NEX)"; exit 1; }
+$PY - $BOOT_SHARDS <<'PYEOF'
 import sys, h5py
-f = h5py.File(sys.argv[1], "r"); n = int(f.attrs["n_samples"])
-assert n > 1000, f"boot H5 only {n} rows"; assert f["ctx"].shape[1:] == (5, 64, 64), f["ctx"].shape
-print(f"  boot-setup OK: {n} rows, ctx {f['ctx'].shape}")
+tot = 0
+for p in sys.argv[1:]:
+    f = h5py.File(p, "r"); n = int(f.attrs["n_samples"]); tot += n
+    assert f["ctx"].shape[1:] == (5, 64, 64), f["ctx"].shape
+assert tot > 3000, f"boot shards only {tot} rows — build incomplete"
+print(f"  boot-setup OK: {len(sys.argv)-1} shards, {tot} rows")
 PYEOF
 EXIT_JOINED=$(echo "$EXIT_SHARDS" | paste -sd ';' -)
-DATA_DIR="$M2B;$EXIT_JOINED;$BOOT"
+BOOT_JOINED=$(echo "$BOOT_SHARDS" | paste -sd ';' -)
+DATA_DIR="$M2B;$EXIT_JOINED;$BOOT_JOINED"
 OV="+data.budget_h=false +model.head_mode=hl_gauss +network.value_bins=51"   # NoHorizon = single Q
 echo "=== STAGE 1 bootstrap: qboot_${VSUMMARY}, $((NEX+2)) H5s, array $ARRAY ==="
 cd "$SAGE"
