@@ -64,6 +64,16 @@ DIVERGES (loss explodes / value collapses to constant) → STOP, report, do Stag
 **Guardrail:** if unstable > ~2k steps → HALT, dump diagnostics, don't burn compute. NEVER overwrite anchor models.
 **Status:** ⬜ PENDING (gated on Stage 0 read).
 
+> **⏳ STAGE 1 STATUS [2026-06-26 ~00:25 ET] — BUILT, QUEUED, GPU-BLOCKED (post-maintenance backlog).** Bootstrap-setup
+> H5s built (density+depth, 20 shards each, 5169 rows). qboot training launched after 2 fixes: (1) sharded the build
+> (render ~1.8s/ep blew the 2h wall), (2) **cluster dropped the `gpu` partition post-maintenance → override to
+> `gpu-redhat`** (`PART` env in launch_bootstrap.sh; relaxed to `gpu-redhat,legacy-gpu`). Jobs: **qboot_density
+> `57177529_9`, qboot_depth `57177530_9`** (1-seed feelers, run dirs `qboot_{density,depth}_s1`). **0 idle GPUs;
+> SLURM ETA ~25h (pessimistic; backfill may start sooner).** **Eval auto-chained (afterany):** `57177596` (boot_density),
+> `57177597` (boot_depth) → reactive@2 + best-first@2(q) the moment each converges. **GATE vs NoHz-v3 (reactive 40.7 /
+> best-first 37.8 @2).** RESUME: when the GPU frees, training runs → eval-chains fire → aggregate `reactarg_boot_*` +
+> `bfq_boot_*`, compare to NoHz. (Stray: my own CPU interactive node `57157833` on halk0057, ~7h idle — flagged to USER.)
+
 ## STAGE 1b — Stability insurance (ONLY if Stage 1 gate fails on divergence)
 **Goal:** get the bootstrap off the ground from a cold start.
 **Build:** seed the replay buffer with grounded MC labels (our existing γ-labels — even partial) so Q is non-random
