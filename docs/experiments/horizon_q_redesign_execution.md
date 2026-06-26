@@ -157,6 +157,10 @@ keep the simpler depth value.
   problem (solvable vs plausible-DEAD setups)** not a value-target one → the real fix would be a **setup RANKING loss**
   (the setup analog of the finish ranker). Running Stage 1 (both summaries) to TEST this; if it matches-not-beats NoHz,
   pivot to the setup ranking loss. [Surfaced to USER on Slack.]
+- **⛔ [USER DIRECTIVE 2026-06-26] ONE-CHANGE-AT-A-TIME — setup ranking loss DEPRIORITIZED TO THE VERY END.** "Don't
+  change too many things at once." The bootstrap (drop-Horizon + grounded setup value) is the SINGLE active change.
+  Do NOT build/launch the setup ranking loss until: bootstrap gate landed + simpler levers exhausted + a setup
+  mirror-measurement confirms setup-top1 is FIXABLE (not aliased). It's a reactive-only lever (search dissolves it).
 - **2026-06-26 ~00:10 ET — build hiccup + fix (autonomous).** First bootstrap-setup builds (single-task) TIMED OUT at
   the 2h wall — the s0 render is **~1.8s/episode** (the wavefront BFS rebuild dominates), so 5076 ep exceeded the wall
   and the end-written H5 was lost. FIX: **sharded** the build (array 0-19, 260 ep/shard, incremental per-shard H5s =
