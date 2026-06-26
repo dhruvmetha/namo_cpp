@@ -108,3 +108,22 @@ keep the simpler depth value.
 - **2026-06-25 ~17:30 ET** — [USER] handed the staged plan, AFK ≥5h. Anchor committed (`feat/horizon-q` `3d65375`),
   branched `feat/horizon-q-redesign`. This journal created. Starting Stage 0 (instrumentation, read-only). Slack cadence:
   update at Stage-0 gates, Stage-1 build, stability feeler.
+- **2026-06-25 ~18:30 ET — ✅ STAGE 0 GATES (the measurement REORDERS the plan).** Realized ranks (current Hz-v3 /
+  NoHz-v3 vs the exhaustive GT pairmap, n=1577, tiered; `stage0_instrument.py` + `.slurm`, outputs `stage0_{hz,nohz}_v3/`):
+  | metric (HARD tier) | Hz-v3 | NoHz-v3 | read |
+  |---|---|---|---|
+  | **FINISH rank @s1** (med / top1 / top5) | 0 / 58% / 85% | 1 / 50% / 72% | **near-ORACLE — finish already solved** |
+  | **SETUP rank @s0** (med / top1 / top5) | 5 / 19% / 48% | 5 / 22% / 49% | **the BOTTLENECK** |
+  - **THE FINDING:** the pairmap "finish needle = 18 sims/hard" was vs RANDOM order; the **MODEL already crushes random
+    on the finish** (hard median rank 0). So **a finish-ranker (D2 in the search-redesign journal) is NOT the realizable
+    lever** — its oracle ceiling is real but already captured. The **SETUP** is weak (hard top1 ~20%, median rank 5):
+    reactive ≈ setup-top1(0.20) × finish-top1(0.58) on hard ⇒ the setup factor is the limiter. ⇒ **Stage 1
+    (bootstrapped SETUP value, drop Horizon) is CONFIRMED as the right lever; D2 deprioritized.**
+  - (d) viable-finish-count VARIES smoothly (median 5, p10 1→p90 12; 29% ≤2, 32% ≥8) ⇒ **Stage 3 gate PASSES** (testable).
+  - **Hz ≈ NoHz on both ranks** ⇒ dropping the Horizon (Stage 1) loses nothing. (e) coverage still TODO.
+  - **De-risk for Stage 1:** finish VALUES are mushy (sep 0.30) but finish RANK is good ⇒ seed the bootstrap with
+    **GT V(s1)** from the true finish labels (`relabel_bootstrap_setup.py`), not the mushy model value → stable iter-0.
+  - **BUILT (committed):** `collect_transitions.py` ((s0,a1,s1) transitions — collector holds both states), 
+    `relabel_bootstrap_setup.py` (γ·V_GT(s1) setup target; `--vsummary depth|density` = the Stage-3 knob). NEXT: smoke
+    → full transition collection → relabel → train single-Q bootstrap (warm-start NoHz-v3, `qboot_*`) → GATE (≥NoHz @2 +
+    dive-tax→0).

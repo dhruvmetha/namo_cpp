@@ -1,5 +1,13 @@
 # Horizon-Q Build Journal
 
+> **🔀 PIVOT [2026-06-23]: SEARCH-FIRST REDESIGN — new journal [horizon_q_search_redesign_journal.md](horizon_q_search_redesign_journal.md).**
+> WHAT: reframed from "value-classifier, is the horizon calibrated?" to **"the model is a SEARCH HEURISTIC whose job is
+> to MINIMIZE SIMS"** (it's a RANKER — the sim is a free exact verifier; reactive@2 = 2 real sims; sims-to-solve =
+> rank(setup)+rank(finish)). WHY: the pairmap sims-decomposition showed the **finish ranker (D2) is the dominant lever**
+> (saves 15–19 sims every tier incl hard; SUBSUMES the findability/D1 idea), and the prize is the on-policy finish, not
+> calibration. New journal runs each design decision (D1–D5) as Hypothesis→Evidence→Verdict. THIS build journal stays
+> the empirical record (v2/v3/v4 numbers, ExIt, the 2×2). Read the redesign journal for the forward plan.
+
 > **STATUS [2026-06-11]: ACTIVE BUILD, un-parked.** This is the *implementation* journal. The *design*
 > spec (37 grounded decisions, each with reason + citation) lives in
 > [multipush_horizonQ_journal.md](multipush_horizonQ_journal.md) → "UN-PARKING BUILD SPEC". This file is the
@@ -1196,3 +1204,30 @@ lives ONLY in ExIt/postpush. (verified earlier.)
 **v4 REBALANCE SPEC (next, all cheap, no arch change):** (a) up-weight finish to ~15-30% of batches OR scale sampled-ExIt
 24k→~150k at test-difficulty; (b) add DEAD post-setup s1 (target ~40-50% dead in finish, vs 12% now); (c) oversample hard
 (≤2-opener) AUG; (d) sample_k=0 for finish rows. Open fork still: rebalance-ExIt vs recurrence(P4) vs fine-tune-v2-on-ExIt.
+
+### 🎯 REACTIVE@2 FORCED-DIVE MULTI-SEED + combine=q best-first — the clean reactive-vs-search table [2026-06-22, USER "better eval"]
+NEW pure-reactive eval `scripts/sandbox/eval_reactive_argmax.py`: argmax setup@H2 → 1 sim → argmax finish@H1 → 1 sim →
+region-open? — FORCES the dive (removes best-first's won't-dive confound), exactly 2 sims, object-constrained, region
+criterion. All best-first now **combine=q** (raw Q priority, [USER] "don't multiply the state value for the dive");
+s@2 (dive-tax point) + s@900 (ceiling) read off ONE budget-900 run (`bestfirst_multiseed_q.sh` → `bfq_*`).
+
+| cell | reactive@2 (forced dive) | best-first@2 (q) | dive tax | s@900 |
+|---|---|---|---|---|
+| Horizon-v2 | **38.5 ± 2.1** (3s) | 27.3 ± 2.2 (3s) | **+11.2** | 97.6 ± 0.5 |
+| NoHorizon-v2 | **38.2 ± 3.0** (3s) | 34.9 ± 2.6 (3s) | +3.3 | 95.0 ± 0.4 |
+| Horizon-v3 | 45.6 (1s) | 36.1 (1s) | +9.4 | 97.7 |
+| NoHorizon-v3 | 40.7 (1s) | 38.0 (1s) | +2.7 | 95.9 |
+| RANDOM | ~4–5 | 3.3 | — | ~91 |
+
+**CORRECTION [headline]: in forced-dive reactive, Horizon ≈ NoHorizon at v2 (38.5 vs 38.2 — TIED).** Both the earlier
+"NoHz wins reactive" (best-first@2 24/33) AND any single-seed "Horizon wins reactive" are artifacts: the first is the
+UN-FORCED dive (Hz's H1/H2 won't dive → best-first wanders to a fresh setup at sim 2); force the dive and Hz reaches
+PARITY, not a win. Training-seed noise (±2–3pp, range up to 7pp) SWAMPS ~5pp single-seed gaps ⇒ single-seed feelers
+cannot support ~5pp reactive claims (the lesson). Model ~8–9× random.
+**DIVE TAX (reactive − best-first@2) = Horizon +11.2 / NoHorizon +3.3** (Hz ~4× more = its won't-dive deficit, the §🧪
+forced-dive finding at full scale + multi-seed). **REGIME still holds:** best-first@2 NoHz>Hz (NoHz dives more on its own);
+search ceiling s@900 Hz>NoHz (horizon = the search asset).
+**v3 (ExIt) single-seed lifts BOTH regimes** (reactive Hz 38.5→45.6, NoHz 38.2→40.7; best-first@2 Hz 27.3→36.1, NoHz
+34.9→38.0) + shrinks the dive tax (Hz 11.2→9.4) — better finish ⇒ best-first dives more naturally. SUGGESTIVE not
+established: v3 + v4 seeds 2/3 training (57014837/838 v3, 57014839/57016500/57016501 v4; converge ~3–5am ET 2026-06-23).
+Ckpts/eval-dirs → registry "Horizon-v3/NoHorizon-v3" + "Eval tools" entries. CLAUDE.md now points here (survives compaction).

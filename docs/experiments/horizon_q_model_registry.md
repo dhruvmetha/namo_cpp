@@ -88,6 +88,33 @@
   1-push rank `/scratch/dm1487/eval/onepush_rank_v2/` (running 56308524 H1 / 56308525 H2 as of 2026-06-15)
 - **TAKEAWAY:** reactive@2 NoHz>Hz EVERY difficulty tier; search@900 Hz>NoHz (decisive on hard 90 vs 82). Horizon =
   search accelerator, not a reactive win. See journal DIFFICULTY DEEP-DIVE + `results_design_report_2026-06-15.md`.
+  ⚠ **SUPERSEDED for reactive [2026-06-22]:** that "NoHz>Hz reactive" was best-first @2 (search free to NOT dive).
+  Under the FORCED-DIVE reactive (`eval_reactive_argmax`, argmax setup→argmax finish, region, 3 seeds) **Hz≈NoHz
+  (38.5±2.1 vs 38.2±3.0 — TIED)**; the single-seed gap was noise. Horizon's best-first deficit is the un-forced dive;
+  force it and Horizon reaches parity (not a win). See Horizon-v3/NoHorizon-v3 below + journal §9 [2026-06-22].
+
+### Horizon-v3 / NoHorizon-v3 — the ExIt FINISH retrain (v3 mix = v2 with narrow postpush REPLACED by ExIt finish)
+- **data (v3 mix):** M2B + H2 + AUG + **ExIt** (`v4_hq_exit_finish_valid` + `v4_hq_exit_finish`) — the narrow 300k
+  postpush (the data that failed to generalize) REPLACED by ~24k diverse on-policy/valid-setup exhaustive finish rows
+  at the true ~7% difficulty. Same recipe as v2. Retrained FROM SCRATCH (clean v2-vs-v3 = data effect). ~11 ep to converge.
+- **Horizon-v3** `qfull_v3_v4hq` — flags: budget_cond, value_bins=51, head_mode=hl_gauss, budget_h. BEST-val ckpts:
+  - s1 `qfull_v3_v4hq_s1/namo-classifier/qkfk0slk/checkpoints/epoch011-val_loss0.6571.ckpt` (HEADLINE seed)
+  - s2/s3 TRAINING (jobs 57014837 array 10/11) — register on convergence (~3-5am ET 2026-06-23)
+- **NoHorizon-v3** `qfull_nohz_v3_v4hq` — flags: value_bins=51, head_mode=hl_gauss, budget_h=false. BEST-val ckpts:
+  - s1 `qfull_nohz_v3_v4hq_s1/namo-classifier/wl8k6iyv/checkpoints/epoch012-val_loss0.6896.ckpt`
+  - s2/s3 TRAINING (job 57014838 array 10/11)
+- **HEADLINE (s1, region criterion, n=1018):** reactive@2 (forced dive) **Hz 45.6 / NoHz 40.7**; best-first@2 combine=q
+  **Hz 36.1 / NoHz 38.0**; search s@900 **Hz 97.7 / NoHz 95.9**. ExIt gate (fixed-s1, n≈990): finish-sep 0.385,
+  top1_finish_opens 0.602 (+0.05 ~3σ vs v2 0.55) = MODEST-but-REAL, gate (0.6) NOT cleared. v3 single-seed lifts BOTH
+  reactive regimes vs v2 (Hz 38.5→45.6, NoHz 38.2→40.7) + shrinks the dive tax — error bars pending s2/s3.
+- **evals:** reactive `reactarg_{Hz,NoHz}_v3/` · best-first@2 combine=q `bfq_{hz,nohz}_v3_s1/` · ExIt gate `check_h2_finish`.
+
+### Eval tools for the reactive/search comparison (2026-06-22, combine=q standard)
+- **reactive@2 (forced dive):** `scripts/sandbox/eval_reactive_argmax.py` (argmax setup@H2 → argmax finish@H1 → region
+  open?, exactly 2 sims, object-constrained). Sharded by `scripts/amarel/reactive_argmax.slurm`. Out `reactarg_*`.
+- **best-first@2 (combine=q):** `scripts/amarel/bestfirst_multiseed_q.sh` → `bestfirst_eval.slurm COMBINE=q SIM_BUDGET=900`.
+  s@2 (= dive-tax point) + s@900 (search ceiling) read off ONE budget-900 run. Out `bfq_*`. **combine=q = raw Q priority,
+  NO 0.5Q+0.5V blend** [USER: "don't multiply the value of the state for the dive"]. The blend `bf900_*` dirs are SUPERSEDED.
 
 ## Key H5 datasets
 - `v4_hq_m1_scorer/data.h5` — M1/M2a solvable-only (123,269)
