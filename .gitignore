@@ -20,7 +20,9 @@ tmp/
 figure_xmls/
 data/_backup_primitives_15rad/
 .cursorignore
-.claude/
+.claude/*
+!.claude/skills/
+CLAUDE.local.md
 MUJOCO_LOG.TXT
 test_xml/little-car-modeling-package/artifacts/
 scripts/manifests/

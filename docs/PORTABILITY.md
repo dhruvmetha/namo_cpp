@@ -100,3 +100,15 @@ If it prints `reactive_argmax@2` without a path/import error, the box is good. T
 **Set `NAMO_SCRATCH`+`SAGE_REPO`+`MJ_PATH` → move the §4 data → run the two §3 rewrites → build bindings → smoke.**
 The recurring gotchas are always (a) hardcoded `/scratch/dm1487` in scripts and (b) absolute XML paths inside the label
 JSONs. Fix those two and the rest follows from the env-var contract.
+
+## 8. Porting the Claude skills + machine cards
+Two kinds of skill, ported differently:
+- **Project skills** (`.claude/skills/`, repo knowledge) — now **committed** (`.gitignore` un-ignores `.claude/skills/`),
+  so they **travel with `git clone`**. `namo-data-pipeline` (data-pipeline reuse rules + the per-episode invariants)
+  reaches every box automatically. Put any new *shared* skill here.
+- **User skills** (`~/.claude/skills/`, home dir) — do **NOT** travel; they're per-machine. `amarel-gpu` is Amarel-specific
+  (leans on `~/bin/{getgpu,gpufree,gpueta}` + the `gpu,gpu-redhat` partitions) → **don't copy it to ilab.** Instead the
+  **machine cards** carry each box's compute guidance; write an `ilab-gpu` user skill once ilab's scheduler is known.
+- **Machine cards** (`CLAUDE.<machine>.md`) — committed, so they travel. The main `CLAUDE.md` detects the box and routes to
+  the right card. `CLAUDE.local.md` (gitignored, auto-loaded) is for uncommitted per-checkout overrides.
+

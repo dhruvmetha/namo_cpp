@@ -15,7 +15,13 @@ invariant gate above. Amarel GPU helpers live in `~/bin` (global, on PATH): **`g
 node, reuse without re-queue), **`gpufree`** (idle GPUs now), **`gpueta`** (job ETAs, flags >1h).
 GPU/SLURM policy: submit `gpu,gpu-redhat`, never Camden, never wait >1h (relax/resubmit).
 
-**→ PORTABILITY (run on any machine — Amarel/ilab/…): [docs/PORTABILITY.md](docs/PORTABILITY.md).** Env-var contract (`NAMO_SCRATCH`+`SAGE_REPO`+`MJ_PATH` → derived dirs), the data manifest to move, and the two path-rewrites every new box needs (57 scripts hardcode `/scratch/dm1487`; label JSONs bake in absolute XML paths). Set up a fresh box from §0; per-machine env in `env.<machine>.sh`.
+**→ MULTI-MACHINE / PORTABILITY. This repo runs on several boxes (Amarel, ilab, …).** At session start: **detect the box**
+(`hostname`, or the repo path — `/cache/home/dm1487`=Amarel, `/common/users/dm1487`=ilab) and **read its machine card** —
+**[CLAUDE.amarel.md](CLAUDE.amarel.md)** or **[CLAUDE.ilab.md](CLAUDE.ilab.md)** — then `source env.<machine>.sh`. Full
+runbook + setting up a NEW box: **[docs/PORTABILITY.md](docs/PORTABILITY.md)** (§0 quickstart; env-var contract
+`NAMO_SCRATCH`+`SAGE_REPO`+`MJ_PATH`→derived dirs; the two mandatory path-rewrites via `scripts/portability/rewrite_paths.sh`;
+data move via `scripts/portability/pull_from_amarel.sh`). Uncommitted per-checkout tweaks → `CLAUDE.local.md` (auto-loaded, gitignored).
+- **Skills porting:** *project* skills in `.claude/skills/` are now **committed → they travel with `git clone`** (e.g. `namo-data-pipeline`). *User* skills in `~/.claude/skills/` do **not** travel and are often machine-specific (e.g. `amarel-gpu` leans on `~/bin/getgpu` + Amarel partitions) — don't copy those to ilab; per-box compute guidance lives in the machine cards instead. See PORTABILITY §8.
 
 **→ HORIZON-Q (the active project). READ THESE FIRST, every session / after any compaction — do not work from memory or glob:**
 0. **▶ ACTIVE WORK [2026-06-25/26]: staged bootstrapped-value redesign. ⏩ QUICK RESUME (esp. on ilab / a fresh machine): [docs/experiments/ILAB_RESUME.md](docs/experiments/ILAB_RESUME.md) — one page: you-are-here + the ONE thing to train + the gate.** Branch **`feat/horizon-q-redesign`** (anchor `feat/horizon-q` @ `3d65375` is FROZEN — never overwrite). Full **EXECUTION journal = [docs/experiments/horizon_q_redesign_execution.md](docs/experiments/horizon_q_redesign_execution.md)** — Stage 0 (instrument, DONE: setup is the bottleneck) → Stage 1 (drop Horizon, bootstrapped Q — GPU-blocked on Amarel, training on ilab). **RESUME from ILAB_RESUME.md, then the journal's EXECUTION LOG (bottom).** Self-contained brief: [horizon_q_HANDOFF.md](docs/experiments/horizon_q_HANDOFF.md).
