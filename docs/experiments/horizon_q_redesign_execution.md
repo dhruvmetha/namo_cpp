@@ -147,3 +147,9 @@ keep the simpler depth value.
   problem (solvable vs plausible-DEAD setups)** not a value-target one → the real fix would be a **setup RANKING loss**
   (the setup analog of the finish ranker). Running Stage 1 (both summaries) to TEST this; if it matches-not-beats NoHz,
   pivot to the setup ranking loss. [Surfaced to USER on Slack.]
+- **2026-06-26 ~00:10 ET — build hiccup + fix (autonomous).** First bootstrap-setup builds (single-task) TIMED OUT at
+  the 2h wall — the s0 render is **~1.8s/episode** (the wavefront BFS rebuild dominates), so 5076 ep exceeded the wall
+  and the end-written H5 was lost. FIX: **sharded** the build (array 0-19, 260 ep/shard, incremental per-shard H5s =
+  wall-safe). `build_bootstrap_setup.slurm` now an array; `launch_bootstrap.sh` globs `shard_*.h5`. Relaunched (density
+  `57176990`, depth `57176991`); watcher `bgjxm9aba` re-armed to fire qboot training on drain. (Lesson: any per-episode
+  render job MUST shard + write incrementally.)
