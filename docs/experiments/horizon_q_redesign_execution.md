@@ -180,9 +180,10 @@ keep the simpler depth value.
   h2 H=2 setup-cell labels (0.9 → γ·V_GT, matched via `frac_first_push`); train NoHz recipe; gate vs 40.7. Relabel script
   = new (relabel h2 H5 in place, NOT the separate boot_setup H5). Runs on ilab. [Ranking loss STILL parked — one change.]
 - **2026-06-26 ~14:00 ET — gate table completed + made HONEST (user: "not really apples to apples, no?").** Full table
-  (n=1018 pure-2, region): reactive@2 / best-first@2 / solve@900 / med-sims — qboot_density **30.3 / 31.2† / 94.6 / 8**,
-  qboot_depth **34.1 / 35.6 / 96.0 / 6**, NoHz-v3 **40.7 / 37.8 / 95.9 / 4**, Hz-v3 45.6 / 36.1 / 97.7 / 4.
-  († density best-first over **963** ep not 1018 — one shard's jsonl short; reactive is complete, skip=0.) **solve@900 ties
+  (n=1018 pure-2, region; best-first COMPLETE + dedup-verified, lines==unique==1018, no dupes): reactive@2 / best-first@2 /
+  solve@900 / med-sims — qboot_density **30.3 / 28.8 / 93.1 / 9**, qboot_depth **34.1 / 31.8 / 93.5 / 7**,
+  NoHz-v3 **40.7 / 37.8 / 95.9 / 4**, Hz-v3 45.6 / 36.1 / 97.7 / 4. (CORRECTION: my first best-first read 31.2/35.6 was on
+  PARTIAL still-running shards; complete = 28.8/31.8 — lower. reactive was complete throughout. NOT a dedup bug.) **solve@900 ties
   ~95% for ALL (the 2-push set is exhausted by budget-900 search → NOT a differentiator; my earlier "~58" was a stale
   guess — deleted).** **NoHz-v3 3-seed baseline is TIGHT: reactive [40.7,40.3,41.1]=40.7±0.4, best-first [38.0,37.3,38.0]
   =37.8±0.3 — seed noise on THIS metric is ±0.4, NOT the ±3-4pp I'd assumed; 1-seed-vs-1-seed is fair here.**
