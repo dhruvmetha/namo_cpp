@@ -179,3 +179,15 @@ keep the simpler depth value.
   setups. **NEXT = CLEAN one-change re-run:** NoHz-v3's EXACT mix (`m2b + h2 + aug + exit_finish_valid`), change ONLY the
   h2 H=2 setup-cell labels (0.9 → γ·V_GT, matched via `frac_first_push`); train NoHz recipe; gate vs 40.7. Relabel script
   = new (relabel h2 H5 in place, NOT the separate boot_setup H5). Runs on ilab. [Ranking loss STILL parked — one change.]
+- **2026-06-26 ~14:00 ET — gate table completed + made HONEST (user: "not really apples to apples, no?").** Full table
+  (n=1018 pure-2, region): reactive@2 / best-first@2 / solve@900 / med-sims — qboot_density **30.3 / 31.2† / 94.6 / 8**,
+  qboot_depth **34.1 / 35.6 / 96.0 / 6**, NoHz-v3 **40.7 / 37.8 / 95.9 / 4**, Hz-v3 45.6 / 36.1 / 97.7 / 4.
+  († density best-first over **963** ep not 1018 — one shard's jsonl short; reactive is complete, skip=0.) **solve@900 ties
+  ~95% for ALL (the 2-push set is exhausted by budget-900 search → NOT a differentiator; my earlier "~58" was a stale
+  guess — deleted).** **NoHz-v3 3-seed baseline is TIGHT: reactive [40.7,40.3,41.1]=40.7±0.4, best-first [38.0,37.3,38.0]
+  =37.8±0.3 — seed noise on THIS metric is ±0.4, NOT the ±3-4pp I'd assumed; 1-seed-vs-1-seed is fair here.**
+  **NOT-apples-to-apples = TWO things only: (1) the 3-change CONFOUND (dropped aug + finish v4≠valid) — since depth's setup
+  labels ≈ status-quo 0.9, the entire depth−NoHz −6.6pp is the aug/finish swap, NOT the bootstrap; (2) machine (ilab vs
+  Amarel, unmeasured).** **The ONE clean cell = density vs depth −3.8pp (same run/machine/seed, only V(s1) summary) → the
+  density target genuinely hurts.** Clean re-run's **depth arm = control that MEASURES the machine gap** (should hit
+  40.7±machine; if 38, subtract 2.7). Verdict to stand on: density<depth (real); everything-vs-NoHz waits for the re-run.
