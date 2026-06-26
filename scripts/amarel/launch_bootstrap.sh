@@ -26,10 +26,13 @@ PYEOF
 EXIT_JOINED=$(echo "$EXIT_SHARDS" | paste -sd ';' -)
 BOOT_JOINED=$(echo "$BOOT_SHARDS" | paste -sd ';' -)
 DATA_DIR="$M2B;$EXIT_JOINED;$BOOT_JOINED"
-OV="+data.budget_h=false +model.head_mode=hl_gauss +network.value_bins=51"   # NoHorizon = single Q
-echo "=== STAGE 1 bootstrap: qboot_${VSUMMARY}, $((NEX+2)) H5s, array $ARRAY ==="
+HEAD=${HEAD:-hl_gauss}    # hl_gauss = bootstrapped VALUE (Stage 1) | softmax_ce = setup RANKING (the contingency)
+if [ "$HEAD" = "hl_gauss" ]; then OV="+data.budget_h=false +model.head_mode=hl_gauss +network.value_bins=51"
+else OV="+data.budget_h=false +model.head_mode=$HEAD"; fi                     # NoHorizon (single Q) either way
+TAG="qboot_${VSUMMARY}"; [ "$HEAD" = "hl_gauss" ] || TAG="qrank_${VSUMMARY}"
+echo "=== STAGE 1 head=$HEAD: ${TAG}, $((NEX+2)) H5s, array $ARRAY ==="
 cd "$SAGE"
 J=$(sbatch --parsable --array="$ARRAY" --time="$WALL" --partition="${PART:-gpu-redhat}" \
-  --export="ALL,RUN_PREFIX=qboot_${VSUMMARY},DATA_DIR=$DATA_DIR,EXTRA_OVERRIDES=$OV" \
+  --export="ALL,RUN_PREFIX=${TAG},DATA_DIR=$DATA_DIR,EXTRA_OVERRIDES=$OV" \
   scripts/train_h5_sampling.slurm)
-echo "BOOT_LAUNCHED qboot_${VSUMMARY} job=$J  (anchor v2/v3/v4 untouched; new run-prefix)"
+echo "${TAG}_LAUNCHED job=$J  (anchor v2/v3/v4 untouched; new run-prefix)"
