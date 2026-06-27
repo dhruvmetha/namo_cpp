@@ -9,6 +9,7 @@ Edge layout (verified, src/planning/namo_push_controller.cpp generate_rectangula
 """
 import argparse, math
 import h5py, numpy as np
+from namo.paths import H5
 
 
 def contact_px(edge, hw, hd, theta, crop_m, S=64):
@@ -26,8 +27,8 @@ def contact_px(edge, hw, hd, theta, crop_m, S=64):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--scorer-h5", default="/scratch/dm1487/h5/v3_scorer_1push/data.h5")
-    ap.add_argument("--src-h5", nargs="+", default=["/scratch/dm1487/h5/v3_1push_le10_lzf_tight_data/data.h5"],
+    ap.add_argument("--scorer-h5", default=str(H5 / "v3_scorer_1push/data.h5"))
+    ap.add_argument("--src-h5", nargs="+", default=[str(H5 / "v3_1push_le10_lzf_tight_data/data.h5")],
                     help="one or MORE mask H5s (parallel pack shards / solvable+dead-end packs); the pose "
                          "map is the union — same object_center key in two files carries the same pose")
     ap.add_argument("--crop", default="tight", choices=["tight", "wide"])

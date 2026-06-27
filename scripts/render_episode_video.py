@@ -7,10 +7,10 @@ per-tick qpos via NAMO_QPOS_DUMP, then renders offscreen with MuJoCo.
 Usage:
     NAMO_QPOS_DUMP unused — handled by this script.
     python scripts/render_episode_video.py \\
-        --xml /scratch/dm1487/datasets/car_envs/.../env_0084_pair_001.xml \\
+        --xml $NAMO_SCRATCH/datasets/car_envs/.../env_0084_pair_001.xml \\
         --pkl /path/to/<host>_env_NNNNNN_results.pkl \\
         --episode-idx 0 \\
-        --output /scratch/dm1487/videos/env_0084_pair_001.mp4 \\
+        --output $NAMO_SCRATCH/videos/env_0084_pair_001.mp4 \\
         --namo-config config/namo_config_complete_skill15_car_1x.yaml
 """
 

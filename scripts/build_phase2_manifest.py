@@ -10,8 +10,8 @@ episodes failed, and emits one XML path per line into a new manifest.
 
 Usage:
     python scripts/build_phase2_manifest.py \\
-        --phase1-dir /scratch/dm1487/outputs/car_v1_aug9_phase1 \\
-        --output     /scratch/dm1487/manifests/car_envs_v1_aug9_phase2.txt
+        --phase1-dir $NAMO_SCRATCH/outputs/car_v1_aug9_phase1 \\
+        --output     $NAMO_SCRATCH/manifests/car_envs_v1_aug9_phase2.txt
 
 Notes:
     - Reads `*_results.pkl` recursively from --phase1-dir

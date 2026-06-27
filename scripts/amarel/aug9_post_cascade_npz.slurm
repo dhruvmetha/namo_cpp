@@ -11,17 +11,17 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=8G
 #SBATCH --time=08:00:00
-#SBATCH --output=/scratch/dm1487/logs/v3-aug9-npz-driver-%j.out
-#SBATCH --error=/scratch/dm1487/logs/v3-aug9-npz-driver-%j.err
+#SBATCH --output=logs/v3-aug9-npz-driver-%j.out
+#SBATCH --error=logs/v3-aug9-npz-driver-%j.err
 
 set -euo pipefail
-NAMO_REPO=${NAMO_REPO:-/cache/home/dm1487/projects/namo/namo_cpp}
+NAMO_REPO="${NAMO_REPO:?source env.<machine>.sh first}"
 cd "$NAMO_REPO"
 source scripts/amarel/activate.sh
 
 : "${CORPUS_TAG:?set CORPUS_TAG (e.g. v3_aug9)}"
-OUTPUTS=/scratch/dm1487/outputs
-MANIFESTS=/scratch/dm1487/manifests
+OUTPUTS="$NAMO_OUTPUTS"
+MANIFESTS="$NAMO_MANIFESTS"
 COLLECT="$NAMO_REPO/scripts/amarel/run_batch_collection_smoke.slurm"
 PER_SHARD=12000
 

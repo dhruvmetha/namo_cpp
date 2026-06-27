@@ -5,9 +5,9 @@
 # (ScorerDataModule has no weighted sampler; counts do the balancing for round 1).
 # Same recipe as v1 (array 9-11 = B30 x seeds 1-3); v1 flags captured from the running qfull configs.
 set -euo pipefail
-SAGE=/cache/home/dm1487/projects/namo/sage_learning
-H5=/scratch/dm1487/h5
-PY=/scratch/dm1487/envs/namo/bin/python
+SAGE="$SAGE_REPO"
+H5="$NAMO_H5"
+PY="$NAMO_PYTHON"
 
 M2B=$H5/v4_hq_m2b_scorer/data.h5
 H2=$H5/v4_hq_h2_scorer/data.h5

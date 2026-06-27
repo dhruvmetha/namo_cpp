@@ -17,9 +17,11 @@
 2. **Build bindings:** `./build_python_bindings.sh` — needs `python3-dev`, **OpenCV**, **internet on the build node**
    (pybind11 is FetchContent-downloaded → use a login node), and build on the **run-CPU** (or `NAMO_MARCH=x86-64-v3`). [PORTABILITY §5]
 3. **Pull data:** `bash scripts/portability/pull_from_amarel.sh eval` (~2.7G) — add `train` (~3.5G) for the re-run.
-4. **Rewrite paths — MANDATORY** (the eval scripts hardcode `/scratch/dm1487`, they do NOT read `NAMO_SCRATCH`):
-   `bash scripts/portability/rewrite_paths.sh`
-5. **Smoke:** `python scripts/sandbox/eval_reactive_argmax.py --ckpt <any ckpt> --start 0 --end 2 --out /tmp/smoke.json`
+4. **Smoke:** `python scripts/sandbox/eval_reactive_argmax.py --ckpt <any ckpt> --start 0 --end 2 --out /tmp/smoke.json`
+
+(No path-rewrite step — code reads `NAMO_SCRATCH` etc. from the env via `namo.paths`/`$NAMO_*`; label-JSON keys
+are remapped at load by `namo.paths.resolve()`. See [PORTABILITY §3](docs/PORTABILITY.md). If you see a
+`RuntimeError: $NAMO_SCRATCH is not set`, you forgot `source env.ilab.sh`.)
 
 ## Networking (important)
 - ilab can ssh **OUT** to Amarel → `pull_from_amarel.sh` works (pull data FROM Amarel here).

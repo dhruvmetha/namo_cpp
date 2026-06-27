@@ -5,17 +5,19 @@ Best-first @2: sim1=top first-push (won't open on pure-2), sim2=highest-priority
 state's Q). HYP: Horizon's H2 first-push values (V0) > H1 child values (V_s1) -> blend keeps preferring fresh
 first-pushes -> sim2 is a non-opening first-push -> @2 low. NoHz single head -> V0~=V_s1 -> dives into children."""
 import sys, os, json, pickle, argparse, glob
-REPO = "/cache/home/dm1487/projects/namo/namo_cpp"; SAGE = "/cache/home/dm1487/projects/namo/sage_learning"
+from pathlib import Path
+REPO = Path(__file__).resolve().parents[2]; SAGE = os.environ.get("SAGE_REPO", "")
 for _p in (f"{REPO}/build_python", f"{REPO}/python", f"{REPO}/scripts", f"{REPO}/scripts/sandbox", SAGE):
-    if _p not in sys.path:
+    if _p and _p not in sys.path:
         sys.path.insert(0, _p)
-import numpy as np
-from scorer_beam import BeamPlanner, make_env, make_action, read_manifest, FALLBACK_GOAL
-from eval_m3 import rank_first_pushes_h2, sample_goal_points, goal_open_pts
-from namo.core.xml_goal_parser import extract_goal_with_fallback
+import numpy as np  # noqa: E402
+from scorer_beam import BeamPlanner, make_env, make_action, read_manifest, FALLBACK_GOAL  # noqa: E402
+from eval_m3 import rank_first_pushes_h2, sample_goal_points, goal_open_pts  # noqa: E402
+from namo.core.xml_goal_parser import extract_goal_with_fallback  # noqa: E402
+from namo.paths import SCRATCH, DATASETS, MANIFESTS  # noqa: E402
 
-CK = {"Hz-v2": glob.glob("/scratch/dm1487/sage_outputs/scorer/qfull_v2_v4hq_s1/namo-classifier/*/checkpoints/epoch008-val_loss0.6728.ckpt")[0],
-      "NoHz-v2": glob.glob("/scratch/dm1487/sage_outputs/scorer/qfull_nohz_v2_v4hq_s1/namo-classifier/*/checkpoints/epoch007-val_loss0.7041.ckpt")[0]}
+CK = {"Hz-v2": glob.glob(f"{SCRATCH}/sage_outputs/scorer/qfull_v2_v4hq_s1/namo-classifier/*/checkpoints/epoch008-val_loss0.6728.ckpt")[0],
+      "NoHz-v2": glob.glob(f"{SCRATCH}/sage_outputs/scorer/qfull_nohz_v2_v4hq_s1/namo-classifier/*/checkpoints/epoch007-val_loss0.7041.ckpt")[0]}
 
 
 def v_top5(pool):
@@ -25,10 +27,10 @@ def v_top5(pool):
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--n", type=int, default=150)
-    ap.add_argument("--out", default="/scratch/dm1487/eval/trace_reactive.json"); a = ap.parse_args()
+    ap.add_argument("--out", default=str(SCRATCH / "eval/trace_reactive.json")); a = ap.parse_args()
     pls = {nm: BeamPlanner(ckpt=c) for nm, c in CK.items()}
-    xmls = read_manifest("/scratch/dm1487/manifests/test_pure2_fromkey.txt", None)
-    key = json.load(open("/scratch/dm1487/datasets/namo_testset_v1/labels/pure2push.json"))
+    xmls = read_manifest(str(MANIFESTS / "test_pure2_fromkey.txt"), None)
+    key = json.load(open(str(DATASETS / "namo_testset_v1/labels/pure2push.json")))
     keyrp = {os.path.realpath(k): v for k, v in key.items()}
     agg = {nm: {"V0": [], "Vs1": [], "sim2_child": [], "sim2_child_opens": [], "forced_dive_opens": [], "at2": []} for nm in pls}
     done = 0

@@ -4,22 +4,24 @@ setups whose downstream H=1 value is high? (3) is the search's needle reachable 
 (4) WHY does NoHorizon beat Horizon reactively? Traces top-H=2 a1 -> sim -> top-H=1 a2 vs the exhaustive (a1,a2)
 ground-truth pairmap, for BOTH models on the SAME scenes.
 
-  python scripts/sandbox/analyze_qvalue.py --n 120 --out /scratch/dm1487/eval/qvalue_audit.json
+  python scripts/sandbox/analyze_qvalue.py --n 120 --out $NAMO_SCRATCH/eval/qvalue_audit.json
 """
 import sys, os, json, pickle, argparse, math
-REPO = "/cache/home/dm1487/projects/namo/namo_cpp"; SAGE = "/cache/home/dm1487/projects/namo/sage_learning"
+from pathlib import Path
+REPO = Path(__file__).resolve().parents[2]; SAGE = os.environ.get("SAGE_REPO", "")
 for _p in (f"{REPO}/build_python", f"{REPO}/python", f"{REPO}/scripts", f"{REPO}/scripts/sandbox", SAGE):
-    if _p not in sys.path:
+    if _p and _p not in sys.path:
         sys.path.insert(0, _p)
 import numpy as np
-from scorer_beam import BeamPlanner, make_env, make_action, read_manifest, FALLBACK_GOAL
-from eval_m3 import rank_first_pushes_h2, sample_goal_points, goal_open_pts
-from namo.core.xml_goal_parser import extract_goal_with_fallback
+from scorer_beam import BeamPlanner, make_env, make_action, read_manifest, FALLBACK_GOAL  # noqa: E402
+from eval_m3 import rank_first_pushes_h2, sample_goal_points, goal_open_pts  # noqa: E402
+from namo.core.xml_goal_parser import extract_goal_with_fallback  # noqa: E402
+from namo.paths import SCRATCH, MANIFESTS, DATASETS  # noqa: E402
 
-PM = pickle.load(open("/scratch/dm1487/eval/exhaustive_pairmap_pure2.pkl", "rb"))["pairmap"]
+PM = pickle.load(open(SCRATCH / "eval/exhaustive_pairmap_pure2.pkl", "rb"))["pairmap"]
 CKPTS = {
-    "Hz-v2": next(iter(__import__('glob').glob("/scratch/dm1487/sage_outputs/scorer/qfull_v2_v4hq_s1/namo-classifier/*/checkpoints/epoch008-val_loss0.6728.ckpt"))),
-    "NoHz-v2": next(iter(__import__('glob').glob("/scratch/dm1487/sage_outputs/scorer/qfull_nohz_v2_v4hq_s1/namo-classifier/*/checkpoints/epoch007-val_loss0.7041.ckpt"))),
+    "Hz-v2": next(iter(__import__('glob').glob(str(SCRATCH / "sage_outputs/scorer/qfull_v2_v4hq_s1/namo-classifier/*/checkpoints/epoch008-val_loss0.6728.ckpt")))),
+    "NoHz-v2": next(iter(__import__('glob').glob(str(SCRATCH / "sage_outputs/scorer/qfull_nohz_v2_v4hq_s1/namo-classifier/*/checkpoints/epoch007-val_loss0.7041.ckpt")))),
 }
 
 
@@ -29,11 +31,11 @@ def ed(g):
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--n", type=int, default=120)
-    ap.add_argument("--out", default="/scratch/dm1487/eval/qvalue_audit.json")
+    ap.add_argument("--out", default=str(SCRATCH / "eval/qvalue_audit.json"))
     a = ap.parse_args()
     planners = {nm: BeamPlanner(ckpt=ck) for nm, ck in CKPTS.items()}
-    xmls = read_manifest("/scratch/dm1487/manifests/test_pure2_fromkey.txt", None)
-    key = json.load(open("/scratch/dm1487/datasets/namo_testset_v1/labels/pure2push.json"))
+    xmls = read_manifest(str(MANIFESTS / "test_pure2_fromkey.txt"), None)
+    key = json.load(open(str(DATASETS / "namo_testset_v1/labels/pure2push.json")))
     keyrp = {os.path.realpath(k): v for k, v in key.items()}
     agg = {nm: {"calib": [], "a1_setup_top1": [], "a1_setup_rank": [], "a2_open_top1": [],
                 "a2_open_rank": [], "react": [], "h2_auc_pos": [], "h2_auc_neg": [],

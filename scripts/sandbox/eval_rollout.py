@@ -25,16 +25,18 @@ Matrix to characterize a ckpt on pure2push (B=2):
       --prior q --w2 1 --start 0 --end 985 --out <json> --leaf-out <jsonl>
 """
 import sys, os, json, time, argparse, random
-REPO = "/cache/home/dm1487/projects/namo/namo_cpp"
-SAGE = "/cache/home/dm1487/projects/namo/sage_learning"
+from pathlib import Path
+REPO = Path(__file__).resolve().parents[2]
+SAGE = os.environ.get("SAGE_REPO", "")
 for _p in (f"{REPO}/build_python", f"{REPO}/python", f"{REPO}/scripts", f"{REPO}/scripts/sandbox", SAGE):
-    if _p not in sys.path:
+    if _p and _p not in sys.path:
         sys.path.insert(0, _p)
 from scorer_beam import BeamPlanner, make_env, make_action, read_manifest, FALLBACK_GOAL  # noqa: E402
 from eval_m3 import rank_first_pushes_h2  # noqa: E402
 from namo.core.xml_goal_parser import extract_goal_with_fallback  # noqa: E402
+from namo.paths import MANIFESTS, SCRATCH  # noqa: E402
 
-PURE2PUSH = "/scratch/dm1487/manifests/test_pure2_fromkey.txt"
+PURE2PUSH = str(MANIFESTS / "test_pure2_fromkey.txt")
 
 
 def ranked(planner, env, goal, xml, s, h, prior, rng):
@@ -76,8 +78,8 @@ def main():
     ap.add_argument("--w2", type=int, default=1, help="2nd-push beam width (1=greedy reactive; >1=search)")
     ap.add_argument("--prior", default="q", choices=["q", "uniform"])
     ap.add_argument("--flat-h1", action="store_true", help="rank every push at H=1 (foresight-off control)")
-    ap.add_argument("--out", default="/scratch/dm1487/eval/rollout.json")
-    ap.add_argument("--leaf-out", default="/scratch/dm1487/eval/rollout.jsonl")
+    ap.add_argument("--out", default=str(SCRATCH / "eval/rollout.json"))
+    ap.add_argument("--leaf-out", default=str(SCRATCH / "eval/rollout.jsonl"))
     a = ap.parse_args()
 
     planner = BeamPlanner(ckpt=a.ckpt)

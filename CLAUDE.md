@@ -19,8 +19,12 @@ GPU/SLURM policy: submit `gpu,gpu-redhat`, never Camden, never wait >1h (relax/r
 (`hostname`, or the repo path — `/cache/home/dm1487`=Amarel, `/common/users/dm1487`=ilab) and **read its machine card** —
 **[CLAUDE.amarel.md](CLAUDE.amarel.md)** or **[CLAUDE.ilab.md](CLAUDE.ilab.md)** — then `source env.<machine>.sh`. Full
 runbook + setting up a NEW box: **[docs/PORTABILITY.md](docs/PORTABILITY.md)** (§0 quickstart; env-var contract
-`NAMO_SCRATCH`+`SAGE_REPO`+`MJ_PATH`→derived dirs; the two mandatory path-rewrites via `scripts/portability/rewrite_paths.sh`;
-data move via `scripts/portability/pull_from_amarel.sh`). Uncommitted per-checkout tweaks → `CLAUDE.local.md` (auto-loaded, gitignored).
+`NAMO_SCRATCH`+`SAGE_REPO`+`MJ_PATH`(+`NAMO_PYTHON`)→derived dirs). The repo is **env-native**: code reads every
+machine path from the env (Python via `namo.paths`, shell via `$NAMO_*`) — **no path-rewriting step** (the old
+`rewrite_paths.sh` is gone; label-JSON keys are remapped at load by `namo.paths.resolve()`). A guard
+(`scripts/portability/check_no_hardcoded_paths.sh`, wireable as a pre-commit via `git config core.hooksPath
+scripts/githooks`) blocks new hardcoded paths. Data move via `scripts/portability/pull_from_amarel.sh`. Uncommitted
+per-checkout tweaks → `CLAUDE.local.md` (auto-loaded, gitignored).
 - **Skills porting:** *project* skills in `.claude/skills/` are now **committed → they travel with `git clone`** (e.g. `namo-data-pipeline`). *User* skills in `~/.claude/skills/` do **not** travel and are often machine-specific (e.g. `amarel-gpu` leans on `~/bin/getgpu` + Amarel partitions) — don't copy those to ilab; per-box compute guidance lives in the machine cards instead. See PORTABILITY §8.
 
 **→ ⛔ FOUNDATIONAL CONSTRAINT — NO EXHAUSTIVE GROUND TRUTH [USER, do NOT re-assume or re-derive, EVER]:** We will **never**

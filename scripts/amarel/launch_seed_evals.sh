@@ -4,7 +4,7 @@
 # So the v3/v4 error bars compute the moment each seed converges overnight — ready by morning, no session needed.
 #   bash scripts/amarel/launch_seed_evals.sh
 set -uo pipefail
-cd /cache/home/dm1487/projects/namo/namo_cpp
+cd "$NAMO_REPO" || exit 1
 # LABEL | RUN_DIR | train job:task to wait on (afterany)
 ROWS=(
   "Hz_v3_s2|qfull_v3_v4hq_s2|57014837_10"

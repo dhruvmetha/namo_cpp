@@ -6,9 +6,9 @@
 # Default = 1-seed FEELER (array 9); re-run ARRAY=9-11 for 3 seeds once the gate moves.
 #   ARRAY=9 bash scripts/amarel/launch_v4_training.sh
 set -euo pipefail
-SAGE=/cache/home/dm1487/projects/namo/sage_learning
-H5=/scratch/dm1487/h5
-PY=/scratch/dm1487/envs/namo/bin/python
+SAGE="$SAGE_REPO"
+H5="$NAMO_H5"
+PY="$NAMO_PYTHON"
 ARRAY=${ARRAY:-9}; WALL=${WALL:-14:00:00}
 
 M2B=$H5/v4_hq_m2b_scorer/data.h5

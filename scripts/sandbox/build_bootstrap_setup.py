@@ -11,13 +11,15 @@ Per episode: render the s0 crop (ctx + contact_px), and build a 60x5 SETUP targe
 [--vsummary is the STAGE-3 ablation: change ONLY this.] Output = standard scorer H5; train with budget_cond=false (single
 Q, Horizon dropped). Cheap: ~5076 s0 renders, no MuJoCo stepping, no a2 sims. gamma=0.9."""
 import sys, os, json, argparse, time
-REPO = "/cache/home/dm1487/projects/namo/namo_cpp"; SAGE = "/cache/home/dm1487/projects/namo/sage_learning"
+from pathlib import Path
+REPO = Path(__file__).resolve().parents[2]; SAGE = os.environ.get("SAGE_REPO", "")
 for _p in (f"{REPO}/build_python", f"{REPO}/python", f"{REPO}/scripts", f"{REPO}/scripts/sandbox", f"{REPO}/scripts/pipeline", SAGE):
-    if _p not in sys.path:
+    if _p and _p not in sys.path:
         sys.path.insert(0, _p)
 import numpy as np, h5py  # noqa: E402
 from scorer_beam import BeamPlanner, make_env, FALLBACK_GOAL  # noqa: E402
 from namo.core.xml_goal_parser import extract_goal_with_fallback  # noqa: E402
+from namo.paths import DATASETS  # noqa: E402
 
 GAMMA = 0.9
 OUT = 64
@@ -33,7 +35,7 @@ def episodes(key):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ckpt", required=True, help="any registered ckpt — used ONLY for its renderer (no scoring)")
-    ap.add_argument("--key", default="/scratch/dm1487/datasets/v4_hq_h2/labels_exhaustive_pure2push.json")
+    ap.add_argument("--key", default=str(DATASETS / "v4_hq_h2/labels_exhaustive_pure2push.json"))
     ap.add_argument("--vsummary", default="density", choices=["depth", "density"])
     ap.add_argument("--start", type=int, default=0)
     ap.add_argument("--end", type=int, default=0, help="0=to end (episode-index shard)")

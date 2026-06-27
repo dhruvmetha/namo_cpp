@@ -31,10 +31,10 @@ import sys
 
 import numpy as np
 
-REPO = "/cache/home/dm1487/projects/namo/namo_cpp"
-SAGE = "/cache/home/dm1487/projects/namo/sage_learning"
+from pathlib import Path
+REPO = Path(__file__).resolve().parents[2]; SAGE = os.environ.get("SAGE_REPO", "")
 for _p in (f"{REPO}/build_python", f"{REPO}/python", SAGE, f"{REPO}/scripts/sandbox"):
-    if _p not in sys.path:
+    if _p and _p not in sys.path:
         sys.path.insert(0, _p)
 
 import cv2  # noqa: E402
@@ -42,14 +42,15 @@ import torch  # noqa: E402
 
 # Reuse the verified loader + geometry from the sandbox eval script (no re-implementation).
 from eval_scorer import load_scorer, contact_px as contact_px_fn, match_episode  # noqa: E402
+from namo.paths import SCRATCH, H5, MANIFESTS, resolve  # noqa: E402
 
 CHANS = ["static", "movable", "target_object", "robot_region", "goal_sample_region"]
 TIGHT = [f"local_tight_{c}" for c in CHANS]
 OUT = 64
 CROP_M = 0.5
 
-DEFAULT_CKPT = ("/scratch/dm1487/sage_outputs/scorer/e4seed_s1/namo-classifier/"
-                "p2y7ihae/checkpoints/epoch029-val_loss0.2956.ckpt")
+DEFAULT_CKPT = str(SCRATCH / "sage_outputs/scorer/e4seed_s1/namo-classifier"
+                   "/p2y7ihae/checkpoints/epoch029-val_loss0.2956.ckpt")
 SKILL15_CFG = f"{REPO}/config/namo_config_complete_skill15_car_1x.yaml"
 
 
@@ -213,7 +214,7 @@ def score_state(env, target_object, robot_goal, xml_file, ckpt=DEFAULT_CKPT):
 # --------------------------------------------------------------------------------------------------
 def make_env(xml, cfg):
     import namo_rl
-    env = namo_rl.RLEnvironment(xml, cfg, False)
+    env = namo_rl.RLEnvironment(str(resolve(xml)), cfg, False)  # resolve(): remap legacy data paths onto this box
     env.reset()
     return env
 
@@ -228,7 +229,7 @@ def gate1_crop_match(scorer, env_cfg, n_samples, seed=0):
     """Recreate scenes from the TRAIN scorer H5 and compare live ctx to the stored model input."""
     import h5py
     from scipy import ndimage
-    h5 = "/scratch/dm1487/h5/v3_scorer_e4_data/data.h5"
+    h5 = str(H5 / "v3_scorer_e4_data/data.h5")
     f = h5py.File(h5, "r")
     N = int(f.attrs["n_samples"])
     rng = np.random.default_rng(seed)
@@ -255,6 +256,7 @@ def gate1_crop_match(scorer, env_cfg, n_samples, seed=0):
             break
         x = xmls[i]
         x = x.decode() if isinstance(x, bytes) else str(x)
+        x = str(resolve(x))   # remap legacy data path onto this box before existence check
         if not os.path.exists(x):
             continue
         oc = oc_all[i]
@@ -324,7 +326,7 @@ def gate2_functional(scorer, env_cfg, per_div, seed=0):
     Also accumulates per-channel MAE(live, h5) on TEST scenes (extends Gate 1).
     """
     import h5py
-    epf = json.load(open("/scratch/dm1487/manifests/v3_test_episodes.json"))
+    epf = json.load(open(str(MANIFESTS / "v3_test_episodes.json")))
     KS = [1, 3, 5]
     divs = ["hard", "med", "easy"]
     rng = np.random.default_rng(seed)
@@ -338,7 +340,7 @@ def gate2_functional(scorer, env_cfg, per_div, seed=0):
           flush=True)
 
     for div in divs:
-        h5p = f"/scratch/dm1487/h5/v3_test_{div}_lzf_tight_data/data.h5"
+        h5p = f"{H5}/v3_test_{div}_lzf_tight_data/data.h5"
         if not os.path.exists(h5p):
             continue
         f = h5py.File(h5p, "r")
@@ -361,7 +363,7 @@ def gate2_functional(scorer, env_cfg, per_div, seed=0):
             if rec is None or dm > 0.01:
                 continue
             key = (xml[i], round(float(oc[i, 0]), 4), round(float(oc[i, 1]), 4))
-            if key in seen or not os.path.exists(xml[i]):
+            if key in seen or not os.path.exists(str(resolve(xml[i]))):
                 continue
             valid = {tuple(t) for t in rec["valid"]}
             tried = {tuple(t) for t in rec["tried"]}
@@ -375,16 +377,16 @@ def gate2_functional(scorer, env_cfg, per_div, seed=0):
                                for ee in range(60)], dtype=np.float32)
             # ---- LIVE-side ----
             try:
-                env = make_env(xml[i], env_cfg)
+                env = make_env(str(resolve(xml[i])), env_cfg)
             except Exception:
                 continue
             env.get_reachable_objects()
             tgt, dist = scorer.find_target_by_center(env, oc[i])
             if tgt is None or dist > 0.02:
                 continue
-            rg = scorer.xml_goal(xml[i])
+            rg = scorer.xml_goal(str(resolve(xml[i])))
             try:
-                ctx_live, _ = scorer.render_ctx(env, tgt, rg, xml[i])
+                ctx_live, _ = scorer.render_ctx(env, tgt, rg, str(resolve(xml[i])))
             except Exception:
                 continue
             cpx_live = scorer.contact_px_live(env, tgt)

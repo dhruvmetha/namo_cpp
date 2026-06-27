@@ -10,10 +10,10 @@
 #SBATCH --cpus-per-task=64
 #SBATCH --mem=64G
 #SBATCH --time=00:10:00
-#SBATCH --output=/scratch/dm1487/logs/mine-%j.out
-#SBATCH --error=/scratch/dm1487/logs/mine-%j.err
+#SBATCH --output=logs/mine-%j.out
+#SBATCH --error=logs/mine-%j.err
 set -euo pipefail
-NAMO_REPO=${NAMO_REPO:-/cache/home/dm1487/projects/namo/namo_cpp}
+NAMO_REPO="${NAMO_REPO:?source env.<machine>.sh first}"
 cd "$NAMO_REPO"
 source scripts/amarel/activate.sh
 python scripts/build_phase2_manifest.py \

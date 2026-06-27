@@ -15,16 +15,16 @@
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=64G
 #SBATCH --time=06:00:00
-#SBATCH --output=/scratch/dm1487/logs/rppush-%A_%a.out
-#SBATCH --error=/scratch/dm1487/logs/rppush-%A_%a.err
+#SBATCH --output=logs/rppush-%A_%a.out
+#SBATCH --error=logs/rppush-%A_%a.err
 
 set -euo pipefail
-mkdir -p /scratch/dm1487/logs
+mkdir -p "$NAMO_LOGS"
 
-NAMO_REPO=${NAMO_REPO:-/cache/home/dm1487/projects/namo/namo_cpp}
+NAMO_REPO="${NAMO_REPO:?source env.<machine>.sh first}"
 source "$NAMO_REPO/scripts/amarel/activate.sh"
-export MJ_PATH=${MJ_PATH:-/scratch/dm1487/mujoco/mujoco-3.2.7}
-export PYTHONPATH="$NAMO_REPO/build_python:$NAMO_REPO/python:/cache/home/dm1487/projects/namo/sage_learning"
+: "${MJ_PATH:?source env.<machine>.sh first}"
+export PYTHONPATH="$NAMO_REPO/build_python:$NAMO_REPO/python:$SAGE_REPO"
 
 : "${PKL_MANIFEST:?must set PKL_MANIFEST}"
 : "${SHARD_SIZE:?must set SHARD_SIZE}"

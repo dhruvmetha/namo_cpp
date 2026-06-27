@@ -17,18 +17,19 @@ slices (single-row writes to an lzf dataset are pathologically slow -- that was 
 
 Output = scorer H5 (same schema + H=2, onepush_h2_aug=1) to ';'-join into the v2 training mix.
 
-  python scripts/pipeline/build_onepush_h2_aug.py --src-h5 /scratch/dm1487/h5/v4_hq_m2b_scorer/data.h5 \
-      --out-h5 /scratch/dm1487/h5/v4_hq_onepush_h2_aug/data.h5 --max-rows 80000
+  python scripts/pipeline/build_onepush_h2_aug.py --src-h5 $NAMO_SCRATCH/h5/v4_hq_m2b_scorer/data.h5 \
+      --out-h5 $NAMO_SCRATCH/h5/v4_hq_onepush_h2_aug/data.h5 --max-rows 80000
 """
 import argparse, os
 import h5py, numpy as np
+from namo.paths import H5
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--src-h5", default="/scratch/dm1487/h5/v4_hq_m2b_scorer/data.h5",
+    ap.add_argument("--src-h5", default=str(H5 / "v4_hq_m2b_scorer/data.h5"),
                     help="exhaustive 1-push scorer H5 (ctx/f_grid/r_mask/contact_px/object_center/xml)")
-    ap.add_argument("--out-h5", default="/scratch/dm1487/h5/v4_hq_onepush_h2_aug/data.h5")
+    ap.add_argument("--out-h5", default=str(H5 / "v4_hq_onepush_h2_aug/data.h5"))
     ap.add_argument("--max-rows", type=int, default=80000, help="cap on emitted aug rows (subsample if more solvable)")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--scan-chunk", type=int, default=8000)

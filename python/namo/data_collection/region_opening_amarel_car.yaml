@@ -45,7 +45,7 @@ primitive_prefix: "1x_car_"
 config_file: config/namo_config_complete_skill15_car_1x.yaml
 
 # xml_dir is unused when manifest is given. Manifest is passed via sbatch.
-xml_dir: /scratch/dm1487/datasets/car_envs
+xml_dir: ${NAMO_DATASETS}/car_envs
 
 # Pipeline features
 verbose: false

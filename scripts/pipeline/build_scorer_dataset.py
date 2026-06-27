@@ -21,6 +21,7 @@ import sys
 import cv2
 import h5py
 import numpy as np
+from namo.paths import H5, MANIFESTS
 
 CHANS = ["static", "movable", "target_object", "robot_region", "goal_sample_region"]
 OUT = 64
@@ -52,11 +53,11 @@ def match_episode(recs, oci, gt, dead=False):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--src-h5", nargs="+", default=["/scratch/dm1487/h5/v3_1push_le10_lzf_tight_data/data.h5"],
+    ap.add_argument("--src-h5", nargs="+", default=[str(H5 / "v3_1push_le10_lzf_tight_data/data.h5")],
                     help="one or MORE mask H5s (parallel pack shards); rows are matched per-file and "
                          "deduped across files by episode identity")
-    ap.add_argument("--episodes", default="/scratch/dm1487/manifests/v3_train_le10_episodes.json")
-    ap.add_argument("--out-h5", default="/scratch/dm1487/h5/v3_scorer_1push/data.h5")
+    ap.add_argument("--episodes", default=str(MANIFESTS / "v3_train_le10_episodes.json"))
+    ap.add_argument("--out-h5", default=str(H5 / "v3_scorer_1push/data.h5"))
     ap.add_argument("--crop", default="tight", choices=["tight", "wide"],
                     help="which crop's masks to read (wide=1.2m FOV, the E5-wide lever)")
     ap.add_argument("--format", default="onepush", choices=["onepush", "twopush"],

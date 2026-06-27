@@ -13,6 +13,12 @@ Usage:
 """
 import sys, os, json, argparse, hashlib, re
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+REPO = Path(__file__).resolve().parents[2]
+for _p in (f"{REPO}/build_python", f"{REPO}/python"):
+    if _p and _p not in sys.path:
+        sys.path.insert(0, _p)
+from namo.paths import DATASETS, resolve  # noqa: E402
 
 # Fast regex extraction (full XML parse was ~10x slower on 98k MuJoCo files).
 # Two naming schemes coexist: aug9/train walls = wall_1..wall_N (no euler attr);
@@ -74,10 +80,10 @@ def load_xmls(spec):
     if spec.endswith(".h5"):
         import h5py
         with h5py.File(spec, "r") as f:
-            return [x.decode() if isinstance(x, bytes) else str(x) for x in f["xml"][:]]
+            return [str(resolve(x.decode() if isinstance(x, bytes) else str(x))) for x in f["xml"][:]]
     if spec.endswith(".json"):
-        return list(_iter_xml_keys(json.load(open(spec))))
-    return [l.strip() for l in open(spec) if l.strip() and not l.startswith("#")]
+        return [str(resolve(k)) for k in _iter_xml_keys(json.load(open(spec)))]
+    return [str(resolve(l.strip())) for l in open(spec) if l.strip() and not l.startswith("#")]
 
 
 def sig_map(xmls, workers=32):
@@ -100,7 +106,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--train-xmls", required=True)
     ap.add_argument("--test-xmls", required=True)
-    ap.add_argument("--out", default="/scratch/dm1487/datasets/policy_value_v1/stats/geom_disjoint.json")
+    ap.add_argument("--out", default=str(DATASETS / "policy_value_v1/stats/geom_disjoint.json"))
     a = ap.parse_args()
 
     print("hashing TRAIN ...", flush=True)

@@ -9,23 +9,23 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=12G
 #SBATCH --time=04:00:00
-#SBATCH --output=/scratch/dm1487/logs/exit-%A_%a.out
-#SBATCH --error=/scratch/dm1487/logs/exit-%A_%a.err
+#SBATCH --output=logs/exit-%A_%a.out
+#SBATCH --error=logs/exit-%A_%a.err
 set -euo pipefail
-cd /cache/home/dm1487/projects/namo/namo_cpp
-export MJ_PATH=/scratch/dm1487/mujoco/mujoco-3.2.7
+cd "$NAMO_REPO"
+: "${MJ_PATH:?source env.<machine>.sh first}"
 export LD_LIBRARY_PATH="$MJ_PATH/lib:${LD_LIBRARY_PATH:-}"
-export PYTHONPATH="$PWD/build_python:$PWD/python:$PWD/scripts:$PWD/scripts/sandbox:/cache/home/dm1487/projects/namo/sage_learning"
+export PYTHONPATH="$PWD/build_python:$PWD/python:$PWD/scripts:$PWD/scripts/sandbox:$SAGE_REPO"
 export OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 CUDA_VISIBLE_DEVICES=""
 
 : "${CKPT:?}"
-KEY=${KEY:-/scratch/dm1487/datasets/v4_hq_h2/labels_exhaustive_pure2push.json}
+KEY=${KEY:-"$NAMO_DATASETS/v4_hq_h2/labels_exhaustive_pure2push.json"}
 TOPK_SETUPS=${TOPK_SETUPS:-2}; SHARD=${SHARD:-102}; SETUPS=${SETUPS:-model}
-OUT_DIR=${OUT_DIR:-/scratch/dm1487/h5/v4_hq_exit_finish}
+OUT_DIR=${OUT_DIR:-"$NAMO_H5/v4_hq_exit_finish"}
 mkdir -p "$OUT_DIR"
 START=$(( SLURM_ARRAY_TASK_ID * SHARD )); END=$(( START + SHARD ))
 echo "task ${SLURM_ARRAY_TASK_ID}: scenes [$START,$END) topk=$TOPK_SETUPS setups=$SETUPS -> $OUT_DIR/shard_${SLURM_ARRAY_TASK_ID}.h5 on $(hostname)"
-/scratch/dm1487/envs/namo/bin/python -u scripts/pipeline/exit_collect.py \
+"$NAMO_PYTHON" -u scripts/pipeline/exit_collect.py \
     --ckpt "$CKPT" --key "$KEY" --start "$START" --end "$END" --topk-setups "$TOPK_SETUPS" --setups "$SETUPS" \
     --out-h5 "$OUT_DIR/shard_${SLURM_ARRAY_TASK_ID}.h5"
 echo "task ${SLURM_ARRAY_TASK_ID} DONE"

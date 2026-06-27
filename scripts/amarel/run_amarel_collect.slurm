@@ -6,8 +6,8 @@
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=64G
 #SBATCH --time=24:00:00
-#SBATCH --output=/scratch/dm1487/logs/namo-collect-%j.out
-#SBATCH --error=/scratch/dm1487/logs/namo-collect-%j.err
+#SBATCH --output=logs/namo-collect-%j.out
+#SBATCH --error=logs/namo-collect-%j.err
 # (sbatch parses #SBATCH directives before shell expansion, so the log paths
 #  above can't reference $NAMO_LOGS — they're hardcoded to the same default.)
 
@@ -15,8 +15,8 @@ set -euo pipefail
 
 # Resolve repo & source the canonical env (modules, conda, MJ_PATH, PYTHONPATH,
 # BLAS pins, NAMO_* data vars). Override NAMO_REPO before `sbatch` if relocating.
-NAMO_REPO=${NAMO_REPO:-/cache/home/dm1487/projects/namo/namo_cpp}
-mkdir -p /scratch/dm1487/logs
+NAMO_REPO="${NAMO_REPO:?source env.<machine>.sh first}"
+mkdir -p "$NAMO_LOGS"
 source "$NAMO_REPO/scripts/amarel/activate.sh"
 
 # Sanity-check the canonical build exists before workers fork; otherwise

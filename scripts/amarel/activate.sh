@@ -29,15 +29,21 @@ export NAMO_PARENT="${NAMO_PARENT:-/cache/home/dm1487/projects/namo}"
 export NAMO_REPO="${NAMO_REPO:-$NAMO_PARENT/namo_cpp}"
 export NAMO_SAGE="${NAMO_SAGE:-$NAMO_PARENT/sage_learning}"
 export NAMO_ENV_CREATOR="${NAMO_ENV_CREATOR:-$NAMO_PARENT/mujoco_env_creator}"
+# Canonical alias read by python (namo.paths) + env.<machine>.sh contract.
+export SAGE_REPO="${SAGE_REPO:-$NAMO_SAGE}"
 
 # ─── Data layout ───────────────────────────────────────────────────────────
 # Everything large lives on /scratch (1 TB soft / 2 TB hard, NOT backed up,
 # 90-day inactive purge — touch files periodically or stash a tar on /home).
 export NAMO_DATA_ROOT="${NAMO_DATA_ROOT:-/scratch/dm1487}"
+# NAMO_SCRATCH is the canonical base name read by python (namo.paths); keep it
+# in lockstep with NAMO_DATA_ROOT.
+export NAMO_SCRATCH="${NAMO_SCRATCH:-$NAMO_DATA_ROOT}"
 export NAMO_DATASETS="${NAMO_DATASETS:-$NAMO_DATA_ROOT/datasets}"
 export NAMO_MANIFESTS="${NAMO_MANIFESTS:-$NAMO_DATA_ROOT/manifests}"
 export NAMO_OUTPUTS="${NAMO_OUTPUTS:-$NAMO_DATA_ROOT/outputs}"
 export NAMO_LOGS="${NAMO_LOGS:-$NAMO_DATA_ROOT/logs}"
+export NAMO_H5="${NAMO_H5:-$NAMO_DATA_ROOT/h5}"
 
 # ─── Toolchain (modules, conda, MuJoCo) ────────────────────────────────────
 # System modules (available on every partition, including hal).
@@ -48,7 +54,9 @@ module load gcc/12.3 cmake/3.26.5
 # module load gcc/14.2.0-cermak cmake/3.31.8-rdp135
 
 NAMO_CONDA_ENV="${NAMO_CONDA_ENV:-/scratch/dm1487/envs/namo}"
-source /cache/home/dm1487/miniforge3/etc/profile.d/conda.sh
+# Canonical interpreter name used by slurm/sh scripts.
+export NAMO_PYTHON="${NAMO_PYTHON:-$NAMO_CONDA_ENV/bin/python}"
+source "${NAMO_CONDA_PROFILE:-/cache/home/dm1487/miniforge3/etc/profile.d/conda.sh}"
 conda activate "$NAMO_CONDA_ENV"
 
 export MJ_PATH="${MJ_PATH:-/scratch/dm1487/mujoco/mujoco-3.2.7}"

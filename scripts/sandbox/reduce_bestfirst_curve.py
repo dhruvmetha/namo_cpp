@@ -6,9 +6,9 @@ sim budget; the budget only truncates). So a single budget-900 run records, per 
 index at which it solved (or 900 if it never did) — and solve@K for ANY K<=900 = fraction of episodes
 with solved & sims<=K. One 900-cap run therefore yields the WHOLE reactive->search curve.
 
-  reduce_bestfirst_curve.py --label model  /scratch/dm1487/eval/bf900_model_ep16
+  reduce_bestfirst_curve.py --label model  $NAMO_SCRATCH/eval/bf900_model_ep16
   reduce_bestfirst_curve.py --label random --avg-seeds \
-      /scratch/dm1487/eval/bf900_uniform_s0 ... /scratch/dm1487/eval/bf900_uniform_s4
+      $NAMO_SCRATCH/eval/bf900_uniform_s0 ... $NAMO_SCRATCH/eval/bf900_uniform_s4
 """
 import sys, os, json, glob, argparse, math
 

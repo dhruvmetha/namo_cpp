@@ -4,25 +4,25 @@
 #
 # Inputs (env vars, override at submit time):
 #   STAGE_DIR    parent dir containing symlinks to phase mask dirs
-#                (default: /scratch/dm1487/h5/all_npz)
+#                (default: $NAMO_H5/all_npz)
 #   OUTPUT_H5    destination file
-#                (default: /scratch/dm1487/h5/car_v1_aug9_all.h5)
+#                (default: $NAMO_H5/car_v1_aug9_all.h5)
 #
 #SBATCH --job-name=namo-h5-build
 #SBATCH --partition=main-redhat
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32G
 #SBATCH --time=04:00:00
-#SBATCH --output=/scratch/dm1487/logs/h5build-%j.out
-#SBATCH --error=/scratch/dm1487/logs/h5build-%j.err
+#SBATCH --output=logs/h5build-%j.out
+#SBATCH --error=logs/h5build-%j.err
 
 set -euo pipefail
-NAMO_REPO=${NAMO_REPO:-/cache/home/dm1487/projects/namo/namo_cpp}
-SAGE_REPO=${SAGE_REPO:-/cache/home/dm1487/projects/namo/sage_learning}
+NAMO_REPO="${NAMO_REPO:?source env.<machine>.sh first}"
+SAGE_REPO="${SAGE_REPO:?source env.<machine>.sh first}"
 source "$NAMO_REPO/scripts/amarel/activate.sh"
 
-STAGE_DIR=${STAGE_DIR:-/scratch/dm1487/h5/all_npz}
-OUTPUT_H5=${OUTPUT_H5:-/scratch/dm1487/h5/car_v1_aug9_all.h5}
+STAGE_DIR=${STAGE_DIR:-"$NAMO_H5/all_npz"}
+OUTPUT_H5=${OUTPUT_H5:-"$NAMO_H5/car_v1_aug9_all.h5"}
 
 echo "host=$(hostname)  job=${SLURM_JOB_ID:-N/A}"
 echo "stage:  $STAGE_DIR"

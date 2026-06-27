@@ -6,7 +6,7 @@
 # divergence; this is the Stage-1b "seeded" bootstrap done offline). VSUMMARY=density (Stage 1) | depth (Stage 3 control).
 #   VSUMMARY=density bash scripts/amarel/launch_bootstrap.sh        # 1-seed feeler (array 9); ARRAY=9-11 for 3 seeds
 set -euo pipefail
-SAGE=/cache/home/dm1487/projects/namo/sage_learning; H5=/scratch/dm1487/h5; PY=/scratch/dm1487/envs/namo/bin/python
+SAGE="$SAGE_REPO"; H5="$NAMO_H5"; PY="$NAMO_PYTHON"
 ARRAY=${ARRAY:-9}; WALL=${WALL:-14:00:00}; VSUMMARY=${VSUMMARY:-density}
 M2B=$H5/v4_hq_m2b_scorer/data.h5
 BOOT_SHARDS=$(ls $H5/v4_hq_boot_setup_${VSUMMARY}/shard_*.h5 2>/dev/null | sort -V)

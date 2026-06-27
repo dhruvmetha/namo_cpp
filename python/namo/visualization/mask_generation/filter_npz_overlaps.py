@@ -97,7 +97,7 @@ def filter_dir(src_root, workers, dry_run):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("dirs", nargs="+",
-                    help="Phase mask dirs (e.g. /scratch/dm1487/outputs/v3_phase1_masks)")
+                    help="Phase mask dirs (e.g. $NAMO_SCRATCH/outputs/v3_phase1_masks)")
     ap.add_argument("--workers", type=int, default=32)
     ap.add_argument("--dry-run", action="store_true",
                     help="Count overlap but don't move files")

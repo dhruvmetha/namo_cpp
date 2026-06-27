@@ -1150,6 +1150,9 @@ def main():
                 yaml_cfg = yaml.safe_load(f) or {}
             if not isinstance(yaml_cfg, dict):
                 yaml_cfg = {}
+            # Expand ${ENV} in string values so configs stay machine-portable
+            # (e.g. xml_dir: ${NAMO_DATASETS}/car_envs). See python/namo/paths.py.
+            yaml_cfg = {k: (os.path.expandvars(v) if isinstance(v, str) else v) for k, v in yaml_cfg.items()}
             # Only pass known keys; argparse will ignore unknown via set_defaults
             parser.set_defaults(**yaml_cfg)
         except Exception as e:

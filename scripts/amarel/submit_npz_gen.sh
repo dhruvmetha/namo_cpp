@@ -14,17 +14,17 @@
 #
 # Example:
 #   scripts/amarel/submit_npz_gen.sh \
-#       /scratch/dm1487/outputs/v3_phase1 \
-#       /scratch/dm1487/outputs/v3_phase1_masks
+#       "$NAMO_OUTPUTS/v3_phase1" \
+#       "$NAMO_OUTPUTS/v3_phase1_masks"
 set -euo pipefail
 
 PHASE_DIR=${1:?usage: submit_npz_gen.sh <phase_output_dir> <npz_output_dir> [pkls_per_shard]}
 OUT_DIR=${2:?usage: submit_npz_gen.sh <phase_output_dir> <npz_output_dir> [pkls_per_shard]}
 PER_SHARD=${3:-12000}
 
-REPO=${NAMO_REPO:-/cache/home/dm1487/projects/namo/namo_cpp}
-MANIFESTS=/scratch/dm1487/manifests
-mkdir -p "$MANIFESTS" "$OUT_DIR" /scratch/dm1487/logs
+REPO="${NAMO_REPO:?source env.<machine>.sh first}"
+MANIFESTS="$NAMO_MANIFESTS"
+mkdir -p "$MANIFESTS" "$OUT_DIR" "$NAMO_LOGS"
 
 TAG=$(basename "$PHASE_DIR")
 MANIFEST="$MANIFESTS/${TAG}_pkls.txt"
@@ -48,6 +48,7 @@ echo "phase=$TAG  pkls=$N  shards=$SHARDS  per_shard=$PER_SHARD"
 echo "manifest=$MANIFEST"
 echo "out=$OUT_DIR"
 
+cd "$REPO" || exit 1   # so the slurm's repo-relative #SBATCH --output=logs/... resolves to $REPO/logs
 PKL_MANIFEST="$MANIFEST" SHARD_SIZE="$PER_SHARD" OUTPUT_DIR="$OUT_DIR" \
     sbatch --array=0-"$LAST" --job-name="npz-$TAG" \
         "$REPO/scripts/amarel/run_batch_collection_smoke.slurm"

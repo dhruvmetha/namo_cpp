@@ -9,8 +9,8 @@
 #   OUTPUT      manifest path to write
 #
 # Example:
-#   PHASE_DIRS="/scratch/dm1487/outputs/v3_phase5A /scratch/dm1487/outputs/v3_phase5B" \
-#   OUTPUT=/scratch/dm1487/manifests/v3_phase5_pkls.txt \
+#   PHASE_DIRS="$NAMO_OUTPUTS/v3_phase5A $NAMO_OUTPUTS/v3_phase5B" \
+#   OUTPUT=$NAMO_MANIFESTS/v3_phase5_pkls.txt \
 #     sbatch scripts/amarel/build_pkl_manifest.slurm
 #
 #SBATCH --job-name=build-pkl-manifest
@@ -18,13 +18,13 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=8G
 #SBATCH --time=00:20:00
-#SBATCH --output=/scratch/dm1487/logs/build-pkl-manifest-%j.out
-#SBATCH --error=/scratch/dm1487/logs/build-pkl-manifest-%j.err
+#SBATCH --output=logs/build-pkl-manifest-%j.out
+#SBATCH --error=logs/build-pkl-manifest-%j.err
 
 set -euo pipefail
 : "${PHASE_DIRS:?set PHASE_DIRS (space-separated)}"
 : "${OUTPUT:?set OUTPUT}"
-mkdir -p "$(dirname "$OUTPUT")" /scratch/dm1487/logs
+mkdir -p "$(dirname "$OUTPUT")" "$NAMO_LOGS"
 
 echo "host=$(hostname) dirs=$PHASE_DIRS output=$OUTPUT"
 echo "start=$(date -Is)"

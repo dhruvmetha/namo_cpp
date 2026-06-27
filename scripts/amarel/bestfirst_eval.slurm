@@ -7,23 +7,23 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=12G
 #SBATCH --time=03:00:00
-#SBATCH --output=/scratch/dm1487/logs/bestf-%A_%a.out
-#SBATCH --error=/scratch/dm1487/logs/bestf-%A_%a.err
+#SBATCH --output=logs/bestf-%A_%a.out
+#SBATCH --error=logs/bestf-%A_%a.err
 set -euo pipefail
-cd /cache/home/dm1487/projects/namo/namo_cpp
-export MJ_PATH=/scratch/dm1487/mujoco/mujoco-3.2.7
+cd "$NAMO_REPO"
+: "${MJ_PATH:?source env.<machine>.sh first}"
 export LD_LIBRARY_PATH="$MJ_PATH/lib:${LD_LIBRARY_PATH:-}"
-export PYTHONPATH="$PWD/build_python:$PWD/python:$PWD/scripts:$PWD/scripts/sandbox:/cache/home/dm1487/projects/namo/sage_learning"
+export PYTHONPATH="$PWD/build_python:$PWD/python:$PWD/scripts:$PWD/scripts/sandbox:$SAGE_REPO"
 export OMP_NUM_THREADS=2 MKL_NUM_THREADS=2
 
 : "${CKPT:?}"; : "${MANIFEST:?}"; : "${OUT_DIR:?}"
 HMAX=${HMAX:-2}; SIM_BUDGET=${SIM_BUDGET:-900}; PRIOR=${PRIOR:-model}; AGG=${AGG:-mean5}; COMBINE=${COMBINE:-blend}; SHARD=${SHARD:-13}
-KEY=${KEY:-/scratch/dm1487/datasets/namo_testset_v1/labels/pure2push.json}
+KEY=${KEY:-"$NAMO_DATASETS/namo_testset_v1/labels/pure2push.json"}
 SEED_BASE=${SEED_BASE:-7000}; DIVE_BONUS=${DIVE_BONUS:-0}
 mkdir -p "$OUT_DIR"
 START=$(( SLURM_ARRAY_TASK_ID * SHARD )); END=$(( START + SHARD ))
 echo "task ${SLURM_ARRAY_TASK_ID}: [$START,$END) hmax=$HMAX budget=$SIM_BUDGET prior=$PRIOR seed=$SEED_BASE dive=$DIVE_BONUS key=$(basename $KEY) on $(hostname)"
-/scratch/dm1487/envs/namo/bin/python -u scripts/sandbox/eval_bestfirst.py \
+"$NAMO_PYTHON" -u scripts/sandbox/eval_bestfirst.py \
     --ckpt "$CKPT" --manifest "$MANIFEST" --hmax "$HMAX" --sim-budget "$SIM_BUDGET" --key "$KEY" \
     --prior "$PRIOR" --agg "$AGG" --combine "$COMBINE" --seed-base "$SEED_BASE" --dive-bonus "$DIVE_BONUS" ${RAW:+--raw} --start "$START" --end "$END" \
     --out "$OUT_DIR/shard_${SLURM_ARRAY_TASK_ID}.json" --leaf-out "$OUT_DIR/shard_${SLURM_ARRAY_TASK_ID}.jsonl"

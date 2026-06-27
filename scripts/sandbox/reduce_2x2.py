@@ -2,15 +2,20 @@
 """Assemble the 2x2 matrix {Horizon,NoHorizon}x{v1,v2}: ranking (hard@1 H=1/H=2) + SOLVE (best-first @900).
 
 Reads, per run:
-  /scratch/dm1487/eval/<run>_rank/<tag>_h{1,2}.json   (eval_scorer; divisions.hard.scorer_realistic['@1'])
-  /scratch/dm1487/eval/bf900_<run>/shard_*.jsonl       (best-first solve leaves)
+  $NAMO_SCRATCH/eval/<run>_rank/<tag>_h{1,2}.json   (eval_scorer; divisions.hard.scorer_realistic['@1'])
+  $NAMO_SCRATCH/eval/bf900_<run>/shard_*.jsonl       (best-first solve leaves)
 Random baseline (model-agnostic): bf900_uniform_s0..4 (5-seed mean).
 
   python scripts/sandbox/reduce_2x2.py
 """
-import os, json, glob, math
-
-EVAL = "/scratch/dm1487/eval"
+import os, sys, json, glob, math
+from pathlib import Path
+REPO = Path(__file__).resolve().parents[2]
+for _p in (f"{REPO}/build_python", f"{REPO}/python"):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+from namo.paths import SCRATCH  # noqa: E402
+EVAL = str(SCRATCH / "eval")
 RUNS = {  # label -> run_name (seed 1)
     "Horizon-v1":   "qfull_v4hq_s1",
     "NoHorizon-v1": "qfull_nohz_v4hq_s1",

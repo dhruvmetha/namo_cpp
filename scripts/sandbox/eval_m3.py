@@ -11,19 +11,21 @@ Bars: 34.5 @1 (registered: old champion + 49-sim beam) | 75.2 @1 (fpv_m2b, M2b +
 
   PYTHONPATH=...build_python:...python:...scripts:...scripts/sandbox:...sage_learning \
   python scripts/sandbox/eval_m3.py --ckpt <qfull.ckpt> --start 0 --end 985 --h 2 --topk 10 \
-      --out /scratch/dm1487/eval/m3_<name>.json --leaf-out /scratch/dm1487/eval/m3_<name>.jsonl
+      --out $NAMO_SCRATCH/eval/m3_<name>.json --leaf-out $NAMO_SCRATCH/eval/m3_<name>.jsonl
 """
 import sys, os, json, time, argparse, math
-REPO = "/cache/home/dm1487/projects/namo/namo_cpp"
-SAGE = "/cache/home/dm1487/projects/namo/sage_learning"
+from pathlib import Path
+REPO = Path(__file__).resolve().parents[2]
+SAGE = os.environ.get("SAGE_REPO", "")
 for _p in (f"{REPO}/build_python", f"{REPO}/python", f"{REPO}/scripts", f"{REPO}/scripts/sandbox", SAGE):
-    if _p not in sys.path:
+    if _p and _p not in sys.path:
         sys.path.insert(0, _p)
 import numpy as np  # noqa: E402
 from scorer_beam import BeamPlanner, make_env, make_action, read_manifest, FALLBACK_GOAL  # noqa: E402
 from namo.core.xml_goal_parser import extract_goal_with_fallback  # noqa: E402
+from namo.paths import MANIFESTS, DATASETS, SCRATCH  # noqa: E402
 
-PURE2PUSH = "/scratch/dm1487/manifests/test_pure2_fromkey.txt"
+PURE2PUSH = str(MANIFESTS / "test_pure2_fromkey.txt")
 
 
 def sample_goal_points(env, goals_per_region=100, seed=42):
@@ -96,9 +98,9 @@ def main():
     ap.add_argument("--grade", default="sim", choices=["sim", "key"],
                     help="sim = verify each top-k first push by simulation (comparable to the 75.2/34.5 sim bars). "
                          "key = grade vs the exhaustive pure2push.json setups (ZERO sims, fast feeler; ground-truth).")
-    ap.add_argument("--key", default="/scratch/dm1487/datasets/namo_testset_v1/labels/pure2push.json")
-    ap.add_argument("--out", default="/scratch/dm1487/eval/m3.json")
-    ap.add_argument("--leaf-out", default="/scratch/dm1487/eval/m3.jsonl")
+    ap.add_argument("--key", default=str(DATASETS / "namo_testset_v1/labels/pure2push.json"))
+    ap.add_argument("--out", default=str(SCRATCH / "eval/m3.json"))
+    ap.add_argument("--leaf-out", default=str(SCRATCH / "eval/m3.jsonl"))
     a = ap.parse_args()
 
     planner = BeamPlanner(ckpt=a.ckpt)

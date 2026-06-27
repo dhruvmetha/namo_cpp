@@ -12,14 +12,14 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=48G
 #SBATCH --time=00:50:00
-#SBATCH --output=/scratch/dm1487/logs/m3feel-%A_%a.out
-#SBATCH --error=/scratch/dm1487/logs/m3feel-%A_%a.err
+#SBATCH --output=logs/m3feel-%A_%a.out
+#SBATCH --error=logs/m3feel-%A_%a.err
 set -euo pipefail
 
-cd /cache/home/dm1487/projects/namo/namo_cpp
-export MJ_PATH=/scratch/dm1487/mujoco/mujoco-3.2.7
+cd "$NAMO_REPO"
+: "${MJ_PATH:?source env.<machine>.sh first}"
 export LD_LIBRARY_PATH="$MJ_PATH/lib:${LD_LIBRARY_PATH:-}"
-export PYTHONPATH="$PWD/build_python:$PWD/python:$PWD/scripts:$PWD/scripts/sandbox:/cache/home/dm1487/projects/namo/sage_learning"
+export PYTHONPATH="$PWD/build_python:$PWD/python:$PWD/scripts:$PWD/scripts/sandbox:$SAGE_REPO"
 
 : "${CKPTS:?must set CKPTS (semicolon-separated)}"
 : "${OUT_DIR:?must set OUT_DIR}"
@@ -35,10 +35,10 @@ echo "task $idx: $tag H=$H  ($ck)"
 nvidia-smi --query-gpu=name --format=csv,noheader | head -1 || true
 
 out="$OUT_DIR/${tag}_h${H}.json"
-/scratch/dm1487/envs/namo/bin/python -u scripts/sandbox/eval_m3.py \
+"$NAMO_PYTHON" -u scripts/sandbox/eval_m3.py \
     --ckpt "$ck" --grade key --h "$H" --start 0 --end 985 \
     --out "$out" --leaf-out "$OUT_DIR/${tag}_h${H}.jsonl"
-/scratch/dm1487/envs/namo/bin/python - "$out" <<'PY'
+"$NAMO_PYTHON" - "$out" <<'PY'
 import json, sys
 r = json.load(open(sys.argv[1])); h = r["hit_at_k"]; fl = r.get("random_floor_at_k", {})
 print(f"  {sys.argv[1].split('/')[-1]}: H={r['H']} n={r['n_graded']} "

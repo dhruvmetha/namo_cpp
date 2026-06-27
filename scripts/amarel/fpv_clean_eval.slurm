@@ -10,25 +10,25 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=12G
 #SBATCH --time=03:00:00
-#SBATCH --output=/scratch/dm1487/datasets/namo_testset_v1/logs/fpv-clean-%A_%a.out
-#SBATCH --error=/scratch/dm1487/datasets/namo_testset_v1/logs/fpv-clean-%A_%a.err
+#SBATCH --output=logs/fpv-clean-%A_%a.out
+#SBATCH --error=logs/fpv-clean-%A_%a.err
 set -euo pipefail
 
-cd /cache/home/dm1487/projects/namo/namo_cpp
-export MJ_PATH=/scratch/dm1487/mujoco/mujoco-3.2.7
+cd "$NAMO_REPO"
+: "${MJ_PATH:?source env.<machine>.sh first}"
 export LD_LIBRARY_PATH="$MJ_PATH/lib:${LD_LIBRARY_PATH:-}"
-export PYTHONPATH="$PWD/build_python:$PWD/python:$PWD/scripts:$PWD/scripts/sandbox:/cache/home/dm1487/projects/namo/sage_learning"
+export PYTHONPATH="$PWD/build_python:$PWD/python:$PWD/scripts:$PWD/scripts/sandbox:$SAGE_REPO"
 export OMP_NUM_THREADS=2 MKL_NUM_THREADS=2
 
-MANIFEST=/scratch/dm1487/datasets/namo_testset_v1/manifests/pure2push_scenes.txt
-OUT=/scratch/dm1487/datasets/namo_testset_v1/eval_fpv
+MANIFEST="$NAMO_DATASETS/namo_testset_v1/manifests/pure2push_scenes.txt"
+OUT="$NAMO_DATASETS/namo_testset_v1/eval_fpv"
 mkdir -p "$OUT"
 SHARD=20
 START=$(( SLURM_ARRAY_TASK_ID * SHARD ))
 END=$(( START + SHARD ))
 
 echo "task ${SLURM_ARRAY_TASK_ID}: scenes [${START}, ${END}) on $(hostname)"
-/scratch/dm1487/envs/namo/bin/python -u scripts/sandbox/diag_leaf_s1.py \
+"$NAMO_PYTHON" -u scripts/sandbox/diag_leaf_s1.py \
   --manifest "$MANIFEST" --start "${START}" --end "${END}" \
   --first-cap 60 --scalars-only \
   --out      "$OUT/fpv_shard${SLURM_ARRAY_TASK_ID}.json" \

@@ -18,16 +18,17 @@ load_scorer into the package once this lever is validated).
 """
 import os
 import sys
+from pathlib import Path
 from typing import List, Optional, Tuple
 
 import namo_rl
 
 from .goal_selection_strategy import Goal
 from .primitive_goal_strategy import PrimitiveGoalStrategy
+from namo.paths import SCRATCH
 
-_SANDBOX = "/cache/home/dm1487/projects/namo/namo_cpp/scripts/sandbox"
-_DEFAULT_CKPT = ("/scratch/dm1487/sage_outputs/scorer/sharp_s1/namo-classifier/"
-                 "9yizg6i8/checkpoints/epoch017-val_loss0.2713.ckpt")
+_SANDBOX = str(Path(__file__).resolve().parents[3] / "scripts/sandbox")
+_DEFAULT_CKPT = str(SCRATCH / "sage_outputs/scorer/sharp_s1/namo-classifier/9yizg6i8/checkpoints/epoch017-val_loss0.2713.ckpt")
 
 # Process-level cache: load the (heavy) scorer model + renderer ONCE per (ckpt, config), so
 # running RO across many scenes (modular_parallel_collection) doesn't reload it every scene.

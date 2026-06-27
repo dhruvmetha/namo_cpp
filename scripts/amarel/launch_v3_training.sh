@@ -5,9 +5,9 @@
 # once the GATE passes (novel-s1 finish sep 0.30 -> 0.6+) re-run with ARRAY=9-11 for the full 3 seeds.
 #   ARRAY=9 sbatch-wrapper:  bash scripts/amarel/launch_v3_training.sh
 set -euo pipefail
-SAGE=/cache/home/dm1487/projects/namo/sage_learning
-H5=/scratch/dm1487/h5
-PY=/scratch/dm1487/envs/namo/bin/python
+SAGE="$SAGE_REPO"
+H5="$NAMO_H5"
+PY="$NAMO_PYTHON"
 ARRAY=${ARRAY:-9}; WALL=${WALL:-14:00:00}
 
 M2B=$H5/v4_hq_m2b_scorer/data.h5
