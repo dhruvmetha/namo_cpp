@@ -1,6 +1,6 @@
 #!/bin/bash
 # v3 phase-1 data collection — sharded array.
-# Reads /scratch/dm1487/manifests/v3_feb_top250k.txt (250K XMLs),
+# Reads $NAMO_MANIFESTS/v3_feb_top250k.txt (250K XMLs),
 # slices by SLURM_ARRAY_TASK_ID into 60 shards of ~4167 envs each.
 #
 # Phase 1 = single-push opening with exhaustive_mode + random_rollout + target-goal.
@@ -13,19 +13,19 @@
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=64G
 #SBATCH --time=03:00:00
-#SBATCH --output=/scratch/dm1487/logs/v3-p1-%A_%a.out
-#SBATCH --error=/scratch/dm1487/logs/v3-p1-%A_%a.err
+#SBATCH --output=logs/v3-p1-%A_%a.out
+#SBATCH --error=logs/v3-p1-%A_%a.err
 #SBATCH --array=0-59
 
 set -euo pipefail
-NAMO_REPO=${NAMO_REPO:-/cache/home/dm1487/projects/namo/namo_cpp}
+NAMO_REPO="${NAMO_REPO:?source env.<machine>.sh first}"
 # OUTPUT_DIR overridable so the same script drives multiple corpora
 # (e.g. test_aug9_phase1, test_feb_phase1). Default preserves v3_feb behavior.
-OUTPUT_DIR=${OUTPUT_DIR:-/scratch/dm1487/outputs/v3_phase1}
-mkdir -p /scratch/dm1487/logs "$OUTPUT_DIR"
+OUTPUT_DIR=${OUTPUT_DIR:-"$NAMO_OUTPUTS/v3_phase1"}
+mkdir -p "$NAMO_LOGS" "$OUTPUT_DIR"
 source "$NAMO_REPO/scripts/amarel/activate.sh"
 
-MANIFEST=${MANIFEST:-/scratch/dm1487/manifests/v3_feb_top250k.txt}
+MANIFEST=${MANIFEST:-"$NAMO_MANIFESTS/v3_feb_top250k.txt"}
 TOTAL_ENVS=$(wc -l < "$MANIFEST")
 NUM_SHARDS=60
 SHARD_SIZE=$(( (TOTAL_ENVS + NUM_SHARDS - 1) / NUM_SHARDS ))   # ceil division
@@ -60,7 +60,7 @@ echo "manifest=$MANIFEST  shard=[$START_IDX,$END_IDX)  envs=$N  envs_dir=$SHARD_
 echo "start=$(date -Is)"
 
 # Exhaustive config: enables region_exhaustive_mode for true pattern B
-EXHAUSTIVE_CONFIG=/scratch/dm1487/v3_smoke_100/exhaustive_config.yaml
+EXHAUSTIVE_CONFIG="$NAMO_SCRATCH/v3_smoke_100/exhaustive_config.yaml"
 
 cd "$NAMO_REPO"
 PYTHONPATH="$NAMO_REPO/build_python:$NAMO_REPO/python" \

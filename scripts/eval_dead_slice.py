@@ -11,20 +11,25 @@ Pools over ALL 300 cells by default (deploy-realistic: the model doesn't know re
 also reports the candidate-set pool (cells with r_mask>0) — if all-cells fails while candidate
 pool separates, the untried-cell optimism leak is the cause (see journal).
 
-  python scripts/eval_dead_slice.py --ckpt <.ckpt> --h5 /scratch/dm1487/h5/v4_hq_m2b_scorer/data.h5 \
-      --n 500 --h 1 --out /scratch/dm1487/eval/dead_slice_<name>.json
+  python scripts/eval_dead_slice.py --ckpt <.ckpt> --h5 $NAMO_SCRATCH/h5/v4_hq_m2b_scorer/data.h5 \
+      --n 500 --h 1 --out $NAMO_SCRATCH/eval/dead_slice_<name>.json
 """
 import argparse
 import json
+import os
 import sys
+from pathlib import Path
 
 import h5py
 import numpy as np
 import torch
 
-sys.path.insert(0, "/cache/home/dm1487/projects/namo/namo_cpp/scripts")
-sys.path.insert(0, "/cache/home/dm1487/projects/namo/sage_learning")
+REPO = Path(__file__).resolve().parents[1]; SAGE = os.environ.get("SAGE_REPO", "")
+for _p in (f"{REPO}/scripts", SAGE):
+    if _p and _p not in sys.path:
+        sys.path.insert(0, _p)
 from eval_scorer import load_scorer  # noqa: E402
+from namo.paths import H5  # noqa: E402
 
 
 def auc(pos, neg):
@@ -38,7 +43,7 @@ def auc(pos, neg):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ckpt", required=True)
-    ap.add_argument("--h5", default="/scratch/dm1487/h5/v4_hq_m2b_scorer/data.h5")
+    ap.add_argument("--h5", default=str(H5 / "v4_hq_m2b_scorer/data.h5"))
     ap.add_argument("--n", type=int, default=500)
     ap.add_argument("--topk", type=int, default=5)
     ap.add_argument("--h", type=int, default=1, help="budget H for conditioned models")

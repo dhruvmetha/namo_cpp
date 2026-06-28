@@ -1,7 +1,8 @@
 # CLAUDE.amarel.md — machine card: Amarel (Rutgers Amarel cluster)
 
-> Read this **+ the main CLAUDE.md** at session start when on Amarel. This is the ORIGINAL box — paths here == the
-> hardcoded defaults, so no rewrite needed. Full portability runbook: [docs/PORTABILITY.md](docs/PORTABILITY.md).
+> Read this **+ the main CLAUDE.md** at session start when on Amarel. This is the ORIGINAL box — its paths are the
+> `env.amarel.sh` defaults. Code is env-native (reads `NAMO_SCRATCH` etc.), so nothing is rewritten per-box. Full
+> portability runbook: [docs/PORTABILITY.md](docs/PORTABILITY.md).
 
 ## Am I on this box?
 - `hostname` → `amarel*` / `*.amarel.rutgers.edu`, **or** the repo path is under `/cache/home/dm1487/...`.
@@ -11,7 +12,7 @@
 - Repos: `/cache/home/dm1487/projects/namo/{namo_cpp, sage_learning}`
 - Data / h5 / outputs: under `/scratch/dm1487` (= `NAMO_SCRATCH`)
 - **Env:** `source env.amarel.sh` · **Python:** `/scratch/dm1487/envs/namo/bin/python` (3.11; plain `python` resolves to it)
-- **Bindings:** already built (`build_python/namo_rl*.so`). **No path rewrite** — this box is the hardcoded default.
+- **Bindings:** already built (`build_python/namo_rl*.so`). **No path rewrite** — code reads roots from the env.
 
 ## Compute (SLURM)
 - GPU: submit `gpu,gpu-redhat`; **NEVER Camden (`cgpu-*`)** (no `/scratch` mount). Never wait >1h — relax/resubmit.

@@ -13,9 +13,9 @@ never hardcoded in scripts or docs. Usable from both Python and bash.
     from corpus import load, paths_for
     cfg = load("v3_aug9");  p = paths_for("v3_aug9")
 
-Roots default to /scratch/dm1487/* and are overridable via env
-(NAMO_SCRATCH / NAMO_DATASETS / NAMO_OUTPUTS / NAMO_MANIFESTS / NAMO_H5) —
-set them once in scripts/amarel/activate.sh and nothing else hardcodes paths.
+Roots come from the environment via namo.paths (NAMO_SCRATCH is the base; the
+rest derive from it). Set them once per box with `source env.<machine>.sh` —
+nothing hardcodes paths, so the same file works on every machine.
 """
 import json
 import os
@@ -31,21 +31,9 @@ REPO = Path(__file__).resolve().parent.parent
 CORPORA_DIR = REPO / "config" / "corpora"
 DATASET_CFG_DIR = REPO / "config" / "datasets"
 
-# Machine-local config: load <parent>/.env so the NAMO_* roots below resolve even
-# when corpus.py runs as a standalone script. override=False keeps any explicit
-# shell export authoritative. No-op without python-dotenv installed.
-try:
-    from dotenv import load_dotenv
-
-    load_dotenv(REPO.parent / ".env", override=False)
-except ModuleNotFoundError:
-    pass
-
-SCRATCH = Path(os.environ.get("NAMO_SCRATCH", "/scratch/dm1487"))
-DATASETS = Path(os.environ.get("NAMO_DATASETS", SCRATCH / "datasets"))
-OUTPUTS = Path(os.environ.get("NAMO_OUTPUTS", SCRATCH / "outputs"))
-MANIFESTS = Path(os.environ.get("NAMO_MANIFESTS", SCRATCH / "manifests"))
-H5 = Path(os.environ.get("NAMO_H5", SCRATCH / "h5"))
+# Single source of truth for machine-specific roots (see python/namo/paths.py).
+sys.path.insert(0, str(REPO / "python"))
+from namo.paths import SCRATCH, DATASETS, OUTPUTS, MANIFESTS, H5  # noqa: E402
 
 
 def load(corpus_id):

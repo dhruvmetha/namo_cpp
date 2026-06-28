@@ -7,24 +7,26 @@ For each pure-2 scene, decompose reactive @2 into 4 conditions using the exhaust
   oracle/oracle    : a real setup + a perfect finish                               (= ~100%)
 Tells us: fixing finish alone is capped by setup-top-1; fixing setup alone capped by finish-top-1."""
 import sys, json, pickle, glob, os
-REPO = "/cache/home/dm1487/projects/namo/namo_cpp"; SAGE = "/cache/home/dm1487/projects/namo/sage_learning"
+from pathlib import Path
+REPO = Path(__file__).resolve().parents[2]; SAGE = os.environ.get("SAGE_REPO", "")
 for _p in (f"{REPO}/build_python", f"{REPO}/python", f"{REPO}/scripts", f"{REPO}/scripts/sandbox", SAGE):
-    if _p not in sys.path:
+    if _p and _p not in sys.path:
         sys.path.insert(0, _p)
 import numpy as np
-from scorer_beam import BeamPlanner, make_env, make_action, read_manifest, FALLBACK_GOAL
-from eval_m3 import rank_first_pushes_h2
-from namo.core.xml_goal_parser import extract_goal_with_fallback
-PM = pickle.load(open("/scratch/dm1487/eval/exhaustive_pairmap_pure2.pkl", "rb"))["pairmap"]
-CK = glob.glob("/scratch/dm1487/sage_outputs/scorer/qfull_v2_v4hq_s1/namo-classifier/*/checkpoints/epoch008-val_loss0.6728.ckpt")[0]
+from scorer_beam import BeamPlanner, make_env, make_action, read_manifest, FALLBACK_GOAL  # noqa: E402
+from eval_m3 import rank_first_pushes_h2  # noqa: E402
+from namo.core.xml_goal_parser import extract_goal_with_fallback  # noqa: E402
+from namo.paths import SCRATCH, DATASETS, MANIFESTS  # noqa: E402
+PM = pickle.load(open(str(SCRATCH / "eval/exhaustive_pairmap_pure2.pkl"), "rb"))["pairmap"]
+CK = glob.glob(f"{SCRATCH}/sage_outputs/scorer/qfull_v2_v4hq_s1/namo-classifier/*/checkpoints/epoch008-val_loss0.6728.ckpt")[0]
 ed = lambda g: (int(getattr(g, "edge_idx", -1)), int(getattr(g, "depth", -1)))
 
 
 def main():
     n = int(sys.argv[1]) if len(sys.argv) > 1 else 130
     pl = BeamPlanner(ckpt=CK)
-    xmls = read_manifest("/scratch/dm1487/manifests/test_pure2_fromkey.txt", None)
-    key = json.load(open("/scratch/dm1487/datasets/namo_testset_v1/labels/pure2push.json"))
+    xmls = read_manifest(str(MANIFESTS / "test_pure2_fromkey.txt"), None)
+    key = json.load(open(str(DATASETS / "namo_testset_v1/labels/pure2push.json")))
     keyrp = {os.path.realpath(k): v for k, v in key.items()}
     mm = ofin = ose = oo = tot = 0
     for xml in xmls:
@@ -74,7 +76,7 @@ def main():
            "reactive@2  oracle-SETUP (model finish)": round(100 * ose / tot, 1),
            "reactive@2  oracle/oracle": round(100 * oo / tot, 1),
            "note": "fix-finish capped by setup-top1; fix-setup capped by finish-top1; need BOTH for ~100%"}
-    json.dump(out, open("/scratch/dm1487/eval/oracle_headroom.json", "w"), indent=1)
+    json.dump(out, open(str(SCRATCH / "eval/oracle_headroom.json"), "w"), indent=1)
     print(json.dumps(out, indent=1))
 
 

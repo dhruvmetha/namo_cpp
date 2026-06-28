@@ -1,0 +1,4 @@
+#!/bin/bash
+# Pre-commit guard: block hardcoded machine paths from re-entering code.
+# Enable once per clone:  git config core.hooksPath scripts/githooks
+exec bash "$(git rev-parse --show-toplevel)/scripts/portability/check_no_hardcoded_paths.sh"

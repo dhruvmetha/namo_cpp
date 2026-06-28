@@ -2,8 +2,14 @@
 """Aggregate reactive@2 + best-first@2(combine=q) across ALL v2/v3/v4 seeds into the error-bar table.
 Reads reactarg_<label>/ (open2/n) + bfq_<label>/ (jsonl s@2, s@900). Prints markdown; --slack posts to U07N1DR8S94
 via a one-line marker the cron picks up. Pure stdlib. labels: {Hz,NoHz}_v{2,3,4}_s{1,2,3}."""
-import json, glob, os, statistics as st, argparse
-E = "/scratch/dm1487/eval"
+import sys, json, glob, os, statistics as st, argparse
+from pathlib import Path
+REPO = Path(__file__).resolve().parents[2]
+for _p in (f"{REPO}/build_python", f"{REPO}/python"):
+    if _p and _p not in sys.path:
+        sys.path.insert(0, _p)
+from namo.paths import SCRATCH  # noqa: E402
+E = str(SCRATCH / "eval")
 
 def _dir(prefix, label):
     """case-insensitive dir match: eval-chains wrote capital (bfq_Hz_v4_s2), v2 dirs are lowercase."""

@@ -2,25 +2,27 @@
 """Find + print a concrete example of the planner RESTARTING: it plays a valid setup (sim1), a finishing push that
 ACTUALLY opens the path sits right there, but the blend priority sends it to a fresh first-push instead (restart)."""
 import sys, os, json, pickle, glob
-REPO = "/cache/home/dm1487/projects/namo/namo_cpp"; SAGE = "/cache/home/dm1487/projects/namo/sage_learning"
+from pathlib import Path
+REPO = Path(__file__).resolve().parents[2]; SAGE = os.environ.get("SAGE_REPO", "")
 for _p in (f"{REPO}/build_python", f"{REPO}/python", f"{REPO}/scripts", f"{REPO}/scripts/sandbox", SAGE):
-    if _p not in sys.path:
+    if _p and _p not in sys.path:
         sys.path.insert(0, _p)
-import numpy as np
-from scorer_beam import BeamPlanner, make_env, make_action, read_manifest, FALLBACK_GOAL
-from eval_m3 import rank_first_pushes_h2, sample_goal_points, goal_open_pts
-from namo.core.xml_goal_parser import extract_goal_with_fallback
+import numpy as np  # noqa: E402
+from scorer_beam import BeamPlanner, make_env, make_action, read_manifest, FALLBACK_GOAL  # noqa: E402
+from eval_m3 import rank_first_pushes_h2, sample_goal_points, goal_open_pts  # noqa: E402
+from namo.core.xml_goal_parser import extract_goal_with_fallback  # noqa: E402
+from namo.paths import SCRATCH, MANIFESTS, DATASETS  # noqa: E402
 
-PM = pickle.load(open("/scratch/dm1487/eval/exhaustive_pairmap_pure2.pkl", "rb"))["pairmap"]
-CK = glob.glob("/scratch/dm1487/sage_outputs/scorer/qfull_v2_v4hq_s1/namo-classifier/*/checkpoints/epoch008-val_loss0.6728.ckpt")[0]
+PM = pickle.load(open(SCRATCH / "eval/exhaustive_pairmap_pure2.pkl", "rb"))["pairmap"]
+CK = glob.glob(str(SCRATCH / "sage_outputs/scorer/qfull_v2_v4hq_s1/namo-classifier/*/checkpoints/epoch008-val_loss0.6728.ckpt"))[0]
 ed = lambda g: (int(getattr(g, "edge_idx", -1)), int(getattr(g, "depth", -1)))
 v5 = lambda pool: (lambda qs: sum(qs[:5]) / min(5, len(qs)) if qs else 0.0)(sorted((q for _o, _g, q in pool), reverse=True))
 
 
 def main():
     pl = BeamPlanner(ckpt=CK)
-    xmls = read_manifest("/scratch/dm1487/manifests/test_pure2_fromkey.txt", None)
-    key = json.load(open("/scratch/dm1487/datasets/namo_testset_v1/labels/pure2push.json"))
+    xmls = read_manifest(str(MANIFESTS / "test_pure2_fromkey.txt"), None)
+    key = json.load(open(str(DATASETS / "namo_testset_v1/labels/pure2push.json")))
     keyrp = {os.path.realpath(k): v for k, v in key.items()}
     found = 0
     for xml in xmls:

@@ -22,10 +22,10 @@ pipeline has tried so far that ended in failure with a retryable reason.
 
 Usage:
     python scripts/build_phase4_manifest.py \\
-        --phase1-dir /scratch/dm1487/outputs/car_v1_aug9_phase1 \\
-        --phase2-dir /scratch/dm1487/outputs/car_v1_aug9_phase2 \\
-        --phase3-dir /scratch/dm1487/outputs/car_v1_aug9_phase3 \\
-        --output     /scratch/dm1487/manifests/car_envs_v1_aug9_phase4.txt
+        --phase1-dir $NAMO_SCRATCH/outputs/car_v1_aug9_phase1 \\
+        --phase2-dir $NAMO_SCRATCH/outputs/car_v1_aug9_phase2 \\
+        --phase3-dir $NAMO_SCRATCH/outputs/car_v1_aug9_phase3 \\
+        --output     $NAMO_SCRATCH/manifests/car_envs_v1_aug9_phase4.txt
 """
 
 import argparse

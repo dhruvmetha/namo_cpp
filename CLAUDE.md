@@ -19,9 +19,21 @@ GPU/SLURM policy: submit `gpu,gpu-redhat`, never Camden, never wait >1h (relax/r
 (`hostname`, or the repo path — `/cache/home/dm1487`=Amarel, `/common/users/dm1487`=ilab) and **read its machine card** —
 **[CLAUDE.amarel.md](CLAUDE.amarel.md)** or **[CLAUDE.ilab.md](CLAUDE.ilab.md)** — then `source env.<machine>.sh`. Full
 runbook + setting up a NEW box: **[docs/PORTABILITY.md](docs/PORTABILITY.md)** (§0 quickstart; env-var contract
-`NAMO_SCRATCH`+`SAGE_REPO`+`MJ_PATH`→derived dirs; the two mandatory path-rewrites via `scripts/portability/rewrite_paths.sh`;
-data move via `scripts/portability/pull_from_amarel.sh`). Uncommitted per-checkout tweaks → `CLAUDE.local.md` (auto-loaded, gitignored).
+`NAMO_SCRATCH`+`SAGE_REPO`+`MJ_PATH`(+`NAMO_PYTHON`)→derived dirs). The repo is **env-native**: code reads every
+machine path from the env (Python via `namo.paths`, shell via `$NAMO_*`) — **no path-rewriting step** (the old
+`rewrite_paths.sh` is gone; label-JSON keys are remapped at load by `namo.paths.resolve()`). A guard
+(`scripts/portability/check_no_hardcoded_paths.sh`, wireable as a pre-commit via `git config core.hooksPath
+scripts/githooks`) blocks new hardcoded paths. Data move via `scripts/portability/pull_from_amarel.sh`. Uncommitted
+per-checkout tweaks → `CLAUDE.local.md` (auto-loaded, gitignored).
 - **Skills porting:** *project* skills in `.claude/skills/` are now **committed → they travel with `git clone`** (e.g. `namo-data-pipeline`). *User* skills in `~/.claude/skills/` do **not** travel and are often machine-specific (e.g. `amarel-gpu` leans on `~/bin/getgpu` + Amarel partitions) — don't copy those to ilab; per-box compute guidance lives in the machine cards instead. See PORTABILITY §8.
+
+**→ ⛔ FOUNDATIONAL CONSTRAINT — NO EXHAUSTIVE GROUND TRUTH [USER, do NOT re-assume or re-derive, EVER]:** We will **never**
+have exhaustive enumeration of (setup × finish) outcomes at scale / deployment — it is **infeasible**. The exhaustive labels
+that *do* exist (the small car test set: `pure2push` 1-push + depth-2) are an **evaluation luxury ONLY**, never the operating
+assumption. Consequences you must honor: (1) the method must learn value/ranking from **limited, sampled, model-guided**
+experience — NOT enumerated truth; (2) **NEVER** argue "supervised-on-the-oracle beats RL because we can enumerate" — we
+*cannot*; the **search / bootstrap / ExIt** machinery exists *precisely to avoid enumeration*; (3) do not propose any solution
+that assumes we can label/sim every push. If a plan needs the full oracle, it's wrong by construction.
 
 **→ HORIZON-Q (the active project). READ THESE FIRST, every session / after any compaction — do not work from memory or glob:**
 0. **▶ ACTIVE WORK [2026-06-25/26]: staged bootstrapped-value redesign. ⏩ QUICK RESUME (esp. on ilab / a fresh machine): [docs/experiments/ILAB_RESUME.md](docs/experiments/ILAB_RESUME.md) — one page: you-are-here + the ONE thing to train + the gate.** Branch **`feat/horizon-q-redesign`** (anchor `feat/horizon-q` @ `3d65375` is FROZEN — never overwrite). Full **EXECUTION journal = [docs/experiments/horizon_q_redesign_execution.md](docs/experiments/horizon_q_redesign_execution.md)** — Stage 0 (instrument, DONE: setup is the bottleneck) → Stage 1 (drop Horizon, bootstrapped Q — GPU-blocked on Amarel, training on ilab). **RESUME from ILAB_RESUME.md, then the journal's EXECUTION LOG (bottom).** Self-contained brief: [horizon_q_HANDOFF.md](docs/experiments/horizon_q_HANDOFF.md).

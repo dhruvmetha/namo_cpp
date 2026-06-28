@@ -5,11 +5,11 @@ diffusion (informative ep500) vs sharp (champion 1-push scorer).
 Numbers are the measured eval points (k = 1,5,10,20) on the SAME clean
 held-out test set, per-episode matched, re-binned by true solve_rate
 (n = 413 hard / 491 med / 752 easy). Sources:
-  sharp  : /scratch/dm1487/eval/robust/sharp_s1__epoch017-val_loss0.2713.json
+  sharp  : $NAMO_SCRATCH/eval/robust/sharp_s1__epoch017-val_loss0.2713.json
   floor  : same json (floor block = without-replacement / hypergeometric)
   diff   : docs/experiments/informative_1push_results.md (informative ep500)
 
-Run: /scratch/dm1487/envs/namo/bin/python scripts/plots/plot_success_at_k.py
+Run: $NAMO_SCRATCH/envs/namo/bin/python scripts/plots/plot_success_at_k.py
 Out : docs/experiments/figures/success_at_k_{hard,med,easy,combined}.png
 """
 import os

@@ -10,13 +10,15 @@ Per episode (from exhaustive_pairmap_pure2.pkl, the (a1,a2)->opens GT):
 Also records n_reachable, n_gt_setups, n_openers for context. rank is 0-based (0 = model's #1 == a real answer).
 Sharded by xml-index. Read-only on training. Reuses rank_first_pushes_h2 (zero-sim model scoring) + 1 sim/episode."""
 import sys, os, json, pickle, argparse, statistics as st
-REPO = "/cache/home/dm1487/projects/namo/namo_cpp"; SAGE = "/cache/home/dm1487/projects/namo/sage_learning"
+from pathlib import Path
+REPO = Path(__file__).resolve().parents[2]; SAGE = os.environ.get("SAGE_REPO", "")
 for _p in (f"{REPO}/build_python", f"{REPO}/python", f"{REPO}/scripts", f"{REPO}/scripts/sandbox", f"{REPO}/scripts/pipeline", SAGE):
-    if _p not in sys.path:
+    if _p and _p not in sys.path:
         sys.path.insert(0, _p)
 from scorer_beam import BeamPlanner, make_env, make_action, FALLBACK_GOAL  # noqa: E402
 from eval_m3 import rank_first_pushes_h2  # noqa: E402
 from namo.core.xml_goal_parser import extract_goal_with_fallback  # noqa: E402
+from namo.paths import SCRATCH, DATASETS  # noqa: E402
 
 
 def order_of(pool):
@@ -33,8 +35,8 @@ def rank_of(order, targets):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ckpt", required=True)
-    ap.add_argument("--pairmap", default="/scratch/dm1487/eval/exhaustive_pairmap_pure2.pkl")
-    ap.add_argument("--divisions", default="/scratch/dm1487/datasets/namo_testset_v1/labels/pure2push_divisions.json")
+    ap.add_argument("--pairmap", default=str(SCRATCH / "eval/exhaustive_pairmap_pure2.pkl"))
+    ap.add_argument("--divisions", default=str(DATASETS / "namo_testset_v1/labels/pure2push_divisions.json"))
     ap.add_argument("--hsetup", type=int, default=2, help="budget to query for the SETUP ranking (2=horizon; NoHz ignores)")
     ap.add_argument("--start", type=int, default=0)
     ap.add_argument("--end", type=int, default=0, help="0=to end (xml-index shard over pairmap episodes)")

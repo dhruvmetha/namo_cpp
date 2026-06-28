@@ -10,14 +10,14 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=12G
 #SBATCH --time=03:00:00
-#SBATCH --output=/scratch/dm1487/logs/rollout-%A_%a.out
-#SBATCH --error=/scratch/dm1487/logs/rollout-%A_%a.err
+#SBATCH --output=logs/rollout-%A_%a.out
+#SBATCH --error=logs/rollout-%A_%a.err
 set -euo pipefail
 
-cd /cache/home/dm1487/projects/namo/namo_cpp
-export MJ_PATH=/scratch/dm1487/mujoco/mujoco-3.2.7
+cd "$NAMO_REPO"
+: "${MJ_PATH:?source env.<machine>.sh first}"
 export LD_LIBRARY_PATH="$MJ_PATH/lib:${LD_LIBRARY_PATH:-}"
-export PYTHONPATH="$PWD/build_python:$PWD/python:$PWD/scripts:$PWD/scripts/sandbox:/cache/home/dm1487/projects/namo/sage_learning"
+export PYTHONPATH="$PWD/build_python:$PWD/python:$PWD/scripts:$PWD/scripts/sandbox:$SAGE_REPO"
 export OMP_NUM_THREADS=2 MKL_NUM_THREADS=2
 
 : "${CKPT:?must set CKPT}"
@@ -30,7 +30,7 @@ mkdir -p "$OUT_DIR"
 START=$(( SLURM_ARRAY_TASK_ID * SHARD )); END=$(( START + SHARD ))
 echo "task ${SLURM_ARRAY_TASK_ID}: scenes [$START,$END) budget=$BUDGET prior=$PRIOR w2=$W2 flat_h1=$FLAT_H1 on $(hostname)"
 
-/scratch/dm1487/envs/namo/bin/python -u scripts/sandbox/eval_rollout.py \
+"$NAMO_PYTHON" -u scripts/sandbox/eval_rollout.py \
     --ckpt "$CKPT" --manifest "$MANIFEST" --budget "$BUDGET" --topk "$TOPK" \
     --prior "$PRIOR" --w2 "$W2" $flat_arg \
     --start "$START" --end "$END" \

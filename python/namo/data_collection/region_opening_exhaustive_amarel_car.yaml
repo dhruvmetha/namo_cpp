@@ -34,7 +34,7 @@ primitive_prefix: "car_"     # 7cm car primitives (matches namo_config_car.yaml)
 config_file: config/namo_config_car.yaml
 
 # Manifest passed via sbatch CLI; xml_dir kept for fallback.
-xml_dir: /scratch/dm1487/datasets/car_envs
+xml_dir: ${NAMO_DATASETS}/car_envs
 
 verbose: false
 filter_minimum_length: false

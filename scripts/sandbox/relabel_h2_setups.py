@@ -9,6 +9,12 @@ H=1 rows (direct openers) and ctx/contact_px/r_mask are UNTOUCHED. Copies the H5
 (avoids loading the ~38GB ctx). gamma=0.9. Output is a drop-in replacement for v4_hq_h2_scorer in the NoHz recipe."""
 import sys, os, json, argparse, shutil
 import numpy as np, h5py
+from pathlib import Path
+REPO = Path(__file__).resolve().parents[2]
+for _p in (f"{REPO}/build_python", f"{REPO}/python"):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+from namo.paths import DATASETS  # noqa: E402
 
 GAMMA = 0.9
 
@@ -16,7 +22,7 @@ GAMMA = 0.9
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--in-h5", required=True, help="v4_hq_h2_scorer/data.h5 (the setup data NoHz-v3 used)")
-    ap.add_argument("--key", default="/scratch/dm1487/datasets/v4_hq_h2/labels_exhaustive_pure2push.json")
+    ap.add_argument("--key", default=str(DATASETS / "v4_hq_h2/labels_exhaustive_pure2push.json"))
     ap.add_argument("--vsummary", default="density", choices=["depth", "density"])
     ap.add_argument("--out-h5", required=True)
     ap.add_argument("--match-tol", type=float, default=1e-4, help="max object_center sq-dist for an episode match (~1cm)")

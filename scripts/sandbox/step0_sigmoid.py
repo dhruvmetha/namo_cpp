@@ -4,25 +4,27 @@ Score the H=1 finishing pushes on post-setup states two ways — RAW E[bin] vs t
 compare separation between GT openers and non-openers. If RAW is sharp/separated (openers~0.9, non~0.1) and the
 sigmoid mushes it to [0.5,0.73], the fix is one line. If RAW is ALSO mushy, it's a training problem."""
 import sys, os, json, pickle, glob
-REPO = "/cache/home/dm1487/projects/namo/namo_cpp"; SAGE = "/cache/home/dm1487/projects/namo/sage_learning"
+from pathlib import Path
+REPO = Path(__file__).resolve().parents[2]; SAGE = os.environ.get("SAGE_REPO", "")
 for _p in (f"{REPO}/build_python", f"{REPO}/python", f"{REPO}/scripts", f"{REPO}/scripts/sandbox", SAGE):
-    if _p not in sys.path:
+    if _p and _p not in sys.path:
         sys.path.insert(0, _p)
 import numpy as np
-from scorer_beam import BeamPlanner, make_env, make_action, read_manifest, FALLBACK_GOAL
-from eval_m3 import rank_first_pushes_h2, sample_goal_points
-from namo.core.xml_goal_parser import extract_goal_with_fallback
+from scorer_beam import BeamPlanner, make_env, make_action, read_manifest, FALLBACK_GOAL  # noqa: E402
+from eval_m3 import rank_first_pushes_h2, sample_goal_points  # noqa: E402
+from namo.core.xml_goal_parser import extract_goal_with_fallback  # noqa: E402
+from namo.paths import SCRATCH, DATASETS, MANIFESTS  # noqa: E402
 
-PM = pickle.load(open("/scratch/dm1487/eval/exhaustive_pairmap_pure2.pkl", "rb"))["pairmap"]
-CK = glob.glob("/scratch/dm1487/sage_outputs/scorer/qfull_v2_v4hq_s1/namo-classifier/*/checkpoints/epoch008-val_loss0.6728.ckpt")[0]
+PM = pickle.load(open(str(SCRATCH / "eval/exhaustive_pairmap_pure2.pkl"), "rb"))["pairmap"]
+CK = glob.glob(f"{SCRATCH}/sage_outputs/scorer/qfull_v2_v4hq_s1/namo-classifier/*/checkpoints/epoch008-val_loss0.6728.ckpt")[0]
 ed = lambda g: (int(getattr(g, "edge_idx", -1)), int(getattr(g, "depth", -1)))
 
 
 def main():
     n_target = int(sys.argv[1]) if len(sys.argv) > 1 else 120
     pl = BeamPlanner(ckpt=CK); sc = pl.scorer
-    xmls = read_manifest("/scratch/dm1487/manifests/test_pure2_fromkey.txt", None)
-    key = json.load(open("/scratch/dm1487/datasets/namo_testset_v1/labels/pure2push.json"))
+    xmls = read_manifest(str(MANIFESTS / "test_pure2_fromkey.txt"), None)
+    key = json.load(open(str(DATASETS / "namo_testset_v1/labels/pure2push.json")))
     keyrp = {os.path.realpath(k): v for k, v in key.items()}
     raw_op, raw_non, sig_op, sig_non = [], [], [], []
     done = 0
@@ -77,7 +79,7 @@ def main():
                             "separation": round(np.mean(raw_op) - np.mean(raw_non), 3)},
            "SIGMOID (deployed)": {"openers": stats(sig_op), "non_openers": stats(sig_non),
                                   "separation": round(np.mean(sig_op) - np.mean(sig_non), 3)}}
-    json.dump(out, open("/scratch/dm1487/eval/step0_sigmoid.json", "w"), indent=1)
+    json.dump(out, open(str(SCRATCH / "eval/step0_sigmoid.json"), "w"), indent=1)
     print(json.dumps(out, indent=1))
 
 

@@ -35,6 +35,8 @@ def extract_goal_from_xml(xml_file_path: str) -> Tuple[float, float, float]:
     Raises:
         GoalExtractionError: If goal extraction fails for any reason
     """
+    from namo.paths import resolve  # remap legacy /scratch data paths onto this box (before try, so env errors aren't swallowed)
+    xml_file_path = str(resolve(xml_file_path))
     try:
         # Validate file exists
         xml_path = Path(xml_file_path)

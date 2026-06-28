@@ -7,7 +7,7 @@
 set -uo pipefail
 JC=${1:-$(cat /tmp/v4_collect_jobid.txt 2>/dev/null)}
 LOG=/tmp/v4_chain.log
-cd /cache/home/dm1487/projects/namo/namo_cpp
+cd "$NAMO_REPO" || exit 1
 echo "[chain] $(date): watching collection $JC (need 3 consecutive empties)" >> "$LOG"
 empties=0
 while [ "$empties" -lt 3 ]; do

@@ -10,8 +10,8 @@
 #   EXTRA_ARGS  passthrough to generate_xml_manifest.py (e.g. --no-shuffle)
 #
 # Example:
-#   INPUT_DIR=/scratch/dm1487/datasets/car_envs/v3/aug9_car \
-#   OUTPUT=/scratch/dm1487/manifests/v3_aug9_phase1.txt \
+#   INPUT_DIR=$NAMO_DATASETS/car_envs/v3/aug9_car \
+#   OUTPUT=$NAMO_MANIFESTS/v3_aug9_phase1.txt \
 #     sbatch scripts/amarel/build_xml_manifest.slurm
 #
 #SBATCH --job-name=build-manifest
@@ -19,17 +19,17 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=16G
 #SBATCH --time=00:30:00
-#SBATCH --output=/scratch/dm1487/logs/build-manifest-%j.out
-#SBATCH --error=/scratch/dm1487/logs/build-manifest-%j.err
+#SBATCH --output=logs/build-manifest-%j.out
+#SBATCH --error=logs/build-manifest-%j.err
 
 set -euo pipefail
-NAMO_REPO=${NAMO_REPO:-/cache/home/dm1487/projects/namo/namo_cpp}
+NAMO_REPO="${NAMO_REPO:?source env.<machine>.sh first}"
 cd "$NAMO_REPO"
 source scripts/amarel/activate.sh
 
 : "${INPUT_DIR:?set INPUT_DIR}"
 : "${OUTPUT:?set OUTPUT}"
-mkdir -p "$(dirname "$OUTPUT")" /scratch/dm1487/logs
+mkdir -p "$(dirname "$OUTPUT")" "$NAMO_LOGS"
 
 echo "host=$(hostname) input=$INPUT_DIR output=$OUTPUT"
 echo "start=$(date -Is)"

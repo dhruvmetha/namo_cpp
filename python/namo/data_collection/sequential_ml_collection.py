@@ -773,6 +773,9 @@ def main():
         with open(pre_args.config_yaml, 'r') as f:
             yaml_cfg = yaml.safe_load(f) or {}
         if isinstance(yaml_cfg, dict):
+            # Expand ${ENV} in string values so configs stay machine-portable
+            # (e.g. xml_dir: ${NAMO_DATASETS}/car_envs). See python/namo/paths.py.
+            yaml_cfg = {k: (os.path.expandvars(v) if isinstance(v, str) else v) for k, v in yaml_cfg.items()}
             parser.set_defaults(**yaml_cfg)
 
     args = parser.parse_args(remaining_argv)

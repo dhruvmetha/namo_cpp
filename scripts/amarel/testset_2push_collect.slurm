@@ -20,13 +20,13 @@
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=64G
 #SBATCH --time=06:00:00
-#SBATCH --output=/scratch/dm1487/datasets/namo_testset_v1/logs/ts-2push-%A_%a.out
-#SBATCH --error=/scratch/dm1487/datasets/namo_testset_v1/logs/ts-2push-%A_%a.err
+#SBATCH --output=logs/ts-2push-%A_%a.out
+#SBATCH --error=logs/ts-2push-%A_%a.err
 #SBATCH --array=0-31
 
 set -euo pipefail
-NAMO_REPO=${NAMO_REPO:-/cache/home/dm1487/projects/namo/namo_cpp}
-HOME_DIR=${HOME_DIR:-/scratch/dm1487/datasets/namo_testset_v1}
+NAMO_REPO="${NAMO_REPO:?source env.<machine>.sh first}"
+HOME_DIR=${HOME_DIR:-"$NAMO_DATASETS/namo_testset_v1"}
 mkdir -p "$HOME_DIR/logs"
 source "$NAMO_REPO/scripts/amarel/activate.sh"
 

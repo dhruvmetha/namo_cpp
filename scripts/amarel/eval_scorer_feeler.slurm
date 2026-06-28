@@ -12,14 +12,14 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=48G
 #SBATCH --time=00:40:00
-#SBATCH --output=/scratch/dm1487/logs/evalfeel-%j.out
-#SBATCH --error=/scratch/dm1487/logs/evalfeel-%j.err
+#SBATCH --output=logs/evalfeel-%j.out
+#SBATCH --error=logs/evalfeel-%j.err
 set -euo pipefail
 
-cd /cache/home/dm1487/projects/namo/namo_cpp
-export MJ_PATH=/scratch/dm1487/mujoco/mujoco-3.2.7
+cd "$NAMO_REPO"
+: "${MJ_PATH:?source env.<machine>.sh first}"
 export LD_LIBRARY_PATH="$MJ_PATH/lib:${LD_LIBRARY_PATH:-}"
-export PYTHONPATH="$PWD/build_python:$PWD/python:$PWD/scripts:/cache/home/dm1487/projects/namo/sage_learning"
+export PYTHONPATH="$PWD/build_python:$PWD/python:$PWD/scripts:$SAGE_REPO"
 
 : "${CKPTS:?must set CKPTS (semicolon-separated)}"
 : "${OUT_DIR:?must set OUT_DIR}"
@@ -32,9 +32,9 @@ for ck in "${arr[@]}"; do
     tag=$(echo "$ck" | sed -E 's#.*/scorer/([^/]+)/.*/(epoch[0-9]+).*#\1_\2#')
     out="$OUT_DIR/${tag}_h${EVAL_H:-1}.json"
     echo "=== eval $tag H=${EVAL_H:-1} ==="
-    /scratch/dm1487/envs/namo/bin/python -u scripts/eval_scorer.py \
+    "$NAMO_PYTHON" -u scripts/eval_scorer.py \
         --ckpt "$ck" --network edge_crossattn --num-depths 5 --h "${EVAL_H:-1}" --out "$out"
-    /scratch/dm1487/envs/namo/bin/python - "$out" <<'PY'
+    "$NAMO_PYTHON" - "$out" <<'PY'
 import json, sys
 r = json.load(open(sys.argv[1])); d = r["divisions"]
 def sr(div, k): return d.get(div, {}).get("scorer_realistic", {}).get(k)

@@ -8,19 +8,21 @@ finish at the setup's s1), so it removes the 'won't-dive' confound and measures 
   - graded by goal_open_pts (>=20% of s0-sampled goal-region points reachable) = the canonical region criterion.
 Reports open@1 (setup alone opens, ~0 on pure-2) and open@2 (the argmax-argmax reactive number)."""
 import sys, os, json, argparse, random
-REPO = "/cache/home/dm1487/projects/namo/namo_cpp"; SAGE = "/cache/home/dm1487/projects/namo/sage_learning"
+from pathlib import Path
+REPO = Path(__file__).resolve().parents[2]; SAGE = os.environ.get("SAGE_REPO", "")
 for _p in (f"{REPO}/build_python", f"{REPO}/python", f"{REPO}/scripts", f"{REPO}/scripts/sandbox", f"{REPO}/scripts/pipeline", SAGE):
-    if _p not in sys.path:
+    if _p and _p not in sys.path:
         sys.path.insert(0, _p)
 from scorer_beam import BeamPlanner, make_env, make_action, FALLBACK_GOAL  # noqa: E402
 from eval_m3 import rank_first_pushes_h2, sample_goal_points, goal_open_pts  # noqa: E402
 from namo.core.xml_goal_parser import extract_goal_with_fallback  # noqa: E402
+from namo.paths import DATASETS, resolve  # noqa: E402
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ckpt", required=True)
-    ap.add_argument("--key", default="/scratch/dm1487/datasets/namo_testset_v1/labels/pure2push.json")
+    ap.add_argument("--key", default=str(DATASETS / "namo_testset_v1/labels/pure2push.json"))
     ap.add_argument("--start", type=int, default=0)
     ap.add_argument("--end", type=int, default=0, help="0 = to end (xml-index shard)")
     ap.add_argument("--out", required=True)
@@ -36,7 +38,7 @@ def main():
         for rec in key[xml]:
             obj = rec["object_id"]
             try:
-                env = make_env(xml); goal = extract_goal_with_fallback(xml, FALLBACK_GOAL)
+                xmlp = str(resolve(xml)); env = make_env(xmlp); goal = extract_goal_with_fallback(xmlp, FALLBACK_GOAL)
                 env.set_robot_goal(*goal); env.get_reachable_objects(); s0 = env.get_full_state()
                 gp = sample_goal_points(env)
             except Exception:

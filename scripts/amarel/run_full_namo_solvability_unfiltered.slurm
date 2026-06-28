@@ -30,13 +30,13 @@
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=128G
 #SBATCH --time=24:00:00
-#SBATCH --output=/scratch/dm1487/logs/fullnamo-solv-%j.out
-#SBATCH --error=/scratch/dm1487/logs/fullnamo-solv-%j.err
+#SBATCH --output=logs/fullnamo-solv-%j.out
+#SBATCH --error=logs/fullnamo-solv-%j.err
 
 set -euo pipefail
-mkdir -p /scratch/dm1487/logs
+mkdir -p "$NAMO_LOGS"
 
-NAMO_REPO=${NAMO_REPO:-/cache/home/dm1487/projects/namo/namo_cpp}
+NAMO_REPO="${NAMO_REPO:?source env.<machine>.sh first}"
 source "$NAMO_REPO/scripts/amarel/activate.sh"
 
 INPUT_DIR=${INPUT_DIR:-/common/users/shared/robot_learning/dm1487/namo/full_namo_tests/envs_unfiltered}

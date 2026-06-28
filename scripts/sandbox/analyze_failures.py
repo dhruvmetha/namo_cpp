@@ -2,11 +2,17 @@
 """DEEP failure analysis of the 2x2 best-first solve results (corrected region criterion).
 Answers: WHO fails (unsolved@900 tail), WHY (search-budget vs ranking), the reactive gap, ceiling vs random.
 Joins leaf jsonls + pure2push_divisions.json (difficulty/n_setups) + the exhaustive (a1,a2) pairmap."""
-import json, glob, os, pickle, statistics as st
+import sys, json, glob, os, pickle, statistics as st
 from collections import defaultdict
+from pathlib import Path
+REPO = Path(__file__).resolve().parents[2]
+for _p in (f"{REPO}/build_python", f"{REPO}/python"):
+    if _p and _p not in sys.path:
+        sys.path.insert(0, _p)
+from namo.paths import SCRATCH, DATASETS  # noqa: E402
 
-EVAL = "/scratch/dm1487/eval"
-DIV = json.load(open("/scratch/dm1487/datasets/namo_testset_v1/labels/pure2push_divisions.json"))
+EVAL = str(SCRATCH / "eval")
+DIV = json.load(open(str(DATASETS / "namo_testset_v1/labels/pure2push_divisions.json")))
 PM = pickle.load(open(f"{EVAL}/exhaustive_pairmap_pure2.pkl", "rb"))["pairmap"]
 CELLS = {"Hz-v1": "qfull_v4hq_s1", "NoHz-v1": "qfull_nohz_v4hq_s1",
          "Hz-v2": "qfull_v2_v4hq_s1", "NoHz-v2": "qfull_nohz_v2_v4hq_s1"}

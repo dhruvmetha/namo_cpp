@@ -2,7 +2,7 @@
 # v3 cascade collection — reusable for phases 2..5E.
 # Parameterized via env vars (set at sbatch time):
 #   MANIFEST     full path to the phase manifest (one XML path per line)
-#   OUTPUT_DIR   where per-shard pkls land (e.g. /scratch/dm1487/outputs/v3_phase2)
+#   OUTPUT_DIR   where per-shard pkls land (e.g. $NAMO_OUTPUTS/v3_phase2)
 #   DEPTH        --region-max-chain-depth (2 for phases 2-5)
 #   KROLL        --rollout-samples-per-state (20 phase2, 50 phase3+)
 #   NUM_SHARDS   array width (must match --array=0-(NUM_SHARDS-1) at submit)
@@ -18,11 +18,11 @@
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=64G
 #SBATCH --time=24:00:00
-#SBATCH --output=/scratch/dm1487/logs/v3-casc-%A_%a.out
-#SBATCH --error=/scratch/dm1487/logs/v3-casc-%A_%a.err
+#SBATCH --output=logs/v3-casc-%A_%a.out
+#SBATCH --error=logs/v3-casc-%A_%a.err
 
 set -euo pipefail
-NAMO_REPO=${NAMO_REPO:-/cache/home/dm1487/projects/namo/namo_cpp}
+NAMO_REPO="${NAMO_REPO:?source env.<machine>.sh first}"
 source "$NAMO_REPO/scripts/amarel/activate.sh"
 
 : "${MANIFEST:?set MANIFEST}"
@@ -31,7 +31,7 @@ source "$NAMO_REPO/scripts/amarel/activate.sh"
 : "${KROLL:?set KROLL}"
 : "${NUM_SHARDS:?set NUM_SHARDS}"
 
-mkdir -p /scratch/dm1487/logs "$OUTPUT_DIR"
+mkdir -p "$NAMO_LOGS" "$OUTPUT_DIR"
 
 TOTAL_ENVS=$(wc -l < "$MANIFEST")
 SHARD_SIZE=$(( (TOTAL_ENVS + NUM_SHARDS - 1) / NUM_SHARDS ))

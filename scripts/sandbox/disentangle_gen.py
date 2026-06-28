@@ -4,15 +4,17 @@ Random(0), 90/10 over the v2 mix), then scores the model's raw H=1 finish value 
 same setups, same render path as training; ONLY the scenes are unseen. Disentangles pure scene-generalization
 from the setup-policy / live-render confounds in the earlier train(0.75)-vs-test(0.27) comparison."""
 import sys, glob, os, random
-REPO = "/cache/home/dm1487/projects/namo/namo_cpp"; SAGE = "/cache/home/dm1487/projects/namo/sage_learning"
+from pathlib import Path
+REPO = Path(__file__).resolve().parents[2]; SAGE = os.environ.get("SAGE_REPO", "")
 for _p in (f"{REPO}/build_python", f"{REPO}/python", f"{REPO}/scripts", f"{REPO}/scripts/sandbox", SAGE):
-    if _p not in sys.path:
+    if _p and _p not in sys.path:
         sys.path.insert(0, _p)
-import numpy as np, h5py, json
-from live_scorer import LiveScorer
-CK = glob.glob("/scratch/dm1487/sage_outputs/scorer/qfull_v2_v4hq_s1/namo-classifier/*/checkpoints/epoch008-val_loss0.6728.ckpt")[0]
-H5 = ["/scratch/dm1487/h5/v4_hq_m2b_scorer/data.h5", "/scratch/dm1487/h5/v4_hq_h2_scorer/data.h5",
-      "/scratch/dm1487/h5/v4_hq_onepush_h2_aug/data.h5"] + sorted(glob.glob("/scratch/dm1487/h5/v4_hq_postpush_v2/shard_*.h5"),
+import numpy as np, h5py, json  # noqa: E402
+from live_scorer import LiveScorer  # noqa: E402
+from namo.paths import SCRATCH, H5 as H5_ROOT  # noqa: E402
+CK = glob.glob(str(SCRATCH / "sage_outputs/scorer/qfull_v2_v4hq_s1/namo-classifier/*/checkpoints/epoch008-val_loss0.6728.ckpt"))[0]
+H5 = [str(H5_ROOT / "v4_hq_m2b_scorer/data.h5"), str(H5_ROOT / "v4_hq_h2_scorer/data.h5"),
+      str(H5_ROOT / "v4_hq_onepush_h2_aug/data.h5")] + sorted(glob.glob(str(H5_ROOT / "v4_hq_postpush_v2/shard_*.h5")),
       key=lambda p: int(p.split("shard_")[1].split(".")[0]))
 PP_START = 3  # indices 3.. are postpush
 
@@ -54,7 +56,7 @@ def main():
             "separation": round(float(pos.mean() - neg.mean()), 3), "pos_p90": round(float(np.percentile(pos, 90)), 3),
             "n_pos": len(pos), "n_neg": len(neg)},
            "REF: TRAIN postpush sep": 0.75, "REF: TEST live (model-setup s1) sep": 0.273}
-    json.dump(out, open("/scratch/dm1487/eval/disentangle_gen.json", "w"), indent=1)
+    json.dump(out, open(str(SCRATCH / "eval/disentangle_gen.json"), "w"), indent=1)
     print(json.dumps(out, indent=1))
 
 

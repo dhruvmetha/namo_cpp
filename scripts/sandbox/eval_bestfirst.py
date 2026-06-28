@@ -19,16 +19,18 @@ Metric: solve-rate within sim_budget + avg sims-to-solve. Sweep --sim-budget for
       --sim-budget 30 --prior model --agg mean5 --combine blend --start 0 --end 985 --out <json>
 """
 import sys, os, json, time, argparse, random, heapq
-REPO = "/cache/home/dm1487/projects/namo/namo_cpp"
-SAGE = "/cache/home/dm1487/projects/namo/sage_learning"
+from pathlib import Path
+REPO = Path(__file__).resolve().parents[2]
+SAGE = os.environ.get("SAGE_REPO", "")
 for _p in (f"{REPO}/build_python", f"{REPO}/python", f"{REPO}/scripts", f"{REPO}/scripts/sandbox", SAGE):
-    if _p not in sys.path:
+    if _p and _p not in sys.path:
         sys.path.insert(0, _p)
 from scorer_beam import BeamPlanner, make_env, make_action, read_manifest, FALLBACK_GOAL  # noqa: E402
 from eval_m3 import rank_first_pushes_h2, sample_goal_points, goal_open_pts  # noqa: E402
 from namo.core.xml_goal_parser import extract_goal_with_fallback  # noqa: E402
+from namo.paths import MANIFESTS, DATASETS, SCRATCH  # noqa: E402
 
-PURE2PUSH = "/scratch/dm1487/manifests/test_pure2_fromkey.txt"
+PURE2PUSH = str(MANIFESTS / "test_pure2_fromkey.txt")
 
 
 def candidates(planner, env, goal, xml, state, h, prior, agg, rng, restrict_obj=None, raw=False):
@@ -92,7 +94,7 @@ def main():
     ap.add_argument("--prior", default="model", choices=["model", "uniform"])
     ap.add_argument("--agg", default="mean5", choices=["mean5", "max"], help="state-value aggregate (selection)")
     ap.add_argument("--combine", default="blend", choices=["q", "blend", "product"])
-    ap.add_argument("--key", default="/scratch/dm1487/datasets/namo_testset_v1/labels/pure2push.json",
+    ap.add_argument("--key", default=str(DATASETS / "namo_testset_v1/labels/pure2push.json"),
                     help="GROUND-TRUTH key (per (object,goal) records). The search is CONSTRAINED to the labeled "
                          "object → true k-push problem, one-to-one w/ GT. Eval is per-EPISODE (record), not per-scene.")
     ap.add_argument("--seed-base", type=int, default=7000,
@@ -106,8 +108,8 @@ def main():
     ap.add_argument("--success", default="region", choices=["region", "point"],
                     help="success predicate: 'region' = LABEL-consistent (>=20%% of 100 goal-region pts reachable, "
                          "matches the test-set collection); 'point' = legacy single xml-site point (the OLD bug).")
-    ap.add_argument("--out", default="/scratch/dm1487/eval/bestfirst.json")
-    ap.add_argument("--leaf-out", default="/scratch/dm1487/eval/bestfirst.jsonl")
+    ap.add_argument("--out", default=str(SCRATCH / "eval/bestfirst.json"))
+    ap.add_argument("--leaf-out", default=str(SCRATCH / "eval/bestfirst.jsonl"))
     a = ap.parse_args()
 
     import os as _os

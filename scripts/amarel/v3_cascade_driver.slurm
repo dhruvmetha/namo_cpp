@@ -20,11 +20,11 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
 #SBATCH --time=48:00:00
-#SBATCH --output=/scratch/dm1487/logs/cascade-driver-%j.out
-#SBATCH --error=/scratch/dm1487/logs/cascade-driver-%j.err
+#SBATCH --output=logs/cascade-driver-%j.out
+#SBATCH --error=logs/cascade-driver-%j.err
 
 set -euo pipefail
-NAMO_REPO=${NAMO_REPO:-/cache/home/dm1487/projects/namo/namo_cpp}
+NAMO_REPO="${NAMO_REPO:?source env.<machine>.sh first}"
 cd "$NAMO_REPO"
 
 CORPUS=${CORPUS:-${CORPUS_TAG:-}}        # CORPUS_TAG still accepted (back-compat)

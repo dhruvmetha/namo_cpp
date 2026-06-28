@@ -12,9 +12,10 @@ The bootstrap trainer then sets the setup target = [a1 opens]==0 here ? gamma * 
 finish net on ctx. --setups both -> model's top-K (on-policy, incl DEAD setups) + the labeled valid setups
 (opener-bearing) = the full good/dead range the setup value must discriminate. Reuses exit_collect helpers (DRY)."""
 import sys, os, json, argparse, math, time
-REPO = "/cache/home/dm1487/projects/namo/namo_cpp"; SAGE = "/cache/home/dm1487/projects/namo/sage_learning"
+from pathlib import Path
+REPO = Path(__file__).resolve().parents[2]; SAGE = os.environ.get("SAGE_REPO", "")
 for _p in (f"{REPO}/build_python", f"{REPO}/python", f"{REPO}/scripts", f"{REPO}/scripts/sandbox", f"{REPO}/scripts/pipeline", SAGE):
-    if _p not in sys.path:
+    if _p and _p not in sys.path:
         sys.path.insert(0, _p)
 import numpy as np  # noqa: E402
 import h5py  # noqa: E402
@@ -22,6 +23,7 @@ from scorer_beam import BeamPlanner, make_env, make_action, FALLBACK_GOAL  # noq
 from eval_m3 import rank_first_pushes_h2, sample_goal_points  # noqa: E402
 from namo.core.xml_goal_parser import extract_goal_with_fallback  # noqa: E402
 from exit_collect import exhaustive_a2, obj_moved, ed, iter_records, TRAIN_KEY, OUT  # noqa: E402
+from namo.paths import H5, resolve  # noqa: E402
 
 
 def collect(a):
@@ -33,7 +35,7 @@ def collect(a):
     for xml, rec in iter_records(a.key, a.start, a.end):
         obj = rec["object_id"]
         try:
-            env = make_env(xml); goal = extract_goal_with_fallback(xml, FALLBACK_GOAL)
+            xmlp = str(resolve(xml)); env = make_env(xmlp); goal = extract_goal_with_fallback(xmlp, FALLBACK_GOAL)
             env.set_robot_goal(*goal); env.get_reachable_objects(); s0 = env.get_full_state()
             goal_pts = sample_goal_points(env)
         except Exception as ex:
@@ -115,7 +117,7 @@ def main():
     ap.add_argument("--end", type=int, default=5076)
     ap.add_argument("--topk-setups", type=int, default=6, help="setups expanded/scene (more = more transitions incl dead)")
     ap.add_argument("--setups", default="both", choices=["model", "valid", "both"])
-    ap.add_argument("--out-h5", default="/scratch/dm1487/h5/v4_hq_transitions/shard_0.h5")
+    ap.add_argument("--out-h5", default=str(H5 / "v4_hq_transitions/shard_0.h5"))
     collect(ap.parse_args())
 
 

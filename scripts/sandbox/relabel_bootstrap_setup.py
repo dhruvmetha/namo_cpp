@@ -24,7 +24,7 @@ def vgt(summary, dead, ratio):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--in-glob", required=True, help="transition shards, e.g. /scratch/dm1487/h5/v4_hq_transitions/shard_*.h5")
+    ap.add_argument("--in-glob", required=True, help="transition shards, e.g. $NAMO_SCRATCH/h5/v4_hq_transitions/shard_*.h5")
     ap.add_argument("--vsummary", default="density", choices=["depth", "density"])
     ap.add_argument("--out-h5", required=True)
     a = ap.parse_args()

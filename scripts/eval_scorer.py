@@ -37,6 +37,7 @@ import torch
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from eval_common import MASKS, OUT, match_episode, bin_of, floor_no_replacement  # shared grading contract
+from namo.paths import DATASETS, H5  # noqa: E402
 
 
 def contact_px(edge, hw, hd, theta, crop_m, S=64):
@@ -55,7 +56,9 @@ def contact_px(edge, hw, hd, theta, crop_m, S=64):
 
 def load_scorer(ckpt, num_depths, device, network="dit_classifier"):
     import inspect
-    sys.path.insert(0, "/cache/home/dm1487/projects/namo/sage_learning")
+    _sage = os.environ.get("SAGE_REPO", "")
+    if _sage and _sage not in sys.path:
+        sys.path.insert(0, _sage)
     from src.model.classifier_module import ClassifierModule
     # weights_only=False: our own trusted ckpt; PyTorch 2.6 default rejects the numpy scalar in hparams
     ck = torch.load(ckpt, map_location=device, weights_only=False)
@@ -123,10 +126,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ckpt", required=True)
     # Canonical 1-push answer key = namo_testset_v1 under the stricter 20% success bar (2026-06-10).
-    # (Old key /scratch/dm1487/manifests/v3_test_episodes.json was the "any point reachable" bar.)
+    # (Old key $NAMO_SCRATCH/manifests/v3_test_episodes.json was the "any point reachable" bar.)
     ap.add_argument("--episodes",
-                    default="/scratch/dm1487/datasets/namo_testset_v1/labels/onepush_episodes.json")
-    ap.add_argument("--h5-root", default="/scratch/dm1487/h5")
+                    default=str(DATASETS / "namo_testset_v1/labels/onepush_episodes.json"))
+    ap.add_argument("--h5-root", default=str(H5))
     ap.add_argument("--divisions", default="hard,med,easy")
     ap.add_argument("--num-depths", type=int, default=5)
     ap.add_argument("--h", type=int, default=1, help="budget to query for budget-Q ckpts (1=1-push panel; "

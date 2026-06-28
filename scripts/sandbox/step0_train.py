@@ -3,21 +3,23 @@
 Score the model's RAW H=1 value on the TRAINING finish crops (postpush H5) — opener vs non-opener separation.
 If TRAIN separation is SHARP (openers~0.9) but TEST was mushy (0.273) -> it CAN reason, just doesn't generalize ->
 DATA fix. If TRAIN is ALSO mushy -> capacity/representation wall (more data won't help)."""
-import sys, glob
-REPO = "/cache/home/dm1487/projects/namo/namo_cpp"; SAGE = "/cache/home/dm1487/projects/namo/sage_learning"
+import sys, glob, os
+from pathlib import Path
+REPO = Path(__file__).resolve().parents[2]; SAGE = os.environ.get("SAGE_REPO", "")
 for _p in (f"{REPO}/build_python", f"{REPO}/python", f"{REPO}/scripts", f"{REPO}/scripts/sandbox", SAGE):
-    if _p not in sys.path:
+    if _p and _p not in sys.path:
         sys.path.insert(0, _p)
-import numpy as np, h5py, json
-from live_scorer import LiveScorer
+import numpy as np, h5py, json  # noqa: E402
+from live_scorer import LiveScorer  # noqa: E402
+from namo.paths import SCRATCH, H5  # noqa: E402
 
-CK = glob.glob("/scratch/dm1487/sage_outputs/scorer/qfull_v2_v4hq_s1/namo-classifier/*/checkpoints/epoch008-val_loss0.6728.ckpt")[0]
+CK = glob.glob(f"{SCRATCH}/sage_outputs/scorer/qfull_v2_v4hq_s1/namo-classifier/*/checkpoints/epoch008-val_loss0.6728.ckpt")[0]
 
 
 def main():
     n = int(sys.argv[1]) if len(sys.argv) > 1 else 400
     sc = LiveScorer(ckpt=CK)
-    f = h5py.File("/scratch/dm1487/h5/v4_hq_postpush_v2/shard_0.h5", "r")   # the FINISH (H=1 on s1) training crops
+    f = h5py.File(str(H5 / "v4_hq_postpush_v2/shard_0.h5"), "r")   # the FINISH (H=1 on s1) training crops
     N = min(int(f.attrs.get("n_samples", f["ctx"].shape[0])), n)
     op, non = [], []
     for i in range(N):
@@ -37,7 +39,7 @@ def main():
            {"openers": st(op), "non_openers": st(non), "separation": round(float(op.mean() - non.mean()), 3)},
            "TEST finish separation (from step0_sigmoid)": 0.273,
            "verdict_hint": "TRAIN sep >> TEST 0.273 -> can reason, data fix; TRAIN ~= TEST -> representation wall"}
-    json.dump(out, open("/scratch/dm1487/eval/step0_train.json", "w"), indent=1)
+    json.dump(out, open(str(SCRATCH / "eval/step0_train.json"), "w"), indent=1)
     print(json.dumps(out, indent=1))
 
 

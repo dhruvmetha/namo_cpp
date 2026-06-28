@@ -14,13 +14,13 @@
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=64G
 #SBATCH --time=02:00:00
-#SBATCH --output=/scratch/dm1487/logs/bcsmoke-%A_%a.out
-#SBATCH --error=/scratch/dm1487/logs/bcsmoke-%A_%a.err
+#SBATCH --output=logs/bcsmoke-%A_%a.out
+#SBATCH --error=logs/bcsmoke-%A_%a.err
 
 set -euo pipefail
-mkdir -p /scratch/dm1487/logs
+mkdir -p "$NAMO_LOGS"
 
-NAMO_REPO=${NAMO_REPO:-/cache/home/dm1487/projects/namo/namo_cpp}
+NAMO_REPO="${NAMO_REPO:?source env.<machine>.sh first}"
 source "$NAMO_REPO/scripts/amarel/activate.sh"
 
 : "${PKL_MANIFEST:?must set PKL_MANIFEST}"
