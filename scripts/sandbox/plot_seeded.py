@@ -62,4 +62,4 @@ def make(title, seed_dirs, out):
 
 if __name__ == "__main__":
     make("1-push (n=1323, hmax=1)", ["full1_s1_b900", "full1_s2_b900", "full1_s3_b900"], f"{EV}/curves_1push_3seed.png")
-    make("2-push (34/tier sample ~102/seed, hmax=2)", ["full2_s1_b900", "full2_s2_b900", "full2_s3_b900"], f"{EV}/curves_2push_3seed.png")
+    make("2-push (full n~1018, hmax=2)", ["full2_s1_b900", "full2_s2_b900", "full2_s3_b900"], f"{EV}/curves_2push_3seed.png")
