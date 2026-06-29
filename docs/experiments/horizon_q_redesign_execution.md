@@ -239,3 +239,10 @@ keep the simpler depth value.
   render-bound vs random ~0.3s = 12× slower. Fast(322ms) job 57508274 RUNNING (watcher `b6r56u72i`, `.../fast_render.jsonl`)
   = the "after". `time_benchmark.py`=warm interleaved Hz/NoHz/random reactive@2 same node. Gate ref:
   `/scratch/dm1487/eval/render_equiv/ref_crops.npz`. Slack→DM `U07N1DR8S94` (3 sent), hourly heartbeat set. NO pushes.
+- **✅ RENDER FIX COMPLETE [2026-06-29 ~05:30 ET]: `fast_scorer` LANDED + BIT-IDENTICAL (gate 29/29 diff=0).** render
+  **2019→101ms = 19.9× total**, all 3 changes provably output-preserving (BFS, circle-window, fast_scorer). **101ms <
+  sim ~160ms → scoring is no longer the deploy bottleneck.** Committed: sage `c0a00f7` (`feat/render-speedup`), namo_cpp
+  `5e0c2ae`+`a2a826b` (`feat/horizon-q-redesign`). FINAL timing (101ms) job 57509898 RUNNING (watcher `bkk4xcnvx`,
+  `/scratch/dm1487/eval/timebench/final_render.jsonl`). REMAINING: aggregate before(57505248)/after(57509898) timing →
+  Slack the table → optionally the same `fast_scorer`-style speedup belongs in the data-collection render too (same
+  visualizer; training uses the default-False path so it's untouched, but collection could opt in). NO pushes (user's call).
