@@ -6,6 +6,16 @@ import json, glob, os, sys
 from collections import defaultdict
 import numpy as np
 import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
+from matplotlib.ticker import FixedLocator, FixedFormatter, NullLocator
+
+
+def nice_logticks(ax, cand, lo, hi):
+    """Plain-number major ticks at meaningful values on a log axis (no 10^x, no minor clutter)."""
+    ticks = [t for t in cand if lo <= t <= hi]
+    ax.xaxis.set_major_locator(FixedLocator(ticks))
+    ax.xaxis.set_major_formatter(FixedFormatter([f"{t:g}" for t in ticks]))
+    ax.xaxis.set_minor_locator(NullLocator())
+
 
 EV = "/scratch/dm1487/eval"
 COL = {"Hz": "#1f77b4", "NoHz": "#2ca02c", "random": "#d62728"}
@@ -83,8 +93,10 @@ def make_fig(title, simdirs, timefn, key, out):
         ttg = np.logspace(np.log10(ttmin), np.log10(ttmax), 200)
         for m in COL:
             if tt[m]: ax[1, ci].plot(ttg, succ(tt[m], ttg), color=COL[m], lw=2, label=f"{m} (n={len(tt[m])})")
-        ax[0, ci].set_title(f"{T} — vs SIM budget"); ax[0, ci].set_xscale("log"); ax[0, ci].set_xlim(1, 900); ax[0, ci].set_xlabel("sim budget (log)")
-        ax[1, ci].set_title(f"{T} — vs WALL-TIME"); ax[1, ci].set_xscale("log"); ax[1, ci].set_xlim(ttmin, ttmax); ax[1, ci].set_xlabel("wall-clock budget (s, log)")
+        ax[0, ci].set_title(f"{T} — vs SIM budget"); ax[0, ci].set_xscale("log"); ax[0, ci].set_xlim(1, 900); ax[0, ci].set_xlabel("sim budget")
+        nice_logticks(ax[0, ci], [1, 2, 5, 10, 20, 50, 100, 200, 500, 900], 1, 900)
+        ax[1, ci].set_title(f"{T} — vs WALL-TIME"); ax[1, ci].set_xscale("log"); ax[1, ci].set_xlim(ttmin, ttmax); ax[1, ci].set_xlabel("wall-clock budget (s)")
+        nice_logticks(ax[1, ci], [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500], ttmin, ttmax)
     for a in ax.flat:
         a.set_ylim(0, 100); a.grid(alpha=0.3); a.legend(fontsize=7, loc="lower right"); a.set_ylabel("% solved")
     fig.suptitle(f"{title} — best-first by difficulty. SIM=full set, TIME=same exclusive node (warm, interleaved)", fontsize=12)
