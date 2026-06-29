@@ -38,7 +38,7 @@ PYTHON_SOABI="$("$PYTHON_BIN" -c "import sysconfig; print(sysconfig.get_config_v
 echo "Using Python: $($PYTHON_BIN --version) ($PYTHON_BIN), SOABI=$PYTHON_SOABI"
 
 cmake -S . -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release -DBUILD_PYTHON_BINDINGS=ON \
-    -DCMAKE_CXX_FLAGS_RELEASE="-O3 -DNDEBUG -march=${NAMO_MARCH} -flto" \
+    -DNAMO_MARCH="${NAMO_MARCH}" \
     -DPython3_EXECUTABLE="$PYTHON_BIN" \
     -DPython3_INCLUDE_DIR="$PYTHON_INCLUDE" \
     -DPython3_LIBRARY_RELEASE="$PYTHON_LIBDIR/libpython$PYTHON_LIBVER.so" \

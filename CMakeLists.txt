@@ -4,8 +4,11 @@ project(namo_standalone VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Performance optimization flags
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -march=native -flto")
+# Performance optimization flags. -march defaults to native (fast local builds);
+# override with -DNAMO_MARCH=x86-64-v2 for a portable .so across a heterogeneous
+# fleet (shared FS, mixed CPUs/glibc -> build on the OLDEST node, conservative arch).
+set(NAMO_MARCH "native" CACHE STRING "Target CPU arch for -march")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -march=${NAMO_MARCH} -flto")
 set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g -DDEBUG")
 set(CMAKE_CXX_FLAGS_PROFILE "-O2 -g -pg -fno-omit-frame-pointer -DNDEBUG")
 
