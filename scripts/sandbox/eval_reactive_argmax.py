@@ -26,6 +26,8 @@ def main():
     ap.add_argument("--start", type=int, default=0)
     ap.add_argument("--end", type=int, default=0, help="0 = to end (xml-index shard)")
     ap.add_argument("--out", required=True)
+    ap.add_argument("--leaf-out", default="", help="optional per-episode jsonl: {xml,object_id,region,open2}")
+    ap.add_argument("--h", type=int, default=2, help="query budget for the FIRST push (2=foresight; 1=told-you-have-1-push)")
     ap.add_argument("--prior", default="q", choices=["q", "uniform"], help="q=argmax(model); uniform=RANDOM pick, no model")
     ap.add_argument("--seed", type=int, default=7000)
     a = ap.parse_args()
@@ -33,10 +35,10 @@ def main():
     pl = BeamPlanner(ckpt=a.ckpt)
     key = json.load(open(a.key))
     xmls = list(key); xmls = xmls[a.start:(a.end if a.end else len(xmls))]
-    n = 0; open1 = 0; open2 = 0; skip = 0
+    n = 0; open1 = 0; open2 = 0; skip = 0; leaf = []
     for xi, xml in enumerate(xmls):
         for rec in key[xml]:
-            obj = rec["object_id"]
+            obj = rec["object_id"]; reg = rec.get("region")
             try:
                 xmlp = str(resolve(xml)); env = make_env(xmlp); goal = extract_goal_with_fallback(xmlp, FALLBACK_GOAL)
                 env.set_robot_goal(*goal); env.get_reachable_objects(); s0 = env.get_full_state()
@@ -45,22 +47,24 @@ def main():
                 skip += 1; continue
             if not gp or goal_open_pts(env, gp):
                 skip += 1; continue
-            pool0 = rank_first_pushes_h2(pl, env, goal, xml, s0, 2, restrict_obj=obj, score=(a.prior == "q"))  # setups @H=2
+            pool0 = rank_first_pushes_h2(pl, env, goal, xml, s0, a.h, restrict_obj=obj, score=(a.prior == "q"))  # first push @ query budget a.h
             if not pool0:
                 skip += 1; continue
             n += 1
             _o, g1, _q = pool0[0] if a.prior == "q" else rng.choice(pool0)              # ARGMAX or RANDOM setup
             env.set_full_state(s0); env.step(make_action(obj, g1))
             if goal_open_pts(env, gp):
-                open1 += 1; open2 += 1; continue                                        # opened in 1 (rare on pure-2)
+                open1 += 1; open2 += 1
+                leaf.append({"xml": xml, "object_id": obj, "region": reg, "open2": 1}); continue  # opened in 1
             s1 = env.get_full_state()
             pool1 = rank_first_pushes_h2(pl, env, goal, xml, s1, 1, restrict_obj=obj, score=(a.prior == "q"))   # finishes @H=1
             if not pool1:
-                continue
+                leaf.append({"xml": xml, "object_id": obj, "region": reg, "open2": 0}); continue
             _o2, g2, _q2 = pool1[0] if a.prior == "q" else rng.choice(pool1)             # ARGMAX or RANDOM finish
             env.set_full_state(s1); env.step(make_action(obj, g2))
-            if goal_open_pts(env, gp):
-                open2 += 1
+            o2 = 1 if goal_open_pts(env, gp) else 0
+            open2 += o2
+            leaf.append({"xml": xml, "object_id": obj, "region": reg, "open2": o2})
         if xi % 25 == 0:
             print(f"  [{xi}/{len(xmls)}] n={n} open@2={open2}", file=sys.stderr, flush=True)
     out = {"ckpt": os.path.basename(a.ckpt), "n": n, "skip": skip,
@@ -69,6 +73,11 @@ def main():
            "reactive_argmax@2": round(100 * open2 / max(n, 1), 1)}
     os.makedirs(os.path.dirname(a.out), exist_ok=True)
     json.dump(out, open(a.out, "w"), indent=1)
+    if a.leaf_out:
+        os.makedirs(os.path.dirname(a.leaf_out), exist_ok=True)
+        with open(a.leaf_out, "w") as fh:
+            for r in leaf:
+                fh.write(json.dumps(r) + "\n")
     print(json.dumps(out, indent=1))
 
 

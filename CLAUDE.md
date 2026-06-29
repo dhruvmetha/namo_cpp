@@ -47,6 +47,8 @@ These files survive compaction; the conversation does not. When picking up Horiz
 
 Default to plain English. Short, sharp sentences. No jargon unless I'm already using it back at you. If you have to use a technical term, give the one-sentence intuition the first time. Walls of text are a failure mode — prefer a 3-line answer with a "want more?" hook over a 30-line essay I have to skim. Code snippets and numbers belong in the answer when they're load-bearing, not as decoration.
 
+**⛔ STRICT — NEVER HAND-WAVE [USER].** Do not present an unverified guess as a conclusion. "Almost certainly X", "probably because Y", "likely due to Z" used to *explain* something you haven't checked are BANNED. Either **verify it against the code/data first** (read the path, sample the data, check the job state) and then state it — or **explicitly label it "UNVERIFIED HYPOTHESIS — haven't checked."** When numbers look off, check job state / file completeness / the actual values *before* inventing a cause. Saying "I'll check" and taking a minute beats shipping a confident wrong answer. (Reinforced after a real miss: I blamed differing eval counts on "shard wall-timeouts" — verification showed jobs completed fine and it was a premature-file-read artifact.)
+
 ## Python Environment
 
 - Use `/scratch/dm1487/envs/namo/bin/python` (Python 3.11) for Python commands in this repo. It's already on `PATH` here, so plain `python` resolves to it — but reference the absolute path when writing scripts or docs.

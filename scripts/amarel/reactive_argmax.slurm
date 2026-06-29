@@ -17,4 +17,5 @@ export OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 CUDA_VISIBLE_DEVICES=""
 : "${CKPT:?}"; : "${OUT_DIR:?}"; SHARD=${SHARD:-80}
 START=$(( SLURM_ARRAY_TASK_ID * SHARD )); END=$(( START + SHARD )); mkdir -p "$OUT_DIR"
 "$NAMO_PYTHON" -u scripts/sandbox/eval_reactive_argmax.py \
-    --ckpt "$CKPT" --prior "${PRIOR:-q}" --seed "${SEED:-7000}" --start "$START" --end "$END" --out "$OUT_DIR/shard_${SLURM_ARRAY_TASK_ID}.json"
+    --ckpt "$CKPT" --prior "${PRIOR:-q}" --seed "${SEED:-7000}" --h "${H:-2}" ${KEY:+--key "$KEY"} --start "$START" --end "$END" \
+    --out "$OUT_DIR/shard_${SLURM_ARRAY_TASK_ID}.json" --leaf-out "$OUT_DIR/shard_${SLURM_ARRAY_TASK_ID}.jsonl"
