@@ -8,7 +8,7 @@
 - After env: `echo $NAMO_SCRATCH` → `/common/users/dm1487/scratch_namo`.
 
 ## Layout
-- Repos: `/common/users/dm1487/fresh_start/projects/namo/{namo_cpp, sage_learning}`
+- Repos: `/common/home/dm1487/robotics_research/ktamp/{namo, sage_learning}` (= `NAMO_PARENT`; repo dir is `namo` here, `namo_cpp` on Amarel; `sage_learning` is its sibling). `…/fresh_start/projects/namo/` holds only the `h5` data, **not** the repos.
 - Data / h5 / outputs: under `/common/users/dm1487/scratch_namo` (= `NAMO_SCRATCH`)
 - **Env:** `source env.ilab.sh` — **edit `MJ_PATH`** to where MuJoCo 3.2.7 actually lives.
 
