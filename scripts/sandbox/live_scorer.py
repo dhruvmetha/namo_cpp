@@ -138,7 +138,7 @@ class LiveScorer:
         import contextlib
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            res = self.viz.generate_all_masks_highres(ep, tight_crop_size_meters=self.crop_m)
+            res = self.viz.generate_all_masks_highres(ep, tight_crop_size_meters=self.crop_m, fast_scorer=True)
         self.last_fell_back = "falling back to legacy BFS" in buf.getvalue()
         if res is None or res.get("local_tight") is None:
             raise RuntimeError("renderer returned None (missing target/region_goals_sampled)")
