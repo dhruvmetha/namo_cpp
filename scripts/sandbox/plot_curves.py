@@ -75,15 +75,16 @@ def make_fig(title, simdirs, timefn, key, out):
             elif have_time:
                 d = time_bytier(timefn, m, 2).get(T, [])
                 if d: ax[0, ci].plot(simgrid, succ(d, simgrid), color=COL[m], lw=2, ls="--", label=f"{m} (sample n={len(d)})")
-        # row 1: success vs wall-time — PER-TIER x-axis so easy/med aren't crushed by hard's slow tail
+        # row 1: success vs wall-time — PER-TIER LOG x over the FULL solve range so curves reach their plateau AND easy/med stay readable
         tt = {m: (time_bytier(timefn, m, 1).get(T, []) if have_time else []) for m in COL}
         solved_t = sorted(v for m in COL for (s, v) in tt[m] if s)
-        ttmax = (solved_t[min(len(solved_t) - 1, int(0.95 * len(solved_t)))] if solved_t else 1.0) * 1.1
-        ttg = np.linspace(0, ttmax, 200)
+        ttmin = max((solved_t[0] * 0.9) if solved_t else 0.1, 0.05)
+        ttmax = (solved_t[-1] * 1.1) if solved_t else 1.0          # full range -> the curve reaches its true plateau
+        ttg = np.logspace(np.log10(ttmin), np.log10(ttmax), 200)
         for m in COL:
             if tt[m]: ax[1, ci].plot(ttg, succ(tt[m], ttg), color=COL[m], lw=2, label=f"{m} (n={len(tt[m])})")
         ax[0, ci].set_title(f"{T} — vs SIM budget"); ax[0, ci].set_xscale("log"); ax[0, ci].set_xlim(1, 900); ax[0, ci].set_xlabel("sim budget (log)")
-        ax[1, ci].set_title(f"{T} — vs WALL-TIME (x clipped to p95)"); ax[1, ci].set_xlim(0, ttmax); ax[1, ci].set_xlabel("wall-clock budget (s)")
+        ax[1, ci].set_title(f"{T} — vs WALL-TIME"); ax[1, ci].set_xscale("log"); ax[1, ci].set_xlim(ttmin, ttmax); ax[1, ci].set_xlabel("wall-clock budget (s, log)")
     for a in ax.flat:
         a.set_ylim(0, 100); a.grid(alpha=0.3); a.legend(fontsize=7, loc="lower right"); a.set_ylabel("% solved")
     fig.suptitle(f"{title} — best-first by difficulty. SIM=full set, TIME=same exclusive node (warm, interleaved)", fontsize=12)
