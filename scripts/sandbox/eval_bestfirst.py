@@ -27,6 +27,7 @@ for _p in (f"{REPO}/build_python", f"{REPO}/python", f"{REPO}/scripts", f"{REPO}
         sys.path.insert(0, _p)
 from scorer_beam import BeamPlanner, make_env, make_action, read_manifest, FALLBACK_GOAL  # noqa: E402
 from eval_m3 import rank_first_pushes_h2, sample_goal_points, goal_open_pts  # noqa: E402
+from levin_cost import softmax_logp, levin_cost  # noqa: E402
 from namo.core.xml_goal_parser import extract_goal_with_fallback  # noqa: E402
 from namo.paths import MANIFESTS, DATASETS, SCRATCH  # noqa: E402
 
@@ -55,32 +56,46 @@ def priority(q, V, combine):
 
 
 def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combine, rng, restrict_obj=None,
-                is_open=lambda e: e.is_robot_goal_reachable(), raw=False, dive_bonus=0.0):
-    """Greedy best-first ON THE LABELED OBJECT (restrict_obj). Returns (solved, sims_used, plan_len|None).
+                is_open=lambda e: e.is_robot_goal_reachable(), raw=False, dive_bonus=0.0, tau=1.0):
+    """Greedy best-first ON THE LABELED OBJECT (restrict_obj). Returns (solved, sims, plan_len|None, win|None).
     is_open(env) = the success predicate; default = LABEL-consistent goal_region_open (>=20% of 100 region pts).
-    dive_bonus>0 = CASCADE fix: add dive_bonus*ndone to a node's priority so a SIMULATED setup's child (ndone>=1)
-    outranks a fresh first-push (ndone=0) -> the search DIVES instead of restarting. Counters the cross-head scale
-    mismatch (H2 values fresh first-pushes >= H1 values their children). dive_bonus>=priority-range = forced dive."""
+    combine="levin": order the frontier by LevinTS cost depth/pi (min-heap), pi = softmax(q/tau) over the node's
+    candidate pool, multiplied along the path (cum_logpi). depth = ndone+1. dive_bonus is IGNORED in levin mode
+    (depth is baked into the cost). Other combines: unchanged (-priority max-heap + dive_bonus*ndone).
+    dive_bonus>0 (non-levin) = CASCADE fix: a SIMULATED setup's child (ndone>=1) outranks a fresh first-push."""
     heap = []; ctr = 0; sims = 0
+
+    def push_pool(pool, V, from_state, parent_plan, parent_logpi, ndone):
+        nonlocal ctr
+        depth = ndone + 1                                  # this candidate's own push is #(ndone+1)
+        logps = softmax_logp([q for (_o, _g, q) in pool], tau) if combine == "levin" else None
+        for i, (obj, g, q) in enumerate(pool):
+            cum_logpi = (parent_logpi + logps[i]) if combine == "levin" else 0.0
+            sortkey = (levin_cost(depth, cum_logpi) if combine == "levin"
+                       else -(priority(q, V, combine) + dive_bonus * ndone))   # min-heap on sortkey
+            heapq.heappush(heap, (sortkey, ctr,
+                                  {"obj": obj, "g": g, "from": from_state, "ndone": ndone,
+                                   "plan": parent_plan + [(obj, g)], "cum_logpi": cum_logpi})); ctr += 1
+
     pool, V0 = candidates(planner, env, goal, xml, s0, hmax, prior, agg, rng, restrict_obj=restrict_obj, raw=raw)
-    for (obj, g, q) in pool:                              # roots: ndone=0 -> no dive bonus
-        heapq.heappush(heap, (-priority(q, V0, combine), ctr,
-                              {"obj": obj, "g": g, "from": s0, "ndone": 0, "plan": [(obj, g)]})); ctr += 1
+    push_pool(pool, V0, s0, [], 0.0, 0)                    # roots: ndone=0, depth=1
     while heap and sims < sim_budget:
-        _negpr, _c, it = heapq.heappop(heap)
+        _sk, _c, it = heapq.heappop(heap)
         env.set_full_state(it["from"]); env.step(make_action(it["obj"], it["g"])); sims += 1
         if is_open(env):
-            return True, sims, len(it["plan"])
+            return True, sims, len(it["plan"]), it
         ndone = it["ndone"] + 1
         if ndone < hmax:                                  # room for another push -> expand the reached state
             s_new = env.get_full_state()
             h = hmax - ndone
             pool, V = candidates(planner, env, goal, xml, s_new, h, prior, agg, rng, restrict_obj=restrict_obj, raw=raw)
-            for (obj2, g2, q2) in pool:                   # children: +dive_bonus*ndone -> bias to commit/dive
-                heapq.heappush(heap, (-(priority(q2, V, combine) + dive_bonus * ndone), ctr,
-                                      {"obj": obj2, "g": g2, "from": s_new, "ndone": ndone,
-                                       "plan": it["plan"] + [(obj2, g2)]})); ctr += 1
-    return False, sims, None
+            push_pool(pool, V, s_new, it["plan"], it["cum_logpi"], ndone)
+    return False, sims, None, None
+
+
+def serialize_plan(plan):
+    """[(obj, goal_primitive)] -> JSON-able [{obj, edge, depth}] for the solution-path log."""
+    return [{"obj": o, "edge": int(g.edge_idx), "depth": int(g.depth)} for (o, g) in plan]
 
 
 def main():
@@ -93,7 +108,7 @@ def main():
     ap.add_argument("--sim-budget", type=int, default=30, help="max sims/scene = the reactive<->search dial")
     ap.add_argument("--prior", default="model", choices=["model", "uniform"])
     ap.add_argument("--agg", default="mean5", choices=["mean5", "max"], help="state-value aggregate (selection)")
-    ap.add_argument("--combine", default="blend", choices=["q", "blend", "product"])
+    ap.add_argument("--combine", default="blend", choices=["q", "blend", "product", "levin"])
     ap.add_argument("--key", default=str(DATASETS / "namo_testset_v1/labels/pure2push.json"),
                     help="GROUND-TRUTH key (per (object,goal) records). The search is CONSTRAINED to the labeled "
                          "object → true k-push problem, one-to-one w/ GT. Eval is per-EPISODE (record), not per-scene.")
@@ -105,6 +120,9 @@ def main():
                     help="CASCADE fix: priority bonus per push-already-done (ndone) so a simulated setup's child "
                          "outranks a fresh first-push -> the search DIVES not restarts. 0=baseline; >=priority range "
                          "(~0.23 sigmoid / ~1.0 raw)=forced dive. Counters the H1/H2 cross-head scale mismatch.")
+    ap.add_argument("--tau", type=float, default=1.0,
+                    help="LevinTS softmax temperature for pi over the candidate pool (combine=levin only). "
+                         "Lower=sharper policy=more aggressive dive. Swept in the Stage-1 gate.")
     ap.add_argument("--success", default="region", choices=["region", "point"],
                     help="success predicate: 'region' = LABEL-consistent (>=20%% of 100 goal-region pts reachable, "
                          "matches the test-set collection); 'point' = legacy single xml-site point (the OLD bug).")
@@ -139,12 +157,15 @@ def main():
             for ri, rec in enumerate(recs):                       # one EPISODE per (object,goal) record
                 rng = random.Random(a.seed_base + xi * 17 + ri)
                 obj = rec.get("object_id")
-                solved, sims, plen = solve_scene(planner, env, goal, xml, s0, a.hmax, a.sim_budget,
-                                                 a.prior, a.agg, a.combine, rng, restrict_obj=obj, is_open=is_open,
-                                                 raw=a.raw, dive_bonus=a.dive_bonus)
+                solved, sims, plen, win = solve_scene(planner, env, goal, xml, s0, a.hmax, a.sim_budget,
+                                                      a.prior, a.agg, a.combine, rng, restrict_obj=obj,
+                                                      is_open=is_open, raw=a.raw, dive_bonus=a.dive_bonus,
+                                                      tau=a.tau)
                 n += 1; sims_tot += sims; n_solved += int(solved); sims_solved += sims if solved else 0
                 lf.write(json.dumps({"xml": xml, "object_id": obj, "region": rec.get("region"),
-                                     "solved": solved, "sims": sims, "plan_len": plen}) + "\n")
+                                     "solved": solved, "sims": sims, "plan_len": plen,
+                                     "solution": serialize_plan(win["plan"]) if win else None,
+                                     "sol_logpi": (win["cum_logpi"] if win else None)}) + "\n")
             if xi % 20 == 0:
                 print(f"  [{xi}/{len(xmls)}] episodes={n} solved={n_solved} avg_sims={sims_tot/max(n,1):.1f} "
                       f"({time.time()-t0:.0f}s)", file=sys.stderr, flush=True)
