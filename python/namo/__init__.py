@@ -4,18 +4,6 @@ A comprehensive planning and data collection framework for robotic navigation
 among movable rectangular objects.
 """
 
-# Load machine-local config (<parent>/.env) so os.environ-based paths resolve no
-# matter how python was launched. override=False -> explicit shell exports win.
-# Silent no-op if python-dotenv isn't installed (pip install python-dotenv).
-from pathlib import Path as _Path
-
-try:
-    from dotenv import load_dotenv as _load_dotenv
-
-    _load_dotenv(_Path(__file__).resolve().parents[3] / ".env", override=False)
-except ModuleNotFoundError:
-    pass
-
 from importlib import import_module
 from typing import TYPE_CHECKING, Any
 

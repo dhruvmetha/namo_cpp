@@ -7,13 +7,6 @@
 
 set -euo pipefail
 
-# Pick up machine-local config (<parent>/.env) if the env isn't already active,
-# so building works without sourcing scripts/env/activate.sh first.
-if [[ -z "${MJ_PATH:-}" ]]; then
-    _envf="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)/.env"
-    [[ -f "$_envf" ]] && { set -a; source "$_envf"; set +a; }
-fi
-
 if [[ -z "${MJ_PATH:-}" ]]; then
     echo "Error: MJ_PATH environment variable is not set."
     echo "Set it to your MuJoCo installation directory, for example:"
