@@ -66,11 +66,6 @@ def make_fig(title, simdirs, timefn, key, out):
     simbt = {m: leaves_bytier(simdirs[m], tm) for m in simdirs}
     simgrid = np.unique(np.round(np.logspace(0, np.log10(900), 120)).astype(int))
     have_time = has_time(timefn)
-    tmax = 1.0
-    if have_time:
-        allt = [v for m in COL for (s, v) in [x for d in time_bytier(timefn, m, 1).values() for x in d]]
-        tmax = max(allt, default=1.0)
-    tg = np.linspace(0, tmax, 200)
     fig, ax = plt.subplots(2, 3, figsize=(15, 8.5))
     for ci, T in enumerate(TIERS):
         # row 0: success vs sim budget (full set; for models w/o full data, fall back to time-run sample n_sim, dashed)
@@ -80,12 +75,15 @@ def make_fig(title, simdirs, timefn, key, out):
             elif have_time:
                 d = time_bytier(timefn, m, 2).get(T, [])
                 if d: ax[0, ci].plot(simgrid, succ(d, simgrid), color=COL[m], lw=2, ls="--", label=f"{m} (sample n={len(d)})")
-        # row 1: success vs wall-time (same-node sample)
+        # row 1: success vs wall-time — PER-TIER x-axis so easy/med aren't crushed by hard's slow tail
+        tt = {m: (time_bytier(timefn, m, 1).get(T, []) if have_time else []) for m in COL}
+        solved_t = sorted(v for m in COL for (s, v) in tt[m] if s)
+        ttmax = (solved_t[min(len(solved_t) - 1, int(0.95 * len(solved_t)))] if solved_t else 1.0) * 1.1
+        ttg = np.linspace(0, ttmax, 200)
         for m in COL:
-            d = time_bytier(timefn, m, 1).get(T, []) if have_time else []
-            if d: ax[1, ci].plot(tg, succ(d, tg), color=COL[m], lw=2, label=f"{m} (n={len(d)})")
+            if tt[m]: ax[1, ci].plot(ttg, succ(tt[m], ttg), color=COL[m], lw=2, label=f"{m} (n={len(tt[m])})")
         ax[0, ci].set_title(f"{T} — vs SIM budget"); ax[0, ci].set_xscale("log"); ax[0, ci].set_xlim(1, 900); ax[0, ci].set_xlabel("sim budget (log)")
-        ax[1, ci].set_title(f"{T} — vs WALL-TIME"); ax[1, ci].set_xlim(0, tmax); ax[1, ci].set_xlabel("wall-clock budget (s)")
+        ax[1, ci].set_title(f"{T} — vs WALL-TIME (x clipped to p95)"); ax[1, ci].set_xlim(0, ttmax); ax[1, ci].set_xlabel("wall-clock budget (s)")
     for a in ax.flat:
         a.set_ylim(0, 100); a.grid(alpha=0.3); a.legend(fontsize=7, loc="lower right"); a.set_ylabel("% solved")
     fig.suptitle(f"{title} — best-first by difficulty. SIM=full set, TIME=same exclusive node (warm, interleaved)", fontsize=12)
