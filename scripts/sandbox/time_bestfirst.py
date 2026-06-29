@@ -24,23 +24,34 @@ def tier(sr):
     return "hard" if sr < 0.05 else ("med" if sr < 0.30 else "easy")
 
 
-def stratified(n_per):
-    k = json.load(open(KEY)); b = defaultdict(list)
+def stratified(n_per, key_path):
+    k = json.load(open(key_path)); b = defaultdict(list)
     for xml, recs in k.items():
         for r in recs:
-            b[tier(r.get("solve_rate_first_push", 0.0))].append((xml, r["object_id"]))
+            sr = r.get("solve_rate_first_push", r.get("solve_rate", 0.0))   # 2-push vs 1-push key field
+            b[tier(sr)].append((xml, r["object_id"]))
     out = []
     for t in ("easy", "med", "hard"):
         out += [(x, o, t) for (x, o) in b[t][:n_per]]
     return out
 
 
-def timed_bf(pl, env, goal, xmlp, obj, s0, gp, prior, agg, combine, budget, rng):
-    """Greedy best-first on the labeled object (hmax=2), timed. Mirrors eval_bestfirst.solve_scene."""
+def full_episodes(key_path):
+    """ALL episodes in a stable order (for sharded full-set runs), each tagged with its difficulty tier."""
+    k = json.load(open(key_path)); out = []
+    for xml in sorted(k):
+        for r in k[xml]:
+            sr = r.get("solve_rate_first_push", r.get("solve_rate", 0.0))
+            out.append((xml, r["object_id"], tier(sr)))
+    return out
+
+
+def timed_bf(pl, env, goal, xmlp, obj, s0, gp, prior, agg, combine, budget, rng, hmax):
+    """Greedy best-first on the labeled object, timed. Mirrors eval_bestfirst.solve_scene (hmax = push depth)."""
     isopen = lambda e: goal_open_pts(e, gp)
     heap = []; ctr = 0; sims = 0; tsc = 0.0; tsim = 0.0; nsc = 0; t0 = PC()
     env.set_full_state(s0)
-    t = PC(); pool, V0 = candidates(pl, env, goal, xmlp, s0, 2, prior, agg, rng, restrict_obj=obj); tsc += PC() - t; nsc += 1
+    t = PC(); pool, V0 = candidates(pl, env, goal, xmlp, s0, hmax, prior, agg, rng, restrict_obj=obj); tsc += PC() - t; nsc += 1
     for (o, g, q) in pool:
         heapq.heappush(heap, (-priority(q, V0, combine), ctr, {"obj": o, "g": g, "from": s0, "ndone": 0})); ctr += 1
     solved = False
@@ -50,9 +61,9 @@ def timed_bf(pl, env, goal, xmlp, obj, s0, gp, prior, agg, combine, budget, rng)
         if isopen(env):
             solved = True; break
         ndone = it["ndone"] + 1
-        if ndone < 2:
+        if ndone < hmax:
             s_new = env.get_full_state()
-            t = PC(); pool, V = candidates(pl, env, goal, xmlp, s_new, 2 - ndone, prior, agg, rng, restrict_obj=obj); tsc += PC() - t; nsc += 1
+            t = PC(); pool, V = candidates(pl, env, goal, xmlp, s_new, hmax - ndone, prior, agg, rng, restrict_obj=obj); tsc += PC() - t; nsc += 1
             for (o2, g2, q2) in pool:
                 heapq.heappush(heap, (-priority(q2, V, combine), ctr, {"obj": o2, "g": g2, "from": s_new, "ndone": ndone})); ctr += 1
     return {"t_score": tsc, "t_sim": tsim, "n_score": nsc, "n_sim": sims, "t_wall": PC() - t0, "solved": solved}
@@ -62,21 +73,33 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n-per-tier", type=int, default=50)
     ap.add_argument("--budget", type=int, default=30)
+    ap.add_argument("--hmax", type=int, default=2)
+    ap.add_argument("--key", default=KEY)
+    ap.add_argument("--start", type=int, default=-1)   # shard range [start,end) over the base list
+    ap.add_argument("--end", type=int, default=-1)
+    ap.add_argument("--strat", action="store_true")    # shard the STRATIFIED list (n-per-tier) instead of full set
+    ap.add_argument("--hz-ckpt", default=HZ)            # seed-variant checkpoints
+    ap.add_argument("--nohz-ckpt", default=NOHZ)
+    ap.add_argument("--rng-seed", type=int, default=7)  # random baseline seed (random uses the uniform pick)
     ap.add_argument("--warmup", type=int, default=10)
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     os.makedirs(os.path.dirname(a.out), exist_ok=True)
-    rng = random.Random(7)
-    print("loading scorers...", flush=True)
-    pl_hz = BeamPlanner(ckpt=HZ); pl_nz = BeamPlanner(ckpt=NOHZ)
+    rng = random.Random(a.rng_seed)
+    print(f"loading scorers (hz={a.hz_ckpt.split('/scorer/')[-1].split('/')[0]} nohz={a.nohz_ckpt.split('/scorer/')[-1].split('/')[0]} rng={a.rng_seed})...", flush=True)
+    pl_hz = BeamPlanner(ckpt=a.hz_ckpt); pl_nz = BeamPlanner(ckpt=a.nohz_ckpt)
     models = [("Hz", pl_hz, "model"), ("NoHz", pl_nz, "model"), ("random", pl_nz, "uniform")]
-    samp = stratified(a.n_per_tier)
-    print(f"  {len(samp)} episodes; budget={a.budget}; warming up {a.warmup}/model (untimed)...", flush=True)
+    if a.end >= 0:
+        base = stratified(a.n_per_tier, a.key) if a.strat else full_episodes(a.key)
+        samp = base[a.start:a.end]
+    else:
+        samp = stratified(a.n_per_tier, a.key)
+    print(f"  {len(samp)} episodes; budget={a.budget} hmax={a.hmax} key={os.path.basename(a.key)}; warming up {a.warmup}/model...", flush=True)
     x0, o0, _ = samp[0]; xp0 = str(resolve(x0)); e0 = make_env(xp0); g0 = extract_goal_with_fallback(xp0, FALLBACK_GOAL)
     e0.set_robot_goal(*g0); e0.get_reachable_objects(); s00 = e0.get_full_state()
     for _ in range(a.warmup):
         for pl in (pl_hz, pl_nz):
-            candidates(pl, e0, g0, xp0, s00, 2, "model", "mean5", rng, restrict_obj=o0)
+            candidates(pl, e0, g0, xp0, s00, a.hmax, "model", "mean5", rng, restrict_obj=o0)
     fh = open(a.out, "w"); t_start = PC()
     for i, (xml, obj, t) in enumerate(samp):
         try:
@@ -87,7 +110,7 @@ def main():
         if not gp or goal_open_pts(env, gp):
             continue
         for name, pl, prior in models:                       # interleaved: all 3 on the SAME s0
-            r = timed_bf(pl, env, goal, xmlp, obj, s0, gp, prior, "mean5", "q", a.budget, rng)
+            r = timed_bf(pl, env, goal, xmlp, obj, s0, gp, prior, "mean5", "q", a.budget, rng, a.hmax)
             r.update({"model": name, "tier": t, "xml": os.path.basename(xml), "object_id": obj})
             fh.write(json.dumps(r) + "\n")
         if i % 10 == 0:
