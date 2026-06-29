@@ -255,3 +255,9 @@ keep the simpler depth value.
   (fewer sims via ranking) now converts DIRECTLY to wall-time — esp. for best-first. **AUTONOMOUS RUN CORE COMPLETE**
   (render 20× bit-identical + committed; timing before/after; durable here). Open follow-ups for USER: (1) push branches?
   (2) opt data-collection render into fast_scorer? (3) best-first wall-time curve now feasible (~0.3s/sim).
+- **🔵 BEST-FIRST (search-regime) WALL-TIME — RUNNING [2026-06-29 ~05:35 ET].** The render fix unlocked timing the SEARCH
+  regime (the user's search/no-search lens). `scripts/sandbox/time_bestfirst.py` (committed `30b001c`) reuses
+  `eval_bestfirst.candidates/priority` (combine=`q`), times t_score/t_sim/t_wall/n_sim per (episode,model), Hz/NoHz/random,
+  budget=30, 50/tier. Job 57512929 (watcher `b4b4r8f36`) → `/scratch/dm1487/eval/timebench/bestfirst_b30.jsonl`. Smoke
+  confirmed: model solves in fewer sims (Hz 3-4 vs random 5-8/budget), t_sim dominates, random t_score≈0. RESUME: aggregate
+  median t_wall + n_sim + solve% per model×tier when done → Slack. (Expected: model wins search-regime wall-time via fewer sims.)
