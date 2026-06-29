@@ -192,3 +192,29 @@ keep the simpler depth value.
   Amarel, unmeasured).** **The ONE clean cell = density vs depth −3.8pp (same run/machine/seed, only V(s1) summary) → the
   density target genuinely hurts.** Clean re-run's **depth arm = control that MEASURES the machine gap** (should hit
   40.7±machine; if 38, subtract 2.7). Verdict to stand on: density<depth (real); everything-vs-NoHz waits for the re-run.
+
+- **2026-06-29 ~04:00-04:30 ET — WALL-CLOCK TIMING INVESTIGATION → the render is the deploy bottleneck (overturns "minimize
+  sims").** Smoke on one node (warm, perf_counter): **sim (env.step) ~160ms · NN forward (score_ctx) ~36ms · reachability
+  ~7ms · BUT render_ctx (the model-input crop) ~2000ms.** So the per-state cost is **render-bound**, wall-clock ≈
+  (#states-scored × ~2s), and "minimize sims = minimize time" is FALSE on CPU deploy. (I first mislabeled the 2s as "NN
+  forward" — wrong; verified it's the RENDER, not the net.) **Render map (Explore agent):** `live_scorer.render_ctx` →
+  `NAMODataVisualizer.generate_all_masks_highres` (sage `visualizer.py` L1068, 1024² canvas) → `WavefrontSnapshotExporter`
+  (namo_cpp `python/namo/visualization/wavefront_snapshot.py`). The 2s = **pure-Python 8-conn region BFS in `_compute_regions`**
+  (~0.5-1.5s) + discarded wide/global crops + 63MB zero-alloc/call + YAML×2 + XML parse/call. Channels: `static`(walls)=fully
+  static, `movable`/`robot_region`/`goal_region`=static-within-state, `target_object`=dynamic. **FIX (output-preserving only —
+  must NOT change the pixels the model trained on): replace the Python BFS with `cv2.connectedComponents` (the big ~10× win,
+  but TRAINING-CRITICAL → must be bit-identical) + skip discarded crops + cache static reads.** Built: **`test_render_equiv.py`**
+  (bit-compare GATE: capture original crops → assert `np.array_equal` after any change; ref captured = 29 crops),
+  **`time_benchmark.py`** + `time_benchmark.slurm` (warm, interleaved Hz/NoHz/random, same node, component timing).
+  **[AUTONOMOUS DECISION 2026-06-29]:** did NOT rewrite the BFS unattended (feeds all training data; bit-perfect rewrite on a
+  29-sample gate while USER asleep = too risky). Fix is prepped+documented for USER to execute+review awake. Plan file:
+  `~/.claude/plans/memoized-skipping-lampson.md`. Excluded `local_output_size=64` (changes pixels → needs retrain).
+- **2026-06-29 — SEEDED stratified tables (3 seeds each, mean±spread; pure-2 n=1018, 1-push n=1323).**
+  **1-push 1-deep best-first solve@{1,2,5,20,900}:** Hz `84.3±0.5 / 88.4±0.6 / 93.5±0.2 / 98.2 / 99.6` · NoHz `82.4 / 86.1 /
+  91.1±1.0 / 97.1 / 99.7` · random `38.0 / 52.7±1.9 / 70.1 / 88.8 / 99.7`. → Hz>NoHz at low budget (outside bars), converges
+  by @900 (model-independent ceiling, verified: @900 differs by 1 flaky episode). **2-push reactive@2** (easy/med/hard): Hz
+  `62.4±0.4 / 47.3±4.1 / 25.1±4.0` ≈ NoHz `62.9±2.0 / 46.9±2.5 / 25.8±2.3` — **the single-seed "Hz wins reactive" was SEED
+  NOISE; they TIE.** **2-push best-first@2:** Hz `43.3±5.6 / 36.0±4.0 / 20.3±4.6` < NoHz `55.6±2.8 / 42.9±2.3 / 24.4±2.0`
+  (**NoHz>Hz real, outside bars easy/med**). random ≈1-10. Hard reactive@2 ~25% = the frontier. Uniform feasibility (earlier):
+  raw unguided search SOLVES pure-2 cold (median ~43 sims) → warm-start NOT mandatory; the model buys ~10× sim-efficiency,
+  not solvability. **Eval gains:** `eval_reactive_argmax.py` got `--h` (query budget) + `--leaf-out` (per-episode jsonl).

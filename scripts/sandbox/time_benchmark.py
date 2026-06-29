@@ -40,23 +40,23 @@ def stratified(n_per):
 
 def reactive_timed(pl, env, goal, xmlp, obj, s0, gp, prior, rng):
     """Reactive@2 with per-component timing. prior: 'q'=model argmax, 'uniform'=random pick (no model)."""
-    ts = tsc = 0.0; ns = nsc = 0; solved = False; t0 = PC
+    ts = tsc = 0.0; ns = nsc = 0; solved = False; t0 = PC()
     sc = (prior == "q")
     env.set_full_state(s0)
-    t = PC; pool0 = rank_first_pushes_h2(pl, env, goal, xmlp, s0, 2, restrict_obj=obj, score=sc); tsc += PC - t; nsc += 1
+    t = PC(); pool0 = rank_first_pushes_h2(pl, env, goal, xmlp, s0, 2, restrict_obj=obj, score=sc); tsc += PC() - t; nsc += 1
     if pool0:
         o, g1, q = pool0[0] if sc else rng.choice(pool0)
-        env.set_full_state(s0); t = PC; env.step(make_action(obj, g1)); ts += PC - t; ns += 1
+        env.set_full_state(s0); t = PC(); env.step(make_action(obj, g1)); ts += PC() - t; ns += 1
         if goal_open_pts(env, gp):
             solved = True
         else:
             s1 = env.get_full_state()
-            t = PC; pool1 = rank_first_pushes_h2(pl, env, goal, xmlp, s1, 1, restrict_obj=obj, score=sc); tsc += PC - t; nsc += 1
+            t = PC(); pool1 = rank_first_pushes_h2(pl, env, goal, xmlp, s1, 1, restrict_obj=obj, score=sc); tsc += PC() - t; nsc += 1
             if pool1:
                 o2, g2, q2 = pool1[0] if sc else rng.choice(pool1)
-                env.set_full_state(s1); t = PC; env.step(make_action(obj, g2)); ts += PC - t; ns += 1
+                env.set_full_state(s1); t = PC(); env.step(make_action(obj, g2)); ts += PC() - t; ns += 1
                 solved = bool(goal_open_pts(env, gp))
-    return {"t_score": tsc, "t_sim": ts, "n_score": nsc, "n_sim": ns, "t_wall": PC - t0, "solved": solved}
+    return {"t_score": tsc, "t_sim": ts, "n_score": nsc, "n_sim": ns, "t_wall": PC() - t0, "solved": solved}
 
 
 def main():
@@ -78,7 +78,7 @@ def main():
     for _ in range(a.warmup):
         for pl in (pl_hz, pl_nz):
             rank_first_pushes_h2(pl, e0, g0, xp0, s00, 2, restrict_obj=o0, score=True)
-    fh = open(a.out, "w"); t_start = PC
+    fh = open(a.out, "w"); t_start = PC()
     for i, (xml, obj, reg, t) in enumerate(samp):
         try:
             xmlp = str(resolve(xml)); env = make_env(xmlp); goal = extract_goal_with_fallback(xmlp, FALLBACK_GOAL)
@@ -92,9 +92,9 @@ def main():
             r.update({"model": name, "tier": t, "xml": os.path.basename(xml), "object_id": obj})
             fh.write(json.dumps(r) + "\n")
         if i % 20 == 0:
-            fh.flush(); print(f"  [{i}/{len(samp)}] {PC - t_start:.0f}s", file=sys.stderr, flush=True)
+            fh.flush(); print(f"  [{i}/{len(samp)}] {PC() - t_start:.0f}s", file=sys.stderr, flush=True)
     fh.close()
-    print(f"DONE {a.out}  ({PC - t_start:.0f}s)", flush=True)
+    print(f"DONE {a.out}  ({PC() - t_start:.0f}s)", flush=True)
 
 
 if __name__ == "__main__":
