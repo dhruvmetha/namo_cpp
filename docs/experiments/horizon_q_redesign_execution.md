@@ -218,3 +218,24 @@ keep the simpler depth value.
   (**NoHz>Hz real, outside bars easy/med**). random ≈1-10. Hard reactive@2 ~25% = the frontier. Uniform feasibility (earlier):
   raw unguided search SOLVES pure-2 cold (median ~43 sims) → warm-start NOT mandatory; the model buys ~10× sim-efficiency,
   not solvability. **Eval gains:** `eval_reactive_argmax.py` got `--h` (query budget) + `--leaf-out` (per-episode jsonl).
+
+- **🤖 AUTONOMOUS RUN STATE [2026-06-29 ~05:00 ET, USER asleep ~3h — RESUME HERE if compacted].** Task: speed up the
+  render (the deploy bottleneck) WITHOUT changing the model input (bit-compare gated), then the wall-clock timing stat.
+  **Render finding (measured):** render ~2019ms dominates (sim ~160ms, NN forward ~36ms). The 2s is NOT the region BFS
+  (only ~370ms) — cProfile: it's `circle_fully_within_region` (visualizer.py:1502) allocating a full **1024² array
+  ×~3000/render** (robot/goal SAMPLING). **The model uses only 5 channels `static,movable,target_object,robot_region,
+  goal_sample_region`** (live_scorer.py:47) — NOT robot/goal/goal_samples — so the sampling + discarded wide-crop +
+  globals are ALL wasted for `render_ctx`.
+  **DONE+COMMITTED (both BIT-IDENTICAL, gate `test_render_equiv.py` 29/29 diff=0):** (1) BFS→`scipy.ndimage.label`
+  (namo_cpp `a2a826b`, br `feat/horizon-q-redesign`); (2) `circle_fully_within_region` windowed to circle bbox (sage
+  `11dc6ac`, br **`feat/render-speedup`**). **Render 2019→322ms (6.3×).**
+  **IN PROGRESS — `fast_scorer` flag** (skip wasted sampling+wide+global for render_ctx; opt-in → training byte-identical):
+  signature DONE; PENDING = (a) 3 sampling guards in extract_local_crop (visualizer.py ~1590/1603/1624: prefix
+  `(not fast_scorer) and ` to each `if`); (b) wide-crop+rewind guard ~1669 (`if not fast_scorer:`); (c) global-masks loop
+  guard ~1494; (d) render_ctx live_scorer.py:141 add `fast_scorer=True` → then GATE
+  (`python scripts/sandbox/test_render_equiv.py --mode compare --n 30`, MUST be bit-identical) → re-measure → commit →
+  re-run fast timing. Expected ~150ms. If gate FAILS → revert fast_scorer edits (322ms already committed+safe).
+  **TIMING:** before job 57505248 DONE (`/scratch/dm1487/eval/timebench/current_render.jsonl`): model t_wall ~3.6-4.0s
+  render-bound vs random ~0.3s = 12× slower. Fast(322ms) job 57508274 RUNNING (watcher `b6r56u72i`, `.../fast_render.jsonl`)
+  = the "after". `time_benchmark.py`=warm interleaved Hz/NoHz/random reactive@2 same node. Gate ref:
+  `/scratch/dm1487/eval/render_equiv/ref_crops.npz`. Slack→DM `U07N1DR8S94` (3 sent), hourly heartbeat set. NO pushes.
