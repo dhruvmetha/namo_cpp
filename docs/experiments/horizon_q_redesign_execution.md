@@ -246,3 +246,12 @@ keep the simpler depth value.
   `/scratch/dm1487/eval/timebench/final_render.jsonl`). REMAINING: aggregate before(57505248)/after(57509898) timing →
   Slack the table → optionally the same `fast_scorer`-style speedup belongs in the data-collection render too (same
   visualizer; training uses the default-False path so it's untouched, but collection could opt in). NO pushes (user's call).
+- **✅ TIMING STAT DONE [2026-06-29 ~05:20 ET] — the original goal.** Wall-clock reactive@2, same node, warm-only, 100/tier.
+  Median `t_wall`/episode (sec) before(2019ms)→322→101: **Hz** 3.65/3.99/3.64 → 1.05/1.13/1.00 → **0.80/0.86/0.81**;
+  **NoHz** 3.72/3.83/3.55 → 1.04/1.06/0.94 → **0.79/0.77/0.70**; **random** ~0.3 throughout (no scoring). At 101ms: 2 model
+  scorings=`t_score`~0.20s, 2 sims=`t_sim`~0.6s → **scoring is now ~⅓ of sim; the SIM is the new bottleneck, not render.**
+  **Hz/random wall ratio: before 11-15× → final 2.0-2.6×** while model solves 10-30× more (Hz hard 30% vs random 4%, easy
+  61% vs 8%). Files: `/scratch/dm1487/eval/timebench/{current,fast,final}_render.jsonl`. Implication: the model's value
+  (fewer sims via ranking) now converts DIRECTLY to wall-time — esp. for best-first. **AUTONOMOUS RUN CORE COMPLETE**
+  (render 20× bit-identical + committed; timing before/after; durable here). Open follow-ups for USER: (1) push branches?
+  (2) opt data-collection render into fast_scorer? (3) best-first wall-time curve now feasible (~0.3s/sim).
