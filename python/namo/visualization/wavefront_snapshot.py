@@ -741,29 +741,25 @@ class WavefrontSnapshotExporter:
         width, height = dynamic_grid.shape
         neighbor_offsets = self.NEIGHBOR_OFFSETS
 
+        # SPEEDUP [render 2026-06-29]: one connected-components pass (scipy.ndimage.label, 8-connectivity =
+        # NEIGHBOR_OFFSETS) replaces the per-seed pure-Python flood-fill (~1.5s -> ~ms). Components are identical,
+        # so the region_map/labels produced by the UNCHANGED outer logic (robot/goal/region_N ids + border filter)
+        # are byte-identical. Verified by test_render_equiv.py (bit-compare of the model-input crop).
+        from scipy import ndimage  # noqa: E402
+        _free_mask = (dynamic_grid != -1)
+        _cc_labels, _ = ndimage.label(_free_mask, structure=np.ones((3, 3), dtype=bool))
+        _comp_cells: Dict[int, List[Tuple[int, int]]] = {}
+        _fx, _fy = np.nonzero(_free_mask)
+        for _x, _y in zip(_fx.tolist(), _fy.tolist()):
+            _comp_cells.setdefault(int(_cc_labels[_x, _y]), []).append((_x, _y))
+
         def bfs(seed: Tuple[int, int]) -> List[Tuple[int, int]]:
             sx, sy = seed
             if visited[sx, sy] or dynamic_grid[sx, sy] == -1:
                 return []
-
-            queue: deque[Tuple[int, int]] = deque([seed])
-            visited[sx, sy] = True
-            cells: List[Tuple[int, int]] = []
-
-            while queue:
-                x, y = queue.popleft()
-                cells.append((x, y))
-
-                for dx, dy in neighbor_offsets:
-                    nx = x + dx
-                    ny = y + dy
-                    if nx < 0 or nx >= width or ny < 0 or ny >= height:
-                        continue
-                    if visited[nx, ny] or dynamic_grid[nx, ny] == -1:
-                        continue
-                    visited[nx, ny] = True
-                    queue.append((nx, ny))
-
+            cells = _comp_cells.get(int(_cc_labels[sx, sy]), [])
+            for (x, y) in cells:
+                visited[x, y] = True
             return cells
 
         def touches_border(cells: Sequence[Tuple[int, int]]) -> bool:
