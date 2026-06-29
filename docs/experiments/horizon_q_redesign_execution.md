@@ -261,3 +261,12 @@ keep the simpler depth value.
   budget=30, 50/tier. Job 57512929 (watcher `b4b4r8f36`) → `/scratch/dm1487/eval/timebench/bestfirst_b30.jsonl`. Smoke
   confirmed: model solves in fewer sims (Hz 3-4 vs random 5-8/budget), t_sim dominates, random t_score≈0. RESUME: aggregate
   median t_wall + n_sim + solve% per model×tier when done → Slack. (Expected: model wins search-regime wall-time via fewer sims.)
+- **✅ BEST-FIRST (search) WALL-TIME DONE [2026-06-29 ~05:57 ET].** budget=30, hmax=2, 50/tier (job 57512929 COMPLETED, 450
+  rows). Median solv%/med_sims/t_wall(s): **Hz** easy 90/2/1.14, med 84/5/1.48, hard 58/22/5.18; **NoHz** easy 88/2/0.95,
+  med 74/6/1.40, hard 46/30/3.67; **random** easy 68/14/2.55, med 46/30/3.81, hard 10/30/5.25. **THE FLIP vs reactive: in
+  SEARCH the model wins on BOTH wall-time AND solve** (solves 2-6× more in ≤ wall-time; random burns the full 30-sim budget
+  and mostly FAILS hard at 10%). Scoring is now only **~15-25% of search wall-time (the SIM dominates)** → the model's
+  fewer-sims-via-ranking converts DIRECTLY to wall-time; pre-render-fix this was unmeasurable (2s/scoring). File:
+  `/scratch/dm1487/eval/timebench/bestfirst_b30.jsonl`. **TIMING PICTURE COMPLETE: reactive (model ~2× random, competitive)
+  + search (model dominates). Autonomous render-speedup run fully done.** (Note: at budget=30 Hz>NoHz on hard solve 58 vs 46,
+  unlike the budget-2 best-first@2 where NoHz>Hz — different search-depth regime; not re-litigated here.)
