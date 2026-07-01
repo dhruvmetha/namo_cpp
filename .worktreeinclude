@@ -1,0 +1,23 @@
+# .worktreeinclude — files copied into each new `claude -w` / isolation:worktree checkout.
+# Syntax = .gitignore. Only files that match a pattern AND are gitignored get copied;
+# tracked files are already checked out, so they never need listing.
+#
+# NOTE (verified 2026-07-01): a fresh worktree of this repo needs NOTHING copied to build/run —
+#   - env.amarel.sh / env.ilab.sh ....... tracked (present in every checkout)
+#   - external/nlohmann_json/json.hpp ... tracked (force-added past the external/ ignore)
+#   - MuJoCo (MJ_PATH) .................. lives outside the repo, resolved from the env
+# This file exists mainly as a forward-looking safety net for gitignored per-checkout config.
+
+# --- per-checkout config: absent today, but if you ever create one it should follow every worktree ---
+CLAUDE.local.md
+.env
+.env.local
+
+# --- deliberately NOT copied ---
+# external/h-levin/  : 22M, untracked, not referenced by this build (grep-verified).
+# build_python/      : build artifact. A worktree should rebuild (./build_python_bindings.sh) so the
+#                      compiled namo_rl matches ITS OWN C++. Copying the whole dir also drags a
+#                      CMakeCache full of absolute source paths -> broken incremental builds.
+#                      Python-only worktree and want to skip the rebuild? Uncomment to copy just the
+#                      compiled module (safe; not the stale cmake dir):
+# build_python/*.so
