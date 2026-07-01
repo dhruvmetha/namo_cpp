@@ -72,6 +72,14 @@ Deeper reason it is *better-behaved* best-first: `d/π` is **monotone non-decrea
   **ACCEPT-as-keeper iff** `levin ≥ combine=q` on avg-sims AND it removes the `dive_bonus`
   hyperparameter (one fewer knob, principled). The strategic value is **scaffolding for the learning
   half + depth≥3**, not an H=2 win. Don't rationalize a loss into a win.
+- **VERDICT [2026-06-29 — REJECTED on numbers]:** `combine=levin` is NOT ≈ q — it's **catastrophically
+  worse** (qrank ep5: levin 5.8% vs q 55.3% solve; τ-sweep 5.8 / 12 / 32% all ≪ 55%). Root cause: `d/π`
+  penalizes depth, so with a diffuse policy the search expands ALL first-pushes before diving to the 2nd
+  push ⇒ can't solve 2-push problems within budget. Prediction was right that within-node levin≈q and only
+  cross-depth differs — but the cross-depth effect **ANTI-dives**. **LevinTS `d/π` needs a confident tree
+  policy (Levin-loss-trained); bolted onto an arbitrary model it fails ⇒ deploy `combine=q`, not levin.**
+  Separately, the qrank **training** half (softmax_ce ranker) also lost to the qboot value head by ~4-6pp
+  per tier. Full analysis: [horizon_q_levints_overnight_log.md](horizon_q_levints_overnight_log.md) [t14-t19].
 
 ## 7. Deferred (explicitly OUT of scope here)
 

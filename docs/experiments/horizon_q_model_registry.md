@@ -146,3 +146,15 @@
 - 1-push answer key: `/scratch/dm1487/datasets/namo_testset_v1/labels/onepush_episodes.json`
 - 2-push key + divisions: `.../labels/pure2push.json`, `.../labels/pure2push_divisions.json` (hard≤2/med 3-8/easy>8 setups)
 - fpv aggregate (M2b): `/scratch/dm1487/eval/diag_fpv_aggregate.json`
+
+## LevinTS overnight (qrank = softmax_ce ranking loss) [2026-06-29, branch `feat/horizon-q-levints`]
+Same EdgeCrossAttn arch + data as qboot; ONLY diff = `head_mode=softmax_ce` (ranking) vs `hl_gauss` (value).
+NoHorizon single-Q, sample_k=30. Best-val ckpts (ilab `/common/users/dm1487/scratch_namo/outputs/scorer/`):
+- **qrank_density_s1** `.../z7ax3oj1/checkpoints/epoch010-val_loss3.6932.ckpt` (val_top1 ~0.47)
+- **qrank_depth_s1**   `.../x5cujg88/checkpoints/epoch009-val_loss3.7055.ckpt` (val_top1 ~0.47-0.60, noisy)
+**Full-1018 PER-TIER gate, `combine=q`, sim_budget=30** (NOTE: budget-30, not the @2/@900 standard above —
+internally-valid same-budget A/B). solve% easy/med/hard/ALL:
+- qboot_depth 79.4/69.2/48.0/**63.9** > qboot_density 76.5/66.3/47.2/61.7 > qrank_depth 71.0/62.3/45.6/58.3 > qrank_density 71.0/62.8/43.7/57.8.
+**VERDICT: ranking loss (qrank) < value head (qboot) by ~4-6pp EVERY tier; depth>density.** `combine=levin`
+REJECTED (d/π anti-dives at H=2: τ-sweep 5.8/12/32% all ≪ q 55%). Tools `scripts/sandbox/{eval_bestfirst.py,
+tier_breakdown.py,full_tier_gate.sh}`; leaves `$NAMO_SCRATCH/eval/full_tier/`. Analysis: [overnight log](horizon_q_levints_overnight_log.md).
