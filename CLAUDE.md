@@ -21,6 +21,7 @@ then `source env.<machine>.sh`. Code reads every path from the env (`namo.paths`
 keys remapped at load by `namo.paths.resolve()`. New box / full runbook: **[docs/PORTABILITY.md](docs/PORTABILITY.md)**. A guard
 (`scripts/portability/check_no_hardcoded_paths.sh`) blocks new hardcoded paths; per-checkout tweaks → `CLAUDE.local.md`.
 Project skills (`.claude/skills/`) travel with `git clone`; user skills (`~/.claude/skills/`) don't (machine-specific).
+- **Compute — where to run + how to switch** (CS-iLab direct GPUs / iLab SLURM `ilab1` / Amarel HPC; auth + filesystem map + fallback order): **[docs/COMPUTE_RESOURCES.md](docs/COMPUTE_RESOURCES.md)** (standalone copy at `/common/home/dm1487/COMPUTE_RESOURCES.md`). Key: CS-iLab = Kerberos (`ssh ilab1`, concrete host, shared FS ⇒ no copy); Amarel = SSH key + push/pull/rebuild.
 
 **→ ⛔ FOUNDATIONAL CONSTRAINT — NO EXHAUSTIVE GROUND TRUTH [USER, do NOT re-assume or re-derive, EVER]:** We will **never**
 have exhaustive enumeration of (setup × finish) outcomes at scale / deployment — it is **infeasible**. The exhaustive labels
