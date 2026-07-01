@@ -8,14 +8,19 @@
 - After env: `echo $NAMO_SCRATCH` → `/common/users/dm1487/scratch_namo`.
 
 ## Layout
-- Repos: `/common/users/dm1487/fresh_start/projects/namo/{namo_cpp, sage_learning}`
+- Repos: `/common/home/dm1487/robotics_research/ktamp/{namo, sage_learning}` (= `NAMO_PARENT`; repo dir is `namo` here, `namo_cpp` on Amarel; `sage_learning` is its sibling). `…/fresh_start/projects/namo/` holds only the `h5` data, **not** the repos.
 - Data / h5 / outputs: under `/common/users/dm1487/scratch_namo` (= `NAMO_SCRATCH`)
 - **Env:** `source env.ilab.sh` — **edit `MJ_PATH`** to where MuJoCo 3.2.7 actually lives.
 
 ## First-time setup (once per fresh checkout)
 1. `source env.ilab.sh`
 2. **Build bindings:** `./build_python_bindings.sh` — needs `python3-dev`, **OpenCV**, **internet on the build node**
-   (pybind11 is FetchContent-downloaded → use a login node), and build on the **run-CPU** (or `NAMO_MARCH=x86-64-v3`). [PORTABILITY §5]
+   (pybind11 is FetchContent-downloaded → use a login node). **Build LCD (lowest-common-denominator):** the nodes share
+   one filesystem but run different OSes (arrakis glibc 2.35 … ilab2/rlab ≥2.38) — so build on the **oldest-glibc node**
+   with a conservative arch: `NAMO_MARCH=x86-64-v2 ./build_python_bindings.sh`. The single shared `build_python/*.so`
+   then loads on every node (glibc-backward-compatible, no AVX2). [PORTABILITY §5]
+   - **Symptom → fix:** `import namo_rl` → `ImportError: … GLIBC_2.38 not found` means the `.so` was built on a
+     newer-glibc node than the one you're on. Rebuild LCD (above) on the oldest-glibc box; don't just rebuild in place.
 3. **Pull data:** `bash scripts/portability/pull_from_amarel.sh eval` (~2.7G) — add `train` (~3.5G) for the re-run.
 4. **Smoke:** `python scripts/sandbox/eval_reactive_argmax.py --ckpt <any ckpt> --start 0 --end 2 --out /tmp/smoke.json`
 
