@@ -19,6 +19,7 @@
 - Helpers on PATH (`~/bin`): `getgpu` (interactive node, reuse without re-queue), `gpufree` (idle GPUs), `gpueta` (job ETAs).
 - Heavy work → `sbatch`; login node = light orchestration only.
 - (This is the `amarel-gpu` user-skill's home; the skill is machine-local and stays here — see main CLAUDE.md "skills" note.)
+- **`compute-resources` user skill** (where-to-run / SLURM / auth / data-move guidance) is installed here at `~/.claude/skills/compute-resources/`, but it's **authored on ilab**. User skills don't travel with git, so re-sync after edits — run **from ilab** (Amarel can't reach ilab): `rsync -avz ~/.claude/skills/compute-resources/ amarel:.claude/skills/compute-resources/`
 
 ## What lives here
 - The full eval toolchain + test set + MuJoCo bindings (the physics sim). Eval is cheap CPU → **run the gate here**.
