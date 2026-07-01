@@ -25,6 +25,7 @@ machine path from the env (Python via `namo.paths`, shell via `$NAMO_*`) — **n
 (`scripts/portability/check_no_hardcoded_paths.sh`, wireable as a pre-commit via `git config core.hooksPath
 scripts/githooks`) blocks new hardcoded paths. Data move via `scripts/portability/pull_from_amarel.sh`. Uncommitted
 per-checkout tweaks → `CLAUDE.local.md` (auto-loaded, gitignored).
+- **Compute — where to run + how to switch** (CS-iLab direct GPUs / iLab SLURM `ilab1` / Amarel HPC; auth + filesystem map + fallback order): **[docs/COMPUTE_RESOURCES.md](docs/COMPUTE_RESOURCES.md)** (standalone copy at `/common/home/dm1487/COMPUTE_RESOURCES.md`). Key: CS-iLab = Kerberos (`ssh ilab1`, concrete host, shared FS ⇒ no copy); Amarel = SSH key + push/pull/rebuild.
 - **Skills porting:** *project* skills in `.claude/skills/` are now **committed → they travel with `git clone`** (e.g. `namo-data-pipeline`). *User* skills in `~/.claude/skills/` do **not** travel and are often machine-specific (e.g. `amarel-gpu` leans on `~/bin/getgpu` + Amarel partitions) — don't copy those to ilab; per-box compute guidance lives in the machine cards instead. See PORTABILITY §8.
 
 **→ ⛔ FOUNDATIONAL CONSTRAINT — NO EXHAUSTIVE GROUND TRUTH [USER, do NOT re-assume or re-derive, EVER]:** We will **never**
