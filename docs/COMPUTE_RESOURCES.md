@@ -12,11 +12,13 @@
 | A few GPUs now, small/interactive | **arrakis (here), direct GPUs** — `CUDA_VISIBLE_DEVICES=N` | none (local) |
 | More GPUs / arrakis busy | **CS iLab SLURM `ilab1`** — `ssh ilab1 … sbatch` on the SAME repo | **none — shared FS** ⭐ |
 | A specific idle CS box | **westeros**, direct GPUs (shared FS) | none |
-| CS iLab full / want HPC scale | **Amarel SLURM** | push → pull → rebuild (separate FS) |
+| **Heavy CPU-sharded work (collection, eval sweeps) OR big GPU campaigns** | **Amarel HPC (SLURM)** — far more CPU cores + GPU nodes | push → pull → rebuild (one-time; worth it at scale) |
 
 **Golden rule:** all CS iLab boxes (arrakis, westeros, ilab1, rlab, …) **share `/common/home` + `/common/users`**,
 so the repo + data are identical everywhere — moving work between them needs **zero copying**. **Amarel is a
-separate world** (own filesystem, own auth) — it needs a git sync + a C++ rebuild.
+separate world** (own filesystem, own auth) — it needs a git sync + a C++ rebuild. But that's a *one-time*
+cost, and Amarel's payoff is **raw scale** (hundreds of CPU cores + many GPU nodes): it's the right home for
+**heavy sharded / high-throughput** jobs — a **first-class resource, not a fallback**.
 
 ---
 
@@ -116,10 +118,13 @@ ssh ilab1.cs.rutgers.edu 'squeue -u dm1487'
 
 ---
 
-## 5. Option C — Amarel SLURM — separate FS → sync + rebuild
+## 5. Amarel HPC (SLURM) — the heavy-throughput workhorse — separate FS → sync + rebuild
 
-Use when CS iLab is saturated. Costs a git round-trip + a C++ rebuild, and you must **not clobber the
-parallel Amarel session's checkout** — use a **dedicated clone**.
+**A first-class resource, NOT a backup.** Amarel has *far* more CPU cores and GPU nodes than the CS boxes,
+so it's the best place for **heavy CPU-sharded processing** (data collection over thousands of scenes; big
+eval sweeps — our sim work is embarrassingly parallel, so it fans out to 100s of shards) **and large GPU
+campaigns**. The only cost is the sync (git push/pull + a rebuild) — a one-time price, well worth it for a
+big job. Don't clobber the parallel session — use a **dedicated clone**.
 
 ```bash
 # 1) on CS iLab: commit + push
@@ -143,12 +148,14 @@ Data pull helper: `scripts/portability/pull_from_amarel.sh {eval|train}`.
 
 ---
 
-## 6. Switching / fallback logic
+## 6. Choosing by job shape (match the resource to the work — NOT a linear fallback)
 
-1. **Start on arrakis** — 5× RTX 6000 Ada, zero setup, direct.
-2. arrakis busy / need more GPUs → **`ilab1` SLURM** (same files, just `sbatch`). First fallback, ~zero cost. ⭐
-3. Want a specific idle box → **westeros** (direct, shared FS).
-4. All of CS iLab saturated / want HPC scale → **Amarel** (accept push/pull/rebuild; use the dedicated clone; mind the GPU backlog that sent us to ilab in the first place).
+- **Interactive / a few GPUs / quick iteration** → **arrakis** direct GPUs (5× RTX 6000 Ada, zero setup).
+- **More GPUs, no sync hassle** → **CS iLab SLURM `ilab1`** (shared FS, just `sbatch`). ⭐ default scale-out.
+- **Heavy CPU-sharded throughput** (collection over thousands of scenes; eval sweeps — e.g. the per-tier
+  gate fanned out to 100s of shards) **OR a large GPU campaign** → **Amarel** — pay the one-time sync, get
+  massive parallelism. Its core count is the whole point; **don't save it for last**.
+- **A specific idle box** → **westeros** (direct, shared FS).
 
 ## 7. Gotchas (all bit us on 2026-07-01 — don't re-learn)
 
