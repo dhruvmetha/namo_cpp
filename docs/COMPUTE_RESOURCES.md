@@ -34,20 +34,20 @@ compute nodes), `/scratch/dm1487`. Auth = **SSH key**. SLURM.
 
 ---
 
-## Resource inventory (measured 2026-07-01)
+## Resource inventory (measured 2026-07-01) — ⚠ ACCESS-AWARE (what WE can submit to, not raw cluster totals)
 
-| Resource | Reach it | CPU cores | GPUs | RAM / notes |
+| Resource | Reach it | CPU cores | GPUs WE can use | Notes |
 |---|---|---|---|---|
-| **arrakis** (direct) | here / `ssh arrakis` | 32 | **5× RTX 6000 Ada** (48 GB) | 1 TB |
-| **westeros** (direct) | `ssh westeros.cs.rutgers.edu` (Kerberos) | 72 | **8× RTX 2080 Ti** (11 GB) | 502 GB |
-| **CS iLab SLURM** (`ilab1`/`rlab`) | `ssh ilab1` → `sbatch` | **2,512** (20 nodes) | **144** total | ~17 TB; shared FS ⇒ no copy ⭐ |
-| **Amarel HPC** | `ssh amarel` → `sbatch` | **~35,800** (663 nodes) | **~190** total | separate FS; the CPU-sharding monster |
+| **arrakis** (direct) | here / `ssh arrakis` | 32 | **5× RTX 6000 Ada** (48 GB) | 1 TB RAM |
+| **westeros** (direct) | `ssh westeros.cs.rutgers.edu` (Kerberos) | 72 | **8× RTX 2080 Ti** (11 GB) | 502 GB RAM |
+| **CS iLab SLURM** — partition **`unlimited`** only | `ssh ilab1` → `sbatch -p unlimited` | 2,512 (cluster) | **~74**: a4000×24, a4500×16, 4500-ada×11, 5000-Blackwell×8, a6000×7, a100×4, a5000×4 | shared FS ⇒ no copy ⭐ |
+| **Amarel HPC** — account **`general`** | `ssh amarel` → `sbatch` | **~35,800** | **~190** (`gpu-redhat` / `legacy-gpu` / `cgpu-redhat`) | separate FS; CPU-sharding monster |
 
-**CS iLab SLURM GPUs (144):** 68× RTX 6000 Blackwell · 24× a4000 · 16× a4500 · 11× 4500-ada · 8× 5000-Blackwell · 7× a6000 · 4× a100 · 4× a5000 · 2× H200. **Open to us:** partition **`unlimited`** (default, general) + **`guest`** (borrow idle group nodes). Group-owned (may need membership): `cmgroup`, `raisl`, `ecoai`, `ruixiang`, `first`, `traceai` — that's where most of the 68 Blackwells + the H200s live.
+⚠ **iLab access reality:** we can submit **only to `unlimited`** (`AllowAccounts=ALL`). The cluster also has **68× RTX 6000 Blackwell + 2× H200**, but those sit in **group partitions** (`cmgroup`, `raisl`, `first`, `traceai`, `ecoai`, `ruixiang`) that need their own account — **NOT ours; don't count on them.** (`guest` can preempt-borrow idle group nodes *only* with the guest association, and those jobs can be killed mid-run.)
 
-**Amarel (663 nodes, ~35.8k cores — ~14× CS iLab's CPU):** CPU partitions incl. **`main-redhat` (486 nodes!)**, `main`, `cmain`, `nonpre`, `legacy-main`, `mem-redhat`, `cmain-redhat`. GPU partitions: `gpu-redhat` (~53 nodes, gpu:2/3/4 each), `legacy-gpu`, `cgpu-redhat` — ~190 GPUs (mixed types; `sinfo` lists them generically). This core count is the reason Amarel is the throughput/sharding workhorse.
+⚠ **Amarel access reality:** our account is **`general`**. CPU → `main-redhat` / `main` / `nonpre`; GPU → `gpu-redhat` / `legacy-gpu` / `cgpu-redhat`. **NEVER submit to Camden-owned nodes/partitions** (no access + against policy).
 
-> Re-measure anytime with: iLab — `ssh ilab1 'sinfo -N -h -o "%n|%c|%G" | sort -u | ...'`; Amarel — same on `ssh amarel`; direct boxes — `nvidia-smi` + `nproc`. (Availability shifts; treat counts as the ceiling, `squeue`/`sinfo` for what's free now.)
+> These are *our* ceilings, not the whole cluster. Always confirm live before submitting: `sinfo -p unlimited` / `sinfo -p gpu-redhat` / `squeue -u <user>`.
 
 ---
 
@@ -109,7 +109,7 @@ Submit script (`job.sbatch`) — runs directly on the shared repo:
 ```bash
 #!/bin/bash
 #SBATCH --job-name=namo
-#SBATCH --partition=unlimited     # default iLab partition (infinite time). 'guest' = borrow idle group nodes.
+#SBATCH --partition=unlimited     # the ONLY iLab partition open to us (AllowAccounts=ALL). NOT the group ones.
 #SBATCH --gres=gpu:1              # or a type: --gres=gpu:a5000:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
@@ -118,8 +118,9 @@ Submit script (`job.sbatch`) — runs directly on the shared repo:
 cd /common/home/dm1487/robotics_research/ktamp/namo && source env.ilab.sh
 python <your command>
 ```
-GPU types seen on the `unlimited` partition: `a100, a4000, a4500, a5000, a6000, 4500_ada, 5000_Blackwell,
-6000_Blackwell, H200`. (Bindings built on arrakis run on these — same shared `.so`.)
+GPU types in `unlimited` (the ones we can actually get): `a4000, a4500, a5000, a6000, a100, 4500_ada,
+5000_Blackwell`. (Blackwell-6000 / H200 are in group partitions — not ours.) Bindings built on arrakis run
+on all of these — same shared `.so`.
 ```bash
 mkdir -p /common/users/dm1487/scratch_namo/slurm
 sbatch job.sbatch                                     # -> Submitted batch job NNNN
