@@ -1,11 +1,17 @@
-# Policy + Value decoupled search — design journal
+# HYPOTHESIS — Policy + Value decoupled search (research; to be tested)
 
-> **Started 2026-07-01 [USER thinking-through].** A candidate architecture for the RO best-first search: **decouple
-> the POLICY (action proposal/ranking) from the VALUE (state selection / frontier ordering).** Sits on top of the
-> horizon-Q line — read with [horizon_q_redesign_execution.md](horizon_q_redesign_execution.md) (Stage 0/1 findings)
-> and [horizon_q_search_redesign_journal.md](horizon_q_search_redesign_journal.md) (the sims-minimizing-ranker thesis).
-> Decisions tagged [USER]/[CLAUDE]. Foundational constraint still binds: **NO exhaustive GT** — all targets are
-> search-derived (ExIt), never enumerated.
+> **Filed 2026-07-01 [USER research hypothesis — NOT a committed design].** A hypothesis to run experiments against, not
+> a decision.
+>
+> **HYPOTHESIS (falsifiable):** splitting the RO best-first search into a **policy π (action proposal / ranking)** and a
+> **pure grounded value V (state selection / frontier ordering)** — where V is trained on FIXED max-existence targets
+> (NOT bootstrapped, NOT findability/density) — **beats the single `combine=q` head on sims-to-solve at a fixed
+> solve-rate.**
+>
+> This doc = the hypothesis + the *exact* experimental setup to test it + a critical prior assessment of where it likely
+> helps vs degenerates. Sits on the horizon-Q line ([horizon_q_redesign_execution.md](horizon_q_redesign_execution.md)
+> Stage 0/1; [horizon_q_search_redesign_journal.md](horizon_q_search_redesign_journal.md) thesis). Tags [USER]/[CLAUDE].
+> Constraint: **NO exhaustive GT** — targets are search-derived (ExIt), never enumerated.
 
 ## The idea [USER]
 Best-first search where the two roles are split:
