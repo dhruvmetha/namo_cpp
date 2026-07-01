@@ -34,6 +34,23 @@ compute nodes), `/scratch/dm1487`. Auth = **SSH key**. SLURM.
 
 ---
 
+## Resource inventory (measured 2026-07-01)
+
+| Resource | Reach it | CPU cores | GPUs | RAM / notes |
+|---|---|---|---|---|
+| **arrakis** (direct) | here / `ssh arrakis` | 32 | **5× RTX 6000 Ada** (48 GB) | 1 TB |
+| **westeros** (direct) | `ssh westeros.cs.rutgers.edu` (Kerberos) | 72 | **8× RTX 2080 Ti** (11 GB) | 502 GB |
+| **CS iLab SLURM** (`ilab1`/`rlab`) | `ssh ilab1` → `sbatch` | **2,512** (20 nodes) | **144** total | ~17 TB; shared FS ⇒ no copy ⭐ |
+| **Amarel HPC** | `ssh amarel` → `sbatch` | **~35,800** (663 nodes) | **~190** total | separate FS; the CPU-sharding monster |
+
+**CS iLab SLURM GPUs (144):** 68× RTX 6000 Blackwell · 24× a4000 · 16× a4500 · 11× 4500-ada · 8× 5000-Blackwell · 7× a6000 · 4× a100 · 4× a5000 · 2× H200. **Open to us:** partition **`unlimited`** (default, general) + **`guest`** (borrow idle group nodes). Group-owned (may need membership): `cmgroup`, `raisl`, `ecoai`, `ruixiang`, `first`, `traceai` — that's where most of the 68 Blackwells + the H200s live.
+
+**Amarel (663 nodes, ~35.8k cores — ~14× CS iLab's CPU):** CPU partitions incl. **`main-redhat` (486 nodes!)**, `main`, `cmain`, `nonpre`, `legacy-main`, `mem-redhat`, `cmain-redhat`. GPU partitions: `gpu-redhat` (~53 nodes, gpu:2/3/4 each), `legacy-gpu`, `cgpu-redhat` — ~190 GPUs (mixed types; `sinfo` lists them generically). This core count is the reason Amarel is the throughput/sharding workhorse.
+
+> Re-measure anytime with: iLab — `ssh ilab1 'sinfo -N -h -o "%n|%c|%G" | sort -u | ...'`; Amarel — same on `ssh amarel`; direct boxes — `nvidia-smi` + `nproc`. (Availability shifts; treat counts as the ceiling, `squeue`/`sinfo` for what's free now.)
+
+---
+
 ## 1. Auth cheat-sheet
 
 ### CS iLab — **Kerberos / GSSAPI (NOT ssh keys)**
