@@ -667,11 +667,10 @@ RLEnvironment::RegionSnapshot RLEnvironment::get_region_snapshot(
         tier1_margin = config_->planning().wavefront_tier1_inflation_margin;
     }
 
-    WavefrontGrid grid(*env_, robot_size, tier1_margin);
-    // NOTE: the WavefrontGrid ctor already calls rebuild_grids(*env_); update_dynamic_grid()
-    // is just rebuild_grids() again on the same (unchanged) env, so it was a redundant second
-    // full-grid rebuild per snapshot. Dropped — behavior-identical, ~half the snapshot rebuild cost.
-
+    // Silence the WavefrontGrid/connectivity std::cout debug spam for the WHOLE snapshot.
+    // get_region_snapshot runs once per region-opening search node, so the ctor's
+    // "Initialized wavefront grid"/"Grid rebuild took"/"Found N components" prints were real
+    // per-node I/O. Install the silencer BEFORE constructing the grid so the ctor is covered too.
     struct CoutSilencer {
         std::streambuf* original_buf;
         std::ostringstream null_stream;
@@ -679,6 +678,11 @@ RLEnvironment::RegionSnapshot RLEnvironment::get_region_snapshot(
         CoutSilencer() : original_buf(std::cout.rdbuf(null_stream.rdbuf())) {}
         ~CoutSilencer() { std::cout.rdbuf(original_buf); }
     } silencer;
+
+    WavefrontGrid grid(*env_, robot_size, tier1_margin);
+    // NOTE: the WavefrontGrid ctor already calls rebuild_grids(*env_); update_dynamic_grid()
+    // is just rebuild_grids() again on the same (unchanged) env, so it was a redundant second
+    // full-grid rebuild per snapshot. Dropped — behavior-identical, ~half the snapshot rebuild cost.
 
     auto goal_pose_se2 = env_->get_robot_goal();
     std::array<double, 2> goal_xy = {goal_pose_se2[0], goal_pose_se2[1]};
