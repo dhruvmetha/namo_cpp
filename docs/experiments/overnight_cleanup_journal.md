@@ -21,9 +21,13 @@ Golden REF regenerable from `df62137` via `--mode capture`. Baseline profiler: `
 
 **DONE (committed, all gated 180/180):** doc INDEX+linter (`df62137`, on main branch too) · behavior gate (`9d56ab2`) · snapshot double-rebuild drop 8.9→5.5ms (`e1f7ffc`) · snapshot ctor-print silence (`7835584`) · docs compression -5/+archive (`775dc9a`) · morning-summary+recs (`216a9d0`) · **rec B: delete dead RegionAnalyzer subtree -3924 LOC (`e0bf976`)** · 10 memory notes written (backlog 0).
 
-**IN PROGRESS:** rec A — reachability dirty-cache in `WavefrontPlanner::update_wavefront` (`src/wavefront/wavefront_planner.cpp:111`). Design = state fingerprint (start_pos + all movable poses); skip `recompute_wavefront` when unchanged. PROVEN SAFE: `reachability_grid_`/`dynamic_grid_` are written ONLY in recompute/rebuild/init (grep-verified), so the fingerprint is airtight. Add members to `include/wavefront/wavefront_planner.hpp` (~line 236). Then build + gate + profile before/after + commit.
+**rec A DONE (committed `f384805`, gate 180/180):** reachability dirty-cache in `update_wavefront` — fingerprint (start_pos + movable poses), skip rebuild when unchanged. Profiler (repeated-state): reachability ops 0.8→0.04 ms. HONEST: the test_scene region_opening smoke stayed ~24s because it's `get_region_snapshot`-bound (below), not reachability-bound.
 
-**NEXT QUEUE (all gate-covered, do each then gate):** rec C rasterizer dedup (center-vs-corner trap) · rec D bbox-window for `WavefrontGrid::rebuild_grids` · more dead/dup code (a background agent is hunting) · then re-profile + update morning summary. Hourly Slack DMs to Dhruv (U07N1DR8S94). Do NOT touch `region_opening.py` search logic blind (not gate-covered).
+**VERIFIED BOTTLENECK (cProfile):** `namo_rl.get_region_snapshot` is THE cost — one call = **31 s on the point/test_scene (large grid)**, vs 5.5 ms on the small car scenes (71×71). It scales badly with grid size (WavefrontGrid `rebuild_grids` O(W·H·objects) + `build_region_connectivity_graph` per-object remove/BFS/restore). This is the top remaining lever. It IS gate-covered (gate captures `get_region_snapshot` adjacency/labels).
+
+**IN PROGRESS:** drilling into get_region_snapshot to see whether `rebuild_grids` (→ rec D bbox-window) or the connectivity graph dominates, then optimize the dominant phase gate-covered. Instrument phase timing (temp) → measure car + point → optimize → gate → remove instrumentation.
+
+**NEXT QUEUE (all gate-covered):** get_region_snapshot speedup (rec D bbox rebuild + maybe connectivity) · rec C rasterizer dedup · findings from the background cleanup agent (id ab5f3ecaa48bde453) · re-profile + update morning summary. Hourly Slack DMs to U07N1DR8S94. Do NOT touch `region_opening.py` search logic blind (not gate-covered).
 
 ---
 
