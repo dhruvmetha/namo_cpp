@@ -146,58 +146,15 @@ set(ALL_SOURCES
     src/main.cpp
 )
 
-# High-level planning demonstration executable (MAIN TARGET)
-add_executable(high_level_planning_demo
-    examples/high_level_planning_demo.cpp
-    ${CORE_SOURCES}
-    ${PLANNING_SOURCES}
-    ${WAVEFRONT_SOURCES}
-    ${PLANNER_SOURCES}
-    ${STRATEGY_SOURCES}
-    ${ENVIRONMENT_SOURCES}
-    ${SKILLS_SOURCES}
-    ${CONFIG_SOURCES}
-    ${ROBOT_SOURCES}
-    ${NAVIGATION_SOURCES}
-)
-
-# Link high-level planning demo
-target_link_libraries(high_level_planning_demo
-    ${MUJOCO_LIB}
-    ${OpenCV_LIBS}
-    pthread
-    m  # math library
-)
-
-# Link optional libraries if available
-if(glfw3_FOUND AND OpenGL_FOUND)
-    target_link_libraries(high_level_planning_demo glfw OpenGL::GL)
-    target_compile_definitions(high_level_planning_demo PRIVATE HAVE_GLFW)
-    message(STATUS "GLFW and OpenGL found - visualization enabled")
-else()
-    message(STATUS "GLFW or OpenGL not found - visualization disabled")
-endif()
-
+# NOTE (2026-07-01): the high_level_planning_demo executable + the dead RegionAnalyzer /
+# high_level_planner subtree were removed — they were off the namo_rl .so call path
+# (nothing in cpp_bindings/strategies/skills/planning includes them). The global yaml-cpp
+# define below is retained (it applies to all targets, incl. namo_rl).
 if(yaml-cpp_FOUND OR YAML_CPP_FOUND OR TARGET yaml-cpp)
     add_compile_definitions(HAVE_YAML_CPP)
     message(STATUS "yaml-cpp found - using YAML parser")
 else()
     message(STATUS "yaml-cpp not found - using simple config parser (NOTE: cannot parse block-style YAML lists)")
-endif()
-
-if(ZMQ_FOUND)
-    target_link_libraries(high_level_planning_demo ${ZMQ_LIBRARIES})
-    target_include_directories(high_level_planning_demo PRIVATE ${ZMQ_INCLUDE_DIRS})
-    target_compile_definitions(high_level_planning_demo PRIVATE HAVE_ZMQ)
-    message(STATUS "ZMQ found - distributed inference enabled")
-else()
-    message(STATUS "ZMQ not found - distributed inference disabled") 
-endif()
-
-# Compiler-specific optimizations
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    target_compile_options(high_level_planning_demo PRIVATE -fopenmp -ffast-math)
-    target_link_libraries(high_level_planning_demo gomp)
 endif()
 
 # Optional Python bindings target
@@ -447,6 +404,6 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
 endif()
 
 # Install targets
-install(TARGETS high_level_planning_demo generate_motion_primitives_db test_planner_output DESTINATION bin)
+install(TARGETS generate_motion_primitives_db test_planner_output DESTINATION bin)
 install(DIRECTORY config/ DESTINATION share/namo_standalone/config)
 install(DIRECTORY data/ DESTINATION share/namo_standalone/data OPTIONAL)
