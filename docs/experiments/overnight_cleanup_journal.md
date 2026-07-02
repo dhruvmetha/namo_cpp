@@ -112,3 +112,41 @@ Golden REF regenerable from `df62137` via `--mode capture`. Baseline profiler: `
 
 **Biggest open lever:** rec [A] reachability dirty-cache — deferred for correctness caution; worth measuring on larger scenes. Rec [B] (delete dead `RegionAnalyzer`) is the biggest cleanup LOC win.
 - **S1 DONE — golden behavior gate built + validated.** `scripts/sandbox/test_region_equiv.py` (model-free; captures reachable-objects, reachable-edges, `is_robot_goal_reachable`, C++ `get_region_snapshot` graph/labels, and qpos fingerprint per push). Harness soundness confirmed: `compare` on the UNCHANGED build = **20/20 discrete-identical, qpos max|diff|=0**. Full golden captured on frozen `df62137`: **29 scenes (easy/med/hard) × ~6 pushes = 180 states, 0 errors, 8.7 s wall**. REF at `/common/users/dm1487/scratch_namo/eval/region_equiv/region_equiv_ref.json` (regenerable from this commit; deterministic scene selection). Gate must stay 180/180 through the refactor.
+
+---
+
+## OVERNIGHT-2 SUMMARY (updated 2026-07-02, extended-mandate run)
+
+**Headline:** the region-opening search was pathologically slow on large grids — a 1-line
+collision-free hash fix took `find_connected_components` **~22s → 0.69s** and end-to-end
+`region_opening` **24s → 0.83s (29×)**, verified *bit-identical* (signature SHA unchanged). Plus
+**~6,400 LOC of dead C++ removed**. Every change gated at 180/180, qpos diff 0. All 5 CMake
+targets build clean.
+
+**Shipped this run (each committed + gated 180/180):**
+| commit | change | verified impact |
+|---|---|---|
+| `e1f7ffc` | drop redundant 2nd grid rebuild in get_region_snapshot | snapshot 8.9→5.5ms |
+| `7835584` | silence WavefrontGrid ctor cout in snapshot hot path | no per-node print I/O |
+| `e0bf976` | delete dead RegionAnalyzer subtree | −3924 LOC |
+| `f384805` | reachability dirty-cache in update_wavefront | reachability ops 0.8→0.04ms (cache hits) |
+| `5f16feb` | purge build-orphans (main.cpp/ALL_SOURCES/memory_manager) + junk + region tests | −LOC, cleaner tree |
+| `ca46e86` | delete dead C++ strategy subtree (diffusion is Python, untouched) | −715 LOC |
+| `3f094d5` | **collision-free CoordinateHash** | **find_cc 22s→0.69s (31×) large grid; 24s→0.83s end-to-end; BIT-IDENTICAL** |
+| `bb57bf1` | remove NAMOPushSkill legacy ctors + Config | dead-code, −LOC |
+
+**Doc/journal (overnight-1):** INDEX + linter (`df62137`, also on main branch), 5 redundant docs deleted + 3 archived, 10 memory notes.
+
+**REMAINING RECOMMENDATIONS (verified by the cleanup agent; NOT applied — cosmetic/fiddly, and
+method-level removals need a full-target build check since `build_python_bindings.sh` only builds
+namo_rl):**
+- **Dead methods (~20, LOC-only):** `ConfigManager::{create_default,print_configuration,validate_paths}`, `NAMOEnvironment::{save_current_state,restore_saved_state,get_random_state,save_objects_to_file,enable/disable_logging}`, `WavefrontGrid::{clear_region,get_cell_region_id,is_position_free,save_grid,save_uninflated_grid}`, `PushPrimitiveExecutor::{get_reachable_edges_for_all_objects_with_wavefront,save_debug_wavefront,se2_to_goal_state}`, `NAMOPushController::execute_action`, `NAMOPushSkill::is_target_within_bounds`, `FastParameterLoader::{get_string_vector,preload_keys,get_array}`. Each: 0 callers, not bound. Remove decl+def, then `cmake --build build_python` (ALL targets) + gate.
+- **Debug cout:** 34 `std::cout` in `wavefront_grid.cpp` (silenced in the hot path via the `CoutSilencer` hack in `rl_env.cpp:673`). Gate behind a debug flag (keep the invalid-geometry warnings as `std::cerr`), then drop the CoutSilencer. Cosmetic.
+- **Rasterizer DUP:** `is_point_in_rotated_rectangle` + `calculate_rotated_footprint` duplicated in `wavefront_planner.cpp` and `wavefront_grid.cpp` with a center-vs-corner sampling divergence — extract one shared helper (into `goal_tolerance_utils.hpp`) parameterized by the sample offset. Gate-covered; fiddly (preserve each site's convention).
+- **Python dead modules:** `python/namo/services/` (0 refs), and the dup `python/environment_selection.py` (top-level, 548 lines) vs `python/namo/environment_selection.py` (package, live) — consolidate.
+- **Docs:** `README.md:183,476-489` still point at `./build/test_*` binaries CMake no longer builds — fix.
+- **BIGGER (needs its own eval, not this gate):** measure a CAR region_opening end-to-end (this run's end-to-end number is the point-robot config); confirm the car pipeline per-node cost post-fixes.
+
+**How to verify any claim:** `cd namo-cleanup && set -a; . ../.env; set +a` then
+`CUDA_VISIBLE_DEVICES="" OMP_NUM_THREADS=1 "$NAMO_PYTHON" scripts/sandbox/test_region_equiv.py --mode compare` (180/180),
+`cmake --build build_python` (all targets), `scripts/sandbox/profile_push.py` (per-op ms).
