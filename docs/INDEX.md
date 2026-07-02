@@ -22,7 +22,7 @@ why they feel like logs. These four are written for *you* to actually read:
 
 To resume the active Horizon-Q thread specifically, follow the ranked list in `CLAUDE.md` ("READ THESE FIRST").
 
-> **🌙 Overnight cleanup+speed run (2026-07-01):** see [`experiments/overnight_cleanup_journal.md`](experiments/overnight_cleanup_journal.md) for what changed tonight (wavefront speedups, the behavior gate, doc cleanup, and the deferred recommendations).
+> **🌙 Overnight cleanup+speed run (2026-07-01):** see [`archive/overnight_cleanup_journal.md`](archive/overnight_cleanup_journal.md) for what changed tonight (wavefront speedups, the behavior gate, doc cleanup, and the deferred recommendations).
 
 ---
 
@@ -145,7 +145,7 @@ python scripts/docs_lint.py --json     # machine-readable
 Known open items (as of 2026-07-01 overnight cleanup): 0 broken doc→doc links; 14 broken
 doc→code links (relative-depth rot in `push_pruning_and_aborts.md` and
 `evaluation/ML_vs_GT_F_evaluation.md` — the file paths, not the line numbers); 9 unwritten
-memory notes (see `experiments/overnight_cleanup_journal.md`).
+memory notes (see `archive/overnight_cleanup_journal.md`).
 
 Pending doc merges (deferred from the overnight run — modest value, research-content edits, do
 with review): fold `model_comparison_report.md` (prose) + `informative_1push_training_study.md`
