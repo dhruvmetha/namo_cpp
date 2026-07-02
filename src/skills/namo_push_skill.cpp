@@ -9,18 +9,8 @@
 namespace namo {
 
 
-NAMOPushSkill::NAMOPushSkill(NAMOEnvironment& env)
-    : env_(env), config_(nullptr), legacy_config_() {
-    initialize_skill();
-}
-
-NAMOPushSkill::NAMOPushSkill(NAMOEnvironment& env, const Config& config)
-    : env_(env), config_(nullptr), legacy_config_(config) {
-    initialize_skill();
-}
-
 NAMOPushSkill::NAMOPushSkill(NAMOEnvironment& env, std::shared_ptr<ConfigManager> config)
-    : env_(env), config_(config), legacy_config_() {
+    : env_(env), config_(config) {
     initialize_skill();
 }
 
@@ -64,7 +54,7 @@ std::map<std::string, ParameterSchema> NAMOPushSkill::get_parameter_schema() con
         {"robot_goal", {ParameterSchema::POSE_2D, "Optional robot goal for early termination",
                        SkillParameterValue(SE2State())}},  // Optional with default
         {"tolerance", {ParameterSchema::DOUBLE, "Goal tolerance in meters",
-                      SkillParameterValue(config_ ? config_->skill().goal_tolerance : legacy_config_.tolerance)}},
+                      SkillParameterValue(config_->skill().goal_tolerance)}},
         {"edge_idx", {ParameterSchema::INT, "Primitive edge index for direct execution",
                      SkillParameterValue(-1)}},  // Required for execution; -1 = invalid
         {"depth", {ParameterSchema::INT, "Primitive depth for direct execution",

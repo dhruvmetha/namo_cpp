@@ -23,15 +23,6 @@ private:
     std::unique_ptr<PushPrimitiveExecutor> executor_;
     std::shared_ptr<ConfigManager> config_;
 
-    // Deprecated - kept for backward compatibility
-    struct Config {
-        double tolerance = 0.01;
-        int max_planning_attempts = 3;
-        std::chrono::milliseconds planning_timeout{5000};
-        std::string primitive_database_path = "data/motion_primitives.dat";
-    };
-    Config legacy_config_;
-
     // Robot goal state for MCTS
     std::array<double, 3> robot_goal_{0.0, 0.0, 0.0};
     bool has_robot_goal_{false};
@@ -40,8 +31,6 @@ public:
     /**
      * @brief Constructor with proper dependency injection
      */
-    explicit NAMOPushSkill(NAMOEnvironment& env);
-    explicit NAMOPushSkill(NAMOEnvironment& env, const Config& config);  // Legacy
     explicit NAMOPushSkill(NAMOEnvironment& env, std::shared_ptr<ConfigManager> config);
 
 private:
