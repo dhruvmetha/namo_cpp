@@ -53,8 +53,11 @@ DATA_DIR = f"{REPO}/data"
 PRIM_PREFIX = "1x_car_d5_"
 FALLBACK_GOAL = (-0.5, 1.3, 0.0)
 
-LABELS = "/common/users/dm1487/scratch_namo/datasets/namo_testset_v1/labels/pure2push.json"
-REF_DEFAULT = "/common/users/dm1487/scratch_namo/eval/region_equiv/region_equiv_ref.json"
+# Env-aware: NAMO_SCRATCH is set by env.<machine>.sh (ilab=/common/users/dm1487/scratch_namo,
+# amarel=/scratch/dm1487). Falls back to the ilab path so it still runs unsourced on CS boxes.
+_SCRATCH = os.environ.get("NAMO_SCRATCH", "/common/users/dm1487/scratch_namo")
+LABELS = f"{_SCRATCH}/datasets/namo_testset_v1/labels/pure2push.json"
+REF_DEFAULT = f"{_SCRATCH}/eval/region_equiv/region_equiv_ref.json"
 
 # How many reachable objects per scene and pushes per object to exercise (deterministic caps).
 MAX_OBJECTS = 2
