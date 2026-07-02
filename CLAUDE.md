@@ -2,6 +2,8 @@
 
 Context for Claude Code when working with NAMO (Navigation Among Movable Obstacles) codebase.
 
+**→ HUMAN MAP of every doc (what exists + what to read): [docs/INDEX.md](docs/INDEX.md)** — the reading room; run `python scripts/docs_lint.py` to keep its links honest.
+
 **→ For data collection instructions, see [DATA_COLLECTION_GUIDE.md](DATA_COLLECTION_GUIDE.md)**
 
 **→ GOTCHA: one room (`xml`) has MANY episodes (different object/goal each).** Never key analyses,

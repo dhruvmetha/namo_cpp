@@ -1,0 +1,146 @@
+# Docs Index — NAMO
+
+The human front door to the docs. `CLAUDE.md` (repo root) is the *agent's* router;
+this is *your* map. Every markdown doc in the repo is listed below with a one-line
+purpose and a status tag. Keep it current with `python scripts/docs_lint.py`.
+
+**Tags:** `[ROUTER]` schema/entry · `[HUB]` links many others · `[LIVE]` actively updated ·
+`[REF]` stable reference · `[SNAPSHOT]` dated results, not maintained · `[FROZEN]` closed/superseded ·
+`[ARCHIVE]` superseded, do not cite.
+
+---
+
+## ▶ If you read nothing else (written for a human)
+
+Most docs below are written for the *agent* to reload context after compaction — that's
+why they feel like logs. These four are written for *you* to actually read:
+
+1. [`docs/horizon_q_overview.md`](horizon_q_overview.md) — plain-language map of the active project. **Start here.**
+2. [`docs/research/research_compass.md`](research/research_compass.md) — why the research matters; come back when the work feels uncertain. `[HUB]`
+3. [`docs/experiments/ILAB_RESUME.md`](experiments/ILAB_RESUME.md) — the "pick up here" note when resuming work.
+4. [`docs/personal/researcher_mentality.md`](personal/researcher_mentality.md) — how you operate; includes a note to AI assistants.
+
+To resume the active Horizon-Q thread specifically, follow the ranked list in `CLAUDE.md` ("READ THESE FIRST").
+
+---
+
+## Entry points & setup (repo root)
+
+- [`CLAUDE.md`](../CLAUDE.md) — the agent router/schema: invariants, read-first pointers, architecture cheatsheet. `[ROUTER]`
+- [`README.md`](../README.md) — project README: eval scripts + C++/Python architecture, build, API. `[REF]`
+- [`DATA_COLLECTION_GUIDE.md`](../DATA_COLLECTION_GUIDE.md) — end-to-end region-opening data collection + mask generation. `[REF]`
+- [`CLAUDE.amarel.md`](../CLAUDE.amarel.md) / [`CLAUDE.ilab.md`](../CLAUDE.ilab.md) — machine cards (paths/env/SLURM per box). `[REF]`
+- [`docs/PORTABILITY.md`](PORTABILITY.md) — stand the pipeline up on any machine. `[REF]`
+
+## docs/ (loose)
+
+- [`horizon_q_overview.md`](horizon_q_overview.md) — plain-language map of the active Horizon-Q project. `[HUB]` `[LIVE]`
+- [`cluster_resources.md`](cluster_resources.md) — Amarel SLURM partition/GPU guidance (append-only dated log). `[LIVE]`
+- [`planner_contract_drifts.md`](planner_contract_drifts.md) — confirmed config-key drift in the legacy collection path. `[REF]`
+
+## docs/experiments/ — the active research ledger
+
+**Horizon-Q arc (current):**
+- [`ILAB_RESUME.md`](experiments/ILAB_RESUME.md) — quick "pick up here" resume note. `[LIVE]`
+- [`horizon_q_redesign_execution.md`](experiments/horizon_q_redesign_execution.md) — staged execution journal (Stage 0–4), append-only log. `[LIVE]`
+- [`horizon_q_HANDOFF.md`](experiments/horizon_q_HANDOFF.md) — self-contained brief: problem + arch + algorithm + results. `[REF]`
+- [`horizon_q_search_redesign_journal.md`](experiments/horizon_q_search_redesign_journal.md) — the pivot: model = sims-minimizing ranker; D1–D5 decision ledger. `[LIVE]`
+- [`horizon_q_build_journal.md`](experiments/horizon_q_build_journal.md) — empirical build record (v2/v3/v4, ExIt); §9 progress log. `[LIVE]`
+- [`multipush_horizonQ_journal.md`](experiments/multipush_horizonQ_journal.md) — multi-push / horizon-Q design spec ledger (37 decisions). `[LIVE]`
+- [`horizon_q_model_registry.md`](experiments/horizon_q_model_registry.md) — authoritative model / ckpt / headline-number catalog. `[HUB]` — read for paths, never glob.
+- [`horizon_q_related_work.md`](experiments/horizon_q_related_work.md) — related-work / novelty positioning. `[REF]`
+- [`policy_value_search_hypothesis.md`](experiments/policy_value_search_hypothesis.md) — newest (2026-07-01) falsifiable π+V split hypothesis (NOT committed). `[LIVE]`
+
+**1-push / scorer arc (earlier):**
+- [`scorer_hacman_journal.md`](experiments/scorer_hacman_journal.md) — overnight HACMan-faithful 1-push scorer journal (E0–E9); top FINAL SYNTHESIS supersedes numbers below it. `[LIVE]`
+- [`scorer_1push_results.md`](experiments/scorer_1push_results.md) — clean 1-push scorer results snapshot. `[SNAPSHOT]`
+- [`hacman_comparison.md`](experiments/hacman_comparison.md) — slide-ready: our region-opening ↔ HACMan parallel. `[REF]`
+- [`multipush_learning_primer.md`](experiments/multipush_learning_primer.md) — plain-language map of model families + training schemes + case studies. `[REF]`
+- [`policy_framework_journal.md`](experiments/policy_framework_journal.md) — 1-push architecture hypotheses (H0a/H1/H2/H5). `[FROZEN]` — all closed.
+- [`informative_1push.md`](experiments/informative_1push.md) — informative-hard 1-push experiment checklist (embedded result stale). `[LIVE]`
+- [`informative_1push_results.md`](experiments/informative_1push_results.md) — feasibility results, corrected (has ARCHIVED/CONTAMINATED note). `[SNAPSHOT]`
+- [`informative_1push_training_study.md`](experiments/informative_1push_training_study.md) — 500-epoch + annealing follow-up study. `[SNAPSHOT]`
+- [`model_comparison_report.md`](experiments/model_comparison_report.md) — plain-English model comparison (CORRECTED v2). `[SNAPSHOT]`
+- [`results_design_report_2026-06-15.md`](experiments/results_design_report_2026-06-15.md) — dated results + design rationale (later overtaken). `[SNAPSHOT]`
+- [`informed_2push_journal.md`](experiments/informed_2push_journal.md) — 2-push hypothesis journal (leaf-vs-search). `[LIVE]`
+- [`informed_2push_data_ledger.md`](experiments/informed_2push_data_ledger.md) — running ledger of files/manifests/ckpts/jobs for informed-2-push. `[LIVE]`
+- [`multipush_horizonQ_journal.md`](experiments/multipush_horizonQ_journal.md) — (also the design spec for the Horizon-Q arc above). `[LIVE]`
+
+## docs/pipeline/ — data-pipeline reference
+
+- [`multi_episode_rooms.md`](pipeline/multi_episode_rooms.md) — **THE per-episode invariant** (one xml = many episodes; never key on the room) + failure modes. `[HUB]` — critical gotcha.
+- [`namo_pipeline.md`](pipeline/namo_pipeline.md) — paper-ready, filename-free full-pipeline method. `[REF]`
+- [`canonical_testset.md`](pipeline/canonical_testset.md) — spec/build of the canonical car test set `namo_testset_v1`. `[LIVE]`
+- [`horizon_q_datasets.md`](pipeline/horizon_q_datasets.md) — datasheet for the budget-conditioned horizon-Q datasets. `[LIVE]`
+- [`data_collection_phases.md`](pipeline/data_collection_phases.md) — per-phase parameter cookbook for the region-opening cascade. `[REF]`
+- [`difficulty_stratification.md`](pipeline/difficulty_stratification.md) — how `eval_2push` bins problems easy/med/hard. `[REF]`
+- [`full_namo_collection.md`](pipeline/full_namo_collection.md) — human mirror of `full_namo_collection.yaml`. `[REF]`
+- [`grounding_with_reachability.md`](pipeline/grounding_with_reachability.md) — grounding ML goals to reachable primitive slots + RA@K metric. `[REF]`
+- [`scorer_dataset.md`](pipeline/scorer_dataset.md) — data lineage: F-scorer vs DiT datasets from the same corpora. `[REF]`
+
+## docs/research/ — problem framing & literature
+
+- [`research_compass.md`](research/research_compass.md) — orientation hub: framings, what's novel, the two-paper plan. `[HUB]`
+- [`F_problem_formulation.md`](research/F_problem_formulation.md) — paper-style formal definitions (F = C ∩ R), baselines B0–B4, hypotheses. `[REF]`
+- [`research_notes_F_characterization.md`](research/research_notes_F_characterization.md) — empirical results + hypotheses (the "notes" twin of the formulation). `[LIVE]`
+- [`scene_conditioned_sampler_design.md`](research/scene_conditioned_sampler_design.md) — unified scene-conditioned sampler design (successor doc). `[LIVE]`
+- [`reading_list.md`](research/reading_list.md) — broad ~61-paper annotated bibliography. `[REF]`
+- [`reading_list_F_characterization.md`](research/reading_list_F_characterization.md) — focused F-characterization reading list. `[REF]`
+- [`research_prompt.md`](research/research_prompt.md) — literature-search prompt (older `F = T ∩ A` framing — diverged from current). `[FROZEN]`
+
+## docs/personal/
+
+- [`researcher_mentality.md`](personal/researcher_mentality.md) — how you operate as a researcher; includes a note to AI assistants. `[LIVE]`
+
+## docs/algorithms/ — code-tethered reference
+
+- [`ML_DRIVEN_ASYNC_ALGORITHM.md`](algorithms/ML_DRIVEN_ASYNC_ALGORITHM.md) — ML-driven async N-push search spec (GPU/CPU overlap). `[REF]`
+- [`region_opening_primitive.md`](algorithms/region_opening_primitive.md) — region-opening + primitive-goal planner walkthrough. `[REF]`
+- [`push_pruning_and_aborts.md`](algorithms/push_pruning_and_aborts.md) — the 3-layer push prune/abort pipeline. `[REF]`
+- [`REGION_CONNECTIVITY_SNAPSHOT.md`](algorithms/REGION_CONNECTIVITY_SNAPSHOT.md) — C++ region/connectivity snapshot API. `[REF]`
+- [`WAVEFRONT_CELL_SEMANTICS.md`](algorithms/WAVEFRONT_CELL_SEMANTICS.md) — canonical `-1/0/1` wavefront cell encoding contract. `[REF]`
+- [`nav_issues.md`](algorithms/nav_issues.md) — diff-drive navigation outstanding-issues punch list. `[LIVE]`
+
+## docs/evaluation/
+
+- [`ML_vs_GT_F_evaluation.md`](evaluation/ML_vs_GT_F_evaluation.md) — plan: score diffusion goals vs ground-truth feasible set F (point robot). `[SNAPSHOT]`
+- [`ML_vs_GT_F_results_round1.md`](evaluation/ML_vs_GT_F_results_round1.md) — round-1 results for that evaluation. `[SNAPSHOT]`
+
+## docs/superpowers/ — spec + plan pair
+
+- [`specs/2026-05-19-uniform-rollout-sampler-design.md`](superpowers/specs/2026-05-19-uniform-rollout-sampler-design.md) — UniformRolloutSampler design spec (v0). `[FROZEN]`
+- [`plans/2026-05-20-uniform-rollout-sampler-implementation.md`](superpowers/plans/2026-05-20-uniform-rollout-sampler-implementation.md) — TDD implementation plan for the spec. `[FROZEN]`
+
+## docs/archive/ — superseded, do not cite `[ARCHIVE]`
+
+- [`jan20_FULL_EVALUATION_REPORT.md`](archive/jan20_FULL_EVALUATION_REPORT.md) — umbrella Jan-2025 eval (superset of the three below).
+- [`jan20_1push_results.md`](archive/jan20_1push_results.md) · [`eval_2push_1push_test_results.md`](archive/eval_2push_1push_test_results.md) · [`eval_2push_1push_test_consistency.md`](archive/eval_2push_1push_test_consistency.md) — slices of the umbrella report.
+- [`dec25_crossattn_results.md`](archive/dec25_crossattn_results.md) — earlier 1-push eval (superseded by jan20).
+- [`MCTS_TRAINING_DATA_STRUCTURE.md`](archive/MCTS_TRAINING_DATA_STRUCTURE.md) — old MCTS data-format spec (superseded design).
+
+## Code-adjacent READMEs (not in docs/)
+
+- [`python/README.md`](../python/README.md) — Python bindings package guide (RL API, state mgmt).
+- [`python/namo/visualization/mask_generation/README.md`](../python/namo/visualization/mask_generation/README.md) — 9-mask NPZ generation module.
+- [`scripts/amarel/README.md`](../scripts/amarel/README.md) — Amarel SLURM quick reference.
+- [`scripts/sandbox/README.md`](../scripts/sandbox/README.md) — sandbox (gitignored one-offs) vs committed `scripts/` convention.
+- [`test_xml/little-car-modeling-package/README.md`](../test_xml/little-car-modeling-package/README.md) — standalone little-car MuJoCo model package (Chinese).
+
+---
+
+## Maintenance
+
+`scripts/docs_lint.py` checks this corpus for: broken doc→doc links, broken doc→code links
+(file existence only, not line numbers), and orphan docs (nothing links to them). It also
+lists **unwritten memory notes** — `[[<slug>]]` wikilinks the journals ask for but that don't
+exist yet in `~/.claude/.../memory/` (a "capture this fact" backlog).
+
+```
+python scripts/docs_lint.py            # link health (exits 1 if broken)
+python scripts/docs_lint.py --orphans  # also list orphan docs
+python scripts/docs_lint.py --json     # machine-readable
+```
+
+Known open items (as of this index): 0 broken doc→doc links, 14 broken doc→code links
+(mostly relative-depth rot in `push_pruning_and_aborts.md` and `ML_vs_GT_F_evaluation.md` —
+the file paths, not the line numbers), and 9 unwritten memory notes.

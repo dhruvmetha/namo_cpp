@@ -451,8 +451,8 @@ The world model is not a design decision. It is a conclusion forced by experimen
 
 This section documents the first end-to-end ML-vs-F evaluation and the
 unexpected failure mode it surfaced. Full results, plots, and commands are in
-[`ML_vs_GT_F_results_round1.md`](ML_vs_GT_F_results_round1.md); the evaluation
-plan is in [`ML_vs_GT_F_evaluation.md`](ML_vs_GT_F_evaluation.md).
+[`ML_vs_GT_F_results_round1.md`](../evaluation/ML_vs_GT_F_results_round1.md); the evaluation
+plan is in [`ML_vs_GT_F_evaluation.md`](../evaluation/ML_vs_GT_F_evaluation.md).
 
 ### Setup
 

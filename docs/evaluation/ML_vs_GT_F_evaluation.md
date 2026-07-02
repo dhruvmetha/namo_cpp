@@ -85,7 +85,7 @@ ch4  local_goal_sample_region   (BFS reachable from sampled goal site)
 ```
 
 Target is a 32×32 center‑cropped goal mask. See
-[`docs/region_opening_pipeline.md`](region_opening_pipeline.md) §7.2.
+[`docs/pipeline/namo_pipeline.md`](../pipeline/namo_pipeline.md) §8 (diffusion goal sampler).
 
 **Important:** the model was trained on **point‑robot** data (the 2‑push h5
 under `dec2/aug9_envs/`). The car branch's primitive‑prefix wiring (just
@@ -452,7 +452,7 @@ the model has internalized enough chain dynamics to act as a multi‑push goal
 sampler. If it collapses at the 2‑push horizon, that is the *first concrete
 signal* that classifier‑only is insufficient and a world model is warranted.
 
-Keep [`docs/research_notes_F_characterization.md`](research_notes_F_characterization.md)
+Keep [`docs/research/research_notes_F_characterization.md`](../research/research_notes_F_characterization.md)
 Hypothesis 1 (`|F|/|R|` predicts difficulty) in mind — the easiest way to
 detect "ML hits F where F is dense, misses where F is sparse" is to bucket the
 results by `|F|/|R|`. The existing `analyze_F.py` already computes this; we
@@ -503,5 +503,5 @@ should reuse the histogram bins so figures are comparable.
 | Existing 1‑push GT (train) | `/common/users/dm1487/namo_data/f_characterization/1_push_exhaustive_train/modular_data_rlab{5,6,7}/` |
 | ML model run dir | `/common/users/dm1487/namo_data/outputs/cropped_diffusion_crossattn_2push/2025-12-16/05-36-44/` |
 | 2‑push manifests | `/common/users/shared/robot_learning/dm1487/namo/manifests/aug9_medium/manifest_2push_*` |
-| Pipeline overview (Method + Setup) | `docs/region_opening_pipeline.md` |
+| Pipeline overview (Method + Setup) | `docs/pipeline/namo_pipeline.md` |
 | Research framing & hypotheses | `docs/research_notes_F_characterization.md` |
