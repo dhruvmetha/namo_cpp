@@ -150,3 +150,27 @@ namo_rl):**
 **How to verify any claim:** `cd namo-cleanup && set -a; . ../.env; set +a` then
 `CUDA_VISIBLE_DEVICES="" OMP_NUM_THREADS=1 "$NAMO_PYTHON" scripts/sandbox/test_region_equiv.py --mode compare` (180/180),
 `cmake --build build_python` (all targets), `scripts/sandbox/profile_push.py` (per-op ms).
+
+---
+
+## FINAL STATUS (2026-07-02, end of autonomous run)
+
+Reached a clean, fully-committed, fully-verified stopping point. All work is on
+`feat/wavefront-cleanup-and-docs`; main checkout untouched; all 5 CMake targets build;
+behavior gate 180/180 (qpos diff 0) on every commit.
+
+**Additional cleanups since the overnight-2 summary:** removed dead `python/namo/services/`
+package (`6632ab7`); gated 34 `wavefront_grid.cpp` debug couts behind a compile flag (`41f408b`).
+
+**Why I stopped the method-level dead-code grind:** the ~20 remaining "dead methods" are
+cosmetic LOC (inert code), and removing them cleanly rabbit-holes — e.g.
+`NAMOEnvironment::save_current_state`/`restore_saved_state` are verified 0-caller, but they own
+members (`saved_qpos_`, `saved_qvel_`, `has_saved_state_`) that then need their own
+usage-analysis + removal. That's a review-worthy follow-up, not a safe blind-overnight edit, and
+the value (LOC-only, code already inert) is low vs the risk of a botched member cleanup deep in a
+long session. All of them are VERIFIED-dead and listed in the recommendations above for a quick
+supervised pass. Same for the rasterizer DUP (fiddly, center-vs-corner) and README stale refs.
+
+**Bottom line for the morning:** the search base is now fast + honest (29× on large grids,
+bit-identical), the tree is ~6,400 LOC leaner, debug I/O is gated, docs are compressed, and
+there's a verified punch-list for the rest. Nothing is half-done or broken.
