@@ -108,18 +108,45 @@ void WavefrontPlanner::initialize_static_grid(NAMOEnvironment& env) {
     // std::cout << "Static grid initialization took " << duration.count() << " ms" << std::endl;
 }
 
-bool WavefrontPlanner::update_wavefront(NAMOEnvironment& env, 
+bool WavefrontPlanner::update_wavefront(NAMOEnvironment& env,
                                                   const std::vector<double>& start_pos) {
     auto start_time = std::chrono::high_resolution_clock::now();
-    
-    // Rebuild and recompute wavefront from scratch
+
+    // Build a state fingerprint = BFS start + every movable object's pose. reachability_grid_
+    // is a pure function of exactly these (see header note), so an unchanged fingerprint means
+    // the cached grid is still bit-identical and we can skip the full rebuild + BFS.
+    std::vector<double> fp;
+    const size_t nmov = env.get_num_movable();
+    fp.reserve(2 + nmov * 7);
+    fp.push_back(start_pos.size() > 0 ? start_pos[0] : 0.0);
+    fp.push_back(start_pos.size() > 1 ? start_pos[1] : 0.0);
+    const auto& movable_objects = env.get_movable_objects();
+    for (size_t i = 0; i < nmov; i++) {
+        const ObjectState* s = env.get_object_state(movable_objects[i].name);
+        if (s) {
+            fp.push_back(s->position[0]); fp.push_back(s->position[1]); fp.push_back(s->position[2]);
+            fp.push_back(s->quaternion[0]); fp.push_back(s->quaternion[1]);
+            fp.push_back(s->quaternion[2]); fp.push_back(s->quaternion[3]);
+        } else {
+            for (int k = 0; k < 7; ++k) fp.push_back(0.0);
+        }
+    }
+
+    if (wf_cache_valid_ && fp == wf_cache_state_) {
+        stats_.wavefront_updates++;           // logical update served from cache
+        return true;                          // reachability_grid_ is still valid
+    }
+
+    // State changed (or first call): rebuild and recompute wavefront from scratch.
     recompute_wavefront(env, start_pos);
-    
+    wf_cache_state_ = std::move(fp);
+    wf_cache_valid_ = true;
+
     // Update basic statistics
     stats_.wavefront_updates++;
-    
+
     update_performance_stats(start_time, std::chrono::high_resolution_clock::now());
-    return true; // Always return true since we always rebuild
+    return true;
 }
 
 // All change detection methods removed - no longer needed for simple rebuild approach

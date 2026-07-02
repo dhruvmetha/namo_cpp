@@ -233,8 +233,16 @@ private:
     std::vector<std::vector<int>> static_grid_;      // Static obstacles only
     std::vector<std::vector<int>> dynamic_grid_;     // Current full state
     std::vector<std::vector<int>> reachability_grid_; // Reachability from start: -1=obstacle, 0=unreachable, 1=reachable
-    
-    // No change tracking needed - always rebuild from scratch
+
+    // Reachability cache. reachability_grid_ is a PURE function of (BFS start_pos + movable
+    // object poses): static_grid_ is fixed, and reachability_grid_/dynamic_grid_ are written
+    // ONLY by recompute_wavefront (called ONLY by update_wavefront; compute_wavefront + all
+    // reachability reads go through update_wavefront first). So an identical state fingerprint
+    // guarantees a bit-identical grid, and update_wavefront can skip the full rebuild+BFS.
+    // The region-opening executor issues ~8 reachability queries per candidate over only ~2
+    // distinct states, so this deduplicates the redundant rebuilds (behavior-identical).
+    std::vector<double> wf_cache_state_;
+    bool wf_cache_valid_ = false;
     
     // BFS workspace - reused across calls (simplified)
     static constexpr size_t MAX_BFS_QUEUE = 4000000;  // Increased to handle 1410x2210 grid (3.1M cells)
