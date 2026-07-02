@@ -45,21 +45,27 @@ export NAMO_OUTPUTS="${NAMO_OUTPUTS:-$NAMO_DATA_ROOT/outputs}"
 export NAMO_LOGS="${NAMO_LOGS:-$NAMO_DATA_ROOT/logs}"
 export NAMO_H5="${NAMO_H5:-$NAMO_DATA_ROOT/h5}"
 
-# ─── Toolchain (modules, conda, MuJoCo) ────────────────────────────────────
-# System modules (available on every partition, including hal).
-# Build only needs C++17 + CMake >= 3.16, so gcc/12.3 + cmake/3.26.5 clear it.
-module load gcc/12.3 cmake/3.26.5
-# Old community-built toolchain — fails on hal (arch baseline mismatch):
-# module use /projects/community/modulefiles
-# module load gcc/14.2.0-cermak cmake/3.31.8-rdp135
+# ─── Toolchain (compiler + CMake) — MODULE-FREE after the RHEL9 migration ───
+# 2026-07 RHEL9 MIGRATION (OARC): compute nodes are now RHEL9 whose SYSTEM g++ is 11.5
+# (C++17-ready — no compiler module needed), and lmod is BROKEN on them when you submit from
+# the OLD CentOS7 login node (`ssh amarel` -> amarel1): `module load` dies with
+# "module 'posix' not found". The legacy community tree also moved to /projects/community-old.
+# So the build is now module-free:
+#   compiler = the RHEL9 compute node's system g++ 11.5 (nothing to load)
+#   cmake    = installed into the conda env (pip); on PATH after `conda activate`
+# (Logging into the RHEL9 login node `amarel-new.hpc.rutgers.edu` should restore working
+#  modules, but module-free is migration-proof. Old recipe was: module load gcc/12.3 cmake/3.26.5)
 
 NAMO_CONDA_ENV="${NAMO_CONDA_ENV:-/scratch/dm1487/envs/namo}"
 # Canonical interpreter name used by slurm/sh scripts.
 export NAMO_PYTHON="${NAMO_PYTHON:-$NAMO_CONDA_ENV/bin/python}"
 source "${NAMO_CONDA_PROFILE:-/cache/home/dm1487/miniforge3/etc/profile.d/conda.sh}"
 conda activate "$NAMO_CONDA_ENV"
+# CMake lives in the conda env (self-heal once; needed by ./build_python_bindings.sh).
+command -v cmake >/dev/null 2>&1 || pip install -q cmake
 
 export MJ_PATH="${MJ_PATH:-/scratch/dm1487/mujoco/mujoco-3.2.7}"
+# conda env lib first so the g++-11-built .so finds a new-enough libstdc++ on any node.
 export LD_LIBRARY_PATH="$MJ_PATH/lib:$NAMO_CONDA_ENV/lib:${LD_LIBRARY_PATH:-}"
 
 # ─── Python bindings (canonical build_python/) ─────────────────────────────
