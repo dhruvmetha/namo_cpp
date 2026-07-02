@@ -6,6 +6,8 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <random>
+#include <cstdint>
+#include <cstddef>
 
 namespace namo {
 
@@ -14,10 +16,20 @@ class NAMOEnvironment;
 
 /**
  * @brief Hash function for coordinate pairs (used in unordered_set/map)
+ *
+ * Grid coordinates are small non-negative ints, so packing (x,y) into a 64-bit key gives a
+ * COLLISION-FREE hash. The previous `hash(x) ^ (hash(y)<<1)` (= `x ^ (y<<1)`) collided
+ * systematically on a grid — e.g. (0,0) and (2,1) both hash to 0 — so the connected-components
+ * flood-fill's unordered_set find/insert/erase degraded to super-linear, making
+ * find_connected_components take ~20-30 s on large grids (5 mm car scenes were unaffected at
+ * ~1 ms). This is PURELY a performance fix: the region labeling is hash-independent (BFS is
+ * FIFO-queue order; region seeds are the lexicographically-smallest cell — see
+ * WavefrontGrid::select_random_point), so outputs are bit-identical.
  */
 struct CoordinateHash {
     std::size_t operator()(const std::pair<int, int>& p) const {
-        return std::hash<int>()(p.first) ^ (std::hash<int>()(p.second) << 1);
+        return (static_cast<std::size_t>(static_cast<std::uint32_t>(p.first)) << 32)
+               | static_cast<std::uint32_t>(p.second);
     }
 };
 
