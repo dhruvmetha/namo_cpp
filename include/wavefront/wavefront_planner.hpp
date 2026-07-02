@@ -1,7 +1,6 @@
 #pragma once
 
 #include "core/types.hpp"
-#include "core/memory_manager.hpp"
 #include <vector>
 #include <queue>
 #include <unordered_map>
@@ -9,6 +8,7 @@
 #include <chrono>
 #include <map>
 #include <memory>
+#include <stdexcept>  // std::runtime_error (was pulled in transitively via the removed memory_manager.hpp)
 
 namespace namo {
 

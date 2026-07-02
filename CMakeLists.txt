@@ -131,20 +131,9 @@ file(GLOB_RECURSE CONFIG_SOURCES "src/config/*.cpp")
 file(GLOB_RECURSE ROBOT_SOURCES "src/robot/*.cpp")
 file(GLOB_RECURSE NAVIGATION_SOURCES "src/navigation/*.cpp")
 
-set(ALL_SOURCES
-    ${CORE_SOURCES}
-    ${PLANNING_SOURCES}
-    ${WAVEFRONT_SOURCES}
-    ${PLANNER_SOURCES}
-    ${STRATEGY_SOURCES}
-    ${ENVIRONMENT_SOURCES}
-    ${UTILS_SOURCES}
-    ${SKILLS_SOURCES}
-    ${CONFIG_SOURCES}
-    ${ROBOT_SOURCES}
-    ${NAVIGATION_SOURCES}
-    src/main.cpp
-)
+# NOTE (2026-07-02): ALL_SOURCES + src/main.cpp removed — the variable was consumed by no
+# add_executable/add_library (dead after the high_level_planning_demo removal), and main.cpp
+# was its only unique source. namo_rl and the remaining targets list their sources explicitly.
 
 # NOTE (2026-07-01): the high_level_planning_demo executable + the dead RegionAnalyzer /
 # high_level_planner subtree were removed — they were off the namo_rl .so call path
