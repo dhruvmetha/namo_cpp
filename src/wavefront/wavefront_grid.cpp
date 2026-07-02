@@ -11,6 +11,18 @@
 
 namespace namo {
 
+namespace {
+// WavefrontGrid diagnostics run once per region-opening search NODE. They used to spam stdout
+// (and rl_env.cpp installed a CoutSilencer hack to suppress them in the snapshot path). Route
+// them through a compile-time-gated sink instead: off by default, flip kWavefrontGridVerbose to
+// re-enable. std::cerr warnings (invalid geometry) are intentionally left ungated.
+constexpr bool kWavefrontGridVerbose = false;
+inline std::ostream& wg_dbg() {
+    static std::ostream null_sink(nullptr);  // no streambuf -> discards without formatting work
+    return kWavefrontGridVerbose ? std::cout : null_sink;
+}
+}  // namespace
+
 WavefrontGrid::WavefrontGrid(NAMOEnvironment& env,
                              const std::vector<double>& robot_size,
                              double tier1_inflation_margin)
@@ -34,12 +46,12 @@ WavefrontGrid::WavefrontGrid(NAMOEnvironment& env,
     // Initialize region caching
     regions_valid_ = false;
     
-    std::cout << "Initialized wavefront grid:" << std::endl;
-    std::cout << "  Grid size: " << grid_width_ << "x" << grid_height_ << std::endl;
-    std::cout << "  Resolution: " << resolution_ << "m" << std::endl;
-    std::cout << "  Bounds: [" << bounds_[0] << ", " << bounds_[1] << "] x ["
+    wg_dbg() << "Initialized wavefront grid:" << std::endl;
+    wg_dbg() << "  Grid size: " << grid_width_ << "x" << grid_height_ << std::endl;
+    wg_dbg() << "  Resolution: " << resolution_ << "m" << std::endl;
+    wg_dbg() << "  Bounds: [" << bounds_[0] << ", " << bounds_[1] << "] x ["
               << bounds_[2] << ", " << bounds_[3] << "]" << std::endl;
-    std::cout << "  Robot size: [" << robot_size_[0] << ", " << robot_size_[1] << "]" << std::endl;
+    wg_dbg() << "  Robot size: [" << robot_size_[0] << ", " << robot_size_[1] << "]" << std::endl;
 }
 
 void WavefrontGrid::rebuild_grids(NAMOEnvironment& env) {
@@ -127,7 +139,7 @@ void WavefrontGrid::rebuild_grids(NAMOEnvironment& env) {
 
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-    std::cout << "Grid rebuild took " << duration.count() << " ms" << std::endl;
+    wg_dbg() << "Grid rebuild took " << duration.count() << " ms" << std::endl;
 }
 
 void WavefrontGrid::update_dynamic_grid(NAMOEnvironment& env) {
@@ -141,7 +153,7 @@ GridFootprint WavefrontGrid::calculate_rotated_footprint(const ObjectInfo& obj,
     
     // Safety checks
     if (obj.size[0] <= 0 || obj.size[1] <= 0) {
-        std::cout << "Warning: Invalid object size [" << obj.size[0] << ", " << obj.size[1] << "]" << std::endl;
+        wg_dbg() << "Warning: Invalid object size [" << obj.size[0] << ", " << obj.size[1] << "]" << std::endl;
         return footprint;
     }
     
@@ -151,7 +163,7 @@ GridFootprint WavefrontGrid::calculate_rotated_footprint(const ObjectInfo& obj,
                                 state.quaternion[2]*state.quaternion[2] + 
                                 state.quaternion[3]*state.quaternion[3]);
     if (std::abs(quat_norm - 1.0) > 0.01) {
-        std::cout << "Warning: Invalid quaternion norm " << quat_norm << ", using identity" << std::endl;
+        wg_dbg() << "Warning: Invalid quaternion norm " << quat_norm << ", using identity" << std::endl;
         // Use zero rotation as fallback
     }
     
@@ -280,7 +292,7 @@ void WavefrontGrid::save_grid(const std::string& filename, bool use_static_grid)
     }
     
     file.close();
-    std::cout << "Grid saved to: " << filename << std::endl;
+    wg_dbg() << "Grid saved to: " << filename << std::endl;
 }
 
 void WavefrontGrid::save_uninflated_grid(const std::string& filename) const {
@@ -299,7 +311,7 @@ void WavefrontGrid::save_uninflated_grid(const std::string& filename) const {
     }
     
     file.close();
-    std::cout << "Uninflated grid saved to: " << filename << std::endl;
+    wg_dbg() << "Uninflated grid saved to: " << filename << std::endl;
 }
 
 // ========================
@@ -468,9 +480,9 @@ WavefrontGrid::find_connected_components(const std::array<double, 2>& robot_pos,
         }
 
         if (goal_cells.empty()) {
-            std::cout << "No goal cells provided; treating robot region as standalone" << std::endl;
+            wg_dbg() << "No goal cells provided; treating robot region as standalone" << std::endl;
         } else {
-            std::cout << "Goal cells provided but all are out of bounds (" << blocked_goal_cells.size()
+            wg_dbg() << "Goal cells provided but all are out of bounds (" << blocked_goal_cells.size()
                       << " entries); treating robot region as standalone" << std::endl;
         }
 
@@ -482,7 +494,7 @@ WavefrontGrid::find_connected_components(const std::array<double, 2>& robot_pos,
             region_grid_[x][y] = 1;
         }
 
-        std::cout << "Robot and goal are in the same connected region" << std::endl;
+        wg_dbg() << "Robot and goal are in the same connected region" << std::endl;
     } else {
         cached_regions_[1] = robot_region;
         cached_region_labels_[1] = "robot";
@@ -538,13 +550,13 @@ WavefrontGrid::find_connected_components(const std::array<double, 2>& robot_pos,
                     region_grid_[x][y] = 2;
                 }
 
-                std::cout << "Goal region identified with " << goal_region.size()
+                wg_dbg() << "Goal region identified with " << goal_region.size()
                           << " free cells" << std::endl;
             } else {
-                std::cout << "Goal cells exist but none are reachable as free space" << std::endl;
+                wg_dbg() << "Goal cells exist but none are reachable as free space" << std::endl;
             }
         } else {
-            std::cout << "All goal cells are blocked (" << blocked_goal_cells.size()
+            wg_dbg() << "All goal cells are blocked (" << blocked_goal_cells.size()
                       << ") or otherwise unavailable; no goal region created" << std::endl;
         }
     }
@@ -588,10 +600,10 @@ WavefrontGrid::find_connected_components(const std::array<double, 2>& robot_pos,
 
     regions_valid_ = true;
     
-    std::cout << "Found " << cached_regions_.size() << " connected components:" << std::endl;
+    wg_dbg() << "Found " << cached_regions_.size() << " connected components:" << std::endl;
     for (const auto& [id, region] : cached_regions_) {
         const std::string& label = cached_region_labels_[id];
-        std::cout << "  Region " << id << " (" << label << "): " << region.size() << " cells" << std::endl;
+        wg_dbg() << "  Region " << id << " (" << label << "): " << region.size() << " cells" << std::endl;
     }
     
     return cached_regions_;
@@ -646,9 +658,9 @@ WavefrontGrid::find_connected_components() const {
     
     regions_valid_ = true;
     
-    std::cout << "Found " << cached_regions_.size() << " connected components:" << std::endl;
+    wg_dbg() << "Found " << cached_regions_.size() << " connected components:" << std::endl;
     for (const auto& [id, region] : cached_regions_) {
-        std::cout << "  Region " << id << ": " << region.size() << " cells" << std::endl;
+        wg_dbg() << "  Region " << id << ": " << region.size() << " cells" << std::endl;
     }
     
     return cached_regions_;
@@ -687,7 +699,7 @@ WavefrontGrid::build_region_connectivity_graph(NAMOEnvironment& env) {
     find_connected_components();
     auto region_labels = get_region_labels();
     
-    std::cout << "Building region connectivity graph with " << cached_regions_.size() << " regions" << std::endl;
+    wg_dbg() << "Building region connectivity graph with " << cached_regions_.size() << " regions" << std::endl;
     
     // Initialize adjacency list
     std::unordered_map<std::string, std::unordered_set<std::string>> adjacency_list;
@@ -706,11 +718,11 @@ WavefrontGrid::build_region_connectivity_graph(NAMOEnvironment& env) {
         const ObjectState* obj_state = env.get_object_state(obj.name);
         
         if (!obj_state) {
-            std::cout << "Warning: No state found for object " << obj.name << std::endl;
+            wg_dbg() << "Warning: No state found for object " << obj.name << std::endl;
             continue;
         }
         
-        std::cout << "Processing object " << obj.name << " (" << (obj_idx + 1) << "/" 
+        wg_dbg() << "Processing object " << obj.name << " (" << (obj_idx + 1) << "/" 
                   << env.get_num_movable() << ")" << std::endl;
         
         // === STEP 1: Calculate object footprint ===
@@ -722,7 +734,7 @@ WavefrontGrid::build_region_connectivity_graph(NAMOEnvironment& env) {
         GridFootprint footprint = calculate_rotated_footprint(inflated_obj, *obj_state);
         
         if (footprint.num_cells == 0) {
-            std::cout << "  Object has no footprint - skipping" << std::endl;
+            wg_dbg() << "  Object has no footprint - skipping" << std::endl;
             continue;
         }
         
@@ -739,7 +751,7 @@ WavefrontGrid::build_region_connectivity_graph(NAMOEnvironment& env) {
         }
         
         if (removed_cells.empty()) {
-            std::cout << "  No cells to remove - skipping" << std::endl;
+            wg_dbg() << "  No cells to remove - skipping" << std::endl;
             continue;
         }
         
@@ -802,7 +814,7 @@ WavefrontGrid::build_region_connectivity_graph(NAMOEnvironment& env) {
         
         // === STEP 4: Create edges if multiple regions connected ===
         if (connected_region_ids.size() >= 2) {
-            std::cout << "  Object connects " << connected_region_ids.size() << " regions: ";
+            wg_dbg() << "  Object connects " << connected_region_ids.size() << " regions: ";
             
             // Convert region IDs to labels and create complete subgraph
             std::vector<std::string> connected_labels;
@@ -810,10 +822,10 @@ WavefrontGrid::build_region_connectivity_graph(NAMOEnvironment& env) {
                 auto label_it = region_labels.find(region_id);
                 if (label_it != region_labels.end()) {
                     connected_labels.push_back(label_it->second);
-                    std::cout << label_it->second << " ";
+                    wg_dbg() << label_it->second << " ";
                 }
             }
-            std::cout << std::endl;
+            wg_dbg() << std::endl;
             
             // Add edges between all pairs of connected regions
             for (size_t i = 0; i < connected_labels.size(); i++) {
@@ -831,7 +843,7 @@ WavefrontGrid::build_region_connectivity_graph(NAMOEnvironment& env) {
                 }
             }
         } else {
-            std::cout << "  Object connects " << connected_region_ids.size() 
+            wg_dbg() << "  Object connects " << connected_region_ids.size() 
                       << " regions - no edges added" << std::endl;
         }
         
@@ -842,16 +854,16 @@ WavefrontGrid::build_region_connectivity_graph(NAMOEnvironment& env) {
     }
     
     // Print summary
-    std::cout << "\nRegion Connectivity Graph Summary:" << std::endl;
+    wg_dbg() << "\nRegion Connectivity Graph Summary:" << std::endl;
     for (const auto& [region_label, neighbors] : adjacency_list) {
-        std::cout << "  " << region_label << " -> {";
+        wg_dbg() << "  " << region_label << " -> {";
         bool first = true;
         for (const auto& neighbor : neighbors) {
-            if (!first) std::cout << ", ";
-            std::cout << neighbor;
+            if (!first) wg_dbg() << ", ";
+            wg_dbg() << neighbor;
             first = false;
         }
-        std::cout << "}" << std::endl;
+        wg_dbg() << "}" << std::endl;
     }
     
     return adjacency_list;
