@@ -176,11 +176,10 @@ cmake --build build --parallel 8
 ### Quick Test
 
 ```bash
-# Run basic test (requires data/test_scene.xml)
-./build/namo_standalone config/simple_test.yaml
+# Build the Python bindings (primary artifact) + the CMake C++ targets:
+./build_python_bindings.sh                 # builds build_python/namo_rl + test_* targets
 
-# Run test suite
-./build/test_*
+# C++ test targets (see Testing below); Python usage is the main entry point (see Usage).
 ```
 
 ## Usage
@@ -469,24 +468,20 @@ robot_goal=[0.0, 0.0]
 
 ## Testing
 
-The codebase includes comprehensive tests:
+The C++ targets wired into CMake (built into `build_python/` alongside `namo_rl`):
 
 ```bash
-# Core functionality tests
-./build/test_primitives_only
-./build/test_coordinate_transformations
+./build_python/test_config_manager_schema
+./build_python/test_planner_output
+./build_python/test_wheel_spin
+```
 
-# Planning algorithm tests
-./build/test_mpc_executor
-./build/test_planner_output
+Behavior-equivalence gate for the region-opening / wavefront / push code path (drives fixed
+pushes through the sim on a stratified scene sample and asserts bit-identical outputs — used
+to prove refactors don't change behavior):
 
-# Integration tests
-./build/test_complete_planning
-./build/test_end_to_end
-
-# Skill system tests
-./build/test_namo_skill
-./build/test_simple_skill
+```bash
+CUDA_VISIBLE_DEVICES="" OMP_NUM_THREADS=1 python scripts/sandbox/test_region_equiv.py --mode compare
 ```
 
 ## Known Issues
