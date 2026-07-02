@@ -60,8 +60,6 @@ public:
     void update_object_states();
     
     // State management for optimization
-    void save_current_state();
-    void restore_saved_state();
     void reset_to_initial_state();
     
     // Full simulation state for zero-allocation save/restore
@@ -103,7 +101,6 @@ public:
     
     // Environment bounds
     std::vector<double> get_environment_bounds() const;
-    std::vector<double> get_random_state() const;
     
     // Object accessors
     const std::array<ObjectInfo, 100>& get_static_objects() const { return static_objects_; }
@@ -117,7 +114,6 @@ public:
     // Object state queries
     const ObjectInfo* get_object_info(const std::string& name) const;
     const ObjectState* get_object_state(const std::string& name) const;
-    const std::unordered_map<std::string, ObjectState>& get_all_object_states() const { return object_states_; }
     
     // Batch object info for efficient access (returns all immutable object data)
     std::map<std::string, std::map<std::string, double>> get_all_object_info() const;
@@ -159,11 +155,7 @@ public:
                                      double theta = 0.0,
                                      const std::array<float, 4>& color = {0.0f, 0.8f, 1.0f, 0.5f});
 
-    // Clear the object target marker
-    void clear_object_target_marker() { sim_->clear_object_target_marker(); }
-
     // Collision detection
-    bool is_in_collision() const { return sim_->in_collision(); }
     bool bodies_in_collision(const std::string& body1, const std::string& body2) const {
         return sim_->bodies_in_collision(body1, body2);
     }
@@ -199,15 +191,7 @@ public:
     // Direct MuJoCo access for advanced usage
     OptimizedMujocoWrapper* get_mujoco_wrapper() { return sim_.get(); }
     const OptimizedMujocoWrapper* get_mujoco_wrapper() const { return sim_.get(); }
-    
-    // Configuration
-    const std::string& get_config_name() const { return config_name_; }
-    bool get_logging_enabled() const { return logging_enabled_; }
-    
-    // Data collection
-    void save_objects_to_file(const std::string& filename) const;
-    void increment_wavefront_id() { wavefront_id_++; }
-    
+
 private:
     // MuJoCo simulation
     std::unique_ptr<OptimizedMujocoWrapper> sim_;
@@ -246,9 +230,6 @@ private:
     int state_log_idx_ = 0;
     
     // State management for optimization
-    bool has_saved_state_ = false;
-    std::vector<double> saved_qpos_;
-    std::vector<double> saved_qvel_;
     std::vector<double> initial_qpos_;
     std::vector<double> initial_qvel_;
     

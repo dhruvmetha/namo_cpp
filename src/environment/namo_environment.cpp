@@ -739,18 +739,6 @@ void NAMOEnvironment::visualize_edge_reachability(
             //   << (12 - reachable_edges.size()) << " red (unreachable)" << std::endl;
 }
 
-std::vector<double> NAMOEnvironment::get_random_state() const {
-    static std::random_device rd;
-    static std::mt19937 gen(rd());
-    
-    std::vector<double> bounds = get_environment_bounds();
-    std::uniform_real_distribution<double> x_dist(bounds[0], bounds[1]);
-    std::uniform_real_distribution<double> y_dist(bounds[2], bounds[3]);
-    std::uniform_real_distribution<double> yaw_dist(-M_PI, M_PI);
-    
-    return {x_dist(gen), y_dist(gen), yaw_dist(gen)};
-}
-
 const ObjectInfo* NAMOEnvironment::get_object_info(const std::string& name) const {
     // Check robot
     if (name == "robot") {
@@ -823,38 +811,6 @@ const ObjectState* NAMOEnvironment::get_object_state(const std::string& name) co
     return (it != object_states_.end()) ? &(it->second) : nullptr;
 }
 
-void NAMOEnvironment::save_objects_to_file(const std::string& filename) const {
-    std::ofstream file(filename);
-    if (!file.is_open()) {
-        std::cerr << "Warning: Could not open object data file: " << filename << std::endl;
-        return;
-    }
-    
-    // Write header
-    file << "object_type,object_name,size_x,size_y\n";
-    
-    // Write robot information (type 2)
-    file << "2," << robot_info_.name << "," 
-         << std::fixed << std::setprecision(6)
-         << robot_info_.size[0] << "," << robot_info_.size[0] << "\n";
-    
-    // Write static objects (type 0)
-    for (size_t i = 0; i < num_static_; i++) {
-        const auto& obj = static_objects_[i];
-        file << "0," << obj.name << "," 
-             << obj.size[0] << "," << obj.size[1] << "\n";
-    }
-    
-    // Write movable objects (type 1)
-    for (size_t i = 0; i < num_movable_; i++) {
-        const auto& obj = movable_objects_[i];
-        file << "1," << obj.name << "," 
-             << obj.size[0] << "," << obj.size[1] << "\n";
-    }
-    
-    file.close();
-}
-
 void NAMOEnvironment::visualize_goal_marker(
     const std::array<double, 3>& goal_position,
     const std::array<float, 4>& color,
@@ -905,35 +861,6 @@ void NAMOEnvironment::visualize_object_goal_marker(const std::array<double, 3>& 
 //=============================================================================
 // State management for optimization
 //=============================================================================
-
-void NAMOEnvironment::save_current_state() {
-    if (!sim_) return;
-    
-    // Get current state from MuJoCo
-    State current_state;
-    sim_->get_state(current_state);
-    saved_qpos_.resize(current_state.size());
-    for (size_t i = 0; i < current_state.size(); ++i) {
-        saved_qpos_[i] = current_state[i];
-    }
-    saved_qvel_.clear();  // Not using separate velocity storage for now
-    has_saved_state_ = true;
-}
-
-void NAMOEnvironment::restore_saved_state() {
-    if (!sim_ || !has_saved_state_) return;
-    
-    // Restore state to MuJoCo
-    State state;
-    state.resize(saved_qpos_.size());
-    for (size_t i = 0; i < saved_qpos_.size(); ++i) {
-        state[i] = saved_qpos_[i];
-    }
-    sim_->set_state(state);
-    
-    // Update our object state tracking
-    update_object_states();
-}
 
 void NAMOEnvironment::reset_to_initial_state() {
     if (!sim_) return;
