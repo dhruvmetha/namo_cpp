@@ -668,7 +668,9 @@ RLEnvironment::RegionSnapshot RLEnvironment::get_region_snapshot(
     }
 
     WavefrontGrid grid(*env_, robot_size, tier1_margin);
-    grid.update_dynamic_grid(*env_);
+    // NOTE: the WavefrontGrid ctor already calls rebuild_grids(*env_); update_dynamic_grid()
+    // is just rebuild_grids() again on the same (unchanged) env, so it was a redundant second
+    // full-grid rebuild per snapshot. Dropped — behavior-identical, ~half the snapshot rebuild cost.
 
     struct CoutSilencer {
         std::streambuf* original_buf;
