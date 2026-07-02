@@ -297,12 +297,6 @@ bool WavefrontPlanner::is_goal_reachable(const std::array<double, 2>& goal_pos,
     return false;
 }
 
-bool WavefrontPlanner::is_point_in_goal_region(double px, double py, 
-                                                         const std::array<double, 2>& goal_pos,
-                                                         double goal_size) const {
-    return std::abs(px - goal_pos[0]) <= goal_size && std::abs(py - goal_pos[1]) <= goal_size;
-}
-
 void WavefrontPlanner::save_wavefront(const std::string& filename) const {
     std::ofstream file(filename);
     if (!file.is_open()) {

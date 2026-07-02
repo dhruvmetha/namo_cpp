@@ -84,19 +84,13 @@ public:
      * @brief Get current reachability grid for external use
      */
     const std::vector<std::vector<int>>& get_grid() const { return reachability_grid_; }
-    
-    /**
-     * @brief Get mutable access to grid for debugging (use carefully!)
-     */
-    std::vector<std::vector<int>>& get_mutable_grid() { return reachability_grid_; }
-    
+
     /**
      * @brief Get grid dimensions
      */
     int get_grid_width() const { return grid_width_; }
     int get_grid_height() const { return grid_height_; }
     double get_resolution() const { return resolution_; }
-    const std::vector<double>& get_bounds() const { return bounds_; }
     const std::vector<double>& get_robot_size() const { return robot_size_; }
     double get_tier1_inflation_margin() const { return tier1_inflation_margin_; }
 
@@ -104,8 +98,7 @@ public:
      * @brief Get performance statistics
      */
     const PlanningStats& get_statistics() const { return stats_; }
-    void reset_statistics() { stats_.reset(); }
-    
+
     /**
      * @brief Get reachability grid (same as get_grid for compatibility)
      */
@@ -281,11 +274,9 @@ private:
     GridFootprint calculate_rotated_footprint(const ObjectInfo& obj, const ObjectState& state);
     
     // Geometric queries
-    bool is_point_in_rotated_rectangle(double px, double py, const ObjectState& state, 
+    bool is_point_in_rotated_rectangle(double px, double py, const ObjectState& state,
                                       const ObjectInfo& obj) const;
-    bool is_point_in_goal_region(double px, double py, const std::array<double, 2>& goal_pos,
-                                 double goal_size = 0.05) const;
-    
+
     // BFS utilities
     void reset_bfs_queue() { queue_front_ = queue_back_ = 0; }
     void bfs_enqueue(int x, int y) {

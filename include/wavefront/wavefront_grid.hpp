@@ -84,7 +84,6 @@ public:
     int get_grid_width() const { return grid_width_; }
     int get_grid_height() const { return grid_height_; }
     double get_resolution() const { return resolution_; }
-    const std::vector<double>& get_bounds() const { return bounds_; }
     
     // Coordinate conversion utilities
     int world_to_grid_x(double world_x) const {

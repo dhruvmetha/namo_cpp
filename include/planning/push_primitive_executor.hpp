@@ -180,13 +180,6 @@ public:
     std::pair<int, int> count_reachable_points(
         const std::vector<std::array<double, 2>>& points);
 
-    /**
-     * @brief Save wavefront for debugging at a specific iteration
-     *
-     * @param iteration Iteration number
-     * @param base_filename Base filename for wavefront files
-     */
-    void save_debug_wavefront(int iteration, const std::string& base_filename = "wavefront");
 
     /**
      * @brief Get controller for configuration access
@@ -207,11 +200,6 @@ public:
      * @brief Update wavefront and get detailed reachable-edge stats for one object.
      */
     ReachableEdgesResult get_reachable_edges_with_wavefront_detailed(const std::string& object_name);
-
-    /**
-     * @brief Update wavefront once and get detailed reachable-edge stats for all movable objects.
-     */
-    std::map<std::string, ReachableEdgesResult> get_reachable_edges_for_all_objects_with_wavefront();
 
     /**
      * @brief Compute one unified reachability snapshot from a single wavefront update.
@@ -257,13 +245,6 @@ private:
      */
     SE2State get_object_se2_state(const std::string& object_name);
 
-    /**
-     * @brief Convert SE2State to goal state vector format
-     *
-     * @param se2_state SE(2) state
-     * @return std::vector<double> Goal state in [x, y, z, qw, qx, qy, qz] format
-     */
-    std::vector<double> se2_to_goal_state(const SE2State& se2_state);
 
     /**
      * @brief Check if object is stuck (not moving)

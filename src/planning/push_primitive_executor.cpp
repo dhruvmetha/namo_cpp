@@ -268,19 +268,6 @@ SE2State PushPrimitiveExecutor::get_object_se2_state(const std::string& object_n
     return SE2State(object_state->position[0], object_state->position[1], yaw);
 }
 
-std::vector<double> PushPrimitiveExecutor::se2_to_goal_state(const SE2State& se2_state) {
-    // Convert SE(2) to goal state format: [x, y, z, qw, qx, qy, qz]
-    // Z is set to 0.0, quaternion represents yaw rotation
-    
-    double half_yaw = se2_state.theta / 2.0;
-    double qw = std::cos(half_yaw);
-    double qx = 0.0;
-    double qy = 0.0; 
-    double qz = std::sin(half_yaw);
-    
-    return {se2_state.x, se2_state.y, 0.0, qw, qx, qy, qz};
-}
-
 bool PushPrimitiveExecutor::is_object_stuck(const std::string& object_name, const SE2State& previous_state) {
     SE2State current_state = get_object_se2_state(object_name);
     
@@ -300,10 +287,6 @@ bool PushPrimitiveExecutor::is_object_stuck(const std::string& object_name, cons
     return distance_moved < min_position_change && angle_change < min_angle_change;
 }
 
-void PushPrimitiveExecutor::save_debug_wavefront(int iteration, const std::string& base_filename) {
-    planner_.save_wavefront_iteration(base_filename, iteration);
-}
-
 std::vector<int> PushPrimitiveExecutor::get_reachable_edges_with_wavefront(const std::string& object_name) {
     auto detailed = get_reachable_edges_with_wavefront_detailed(object_name);
     return detailed.edge_indices;
@@ -316,23 +299,6 @@ PushPrimitiveExecutor::ReachableEdgesResult PushPrimitiveExecutor::get_reachable
         return result;
     }
     return get_reachable_edges_from_current_wavefront(object_name);
-}
-
-std::map<std::string, PushPrimitiveExecutor::ReachableEdgesResult>
-PushPrimitiveExecutor::get_reachable_edges_for_all_objects_with_wavefront() {
-    std::map<std::string, ReachableEdgesResult> per_object;
-    if (!update_wavefront_from_robot_position()) {
-        return per_object;
-    }
-
-    const auto& movable_objects = env_.get_movable_objects();
-    for (size_t i = 0; i < env_.get_num_movable(); ++i) {
-        const auto& obj_info = movable_objects[i];
-        if (!obj_info.name.empty()) {
-            per_object[obj_info.name] = get_reachable_edges_from_current_wavefront(obj_info.name);
-        }
-    }
-    return per_object;
 }
 
 PushPrimitiveExecutor::ReachabilitySnapshot PushPrimitiveExecutor::compute_reachability_snapshot() {
