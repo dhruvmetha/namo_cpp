@@ -247,73 +247,6 @@ bool WavefrontGrid::is_cell_free(int x, int y) const {
     return dynamic_grid_[x][y] != -1;  // Free if not obstacle
 }
 
-bool WavefrontGrid::is_position_free(double world_x, double world_y) const {
-    int grid_x = world_to_grid_x(world_x);
-    int grid_y = world_to_grid_y(world_y);
-    return is_cell_free(grid_x, grid_y);
-}
-
-void WavefrontGrid::clear_region(double world_x, double world_y, int clear_radius) {
-    int center_x = world_to_grid_x(world_x);
-    int center_y = world_to_grid_y(world_y);
-    
-    // Clear specified radius around center position
-    for (int dx = -clear_radius; dx <= clear_radius; dx++) {
-        for (int dy = -clear_radius; dy <= clear_radius; dy++) {
-            int nx = center_x + dx;
-            int ny = center_y + dy;
-            
-            if (is_valid_grid_coord(nx, ny)) {
-                dynamic_grid_[nx][ny] = 0;  // Mark as free space
-            }
-        }
-    }
-    
-    // Invalidate cached regions since grid has changed
-    regions_valid_ = false;
-}
-
-void WavefrontGrid::save_grid(const std::string& filename, bool use_static_grid) const {
-    std::ofstream file(filename);
-    if (!file.is_open()) {
-        std::cerr << "Failed to open file for writing: " << filename << std::endl;
-        return;
-    }
-    
-    // use_static_grid=true → static_grid_ (inflated), false → dynamic_grid_ (inflated + movable)
-    const auto& grid = use_static_grid ? static_grid_ : dynamic_grid_;
-    
-    for (int x = 0; x < grid_width_; x++) {
-        for (int y = 0; y < grid_height_; y++) {
-            double world_x = grid_to_world_x(x);
-            double world_y = grid_to_world_y(y);
-            file << world_x << " " << world_y << " " << grid[x][y] << "\n";
-        }
-    }
-    
-    file.close();
-    wg_dbg() << "Grid saved to: " << filename << std::endl;
-}
-
-void WavefrontGrid::save_uninflated_grid(const std::string& filename) const {
-    std::ofstream file(filename);
-    if (!file.is_open()) {
-        std::cerr << "Failed to open file for writing: " << filename << std::endl;
-        return;
-    }
-    
-    for (int x = 0; x < grid_width_; x++) {
-        for (int y = 0; y < grid_height_; y++) {
-            double world_x = grid_to_world_x(x);
-            double world_y = grid_to_world_y(y);
-            file << world_x << " " << world_y << " " << uninflated_grid_[x][y] << "\n";
-        }
-    }
-    
-    file.close();
-    wg_dbg() << "Uninflated grid saved to: " << filename << std::endl;
-}
-
 // ========================
 // Connected Components Analysis
 // ========================
@@ -664,23 +597,6 @@ WavefrontGrid::find_connected_components() const {
     }
     
     return cached_regions_;
-}
-
-int WavefrontGrid::get_cell_region_id(int x, int y) const {
-    if (!is_valid_grid_coord(x, y)) {
-        return 0;  // Invalid coordinates
-    }
-    
-    if (!is_cell_free(x, y)) {
-        return 0;  // Obstacle cell
-    }
-    
-    // Ensure regions are computed
-    if (!regions_valid_) {
-        find_connected_components();
-    }
-    
-    return region_grid_[x][y];
 }
 
 std::unordered_map<int, std::string> WavefrontGrid::get_region_labels() const {

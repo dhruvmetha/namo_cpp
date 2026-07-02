@@ -79,35 +79,7 @@ public:
      * @return True if cell is free
      */
     bool is_cell_free(int x, int y) const;
-    
-    /**
-     * @brief Check if a world position is free (not in obstacle)
-     * @param world_x World x coordinate
-     * @param world_y World y coordinate
-     * @return True if position is free
-     */
-    bool is_position_free(double world_x, double world_y) const;
-    
-    /**
-     * @brief Get the current dynamic grid (includes all obstacles)
-     * @return Reference to dynamic grid (-1 = obstacle, 0 = free)
-     */
-    const std::vector<std::vector<int>>& get_dynamic_grid() const { return dynamic_grid_; }
-    
-    /**
-     * @brief Get the static obstacles grid only
-     * @return Reference to static grid (-1 = obstacle, 0 = free)
-     */
-    const std::vector<std::vector<int>>& get_static_grid() const { return static_grid_; }
-    
-    /**
-     * @brief Clear a region around a specific position (useful for robot placement)
-     * @param world_x World x coordinate to clear around
-     * @param world_y World y coordinate to clear around
-     * @param clear_radius Radius in grid cells to clear
-     */
-    void clear_region(double world_x, double world_y, int clear_radius = 1);
-    
+
     // Grid dimension accessors
     int get_grid_width() const { return grid_width_; }
     int get_grid_height() const { return grid_height_; }
@@ -135,18 +107,6 @@ public:
         return x >= 0 && x < grid_width_ && y >= 0 && y < grid_height_;
     }
     
-    /**
-     * @brief Save grid to file for debugging
-     * @param filename Output filename
-     * @param use_static_grid If true, save static grid (inflated); if false, save dynamic grid (inflated + movable)
-     */
-    void save_grid(const std::string& filename, bool use_static_grid = false) const;
-    
-    /**
-     * @brief Save uninflated grid to file (original obstacles without robot-size inflation)
-     * @param filename Output filename
-     */
-    void save_uninflated_grid(const std::string& filename) const;
 
     // ========================
     // Connected Components Analysis
@@ -174,14 +134,6 @@ public:
      * @return Map from region_id to human-readable label
      */
     std::unordered_map<int, std::string> get_region_labels() const;
-    
-    /**
-     * @brief Get the region ID that a specific grid cell belongs to
-     * @param x Grid x coordinate  
-     * @param y Grid y coordinate
-     * @return Region ID (0 if obstacle or invalid coordinates, >0 for valid regions)
-     */
-    int get_cell_region_id(int x, int y) const;
     
     /**
      * @brief Build region connectivity graph by analyzing movable object removal
