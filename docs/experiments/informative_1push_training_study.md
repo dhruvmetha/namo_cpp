@@ -1,3 +1,9 @@
+---
+status: snapshot
+tags: [experiment]
+updated: 2026-06-06
+---
+
 # Informative 1-push — 500-epoch + annealing training study
 
 Follow-up to the informative-vs-baseline comparison. Trained the informative (≤10% solve-rate,

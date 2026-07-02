@@ -1,3 +1,9 @@
+---
+status: live
+tags: [experiment]
+updated: 2026-06-07
+---
+
 # Scorer → HACMan-faithful: experiment journal
 
 > ## ⭐ FINAL SYNTHESIS (2026-06-06 ~08:10, converged + multi-checkpoint numbers — READ THIS FIRST)

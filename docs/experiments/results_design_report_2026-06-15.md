@@ -1,3 +1,9 @@
+---
+status: snapshot
+tags: [experiment]
+updated: 2026-06-22
+---
+
 # NAMO Horizon-Q — Results & Design Report
 **2026-06-15 ~07:30 ET.** All numbers verified against source files (json / journal §9–§12). Companion to the build journal.
 

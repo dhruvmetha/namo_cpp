@@ -1,3 +1,9 @@
+---
+status: snapshot
+tags: [experiment]
+updated: 2026-06-06
+---
+
 # Feasibility eval — corrected (per-episode, true-difficulty bins)
 
 > **Superseded the old numbers below the line.** The original tables compared early checkpoints

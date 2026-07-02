@@ -1,3 +1,9 @@
+---
+status: snapshot
+tags: [experiment]
+updated: 2026-06-06
+---
+
 # NAMO push-prediction — model comparison (plain English) — CORRECTED v2
 
 > **v2 correction (this version):** the v1 numbers were scored on test files whose difficulty label

@@ -1,3 +1,9 @@
+---
+status: live
+tags: [experiment]
+updated: 2026-07-01
+---
+
 # HYPOTHESIS — Policy + Value decoupled search (research; to be tested)
 
 > **Filed 2026-07-01 [USER research hypothesis — NOT a committed design].** A hypothesis to run experiments against, not

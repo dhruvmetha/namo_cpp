@@ -1,3 +1,9 @@
+---
+status: live
+tags: [experiment]
+updated: 2026-06-06
+---
+
 # Experiment: informative-hard 1-push training
 
 **Hypothesis:** training the goal model on informative-hard (solve_rate ≤10%) 1-push

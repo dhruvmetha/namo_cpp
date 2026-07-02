@@ -1,3 +1,9 @@
+---
+status: live
+tags: [experiment]
+updated: 2026-06-09
+---
+
 # Informed 2-push — DATA & MANIFEST LEDGER
 
 Running record of every data file, manifest, checkpoint, config, and output I create or refer to in the

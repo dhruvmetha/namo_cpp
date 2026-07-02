@@ -22,6 +22,7 @@ tmp/
 figure_xmls/
 data/_backup_primitives_15rad/
 .cursorignore
+.obsidian/
 .claude/*
 !.claude/skills/
 CLAUDE.local.md

@@ -1,3 +1,9 @@
+---
+status: snapshot
+tags: [experiment]
+updated: 2026-06-06
+---
+
 # 1-push SCORER (HACMan-critic / F-classifier) — results
 
 > **HEADLINE (2026-06-06, overnight HACMan-faithful build — numbers are multi-checkpoint; hard@1 on

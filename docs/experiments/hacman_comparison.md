@@ -1,3 +1,9 @@
+---
+status: ref
+tags: [experiment]
+updated: 2026-06-10
+---
+
 # Region Opening ↔ HACMan: the problem-setting parallel, and what transfers
 
 **Purpose [USER 2026-06-10]:** show people how our NAMO Region-Opening setting parallels HACMan's

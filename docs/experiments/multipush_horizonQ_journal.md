@@ -1,3 +1,9 @@
+---
+status: live
+tags: [experiment]
+updated: 2026-06-11
+---
+
 # Multi-push / horizon-Q journal — ⏸ PARKED [USER 2026-06-10]
 
 **[USER] scope decision:** "Focus only on the architectural decisions on the 1-push problem. Don't worry about the

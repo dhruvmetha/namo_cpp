@@ -1,3 +1,9 @@
+---
+status: live
+tags: [experiment]
+updated: 2026-06-25
+---
+
 # Horizon-Q — SEARCH-FIRST REDESIGN Journal
 
 > **Started 2026-06-23.** The PIVOT journal. The build journal

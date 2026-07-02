@@ -1,3 +1,9 @@
+---
+status: ref
+tags: [experiment]
+updated: 2026-06-10
+---
+
 # Multi-push learning primer — models, training schemes, and what the field actually does
 
 **Who this is for [USER request 2026-06-10]:** "I don't understand a lot of RL — give me intuitive explanations.

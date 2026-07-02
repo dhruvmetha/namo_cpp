@@ -1,3 +1,9 @@
+---
+status: frozen
+tags: [experiment]
+updated: 2026-06-10
+---
+
 # 1-push ARCHITECTURE journal — what makes the scorer good, and what data it needs
 
 **[USER] scope (2026-06-10):** this journal = **1-push, architecture + data-efficiency ONLY**. The questions:

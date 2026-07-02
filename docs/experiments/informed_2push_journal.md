@@ -1,3 +1,9 @@
+---
+status: live
+tags: [experiment]
+updated: 2026-06-09
+---
+
 # Informed 2-push — experiment journal
 
 Goal: do **informed depth-2** for region opening (single object, [[project_ro_single_object]]) — guide

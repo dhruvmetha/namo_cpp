@@ -1,3 +1,9 @@
+---
+status: live
+tags: [experiment]
+updated: 2026-07-01
+---
+
 # Horizon-Q — BOOTSTRAPPED-VALUE + GUIDED-COLLECTION — Staged Execution Journal
 
 > **Started 2026-06-25 [USER staged plan].** The EXECUTION journal for the redesign. Reads on top of:

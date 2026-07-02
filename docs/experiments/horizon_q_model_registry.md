@@ -1,3 +1,9 @@
+---
+status: hub
+tags: [experiment]
+updated: 2026-06-26
+---
+
 # Horizon-Q Model Registry
 
 > THE authoritative location list — every trained model, its exact best-val checkpoint, headline number,

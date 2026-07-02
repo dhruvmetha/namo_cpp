@@ -1,3 +1,9 @@
+---
+status: live
+tags: [experiment]
+updated: 2026-06-26
+---
+
 # SESSION RESUME — pick up here (ilab / fresh chat)
 
 > Started on Amarel, moved to ilab because Amarel's GPUs were backlogged. The CHAT doesn't carry over — this repo does.

@@ -1,3 +1,9 @@
+---
+status: ref
+tags: [experiment]
+updated: 2026-06-13
+---
+
 # Horizon-Q — Related Work (claim-by-claim, weekend lit pass 2026-06-13)
 
 4-agent targeted pass (Sonnet finders → Opus synthesis). Each claim axis: nearest neighbor, what they

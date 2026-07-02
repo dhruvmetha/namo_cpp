@@ -1,3 +1,9 @@
+---
+status: frozen
+tags: [experiment]
+updated: 2026-06-25
+---
+
 # Horizon-Q Build Journal
 
 > **🔀 PIVOT [2026-06-23]: SEARCH-FIRST REDESIGN — new journal [horizon_q_search_redesign_journal.md](horizon_q_search_redesign_journal.md).**

@@ -1,3 +1,9 @@
+---
+status: ref
+tags: [experiment]
+updated: 2026-06-25
+---
+
 # Horizon-Q — HANDOFF (what we've built & seen so far)
 
 > Self-contained brief for a fresh chat. Covers: the **problem**, the **model architecture**, the **full algorithm**
