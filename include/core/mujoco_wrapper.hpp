@@ -109,11 +109,6 @@ public:
                         int geom_type);
                         
     /**
-     * @brief Clear the goal marker
-     */
-    void clear_goal_marker();
-
-    /**
      * @brief Set object target marker (separate from robot goal, with custom color)
      * @param position Target position [x, y, z]
      * @param orientation Target orientation [w, x, y, z] quaternion
@@ -127,10 +122,6 @@ public:
                                   const std::array<float, 4>& color,
                                   int geom_type);
 
-    /**
-     * @brief Clear the object target marker
-     */
-    void clear_object_target_marker();
 
     /**
      * @brief Reset simulation to initial state
@@ -174,14 +165,11 @@ public:
      * @brief Get body position and orientation by name
      */
     bool get_body_position(const std::string& name, std::array<double, 3>& pos) const;
-    bool get_body_quaternion(const std::string& name, std::array<double, 4>& quat) const;
     bool get_body_pose(const std::string& name, std::array<double, 7>& pose) const;
     
     /**
      * @brief Get geom position and orientation by name
      */
-    bool get_geom_position(const std::string& name, std::array<double, 3>& pos) const;
-	    bool get_geom_quaternion(const std::string& name, std::array<double, 4>& quat) const;
 	    bool get_geom_pose(const std::string& name, std::array<double, 7>& pose) const;
 
 	    /**
@@ -194,7 +182,6 @@ public:
     /**
      * @brief Collision detection
      */
-    bool in_collision() const;
     bool bodies_in_collision(const std::string& body1, const std::string& body2) const;
     
     /**
@@ -218,17 +205,12 @@ public:
      */
     int get_body_id(const std::string& name) const;
     int get_geom_id(const std::string& name) const;
-    int get_joint_id(const std::string& name) const;
-    int get_actuator_id(const std::string& name) const;
-    
+
     std::string get_body_name(int id) const;
-    std::string get_geom_name(int id) const;
     
     /**
      * @brief Performance monitoring
      */
-    double get_simulation_time() const { return d_ ? d_->time : 0.0; }
-    double get_timestep() const { return m_ ? m_->opt.timestep : 0.0; }
     
 private:
     void init_visualization();

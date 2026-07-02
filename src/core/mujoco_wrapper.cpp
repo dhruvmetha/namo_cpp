@@ -192,17 +192,6 @@ bool OptimizedMujocoWrapper::get_body_position(const std::string& name, std::arr
     return true;
 }
 
-bool OptimizedMujocoWrapper::get_body_quaternion(const std::string& name, std::array<double, 4>& quat) const {
-    int id = mj_name2id(m_, mjOBJ_BODY, name.c_str());
-    if (id < 0) return false;
-    
-    quat[0] = d_->xquat[4 * id];     // w
-    quat[1] = d_->xquat[4 * id + 1]; // x
-    quat[2] = d_->xquat[4 * id + 2]; // y
-    quat[3] = d_->xquat[4 * id + 3]; // z
-    return true;
-}
-
 bool OptimizedMujocoWrapper::get_body_pose(const std::string& name, std::array<double, 7>& pose) const {
     int id = mj_name2id(m_, mjOBJ_BODY, name.c_str());
     if (id < 0) return false;
@@ -218,26 +207,6 @@ bool OptimizedMujocoWrapper::get_body_pose(const std::string& name, std::array<d
     pose[5] = d_->xquat[4 * id + 2]; // y
     pose[6] = d_->xquat[4 * id + 3]; // z
     
-    return true;
-}
-
-bool OptimizedMujocoWrapper::get_geom_position(const std::string& name, std::array<double, 3>& pos) const {
-    int id = mj_name2id(m_, mjOBJ_GEOM, name.c_str());
-    if (id < 0) return false;
-    
-    pos[0] = d_->geom_xpos[3 * id];
-    pos[1] = d_->geom_xpos[3 * id + 1];
-    pos[2] = d_->geom_xpos[3 * id + 2];
-    return true;
-}
-
-bool OptimizedMujocoWrapper::get_geom_quaternion(const std::string& name, std::array<double, 4>& quat) const {
-    int id = mj_name2id(m_, mjOBJ_GEOM, name.c_str());
-    if (id < 0) return false;
-    
-    // Convert rotation matrix to quaternion
-    mjtNum* mat = d_->geom_xmat + 9 * id;
-    mju_mat2Quat(quat.data(), mat);
     return true;
 }
 
@@ -269,10 +238,6 @@ bool OptimizedMujocoWrapper::set_site_rgba(const std::string& name, const std::a
 
     mj_forward(m_, d_);
     return true;
-}
-
-bool OptimizedMujocoWrapper::in_collision() const {
-    return d_->ncon > 0;
 }
 
 bool OptimizedMujocoWrapper::bodies_in_collision(const std::string& body1, const std::string& body2) const {
@@ -307,23 +272,9 @@ int OptimizedMujocoWrapper::get_geom_id(const std::string& name) const {
     return mj_name2id(m_, mjOBJ_GEOM, name.c_str());
 }
 
-int OptimizedMujocoWrapper::get_joint_id(const std::string& name) const {
-    return mj_name2id(m_, mjOBJ_JOINT, name.c_str());
-}
-
-int OptimizedMujocoWrapper::get_actuator_id(const std::string& name) const {
-    return mj_name2id(m_, mjOBJ_ACTUATOR, name.c_str());
-}
-
 std::string OptimizedMujocoWrapper::get_body_name(int id) const {
     if (id < 0 || id >= m_->nbody) return "";
     const char* name = mj_id2name(m_, mjOBJ_BODY, id);
-    return name ? std::string(name) : "";
-}
-
-std::string OptimizedMujocoWrapper::get_geom_name(int id) const {
-    if (id < 0 || id >= m_->ngeom) return "";
-    const char* name = mj_id2name(m_, mjOBJ_GEOM, id);
     return name ? std::string(name) : "";
 }
 
@@ -634,10 +585,6 @@ void OptimizedMujocoWrapper::set_goal_marker(const std::array<double, 3>& positi
     goal_marker_.geom_type = geom_type;
 }
 
-void OptimizedMujocoWrapper::clear_goal_marker() {
-    goal_marker_.active = false;
-}
-
 void OptimizedMujocoWrapper::set_object_target_marker(const std::array<double, 3>& position,
                                                       const std::array<double, 4>& orientation,
                                                       const std::array<double, 3>& size,
@@ -649,10 +596,6 @@ void OptimizedMujocoWrapper::set_object_target_marker(const std::array<double, 3
     object_target_marker_.size = size;
     object_target_marker_.color = color;
     object_target_marker_.geom_type = geom_type;
-}
-
-void OptimizedMujocoWrapper::clear_object_target_marker() {
-    object_target_marker_.active = false;
 }
 
 // ========== Video Recording / Frame Capture Implementation ==========

@@ -231,10 +231,6 @@ public:
      */
     void get_memory_stats(size_t& primitives_used, size_t& states_used);
 
-    /**
-     * @brief Get last failure reason from controller
-     */
-    const std::string& get_last_failure_reason() const { return last_failure_reason_; }
 
     /**
      * @brief Get object that caused collision (if any)
@@ -255,9 +251,6 @@ public:
     void set_robot_trajectory_collision_checking(bool enabled) {
         check_robot_trajectory_collision_ = enabled;
     }
-    bool get_robot_trajectory_collision_checking() const {
-        return check_robot_trajectory_collision_;
-    }
 
     /**
      * @brief Set push offset margin (additional distance beyond robot radius)
@@ -265,7 +258,6 @@ public:
     void set_push_offset_margin(double margin) {
         push_offset_margin_ = margin;
     }
-    double get_push_offset_margin() const { return push_offset_margin_; }
 
     /**
      * @brief Get whether wall was hit during last push
@@ -306,7 +298,6 @@ public:
      * @brief Set/get controller-level stuck check stride (control steps between checks)
      */
     void set_stuck_check_stride(int stride) { stuck_check_stride_ = stride; }
-    int get_stuck_check_stride() const { return stuck_check_stride_; }
 
     /**
      * @brief Set/get controller-level minimum deltas for stuck detection
@@ -327,8 +318,6 @@ public:
             push_path_follower_->set_speed(v);
         }
     }
-    double get_min_position_change() const { return min_position_change_; }
-    double get_min_angle_change() const { return min_angle_change_; }
 
 private:
     /**
