@@ -18,9 +18,11 @@ why they feel like logs. These four are written for *you* to actually read:
 1. [`docs/horizon_q_overview.md`](horizon_q_overview.md) — plain-language map of the active project. **Start here.**
 2. [`docs/research/research_compass.md`](research/research_compass.md) — why the research matters; come back when the work feels uncertain. `[HUB]`
 3. [`docs/experiments/ILAB_RESUME.md`](experiments/ILAB_RESUME.md) — the "pick up here" note when resuming work.
-4. [`docs/personal/researcher_mentality.md`](personal/researcher_mentality.md) — how you operate; includes a note to AI assistants.
+4. `docs/personal/researcher_mentality.md` — how you operate; includes a note to AI assistants. *(personal, gitignored — present only in your main checkout, not in fresh clones/worktrees.)*
 
 To resume the active Horizon-Q thread specifically, follow the ranked list in `CLAUDE.md` ("READ THESE FIRST").
+
+> **🌙 Overnight cleanup+speed run (2026-07-01):** see [`experiments/overnight_cleanup_journal.md`](experiments/overnight_cleanup_journal.md) for what changed tonight (wavefront speedups, the behavior gate, doc cleanup, and the deferred recommendations).
 
 ---
 
@@ -45,7 +47,7 @@ To resume the active Horizon-Q thread specifically, follow the ranked list in `C
 - [`horizon_q_redesign_execution.md`](experiments/horizon_q_redesign_execution.md) — staged execution journal (Stage 0–4), append-only log. `[LIVE]`
 - [`horizon_q_HANDOFF.md`](experiments/horizon_q_HANDOFF.md) — self-contained brief: problem + arch + algorithm + results. `[REF]`
 - [`horizon_q_search_redesign_journal.md`](experiments/horizon_q_search_redesign_journal.md) — the pivot: model = sims-minimizing ranker; D1–D5 decision ledger. `[LIVE]`
-- [`horizon_q_build_journal.md`](experiments/horizon_q_build_journal.md) — empirical build record (v2/v3/v4, ExIt); §9 progress log. `[LIVE]`
+- [`horizon_q_build_journal.md`](experiments/horizon_q_build_journal.md) — pre-redesign empirical record (v2/v3/v4, ExIt); §9 log. `[FROZEN]` — evidence archive; active log is `horizon_q_redesign_execution.md`.
 - [`multipush_horizonQ_journal.md`](experiments/multipush_horizonQ_journal.md) — multi-push / horizon-Q design spec ledger (37 decisions). `[LIVE]`
 - [`horizon_q_model_registry.md`](experiments/horizon_q_model_registry.md) — authoritative model / ckpt / headline-number catalog. `[HUB]` — read for paths, never glob.
 - [`horizon_q_related_work.md`](experiments/horizon_q_related_work.md) — related-work / novelty positioning. `[REF]`
@@ -86,11 +88,11 @@ To resume the active Horizon-Q thread specifically, follow the ranked list in `C
 - [`scene_conditioned_sampler_design.md`](research/scene_conditioned_sampler_design.md) — unified scene-conditioned sampler design (successor doc). `[LIVE]`
 - [`reading_list.md`](research/reading_list.md) — broad ~61-paper annotated bibliography. `[REF]`
 - [`reading_list_F_characterization.md`](research/reading_list_F_characterization.md) — focused F-characterization reading list. `[REF]`
-- [`research_prompt.md`](research/research_prompt.md) — literature-search prompt (older `F = T ∩ A` framing — diverged from current). `[FROZEN]`
+  *(`research_prompt.md` moved to `archive/` 2026-07-01 — superseded `F = T ∩ A` framing.)*
 
 ## docs/personal/
 
-- [`researcher_mentality.md`](personal/researcher_mentality.md) — how you operate as a researcher; includes a note to AI assistants. `[LIVE]`
+- `researcher_mentality.md` — how you operate as a researcher; includes a note to AI assistants. `[LIVE]` *(personal, gitignored — local only, not in fresh checkouts.)*
 
 ## docs/algorithms/ — code-tethered reference
 
@@ -106,17 +108,16 @@ To resume the active Horizon-Q thread specifically, follow the ranked list in `C
 - [`ML_vs_GT_F_evaluation.md`](evaluation/ML_vs_GT_F_evaluation.md) — plan: score diffusion goals vs ground-truth feasible set F (point robot). `[SNAPSHOT]`
 - [`ML_vs_GT_F_results_round1.md`](evaluation/ML_vs_GT_F_results_round1.md) — round-1 results for that evaluation. `[SNAPSHOT]`
 
-## docs/superpowers/ — spec + plan pair
-
-- [`specs/2026-05-19-uniform-rollout-sampler-design.md`](superpowers/specs/2026-05-19-uniform-rollout-sampler-design.md) — UniformRolloutSampler design spec (v0). `[FROZEN]`
-- [`plans/2026-05-20-uniform-rollout-sampler-implementation.md`](superpowers/plans/2026-05-20-uniform-rollout-sampler-implementation.md) — TDD implementation plan for the spec. `[FROZEN]`
-
 ## docs/archive/ — superseded, do not cite `[ARCHIVE]`
 
-- [`jan20_FULL_EVALUATION_REPORT.md`](archive/jan20_FULL_EVALUATION_REPORT.md) — umbrella Jan-2025 eval (superset of the three below).
-- [`jan20_1push_results.md`](archive/jan20_1push_results.md) · [`eval_2push_1push_test_results.md`](archive/eval_2push_1push_test_results.md) · [`eval_2push_1push_test_consistency.md`](archive/eval_2push_1push_test_consistency.md) — slices of the umbrella report.
-- [`dec25_crossattn_results.md`](archive/dec25_crossattn_results.md) — earlier 1-push eval (superseded by jan20).
-- [`MCTS_TRAINING_DATA_STRUCTURE.md`](archive/MCTS_TRAINING_DATA_STRUCTURE.md) — old MCTS data-format spec (superseded design).
+- [`jan20_FULL_EVALUATION_REPORT.md`](archive/jan20_FULL_EVALUATION_REPORT.md) — umbrella Jan-2025 eval; kept for its paper-ready tables (§13).
+- [`research_prompt.md`](archive/research_prompt.md) — old lit-search prompt (superseded `F = T ∩ A` framing; moved here 2026-07-01). `[FROZEN]`
+- [`2026-05-19-uniform-rollout-sampler-design.md`](archive/2026-05-19-uniform-rollout-sampler-design.md) — UniformRolloutSampler design spec (closed May; moved here 2026-07-01). `[FROZEN]`
+- [`2026-05-20-uniform-rollout-sampler-implementation.md`](archive/2026-05-20-uniform-rollout-sampler-implementation.md) — its TDD implementation plan (closed May; moved here). `[FROZEN]`
+
+> **Deleted 2026-07-01** (strict subsets of `jan20_FULL_EVALUATION_REPORT`, recoverable via git):
+> `jan20_1push_results.md`, `eval_2push_1push_test_results.md`, `eval_2push_1push_test_consistency.md`,
+> `dec25_crossattn_results.md` (superseded by jan20), `MCTS_TRAINING_DATA_STRUCTURE.md` (dead data-format spec).
 
 ## Code-adjacent READMEs (not in docs/)
 
@@ -141,6 +142,13 @@ python scripts/docs_lint.py --orphans  # also list orphan docs
 python scripts/docs_lint.py --json     # machine-readable
 ```
 
-Known open items (as of this index): 0 broken doc→doc links, 14 broken doc→code links
-(mostly relative-depth rot in `push_pruning_and_aborts.md` and `ML_vs_GT_F_evaluation.md` —
-the file paths, not the line numbers), and 9 unwritten memory notes.
+Known open items (as of 2026-07-01 overnight cleanup): 0 broken doc→doc links; 14 broken
+doc→code links (relative-depth rot in `push_pruning_and_aborts.md` and
+`evaluation/ML_vs_GT_F_evaluation.md` — the file paths, not the line numbers); 9 unwritten
+memory notes (see `experiments/overnight_cleanup_journal.md`).
+
+Pending doc merges (deferred from the overnight run — modest value, research-content edits, do
+with review): fold `model_comparison_report.md` (prose) + `informative_1push_training_study.md`
+(epoch curves) into `informative_1push_results.md`; and the edit-in-place dedups (car-effect text
+`horizon_q_datasets` → `canonical_testset`; RA@K `namo_pipeline` → `grounding_with_reachability`;
+H1–H5 `research_notes` → `F_problem_formulation`). Full plan in the overnight journal.
