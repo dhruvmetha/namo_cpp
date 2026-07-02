@@ -111,7 +111,6 @@ private:
      */
     bool is_object_movable(const std::string& object_name) const;
     std::optional<SE2State> get_object_current_pose(const std::string& object_name) const;
-    bool is_target_within_bounds(const SE2State& target_pose) const;
 };
 
 } // namespace namo

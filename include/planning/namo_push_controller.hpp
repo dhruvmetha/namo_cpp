@@ -183,14 +183,6 @@ public:
                                int push_steps);
     
     /**
-     * @brief Execute a complete NAMO action
-     * 
-     * @param action Action to execute
-     * @return true if action completed successfully
-     */
-    bool execute_action(const NAMOAction& action);
-    
-    /**
      * @brief Check if a push action is valid (can reach goal)
      * 
      * @param object_name Object to push

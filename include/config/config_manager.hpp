@@ -210,12 +210,7 @@ public:
     void set_visualization(bool enabled) { system_.enable_visualization = enabled; }
     void set_collision_checking(bool enabled) { skill_.check_object_collision = enabled; }
 
-    // Configuration validation and diagnostics
-    void print_configuration() const;
-    bool validate_paths() const;
-    
     // Static factory methods
-    static std::unique_ptr<ConfigManager> create_default();
     static std::unique_ptr<ConfigManager> create_from_file(const std::string& config_file);
 };
 

@@ -659,9 +659,6 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
     }
 }
 
-bool NAMOPushController::execute_action(const NAMOAction& action) {
-    return execute_push_primitive(action.object_name, action.edge_idx, action.push_steps);
-}
 
 bool NAMOPushController::is_push_valid(const std::string& object_name,
                                       int edge_idx,

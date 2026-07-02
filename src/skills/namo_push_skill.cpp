@@ -291,13 +291,6 @@ std::optional<SE2State> NAMOPushSkill::get_object_current_pose(const std::string
     return pose;
 }
 
-bool NAMOPushSkill::is_target_within_bounds(const SE2State& target_pose) const {
-    auto bounds = env_.get_environment_bounds();
-    if (bounds.size() < 4) return false;
-
-    return target_pose.x >= bounds[0] && target_pose.x <= bounds[1] &&
-           target_pose.y >= bounds[2] && target_pose.y <= bounds[3];
-}
 
 std::vector<int> NAMOPushSkill::get_reachable_edges(const std::string& object_name) const {
     // Use executor's wavefront-based reachability analysis
