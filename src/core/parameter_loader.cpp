@@ -93,29 +93,9 @@ std::vector<double> FastParameterLoader::get_vector(const std::string& key) cons
     return result;
 }
 
-std::vector<std::string> FastParameterLoader::get_string_vector(const std::string& key) const {
-    YAML::Node node = get_node(key);
-    if (!node || !node.IsSequence()) {
-        throw std::runtime_error("Parameter is not a sequence: " + key);
-    }
-    
-    std::vector<std::string> result;
-    result.reserve(node.size());
-    for (const auto& item : node) {
-        result.push_back(item.as<std::string>());
-    }
-    return result;
-}
-
 bool FastParameterLoader::has_key(const std::string& key) const {
     YAML::Node node = get_node(key);
     return node.IsDefined() && !node.IsNull();
-}
-
-void FastParameterLoader::preload_keys(const std::vector<std::string>& keys) {
-    for (const auto& key : keys) {
-        get_node(key); // This will cache the node
-    }
 }
 
 #else // Simple parser implementation
@@ -236,36 +216,8 @@ std::vector<double> FastParameterLoader::get_vector(const std::string& key) cons
     return result;
 }
 
-std::vector<std::string> FastParameterLoader::get_string_vector(const std::string& key) const {
-    auto it = params_.find(key);
-    if (it == params_.end()) {
-        throw std::runtime_error("Parameter not found: " + key);
-    }
-    
-    std::vector<std::string> result;
-    std::stringstream ss(it->second);
-    std::string item;
-    
-    // Remove brackets if present
-    std::string values = it->second;
-    if (values.front() == '[') values = values.substr(1);
-    if (values.back() == ']') values = values.substr(0, values.length() - 1);
-    
-    ss.str(values);
-    
-    while (std::getline(ss, item, ',')) {
-        result.push_back(trim(item));
-    }
-    
-    return result;
-}
-
 bool FastParameterLoader::has_key(const std::string& key) const {
     return params_.find(key) != params_.end();
-}
-
-void FastParameterLoader::preload_keys(const std::vector<std::string>& keys) {
-    // No-op for simple parser (already loaded everything)
 }
 
 #endif
