@@ -6,6 +6,27 @@ This is the OPERATIONAL log of the run — what was done, why, and the numbers. 
 
 ---
 
+## ⛔ RESUME STATE (updated live — READ THIS FIRST after any compaction)
+
+**Where I am:** working in worktree `/common/home/dm1487/robotics_research/ktamp/namo-cleanup`, branch `feat/wavefront-cleanup-and-docs`. Main checkout (`/common/home/dm1487/robotics_research/ktamp/namo`) is untouched. Env: `set -a; . ../.env; set +a` (arrakis; python `$NAMO_PYTHON`, MuJoCo 3.2.8; see memory `reference_arrakis_env`).
+
+**THE GATE (run after every C++/behavior change; must stay 180/180, qpos 0):**
+```
+cd /common/home/dm1487/robotics_research/ktamp/namo-cleanup && set -a; . ../.env; set +a
+./build_python_bindings.sh   # rebuild namo_rl after C++ edits
+CUDA_VISIBLE_DEVICES="" OMP_NUM_THREADS=1 "$NAMO_PYTHON" scripts/sandbox/test_region_equiv.py --mode compare --n-per-tier 10 \
+  --ref /common/users/dm1487/scratch_namo/eval/region_equiv/region_equiv_ref.json
+```
+Golden REF regenerable from `df62137` via `--mode capture`. Baseline profiler: `scripts/sandbox/profile_push.py`.
+
+**DONE (committed, all gated 180/180):** doc INDEX+linter (`df62137`, on main branch too) · behavior gate (`9d56ab2`) · snapshot double-rebuild drop 8.9→5.5ms (`e1f7ffc`) · snapshot ctor-print silence (`7835584`) · docs compression -5/+archive (`775dc9a`) · morning-summary+recs (`216a9d0`) · **rec B: delete dead RegionAnalyzer subtree -3924 LOC (`e0bf976`)** · 10 memory notes written (backlog 0).
+
+**IN PROGRESS:** rec A — reachability dirty-cache in `WavefrontPlanner::update_wavefront` (`src/wavefront/wavefront_planner.cpp:111`). Design = state fingerprint (start_pos + all movable poses); skip `recompute_wavefront` when unchanged. PROVEN SAFE: `reachability_grid_`/`dynamic_grid_` are written ONLY in recompute/rebuild/init (grep-verified), so the fingerprint is airtight. Add members to `include/wavefront/wavefront_planner.hpp` (~line 236). Then build + gate + profile before/after + commit.
+
+**NEXT QUEUE (all gate-covered, do each then gate):** rec C rasterizer dedup (center-vs-corner trap) · rec D bbox-window for `WavefrontGrid::rebuild_grids` · more dead/dup code (a background agent is hunting) · then re-profile + update morning summary. Hourly Slack DMs to Dhruv (U07N1DR8S94). Do NOT touch `region_opening.py` search logic blind (not gate-covered).
+
+---
+
 ## Mandate (from the user)
 
 1. **Clean up doc/journal bloat** — compress to simplest, shortest forms; control future bloat; structure journaling better. No external tool required.
