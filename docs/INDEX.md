@@ -56,7 +56,7 @@ To resume the active Horizon-Q thread specifically, follow the ranked list in `C
 - [`horizon_q_HANDOFF.md`](experiments/horizon_q_HANDOFF.md) — self-contained brief: problem + arch + algorithm + results. `[REF]`
 - [`horizon_q_search_redesign_journal.md`](experiments/horizon_q_search_redesign_journal.md) — the pivot: model = sims-minimizing ranker; D1–D5 decision ledger. `[LIVE]`
 - [`horizon_q_build_journal.md`](experiments/horizon_q_build_journal.md) — pre-redesign empirical record (v2/v3/v4, ExIt); §9 log. `[FROZEN]` — evidence archive; active log is `horizon_q_redesign_execution.md`.
-- [`multipush_horizonQ_journal.md`](experiments/multipush_horizonQ_journal.md) — multi-push / horizon-Q design spec ledger (37 decisions). `[LIVE]`
+- [`multipush_horizonQ_journal.md`](experiments/multipush_horizonQ_journal.md) — multi-push / horizon-Q design spec ledger (37 decisions); self-parked 2026-06-10. `[FROZEN]`
 - [`horizon_q_model_registry.md`](experiments/horizon_q_model_registry.md) — authoritative model / ckpt / headline-number catalog. `[HUB]` — read for paths, never glob.
 - [`horizon_q_related_work.md`](experiments/horizon_q_related_work.md) — related-work / novelty positioning. `[REF]`
 - [`policy_value_search_hypothesis.md`](experiments/policy_value_search_hypothesis.md) — newest (2026-07-01) falsifiable π+V split hypothesis (NOT committed). `[LIVE]`
