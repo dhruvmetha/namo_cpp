@@ -1,5 +1,5 @@
 ---
-status: live
+status: frozen
 tags: [experiment]
 updated: 2026-07-01
 ---

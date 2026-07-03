@@ -60,7 +60,7 @@ No new planner; offline scoring only.
 | sampler | HF DDIM, ε‑prediction, 1000 train steps |
 
 **Checkpoint auto‑selection** — in
-[`sage_learning/goal_inference_model.py:120-140`](../../sage_learning/sage_learning/goal_inference_model.py):
+[`sage_learning/goal_inference_model.py:120-140`](../../../sage_learning/sage_learning/goal_inference_model.py):
 
 ```python
 for checkpoint_file in checkpoint_files:
@@ -103,19 +103,19 @@ never executes a continuous ML pose. Concretely:
 1. `modular_parallel_collection.py` parses `--ml-goal-model`, `--ml-samples`,
    `--ml-match-position-tolerance` (default 0.2 m), `--ml-match-angle-tolerance`
    (default 0.35 rad), etc., and packs them into `algorithm_params`
-   ([`modular_parallel_collection.py:1246-1283`](../python/namo/data_collection/modular_parallel_collection.py#L1246)).
+   ([`modular_parallel_collection.py:1246-1283`](../../python/namo/data_collection/modular_parallel_collection.py#L1246)).
 2. `RegionOpeningPlanner` reads those params and constructs goal strategies
-   ([`region_opening.py:455-580`](../python/namo/planners/opening/region_opening.py#L455)):
+   ([`region_opening.py:455-580`](../../python/namo/planners/opening/region_opening.py#L455)):
    - `goal_strategy="ml"` → ML‑aligned primitives only (model misses → 0 candidates for that object).
    - `goal_strategy="ml_fallback"` → ML scores + full primitive fallback (score 0).
    - `goal_strategy="ml_driven_async"` → async ML w/ primitive fallback.
 3. Two‑phase semantics when `region_selection_strategy: ml_first`
-   ([`region_opening.py:1656-1665`](../python/namo/planners/opening/region_opening.py#L1656)):
+   ([`region_opening.py:1656-1665`](../../python/namo/planners/opening/region_opening.py#L1656)):
    - Phase 1 "ML‑only" tries only score>0 candidates across all depths.
    - Phase 2 "primitives" runs the fallback grid if phase 1 didn't solve.
 4. ML inference call site is `MLPrimitiveGoalStrategy._load_model` →
    `GoalInferenceModel.infer(...)` in
-   [`ml_strategies.py:441-499`](../python/namo/strategies/ml_strategies.py#L441).
+   [`ml_strategies.py:441-499`](../../python/namo/strategies/ml_strategies.py#L441).
 5. Knobs only exposed via YAML (no CLI flag in
    `modular_parallel_collection.py`): `ml_seed`, `ml_sampler_method`,
    `ml_num_steps`, `ml_k_nearest`. These are read directly from
@@ -214,7 +214,7 @@ A `primitive_trial_log` entry (see `region_opening.py:2419`):
 }
 ```
 
-[`analyze_F.py:60-65`](f_characterization/analyze_F.py#L60) shows how to fold a
+[`analyze_F.py:60-65`](../f_characterization/analyze_F.py#L60) shows how to fold a
 trial log into the `(60, 10)` F grid (NaN = not reachable, 0 = reachable‑failed,
 1 = feasible).
 
@@ -369,7 +369,7 @@ one (~150 LOC) that:
    pre‑push state via `set_full_state` (the state lives in the env at start
    for 1‑push; for 2‑push push‑1 candidates also use the initial state).
 3. Builds the JSON message exactly as `MLPrimitiveGoalStrategy._create_json_message_for_goals`
-   does ([`ml_strategies.py:896`](../python/namo/strategies/ml_strategies.py#L896)).
+   does ([`ml_strategies.py:896`](../../python/namo/strategies/ml_strategies.py#L896)).
 4. Calls `GoalInferenceModel.infer(json_message, xml_path, robot_goal, selected_object,
    samples=32, seed=42)`.
 5. Aligns each returned SE(2) sample to primitive slots using
@@ -424,7 +424,7 @@ For the 2‑push setting, replace `F` with `F₁'` derived per §4.1 (set of pus
 - A single CSV with per‑instance numbers so we can re‑slice later.
 
 These mirror the existing oracle/realistic plots already in
-[`docs/f_characterization/eval_results/`](f_characterization/eval_results/) so
+[`docs/f_characterization/eval_results/`](../f_characterization/eval_results/) so
 the new ML curves can be overlaid on the same figure.
 
 ---

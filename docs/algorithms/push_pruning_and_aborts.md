@@ -20,7 +20,7 @@ Layer 1 is logical pruning (skipping dead branches). Layer 2 is physical pruning
 
 ## Layer 1: Search pruning (`region_opening.py`)
 
-Tried in order, every step of the inner loop over (edge_idx, depth) candidates ([region_opening.py:2167-2260](../python/namo/planners/opening/region_opening.py#L2167)).
+Tried in order, every step of the inner loop over (edge_idx, depth) candidates ([region_opening.py:2167-2260](../../python/namo/planners/opening/region_opening.py#L2167)).
 
 ### Always on
 
@@ -52,7 +52,7 @@ Exhaustive mode keeps Layer 2 signals (stuck/collision) and budget caps — thos
 A push attempt has four sub-phases. Each can abort.
 
 ### 2a. Navigation to the push start
-[`diff_drive_navigation.cpp:check_robot_collision_any`](../src/navigation/diff_drive_navigation.cpp#L62)
+`diff_drive_navigation.cpp:check_robot_collision_any` (refactored out; nav now in [`push_path_follower.cpp`](../../src/navigation/push_path_follower.cpp))
 
 The car drives from its current pose to the push start point (rotate → drive → ... → final rotate). Aborts on:
 
@@ -64,7 +64,7 @@ The car drives from its current pose to the push start point (rotate → drive �
 "Robot" here is **chassis + both wheels** (see [Diff-drive specifics](#diff-drive-specifics) below).
 
 ### 2b. Post-positioning placement check
-[`namo_push_controller.cpp:353-381`](../src/planning/namo_push_controller.cpp#L353)
+[`namo_push_controller.cpp:353-381`](../../src/planning/namo_push_controller.cpp#L353)
 
 After navigation lands the car at the push start, before any wheel command for the push itself, check that the placement is feasible:
 
@@ -73,7 +73,7 @@ After navigation lands the car at the push start, before any wheel command for t
 - Object touching a wall here is *allowed* — being pre-positioned against the object you're about to push is normal.
 
 ### 2c. During the push (periodic, every `stuck_check_stride` ticks)
-[`namo_push_controller.cpp:421-475`](../src/planning/namo_push_controller.cpp#L421)
+[`namo_push_controller.cpp:421-475`](../../src/planning/namo_push_controller.cpp#L421)
 
 The car drives both wheels at a fixed velocity for `push_steps × 250` sim ticks. Every few ticks it samples physics state and runs four collision queries plus a stuck check.
 
@@ -89,7 +89,7 @@ The car drives both wheels at a fixed velocity for `push_steps × 250` sim ticks
 So in standard data collection, scraping a wall with the *object* is fine and informative. Scraping a wall with the *robot* is fatal.
 
 ### 2d. Between MPC iterations
-[`namo_push_skill.cpp:313-349, 677-690`](../src/skills/namo_push_skill.cpp#L313)
+[`namo_push_skill.cpp:313-349, 677-690`](../../src/skills/namo_push_skill.cpp#L313)
 
 The skill executes one push primitive per MPC iteration; multiple iterations may run within a single skill call. Between iterations:
 
@@ -123,7 +123,7 @@ Each push attempt returns a `step_result.info` dict to Python. The planner uses 
 
 ### What counts as "the robot" in collision checks
 
-Defined by [`DiffDriveAdapter::get_collision_body_names()`](../src/robot/diff_drive_adapter.cpp#L53):
+Defined by [`DiffDriveAdapter::get_collision_body_names()`](../../src/robot/diff_drive_adapter.cpp#L53):
 
 ```
 {"car", "left_wheel", "right_wheel"}
