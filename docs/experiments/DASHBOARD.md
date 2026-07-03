@@ -6,13 +6,8 @@
 > GitHub / in Claude use **[INDEX.md](../INDEX.md)** (plain map) and **[RESULTS.md](RESULTS.md)** (compiled results).
 
 ## 🧪 Experiments — the loop (`idea → live → done`)
-Native board: **[experiments.base](experiments.base)**. Dataview fallback:
-```dataview
-TABLE WITHOUT ID file.link AS "Experiment", status AS "Status", created AS "Created", metric AS "Metric"
-FROM #experiment
-WHERE type = "experiment"
-SORT status ASC, created DESC
-```
+Open the board: **[experiments.base](experiments.base)** (grouped by `status`). Primary view for active
+experiment cards. Compiled results: [RESULTS.md](RESULTS.md).
 
 ## 🟢 Live docs — active journals & ledgers
 ```dataview
