@@ -22,3 +22,8 @@ _(Claude, auto from run output)_ Numbers — accept/reject **on numbers only**.
 
 ## Next
 What this implies; the follow-up experiment.
+
+---
+**✅ Reverse-sync check [Claude, from the server]:** I pulled your `_sync_test`, wrote *this* line on the
+server, and pushed it back. If you can read it in Obsidian after a **⌘⇧S**, bidirectional sync works — the
+full loop is live. You can delete this file now, then ⌘⇧S again to clear it.
