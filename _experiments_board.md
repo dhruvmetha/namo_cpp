@@ -21,7 +21,7 @@ Each row links to its card; full Plan/Run/Result lives in the card, one-line led
 | exp | one-line | agent | notes |
 |---|---|---|---|
 | [[_full_search]] | best-first search: random(10 seeds) vs NoHz-v3(3), success-vs-sims + success-vs-time, budget 900, + aggregations a/b/c/d | opus/xhigh | **campaign LAUNCHED on Amarel (icelake-pinned), ~2.5h ETA**, watchers armed; agg+plots on landing |
-| [[_step_penalty_]] | retrain NoHz with −1/0/1 target (never/future/immediate) vs current 0/0.9/1; report search+reactive (1push+2push) | opus/xhigh | **SCOPED + smoke PASSED; GATED** on your CAR-vs-point data call + Amarel confirm before the ~10h×3 retrain. Change = 2 additive edits (target_scheme=signed; HLGauss range→[−1,1]) |
+| [[_step_penalty_]] | retrain NoHz with −1/0/1 target (never/future/immediate) vs current 0/0.9/1; report search+reactive (1push+2push) | opus/xhigh | **GREEN-LIT → launching 3-seed retrain.** Same v3 data as NoHz-v3 (verify car), target_scheme=signed + HLGauss range [−1,1]. Compute = fastest of {Amarel gpu (queue-aware), arrakis 5×Ada, iLab} |
 
 ## 📋 Pending
 _(none)_
