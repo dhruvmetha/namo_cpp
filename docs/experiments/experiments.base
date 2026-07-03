@@ -1,0 +1,13 @@
+filters:
+  and:
+    - type == "experiment"
+views:
+  - type: table
+    name: Experiments
+    order:
+      - file.name
+      - status
+      - created
+      - metric
+      - commit
+    limit: 100

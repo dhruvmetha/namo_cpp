@@ -11,7 +11,7 @@ updated: 2026-06-06
 > file was actually easier episodes that leaked in, *inflating* the model on hard (v1 said hard @1 =
 > 11.3–17.2). Fixed: every sample is matched to its **own episode** (by `object_center`) and **re-binned
 > by that episode's true solve_rate**, deduped across files. See
-> [docs/pipeline/multi_episode_rooms.md](../pipeline/multi_episode_rooms.md). Clean test set:
+> [docs/pipeline/multi_episode_rooms.md](../../pipeline/multi_episode_rooms.md). Clean test set:
 > **413 hard / 491 med / 752 easy**, `gt_in_valid = 1.0`, `bad_match = 0`.
 
 ## The task
@@ -53,7 +53,7 @@ n = 413 / 491 / 752 hard/med/easy.)
 "informative_le10" was meant to be solve_rate ≤10% but the per-pkl manifest leaked easier episodes in:
 actual mix is **34% hard / 46% med / 19% easy** (only ~76% ≤10%). A de-leaked H5
 (`v3_1push_le10_clean`, 21,316 samples, all ≤10%) is built; a retrain on it (with the room-grouped
-val split) is the cleaner specialist. See [multi_episode_rooms.md](../pipeline/multi_episode_rooms.md).
+val split) is the cleaner specialist. See [multi_episode_rooms.md](../../pipeline/multi_episode_rooms.md).
 
 ## Implications for next steps
 - **"Diffusion + reachability masking" is the baseline to beat** — bar is now honest (hard 5.9/55.2,

@@ -42,6 +42,14 @@ To resume the active Horizon-Q thread specifically, follow the ranked list in `C
 
 ## docs/experiments/ — the active research ledger
 
+**⚙️ Experiment loop (the system — how we propose/run/record experiments):**
+- [`WORKFLOW.md`](experiments/WORKFLOW.md) — the operating loop + role separation + status enum. `[HUB]`
+- [`RESULTS.md`](experiments/RESULTS.md) — compiled results sheet (one row per finished experiment). `[HUB]`
+- [`DASHBOARD.md`](experiments/DASHBOARD.md) — Obsidian board: Bases (`experiments.base`) + Dataview fallback. `[REF]`
+- [`log/`](experiments/log/) — active experiment cards (`idea`/`live`), one note each. `[LIVE]`
+- [`archive/`](experiments/archive/README.md) — finished experiments + closed snapshots. `[ARCHIVE]`
+- stub template: [`_templates/experiment.md`](_templates/experiment.md).
+
 **Horizon-Q arc (current):**
 - [`ILAB_RESUME.md`](experiments/ILAB_RESUME.md) — quick "pick up here" resume note. `[LIVE]`
 - [`horizon_q_redesign_execution.md`](experiments/horizon_q_redesign_execution.md) — staged execution journal (Stage 0–4), append-only log. `[LIVE]`
@@ -55,18 +63,19 @@ To resume the active Horizon-Q thread specifically, follow the ranked list in `C
 
 **1-push / scorer arc (earlier):**
 - [`scorer_hacman_journal.md`](experiments/scorer_hacman_journal.md) — overnight HACMan-faithful 1-push scorer journal (E0–E9); top FINAL SYNTHESIS supersedes numbers below it. `[LIVE]`
-- [`scorer_1push_results.md`](experiments/scorer_1push_results.md) — clean 1-push scorer results snapshot. `[SNAPSHOT]`
 - [`hacman_comparison.md`](experiments/hacman_comparison.md) — slide-ready: our region-opening ↔ HACMan parallel. `[REF]`
 - [`multipush_learning_primer.md`](experiments/multipush_learning_primer.md) — plain-language map of model families + training schemes + case studies. `[REF]`
 - [`policy_framework_journal.md`](experiments/policy_framework_journal.md) — 1-push architecture hypotheses (H0a/H1/H2/H5). `[FROZEN]` — all closed.
 - [`informative_1push.md`](experiments/informative_1push.md) — informative-hard 1-push experiment checklist (embedded result stale). `[LIVE]`
 - [`informative_1push_results.md`](experiments/informative_1push_results.md) — feasibility results, corrected (has ARCHIVED/CONTAMINATED note). `[SNAPSHOT]`
-- [`informative_1push_training_study.md`](experiments/informative_1push_training_study.md) — 500-epoch + annealing follow-up study. `[SNAPSHOT]`
-- [`model_comparison_report.md`](experiments/model_comparison_report.md) — plain-English model comparison (CORRECTED v2). `[SNAPSHOT]`
 - [`results_design_report_2026-06-15.md`](experiments/results_design_report_2026-06-15.md) — dated results + design rationale (later overtaken). `[SNAPSHOT]`
 - [`informed_2push_journal.md`](experiments/informed_2push_journal.md) — 2-push hypothesis journal (leaf-vs-search). `[LIVE]`
 - [`informed_2push_data_ledger.md`](experiments/informed_2push_data_ledger.md) — running ledger of files/manifests/ckpts/jobs for informed-2-push. `[LIVE]`
-- [`multipush_horizonQ_journal.md`](experiments/multipush_horizonQ_journal.md) — (also the design spec for the Horizon-Q arc above). `[LIVE]`
+
+**experiments/archive/ — closed, moved 2026-07-02 (`[ARCHIVE]`):**
+- [`archive/model_comparison_report.md`](experiments/archive/model_comparison_report.md) — plain-English model comparison (CORRECTED v2).
+- [`archive/informative_1push_training_study.md`](experiments/archive/informative_1push_training_study.md) — 500-epoch + annealing follow-up study.
+- [`archive/scorer_1push_results.md`](experiments/archive/scorer_1push_results.md) — clean 1-push scorer results snapshot.
 
 ## docs/pipeline/ — data-pipeline reference
 

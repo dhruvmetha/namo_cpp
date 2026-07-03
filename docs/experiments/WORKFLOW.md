@@ -1,0 +1,40 @@
+---
+status: hub
+tags: [workflow]
+updated: 2026-07-02
+---
+# How we run experiments
+
+> The operating loop. Claude reads this each session (pointed to from CLAUDE.md). Human-facing too.
+
+## The loop
+1. **You** create a stub note in [log/](log/) (new note → Insert Template → "experiment") and write the
+   **Hypothesis**. Leave `status: idea`. Sync (pull-before-write).
+2. **Claude** picks it up: flips `status: live`, fills a concrete **Plan**, and **git-commits before
+   launching** (stamps `commit:`).
+3. **Claude** runs it on SLURM/GPU (compute-resources skill; submit `gpu,gpu-redhat`, never wait >1h).
+4. On finish, **Claude** auto-fills **Run + Result + Verdict** from the output, sets `metric` + `status: done`,
+   **appends a row to [RESULTS.md](RESULTS.md)**, `git mv`s the note to [archive/](archive/), and updates the
+   [model registry](horizon_q_model_registry.md) if a model trained.
+5. **You** read the row on the board / in RESULTS.md and spin the next stub.
+
+## Role separation (so two writers never collide)
+- **You write:** idea-note Hypotheses + your own notes. **You read** everything else.
+- **Claude writes:** the Plan/Run/Result of each note, RESULTS.md, the registry, the journals.
+- Sync rule: **pull before you write.**
+
+## Status enum (never other spellings)
+`idea` → `live` → `done`. (Non-experiment docs use `live` / `ref` / `hub` / `frozen` / `snapshot` / `archive`.)
+
+## Verdict rule
+Accept/reject **on numbers only** (Hypothesis → Evidence → Verdict). No vibes.
+
+## Must-do's [Claude]
+1. **Commit before every run** — stamp the SHA in `commit:`.
+2. **On finish** — append RESULTS.md + update the registry (if a model trained).
+
+## Entrypoints (the real commands)
+- **Train:** sage `scripts/train_h5_sampling.slurm` / config `train_scorer_edge`.
+- **Eval:** `eval_scorer.py` on `namo_testset_v1` (canonical) / `scripts/amarel/eval_afterok.slurm`.
+- **Collection:** `python/namo/data_collection/modular_parallel_collection.py`.
+- **Baseline to beat:** NoHorizon-v3 reactive 40.7 / best-first 37.8 @2.

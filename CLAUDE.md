@@ -7,6 +7,11 @@ layer. The robot reaches a goal by pushing movable obstacles out of the way.
 Ongoing research lives under `docs/experiments/` — read it *on demand* from there, not from here. Keep this
 file lean: durable, every-session facts only. Anything with a date or a "currently" belongs in a journal.
 
+**Experiment loop:** we run experiments via a stub-note → run → results-sheet loop — protocol in
+[docs/experiments/WORKFLOW.md](docs/experiments/WORKFLOW.md). Role split: the **user** writes idea-note
+Hypotheses; **Claude** writes Plan/Run/Result, appends [RESULTS.md](docs/experiments/RESULTS.md), and updates
+the [model registry](docs/experiments/horizon_q_model_registry.md). **Commit before every run.**
+
 ## How to talk to me
 
 Default to plain English. Short, sharp sentences. No jargon unless I'm already using it back at you — give
