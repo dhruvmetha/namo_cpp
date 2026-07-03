@@ -4,6 +4,9 @@ filters:
 views:
   - type: table
     name: Experiments
+    groupBy:
+      property: note.status
+      direction: ASC
     order:
       - file.name
       - status
