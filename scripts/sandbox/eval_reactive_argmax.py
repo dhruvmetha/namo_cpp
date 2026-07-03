@@ -55,16 +55,16 @@ def main():
             env.set_full_state(s0); env.step(make_action(obj, g1))
             if goal_open_pts(env, gp):
                 open1 += 1; open2 += 1
-                leaf.append({"xml": xml, "object_id": obj, "region": reg, "open2": 1}); continue  # opened in 1
+                leaf.append({"xml": xml, "object_id": obj, "region": reg, "open1": 1, "open2": 1}); continue  # opened in 1
             s1 = env.get_full_state()
             pool1 = rank_first_pushes_h2(pl, env, goal, xml, s1, 1, restrict_obj=obj, score=(a.prior == "q"))   # finishes @H=1
             if not pool1:
-                leaf.append({"xml": xml, "object_id": obj, "region": reg, "open2": 0}); continue
+                leaf.append({"xml": xml, "object_id": obj, "region": reg, "open1": 0, "open2": 0}); continue
             _o2, g2, _q2 = pool1[0] if a.prior == "q" else rng.choice(pool1)             # ARGMAX or RANDOM finish
             env.set_full_state(s1); env.step(make_action(obj, g2))
             o2 = 1 if goal_open_pts(env, gp) else 0
             open2 += o2
-            leaf.append({"xml": xml, "object_id": obj, "region": reg, "open2": o2})
+            leaf.append({"xml": xml, "object_id": obj, "region": reg, "open1": 0, "open2": o2})
         if xi % 25 == 0:
             print(f"  [{xi}/{len(xmls)}] n={n} open@2={open2}", file=sys.stderr, flush=True)
     out = {"ckpt": os.path.basename(a.ckpt), "n": n, "skip": skip,
