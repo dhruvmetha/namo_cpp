@@ -130,7 +130,8 @@ updated: 2026-06-26
   · val_top1 **0.704** / top5 0.774 (peak 0.704) · job 166182, COMPLETED 5:14h, early-stop ep39.
 - **EARLY VAL SIGNAL (NOT the gate): depth val-top1 0.704 > density 0.674** — directionally matches the pre-registered
   "depth ≥ density". Caveat: val = all-difficulty room-grouped ranking, NOT test-set hard@1; both overfit after ep12-14.
-- **⏳ GATE PENDING (Amarel — eval toolchain + test set are Amarel-only):** reactive@2 + best-first@2(combine=q) vs
+- **⏳ GATE PENDING (runs on Amarel — where the SLURM eval harness + v3 baseline ckpts live; NOT Amarel-only: the
+  eval script is portable repo code and `namo_testset_v1` is also mirrored on arrakis `/common/users/dm1487/scratch_namo/datasets/`):** reactive@2 + best-first@2(combine=q) vs
   **NoHz-v3 reactive 40.7 / best-first 37.8 @2** (region, n=1018). Handoff: rsync best-val ckpt → Amarel
   `/scratch/dm1487/sage_outputs/scorer/qboot_{density,depth}_s1/.../` then `eval_afterok.slurm RUN_DIR=qboot_density_s1
   LABEL=boot_density MINEP=8` (+ depth). Eval dirs will be `reactarg_boot_*` + `bfq_boot_*`.
