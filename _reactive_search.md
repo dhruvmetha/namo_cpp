@@ -7,7 +7,7 @@ commit:
 tags:
   - experiment
 ---
-# Reactive search
+# _reactive_search
 
 ## Hypothesis
 
