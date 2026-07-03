@@ -1,7 +1,7 @@
 ---
 status: hub
 tags: [workflow]
-updated: 2026-07-02
+updated: 2026-07-03
 ---
 # How we run experiments
 
@@ -19,9 +19,19 @@ updated: 2026-07-02
 5. **You** read the row on the board / in RESULTS.md and spin the next stub.
 
 ## Role separation (so two writers never collide)
-- **You write:** idea-note Hypotheses + your own notes. **You read** everything else.
+- **You write:** idea-note Hypotheses, **Discussion** questions, + your own notes. **You read** everything else.
 - **Claude writes:** the Plan/Run/Result of each note, RESULTS.md, the registry, the journals.
 - Sync rule: **pull before you write.**
+
+## Talking in a card (Discussion)
+Ask a question in the card's **`## Discussion`** section: drop `**[you YYYY-MM-DD]** …` and I answer inline
+`**[Claude YYYY-MM-DD]** …`, newest at the bottom. It's our per-experiment channel, logged in git — the
+reasoning lives *with* the experiment, not in a lost chat.
+
+## When a card grows into a folder (on demand)
+A card stays a **single file** until it earns a folder — a plot, a long Q&A, or multiple runs. Then **Claude**
+converts `EXP-….md` → `EXP-…/index.md` + artifacts (`discussion.md`, `results/…`) beside it; the board still
+finds it (`index.md` keeps `type: experiment`). Don't pre-make folders.
 
 ## Status enum (never other spellings)
 `idea` → `live` → `done`. (Non-experiment docs use `live` / `ref` / `hub` / `frozen` / `snapshot` / `archive`.)

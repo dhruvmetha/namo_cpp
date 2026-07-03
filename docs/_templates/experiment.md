@@ -22,3 +22,6 @@ _(Claude, auto from run output)_ Numbers — accept/reject **on numbers only**.
 
 ## Next
 What this implies; the follow-up experiment.
+
+## Discussion
+_(you ↔ Claude — ask here; I answer inline, dated `**[who YYYY-MM-DD]**`. Newest at the bottom.)_

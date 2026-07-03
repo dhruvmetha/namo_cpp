@@ -33,3 +33,6 @@ _(auto)_ — accept iff the 2-head split beats `combine=q` on sims-to-solve outs
 
 ## Next
 _(tbd)_
+
+## Discussion
+_(you ↔ Claude — ask here; I answer inline, dated. Newest at the bottom.)_
