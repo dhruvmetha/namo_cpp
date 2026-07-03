@@ -525,7 +525,7 @@ Either way, the action items above are unchanged. Fix 1 first, re-evaluate, then
 
 Following the round-1 finding, the obvious question was whether the model had learned *anything* scene-conditional, or whether it was emitting essentially scene-independent shallow predictions. I claimed informally that it had learned a "direction prior" — which face / contact-point to push — even if it failed at depth. That claim was tested empirically and only partially survived.
 
-The test ([`test_direction_hypothesis.py`](f_characterization/test_direction_hypothesis.py)): project both ML predictions and F to three granularities and compare ML hit@K to random-from-R hit@K at each:
+The test ([`test_direction_hypothesis.py`](../f_characterization/test_direction_hypothesis.py)): project both ML predictions and F to three granularities and compare ML hit@K to random-from-R hit@K at each:
 - **Face** — 4-way (which side of the object); `edge_idx // 15`.
 - **Contact-point** — 60-way (where on the side, ignoring depth); `edge_idx`.
 - **Joint** — full (edge, depth).

@@ -151,10 +151,10 @@ python scripts/docs_lint.py --orphans  # also list orphan docs
 python scripts/docs_lint.py --json     # machine-readable
 ```
 
-Known open items (as of 2026-07-01 overnight cleanup): 0 broken doc→doc links; 14 broken
-doc→code links (relative-depth rot in `push_pruning_and_aborts.md` and
-`evaluation/ML_vs_GT_F_evaluation.md` — the file paths, not the line numbers); 9 unwritten
-memory notes (see `archive/overnight_cleanup_journal.md`).
+Link health (2026-07-03): **0 broken doc→doc, 0 broken doc→code** — the earlier 14 doc→code
+were relative-depth rot (`../` → `../../`) plus one refactored-away reference
+(`diff_drive_navigation.cpp` → now `push_path_follower.cpp`), all fixed 2026-07-03. Remaining:
+9 unwritten memory notes (see `archive/overnight_cleanup_journal.md`).
 
 Pending doc merges (deferred from the overnight run — modest value, research-content edits, do
 with review): fold `model_comparison_report.md` (prose) + `informative_1push_training_study.md`
