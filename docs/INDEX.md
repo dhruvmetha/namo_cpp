@@ -62,15 +62,15 @@ To resume the active Horizon-Q thread specifically, follow the ranked list in `C
 - [`policy_value_search_hypothesis.md`](experiments/policy_value_search_hypothesis.md) — newest (2026-07-01) falsifiable π+V split hypothesis (NOT committed). `[LIVE]`
 
 **1-push / scorer arc (earlier):**
-- [`scorer_hacman_journal.md`](experiments/scorer_hacman_journal.md) — overnight HACMan-faithful 1-push scorer journal (E0–E9); top FINAL SYNTHESIS supersedes numbers below it. `[LIVE]`
+- [`scorer_hacman_journal.md`](experiments/scorer_hacman_journal.md) — overnight HACMan-faithful 1-push scorer journal (E0–E9); top FINAL SYNTHESIS supersedes numbers below it. `[FROZEN]`
 - [`hacman_comparison.md`](experiments/hacman_comparison.md) — slide-ready: our region-opening ↔ HACMan parallel. `[REF]`
 - [`multipush_learning_primer.md`](experiments/multipush_learning_primer.md) — plain-language map of model families + training schemes + case studies. `[REF]`
 - [`policy_framework_journal.md`](experiments/policy_framework_journal.md) — 1-push architecture hypotheses (H0a/H1/H2/H5). `[FROZEN]` — all closed.
-- [`informative_1push.md`](experiments/informative_1push.md) — informative-hard 1-push experiment checklist (embedded result stale). `[LIVE]`
+- [`informative_1push.md`](experiments/informative_1push.md) — informative-hard 1-push experiment checklist (embedded result stale). `[FROZEN]`
 - [`informative_1push_results.md`](experiments/informative_1push_results.md) — feasibility results, corrected (has ARCHIVED/CONTAMINATED note). `[SNAPSHOT]`
 - [`results_design_report_2026-06-15.md`](experiments/results_design_report_2026-06-15.md) — dated results + design rationale (later overtaken). `[SNAPSHOT]`
-- [`informed_2push_journal.md`](experiments/informed_2push_journal.md) — 2-push hypothesis journal (leaf-vs-search). `[LIVE]`
-- [`informed_2push_data_ledger.md`](experiments/informed_2push_data_ledger.md) — running ledger of files/manifests/ckpts/jobs for informed-2-push. `[LIVE]`
+- [`informed_2push_journal.md`](experiments/informed_2push_journal.md) — 2-push hypothesis journal (leaf-vs-search). `[FROZEN]`
+- [`informed_2push_data_ledger.md`](experiments/informed_2push_data_ledger.md) — running ledger of files/manifests/ckpts/jobs for informed-2-push. `[FROZEN]`
 
 **experiments/archive/ — closed, moved 2026-07-02 (`[ARCHIVE]`):**
 - [`archive/model_comparison_report.md`](experiments/archive/model_comparison_report.md) — plain-English model comparison (CORRECTED v2).
