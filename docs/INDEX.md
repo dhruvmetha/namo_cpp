@@ -17,10 +17,10 @@ why they feel like logs. These four are written for *you* to actually read:
 
 1. [`docs/horizon_q_overview.md`](horizon_q_overview.md) — plain-language map of the active project. **Start here.**
 2. [`docs/research/research_compass.md`](research/research_compass.md) — why the research matters; come back when the work feels uncertain. `[HUB]`
-3. [`docs/experiments/ILAB_RESUME.md`](experiments/ILAB_RESUME.md) — the "pick up here" note when resuming work.
+3. **The experiment loop** — [`WORKFLOW.md`](experiments/WORKFLOW.md) (how it works) + the [board](experiments/DASHBOARD.md) & [`RESULTS.md`](experiments/RESULTS.md) (where we are / what's next).
 4. `docs/personal/researcher_mentality.md` — how you operate; includes a note to AI assistants. *(personal, gitignored — present only in your main checkout, not in fresh clones/worktrees.)*
 
-To resume the active Horizon-Q thread specifically, follow the ranked list in `CLAUDE.md` ("READ THESE FIRST").
+The active work now lives in experiment **cards** ([`experiments/log/`](experiments/log/)); the journals below are reference/history.
 
 > **🌙 Overnight cleanup+speed run (2026-07-01):** see [`archive/overnight_cleanup_journal.md`](archive/overnight_cleanup_journal.md) for what changed tonight (wavefront speedups, the behavior gate, doc cleanup, and the deferred recommendations).
 
@@ -50,16 +50,16 @@ To resume the active Horizon-Q thread specifically, follow the ranked list in `C
 - [`archive/`](experiments/archive/README.md) — finished experiments + closed snapshots. `[ARCHIVE]`
 - stub template: [`_templates/experiment.md`](_templates/experiment.md).
 
-**Horizon-Q arc (current):**
-- [`ILAB_RESUME.md`](experiments/ILAB_RESUME.md) — quick "pick up here" resume note. `[LIVE]`
-- [`horizon_q_redesign_execution.md`](experiments/horizon_q_redesign_execution.md) — staged execution journal (Stage 0–4), append-only log. `[LIVE]`
+**Horizon-Q arc** (reference journals; live work → [`log/`](experiments/log/) cards):
+- [`ILAB_RESUME.md`](experiments/ILAB_RESUME.md) — old "pick up here" note (targeted the now-parked qboot); superseded by the board. `[FROZEN]`
+- [`horizon_q_redesign_execution.md`](experiments/horizon_q_redesign_execution.md) — staged execution journal (Stage 0–4), append-only log. `[FROZEN]`
 - [`horizon_q_HANDOFF.md`](experiments/horizon_q_HANDOFF.md) — self-contained brief: problem + arch + algorithm + results. `[REF]`
-- [`horizon_q_search_redesign_journal.md`](experiments/horizon_q_search_redesign_journal.md) — the pivot: model = sims-minimizing ranker; D1–D5 decision ledger. `[LIVE]`
+- [`horizon_q_search_redesign_journal.md`](experiments/horizon_q_search_redesign_journal.md) — the pivot: model = sims-minimizing ranker; D1–D5 decision ledger. `[REF]`
 - [`horizon_q_build_journal.md`](experiments/horizon_q_build_journal.md) — pre-redesign empirical record (v2/v3/v4, ExIt); §9 log. `[FROZEN]` — evidence archive; active log is `horizon_q_redesign_execution.md`.
 - [`multipush_horizonQ_journal.md`](experiments/multipush_horizonQ_journal.md) — multi-push / horizon-Q design spec ledger (37 decisions); self-parked 2026-06-10. `[FROZEN]`
 - [`horizon_q_model_registry.md`](experiments/horizon_q_model_registry.md) — authoritative model / ckpt / headline-number catalog. `[HUB]` — read for paths, never glob.
 - [`horizon_q_related_work.md`](experiments/horizon_q_related_work.md) — related-work / novelty positioning. `[REF]`
-- [`policy_value_search_hypothesis.md`](experiments/policy_value_search_hypothesis.md) — newest (2026-07-01) falsifiable π+V split hypothesis (NOT committed). `[LIVE]`
+- [`policy_value_search_hypothesis.md`](experiments/policy_value_search_hypothesis.md) — newest (2026-07-01) falsifiable π+V split hypothesis (NOT committed). `[REF]`
 
 **1-push / scorer arc (earlier):**
 - [`scorer_hacman_journal.md`](experiments/scorer_hacman_journal.md) — overnight HACMan-faithful 1-push scorer journal (E0–E9); top FINAL SYNTHESIS supersedes numbers below it. `[FROZEN]`
