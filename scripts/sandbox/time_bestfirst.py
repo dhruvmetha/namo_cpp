@@ -50,23 +50,26 @@ def timed_bf(pl, env, goal, xmlp, obj, s0, gp, prior, agg, combine, budget, rng,
     """Greedy best-first on the labeled object, timed. Mirrors eval_bestfirst.solve_scene (hmax = push depth)."""
     isopen = lambda e: goal_open_pts(e, gp)
     heap = []; ctr = 0; sims = 0; tsc = 0.0; tsim = 0.0; nsc = 0; t0 = PC()
+    depth_hist = defaultdict(int); solve_ranks = None            # a/b: sims by tree-depth; c: rank-path of the winning plan
     env.set_full_state(s0)
     t = PC(); pool, V0 = candidates(pl, env, goal, xmlp, s0, hmax, prior, agg, rng, restrict_obj=obj); tsc += PC() - t; nsc += 1
-    for (o, g, q) in pool:
-        heapq.heappush(heap, (-priority(q, V0, combine), ctr, {"obj": o, "g": g, "from": s0, "ndone": 0})); ctr += 1
+    for rank, (o, g, q) in enumerate(sorted(pool, key=lambda x: -priority(x[2], V0, combine))):   # rank = priority order in the sibling pool
+        heapq.heappush(heap, (-priority(q, V0, combine), ctr, {"obj": o, "g": g, "from": s0, "ndone": 0, "ranks": [rank]})); ctr += 1
     solved = False
     while heap and sims < budget:
         _n, _c, it = heapq.heappop(heap)
+        depth_hist[it["ndone"]] += 1                             # this sim expands a node at push-depth ndone (0=first push, 1=second)
         env.set_full_state(it["from"]); t = PC(); env.step(make_action(it["obj"], it["g"])); tsim += PC() - t; sims += 1
         if isopen(env):
-            solved = True; break
+            solved = True; solve_ranks = it["ranks"]; break       # ranks of each push in the winning plan
         ndone = it["ndone"] + 1
         if ndone < hmax:
             s_new = env.get_full_state()
             t = PC(); pool, V = candidates(pl, env, goal, xmlp, s_new, hmax - ndone, prior, agg, rng, restrict_obj=obj); tsc += PC() - t; nsc += 1
-            for (o2, g2, q2) in pool:
-                heapq.heappush(heap, (-priority(q2, V, combine), ctr, {"obj": o2, "g": g2, "from": s_new, "ndone": ndone})); ctr += 1
-    return {"t_score": tsc, "t_sim": tsim, "n_score": nsc, "n_sim": sims, "t_wall": PC() - t0, "solved": solved}
+            for rank, (o2, g2, q2) in enumerate(sorted(pool, key=lambda x: -priority(x[2], V, combine))):
+                heapq.heappush(heap, (-priority(q2, V, combine), ctr, {"obj": o2, "g": g2, "from": s_new, "ndone": ndone, "ranks": it["ranks"] + [rank]})); ctr += 1
+    return {"t_score": tsc, "t_sim": tsim, "n_score": nsc, "n_sim": sims, "t_wall": PC() - t0, "solved": solved,
+            "depth_hist": dict(depth_hist), "solve_ranks": solve_ranks}
 
 
 def main():
@@ -82,13 +85,18 @@ def main():
     ap.add_argument("--nohz-ckpt", default=NOHZ)
     ap.add_argument("--rng-seed", type=int, default=7)  # random baseline seed (random uses the uniform pick)
     ap.add_argument("--warmup", type=int, default=10)
+    ap.add_argument("--models", default="Hz,NoHz,random", help="comma subset of Hz,NoHz,random (run random-only for the 10-seed floor without recomputing the deterministic model)")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
+    want = a.models.split(",")
     os.makedirs(os.path.dirname(a.out), exist_ok=True)
     rng = random.Random(a.rng_seed)
     print(f"loading scorers (hz={a.hz_ckpt.split('/scorer/')[-1].split('/')[0]} nohz={a.nohz_ckpt.split('/scorer/')[-1].split('/')[0]} rng={a.rng_seed})...", flush=True)
-    pl_hz = BeamPlanner(ckpt=a.hz_ckpt); pl_nz = BeamPlanner(ckpt=a.nohz_ckpt)
-    models = [("Hz", pl_hz, "model"), ("NoHz", pl_nz, "model"), ("random", pl_nz, "uniform")]
+    need_hz = "Hz" in want; need_nz = "NoHz" in want or "random" in want   # random reuses a planner shell (prim only, no scoring)
+    pl_hz = BeamPlanner(ckpt=a.hz_ckpt) if need_hz else None
+    pl_nz = BeamPlanner(ckpt=a.nohz_ckpt) if need_nz else None
+    allm = {"Hz": ("Hz", pl_hz, "model"), "NoHz": ("NoHz", pl_nz, "model"), "random": ("random", pl_nz, "uniform")}
+    models = [allm[m] for m in want]
     if a.end >= 0:
         base = stratified(a.n_per_tier, a.key) if a.strat else full_episodes(a.key)
         samp = base[a.start:a.end]
@@ -97,9 +105,11 @@ def main():
     print(f"  {len(samp)} episodes; budget={a.budget} hmax={a.hmax} key={os.path.basename(a.key)}; warming up {a.warmup}/model...", flush=True)
     x0, o0, _ = samp[0]; xp0 = str(resolve(x0)); e0 = make_env(xp0); g0 = extract_goal_with_fallback(xp0, FALLBACK_GOAL)
     e0.set_robot_goal(*g0); e0.get_reachable_objects(); s00 = e0.get_full_state()
-    for _ in range(a.warmup):
-        for pl in (pl_hz, pl_nz):
-            candidates(pl, e0, g0, xp0, s00, a.hmax, "model", "mean5", rng, restrict_obj=o0)
+    if "Hz" in want or "NoHz" in want:          # warmup only matters for the (scored) model path; random needs none
+        for _ in range(a.warmup):
+            for pl in (pl_hz, pl_nz):
+                if pl is not None:
+                    candidates(pl, e0, g0, xp0, s00, a.hmax, "model", "mean5", rng, restrict_obj=o0)
     fh = open(a.out, "w"); t_start = PC()
     for i, (xml, obj, t) in enumerate(samp):
         try:
