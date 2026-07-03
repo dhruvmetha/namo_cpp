@@ -55,6 +55,7 @@ _(Claude, 2026-07-03)_ **CAR, region criterion, mean ± std across seeds.** Rand
 seeds. Plot: `scratch_namo/eval/react_search_v3/AGG/react_search.png` (aggregator `agg_react_search.py`).
 
 **2push** (open@2)
+
 | difficulty | random floor | NoHz-v3 | lift |
 |---|---|---|---|
 | easy   | 9.7 ± 1.6 | 61.2 ± 2.4 | +51.5 |
@@ -63,6 +64,7 @@ seeds. Plot: `scratch_namo/eval/react_search_v3/AGG/react_search.png` (aggregato
 | all    | 4.7 ± 0.6 | 42.1 ± 1.7 | +37.4 |
 
 **1push** (open@1)
+
 | difficulty | random floor | NoHz-v3 | lift |
 |---|---|---|---|
 | easy   | 71.7 ± 2.1 | 98.7 ± 0.4 | +27.1 |
