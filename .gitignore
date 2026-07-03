@@ -8,6 +8,7 @@ build_python_mjxrl*/
 __pycache__/
 .DS_Store
 *.png
+!assets/*.png
 *.txt
 *.html
 *.mp4
