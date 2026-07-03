@@ -5,7 +5,7 @@ views:
   - type: table
     name: Experiments
     groupBy:
-      property: note.status
+      property: status
       direction: ASC
     order:
       - file.name
