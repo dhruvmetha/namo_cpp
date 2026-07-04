@@ -19,6 +19,14 @@ pulls, forks each active experiment (Opus, xhigh) in a worktree, tracks status i
 (done/running/pending), gates expensive steps (retrains) on the user, then merges each agent's card/plot edits
 back and owns the shared files (RESULTS.md, board, commits) so parallel agents don't race.
 
+**Measuring time (wall-clock) — MUST be consistent.** `t_wall` is hardware-dependent; **sims / episode counts
+are machine-independent** (compare those across any box freely). To compare TIME across methods or experiments,
+measure on IDENTICAL hardware the same way: `time_bestfirst.py` **interleaved** (every method hits the same
+episode back-to-back on one node), `--exclusive`, CPU-microarch-**pinned** (`--constraint=emeraldrapids`/`icelake`)
+so times pool. Re-time a shared baseline (e.g. `random`) as an **anchor** to prove a new run pools with prior
+ones. **NEVER put wall-times from different boxes (arrakis vs Amarel vs westeros) on the same success-vs-time
+axis** — re-time on the baselines' exact setup instead.
+
 ## How to talk to me
 
 Default to plain English. Short, sharp sentences. No jargon unless I'm already using it back at you — give
