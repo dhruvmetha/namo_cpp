@@ -9,7 +9,10 @@ updated: 2026-07-04
 Paper-style compilation: for each experiment, the **main table + main figure + a tight key finding**. Full
 detail and verbose analysis live in each experiment's card (`_*.md`), linked per section. **Setting:** CAR
 robot, testset `namo_testset_v1`, region-opening criterion. Every result is split by **difficulty
-(easy/med/hard) × horizon (1push / 2push)**.
+(easy/med/hard) × horizon (1push / 2push)**. ⚠ Difficulty is defined *per horizon* and is not the same scale
+across them: **2push** difficulty = number of solving first-pushes (`n_setups` → `division`); **1push**
+difficulty = `solve_rate` tertiles. So "hard" = *few solving setups* for 2push, *few opening pushes* for 1push
+— compare within a horizon, not across.
 
 **Contents** — 1. [Reactive vs floor](#1-reactive-control-learned-value-vs-the-random-floor) ✅ ·
 2. [Best-first search vs floor](#2-best-first-search-learned-value-vs-the-random-floor) ✅ ·
@@ -23,18 +26,23 @@ The main model **NoHz-v3** (learned value, argmax setup → argmax finish) vs a 
 labelled object (no model), under the forced-dive reactive protocol. Random = 10 seeds, NoHz-v3 = 3 seeds;
 mean ± std of region-opening rate (%). → card: [[_reactive_search]].
 
-**Table 1.** Region-opening rate (%), by horizon × difficulty.
+**Table 1a. 2push** — does the region open within **2 pushes** (metric = open@2, %)? Pure-2-push set, n = 1018.
 
-| horizon | difficulty | random | **NoHz-v3** | lift |
-|---|---|---|---|---|
-| 2push (open@2) | easy | 9.7 ± 1.6 | **61.2 ± 2.4** | +51.5 |
-| 2push | medium | 4.4 ± 0.9 | **44.3 ± 2.9** | +40.0 |
-| 2push | hard | 1.8 ± 0.6 | **27.5 ± 2.0** | +25.7 |
-| 2push | **all** | 4.7 ± 0.6 | **42.1 ± 1.7** | **+37.4** |
-| 1push (open@1) | easy | 71.7 ± 2.1 | **98.7 ± 0.4** | +27.1 |
-| 1push | medium | 32.6 ± 3.1 | **93.9 ± 0.5** | +61.3 |
-| 1push | hard | 6.2 ± 1.6 | **54.3 ± 0.4** | +48.0 |
-| 1push | **all** | 37.0 ± 1.1 | **82.3 ± 0.2** | **+45.3** |
+| difficulty | random | **NoHz-v3** | lift (pt) |
+|---|---|---|---|
+| easy | 9.7 ± 1.6 | **61.2 ± 2.4** | +51.5 |
+| medium | 4.4 ± 0.9 | **44.3 ± 2.9** | +40.0 |
+| hard | 1.8 ± 0.6 | **27.5 ± 2.0** | +25.7 |
+| *overall* | *4.7 ± 0.6* | ***42.1 ± 1.7*** | *+37.4* |
+
+**Table 1b. 1push** — does it open within **1 push** (metric = open@1, %)? One-push set, n = 1323.
+
+| difficulty | random | **NoHz-v3** | lift (pt) |
+|---|---|---|---|
+| easy | 71.7 ± 2.1 | **98.7 ± 0.4** | +27.1 |
+| medium | 32.6 ± 3.1 | **93.9 ± 0.5** | +61.3 |
+| hard | 6.2 ± 1.6 | **54.3 ± 0.4** | +48.0 |
+| *overall* | *37.0 ± 1.1* | ***82.3 ± 0.2*** | *+45.3* |
 
 ![[react_search.png]]
 
@@ -52,14 +60,17 @@ Greedy best-first search, budget **900 sims/instance**, combine=q: NoHz-v3's pre
 uniform-random ordering. 10 random seeds, 3 model seeds. → card: [[_full_search]] (full per-cutoff tables,
 a/b/c/d diagnostics, time-by-difficulty).
 
-**Table 2.** Solve-rate @900 (%) and cost (avg sims), by difficulty (2push). *(1push in progress.)*
+**Table 2. 2push** — best-first solve-rate within **budget 900 sims** (%), and cost (avg sims to solve).
+Pure-2-push set, n = 1018.
 
-| difficulty | random @900 | **NoHz-v3 @900** | avg sims (rand / NoHz) |
+| difficulty | random | **NoHz-v3** | avg sims: rand → NoHz |
 |---|---|---|---|
-| easy | 99.8 ± 0.2 | 98.9 ± 0.4 | 43 / 38 |
-| medium | 97.0 ± 0.7 | 97.8 ± 0.8 | 123 / 62 |
-| **hard** | 78.7 ± 2.1 | **90.2 ± 0.8** | 344 / 165 |
-| **all** | 91.0 ± 0.8 | **95.3 ± 0.6** | 185 / 94 |
+| easy | 99.8 ± 0.2 | 98.9 ± 0.4 | 43 → 38 |
+| medium | 97.0 ± 0.7 | 97.8 ± 0.8 | 123 → 62 |
+| hard | 78.7 ± 2.1 | **90.2 ± 0.8** | 344 → 165 |
+| *overall* | *91.0 ± 0.8* | ***95.3 ± 0.6*** | *185 → 94* |
+
+*1push: in progress — sims landing on rlab7; timing pending a separate exclusive run.*
 
 ![[fullsearch_success_vs_sims.png]]
 
