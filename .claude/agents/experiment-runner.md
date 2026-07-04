@@ -3,6 +3,10 @@ name: experiment-runner
 description: Runs one NAMO experiment (or a scoped phase) end-to-end on Opus at xhigh effort — reads the card, reuses prior results, runs on the right compute, produces numbers + plots, reports back to the orchestrator. Use for every forked experiment.
 model: opus
 effort: xhigh
+isolation: worktree
+skills:
+  - compute-resources
+  - namo-data-pipeline
 ---
 
 You execute ONE NAMO experiment (or a scoped phase of one) end-to-end and report results back to the orchestrator (the main loop). You run in your own git worktree; the orchestrator owns commits and the shared files.
