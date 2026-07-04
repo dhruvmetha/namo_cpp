@@ -16,7 +16,7 @@ difficulty = `solve_rate` tertiles. So "hard" = *few solving setups* for 2push, 
 
 **Contents** — 1. [Reactive vs floor](#1-reactive-control-learned-value-vs-the-random-floor) ✅ ·
 2. [Best-first search vs floor](#2-best-first-search-learned-value-vs-the-random-floor) ✅ ·
-3. [Step-penalty (−1/0/1)](#3-step-penalty-101-reward) ✗ reject · [Prior work](#prior-work-seeded-ledger)
+3. [Step-penalty (−1/0/1)](#3-step-penalty-101-reward) ◑ softened reject · [Prior work](#prior-work-seeded-ledger)
 
 ---
 
@@ -106,9 +106,9 @@ the solution in **~⅓ the sims** (hard 7 vs 20). So 1push is the reactive ranki
 
 ## 3. Step-penalty (−1/0/1 reward)
 
-**Verdict: reject** (on the decisive 2push best-first axis). We retrain the no-horizon q-scorer on a *signed*
-target (+1 immediate-open / 0 valid-setup / −1 never-opens) and test whether it ranks pushes better for
-best-first search than the incumbent 0/0.9/1. 3-way vs random and NoHz-v3, mean ± std across seeds. → card:
+**Verdict: softened reject (horizon-split).** We retrain the no-horizon q-scorer on a *signed* target
+(+1 immediate-open / 0 valid-setup / −1 never-opens) and test whether it ranks pushes better for best-first
+search than the incumbent 0/0.9/1. 3-way vs random and NoHz-v3, mean ± std across seeds. → card:
 [[_step_penalty_]].
 
 **Table 3. Best-first search, 2push** (combine=q, budget 900, n = 1018) — the ranking test.
@@ -125,18 +125,37 @@ best-first search than the incumbent 0/0.9/1. 3-way vs random and NoHz-v3, mean 
 | *all* | *NoHz-v3* | *38.7* | *70.8* | ***95.3 ± 0.6*** | *55* |
 | *all* | *step-pen* | *36.9* | *70.0* | ***95.4 ± 0.5*** | *58* |
 
-Reactive open-rate (secondary), Δ = step-pen − NoHz-v3: 2push open@2 all **−2.5** (39.6 vs 42.1, hard −3.5);
-1push open@1 all **+1.0** (83.3 vs 82.3, hard +2.5).
-
 ![[steppen_bestfirst_sims_2push.png]]
 
-**Finding.** The signed target is a **wash** for best-first ranking — tied at the 900-sim ceiling in every tier
-(all 95.4 vs 95.3), and *marginally worse* at low budgets (@2 all 36.9 vs 38.7; hard 22.6 vs 26.1) exactly where
-a sharper ranker should pull ahead, at slightly more sims-to-solve (58 vs 55). Its only edge is reactive 1push
-on hard (+2.5), a secondary regime. **Reject: −1/0/1 does not improve search ranking over 0/0.9/1; the incumbent
-stays.** *(Two cells still closing: step-pen 1push best-first search is running on iLab to complete horizon
-coverage — the one cell it might win; the fair 3-way wall-time is queue-blocked on Amarel. Sims are decisive and
-machine-independent, so the verdict stands.)*
+**Table 3b. Best-first search, 1push** (budget 900, n = 1323). solve@1 is the ranking metric; @900 ties because
+the one-push pool is tiny (both eventually solve everything), so the contest is entirely front-loaded rank.
+
+| difficulty | ranker | solve@1 | solve@900 | sims-to-solve |
+|---|---|---|---|---|
+| easy | NoHz-v3 | 98.7 | 99.8 | 1 |
+| easy | step-pen | 98.5 | 99.8 | 1 |
+| medium | NoHz-v3 | 94.0 | 100.0 | 1 |
+| medium | step-pen | 94.7 | 100.0 | 1 |
+| hard | NoHz-v3 | 54.2 | 99.2 | 7 |
+| hard | **step-pen** | **56.7** | 99.1 | 6 |
+| *all* | *random* | *37.3* | *99.7* | *8* |
+| *all* | *NoHz-v3* | *82.3* | *99.7* | *3* |
+| *all* | *step-pen* | ***83.3*** | *99.6* | *3* |
+
+![[steppen_bestfirst_sims_1push.png]]
+
+Reactive open-rate (secondary), Δ = step-pen − NoHz-v3: 2push open@2 all **−2.5** (hard −3.5); 1push open@1 all
+**+1.0** (hard **+2.5**) — the same 1push-hard signal the search shows.
+
+**Finding.** The result **splits by horizon**. On **2push** (setup ranking — the harder, primary axis) the signed
+target is a **wash**: tied at the ceiling (95.4 vs 95.3) and *marginally worse* at low budgets (@2 36.9 vs 38.7)
+exactly where a sharper ranker should win, at more sims (58 vs 55). On **1push** (immediate-open ranking) it earns
+a small, real edge — **solve@1 83.3 vs 82.3 (+1.0 all, +2.5 hard)** and leads the whole low-budget curve, though
+@900 ties. Best-first solve@1 reproduces reactive open@1 *exactly* (step-pen 83.3 = 83.3), so two independent
+pipelines agree the 1push-hard gain is real. **Call: 0/0.9/1 stays incumbent** — it wins the harder 2push axis
+and the 1push edge is small and ceiling-tied — but the hypothesis is **not cleanly false**: the signed target
+sharpens the *open-now* decision, not the *setup* decision. Natural follow-up: apply −1/0/1 to the open-now (H1)
+head only, keep 0/0.9/1 for setup — bank the 1push gain without the 2push wash.
 
 ---
 

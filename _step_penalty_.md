@@ -1,9 +1,9 @@
 ---
 type: experiment
-status: live
+status: done
 created: 2026-07-03
 updated: 2026-07-04
-metric: "−1/0/1 vs 0/0.9/1: 2push SEARCH tied (solve@900 95.4 vs 95.3, sims 96 vs 94) → reject; reactive 2push −2.5 (39.6 vs 42.1), 1push +1.0 (83.3 vs 82.3). 1push search + fair time PENDING"
+metric: "−1/0/1 vs 0/0.9/1 — SOFTENED reject: 2push SEARCH tied (solve@900 95.4 vs 95.3) → reject; 1push SEARCH small ranking edge (solve@1 +1.0 all, +2.5 hard; ceiling tied ~99.7). Reactive 2push −2.5, 1push +1.0. Fair time deferred (sims-only, verdict-sufficient)"
 commit:
 tags:
   - experiment
@@ -44,23 +44,27 @@ sim). **Eval state:**
 | reactive | 2push | s1,s2,s3 | 1018 | **DONE** | `eval/react_search_v3/steppen2push_s{1,2,3}` |
 | reactive | 1push | s1,s2,s3 | 1323 | **DONE** | `eval/react_search_v3/steppen1push_s{1,2,3}` |
 | best-first | 2push | s1,s2,s3 | 1018 | **DONE** | `eval/fullsearch/steppen_s{1,2,3}` |
-| best-first | 1push | s1,s2,s3 | 1323 | **⚠ MISSING — never launched** | — |
+| best-first | 1push | s1,s2,s3 | 1323 | **DONE** (launched here) | `eval/fullsearch_1push/steppen_s{1,2,3}` |
 
-- **Genuine gap:** step_penalty **1push best-first SEARCH** does not exist anywhere (checked
-  `eval/fullsearch_1push/` — only `nohz_s{1,2,3}` + `rand_s{0..9}` baselines present; also empty on Amarel
-  `/scratch/dm1487/eval/`). The 2push search verdict below is decisive on the primary axis; 1push search would
-  add a secondary datapoint (1push reactive shows a small step_pen edge on hard). Ready to launch on iLab
-  (same path the NoHz-v3 1push best-first used on rlab7).
-- **Fair wall-TIME PENDING.** The best-first SIMS reported here are machine-independent (valid). A same-hardware
-  TIME comparison needs step_penalty timed on the **emeraldrapids-exclusive** setup the NoHz-v3 2push times
-  used — those Amarel timing jobs are stalled in queue: 2push `57845891` completed only 5/16 shards (320/1018);
-  backfill `57846177` + 1push `57846712` both PD/Priority, empty. **step_penalty t_wall is therefore NOT put on
-  the same axis as NoHz's emerald times** (cross-box rule); TIME row deferred.
+- **1push best-first — the last gap, now CLOSED.** It did not exist anywhere at harvest (checked
+  `eval/fullsearch_1push/` — only `nohz_s{1,2,3}` + `rand_s{0..9}` baselines; empty on Amarel too). Launched on
+  iLab **rlab7** (`unlimited`, CPU inference) via `scripts/ilab/fullsearch_bestfirst_ilab.slurm`, jobs
+  `171268/171269/171270`, combine=q, hmax=1, budget 900, `MODELS=NoHz` with the step_penalty ckpts. Same
+  lowest-val_loss ckpt per seed as reactive/2push (s1 `awlkn20p/ep014`, s2 `ud5rquhc/ep012`, s3
+  `5smrk5sb/ep012`) so seed identity is consistent across horizons. All 3 COMPLETED (~20–22 min), 1323/1323
+  each. Baselines `nohz_s*`/`rand_s*` reused untouched.
+- **Fair wall-TIME deferred (sims-only shipped).** Best-first SIMS are machine-independent (valid on any box);
+  a same-hardware TIME 3-way needs step_penalty timed on the **emeraldrapids-exclusive** setup NoHz-v3's 2push
+  times used, and those Amarel timing jobs are stalled (2push `57845891` 5/16 shards; backfill `57846177` +
+  1push `57846712` PD/empty). Per orchestrator: **ship sims-only** — the verdict is decisive on sims, and
+  step_penalty uses ≥ NoHz sims, so a fair-time run would only reinforce it. step_penalty `t_wall` is NOT put on
+  the same axis as NoHz's emerald times (cross-box rule).
 
 ## Result + Verdict
 _(Claude, 2026-07-04)_ **CAR, mean ± std across seeds (random 10 · NoHz-v3 3 · step_penalty 3).** Δ columns =
-step_penalty − NoHz-v3 (the hypothesis test). Aggregation `/tmp/steppen_agg.py`; summary
-`/tmp/steppen_results.json`.
+step_penalty − NoHz-v3 (the hypothesis test). Aggregation `/tmp/steppen_agg.py` (reactive + 2push best-first)
+and `/tmp/steppen_1push_bf.py` (1push best-first); summaries `/tmp/steppen_results.json`,
+`/tmp/steppen_1push_bf.json`.
 
 ### Primary — best-first SEARCH ranking (2push, combine=q, budget 900, n=1018)
 
@@ -94,6 +98,43 @@ _(NoHz-v3 blue and step_penalty green sit on top of each other in every panel; r
   not.
 - **Efficiency:** avg sims 96 vs 94, sims-to-solve 58 vs 55 — step_penalty uses **marginally more** sims
   (easy it's cheaper: 33 vs 38 avg / 26 vs 28 to-solve; hard slightly more: to-solve 97 vs 88).
+
+### Primary — best-first SEARCH ranking (1push, combine=q, budget 900, n=1323)
+
+Solve-rate at increasing sim budgets + avg sims + sims-to-solve. Tertiles: hard < 0.169 ≤ med < 0.533 ≤ easy.
+
+| difficulty | ranker | @1 | @2 | @5 | @10 | @20 | @900 | avg sims | to-solve |
+|---|---|---|---|---|---|---|---|---|---|
+| easy (447) | random | 72.4 ± 1.5 | 90.6 ± 0.4 | 99.0 ± 0.2 | 99.7 ± 0.1 | 99.8 ± 0.0 | 99.8 ± 0.0 | 2 | 1 |
+| easy | NoHz-v3 | 98.7 ± 0.4 | 99.2 ± 0.1 | 99.6 ± 0.1 | 99.8 ± 0.0 | 99.8 ± 0.0 | **99.8 ± 0.0** | 1 | 1 |
+| easy | **step_pen** | 98.5 ± 0.5 | 99.3 ± 0.2 | 99.7 ± 0.1 | 99.8 ± 0.0 | 99.8 ± 0.0 | **99.8 ± 0.0** | 1 | 1 |
+| medium (435) | random | 33.1 ± 2.3 | 52.7 ± 2.5 | 82.9 ± 1.2 | 96.4 ± 0.6 | 99.8 ± 0.1 | 100.0 ± 0.0 | 3 | 3 |
+| medium | NoHz-v3 | 94.0 ± 0.6 | 96.2 ± 0.6 | 98.3 ± 0.4 | 99.6 ± 0.1 | 99.9 ± 0.1 | **100.0 ± 0.0** | 1 | 1 |
+| medium | **step_pen** | 94.7 ± 0.7 | 96.6 ± 1.0 | 99.1 ± 0.2 | 99.6 ± 0.1 | 99.9 ± 0.1 | **100.0 ± 0.0** | 1 | 1 |
+| hard (441) | random | 5.9 ± 1.5 | 12.0 ± 1.7 | 27.1 ± 1.8 | 46.3 ± 2.9 | 67.6 ± 1.7 | 99.3 ± 0.1 | 20 | 19 |
+| hard | NoHz-v3 | 54.2 ± 0.3 | 62.0 ± 0.8 | 73.9 ± 1.0 | 82.7 ± 0.5 | 90.3 ± 0.2 | **99.2 ± 0.1** | 7 | 7 |
+| hard | **step_pen** | 56.7 ± 1.6 | 66.1 ± 1.1 | 77.0 ± 1.2 | 85.3 ± 0.3 | 91.8 ± 0.5 | **99.1 ± 0.0** | 6 | 6 |
+| **all (1323)** | random | 37.3 ± 0.9 | 51.9 ± 1.1 | 69.8 ± 0.8 | 80.8 ± 1.0 | 89.1 ± 0.6 | 99.7 ± 0.0 | 8 | 8 |
+| **all** | NoHz-v3 | 82.3 ± 0.2 | 85.8 ± 0.2 | 90.6 ± 0.4 | 94.0 ± 0.2 | 96.7 ± 0.1 | **99.7 ± 0.0** | 3 | 3 |
+| **all** | **step_pen** | 83.3 ± 0.6 | 87.4 ± 0.7 | 91.9 ± 0.5 | 94.9 ± 0.1 | 97.2 ± 0.2 | **99.6 ± 0.0** | 3 | 3 |
+
+![[steppen_bestfirst_sims_1push.png]]
+_(On hard, green step_penalty sits above blue NoHz-v3 for B≈1–30, then both converge to 100 %. Source
+`assets/steppen_bestfirst_sims_1push.png`.)_
+
+**Read of 1push search — the one place the signed target wins (modestly).** Opposite of 2push:
+- **solve@1** (the pure ranking test — does the #1-ranked push solve in one sim?): step_penalty **83.3 vs 82.3
+  (+1.0)**; by tier easy −0.2, medium +0.7, **hard +2.5** (56.7 vs 54.2). This is a *real* small edge in exactly
+  the ranking metric the hypothesis targets, and it **exactly mirrors the reactive-1push +2.5-on-hard** signal.
+- **Whole low-budget curve leads:** all @2 +1.6, @5 +1.3, @10 +0.9, @20 +0.5; on hard @2 +4.1, @5 +3.1. The gap
+  is largest early and closes as budget grows.
+- **Ceiling (@900) ties:** all 99.6 vs 99.7 (step_pen a hair lower, within noise); every tier ~99–100 %. The
+  1-push pool is tiny (≤~35 pushes) so both models eventually solve everything — the win is purely *front-loaded
+  ranking*, not reach.
+- **sims-to-solve tied** (both 3 overall; hard 6 vs 7 — step_pen marginally cheaper).
+- **Cross-check (independent validation):** best-first solve@1 **exactly** reproduces reactive open@1 — NoHz
+  82.3=82.3, step_pen 83.3=83.3, random 37.3≈37.0 (both measure "does rank-1 push open"). Positional join 0
+  mismatch/1323 on all 3 steppen seeds.
 
 ### Secondary — reactive open-rate (both horizons)
 
@@ -144,27 +185,36 @@ order). Random band is tight (each seed already averages ~1000 episodes → std 
 
 ### Verdict [on numbers]
 
-**REJECT the hypothesis on the primary (search-ranking) axis.** The signed **−1/0/1** target does **not** beat
-the incumbent **0/0.9/1** at ranking pushes for best-first search on 2push (the richer, exhaustive test):
-- @900 solve-rate **tied** (95.4 vs 95.3, +0.1 within noise), across every difficulty tier;
-- in the **low-budget / front-loaded** regime — precisely where ranking quality decides — step_penalty is
-  **marginally worse** (@2 all −1.8, hard −3.5) and uses **marginally more** sims-to-solve (58 vs 55);
-- reactive 2push (a second ranking-flavored read) also favors 0/0.9/1 (−2.5 overall, −3.5 on hard).
+**SOFTENED REJECT — horizon-split.** With both search horizons now in, the hypothesis ("−1/0/1 is better for
+search ranking than 0/0.9/1") is **rejected on 2push** but shows a **small, real edge on 1push** — not the clean
+reject the 2push data alone suggested, nor a win.
 
-The **only** place the signed target edges ahead is **reactive 1push** on the harder tiers (hard +2.5, all
-+1.0) — a secondary regime. Net: no evidence that −1/0/1 improves search ranking; it is a wash-to-slightly-worse
-on 2push search and mixed on 1push. **1push best-first SEARCH is not yet run**, so the 1push search leg of the
-hypothesis is formally open — but the decisive 2push search test does not support the hypothesis.
+- **2push search (the harder, exhaustive test) — REJECT.** @900 solve-rate **tied** (95.4 vs 95.3, +0.1 within
+  noise, every tier inside the band); in the low-budget/front-loaded regime — where ranking decides —
+  step_penalty is **marginally worse** (@2 all −1.8, hard −3.5) and uses **marginally more** sims-to-solve (58
+  vs 55). Reactive 2push echoes it (−2.5 all, −3.5 hard).
+- **1push search — SMALL EDGE to step_penalty.** In the ranking metric itself — **solve@1** — step_penalty
+  **beats** NoHz-v3 **+1.0 overall, +2.5 on hard** (56.7 vs 54.2), and leads the whole low-budget curve
+  (@2 +1.6, @5 +1.3). The @900 **ceiling ties** (~99.7 %, tiny 1-push pool → both solve everything), so the win
+  is *front-loaded ranking*, not reach. This **confirms** the independent reactive-1push signal (hard +2.5,
+  identical).
+
+**Net.** The signed target does **not** improve ranking on the horizon that stresses it (2push, where the model
+must rank a *first* push whose payoff is a downstream open) — there it is a wash-to-slightly-worse. It **does**
+give a small, consistent ranking bump on 1push-hard (the immediate-open decision), across both search and
+reactive. Because the primary/harder 2push test fails and the 1push win is small and ceiling-tied, **0/0.9/1
+stays the incumbent** — but the hypothesis is **not cleanly false**: the signed target genuinely sharpens the
+*immediate-open* ranking, it just doesn't help the *setup* ranking that 2push needs.
 
 ## Next
-- **Close the 1push best-first gap** (3 ckpt-seeds + reuse the `nohz_s*`/`rand_s*` 1push baselines already in
-  `eval/fullsearch_1push/`) to settle the 1push search leg — the +2.5 hard reactive edge makes it the one place
-  step_penalty *might* win a search cell. Ready to launch on iLab (rlab7 path the NoHz 1push run used).
-- **Fair TIME 3-way** once the stalled emeraldrapids-exclusive timing jobs land (or resubmit them) — sims
-  already say the story; time will echo it.
-- Given the wash, **0/0.9/1 stays the incumbent**; the signed target is not worth adopting for search on
-  current evidence. If pursued, the interesting thread is *why* it helps 1push-hard reactive but not 2push
-  search — likely a calibration/scale effect, not a ranking win.
+- **Both search horizons + both regimes are now closed.** Remaining loose end: the fair-TIME 3-way (deferred,
+  sims-only shipped) — resurrect the stalled emeraldrapids-exclusive timing jobs only if a wall-clock number is
+  wanted; sims already decide it and step_penalty uses ≥ NoHz sims.
+- The interesting thread the split exposes: the signed target helps the **immediate-open** decision (1push-hard,
+  solve@1 +2.5) but not the **setup** decision (2push first-push ranking). That points at the H1 (open-now) vs
+  H2 (open-later) head/calibration — a targeted follow-up could apply the signed target **only to the H1 head**
+  and keep 0/0.9/1 for setup, to bank the 1push gain without the 2push wash.
+- On current evidence **0/0.9/1 remains the deployed ranker**; −1/0/1 is not worth a wholesale switch.
 
 ## Discussion
 _(you ↔ Claude — ask here; I answer inline, dated `**[who YYYY-MM-DD]**`. Newest at the bottom.)_
