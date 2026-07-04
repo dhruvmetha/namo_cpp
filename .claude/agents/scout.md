@@ -3,7 +3,7 @@ name: scout
 description: Cheap fast RECON + MECHANICAL work — check compute/GPU/queue state, scan the registry + eval dirs for pre-existing/reusable results, rsync/move data, aggregate/tabulate numbers, verify job/output/file state. Reports facts concisely. NOT for experiment design, methodology, or judgment calls — those go to experiment-runner. Use for read-heavy fan-outs and mechanical sub-tasks to keep them off the expensive opus/xhigh tier.
 model: sonnet
 effort: medium
-tools: Bash, Read, Grep, Glob, BashOutput
+tools: Bash, Read, Grep, Glob
 skills:
   - compute-resources
 ---
