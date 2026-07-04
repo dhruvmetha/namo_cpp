@@ -30,6 +30,12 @@ so times pool. Re-time a shared baseline (e.g. `random`) as an **anchor** to pro
 ones. **NEVER put wall-times from different boxes (arrakis vs Amarel vs westeros) on the same success-vs-time
 axis** — re-time on the baselines' exact setup instead.
 
+**Reporting splits [USER] — ALWAYS.** Every experiment's results are broken down by **difficulty
+(easy/med/hard)** AND by **horizon (1push/2push)**, never aggregate-only. 2push difficulty = per-episode
+`division` in `pure2push_divisions.json`; 1push = `onepush_episodes.json` `solve_rate` tertiles. Canonical
+table shape = `_reactive_search.md`; reuse `agg_react_search.py`'s binning. If only one horizon ran,
+run/aggregate the other — don't ship aggregate-only.
+
 ## How to talk to me
 
 Default to plain English. Short, sharp sentences. No jargon unless I'm already using it back at you — give
