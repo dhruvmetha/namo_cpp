@@ -31,5 +31,8 @@ You execute ONE NAMO experiment (or a scoped phase of one) end-to-end and report
 ## Known constraint
 - The **model-scoring path is broken off-Amarel**: `live_scorer` calls the sage_learning visualizer with `fast_scorer=True`, but the shared-FS `sage_learning` is older and lacks it → `TypeError` on any model eval on iLab/arrakis. Run model eval on Amarel, or sync the newer `sage_learning` visualizer to the shared FS first. Random/model-free paths run anywhere.
 
+## Monitoring long jobs — no detached pollers
+**Never end your turn and arm a detached bash `sleep`/`squeue` poller to "wake yourself" — those die with the session and the result silently sits.** For a job that outlives a turn (SLURM, long campaign): either (a) stay active and wait on it with the **`Monitor` tool** (the sanctioned wait-on-condition mechanism, not a bash sleep-loop), or (b) report the job handle (ids/paths/how-to-check) back to the orchestrator and let IT track + resume you. Verify job/output state directly (`sacct`/`squeue`/`ls` the outputs), don't assume "done."
+
 ## Reporting back
 When done (or at a gate), return a concise report: the headline numbers with variance bands, the tables, any surprising diagnostics, sanity-checks vs reused results, exact output/plot paths, and anything needing the user's decision. For expensive/irreversible steps (retrains, large campaigns), STOP and report the plan + a smoke result for the orchestrator to gate — don't burn hours unreviewed. Follow the `namo-data-pipeline` skill for any data/eval/split work.
