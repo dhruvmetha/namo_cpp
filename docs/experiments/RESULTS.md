@@ -16,7 +16,7 @@ difficulty = `solve_rate` tertiles. So "hard" = *few solving setups* for 2push, 
 
 **Contents** — 1. [Reactive vs floor](#1-reactive-control-learned-value-vs-the-random-floor) ✅ ·
 2. [Best-first search vs floor](#2-best-first-search-learned-value-vs-the-random-floor) ✅ ·
-3. [Step-penalty (−1/0/1)](#3-step-penalty-101-reward) 🔄 · [Prior work](#prior-work-seeded-ledger)
+3. [Step-penalty (−1/0/1)](#3-step-penalty-101-reward) ✗ reject · [Prior work](#prior-work-seeded-ledger)
 
 ---
 
@@ -106,10 +106,37 @@ the solution in **~⅓ the sims** (hard 7 vs 20). So 1push is the reactive ranki
 
 ## 3. Step-penalty (−1/0/1 reward)
 
-🔄 **In progress.** Retrain of NoHz on a signed target (immediate-open +1 / valid-setup 0 / never −1) vs the
-current 0/0.9/1, testing whether the reshaped reward improves search **ranking**. Training done (3 seeds,
-iLab); eval near-complete (sims/reactive) with 2push + 1push timing running on Amarel. → card: [[_step_penalty_]].
-Results + the 3-way comparison (random / NoHz-v3 / step-penalty) land here on completion.
+**Verdict: reject** (on the decisive 2push best-first axis). We retrain the no-horizon q-scorer on a *signed*
+target (+1 immediate-open / 0 valid-setup / −1 never-opens) and test whether it ranks pushes better for
+best-first search than the incumbent 0/0.9/1. 3-way vs random and NoHz-v3, mean ± std across seeds. → card:
+[[_step_penalty_]].
+
+**Table 3. Best-first search, 2push** (combine=q, budget 900, n = 1018) — the ranking test.
+
+| difficulty | ranker | @2 | @30 | @900 | sims-to-solve |
+|---|---|---|---|---|---|
+| easy | NoHz-v3 | 55.0 | 85.7 | 98.9 ± 0.4 | 28 |
+| easy | step-pen | 54.9 | 87.0 | 99.2 ± 0.0 | 26 |
+| medium | NoHz-v3 | 40.7 | 75.4 | 97.8 ± 0.8 | 43 |
+| medium | step-pen | 39.4 | 74.5 | 97.4 ± 0.6 | 44 |
+| hard | NoHz-v3 | 26.1 | 56.1 | 90.2 ± 0.8 | 88 |
+| hard | step-pen | 22.6 | 54.1 | 90.7 ± 0.8 | 97 |
+| *all* | *random* | *3.7* | *41.1* | *91.0 ± 0.8* | *115* |
+| *all* | *NoHz-v3* | *38.7* | *70.8* | ***95.3 ± 0.6*** | *55* |
+| *all* | *step-pen* | *36.9* | *70.0* | ***95.4 ± 0.5*** | *58* |
+
+Reactive open-rate (secondary), Δ = step-pen − NoHz-v3: 2push open@2 all **−2.5** (39.6 vs 42.1, hard −3.5);
+1push open@1 all **+1.0** (83.3 vs 82.3, hard +2.5).
+
+![[steppen_bestfirst_sims_2push.png]]
+
+**Finding.** The signed target is a **wash** for best-first ranking — tied at the 900-sim ceiling in every tier
+(all 95.4 vs 95.3), and *marginally worse* at low budgets (@2 all 36.9 vs 38.7; hard 22.6 vs 26.1) exactly where
+a sharper ranker should pull ahead, at slightly more sims-to-solve (58 vs 55). Its only edge is reactive 1push
+on hard (+2.5), a secondary regime. **Reject: −1/0/1 does not improve search ranking over 0/0.9/1; the incumbent
+stays.** *(Two cells still closing: step-pen 1push best-first search is running on iLab to complete horizon
+coverage — the one cell it might win; the fair 3-way wall-time is queue-blocked on Amarel. Sims are decisive and
+machine-independent, so the verdict stands.)*
 
 ---
 
