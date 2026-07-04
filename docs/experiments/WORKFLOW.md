@@ -13,10 +13,15 @@ updated: 2026-07-03
 2. **Claude** picks it up: flips `status: live`, fills a concrete **Plan**, and **git-commits before
    launching** (stamps `commit:`).
 3. **Claude** runs it on SLURM/GPU (compute-resources skill; submit `gpu,gpu-redhat`, never wait >1h).
-4. On finish, **Claude** auto-fills **Run + Result + Verdict** from the output, sets `metric` + `status: done`,
-   **appends a row to [RESULTS.md](RESULTS.md)**, `git mv`s the note to [archive/](archive/), and updates the
-   [model registry](horizon_q_model_registry.md) if a model trained.
-5. **You** read the row on the board / in RESULTS.md and spin the next stub.
+4. On finish, **Claude** auto-fills **Run + Result + Verdict** and sets `metric` + `status: done`. **Two
+   reporting depths:**
+   - **The card (`_*.md`)** holds the **DETAILED results + highly verbose analysis** — every table, the full
+     difficulty×horizon breakdown, all plots, the a/b/c/d diagnostics, the caveats. This is the working record.
+   - **[RESULTS.md](RESULTS.md)** reads like a **paper's Results section**: for each experiment, the **MAIN
+     table(s) + MAIN figure + a tight key-finding paragraph** — curated, not exhaustive. Deep detail stays in
+     the card; RESULTS.md is the polished, scannable compilation. Always split by difficulty × horizon.
+   Then `git mv` the note to [archive/](archive/) and update the [model registry](horizon_q_model_registry.md) if a model trained.
+5. **You** read the paper-style entry in RESULTS.md / the board and spin the next stub.
 
 ## Role separation (so two writers never collide)
 - **You write:** idea-note Hypotheses, **Discussion** questions, + your own notes. **You read** everything else.

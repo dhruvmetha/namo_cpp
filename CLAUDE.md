@@ -39,6 +39,11 @@ axis** — re-time on the baselines' exact setup instead.
 table shape = `_reactive_search.md`; reuse `agg_react_search.py`'s binning. If only one horizon ran,
 run/aggregate the other — don't ship aggregate-only.
 
+**Reporting depth [USER] — two tiers.** The experiment **card (`_*.md`)** holds the **detailed results +
+highly verbose analysis** (every table, full difficulty×horizon breakdown, all plots, diagnostics, caveats).
+**RESULTS.md** reads like a **paper's Results section** — per experiment: the **MAIN table(s) + MAIN figure +
+a tight key-finding**, curated, not exhaustive. Detail in the card; polish in RESULTS.md.
+
 ## How to talk to me
 
 Default to plain English. Short, sharp sentences. No jargon unless I'm already using it back at you — give

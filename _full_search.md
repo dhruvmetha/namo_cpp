@@ -117,6 +117,63 @@ solved in 1 s vs 12 %. The q-ranker ranks well (top-1 = winner half the time) an
 than thrashes; the model does not systematically waste the budget. **Accept: the learned q-ranker is a large,
 consistent win over random best-first, in sims and in real time.**
 
+### Stratified by difficulty × horizon (easy/med/hard)
+_(Claude, 2026-07-04)_ Re-aggregation of the **same** instrumented records into the canonical difficulty
+tiers — 2push = per-episode `division` (`pure2push_divisions.json`, n_setups based); 1push = `solve_rate`
+tertiles (`onepush_episodes.json`, hard<0.169 / med<0.533), the same bins as `_reactive_search`. Attached by
+POSITIONAL join (harness writes one record per episode in `full_episodes()` order; verified 1018/1018 &
+1323/1323, zero mismatch — the records' baked `tier` uses different solve_rate cuts, so it is NOT used).
+Mean ± std across seeds (random 10, NoHz-v3 3). Aggregator `scripts/sandbox/agg_fullsearch_bydiff.py`. The
+**`all` rows reproduce the headline exactly** (95.3/91.0 @900, 94/185 avg sims; 15.5/25.4 s avg t_wall) —
+binning + timing verified against the aggregate above.
+
+#### 2push — success vs SIMS (machine-independent, budget 900)
+
+| difficulty | ranker | @2 | @10 | @30 | @100 | @300 | @900 | avg sims | to-solve |
+|---|---|---|---|---|---|---|---|---|---|
+| easy | NoHz-v3 | 55.0 ± 2.1 | 77.6 ± 0.9 | 85.7 ± 0.9 | 92.9 ± 0.9 | 96.1 ± 0.5 | **98.9 ± 0.4** | 38 | 28 |
+| easy | random | 6.6 ± 1.5 | 34.1 ± 2.4 | 66.3 ± 2.8 | 89.3 ± 1.3 | 98.3 ± 0.6 | **99.8 ± 0.2** | 43 | 42 |
+| medium | NoHz-v3 | 40.7 ± 2.4 | 62.8 ± 3.7 | 75.4 ± 2.2 | 86.6 ± 0.5 | 94.1 ± 0.3 | **97.8 ± 0.8** | 62 | 43 |
+| medium | random | 4.1 ± 0.9 | 21.0 ± 1.4 | 43.6 ± 2.4 | 69.9 ± 2.1 | 88.4 ± 1.2 | **97.0 ± 0.7** | 123 | 98 |
+| hard | NoHz-v3 | 26.1 ± 1.5 | 44.0 ± 0.9 | 56.1 ± 0.4 | 69.5 ± 0.8 | 82.1 ± 1.1 | **90.2 ± 0.8** | 165 | 88 |
+| hard | random | 1.6 ± 0.5 | 10.1 ± 1.0 | 22.0 ± 1.1 | 40.2 ± 1.9 | 58.9 ± 2.2 | **78.7 ± 2.1** | 344 | 197 |
+| all | NoHz-v3 | 38.7 ± 1.3 | 59.4 ± 1.9 | 70.8 ± 1.0 | 81.8 ± 0.4 | 90.2 ± 0.6 | **95.3 ± 0.6** | 94 | 55 |
+| all | random | 3.7 ± 0.8 | 20.1 ± 0.5 | 41.1 ± 1.0 | 63.6 ± 1.2 | 80.0 ± 0.6 | **91.0 ± 0.8** | 185 | 115 |
+
+![[fullsearch_success_vs_sims_bydiff_2push.png]]
+
+#### 2push — success vs TIME (emeraldrapids-exclusive, model & random same HW)
+
+| difficulty | ranker | 1 s | 5 s | 10 s | 30 s | 60 s | 240 s | avg t_wall (s) |
+|---|---|---|---|---|---|---|---|---|
+| easy | NoHz-v3 | 62.9 ± 1.9 | 85.9 ± 1.4 | 89.8 ± 0.8 | 94.3 ± 0.7 | 96.9 ± 0.2 | 98.9 ± 0.4 | 7.1 |
+| easy | random | 21.1 ± 1.8 | 69.0 ± 2.0 | 83.7 ± 1.9 | 96.8 ± 0.9 | 98.8 ± 0.6 | 99.8 ± 0.2 | 6.3 |
+| medium | NoHz-v3 | 50.0 ± 2.2 | 74.6 ± 1.3 | 81.5 ± 0.5 | 90.5 ± 0.3 | 95.1 ± 0.5 | 97.8 ± 0.8 | 10.6 |
+| medium | random | 12.6 ± 1.6 | 47.0 ± 2.2 | 62.2 ± 2.4 | 84.3 ± 1.0 | 92.0 ± 1.0 | 97.0 ± 0.7 | 17.3 |
+| hard | NoHz-v3 | 35.6 ± 0.4 | 57.3 ± 1.6 | 65.6 ± 1.1 | 77.1 ± 1.0 | 84.1 ± 0.8 | 90.1 ± 0.9 | 26.3 |
+| hard | random | 6.7 ± 0.4 | 25.9 ± 1.1 | 36.3 ± 1.7 | 55.7 ± 1.7 | 67.6 ± 2.1 | 78.7 ± 2.1 | 46.5 |
+| all | NoHz-v3 | 47.8 ± 0.7 | 70.9 ± 0.6 | 77.6 ± 0.2 | 86.5 ± 0.5 | 91.5 ± 0.5 | 95.3 ± 0.5 | 15.5 |
+| all | random | 12.4 ± 0.7 | 44.5 ± 0.8 | 57.8 ± 1.3 | 76.8 ± 0.7 | 84.7 ± 0.7 | 91.0 ± 0.8 | 25.4 |
+
+![[fullsearch_success_vs_time_bydiff_2push.png]]
+
+**Where the win lives — HARD.** The +4.3 pt @900 aggregate gap is **entirely a hard-tier effect**: hard
+NoHz-v3 90.2 vs random 78.7 (**+11.5 pt**), while easy (98.9 vs 99.8) and medium (97.8 vs 97.0) both converge
+to ~98 % by 900 — there the model's win is **efficiency, not ceiling** (easy avg 38 vs 43 sims, medium 62 vs
+123). Random eventually brute-forces the easy/medium tail; on hard it can't (344 avg sims, 78.7 % ceiling).
+
+**Time echoes it, with one honest crossover.** On **hard** the model's sim-savings convert to wall-clock: avg
+**26.3 s vs 46.5 s**, @30 s 77.1 vs 55.7. But on **easy** the time curves *cross* — model avg **7.1 s** vs
+random **6.3 s** — because the sim count there is already tiny and the model pays a per-sim NN-scoring overhead
+random doesn't; random's cheaper sims win the wall-clock race once both are near-ceiling. So the model's *time*
+edge, like its solve-rate edge, is concentrated where search is actually hard.
+
+**1push (in progress).** 1push best-first SEARCH (hmax=1, budget 900, n=1323) was **never run** before (only
+reactive open@1 existed) — now running on iLab **rlab7** (3 NoHz-v3 ckpt-seeds + 10 random rng-seeds, ~finishing).
+- **1push SIMS by difficulty**: landing shortly (valid, machine-independent) — table + plot to be appended.
+- **1push TIME by difficulty: PENDING a separate emeraldrapids-exclusive timed run.** rlab7 is co-tenanted
+  (not fenced), so its `t_wall` is not valid timing and is deliberately NOT reported.
+
 ## Next
 The gap is largest early (reactive/low-budget) and narrows as random brute-forces the easy tail — so the
 model's value is *front-loaded search*, exactly the reactive-mode regime. Two follow-ups: (1) the 13 % of easy
