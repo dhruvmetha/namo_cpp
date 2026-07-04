@@ -18,6 +18,9 @@ each other's files, and the Obsidian git plugin commits from that same tree). Th
 pulls, forks each active experiment (Opus, xhigh) in a worktree, tracks status in `_experiments_board.md`
 (done/running/pending), gates expensive steps (retrains) on the user, then merges each agent's card/plot edits
 back and owns the shared files (RESULTS.md, board, commits) so parallel agents don't race.
+**Tiering (cost):** delegate recon/mechanical fan-outs (node/queue checks, reuse-scans, rsyncs, aggregation) to
+`scout` (sonnet/medium); reserve `experiment-runner` (opus/xhigh) for real experiment reasoning. Don't fork an
+agent for a trivial one-liner — inline Bash. Both the orchestrator and an experiment-runner may spawn scouts.
 
 **Measuring time (wall-clock) — MUST be consistent.** `t_wall` is hardware-dependent; **sims / episode counts
 are machine-independent** (compare those across any box freely). To compare TIME across methods or experiments,
