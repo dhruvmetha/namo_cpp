@@ -2,7 +2,8 @@
 type: experiment
 status: done
 created: 2026-07-03
-metric: "search solve@900 (pure2push car): NoHz-v3 95.3±0.6% vs random 91.0±0.8%; model uses ~half the sims (94 vs 185) and half the wall-time"
+updated: 2026-07-04
+metric: "2push solve@900 (pure2push car): NoHz-v3 95.3±0.6% vs random 91.0±0.8%, ~half the sims (94 vs 185) & wall-time (win concentrated in hard); 1push both ~99.7% ceiling → win is rank+speed (first-pick 82.3 vs 37.3, ~⅓ sims)"
 commit: 29f3ee7
 tags:
   - experiment
