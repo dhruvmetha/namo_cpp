@@ -1,8 +1,9 @@
 ---
 type: experiment
-status: idea
+status: done
 created: 2026-07-03
-metric:
+updated: 2026-07-04
+metric: "NoHz-v3 ≫ random every cell — 2push 42.1 vs 4.7 · 1push 82.3 vs 37.0"
 commit:
 tags:
   - experiment

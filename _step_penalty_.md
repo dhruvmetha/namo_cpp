@@ -1,8 +1,9 @@
 ---
 type: experiment
-status: idea
+status: live
 created: 2026-07-03
-metric:
+updated: 2026-07-04
+metric: "retrain −1/0/1 vs 0/0.9/1; 3-way eval running (sims/reactive near-done, 1push+2push timing on Amarel)"
 commit:
 tags:
   - experiment
