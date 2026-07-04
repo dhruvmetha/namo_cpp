@@ -12,6 +12,7 @@ updated: 2026-07-03
 
 | Date | Experiment | Hypothesis (1-line) | Metric | Verdict | Source |
 |------|------------|---------------------|--------|---------|--------|
+| 2026-07-04 | Full best-first **search**: random vs **NoHz-v3** (car) | search efficiency — solve-rate, sims, and wall-time vs the random floor, budget 900 | solve@900 **95.3±0.6** vs 91.0±0.8; but **~3× fewer sims** (94 vs 185), hits random's full-budget rate in **~30 sims**; #1-pick-wins **50.9%** vs 14.9% | ✅ NoHz-v3 ≫ random — an **efficiency** win (sims + time), not just solve-rate | [_full_search](../../_full_search.md) |
 | 2026-07-03 | Reactive: random floor vs **NoHz-v3** (car) | reactive-random *baseline* vs the main model (NoHz-v3), 1push+2push, by difficulty | **2push** all 4.7±0.6 → **42.1**±1.7 · **1push** all 37.0±1.1 → **82.3**±0.2 (open%, region; easy/med/hard in card) | ✅ NoHz-v3 ≫ random in every cell (2push +37.4, 1push +45.3) | [_reactive_search](../../_reactive_search.md) |
 | 2026-06-29 | Render speedup | model-input render can be ~20× faster, bit-identical | 2019→101 ms · gate 158/158 diff=0 | ✅ accept (no retrain) | sage `c0a00f7` |
 | 2026-06-27 | NoHorizon vs Horizon @2 | dropping the horizon input doesn't hurt reactive/search | reactive 40.7 / best-first 37.8; NoHz ≥ Hz | ~ tie (NoHz ≥ Hz) | [redesign_execution](horizon_q_redesign_execution.md) |

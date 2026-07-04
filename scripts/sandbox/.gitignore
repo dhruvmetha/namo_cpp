@@ -4,3 +4,5 @@
 *
 !.gitignore
 !README.md
+# durable: _full_search eval/plot tooling (curves + a/b/c/d), referenced by the card
+!aggregate_fullsearch.py

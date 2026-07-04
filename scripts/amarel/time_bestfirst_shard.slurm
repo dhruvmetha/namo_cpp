@@ -1,7 +1,8 @@
 #!/bin/bash
 # FULL-SET best-first WALL-CLOCK timing, sharded. Every shard is --exclusive AND pinned to ONE CPU type
 # (sbatch --constraint=icelake) so all shards run on identical hardware => pooling times is same-machine-valid.
-# Within a shard, Hz/NoHz/random run interleaved per episode. Env: OUT_DIR, SHARD (eps/shard); opt BUDGET,HMAX,KEY.
+# Within a shard, the SELECTED models (default Hz,NoHz,random; set MODELS=NoHz or MODELS=random for a subset)
+# run interleaved per episode. Env: OUT_DIR, SHARD (eps/shard); opt BUDGET,HMAX,KEY,MODELS,RNG_SEED.
 #SBATCH --job-name=bftime_shard
 #SBATCH --partition=main,main-redhat
 #SBATCH --nodes=1
@@ -20,5 +21,6 @@ echo "shard ${SLURM_ARRAY_TASK_ID}: [$START,$END) budget=${BUDGET:-900} hmax=${H
   --budget "${BUDGET:-900}" --hmax "${HMAX:-2}" --key "${KEY:-$NAMO_DATASETS/namo_testset_v1/labels/pure2push.json}" \
   ${STRAT:+--strat} --n-per-tier "${NPER:-50}" \
   ${HZ_CKPT:+--hz-ckpt "$HZ_CKPT"} ${NOHZ_CKPT:+--nohz-ckpt "$NOHZ_CKPT"} --rng-seed "${RNG_SEED:-7}" \
+  ${MODELS:+--models "$MODELS"} \
   --out "$OUT_DIR/shard_${SLURM_ARRAY_TASK_ID}.jsonl"
 echo "shard ${SLURM_ARRAY_TASK_ID} DONE"
