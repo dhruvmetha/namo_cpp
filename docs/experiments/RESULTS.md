@@ -70,7 +70,19 @@ Pure-2-push set, n = 1018.
 | hard | 78.7 ± 2.1 | **90.2 ± 0.8** | 344 → 165 |
 | *overall* | *91.0 ± 0.8* | ***95.3 ± 0.6*** | *185 → 94* |
 
-*1push: in progress — sims landing on rlab7; timing pending a separate exclusive run.*
+**Table 2b. 1push** — best-first on the one-push set, budget 900 sims. n = 1323. On this set the pool is small
+enough that best-first almost always finds *a* solver, so both methods hit the same ceiling — the win moves to
+**rank and cost**, not final solve-rate.
+
+| difficulty | solve@900: random / NoHz-v3 | avg sims: random → NoHz-v3 |
+|---|---|---|
+| easy | 99.8 / 99.8 | 2 → 1 |
+| medium | 100.0 / 100.0 | 3 → 1 |
+| hard | 99.3 / 99.2 | 20 → 7 |
+| *overall* | *99.7 / 99.7* | *8 → 3* |
+
+*1push wall-time by difficulty is pending a separate emeraldrapids-exclusive run (rlab7 was co-tenanted, so its
+t_wall is not comparable) — deliberately not reported here.*
 
 ![[fullsearch_success_vs_sims.png]]
 
@@ -83,6 +95,12 @@ but on easy the curves **cross** (7.1 s vs 6.3 s) — when problems are already 
 NN-scoring overhead makes brute-force marginally faster. One tension flagged in the card: a heavy sims-to-solve
 tail (mean 94 despite median-rank-0) traces to the H1/H2 cross-head scale mismatch → a `dive_bonus` sweep is the
 natural follow-up.
+
+On **1push** (Table 2b) the story is different: the one-push pool is small, so both methods reach ~99.7% by
+budget 900 in every tier — the learned value buys no extra solve-rate, only **rank and speed**. Its first pick
+already opens the goal **82.3%** vs random's **37.3%** (hard **54.2 vs 5.9**, ~9×) — and those are *exactly* the
+reactive open@1 numbers in Table 1b, because **the search's first sim is the reactive pick**. It also reaches
+the solution in **~⅓ the sims** (hard 7 vs 20). So 1push is the reactive ranking win re-expressed as efficiency.
 
 ---
 
