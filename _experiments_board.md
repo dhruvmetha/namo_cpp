@@ -21,7 +21,7 @@ Each row links to its card; full Plan/Run/Result lives in the card, one-line led
 ## 🔄 Running (forked to subagents)
 | exp | one-line | agent | notes |
 |---|---|---|---|
-| [[_step_penalty_]] | retrain NoHz with −1/0/1 target (never/future/immediate) vs current 0/0.9/1; report search+reactive (1push+2push) | opus/xhigh | **TRAINING on arrakis** (3 seeds, GPU 1/2/3, pids 2761447/497/549), ~18-20h to best-val (dataloader-bound). Car verified by geometry; data=exact NoHz-v3 mix. Amarel GPU was 69-deep → arrakis. Monitor: `scratch_namo/tmp/steppen_status.txt`. Then eval search+reactive |
+| [[_step_penalty_]] | retrain NoHz with −1/0/1 target (never/future/immediate) vs current 0/0.9/1; report search+reactive (1push+2push) | opus/xhigh | **TRAINING, distributed** — s1 arrakis (pid 3205485), s2/s3 westeros (pids 1008757/847), 1 seed/node → dedicated cores. **2.5–3.3× faster, ~9-10h ETA** (was 18-20h); GPU 0%→84% verified. iLab1 login was down → westeros. Car verified by geometry; data=exact NoHz-v3 mix. Monitor: `scratch_namo/tmp/steppen_status.txt`. Then eval search+reactive |
 
 ## 📋 Pending
 _(none)_
