@@ -21,7 +21,7 @@ Each row links to its card; full Plan/Run/Result lives in the card, one-line led
 ## 🔄 Running (forked to subagents)
 | exp | one-line | agent | notes |
 |---|---|---|---|
-| [[_step_penalty_]] | retrain NoHz with −1/0/1 target (never/future/immediate) vs current 0/0.9/1; report search+reactive (1push+2push) | opus/xhigh | **TRAINING on iLab SLURM** — jobs 171039/40/41, one-per-node (rlab7 256c / rlab1 A100 / rlab3), GPU util **90% (now GPU-bound)**. **5–8× faster: 5–6.5 it/s, ETA ~2.5–3.5h** (was 18-20h). Car verified; data=exact NoHz-v3 mix. Monitor: `scratch_namo/tmp/steppen_status.txt`. Then eval search+reactive |
+| [[_step_penalty_]] | retrain NoHz with −1/0/1 target (never/future/immediate) vs current 0/0.9/1; report search+reactive (1push+2push) | experiment-runner (opus/xhigh/worktree) | **TRAINING DONE** — 3 seeds best-val s1 0.686/s2 0.694/s3 0.688 (iLab, epoch~12). **EVAL forked** — search+reactive, 1push+2push, 3-way vs NoHz-v3 + random; resolving fast_scorer (sync to shared FS vs Amarel) since ckpts are on shared FS |
 
 ## 📋 Pending
 _(none)_
