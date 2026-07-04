@@ -12,11 +12,17 @@ file lean: durable, every-session facts only. Anything with a date or a "current
 Hypotheses; **Claude** writes Plan/Run/Result, appends [RESULTS.md](docs/experiments/RESULTS.md), and updates
 the [model registry](docs/experiments/horizon_q_model_registry.md). **Commit before every run.**
 
-**Orchestration:** one experiment = one **forked subagent**. ⚠ `isolation: worktree` does NOT engage for
-background/async subagents in this headless session (verified 2.1.201: trust IS accepted, yet no worktree is
-created — agents edit the shared checkout directly). So the REAL isolation is **file-partitioning**: the
-orchestrator gives each parallel agent **disjoint files** (its own `_card.md` + its own eval dirs), and agents
-**never commit** (orchestrator owns all commits) — **never fork two agents that write the same files.** The
+**Orchestration:** one experiment = one **forked subagent**. **Landing spot (verified 2.1.201, corrects the old
+"never engages" note):** a *freshly forked* experiment-runner (its def sets `isolation: worktree`) DOES get an
+isolated **locked worktree** at `.claude/worktrees/agent-<id>/`, branched from HEAD-at-fork-time — its edits do
+NOT appear in the main checkout. A *resumed* agent (continued via SendMessage from transcript) runs in the
+**shared checkout**. Either way the safety rule is **file-partitioning**: give each parallel agent **disjoint
+files** (its own `_card.md` + its own eval dirs), and agents **never commit** (orchestrator owns all commits) —
+**never fork two agents that write the same files.** **Merging back:** shared-checkout (resumed) agents' edits
+are already on the branch → `git add <their files> && commit`; worktree agents' edits are isolated → because
+they never commit, copy their **OWNED files only** (the worktree branched from an older HEAD and still holds
+since-deleted files — never copy the whole tree) from `.claude/worktrees/agent-<id>/` into the main checkout,
+then commit. Disjoint files ⇒ merges never conflict. Prune the worktree after (`git worktree remove`). The
 orchestrator (main loop)
 pulls, forks each active experiment (Opus, xhigh), tracks status via each card's `status` frontmatter
 (`idea→live→done`, which drives `docs/experiments/DASHBOARD.md` / `experiments.base` — **the single source of
