@@ -12,9 +12,12 @@ file lean: durable, every-session facts only. Anything with a date or a "current
 Hypotheses; **Claude** writes Plan/Run/Result, appends [RESULTS.md](docs/experiments/RESULTS.md), and updates
 the [model registry](docs/experiments/horizon_q_model_registry.md). **Commit before every run.**
 
-**Orchestration:** one experiment = one **forked subagent that MUST run in its own git worktree**
-(`Agent(isolation: "worktree")`) — never fork two experiment agents onto the shared checkout (they clobber
-each other's files, and the Obsidian git plugin commits from that same tree). The orchestrator (main loop)
+**Orchestration:** one experiment = one **forked subagent**. ⚠ `isolation: worktree` does NOT engage for
+background/async subagents in this headless session (verified 2.1.201: trust IS accepted, yet no worktree is
+created — agents edit the shared checkout directly). So the REAL isolation is **file-partitioning**: the
+orchestrator gives each parallel agent **disjoint files** (its own `_card.md` + its own eval dirs), and agents
+**never commit** (orchestrator owns all commits) — **never fork two agents that write the same files.** The
+orchestrator (main loop)
 pulls, forks each active experiment (Opus, xhigh) in a worktree, tracks status in `_experiments_board.md`
 (done/running/pending), gates expensive steps (retrains) on the user, then merges each agent's card/plot edits
 back and owns the shared files (RESULTS.md, board, commits) so parallel agents don't race.

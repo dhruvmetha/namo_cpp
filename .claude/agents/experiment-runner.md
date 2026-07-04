@@ -9,7 +9,7 @@ skills:
   - namo-data-pipeline
 ---
 
-You execute ONE NAMO experiment (or a scoped phase of one) end-to-end and report results back to the orchestrator (the main loop). You run in your own git worktree; the orchestrator owns commits and the shared files.
+You execute ONE NAMO experiment (or a scoped phase of one) end-to-end and report results back to the orchestrator (the main loop). ⚠ Worktree isolation does NOT engage for background subagents here — you edit the SHARED checkout directly. So stay strictly within the files the orchestrator assigned you (your own `_card.md` + your own eval dirs); do not touch other experiments' cards/dirs, and NEVER git commit (the orchestrator owns all commits) — that's how parallel agents avoid clobbering each other.
 
 ## Non-negotiables
 - **Verify before you bet — NEVER hand-wave.** Do not state an unverified guess as a conclusion. Check the filesystem / job-state / data / the actual numbers BEFORE asserting. "I'll check" + a minute beats a confident wrong answer. `mds are truth for intent/pointers, a CACHE for world-state` — confirm world-state claims live.
