@@ -168,18 +168,47 @@ random **6.3 s** — because the sim count there is already tiny and the model p
 random doesn't; random's cheaper sims win the wall-clock race once both are near-ceiling. So the model's *time*
 edge, like its solve-rate edge, is concentrated where search is actually hard.
 
-**1push (in progress).** 1push best-first SEARCH (hmax=1, budget 900, n=1323) was **never run** before (only
-reactive open@1 existed) — now running on iLab **rlab7** (3 NoHz-v3 ckpt-seeds + 10 random rng-seeds, ~finishing).
-- **1push SIMS by difficulty**: landing shortly (valid, machine-independent) — table + plot to be appended.
-- **1push TIME by difficulty: PENDING a separate emeraldrapids-exclusive timed run.** rlab7 is co-tenanted
-  (not fenced), so its `t_wall` is not valid timing and is deliberately NOT reported.
+#### 1push — success vs SIMS (machine-independent, budget 900)
+_(Claude, 2026-07-04)_ 1push best-first SEARCH (hmax=1, budget 900, n=1323) — **never run** before (only
+reactive open@1 existed). Ran on iLab **rlab7** (3 NoHz-v3 ckpt-seeds + 10 random rng-seeds; s3 ckpt = shared-FS
+`dlopoael/ep012`, one epoch past the 2push-s3 ep011 which wasn't synced here — same run, negligible). hmax=1 =
+no dive: rank the labeled object's candidate first-pushes by q, sim in priority order until one opens the goal.
+The pool per object is small (≤~35 pushes) so budget 900 is never binding — **@900 = the "some push solves"
+ceiling**, **@1 = the reactive top-1 pick**.
+
+| difficulty | ranker | @1 | @2 | @5 | @10 | @20 | @900 | avg sims | to-solve |
+|---|---|---|---|---|---|---|---|---|---|
+| easy | NoHz-v3 | 98.7 ± 0.4 | 99.2 ± 0.1 | 99.6 ± 0.1 | 99.8 ± 0.0 | 99.8 ± 0.0 | **99.8 ± 0.0** | 1 | 1 |
+| easy | random | 72.4 ± 1.5 | 90.6 ± 0.4 | 99.0 ± 0.2 | 99.7 ± 0.1 | 99.8 ± 0.0 | **99.8 ± 0.0** | 2 | 1 |
+| medium | NoHz-v3 | 94.0 ± 0.6 | 96.2 ± 0.6 | 98.3 ± 0.4 | 99.6 ± 0.1 | 99.9 ± 0.1 | **100.0 ± 0.0** | 1 | 1 |
+| medium | random | 33.1 ± 2.3 | 52.7 ± 2.5 | 82.9 ± 1.2 | 96.4 ± 0.6 | 99.8 ± 0.1 | **100.0 ± 0.0** | 3 | 3 |
+| hard | NoHz-v3 | 54.2 ± 0.3 | 62.0 ± 0.8 | 73.9 ± 1.0 | 82.7 ± 0.5 | 90.3 ± 0.2 | **99.2 ± 0.1** | 7 | 7 |
+| hard | random | 5.9 ± 1.5 | 12.0 ± 1.7 | 27.1 ± 1.8 | 46.3 ± 2.9 | 67.6 ± 1.7 | **99.3 ± 0.1** | 20 | 19 |
+| all | NoHz-v3 | 82.3 ± 0.2 | 85.8 ± 0.2 | 90.6 ± 0.4 | 94.0 ± 0.2 | 96.7 ± 0.1 | **99.7 ± 0.0** | 3 | 3 |
+| all | random | 37.3 ± 0.9 | 51.9 ± 1.1 | 69.8 ± 0.8 | 80.8 ± 1.0 | 89.1 ± 0.6 | **99.7 ± 0.0** | 8 | 8 |
+
+![[fullsearch_success_vs_sims_bydiff_1push.png]]
+
+**1push: same ceiling, the model just finds the solver FAST.** The pool is tiny, so both rankers reach the
+**same ~99.7 % @900 ceiling in every tier** (hard 99.2 vs 99.3) — given enough sims random tries every push and
+finds the solver too. The model's entire win is **rank position**: solve@1 (top pick already opens the goal)
+NoHz-v3 **82.3 %** vs random **37.3 %** overall, and on **hard 54.2 vs 5.9 (~9×)** — it floats the rare working
+push to the top of a mostly-failing pool. Efficiency: avg **3 vs 8 sims** overall (hard 7 vs 20). **Cross-check:**
+1push solve@1 reproduces `_reactive_search` open@1 almost exactly (NoHz all 82.3 = 82.3; hard 54.2 ≈ 54.3;
+random all 37.3 ≈ 37.0) — the search's first sim *is* the reactive pick, validating the whole path.
+
+**1push TIME by difficulty: PENDING a separate emeraldrapids-exclusive timed run.** rlab7 is co-tenanted (not
+fenced), so its `t_wall` is not valid timing and is deliberately NOT reported here.
 
 ## Next
 The gap is largest early (reactive/low-budget) and narrows as random brute-forces the easy tail — so the
 model's value is *front-loaded search*, exactly the reactive-mode regime. Two follow-ups: (1) the 13 % of easy
 instances where ranking *hurts* + the poor-second-push tail (mean rank 2.05 with a long tail) point at the
 cross-head H1/H2 scale mismatch — a `dive_bonus` / calibration sweep could shave the deep-dive churn; (2)
-stratify all of the above by difficulty tier (easy/med/hard) to see where the +4.3 pt @900 gap concentrates.
+~~stratify by difficulty~~ **DONE (see Stratified section above):** the +4.3 pt @900 2push gap is **entirely a
+hard-tier effect** (+11.5 pt); easy/med are efficiency-only at the ceiling; 1push shares one ceiling and the
+model wins purely on early rank. Remaining: a **1push emeraldrapids-exclusive timed run** to fill the one PENDING
+cell (time-by-difficulty for 1push).
 
 ## Discussion
 _(you ↔ Claude — ask here; I answer inline, dated `**[who YYYY-MM-DD]**`. Newest at the bottom.)_
