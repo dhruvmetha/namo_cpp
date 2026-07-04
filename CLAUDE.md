@@ -18,9 +18,11 @@ created — agents edit the shared checkout directly). So the REAL isolation is 
 orchestrator gives each parallel agent **disjoint files** (its own `_card.md` + its own eval dirs), and agents
 **never commit** (orchestrator owns all commits) — **never fork two agents that write the same files.** The
 orchestrator (main loop)
-pulls, forks each active experiment (Opus, xhigh) in a worktree, tracks status in `_experiments_board.md`
-(done/running/pending), gates expensive steps (retrains) on the user, then merges each agent's card/plot edits
-back and owns the shared files (RESULTS.md, board, commits) so parallel agents don't race.
+pulls, forks each active experiment (Opus, xhigh), tracks status via each card's `status` frontmatter
+(`idea→live→done`, which drives `docs/experiments/DASHBOARD.md` / `experiments.base` — **the single source of
+truth; there is no separate status board**), gates expensive steps (retrains) on the user, then merges each
+agent's card/plot edits back and owns the shared files (RESULTS.md, commits) so parallel agents don't race.
+Live compute-job state (SLURM ids, queue status) lives in the relevant card's **Run** section, not a side board.
 **Tiering (cost):** delegate recon/mechanical fan-outs (node/queue checks, reuse-scans, rsyncs, aggregation) to
 `scout` (sonnet/medium); reserve `experiment-runner` (opus/xhigh) for real experiment reasoning. Don't fork an
 agent for a trivial one-liner — inline Bash. Both the orchestrator and an experiment-runner may spawn scouts.
