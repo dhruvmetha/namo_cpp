@@ -172,6 +172,29 @@ Reading: from `solve_rate` 0.05 up (the top ~54% of hard), the model is already 
 
 Is this a closable ranking gap or intrinsic difficulty? Both — but not a wall. The model still floats the lone opener into the top ~15% of the pile (`rank/pool` 0.15) vs random's middle (0.43) — **3× better than chance** — so it has real signal, just not enough to pin one needle among ~100 look-alikes. Evidence it is partly reachable: **step-pen cuts the mean rank in this exact worst bin from 14.8 → 10.5** (−4.4, ~30% shallower) with solve@1 barely moving (+1.0pp) — its known +2.5pp hard edge is concentrated here as a "finds the needle faster once the top pick misses" effect, not a "wins outright more often" one. **Lever for hard-1push: a sharper ranking signal on the rarest-opener rooms specifically, not a broad hard-tier fix.**
 
+### Q3c — the same slices in wall-clock TIME (same-HW, sapphirerapids-exclusive)
+
+The sim story above *is* a time story: every buried-opener sim costs wall-clock seconds, so the rarest-opener slice is also where the seconds pile up. Interleaved timing run `eval/fullsearch_time_1push/tri1_s1` (1 timing seed; all 3 rankers hit each episode back-to-back on one `--exclusive` sapphirerapids node, so they are same-HW comparable; NoHz-v3's search reproduces the sim anchor bit-for-bit and its avg t_wall reproduces the published 0.70 s all / 1.43 s hard). Avg wall-time per room and solve-within-T, per hard rarity slice:
+
+| slice (GT solve_rate) | ranker | avg t_wall (s) | solve@1 s | @2 s | @5 s |
+|---|---|---|---|---|---|
+| [0.006, 0.020) — rarest | NoHz-v3 | **3.62** | 34% | 49% | 79% |
+| | step-pen | **2.63** | 40% | 63% | 86% |
+| | random | **7.78** | 7% | 13% | 34% |
+| [0.020, 0.050) | NoHz-v3 | 1.48 | 61% | 80% | 96% |
+| | step-pen | 1.51 | 69% | 81% | 93% |
+| | random | 3.80 | 22% | 40% | 72% |
+| [0.050, 0.100) | NoHz-v3 | 0.92 | 84% | 89% | 96% |
+| | step-pen | 0.79 | 89% | 92% | 98% |
+| | random | 2.12 | 32% | 63% | 91% |
+| [0.100, 0.169) | NoHz-v3 | 0.58 | 92% | 97% | 100% |
+| | step-pen | 0.62 | 92% | 95% | 99% |
+| | random | 1.07 | 63% | 89% | 98% |
+
+Reading: within "hard," wall-time spans a **6× range** — from **0.58 s** on the least-rare slice (basically solved, 92% within 1 s) to **3.62 s** on the rarest, where even the model opens only **34% within 1 s** (random: 7%). The rarest slice (n=70) *is* the entire hard-tier time cost — 6× slower than the easiest hard slice for the model — and it is where the model's absolute time-advantage over random is largest: **3.62 s vs 7.78 s, a 4.2 s / 2.15× gap** that shrinks monotonically to 0.49 s on the least-rare slice. This is Q3b restated in seconds: bad ranking on the rarest-opener rooms → many sims → seconds; sharpen the rank and the seconds collapse. **step-pen is the proof** — its whole hard-tier wall-time edge (all-hard 1.25 vs 1.43 s) is almost entirely this one slice, where it saves **~1.0 s** (3.62 → 2.63 s) by floating the opener ~30% shallower; in the other three slices it is within ±0.13 s.
+
+Caveats: single timing seed → point estimates (the 3-seed solve-rate variance lives in the sim tables above); in these timing leaves the `model` field labels the NoHz-v3 slot `"Hz"` and the step-pen slot `"NoHz"` (slot naming from `time_bestfirst.py`), anchor-verified by the 1.43 s-hard / 0.70 s-all match.
+
 ### Overall verdict — splitting the 1push gap
 
 - **Unfixable pool/label floor (~0.3% all-tier, ~0.7% hard):** 5 episodes no ranker clears. 4 are single-opener long-tail pools (solve_rate ≤0.02) whose lone offline opener the online sim doesn't reliably reproduce; 1 (pos 953, sr=1.0) is a stale-label / sim-determinism contradiction. Random misses the same set — this is the ceiling, not a model deficit.
