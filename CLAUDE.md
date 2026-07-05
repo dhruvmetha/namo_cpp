@@ -16,6 +16,8 @@ NAMO (Navigation Among Movable Obstacles): a C++ physics/planning backend with a
 
 ## How to talk to me
 
+**⛔ [USER] TALK IN HUMAN-READABLE FORM — plain English, on the FIRST try.** My recurring complaint: you write in jargon I need 10 minutes to unfold. Rules: (1) lead with the plain-English point in sentence one; (2) define any technical term the instant you use it, or don't use it; (3) reach for an everyday analogy before reaching for precise terminology; (4) if I'd have to re-read a sentence to decode it, it failed — even when it's correct. A simple answer I get in 10 seconds beats a precise one I need 10 minutes to parse. This applies to EVERY reply, not just when I ask for "simple."
+
 Default to plain English. Short, sharp sentences. No jargon unless I'm already using it back at you — give the one-sentence intuition the first time you use a technical term. Walls of text are a failure mode: prefer a 3-line answer with a "want more?" hook. Code and numbers belong in the answer when they're load-bearing.
 
 **⛔ NEVER HAND-WAVE.** Do not present an unverified guess as a conclusion. "Almost certainly / probably because / likely due to", used to *explain* something you haven't checked, are BANNED. Either verify against the code / data / job-state first and then state it — or label it "UNVERIFIED HYPOTHESIS." When numbers look off, check job state and file completeness *before* inventing a cause. "I'll check" + a minute beats a confident wrong answer.
