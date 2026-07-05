@@ -1,9 +1,9 @@
 ---
 type: experiment
-status: live
+status: done
 created: 2026-07-05
 updated: 2026-07-05
-metric: "Root-cause check: do the v3 TRAINING labels under-count setups? Labels come from a sampled search (~14 of ~60 follow-up moves tried per first push; stamped 'never opens' if all sampled fail), so real setups whose finish is a needle get mislabeled worthless. Directly re-simulate a sample of 0-labeled first pushes and measure the true mislabel rate, split by difficulty, vs the eval-set 23%. Not yet run."
+metric: "Root-cause check: do the v3 TRAINING labels under-count setups? Labels come from a sampled search (~30 of ~55 reachable follow-up moves tried per first push; stamped 'never opens' if all sampled fail), so real setups whose finish is a needle get mislabeled worthless. RESULT: 16.7% of 'never opens' first pushes actually have a finish overall (600 re-simmed cells) — but this is 41.8% inside scenes that have any setup, and rises to 40-43% for the least-sampled cells (frac_tried<15 / coverage<0.4) vs ~1% for well-sampled ones. Sampling budget drives it (corr coverage↔mislabel -0.51). CONFIRMED: bad training labels are the #1 root cause of setup-blindness; fix = better labels, not a reward tweak."
 tags:
   - experiment
   - diagnostic
@@ -43,10 +43,97 @@ Pure re-simulation of existing training rows — no training, no GPU, no model. 
 **Deliverables:** the mislabel-rate table (by difficulty, vs eval 23%), the frac_tried correlation plot, and a plain-English verdict on whether bad labels are confirmed as the root cause. Owned files: this card, `assets/setuplabel_*.png`, `scripts/sandbox/setup_label_quality.py`. Physics-verify finishes under the same config as eval; flag any offline↔online mismatch.
 
 ## Run
-_(Claude, auto)_
+_(Claude, auto — 2026-07-05, Amarel)_
+
+**What ran.** Pure physics re-simulation of a stratified sample of first-push cells from the v3 training scorer H5
+(`v4_hq_h2_scorer/data.h5`; 155,662 H=2 episodes = the 2-push-budget rows that carry the setup labels). No model,
+no GPU. Script: `scripts/sandbox/setup_label_quality.py` (`sample` → `resim` → `aggregate`).
+
+**Sample** (seed 0, one random cell per random episode → de-correlated by room; 599/600 distinct scenes):
+- 600 **zero** cells: `f_grid==0 & r_mask==1` (reachable first push stamped "never opens") — the target.
+- 150 **setup09** cells: `f_grid==0.9` (KNOWN setups) — positive control.
+- 50 **opener10** cells: `f_grid==1.0` (direct openers) — control.
+
+**Protocol (identical to the eval-set 23% measurement).** For each cell: load the `xml`, match the pushed object by
+`object_center` (exact — **0.00 mm** match), apply the first push `(edge,depth)` in sim → `s1`, then **exhaustively**
+simulate *every* reachable 2nd push (`exit_collect.exhaustive_a2`) under the same car config
+(`namo_config_complete_skill15_car_1x`, collisions-off = training-match) and the same region-open criterion
+(≥20% of 100 s0-sampled goal points reachable). `mislabel := a finish exists (n_open>0)`.
+
+**Compute.** Amarel SLURM array `57865062` (main-redhat), 16 tasks × 50 cells, 8–13 min wall, all COMPLETED.
+Manifest + per-cell results: `/scratch/dm1487/tmp/setuplabel/{manifest.json,results_*.jsonl}` (mirrored to
+`/common/users/dm1487/scratch_namo/tmp/setuplabel/`).
+
+**Validation (sim is faithful — no offline↔online mismatch).**
+- Positive control: **149/150 (99.3%)** known setups re-found a finish exhaustively.
+- `n_open − frac_succ` mean **+16.6** (exhaustive finds ~17 more openers than collection sampled; never fewer).
+- Direct-opener control: **50/50** open in one push.
+- **Premise correction:** the per-first-push 2nd-push budget is `frac_tried` **median ≈ 30** (= the `k=30`
+  config), **not** the ~13.5 the Plan assumed (that avg was dragged down by zero-budget H=1 and direct-opener
+  cells). Collection still tried only **~53% (median)** of the *reachable* 2nd pushes — the coverage gap that
+  drives the mislabels.
 
 ## Result
 _(Claude, auto)_
+
+### Headline — the "never opens" label is wrong 1-in-6 times overall, ~2-in-5 where it matters
+
+| population | mislabel rate (0-cells with a real finish) | n | 95% CI |
+|---|---|---|---|
+| **all "never opens" cells** | **16.7%** | 100/600 | 13.9–19.9 |
+| — dead-row episodes (0 labeled setups) | **0.8%** | 3/368 | 0.0–2 |
+| — live-row episodes (≥1 labeled setup) | **41.8%** | 97/232 | 36–48 |
+| _eval-set reference (pure2push, live-only)_ | _23%_ | — | — |
+
+The overall 16.7% is **diluted by dead episodes** (61% of the sample), whose "never opens" labels are almost always
+correct (0.8% wrong) — collection covered those small/blocked scenes well, so the model can trust "this scene is
+dead." The damage is concentrated **inside solvable scenes**: there, **42%** of the first pushes labeled worthless
+are actually real setups. That is *higher* than the eval-set 23% on the comparable (live-only) population — the
+training labels under-count setups at least as badly as the eval set does.
+
+### Mechanism — it's the sampling budget, cleanly and monotonically
+
+`assets/setuplabel_fractried.png`, `assets/setuplabel_coverage.png`.
+
+| frac_tried (2nd pushes sampled) | mislabel | | coverage (frac_tried / reachable) | mislabel |
+|---|---|---|---|---|
+| <15 | **40.2%** (70/174) | | <0.4 | **43.1%** (88/204) |
+| 15–24 | 15.8% (19/120) | | 0.4–0.6 | 7.4% (9/122) |
+| 25–34 | 5.3% (10/187) | | 0.6–0.8 | 2.3% (2/87) |
+| ≥35 | **0.8%** (1/119) | | ≥0.8 | **0.5%** (1/187) |
+
+`corr(frac_tried, mislabel) = −0.35`; `corr(coverage, mislabel) = −0.51`. When collection tried <40% of the
+reachable 2nd pushes, 43% of "never opens" labels are wrong; when it tried ≥80%, essentially none are. The
+under-count **is** the under-sampling — not a criterion or physics artifact (the positive control rules that out).
+
+### Difficulty (labels-based solve-rate tertiles among live rows — matches the eval direction)
+
+| band (solve-rate proxy) | mislabel | eval-set ref |
+|---|---|---|
+| easy (sr~0.68) | **84.9%** (62/73) | 36% |
+| med (sr~0.19) | 32.1% (26/81) | 22% |
+| hard (sr~0.05) | 11.5% (9/78) | 11% |
+
+Same ordering as the eval set (**easy > med > hard**): easy scenes have many finishes, so a "0"-labeled push is very
+likely a missed setup; hard scenes have few, so a "0" is more often truly 0. Caveat: this difficulty axis is
+labels-based (same under-counting labels) and among live rows only — a stratifier, not ground truth; the direction,
+not the exact magnitude, is the comparable claim.
+
+### Pre-registered questions — answered
+
+1. **Are the training labels confirmed bad (root cause)? → YES.** 16.7% of "never opens" first pushes are actually
+   setups overall, and **~42%** inside scenes that have any setup / **40–43%** for the least-sampled cells. The model
+   was trained to call a large share of real setups worthless. This is the **confirmed #1 root cause** of its
+   setup-blindness. The fix is **better labels** (more follow-ups per first push during collection, or exhaustive /
+   bootstrapped re-labeling), **not** a reward or loss tweak alone.
+2. **Does the sampling budget drive it? → YES, decisively.** Monotonic in both `frac_tried` (40%→0.8%) and coverage
+   (43%→0.5%), `corr(coverage, mislabel) = −0.51`. More follow-ups per first push during collection would recover
+   the setups — the sampling budget is the lever.
+
+**One-line verdict:** Bad training labels are confirmed as the #1 driver of setup-blindness — 1-in-6 "never opens"
+first pushes overall (2-in-5 inside solvable scenes) are actually real setups, and it's driven entirely by the
+sampled-search budget (fix = re-label with more/exhaustive follow-ups, not a reward tweak). Dead-scene labels are
+trustworthy; the leak is missed setups inside solvable scenes.
 
 ## Discussion
 _(you ↔ Claude — newest at the bottom.)_
