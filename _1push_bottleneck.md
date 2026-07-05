@@ -12,6 +12,32 @@ tags:
 
 **Sibling to [[_ranker_bottleneck]] (which is 2push-only).** 1push has no *setup* move, so the 2push "setup under-ranking" story cannot apply — the diagnostic must find the *different* reason 1push tops out below 100%, and whether the learned ranker reaches that ceiling ahead of the random floor.
 
+**Bottom line (plain English).** To reach a goal blocked by one movable object, the robot picks from ~35–130 candidate shoves; the model scores them and the planner simulates them best-score-first until one opens the goal. The question isn't *can* a room be solved — with enough tries almost every room opens — it's *how fast the model's top pick is the right one*, and *why a tiny handful of rooms never open at all*. Three answers: (1) the "never open" rooms are the **same ~5 of 1323 for the model and for plain random** — rooms where the single working push in a big pile just doesn't re-open when actually simulated (a data/physics quirk, not the model's fault); (2) the model does **not** solve more rooms than random given unlimited tries — it reaches the **same ceiling, just ~3× faster**; (3) on the hard rooms the model's top pick is already right over half the time, and where it's wrong the working push is usually genuinely rare in the pile — though a tweaked model (step_penalty) already finds it a bit faster, so some of that gap is recoverable.
+
+## Plain-language key
+
+| Term | What it means |
+|---|---|
+| **room** (episode) | one problem: the robot must reach a goal that a movable object is blocking |
+| **push** | one action — the robot shoves the target object in some direction |
+| **pool** / candidates | all the pushes considered for a room (~35–130 here); the enumerated list is `tried` |
+| **opener** | a push that actually opens the goal in a single shot |
+| **1push room** | a room solvable by *one* push (this whole experiment) — there is **no "setup" move**, unlike 2push |
+| **solve_rate** | fraction of the pool that are openers — low = a needle in a haystack |
+| **best-first search** | the planner tries candidates in model-score order, simulating each until one opens |
+| **sim** | one physics rollout of a candidate push — the expensive unit of work |
+| **budget** (B) | max sims allowed per room (900). It is **≫ the pool**, so every candidate gets tried |
+| **rank** | where the opener sits in the model's sorted list — **rank 0 = the model's #1 pick** (we count from 0) |
+| **solve@1 / solve@B** | did the room open using only the top-1 / top-B picks |
+| **ceiling** | solve-rate given the whole budget — i.e. "does *some* push open it" |
+| **floor** / miss | rooms that never open even after every candidate is tried |
+| **easy / medium / hard** | rooms binned by `solve_rate` (fewer openers = harder) |
+| **NoHz-v3** | the current deployed model. **step-pen** = a variant trained with a −1/0/1 reward. **random** = no model (uniform pick from the pool) |
+| **seed** | an independently-trained model copy; we average 3 model / 10 random seeds for error bars |
+| **stochastic dominance** | the model's success curve sits at-or-above random's at *every* budget (never worse anywhere) |
+| **pp** | percentage points |
+| **positional join** | matching each result row to its true room by fixed order, not by filename (filenames collide across shards) |
+
 ## Hypothesis [USER]
 
 The 1push best-first search plateaus at ~99.7% (hard ~99.2%), not 100% — just like 2push fails to reach 100%. Why do these 1push cases also fail? And does the model reach 100% (its ceiling) *before* random does as the sim budget grows — i.e. is the win a higher ceiling, or just getting to the same ceiling faster?
@@ -77,7 +103,7 @@ Reading: the floor lives in **hard** (4 episodes) and **easy** (1 episode); **me
 
 ### Q2 — ceiling vs random: same ceiling, reached in ~⅓ the sims
 
-Success-vs-sim-budget CDF, NoHz-v3 (3-seed mean) vs random (10-seed mean), per tier (`solved-by-B ⇔ solved ∧ solve_ranks[0] < B`):
+Share of rooms solved within a sim budget B — the success-vs-budget curve — NoHz-v3 (3-seed mean) vs random (10-seed mean), per tier. A room counts as solved by budget B if its opener sits at rank below B (i.e. the planner reaches it within B tries):
 
 | tier | ranker | @1 | @2 | @5 | @10 | @20 | @900 (ceiling) |
 |---|---|---|---|---|---|---|---|
