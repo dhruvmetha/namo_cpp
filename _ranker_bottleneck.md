@@ -2,265 +2,310 @@
 type: experiment
 status: done
 created: 2026-07-04
-updated: 2026-07-04
-metric: "WHERE the NoHz-v3 q-ranker is stuck: the FIRST push (setup) ranking, not the dive. On the 21 robust misses the true setup sits at MEDIAN rank 38/70 (top-1-is-setup 0%); sim-cost corr w/ first-push rank 0.79 vs dive-rank 0.29; NN scoring is only 3% of wall (not the bottleneck). Single head under-values setups; horizon-conditioning (Hz) does NOT fix it (verified)."
+updated: 2026-07-05
+metric: "The search ranker stalls at 95% (90% on hard) because it can't rank SETUP pushes — moves that open nothing yet. On hard rooms its #1 pick is a valid setup only 19% of the time; on rooms it never solves, the true setup sits at rank ~38 of ~70. It HAS signal (detector AUC 0.80) just not sharp enough to put the setup first. Fix = train for setup value (leads-to-a-solution), not immediate opening. NOT horizon-conditioning (verified no help), NOT a dive bonus."
 tags:
   - experiment
   - diagnostic
 ---
-# Ranker Bottleneck — where the NoHz-v3 q-ranker gets stuck
+# Ranker bottleneck — why the search ranker can't finish the job
 
-Diagnostic (NOT a new run). Reuses the instrumented best-first records from `_full_search` (2push
-`fullsearch/nohz_s{1,2,3}`+`rand_s{0..9}`, 1push `fullsearch_1push/*`, interleaved `fullsearch_time/tri_s1`)
-+ a small **re-scoring** pass (model loaded on arrakis, CPU) to read where the TRUE setup lands in the model's
-ranking on episodes the search never solves. **Objective under test:** the ranker must reach ~100% solve
-**before random in wall-time**, with **fast per-candidate suggestions**. Today it tops out at 95.3% (hard 90.2%)
-and on easy is *slower* in wall-time than random (7.1 vs 6.3 s).
+**Bottom line.** To reach a blocked goal the robot usually needs **two pushes**: a *setup* (shove an obstacle
+aside — this opens nothing by itself) and then a *finish* (this one actually clears the path). The model scores
+every candidate push and the planner tries them highest-score-first. It is **excellent at spotting the finish**
+push but **bad at spotting the setup** — because it was trained to predict *"does this open the goal now?"*, and
+a setup opens nothing now. So it buries the good setup, wastes its search budget on wrong pushes, stalls at ~95%
+(90% on the hard rooms), and is slow exactly where the problem is hard. Every claim below is measured against the
+true answer. **The fix is to train the model to value a *setup* (a move that leads to a solution), not just an
+immediate opening.**
 
-**Scripts (worktree):** `scripts/sandbox/rankdiag_analyze.py` (record-only Q1-Q4), `rankdiag_rescore.py`
-(re-score the true-setup rank + NN/render profile), `rankdiag_plots.py`. Outputs:
-`scratch_namo/eval/fullsearch/rankdiag/rankdiag_{analysis,rescore}.json`; plots `assets/rankdiag_*.png`.
+---
 
-## Mechanism (how combine=q ranks the first push vs the dive)
-Search = greedy best-first on the labeled object, `combine='q'` → **priority = the raw per-action q**;
-`V` (state value) is unused in `combine=q`. Per state the model emits a **(60 edges × 5 depths)** q-map in
-**one forward pass** (`LiveScorer.score_state`). The heap holds unsimulated pushes; pop max-q, simulate, on goal
-open → stop, else expand its post-push state (a "dive", scored at the same head). `solve_ranks=[r_first, r_dive]`
-= the sibling-pool rank of each push in the winning plan; `depth_hist={0:…,1:…}` = sims at push-depth 0 (first
-push) vs 1 (dive).
+## Plain-language key
 
-**Two grounding facts, both verified:**
-1. **NoHz is a SINGLE, horizon-agnostic head** — trained `+data.budget_h=false` (wandb args), so `score_state`
-   never passes `H` to the net; q(first push, h=2) and q(dive, h=1) come from the **same head, same scale**.
-   ⇒ the "H1/H2 cross-head scale mismatch" in Q5 **cannot** be the mechanism for NoHz. Refuted at the source.
-2. The default **sigmoid squash** compresses q to `[0.503, 0.695]` (std 0.044) vs raw E[bin] `[0.014, 0.825]`
-   (std 0.178). But sigmoid is **globally monotone** → it preserves every heap ordering → for `combine=q` the
-   squash changes **no** pop order. It is a **red herring** for the search. (It would only matter under
-   `combine=blend/product`, which these runs don't use.)
+| Term | What it means |
+|---|---|
+| **room** (episode) | one problem: a robot must reach a goal that movable objects are blocking |
+| **push** | one action — the robot shoves the target object in some direction |
+| **setup** (first push) | a push that opens nothing yet but clears the way for a second push that does |
+| **finish** / **dive** (second push) | the push that actually opens the goal, made after a setup. "Dive" = the search exploring a first push's follow-on pushes |
+| **opener** | any second push that opens the goal |
+| **2-push room** (`pure2push`) | a room needing exactly two pushes; our exhaustively-solved test set, so we know the true answer |
+| **best-first search** | the planner tries candidate pushes in order of the model's score — always the highest-scored untried push next — simulating each until one solves |
+| **sim** | one physics rollout of a candidate push; the expensive unit of work |
+| **budget** | max sims allowed per room (here, 900) |
+| **q / score** | the number the model gives each candidate push; the planner ranks by it (higher = more promising) |
+| **value** `V(s)` | how solvable a *state* looks — as opposed to `q`, the promise of a single *action*. The proposed fix ranks by this |
+| **rank** | where the winning push sits in the model's sorted list — **rank 0 = the model's #1 pick** |
+| **needle** | a room where only 1–2 of ~40–70 candidate pushes is a valid setup (a needle in a haystack) — the hard rooms |
+| **easy / medium / hard** | rooms binned by how many first pushes work (more working setups = easier) |
+| **NoHz-v3** | the current deployed model. **Hz** = a variant told how much budget is left. **step_penalty** = a variant trained with a −1/0/1 reward |
+| **seed** | an independently-trained copy of the model; we use 3 and average (for error bars) |
 
-## Result + Verdict
-_(Claude, 2026-07-04)_ **The ranker is stuck on the FIRST push (the setup), not the dive.** All splits below are
-2push pure2push (n=1018), NoHz pooled over 3 ckpt-seeds; difficulty = per-episode `division`.
+**Detector terms** — we grade the model's score as a yes/no detector of *"is this push good?"* against the known
+true answer:
 
-### Q1 — Rank of the winning push: H1 (first) vs H2 (dive)
-The task's premise (dive = weak link) is **REFUTED**: the dive is the *stronger* ranker.
+| Term | Plain meaning |
+|---|---|
+| **recall** | of the *truly good* pushes, how many the model scores high enough to try (does it *catch* them?) |
+| **precision** | of the pushes the model *flags as good*, how many actually are (does it avoid false alarms?) |
+| **FPR** (false-positive rate) | of the *truly bad* pushes, how many the model wrongly flags as good |
+| **AUC** (ROC-AUC) | one number for how well the score separates good from bad at *all* thresholds: 0.5 = coin-flip, 1.0 = perfect |
+| **p@1, p@k** | is the model's **top pick** (or top-k) actually good? This is what search cares about — it tries the top first |
+| **base rate** | the fraction of candidates that are actually good (how sparse the needle is) |
+| **op** (operating point) | the score threshold the search effectively uses |
+| **ground truth (GT)** | the true answer — which pushes really solve — known because `pure2push` is exhaustively solved |
 
-| push position | #1 = winner | ≤ rank 2 | ≥ rank 5 | median | mean | p99 |
-|---|---|---|---|---|---|---|
-| **H1 first push** | 50.9% | 69.8% | 22.0% | 0 | **3.28** | 30 |
-| **H2 dive** | 70.0% | 82.8% | 12.5% | 0 | **2.05** | 31 |
-| random H1 | 14.9% | 39.6% | 43.6% | 4 | 5.95 | 28 |
+---
 
-**By difficulty — H1 collapses on hard, H2 holds up:**
+## What the search does, and what we tested
 
-| tier | H1 #1 | H1 median | H1 mean | H1 ≥5 | H2 #1 | H2 mean |
+Best-first search works on the target object's candidate pushes. The model scores all of them in **one pass**;
+the planner repeatedly takes the highest-scored untried push, simulates it, and — if it doesn't open the goal —
+explores the pushes available *after* it (the "dive"). It stops when a push opens the goal or the 900-sim budget
+runs out.
+
+We nailed down two facts first, because they rule out two tempting explanations:
+
+1. **The model has a single scoring "head."** It scores the first push and the dive with the *same* function on
+   the *same* scale — so "two heads on mismatched scales" is impossible here.
+2. **The score is squashed through a sigmoid** into a narrow band (~0.50–0.70), but a sigmoid preserves order, so
+   it changes *which push ranks first* not at all. A red herring for the search.
+
+**What we're testing:** we want the learned ranker to solve ~100% of rooms *faster* than blind random search.
+Today it stalls at **95.3%** (90.2% on hard), and on easy rooms it's even a hair *slower* than random in
+wall-clock time.
+
+---
+
+## What we found
+
+### 1. It's the first push (the setup) that's mis-ranked — not the finish
+
+Where does the *winning* push land in the model's sorted list? (rank 0 = its #1 pick.)
+
+| push | picks it #1 | in top-3 | buried (rank ≥5) | median rank | mean rank |
+|---|---|---|---|---|---|
+| **setup (1st push) — model** | 50.9% | 69.8% | 22.0% | 0 | **3.28** |
+| **finish (dive) — model** | 70.0% | 82.8% | 12.5% | 0 | **2.05** |
+| setup — random baseline | 14.9% | 39.6% | 43.6% | 4 | 5.95 |
+
+And by difficulty — the setup ranking **collapses on hard**, while the finish holds up:
+
+| difficulty | setup #1 | setup median | setup mean | setup buried ≥5 | finish #1 | finish mean |
 |---|---|---|---|---|---|---|
 | easy | 65.2% | 0 | 2.10 | 14.9% | 81.6% | 1.03 |
 | medium | 52.3% | 0 | 2.79 | 19.0% | 70.8% | 1.80 |
 | **hard** | **39.1%** | **1** | **4.68** | **30.6%** | 61.0% | 3.06 |
 
-Intuition: once you're *at* a real setup's post-push state, the head clearly sees "this second push opens the
-goal" (high q) → dive ranks the winner #1 70% of the time. It's the **first** push — a setup that opens
-*nothing yet* — the head cannot float to the top on hard scenes. ![[rankdiag_rank_h1_h2.png]]
+**Read:** the finish push is ranked *well* — once the search reaches a real setup's follow-on state, the model
+spots the goal-opening second push and picks it #1 **70%** of the time. It's the **setup** the model can't float
+to the top, and on hard rooms its top pick is the true setup only **39%** of the time (vs 65% on easy).
+![[rankdiag_rank_h1_h2.png]]
 
-### Q2 — Why not 100%: the misses are buried setups, all solvable
-21/1018 (2.1%) are missed by **all 3** NoHz seeds (⇒ 95.3% headline is the per-seed 4.7% miss). **Every one is
-GT-2push-solvable** and **97% are budget-bound** (`n_sim≥900`; only 4 of 144 pooled fails exhausted the tree) —
-the solver **is in the tree**, just ranked past 900 sims of exploration. 19/21 hard, 0 easy; median 2 valid
-setups (needles). 13/21 are found by ≥1 random seed (solvable-in-budget, model-specific mis-rank); 8/21 by
-neither (hardest needles). 2 needles the model solves that **no** random seed ever finds.
+### 2. Why it never reaches 100%: the misses are *buried setups*, not unsolvable rooms
 
-**Where the true setup sits in the model's first-push ranking (re-scored):**
+21 of 1018 rooms are missed by all 3 model copies (that's the 95.3% ceiling). **Every one is solvable** — and in
+97% of them the solver is *inside* the search tree, just ranked past the 900-sim budget. They're almost all hard
+"needle" rooms (19 of 21 hard; typically only ~2 working setups).
 
-| set | median setup rank | mean | top-1 is setup | ≥ rank 5 | median n_setups |
+Where does the true setup sit in the model's ranking? It degrades steadily with difficulty, and on the missed
+rooms it's **buried at rank ~38 of ~70** — never the #1 pick:
+
+| rooms | true setup's median rank | mean | picks setup #1 | buried ≥5 | # working setups |
 |---|---|---|---|---|---|
-| easy (sample) | **0** | 3.0 | 57% | 21% | 13 |
+| easy | **0** | 3.0 | 57% | 21% | 13 |
 | medium | 3 | 8.2 | 33% | 39% | 4 |
 | hard | 4 | 11.3 | 20% | 49% | 1 |
-| **fail set (21)** | **38** | 39.5 | **0%** | **90%** | 2 |
+| **the 21 misses** | **38** | 39.5 | **0%** | **90%** | 2 |
 
-On the failures the true setup is **reachable** (0 missing from the pool) but buried at **median rank 38 of
-~70** and is **never** the model's #1. The q-gap top-vs-setup is only 0.016 (sigmoid) — the head simply can't
-*separate* the lone setup from ~38 useless pushes. ![[rankdiag_unsolved.png]]
+The score gap between the model's top pick and the true setup is a tiny **0.016** — it simply can't *separate*
+the one good setup from ~38 useless pushes. ![[rankdiag_unsolved.png]]
 
-### Q3 — The heavy sims tail is dive-sims, but CAUSED by first-push mis-ranking
-Sims-to-solve: median **4**, mean 55, p90 164, p99 703 — a long right tail.
+### 3. Where the search wastes its time: chasing wrong setups
 
-| group | n | mean sims | first-push sims (d0) | dive sims (d1) | winning first-push rank |
+Most rooms solve almost instantly (**median 4 sims**), but a tail of hard rooms blows up into the hundreds:
+
+| rooms | count | mean sims | sims on 1st pushes | sims on dives | winning setup's rank |
 |---|---|---|---|---|---|
-| fast (≤p50) | 1499 | 2.3 | 1.1 | 1.2 | 0.1 |
-| tail (>p90) | 291 | **386** | 19.6 | **366.6** | **16.3** |
+| fast half | 1499 | 2.3 | 1.1 | 1.2 | 0.1 |
+| slow tail (top 10%) | 291 | **386** | 19.6 | **366.6** | **16.3** |
 
-The tail spends 95% of its sims **diving** — but it dives ~20 *wrong* setups' subtrees first because the
-**winning setup is ranked ~16th**. Proof it's the first push, not the dive: **corr(n_sim, first-push rank) =
-0.79** vs **corr(n_sim, dive rank) = 0.29**. Tail is 158 hard / 99 med / 34 easy, median 2 setups. This is
-**not root-thrash** (depth-0 sims are only 6% of budget) and **not a dive bug** — it's a buried setup feeding
-the dive machinery bad branches. ![[rankdiag_simtail.png]]
+The slow rooms spend 95% of their sims *diving* — but **not** because diving is broken. They dive into ~20
+**wrong** setups' follow-ons first, because the *right* setup is ranked ~16th. Proof it's the first push and not
+the dive: sim-count correlates **0.79** with the *first-push's* rank, but only **0.29** with the dive's rank.
+![[rankdiag_simtail.png]]
 
-### Q4 — Suggestion cost: the NN is NOT the bottleneck
-Scoring (render+NN, one (60×5) map per call) is **3.0% of wall** overall (easy 4.5%, hard 2.4%); **simulation is
-~95%+**. Per-score 66 ms for 300 candidates = **0.22 ms/candidate**. Profiled split: **render 72 ms + NN 20 ms**
-(b1); batched NN b16 = 12.3 ms/state (~1.6×). So batching/caching/a lighter scorer buys **~0.5% of wall** —
-negligible. "Fast per-candidate suggestion" is **already satisfied**.
+### 4. Is the neural network the slow part? No.
 
-**Easy wall-time crossover (model 7.05 s vs random 6.33 s, gap 0.72 s):** = scoring 0.32 s (44%) + model's sims
-cost more (178 vs 146 ms/sim → +0.40 s **despite doing fewer sims**, 38 vs 43). A free NN would *not* close it;
-easy is at ceiling with no sim-count headroom. The model's per-sim cost being higher (it selects longer/deeper
-pushes) is **UNVERIFIED** without push-depth instrumentation, but the per-sim time gap is real in the records.
-⇒ the wall-time lever is **fewer sims** (ranking), not a faster net. ![[rankdiag_nncost.png]]
+Scoring (rendering the scene + the neural net) is only **3% of wall-clock time**; simulation is ~95%. A faster or
+batched net buys ~0.5%. So "make suggestions fast" is **already solved** — the lever is doing *fewer sims* (better
+ranking), not a faster net.
 
-### Q5 — Mechanism: the single head under-values setups (verified), horizon-conditioning doesn't fix it
-- **Not** a cross-head mismatch (single head, `budget_h=false`) and **not** the sigmoid squash (monotone →
-  ranking-invariant for combine=q). Both refuted above.
-- **The real mechanism:** the head predicts near-immediate solvability, so a **setup push (opens nothing yet)
-  gets a q barely above a useless push**. Setup rank degrades monotonically **easy 0 → medium 3 → hard 4 →
-  fail 38**; on needles (1–2 setups) the lone setup is buried. Direct dive evidence: the winning dive is *not*
-  the top child 30% of the time and ≥rank 3 in 17% — real but minor vs the first-push burial.
-- **Hz (horizon-conditioned) does NOT help — verified** on the interleaved `tri_s1`: Hz first-push #1 = 49.4%
-  (mean 3.40) vs NoHz 51.4% (mean 3.29); Hz even uses **more** sims (59 vs 51 avg). So conditioning on remaining
-  budget did not teach setup value. **`dive_bonus` would make it worse** (it dives wrong setups *more*).
-  ![[rankdiag_mechanism.png]]
+(The one place the model loses on wall-clock — easy rooms, **7.05 s vs random's 6.33 s** — is because its
+individual sims cost a bit more, not the net. On trivial rooms, ranking can't save enough sims to pay for itself.)
+![[rankdiag_nncost.png]]
 
-**Verdict [on numbers].** The ranker is stuck at the **first push**. Failure modes ranked by cost toward
-"100% before random, fast":
-1. **First-push (setup) value under-ranking — THE bottleneck.** Owns the ceiling (misses = setups at median
-   rank 38), the sim tail (corr 0.79; buried setup → ~20 wrong dives), and thus the wall-time (sims = 95% of
-   wall). Fix this and all three move.
-2. Dive (H2) tail — minor (median rank 0; corr with sims only 0.29).
-3. NN suggestion cost — negligible (3% of wall); "fast" is already met.
-4. Easy wall-time crossover — real but low-value (easy at ceiling; unfixable by a faster net).
+### 5. The mechanism: the model is blind to setups
 
-**Single highest-leverage fix (direction; HYPOTHESES, not yet tested):** make the first-push priority reflect
-**setup value** (value-to-solution), not myopic 1-push solvability. Concretely (a) rank first pushes by a 1-ply
-lookahead `V(s1)` — exactly what the predecessor `scorer_beam.py` deliberately does ("P is blind to 2-push
-first moves; rank by V(s1)"), which `combine=q` abandoned; costs sims but directly measures setup value; or
-(b) retrain the value target to be **solution-path/multi-horizon aware** (the "Policy+Value, not Q" / UVFA
-direction) so a setup scores high despite opening nothing. **NOT** horizon-conditioning (Hz, verified no help)
-and **NOT** `dive_bonus` (worsens it).
+Not a two-heads problem (single head) and not the sigmoid (order-preserving) — both ruled out above. The real
+reason: **the model predicts near-immediate solvability, so a setup — which opens nothing yet — scores barely
+above a useless push.** Setup rank degrades easy → medium → hard → missed (**0 → 3 → 4 → 38**).
+
+We checked the obvious alternative fixes; they don't help:
+- **Telling the model how much budget is left (Hz): no help** — its setup ranking matches NoHz (#1 49% vs 51%),
+  and it uses *more* sims.
+- **A "dive bonus": would make it worse** — it would dive into wrong setups even more.
+
+![[rankdiag_mechanism.png]]
+
+---
+
+## The evidence: scoring the model as a detector
+
+To ground everything above in hard numbers, we treated the model's score as a **detector** and graded it against
+the true answer (`pure2push` is exhaustively solved). Two detectors: *"is this first push a valid setup?"* and
+*"does this second push open the goal?"*
+
+**How we got the true labels** (no guesswork):
+- **Setup label** = the exhaustive "valid first push" set the test already grades on. *Measured caveat:* that set
+  under-counts setups (simulating from "wrong" first pushes finds an opener 23% of the time), so setup
+  **precision** against this label is a **lower bound** (recall is clean). We also report a fully-simulated
+  clean-label view alongside.
+- **Opener label** = simulated directly — push the object again from a real setup's state and check whether the
+  goal opens (the collection's own criterion). Physics only, seed-independent.
+
+Data: 68,345 first-push candidates over all 1018 rooms; 49,540 second-push candidates over a 180-room sample;
+3 model seeds.
+
+### Evidence ledger — each claim → the number that grounds it
+
+| Claim | Grounding number (this pass) | Status |
+|---|---|---|
+| Setup ranking is THE bottleneck | setup **p@1 = 0.32** overall / **0.19 hard** (top pick is a valid setup only 19–32%); catches only 34% in its top 5; AUC 0.80 → **0.75 hard** | ✔ but it's a **top-of-list** failure, not zero recall |
+| The finish/dive recognizes winners | opener **AUC 0.87**, recall 0.78, **p@1 = 0.62** (vs setup 0.32) — the finish is the stronger detector | ✔ confirms §1 |
+| It can't reject dead ends | opener **precision 0.37** (0.29 hard); per wrong subtree ~9–16 dead pushes outscore the good setup | ✔ measured |
+| "No signal at all" | AUC 0.80/0.87 = real signal, but the good-vs-bad score overlap is heavy (13%) | ↺ signal exists, **top-of-list ordering is fragile** |
+| "~18 dead dives per wrong subtree" | **8.6** dead pushes score above the opener threshold; **15.7** score above the correct setup | ✔ real number ≈ 9–16 |
+| Diving is 94% of sims; NN cost negligible | unchanged (§3 dives = 94%, §4 NN = 3% of wall) | ✔ (from §3/§4) |
+| step_penalty shares the bottleneck | unchanged (see Discussion) | ✔ |
+
+*(Column key for the detector tables below: **base** = base rate; **op** = the threshold the search effectively
+uses; all others are defined in the Plain-language key.)*
+
+### Detector A — the setup: "is this first push a valid setup?"
+
+| difficulty | n | base | AUC | prec@op¹ | recall@op | FPR@op | **p@1** | catch top-3 | catch top-5 |
+|---|---|---|---|---|---|---|---|---|---|
+| overall | 68345 | 0.090 | **0.805** | 0.204 | 0.789 | 0.304 | **0.324** | 0.229 | 0.336 |
+| easy | 18840 | 0.191 | 0.799 | 0.374 | 0.799 | 0.316 | 0.483 | 0.114 | 0.191 |
+| medium | 26210 | 0.076 | 0.784 | 0.163 | 0.777 | 0.326 | 0.357 | 0.230 | 0.353 |
+| **hard** | 23295 | **0.023** | **0.752** | **0.046** | 0.783 | 0.392 | **0.187** | 0.301 | 0.409 |
+
+¹ against the under-counting label → a **lower bound**. On clean simulated labels (720 pushes), true setup
+precision is **0.65 overall / 0.53 hard** (not 0.05–0.20), and the AUC agrees (~0.75–0.80): the separation is
+**moderate, not sharp**.
+
+**Read:** the model doesn't fail at a *loose* threshold — its recall is a healthy **0.79**. It fails at the
+**top of the list**: its #1 pick is a valid setup only **19% of the time on hard**, where the base rate is just
+**2.3%** (≈1 needle in 43). An AUC of 0.75 simply isn't sharp enough to float that lone needle to first place, so
+the search tries wrong pushes first. ![[clsdiag_roc_pr.png]] ![[clsdiag_qhist.png]]
+
+### Detector B — the finish: "does this second push open the goal?"
+
+| difficulty | n | base | AUC | **prec@op** | recall@op | **FPR@op** | p@1 | catch top-5 |
+|---|---|---|---|---|---|---|---|---|
+| overall | 12870 | 0.125 | **0.867** | **0.373** | 0.780 | **0.190** | 0.619 | 0.428 |
+| easy | 4260 | 0.165 | 0.861 | 0.529 | 0.708 | 0.130 | 0.701 | 0.368 |
+| medium | 3810 | 0.124 | 0.885 | 0.360 | 0.840 | 0.213 | 0.620 | 0.471 |
+| **hard** | 4800 | 0.089 | **0.866** | **0.290** | 0.786 | 0.192 | 0.534 | 0.448 |
+
+**Read:** the finish is the *stronger* detector (AUC **0.87 > 0.80**, confirming §1) and catches winners well
+(recall 0.78). Its weak spot is **precision**: **0.37 overall, 0.29 on hard** — at its operating point about
+**two-thirds of the pushes it flags as openers are actually dead**. That's the "can't reject a dead end" problem,
+measured.
+
+### Detector B, cost side — dead-end false alarms
+
+A *truly dead* wrong subtree = a first push that isn't a setup, whose follow-on pushes open the goal **zero**
+times (416 such subtrees, ~67 candidate pushes each). How many of those dead pushes does the model score high?
+
+| difficulty | # dead subtrees | subtree size | dead pushes above the opener threshold | dead pushes scored above the correct setup |
+|---|---|---|---|---|
+| overall | 416 | 67 | **8.6** (median 4, max 89) | **15.7** (median 10, max 109) |
+| easy | 115 | 71 | 8.9 | 13.7 |
+| medium | 140 | 65 | 7.2 | 16.7 |
+| **hard** | 161 | 67 | 6.9 | 16.2 |
+
+So in each wrong subtree the model deems **~9 pushes "opener-grade"** and **~16 better than the correct setup** —
+all dead. That's the measured cost: the model **can't tell a dead subtree is dead**, so it grinds through ~9–16
+false alarms before backing out. ![[clsdiag_deadend.png]]
+
+### How much signal is there at all?
+
+The one-number separation is real: setup **AUC 0.80** (0.75 hard), finish **AUC 0.87** (0.87 hard) — so it's
+**not** "no signal." But the scores of good vs bad setups **overlap heavily**: 13% of useless pushes score at or
+above the median good setup, and the top-pick-vs-setup gap is a razor-thin **0.016**. So there *is* signal — it's
+just not sharp enough to survive at the **top of the list on hard, sparse rooms**, which is exactly where
+best-first search lives. ![[clsdiag_summary.png]]
+
+---
+
+## What to optimize (the verdict, on the numbers)
+
+Three candidate explanations, resolved:
+
+- **"No signal" — rejected.** Setup AUC 0.80, finish AUC 0.87. The model is not signal-starved.
+- **Setup ranking, top of the list — the PRIMARY problem.** Its #1 pick is a valid setup only 0.32 overall /
+  **0.19 on hard**; catches only 34% in its top 5. This gates the **ceiling** (misses are buried setups) *and*
+  the **slow tail** (a buried setup means many wrong dives). The number that makes it primary: sim-cost
+  correlates **0.79** with the first-push rank, only 0.29 with the dive rank.
+- **Dive precision / rejecting dead ends — the SECONDARY problem.** The finish detector's precision is 0.37
+  (0.29 hard), and ~9–16 dead pushes per wrong subtree outrank the good setup. This sets the *cost* of each wrong
+  dive, compounding the setup burial into the heavy tail.
+
+**⇒ Fix the setup first: train the model to score a push by whether it *leads to a solution* (a "value" target),
+not by whether it opens the goal right now** — so a setup that opens nothing yet still scores high (lifting its
+top-of-list rate on hard). **Then** add a "this subtree looks dead" signal to the finish head, so a wrong subtree
+is abandoned in ~2 tries instead of ~9–16. Explicitly **not** horizon-conditioning (Hz, verified no help) and
+**not** a dive bonus (it makes the dead-end problem worse).
+
+**Verified here:** all the detector numbers above. **Still a hypothesis:** that a value/multi-horizon target
+actually raises the setup's top-of-list rate, and that a precision signal helps the dive without hurting its
+recall — that's the cheap `V(s1)` test in *Next*.
 
 ## Next
-Test fix (a) cheaply first: re-run best-first with a first-push priority = `V(s1)` (or `combine=blend/product`
-variants that inject the state value) on the 371 hard episodes + the 21 misses, and read whether the true
-setup's effective rank drops from ~16/38 toward the top and whether hard@900 lifts above 90.2%. If lookahead
-wins, it argues the real gain is a setup-aware **value** target for the next model.
 
-## Classifier grounding — the q-head scored as a detector vs pure2push GT
-_(Claude, 2026-07-04)_ Every observation above is now backed by a measured detector statistic. **Scripts:**
-`scripts/sandbox/rankdiag_classifier.py` (re-score + sim-GT, sharded on arrakis CPU, 3 ckpt-seeds),
-`rankdiag_cls_agg.py` (metrics + `assets/clsdiag_*.png`). Data: `…/eval/fullsearch/rankdiag/cls/`
-(68,345 first-push rows over **all 1018** pure2push episodes; 49,540 second-push rows over a 180-episode
-stratified sample). q reported **raw** (E[bin]); sigmoid = 1/(1+e⁻ʳᵃʷ) is monotone → identical AUC/ranks.
+Test the setup-value idea cheaply, before any retraining: re-run best-first but rank the first pushes by a 1-step
+lookahead value `V(s1)` (simulate each first push once, then score how solvable the resulting state looks) on the
+371 hard rooms + the 21 misses. Read whether the true setup's rank climbs toward the top and whether hard-room
+solve-rate lifts above 90.2%. Caveat baked in: this lookahead *costs sims* (it simulates every first push), so
+it's a **diagnostic** — if it ranks better, the deployable fix is a *trained* setup-value model that gets the same
+ranking without paying the lookahead. If the lookahead wins, it argues squarely for a setup-value target in the
+next model.
 
-**Ground truth — exactly how (no silent proxies).**
-- **Setup GT (first push):** pure2push `valid_first_push` (pure2push is all-pure-2push → `valid_1push`=∅). This is
-  the exhaustive-1push ∪ sampled-2push key `build_2push_validset.py` writes and that the card/`eval_m3`/fullsearch
-  already grade on. The 2-push chain is **same labeled object twice** (trial log keyed by `chosen_object_id`).
-- **Opener GT (second push):** DERIVED BY SIMULATION — from a real setup's post-push state s1, push the **labeled
-  object** again (matches the same-object chain) and label OPENER iff `goal_open_pts` (≥20/100 s0-sampled goal
-  points reachable, frac 0.2 — the collection's own `_validate_opening` criterion). Seed-independent physics.
-- **Caveat, MEASURED:** `valid_first_push`'s 2nd-push expansion was **subsampled**, so it is a **lower bound** on
-  setups: simulating the labeled-object dive from **label-"wrong" first pushes finds an opener 23% of the time**
-  (easy 36% / med 22% / hard 11%). ⇒ setup-detector **precision/FPR vs the label are bounds**; **recall is clean**
-  (labeled positives are true). A deconfounded **sim-GT** setup view (720 dove first pushes, true labels) is given.
+## Provenance
 
-### Evidence ledger — each claim → its grounding number/plot
-
-| Claim (from Q1–Q5 / verdict) | Grounding statistic (this pass) | Verdict |
-|---|---|---|
-| Setup under-ranking is THE bottleneck | setup **p@1=0.32** overall / **0.19 hard** (top pick is a valid setup only 19–32%); r@5=0.34; ROC-AUC 0.80→**0.75 hard**; `clsdiag_summary` | ✔ but it's low **top-k**, not zero recall |
-| The dive recognizes winners | opener **ROC-AUC 0.87**, recall@op 0.78, **p@1=0.62** (vs setup 0.32) — the dive head is the stronger ranker | ✔ (Q1 confirmed on GT) |
-| Head can't reject dead ends | opener **precision@op 0.37** (0.29 hard); dead-end **FP=8.6 above op / 15.7 above the setup's q per wrong subtree**; `clsdiag_deadend` | ✔ measured |
-| "No dynamic range" | AUC 0.80/0.87 = real signal; but setup q-gap sig **0.014** (raw 0.077 vs 0.021), overlap 0.13; `clsdiag_qhist` | ↺ signal exists, **top-k ordering fragile** (not absent) |
-| "~18 plausible-but-dead dives / wrong subtree" | **8.6 (med 4, max 89)** dead 2nd-pushes score above the opener operating point; **15.7 (med 10, max 109)** above the winning setup's q | ✔ real number ≈ 9–16 |
-| Dive-vs-breadth 94/6, NN cost negligible | unchanged (Q3 d0=6%, Q4 NN=3% of wall) | ✔ (prior) |
-| step_penalty shares it | unchanged (Discussion below) | ✔ (prior) |
-
-### C1 — Setup-detector (first push): q vs "valid setup", by difficulty (label-GT; 3-seed mean±std)
-
-| tier | n | base | ROC-AUC | PR-AUC | prec@op¹ | recall@op | FPR@op | **p@1** | r@1 | r@3 | r@5 |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| overall | 68345 | 0.090 | **0.805** | 0.229 | 0.204 | 0.789 | 0.304 | **0.324** | 0.090 | 0.229 | 0.336 |
-| easy | 18840 | 0.191 | 0.799 | 0.391 | 0.374 | 0.799 | 0.316 | 0.483 | 0.036 | 0.114 | 0.191 |
-| medium | 26210 | 0.076 | 0.784 | 0.180 | 0.163 | 0.777 | 0.326 | 0.357 | 0.080 | 0.230 | 0.353 |
-| **hard** | 23295 | **0.023** | **0.752** | **0.052** | **0.046** | 0.783 | 0.392 | **0.187** | 0.135 | 0.301 | 0.409 |
-
-¹ vs the incomplete label → **lower bound**. Deconfounded **sim-GT** (clean per-first-push labels, 720 dove pushes):
-overall AUC 0.771, **precision 0.648**, recall 0.675; **hard AUC 0.750, precision 0.527, recall 0.755**. So true
-setup precision is ~0.53–0.65 (not 0.05–0.20) — but **AUC agrees (~0.75–0.80)**: moderate, not sharp, separability.
-
-**Read:** the hypothesis "buries good setups" holds **at the top of the ranking, not at a permissive threshold** —
-recall@op is 0.79, but the top pick is a valid setup only **19% of the time on hard** (p@1). On hard the base rate
-is **2.3%** (≈1 needle in 43); AUC 0.75 is simply not sharp enough to float that needle to #1 → the search dives
-wrong subtrees first (ties to Q2/Q3). ![[clsdiag_roc_pr.png]] ![[clsdiag_qhist.png]]
-
-### C2 — Opener-detector (second push / dive): q vs "opens goal" (sim-GT same-object; 3-seed mean±std)
-
-| tier | n | base | ROC-AUC | PR-AUC | **prec@op** | recall@op | **FPR@op** | p@1 | p@5 | r@5 |
-|---|---|---|---|---|---|---|---|---|---|---|
-| overall | 12870 | 0.125 | **0.867** | 0.591 | **0.373** | 0.780 | **0.190** | 0.619 | 0.502 | 0.428 |
-| easy | 4260 | 0.165 | 0.861 | 0.651 | 0.529 | 0.708 | 0.130 | 0.701 | 0.576 | 0.368 |
-| medium | 3810 | 0.124 | 0.885 | 0.603 | 0.360 | 0.840 | 0.213 | 0.620 | 0.510 | 0.471 |
-| **hard** | 4800 | 0.089 | **0.866** | 0.553 | **0.290** | 0.786 | 0.192 | 0.534 | 0.418 | 0.448 |
-
-**Read:** hypothesis "decent recall, weak precision" **confirmed** — recall@op 0.78 and AUC **0.87 > setup 0.80**
-(the dive is the stronger head, GT-confirming Q1), but **precision@op 0.37 (0.29 hard)**: at its 0.78-recall
-operating point ~⅔ of flagged openers are false. Precision/FPR IS the dive head's weak axis.
-
-### C3 — Dead-end false-positives (the "wrong subtree" cost, sim-GT)
-Truly-dead wrong subtrees = a label-"wrong" first push whose exhaustive labeled-object dive opens the goal **0**
-times (416 subtrees, mean **67** candidate 2nd-pushes each). How many the head scores highly:
-
-| tier | n_dead | subtree size | FP above **opener op-point** mean(med,max) | FP above **winning setup's q** mean(med,max) |
-|---|---|---|---|---|
-| overall | 416 | 67 | **8.6** (4, 89) | **15.7** (10, 109) |
-| easy | 115 | 71 | 8.9 (7, 57) | 13.7 (7, 86) |
-| medium | 140 | 65 | 7.2 (4, 72) | 16.7 (10, 83) |
-| **hard** | 161 | 67 | 6.9 (2, 94) | 16.2 (11, 109) |
-
-So per wrong subtree the head deems **~9 second pushes as "opener-grade"** and **~16 as better than the correct
-setup** — all dead. This is the measured version of the "~18 plausible-but-dead dives"; the head **cannot reject a
-dead subtree**. ![[clsdiag_deadend.png]]
-
-### C4 — Separability / dynamic range
-One-number separability: setup **ROC-AUC 0.80** (hard 0.75), opener **0.87** (hard 0.87) — **real signal, dive >
-setup**. But the setup positive/negative q-overlap is heavy: raw-q medians 0.077 (setup) vs 0.021 (non), **sigmoid
-0.519 vs 0.505 → gap 0.014** (reproduces the card's 0.016 top-vs-setup gap; std 0.044) with **13%** of non-setups
-scoring ≥ the median setup. So it is **not "no dynamic range"** — there is 0.75–0.87 AUC of signal; the sigmoid
-squash + tiny raw gap make the **top-k ordering fragile on low-prevalence (hard) pools**, which is exactly where
-best-first lives. `clsdiag_summary` is the one-glance panel (setup vs opener × overall/hard). ![[clsdiag_summary.png]]
-
-### What to optimize — verdict [on numbers]
-The three candidate diagnoses resolve cleanly:
-- **Low AUC / "no signal" — REJECTED.** Setup AUC 0.80, opener AUC 0.87. The head is not signal-starved.
-- **Low setup top-k recall — CONFIRMED (primary).** p@1=0.32 (0.19 hard), r@5=0.34, AUC 0.75 on hard where the
-  setup base rate is 2.3%. This gates the **ceiling** (misses = buried setups) and the **sim tail** (buried setup →
-  many wrong dives; card corr(n_sim, first-push rank)=**0.79** ≫ dive 0.29). Highest leverage.
-- **Low dive precision / dead-end rejection — CONFIRMED (secondary).** opener precision@op 0.37 (0.29 hard);
-  **~9–16 dead 2nd-pushes per wrong subtree outscore the operating point / the correct setup.** This sets the
-  **cost per wrong dive** (~9–16 wasted sims each), compounding the setup burial into the heavy tail.
-
-⇒ **Optimize a setup-value target FIRST** (multi-horizon / value-to-solution, so a setup that opens nothing yet
-still scores high → lift setup **p@1 / hard-AUC**), and **add a dead-end/precision signal on the dive head SECOND**
-(so a wrong subtree is abandoned in ~2 dives, not ~9–16 → lift opener **precision@op**). The single number that
-picks setup-value as primary: **corr(n_sim, first-push rank)=0.79**. **NOT** horizon-conditioning (Hz, verified no
-help) and **NOT** `dive_bonus` (it raises the dead-end FP). **Verified** here: all C1–C4 statistics.
-**Residual (fix hypotheses, untested):** that a V(s1) / multi-horizon target actually raises setup p@1/AUC, and
-that a precision target lifts opener precision without costing its recall — the card's "Next" experiment.
+Scripts: `scripts/sandbox/rankdiag_analyze.py` (record stats), `rankdiag_rescore.py` (re-score the true-setup
+rank), `rankdiag_classifier.py` (the detector re-score + simulated labels, 3 seeds), `rankdiag_cls_agg.py`
+(metrics + `clsdiag_*` plots), `rankdiag_plots.py` (`rankdiag_*` plots). Data:
+`…/scratch_namo/eval/fullsearch/rankdiag/` (records) and `…/rankdiag/cls/cls_metrics.json` (detector metrics).
+Model scored raw; the sigmoid is order-preserving so it changes no ranking.
 
 ## Discussion
 _(you ↔ Claude — ask here; newest at bottom.)_
 
-**[Claude 2026-07-04] Does step_penalty share this bottleneck? YES — verified (record-based, same method,
-NoHz numbers reproduced exactly ⇒ join correct).** The −1/0/1 reward reshaping did NOT touch the setup-ranking
-bottleneck — consistent with its 2push-search wash.
+**[Claude 2026-07-04] Does step_penalty share this bottleneck? YES — verified** (same method; the NoHz numbers
+reproduce exactly, so the comparison is sound). Its −1/0/1 reward did **not** touch the setup-ranking problem,
+which is why it was a wash on 2-push search.
 
-| H1 first-push (setup), rank 0 = winner | #1 % | mean | ≥rank5 % |
+| setup ranking (rank 0 = model's #1 pick) | picks #1 | mean rank | buried ≥5 |
 |---|---|---|---|
 | overall — NoHz / step_pen | 50.9 / 49.3 | 3.28 / 3.41 | 22.0 / 22.6 |
 | **hard** — NoHz / step_pen | **39.1 / 34.8** | **4.68 / 5.14** | 30.6 / 32.9 |
-| H2 dive, overall — NoHz / step_pen | 70.0 / 69.4 | 2.05 / 2.01 | — |
+| finish/dive, overall — NoHz / step_pen | 70.0 / 69.4 | 2.05 / 2.01 | — |
 
-Robust misses (fail all 3 seeds): NoHz 21, **step_pen 26** (16 shared — a superset-ish failure on hard, not a
-disjoint set). So step_pen's setup ranking is ≈NoHz overall and **worse on hard** (the tier that gates 100%);
-the dive stays the stronger head for both. **Both models are blind to setups** — the fix must be setup-value-aware
-(V(s1) / multi-horizon), not reward-relabeling on the open-now axis.
+Robust misses (missed by all 3 seeds): NoHz **21**, step_penalty **26** (16 shared — a *superset* of NoHz's
+failures on hard, not a different set). So step_penalty's setup ranking is about the same overall and **worse on
+hard** (the tier that gates 100%); the finish stays the stronger detector for both. **Both models are blind to
+setups** — the fix has to make the model value a setup (leads-to-a-solution), not relabel the open-now signal.
