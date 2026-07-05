@@ -144,6 +144,109 @@ variants that inject the state value) on the 371 hard episodes + the 21 misses, 
 setup's effective rank drops from ~16/38 toward the top and whether hard@900 lifts above 90.2%. If lookahead
 wins, it argues the real gain is a setup-aware **value** target for the next model.
 
+## Classifier grounding — the q-head scored as a detector vs pure2push GT
+_(Claude, 2026-07-04)_ Every observation above is now backed by a measured detector statistic. **Scripts:**
+`scripts/sandbox/rankdiag_classifier.py` (re-score + sim-GT, sharded on arrakis CPU, 3 ckpt-seeds),
+`rankdiag_cls_agg.py` (metrics + `assets/clsdiag_*.png`). Data: `…/eval/fullsearch/rankdiag/cls/`
+(68,345 first-push rows over **all 1018** pure2push episodes; 49,540 second-push rows over a 180-episode
+stratified sample). q reported **raw** (E[bin]); sigmoid = 1/(1+e⁻ʳᵃʷ) is monotone → identical AUC/ranks.
+
+**Ground truth — exactly how (no silent proxies).**
+- **Setup GT (first push):** pure2push `valid_first_push` (pure2push is all-pure-2push → `valid_1push`=∅). This is
+  the exhaustive-1push ∪ sampled-2push key `build_2push_validset.py` writes and that the card/`eval_m3`/fullsearch
+  already grade on. The 2-push chain is **same labeled object twice** (trial log keyed by `chosen_object_id`).
+- **Opener GT (second push):** DERIVED BY SIMULATION — from a real setup's post-push state s1, push the **labeled
+  object** again (matches the same-object chain) and label OPENER iff `goal_open_pts` (≥20/100 s0-sampled goal
+  points reachable, frac 0.2 — the collection's own `_validate_opening` criterion). Seed-independent physics.
+- **Caveat, MEASURED:** `valid_first_push`'s 2nd-push expansion was **subsampled**, so it is a **lower bound** on
+  setups: simulating the labeled-object dive from **label-"wrong" first pushes finds an opener 23% of the time**
+  (easy 36% / med 22% / hard 11%). ⇒ setup-detector **precision/FPR vs the label are bounds**; **recall is clean**
+  (labeled positives are true). A deconfounded **sim-GT** setup view (720 dove first pushes, true labels) is given.
+
+### Evidence ledger — each claim → its grounding number/plot
+
+| Claim (from Q1–Q5 / verdict) | Grounding statistic (this pass) | Verdict |
+|---|---|---|
+| Setup under-ranking is THE bottleneck | setup **p@1=0.32** overall / **0.19 hard** (top pick is a valid setup only 19–32%); r@5=0.34; ROC-AUC 0.80→**0.75 hard**; `clsdiag_summary` | ✔ but it's low **top-k**, not zero recall |
+| The dive recognizes winners | opener **ROC-AUC 0.87**, recall@op 0.78, **p@1=0.62** (vs setup 0.32) — the dive head is the stronger ranker | ✔ (Q1 confirmed on GT) |
+| Head can't reject dead ends | opener **precision@op 0.37** (0.29 hard); dead-end **FP=8.6 above op / 15.7 above the setup's q per wrong subtree**; `clsdiag_deadend` | ✔ measured |
+| "No dynamic range" | AUC 0.80/0.87 = real signal; but setup q-gap sig **0.014** (raw 0.077 vs 0.021), overlap 0.13; `clsdiag_qhist` | ↺ signal exists, **top-k ordering fragile** (not absent) |
+| "~18 plausible-but-dead dives / wrong subtree" | **8.6 (med 4, max 89)** dead 2nd-pushes score above the opener operating point; **15.7 (med 10, max 109)** above the winning setup's q | ✔ real number ≈ 9–16 |
+| Dive-vs-breadth 94/6, NN cost negligible | unchanged (Q3 d0=6%, Q4 NN=3% of wall) | ✔ (prior) |
+| step_penalty shares it | unchanged (Discussion below) | ✔ (prior) |
+
+### C1 — Setup-detector (first push): q vs "valid setup", by difficulty (label-GT; 3-seed mean±std)
+
+| tier | n | base | ROC-AUC | PR-AUC | prec@op¹ | recall@op | FPR@op | **p@1** | r@1 | r@3 | r@5 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| overall | 68345 | 0.090 | **0.805** | 0.229 | 0.204 | 0.789 | 0.304 | **0.324** | 0.090 | 0.229 | 0.336 |
+| easy | 18840 | 0.191 | 0.799 | 0.391 | 0.374 | 0.799 | 0.316 | 0.483 | 0.036 | 0.114 | 0.191 |
+| medium | 26210 | 0.076 | 0.784 | 0.180 | 0.163 | 0.777 | 0.326 | 0.357 | 0.080 | 0.230 | 0.353 |
+| **hard** | 23295 | **0.023** | **0.752** | **0.052** | **0.046** | 0.783 | 0.392 | **0.187** | 0.135 | 0.301 | 0.409 |
+
+¹ vs the incomplete label → **lower bound**. Deconfounded **sim-GT** (clean per-first-push labels, 720 dove pushes):
+overall AUC 0.771, **precision 0.648**, recall 0.675; **hard AUC 0.750, precision 0.527, recall 0.755**. So true
+setup precision is ~0.53–0.65 (not 0.05–0.20) — but **AUC agrees (~0.75–0.80)**: moderate, not sharp, separability.
+
+**Read:** the hypothesis "buries good setups" holds **at the top of the ranking, not at a permissive threshold** —
+recall@op is 0.79, but the top pick is a valid setup only **19% of the time on hard** (p@1). On hard the base rate
+is **2.3%** (≈1 needle in 43); AUC 0.75 is simply not sharp enough to float that needle to #1 → the search dives
+wrong subtrees first (ties to Q2/Q3). ![[clsdiag_roc_pr.png]] ![[clsdiag_qhist.png]]
+
+### C2 — Opener-detector (second push / dive): q vs "opens goal" (sim-GT same-object; 3-seed mean±std)
+
+| tier | n | base | ROC-AUC | PR-AUC | **prec@op** | recall@op | **FPR@op** | p@1 | p@5 | r@5 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| overall | 12870 | 0.125 | **0.867** | 0.591 | **0.373** | 0.780 | **0.190** | 0.619 | 0.502 | 0.428 |
+| easy | 4260 | 0.165 | 0.861 | 0.651 | 0.529 | 0.708 | 0.130 | 0.701 | 0.576 | 0.368 |
+| medium | 3810 | 0.124 | 0.885 | 0.603 | 0.360 | 0.840 | 0.213 | 0.620 | 0.510 | 0.471 |
+| **hard** | 4800 | 0.089 | **0.866** | 0.553 | **0.290** | 0.786 | 0.192 | 0.534 | 0.418 | 0.448 |
+
+**Read:** hypothesis "decent recall, weak precision" **confirmed** — recall@op 0.78 and AUC **0.87 > setup 0.80**
+(the dive is the stronger head, GT-confirming Q1), but **precision@op 0.37 (0.29 hard)**: at its 0.78-recall
+operating point ~⅔ of flagged openers are false. Precision/FPR IS the dive head's weak axis.
+
+### C3 — Dead-end false-positives (the "wrong subtree" cost, sim-GT)
+Truly-dead wrong subtrees = a label-"wrong" first push whose exhaustive labeled-object dive opens the goal **0**
+times (416 subtrees, mean **67** candidate 2nd-pushes each). How many the head scores highly:
+
+| tier | n_dead | subtree size | FP above **opener op-point** mean(med,max) | FP above **winning setup's q** mean(med,max) |
+|---|---|---|---|---|
+| overall | 416 | 67 | **8.6** (4, 89) | **15.7** (10, 109) |
+| easy | 115 | 71 | 8.9 (7, 57) | 13.7 (7, 86) |
+| medium | 140 | 65 | 7.2 (4, 72) | 16.7 (10, 83) |
+| **hard** | 161 | 67 | 6.9 (2, 94) | 16.2 (11, 109) |
+
+So per wrong subtree the head deems **~9 second pushes as "opener-grade"** and **~16 as better than the correct
+setup** — all dead. This is the measured version of the "~18 plausible-but-dead dives"; the head **cannot reject a
+dead subtree**. ![[clsdiag_deadend.png]]
+
+### C4 — Separability / dynamic range
+One-number separability: setup **ROC-AUC 0.80** (hard 0.75), opener **0.87** (hard 0.87) — **real signal, dive >
+setup**. But the setup positive/negative q-overlap is heavy: raw-q medians 0.077 (setup) vs 0.021 (non), **sigmoid
+0.519 vs 0.505 → gap 0.014** (reproduces the card's 0.016 top-vs-setup gap; std 0.044) with **13%** of non-setups
+scoring ≥ the median setup. So it is **not "no dynamic range"** — there is 0.75–0.87 AUC of signal; the sigmoid
+squash + tiny raw gap make the **top-k ordering fragile on low-prevalence (hard) pools**, which is exactly where
+best-first lives. `clsdiag_summary` is the one-glance panel (setup vs opener × overall/hard). ![[clsdiag_summary.png]]
+
+### What to optimize — verdict [on numbers]
+The three candidate diagnoses resolve cleanly:
+- **Low AUC / "no signal" — REJECTED.** Setup AUC 0.80, opener AUC 0.87. The head is not signal-starved.
+- **Low setup top-k recall — CONFIRMED (primary).** p@1=0.32 (0.19 hard), r@5=0.34, AUC 0.75 on hard where the
+  setup base rate is 2.3%. This gates the **ceiling** (misses = buried setups) and the **sim tail** (buried setup →
+  many wrong dives; card corr(n_sim, first-push rank)=**0.79** ≫ dive 0.29). Highest leverage.
+- **Low dive precision / dead-end rejection — CONFIRMED (secondary).** opener precision@op 0.37 (0.29 hard);
+  **~9–16 dead 2nd-pushes per wrong subtree outscore the operating point / the correct setup.** This sets the
+  **cost per wrong dive** (~9–16 wasted sims each), compounding the setup burial into the heavy tail.
+
+⇒ **Optimize a setup-value target FIRST** (multi-horizon / value-to-solution, so a setup that opens nothing yet
+still scores high → lift setup **p@1 / hard-AUC**), and **add a dead-end/precision signal on the dive head SECOND**
+(so a wrong subtree is abandoned in ~2 dives, not ~9–16 → lift opener **precision@op**). The single number that
+picks setup-value as primary: **corr(n_sim, first-push rank)=0.79**. **NOT** horizon-conditioning (Hz, verified no
+help) and **NOT** `dive_bonus` (it raises the dead-end FP). **Verified** here: all C1–C4 statistics.
+**Residual (fix hypotheses, untested):** that a V(s1) / multi-horizon target actually raises setup p@1/AUC, and
+that a precision target lifts opener precision without costing its recall — the card's "Next" experiment.
+
 ## Discussion
 _(you ↔ Claude — ask here; newest at bottom.)_
 
