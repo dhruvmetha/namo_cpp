@@ -147,12 +147,23 @@ the one-push pool is tiny (both eventually solve everything), so the contest is 
 Reactive open-rate (secondary), Δ = step-pen − NoHz-v3: 2push open@2 all **−2.5** (hard −3.5); 1push open@1 all
 **+1.0** (hard **+2.5**) — the same 1push-hard signal the search shows.
 
+**Table 3c. Fair 3-way wall-time** (interleaved, sapphirerapids-exclusive; avg t_wall per instance, seconds). The
+timed NoHz-v3 reproduces the full-search sim anchor bit-for-bit (0/2341 mismatch) and matches its emeraldrapids
+wall-times within ~5%, so this run pools.
+
+| horizon | random | NoHz-v3 | step-pen |
+|---|---|---|---|
+| 2push | 26.7 | 16.0 | 15.6 |
+| 1push | 1.35 | 0.70 | 0.63 |
+
 **Finding.** The result **splits by horizon**. On **2push** (setup ranking — the harder, primary axis) the signed
 target is a **wash**: tied at the ceiling (95.4 vs 95.3) and *marginally worse* at low budgets (@2 36.9 vs 38.7)
 exactly where a sharper ranker should win, at more sims (58 vs 55). On **1push** (immediate-open ranking) it earns
 a small, real edge — **solve@1 83.3 vs 82.3 (+1.0 all, +2.5 hard)** and leads the whole low-budget curve, though
 @900 ties. Best-first solve@1 reproduces reactive open@1 *exactly* (step-pen 83.3 = 83.3), so two independent
-pipelines agree the 1push-hard gain is real. **Call: 0/0.9/1 stays incumbent** — it wins the harder 2push axis
+pipelines agree the 1push-hard gain is real. **Wall-time agrees** (Table 3c): 2push step-pen ≈ NoHz (15.6 vs
+16.0 s, tie), both ≪ random (26.7 s) with the gap on hard (~27 s vs 48 s); 1push both ~½ of random — no horizon
+where the signed target costs time. **Call: 0/0.9/1 stays incumbent** — it wins the harder 2push axis
 and the 1push edge is small and ceiling-tied — but the hypothesis is **not cleanly false**: the signed target
 sharpens the *open-now* decision, not the *setup* decision. Natural follow-up: apply −1/0/1 to the open-now (H1)
 head only, keep 0/0.9/1 for setup — bank the 1push gain without the 2push wash.

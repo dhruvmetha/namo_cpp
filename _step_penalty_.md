@@ -3,7 +3,7 @@ type: experiment
 status: done
 created: 2026-07-03
 updated: 2026-07-04
-metric: "−1/0/1 vs 0/0.9/1 — SOFTENED reject: 2push SEARCH tied (solve@900 95.4 vs 95.3) → reject; 1push SEARCH small ranking edge (solve@1 +1.0 all, +2.5 hard; ceiling tied ~99.7). Reactive 2push −2.5, 1push +1.0. Fair time deferred (sims-only, verdict-sufficient)"
+metric: "−1/0/1 vs 0/0.9/1 — SOFTENED reject: 2push SEARCH tied (solve@900 95.4 vs 95.3) → reject; 1push SEARCH small ranking edge (solve@1 +1.0 all, +2.5 hard; ceiling tied ~99.7). Reactive 2push −2.5, 1push +1.0. Fair 3-way wall-time (sapphirerapids-excl, interleaved) CONFIRMS sims: 2push step_pen≈NoHz (15.6 vs 16.0s avg, both ≪ random 26.7s, gap on hard); 1push step_pen a hair faster (0.63 vs 0.70s), both ~½ random"
 commit:
 tags:
   - experiment
@@ -53,12 +53,16 @@ sim). **Eval state:**
   lowest-val_loss ckpt per seed as reactive/2push (s1 `awlkn20p/ep014`, s2 `ud5rquhc/ep012`, s3
   `5smrk5sb/ep012`) so seed identity is consistent across horizons. All 3 COMPLETED (~20–22 min), 1323/1323
   each. Baselines `nohz_s*`/`rand_s*` reused untouched.
-- **Fair wall-TIME deferred (sims-only shipped).** Best-first SIMS are machine-independent (valid on any box);
-  a same-hardware TIME 3-way needs step_penalty timed on the **emeraldrapids-exclusive** setup NoHz-v3's 2push
-  times used, and those Amarel timing jobs are stalled (2push `57845891` 5/16 shards; backfill `57846177` +
-  1push `57846712` PD/empty). Per orchestrator: **ship sims-only** — the verdict is decisive on sims, and
-  step_penalty uses ≥ NoHz sims, so a fair-time run would only reinforce it. step_penalty `t_wall` is NOT put on
-  the same axis as NoHz's emerald times (cross-box rule).
+- **Fair wall-TIME 3-way — now COMPLETE (see the wall-TIME subsection in Result).** Interleaved
+  (NoHz-v3 / step_penalty / random per episode, one `--exclusive` node), pinned **sapphirerapids**
+  (`--constraint=sapphirerapids`; emeraldrapids/icelake were ~0-idle, so the strict emerald pin used by
+  `_full_search` was infeasible — sapphirerapids is same-microarch across all shards, and its NoHz-v3 anchor
+  times match `_full_search`'s emerald within ~3–5 %, sims bit-identical). Jobs: **2push** `57845891` (shards
+  0–4, SHARD=64 → eps [0,320)) + `57846177` (shards 10–31, SHARD=32 → eps [320,1018)) = **1018/1018 complete,
+  no gaps** — the earlier "missing shards 5–9" was a false alarm (shards 0–4 at double width already cover
+  [160,320)); **1push** `57846712` = **1323/1323 complete**. Dirs `eval/fullsearch_time/tri_s1` +
+  `eval/fullsearch_time_1push/tri1_s1`. (A speculative backfill array 57852575 for shards 5–9 was submitted then
+  **cancelled** on realizing the data was already complete — it would have duplicated eps [160,320).)
 
 ## Result + Verdict
 _(Claude, 2026-07-04)_ **CAR, mean ± std across seeds (random 10 · NoHz-v3 3 · step_penalty 3).** Δ columns =
@@ -164,6 +168,78 @@ _(3-way grouped bars by difficulty, both horizons; error bars = std across seeds
 (−1.4 → −3.5, worse as difficulty rises, −2.5 overall); on **1push** it is **ahead** on the harder tiers (hard
 **+2.5**, medium +0.8, all +1.0), tied on easy. Both crush random everywhere (2push ~8–9×, 1push +45 all).
 
+### Fair 3-way wall-TIME (both horizons, sapphirerapids-exclusive interleaved) — the last deferred cell, now CLOSED
+
+_(Claude, 2026-07-04)_ **Interleaved same-hardware timing**: `time_bestfirst.py` runs all 3 rankers
+back-to-back **per episode** on one **`--exclusive`** node — the "hz" slot = **NoHz-v3** (`qfull_nohz_v3_v4hq_s1`),
+"nohz" slot = **step_penalty** (`qfull_nohz_steppen_v3_s1`), plus **random** (rng=0). Every shard pinned to
+**sapphirerapids** (`--constraint=sapphirerapids`; emeraldrapids/icelake were ~0-idle/drained). **1 timing seed**
+(s1 ckpts + rng 0) → point estimates, no seed band; the solve-rate seed variance lives in the 3-seed sims tables
+above. Data: `eval/fullsearch_time/tri_s1` (2push, 1018/1018) + `eval/fullsearch_time_1push/tri1_s1` (1push,
+1323/1323) — both complete, all shards sapphirerapids/hdr (`halk`) nodes. Aggregation `/tmp/steppen_time_agg.py`
+(canonical binning, positional join; `/tmp/steppen_time.json`).
+
+**2push — solve@wall-time (t_wall ≤ T) + avg t_wall (s), CAR, sapphirerapids-exclusive**
+
+| difficulty | ranker | 1 s | 5 s | 10 s | 30 s | 60 s | 240 s | avg t_wall | to-solve |
+|---|---|---|---|---|---|---|---|---|---|
+| easy (238) | NoHz-v3 | 61.8 | 86.1 | 90.8 | 94.5 | 97.1 | 99.2 | 6.39 | 5.51 |
+| easy | **step_pen** | 62.6 | 88.2 | 92.4 | 95.0 | 96.2 | 99.2 | **5.80** | 4.93 |
+| easy | random | 18.9 | 69.3 | 83.2 | 95.8 | 98.7 | 100.0 | 6.80 | 6.80 |
+| medium (409) | NoHz-v3 | 44.0 | 73.1 | 80.4 | 90.5 | 94.6 | 97.8 | 12.14 | 9.15 |
+| medium | **step_pen** | 50.1 | 75.6 | 83.9 | 92.2 | 95.4 | 98.0 | **10.48** | 8.00 |
+| medium | random | 11.0 | 45.0 | 61.6 | 82.2 | 90.5 | 97.3 | 18.86 | 16.18 |
+| hard (371) | NoHz-v3 | 31.3 | 55.0 | 63.1 | 76.3 | 83.0 | 91.4 | 26.28 | 16.42 |
+| hard | **step_pen** | 29.9 | 55.3 | 64.7 | 79.5 | 84.6 | 91.1 | **27.40** | 14.70 |
+| hard | random | 6.5 | 26.1 | 35.8 | 55.0 | 66.6 | 79.5 | 48.09 | 27.59 |
+| **all (1018)** | NoHz-v3 | 43.5 | 69.5 | 76.5 | 86.2 | 91.0 | 95.8 | **15.95** | 10.80 |
+| **all** | **step_pen** | 45.7 | 71.1 | 78.9 | 88.2 | 91.7 | 95.8 | **15.55** | 9.58 |
+| **all** | random | 11.2 | 43.8 | 57.3 | 75.4 | 83.7 | 91.5 | **26.69** | 17.41 |
+
+**1push — solve@wall-time (t_wall ≤ T) + avg t_wall (s), CAR, sapphirerapids-exclusive**
+
+| difficulty | ranker | 0.5 s | 1 s | 2 s | 5 s | 10 s | 30 s | avg t_wall | to-solve |
+|---|---|---|---|---|---|---|---|---|---|
+| easy (447) | NoHz-v3 | 97.8 | 99.8 | 99.8 | 99.8 | 99.8 | 99.8 | 0.28 | 0.28 |
+| easy | **step_pen** | 99.1 | 99.8 | 99.8 | 99.8 | 99.8 | 99.8 | **0.27** | 0.27 |
+| easy | random | 93.7 | 99.6 | 99.8 | 99.8 | 99.8 | 99.8 | 0.24 | 0.24 |
+| medium (435) | NoHz-v3 | 89.4 | 97.9 | 99.5 | 100.0 | 100.0 | 100.0 | 0.38 | 0.38 |
+| medium | **step_pen** | 92.2 | 99.1 | 99.8 | 100.0 | 100.0 | 100.0 | **0.36** | 0.36 |
+| medium | random | 63.2 | 87.6 | 97.5 | 100.0 | 100.0 | 100.0 | 0.58 | 0.58 |
+| hard (441) | NoHz-v3 | 53.7 | 71.2 | 81.9 | 94.1 | 98.4 | 99.3 | 1.43 | 1.34 |
+| hard | **step_pen** | 57.4 | 76.2 | 84.8 | 94.6 | 98.4 | 99.3 | **1.25** | 1.17 |
+| hard | random | 17.2 | 33.6 | 54.9 | 77.8 | 93.7 | 99.3 | 3.25 | 3.18 |
+| **all (1323)** | NoHz-v3 | 80.3 | 89.6 | 93.7 | 98.0 | 99.4 | 99.7 | **0.70** | 0.67 |
+| **all** | **step_pen** | 82.9 | 91.7 | 94.8 | 98.1 | 99.4 | 99.7 | **0.63** | 0.60 |
+| **all** | random | 58.2 | 73.6 | 84.1 | 92.5 | 97.8 | 99.7 | **1.35** | 1.33 |
+
+![[steppen_time_bydiff.png]]
+_(3-way success-vs-wall-time by difficulty × horizon; green step_pen sits on top of blue NoHz-v3 in every panel,
+red random trails — biggest gap on hard. Source `assets/steppen_time_bydiff.png`; per-horizon
+`assets/steppen_time_2push.png`, `assets/steppen_time_1push.png`.)_
+
+**Read — wall-time confirms the sims verdict.** step_penalty and NoHz-v3 are **tied on wall-time**, both far
+below random, exactly as the machine-independent sims said:
+- **2push:** avg t_wall step_pen **15.55 s** ≈ NoHz-v3 **15.95 s** (−0.4 s, a wash within single-seed noise;
+  easy/medium step_pen a hair cheaper, hard +1.1 s but to-solve faster 14.7 vs 16.4 s). Both **≪ random 26.69 s**,
+  and — like the solve-rate edge — the gap **lives on hard**: models ~27 s vs random **48 s** (@30 s ≈78 % vs 55 %).
+  On easy the three converge (~6–7 s) since the sim count is already tiny.
+- **1push:** step_pen **0.63 s** vs NoHz-v3 **0.70 s** (a hair faster, mirroring its front-loaded 1push ranking
+  edge; hard **1.25 vs 1.43 s**), both **~½ of random's 1.35 s**. Everything solves sub-second on easy/medium.
+
+**Pooling / validity (this run pools with prior timing).**
+- **Exact-sims match (rigorous, machine-independent):** the tri **NoHz-v3** (deterministic) reproduces
+  `_full_search`'s `nohz_s1` search **bit-for-bit — 1018/1018 (2push) and 1323/1323 (1push), 0 mismatch** → the
+  timed run is the *same search*, just clocked. Random pools **distributionally** (single rng-0 realization
+  differs episode-wise, but tri random 2push all @900 sims 91.6 ≈ 91.0, avg sims 184 ≈ 185).
+- **Anchor time cross-check vs `_full_search` (emeraldrapids):** on the load-bearing cells the sapphirerapids
+  anchors match emeraldrapids within ~3–5 % — **hard NoHz-v3 26.28 ≈ 26.3 s**, hard random 48.1 vs 46.5, all
+  NoHz-v3 15.95 vs 15.5, all random 26.69 vs 25.4; easy ~6–7 s both. Since NoHz-v3 **sims are bit-identical**, the
+  ≤5 % time delta is pure hardware/jitter → **sapphirerapids ≈ emeraldrapids for this OMP-1 CPU workload**. Per
+  the cross-box rule these seconds are **not** placed on `_full_search`'s emeraldrapids axis, but the exact-sims
+  match + tight anchor agreement confirm the 3-way pools. The 3-way itself is fully **self-contained** (all three
+  rankers interleaved on the same sapphirerapids node per episode), so its fairness needs no external anchor.
+
 ### Validation (join/binning reproduces the two source cards)
 
 Recomputed the reused `all` rows from the same leaves with my binning — exact match:
@@ -207,9 +283,10 @@ stays the incumbent** — but the hypothesis is **not cleanly false**: the signe
 *immediate-open* ranking, it just doesn't help the *setup* ranking that 2push needs.
 
 ## Next
-- **Both search horizons + both regimes are now closed.** Remaining loose end: the fair-TIME 3-way (deferred,
-  sims-only shipped) — resurrect the stalled emeraldrapids-exclusive timing jobs only if a wall-clock number is
-  wanted; sims already decide it and step_penalty uses ≥ NoHz sims.
+- **Everything is now closed** — both search horizons, both regimes, **and** the fair 3-way wall-TIME
+  (sapphirerapids-exclusive interleaved, both horizons; see Result). Wall-time **confirms** the sims verdict:
+  2push step_pen ≈ NoHz-v3 (~16 s, both ≪ random ~27 s, gap on hard), 1push step_pen a hair faster (0.63 vs
+  0.70 s), both ~½ random. No loose ends remain.
 - The interesting thread the split exposes: the signed target helps the **immediate-open** decision (1push-hard,
   solve@1 +2.5) but not the **setup** decision (2push first-push ranking). That points at the H1 (open-now) vs
   H2 (open-later) head/calibration — a targeted follow-up could apply the signed target **only to the H1 head**
