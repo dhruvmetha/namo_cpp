@@ -60,58 +60,50 @@ Greedy best-first search, budget **900 sims/instance**, combine=q: NoHz-v3's pre
 uniform-random ordering. 10 random seeds, 3 model seeds. → card: [[_full_search]] (full per-cutoff tables,
 a/b/c/d diagnostics, time-by-difficulty).
 
-**Table 2. 2push** — best-first solve-rate within **budget 900 sims** (%), and cost (avg sims to solve).
-Pure-2-push set, n = 1018.
+**Table 2a. 2push wall-time** — % solved within wall-clock *t*, and avg t_wall per instance (emeraldrapids-exclusive,
+model & random same hardware). Pure-2-push set, n = 1018. *(This is the lead: where does the time actually go?)*
 
-| difficulty | random | **NoHz-v3** | avg sims: rand → NoHz |
-|---|---|---|---|
-| easy | 99.8 ± 0.2 | 98.9 ± 0.4 | 43 → 38 |
-| medium | 97.0 ± 0.7 | 97.8 ± 0.8 | 123 → 62 |
-| hard | 78.7 ± 2.1 | **90.2 ± 0.8** | 344 → 165 |
-| *overall* | *91.0 ± 0.8* | ***95.3 ± 0.6*** | *185 → 94* |
-
-**Table 2b. 1push** — best-first on the one-push set, budget 900 sims. n = 1323. On this set the pool is small
-enough that best-first almost always finds *a* solver, so both methods hit the same ceiling — the win moves to
-**rank and cost**, not final solve-rate.
-
-| difficulty | solve@900: random / NoHz-v3 | avg sims: random → NoHz-v3 |
-|---|---|---|
-| easy | 99.8 / 99.8 | 2 → 1 |
-| medium | 100.0 / 100.0 | 3 → 1 |
-| hard | 99.3 / 99.2 | 20 → 7 |
-| *overall* | *99.7 / 99.7* | *8 → 3* |
-
-*1push wall-time (NoHz-v3 0.70 s / random 1.35 s, sapphirerapids) is captured by the step-penalty 3-way timing —
-see §3 Table 3c; a dedicated emeraldrapids full_search 1push run was not separately needed.*
-
-![[fullsearch_success_vs_sims.png]]
-
-**Table 2c. 2push wall-time** (emeraldrapids-exclusive, model & random same hardware; avg t_wall per instance, s).
-
-| difficulty | random | **NoHz-v3** |
-|---|---|---|
-| easy | 6.3 | 7.1 |
-| medium | 17.3 | **10.6** |
-| hard | 46.5 | **26.3** |
-| *overall* | *25.4* | ***15.5*** |
+| difficulty | ranker | @1 s | @5 s | @30 s | avg t_wall (s) |
+|---|---|---|---|---|---|
+| easy | random | 21.1 | 69.0 | 96.8 | 6.3 |
+| easy | NoHz-v3 | 62.9 | 85.9 | 94.3 | 7.1 |
+| medium | random | 12.6 | 47.0 | 84.3 | 17.3 |
+| medium | NoHz-v3 | 50.0 | 74.6 | 90.5 | **10.6** |
+| hard | random | 6.7 | 25.9 | 55.7 | 46.5 |
+| hard | NoHz-v3 | 35.6 | 57.3 | 77.1 | **26.3** |
+| *all* | *random* | *12.4* | *44.5* | *76.8* | *25.4* |
+| *all* | *NoHz-v3* | *47.8* | *70.9* | *86.5* | ***15.5*** |
 
 ![[fullsearch_success_vs_time_bydiff_2push.png]]
 
-**Finding.** The aggregate gap (95.3 vs 91.0) is **modest and misleading** — the difficulty split shows the
-solve-rate win is **entirely in HARD** (+11.5 pt: 90.2 vs 78.7). On easy/medium both reach ~98% by budget 900,
-so there the model's value is **pure efficiency** — roughly **half the sims** (medium 62 vs 123). The ranker is
-strong: the winning first push is the model's **#1 pick 50.9%** of the time (top-3 69.8%) vs random's 14.9%.
-On **wall-time** (fair, emeraldrapids-exclusive) the sim-savings convert to real speed on hard (26 s vs 46 s),
-but on easy the curves **cross** (7.1 s vs 6.3 s) — when problems are already trivial, the model's per-sim
-NN-scoring overhead makes brute-force marginally faster. One tension flagged in the card: a heavy sims-to-solve
-tail (mean 94 despite median-rank-0) traces to the H1/H2 cross-head scale mismatch → a `dive_bonus` sweep is the
-natural follow-up.
+**Table 2b. 2push sims** — the *same* runs by sim count, to see **where that time goes**: % solved within budget B
+and avg sims to solve.
 
-On **1push** (Table 2b) the story is different: the one-push pool is small, so both methods reach ~99.7% by
-budget 900 in every tier — the learned value buys no extra solve-rate, only **rank and speed**. Its first pick
-already opens the goal **82.3%** vs random's **37.3%** (hard **54.2 vs 5.9**, ~9×) — and those are *exactly* the
-reactive open@1 numbers in Table 1b, because **the search's first sim is the reactive pick**. It also reaches
-the solution in **~⅓ the sims** (hard 7 vs 20). So 1push is the reactive ranking win re-expressed as efficiency.
+| difficulty | ranker | @2 | @30 | @900 | avg sims |
+|---|---|---|---|---|---|
+| easy | random | 6.6 | 66.3 | 99.8 | 43 |
+| easy | NoHz-v3 | 55.0 | 85.7 | 98.9 | 38 |
+| medium | random | 4.1 | 43.6 | 97.0 | 123 |
+| medium | NoHz-v3 | 40.7 | 75.4 | 97.8 | 62 |
+| hard | random | 1.6 | 22.0 | 78.7 | 344 |
+| hard | NoHz-v3 | 26.1 | 56.1 | **90.2** | 165 |
+| *all* | *random* | *3.7* | *41.1* | *91.0* | *185* |
+| *all* | *NoHz-v3* | *38.7* | *70.8* | ***95.3*** | *94* |
+
+![[fullsearch_success_vs_sims.png]]
+
+**1push** — sub-second either way (avg **0.70 s** NoHz-v3 vs **1.35 s** random; hard 1.25 vs 1.43 s). Both reach the
+same ~99.7% solve ceiling, so the only difference is rank: the model's first pick opens the goal **82.3%** vs
+random **37.3%** (hard 54.2 vs 5.9). Full 1push table in the card.
+
+**Finding.** In **wall-time** the model's win is real but lives **entirely on hard 2push** — **26 s vs 46 s**, and
+**48% solved in the first second** vs random's 12%. On **easy** the curves **cross** (**7.1 s vs 6.3 s**): per-sim
+NN-scoring overhead outweighs the tiny sim savings once an instance is already trivial. **The sims table shows
+why:** the advantage is front-loaded ranking — the model's #1 pick is the winner **50.9%** of the time (vs random
+14.9%), so it reaches the solution in ~half the sims (all 94 vs 185); but on easy/medium random eventually
+brute-forces the same ~98% ceiling. So the model buys **speed on hard**, not new solutions, and pays a small tax
+where problems are trivial. The heavy sims-to-solve tail (mean 94 despite median-rank-0) traces to the H1/H2
+cross-head scale mismatch → a `dive_bonus` sweep is the natural follow-up.
 
 ---
 
@@ -122,7 +114,18 @@ the solution in **~⅓ the sims** (hard 7 vs 20). So 1push is the reactive ranki
 search than the incumbent 0/0.9/1. 3-way vs random and NoHz-v3, mean ± std across seeds. → card:
 [[_step_penalty_]].
 
-**Table 3. Best-first search, 2push** (combine=q, budget 900, n = 1018) — the ranking test.
+**Table 3a. Fair 3-way wall-time** (interleaved, sapphirerapids-exclusive; avg t_wall per instance, seconds) — the
+lead. Pooling verified: the timed NoHz-v3 reproduces the full-search sim anchor bit-for-bit (0/2341 mismatch) and
+matches its emeraldrapids wall-times within ~5%.
+
+| horizon | random | NoHz-v3 | step-pen |
+|---|---|---|---|
+| 2push | 26.7 | 16.0 | 15.6 |
+| 1push | 1.35 | 0.70 | 0.63 |
+
+![[steppen_time_bydiff.png]]
+
+**Table 3b. 2push search — sims** (combine=q, budget 900, n = 1018) — the ranking diagnostic behind the time.
 
 | difficulty | ranker | @2 | @30 | @900 | sims-to-solve |
 |---|---|---|---|---|---|
@@ -138,7 +141,7 @@ search than the incumbent 0/0.9/1. 3-way vs random and NoHz-v3, mean ± std acro
 
 ![[steppen_bestfirst_sims_2push.png]]
 
-**Table 3b. Best-first search, 1push** (budget 900, n = 1323). solve@1 is the ranking metric; @900 ties because
+**Table 3c. 1push search — sims** (n = 1323). solve@1 = does the #1-ranked push open in one sim; @900 ties because
 the one-push pool is tiny (both eventually solve everything), so the contest is entirely front-loaded rank.
 
 | difficulty | ranker | solve@1 | solve@900 | sims-to-solve |
@@ -155,31 +158,18 @@ the one-push pool is tiny (both eventually solve everything), so the contest is 
 
 ![[steppen_bestfirst_sims_1push.png]]
 
-Reactive open-rate (secondary), Δ = step-pen − NoHz-v3: 2push open@2 all **−2.5** (hard −3.5); 1push open@1 all
-**+1.0** (hard **+2.5**) — the same 1push-hard signal the search shows.
+Reactive open-rate (secondary, success only), Δ = step-pen − NoHz-v3: 2push open@2 all **−2.5** (hard −3.5);
+1push open@1 all **+1.0** (hard **+2.5**) — the same 1push-hard signal the search shows.
 
-**Table 3c. Fair 3-way wall-time** (interleaved, sapphirerapids-exclusive; avg t_wall per instance, seconds). The
-timed NoHz-v3 reproduces the full-search sim anchor bit-for-bit (0/2341 mismatch) and matches its emeraldrapids
-wall-times within ~5%, so this run pools.
-
-| horizon | random | NoHz-v3 | step-pen |
-|---|---|---|---|
-| 2push | 26.7 | 16.0 | 15.6 |
-| 1push | 1.35 | 0.70 | 0.63 |
-
-![[steppen_time_bydiff.png]]
-
-**Finding.** The result **splits by horizon**. On **2push** (setup ranking — the harder, primary axis) the signed
-target is a **wash**: tied at the ceiling (95.4 vs 95.3) and *marginally worse* at low budgets (@2 36.9 vs 38.7)
-exactly where a sharper ranker should win, at more sims (58 vs 55). On **1push** (immediate-open ranking) it earns
-a small, real edge — **solve@1 83.3 vs 82.3 (+1.0 all, +2.5 hard)** and leads the whole low-budget curve, though
-@900 ties. Best-first solve@1 reproduces reactive open@1 *exactly* (step-pen 83.3 = 83.3), so two independent
-pipelines agree the 1push-hard gain is real. **Wall-time agrees** (Table 3c): 2push step-pen ≈ NoHz (15.6 vs
-16.0 s, tie), both ≪ random (26.7 s) with the gap on hard (~27 s vs 48 s); 1push both ~½ of random — no horizon
-where the signed target costs time. **Call: 0/0.9/1 stays incumbent** — it wins the harder 2push axis
-and the 1push edge is small and ceiling-tied — but the hypothesis is **not cleanly false**: the signed target
-sharpens the *open-now* decision, not the *setup* decision. Natural follow-up: apply −1/0/1 to the open-now (H1)
-head only, keep 0/0.9/1 for setup — bank the 1push gain without the 2push wash.
+**Finding.** In **wall-time** (Table 3a) step-penalty is a **non-event**: 2push **15.6 vs 16.0 s** (tie), 1push
+**0.63 vs 0.70 s** — no horizon where the signed target costs or clearly saves time; both far below random (26.7 s,
+gap on hard ~27 vs 48 s). **The sims diagnostic explains the (lack of) difference — and the one real signal.** On
+**2push** search ranking it's a wash (solve@900 95.4 vs 95.3, marginally *worse* at low budget @2 36.9 vs 38.7,
+where a sharper ranker should win). On **1push** it earns a small, real edge in the ranking metric — **solve@1 83.3
+vs 82.3 (+1.0 all, +2.5 hard)** — reproduced *exactly* in reactive open@1, so it's real. **Call: 0/0.9/1 stays
+incumbent** — it wins the harder 2push axis and the 1push edge is small and time-invisible — but the hypothesis is
+**not cleanly false**: the signed target sharpens the *open-now* decision, not the *setup* decision. Natural
+follow-up: apply −1/0/1 to the open-now (H1) head only, keep 0/0.9/1 for setup.
 
 ---
 
