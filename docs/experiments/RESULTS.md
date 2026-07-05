@@ -156,6 +156,8 @@ wall-times within ~5%, so this run pools.
 | 2push | 26.7 | 16.0 | 15.6 |
 | 1push | 1.35 | 0.70 | 0.63 |
 
+![[steppen_time_bydiff.png]]
+
 **Finding.** The result **splits by horizon**. On **2push** (setup ranking — the harder, primary axis) the signed
 target is a **wash**: tied at the ceiling (95.4 vs 95.3) and *marginally worse* at low budgets (@2 36.9 vs 38.7)
 exactly where a sharper ranker should win, at more sims (58 vs 55). On **1push** (immediate-open ranking) it earns
