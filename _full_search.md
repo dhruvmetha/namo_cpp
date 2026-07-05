@@ -203,9 +203,11 @@ fenced), so its `t_wall` is not valid timing and is deliberately NOT reported he
 
 ## Next
 The gap is largest early (reactive/low-budget) and narrows as random brute-forces the easy tail — so the
-model's value is *front-loaded search*, exactly the reactive-mode regime. Two follow-ups: (1) the 13 % of easy
-instances where ranking *hurts* + the poor-second-push tail (mean rank 2.05 with a long tail) point at the
-cross-head H1/H2 scale mismatch — a `dive_bonus` / calibration sweep could shave the deep-dive churn; (2)
+model's value is *front-loaded search*, exactly the reactive-mode regime. Two follow-ups: (1) **REFUTED / updated
+— see [[_ranker_bottleneck]]:** the diagnostic shows the dive (mean rank 2.05) is the *stronger* ranker; the
+bottleneck is the **first push (setup) being under-ranked** (on the 21 robust misses the true setup sits at
+median rank 38/70; sim-cost corr with first-push rank 0.79). So the fix is NOT `dive_bonus` / H1-H2 (single head,
+no cross-head mismatch; Hz verified no help) but ranking first-pushes by **setup value** V(s1), not myopic q; (2)
 ~~stratify by difficulty~~ **DONE (see Stratified section above):** the +4.3 pt @900 2push gap is **entirely a
 hard-tier effect** (+11.5 pt); easy/med are efficiency-only at the ceiling; 1push shares one ceiling and the
 model wins purely on early rank. Remaining: a **1push emeraldrapids-exclusive timed run** to fill the one PENDING

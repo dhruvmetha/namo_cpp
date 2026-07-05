@@ -97,13 +97,16 @@ same ~99.7% solve ceiling, so the only difference is rank: the model's first pic
 random **37.3%** (hard 54.2 vs 5.9). Full 1push table in the card.
 
 **Finding.** In **wall-time** the model's win is real but lives **entirely on hard 2push** — **26 s vs 46 s**, and
-**48% solved in the first second** vs random's 12%. On **easy** the curves **cross** (**7.1 s vs 6.3 s**): per-sim
-NN-scoring overhead outweighs the tiny sim savings once an instance is already trivial. **The sims table shows
-why:** the advantage is front-loaded ranking — the model's #1 pick is the winner **50.9%** of the time (vs random
-14.9%), so it reaches the solution in ~half the sims (all 94 vs 185); but on easy/medium random eventually
-brute-forces the same ~98% ceiling. So the model buys **speed on hard**, not new solutions, and pays a small tax
-where problems are trivial. The heavy sims-to-solve tail (mean 94 despite median-rank-0) traces to the H1/H2
-cross-head scale mismatch → a `dive_bonus` sweep is the natural follow-up.
+**48% solved in the first second** vs random's 12%. On **easy** the curves **cross** (**7.1 s vs 6.3 s**) — *not* from NN cost (scoring is only 3% of wall-time), but
+because the model's individual sims are costlier (178 vs 146 ms) and outweigh its small sim savings when an
+instance is already trivial. **The sims table shows the real story:** the model reaches the solution in ~half the
+sims (all 94 vs 185), but on easy/medium random eventually brute-forces the same ~98% ceiling — so the model buys
+**speed on hard**, not new solutions. **Where it's stuck** (full diagnostic → [[_ranker_bottleneck]]): both the
+sims tail and the 95%→100% ceiling gap trace to the **first push (the setup) being under-ranked** — the myopic
+q-head buries setups (which open nothing *yet*), so search dives wrong branches before reaching the true setup
+(sim-cost correlates **0.79** with first-push rank; on the 21 robust misses the setup sits at **median rank
+38/70**). The earlier `dive_bonus` / H1-H2 idea is **refuted** — the dive is the *stronger* ranker (mean rank
+2.05 vs the first push's 3.28); the fix is to rank first-pushes by **setup value**, not myopic q.
 
 ---
 
