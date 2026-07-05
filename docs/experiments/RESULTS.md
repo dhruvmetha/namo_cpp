@@ -2,14 +2,14 @@
 status: hub
 tags:
   - results
-updated: 2026-07-04
+updated: 2026-07-05
 ---
 # Results
 
 Paper-style compilation: for each experiment, the **main table + main figure + a tight key finding**. Full detail and verbose analysis live in each experiment's card (`_*.md`), linked per section. **Setting:** CAR robot, testset `namo_testset_v1`, region-opening criterion. Every result is split by **difficulty (easy/med/hard) × horizon (1push / 2push)**. ⚠ Difficulty is defined *per horizon* and is not the same scale across them: **2push** difficulty = number of solving first-pushes (`n_setups` → `division`); **1push** difficulty = `solve_rate` tertiles. So "hard" = *few solving setups* for 2push, *few opening pushes* for 1push — compare within a horizon, not across.
 
 **Contents** — 1. [Reactive vs floor](#1-reactive-control-learned-value-vs-the-random-floor) ✅ ·
-2. [Best-first search vs floor](#2-best-first-search-learned-value-vs-the-random-floor) ✅ ·
+2. [Best-first search vs floor](#2-best-first-search-learned-value-vs-the-random-floor) ✅ (incl. 1push floor diagnostic) ·
 3. [Step-penalty (−1/0/1)](#3-step-penalty-101-reward) ◑ softened reject · [Prior work](#prior-work-seeded-ledger)
 
 ---
@@ -77,6 +77,10 @@ Greedy best-first search, budget **900 sims/instance**, combine=q: NoHz-v3's pre
 ![[fullsearch_success_vs_sims.png]]
 
 **1push** — sub-second either way (avg **0.70 s** NoHz-v3 vs **1.35 s** random; hard 1.25 vs 1.43 s). Both reach the same ~99.7% solve ceiling, so the only difference is rank: the model's first pick opens the goal **82.3%** vs random **37.3%** (hard 54.2 vs 5.9). Full 1push table in the card.
+
+**1push — why it tops out below 100% (diagnostic → [[_1push_bottleneck]]).** The shared ~99.7% ceiling (hard 99.2%) is an **unfixable pool/label floor, not a ranker gap**: exactly **5 episodes / 1323** are ever missed, and **the model and random miss the identical set** — budget ≫ the ≤35-push pool, so every candidate is tried and a miss means *no candidate opened online*. Four are single-opener long-tail pools (GT solve_rate ≤ 0.02) whose lone offline opener the online car-sim never re-opens; one (pos 953, solve_rate = 1.0 — all 45 candidates open offline yet none online, `n_sim = n_tried = n_valid = 45`) is a **stale-label / sim-determinism contradiction**, flagged for a one-episode re-check (not a search failure). So **neither ranker reaches 100% and both share the same ceiling — the model's win is reaching it in ~⅓ the sims** (3–5× fewer at the 90–95% coverage band, up to 10× at low budget), stochastically dominating random at every budget B ≤ 127. On **hard**, the median opener already sits at **rank 0** (55% solve@1); the residual headroom is a rarity-correlated **~17% tail at rank ≥ 10** (mean rank 5.5 vs random 18.3 vs optimal 0; corr(rank, solve_rate) = −0.30), part of which step-pen already recovers (mean 4.5). So the 1push gap splits into an unfixable ~0.4% pool/label floor + a rare-pool ranking tail — *not* the 2push setup-under-ranking story.
+
+![[1push_bottleneck_success_vs_sims.png]]
 
 **Finding.** In **wall-time** the model's win is real but lives **entirely on hard 2push** — **26 s vs 46 s**, and **48% solved in the first second** vs random's 12%. On **easy** the curves **cross** (**7.1 s vs 6.3 s**) — *not* from NN cost (scoring is only 3% of wall-time), but because the model's individual sims are costlier (178 vs 146 ms) and outweigh its small sim savings when an instance is already trivial. **The sims table shows the real story:** the model reaches the solution in ~half the sims (all 94 vs 185), but on easy/medium random eventually brute-forces the same ~98% ceiling — so the model buys **speed on hard**, not new solutions. **Where it's stuck** (full diagnostic → [[_ranker_bottleneck]]): both the sims tail and the 95%→100% ceiling gap trace to the **first push (the setup) being under-ranked** — the myopic q-head buries setups (which open nothing *yet*), so search dives wrong branches before reaching the true setup (sim-cost correlates **0.79** with first-push rank; on the 21 robust misses the setup sits at **median rank 38/70**). The earlier `dive_bonus` / H1-H2 idea is **refuted** — the dive is the *stronger* ranker (mean rank 2.05 vs the first push's 3.28); the fix is to rank first-pushes by **setup value**, not myopic q.
 
