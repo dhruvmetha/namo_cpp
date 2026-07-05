@@ -2,8 +2,7 @@
 
 This document is a human-readable version of `python/namo/data_collection/full_namo_collection.yaml`.
 
-It describes the **Full NAMO** data collection setup (algorithm: `full_namo`) and the key parameters
-passed through to the internal **Region Opening** sub-solver.
+It describes the **Full NAMO** data collection setup (algorithm: `full_namo`) and the key parameters passed through to the internal **Region Opening** sub-solver.
 
 ## How to run
 
@@ -43,8 +42,7 @@ At a high level (`FullNAMOPlanner`):
 
 ### Full NAMO parameters
 
-- `full_namo_max_iterations`: maximum number of region-opening iterations before declaring failure.
-  Each iteration attempts to open exactly one next region along the current region-graph shortest path.
+- `full_namo_max_iterations`: maximum number of region-opening iterations before declaring failure. Each iteration attempts to open exactly one next region along the current region-graph shortest path.
 
 ### Region opening sub-solver parameters
 

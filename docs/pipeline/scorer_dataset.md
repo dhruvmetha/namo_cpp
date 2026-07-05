@@ -1,7 +1,6 @@
 # Scorer data & lineage (read this before touching scorer/DiT data)
 
-There are **two datasets for two different models** built from the **same v3 corpora (feb + aug9)**.
-They get confused constantly — they are NOT the same thing.
+There are **two datasets for two different models** built from the **same v3 corpora (feb + aug9)**. They get confused constantly — they are NOT the same thing.
 
 | | **F-scorer (`sharp`, Q₁)** | **DiT (diffusion goal model)** |
 |---|---|---|
@@ -33,7 +32,4 @@ So: **the F-scorer reuses the DiT's masks and bolts on exhaustive 1-push labels.
 - The only multi-push *training* signal we have is the DiT's `solution_depth=2` first-pushes in `v3_balanced_1to1` (generative, non-exhaustive) — usable as a first-push *proposer*, not a discriminative label.
 
 ## Provenance note
-The scorer build scripts lived in gitignored `scripts/sandbox/` until 2026-06-08; promoted to
-`scripts/pipeline/` and registered (`config/datasets/v3_scorer_e4.yaml`) so the scorer data is
-documented as cleanly as the DiT data. Experiment results live in
-`docs/experiments/scorer_hacman_journal.md`; this doc is the **data** record.
+The scorer build scripts lived in gitignored `scripts/sandbox/` until 2026-06-08; promoted to `scripts/pipeline/` and registered (`config/datasets/v3_scorer_e4.yaml`) so the scorer data is documented as cleanly as the DiT data. Experiment results live in `docs/experiments/scorer_hacman_journal.md`; this doc is the **data** record.

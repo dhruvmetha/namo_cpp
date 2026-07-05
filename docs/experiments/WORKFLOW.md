@@ -8,19 +8,12 @@ updated: 2026-07-03
 > The operating loop. Claude reads this each session (pointed to from CLAUDE.md). Human-facing too.
 
 ## The loop
-1. **You** create a stub note in [log/](log/) (new note → Insert Template → "experiment") and write the
-   **Hypothesis**. Leave `status: idea`. Sync (pull-before-write).
-2. **Claude** picks it up: flips `status: live`, fills a concrete **Plan**, and **git-commits before
-   launching** (stamps `commit:`).
+1. **You** create a stub note in [log/](log/) (new note → Insert Template → "experiment") and write the **Hypothesis**. Leave `status: idea`. Sync (pull-before-write).
+2. **Claude** picks it up: flips `status: live`, fills a concrete **Plan**, and **git-commits before launching** (stamps `commit:`).
 3. **Claude** runs it on SLURM/GPU (compute-resources skill; submit `gpu,gpu-redhat`, never wait >1h).
-4. On finish, **Claude** auto-fills **Run + Result + Verdict** and sets `metric` + `status: done`. **Two
-   reporting depths:**
-   - **The card (`_*.md`)** holds the **DETAILED results + highly verbose analysis** — every table, the full
-     difficulty×horizon breakdown, all plots, the a/b/c/d diagnostics, the caveats. This is the working record.
-   - **[RESULTS.md](RESULTS.md)** reads like a **paper's Results section**: for each experiment, the **MAIN
-     table(s) + MAIN figure + a tight key-finding paragraph** — curated, not exhaustive. Deep detail stays in
-     the card; RESULTS.md is the polished, scannable compilation. Always split by difficulty × horizon.
-   Then `git mv` the note to [archive/](archive/) and update the [model registry](horizon_q_model_registry.md) if a model trained.
+4. On finish, **Claude** auto-fills **Run + Result + Verdict** and sets `metric` + `status: done`. **Two reporting depths:**
+   - **The card (`_*.md`)** holds the **DETAILED results + highly verbose analysis** — every table, the full difficulty×horizon breakdown, all plots, the a/b/c/d diagnostics, the caveats. This is the working record.
+   - **[RESULTS.md](RESULTS.md)** reads like a **paper's Results section**: for each experiment, the **MAIN table(s) + MAIN figure + a tight key-finding paragraph** — curated, not exhaustive. Deep detail stays in the card; RESULTS.md is the polished, scannable compilation. Always split by difficulty × horizon. Then `git mv` the note to [archive/](archive/) and update the [model registry](horizon_q_model_registry.md) if a model trained.
 5. **You** read the paper-style entry in RESULTS.md / the board and spin the next stub.
 
 ## Role separation (so two writers never collide)
@@ -29,14 +22,10 @@ updated: 2026-07-03
 - Sync rule: **pull before you write.**
 
 ## Talking in a card (Discussion)
-Ask a question in the card's **`## Discussion`** section: drop `**[you YYYY-MM-DD]** …` and I answer inline
-`**[Claude YYYY-MM-DD]** …`, newest at the bottom. It's our per-experiment channel, logged in git — the
-reasoning lives *with* the experiment, not in a lost chat.
+Ask a question in the card's **`## Discussion`** section: drop `**[you YYYY-MM-DD]** …` and I answer inline `**[Claude YYYY-MM-DD]** …`, newest at the bottom. It's our per-experiment channel, logged in git — the reasoning lives *with* the experiment, not in a lost chat.
 
 ## When a card grows into a folder (on demand)
-A card stays a **single file** until it earns a folder — a plot, a long Q&A, or multiple runs. Then **Claude**
-converts `EXP-….md` → `EXP-…/index.md` + artifacts (`discussion.md`, `results/…`) beside it; the board still
-finds it (`index.md` keeps `type: experiment`). Don't pre-make folders.
+A card stays a **single file** until it earns a folder — a plot, a long Q&A, or multiple runs. Then **Claude** converts `EXP-….md` → `EXP-…/index.md` + artifacts (`discussion.md`, `results/…`) beside it; the board still finds it (`index.md` keeps `type: experiment`). Don't pre-make folders.
 
 ## Status enum (never other spellings)
 `idea` → `live` → `done`. (Non-experiment docs use `live` / `ref` / `hub` / `frozen` / `snapshot` / `archive`.)

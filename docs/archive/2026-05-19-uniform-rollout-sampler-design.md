@@ -1,8 +1,6 @@
 # Uniform 1-Push Sampler — Fresh F-Characterization with Chain-Extendable Schema (v0)
 
-**Date:** 2026-05-19
-**Status:** Draft — under brainstorming review
-**Author session:** F-characterization brainstorm
+**Date:** 2026-05-19 **Status:** Draft — under brainstorming review **Author session:** F-characterization brainstorm
 
 ---
 
@@ -41,9 +39,7 @@ Conclusion: training data must match F by construction, not the planner's prefer
 
 ### 3.1 Name and role
 
-**Class:** `UniformRolloutSampler`
-**Registered name:** `"uniform_rollout_sampler"`
-**Module:** `python/namo/planners/sampling/uniform_rollout_sampler.py`
+**Class:** `UniformRolloutSampler` **Registered name:** `"uniform_rollout_sampler"` **Module:** `python/namo/planners/sampling/uniform_rollout_sampler.py`
 
 The class implements `BasePlanner` to plug into the existing collection pipeline. The `BasePlanner` interface is overloaded — the worker code expects a "planner" — but the sampler does no planning. It implements `search()` as an exploration-and-logging loop. The name "sampler" in the class is intentional to clarify intent for readers; the registration name uses the same convention.
 

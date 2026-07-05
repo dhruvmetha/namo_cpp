@@ -19,29 +19,17 @@
 > `__pycache__` + `PYTHONDONTWRITEBYTECODE=1` and re-collecting that shard.
 
 
-The single source of truth for evaluating Region-Opening scorers / policies / value functions on the **car**.
-Lives at `/scratch/dm1487/datasets/namo_testset_v1/` (full datasheet + stats in its `README.md`). This doc is the
-repo-side record so the build is reproducible and we stop confusing test artifacts.
+The single source of truth for evaluating Region-Opening scorers / policies / value functions on the **car**. Lives at `/scratch/dm1487/datasets/namo_testset_v1/` (full datasheet + stats in its `README.md`). This doc is the repo-side record so the build is reproducible and we stop confusing test artifacts.
 
 ## What it is
-- **2173** geometry-clean scenes from the held-out `car_envs/v3/test/{feb,aug9}_car` pool, **0 leaks** into the
-  `v3_scorer_e4` training corpus (proven by geometry, not file names — see below).
-- **1-push tier** (20% bar): **1323 episodes / 991 scenes**, key `labels/onepush_episodes.json` (drop-in for
-  `eval_scorer.py --episodes`).
-- **2-push tier** (20% bar): **1018 genuine-2-push episodes / 983 scenes** (F1′ = first-pushes that enable a solving
-  second push), key `labels/pure2push.json`. Both tiers from ONE unified depth-2 collection (`pkls_2push_v2`).
+- **2173** geometry-clean scenes from the held-out `car_envs/v3/test/{feb,aug9}_car` pool, **0 leaks** into the `v3_scorer_e4` training corpus (proven by geometry, not file names — see below).
+- **1-push tier** (20% bar): **1323 episodes / 991 scenes**, key `labels/onepush_episodes.json` (drop-in for `eval_scorer.py --episodes`).
+- **2-push tier** (20% bar): **1018 genuine-2-push episodes / 983 scenes** (F1′ = first-pushes that enable a solving second push), key `labels/pure2push.json`. Both tiers from ONE unified depth-2 collection (`pkls_2push_v2`).
 
 ## Why the old setup was confusing (and the fix)
-The 1-push key was keyed by `outputs/test_*_phase1/...` **symlinks**; the 2-push manifest by `car_envs/v3/test/...`
-**real paths**. A name-based "0 overlap with train" check is therefore meaningless. **Fix:** re-key everything by
-`realpath` and prove disjointness by **room geometry** = `md5(sorted walls pos/size/euler + sorted obstacle
-pos/size/euler)`, goal + robot excluded (two episodes of one room differ only in the goal). 0 / 1128 test scenes
-share full geometry with any of 66 135 train scenes.
+The 1-push key was keyed by `outputs/test_*_phase1/...` **symlinks**; the 2-push manifest by `car_envs/v3/test/...` **real paths**. A name-based "0 overlap with train" check is therefore meaningless. **Fix:** re-key everything by `realpath` and prove disjointness by **room geometry** = `md5(sorted walls pos/size/euler + sorted obstacle pos/size/euler)`, goal + robot excluded (two episodes of one room differ only in the goal). 0 / 1128 test scenes share full geometry with any of 66 135 train scenes.
 
-**Deprecated, do not use:** `v3_test_validsets.json` (no `object_center`, not the eval key),
-`test_2push_solvable_combined.txt` (1-push-contaminated), `test_pure2push_hardness.csv` (capped, builder-less).
-**Canonical 1-push eval key = `namo_testset_v1/labels/onepush_episodes.json`** (20% bar; the old
-`v3_test_episodes.json` was the looser "≥1 point" bar and is superseded).
+**Deprecated, do not use:** `v3_test_validsets.json` (no `object_center`, not the eval key), `test_2push_solvable_combined.txt` (1-push-contaminated), `test_pure2push_hardness.csv` (capped, builder-less). **Canonical 1-push eval key = `namo_testset_v1/labels/onepush_episodes.json`** (20% bar; the old `v3_test_episodes.json` was the looser "≥1 point" bar and is superseded).
 
 ## Pipeline (all committed, reuse-don't-fork)
 | step | script | output |
@@ -54,5 +42,4 @@ share full geometry with any of 66 135 train scenes.
 Build commands and full per-tier statistics: see the datasheet `README.md` in the dataset home.
 
 ## Pinned sim settings (match training; do not change without re-collecting)
-Collisions ALLOWED (only robot↔non-target aborts), target-region-goal, car primitives `1x_car_d5_`,
-`config/namo_config_complete_skill15_car_1x.yaml`.
+Collisions ALLOWED (only robot↔non-target aborts), target-region-goal, car primitives `1x_car_d5_`, `config/namo_config_complete_skill15_car_1x.yaml`.

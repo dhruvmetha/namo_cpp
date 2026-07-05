@@ -700,8 +700,4 @@ The results support the use of learned diffusion models for NAMO planning, with 
 
 ---
 
-*Report generated: January 2025*
-*Dataset: NAMO evaluation environments (aug9_envs)*
-*Models: Diffusion with cross-attention, 32 samples, voting aggregation (k=5), hybrid fallback*
-*1-Push: 1,700 problems, 4 oracle seeds, CV=0.434*
-*2-Push: 1,125 problems, 4 oracle seeds, CV=0.480*
+*Report generated: January 2025* *Dataset: NAMO evaluation environments (aug9_envs)* *Models: Diffusion with cross-attention, 32 samples, voting aggregation (k=5), hybrid fallback* *1-Push: 1,700 problems, 4 oracle seeds, CV=0.434* *2-Push: 1,125 problems, 4 oracle seeds, CV=0.480*

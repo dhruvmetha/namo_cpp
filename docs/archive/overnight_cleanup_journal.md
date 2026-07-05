@@ -1,8 +1,6 @@
 # Overnight cleanup + wavefront-speed run
 
-**Branch:** `feat/wavefront-cleanup-and-docs` (worktree `namo-cleanup`, forked from `feat/horizon-q-redesign` @ `df62137`).
-**Operator:** Claude (autonomous overnight). **Human:** Dhruv, back in the morning.
-This is the OPERATIONAL log of the run — what was done, why, and the numbers. Read top-to-bottom.
+**Branch:** `feat/wavefront-cleanup-and-docs` (worktree `namo-cleanup`, forked from `feat/horizon-q-redesign` @ `df62137`). **Operator:** Claude (autonomous overnight). **Human:** Dhruv, back in the morning. This is the OPERATIONAL log of the run — what was done, why, and the numbers. Read top-to-bottom.
 
 ---
 
@@ -107,8 +105,7 @@ Golden REF regenerable from `df62137` via `--mode capture`. Baseline profiler: `
 
 **Baseline (honest framing for the ML-speedup story):** on these car test scenes `step(push)` is already cheap (0.33 ms) — the per-sim cost is NOT the bottleneck; `get_region_snapshot` (once per search node) is. So ML's value is in reducing the *number* of sims/nodes, and the node-cost is what to keep shrinking (recs A–D). The base is now cleaner, so reported speedups won't be against a bloated snapshot.
 
-**To verify anything I claim:** `cd namo-cleanup && set -a; . ../.env; set +a` then
-`CUDA_VISIBLE_DEVICES="" OMP_NUM_THREADS=1 $NAMO_PYTHON scripts/sandbox/test_region_equiv.py --mode compare` (expect 180/180) and `... profile_push.py` (per-op ms).
+**To verify anything I claim:** `cd namo-cleanup && set -a; . ../.env; set +a` then `CUDA_VISIBLE_DEVICES="" OMP_NUM_THREADS=1 $NAMO_PYTHON scripts/sandbox/test_region_equiv.py --mode compare` (expect 180/180) and `... profile_push.py` (per-op ms).
 
 **Biggest open lever:** rec [A] reachability dirty-cache — deferred for correctness caution; worth measuring on larger scenes. Rec [B] (delete dead `RegionAnalyzer`) is the biggest cleanup LOC win.
 - **S1 DONE — golden behavior gate built + validated.** `scripts/sandbox/test_region_equiv.py` (model-free; captures reachable-objects, reachable-edges, `is_robot_goal_reachable`, C++ `get_region_snapshot` graph/labels, and qpos fingerprint per push). Harness soundness confirmed: `compare` on the UNCHANGED build = **20/20 discrete-identical, qpos max|diff|=0**. Full golden captured on frozen `df62137`: **29 scenes (easy/med/hard) × ~6 pushes = 180 states, 0 errors, 8.7 s wall**. REF at `/common/users/dm1487/scratch_namo/eval/region_equiv/region_equiv_ref.json` (regenerable from this commit; deterministic scene selection). Gate must stay 180/180 through the refactor.
@@ -117,11 +114,7 @@ Golden REF regenerable from `df62137` via `--mode capture`. Baseline profiler: `
 
 ## OVERNIGHT-2 SUMMARY (updated 2026-07-02, extended-mandate run)
 
-**Headline:** the region-opening search was pathologically slow on large grids — a 1-line
-collision-free hash fix took `find_connected_components` **~22s → 0.69s** and end-to-end
-`region_opening` **24s → 0.83s (29×)**, verified *bit-identical* (signature SHA unchanged). Plus
-**~6,400 LOC of dead C++ removed**. Every change gated at 180/180, qpos diff 0. All 5 CMake
-targets build clean.
+**Headline:** the region-opening search was pathologically slow on large grids — a 1-line collision-free hash fix took `find_connected_components` **~22s → 0.69s** and end-to-end `region_opening` **24s → 0.83s (29×)**, verified *bit-identical* (signature SHA unchanged). Plus **~6,400 LOC of dead C++ removed**. Every change gated at 180/180, qpos diff 0. All 5 CMake targets build clean.
 
 **Shipped this run (each committed + gated 180/180):**
 | commit | change | verified impact |
@@ -137,9 +130,7 @@ targets build clean.
 
 **Doc/journal (overnight-1):** INDEX + linter (`df62137`, also on main branch), 5 redundant docs deleted + 3 archived, 10 memory notes.
 
-**REMAINING RECOMMENDATIONS (verified by the cleanup agent; NOT applied — cosmetic/fiddly, and
-method-level removals need a full-target build check since `build_python_bindings.sh` only builds
-namo_rl):**
+**REMAINING RECOMMENDATIONS (verified by the cleanup agent; NOT applied — cosmetic/fiddly, and method-level removals need a full-target build check since `build_python_bindings.sh` only builds namo_rl):**
 - **Dead methods (~20, LOC-only):** `ConfigManager::{create_default,print_configuration,validate_paths}`, `NAMOEnvironment::{save_current_state,restore_saved_state,get_random_state,save_objects_to_file,enable/disable_logging}`, `WavefrontGrid::{clear_region,get_cell_region_id,is_position_free,save_grid,save_uninflated_grid}`, `PushPrimitiveExecutor::{get_reachable_edges_for_all_objects_with_wavefront,save_debug_wavefront,se2_to_goal_state}`, `NAMOPushController::execute_action`, `NAMOPushSkill::is_target_within_bounds`, `FastParameterLoader::{get_string_vector,preload_keys,get_array}`. Each: 0 callers, not bound. Remove decl+def, then `cmake --build build_python` (ALL targets) + gate.
 - **Debug cout:** 34 `std::cout` in `wavefront_grid.cpp` (silenced in the hot path via the `CoutSilencer` hack in `rl_env.cpp:673`). Gate behind a debug flag (keep the invalid-geometry warnings as `std::cerr`), then drop the CoutSilencer. Cosmetic.
 - **Rasterizer DUP:** `is_point_in_rotated_rectangle` + `calculate_rotated_footprint` duplicated in `wavefront_planner.cpp` and `wavefront_grid.cpp` with a center-vs-corner sampling divergence — extract one shared helper (into `goal_tolerance_utils.hpp`) parameterized by the sample offset. Gate-covered; fiddly (preserve each site's convention).
@@ -147,30 +138,16 @@ namo_rl):**
 - **Docs:** `README.md:183,476-489` still point at `./build/test_*` binaries CMake no longer builds — fix.
 - **BIGGER (needs its own eval, not this gate):** measure a CAR region_opening end-to-end (this run's end-to-end number is the point-robot config); confirm the car pipeline per-node cost post-fixes.
 
-**How to verify any claim:** `cd namo-cleanup && set -a; . ../.env; set +a` then
-`CUDA_VISIBLE_DEVICES="" OMP_NUM_THREADS=1 "$NAMO_PYTHON" scripts/sandbox/test_region_equiv.py --mode compare` (180/180),
-`cmake --build build_python` (all targets), `scripts/sandbox/profile_push.py` (per-op ms).
+**How to verify any claim:** `cd namo-cleanup && set -a; . ../.env; set +a` then `CUDA_VISIBLE_DEVICES="" OMP_NUM_THREADS=1 "$NAMO_PYTHON" scripts/sandbox/test_region_equiv.py --mode compare` (180/180), `cmake --build build_python` (all targets), `scripts/sandbox/profile_push.py` (per-op ms).
 
 ---
 
 ## FINAL STATUS (2026-07-02, end of autonomous run)
 
-Reached a clean, fully-committed, fully-verified stopping point. All work is on
-`feat/wavefront-cleanup-and-docs`; main checkout untouched; all 5 CMake targets build;
-behavior gate 180/180 (qpos diff 0) on every commit.
+Reached a clean, fully-committed, fully-verified stopping point. All work is on `feat/wavefront-cleanup-and-docs`; main checkout untouched; all 5 CMake targets build; behavior gate 180/180 (qpos diff 0) on every commit.
 
-**Additional cleanups since the overnight-2 summary:** removed dead `python/namo/services/`
-package (`6632ab7`); gated 34 `wavefront_grid.cpp` debug couts behind a compile flag (`41f408b`).
+**Additional cleanups since the overnight-2 summary:** removed dead `python/namo/services/` package (`6632ab7`); gated 34 `wavefront_grid.cpp` debug couts behind a compile flag (`41f408b`).
 
-**Why I stopped the method-level dead-code grind:** the ~20 remaining "dead methods" are
-cosmetic LOC (inert code), and removing them cleanly rabbit-holes — e.g.
-`NAMOEnvironment::save_current_state`/`restore_saved_state` are verified 0-caller, but they own
-members (`saved_qpos_`, `saved_qvel_`, `has_saved_state_`) that then need their own
-usage-analysis + removal. That's a review-worthy follow-up, not a safe blind-overnight edit, and
-the value (LOC-only, code already inert) is low vs the risk of a botched member cleanup deep in a
-long session. All of them are VERIFIED-dead and listed in the recommendations above for a quick
-supervised pass. Same for the rasterizer DUP (fiddly, center-vs-corner) and README stale refs.
+**Why I stopped the method-level dead-code grind:** the ~20 remaining "dead methods" are cosmetic LOC (inert code), and removing them cleanly rabbit-holes — e.g. `NAMOEnvironment::save_current_state`/`restore_saved_state` are verified 0-caller, but they own members (`saved_qpos_`, `saved_qvel_`, `has_saved_state_`) that then need their own usage-analysis + removal. That's a review-worthy follow-up, not a safe blind-overnight edit, and the value (LOC-only, code already inert) is low vs the risk of a botched member cleanup deep in a long session. All of them are VERIFIED-dead and listed in the recommendations above for a quick supervised pass. Same for the rasterizer DUP (fiddly, center-vs-corner) and README stale refs.
 
-**Bottom line for the morning:** the search base is now fast + honest (29× on large grids,
-bit-identical), the tree is ~6,400 LOC leaner, debug I/O is gated, docs are compressed, and
-there's a verified punch-list for the rest. Nothing is half-done or broken.
+**Bottom line for the morning:** the search base is now fast + honest (29× on large grids, bit-identical), the tree is ~6,400 LOC leaner, debug I/O is gated, docs are compressed, and there's a verified punch-list for the rest. Nothing is half-done or broken.

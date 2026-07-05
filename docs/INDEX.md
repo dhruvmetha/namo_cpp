@@ -1,19 +1,14 @@
 # Docs Index — NAMO
 
-The human front door to the docs. `CLAUDE.md` (repo root) is the *agent's* router;
-this is *your* map. Every markdown doc in the repo is listed below with a one-line
-purpose and a status tag. Keep it current with `python scripts/docs_lint.py`.
+The human front door to the docs. `CLAUDE.md` (repo root) is the *agent's* router; this is *your* map. Every markdown doc in the repo is listed below with a one-line purpose and a status tag. Keep it current with `python scripts/docs_lint.py`.
 
-**Tags:** `[ROUTER]` schema/entry · `[HUB]` links many others · `[LIVE]` actively updated ·
-`[REF]` stable reference · `[SNAPSHOT]` dated results, not maintained · `[FROZEN]` closed/superseded ·
-`[ARCHIVE]` superseded, do not cite.
+**Tags:** `[ROUTER]` schema/entry · `[HUB]` links many others · `[LIVE]` actively updated · `[REF]` stable reference · `[SNAPSHOT]` dated results, not maintained · `[FROZEN]` closed/superseded · `[ARCHIVE]` superseded, do not cite.
 
 ---
 
 ## ▶ If you read nothing else (written for a human)
 
-Most docs below are written for the *agent* to reload context after compaction — that's
-why they feel like logs. These four are written for *you* to actually read:
+Most docs below are written for the *agent* to reload context after compaction — that's why they feel like logs. These four are written for *you* to actually read:
 
 1. [`docs/horizon_q_overview.md`](horizon_q_overview.md) — plain-language map of the active project. **Start here.**
 2. [`docs/research/research_compass.md`](research/research_compass.md) — why the research matters; come back when the work feels uncertain. `[HUB]`
@@ -96,8 +91,7 @@ The active work now lives in experiment **cards** ([`experiments/log/`](experime
 - [`research_notes_F_characterization.md`](research/research_notes_F_characterization.md) — empirical results + hypotheses (the "notes" twin of the formulation). `[LIVE]`
 - [`scene_conditioned_sampler_design.md`](research/scene_conditioned_sampler_design.md) — unified scene-conditioned sampler design (successor doc). `[LIVE]`
 - [`reading_list.md`](research/reading_list.md) — broad ~61-paper annotated bibliography. `[REF]`
-- [`reading_list_F_characterization.md`](research/reading_list_F_characterization.md) — focused F-characterization reading list. `[REF]`
-  *(`research_prompt.md` moved to `archive/` 2026-07-01 — superseded `F = T ∩ A` framing.)*
+- [`reading_list_F_characterization.md`](research/reading_list_F_characterization.md) — focused F-characterization reading list. `[REF]` *(`research_prompt.md` moved to `archive/` 2026-07-01 — superseded `F = T ∩ A` framing.)*
 
 ## docs/personal/
 
@@ -140,10 +134,7 @@ The active work now lives in experiment **cards** ([`experiments/log/`](experime
 
 ## Maintenance
 
-`scripts/docs_lint.py` checks this corpus for: broken doc→doc links, broken doc→code links
-(file existence only, not line numbers), and orphan docs (nothing links to them). It also
-lists **unwritten memory notes** — `[[<slug>]]` wikilinks the journals ask for but that don't
-exist yet in `~/.claude/.../memory/` (a "capture this fact" backlog).
+`scripts/docs_lint.py` checks this corpus for: broken doc→doc links, broken doc→code links (file existence only, not line numbers), and orphan docs (nothing links to them). It also lists **unwritten memory notes** — `[[<slug>]]` wikilinks the journals ask for but that don't exist yet in `~/.claude/.../memory/` (a "capture this fact" backlog).
 
 ```
 python scripts/docs_lint.py            # link health (exits 1 if broken)
@@ -151,13 +142,6 @@ python scripts/docs_lint.py --orphans  # also list orphan docs
 python scripts/docs_lint.py --json     # machine-readable
 ```
 
-Link health (2026-07-03): **0 broken doc→doc, 0 broken doc→code** — the earlier 14 doc→code
-were relative-depth rot (`../` → `../../`) plus one refactored-away reference
-(`diff_drive_navigation.cpp` → now `push_path_follower.cpp`), all fixed 2026-07-03. Remaining:
-9 unwritten memory notes (see `archive/overnight_cleanup_journal.md`).
+Link health (2026-07-03): **0 broken doc→doc, 0 broken doc→code** — the earlier 14 doc→code were relative-depth rot (`../` → `../../`) plus one refactored-away reference (`diff_drive_navigation.cpp` → now `push_path_follower.cpp`), all fixed 2026-07-03. Remaining: 9 unwritten memory notes (see `archive/overnight_cleanup_journal.md`).
 
-Pending doc merges (deferred from the overnight run — modest value, research-content edits, do
-with review): fold `model_comparison_report.md` (prose) + `informative_1push_training_study.md`
-(epoch curves) into `informative_1push_results.md`; and the edit-in-place dedups (car-effect text
-`horizon_q_datasets` → `canonical_testset`; RA@K `namo_pipeline` → `grounding_with_reachability`;
-H1–H5 `research_notes` → `F_problem_formulation`). Full plan in the overnight journal.
+Pending doc merges (deferred from the overnight run — modest value, research-content edits, do with review): fold `model_comparison_report.md` (prose) + `informative_1push_training_study.md` (epoch curves) into `informative_1push_results.md`; and the edit-in-place dedups (car-effect text `horizon_q_datasets` → `canonical_testset`; RA@K `namo_pipeline` → `grounding_with_reachability`; H1–H5 `research_notes` → `F_problem_formulation`). Full plan in the overnight journal.

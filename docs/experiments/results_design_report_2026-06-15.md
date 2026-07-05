@@ -72,10 +72,7 @@ Decomposing reactive@2 with the ground-truth (a1,a2)→opens map:
 
 ## Part 1B — Compiled results by TRUE difficulty (multi-seed headline)
 
-The authoritative tables, **split by true solution density** (NOT finish-density — that's R1 below), **fixed cutoffs**
-([USER]: non-tertile; verified **binning-robust** — the conclusion is identical under 33% tertiles). Cells = mean±std
-across seeds (R2 = 2 seeds s1/s2; R3 = 3 seeds). Regenerate via `scripts/sandbox/compile_uniform.py`. Full tables:
-`/scratch/dm1487/eval/compiled/results_tables.md`; uniform figures: `compiled/fig_R2.png`, `compiled/fig_R3.png`.
+The authoritative tables, **split by true solution density** (NOT finish-density — that's R1 below), **fixed cutoffs** ([USER]: non-tertile; verified **binning-robust** — the conclusion is identical under 33% tertiles). Cells = mean±std across seeds (R2 = 2 seeds s1/s2; R3 = 3 seeds). Regenerate via `scripts/sandbox/compile_uniform.py`. Full tables: `/scratch/dm1487/eval/compiled/results_tables.md`; uniform figures: `compiled/fig_R2.png`, `compiled/fig_R3.png`.
 
 ### R1 — finish difficulty per solvable post-push state (ground truth, no model)
 **88% of post-push states are DEAD** (7,551 finishable of 64,061). On the solvable ones:
@@ -86,8 +83,7 @@ across seeds (R2 = 2 seeds s1/s2; R3 = 3 seeds). Regenerate via `scripts/sandbox
 | openers (numerator) | 3 | 4.4 | 2 | 6 | 10 |
 | reachable a2 (denominator) | 45 | 50 | 26 | 70 | 90 |
 
-needles: 1-opener **25%** · ≤2 41% · ≤3 54% · density≤10% **61%**. ⇒ the *problem* is needle-in-haystack; that's the
-structural reason reactive is hard (R1 is the *why* under R2/R3).
+needles: 1-opener **25%** · ≤2 41% · ≤3 54% · density≤10% **61%**. ⇒ the *problem* is needle-in-haystack; that's the structural reason reactive is hard (R1 is the *why* under R2/R3).
 
 ### R2 — 2-push solve@K by true 2-push difficulty (solving (a1,a2)/reachable (a1,a2); 2 seeds)
 | tier | contender | @2 | @10 | @50 | @100 | @900 |
@@ -110,9 +106,7 @@ structural reason reactive is hard (R1 is the *why* under R2/R3).
 | MED | 11% | 6 / 50 | 4% | 2 / 56 |
 | HARD | **3%** | 2 / 72 | **3%** | 2 / 70 |
 
-Reading: **NoHz wins reactive (@2) every tier; Hz wins search (@50–900), decisive on HARD** (@900 88.8 vs 83.4).
-Both sub-stages stiffen EASY→HARD (setup 27→3%, finish 11→3%) — HARD is a *double needle* (≈2 setups in 72, then ≈2
-openers in 70), and the haystack *grows* while the needle shrinks.
+Reading: **NoHz wins reactive (@2) every tier; Hz wins search (@50–900), decisive on HARD** (@900 88.8 vs 83.4). Both sub-stages stiffen EASY→HARD (setup 27→3%, finish 11→3%) — HARD is a *double needle* (≈2 setups in 72, then ≈2 openers in 70), and the haystack *grows* while the needle shrinks.
 
 ### R3 — 1-push opener ranking success@k by true 1-push difficulty (openers/reachable first-pushes; 3 seeds)
 | tier | contender | @1 | @5 | @10 | @20 |
@@ -130,13 +124,9 @@ openers in 70), and the haystack *grows* while the needle shrinks.
 | | NoHorizon-v2 | 31.9±2.9 | 58.0±4.3 | 70.4±3.7 | 85.0±2.1 |
 | | random | 2.4 | 11.9 | 22.8 | 42.3 |
 
-Reading: **the H=2 query DILUTES the direct opener** — Hz drops H=1→H=2 by ~5–7pp @1 every tier (seed-robust,
-paired). **NoHz ≈ Hz-at-H=1 and beats Hz-at-H=2** (HARD 31.9 vs 27.9). The cleanest proof of R2's mechanism: the
-horizon trades direct-opening for setup-seeking. Both crush random (HARD 34 vs 2.4 = 14×).
+Reading: **the H=2 query DILUTES the direct opener** — Hz drops H=1→H=2 by ~5–7pp @1 every tier (seed-robust, paired). **NoHz ≈ Hz-at-H=1 and beats Hz-at-H=2** (HARD 31.9 vs 27.9). The cleanest proof of R2's mechanism: the horizon trades direct-opening for setup-seeking. Both crush random (HARD 34 vs 2.4 = 14×).
 
-**Why two difficulty scales?** R2 (pair density, median ~0.7%) and R3 (push density, median ~30%) live on different
-scales because one is per-*pair* and one is per-*push* — so "HARD" means a different absolute threshold in each.
-1-push-solvable instances are easier by construction; pure-2-push is the residue that *needs* two.
+**Why two difficulty scales?** R2 (pair density, median ~0.7%) and R3 (push density, median ~30%) live on different scales because one is per-*pair* and one is per-*push* — so "HARD" means a different absolute threshold in each. 1-push-solvable instances are easier by construction; pure-2-push is the residue that *needs* two.
 
 ---
 

@@ -302,18 +302,15 @@ The question for push-1 is: **"does this push lead to a state where the problem 
 
 Both 1-push and n-push involve contact dynamics during each push. What changes in n-push is the coupling between pushes:
 
-**1. Evaluation becomes recursive.**
-In 1-push, you check one thing: did the passage open? In n-push, you check: does a (n-1)-push solution exist from the resulting state? That check itself requires solving a smaller instance of the same problem. The success criterion for push-k is defined in terms of push-(k+1).
+**1. Evaluation becomes recursive.** In 1-push, you check one thing: did the passage open? In n-push, you check: does a (n-1)-push solution exist from the resulting state? That check itself requires solving a smaller instance of the same problem. The success criterion for push-k is defined in terms of push-(k+1).
 
 F₁' = {push1 ∈ R : F₂(state_after(push1)) ≠ ∅}
 
 Push-1 is feasible not because of what it does, but because of what it enables.
 
-**2. The state transition between pushes becomes the bottleneck.**
-In 1-push, the dynamics matter within the push (wall collisions, friction, object interactions determine the landing pose). But you only reason about one state → one push → one outcome. In n-push, you must reason about a chain: state₀ → push₁ → state₁ → push₂ → state₂ → ... Each state is the result of the previous push's dynamics. The dynamics within each push still matter, but now the dynamics BETWEEN pushes (how push-1's outcome shapes push-2's feasible set) become the central challenge.
+**2. The state transition between pushes becomes the bottleneck.** In 1-push, the dynamics matter within the push (wall collisions, friction, object interactions determine the landing pose). But you only reason about one state → one push → one outcome. In n-push, you must reason about a chain: state₀ → push₁ → state₁ → push₂ → state₂ → ... Each state is the result of the previous push's dynamics. The dynamics within each push still matter, but now the dynamics BETWEEN pushes (how push-1's outcome shapes push-2's feasible set) become the central challenge.
 
-**3. The scene changes between decisions.**
-Every push creates a new scene. Push-2's feasible set F₂ lives in a scene that didn't exist before push-1 executed. Different push-1 choices produce different scenes, each with a different F₂. You can't precompute F₂ without committing to a push-1. In 1-push, you always evaluate from the same fixed initial state.
+**3. The scene changes between decisions.** Every push creates a new scene. Push-2's feasible set F₂ lives in a scene that didn't exist before push-1 executed. Different push-1 choices produce different scenes, each with a different F₂. You can't precompute F₂ without committing to a push-1. In 1-push, you always evaluate from the same fixed initial state.
 
 ### What This Means
 
@@ -449,10 +446,7 @@ The world model is not a design decision. It is a conclusion forced by experimen
 
 ## Empirical Round 1 (2026-05-16): The Biased-Teacher Discovery
 
-This section documents the first end-to-end ML-vs-F evaluation and the
-unexpected failure mode it surfaced. Full results, plots, and commands are in
-[`ML_vs_GT_F_results_round1.md`](../evaluation/ML_vs_GT_F_results_round1.md); the evaluation
-plan is in [`ML_vs_GT_F_evaluation.md`](../evaluation/ML_vs_GT_F_evaluation.md).
+This section documents the first end-to-end ML-vs-F evaluation and the unexpected failure mode it surfaced. Full results, plots, and commands are in [`ML_vs_GT_F_results_round1.md`](../evaluation/ML_vs_GT_F_results_round1.md); the evaluation plan is in [`ML_vs_GT_F_evaluation.md`](../evaluation/ML_vs_GT_F_evaluation.md).
 
 ### Setup
 

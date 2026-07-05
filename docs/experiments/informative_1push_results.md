@@ -12,12 +12,7 @@ updated: 2026-06-06
 > **corrected** tables use per-*episode* matching + re-binning by true solve_rate (see
 > [multi_episode_rooms.md](../pipeline/multi_episode_rooms.md)) on the models we actually carry forward.
 
-**Method:** reachable-masked render-match, K=20 samples / 50 denoise steps. Each sample matched to its
-own episode by `object_center` (gt_in_valid = 1.0, bad_match = 0); binned by that episode's solve_rate.
-Clean test set: **413 hard / 491 med / 752 easy**. Numbers are **% success** (s@1 / s@5 / s@10 / s@20).
-Models: **informative ep500** (`…/informative_le10_500ep_2gpu/…/periodic-epoch499.ckpt`), **annealing
-ep400**, **general** (`…/v3_safe_fp32_…/epoch085-val_loss0.0016.ckpt`). Floor = reachability-aware random
-(analytic 1−(1−sr)^k).
+**Method:** reachable-masked render-match, K=20 samples / 50 denoise steps. Each sample matched to its own episode by `object_center` (gt_in_valid = 1.0, bad_match = 0); binned by that episode's solve_rate. Clean test set: **413 hard / 491 med / 752 easy**. Numbers are **% success** (s@1 / s@5 / s@10 / s@20). Models: **informative ep500** (`…/informative_le10_500ep_2gpu/…/periodic-epoch499.ckpt`), **annealing ep400**, **general** (`…/v3_safe_fp32_…/epoch085-val_loss0.0016.ckpt`). Floor = reachability-aware random (analytic 1−(1−sr)^k).
 
 ## hard  (n=413, sr_mean=2.75%)
 | sampler | s@1 | s@5 | s@10 | s@20 | E[tries] (cov) |
@@ -43,20 +38,14 @@ ep400**, **general** (`…/v3_safe_fp32_…/epoch085-val_loss0.0016.ckpt`). Floo
 | annealing ep400 | 62.3 | 95.0 | 98.5 | 99.9 | 2.0 (100%) |
 | general | 63.4 | 95.2 | 98.7 | 99.7 | 1.9 (100%) |
 
-**Takeaways:** specialist beats the (reachability-aware) floor on hard — 5.9 vs 2.7 @1 (~2.2×),
-55.2 vs 41.3 @20. **General sits at the floor on hard** (3.1 / 39.7) → the *informative training* is what
-teaches the hard-scene skill. Annealing ≈ no-anneal. EASY is a tie (random-reachable already wins).
-**Coverage is the ceiling** — only ~55% of hard scenes crack within 20 samples.
+**Takeaways:** specialist beats the (reachability-aware) floor on hard — 5.9 vs 2.7 @1 (~2.2×), 55.2 vs 41.3 @20. **General sits at the floor on hard** (3.1 / 39.7) → the *informative training* is what teaches the hard-scene skill. Annealing ≈ no-anneal. EASY is a tie (random-reachable already wins). **Coverage is the ceiling** — only ~55% of hard scenes crack within 20 samples.
 
 Source JSONs: `/scratch/dm1487/eval_grounding/{informative_ep500,annealing_ep400,older_safe_fp32}_rebin.json`.
 
 ---
 
 ## ARCHIVED — early ep66/ep19 run, per-ROOM matching (CONTAMINATED, do not cite)
-K=20 samples, 20 denoise steps, snap gate 0.2 m / 0.2 rad.
-informative ckpt: `…/informative_le10/2026-06-04/23-30-23/checkpoints/epoch066-val_loss0.0037.ckpt`
-baseline ckpt:    `…/baseline_random/2026-06-04/23-34-49/checkpoints/epoch019-val_loss0.0038.ckpt`
-The `GT∈valid ~75%` per division is the contamination fingerprint; hard s@1 0.063 was inflated.
+K=20 samples, 20 denoise steps, snap gate 0.2 m / 0.2 rad. informative ckpt: `…/informative_le10/2026-06-04/23-30-23/checkpoints/epoch066-val_loss0.0037.ckpt` baseline ckpt:    `…/baseline_random/2026-06-04/23-34-49/checkpoints/epoch019-val_loss0.0038.ckpt` The `GT∈valid ~75%` per division is the contamination fingerprint; hard s@1 0.063 was inflated.
 
 | division | sampler | s@1 | s@5 | s@10 | s@20 |
 |---|---|---|---|---|---|

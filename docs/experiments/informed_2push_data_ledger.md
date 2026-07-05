@@ -6,15 +6,11 @@ updated: 2026-06-09
 
 # Informed 2-push — DATA & MANIFEST LEDGER
 
-Running record of every data file, manifest, checkpoint, config, and output I create or refer to in the
-informed-2-push effort. Companion to [informed_2push_journal.md](informed_2push_journal.md). Update on every new artifact.
+Running record of every data file, manifest, checkpoint, config, and output I create or refer to in the informed-2-push effort. Companion to [informed_2push_journal.md](informed_2push_journal.md). Update on every new artifact.
 
 ## PINNED SEARCH / SIM SETTINGS (default ON — [USER] instruction)
-- **Collisions ALLOWED**, only robot↔non-target disallowed. In the beam: `COLLISIONS_OFF=True` →
-  `env.set_collision_checking(False)` → `check_object_collision_=False`. Controller: robot collisions
-  ALWAYS abort (ungated, `namo_push_controller.cpp:609-611`); pushed-object collisions allowed.
-- **Target-region-goal**: search targets the goal region (`robot_goal` = goal region; `is_robot_goal_reachable`).
-  Collection: `region_allow_collisions: true` + `--target-goal-region` (all committed configs already do this).
+- **Collisions ALLOWED**, only robot↔non-target disallowed. In the beam: `COLLISIONS_OFF=True` → `env.set_collision_checking(False)` → `check_object_collision_=False`. Controller: robot collisions ALWAYS abort (ungated, `namo_push_controller.cpp:609-611`); pushed-object collisions allowed.
+- **Target-region-goal**: search targets the goal region (`robot_goal` = goal region; `is_robot_goal_reachable`). Collection: `region_allow_collisions: true` + `--target-goal-region` (all committed configs already do this).
 - ⚠ `DATA_COLLECTION_GUIDE.md` example yaml shows `region_allow_collisions: false` — MISLEADING, ignore it; use `true`.
 
 ## MANIFESTS (referred to)
@@ -64,9 +60,7 @@ informed-2-push effort. Companion to [informed_2push_journal.md](informed_2push_
 | (inline numpy, journaled) | held-out-room AUC: `mean_top5` .796, 6-scalar combo **.817**, maxP .69 — TRAINING-FREE first-push ranker |
 
 ## NEW DATASET HOME (policy+value line)
-`/scratch/dm1487/datasets/policy_value_v1/` — clean root for the search-generated POLICY+VALUE data
-(`pkls/ → npz/ → h5/`, `manifests/ logs/ stats/`). Full schema + provenance + non-exhaustive caveat in its
-`README.md`. Separate from the exhaustive 1-push `v3_scorer_1push`. Collection NOT started; prior = champion `sharp` ckpt.
+`/scratch/dm1487/datasets/policy_value_v1/` — clean root for the search-generated POLICY+VALUE data (`pkls/ → npz/ → h5/`, `manifests/ logs/ stats/`). Full schema + provenance + non-exhaustive caveat in its `README.md`. Separate from the exhaustive 1-push `v3_scorer_1push`. Collection NOT started; prior = champion `sharp` ckpt.
 
 ## TODO data (only if a hypothesis calls for it)
 - `s1` leaf data (exhaustive 1-push at post-first-push states) — would extend the exhaustive-1-push collection; MUST use collisions-allowed + target-region-goal; held out BY ROOM; per-episode unit.

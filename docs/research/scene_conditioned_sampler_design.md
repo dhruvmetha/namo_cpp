@@ -1,7 +1,6 @@
 # Scene-Conditioned Action Sampler for NAMO
 
-**Status:** design + findings synthesis. Active research doc, May 2026.
-**Predecessors:**
+**Status:** design + findings synthesis. Active research doc, May 2026. **Predecessors:**
 - `docs/ML_vs_GT_F_evaluation.md` — original evaluation plan
 - `docs/ML_vs_GT_F_results_round1.md` — first findings on 2-push diffusion
 - `docs/research_notes_F_characterization.md` — F characterization research thread

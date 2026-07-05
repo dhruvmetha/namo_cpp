@@ -476,9 +476,7 @@ The C++ targets wired into CMake (built into `build_python/` alongside `namo_rl`
 ./build_python/test_wheel_spin
 ```
 
-Behavior-equivalence gate for the region-opening / wavefront / push code path (drives fixed
-pushes through the sim on a stratified scene sample and asserts bit-identical outputs — used
-to prove refactors don't change behavior):
+Behavior-equivalence gate for the region-opening / wavefront / push code path (drives fixed pushes through the sim on a stratified scene sample and asserts bit-identical outputs — used to prove refactors don't change behavior):
 
 ```bash
 CUDA_VISIBLE_DEVICES="" OMP_NUM_THREADS=1 python scripts/sandbox/test_region_equiv.py --mode compare

@@ -6,8 +6,7 @@
 > GitHub / in Claude use **[INDEX.md](../INDEX.md)** (plain map) and **[RESULTS.md](RESULTS.md)** (compiled results).
 
 ## 🧪 Experiments — the loop (`idea → live → done`)
-Open the board: **[experiments.base](experiments.base)** (grouped by `status`). Primary view for active
-experiment cards. Compiled results: [RESULTS.md](RESULTS.md).
+Open the board: **[experiments.base](experiments.base)** (grouped by `status`). Primary view for active experiment cards. Compiled results: [RESULTS.md](RESULTS.md).
 
 ## 🟢 Live docs — active journals & ledgers
 ```dataview
@@ -34,5 +33,4 @@ SORT file.name ASC
 ```
 
 ---
-*Statuses — experiments: `idea → live → done`; docs: `live` active · `hub` catalog · `ref` brief.
-Compiled results: [RESULTS.md](RESULTS.md) · how the loop works: [WORKFLOW.md](WORKFLOW.md) · plain map: [INDEX.md](../INDEX.md).*
+*Statuses — experiments: `idea → live → done`; docs: `live` active · `hub` catalog · `ref` brief. Compiled results: [RESULTS.md](RESULTS.md) · how the loop works: [WORKFLOW.md](WORKFLOW.md) · plain map: [INDEX.md](../INDEX.md).*

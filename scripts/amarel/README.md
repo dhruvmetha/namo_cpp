@@ -1,7 +1,6 @@
 # Amarel SLURM Quick Reference for NAMO
 
-Practical guide for requesting CPUs, threads, and GPUs on Rutgers Amarel.
-Everything below is verified against the live cluster (`sinfo`, `scontrol`), not just docs.
+Practical guide for requesting CPUs, threads, and GPUs on Rutgers Amarel. Everything below is verified against the live cluster (`sinfo`, `scontrol`), not just docs.
 
 ## TL;DR — picking compute for your task
 
@@ -33,9 +32,7 @@ Companion configs (sibling, not in this dir):
 
 ## Workspace layout & env vars
 
-`activate.sh` exports the values below. Each uses `${VAR:-default}`, so any
-of them can be overridden by exporting before sourcing — no need to edit
-the script.
+`activate.sh` exports the values below. Each uses `${VAR:-default}`, so any of them can be overridden by exporting before sourcing — no need to edit the script.
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -51,14 +48,11 @@ the script.
 | `NAMO_CONDA_ENV` | `/scratch/dm1487/envs/namo` | Conda environment |
 | `MJ_PATH` | `/scratch/dm1487/mujoco/mujoco-3.2.7` | MuJoCo install |
 
-**Filesystem rule:** code on `/cache/home` (NFS, persistent, no purge). Datasets,
-outputs, conda envs, MuJoCo on `/scratch` (large, fast, **not backed up**,
-90-day inactive purge — touch files or stash a tar on `/home` monthly).
+**Filesystem rule:** code on `/cache/home` (NFS, persistent, no purge). Datasets, outputs, conda envs, MuJoCo on `/scratch` (large, fast, **not backed up**, 90-day inactive purge — touch files or stash a tar on `/home` monthly).
 
 ## First-time setup (one-time per Amarel account)
 
-Two steps: sibling repos → canonical `.so`. (Cross-cluster data transfer is
-not a setup step — see the "Staging envs from ilab" section below.)
+Two steps: sibling repos → canonical `.so`. (Cross-cluster data transfer is not a setup step — see the "Staging envs from ilab" section below.)
 
 ### 1. Sibling repos
 
@@ -80,26 +74,20 @@ NAMO_MARCH=x86-64-v3 ./build_python_bindings.sh
 exit
 ```
 
-Result: `$NAMO_REPO/build_python/namo_rl*.so` — every shard loads this same
-binary at startup.
+Result: `$NAMO_REPO/build_python/namo_rl*.so` — every shard loads this same binary at startup.
 
 | Knob | Why |
 |---|---|
 | `NAMO_MARCH=x86-64-v3` | Default `-march=native` bakes in build-node ISA → shards on older CPUs SIGILL. `v3` (Haswell+: AVX2/FMA/BMI2) runs everywhere on Amarel at ~few-% cost vs. native, lost in MuJoCo noise. |
 | Build OS = run OS | el7 build for `--partition=main`, el9 for `--partition=main-redhat`. libstdc++/glibc ABIs don't cross. |
 
-The slurm scripts hard-fail if `build_python/namo_rl*.so` is missing, so a
-stale or absent binding can never silently launch a 30-shard array.
+The slurm scripts hard-fail if `build_python/namo_rl*.so` is missing, so a stale or absent binding can never silently launch a 30-shard array.
 
 ## Staging envs from ilab → Amarel
 
-ilab.cs.rutgers.edu's sshd does not accept SSH public-key auth (server
-policy: only `password`, `keyboard-interactive`, `gssapi-keyex`,
-`gssapi-with-mic`). That makes Amarel→ilab `rsync` impractical to script.
+ilab.cs.rutgers.edu's sshd does not accept SSH public-key auth (server policy: only `password`, `keyboard-interactive`, `gssapi-keyex`, `gssapi-with-mic`). That makes Amarel→ilab `rsync` impractical to script.
 
-**Solution: invert the direction. Push from ilab → Amarel.** Amarel's sshd
-accepts public-key auth normally, so you set up ilab→Amarel key auth once
-and `rsync` runs unattended afterwards.
+**Solution: invert the direction. Push from ilab → Amarel.** Amarel's sshd accepts public-key auth normally, so you set up ilab→Amarel key auth once and `rsync` runs unattended afterwards.
 
 ### One-time setup (from your laptop)
 
@@ -177,9 +165,7 @@ OUTPUT_DIR=$NAMO_OUTPUTS/car_v1_fast \
 sbatch $NAMO_REPO/scripts/amarel/run_amarel_collect_array.slurm
 ```
 
-`MANIFEST=` is required at submit (no default). Each version of the dataset
-gets its own manifest, and forcing the path at submit makes the run record
-self-explanatory in slurm logs.
+`MANIFEST=` is required at submit (no default). Each version of the dataset gets its own manifest, and forcing the path at submit makes the run record self-explanatory in slurm logs.
 
 ---
 
@@ -436,8 +422,7 @@ torchrun --standalone --nproc_per_node=2 train.py
 
 ## 4. NAMO-specific recipes
 
-The first-time setup and Quickstart at the top of this file cover the
-common path. Below are situational variations.
+The first-time setup and Quickstart at the top of this file cover the common path. Below are situational variations.
 
 ### Fatter pool per node (>32 workers)
 
@@ -447,14 +432,12 @@ Edit the sbatch directives:
 #SBATCH --exclusive                  # lock it down
 #SBATCH --mem=200G
 ```
-Throughput scales roughly linearly with workers — `region_opening` physics
-steps are independent across workers, no shared global state.
+Throughput scales roughly linearly with workers — `region_opening` physics steps are independent across workers, no shared global state.
 
 ### Switching to RHEL 9 (`--partition=main-redhat`)
 
 Two things:
-1. Rebuild `$NAMO_REPO/build_python/` on a `main-redhat` srun — el7 and el9
-   libstdc++/glibc ABIs are incompatible.
+1. Rebuild `$NAMO_REPO/build_python/` on a `main-redhat` srun — el7 and el9 libstdc++/glibc ABIs are incompatible.
 2. Change one line in the sbatch script: `#SBATCH --partition=main-redhat`.
 
 Verify the binding loads on the target partition:
@@ -466,8 +449,7 @@ srun --partition=main-redhat --pty bash -c \
 
 ### GPU for ML goal strategy (region_opening with `goal_strategy=ml*`)
 
-The diffusion model wants CUDA. Switch partition + add gres; CPU count
-can stay modest since the heavy lifting moves to the GPU.
+The diffusion model wants CUDA. Switch partition + add gres; CPU count can stay modest since the heavy lifting moves to the GPU.
 ```bash
 #SBATCH --partition=gpu-redhat
 #SBATCH --gres=gpu:1
@@ -496,8 +478,7 @@ Versions coexist — submit shards against whichever you want via `MANIFEST=` at
 
 ### Keeping `/scratch` from being purged
 
-OARC garbage-collects `/scratch` files inactive for 90 days (per-file `atime`).
-For datasets you don't touch weekly:
+OARC garbage-collects `/scratch` files inactive for 90 days (per-file `atime`). For datasets you don't touch weekly:
 ```bash
 # Touch a sentinel monthly from anywhere on Amarel
 touch $NAMO_DATASETS/car_envs/v1/.keep $NAMO_CONDA_ENV/.keep $MJ_PATH/.keep

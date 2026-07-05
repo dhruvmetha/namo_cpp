@@ -14,13 +14,8 @@
 
 ## 1. The env-var contract — the single source of truth
 Machine-specific roots live in the **environment**, read in exactly one place each:
-- **Python:** `python/namo/paths.py` (`from namo.paths import DATASETS, OUTPUTS, H5, resolve, …`). No script
-  hardcodes a path; they all import from here. It is **fail-loud**: if `NAMO_SCRATCH` is unset it raises with
-  a clear message instead of silently defaulting to `/scratch/dm1487` (a silent default is how a wrong-box run
-  hides). There is **no** `python-dotenv` auto-load — you must `source`/export the vars (or pass via SLURM
-  `--export`, which is the default).
-- **Shell / SLURM:** scripts use `$NAMO_*` / `$SAGE_REPO` / `$NAMO_PYTHON` / `$NAMO_REPO` directly (bare — with
-  `set -u` an unset var fails fast, mirroring the Python module).
+- **Python:** `python/namo/paths.py` (`from namo.paths import DATASETS, OUTPUTS, H5, resolve, …`). No script hardcodes a path; they all import from here. It is **fail-loud**: if `NAMO_SCRATCH` is unset it raises with a clear message instead of silently defaulting to `/scratch/dm1487` (a silent default is how a wrong-box run hides). There is **no** `python-dotenv` auto-load — you must `source`/export the vars (or pass via SLURM `--export`, which is the default).
+- **Shell / SLURM:** scripts use `$NAMO_*` / `$SAGE_REPO` / `$NAMO_PYTHON` / `$NAMO_REPO` directly (bare — with `set -u` an unset var fails fast, mirroring the Python module).
 
 | var | default (Amarel) | meaning |
 |---|---|---|
@@ -36,8 +31,7 @@ Machine-specific roots live in the **environment**, read in exactly one place ea
 | `NAMO_PYTHON` | `$NAMO_SCRATCH/envs/namo/bin/python` | interpreter slurm/sh scripts invoke |
 | `NAMO_GLOBAL_SEED` | `42` | global seed |
 
-So **all** code ports by setting `NAMO_SCRATCH` + `SAGE_REPO` + `MJ_PATH` (+ `NAMO_PYTHON` for the interpreter);
-the data roots and `NAMO_REPO` derive automatically. Set them once per machine via `env.<machine>.sh`.
+So **all** code ports by setting `NAMO_SCRATCH` + `SAGE_REPO` + `MJ_PATH` (+ `NAMO_PYTHON` for the interpreter); the data roots and `NAMO_REPO` derive automatically. Set them once per machine via `env.<machine>.sh`.
 
 > Two equivalent entry points export this contract: **`env.<machine>.sh`** (login + general use, no conda) and
 > **`scripts/amarel/activate.sh`** (Amarel compute nodes — also loads modules + activates conda). Both export the
@@ -60,19 +54,14 @@ export LD_LIBRARY_PATH="$MJ_PATH/lib:${LD_LIBRARY_PATH:-}"
 `env.amarel.sh` + `env.ilab.sh` are committed (one per box). Keep `.env` out of git if it ever holds secrets.
 
 ## 3. ⚠ No more path-rewriting — what changed
-The old `rewrite_paths.sh` (sed over tracked files) is **gone** — it was incompatible with git portability
-(rewriting tracked files makes every box's checkout dirty → merge conflicts on `git pull`). Both cases it
-handled are now solved without touching tracked files:
+The old `rewrite_paths.sh` (sed over tracked files) is **gone** — it was incompatible with git portability (rewriting tracked files makes every box's checkout dirty → merge conflicts on `git pull`). Both cases it handled are now solved without touching tracked files:
 
-- **(a) ~100 scripts that hardcoded `/scratch/dm1487`** → all converted to read the env (Python via
-  `namo.paths`, shell via `$NAMO_*`). Nothing to rewrite. A guard keeps it that way:
+- **(a) ~100 scripts that hardcoded `/scratch/dm1487`** → all converted to read the env (Python via `namo.paths`, shell via `$NAMO_*`). Nothing to rewrite. A guard keeps it that way:
   ```bash
   bash scripts/portability/check_no_hardcoded_paths.sh     # fails if a box path re-enters code
   git config core.hooksPath scripts/githooks               # (once per clone) run it as a pre-commit hook
   ```
-- **(b) Label JSONs that bake absolute XML paths** (`namo_testset_v1/labels/pure2push.json` keys) → resolved
-  **at load time** by `namo.paths.resolve()`, which maps a legacy `/scratch/dm1487/...` key onto the current
-  box's `NAMO_SCRATCH`. The JSON stays as-is; the eval opens the right file. No rewrite.
+- **(b) Label JSONs that bake absolute XML paths** (`namo_testset_v1/labels/pure2push.json` keys) → resolved **at load time** by `namo.paths.resolve()`, which maps a legacy `/scratch/dm1487/...` key onto the current box's `NAMO_SCRATCH`. The JSON stays as-is; the eval opens the right file. No rewrite.
 
 (YAML configs use `${NAMO_DATASETS}/...` and are `expandvars`-ed by the data-collection loader.)
 
@@ -111,22 +100,13 @@ bash scripts/portability/pull_from_amarel.sh          # both
 # loads a ckpt + renders + simulates 2 episodes — proves bindings + paths + MuJoCo all line up:
 python scripts/sandbox/eval_reactive_argmax.py --ckpt <any ckpt> --start 0 --end 2 --out /tmp/smoke.json
 ```
-If it prints `reactive_argmax@2` without a path/import error, the box is good. (If `NAMO_SCRATCH` isn't set you'll
-get a clear `RuntimeError` from `namo.paths` telling you to source the env — that's the fail-loud guard working.)
-Then `eval_afterok` / training run normally.
+If it prints `reactive_argmax@2` without a path/import error, the box is good. (If `NAMO_SCRATCH` isn't set you'll get a clear `RuntimeError` from `namo.paths` telling you to source the env — that's the fail-loud guard working.) Then `eval_afterok` / training run normally.
 
 ## 7. The general rule (any system)
-**Set `NAMO_SCRATCH`+`SAGE_REPO`+`MJ_PATH`(+`NAMO_PYTHON`) via `env.<machine>.sh` → move the §4 data → build
-bindings → smoke.** That's it — no path rewrites. If you ever need to reference a new machine-specific root,
-add it to `python/namo/paths.py` + `env.<machine>.sh`; never hardcode it in a script (the §3 guard will catch you).
+**Set `NAMO_SCRATCH`+`SAGE_REPO`+`MJ_PATH`(+`NAMO_PYTHON`) via `env.<machine>.sh` → move the §4 data → build bindings → smoke.** That's it — no path rewrites. If you ever need to reference a new machine-specific root, add it to `python/namo/paths.py` + `env.<machine>.sh`; never hardcode it in a script (the §3 guard will catch you).
 
 ## 8. Porting the Claude skills + machine cards
 Two kinds of skill, ported differently:
-- **Project skills** (`.claude/skills/`, repo knowledge) — **committed** (`.gitignore` un-ignores `.claude/skills/`),
-  so they **travel with `git clone`** (e.g. `namo-data-pipeline`). Put any new *shared* skill here.
-- **User skills** (`~/.claude/skills/`, home dir) — do **NOT** travel; they're per-machine. `amarel-gpu` is
-  Amarel-specific (leans on `~/bin/{getgpu,gpufree,gpueta}` + the `gpu,gpu-redhat` partitions) → **don't copy it to
-  ilab.** The **machine cards** carry each box's compute guidance; write an `ilab-gpu` user skill once ilab's
-  scheduler is known.
-- **Machine cards** (`CLAUDE.<machine>.md`) — committed, so they travel. The main `CLAUDE.md` detects the box and
-  routes to the right card. `CLAUDE.local.md` (gitignored, auto-loaded) is for uncommitted per-checkout overrides.
+- **Project skills** (`.claude/skills/`, repo knowledge) — **committed** (`.gitignore` un-ignores `.claude/skills/`), so they **travel with `git clone`** (e.g. `namo-data-pipeline`). Put any new *shared* skill here.
+- **User skills** (`~/.claude/skills/`, home dir) — do **NOT** travel; they're per-machine. `amarel-gpu` is Amarel-specific (leans on `~/bin/{getgpu,gpufree,gpueta}` + the `gpu,gpu-redhat` partitions) → **don't copy it to ilab.** The **machine cards** carry each box's compute guidance; write an `ilab-gpu` user skill once ilab's scheduler is known.
+- **Machine cards** (`CLAUDE.<machine>.md`) — committed, so they travel. The main `CLAUDE.md` detects the box and routes to the right card. `CLAUDE.local.md` (gitignored, auto-loaded) is for uncommitted per-checkout overrides.

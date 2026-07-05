@@ -5,17 +5,13 @@ description: Use BEFORE building, filtering, evaluating, splitting, or labeling 
 
 # NAMO data & eval pipeline guard
 
-You are about to touch NAMO data, eval, or training-data tooling. Work this checklist top-to-bottom
-**before writing code**. The whole point: reuse what exists, don't re-make a known bug, leave docs true.
+You are about to touch NAMO data, eval, or training-data tooling. Work this checklist top-to-bottom **before writing code**. The whole point: reuse what exists, don't re-make a known bug, leave docs true.
 
 ## 0. Read the invariants first
-`docs/pipeline/multi_episode_rooms.md` — the root rule and its three past failure modes. **One room
-(`xml`) has MANY episodes (different pushed object + goal region each).** Almost every bug in this
-pipeline is some version of treating the room as the unit.
+`docs/pipeline/multi_episode_rooms.md` — the root rule and its three past failure modes. **One room (`xml`) has MANY episodes (different pushed object + goal region each).** Almost every bug in this pipeline is some version of treating the room as the unit.
 
 ## 1. Reuse before rewrite — check the inventory
-Search `scripts/` (committed) and `scripts/sandbox/` (gitignored one-offs) for a script that already
-does this. **Edit/extend it; do not fork a new copy.** Current load-bearing pieces:
+Search `scripts/` (committed) and `scripts/sandbox/` (gitignored one-offs) for a script that already does this. **Edit/extend it; do not fork a new copy.** Current load-bearing pieces:
 
 | script | does | invariant it must honor |
 |---|---|---|
@@ -27,8 +23,7 @@ does this. **Edit/extend it; do not fork a new copy.** Current load-bearing piec
 | `build_h5.slurm` / `convert_to_hdf5.py` | NPZ dir → packed H5 | — |
 | eval scripts + `resolve_robust.sh` | scorer eval, diffusion eval, and the verdict layer | → see **Eval structure** below |
 
-If nothing fits, say so out loud, then write the new script in **committed** `scripts/`, not sandbox.
-If a sandbox script has now been reused ≥twice, promote it to `scripts/`.
+If nothing fits, say so out loud, then write the new script in **committed** `scripts/`, not sandbox. If a sandbox script has now been reused ≥twice, promote it to `scripts/`.
 
 ### Eval structure — which to run when (after training a model)
 Three layers, one rulebook shared so the scorer and diffusion are graded apples-to-apples:
@@ -46,10 +41,8 @@ eval_grounding.py  (diffusion counterpart of eval_scorer — same rulebook; its 
     --ckpt <.../checkpoints/epochNNN-val_lossX.ckpt> --network edge_crossattn --num-depths 5 \
     --out /scratch/dm1487/eval/<name>.json
   ```
-  (`--network dit_classifier` only for the old global-readout E0; arch variants auto-detected from the ckpt.)
-- **Decide if a change helped** (the real verdict — hard@1 carries ±3–4 ckpt noise) → add the run's group
-  to `GRPS=()` in `resolve_robust.sh`, then run it. It averages per-seed and compares paired across seeds.
-  (It parses `divisions.hard.scorer_realistic.@1` from each JSON — keep that key name stable.)
+(`--network dit_classifier` only for the old global-readout E0; arch variants auto-detected from the ckpt.)
+- **Decide if a change helped** (the real verdict — hard@1 carries ±3–4 ckpt noise) → add the run's group to `GRPS=()` in `resolve_robust.sh`, then run it. It averages per-seed and compares paired across seeds. (It parses `divisions.hard.scorer_realistic.@1` from each JSON — keep that key name stable.)
 - **`eval_common.py` is a library, not a script** — running it does nothing; both evals `import` it.
 
 ## 2. Enforce the invariants (hard gate)
@@ -68,7 +61,6 @@ Correct it, then re-verify with the checks below, then note the fix in the doc.
 - Difficulty composition matches intent (run `train_difficulty_composition.py`).
 
 ## 5. Close out
-- Update the affected doc: `docs/experiments/model_comparison_report.md`,
-  `docs/pipeline/multi_episode_rooms.md`, and this inventory.
+- Update the affected doc: `docs/experiments/model_comparison_report.md`, `docs/pipeline/multi_episode_rooms.md`, and this inventory.
 - Delete superseded scripts (e.g. anything replaced by `build_episode_validsets.py`).
 - If a NEW gotcha emerged, add it to `multi_episode_rooms.md` **and** a one-line auto-memory.

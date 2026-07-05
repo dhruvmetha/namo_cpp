@@ -299,15 +299,9 @@ print(f"Loaded {len(dataset)} training examples")
 
 ## Multi-Phase Mining Pipeline (Amarel)
 
-For large corpora (e.g. the car-robot `aug9_car` set with ~226K envs), we run a
-cascade of collection passes that re-attempt environments the prior pass couldn't
-solve, progressively trading breadth for depth. This is what produced the
-`car_v1_aug9_phase{1..5}` directories under `/scratch/dm1487/outputs/`.
+For large corpora (e.g. the car-robot `aug9_car` set with ~226K envs), we run a cascade of collection passes that re-attempt environments the prior pass couldn't solve, progressively trading breadth for depth. This is what produced the `car_v1_aug9_phase{1..5}` directories under `/scratch/dm1487/outputs/`.
 
-All phases use the same algorithm: `region_opening` with
-`--goal-strategy random_rollout --target-goal-region`, varying only **chain
-depth** (how many pushes the planner may chain) and **K = samples-per-state**
-(how many primitive samples to try per BFS node).
+All phases use the same algorithm: `region_opening` with `--goal-strategy random_rollout --target-goal-region`, varying only **chain depth** (how many pushes the planner may chain) and **K = samples-per-state** (how many primitive samples to try per BFS node).
 
 ### Phase spec
 
@@ -321,17 +315,12 @@ depth** (how many pushes the planner may chain) and **K = samples-per-state**
 
 **Partial-fail vs still-failing** (phase-4 input set):
 
-- *Partial-fail* — env had ≥1 successful episode but ≥1 failure on another
-  object. The failed object isn't carried into the next phase because the env
-  is considered solved, so phase 4 retries it at higher K.
-- *Still-failing* — env never succeeded in any phase, retryable failure reason
-  (excludes `goal_region_not_in_snapshot`, which is fundamentally unsolvable).
+- *Partial-fail* — env had ≥1 successful episode but ≥1 failure on another object. The failed object isn't carried into the next phase because the env is considered solved, so phase 4 retries it at higher K.
+- *Still-failing* — env never succeeded in any phase, retryable failure reason (excludes `goal_region_not_in_snapshot`, which is fundamentally unsolvable).
 
 ### Drivers
 
-The v3 cascade driver runs inside a SLURM allocation so it survives
-client/`srun` disconnects. Each child collection array is submitted, polled to
-completion, then the next phase is mined and submitted.
+The v3 cascade driver runs inside a SLURM allocation so it survives client/`srun` disconnects. Each child collection array is submitted, polled to completion, then the next phase is mined and submitted.
 
 ```bash
 # Phase 1 (single-push, sharded array — reads its phase-1 manifest).
@@ -342,9 +331,7 @@ sbatch scripts/amarel/v3_phase1_collect.slurm
 CORPUS_TAG=v3_aug9 sbatch scripts/amarel/v3_cascade_driver.slurm
 ```
 
-Shard sizing in the drivers: `shards = min(60, max(1, ceil(n_envs / 100)))`,
-`shard_size = ceil(n_envs / shards)`. Each shard is one task in a SLURM
-array (`--array=0-N`), 32 cores / 100 GB / 8 h wall.
+Shard sizing in the drivers: `shards = min(60, max(1, ceil(n_envs / 100)))`, `shard_size = ceil(n_envs / shards)`. Each shard is one task in a SLURM array (`--array=0-N`), 32 cores / 100 GB / 8 h wall.
 
 ### Manifest builders
 
@@ -353,9 +340,7 @@ array (`--array=0-N`), 32 cores / 100 GB / 8 h wall.
 | `scripts/build_phase2_manifest.py` | Aggregate failed envs from one phase's PKL dir into a next-phase manifest. Used by `scripts/amarel/mine_residual.slurm`. |
 | `scripts/build_phase4_manifest.py` | Union the partial-fail + still-failing sets across p1/p2/p3 for phase 4. |
 
-The miners walk `modular_data_*/*_results.pkl`, aggregate per-env success
-and failure reasons, and write one XML path per line into the new manifest
-(seed-shuffled for reproducibility, default `--seed 42`).
+The miners walk `modular_data_*/*_results.pkl`, aggregate per-env success and failure reasons, and write one XML path per line into the new manifest (seed-shuffled for reproducibility, default `--seed 42`).
 
 ### Output layout
 
@@ -381,8 +366,7 @@ and failure reasons, and write one XML path per line into the new manifest
 
 ### Mask generation (sharded)
 
-After collection finishes for a phase, generate training NPZs with the
-sharded sbatch:
+After collection finishes for a phase, generate training NPZs with the sharded sbatch:
 
 ```bash
 # 1) Build a PKL list from the phase output dir
@@ -398,8 +382,7 @@ OUTPUT_DIR=/scratch/dm1487/outputs/car_v1_aug9_phase1_masks \
 
 `SHARD_SIZE × (n_array + 1)` should cover the full PKL count.
 
-**Observed throughput** (32-CPU node, 200-PKL benchmark): ~8.5 PKLs/sec →
-~510 PKLs/min/node. Suggested shard count by phase:
+**Observed throughput** (32-CPU node, 200-PKL benchmark): ~8.5 PKLs/sec → ~510 PKLs/min/node. Suggested shard count by phase:
 
 | Phase | Expected PKLs | Shards | PKLs/shard | Wall/shard |
 |---|---:|---:|---:|---|
@@ -409,11 +392,7 @@ OUTPUT_DIR=/scratch/dm1487/outputs/car_v1_aug9_phase1_masks \
 | 4 | ~10–30K | 5 | ~5,000 | ~10 min |
 | 5A–E | ~200–2K each | 1 each | full | ~3 min |
 
-**Important**: `batch_collection.py` defaults `--namo-config` to
-`config/namo_config_complete_skill15_car_1x.yaml`, matching the C++ wavefront
-the planner used. For point-robot data, pass `--namo-config config/namo_config.yaml`.
-A mismatched config inflates obstacles by the wrong radius and makes the
-visible `robot_region` mask disagree with the actual action targets.
+**Important**: `batch_collection.py` defaults `--namo-config` to `config/namo_config_complete_skill15_car_1x.yaml`, matching the C++ wavefront the planner used. For point-robot data, pass `--namo-config config/namo_config.yaml`. A mismatched config inflates obstacles by the wrong radius and makes the visible `robot_region` mask disagree with the actual action targets.
 
 ---
 
@@ -521,8 +500,7 @@ ls ../ml4kp_ktamp/resources/models/custom_walled_envs/aug9/medium/set1/benchmark
 
 ### Issue: No goal masks in .npz files
 
-**Solution:**
-Check that:
+**Solution:** Check that:
 1. Episodes have action sequences (`solution_found: true`)
 2. `all_future_states` is populated (trajectory suffix splitting)
 3. Action sequence contains valid targets

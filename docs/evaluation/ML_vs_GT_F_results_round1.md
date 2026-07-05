@@ -1,8 +1,6 @@
 # ML vs GT-F — Round 1 Results (Point Robot, 1-Push Horizon)
 
-**Date:** 2026-05-16. Generated during the autonomous AFK churn session, calibrated with the larger rlab7 follow-up.
-**Model:** `cropped_diffusion_crossattn_2push/2025-12-16/05-36-44` (DiT cross-attn, 5-channel local masks, DDIM/5 steps, seed 42, 32 samples).
-**Test splits used:**
+**Date:** 2026-05-16. Generated during the autonomous AFK churn session, calibrated with the larger rlab7 follow-up. **Model:** `cropped_diffusion_crossattn_2push/2025-12-16/05-36-44` (DiT cross-attn, 5-channel local masks, DDIM/5 steps, seed 42, 32 samples). **Test splits used:**
 - **Primary (held-out, planner-designed):** 300-env stratified split `manifest_2push_test_minus_1push_test_filtered_difficulty_100each.txt`. 284 dedup instances, 177 with `|F|>0`. **Small n on hard/very_hard buckets (18 / 9).**
 - **Confirmation (rlab7 1-push test set):** `manifest_test.txt` filtered to envs disjoint from the 2-push training pool (1651 of 1767 envs). 3474 dedup instances, 3282 with `|F|>0`. **12× larger; what we use to calibrate per-bucket claims.**
 
