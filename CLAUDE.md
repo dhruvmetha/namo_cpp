@@ -121,3 +121,4 @@ outside must not branch on robot type:
 - **Single responsibility** — avoid redundant validation layers.
 - **Prefer editing** existing files over creating new ones.
 - **No unsolicited docs** — only create documentation when explicitly asked.
+- **Markdown prose = one line per paragraph** [USER] — never hard-wrap sentences across source lines. Obsidian soft-wraps; hard breaks read as mid-sentence breaks in raw/source view. Tables/code exempt. Applies to cards, RESULTS.md, all docs — and to sub-agents.
