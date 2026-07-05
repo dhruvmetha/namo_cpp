@@ -295,3 +295,9 @@ stays the incumbent** — but the hypothesis is **not cleanly false**: the signe
 
 ## Discussion
 _(you ↔ Claude — ask here; I answer inline, dated `**[who YYYY-MM-DD]**`. Newest at the bottom.)_
+
+**[Claude 2026-07-04] Why the 2push wash, mechanistically:** step_penalty shares NoHz-v3's **first-push (setup)
+under-ranking** bottleneck — verified *worse* on hard (setup #1 34.8% vs 39.1%; mean rank 5.14 vs 4.68; 26 vs 21
+robust misses, 16 shared). The −1/0/1 target sharpened the *open-now* signal (helped 1push) but left *setup-value*
+ranking untouched-to-worse (2push). This is exactly why it tied/lost on 2push search. Full side-by-side →
+[[_ranker_bottleneck]] (Discussion).

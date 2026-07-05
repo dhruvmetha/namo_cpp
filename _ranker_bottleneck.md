@@ -146,3 +146,18 @@ wins, it argues the real gain is a setup-aware **value** target for the next mod
 
 ## Discussion
 _(you ↔ Claude — ask here; newest at bottom.)_
+
+**[Claude 2026-07-04] Does step_penalty share this bottleneck? YES — verified (record-based, same method,
+NoHz numbers reproduced exactly ⇒ join correct).** The −1/0/1 reward reshaping did NOT touch the setup-ranking
+bottleneck — consistent with its 2push-search wash.
+
+| H1 first-push (setup), rank 0 = winner | #1 % | mean | ≥rank5 % |
+|---|---|---|---|
+| overall — NoHz / step_pen | 50.9 / 49.3 | 3.28 / 3.41 | 22.0 / 22.6 |
+| **hard** — NoHz / step_pen | **39.1 / 34.8** | **4.68 / 5.14** | 30.6 / 32.9 |
+| H2 dive, overall — NoHz / step_pen | 70.0 / 69.4 | 2.05 / 2.01 | — |
+
+Robust misses (fail all 3 seeds): NoHz 21, **step_pen 26** (16 shared — a superset-ish failure on hard, not a
+disjoint set). So step_pen's setup ranking is ≈NoHz overall and **worse on hard** (the tier that gates 100%);
+the dive stays the stronger head for both. **Both models are blind to setups** — the fix must be setup-value-aware
+(V(s1) / multi-horizon), not reward-relabeling on the open-now axis.
