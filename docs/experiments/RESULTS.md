@@ -10,7 +10,8 @@ Paper-style compilation: for each experiment, the **main table + main figure + a
 
 **Contents** — 1. [Reactive vs floor](#1-reactive-control-learned-value-vs-the-random-floor) ✅ ·
 2. [Best-first search vs floor](#2-best-first-search-learned-value-vs-the-random-floor) ✅ (incl. 1push floor diagnostic) ·
-3. [Step-penalty (−1/0/1)](#3-step-penalty-101-reward) ◑ softened reject · [Prior work](#prior-work-seeded-ledger)
+3. [Step-penalty (−1/0/1)](#3-step-penalty-101-reward) ◑ softened reject ·
+4. [The setup bottleneck & the fix](#4-the-setup-bottleneck-why-search-stalls-and-the-fix) ✅ · [Prior work](#prior-work-seeded-ledger)
 
 ---
 
@@ -134,6 +135,40 @@ Greedy best-first search, budget **900 sims/instance**, combine=q: NoHz-v3's pre
 Reactive open-rate (secondary, success only), Δ = step-pen − NoHz-v3: 2push open@2 all **−2.5** (hard −3.5); 1push open@1 all **+1.0** (hard **+2.5**) — the same 1push-hard signal the search shows.
 
 **Finding.** In **wall-time** (Table 3a) step-penalty is a **non-event**: 2push **15.6 vs 16.0 s** (tie), 1push **0.63 vs 0.70 s** — no horizon where the signed target costs or clearly saves time; both far below random (26.7 s, gap on hard ~27 vs 48 s). **The sims diagnostic explains the (lack of) difference — and the one real signal.** On **2push** search ranking it's a wash (solve@900 95.4 vs 95.3, marginally *worse* at low budget @2 36.9 vs 38.7, where a sharper ranker should win). On **1push** it earns a small, real edge in the ranking metric — **solve@1 83.3 vs 82.3 (+1.0 all, +2.5 hard)** — reproduced *exactly* in reactive open@1, so it's real. **Call: 0/0.9/1 stays incumbent** — it wins the harder 2push axis and the 1push edge is small and time-invisible — but the hypothesis is **not cleanly false**: the signed target sharpens the *open-now* decision, not the *setup* decision. Natural follow-up: apply −1/0/1 to the open-now (H1) head only, keep 0/0.9/1 for setup.
+
+---
+
+## 4. The setup bottleneck: why search stalls, and the fix
+
+Three diagnostics close one loop: the search stalls because the model buries the **setup** — a first push that opens nothing yet but sets up a finish — and we now know *why* it buries it and *what* to do. → cards: [[_ranker_bottleneck]], [[_setup_value_check]], [[_setup_label_quality]].
+
+**Table 4a. The setup is the bottleneck** (2push, hard tier). How the first push is ranked → is the true setup the top pick, and do the hard rooms solve?
+
+| ranking rule | true setup is #1 | true setup median rank | hard rooms solved |
+|---|---|---|---|
+| current — "does it open now?" (q) | 18.9% | 5 | 90.2% |
+| peek-ahead — "what finish does it enable?" | 33.7% | 2–3 | — |
+| perfect setup (oracle) | 100% | 0 | **98.1%** |
+
+Handing the search a perfect setup lifts hard-room solve **90.2 → 98.1%** and rescues **16 of the 21** always-missed rooms — and the finish move holds up once the setup is right (solves 97.6%). So setup-ranking is the dominant bottleneck. Ranking a first push by the finish it enables un-buries the setup (and, notably, helps *most* on hard) but isn't sharp enough to pin it #1 alone.
+
+![[setupval_separation.png]]
+
+**Table 4b. Why the model never learned setups** — the training labels under-count them. Of the first pushes the training data stamped "never opens," how many are actually real setups (a finish exists on exhaustive re-search)?
+
+| where | "never opens" labels that are actually setups |
+|---|---|
+| dead scenes (no setup exists) | 0.8% — labels are fine |
+| solvable scenes (a setup exists) | **41.8%** |
+| — collection tried <40% of follow-ups | 43% |
+| — collection tried >80% of follow-ups | 0.5% |
+| *overall* | *16.7%* |
+
+The model was trained to call **~2 of every 5 real setups** (inside solvable scenes) worthless — driven purely by the collection's sampling budget (correlation of coverage vs mislabel = −0.51). Dead scenes are labeled correctly, so the model can trust "this scene is dead"; the leak is missed setups inside solvable ones.
+
+![[setuplabel_fractried.png]]
+
+**Finding.** The whole story in one line: the search buries the setup because the model was *taught* to (bad labels), and un-burying it works (perfect setup → 98% hard). So the fix is **better labels** — more follow-up moves per first push during collection, or bootstrapped re-labeling with the current model — plus a **trained setup-value target** shaped as the *top-few* finishes a move enables (top-3 ties the single best; a plain average or count lags). This is *not* a reward or loss tweak: step-penalty (§3) already proved that changing the target *number* does nothing, because the number was never the problem. Ceiling: ~98% on hard, not 100% — a handful of rooms fail because the offline "solvable" label doesn't reproduce in the live sim (a stale-label / physics floor no ranker can clear).
 
 ---
 
