@@ -86,6 +86,17 @@ t_wall is not comparable) — deliberately not reported here.*
 
 ![[fullsearch_success_vs_sims.png]]
 
+**Table 2c. 2push wall-time** (emeraldrapids-exclusive, model & random same hardware; avg t_wall per instance, s).
+
+| difficulty | random | **NoHz-v3** |
+|---|---|---|
+| easy | 6.3 | 7.1 |
+| medium | 17.3 | **10.6** |
+| hard | 46.5 | **26.3** |
+| *overall* | *25.4* | ***15.5*** |
+
+![[fullsearch_success_vs_time_bydiff_2push.png]]
+
 **Finding.** The aggregate gap (95.3 vs 91.0) is **modest and misleading** — the difficulty split shows the
 solve-rate win is **entirely in HARD** (+11.5 pt: 90.2 vs 78.7). On easy/medium both reach ~98% by budget 900,
 so there the model's value is **pure efficiency** — roughly **half the sims** (medium 62 vs 123). The ranker is
