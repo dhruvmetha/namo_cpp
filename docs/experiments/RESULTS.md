@@ -81,8 +81,8 @@ enough that best-first almost always finds *a* solver, so both methods hit the s
 | hard | 99.3 / 99.2 | 20 → 7 |
 | *overall* | *99.7 / 99.7* | *8 → 3* |
 
-*1push wall-time by difficulty is pending a separate emeraldrapids-exclusive run (rlab7 was co-tenanted, so its
-t_wall is not comparable) — deliberately not reported here.*
+*1push wall-time (NoHz-v3 0.70 s / random 1.35 s, sapphirerapids) is captured by the step-penalty 3-way timing —
+see §3 Table 3c; a dedicated emeraldrapids full_search 1push run was not separately needed.*
 
 ![[fullsearch_success_vs_sims.png]]
 
