@@ -157,6 +157,21 @@ Distribution of the opener's 0-indexed rank on **SOLVED hard** episodes (mean ±
 
 **Q3 verdict:** the hard-tier headroom is **NOT a uniform shallow nudge and NOT a total signal wall** — it is bimodal: the median opener is already rank 0, and the residual gap lives in a rarity-correlated ~17% tail (rank ≥10) where the single opener is genuinely rare in the pool. It is closer to a **real signal gap concentrated in rare-pool episodes** (rank 5–120 tail) than a cosmetic rank-2–5 calibration miss — but step-pen shows part of it is recoverable.
 
+### Q3b — which slice of hard actually struggles: the rarest-opener rooms
+
+"Hard" is not one thing. Splitting it by how rare the opener is (`solve_rate` = share of the candidate pool that opens the goal) shows the ranking deficit is confined to the bottom slice — everything from `solve_rate` 0.05 up is already near-optimal. Model = NoHz-v3 (3-seed mean), per fixed `solve_rate` bin within hard (n=441):
+
+| slice (GT solve_rate) | rooms | pool size | openers in pool | model solve@1 | model mean opener rank | random E[rank] | rank / pool |
+|---|---|---|---|---|---|---|---|
+| [0.006, 0.020) — rarest | 70 | 100 | ~1.2 | 18.6% | 14.8 | 44.8 | 0.15 |
+| [0.020, 0.050) | 134 | 84 | ~2.6 | 39.3% | 6.8 | 22.3 | 0.08 |
+| [0.050, 0.100) | 118 | 83 | ~6.0 | 67.8% | 3.2 | 11.0 | 0.04 |
+| [0.100, 0.169) | 119 | 72 | ~9.2 | 78.4% | 1.1 | 6.2 | 0.02 |
+
+Reading: from `solve_rate` 0.05 up (the top ~54% of hard), the model is already near-optimal — top pick opens 68–78%, median opener rank 0. The whole ranking deficit lives in the bottom two slices, and the rarest one (`solve_rate` < 0.02, ~1 opener in a ~100-push pile, n=70) is where solve@1 collapses to **18.6%** and the opener sits at mean rank **~15**. **44% of the entire hard deep tail (rank ≥ 10) is in this one bin; ~80% is in the bottom half of hard.** (Within-hard quartiles tell the same story: Q1 solve@1 20.9% / mean rank 12.7 vs Q4 79.3% / 1.1.)
+
+Is this a closable ranking gap or intrinsic difficulty? Both — but not a wall. The model still floats the lone opener into the top ~15% of the pile (`rank/pool` 0.15) vs random's middle (0.43) — **3× better than chance** — so it has real signal, just not enough to pin one needle among ~100 look-alikes. Evidence it is partly reachable: **step-pen cuts the mean rank in this exact worst bin from 14.8 → 10.5** (−4.4, ~30% shallower) with solve@1 barely moving (+1.0pp) — its known +2.5pp hard edge is concentrated here as a "finds the needle faster once the top pick misses" effect, not a "wins outright more often" one. **Lever for hard-1push: a sharper ranking signal on the rarest-opener rooms specifically, not a broad hard-tier fix.**
+
 ### Overall verdict — splitting the 1push gap
 
 - **Unfixable pool/label floor (~0.3% all-tier, ~0.7% hard):** 5 episodes no ranker clears. 4 are single-opener long-tail pools (solve_rate ≤0.02) whose lone offline opener the online sim doesn't reliably reproduce; 1 (pos 953, sr=1.0) is a stale-label / sim-determinism contradiction. Random misses the same set — this is the ceiling, not a model deficit.
