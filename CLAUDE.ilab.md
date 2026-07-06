@@ -13,7 +13,7 @@
 ## Layout
 - Repos: `/common/home/dm1487/robotics_research/ktamp/{namo, sage_learning}` (= `NAMO_PARENT`; repo dir is `namo` here, `namo_cpp` on Amarel; `sage_learning` is its sibling). `…/fresh_start/projects/namo/` holds only the `h5` data, **not** the repos.
 - Data / h5 / outputs: under `/common/users/dm1487/scratch_namo` (= `NAMO_SCRATCH`)
-- **Env:** `source env.ilab.sh` (MJ_PATH is baked in: `/common/users/dm1487/ktamp/mujoco`, MuJoCo 3.2.7 source build).
+- **Env:** `source env.ilab.sh` (MJ_PATH is baked in: `/common/users/dm1487/ktamp/mujoco`, **MuJoCo 3.2.8** source build — verified `libmujoco.so.3.2.8`. ⚠ Amarel runs **3.2.7**, so the CS estate is one minor version ahead — watch for physics drift across boxes).
 - ⚠ **Ignore the parent `../.env`** — dead legacy config; nothing reads it (its `scripts/env/activate.sh` consumer was deleted) and its `NAMO_PYTHON` points at the wrong env.
 
 ## First-time setup (once per fresh checkout)

@@ -3,7 +3,7 @@
 export NAMO_REPO="$PWD"                                                      # this repo (namo_cpp); sourced from repo root
 export NAMO_SCRATCH=/common/users/dm1487/scratch_namo                       # base; datasets/h5/manifests/outputs derive from this
 export SAGE_REPO="$(dirname "$PWD")/sage_learning"                          # sister folder of this repo (source from repo root)
-export MJ_PATH=/common/users/dm1487/ktamp/mujoco                            # MuJoCo 3.2.7 (verified present)
+export MJ_PATH=/common/users/dm1487/ktamp/mujoco                            # MuJoCo 3.2.8 (libmujoco.so.3.2.8, header 328) — NB Amarel runs 3.2.7
 export NAMO_GLOBAL_SEED=42
 export NAMO_PYTHON=python                                                    # interpreter for slurm/sh; adjust to your env (e.g. /path/to/conda/envs/namo/bin/python)
 # derived roots (mirror namo.paths; override individually only if your layout differs):
