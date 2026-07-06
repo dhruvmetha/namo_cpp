@@ -4,7 +4,7 @@ NAMO (Navigation Among Movable Obstacles): C++ physics/planning backend + Python
 
 **⛔ READ FIRST — [docs/problem_and_approach.md](docs/problem_and_approach.md):** the plain-English north-star (problem → search-is-expensive → learn-a-ranker → beat-random). Read it before reasoning about the method.
 
-**Current framing (2026-07): horizon/budget-conditioning is DROPPED.** Live model = a single value/ranker over pushes ("NoHz") whose job is ranking the FIRST push (the "setup"). No budget input, no `Q(s,a,H)`, no per-horizon heads. The `horizon_q_*` docs are historical → [RESULTS.md §4](docs/experiments/RESULTS.md), [policy_value_search_hypothesis.md](docs/experiments/policy_value_search_hypothesis.md).
+**Live framing:** the model is a single **ranker / search heuristic**, NOT horizon/budget-conditioned — no `Q(s,a,H)`, no per-horizon heads. The `horizon_q_*` docs are historical; the current framing lives in [docs/problem_and_approach.md](docs/problem_and_approach.md).
 
 **Doc map:** everything is indexed in [docs/INDEX.md](docs/INDEX.md); research lives in `docs/experiments/`, read on demand. Keep THIS file lean — durable every-session facts only; anything dated or "currently" belongs in a journal.
 
@@ -23,10 +23,9 @@ NAMO (Navigation Among Movable Obstacles): C++ physics/planning backend + Python
 
 ## Environment & build
 
-- **Python:** `/scratch/dm1487/envs/namo/bin/python` (3.11) — use the absolute path; never system `python3`.
-- **Bindings:** `PYTHONPATH="$PWD/build_python:$PWD/python"`. Rebuild after editing `src/`/`include/`/`cpp_bindings/`: `./build_python_bindings.sh` (needs `MJ_PATH`, currently `/scratch/dm1487/mujoco/mujoco-3.2.7`).
-- **Multi-box:** detect the box → read its card ([CLAUDE.amarel.md](CLAUDE.amarel.md)/[CLAUDE.ilab.md](CLAUDE.ilab.md)) → `source env.<machine>.sh`. Paths come from the env (`namo.paths`/`$NAMO_*`) — never hardcode (guard: `check_no_hardcoded_paths.sh`). Runbook [PORTABILITY.md](docs/PORTABILITY.md); per-checkout tweaks → `CLAUDE.local.md`.
-- **Compute:** `compute-resources` skill. Amarel helpers on PATH (`getgpu`/`gpufree`/`gpueta`). SLURM: submit `gpu,gpu-redhat`; never Camden; never wait >1h.
+- **Per-box first:** detect the box → read its machine card ([CLAUDE.amarel.md](CLAUDE.amarel.md)/[CLAUDE.ilab.md](CLAUDE.ilab.md)) → activate its env (`source env.<machine>.sh`). **The python interpreter, `MJ_PATH`, data roots, and box GPU helpers all come from that env** (`namo.paths`/`$NAMO_*`) — box-specific, so never hardcode them here (guard: `check_no_hardcoded_paths.sh`). Runbook [PORTABILITY.md](docs/PORTABILITY.md); per-checkout tweaks → `CLAUDE.local.md`.
+- **Bindings:** `PYTHONPATH="$PWD/build_python:$PWD/python"` (repo-relative). Rebuild after editing `src/`/`include/`/`cpp_bindings/`: `./build_python_bindings.sh` (needs `MJ_PATH` from the box env).
+- **Compute:** `compute-resources` skill. SLURM policy: submit `gpu,gpu-redhat`; never Camden; never wait >1h.
 
 ## Data
 
