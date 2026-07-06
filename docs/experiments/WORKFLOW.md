@@ -33,6 +33,14 @@ A card stays a **single file** until it earns a folder — a plot, a long Q&A, o
 ## Verdict rule
 Accept/reject **on numbers only** (Hypothesis → Evidence → Verdict). No vibes.
 
+## Reporting conventions [USER]
+- **Splits — ALWAYS:** every result split by **difficulty (easy/med/hard)** AND **horizon (1push/2push)**, never aggregate-only. If only one horizon ran, run/aggregate the other. Binning mechanics (tertiles, `pure2push_divisions.json`, `agg_react_search.py`) → [difficulty_stratification.md](../pipeline/difficulty_stratification.md); canonical table shape = `_reactive_search.md`.
+- **Framing by regime:** REACTIVE = success only → **open-rate** (open@1 / open@2) by difficulty×horizon, no time/sim axis. SEARCH = **wall-time FIRST** (`avg t_wall`, `solve@1s/@5s/@30s`), THEN **sims** as the diagnostic (sims-to-solve, rank-of-winner).
+- **Depth:** see step 4 above — card (`_*.md`) = full verbose detail; RESULTS.md = curated paper-style.
+
+## Measuring time (wall-clock) — MUST be consistent
+`t_wall` is hardware-dependent; **sims / episode counts are machine-independent** (compare those across any box freely). To compare TIME, measure on IDENTICAL hardware the same way: `time_bestfirst.py` **interleaved** (every method hits the same episode back-to-back on one node), `--exclusive`, CPU-microarch-**pinned** (`--constraint=emeraldrapids`/`icelake`) so times pool. Re-time a shared baseline (e.g. `random`) as an **anchor** to prove a new run pools with prior ones. **NEVER put wall-times from different boxes (arrakis vs Amarel vs westeros) on the same success-vs-time axis** — re-time on the baseline's exact setup instead.
+
 ## Must-do's [Claude]
 1. **Commit before every run** — stamp the SHA in `commit:`.
 2. **On finish** — append RESULTS.md + update the registry (if a model trained).

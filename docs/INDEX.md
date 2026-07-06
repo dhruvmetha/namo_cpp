@@ -42,7 +42,8 @@ The active work now lives in experiment **cards** ([`experiments/log/`](experime
 ## docs/experiments/ — the active research ledger
 
 **⚙️ Experiment loop (the system — how we propose/run/record experiments):**
-- [`WORKFLOW.md`](experiments/WORKFLOW.md) — the operating loop + role separation + status enum. `[HUB]`
+- [`WORKFLOW.md`](experiments/WORKFLOW.md) — the operating loop, roles, status enum, and reporting + timing conventions. `[HUB]`
+- [`ORCHESTRATION.md`](experiments/ORCHESTRATION.md) — running the parallel-experiment fleet: forking, worktrees, file-partition, merge-back, tiering. `[HUB]`
 - [`RESULTS.md`](experiments/RESULTS.md) — compiled results sheet (one row per finished experiment). `[HUB]`
 - [`DASHBOARD.md`](experiments/DASHBOARD.md) — Obsidian board: Bases (`experiments.base`) + Dataview fallback. `[REF]`
 - [`log/`](experiments/log/) — active experiment cards (`idea`/`live`), one note each. `[LIVE]`
