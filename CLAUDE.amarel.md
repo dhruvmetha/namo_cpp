@@ -1,8 +1,6 @@
 # CLAUDE.amarel.md — machine card: Amarel (Rutgers Amarel cluster)
 
-> Read this **+ the main CLAUDE.md** at session start when on Amarel. This is the ORIGINAL box — its paths are the
-> `env.amarel.sh` defaults. Code is env-native (reads `NAMO_SCRATCH` etc.), so nothing is rewritten per-box. Full
-> portability runbook: [docs/PORTABILITY.md](docs/PORTABILITY.md).
+> Read this **+ the main CLAUDE.md** at session start when on Amarel. This is the ORIGINAL box — its paths are the `env.amarel.sh` defaults. Code is env-native (reads `NAMO_SCRATCH` etc.), so nothing is rewritten per-box. Full portability runbook: [docs/PORTABILITY.md](docs/PORTABILITY.md).
 
 ## Am I on this box?
 - `hostname` → `amarel*` / `*.amarel.rutgers.edu`, **or** the repo path is under `/cache/home/dm1487/...`.
@@ -24,13 +22,10 @@ srun --partition=main-redhat --cpus-per-task=8 --mem=16G --time=00:30:00 bash -c
 ```
 `NAMO_MARCH=x86-64-v3` = portable baseline (heterogeneous fleet; a `native` `.so` can SIGILL on another node). `rm -rf build_python` clears a stale CMake cache pinned to a removed compiler.
 
-## Compute (SLURM)
-- GPU: submit `gpu,gpu-redhat`; **NEVER Camden (`cgpu-*`)** (no `/scratch` mount). Never wait >1h — relax/resubmit.
-- Helpers on PATH (`~/bin`): `getgpu` (interactive node, reuse without re-queue), `gpufree` (idle GPUs), `gpueta` (job ETAs).
-- Heavy work → `sbatch`; login node = light orchestration only.
-- **CPU default = `main-redhat`** (huge capacity, often 150+ idle nodes — always prefer it; `main` is small and usually full). GPU: `gpu-redhat`.
-- (This is the `amarel-gpu` user-skill's home; the skill is machine-local and stays here — see main CLAUDE.md "skills" note.)
-- **`compute-resources` user skill** (where-to-run / SLURM / auth / data-move guidance) is installed here at `~/.claude/skills/compute-resources/`, but it's **authored on ilab**. User skills don't travel with git, so re-sync after edits — run **from ilab** (Amarel can't reach ilab): `rsync -avz ~/.claude/skills/compute-resources/ amarel:.claude/skills/compute-resources/`
+## Compute (SLURM) — Amarel invariants only; where-to-run guidance lives in the `compute-resources` skill
+- Partitions: CPU default **`main-redhat`** (huge capacity, often 150+ idle; `main` is small and usually full) · GPU `gpu,gpu-redhat` · **NEVER Camden (`cgpu-*`)** (no `/scratch` mount). Never wait >1h — relax/resubmit.
+- Heavy work → `sbatch`; login node = light orchestration only. Helpers on PATH (`~/bin`): `getgpu` (interactive node, reuse without re-queue), `gpufree` (idle GPUs), `gpueta` (job ETAs).
+- Skills are machine-local (they don't travel with git): the `amarel-gpu` user skill lives only here; `compute-resources` is **authored on the CS estate** and mirrored here — re-sync after edits, run **from a CS box** (Amarel can't reach them): `rsync -avz ~/.claude/skills/compute-resources/ amarel:.claude/skills/compute-resources/`
 
 ## What lives here
 - The full eval toolchain + test set + MuJoCo bindings (the physics sim). Eval is cheap CPU → **run the gate here**.

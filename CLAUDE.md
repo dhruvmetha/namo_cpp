@@ -23,7 +23,7 @@ NAMO (Navigation Among Movable Obstacles): C++ physics/planning backend + Python
 
 ## Environment & build
 
-- **Per-box first:** detect the box → read its machine card ([CLAUDE.amarel.md](CLAUDE.amarel.md)/[CLAUDE.ilab.md](CLAUDE.ilab.md)) → activate its env (`source env.<machine>.sh`). **The python interpreter, `MJ_PATH`, data roots, and box GPU helpers all come from that env** (`namo.paths`/`$NAMO_*`) — box-specific, so never hardcode them here (guard: `check_no_hardcoded_paths.sh`). Runbook [PORTABILITY.md](docs/PORTABILITY.md); per-checkout tweaks → `CLAUDE.local.md`.
+- **Per-box first:** detect the box → read its machine card ([CLAUDE.amarel.md](CLAUDE.amarel.md) / [CLAUDE.ilab.md](CLAUDE.ilab.md) — the latter covers the whole CS estate: ilab/rlab/arrakis/westeros) → activate its env (`source env.<machine>.sh`). **The python interpreter, `MJ_PATH`, data roots, and box GPU helpers all come from that env** (`namo.paths`/`$NAMO_*`) — box-specific, so never hardcode them here (guard: `check_no_hardcoded_paths.sh`). Runbook [PORTABILITY.md](docs/PORTABILITY.md); per-checkout tweaks → `CLAUDE.local.md`.
 - **Bindings:** `PYTHONPATH="$PWD/build_python:$PWD/python"` (repo-relative). Rebuild after editing `src/`/`include/`/`cpp_bindings/`: `./build_python_bindings.sh` (needs `MJ_PATH` from the box env).
 - **Compute:** `compute-resources` skill. SLURM policy: submit `gpu,gpu-redhat`; never Camden; never wait >1h.
 
