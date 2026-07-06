@@ -2,7 +2,7 @@
 status: hub
 tags:
   - results
-updated: 2026-07-05
+updated: 2026-07-06
 ---
 # Results
 
@@ -11,7 +11,8 @@ Paper-style compilation: for each experiment, the **main table + main figure + a
 **Contents** — 1. [Reactive vs floor](#1-reactive-control-learned-value-vs-the-random-floor) ✅ ·
 2. [Best-first search vs floor](#2-best-first-search-learned-value-vs-the-random-floor) ✅ (incl. 1push floor diagnostic) ·
 3. [Step-penalty (−1/0/1)](#3-step-penalty-101-reward) ◑ softened reject ·
-4. [The setup bottleneck & the fix](#4-the-setup-bottleneck-why-search-stalls-and-the-fix) ✅ · [Prior work](#prior-work-seeded-ledger)
+4. [The setup bottleneck & the fix](#4-the-setup-bottleneck-why-search-stalls-and-the-fix) ✅ ·
+5. [Reactive MPC depth 5](#5-reactive-mpc-to-depth-5-more-pushes-dont-buy-back-the-search-gap) ✅ budget ≠ search · [Prior work](#prior-work-seeded-ledger)
 
 ---
 
@@ -169,6 +170,42 @@ The model was trained to call **~2 of every 5 real setups** (inside solvable sce
 ![[setuplabel_fractried.png]]
 
 **Finding.** The whole story in one line: the search buries the setup because the model was *taught* to (bad labels), and un-burying it works (perfect setup → 98% hard). So the fix is **better labels** — more follow-up moves per first push during collection, or bootstrapped re-labeling with the current model — plus a **trained setup-value target** shaped as the *top-few* finishes a move enables (top-3 ties the single best; a plain average or count lags). This is *not* a reward or loss tweak: step-penalty (§3) already proved that changing the target *number* does nothing, because the number was never the problem. Ceiling: the ~2% gap to 100% is **fixable plumbing, not a floor** — of the 13 "impossible" rooms, **0 are genuine** (2 have an inconsistent open-criterion between collection and eval, 9 are push-controller jams/under-pushes, 2 are just eval noise), so the true achievable ceiling is ~100% once the criterion is unified and the controller is fixed. → [[_offline_online_gap]]. That's a *separate* fix from the label-fix (which sharpens ranking): these raise the ceiling. ⚠ Flagged there too: the eval sim is **non-deterministic at ~0.3 mm** (MuJoCo warmstart), enough to flip near-threshold rooms — so single-run "never opens" numbers near the ceiling are noisy.
+
+---
+
+## 5. Reactive MPC to depth 5: more pushes don't buy back the search gap
+
+Can the no-search regime close the gap to search by simply **executing more pushes** (MPC: argmax, push, re-look, repeat — no undo)? Same forced-dive protocol as §1 extended to a ≤5-push loop (labeled object only, early-stop on open). NoHz-v3 = 3 best-val ckpt-seeds; random = 10 seeds. → card: [[EXP-2026-07-06-reactive-mpc-depth5]].
+
+**Table 5a. 2push** — cumulative % of episodes whose region opens within k pushes (open@k). Pure-2-push set, n = 1018; open@1 = 0 by construction. Search reference: best-first solve@900 = **95.9**.
+
+| difficulty | ranker | open@2 | open@3 | open@4 | open@5 |
+|---|---|---|---|---|---|
+| easy | random | 8.0 ± 1.4 | 23.0 ± 2.6 | 35.5 ± 3.8 | 46.2 ± 2.9 |
+| easy | NoHz-v3 | **59.8 ± 3.6** | 66.8 ± 3.0 | 67.4 ± 3.6 | 67.9 ± 3.8 |
+| medium | random | 4.5 ± 0.8 | 12.6 ± 1.9 | 21.6 ± 1.9 | 31.6 ± 2.4 |
+| medium | NoHz-v3 | **42.5 ± 1.6** | 55.5 ± 2.5 | 57.6 ± 2.0 | 58.1 ± 2.0 |
+| hard | random | 2.1 ± 0.5 | 7.0 ± 1.1 | 13.3 ± 2.1 | 21.3 ± 2.4 |
+| hard | NoHz-v3 | **26.3 ± 0.7** | 43.3 ± 2.4 | 46.3 ± 1.6 | 47.3 ± 1.4 |
+| *all* | *random* | *4.5 ± 0.5* | *13.0 ± 1.0* | *21.8 ± 1.6* | *31.3 ± 1.7* |
+| *all* | *NoHz-v3* | ***40.7 ± 0.2*** | ***53.7 ± 0.9*** | ***55.8 ± 0.5*** | ***56.5 ± 0.4*** |
+
+**Table 5b. 1push** — same, open@1..5. One-push set, n = 1323.
+
+| difficulty | ranker | open@1 | open@2 | open@3 | open@4 | open@5 |
+|---|---|---|---|---|---|---|
+| easy | random | 72.6 ± 1.9 | 91.3 ± 0.9 | 96.3 ± 0.6 | 97.8 ± 0.6 | 98.4 ± 0.5 |
+| easy | NoHz-v3 | **98.7 ± 0.4** | 99.4 ± 0.3 | 99.4 ± 0.3 | 99.4 ± 0.3 | 99.4 ± 0.3 |
+| medium | random | 33.0 ± 2.2 | 60.4 ± 2.1 | 74.8 ± 2.5 | 82.9 ± 2.2 | 87.2 ± 1.8 |
+| medium | NoHz-v3 | **93.9 ± 0.5** | 96.8 ± 0.2 | 96.9 ± 0.1 | 96.9 ± 0.1 | 97.0 ± 0.2 |
+| hard | random | 6.4 ± 1.4 | 21.5 ± 1.8 | 35.3 ± 1.7 | 47.5 ± 1.6 | 56.7 ± 1.7 |
+| hard | NoHz-v3 | **54.3 ± 0.4** | 73.0 ± 1.5 | 76.6 ± 1.7 | 77.4 ± 1.1 | 77.6 ± 1.1 |
+| *all* | *random* | *37.5 ± 1.1* | *57.9 ± 1.0* | *68.9 ± 1.1* | *76.1 ± 0.9* | *80.8 ± 0.7* |
+| *all* | *NoHz-v3* | ***82.3 ± 0.2*** | ***89.7 ± 0.5*** | ***91.0 ± 0.5*** | ***91.3 ± 0.3*** | ***91.3 ± 0.4*** |
+
+![[react_mpc_d5.png]]
+
+**Finding.** **The model plateaus by push 3 — extra budget closes only ~29% of the reactive-vs-search gap; the other ~71% needs simulate-and-undo.** On 2push·all, open@k goes 40.7 → 53.7 → 55.8 → 56.5: the per-push gains collapse (+13.0 / +2.1 / +0.7), leaving a **~39pp gap** to best-first search (95.9) even at 5 real pushes. Hard 2push caps at **47.3%** (more than half of hard scenes never open reactively, vs ~96 under search), and even 1push scenes carry a ~9% reactive-irrecoverable tail (saturates at 91.3). Read: **greedy mistakes are largely irreversible** — you can't push your way out of a bad first push; you have to be able to take it back, which is exactly what search buys. Secondary: random *doesn't* plateau (2push 4.5 → 31.3 by push 5), eating the model's lift from +36.2 to +25.2 — blind persistence slowly accumulates what early greedy commitment forgoes, but stays ~25pp behind. Anchor check passed (open@1/@2 reproduce §1 within seed noise; the §1 2push mean of 42.1 traced to a non-best-val ep011 s3 ckpt in the reused legacy leaves — the registry-consistent ep012 number is **40.7 ± 0.2**). Pre-registered caveat: not compute-matched — search spends *sims*, MPC spends *real pushes*; this measures what falls to zero-simulation control.
 
 ---
 

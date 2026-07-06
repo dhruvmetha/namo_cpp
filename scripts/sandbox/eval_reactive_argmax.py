@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""PURE REACTIVE policy = argmax setup -> step -> argmax finish -> step -> opened?  (region criterion, object-constrained).
+"""PURE REACTIVE MPC = repeat[ argmax push -> step -> opened? ] up to --max-pushes times  (region criterion, object-constrained).
 
-Zero search, exactly 2 sims/episode. Unlike best-first solve@2, this FORCES the dive (sim 2 is always the model's top
-finish at the setup's s1), so it removes the 'won't-dive' confound and measures the model's true reactive ceiling:
-  - setup = argmax Q(s0, ., H=2)  (the model's #1 first push, object-constrained)
-  - finish = argmax Q(s1, ., H=1)  (the model's #1 second push at the resulting state)
+Zero search: each push is the model's current top pick (or a RANDOM pick for the floor) at the LIVE state, then we act
+for real and check if the region opened. No simulate-and-undo — MPC can't take a push back, but it CAN keep pushing.
+  - push i = argmax Q(s_{i-1}, ., H)  (the model's #1 push at the live state, object-constrained to the labeled object)
+       query budget H = --h for push 1 (2=foresight / 1=told-you-have-1-push), H=1 for pushes 2..k
+       (NoHz models ignore H, and the RANDOM pool is H-independent -> the depth-k result does not depend on --h)
   - graded by goal_open_pts (>=20% of s0-sampled goal-region points reachable) = the canonical region criterion.
-Reports open@1 (setup alone opens, ~0 on pure-2) and open@2 (the argmax-argmax reactive number)."""
+  - EARLY STOP: region opens (record push index it opened at) OR the candidate pool empties.
+Each leaf records `opened_at` in 1..k (or 0 = never), so cumulative open@1..open@k for every k<=max_pushes come from ONE run.
+Default --max-pushes 2 is EXACTLY the old setup+finish (argmax setup@H -> argmax finish@H1) -> backward compatible."""
 import sys, os, json, argparse, random
 from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]; SAGE = os.environ.get("SAGE_REPO", "")
@@ -26,16 +29,20 @@ def main():
     ap.add_argument("--start", type=int, default=0)
     ap.add_argument("--end", type=int, default=0, help="0 = to end (xml-index shard)")
     ap.add_argument("--out", required=True)
-    ap.add_argument("--leaf-out", default="", help="optional per-episode jsonl: {xml,object_id,region,open2}")
-    ap.add_argument("--h", type=int, default=2, help="query budget for the FIRST push (2=foresight; 1=told-you-have-1-push)")
+    ap.add_argument("--leaf-out", default="", help="optional per-episode jsonl: {xml,object_id,region,opened_at,open1..openK}")
+    ap.add_argument("--h", type=int, default=2, help="query budget for the FIRST push (2=foresight; 1=told-you-have-1-push); pushes 2..k query H=1")
+    ap.add_argument("--max-pushes", type=int, default=2,
+                    help="depth-k reactive MPC budget: keep pushing (argmax/random) up to k times, early-stop on open or empty pool. Default 2 = old setup+finish (backward compatible).")
     ap.add_argument("--prior", default="q", choices=["q", "uniform"], help="q=argmax(model); uniform=RANDOM pick, no model")
     ap.add_argument("--seed", type=int, default=7000)
     a = ap.parse_args()
+    K = max(1, a.max_pushes)
     rng = random.Random(a.seed)
     pl = BeamPlanner(ckpt=a.ckpt)
     key = json.load(open(a.key))
     xmls = list(key); xmls = xmls[a.start:(a.end if a.end else len(xmls))]
-    n = 0; open1 = 0; open2 = 0; skip = 0; leaf = []
+    n = 0; skip = 0; leaf = []
+    opened = [0] * (K + 1)   # opened[k] = #episodes that opened AT push k (index 1..K); opened[0] unused
     for xi, xml in enumerate(xmls):
         for rec in key[xml]:
             obj = rec["object_id"]; reg = rec.get("region")
@@ -47,30 +54,38 @@ def main():
                 skip += 1; continue
             if not gp or goal_open_pts(env, gp):
                 skip += 1; continue
-            pool0 = rank_first_pushes_h2(pl, env, goal, xml, s0, a.h, restrict_obj=obj, score=(a.prior == "q"))  # first push @ query budget a.h
-            if not pool0:
+            # push 1 decides skip semantics: no candidate for the labeled object -> not a valid episode
+            pool = rank_first_pushes_h2(pl, env, goal, xml, s0, a.h, restrict_obj=obj, score=(a.prior == "q"))
+            if not pool:
                 skip += 1; continue
             n += 1
-            _o, g1, _q = pool0[0] if a.prior == "q" else rng.choice(pool0)              # ARGMAX or RANDOM setup
-            env.set_full_state(s0); env.step(make_action(obj, g1))
-            if goal_open_pts(env, gp):
-                open1 += 1; open2 += 1
-                leaf.append({"xml": xml, "object_id": obj, "region": reg, "open1": 1, "open2": 1}); continue  # opened in 1
-            s1 = env.get_full_state()
-            pool1 = rank_first_pushes_h2(pl, env, goal, xml, s1, 1, restrict_obj=obj, score=(a.prior == "q"))   # finishes @H=1
-            if not pool1:
-                leaf.append({"xml": xml, "object_id": obj, "region": reg, "open1": 0, "open2": 0}); continue
-            _o2, g2, _q2 = pool1[0] if a.prior == "q" else rng.choice(pool1)             # ARGMAX or RANDOM finish
-            env.set_full_state(s1); env.step(make_action(obj, g2))
-            o2 = 1 if goal_open_pts(env, gp) else 0
-            open2 += o2
-            leaf.append({"xml": xml, "object_id": obj, "region": reg, "open1": 0, "open2": o2})
+            opened_at = 0
+            s_cur = s0
+            for pidx in range(1, K + 1):
+                if pidx > 1:  # re-rank at the LIVE state; finishes query H=1
+                    pool = rank_first_pushes_h2(pl, env, goal, xml, s_cur, 1, restrict_obj=obj, score=(a.prior == "q"))
+                    if not pool:
+                        break  # candidate pool empty -> stop early
+                _o, g, _q = pool[0] if a.prior == "q" else rng.choice(pool)    # ARGMAX or RANDOM push
+                env.set_full_state(s_cur); env.step(make_action(obj, g))
+                if goal_open_pts(env, gp):
+                    opened_at = pidx; break                                    # region opened -> stop
+                s_cur = env.get_full_state()
+            if opened_at:
+                opened[opened_at] += 1
+            r_leaf = {"xml": xml, "object_id": obj, "region": reg, "opened_at": opened_at}
+            for k in range(1, max(K, 2) + 1):                                  # open1,open2 always present (old aggregator) + open3..openK
+                r_leaf[f"open{k}"] = int(0 < opened_at <= k)
+            leaf.append(r_leaf)
         if xi % 25 == 0:
-            print(f"  [{xi}/{len(xmls)}] n={n} open@2={open2}", file=sys.stderr, flush=True)
-    out = {"ckpt": os.path.basename(a.ckpt), "n": n, "skip": skip,
-           "open1": open1, "open2": open2,
-           "reactive_argmax@1": round(100 * open1 / max(n, 1), 1),
-           "reactive_argmax@2": round(100 * open2 / max(n, 1), 1)}
+            print(f"  [{xi}/{len(xmls)}] n={n} open@{K}={sum(opened[1:])}", file=sys.stderr, flush=True)
+    cum = {k: sum(opened[1:k + 1]) for k in range(1, K + 1)}                   # cumulative open@k
+    out = {"ckpt": os.path.basename(a.ckpt), "n": n, "skip": skip, "max_pushes": K,
+           "opened_at_hist": {str(k): opened[k] for k in range(1, K + 1)},
+           "open1": cum[1], "open2": cum.get(2, cum[1])}
+    for k in range(1, K + 1):
+        out[f"open{k}_total"] = cum[k]
+        out[f"reactive_argmax@{k}"] = round(100 * cum[k] / max(n, 1), 1)
     os.makedirs(os.path.dirname(a.out), exist_ok=True)
     json.dump(out, open(a.out, "w"), indent=1)
     if a.leaf_out:
