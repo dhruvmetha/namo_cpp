@@ -27,7 +27,8 @@ def main():
     ap.add_argument("--pool-key", required=True)
     ap.add_argument("--split-file", required=True)
     ap.add_argument("--out-root", required=True)
-    ap.add_argument("--ckpt", default=None, help="policy ckpt for arm B / gen>0")
+    ap.add_argument("--ckpt", default=None,
+                    help="policy ckpt: arm B pretrain at gen 0, or EITHER arm's own prev-gen pi ckpt at gen>0")
     ap.add_argument("--n-workers", type=int, default=1)
     ap.add_argument("--rollouts-per-episode", type=int, default=8)
     ap.add_argument("--temperature", type=float, default=1.0)
@@ -35,8 +36,10 @@ def main():
     ap.add_argument("--max-depth", type=int, default=10)
     ap.add_argument("--gamma", type=float, default=0.9)
     ap.add_argument("--max-epochs", type=int, default=40)
-    ap.add_argument("--revalidate-fraction", type=float, default=0.0)
+    ap.add_argument("--revalidate-fraction", type=float, default=0.1)
     ap.add_argument("--pre-collected-dir", default="")
+    ap.add_argument("--expected-shards", type=int, default=0,
+                    help="required with --pre-collected-dir: SLURM NSHARDS; harvest hard-fails on a count mismatch")
     ap.add_argument("--fast-smoke", action="store_true")
     ap.add_argument("--eval-limit", type=int, default=0)
     ap.add_argument("--collect-limit", type=int, default=0)
@@ -45,7 +48,7 @@ def main():
 
     cfg = LoopConfig(
         arm=a.arm, generation=a.generation, run_root=a.out_root,
-        ckpt=a.ckpt if a.arm == "B" else None,
+        ckpt=a.ckpt,
         pool_key=a.pool_key, split_file=a.split_file,
         rollouts_per_episode=a.rollouts_per_episode, temperature=a.temperature, epsilon=a.epsilon,
         max_depth=a.max_depth, gamma=a.gamma, max_epochs=a.max_epochs,
@@ -53,7 +56,7 @@ def main():
     )
     run_generation(cfg, a.out_root, n_workers=a.n_workers, fast_smoke=a.fast_smoke,
                    eval_limit=a.eval_limit, collect_limit=a.collect_limit, seed=a.seed,
-                   pre_collected_dir=a.pre_collected_dir)
+                   pre_collected_dir=a.pre_collected_dir, expected_shards=a.expected_shards)
 
 
 if __name__ == "__main__":

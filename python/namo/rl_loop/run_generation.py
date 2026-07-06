@@ -34,7 +34,7 @@ def _load_rollout_pkls(pkls: List[str]) -> List[dict]:
 def run_generation(cfg: LoopConfig, out_root: str, n_workers: int = 1,
                    fast_smoke: bool = False, eval_limit: int = 0,
                    collect_limit: int = 0, seed: int = 7000,
-                   pre_collected_dir: str = "") -> dict:
+                   pre_collected_dir: str = "", expected_shards: int = 0) -> dict:
     """pre_collected_dir: harvest rollout pkls produced by a SLURM collect fan-out
     (scripts/rl_loop/collect_shard.py) instead of collecting in-process."""
     gen_dir = os.path.join(out_root, f"gen{cfg.generation}")
@@ -56,6 +56,12 @@ def run_generation(cfg: LoopConfig, out_root: str, n_workers: int = 1,
     if pre_collected_dir:
         import glob
         pkls = sorted(glob.glob(os.path.join(pre_collected_dir, "*.pkl")))
+        if expected_shards <= 0:
+            raise ValueError("--expected-shards is required with --pre-collected-dir "
+                             "(pass the SLURM NSHARDS; missing shards must fail, not feed partial data)")
+        if len(pkls) != expected_shards:
+            raise RuntimeError(f"shard harvest incomplete: found {len(pkls)} pkls, expected {expected_shards} "
+                               f"in {pre_collected_dir} — resubmit missing array tasks before ingesting")
     else:
         buf_first = buf.first_actions_by_episode()
         pkls = run_collection(train_specs, cfg, buf_first,

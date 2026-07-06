@@ -39,7 +39,7 @@ NSHARDS=64 CONFIG=<run>/genN/config.json OUTDIR=<run>/genN/collect BUFFER=<run>/
   ENV_FILE=env.amarel.sh sbatch --array=0-63 --partition=main-redhat scripts/rl_loop/collect.slurm
 
 python scripts/rl_loop/run_generation.py --arm A --generation N \
-  --pool-key ... --split-file ... --out-root <run> --pre-collected-dir <run>/genN/collect
+  --pool-key ... --split-file ... --out-root <run> --pre-collected-dir <run>/genN/collect --expected-shards $NSHARDS
 ```
 (`config.json` is written by `run_generation.py` on its first call for that generation, or hand-authored via `LoopConfig`.)
 

@@ -13,7 +13,7 @@
 #   NSHARDS=64 CONFIG=<gen_dir>/config.json OUTDIR=<gen_dir>/collect BUFFER=<run>/buffer.pkl \
 #     sbatch --array=0-63 --partition=<part> scripts/rl_loop/collect.slurm
 # Then harvest+train+eval:
-#   python scripts/rl_loop/run_generation.py ... --pre-collected-dir <gen_dir>/collect
+#   python scripts/rl_loop/run_generation.py ... --pre-collected-dir <gen_dir>/collect --expected-shards $NSHARDS
 set -euo pipefail
 
 : "${REPO:=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}"

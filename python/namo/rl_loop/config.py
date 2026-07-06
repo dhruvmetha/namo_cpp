@@ -47,7 +47,7 @@ class LoopConfig:
     buf_max_solves_per_episode: int = 8
     buf_len_slack: int = 2               # keep only solves with T <= T_min + slack
     buf_max_per_first_action: int = 2    # <=2 solves per first-action bucket (setup diversity)
-    revalidate_fraction: float = 0.0     # fraction of near-threshold solves to re-execute (0 = skip)
+    revalidate_fraction: float = 0.1     # fraction of solves re-executed per gen (on by default: ~0.3mm sim jitter can mint false solves)
 
     # --- V-head data ---
     vhead_recency_decay: float = 0.5     # per-generation recency weight rho^(gen_now - gen_row)
