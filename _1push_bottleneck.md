@@ -195,6 +195,24 @@ Reading: within "hard," wall-time spans a **6× range** — from **0.58 s** on t
 
 Caveats: single timing seed → point estimates (the 3-seed solve-rate variance lives in the sim tables above); in these timing leaves the `model` field labels the NoHz-v3 slot `"Hz"` and the step-pen slot `"NoHz"` (slot naming from `time_bestfirst.py`), anchor-verified by the 1.43 s-hard / 0.70 s-all match.
 
+### Q3d — ROOT CAUSE: training-time sampling starves the rare opener (1push) vs sparse setup collection (2push)
+
+Measured directly on the training H5s, replicating the deterministic `sample_k=30` loss subsample over the 3 deployed seeds (`v4_hq_m2b_scorer` = 1push-exhaustive rows; `v4_hq_h2_scorer` H==2 = 2push rows). The 1push and 2push misses have **different root causes**.
+
+**1push = a sampling problem (the opener is in the data; the loss just doesn't see it).** 1push rows carry the exhaustive `f_grid` (all ~58–90 reachable pushes labeled), so the opener IS a labeled positive. But `sample_k=30` uniformly picks 30 reachable cells and computes the loss only on those (deterministic per seed). For a rare-opener row (~1 positive) the opener lands outside the 30 most of the time — and the starvation rate falls across the rarity slices **in lockstep with the test-time failure**:
+
+| pos_rate slice | training starvation (opener dropped from loss) | test solve@1 |
+|---|---|---|
+| < 0.02 (rarest) | **59%** | 19% |
+| 0.02–0.05 | 24% | 39% |
+| 0.05–0.10 | 5% | 68% |
+| 0.10–0.17 | 0.5% | 78% |
+| ≥ 0.17 | 0% | (solved) |
+
+Left column (opener never enters the loss) and right column (top pick wrong at test) rise together — the fingerprint that the rare-opener miss is **training starvation, not model capacity**. `sample_k=30` is the right PU-masking trick for genuinely-sampled rows, but wrong for these exhaustive 1push rows where it discards a *known* positive. **Fix = positive-aware sampling** (always keep labeled openers in the loss, fill the rest of the 30 with sampled negatives). Small change in `scorer_data.py` + retrain; no new collection. Note this makes the earlier reachability-loss idea ([[_reachability_loss_v3]]) the wrong lever for 1push-hard — that supervises *unreachable* cells; the problem is *reachable* openers being under-sampled.
+
+**2push = a collection problem (the setup often isn't in the data at all).** The H==2 rows are sparse, not exhaustive: median **27** labeled first-pushes/row (54% below the sample_k=30 cutoff, so for most rows sampling drops nothing), and **61% of H==2 rows have zero valid setups labeled**. Sampling starvation on the rare-positive H=2 rows is only ~6% — negligible; you can't drop a positive that isn't there. The dominant issue is that valid setups were never *discovered*: confirming a setup at H=2 needs a follow-up search per first-push, which collection can't run exhaustively (the no-GT-at-scale constraint), so most rows teach "no setup here." Consistent with [[_ranker_bottleneck]] (setup buried at rank 38/70 on hard) — the model can't rank a setup it saw few positive examples of. **Fix = collection / exploration** (search+bootstrap / ExIt), not sampling — the harder problem. (Caveat: the per-row "27" reads from `r_mask`; the robust, unambiguous facts are the 61%-zero-setup rows and the ~6% sampling starvation.)
+
 ### Overall verdict — splitting the 1push gap
 
 - **Unfixable pool/label floor (~0.3% all-tier, ~0.7% hard):** 5 episodes no ranker clears. 4 are single-opener long-tail pools (solve_rate ≤0.02) whose lone offline opener the online sim doesn't reliably reproduce; 1 (pos 953, sr=1.0) is a stale-label / sim-determinism contradiction. Random misses the same set — this is the ceiling, not a model deficit.

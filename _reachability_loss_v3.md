@@ -34,6 +34,10 @@ If NoHz-v3 was trained without the reachability loss (it was), retrain it with t
 
 **Gate:** expensive 3-seed GPU retrain + a known correctness landmine (C15) + prior counter-evidence ⇒ hold the launch for USER confirm on scope (proceed despite "robustness-not-ranking"? K value? gating approach). Do NOT auto-fire a naive run.
 
+## Discussion
+
+**[Claude 2026-07-05] The reachability loss is likely the WRONG lever for the hard-1push problem — the real cause is a training-sampling gap.** Diagnosed in [[_1push_bottleneck]] Q3d, measured on the training H5s: the model buries the rare 1push opener because `sample_k=30` uniformly subsamples the loss and, on the rarest rows (~1 opener in ~58–90 reachable), the opener is dropped from the loss **59% of the time** — the starvation rate tracks the test solve@1 slice-for-slice. The opener is *reachable* and *labeled*; reachability supervision (`unreachable_k`) targets *unreachable* cells and would not touch it. **So for hard-1push the cheaper, better-targeted fix is positive-aware sampling** (always keep labeled openers in the loss). Reachability loss remains a *deploy-robustness* option (M2c: mask-optional), not a hard-1push ranking fix. For 2push the picture is different again — a collection-sparsity problem (61% of H=2 rows have zero setups labeled), not a loss-toggle at all. Recommendation: run the **positive-aware-sampling retrain** as the 1push-hard experiment; keep reachability-loss parked unless deploy-robustness becomes the goal.
+
 ## Run
 
 _(not launched — awaiting confirm)_
