@@ -6,6 +6,8 @@ updated: 2026-06-26
 
 # Horizon-Q Model Registry
 
+> **⚠ Framing note (2026-07-06): budget/horizon-conditioning was DROPPED** (measured ≈ no-horizon, **NoHz** ahead — 40.7 vs 34.1). This registry is STILL the authoritative catalog — **all checkpoint paths / numbers / eval dirs below stay valid** — but the horizon-conditioned models (Horizon-v2/v3, the `budget_cond` variants) are a **historical** line; the live model is **NoHz** ("no-horizon", a single value/ranker). Current framing: [../problem_and_approach.md](../problem_and_approach.md).
+
 > THE authoritative location list — every trained model, its exact best-val checkpoint, headline number,
 > training data, and eval-output dir. **Do not reconstruct paths by glob; read here.** Never retrain
 > registered models ([[feedback_reuse_baselines]]). Roots: ckpts `/scratch/dm1487/sage_outputs/scorer/`,

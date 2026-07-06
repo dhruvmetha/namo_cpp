@@ -6,6 +6,8 @@ updated: 2026-06-25
 
 # Horizon-Q — SEARCH-FIRST REDESIGN Journal
 
+> **⚠ MIXED status (2026-07-06).** **§0 "WHY THE PIVOT" IS the current view** — model = a **sims-minimizing search heuristic / RANKER**; the perfect deterministic sim is a **free exact verifier**, so the model needs correct ORDER, not calibrated probabilities; objective = E[sims-to-solve]. That framing is distilled in the front door [../problem_and_approach.md](../problem_and_approach.md) and is NOT superseded. What IS historical is the **budget/horizon-conditioning** idea on this arc: tested and **dropped** (horizon-conditioned ≈ no-horizon, **NoHz** ahead — 40.7 vs 34.1). Read §0 as live; read any "condition on remaining budget H / per-horizon head / `Q(s,a,H)`" passages as the past-tense record of a dropped idea. All checkpoint paths / numbers stay valid.
+
 > **Started 2026-06-23.** The PIVOT journal. The build journal
 > ([horizon_q_build_journal.md](horizon_q_build_journal.md)) records the value-classification line (v2/v3/v4, the 2×2
 > matrix, ExIt). THIS journal is the reframe that came out of the 2026-06-22/23 design session: **the model is a

@@ -6,6 +6,8 @@ updated: 2026-06-26
 
 # SESSION RESUME — pick up here (ilab / fresh chat)
 
+> **⚠ HISTORICAL / SUPERSEDED (2026-07-06).** This "pick up here" note targeted the budget-conditioned Horizon-Q / qboot line, which was **dropped** (horizon-conditioned ≈ no-horizon, **NoHz** ahead — 40.7 vs 34.1). It is superseded by the board + the front door [../problem_and_approach.md](../problem_and_approach.md). Kept as history; do not resume from here.
+
 > Started on Amarel, moved to ilab because Amarel's GPUs were backlogged. The CHAT doesn't carry over — this repo does.
 > **Read order:** this page → [horizon_q_redesign_execution.md](horizon_q_redesign_execution.md) (the staged plan + full
 > log) → [horizon_q_HANDOFF.md](horizon_q_HANDOFF.md) (arch + algorithm + v2/v3/v4 results) → [horizon_q_model_registry.md](horizon_q_model_registry.md) (ckpt paths).

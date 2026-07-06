@@ -1,6 +1,8 @@
 # Horizon-Q datasets — datasheet
 
-Datasets for the budget-conditioned horizon-Q build. Companion to the build journal ([../experiments/horizon_q_build_journal.md](../experiments/horizon_q_build_journal.md)) and the per-episode invariants ([multi_episode_rooms.md](multi_episode_rooms.md)). **All collection at the locked `car=0.034 / control_steps_per_push=550` action space, 20% reachable bar.**
+> **⚠ Framing note (2026-07-06): budget/horizon-conditioning was DROPPED** (measured ≈ no-horizon, NoHz ahead — see [problem_and_approach.md](../problem_and_approach.md)). These datasets are still current — they are exactly the data the **NoHz single-value scorer trains on** — only the "budget-conditioned" label is historical. All paths/numbers below are live.
+
+Datasets for the v4 push-value build (the data the **NoHz** scorer trains on; budget-conditioning dropped). Companion to the build journal ([../experiments/horizon_q_build_journal.md](../experiments/horizon_q_build_journal.md)) and the per-episode invariants ([multi_episode_rooms.md](multi_episode_rooms.md)). **All collection at the locked `car=0.034 / control_steps_per_push=550` action space, 20% reachable bar.**
 
 ---
 
@@ -17,7 +19,7 @@ Datasets for the budget-conditioned horizon-Q build. Companion to the build jour
 - **Per scene:** **sampled ~30** (edge,depth) cells (random_rollout), NOT exhaustive 300 — this IS the H5 recipe (~30 sampled + masked ≈ exhaustive; the other ~270 are UNKNOWN, masked). Bar = 20% of 100 sampled goal points.
 - **Labels live in:** `episode_results[i]['algorithm_stats']['primitive_trial_log']` = list of `{edge_idx, depth, success, wall_collision, movable_collisions, stuck, …}`. Each episode = one `(neighbour, goal)` = one **(pushed object, goal region)** unit. `chain_depth` tag present.
 - **Dead-ends: RECORDED** (validated). A scene with no 1-push opener at the 20% bar produces an episode with `success=False`, `failure_reason=all_pushes_failed`, and an all-fail trial_log — it is NOT dropped at collection. **The H0b "no hopeless scenes" bug was in the dataset BUILDER**, which dropped all-zero f_grids.
-- **⚠ Build step still needs the H0b fix:** `build_scorer_dataset.py` must **KEEP** dead-end scenes (all-zero f_grid retained), so the budget-Q value can learn "low"/unsolvable. (Task #22.)
+- **⚠ Build step still needs the H0b fix:** `build_scorer_dataset.py` must **KEEP** dead-end scenes (all-zero f_grid retained), so the NoHz value can learn "low"/unsolvable. (Task #22.)
 
 ## 3. H=2 training data — `v4_hq_h2` (Phase 3, not yet collected)
 - Search-distilled on the **informative subset** (scenes where no 1-push opens — derivable from `v4_hq_h1`).
@@ -26,4 +28,4 @@ Datasets for the budget-conditioned horizon-Q build. Companion to the build jour
 - Reuse the tagged depth-2 machinery (`region_opening` chain_depth/parent + `build_2push_validset`).
 
 ## 4. Build → H5 → train (the chain)
-`pkls (v4_hq_h1) → build_scorer_dataset.py [+keep-dead-ends fix] (join DiT masks + f_grid + r_mask + contact_px) → packed H5 → train_classifier (budget-Q: budget_cond + value_bins HL-Gauss + gamma targets)`. Hold out **by room (xml)**; match samples to episodes by `object_center (~0 mm)`; difficulty per-episode (skill invariants).
+`pkls (v4_hq_h1) → build_scorer_dataset.py [+keep-dead-ends fix] (join DiT masks + f_grid + r_mask + contact_px) → packed H5 → train_classifier (NoHz value head: value_bins HL-Gauss + gamma targets; the `budget_cond` input was prototyped then dropped — Hz ≈ NoHz)`. Hold out **by room (xml)**; match samples to episodes by `object_center (~0 mm)`; difficulty per-episode (skill invariants).

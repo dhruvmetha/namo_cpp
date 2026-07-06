@@ -1,5 +1,7 @@
 # Scene-Conditioned Action Sampler for NAMO
 
+> **⚠ Framing update (2026-07-06):** the successor value-learning line resolved this doc's open question #3 (per-horizon heads) toward a **single head** — budget/horizon-conditioning was tested and dropped (measured ≈ no-horizon, NoHz ahead). "horizon"/"chain-N" below means chain length (a generic descriptor), **not** a per-horizon-conditioned model. Current framing: [problem_and_approach.md](../problem_and_approach.md).
+
 **Status:** design + findings synthesis. Active research doc, May 2026. **Predecessors:**
 - `docs/ML_vs_GT_F_evaluation.md` — original evaluation plan
 - `docs/ML_vs_GT_F_results_round1.md` — first findings on 2-push diffusion
@@ -386,7 +388,7 @@ If V_2 substantially improves over V1b on chain prediction without regressing on
 
 2. **How does V_N performance degrade with N?** Compounding error multiplies per step. Need to measure empirically at N=2, N=3 before trusting deeper-horizon predictions.
 
-3. **Does the same V_N work at multiple horizons or do we need horizon-conditional heads?** A model trained on F₁ ∪ F₁' could be optimal for either but might be suboptimal for both. Multi-head architecture is a backup.
+3. **Does the same V_N work at multiple horizons or do we need horizon-conditional heads?** **RESOLVED (2026-07-06): single head.** A model trained on F₁ ∪ F₁' with **no horizon conditioning** (the NoHz line) matched-or-beat the horizon-conditioned variant when it was measured (Hz ≈ NoHz, NoHz ahead) — so the multi-head/horizon-conditional backup was **not** taken. See [problem_and_approach.md](../problem_and_approach.md).
 
 4. **Will V-guided sampling cover modes that V_{N-1} doesn't know about?** Risk of mode collapse. Mitigated by temperature sampling, but needs validation.
 

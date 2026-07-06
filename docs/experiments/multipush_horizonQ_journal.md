@@ -6,6 +6,8 @@ updated: 2026-06-11
 
 # Multi-push / horizon-Q journal — ⏸ PARKED [USER 2026-06-10]
 
+> **⚠ HISTORICAL / SUPERSEDED (2026-07-06): the budget-conditioned "Horizon-Q" framing was DROPPED.** Horizon/budget-conditioning measured ≈ no-horizon, with **NoHz** (a single value/ranker, "no-horizon") ahead — reactive **40.7 vs 34.1** for the budget/depth-value variant, and NoHz ≥ the "Hz" head on both regimes; at ≤2 pushes the budget input has nothing to do. The live model's job is **first-push (setup) ranking** — current framing in [../problem_and_approach.md](../problem_and_approach.md). This 37-decision design spec is the **verbatim past-tense record** — history, not the current design; all numbers stay valid.
+
 **[USER] scope decision:** "Focus only on the architectural decisions on the 1-push problem. Don't worry about the 2-push problems yet." Everything 2-push / AlphaZero / policy+value / horizon-Q moved HERE from [policy_framework_journal.md](policy_framework_journal.md) (now the 1-push ARCHITECTURE journal) for future use. Nothing in this file drives current experiments. The arch journal's H5 (masking) and H2 (self-attn) verdicts feed back into the collection design below when this line un-parks.
 
 ---

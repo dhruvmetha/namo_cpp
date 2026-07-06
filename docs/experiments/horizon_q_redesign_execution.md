@@ -6,6 +6,8 @@ updated: 2026-07-01
 
 # Horizon-Q — BOOTSTRAPPED-VALUE + GUIDED-COLLECTION — Staged Execution Journal
 
+> **⚠ HISTORICAL / SUPERSEDED (2026-07-06): the budget-conditioned "Horizon-Q" framing was DROPPED.** Horizon/budget-conditioning measured ≈ no-horizon, with **NoHz** (a single value/ranker, "no-horizon") ahead — reactive **40.7 vs 34.1** for the budget/depth-value variant, and NoHz ≥ the "Hz" head on both regimes; at ≤2 pushes the budget input has nothing to do. The live model's job is **first-push (setup) ranking** — current framing in [../problem_and_approach.md](../problem_and_approach.md). Everything below is the **verbatim past-tense record** of what we built and measured (including *why* budget-conditioning was cut) — history, not the current design; all checkpoint paths / numbers stay valid.
+
 > **Started 2026-06-25 [USER staged plan].** The EXECUTION journal for the redesign. Reads on top of:
 > - **Thesis + decision ledger:** [horizon_q_search_redesign_journal.md](horizon_q_search_redesign_journal.md)
 >   (model = sims-minimizing ranker; cost-to-go in SIMS not depth; D2 finish-ranker / D3 recurrence).

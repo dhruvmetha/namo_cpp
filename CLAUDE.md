@@ -2,6 +2,10 @@
 
 NAMO (Navigation Among Movable Obstacles): a C++ physics/planning backend with a Python search + learning layer. The robot reaches a goal by pushing movable obstacles out of the way.
 
+**⛔ READ FIRST — [docs/problem_and_approach.md](docs/problem_and_approach.md): what we're solving and how, in plain English.** The canonical north-star (problem → search-is-expensive → learn-a-ranker-to-speed-it-up → beat-random). Read it before reasoning about the method so the detail lands in the right frame.
+
+**Current framing (2026-07-06): horizon/budget-conditioning is DROPPED.** The live model is a **single value/ranker over pushes** (called **NoHz**, "no-horizon") whose job is ranking the **FIRST push** (the "setup" — does it lead to a state a later push can open?); there is **no budget input, no `Q(s,a,H)`, no per-horizon heads**. The `horizon_q_*` docs are HISTORICAL — see [docs/experiments/RESULTS.md §4](docs/experiments/RESULTS.md) and [docs/experiments/policy_value_search_hypothesis.md](docs/experiments/policy_value_search_hypothesis.md).
+
 **Doc map — every guide, journal, experiment, and model registry is indexed in [docs/INDEX.md](docs/INDEX.md).** Ongoing research lives under `docs/experiments/` — read it *on demand* from there, not from here. Keep this file lean: durable, every-session facts only. Anything with a date or a "currently" belongs in a journal.
 
 **Experiment loop:** we run experiments via a stub-note → run → results-sheet loop — protocol in [docs/experiments/WORKFLOW.md](docs/experiments/WORKFLOW.md). Role split: the **user** writes idea-note Hypotheses; **Claude** writes Plan/Run/Result, appends [RESULTS.md](docs/experiments/RESULTS.md), and updates the [model registry](docs/experiments/horizon_q_model_registry.md). **Commit before every run.**

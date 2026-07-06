@@ -4,16 +4,19 @@ The human front door to the docs. `CLAUDE.md` (repo root) is the *agent's* route
 
 **Tags:** `[ROUTER]` schema/entry · `[HUB]` links many others · `[LIVE]` actively updated · `[REF]` stable reference · `[SNAPSHOT]` dated results, not maintained · `[FROZEN]` closed/superseded · `[ARCHIVE]` superseded, do not cite.
 
+> **⛔ Current framing (2026-07-06): horizon/budget-conditioning is DROPPED.** The live model is a **single value (NoHz)** whose job is **first-push (setup) ranking**; there is no budget input, no `Q(s,a,H)`, no per-horizon heads. The `horizon_q_*` docs are **historical** — read [`docs/problem_and_approach.md`](problem_and_approach.md) for the current framing.
+
 ---
 
 ## ▶ If you read nothing else (written for a human)
 
-Most docs below are written for the *agent* to reload context after compaction — that's why they feel like logs. These four are written for *you* to actually read:
+Most docs below are written for the *agent* to reload context after compaction — that's why they feel like logs. These are written for *you* to actually read:
 
-1. [`docs/horizon_q_overview.md`](horizon_q_overview.md) — plain-language map of the active project. **Start here.**
+1. [`docs/problem_and_approach.md`](problem_and_approach.md) — **the canonical plain-English north-star: the problem, and the shape of the approach (search is expensive → learn a ranker to make it cheap → beat the random ranker).** Start here. `[HUB]` `[LIVE]`
 2. [`docs/research/research_compass.md`](research/research_compass.md) — why the research matters; come back when the work feels uncertain. `[HUB]`
 3. **The experiment loop** — [`WORKFLOW.md`](experiments/WORKFLOW.md) (how it works) + the [board](experiments/DASHBOARD.md) & [`RESULTS.md`](experiments/RESULTS.md) (where we are / what's next).
 4. `docs/personal/researcher_mentality.md` — how you operate; includes a note to AI assistants. *(personal, gitignored — present only in your main checkout, not in fresh clones/worktrees.)*
+5. [`docs/horizon_q_overview.md`](horizon_q_overview.md) — deeper map + the **historical** Horizon-Q record (framing superseded by #1; kept for detail/history).
 
 The active work now lives in experiment **cards** ([`experiments/log/`](experiments/log/)); the journals below are reference/history.
 
@@ -31,7 +34,8 @@ The active work now lives in experiment **cards** ([`experiments/log/`](experime
 
 ## docs/ (loose)
 
-- [`horizon_q_overview.md`](horizon_q_overview.md) — plain-language map of the active Horizon-Q project. `[HUB]` `[LIVE]`
+- [`problem_and_approach.md`](problem_and_approach.md) — **canonical plain-English north-star** (search is expensive → learn a ranker to speed it up → beat the random ranker). Start here. `[HUB]` `[LIVE]`
+- [`horizon_q_overview.md`](horizon_q_overview.md) — deeper map + **historical** Horizon-Q record (budget-conditioning framing superseded by `problem_and_approach.md`). `[HUB]`
 - [`cluster_resources.md`](cluster_resources.md) — Amarel SLURM partition/GPU guidance (append-only dated log). `[LIVE]`
 - [`planner_contract_drifts.md`](planner_contract_drifts.md) — confirmed config-key drift in the legacy collection path. `[REF]`
 
@@ -45,7 +49,7 @@ The active work now lives in experiment **cards** ([`experiments/log/`](experime
 - [`archive/`](experiments/archive/README.md) — finished experiments + closed snapshots. `[ARCHIVE]`
 - stub template: [`_templates/experiment.md`](_templates/experiment.md).
 
-**Horizon-Q arc** (reference journals; live work → [`log/`](experiments/log/) cards):
+**Horizon-Q arc** (⚠ **HISTORICAL** — budget/horizon-conditioning was dropped, see [`problem_and_approach.md`](problem_and_approach.md); these are the frozen record of why; live work → [`log/`](experiments/log/) cards):
 - [`ILAB_RESUME.md`](experiments/ILAB_RESUME.md) — old "pick up here" note (targeted the now-parked qboot); superseded by the board. `[FROZEN]`
 - [`horizon_q_redesign_execution.md`](experiments/horizon_q_redesign_execution.md) — staged execution journal (Stage 0–4), append-only log. `[FROZEN]`
 - [`horizon_q_HANDOFF.md`](experiments/horizon_q_HANDOFF.md) — self-contained brief: problem + arch + algorithm + results. `[REF]`
@@ -77,7 +81,7 @@ The active work now lives in experiment **cards** ([`experiments/log/`](experime
 - [`multi_episode_rooms.md`](pipeline/multi_episode_rooms.md) — **THE per-episode invariant** (one xml = many episodes; never key on the room) + failure modes. `[HUB]` — critical gotcha.
 - [`namo_pipeline.md`](pipeline/namo_pipeline.md) — paper-ready, filename-free full-pipeline method. `[REF]`
 - [`canonical_testset.md`](pipeline/canonical_testset.md) — spec/build of the canonical car test set `namo_testset_v1`. `[LIVE]`
-- [`horizon_q_datasets.md`](pipeline/horizon_q_datasets.md) — datasheet for the budget-conditioned horizon-Q datasets. `[LIVE]`
+- [`horizon_q_datasets.md`](pipeline/horizon_q_datasets.md) — datasheet for the v4 push-value datasets (the data the NoHz scorer trains on; budget-conditioning dropped). `[LIVE]`
 - [`data_collection_phases.md`](pipeline/data_collection_phases.md) — per-phase parameter cookbook for the region-opening cascade. `[REF]`
 - [`difficulty_stratification.md`](pipeline/difficulty_stratification.md) — how `eval_2push` bins problems easy/med/hard. `[REF]`
 - [`full_namo_collection.md`](pipeline/full_namo_collection.md) — human mirror of `full_namo_collection.yaml`. `[REF]`

@@ -6,6 +6,8 @@ updated: 2026-06-25
 
 # Horizon-Q Build Journal
 
+> **⚠ HISTORICAL / SUPERSEDED (2026-07-06): the budget-conditioned "Horizon-Q" framing was DROPPED.** We measured horizon/budget-conditioning ≈ no-horizon, with **NoHz** ("no-horizon", a single value/ranker) ahead — reactive **40.7 (NoHz) vs 34.1** for the budget/depth-conditioned value variant, and NoHz ≥ the remaining-budget "Hz" head on both reactive and best-first; at ≤2 pushes the budget input has nothing to do. The live model's job is **first-push (setup) ranking** — current framing in [../problem_and_approach.md](../problem_and_approach.md). Everything below is the **verbatim past-tense record** of what we built and measured (including *why* budget-conditioning was cut) — read it as history, not the current design; all checkpoint paths / numbers stay valid.
+
 > **🔀 PIVOT [2026-06-23]: SEARCH-FIRST REDESIGN — new journal [horizon_q_search_redesign_journal.md](horizon_q_search_redesign_journal.md).**
 > WHAT: reframed from "value-classifier, is the horizon calibrated?" to **"the model is a SEARCH HEURISTIC whose job is
 > to MINIMIZE SIMS"** (it's a RANKER — the sim is a free exact verifier; reactive@2 = 2 real sims; sims-to-solve =

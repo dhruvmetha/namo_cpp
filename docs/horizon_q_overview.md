@@ -1,10 +1,14 @@
-# Horizon-Q: Amortizing NAMO Search into a Budget-Conditioned Value
+# Horizon-Q → NoHz: amortizing NAMO search into a single push-value
+
+> **⛔ CURRENT-STATE BANNER (2026-07-06): budget/horizon-conditioning is DROPPED.** The live model is a **single value/ranker over pushes** with **no budget input, no remaining-horizon conditioning, no per-horizon heads** — the model line is called **NoHz** ("no-horizon"). Its whole job is **ranking the FIRST push (the "setup")**: telling a first push that leads to a solvable state from a dead one. Anything below that talks about a budget-conditioned `Q(s,a,H)`, per-horizon heads, or "aim a tiny query budget by remaining-H" is **HISTORICAL**, kept for the record.
+> **Why horizon was dropped (measured — keep this record):** horizon-conditioned ≈ no-horizon, NoHz ahead — reactive **40.7 (NoHz) vs 34.1** for the budget/depth-conditioned value variant, and NoHz ≥ the remaining-budget "Hz" head on both reactive and best-first (2026-06-27 ledger). At ≤2 pushes the budget input has nothing to do — the second/"finish" push is already near-oracle, only the first/"setup" push is hard — so budget-conditioning would only earn its keep at ≥3 pushes.
+> **Canonical current framing → [problem_and_approach.md](problem_and_approach.md).** Live results → [experiments/RESULTS.md §4](experiments/RESULTS.md); live hypothesis → [experiments/policy_value_search_hypothesis.md](experiments/policy_value_search_hypothesis.md); the positive-only bind → [research/positive_only_value_learning_litmap.md](research/positive_only_value_learning_litmap.md). This file is now the **deeper map + historical record**.
 
 > The plain-language map of WHAT we're solving and HOW. Operational state lives in
 > [experiments/horizon_q_build_journal.md](experiments/horizon_q_build_journal.md) (§9 = resume point);
 > the 37-decision design spec with citations lives in
 > [experiments/multipush_horizonQ_journal.md](experiments/multipush_horizonQ_journal.md).
-> Status snapshot in this file: **2026-06-12**.
+> Status snapshot in this file: **2026-06-12** (framing since superseded — see banner).
 > **All model checkpoints/numbers/eval dirs: [experiments/horizon_q_model_registry.md](experiments/horizon_q_model_registry.md).**
 > **How we run experiments (the loop): [experiments/WORKFLOW.md](experiments/WORKFLOW.md)** · compiled results: [experiments/RESULTS.md](experiments/RESULTS.md).
 
@@ -18,19 +22,20 @@ Strip away the robots and the rooms, and the problem is this:
 > outcomes can only be known by querying an oracle (a simulator) that costs ~1 second per query; and at
 > deployment the agent gets few or zero oracle queries per decision.
 
-The objective: from a bounded offline budget of oracle interactions, learn a **budget-conditioned value**
+The objective: from a bounded offline budget of oracle interactions, learn a **single value / ranker over pushes**
 
 ```
-Q(s, a, H) = P(action a succeeds within the remaining budget H, under best play afterward)
+V(s, a) = "how good is push a from state s" — does it open the region now, OR set up a state a later push can finish?
 ```
 
-such that one function supports BOTH deployment regimes — **act with zero queries** (rank by Q, execute) and **aim a tiny query budget** (use Q as prior + leaf evaluator for shallow search). This is amortized search: the tree the oracle explored at training time, compressed into a forward pass.
+with **no budget input and no remaining-horizon conditioning** — one head, the **NoHz** ("no-horizon") line. One function supports BOTH deployment regimes — **act with zero queries** (rank by V, execute the top push) and **aim a tiny query budget** (use V as prior + leaf evaluator for shallow search). This is amortized search: the tree the oracle explored at training time, compressed into a forward pass.
 
-Four structural facts shape every design choice, and none is NAMO-specific:
-1. **Legality is state-dependent and known** — a per-state candidate subset A(s) (here: reachability), so evaluation and pooling always happen over the candidate set.
+> **Why not condition on remaining budget H (the old `Q(s,a,H)` framing)?** We built it and measured it: horizon-conditioned ≈ no-horizon, NoHz ahead (reactive 40.7 NoHz vs 34.1 for the budget/depth-conditioned value variant; NoHz ≥ the remaining-budget "Hz" head on both regimes). At ≤2 pushes the budget input has nothing to do — the finish push is already near-oracle, only the setup push is hard — so budget-conditioning would only earn its keep at ≥3 pushes. **Dropped;** see the top banner.
+
+Three structural facts shape every design choice, and none is NAMO-specific:
+1. **Legality is state-dependent and known** — a per-state candidate subset A(s) (here: reachability), so evaluation and pooling always happen over the candidate set. Reachability ("robot can't reach that contact") is a KNOWN negative — handled by a pre-filter + an input channel (the reachable-region map), **not learned**.
 2. **Labels cost oracle queries** — so supervision is SAMPLED with known masks (never exhaustive beyond the cheapest tier), and the loss only scores what was actually tried.
-3. **Absence claims ("nothing works here") are ensemble facts** — single instances can't certify a dead-end under sampling, but across 100k+ instances the model learns hopelessness statistically.
-4. **One budget-conditioned function beats H separate ones** — the recursion Q(s,a,H) = [a succeeds] OR V(T(s,a), H−1) ties the horizons together, and the remaining-budget input lets the same weights serve any H (UVFA/Decision-Transformer-style conditioning).
+3. **"Didn't find an opening" = UNKNOWN, not a certified dead-end** — a push we tried-or-could-try but never found a finish for is masked (no loss term), never labeled 0; forcing untried pushes to 0 is the measured "C15 poison" (false negatives suppress valid pushes). The exception: a *single* push's reachable options are ENUMERATED (cheap), so "no push opens this scene" IS a certified negative (the dead rows). The bottleneck is telling a good FIRST push (setup) from a dead one under exactly this positive-only bind.
 
 ## 2. The problem setting (the concrete instantiation)
 
@@ -78,7 +83,7 @@ The architecture and action decomposition are deliberately HACMan-style (per-poi
 
 - **Where we deliberately diverge (each divergence is one of our measured gates):**
   1. **Training signal:** HACMan learns by online RL (TD on its own sim rollouts). We train on search-distilled MC targets — outcomes verified by the expert's tree, never bootstrapped from the model's own guesses at this horizon (online-TD baseline explicitly parked; TD-or-not-TD argues MC at short horizons; IQL-on-our-data is the planned head-to-head).
-  2. **Budget conditioning:** HACMan is effectively single-step greedy with replanning; our H input makes one network answer "within 1" vs "within 2" — the foresight that M3 tests.
+  2. **Budget conditioning [prototyped, then DROPPED]:** we tried an H input so one network could answer "within 1" vs "within 2", but measured it ≈ no-horizon (NoHz ahead) and dropped it — at H≤2 the budget input has nothing to do. The live model is single-head NoHz; foresight instead lives in the SETUP-value target (rank a first push by the finish it enables).
   3. **Negative knowledge:** we explicitly train on dead-ends (51% of rows) and measure dead→low-V; this turned out to also IMPROVE ranking (+3.2pp @1) — supervision HACMan's setup never sees.
   4. **Objective:** theirs is goal-conditioned object repositioning (continuous pose rewards); ours is binary region-opening under a push budget — value = P(open within H), which is also why classification value heads (HL-Gauss) fit naturally.
   5. **Legality:** our candidate set comes from wavefront reachability with deploy-time post-filtering (and reachability-as-signal is an active ablation, M2c/M2d).
@@ -89,26 +94,28 @@ So: HACMan supplies the *shape* of the critic; the contribution under test here 
 
 A robot (7 cm diff-drive car) needs to reach a region that is blocked by a movable object. It can fix this by pushing **that one object** — maybe one push, maybe a chain of two or three (Region Opening; the unit of work is always one (object, goal-region) episode). At every decision it faces **300 discrete push options** (60 contact points × 5 depths), and the only way to know what a push does is a **simulator that costs ~1 s per push** — a perfect but expensive oracle. Tree search over pushes solves the problem (our expert planner does exactly that) but costs hundreds of simulations per decision; a real robot has neither the time nor, eventually, the simulator.
 
-**The problem: amortize that search into a network.** Learn a budget-conditioned value
+**The problem: amortize that search into a network.** Learn a **single push-value / ranker**
 
 ```
-Q(state, push, H) = P(this push opens the region within H pushes, playing well afterward)
+V(state, push) = P(this push opens the region OR sets up a push that does, playing well afterward)
 ```
 
-so the expensive tree the planner explores at data-collection time gets *distilled* into a single forward pass at decision time. Success is "opens" iff ≥20% of the region's sampled goal points become reachable (the frozen bar). Targets are gamma-discounted (1.0 opens-in-1 / γ=0.9 opens-in-2 / 0) so shorter solutions are preferred. H_max = 2 for now, extensible.
+so the expensive tree the planner explores at data-collection time gets *distilled* into a single forward pass at decision time. Success is "opens" iff ≥20% of the region's sampled goal points become reachable (the frozen bar). Targets are gamma-discounted (1.0 opens-in-1 / γ=0.9 a later push opens / 0 certified-dead) so shorter solutions are preferred; a push we tried but never found a finish for is **masked (unknown), never 0**. No budget/horizon input — the **NoHz** single head.
 
 **One function, two deployments** (every design decision is checked against BOTH):
-- **Reactive (no search):** query Q at budget H, execute the top push, re-query at H−1. Zero simulator calls — the real-robot mode.
-- **Search:** use the same Q twice — as a *prior* (expand only its top-k first pushes in the sim) and as the *leaf evaluator* (V(s′) = top-k-mean of Q(s′,·,H−1)) — replacing exhaustive sweeps with a handful of aimed simulations.
+- **Reactive (no search):** query V, execute the top push, re-query at the next state. Zero simulator calls — the real-robot mode.
+- **Search:** use the same V as a *prior* (expand only its top-k first pushes in the sim) and as the *leaf evaluator* (V(s′) = top-k-mean) — replacing exhaustive sweeps with a handful of aimed simulations.
 
-**Headline metric:** solve rate as a function of simulations spent — push the curve up at 0 sims, beat the old 49-sim search with a few.
+**Headline metric:** solve rate as a function of simulations spent — push the curve up at 0 sims, dominate the random ranker.
 
-What the function must know (each is a gated milestone below):
-1. which pushes **work** (ranking),
-2. when **nothing** works, so it stops wasting budget (dead-ends),
-3. what a push is worth **as a setup** for the next one (foresight).
+What the function must know — and where it's actually stuck:
+1. which pushes **open the region now** (the "finish" — already near-oracle: its top pick opens ~58%),
+2. when **nothing** works, so it stops wasting budget (dead-ends — enumerated 1-push negatives),
+3. **⭐ the bottleneck: what a first push is worth as a SETUP** — a push that opens nothing *yet* but leads to a state a later push can finish. The model buries setups (they open nothing now), so the live research is ranking the first push by **setup value**, not by "does it open now." → [RESULTS.md §4](experiments/RESULTS.md).
 
 ## 4. The method — one change per rung, a number at every gate
+
+> **⚠ Historical plan (2026-06-12).** This ladder is the budget-conditioned build as originally staged. The **M3 "H=2 head" foresight route was tested and dropped** (horizon-conditioned ≈ no-horizon, NoHz ahead); foresight now lives in the **setup-value target** (rank a first push by the finish it enables), not a horizon head — see the top banner and [RESULTS.md §4](experiments/RESULTS.md). Rows M1/M2a/M2b (data factory, arch, dead-ends) still stand as the NoHz build's real gates.
 
 | stage | one change | gate (pre-registered) | result |
 |---|---|---|---|
@@ -144,4 +151,4 @@ Internal ladder (banked, never retrain): random 11.8@1 · geometric oracle (~6% 
 
 ## 8. Why this might matter beyond this robot
 
-The recipe — sample-don't-enumerate with known masks, keep the failures, condition on remaining budget, distill search outcomes as MC targets, verify-before-bootstrap, then let the model aim the next round's collection — is not NAMO-specific. It's a general pattern for problems with an expensive simulator-oracle and a discrete action menu. The lit map (journal §11) says nobody combines these pieces on continuous manipulation; the gates above are designed so that if the claim survives, every ingredient's contribution is separately measured.
+The recipe — sample-don't-enumerate with known masks, keep the failures, distill search outcomes as MC targets, verify-before-bootstrap, then let the model aim the next round's collection — is not NAMO-specific. (The one ingredient we tried and cut: conditioning the value on remaining budget — measured ≈ no-horizon, dropped.) It's a general pattern for problems with an expensive simulator-oracle and a discrete action menu. The lit map (journal §11) says nobody combines these pieces on continuous manipulation; the gates above are designed so that if the claim survives, every ingredient's contribution is separately measured.

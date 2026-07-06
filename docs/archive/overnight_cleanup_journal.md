@@ -1,5 +1,7 @@
 # Overnight cleanup + wavefront-speed run
 
+> **⚠ ARCHIVE (2026-07-06).** Operational log of a wavefront-speed/cleanup run (not about the value model). The `feat/horizon-q-redesign` branch it forked from predates the drop of budget/horizon-conditioning — current framing is [../problem_and_approach.md](../problem_and_approach.md). Kept as history.
+
 **Branch:** `feat/wavefront-cleanup-and-docs` (worktree `namo-cleanup`, forked from `feat/horizon-q-redesign` @ `df62137`). **Operator:** Claude (autonomous overnight). **Human:** Dhruv, back in the morning. This is the OPERATIONAL log of the run — what was done, why, and the numbers. Read top-to-bottom.
 
 ---

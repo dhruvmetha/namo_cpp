@@ -6,6 +6,8 @@ updated: 2026-06-13
 
 # Horizon-Q — Related Work (claim-by-claim, weekend lit pass 2026-06-13)
 
+> **⚠ HISTORICAL framing (2026-07-06): budget/horizon-conditioning was DROPPED** (measured ≈ no-horizon, **NoHz** ahead — 40.7 vs 34.1; at ≤2 pushes the budget input has nothing to do). This threat/novelty audit still stands as related-work positioning, but where it defends "budget-Q / budget-conditioning" as our design, read that as the **historical** line — the live model is a single value/ranker (NoHz) whose job is first-push (setup) ranking. Current framing: [../problem_and_approach.md](../problem_and_approach.md); the positive-only through-line is in [../research/positive_only_value_learning_litmap.md](../research/positive_only_value_learning_litmap.md).
+
 4-agent targeted pass (Sonnet finders → Opus synthesis). Each claim axis: nearest neighbor, what they did, **our delta**, threat to novelty. Numbers we defend with: reactive solve@1 **22.9** (8.4× the 2.7 random floor, 0 sims); H=2 query **5.5× floor** at finding setups / H=1 **at floor**; budget-Q@H1 beats the H=1 champion M2b **+5.5pp**; dead-end rows (51% of data) **+3.2pp** hard@1. (Search/sim-budget *curve* is NOT yet defensible — flawed beam being rebuilt as value-as-leaf-evaluator best-first.)
 
 ---

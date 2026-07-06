@@ -5,6 +5,9 @@ updated: 2026-06-22
 ---
 
 # NAMO Horizon-Q — Results & Design Report
+
+> **⚠ HISTORICAL SNAPSHOT (2026-07-06): budget/horizon-conditioning was later DROPPED** (measured ≈ no-horizon, **NoHz** ahead — 40.7 vs 34.1). This dated report stands as the 2026-06-15 record; where it frames the design as budget-conditioned "Horizon-Q", read that as the **historical** line. Live model = single value/ranker (NoHz), job = first-push (setup) ranking. Current framing: [../problem_and_approach.md](../problem_and_approach.md). All numbers below stay valid as of their date.
+
 **2026-06-15 ~07:30 ET.** All numbers verified against source files (json / journal §9–§12). Companion to the build journal.
 
 ---
