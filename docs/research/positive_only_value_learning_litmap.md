@@ -6,6 +6,31 @@ updated: 2026-07-06
 
 # Positive-only value learning — a curated literature map
 
+## In plain words (the whole note in 6 lines)
+
+Our bind — we can confirm a move *works*, but never confirm a move is *useless* — is a known problem shape, and the field that hit it most squarely is **recommender systems**: a click is a "yes," but a non-click isn't a "no." Their fixes (rank a known-good move above an untried one; treat unknowns at *low* confidence instead of as failures) are ready-made alternatives to our current "just ignore the unknowns."
+
+The whole *loop* we're converging on — let search find solutions, train a value on them, use the sharper value to search better next round — is **AlphaZero / expert iteration**, with one difference that matters: AlphaZero always gets a confirmed *loss* (a real negative); we never do.
+
+**Every ingredient of our plan is standard and safe.** The one genuinely hard, unsolved part is a single thing: when our search fails to finish a move, we can't tell *"truly impossible"* from *"we just didn't search hard enough yet"* — and if we let the model steer the search, it can bury a good move and never revisit it (a self-reinforcing blind spot). The only tool aimed straight at this ("an absent yes isn't a no — correct for how hard you looked") has never been used on a search-based value like ours. **That's the actual research.**
+
+## Jargon, defined once
+
+| Term | Plain meaning |
+|---|---|
+| **positive / unknown / negative** | positive = a move we *confirmed* leads to a solution; unknown = a move we just haven't found a solution for (could be a setup or junk); negative = a move we *proved* leads nowhere — which we almost never can |
+| **PU learning** (positive-unlabeled) | the formal study of learning from positives + "unknowns" with no negatives — our exact situation |
+| **class prior** | the fraction of the "unknowns" that are secretly good; if you can estimate it, you can learn without negatives |
+| **propensity correction** | "don't treat 'we never found a yes' as a 'no' — reweight by how hard you actually looked"; the one idea aimed at our core trap |
+| **SCAR** | an assumption that your positives were picked *at random*; ours aren't (the model picked them), which breaks the clean theory |
+| **HER** (hindsight replay) | turn a failed attempt into a success for the goal you *did* reach — manufactures positives out of failures |
+| **ExIt / AlphaZero** | let search generate its own training labels, retrain, repeat — the bootstrap loop |
+| **self-imitation** | learn only from your own past *good* episodes, stay silent on the rest |
+| **MC vs TD** | MC = label a move by whether search *actually* reached a solution; TD = label it by the model's own guess about the next state. We use MC (steadier at short horizons) |
+| **heuristic / cost-to-go** | a learned score estimating how close a state is to solved — used to order search |
+
+---
+
 **What this note is.** A focused map of how other fields handle *our exact bind*: we can **confirm a move leads to a solution** (a positive), but we can **never confirm a move leads nowhere** (that needs proving a negative — that no continuation ever works), so we hold confirmed positives plus a pile of "unknowns," and we must learn a value/ranker from that under long-horizon credit assignment and expensive simulation labels.
 
 **How it relates to our other docs (extend, don't duplicate).** `horizon_q_related_work.md` is a *novelty/threat* audit of the Horizon-Q design (SAVE, Bejjani, C-Learning, HACMan, Where2Act, DeepCubeA, Stop-Regressing) — it argues our combination is new. `multipush_learning_primer.md` is a plain-language *model+scheme map* (spatial Q-maps, V, policy, world model; BC/DAgger/ExIt/offline-RL/TD-vs-MC) — it name-drops "PU learning" in one glossary line but never develops it. **This note is the missing third lens: the positive-only supervision through-line** — it develops PU learning, self-imitation, implicit-feedback ranking, one-class learning, and the "manufacture positives" tricks (HER) that the other two docs skip, and it defines each term rather than assuming it.
