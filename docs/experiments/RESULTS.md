@@ -209,6 +209,27 @@ Can the no-search regime close the gap to search by simply **executing more push
 
 ---
 
+## 6. RL-only self-imitation loop: it learns, it doesn't transfer — forecast falsified at gen-1
+
+Can pure RL — forward rollouts only, filtered-BC self-imitation, greedy deploy, no search anywhere — climb from a random policy toward search-level performance? Two arms (A = from scratch, B = guided collection via NoHz-v3 at calibrated T), pool = 5000 v4_hq_h1 episodes / 903 rooms (room-held-out, geometry-verified disjoint from the testset), R=16 depth-10 rollouts/episode/gen, ~3.5×10⁵ sims/arm/gen. Registered external forecast (GPT-5.5 xhigh, pre-run): 2push-all ~70 / hard ~53 by gen-5. → card: [[EXP-2026-07-06-rl-only-self-imitation]] (incl. the Phase-0 oracle-decomposition gate: wrong-setup = 74.6% of greedy failures; a finishable setup sits in the model's top-8 for 82.5% of episodes — mis-ranked, not missing).
+
+**Table 6a. The climb test — canonical 2push testset (pure2push n=1018, greedy reactive open@2), gen0→gen1:**
+
+| arm | easy | medium | hard | all |
+|---|---|---|---|---|
+| A (scratch) | 24.8→27.3 | 13.4→13.7 | 7.0→6.7 | 13.8→14.3 |
+| B (guided) | 27.3→25.6 | 13.7→12.5 | 8.9→7.5 | 15.1→13.8 |
+| *NoHz-v3 baseline* | *64.7* | *40.8* | *25.3* | *40.8* |
+
+**Table 6b. Own-family dev (501 eps, 1push-pool episodes), gen0→gen1:**
+
+| arm | med greedy open@2 | hard greedy open@2 | hard setup-hit@1 | hard key-hit@8 |
+|---|---|---|---|---|
+| A | 50.9→**59.3** | 15.1→13.9 | 25.3→24.7 | 50.0→50.0 |
+| B | 66.5→65.3 | 14.5→16.3 | 25.9→27.7 | 77.8→**83.3** |
+
+**Finding.** **Kill-signal-2 fired (hard 7.5/6.7 ≪ 35) — the forecast is falsified — but by a failure mode the forecast didn't model.** The loop *learns*: one generation took a uniform policy to a strong in-distribution ranker (dev setup-hit@1 99/93/26 easy/med/hard — ~5× over uniform on hard), and the collection flywheel demonstrably turns (hard coverage rising 0.58→0.62, +1,711 unique hard solves across arms, 60–68% of solved-hard episodes bank a ≤2-push solution — so this is **NOT** the pre-registered coverage-failure branch). What failed is (1) **slope** — gen-0→gen-1 (~13% more data) moved dev metrics barely (arm A med +8.4 the only real climb) — and (2) **transfer** — none of the in-distribution gain crosses to the testset's different room-generator family (flat-to-down). Pretraining's measured worth: nothing on easy, +12.6pt med greedy, hard setup-surfacing key-hit@8 77.8 vs 50.0 (gen-0, B vs A). V-head never trained (hl_gauss-specific hang; evidence + repro in the card; disabled by default). Highest-leverage next test per the card: pool from the testset's own room family — does the climb appear when pool family = eval family?
+
 ## Prior work (seeded ledger)
 
 Compact history, pre-loop. Detail in the [model registry](horizon_q_model_registry.md).

@@ -65,6 +65,10 @@ def main():
     ap.add_argument("--render-workers", type=int, default=32)
     ap.add_argument("--num-workers", type=int, default=8)
     ap.add_argument("--max-epochs", type=int, default=40)
+    ap.add_argument("--train-v", action="store_true",
+                    help="train the V head too. OFF by default: the hl_gauss V-head training HANGS "
+                         "(both arms, both gens — see card V-head status); leaving it off keeps it from "
+                         "ever blocking the pi eval again. Re-enable once the hang is fixed.")
     ap.add_argument("--eval-limit", type=int, default=0)
     ap.add_argument("--seed", type=int, default=7000)
     a = ap.parse_args()
@@ -74,7 +78,7 @@ def main():
         pool_key=a.pool_key, split_file=a.split_file,
         rollouts_per_episode=a.rollouts_per_episode, temperature=a.temperature, gamma=a.gamma,
         vhead_fail_keep_frac=a.vhead_fail_keep_frac, revalidate_fraction=a.revalidate_fraction,
-        max_epochs=a.max_epochs, num_workers=a.num_workers,
+        max_epochs=a.max_epochs, num_workers=a.num_workers, train_v=a.train_v,
     )
     gen_dir = os.path.join(a.out_root, f"gen{a.generation}")
     os.makedirs(gen_dir, exist_ok=True)
