@@ -109,10 +109,17 @@ class RLDataModule(pl.LightningDataModule):
         self.train_dataset = RLScorerDataset(self.h5_path, train_idx, self.mode)
         self.val_dataset = RLScorerDataset(self.h5_path, val_idx, self.mode)
 
+    def _kw(self):
+        kw = dict(num_workers=self.num_workers, pin_memory=self.pin_memory)
+        if self.num_workers > 0:
+            kw.update(prefetch_factor=4)   # throughput only. NO persistent_workers: it deadlocked the
+            # V-head train/val alternation (both arms hung, GPU 0%, ~25 min, gen-0). Uncompressed ctx
+            # + 32 workers already feed the GPU (~90% util); the tiny per-epoch respawn cost is fine.
+        return kw
+
     def train_dataloader(self):
         return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True,
-                          num_workers=self.num_workers, pin_memory=self.pin_memory, drop_last=False)
+                          drop_last=False, **self._kw())
 
     def val_dataloader(self):
-        return DataLoader(self.val_dataset, batch_size=self.batch_size, shuffle=False,
-                          num_workers=self.num_workers, pin_memory=self.pin_memory)
+        return DataLoader(self.val_dataset, batch_size=self.batch_size, shuffle=False, **self._kw())

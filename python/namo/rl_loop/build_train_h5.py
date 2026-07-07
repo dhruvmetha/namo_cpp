@@ -133,7 +133,9 @@ def _write_h5(path: str, rows: List[dict]) -> None:
         f.attrs["n_samples"] = n
         if n == 0:
             return
-        f.create_dataset("ctx", data=np.stack([r["ctx"] for r in rows]), compression="lzf")
+        # NO compression on ctx: LZF chunk-decompression on random-access reads starves the GPU
+        # (0% util, ~20 min/epoch). Uncompressed contiguous reads keep the dataloader ahead. ~2 GB.
+        f.create_dataset("ctx", data=np.stack([r["ctx"] for r in rows]))
         f.create_dataset("contact_px", data=np.stack([r["contact_px"] for r in rows]))
         f.create_dataset("r_mask", data=np.stack([r["r_mask"] for r in rows]))
         f.create_dataset("chosen_edge", data=np.array([r["chosen_edge"] for r in rows], np.int16))
