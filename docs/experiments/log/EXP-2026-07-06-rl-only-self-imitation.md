@@ -87,6 +87,13 @@ _(Claude, 2026-07-06 — `scripts/rl_loop/phase0_ksweep.py` + `agg_ksweep.py`, 3
 ### Phase 0 — files (for merge-back)
 Scripts (worktree `agent-aa6c1e592dbdacbf9`, under `scripts/rl_loop/`): `phase0_oracle_decomp.py`, `phase0_gate.slurm`, `agg_phase0.py`, `plot_phase0.py`, `phase0_ksweep.py`, `phase0_ksweep.slurm`, `agg_ksweep.py`. Eval outputs (`$NAMO_SCRATCH/eval/`): `phase0_gate/{s1,s2,s3,AGG}` + `phase0_gate/AGG/phase0_gate.png`, `phase0_ksweep/{s1,s2,s3,AGG}`. No commits made (orchestrator owns).
 
+## The RL problem (formal) [USER-requested definition, 2026-07-06]
+**Episode** = (room, blocking object, goal region). **State s** = full scene configuration (all object + robot poses; observed as the crop context — deterministic, fully recoverable). **Action a** = one push from the masked reachable candidate set (60×5 (edge,depth) grid, ~50 live). **Transition** = deterministic MuJoCo push + settle. **Reward** = 1 when the goal region becomes wavefront-reachable, else 0 — unshaped. **Termination** = success or 10 pushes. **Return** from state s_i: G = γ^(pushes-remaining-to-solve) if the rollout solved, else 0 (γ=0.9). **Objective:** maximize E[G] = P(solve ≤10 pushes), shorter preferred.
+**Learning loop (per generation):** act (roll out π_g with temp+ε+forced sweeps) → judge (sim marks solved/failed — the only label) → remember (solves → permanent buffer; failed states → V-store) → learn (π_{g+1}, V_{g+1}) → repeat. Off-policy self-imitation = the stable form sparse-reward policy gradient reduces to.
+**π target:** masked softmax-CE on solved trajectories only — at each state of a verified solution, the taken action is the positive over the reachable set; weights per the BC-weighting rule below; failures contribute ZERO gradient (censoring). In words: π regresses onto the empirical distribution of proven solution steps, short solutions favored — its candidate ordering IS the ranker.
+**V target:** V^π regression on ALL visited states — target = the observed return from that state (γ^k solved / 0 failed), recency-weighted so V tracks the current π; converges to P(solve|π)×speed. No bootstrapping; every target is an observed outcome. Ground-truth unsolvability appears nowhere (unknowable; never needed).
+**Deploy:** greedy π = reactive (primary); π+V in best-first (π orders actions, V orders frontier) = secondary.
+
 ## Plan
 _(fill on launch — spec agreed in chat)_
 - **MDP:** state = scene crop (existing encoder); actions = masked reachable candidates (existing 60×5 head); reward = 1 on goal-region open else 0, γ discount; horizon 10 pushes, early-stop on open. Car robot, `namo_config_complete_skill15_car_1x.yaml`.
