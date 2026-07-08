@@ -35,6 +35,7 @@ Accept/reject **on numbers only** (Hypothesis → Evidence → Verdict). No vibe
 
 ## Reporting conventions [USER]
 - **Splits — ALWAYS:** every result split by **difficulty (easy/med/hard)** AND **horizon (1push/2push)**, never aggregate-only. If only one horizon ran, run/aggregate the other. Binning mechanics (tertiles, `pure2push_divisions.json`, `agg_react_search.py`) → [difficulty_stratification.md](../pipeline/difficulty_stratification.md); canonical table shape = `_reactive_search.md`.
+- **Testset = BOTH tiers, explicitly [USER 2026-07-07]:** a model is not "testset-evaluated" until it has BOTH `namo_testset_v1` rows — `labels/onepush_episodes.json` (1323 eps) AND `labels/pure2push.json` (1018 eps). A same-family dev eval does NOT substitute for the 1push tier. (Lesson: the RL-loop gen evals ran 2push-only; the missing 1push row delayed the composition-vs-mechanical diagnosis by a day.)
 - **Framing by regime:** REACTIVE = success only → **open-rate** (open@1 / open@2) by difficulty×horizon, no time/sim axis. SEARCH = **wall-time FIRST** (`avg t_wall`, `solve@1s/@5s/@30s`), THEN **sims** as the diagnostic (sims-to-solve, rank-of-winner).
 - **Depth:** see step 4 above — card (`_*.md`) = full verbose detail; RESULTS.md = curated paper-style.
 
