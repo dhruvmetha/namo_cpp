@@ -10,7 +10,7 @@
 #SBATCH --error=/common/users/dm1487/scratch_namo/eval/phase0_ksweep/logs/ksw-%A_%a.err
 set -euo pipefail
 MAIN=/common/home/dm1487/robotics_research/ktamp/namo
-WT=/common/home/dm1487/robotics_research/ktamp/namo/.claude/worktrees/agent-aa6c1e592dbdacbf9
+WT=${REPO:-/common/home/dm1487/robotics_research/ktamp/namo}
 cd "$MAIN"
 export MJ_PATH=/common/users/dm1487/ktamp/mujoco
 export SAGE_REPO=/common/home/dm1487/robotics_research/ktamp/sage_learning
