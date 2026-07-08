@@ -1,9 +1,9 @@
 ---
 type: experiment
-status: live
+status: done
 created: 2026-07-06
 commit: 092faec
-metric: "Phase 0 gate GREY ZONE (arm(i)-any 76.9±0.8) resolved by the mandated k-sweep to PROCEED: the reactive-vs-search gap is DOMINANTLY learnable setup-ranking. wrong-setup=74.6% of greedy failures (44.3% of all episodes); finish-given-correct-setup mostly works (aliasing 24.3% of failures, control ~1%); and a finishable setup sits in the model's top-8 for 82.5% of episodes (hard 70.4) — surfaced but mis-ranked, exactly what RL targets. Hard-tier caveat: top-8 finishable ceiling 70.4, finish-given-oracle-setup caps 56.3. Anchor open@2=40.7±0.2 reproduces reactive-MPC exactly."
+metric: "FALSIFIED (kill-signal-2): gen-1 hard-2push testset 7.5/6.7 ≪ gate 35 (origin 8.9/7.0; NoHz-v3 40.8/25.3). But the loop LEARNS: uniform→gen-0 = strong ranker (dev setup-hit@1 99/93/26); gen-0→gen-1 in-distribution nearly flat (arm A med greedy@2 50.9→59.3 the only real climb); coverage HEALTHY+rising (62%, +1711 hard solves) — NOT the coverage-failure branch. Two walls: diminishing per-gen returns + zero cross-room-family transfer (v4_hq_h1 pool vs testset family). Phase 0 gate: wrong-setup=74.6% of greedy failures, setup-hit@8=82.5. V-head never trained (hl_gauss hang, evidence in card)."
 tags: [experiment, rl, self-imitation]
 ---
 # RL-only loop: off-policy self-imitation at depth 10 (no search at train or deploy)
@@ -165,12 +165,71 @@ Arm B (guided) beats arm A on med (greedy open@1 55.7 vs 43.1) and, tellingly, a
 
 **Gen-0 VERDICT [on numbers → GREEN, proceed]:** the gen-0 pi is a genuine ranker (dev setup-hit@1 ~99/92 easy/med), well above uniform; its low 2push-testset number is a domain-shift + hard-coverage effect that the RL loop's added generations directly target. Per the pre-registered rule this fires the PROCEED branch → **launch gen-1, both arms** (each conditions collection on its own gen-0 pi ckpt; kill-signal-2 gate = hard-2push testset ≥35 at end of gen-1, origin 8.9/7.0). [USER decision, 2026-07-07.]
 
+### Gen-1 — Run + Result _(Claude, 2026-07-07)_
+
+**Exploration T re-calibrated for the softmax_ce pi head — T=0.1** (`explore_knob.py` on gen-0 arm-B pi, 120 states): the new head's scores are much peakier than NoHz-v3's sigmoid-P head — top/median softmax-weight ratio is 3366× at T=0.03 (≈argmax, no exploration) vs 11.4× at T=0.1 (in the 5-20× target). So gen-1 explores instead of collapsing onto the weak gen-0 policy. Ckpt-load on Amarel confirmed (`load_scorer` uses `load_state_dict`, not `load_from_checkpoint` → cross-sage safe), so gen-1 collection ran on Amarel main-redhat at full 64-shard scale, each arm guided by its own gen-0 pi (T=0.1) + forced sweeps via the gen-0 buffer.
+
+**Jobs:** gen-1 collection Amarel `57890670` (A) · `57890671` (B), 128/128 shards COMPLETED, ~33 min. Harvest+train+eval CS `172740` (A, rlab3) · `172739` (B, rlab1), `--mem=220G`, 32 dataloader workers, V-head trains (persistent_workers fix).
+
+**Kill-signal-1 (gen-1, post-harvest) — PASS both, and CLIMBING:** hard-episode positive coverage arm B **0.611→0.628**, arm A **0.581→0.622**; hard unique solves arm B 4639→5267, arm A 3518→4601. Off-policy buffer accumulated new hard solves (kill-signal-3 "flat coverage across 2 gens" NOT triggered — rising). **pi val_loss also CLIMBING (improving): arm B 4.1782→3.9320, arm A 4.2240→4.1193** (gen-1 epoch005 / epoch002 best-val). **Gen-1 CLIMB RESULT — 2push testset (greedy reactive open@2) did NOT climb:**
+
+| policy | all | easy | med | hard | vs gen-0 (all/hard) |
+|---|---|---|---|---|---|
+| ARM B gen-1 | 13.8 | 25.6 | 12.5 | **7.5** | 15.1 / 8.9 → DOWN |
+| ARM A gen-1 | 14.3 | 27.3 | 13.7 | **6.7** | 13.8 / 7.0 → ~flat |
+
+**Kill-signal-2 FAILs** (hard-2push 7.5/6.7 ≪ 35). The canonical (domain-shifted) testset is flat-to-down gen-0→gen-1 despite the IN-DISTRIBUTION gains (coverage ↑, pi val_loss ↑ 4.18→3.93). **Read [on numbers]: gen-1 self-imitation improved the ranker on its OWN training-room family but the gain does NOT transfer to the held-out testset family** (v4_hq_h1 vs test_aug9/car_envs — different room generators). The room-family domain shift, not "does the loop learn", is the binding limit for the canonical 2push metric. (Own-distribution gen-1 dev greedy/setup-hit appended below to confirm the in-distribution climb.) Evaluated directly off the trained gen-1 pi ckpts (V head hangs — see below).
+
+### V-head status — trained = NO (gen-0 AND gen-1), DEFERRED with cause
+The V head is **not trained** for either generation of either arm. It is needed ONLY for the secondary π+V best-first eval; the primary greedy-π result (all numbers above) is complete without it, and every dev/testset row here is evaluated directly off the trained pi ckpts.
+
+**Hang evidence (for a dedicated debug agent — off critical path):** V-head training HANGS at epoch ~2-3, reproducibly, on **both arms × both gens**. Symptom: after `[rl v setup]` prints, the job stays `R` but GPU util = **0% / ~460 MiB** (model resident, idle), load ~1.6, and **no new v-ckpt for 25+ min** (last v-ckpt was epoch001-002); at gen-0 the worker procs were in **S (sleeping)** state (a mutex/IO wait, not a crash). pi (softmax_ce, `mode="pi"`, BC rows only) trains fine to completion every time (GPU 90%+, ~1 min/epoch); only V (hl_gauss, `value_bins=51`, `mode="v"`, ALL rows incl. failures) wedges. **Ruled out:** `persistent_workers` (dropping it did NOT fix it), and dataloader speed (uncompressed ctx + 32 workers — pi is GPU-bound). **Candidate causes:** the hl_gauss loss/head, or the V dataloader hitting a specific bad row among the fail-rows, or a CUDA/hl_gauss op deadlock. **Cheap repro for the debug agent:** train V-only via `WeightedClassifierModule(head_mode="hl_gauss")` + `RLDataModule(mode="v")` on any existing gen H5 (e.g. `armB/gen1/train_data/data.h5`, 68302 rows) and `py-spy dump`/`gdb` the wedged main+workers at the ~epoch-2 stall. (The gen-1 wedged workers were scancelled to unblock the eval before capturing a live py-spy — the log/GPU state above is the evidence.) **Mitigation applied:** V training is disabled by default in `run_gen_cs.py` going forward so it can never again block the pi eval; re-enable with a flag once fixed.
+
 **V head (secondary, deferred):** the V-head training deadlocked at gen-0 (`persistent_workers=True` train/val hang; fixed by dropping it — see Run gotcha 3). The primary greedy result needs only pi, so V (for the π+V best-first bonus) is deferred to the gen-1 runs which carry the fix.
 
-_(auto)_ — accept iff hard-2push greedy climbs across generations AND clears kill signal 2; headline = greedy open-rate by tier × horizon per generation vs the registered prediction; secondary = π+V dropped into best-first search vs `combine=q` (NoHorizon-v3: reactive 40.7 / best-first 37.8 @2) — the free test of the two-head hypothesis.
+### FULL comparison + VERDICT (gen-0 vs gen-1, both arms, all tiers) _(Claude, 2026-07-07)_
 
-## Next
-_(tbd)_
+**Two eval surfaces, deliberately different:** DEV = held-out rooms of the SAME family as the training pool (v4_hq_h1, 1push episodes, `eval_pi.py` greedy open@k + setup-hit@k). TESTSET = the canonical `namo_testset_v1` pure2push (a DIFFERENT room family — test_aug9/car_envs — 2push reactive open@2). The gap between them IS the result.
+
+**DEV (own family) — greedy open@2 | setup-hit@1, gen0 → gen1:**
+
+| arm · tier | greedy open@2 g0→g1 | setup-hit@1 g0→g1 | note |
+|---|---|---|---|
+| B · easy | 83.3 → 85.7 | 99.4 → 98.2 | near-ceiling, flat |
+| B · med | 66.5 → 65.3 | 92.8 → 93.4 | flat |
+| B · hard | 14.5 → 16.3 | 25.9 → 27.7 | tiny + (key_hit@8 77.8→83.3) |
+| A · easy | 82.1 → 86.9 | 98.2 → 98.2 | small + |
+| A · med | 50.9 → 59.3 | 91.0 → 92.2 | **real +8.4** |
+| A · hard | 15.1 → 13.9 | 25.3 → 24.7 | flat/−  |
+
+**TESTSET (different family) — reactive open@2, gen0 → gen1:**
+
+| policy | all g0→g1 | hard g0→g1 |
+|---|---|---|
+| ARM B | 15.1 → 13.8 | 8.9 → **7.5** |
+| ARM A | 13.8 → 14.3 | 7.0 → **6.7** |
+| NoHz-v3 baseline (ref) | 40.8 | 25.3 |
+
+**Kill signals (end of gen-1):** #1 hard-coverage PASS + rising (B 0.611→0.628, A 0.581→0.622); #2 hard-2push testset ≥35 **FAIL** (7.5/6.7 ≪ 35); #3 hard-unique-solve flat across 2 gens **not triggered** (rising: B +628, A +1083). Buffer: 62% hard coverage (healthy), 60-68% of solved-hard episodes have a ≤2-push solution banked, gen-1 added +126/+106 NEW hard episodes — so this is **NOT a coverage failure**.
+
+**VERDICT [H→E→V, on numbers]:**
+- **H (registered):** pure forward-rollout self-imitation climbs hard-2push testset across generations → ~70-all / ~53-hard by gen-5.
+- **E:** zero→gen0 learning is LARGE (uniform → dev setup-hit@1 99/92 easy/med, greedy 81/55.7). gen0→gen1 in-distribution is MARGINAL — one real bump (arm A med greedy@2 +8.4), otherwise flat-to-nil, for a full extra generation of data. gen0→gen1 on the canonical testset is ZERO-to-negative on both arms. Coverage/val_loss rose but did not convert to testset open-rate.
+- **V (FALSIFIED, on numbers):** the registered forecast is falsified — hard-2push testset did NOT climb (7.5/6.7, and DOWN on arm B), missing even the pessimistic ~35 "coverage-failure" branch — but **NOT via the coverage-failure mechanism** (coverage is 62% and rising). The result is driven by **two distinct, both-real walls**: (1) **diminishing in-distribution returns** — the big jump was zero→gen0; one more generation buys little, far below the per-gen slope needed to reach the forecast; (2) **zero cross-domain transfer** — the pool (v4_hq_h1) and the canonical testset are different room-generator families (confirmed by the disjointness gate's distinct wall conventions), and the in-distribution gains do not cross that shift. The RL loop DOES learn (large zero→gen0, healthy climbing coverage); it just doesn't learn FAST enough per generation AND doesn't transfer to the held-out family. Secondary π+V best-first test: not run (V head hangs — see V-head status).
+
+## Next _(options for the user — each with its testable hypothesis)_
+
+**(a) Pool-family fix — the highest-leverage test.** Build the rollout pool from rooms of the SAME generator family as `namo_testset_v1` (mujoco_env_creator matching test_aug9/car_envs), and/or add a held-out eval slice of the v4_hq_h1 family. _Hypothesis:_ if pool family = eval family, the in-distribution gains ARE the eval gains and a real climb appears. _Test:_ re-run gen-0→gen-1 with a testset-family pool + same-family held-out eval; compare the gen slope to this run's.
+
+**(b) Novelty-rate fixes — attack the slow slope.** One generation added only ~13% data and moved the needle little. Raise per-gen novelty: hotter T (more exploration), more/aggressive forced sweeps on hard, bigger R (rollouts/episode). _Hypothesis:_ more novel hard solves per gen → steeper in-distribution slope. _Test:_ a gen-1 with R=32, T≈0.15, forced-sweep budget up; measure per-gen coverage + dev-hard slope vs this run.
+
+**(c) Protocol check — rule out a silent mismatch.** The pool is h1 (1push) episodes; the testset scores 2push labeled-object setup+finish. Confirm the pool's "solve" and object/goal/open conventions match the testset's 2push protocol exactly (object-restriction, open_frac, goal-region definition). _Hypothesis:_ a protocol mismatch depresses apparent transfer independent of domain shift. _Test:_ run the pure2push-GT eval on a handful of pool-family episodes and check the protocols agree cell-for-cell.
+
+**(d) Reassess frame.** Given diminishing in-distribution returns AND zero transfer, weigh pure forward-rollout self-imitation (no search at train) against the ExIt / search-in-the-loop alternative ([../policy_value_search_hypothesis.md](../policy_value_search_hypothesis.md)); and reconsider whether a cross-family 2push testset is the right yardstick for a loop trained on a single family, or whether the yardstick should be same-family held-out (option a).
+
+**Also: fix the V head** (hl_gauss train hang — see V-head status; needed for the π+V best-first secondary) before any run that wants the two-head result.
 
 ## Discussion
 _(you ↔ Claude — ask here; I answer inline, dated. Newest at the bottom.)_
+
+**[Claude 2026-07-07] ⚠ VERDICT CORRECTION — wall (2) re-attributed [USER-caught].** The user challenged "the rooms are the same" and the testset README proves it: `namo_testset_v1` source corpora = **feb_car 1277 + aug9_car 896 — the SAME template families the training pool descends from** (33% of test floorplans share exact wall templates with train; disjointness is per-SCENE by design, never per-family). The gate's "different wall conventions/frames" observation was a file-serialization artifact, not a distribution difference. Collector's region-open bar also verified matching the testset (open_frac=0.2 = the ≥20% bar). **Corrected wall (2): task-COMPOSITION shift, not family shift** — pure2push episodes are exhaustively-verified F=∅ (every episode demands setup→finish), while the training pool is 1-push-manifest episodes dominated by direct-push solutions (genuine setup-chains only in the thin hard tail, ~4.6k/25k buffer solves). The policy mastered what its data taught and barely practiced the one skill pure2push grades. Wall (1) (flat per-gen slope; ReST^EM-consistent) stands unchanged. Next-options implication: option (a) "match the room family" is moot; the high-leverage variable is **episode composition** — grow the pool with genuine F=∅ multi-push episodes (minable from v4_hq_h2 labels, or generated + probe-verified via first-push-rate=0 with rollout-rate>0). RESULTS.md §6 amended accordingly.
