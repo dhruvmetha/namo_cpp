@@ -41,6 +41,11 @@ The active work now lives in experiment **cards** ([`experiments/log/`](experime
 
 ## docs/experiments/ — the active research ledger
 
+**🧵 Threads (metadata-grouped, not folders — `thread:` frontmatter + `experiments.base` per-thread views):**
+- [`THREAD_scorer_search.md`](experiments/THREAD_scorer_search.md) — supervised ranker/search line (horizon_q era); concluded, NoHz-v3 = reigning baseline. `[HUB]`
+- [`THREAD_rl_loop.md`](experiments/THREAD_rl_loop.md) — RL self-imitation line; live. `[HUB]`
+- [`THREAD_f_char.md`](experiments/THREAD_f_char.md) — F-characterization/diffusion; dormant, points to `docs/f_characterization/` + `docs/research/`. `[HUB]`
+
 **⚙️ Experiment loop (the system — how we propose/run/record experiments):**
 - [`WORKFLOW.md`](experiments/WORKFLOW.md) — the operating loop, roles, status enum, and reporting + timing conventions. `[HUB]`
 - [`ORCHESTRATION.md`](experiments/ORCHESTRATION.md) — running the parallel-experiment fleet: forking, worktrees, file-partition, merge-back, tiering. `[HUB]`

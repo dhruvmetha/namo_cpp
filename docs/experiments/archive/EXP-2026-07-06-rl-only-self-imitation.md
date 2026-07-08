@@ -5,6 +5,7 @@ created: 2026-07-06
 commit: 092faec
 metric: "FALSIFIED (kill-signal-2): gen-1 hard-2push testset 7.5/6.7 ≪ gate 35 (origin 8.9/7.0; NoHz-v3 40.8/25.3). But the loop LEARNS: uniform→gen-0 = strong ranker (dev setup-hit@1 99/93/26); gen-0→gen-1 in-distribution nearly flat (arm A med greedy@2 50.9→59.3 the only real climb); coverage HEALTHY+rising (62%, +1711 hard solves) — NOT the coverage-failure branch. Two walls: diminishing per-gen returns + zero cross-room-family transfer (v4_hq_h1 pool vs testset family). Phase 0 gate: wrong-setup=74.6% of greedy failures, setup-hit@8=82.5. V-head never trained (hl_gauss hang, evidence in card)."
 tags: [experiment, rl, self-imitation]
+thread: rl-loop
 ---
 # RL-only loop: off-policy self-imitation at depth 10 (no search at train or deploy)
 

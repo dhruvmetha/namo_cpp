@@ -1,12 +1,15 @@
 ---
-status: ref
+status: frozen
 tags: [experiment]
+thread: scorer-search
 updated: 2026-06-25
 ---
 
 # Horizon-Q — HANDOFF (what we've built & seen so far)
 
 > **⚠ HISTORICAL / SUPERSEDED (2026-07-06): the budget-conditioned "Horizon-Q" framing was DROPPED.** Horizon/budget-conditioning measured ≈ no-horizon, with **NoHz** (a single value/ranker, "no-horizon") ahead — reactive **40.7 vs 34.1** for the budget/depth-value variant, and NoHz ≥ the "Hz" head on both regimes; at ≤2 pushes the budget input has nothing to do. The live model's job is **first-push (setup) ranking** — current framing in [../problem_and_approach.md](../problem_and_approach.md). Everything below is the **verbatim past-tense record** of what we built and measured (including *why* budget-conditioning was cut) — history, not the current design; all checkpoint paths / numbers stay valid.
+
+> Historical (scorer-search era) — current framing: [[THREAD_scorer_search]] / [docs/problem_and_approach.md](../problem_and_approach.md).
 
 > Self-contained brief for a fresh chat. Covers: the **problem**, the **model architecture**, the **full algorithm**
 > (labels → training → deploy), the **data versions (v2/v3/v4)**, the **results** (emphasis v2/v3), and the **current

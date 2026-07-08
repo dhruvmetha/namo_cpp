@@ -1,6 +1,7 @@
 ---
 status: ref
 tags: [experiment]
+thread: scorer-search
 updated: 2026-07-01
 ---
 

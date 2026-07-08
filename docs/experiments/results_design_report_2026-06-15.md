@@ -1,6 +1,7 @@
 ---
 status: snapshot
 tags: [experiment]
+thread: scorer-search
 updated: 2026-06-22
 ---
 

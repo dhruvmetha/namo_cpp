@@ -5,6 +5,7 @@ created: 2026-06-25
 commit:
 metric:
 tags: [experiment, parked]
+thread: scorer-search
 ---
 # qboot — bootstrapped single-Q setup value (PARKED)
 

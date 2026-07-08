@@ -15,3 +15,51 @@ views:
       - commit
     sort: []
     limit: 100
+  - type: table
+    name: "Thread — scorer-search"
+    filters:
+      and:
+        - thread == "scorer-search"
+    groupBy:
+      property: status
+      direction: ASC
+    order:
+      - file.name
+      - status
+      - created
+      - metric
+      - commit
+    sort: []
+    limit: 100
+  - type: table
+    name: "Thread — rl-loop"
+    filters:
+      and:
+        - thread == "rl-loop"
+    groupBy:
+      property: status
+      direction: ASC
+    order:
+      - file.name
+      - status
+      - created
+      - metric
+      - commit
+    sort: []
+    limit: 100
+  - type: table
+    name: "Thread — f-char"
+    filters:
+      and:
+        - thread == "f-char"
+    groupBy:
+      property: status
+      direction: ASC
+    order:
+      - file.name
+      - status
+      - created
+      - metric
+      - commit
+    sort: []
+    limit: 100

@@ -5,6 +5,7 @@ created: 2026-07-06
 commit: 9bdb7be
 metric: "budget PLATEAUS, doesn't close the search gap — 2push open@2→@5 40.7→56.5 (flat after push 3), still ~39pp below best-first 95.9; hard 2push caps at 47.3. Reactive mistakes are largely irreversible → search is load-bearing."
 tags: [experiment]
+thread: scorer-search
 ---
 # Reactive MPC to depth 5 — how much of the test set falls to zero-search control?
 

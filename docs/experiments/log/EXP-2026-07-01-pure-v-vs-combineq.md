@@ -5,6 +5,7 @@ created: 2026-07-01
 commit:
 metric:
 tags: [experiment]
+thread: scorer-search
 ---
 # Pure-V + recall-π vs combine=q (sims-to-solve)
 

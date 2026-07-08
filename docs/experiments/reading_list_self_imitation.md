@@ -1,6 +1,7 @@
 ---
 status: ref
 tags: [reading-list, rl, self-imitation]
+thread: rl-loop
 updated: 2026-07-07
 ---
 # Reading list — iterated self-imitation (our RL loop) and its neighbors
