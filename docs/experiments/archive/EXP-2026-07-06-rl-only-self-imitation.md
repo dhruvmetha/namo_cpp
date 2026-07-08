@@ -189,7 +189,7 @@ The V head is **not trained** for either generation of either arm. It is needed 
 
 ### FULL comparison + VERDICT (gen-0 vs gen-1, both arms, all tiers) _(Claude, 2026-07-07)_
 
-**Two eval surfaces, deliberately different:** DEV = held-out rooms of the SAME family as the training pool (v4_hq_h1, 1push episodes, `eval_pi.py` greedy open@k + setup-hit@k). TESTSET = the canonical `namo_testset_v1` pure2push (a DIFFERENT room family — test_aug9/car_envs — 2push reactive open@2). The gap between them IS the result.
+**Two eval surfaces, deliberately different:** DEV = held-out rooms of the SAME family as the training pool (v4_hq_h1, 1push episodes, `eval_pi.py` greedy open@k + setup-hit@k). TESTSET = the canonical `namo_testset_v1` pure2push (2push reactive open@2; NOTE — per the 2026-07-07 correction, testset rooms descend from the same feb/aug9 templates as train; the real axis separating the surfaces is task COMPOSITION, not room family). The gap between them IS the result.
 
 **DEV (own family) — greedy open@2 | setup-hit@1, gen0 → gen1:**
 
@@ -202,13 +202,24 @@ The V head is **not trained** for either generation of either arm. It is needed 
 | A · med | 50.9 → 59.3 | 91.0 → 92.2 | **real +8.4** |
 | A · hard | 15.1 → 13.9 | 25.3 → 24.7 | flat/−  |
 
-**TESTSET (different family) — reactive open@2, gen0 → gen1:**
+**TESTSET pure2push (same feb/aug9 template families, per-scene disjoint — see 2026-07-07 correction) — reactive open@2, gen0 → gen1:**
 
 | policy | all g0→g1 | hard g0→g1 |
 |---|---|---|
 | ARM B | 15.1 → 13.8 | 8.9 → **7.5** |
 | ARM A | 13.8 → 14.3 | 7.0 → **6.7** |
 | NoHz-v3 baseline (ref) | 40.8 | 25.3 |
+
+**TESTSET 1push tier (added 2026-07-07 [USER-requested] — the missing row that settles wall-2's mechanism).** Gen-1 π, greedy reactive open@1, canonical solve-rate tertiles (438/444/441), 16/16 shards, all == weighted tier mean verified:
+
+| policy | easy | med | hard | all | (open@2) |
+|---|---|---|---|---|---|
+| random floor | 71.7 | 32.6 | 6.2 | 36.8 | |
+| ARM A gen-1 | 82.0 | 64.2 | **27.7** | 57.9 | (64.2) |
+| ARM B gen-1 | 85.2 | 65.5 | 22.7 | 57.7 | (64.6) |
+| NoHz-v3 | 98.7 | 93.9 | 54.3 | 82.3 | |
+
+Reading: the gen-1 π transfers to the testset rooms on its practiced 1push task — above the random floor on EVERY tier (med 2×, hard 4×) — so the 2push collapse (13.8) is dominantly TASK-COMPOSITION (setup→finish never practiced in proportion), confirming the 2026-07-07 correction. Secondary wall also real and now quantified: ~25pt below NoHz-v3 on every 1push tier (competent-but-weaker ranker; consistent with ~7× less training data). Note: an earlier preliminary version of this table binned on `bin_of` instead of the canonical 1push tertiles and was internally inconsistent (tier mean ≠ all) — reconciled here.
 
 **Kill signals (end of gen-1):** #1 hard-coverage PASS + rising (B 0.611→0.628, A 0.581→0.622); #2 hard-2push testset ≥35 **FAIL** (7.5/6.7 ≪ 35); #3 hard-unique-solve flat across 2 gens **not triggered** (rising: B +628, A +1083). Buffer: 62% hard coverage (healthy), 60-68% of solved-hard episodes have a ≤2-push solution banked, gen-1 added +126/+106 NEW hard episodes — so this is **NOT a coverage failure**.
 
