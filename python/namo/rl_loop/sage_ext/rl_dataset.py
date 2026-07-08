@@ -14,6 +14,7 @@ Train/val split is room-grouped (by the H5 `xml` field) exactly like ScorerDataM
 scene's episodes never straddle. This internal val is just the checkpoint monitor; the real
 signal is the held-out dev greedy-open eval (eval_gen.py).
 """
+import multiprocessing as mp
 import random
 from typing import List, Optional
 
@@ -112,9 +113,18 @@ class RLDataModule(pl.LightningDataModule):
     def _kw(self):
         kw = dict(num_workers=self.num_workers, pin_memory=self.pin_memory)
         if self.num_workers > 0:
-            kw.update(prefetch_factor=4)   # throughput only. NO persistent_workers: it deadlocked the
-            # V-head train/val alternation (both arms hung, GPU 0%, ~25 min, gen-0). Uncompressed ctx
-            # + 32 workers already feed the GPU (~90% util); the tiny per-epoch respawn cost is fine.
+            # SPAWN workers, NOT fork (same bug class parallel_h5.py already fixed): fork after
+            # torch/CUDA/OpenMP are live inherits locked mutexes AND the parent's multiprocessing
+            # tempdir finalizer (shared pymp dir on $TMPDIR -> NFS on interactive shells; per-epoch
+            # teardown storm, .nfsXXXX EBUSY — the V-head wedge lives in this lifecycle; stacks in
+            # the EXP-2026-07-06 card's V-head debug). persistent_workers: spawn ONCE per fit — no
+            # per-epoch churn (the hang window). timeout: residual starvation raises loudly instead
+            # of a silent 25-min wedge. NOTE spawn requires __main__-guarded entry scripts
+            # (run_gen_cs.py is; an unguarded script deadlocks the parent in pipe_write).
+            kw.update(prefetch_factor=4,
+                      multiprocessing_context=mp.get_context("spawn"),
+                      persistent_workers=True,
+                      timeout=300)
         return kw
 
     def train_dataloader(self):
