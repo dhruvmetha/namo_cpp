@@ -1,8 +1,8 @@
 ---
 type: experiment
-status: live
+status: done
 created: 2026-07-09
-commit:
+commit: 3fa9b4a
 metric: reactive@1/@2 by (set × difficulty), opened_at split (1-push vs 2-push solution), avg sims, avg t_wall
 thread: scorer-search
 tags: [experiment, horizon, hz-v3, ablation, ranker]
@@ -40,7 +40,34 @@ arrakis, s1 ckpts rsynced from Amarel (51M each) to `/common/users/dm1487/scratc
 Told H=2, Hz demotes the direct opener below a setup on ~6/27 episodes → same reactive@2, 22pp fewer 1-push solutions. Full-set run in progress.
 
 ## Run
-_(filled on completion)_
+2026-07-09, arrakis (GPUs 3/1/2), s1 ckpts. `run_horizon_probe.sh` (reactive) + `run_horizon_probe_bf.sh` (best-first, budget 2), agg `agg_horizon_probe.py`. Eval dirs `…/eval/horizon_probe/`. Reproduces registry: NoHz-v3 pure2 reactive 40.8 (reg 40.7), best-first 38.1 (reg 37.8), Hz-v3 reactive 45.3 (reg s1 45.6) — pipeline validated.
 
-## Result
-_(filled on completion)_
+## Result — HORIZON IS A ROUTE KNOB, NOT A SOLVE-RATE KNOB [verdict on numbers]
+
+**1-push set (the probe), react@1 = solved with a 1-push solution / react@2 = solved by push 2:**
+
+| arm (ALL, n=1323) | react@1 | react@2 |
+|---|---|---|
+| Hz-v3 · H=2 | **76.7** | 90.9 |
+| Hz-v3 · H=1 | **84.6** | 89.7 |
+| NoHz-v3 · H=2 | 82.2 | 89.7 |
+| NoHz-v3 · H=1 | 82.2 | 89.7 |
+| random (3-seed) | 37.3 | 57.7 |
+
+- **H1 ACCEPTED (mechanism confirmed):** told H=2, Hz demotes the direct opener for a setup → **−7.9pp react@1** vs H=1, same react@2. **NoHz H=2≡H=1 byte-identical every tier** (the control) → the Hz shift is 100% the horizon input.
+- **H2 (does it help the score?) — NO, net wash:** react@2 Hz-H2 90.9 vs NoHz 89.7 = **+1.2pp**. Horizon changes *when* (1-push vs 2-push route), not *whether*.
+- **Tier structure (Hz H2−H1):** easy Δreact@2 **−0.1** (detour = pure waste, +1 sim for nothing), med **+1.9**, hard **+4.0** (foresight finds 2-push paths greedy-opener misses). Tax on easy, boon on hard, ~wash overall.
+
+**2-push set (canonical), both regimes:**
+
+| arm (ALL, n=1018) | reactive@2 | best-first@2 |
+|---|---|---|
+| Hz-v3 | **45.3** | 35.9 |
+| NoHz-v3 | 40.8 | **38.1** |
+| random (3-seed) | 4.7 | 3.7 |
+
+- **Reactive↔search flip intact:** Hz wins forced-dive reactive (**+4.5**; hard 28.8 vs 25.3, med 49.4 vs 40.8, easy tie) — foresight helps commit. NoHz wins best-first (**+2.2**; the **dive-tax** — Hz's H1/H2 heads are incomparable rulers so the queue won't dive; worst on easy 49.6 vs 57.6).
+
+**Verdict:** the horizon input is a *working* knob that trades the solution route (helpful when forced to dive on hard, wasteful in free search / on easy) but does not lift final solve-rate over NoHz's single value — the mechanistic "why" behind the arc's earlier drop-horizon TIE. NoHz-v3 stays the baseline.
+
+**Caveats:** single-seed (s1) per model; near-ceiling car eval jitters ~0.3mm [[reference_eval_sim_nondeterminism]] so treat sub-2pp as noise (the ~8pp route-shift and +4pp hard-2push are well above it). Best-first at budget 2 ≈ reactive's dive space; the dive-tax widens at larger budgets (a budget sweep is the natural follow-up).

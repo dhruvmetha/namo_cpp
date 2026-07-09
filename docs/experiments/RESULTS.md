@@ -239,6 +239,32 @@ Can pure RL — forward rollouts only, filtered-BC self-imitation, greedy deploy
 
 **Finding.** **Kill-signal-2 fired (hard 7.5/6.7 ≪ 35) — the forecast is falsified — but by a failure mode the forecast didn't model.** The loop *learns*: one generation took a uniform policy to a strong in-distribution ranker (dev setup-hit@1 99/93/26 easy/med/hard — ~5× over uniform on hard), and the collection flywheel demonstrably turns (hard coverage rising 0.58→0.62, +1,711 unique hard solves across arms, 60–68% of solved-hard episodes bank a ≤2-push solution — so this is **NOT** the pre-registered coverage-failure branch). What failed is (1) **slope** — gen-0→gen-1 (~13% more data) moved dev metrics barely (arm A med +8.4 the only real climb) — and (2) **transfer to the testset's task composition** — flat-to-down on pure2push. **CORRECTION [2026-07-07, USER-caught]:** the initial "different room-generator family" attribution was WRONG — the testset README proves both corpora descend from the same feb_car+aug9_car templates (33% shared wall floorplans; disjointness is per-scene by design), and the collector's region-open bar matches the testset's (≥20%). The real shift is **episode composition**: pure2push episodes are exhaustively verified F=∅ (no single push opens — every episode demands setup→finish), while the training pool is 1-push-manifest episodes dominated by direct-push solutions (genuine setup-chains only in the thin hard tail, ~4.6k/25k buffer solves). The policy mastered the skill its data taught (direct pushes, dev near-ceiling) and barely practiced the only skill pure2push grades. **Table 6c is the confirming measurement:** on the SAME testset rooms, the gen-1 π scores well above the random floor on its practiced 1push task in EVERY tier (med 2×, hard 4×) while collapsing on 2push — a skill gap, not a rooms gap. The secondary wall is also quantified there: ~25pt below NoHz-v3 on every 1push tier (competent-but-weaker ranker, consistent with ~7× less training data). Pretraining's measured worth: nothing on easy, +12.6pt med greedy, hard setup-surfacing key-hit@8 77.8 vs 50.0 (gen-0, B vs A). V-head never trained (hl_gauss-specific hang; evidence + repro in the card; disabled by default). Highest-leverage next test per the card: pool from the testset's own room family — does the climb appear when pool family = eval family?
 
+## Horizon role probe — what does the H input DO? (2026-07-09, Hz-v3 vs NoHz-v3 vs random, s1, arrakis)
+
+Card: [[EXP-2026-07-09-horizon-role-probe]]. The 1-push set is the clean probe (solvable at both budgets ⇒ H=2-vs-H=1 first-push ranking is directly contrastable). react@1 = solved with a 1-push solution; react@2 = solved by push 2.
+
+**Table 7a. 1-push set (n=1323, ALL) — horizon changes the ROUTE, not the solve-rate:**
+
+| arm | react@1 | react@2 |
+|---|---|---|
+| Hz-v3 · H=2 | 76.7 | 90.9 |
+| Hz-v3 · H=1 | 84.6 | 89.7 |
+| NoHz-v3 · H=2 | 82.2 | 89.7 |
+| NoHz-v3 · H=1 | 82.2 | 89.7 |
+| random (3-seed) | 37.3 | 57.7 |
+
+**Table 7b. Hz-v3 H2−H1 by tier (the tax/boon):** easy Δreact@2 −0.1 (detour = pure waste), med +1.9, hard **+4.0** (foresight finds 2-push paths). react@1 drops 7–9pp every tier (setups demoted above openers).
+
+**Table 7c. 2-push set (n=1018, ALL) — reactive↔search flip:**
+
+| arm | reactive@2 | best-first@2 |
+|---|---|---|
+| Hz-v3 | **45.3** | 35.9 |
+| NoHz-v3 | 40.8 | **38.1** |
+| random (3-seed) | 4.7 | 3.7 |
+
+**Finding.** The horizon input is a *working* knob and NoHz is the airtight control: NoHz H=2 ≡ H=1 byte-identical every tier, while Hz H=2 demotes the direct opener for a setup (−7.9pp react@1) — so the shift is 100% the horizon. But it trades *when* you solve (1-push vs 2-push route), not *whether*: react@2 Hz-H2 90.9 ≈ NoHz 89.7 (+1.2). It's a tax on easy (turns a 1-sim solve into 2 for nothing) and a small boon on hard (+4pp); on genuine 2-push it helps forced-dive reactive (+4.5, foresight commits) but loses free best-first (+2.2 to NoHz, the dive-tax = two mis-scaled rulers in one queue). This is the mechanistic "why" behind the earlier drop-horizon TIE. NoHz-v3 stays the baseline. (Reproduces registry: NoHz pure2 reactive 40.8≈40.7, best-first 38.1≈37.8.)
+
 ## Prior work (seeded ledger)
 
 Compact history, pre-loop. Detail in the [model registry](horizon_q_model_registry.md).
