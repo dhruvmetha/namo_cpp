@@ -10,7 +10,7 @@ for real and check if the region opened. No simulate-and-undo — MPC can't take
   - EARLY STOP: region opens (record push index it opened at) OR the candidate pool empties.
 Each leaf records `opened_at` in 1..k (or 0 = never), so cumulative open@1..open@k for every k<=max_pushes come from ONE run.
 Default --max-pushes 2 is EXACTLY the old setup+finish (argmax setup@H -> argmax finish@H1) -> backward compatible."""
-import sys, os, json, argparse, random
+import sys, os, json, argparse, random, time
 from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]; SAGE = os.environ.get("SAGE_REPO", "")
 for _p in (f"{REPO}/build_python", f"{REPO}/python", f"{REPO}/scripts", f"{REPO}/scripts/sandbox", f"{REPO}/scripts/pipeline", SAGE):
@@ -42,6 +42,7 @@ def main():
     key = json.load(open(a.key))
     xmls = list(key); xmls = xmls[a.start:(a.end if a.end else len(xmls))]
     n = 0; skip = 0; leaf = []
+    t_all = 0.0; t_solved = 0.0   # wall-time (ranking+sims only, excl env build) over counted / solved episodes
     opened = [0] * (K + 1)   # opened[k] = #episodes that opened AT push k (index 1..K); opened[0] unused
     for xi, xml in enumerate(xmls):
         for rec in key[xml]:
@@ -55,6 +56,7 @@ def main():
             if not gp or goal_open_pts(env, gp):
                 skip += 1; continue
             # push 1 decides skip semantics: no candidate for the labeled object -> not a valid episode
+            t0 = time.time()   # time the decision+sim work (ranking + pushes), NOT the fixed env-build overhead
             pool = rank_first_pushes_h2(pl, env, goal, xml, s0, a.h, restrict_obj=obj, score=(a.prior == "q"))
             if not pool:
                 skip += 1; continue
@@ -71,17 +73,23 @@ def main():
                 if goal_open_pts(env, gp):
                     opened_at = pidx; break                                    # region opened -> stop
                 s_cur = env.get_full_state()
+            dt = time.time() - t0
+            t_all += dt
             if opened_at:
                 opened[opened_at] += 1
-            r_leaf = {"xml": xml, "object_id": obj, "region": reg, "opened_at": opened_at}
+                t_solved += dt
+            r_leaf = {"xml": xml, "object_id": obj, "region": reg, "opened_at": opened_at, "t_ep": round(dt, 4)}
             for k in range(1, max(K, 2) + 1):                                  # open1,open2 always present (old aggregator) + open3..openK
                 r_leaf[f"open{k}"] = int(0 < opened_at <= k)
             leaf.append(r_leaf)
         if xi % 25 == 0:
             print(f"  [{xi}/{len(xmls)}] n={n} open@{K}={sum(opened[1:])}", file=sys.stderr, flush=True)
     cum = {k: sum(opened[1:k + 1]) for k in range(1, K + 1)}                   # cumulative open@k
-    out = {"ckpt": os.path.basename(a.ckpt), "n": n, "skip": skip, "max_pushes": K,
+    out = {"ckpt": os.path.basename(a.ckpt), "n": n, "skip": skip, "max_pushes": K, "h_first": a.h,
            "opened_at_hist": {str(k): opened[k] for k in range(1, K + 1)},
+           "avg_t_ep_ms": round(1000 * t_all / max(n, 1), 1),
+           "avg_t_solve_ms": round(1000 * t_solved / max(sum(opened[1:]), 1), 1),
+           "total_t_s": round(t_all, 1),
            "open1": cum[1], "open2": cum.get(2, cum[1])}
     for k in range(1, K + 1):
         out[f"open{k}_total"] = cum[k]
