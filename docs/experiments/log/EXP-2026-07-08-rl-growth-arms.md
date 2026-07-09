@@ -92,3 +92,17 @@ Collection 94-95% coverage both arms (pathological-scene tail cut per announce; 
 | C | 83.2 | 66.4 | 26.8 | 58.9 |
 
 **Read: FLAT both arms, both tiers (+0.6-1.0 all; hard within noise). Neither diet moved the testset in one growth generation — 3rd consecutive near-flat generation across 3 data treatments (ReST^EM first-iteration-plateau signature). Gate 1 of 2: gen-2 flat ⇒ per-arm kills fire + method verdict. Dev dashboards pending.**
+
+### SEARCH AUDIT (Experiment 0) — the RL pi was never graded on the project's own metric
+_(Claude, 2026-07-09)_ The growth-arms "flat" verdict was measured GREEDY (reactive open-rate). But the north-star is sims-to-solve UNDER SEARCH — never run on the RL pi (V-head hung, deploy was greedy-only). Audit: RL growthC-gen1 pi as the `combine=q` ranker in best-first (`time_bestfirst.py`, hmax2, budget900), interleaved 3-way with NoHz-v3 + random on identical nodes (983/1018 scenes, 83/100 shards; 17 hard-heavy shards FAILED — hard n=237, a floor). Sims machine-independent (primary); wall-time NOT pooled (mixed iLab microarchs, unpinned) so reported paired only.
+
+**Sims-to-solve (the objective = efficiency = intelligence):**
+| tier | metric | NoHz-v3 | RL-pi | random |
+|---|---|---|---|---|
+| hard (n=237) | solve@900 | 92% | **90%** | 78% |
+| | median sims | **10** | 34 | 118 |
+| | mean sims | 90 | 138 | 215 |
+| all (n=763) | median sims | 4 | 22 | 38 |
+| | mean sims | 50 | 108 | 113 |
+
+**Verdict [on numbers]:** (1) the greedy plateau was a MIS-GRADE — under search the RL pi nearly matches NoHz-v3 on solve-rate (hard 90 vs 92) and beats random decisively (hard median 34 vs 118 sims). The RL line is NOT falsified as a ranker. (2) BUT on the metric that IS the project — efficiency — RL-pi is only partway: 3.4× NoHz-v3's median sims on hard (34 vs 10), and its tail-heavy mean (all 108) sits at ~random (113), from a minority of scenes where it confidently commits to a DEAD setup and search must exhaust it. That dead-setup tail is the exact missing-negatives signature: NoHz-v3's median-10 efficiency IS its 300k dead-labels. **The efficiency gap 34→10 on hard is a direct price tag on dead-setup knowledge → motivates Experiment 1 (mine search-verified negatives → supervised recipe; target: RL-pi hard median 34→~10).** Note also RL-pi < random on EASY sims (mean 98 vs 27) — overconfidence on easy scenes, same mechanism.
