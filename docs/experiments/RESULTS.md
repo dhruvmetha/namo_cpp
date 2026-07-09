@@ -253,7 +253,7 @@ Card: [[EXP-2026-07-09-horizon-role-probe]]. The 1-push set is the clean probe (
 | NoHz-v3 · H=1 | 82.2 | 89.7 |
 | random (3-seed) | 37.3 | 57.7 |
 
-**Table 7b. Hz-v3 H2−H1 by tier (the tax/boon):** easy Δreact@2 −0.1 (detour = pure waste), med +1.9, hard **+4.0** (foresight finds 2-push paths). react@1 drops 7–9pp every tier (setups demoted above openers).
+**Table 7b. Hz-v3 H2−H1 by 1-push solve_rate tertile (the tax/boon):** react@1 drops every tier (−7.4/−10.2/−5.9 hard/med/easy — setups demoted above openers); react@2 Δ = hard **+3.6** (foresight finds 2-push paths), med −0.2, easy 0.0 (boon is hard-ONLY; easy/med detour = pure waste, +1 sim for the same solve). NoHz react@1 tertiles 53.8/94.1/98.9 reproduce Table 1b (54.3/93.9/98.7).
 
 **Table 7c. 2-push set (n=1018, ALL) — reactive↔search flip:**
 
@@ -261,7 +261,7 @@ Card: [[EXP-2026-07-09-horizon-role-probe]]. The 1-push set is the clean probe (
 |---|---|---|
 | Hz-v3 | **45.3** | 35.9 |
 | NoHz-v3 | 40.8 | **38.1** |
-| random (3-seed) | 4.7 | 3.7 |
+| random (3-seed) | 4.3 | 3.7 |
 
 **Finding.** The horizon input is a *working* knob and NoHz is the airtight control: NoHz H=2 ≡ H=1 byte-identical every tier, while Hz H=2 demotes the direct opener for a setup (−7.9pp react@1) — so the shift is 100% the horizon. But it trades *when* you solve (1-push vs 2-push route), not *whether*: react@2 Hz-H2 90.9 ≈ NoHz 89.7 (+1.2). It's a tax on easy (turns a 1-sim solve into 2 for nothing) and a small boon on hard (+4pp); on genuine 2-push it helps forced-dive reactive (+4.5, foresight commits) but loses free best-first (+2.2 to NoHz, the dive-tax = two mis-scaled rulers in one queue). This is the mechanistic "why" behind the earlier drop-horizon TIE. NoHz-v3 stays the baseline. (Reproduces registry: NoHz pure2 reactive 40.8≈40.7, best-first 38.1≈37.8.)
 

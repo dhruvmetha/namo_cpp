@@ -25,7 +25,7 @@ Reactive forced-dive MPC (`eval_reactive_argmax.py`, object-constrained, region 
 - Both regimes [[feedback_search_nosearch_lens]]: **reactive** (above) + **best-first search** (`eval_bestfirst.py`, combine=q, hmax2, sim-budget 30) → solve-rate + avg-sims + solve@t.
 
 ## Reporting (stratified — [[feedback_stratified_splits]])
-By difficulty tier per set: 1-push binned by per-episode solve_rate via `eval_common.bin_of` (hard <0.05 / med <0.30 / easy ≥0.30); 2-push via `pure2push_divisions.json`. Sim axis = opened_at / avg-sims; time axis = avg t_wall on arrakis (single-box, fair across arms — [[feedback_wall_time_framing]]).
+By difficulty tier per set: 1-push binned by per-episode **solve_rate tertiles** (canonical for the results sheet — RESULTS Table 1b/6c; ≈441/tier); 2-push via `pure2push_divisions.json` (`n_setups`→division). (`eval_common.bin_of`'s fixed cuts <0.05/<0.30 are the offline-scorer convention, NOT the results-sheet binning — they disagree on 1-push.) Sim axis = opened_at / avg-sims; time axis = avg t_wall on arrakis (single-box, fair across arms — [[feedback_wall_time_framing]]).
 
 ## Compute
 arrakis, s1 ckpts rsynced from Amarel (51M each) to `/common/users/dm1487/scratch_namo/outputs/scorer/`. GPUs 3/1/2. Eval dirs: `/common/users/dm1487/scratch_namo/eval/horizon_probe/`.
@@ -44,19 +44,19 @@ Told H=2, Hz demotes the direct opener below a setup on ~6/27 episodes → same 
 
 ## Result — HORIZON IS A ROUTE KNOB, NOT A SOLVE-RATE KNOB [verdict on numbers]
 
-**1-push set (the probe), react@1 = solved with a 1-push solution / react@2 = solved by push 2:**
+**1-push set (the probe), react@1 = solved with a 1-push solution / react@2 = solved by push 2. Tiers = solve_rate tertiles (442/443/438, canonical — matches RESULTS Table 1b: NoHz react@1 53.8/94.1/98.9 ≈ 54.3/93.9/98.7).**
 
-| arm (ALL, n=1323) | react@1 | react@2 |
+| arm | react@1 hard/med/easy/ALL | react@2 hard/med/easy/ALL |
 |---|---|---|
-| Hz-v3 · H=2 | **76.7** | 90.9 |
-| Hz-v3 · H=1 | **84.6** | 89.7 |
-| NoHz-v3 · H=2 | 82.2 | 89.7 |
-| NoHz-v3 · H=1 | 82.2 | 89.7 |
-| random (3-seed) | 37.3 | 57.7 |
+| Hz-v3 · H=2 | 51.6 / 85.3 / 93.4 / **76.7** | 76.7 / 96.4 / 99.5 / 90.9 |
+| Hz-v3 · H=1 | 59.0 / 95.5 / 99.3 / **84.6** | 73.1 / 96.6 / 99.5 / 89.7 |
+| NoHz-v3 · H=2 | 53.8 / 94.1 / 98.9 / 82.2 | 73.1 / 96.6 / 99.5 / 89.7 |
+| NoHz-v3 · H=1 | 53.8 / 94.1 / 98.9 / 82.2 | 73.1 / 96.6 / 99.5 / 89.7 |
+| random (3-seed) | 5.4 / 33.9 / 73.0 / 37.3 | 20.5 / 61.5 / 91.5 / 57.7 |
 
-- **H1 ACCEPTED (mechanism confirmed):** told H=2, Hz demotes the direct opener for a setup → **−7.9pp react@1** vs H=1, same react@2. **NoHz H=2≡H=1 byte-identical every tier** (the control) → the Hz shift is 100% the horizon input.
+- **H1 ACCEPTED (mechanism confirmed):** told H=2, Hz demotes the direct opener for a setup → **−7.9pp react@1** ALL (−7.4/−10.2/−5.9 hard/med/easy) vs H=1, at ~unchanged react@2. **NoHz H=2≡H=1 byte-identical every tier** (the control) → the Hz shift is 100% the horizon input.
 - **H2 (does it help the score?) — NO, net wash:** react@2 Hz-H2 90.9 vs NoHz 89.7 = **+1.2pp**. Horizon changes *when* (1-push vs 2-push route), not *whether*.
-- **Tier structure (Hz H2−H1):** easy Δreact@2 **−0.1** (detour = pure waste, +1 sim for nothing), med **+1.9**, hard **+4.0** (foresight finds 2-push paths greedy-opener misses). Tax on easy, boon on hard, ~wash overall.
+- **Tier structure (Hz H2−H1 react@2):** easy **0.0** / med **−0.2** (the setup-detour = **pure waste**, spends +1 sim to reach the same solve) / hard **+3.6** (foresight finds 2-push paths the greedy-opener misses). Boon is hard-ONLY; and Hz-H2 hard react@2 76.7 vs NoHz 73.1 = +3.6 is horizon's one real 1-push gain.
 
 **2-push set (canonical), both regimes:**
 
@@ -64,7 +64,7 @@ Told H=2, Hz demotes the direct opener below a setup on ~6/27 episodes → same 
 |---|---|---|
 | Hz-v3 | **45.3** | 35.9 |
 | NoHz-v3 | 40.8 | **38.1** |
-| random (3-seed) | 4.7 | 3.7 |
+| random (3-seed) | 4.3 | 3.7 |
 
 - **Reactive↔search flip intact:** Hz wins forced-dive reactive (**+4.5**; hard 28.8 vs 25.3, med 49.4 vs 40.8, easy tie) — foresight helps commit. NoHz wins best-first (**+2.2**; the **dive-tax** — Hz's H1/H2 heads are incomparable rulers so the queue won't dive; worst on easy 49.6 vs 57.6).
 
