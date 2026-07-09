@@ -263,7 +263,17 @@ Card: [[EXP-2026-07-09-horizon-role-probe]]. The 1-push set is the clean probe (
 | NoHz-v3 | 40.8 | **38.1** |
 | random (3-seed) | 4.3 | 3.7 |
 
-**Finding.** The horizon input is a *working* knob and NoHz is the airtight control: NoHz H=2 ≡ H=1 byte-identical every tier, while Hz H=2 demotes the direct opener for a setup (−7.9pp react@1) — so the shift is 100% the horizon. But it trades *when* you solve (1-push vs 2-push route), not *whether*: react@2 Hz-H2 90.9 ≈ NoHz 89.7 (+1.2). It's a tax on easy (turns a 1-sim solve into 2 for nothing) and a small boon on hard (+4pp); on genuine 2-push it helps forced-dive reactive (+4.5, foresight commits) but loses free best-first (+2.2 to NoHz, the dive-tax = two mis-scaled rulers in one queue). This is the mechanistic "why" behind the earlier drop-horizon TIE. NoHz-v3 stays the baseline. (Reproduces registry: NoHz pure2 reactive 40.8≈40.7, best-first 38.1≈37.8.)
+**Table 7d. Best-first BUDGET SWEEP (pure2 ALL, combine=q) — the dive-tax is a budget-2 artifact:**
+
+| arm | s@2 | s@5 | s@10 | s@20 | s@30 |
+|---|---|---|---|---|---|
+| Hz-v3 | 35.9 | **54.4** | **65.2** | **74.8** | **79.0** |
+| NoHz-v3 | 38.1 | 51.3 | 57.7 | 65.8 | 70.5 |
+| random | 3.7 | 10.8 | 20.8 | 33.2 | 41.9 |
+
+NoHz−Hz flips +2.2→−9.0 (hard −13.5 @20) — Hz and NoHz cross at ~budget 3, then Hz pulls away. ![[horizon_budget_curve.png]]
+
+**Finding.** The horizon input is a *working* knob and NoHz is the airtight control: NoHz H=2 ≡ H=1 byte-identical every tier, while Hz H=2 demotes the direct opener for a setup (−7.9pp react@1) — so the shift is 100% the horizon. It does two separable things. **(1) Reactive/route:** trades *when* you solve, not *whether* — 1-push react@2 wash (Hz-H2 90.9 ≈ NoHz 89.7), tax on easy, +3.6 on hard; on 2-push it wins forced-dive reactive (+4.5). **(2) Search:** it is a genuine **accelerator** — the earlier "NoHz wins best-first (+2.2)" was ONLY at budget 2; Hz's H=2 setup ranker wins best-first by +3→+9pp (up to +13 hard) at any budget ≥~3 (Table 7d), matching the registry `s@900` Hz 97.7 > NoHz 95.9. So the drop-horizon TIE was measured in the one regime (reactive/@2) where horizon is neutral; **with search budget, Hz-v3 dominates.** NoHz-v3 stays the ~0-sim reactive baseline. (Reproduces registry: NoHz pure2 reactive 40.8≈40.7, best-first@2 38.1≈37.8.)
 
 ## Prior work (seeded ledger)
 

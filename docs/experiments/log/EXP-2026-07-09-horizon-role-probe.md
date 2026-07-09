@@ -66,8 +66,31 @@ Told H=2, Hz demotes the direct opener below a setup on ~6/27 episodes → same 
 | NoHz-v3 | 40.8 | **38.1** |
 | random (3-seed) | 4.3 | 3.7 |
 
-- **Reactive↔search flip intact:** Hz wins forced-dive reactive (**+4.5**; hard 28.8 vs 25.3, med 49.4 vs 40.8, easy tie) — foresight helps commit. NoHz wins best-first (**+2.2**; the **dive-tax** — Hz's H1/H2 heads are incomparable rulers so the queue won't dive; worst on easy 49.6 vs 57.6).
+- **Hz wins forced-dive reactive (+4.5**; hard 28.8 vs 25.3, med 49.4 vs 40.8, easy tie) — foresight helps commit.
+- **Best-first@2 NoHz edges Hz (+2.2)** — BUT this is the ONE misleading cell (see sweep below): at a 2-sim budget Hz can't express its dive, so its reluctance-to-dive costs ~2pp.
 
-**Verdict:** the horizon input is a *working* knob that trades the solution route (helpful when forced to dive on hard, wasteful in free search / on easy) but does not lift final solve-rate over NoHz's single value — the mechanistic "why" behind the arc's earlier drop-horizon TIE. NoHz-v3 stays the baseline.
+### Budget sweep — the dive-tax is a BUDGET-2 ARTIFACT; horizon is a SEARCH ACCELERATOR
+`run_horizon_sweep.sh` (budget-30 run, curve derived from per-episode sims — expansion order is budget-independent). pure2, combine=q. ![[horizon_budget_curve.png]]
+
+**Solve-rate vs sim-budget (ALL, n=1018):**
+
+| arm | s@2 | s@5 | s@10 | s@20 | s@30 |
+|---|---|---|---|---|---|
+| **Hz-v3** | 35.9 | **54.4** | **65.2** | **74.8** | **79.0** |
+| NoHz-v3 | 38.1 | 51.3 | 57.7 | 65.8 | 70.5 |
+| random | 3.7 | 10.8 | 20.8 | 33.2 | 41.9 |
+
+**Dive-tax (NoHz−Hz solve@B, pp) — flips sign right after budget 2:**
+
+| tier | @2 | @5 | @10 | @20 | @30 |
+|---|---|---|---|---|---|
+| hard | −0.5 | −6.2 | −8.4 | **−13.5** | −11.8 |
+| med | +1.5 | −4.2 | −10.0 | −8.6 | −8.5 |
+| easy | +8.0 | +3.4 | −2.1 | −2.5 | −2.9 |
+| ALL | +2.2 | −3.1 | −7.5 | **−9.0** | −8.5 |
+
+**CORRECTION to the earlier "NoHz wins best-first" line:** that held ONLY at budget 2. Hz and NoHz **cross at ~budget 3**, then Hz pulls away by ~9pp (ALL) and up to **+13.5pp on hard** — because Hz's H=2 head is a genuinely better SETUP ranker (it scores first-pushes by 2-push foresight), and once search has budget to explore setups, that foresight dominates NoHz's myopic single value (which buries setups — they open nothing yet). At matched avg-sims Hz solves more (hard s@30 67.9 @6.8 sims vs NoHz 56.1 @7.1). Consistent with the registry's `s@900` Hz 97.7 > NoHz 95.9 — the sweep fills in the middle and locates the crossover. So the **only** regimes where horizon looks bad are (a) reactive best-first at the razor budget of 2 and (b) the 1-push easy/med detour; everywhere search has room, horizon wins.
+
+**Verdict (updated by the sweep):** the horizon input does two separable things. (1) **Reactive / route:** it trades *when* you solve (setup-detour) — a wash on 1-push final solve (+1.2), a tax on easy, a boon on hard. (2) **Search:** it is a genuine **search accelerator** — its H=2 setup ranking lifts best-first by +3→+9pp (up to +13 hard) at any budget ≥~3; the "NoHz wins best-first" was a budget-2 artifact. So the earlier drop-horizon TIE was measured in the ONE regime (reactive @2 / budget-2) where horizon is neutral-to-bad; **with search budget, horizon clearly wins.** This nuances (does not overturn) the deploy pick: the prize was the ~0-sim reactive regime [[horizon_q_HANDOFF]], where NoHz-v3 stays the baseline — but if any search budget is on the table, Hz-v3 dominates.
 
 **Caveats:** single-seed (s1) per model; near-ceiling car eval jitters ~0.3mm [[reference_eval_sim_nondeterminism]] so treat sub-2pp as noise (the ~8pp route-shift and +4pp hard-2push are well above it). Best-first at budget 2 ≈ reactive's dive space; the dive-tax widens at larger budgets (a budget sweep is the natural follow-up).
