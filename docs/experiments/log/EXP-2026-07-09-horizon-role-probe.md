@@ -116,4 +116,15 @@ Two runs probe the far end of the curve on the **hard tiers** (hard keys `pure2p
 - **Wall-time (poolable), per [[WORKFLOW]] §42** — Amarel, `time_bestfirst.py` **budget 10000**, `--exclusive --constraint=icelake`, CPU-only single-thread, interleaved Hz/NoHz/random per episode (`random` = the poolable anchor). Jobs `57986761` (2push hard) / `57986762` (1push hard). Gives `solve@{1,5,30}s` + avg t_wall on pinned HW, poolable with RESULTS Table 2a. Eval dirs `/scratch/dm1487/eval/horizon_probe/time_hard_{2push,1push}/`.
 - **⚠ arrakis (sweep/ceiling) t_wall is NOT poolable with Amarel** (shared box, no pinning) — sims are the cross-box substrate; only the Amarel run's seconds go on a poolable time axis.
 
-**Result:** _(pending — fold solve-vs-{sims,seconds} plateau + floor autopsy on completion)_
+**Result (2026-07-10, complete):** ![[horizon_ceiling_time.png]]
+
+| tier | arm | solve% | genuine floor (exhausted) | truncated (>budget) | avg sims | avg t_wall |
+|---|---|---|---|---|---|---|
+| **1push hard** (442) | Hz / NoHz / rand | 100 / 100 / 100 | 0 | 0 | 6 / 9 / 19 | 1.9 / 2.8 / 3.7s |
+| **2push hard** (371) | Hz | 98.7 | 3 | 2 | 209 | 46.3s |
+| | NoHz | 98.7 | 3 | 2 | 358 | 63.6s |
+| | random | 97.8 | 4 | 4 | 669 | 112.5s |
+
+- **1push: NO floor — 100%, all arms exhaust and solve.** Pure speed problem; Hz reaches it ~3× cheaper than random (6 vs 19 sims).
+- **2push: a ~0.8% genuine FLOOR** (3/371 exhaust the object-constrained hmax-2 tree with no solving pair — physical floor / controller jam, per [[_offline_online_gap]]) + 2 truncated (trees >10000 nodes). True ceiling ~99%, **not** a ranking gap.
+- **THE EFFICIENCY POINT, EMPIRICALLY:** with the perfect verifier even **random reaches ~98%** on hard 2push — nothing is a capability gap; the ENTIRE arm difference is cost (Hz 209 sims/46s vs random 669/112s ≈ 2.4× cheaper). Confirms: perfect verifier ⇒ the claim is efficiency, not capability (bounded at hmax=2 where brute-force nearly solves; the capability regime only appears when depth makes brute-force intractable).
