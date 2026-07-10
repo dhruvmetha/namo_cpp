@@ -273,6 +273,16 @@ Card: [[EXP-2026-07-09-horizon-role-probe]]. The 1-push set is the clean probe (
 
 NoHz−Hz flips +2.2→−9.0 (hard −13.5 @20) — Hz and NoHz cross at ~budget 3, then Hz pulls away. ![[horizon_budget_curve.png]]
 
+**Table 7e. Per-tier at budget 150 (pure2) — value AND horizon pay off in proportion to difficulty:**
+
+| tier | Hz-v3 | NoHz-v3 | random | Hz over random |
+|---|---|---|---|---|
+| easy | 97.9 | 94.5 | 94.5 | +3.4 (random catches up) |
+| med | 94.1 | 88.3 | 79.2 | +14.9 |
+| **hard** | 84.6 | 74.1 | 49.3 | **+35.3** |
+
+Dive-tax (NoHz−Hz) peaks hard −14.8 @budget 60. On easy random nearly matches by 150; on hard it's stranded at 49% vs Hz 85%. ![[horizon_budget_curve_tiers.png]] **In flight (2026-07-10):** ceiling run (arrakis, budget 8000 → tree-exhaustion) + pinned wall-time (Amarel, `time_bestfirst` budget 10000, icelake exclusive) on the hard tiers — does the learned ranker hit 100% or plateau at a floor, and the poolable `solve@t`. → card.
+
 **Finding.** The horizon input is a *working* knob and NoHz is the airtight control: NoHz H=2 ≡ H=1 byte-identical every tier, while Hz H=2 demotes the direct opener for a setup (−7.9pp react@1) — so the shift is 100% the horizon. It does two separable things. **(1) Reactive/route:** trades *when* you solve, not *whether* — 1-push react@2 wash (Hz-H2 90.9 ≈ NoHz 89.7), tax on easy, +3.6 on hard; on 2-push it wins forced-dive reactive (+4.5). **(2) Search:** it is a genuine **accelerator** — the earlier "NoHz wins best-first (+2.2)" was ONLY at budget 2; Hz's H=2 setup ranker wins best-first by +3→+9pp (up to +13 hard) at any budget ≥~3 (Table 7d), matching the registry `s@900` Hz 97.7 > NoHz 95.9. So the drop-horizon TIE was measured in the one regime (reactive/@2) where horizon is neutral; **with search budget, Hz-v3 dominates.** NoHz-v3 stays the ~0-sim reactive baseline. (Reproduces registry: NoHz pure2 reactive 40.8≈40.7, best-first@2 38.1≈37.8.)
 
 ## Prior work (seeded ledger)

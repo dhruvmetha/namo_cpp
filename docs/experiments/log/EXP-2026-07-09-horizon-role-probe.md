@@ -1,11 +1,12 @@
 ---
 type: experiment
-status: done
+status: live
 created: 2026-07-09
+updated: 2026-07-10
 commit: 3fa9b4a
-metric: reactive@1/@2 by (set × difficulty), opened_at split (1-push vs 2-push solution), avg sims, avg t_wall
+metric: reactive@1/@2 (route split) + best-first solve-vs-{budget,wall-time} by (set × difficulty); ceiling@exhaustion vs random
 thread: scorer-search
-tags: [experiment, horizon, hz-v3, ablation, ranker]
+tags: [experiment, horizon, hz-v3, ablation, ranker, search, ceiling, wall-time]
 ---
 # What does the horizon input actually DO? — Hz-v3 vs NoHz-v3 vs random, H=2-first / H=1-second, on the 1-push AND 2-push sets
 
@@ -94,3 +95,25 @@ Told H=2, Hz demotes the direct opener below a setup on ~6/27 episodes → same 
 **Verdict (updated by the sweep):** the horizon input does two separable things. (1) **Reactive / route:** it trades *when* you solve (setup-detour) — a wash on 1-push final solve (+1.2), a tax on easy, a boon on hard. (2) **Search:** it is a genuine **search accelerator** — its H=2 setup ranking lifts best-first by +3→+9pp (up to +13 hard) at any budget ≥~3; the "NoHz wins best-first" was a budget-2 artifact. So the earlier drop-horizon TIE was measured in the ONE regime (reactive @2 / budget-2) where horizon is neutral-to-bad; **with search budget, horizon clearly wins.** This nuances (does not overturn) the deploy pick: the prize was the ~0-sim reactive regime [[horizon_q_HANDOFF]], where NoHz-v3 stays the baseline — but if any search budget is on the table, Hz-v3 dominates.
 
 **Caveats:** single-seed (s1) per model; near-ceiling car eval jitters ~0.3mm [[reference_eval_sim_nondeterminism]] so treat sub-2pp as noise (the ~8pp route-shift and +4pp hard-2push are well above it). Best-first at budget 2 ≈ reactive's dive space; the dive-tax widens at larger budgets (a budget sweep is the natural follow-up).
+
+### Budget sweep, PER TIER (extended to budget 150) — the win scales with difficulty
+`run_horizon_sweep150.sh` (budget-150 run, derived curve). pure2, combine=q, real data 2→150; ★=registry s@900 (ALL only). ![[horizon_budget_curve_tiers.png]]
+
+**solve@150 vs random, by tier:**
+
+| tier | Hz-v3 | NoHz-v3 | random | Hz over random |
+|---|---|---|---|---|
+| easy | 97.9 | 94.5 | 94.5 | +3.4 (random nearly catches up) |
+| med | 94.1 | 88.3 | 79.2 | +14.9 |
+| **hard** | 84.6 | 74.1 | 49.3 | **+35.3** |
+
+- **Both the learned value (vs random) AND the horizon (Hz vs NoHz) pay off in proportion to difficulty** — negligible on easy, decisive on hard. On easy, random *catches up* by budget 150 (many working setups → brute force finds one); on hard it's stranded at 49% while Hz reaches 85%.
+- **Dive-tax (NoHz−Hz) peaks on hard** at −14.8pp @budget 60 (Hz +14.8), −10.5 @150; easy stays ~−2/−3.
+
+### Ceiling + wall-time (IN FLIGHT, 2026-07-10) — does the learned ranker hit 100% on hard, and what does it cost in seconds?
+Two runs probe the far end of the curve on the **hard tiers** (hard keys `pure2push_HARD.json` n=371, `onepush_HARD.json` n=442 tertile):
+- **Ceiling (sims, machine-independent)** — arrakis GPU, `run_ceiling_hard.sh`, `eval_bestfirst` **budget 8000** (≫ the finite object-constrained hmax-2 tree, so it runs to **tree-exhaustion**), Hz/NoHz/random. **Question:** if Hz/NoHz *and* random all plateau at the same sub-100% ceiling → the residual is a **floor** (no solving push-pair in the object's tree, or controller jam — the [[_offline_online_gap]] finding), NOT a ranking gap. Report **max n_sim** to confirm exhaustion vs truncation. Eval dir `…/eval/horizon_probe/ceiling/`.
+- **Wall-time (poolable), per [[WORKFLOW]] §42** — Amarel, `time_bestfirst.py` **budget 10000**, `--exclusive --constraint=icelake`, CPU-only single-thread, interleaved Hz/NoHz/random per episode (`random` = the poolable anchor). Jobs `57986761` (2push hard) / `57986762` (1push hard). Gives `solve@{1,5,30}s` + avg t_wall on pinned HW, poolable with RESULTS Table 2a. Eval dirs `/scratch/dm1487/eval/horizon_probe/time_hard_{2push,1push}/`.
+- **⚠ arrakis (sweep/ceiling) t_wall is NOT poolable with Amarel** (shared box, no pinning) — sims are the cross-box substrate; only the Amarel run's seconds go on a poolable time axis.
+
+**Result:** _(pending — fold solve-vs-{sims,seconds} plateau + floor autopsy on completion)_
