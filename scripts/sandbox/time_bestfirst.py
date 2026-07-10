@@ -121,7 +121,7 @@ def main():
             continue
         for name, pl, prior in models:                       # interleaved: all 3 on the SAME s0
             r = timed_bf(pl, env, goal, xmlp, obj, s0, gp, prior, "mean5", "q", a.budget, rng, a.hmax)
-            r.update({"model": name, "tier": t, "xml": os.path.basename(xml), "object_id": obj})
+            r.update({"model": name, "tier": t, "xml": os.path.basename(xml), "xml_full": xml, "object_id": obj})
             fh.write(json.dumps(r) + "\n")
         if i % 10 == 0:
             fh.flush(); print(f"  [{i}/{len(samp)}] {PC() - t_start:.0f}s", file=sys.stderr, flush=True)
