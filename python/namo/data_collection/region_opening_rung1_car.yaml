@@ -1,0 +1,64 @@
+# RUNG-1 data-collection config — CAR robot, single-object region-opening, DEPTH-1 flat sample.
+# Derived from region_opening_amarel_car.yaml. The only substantive change vs that file is the
+# EXHAUSTIVE + SAMPLED + DEPTH-1 block: this is a flat depth-1 label pass, NOT a chain search.
+#
+# What this produces (per episode = (scene, chosen object, goal region)):
+#   - region_exhaustive_mode: true    -> attaches primitive_trial_log + reachability_log to each attempt,
+#                                        AND tries EVERY sampled (edge,depth) (no stop-at-first,
+#                                        no solved-edge / min-depth pruning; only physical stuck/collision
+#                                        blacklist still skips deeper depths on a stuck edge).
+#   - region_sample_k: 25             -> uniform k-subset of the reachable (edge,depth) candidates per node.
+#   - region_sample_restarts: 1       -> ONE random 25-subset (restarts would only fire on unsolved rooms;
+#                                        keep 1 so the "tried" set == the sampled 25 for clean mask semantics).
+#   - region_max_chain_depth: 1       -> single push from the start state; all 25 shoves share the start ctx.
+#
+# The build_rung1_h5.py extractor reads the trial_log (tried 0/1) + reachability_log (reachable edges -> -1
+# band, reachable-but-unsampled -> MASK) into the 60x5 value_target/value_mask grid.
+
+algorithm: region_opening
+episodes_per_env: 1
+
+# Generic planner limits
+max_depth: 5
+max_goals_per_object: 5
+max_terminal_checks: 5000
+search_timeout: 600.0
+goals_per_region: 50
+region_min_reachable_fraction: 0.2
+
+# Region opening parameters
+points_per_face: 15
+region_allow_collisions: true
+region_max_chain_depth: 1
+region_max_solutions_per_neighbor: 1
+region_max_recorded_solutions_per_neighbor: 1
+region_frontier_beam_width: 10000
+region_chain_link_cost: 11
+region_ml_ignore_blacklist: false
+region_selection_strategy: cost_first
+
+# --- RUNG-1 sampled-exhaustive depth-1 block ---
+region_exhaustive_mode: true
+region_sample_k: 25
+region_sample_restarts: 3
+
+# Goal strategy: pure primitive (no ML) -> the base policy is uniform-random over the grid.
+goal_strategy: primitive
+# 5-DEPTH car primitives (data/1x_car_d5_motion_primitives_15_*.dat, regen Jun 22) so the action grid is
+# 60x5 = (4 edges x 15 pts) x 5 depths, matching the EdgeCrossAttn (60,5) head + NUM_DEPTHS=5.
+# NOTE (smoke finding): the amarel car yaml's "1x_car_" prefix loads the 10-DEPTH set -> depths 0..9 and
+# openers land at depth 7,8,9, which a 60x5 grid would silently drop. Must be the d5 prefix for rung-1.
+primitive_prefix: "1x_car_d5_"
+
+# Robot adapter selection — diff-drive, 1x scale (car).
+config_file: config/namo_config_complete_skill15_car_1x.yaml
+
+# xml_dir is unused when a manifest is given (passed via CLI).
+xml_dir: ${NAMO_DATASETS}/car_envs
+
+# Pipeline features
+verbose: false
+filter_minimum_length: false
+smooth_solutions: false
+refine_actions: false
+validate_refinement: false
