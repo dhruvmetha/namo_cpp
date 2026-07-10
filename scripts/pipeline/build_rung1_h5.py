@@ -115,9 +115,11 @@ def _episodes(pkl_paths):
             yield p, e
 
 
-def build(pkl_glob, out_h5, render_config, limit=None):
+def build(pkl_glob, out_h5, render_config, limit=None, shard_idx=0, shard_count=1):
     pkls = sorted(glob.glob(pkl_glob))
-    print(f"[rung1] {len(pkls)} pkls from {pkl_glob}")
+    if shard_count > 1:
+        pkls = pkls[shard_idx::shard_count]   # strided slice -> balanced shards
+    print(f"[rung1] {len(pkls)} pkls (shard {shard_idx}/{shard_count}) from {pkl_glob}")
     renderer = _Renderer(render_config)
     env_cache = {}
 
@@ -250,6 +252,8 @@ if __name__ == "__main__":
     ap.add_argument("--out", required=True, help="output H5 path")
     ap.add_argument("--render-config", default=CAR_CFG)
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--shard-idx", type=int, default=0)
+    ap.add_argument("--shard-count", type=int, default=1)
     a = ap.parse_args()
-    rows, stats = build(a.pkl_glob, a.out, a.render_config, a.limit)
+    rows, stats = build(a.pkl_glob, a.out, a.render_config, a.limit, a.shard_idx, a.shard_count)
     _report(rows, stats, a.out)
