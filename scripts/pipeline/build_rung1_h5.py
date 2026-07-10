@@ -148,7 +148,8 @@ def build(pkl_glob, out_h5, render_config, limit=None, shard_idx=0, shard_count=
 
         # --- render ctx + contact_px at the START (reset) state == the search baseline ---
         if xml not in env_cache:
-            env_cache[xml] = make_env(xml)
+            env_cache.clear()          # single-slot: each xml is unique across pkls, so an unbounded
+            env_cache[xml] = make_env(xml)   # cache just leaks ~670 MuJoCo envs/shard -> OOM
         env = env_cache[xml]
         env.reset()
         # QC: does the reset state reproduce the search's reachable-edge set?
