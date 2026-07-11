@@ -2883,6 +2883,17 @@ class RegionOpeningPlanner(BasePlanner):
             #   depth-2 successes -> their parent first-push enabled a 2-push solve -> F1'.
             # (The recorded episode_results are only a SAMPLE of solutions; the trial log is exhaustive.)
             _parent_goal = getattr(parent_node, "goal", None) if parent_node is not None else None
+            # RUNG-2: persist the post-push full state (qpos/qvel) on setup pushes (chain_depth <
+            # max_chain_depth) so build_rung2_h5 can render a depth-2 node's ctx from the exact
+            # post-shove state its second pushes were searched from. The env is AT the post-push
+            # state here (post-_validate_opening, same point as the frontier ChainNode.state at ~2970
+            # and the state re-applied via set_full_state at ~2129), so this is faithful by
+            # construction. RLState is not picklable -> store plain qpos/qvel lists (asdict/pickle
+            # safe). Gated on exhaustive_mode + non-leaf depth (terminal states are never re-rendered).
+            _resulting_state = None
+            if self.exhaustive_mode and current_chain_depth < self.max_chain_depth:
+                _rs = self.env.get_full_state()
+                _resulting_state = {'qpos': list(_rs.qpos), 'qvel': list(_rs.qvel)}
             trial_log.append({
                 'edge_idx': edge_idx,
                 'depth': depth,
@@ -2895,6 +2906,7 @@ class RegionOpeningPlanner(BasePlanner):
                 'chain_depth': current_chain_depth,
                 'parent_edge': getattr(_parent_goal, "edge_idx", None) if _parent_goal is not None else None,
                 'parent_depth': getattr(_parent_goal, "depth", None) if _parent_goal is not None else None,
+                'resulting_state': _resulting_state,
             })
 
             total_region_goals = len(region_goals[neighbour_label].goals) if neighbour_label in region_goals else 0

@@ -1217,6 +1217,9 @@ def main():
             # F-scorer goal ranking: renderer must use the SAME namo config as the env so the
             # scorer's crop matches its training distribution. scorer_ckpt optional (defaults to sharp).
             algorithm_params["namo_config_path"] = args.config_file
+            # Honor --ml-device (default cuda) for the scorer too, so CPU-only SLURM nodes can run
+            # scorer-guided collection (ScorerGoalStrategy else defaults the model to cuda -> crash).
+            algorithm_params["ml_device"] = args.ml_device
             if getattr(args, "scorer_ckpt", None):
                 algorithm_params["scorer_ckpt"] = args.scorer_ckpt
         if args.goal_strategy and args.goal_strategy.lower() in {"ml", "ml_primitive"}:

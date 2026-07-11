@@ -1,0 +1,73 @@
+# RUNG-2 data-collection config — CAR robot, single-object region-opening, Q1-GUIDED DEPTH-2 search.
+# Derived from region_opening_rung1_car.yaml. The substantive changes vs rung-1:
+#   - region_max_chain_depth: 2   -> two-shove chains: setup push (depth-1) then finisher (depth-2).
+#   - goal_strategy: scorer       -> the trained Q1 ranker (scorer_ckpt) scores candidate pushes;
+#                                    region_selection_strategy: ml_first orders the best-first frontier by
+#                                    that score (high-P tried first). This is the Q1-STEERED search.
+#   - region_frontier_beam_width: 15 -> only the top-15 depth-1 frontier nodes (by Q1 score) are expanded
+#                                    to depth-2 -> a Q1-pruned budget, not the full ~50-150 x 20 blowup.
+#
+# EXHAUSTIVE tree logging (region_exhaustive_mode: true): every executed (edge,depth) push at every node
+# is recorded in primitive_trial_log with chain_depth + parent_edge/parent_depth (the search TREE), and
+# each expanded node's reachable-edge set + post-shove state_observation in reachability_log. Setup pushes
+# (chain_depth < max_chain_depth) also carry resulting_state (qpos/qvel) so build_rung2_h5.py can render a
+# depth-2 node's ctx from the exact post-shove state its finishers were searched from.
+#
+# region_sample_k: 20 draws a uniform 20-subset of the reachable candidates PER NODE (the exploration
+# breadth that yields both the searched-but-unproven negatives -> 0 and Q1-scored ordering within).
+# region_sample_restarts: 1 keeps each (edge,depth) tried at most once per node -> clean 1:1 tree joins.
+#
+# build_rung2_h5.py labels the tree: 2-shove solution path -> gamma^k (finisher/opener leaf = 1, setup =
+# 0.9); searched-to-budget-nothing -> 0; unreachable edge -> -1; reachable-but-untried -> MASK.
+
+algorithm: region_opening
+episodes_per_env: 1
+
+# Generic planner limits
+max_depth: 5
+max_goals_per_object: 5
+max_terminal_checks: 5000
+search_timeout: 1200.0
+goals_per_region: 50
+region_min_reachable_fraction: 0.2
+
+# Region opening parameters
+points_per_face: 15
+region_allow_collisions: true
+region_max_chain_depth: 2
+region_max_solutions_per_neighbor: 50
+region_max_recorded_solutions_per_neighbor: 5
+region_frontier_beam_width: 15
+region_chain_link_cost: 11
+region_ml_ignore_blacklist: false
+region_selection_strategy: ml_first
+
+# --- RUNG-2 exhaustive Q1-guided depth-2 block ---
+region_exhaustive_mode: true
+region_sample_k: 20
+region_sample_restarts: 1
+
+# Goal strategy: Q1 F-scorer ranks candidate pushes by P(this push opens the neighbour region).
+goal_strategy: scorer
+# Q1 checkpoint (trained on rung-1 60x5 value field). last.ckpt == the freshest rung-1 ranker.
+scorer_ckpt: /common/users/dm1487/scratch_namo/exit/q1_full/checkpoints/epoch009-val_loss0.9532.ckpt
+# Scorer device: cpu for CPU SLURM collection nodes (rlab7). Override with --ml-device cuda on GPU boxes.
+# NOTE: honored only with the modular_parallel_collection.py scorer-branch ml_device wiring (this PR).
+ml_device: cpu
+
+# 5-DEPTH car primitives -> action grid 60x5 = (4 edges x 15 pts) x 5 depths, matching Q1's (60,5) head.
+primitive_prefix: "1x_car_d5_"
+
+# Robot adapter selection — diff-drive, 1x scale (car). Also the renderer config (namo_config_path) for
+# the LiveScorer crop, so the scorer sees its training distribution.
+config_file: config/namo_config_complete_skill15_car_1x.yaml
+
+# xml_dir is unused when a manifest is given (passed via CLI).
+xml_dir: ${NAMO_DATASETS}/car_envs
+
+# Pipeline features
+verbose: false
+filter_minimum_length: false
+smooth_solutions: false
+refine_actions: false
+validate_refinement: false
