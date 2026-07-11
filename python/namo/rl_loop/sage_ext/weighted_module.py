@@ -25,7 +25,8 @@ class WeightedClassifierModule(ClassifierModule):
             if self._hl_gauss is None or self._hl_gauss.num_bins != logits.shape[-1]:
                 self._hl_gauss = HLGauss(num_bins=logits.shape[-1],
                                          vmin=self.value_vmin, vmax=self.value_vmax)
-            wmask = mask * weight.view(-1, *([1] * (mask.dim() - 1)))
+            wmask = mask * (weight if weight.dim() == mask.dim()          # per-cell (60x5) weight
+                            else weight.view(-1, *([1] * (mask.dim() - 1))))  # per-sample scalar
             return self._hl_gauss.loss(logits, labels, wmask)
         if self.head_mode == "softmax_ce":
             B = logits.shape[0]
