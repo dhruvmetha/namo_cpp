@@ -23,6 +23,7 @@ import multiprocessing as mp
 import random
 from typing import List, Optional
 
+import os
 import h5py
 import numpy as np
 import torch
@@ -30,6 +31,7 @@ import lightning.pytorch as pl
 from torch.utils.data import Dataset, DataLoader
 
 NUM_DEPTHS = 5
+Q2_POS_WEIGHT = float(os.environ.get("Q2_POS_WEIGHT", "1.0"))   # up-weight positive (opener/setup) cells vs dead(0)
 
 
 class Q2ValueDataset(Dataset):
@@ -60,7 +62,7 @@ class Q2ValueDataset(Dataset):
             "r_mask": r_mask,
             "loss_mask": loss_mask,
             "ratio": 0.0,                                                  # metrics binning placeholder
-            "weight": torch.tensor(1.0, dtype=torch.float32),             # uniform (Q2 is unweighted)
+            "weight": 1.0 + (Q2_POS_WEIGHT - 1.0) * (v_tgt > 0).float(),   # up-weight opener/setup cells vs dead(0)
         }
         if "contact_px" in f:
             out["contact_px"] = torch.from_numpy(f["contact_px"][i].astype(np.float32))
