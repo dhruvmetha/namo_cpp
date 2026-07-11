@@ -5,9 +5,6 @@ import argparse
 import numpy as np
 import h5py
 
-STR_KEYS = {"xml", "object_id"}
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--parts-glob", required=True, help="glob for part_*.h5")
@@ -34,7 +31,7 @@ def main():
         out.attrs["label_scheme"] = "value_target{-1,0,1}+value_mask; opener=1|tried-no-open=0|unreachable=-1|reach-unsampled=MASK"
         for k in keys:
             cat = np.concatenate(buf[k], axis=0)
-            if k in STR_KEYS:
+            if cat.dtype == object or cat.dtype.kind in ("S", "U"):   # auto-detect string cols (xml, node_kind, ...)
                 out.create_dataset(k, data=cat.astype(object), dtype=h5py.string_dtype("utf-8"))
             else:
                 out.create_dataset(k, data=cat)
