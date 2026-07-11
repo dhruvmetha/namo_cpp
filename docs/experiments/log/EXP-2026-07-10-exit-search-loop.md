@@ -153,6 +153,18 @@ The **only** comparison is a **random-order search** (`--models random` in `time
 - Collection + search → **SLURM CPU** (sim-bound), sharded.
 - Training → **GPU** (arrakis / gpu-redhat).
 
+## Run log — 2026-07-10 (Claude, orchestrated)
+
+Pipeline executed end-to-end from zero, all heavy CPU on **SLURM arrays** (CS estate):
+- **Generation** (array 175454): **28,265 CAR rooms, 61/39 aug9/feb**, disjoint seeds (700M/800M), 0 fail. Pool at `datasets/exit_pool/v1`.
+- **Rung-1 collection** (array 175758, 71 shards): **16,086 room-pkls**, 0 fail. Config = `region_opening_rung1_car.yaml`.
+- **Rung-1 H5** (array 175864 + merge): **29,891 rows** at `exit/rung1_full.h5`. Real-data sort: **~52% 1-push-solvable / ~48% rung-2 workload**; label mix ~1.6% openers / 9% tried-0 / 72% −1 / 17% mask; QC 96/96 (smoke) + 40/40 (real) reachable-edge agreement.
+- **Q1** (job 175889, rlab1 A100, reachable-only opener arm): **held-out opener AUC 0.82** (train 0.84), top-1 0.28 (base 0.23), prec/rec@0.5 0.58/0.59. Best ckpt `exit/q1_full/checkpoints/epoch009-val_loss0.9532.ckpt`, reload bit-identical.
+
+**Infra lessons (both fixed):** (1) ssh-detached heavy jobs die on disconnect-SIGHUP + iLab nproc fork-limits → **SLURM arrays for all heavy CPU**. (2) `build_rung1_h5` env_cache leaked ~670 MuJoCo envs/shard → OOM; single-slot cache fix (`b58cae9`).
+
+**Next:** rung-2 (Q1-guided depth-2 search) — gated on the CS-vs-Amarel scorer verdict (rung-2 build in progress).
+
 ## Risks / kill signals
 - **Bridge weak (Stage A)** → note it; Rung-2 finishes should repair it, but a *very* weak Q1 means slow start.
 - **Flat climb** (Q2 ≈ Q1 on sims-to-solve) → the negatives aren't landing on setups; check the `0`s and re-stamping.
