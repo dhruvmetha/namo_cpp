@@ -79,6 +79,13 @@ Round r  (repeat, r = 1, 2, 3, …):
 4. **Loss = per-cell BCE**, no reweighting, no ranking loss.
 5. **Data = accumulate + weighted sample** — keep ALL labeled scenes (expensive GT); each round retrain **from scratch** on a **~75% hard / ~25% not-hard (easy+medium)** sample. Never train on the newest-hard alone (catastrophic forgetting); never dump the pool flat (dilutes hard).
 6. **Automated** — one orchestrator, no manual steps between rounds.
+7. **Parallelize hard** [USER] — (a) **shard generation across nodes** (like the label campaign), NOT single-node (round-0 wasted ~1h running gen on one node while 5-6 sat idle); (b) **pipeline across rounds** — overlap generate(N+1) with train(N), label with the prior eval, etc. Each stage that's embarrassingly parallel (gen, label, eval-sims) fans across the idle rlab/ilab cores (rlab7 alone ≈250).
+
+## Orchestrator DAG + speedups (2026-07-12 deep-dive)
+
+Steady-state round pipeline (the controller encodes this):
+`GEN(r)→FILTER(r)` run **one round ahead** (model-free → off the critical path) + **sharded across nodes** (round-0's single-node gen 1h19m → ~14m sharded) → `SCREEN(r)` [needs model_{r-1}; ∥ EVAL(r-1); **fanned across nodes — launcher DOESN'T EXIST YET, must build** (current growth code is single-node)] → `LABEL(r, HARD-ONLY ~30-40%)` [not all scenes → ~2.5-3× less than round-0's label-everything] → `BUILD(r, streamed per-node as label shards land)` → merge into pool → `TRAIN(r)` → `EVAL(r)`.
+Cross-cutting: **shuffle the manifest before every cross-node split** (round-0's difficulty-sorted contiguous split → ~15-min straggler tail) + right-size workers to node cores. Render is already fast (~101ms, `fast_scorer` wired) — build is NOT the bottleneck. **Net steady-state round: ~half-day → ~1h overlapped.** Full analysis: the speed deep-dive report (2026-07-12).
 
 ## Related work (a synthesis, not a new algorithm)
 
@@ -93,7 +100,7 @@ Round r  (repeat, r = 1, 2, 3, …):
 ## Phases
 
 - **Phase 1 — 1-push opener loop** on original scenes. ← **START HERE.**
-- **Phase 2 — add post-shove scenes** to the generator → the same model learns to finish (rare-needle finishers).
+- **Phase 2 — 2-push / finish** [USER: **trigger = Phase-1 hard @1 plateaus**; no rush]. Add post-shove scenes → the *same* opener model learns to finish. **Collect finishes with MODEL-GUIDED best-first search, NOT exhaustive** — the finisher is a rare needle (~8% solve rate), so exhaustive finish is far too slow (testset-only finish GT already cost ~430k sims); the model finds it in a few guided tries. Tune K high enough to catch the finisher (finish @1 only ~53% on hard → do NOT take top-1) so we don't re-inject false-negative labels. This is the efficient "exhaustive-first-ply + guided-finish" collection, model-accelerated.
 - **Phase 3 — deploy with search** → setups fall out; full 2-push eval vs the bar.
 
 ## Run log
