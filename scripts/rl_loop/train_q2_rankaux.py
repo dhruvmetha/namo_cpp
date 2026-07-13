@@ -44,7 +44,7 @@ tq2 = importlib.util.module_from_spec(_spec)
 sys.modules["train_q2"] = tq2
 _spec.loader.exec_module(tq2)
 
-RANK_LAMBDA = float(os.environ.get("RANK_LAMBDA", "0.5"))
+RANK_LAMBDA = float(os.environ.get("RANK_LAMBDA", "0.1"))   # 0.1 = the bracket winner -> loop default
 RANK_TEMP = float(os.environ.get("RANK_TEMP", "0.15"))
 
 
