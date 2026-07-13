@@ -105,4 +105,19 @@ Cross-cutting: **shuffle the manifest before every cross-node split** (round-0's
 
 ## Run log
 
+**Round 0 (2026-07-12) — DONE.** Fresh pipeline end-to-end: 35,814 scenes (37/63 aug9/feb, 0 geometry-leaks) → exhaustive label (67,321 episodes, opener rate 34.1%) → stuck→dead relabel → train model_0 (BCE**+Dice** — note: code adds Dice; card said pure BCE; USER loss call pending) → eval. model_0 ckpt `curriculum2/round0/model_0/checkpoints/epoch029-val_loss0.8219.ckpt` (early-stop ep44, held-out opener AUC 0.883, top-1 hit 75.5% vs 34.5% base). Val plateaued ~0.82 (round-0 data wrung out — the curriculum breaks the plateau).
+
+**Round-0 baseline — 1push solve@1 by tertile bucket (model_0 / NoHz-ref / random / old off-lineage depth1_v1):**
+| bucket | model_0 | NoHz | random | depth1_v1 | gap→NoHz was→now |
+|---|--:|--:|--:|--:|---|
+| easy | 93.1 | 98.4 | 74.9 | 88.8 | 9.6→5.3 |
+| med | 78.6 | 94.7 | 34.7 | 73.6 | 21.1→16.1 |
+| hard | 35.1 | 54.0 | 7.9 | 32.4 | 21.3→18.9 |
+| all | 69.0 | 82.4 | 39.4 | 65.0 | — |
+(NoHz re-run 98.4/94.7/54.0 ≈ card's 53.7 → harness validated.)
+
+**Read:** fresh on-lineage data closed a REAL chunk of the depth1_v1→NoHz gap on every bucket (the wrong-rooms confound was genuine, ~+3-5 @1/bucket) — but **model_0 still trails NoHz** (~19 @1 hard). Residual ≈ **data scale** (67k vs NoHz's ~253k eps, 3.75×; the loop closes this) + minor **head** diff (model_0 BCE vs NoHz/depth1_v1 hl_gauss — an isolating A/B later). model_0 dominates random everywhere → strong screener seed. **Loop test:** does the curriculum push hard @1 from 35 toward/past 54?
+
+**Ops notes for the orchestrator:** arrakis `&`-backgrounded jobs die at tool-call boundaries → run eval on SLURM (or `setsid`); model-scoring works on arrakis+iLab GPUs (no Amarel for eval — that note is stale). Promote to `scripts/pipeline/`: `filter_geom_disjoint.py`, `relabel_stuck0.py`, `agg_onepush_tertile.py`, `round0_gen_joblist.py`.
+
 _(appended as rounds complete)_
