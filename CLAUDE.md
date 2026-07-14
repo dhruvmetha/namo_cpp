@@ -6,6 +6,8 @@ NAMO (Navigation Among Movable Obstacles): C++ physics/planning backend + Python
 
 **Live framing:** the model is a single **ranker / search heuristic**, NOT horizon/budget-conditioned — no `Q(s,a,H)`, no per-horizon heads. The `horizon_q_*` docs are historical; the current framing lives in [docs/problem_and_approach.md](docs/problem_and_approach.md).
 
+**⛔ The problem is ONE region-opening [USER — stop muddling this]:** an episode = **robot region + goal region + the one blocking object between them**; the job is the push(es) on that object that **MERGE robot+goal**. **1-push** = one push merges them; **2-push** = two pushes merge the SAME pair — a *setup* push (doesn't merge yet) then a *finish* push (merges). This is NOT multi-hop, NOT "goal is N regions away, open one region then the next." A goal not adjacent to the robot region (more than that one object between them) is **out of scope**, not a 2-push.
+
 **Doc map:** everything is indexed in [docs/INDEX.md](docs/INDEX.md); research lives in `docs/experiments/`, read on demand. Keep THIS file lean — durable every-session facts only; anything dated or "currently" belongs in a journal.
 
 ## How to talk to me [USER — top priority]

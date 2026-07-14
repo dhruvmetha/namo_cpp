@@ -13,6 +13,8 @@ updated: 2026-07-06
 A car robot needs to reach a goal region in a room, but a movable object is **blocking the way**. It fixes this by **pushing the object out of the way** — sometimes one push is enough, sometimes it takes a short chain of two.
 The unit of work is one **episode = (scene, target object, goal region)**: the blocking object is given, and the job is to find pushes that open the way to the goal.
 
+**One opening, not a traversal [USER — do not muddle this].** This is a SINGLE region-opening: the **robot region** and the **goal region** are separated by the one given **blocking object**, and the job is to **merge those two regions** with a push on that object. **1-push** = one push of the object merges robot+goal. **2-push** = it takes two pushes to merge that *same* pair — a *setup* push (doesn't merge yet) then a *finish* push (merges). It is emphatically NOT "the goal is two regions away, open one region then the next" — we do **not** chain multiple region-openings in one problem. A scene where the goal region is **not adjacent** to the robot region (more than that one object between them) is **out of scope**, not a 2-push.
+
 ## 2. The approach
 
 **The problem is solvable by search.** At each state there are ~50 reachable candidate pushes, and a simulator tells us exactly what any push does — it opens the way, or it doesn't, or it sets up a follow-up push. Trying pushes in a search (expand a push, simulate, expand again) reliably finds a solution.
