@@ -2,7 +2,7 @@
 status: running
 thread: rl_loop
 robot: car
-updated: 2026-07-12
+updated: 2026-07-14
 supersedes: EXP-2026-07-11-curriculum-ladder (findings kept; this is the clean plan)
 ---
 
@@ -42,19 +42,27 @@ model_0  ← bootstrap (round 0):  generate a broad batch of fresh scenes → la
 
 Round r  (repeat, r = 1, 2, 3, …):
   1. GENERATE   fresh batch of scenes
-  2. SCREEN     run model_{r-1} + search on each scene → record sims-to-solve (cheap: search stops at the solution)
-                → 3-way split by sims-to-solve (T=4, LOCKED [USER]):
-                     solved & sims≥4  → KEEP  (model-hard: a 1-push opener exists but the model ranked it outside its top-3 = its mistake — THE signal)
-                     solved & sims<4  → DROP  (solved-fast: model already nails it, no new signal)
-                     unsolved@budget  → BANK  (no 1-push opener within budget → a 2-push scene → phase2_bank/, NOT trained in Phase-1)
-                ← "harder and harder" is emergent + FROM the fixed threshold: a better model ranks openers higher → sims≥4 catches FEWER and HARDER scenes each round (self-hardening; yield→0 = plateau = stop signal). An adaptive top-X% would instead keep constant-count, progressively-EASIER scenes — which is why T is fixed, not a percentile.
-  3. LABEL      exhaustively try every push on the KEPT hard scenes → the 60×5 opener/dead grid
+  2. SCORE      run model_{r-1} on each scene — ONE forward pass, NO search, NO budget → predicted opener grid
+                → DROP the scenes it confidently NAILS (an opener at/near the top of its ranking; verify the top pick with 1 sim) — model already solves these, no new signal. Keep everything else for labeling.
+  3. LABEL      exhaustively try every reachable push on EVERY remaining scene → the 60×5 opener/dead grid.
+                The LABEL (ground truth) draws the 1-push/2-push line — NOT a search budget:
+                     ≥1 opener exists   → KEEP  (model-hard: an opener EXISTS but the model buried it — even at rank 200 — = its mistake, THE signal)
+                     0 openers anywhere → BANK  (truly dead → a 2-push scene → phase2_bank/, NOT trained in Phase-1)
+                ← self-hardening is emergent: a better model NAILS (DROPs) more scenes, so the KEEP — the hard-solvable ones it still gets wrong — shrinks + hardens each round (yield→0 = plateau = stop signal).
   4. TRAIN      accumulate ALL labeled scenes; retrain from scratch on a ~75% hard / ~25% not-hard(easy+med) SAMPLE → model_r
   5. EVAL       solve@1 / solve@k by bucket on the held-out testset
   6. LOOP/STOP  improved & not plateaued → round r+1 ;  plateaued or out of budget → stop
 ```
 
-**The hardening is emergent** — we never set a difficulty dial. Each round, a *better* model means the scenes that survive the screen are *harder*. The loop chases its own frontier. (This is Expert-Iteration / DAgger, applied to the opener.)
+**The hardening is emergent** — we never set a difficulty dial. Each round, a *better* model NAILS (DROPs) more scenes, so the scenes it still gets wrong are *harder*. The loop chases its own frontier. (This is Expert-Iteration / DAgger, applied to the opener.)
+
+**⛔ DESIGN CHANGE 2026-07-14 [USER] — the SCREEN (budget-search) is retired; SCORE (forward pass) + let the LABEL reject.**
+Old loop: SCREEN ran best-first search with a budget (T=4, budget 60) and drew the 1-push/2-push line by "did model_{r-1} solve it within 60 tries." Two flaws surfaced in round-3.
+(1) The budget (60) is BELOW the candidate pool (~75+ reachable pushes), so "unsolved@budget" banked scenes that DO have an opener — just ranked past 60. Round-3's screen banked **90%** as "2-push" while round-2's *exhaustive* label put true-dead at ~58%: we were throwing away the scenes where the model is MOST wrong — exactly the DAgger training signal we want to KEEP.
+(2) The budget-search is REDUNDANT — every KEEP scene got searched once by the screen, then re-searched from scratch by the exhaustive label.
+New loop: model_{r-1} SCORES every scene in one forward pass (zero sims) → DROP only the scenes it confidently nails → exhaustively LABEL the rest, and the LABEL (ground truth) draws the line: opener exists → KEEP (even if the model buried it), zero openers → truly dead → BANK. The forward-pass "screen" costs 0 sims, so **nothing is searched twice** — the expensive sims happen exactly once, at the label. Correct AND non-redundant.
+Cost: labels more scenes than the budget-screen (all non-DROP, including the dead we now confirm) — but Amarel makes exhaustive labeling cheap (~15 min for 270k), so the budget-screen's "cheapness" was false economy that cost us correctness.
+Diagnostic gating the full switch: exhaustive sample-label of ~4k *budget-hit* banked scenes → measures the TRUE dead-rate (is the 90% real?) + whether recovered openers are learnable or unlearnable needles. [result pending 2026-07-14]
 
 **Everything runs automatically:** one **orchestrator** drives the whole loop — it submits the generate / screen / label jobs to SLURM, runs training on the GPU, evals, decides, and fires the next round. No manual steps.
 
@@ -78,7 +86,7 @@ Round r  (repeat, r = 1, 2, 3, …):
 
 1. **Fully fresh** — no old data, no old model, even for the seed.
 2. **One opener model** — "does this push open now"; setups handled by search, not learned.
-3. **Hardness = model+search sims-to-solve** (model-hard), not absolute solve-rate. **Threshold LOCKED T=4** [USER] — keep solved & sims≥4 (opener outside model's top-3), drop solved-fast, bank unsolved (2-push). Fixed absolute cut (NOT a percentile) so the loop self-hardens + self-terminates.
+3. **Hardness = the model gets it WRONG, decided by GROUND TRUTH not a search budget** [REVISED 2026-07-14 — see DESIGN CHANGE above]. model_{r-1} scores each scene (forward pass) → DROP the ones it confidently nails → exhaustively LABEL the rest → KEEP = an opener exists but the model buried it (its mistake), BANK = zero openers = truly dead. Self-hardens (better model → DROPs more → KEEP shrinks + hardens; yield→0 = plateau). The old budget-search screen (T=4, budget 60) is retired — it banked solvable-but-deep scenes as false 2-push and re-searched every KEEP redundantly.
 4. **Loss = hl_gauss** (NoHz's 51-bin value head; switched from per-cell BCE on 2026-07-12 to remove the head confound — residual gap to NoHz is now cleanly *data*). No reweighting, no ranking loss.
 5. **Data = accumulate + weighted sample** — keep ALL labeled scenes (expensive GT); each round retrain **from scratch** on a **~75% hard / ~25% not-hard (easy+medium)** sample. Never train on the newest-hard alone (catastrophic forgetting); never dump the pool flat (dilutes hard).
 6. **Automated** — one orchestrator, no manual steps between rounds.
