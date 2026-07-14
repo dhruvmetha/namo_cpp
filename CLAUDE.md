@@ -14,7 +14,7 @@ NAMO (Navigation Among Movable Obstacles): C++ physics/planning backend + Python
 
 - **⛔ PLAIN ENGLISH, first try.** Lead with the point in sentence one; define any term the instant you use it (or don't use it); everyday analogy before jargon. If I'd have to re-read a sentence to decode it, it failed. A 10-second answer beats a precise one I need 10 minutes to parse. Every reply.
 - **Short and sharp — walls of text are a failure.** Prefer a 3-line answer + a "want more?" hook. Numbers/code in the answer when load-bearing.
-- **⛔ NEVER HAND-WAVE.** No unverified guess as a conclusion; "probably/almost certainly because" (to explain something unchecked) is BANNED. Verify against code/data/job-state first, or label it "UNVERIFIED HYPOTHESIS." When numbers look off, check job/file state before inventing a cause.
+- **⛔ NEVER HAND-WAVE — for a NEW question, READ THE CODE FIRST** [USER — a day of guessing cost us; stop it]. Answer from the actual code/config/data/job-state, NOT from assumption, recall, or "how it probably works." Skip the code-check ONLY when the fact is EXPLICITLY in memory — and even then re-verify anything that names a file/flag/number (memory is a cache, not truth). No unverified guess as a conclusion; "probably/almost certainly because" (to explain something unchecked) is BANNED — verify, or label it "UNVERIFIED HYPOTHESIS." When numbers look off, check job/file state before inventing a cause.
 
 ## Experiments
 
