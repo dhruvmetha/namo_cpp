@@ -37,29 +37,36 @@ model_0/1/2/3 are **discarded**. Three bugs, all found 2026-07-14, invalidated t
 
 ## The algorithm
 
+All generation is **60% aug9_car_v3 / 40% feb_car** [USER — aug9 is denser/more interesting; worth its higher retry cost].
+
 ```
 BOOTSTRAP  antman-0:
-  generate a large fresh batch (fixed gen) → label (goal-opening)
-  → build a BALANCED seed: 20k easy / 20k med / 20k hard by fixed cuts
-     (easy is the RARE bin under task-goal → gen size is set by the easy target;
-      keep all easy, undersample med/hard to 20k) → train antman-0.
+  generate a fresh batch (fixed gen, 60/40 aug9/feb) → label (goal-opening)
+  → build a 50k-episode seed (train+val, split BY ROOM ~90/10), difficulty-LEANED, hard RELAXED:
+       easy ~25k / med ~20k / hard ~all-available (~2-5k).
+     [see PILOT FINDING: hard is the RARE bin, not easy — 20k hard would cost ~1M scenes/~4h]
+  → train antman-0.
 
 PURE DAgger  antman-r (r = 1,2,…):
-  1. GENERATE  fresh scenes (fixed gen)
-  2. SCREEN    best-first with antman_{r-1} → keep the scenes it gets WRONG (its mistakes)
-  3. LABEL     exhaustive goal-opening on the kept scenes
-  4. TRAIN     accumulate ALL clean data + retrain antman_r  (pure mistakes → naturally med/hard-heavy; that's fine)
+  1. GENERATE  fresh scenes (fixed gen, 60/40 aug9/feb)
+  2. SCREEN    best-first with antman_{r-1}:
+       solved & opener in top-5  → DROP (model nails it)
+       solved & opener NOT top-5 → KEEP (the model's 1-push mistake — THE signal)
+       UNSOLVED (no 1-push opener) → 2-push → phase2_bank/ (Beast stage), NOT this stage
+  3. LABEL     exhaustive goal-opening on the KEPT scenes; add up to 50k episodes this loop
+  4. TRAIN     accumulate ALL clean SOLVABLE data + retrain antman_r
+       (NO dead in training [USER — no negatives]; ALL dead → phase2_bank for Beast — it IS the 2-push material)
   5. EVAL      solve@k by fixed-cut difficulty vs random
-  6. LOOP/STOP  improved → r+1 ; yield→0 / plateau → stage done
+  6. LOOP/STOP  improved → r+1 ; keep-yield→0 / plateau → stage done
 
-LADDER: 1-push loop to plateau → start the 2-push stage (beast-*) on post-setup scenes, same loop.
+LADDER: 1-push loop to plateau → start the 2-push stage (beast-*) on the banked post-setup scenes, same loop.
 ```
 
 ## Decisions locked [USER 2026-07-14]
 
 1. **Fresh restart** — discard the buggy lineage; new Marvel-named lineage.
 2. **Pure DAgger** (mistake-targeting) after the seed — NO forced balance beyond the bootstrap.
-3. **Balanced bootstrap only** — 20k/20k/20k easy/med/hard (fixed cuts) for `<char>-0`.
+3. **Bootstrap = 50k SOLVABLE episodes, difficulty-LEANED, hard RELAXED, NO dead** [USER 2026-07-14, post-pilot — SUPERSEDES the earlier 20k/20k/20k]. Cap easy, take all med + all-available hard; train+val split by room. The pilot FALSIFIED "easy is rare": easy DOMINATES (73–77% of solvable), genuine-1-push-hard is the RARE bin (3.5% in both templates), so 20k hard would cost ~1M scenes. No dead-as-negatives — dead banks for Beast. All generation **60/40 aug9/feb** [USER — aug9 more interesting]. See Run log pilot entry.
 4. **Goal-opening labels** (`target_goal_region` ON) — always.
 5. **In-sync generator** (the `_runtime_validate_adjacency` fix, verified) — always.
 6. **Fixed-cut difficulty**, never tertiles.
@@ -71,4 +78,9 @@ Solve@k by difficulty (easy/med/hard, fixed cuts) on the held-out `namo_testset_
 
 ## Run log
 
-_(appended as we go — starts with the in-sync fix verification, then `antman-0`)_
+**Gen↔label sync fix — VERIFIED (2026-07-14, `mujoco_env_creator@55badcb`).** Re-enabled `_runtime_validate_adjacency` to re-check each placement against the labeler's own live `get_region_snapshot` (robot/goal placed). Proof: label-time `goal_region_not_in_snapshot` drops **77.8% (fix OFF) → 0.0% (fix ON)** on a matched 80-scene sample; ~4.5 ms/sample. Generator now emits only true 1-hop scenes.
+
+**Pilot (2026-07-14) — the premise FLIP.** ~560 scenes gen (fixed pipeline) + goal-opening labels, aug9_car_v3 & feb_car. "Easy is rare" is FALSE. Among SOLVABLE episodes: easy/med/hard = **73/23/3.5%** (aug9) and **77/20/3.5%** (feb) — easy dominates, **genuine-1-push-hard is the rare bin (3.5% both)**. Solvable/dead: aug9 42%/48%, feb 72%/25% (dead = 1-hop-adjacent goal that needs 2 pushes = free Beast material). Per-scene easy/med/hard/dead yield: aug9 0.39/0.13/0.019/0.62, feb 0.65/0.17/0.030/0.30. Gen accept-rate (runtime-validate % kept): aug9 27%, feb 90% (feb sparser → fewer multi-hop rejects). Cost to harvest 20k easy ≈ 31–51k scenes (<0.5 h @2k cores); 20k *solvable*-hard ≈ 0.7–1M scenes (~4–8 h) — the flipped bottleneck. sr from `algorithm_stats["primitive_trial_log"]` (openers/tried). Artifacts: `scratch_namo/tmp/antman0_pilot/SUMMARY.json`.
+**Decisions from the pilot [USER]:** relax hard; seed = 50k SOLVABLE (no dead); lean composition; 60/40 aug9/feb; dead → Beast bank.
+
+**antman-0** — _(next: seed gen 60/40 → label → build 50k solvable → train)_
