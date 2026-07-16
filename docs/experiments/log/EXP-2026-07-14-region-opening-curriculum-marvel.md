@@ -109,7 +109,7 @@ Solve@1 by fixed-cut tier on held-out `namo_testset_v1` (1,323 eps; hard 204 / m
 | antman-5 | 449,284 | 16,959 | 3.78 | 167,655 | 97.1 | 78.9 | **42.6** | 82.9 | 92.6 |
 | _random ranker_ | — | — | — | — | 62.6 | 19.2 | **1.5** | ~39.4 | 37.7 |
 
-**Headline: hard@1 23.0 → 42.6 over five rounds, ~28× random, no plateau.** Gains concentrated at low k (the ranker finds openers *sooner*; sim verifies for free). Beats random on every tier at every k.
+**Headline: hard@1 23.0 → ~39 over five rounds, ~26× random, then PLATEAU.** (The antman-5 row's 42.6 was undersized-449k-run noise; the full-scale 3-seed redo lands at 39.1 and plateaus — see RESOLVED below.) Gains concentrated at low k (the ranker finds openers *sooner*; sim verifies for free). Beats random on every tier at every k, and beats the exhaustive NoHz-v3 baseline (+8.2 hard@1) with cheap sampled data.
 
 **Findings:**
 - Round 1 (+528 rows) = noise (+1.0, within ~0.3 mm eval jitter). Rounds 2–5 are real (+4.4/+4.4/+6.4/+3.4).
@@ -117,9 +117,18 @@ Solve@1 by fixed-cut tier on held-out `namo_testset_v1` (1,323 eps; hard 204 / m
 - Tiers: easy SATURATED (97@1, high-k maxed). med@1 still live (peaked 81.2 @a4, dipped 78.9 @a5). hard = main headroom.
 - **Round 5 was a REDISTRIBUTION, not a lift:** gained hard@1 (+3.4), hard@2 (+6.4) but dropped med@1 (−2.3) and hard@20 (−2.0). Sharpened the top of the ranking at a cost to the tail. Also confounded: 449k vs ~700k for rounds 2–4.
 
-**OPEN QUESTIONS (neither answered):**
-1. **DAgger targeting vs plain volume** — no control run. Every round confounds mistakes + more rows.
-2. **Plateau** — unclear; round 5 was undersized, so its smaller +3.4 can't be read as slowing.
+**RESOLVED — round-5 REDO at full 737k + 3-arm control [2026-07-16]** (all eval 3-seed mean±std, same hmax1 budget300 harness; every arm = base 151,218 + 27,146 rows, size-matched, differ ONLY in the added rows' selection):
+
+| arm | hard@1 | med@1 | all@1 | Δhard |
+|---|---|---|---|---|
+| base (through-r4, 0 delta) | 37.3±1.0 | 79.1±1.2 | 82.1±0.6 | — |
+| **mistakes** (targeted, = antman-5-redo) | 39.1±1.4 | 81.0±1.1 | 83.1±0.5 | +1.8 |
+| iid-volume (random iid) | 40.5±1.5 | 81.4±1.6 | 83.4±0.7 | +3.2 |
+| diff-match (difficulty-matched iid) | 40.5±0.9 | 80.6±0.9 | 83.3±0.6 | +3.3 |
+
+1. **PLATEAU — answered YES.** Full-scale antman-5-redo = **hard@1 39.1±1.4**, med restored to 81.0. The old 449k run's 42.6-hard/78.9-med "redistribution" was small-sample NOISE (the redo undid both). Ladder tops out ~39.
+2. **TARGETING vs VOLUME — answered: NO advantage.** The 3 delta arms TIE — mistakes (+1.8) is no better than, if anything behind, random iid (+3.2) and difficulty-matched iid (+3.3). The ~+2-3 lift is pure VOLUME; composition is irrelevant. DAgger's hard-mistake selection bought nothing at this scale.
+3. **vs exhaustive NoHz-v3 (same fixed-cut harness):** NoHz-v3 = hard@1 **30.9** / all 82.3; **antman-5 beats it +8.2 on hard** with cheap sampled data. (Archived "NoHz hard 54.2" = TERTILE binning; all@1 82.3 matches exactly, binning-invariant — see [[pipeline_1push_binning_mismatch]].)
 
 **Beast (2-push) dataset accumulated for FREE:** 72,521 labeled-dead episodes with full `(xml, object_id, robot_goal)` identity (seed 54,268 + r1-r5 ~18,253), plus ~865k unlabeled screen leads (`phase2_bank/screen_dead_scenes.txt`, xml-only). ~42% of every screen is dead, model-stable across rounds.
 
@@ -128,4 +137,9 @@ Solve@1 by fixed-cut tier on held-out `namo_testset_v1` (1,323 eps; hard 204 / m
 - **node damage:** `MUJOCO_GL=egl` in `build_array.sbatch` wedged **25 halk nodes** (unkillable GL init on GPU-less nodes; slurmstepd "not ending with signals"; 2 NODE_FAILs). GUARDED with `--exclude=halk[0001-0159]`; **root cause still OPEN** (build renders via matplotlib/Agg + cv2 + reads many pkls; halk-only, not CPU/heat; screens never wedged anything). Paul (admin) flagged it; email drafted.
 - **count truncation:** `timeout N find|wc -l` truncates mid-count → 5× scene undercounts + a duplicate ledger row. Never trust a timed-out count. [[feedback_check_process_owner]] neighbourliness: pool gen capped 128 cores; Amarel fair-use ≤200 background / bursts ≤5h.
 
-**NEXT (planned): redo round 5 at 700k + fold in the volume control.** Reuse the 449k screen + 16,959 labels (screened vs antman-4, budget 300, on disk); generate +250k same config; screen vs antman-4; label the delta; rebuild accumulated from the through-round-4 base + all-700k mistakes → new antman-5. From the same 700k pool also train a control (+iid labeled rows, same count). Answers plateau AND targeting-vs-volume in one clean round.
+**NEXT: 2-push (Beast).** 1-push ladder DONE — saturated ~39 hard@1, above the exhaustive NoHz-v3 bar (30.9), no data-selection strategy climbs it further. Beast = the discounted value-ranker trained on the accumulated post-setup/dead scenes (72,521 labeled-dead w/ full identity + ~865k leads), with antman-5 as the rung-1 ranker that makes setup-labeling + search cheap: enumerate setups → top-k finish-verify with antman-5 → exhaustive only on the misses → recycle misses as dual-purpose (harder 1-push examples + true 2-push labels). recall@k on post-setup states is the cap criterion.
+
+**Round-5-redo + control execution notes:**
+- **CS `unlimited` rejects `--cpus-per-task`** — omit it (job rejected otherwise). `train_cs.sbatch` fixed.
+- **loky DataLoader TMPDIR collision:** two trains co-scheduled on ilab1 crashed their DataLoader workers (`FileNotFoundError` on shared `/loky-*` temp dirs) → 0 ckpts. FIXED with per-job `export TMPDIR=/tmp/namo_$SLURM_JOB_ID` in the sbatch (matches the orchestrator's node-local-tmp pattern).
+- **zsh arrays are 1-indexed** — `${arr[0]}` is empty; pass GPU ids explicitly in eval fan-out, don't index a bash-style array.
