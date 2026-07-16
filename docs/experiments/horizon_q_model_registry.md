@@ -14,6 +14,21 @@ updated: 2026-06-26
 > registered models ([[feedback_reuse_baselines]]). Roots: ckpts `/scratch/dm1487/sage_outputs/scorer/`,
 > evals `/scratch/dm1487/eval/`, H5s `/scratch/dm1487/h5/`. Updated 2026-06-15 (added Horizon-v2 / NoHorizon-v2).
 
+## Marvel 1-push DAgger ladder (antman-0..5) — 🔵 ACTIVE [2026-07-16]
+
+`train_q2_rankaux` (λ=0.1), NOT the horizon `edge_crossattn` line. Screener for round r = antman_{r-1}; best ckpt = min val_loss in each `checkpoints/`. Eval: best-first hmax1 budget300 on `namo_testset_v1`, `agg_table.txt` beside each. Full detail → [log/EXP-2026-07-14-region-opening-curriculum-marvel.md](log/EXP-2026-07-14-region-opening-curriculum-marvel.md). Ckpts are CS-side (arrakis) under `/common/users/dm1487/scratch_namo/`.
+
+| model | train rows | hard@1 | all@1 | ckpt dir (CS) |
+|---|---|---|---|---|
+| antman-0 (seed) | 50,000 | 23.0 | 72.7 | `antman0/train_run/checkpoints/` (epoch018-val_loss0.8429) |
+| antman-1 | 50,528 | 24.0 | 74.7 | `curriculum2/dagger_orchestrator/antman_1/checkpoints/` |
+| antman-2 | 90,700 | 28.4 | 78.1 | `.../antman_2/checkpoints/` |
+| antman-3 | 120,657 | 32.8 | 80.4 | `.../antman_3/checkpoints/` |
+| antman-4 | 151,218 | 39.2 | 82.9 | `.../antman_4/checkpoints/` (epoch014-val_loss0.7961) |
+| antman-5 | 167,655 | 42.6 | 82.9 | `.../antman_5/checkpoints/` |
+
+Accumulated train h5: `.../dagger_orchestrator/accumulated/accumulated_train.h5` (167,655 rows @ antman-5). Testset key: `datasets/namo_testset_v1/labels/onepush_episodes.json`. 2-push (Beast) bank: `.../phase2_bank/` = 72,521 labeled-dead episodes + ~865k xml-only leads. [USER: `random` ranker baseline hard@1 1.5 / all@1 ~39.4.]
+
 ## Models (all `edge_crossattn`, pos_fourier + use_edge_embed, 3 seeds; "BEST" = lowest val_loss ckpt)
 
 ### champion B30 (the pre-v4 baseline — old data v3_scorer_e4)

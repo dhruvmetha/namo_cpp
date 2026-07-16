@@ -1,8 +1,8 @@
 ---
-status: planned
+status: active
 thread: rl_loop
 robot: car
-updated: 2026-07-14
+updated: 2026-07-16
 supersedes: EXP-2026-07-12-opener-curriculum-loop (buggy lineage — retracted, see below)
 ---
 
@@ -83,4 +83,37 @@ Solve@k by difficulty (easy/med/hard, fixed cuts) on the held-out `namo_testset_
 **Pilot (2026-07-14) — the premise FLIP.** ~560 scenes gen (fixed pipeline) + goal-opening labels, aug9_car_v3 & feb_car. "Easy is rare" is FALSE. Among SOLVABLE episodes: easy/med/hard = **73/23/3.5%** (aug9) and **77/20/3.5%** (feb) — easy dominates, **genuine-1-push-hard is the rare bin (3.5% both)**. Solvable/dead: aug9 42%/48%, feb 72%/25% (dead = 1-hop-adjacent goal that needs 2 pushes = free Beast material). Per-scene easy/med/hard/dead yield: aug9 0.39/0.13/0.019/0.62, feb 0.65/0.17/0.030/0.30. Gen accept-rate (runtime-validate % kept): aug9 27%, feb 90% (feb sparser → fewer multi-hop rejects). Cost to harvest 20k easy ≈ 31–51k scenes (<0.5 h @2k cores); 20k *solvable*-hard ≈ 0.7–1M scenes (~4–8 h) — the flipped bottleneck. sr from `algorithm_stats["primitive_trial_log"]` (openers/tried). Artifacts: `scratch_namo/tmp/antman0_pilot/SUMMARY.json`.
 **Decisions from the pilot [USER]:** relax hard; seed = 50k SOLVABLE (no dead); lean composition; 60/40 aug9/feb; dead → Beast bank.
 
-**antman-0** — _(next: seed gen 60/40 → label → build 50k solvable → train)_
+### RESULTS — 1-push ladder (Ant-Man), rounds 0–5 [2026-07-15/16]
+
+Solve@1 by fixed-cut tier on held-out `namo_testset_v1` (1,323 eps; hard 204 / med 421 / easy 698), best-first hmax1 budget300 NOHZ base. Screener for round r = antman_{r-1}.
+
+| model | screened | kept | keep% | train rows | easy@1 | med@1 | **hard@1** | all@1 | hard@20 |
+|---|---|---|---|---|---|---|---|---|---|
+| antman-0 (seed) | — | — | — | 50,000 | 92.7 | 63.7 | **23.0** | 72.7 | 85.8 |
+| antman-1 | 9,033 | 493 | 5.46 | 50,528 | 93.7 | 67.7 | **24.0** | 74.7 | 86.3 |
+| antman-2 | 715,432 | 38,266 | 5.35 | 90,700 | 95.6 | 73.2 | **28.4** | 78.1 | 91.2 |
+| antman-3 | 686,951 | 28,950 | 4.21 | 120,657 | 96.3 | 77.2 | **32.8** | 80.4 | 91.7 |
+| antman-4 | 682,577 | 30,660 | 4.49 | 151,218 | 96.7 | 81.2 | **39.2** | 82.9 | 94.6 |
+| antman-5 | 449,284 | 16,959 | 3.78 | 167,655 | 97.1 | 78.9 | **42.6** | 82.9 | 92.6 |
+| _random ranker_ | — | — | — | — | 62.6 | 19.2 | **1.5** | ~39.4 | 37.7 |
+
+**Headline: hard@1 23.0 → 42.6 over five rounds, ~28× random, no plateau.** Gains concentrated at low k (the ranker finds openers *sooner*; sim verifies for free). Beats random on every tier at every k.
+
+**Findings:**
+- Round 1 (+528 rows) = noise (+1.0, within ~0.3 mm eval jitter). Rounds 2–5 are real (+4.4/+4.4/+6.4/+3.4).
+- **Volume tracks the climb**, but keep-rate falls (5.46% → 3.78%) as the model eats its own error distribution, and per-row efficiency *rises* (round 5 best: ~2.0e-4 hard@1/row on the fewest rows). First hint DAgger targeting matters, n=2, not proven.
+- Tiers: easy SATURATED (97@1, high-k maxed). med@1 still live (peaked 81.2 @a4, dipped 78.9 @a5). hard = main headroom.
+- **Round 5 was a REDISTRIBUTION, not a lift:** gained hard@1 (+3.4), hard@2 (+6.4) but dropped med@1 (−2.3) and hard@20 (−2.0). Sharpened the top of the ranking at a cost to the tail. Also confounded: 449k vs ~700k for rounds 2–4.
+
+**OPEN QUESTIONS (neither answered):**
+1. **DAgger targeting vs plain volume** — no control run. Every round confounds mistakes + more rows.
+2. **Plateau** — unclear; round 5 was undersized, so its smaller +3.4 can't be read as slowing.
+
+**Beast (2-push) dataset accumulated for FREE:** 72,521 labeled-dead episodes with full `(xml, object_id, robot_goal)` identity (seed 54,268 + r1-r5 ~18,253), plus ~865k unlabeled screen leads (`phase2_bank/screen_dead_scenes.txt`, xml-only). ~42% of every screen is dead, model-stable across rounds.
+
+**Execution notes (bugs found + fixed, so we don't repeat them):**
+- **orch wait bug:** `orchestrator.sh` called undefined `wait_amarel_jobid` (typo for `wait_amarel_jobs`) → command-not-found → no wait → halted r1 at "rows=0". FIXED: defined `wait_amarel_jobid <jobid>` in `lib.sh` (blocks via `squeue -j`, +10s submit-race guard).
+- **node damage:** `MUJOCO_GL=egl` in `build_array.sbatch` wedged **25 halk nodes** (unkillable GL init on GPU-less nodes; slurmstepd "not ending with signals"; 2 NODE_FAILs). GUARDED with `--exclude=halk[0001-0159]`; **root cause still OPEN** (build renders via matplotlib/Agg + cv2 + reads many pkls; halk-only, not CPU/heat; screens never wedged anything). Paul (admin) flagged it; email drafted.
+- **count truncation:** `timeout N find|wc -l` truncates mid-count → 5× scene undercounts + a duplicate ledger row. Never trust a timed-out count. [[feedback_check_process_owner]] neighbourliness: pool gen capped 128 cores; Amarel fair-use ≤200 background / bursts ≤5h.
+
+**NEXT (planned): redo round 5 at 700k + fold in the volume control.** Reuse the 449k screen + 16,959 labels (screened vs antman-4, budget 300, on disk); generate +250k same config; screen vs antman-4; label the delta; rebuild accumulated from the through-round-4 base + all-700k mistakes → new antman-5. From the same 700k pool also train a control (+iid labeled rows, same count). Answers plateau AND targeting-vs-volume in one clean round.
