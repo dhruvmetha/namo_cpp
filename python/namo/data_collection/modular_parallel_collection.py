@@ -353,6 +353,21 @@ def generate_goal_for_environment(xml_file: str) -> Tuple[float, float, float]:
 
 def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
     """Worker process function for modular parallel data collection."""
+    # Pin per-worker math-library thread pools to 1 so N workers don't oversubscribe the box.
+    # torch, cv2 (renderer), and BLAS each default to <ncores> intra-op threads; with N workers that
+    # is N*ncores threads on ncores cores -> catastrophic context-switch thrash -> no scene finishes.
+    # cv2 does NOT honour OMP_NUM_THREADS, so it MUST be pinned here in code. Gated by env for A/B.
+    if os.environ.get("NAMO_PIN_THREADS", "0") == "1":
+        try:
+            import cv2  # noqa: F401
+            cv2.setNumThreads(1)
+        except Exception:
+            pass
+        try:
+            import torch  # noqa: F401
+            torch.set_num_threads(1)
+        except Exception:
+            pass
     start_time = time.time()
     result = ModularWorkerResult(task_id=task.task_id, success=False)
     
