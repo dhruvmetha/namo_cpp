@@ -230,6 +230,11 @@ class RegionOpeningPlanner(BasePlanner):
         # loss mask (B30). Uses the worker RNG unseeded-per-scene, so REPEATING an instance draws a fresh
         # subset (randomized-repeats lever). 0 = off (legacy exhaustive-over-reachable).
         self.sample_k = int(algo_params.get("region_sample_k", 0))
+        # LABEL mode (Beast 2-push): exhaustive setups + scorer-ordered finish with EARLY-STOP at the first
+        # opening finish; setups stay exhaustive; log each finish's score+rank for recall-miss recycling;
+        # disable cost-optimality pruning so setups in direct-opener scenes still get a finish sweep. See
+        # card EXP-2026-07-14 "Beast (2-push)". False = off (rung-1/legacy behaviour unchanged).
+        self.label_mode = bool(algo_params.get("region_label_mode", False))
         # Restart-on-failure ([USER]: "run the same instance up to 3 times with different seeds, only if
         # we don't find a solution"): total search attempts per (object, neighbour); each retry draws
         # fresh random subsets at every level; trial logs are MERGED (union of tried cells = the training
@@ -2120,8 +2125,10 @@ class RegionOpeningPlanner(BasePlanner):
                 for node in frontier:
                     node_idx += 1
                     node_start_time = time.time()
-                    # Cost-based node prune: if cost so far already meets/exceeds best, skip
-                    if best_total_cost is not None:
+                    # Cost-based node prune: if cost so far already meets/exceeds best, skip.
+                    # DISABLED in label_mode: it would skip depth-2 setups in direct-opener scenes
+                    # (cost>=best_total_cost=~1), which are exactly the 178k solvable scenes we relabel.
+                    if best_total_cost is not None and not self.label_mode:
                         chain_cost_so_far = self._compute_chain_cost(node)
                         if chain_cost_so_far >= best_total_cost:
                             continue
@@ -2190,7 +2197,7 @@ class RegionOpeningPlanner(BasePlanner):
                     # Run inner BFS (single-skill search)
                     collect_frontier = (chain_depth < self.max_chain_depth)
                     # Compute remaining budget if we already have a best cost
-                    if 'best_total_cost' in locals() and best_total_cost is not None:
+                    if 'best_total_cost' in locals() and best_total_cost is not None and not self.label_mode:
                         chain_cost_so_far = self._compute_chain_cost(node)
                         remaining_budget = max(0, best_total_cost - chain_cost_so_far)
                     else:
@@ -2907,6 +2914,10 @@ class RegionOpeningPlanner(BasePlanner):
                 'parent_edge': getattr(_parent_goal, "edge_idx", None) if _parent_goal is not None else None,
                 'parent_depth': getattr(_parent_goal, "depth", None) if _parent_goal is not None else None,
                 'resulting_state': _resulting_state,
+                # LABEL: scorer value + 0-based rank of this push in the -score sorted order at its node,
+                # so build_rung2 can flag recall-misses (winning finish rank > k) for recycling.
+                'score': float(getattr(goal, "score", 0.0)),
+                'rank': candidate_idx - 1,
             })
 
             total_region_goals = len(region_goals[neighbour_label].goals) if neighbour_label in region_goals else 0
@@ -2964,6 +2975,13 @@ class RegionOpeningPlanner(BasePlanner):
 
                 # Prevent exploring deeper depths for this edge in this BFS call
                 solved_edges_this_skill.add(edge_idx)
+
+                # LABEL mode: at the FINISH level (deepest chain) stop at the first opening finish.
+                # Candidates are scorer-sorted, so this is R's best-ranked finish that works; its rank
+                # (in trial_log) says if it was within top-k. Setups (chain_depth < max) stay exhaustive —
+                # this break does NOT fire for them.
+                if self.label_mode and current_chain_depth >= self.max_chain_depth:
+                    break
 
                 # If we're only collecting a fixed number of solutions, stop immediately
                 # once we reach the cap (don’t wait for the next candidate iteration).

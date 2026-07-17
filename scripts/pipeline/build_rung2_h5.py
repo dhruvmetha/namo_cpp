@@ -381,6 +381,10 @@ if __name__ == "__main__":
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--shard-idx", type=int, default=0)
     ap.add_argument("--shard-count", type=int, default=1)
+    ap.add_argument("--gamma", type=float, default=GAMMA,
+                    help="1-step setup discount: setup value = gamma^1, opener/finish = gamma^0 = 1. "
+                         "Vary to build beast-0-{gamma} variants from the SAME collection.")
     a = ap.parse_args()
+    GAMMA = a.gamma
     rows, stats, hand_checks = build(a.pkl_glob, a.out, a.render_config, a.limit, a.shard_idx, a.shard_count)
     _report(rows, stats, hand_checks, a.out)

@@ -86,6 +86,16 @@ LADDER: 1-push loop to plateau → start the 2-push stage (beast-*) on the banke
 
 **Cap = recall@k on post-setup states** (R reliably puts the finish in its top-k) AND keep-yield → 0 → climb to 3-push, same R one level deeper. **Two feedback loops per round, one R:** (A) finish recall-misses sharpen R's finish-finding (fewer fallbacks → cheaper labeling); (B) newly labeled setup-mistakes sharpen R's setup-valuing. Both are examples into the same network; γ ties them onto one scale.
 
+### beast-0 ROUND-0 experiment spec [2026-07-16, USER]
+
+**Round 0 ONLY** — relabel the 178k → train → eval; **NO DAgger rounds yet.** Reason: whether to *deploy* beast-0 vs antman-5 (always beast-0? route by depth / by "is there a 1-push opener"?) is an open question the eval answers *before* we invest in the ladder.
+
+**γ-sweep at BUILD time.** The collection is **γ-agnostic** — the tree records depth-to-open per push; γ is applied only in `build_rung2_h5 --gamma`. So it's ONE expensive collection → N cheap builds → N trains. Sweep **γ ∈ {0.3, 0.5, 0.7, 0.9}** (low γ ≈ "setup buried near dead", high γ ≈ "setup ≈ opener"), named **beast-0-g{γ}**, **1 seed each** (add seeds only if one γ clears eval/seed jitter ~±1-1.5). Flat sweep ⇒ γ doesn't matter, lock 0.9.
+
+**Eval = best-first, f = model score only** (`combine=q`, no cost term) on **BOTH** `namo_testset_v1` (1-push) AND `pure2push` (2-push, n=1018), vs **antman-5 / NoHz-v3 / random**. Two reads: (1) did beast-0 keep antman-5's 1-push opener skill? (2) did it gain 2-push setup skill? — antman-5 **fails 2-push best-first by construction** (buries setups at ~0), so it's on the 2-push table on purpose as the "you need this stage" line.
+
+**Storage (non-overwriting):** everything under `curriculum2/beast/round0/` (`collect/` h5/ models/ eval/); antman data (178k h5, antman-5 ckpt, dagger_orchestrator) is **read-only input**. **Code:** `region_label_mode` in region_opening.py (exhaustive setups + early-stop finish + score/rank log + cost-prune disabled), config `region_opening_beast_relabel_car.yaml`, `build_rung2_h5 --gamma`. Scene XMLs (the 178k) live on **Amarel** → collection runs there.
+
 ## Decisions locked [USER 2026-07-14]
 
 1. **Fresh restart** — discard the buggy lineage; new Marvel-named lineage.
