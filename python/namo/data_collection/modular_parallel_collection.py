@@ -1200,6 +1200,9 @@ def main():
             # Beast LABEL mode: exhaustive setups + early-stop finish sweep + score/rank log + cost-prune off.
             # Set via --config-yaml (region_label_mode), same set_defaults path as region_exhaustive_mode.
             "region_label_mode": getattr(args, 'region_label_mode', False),
+            # Enforced per-scene (per-neighbour) time budget so rich depth-2 scenes don't hog a worker.
+            # Same set_defaults(yaml) path; must be in this dict to reach the planner.
+            "region_timeout_per_neighbour_sec": getattr(args, 'region_timeout_per_neighbour_sec', None),
             # horizon-Q sampled collection: uniform k-subset of (edge,depth) candidates per chain level
             # (0 = off). Set via --config-yaml (region_sample_k), like the exhaustive-mode keys.
             "region_sample_k": getattr(args, 'region_sample_k', 0),

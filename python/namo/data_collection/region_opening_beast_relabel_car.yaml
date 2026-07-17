@@ -20,7 +20,10 @@ episodes_per_env: 1
 max_depth: 5
 max_goals_per_object: 5
 max_terminal_checks: 5000
-search_timeout: 1200.0
+search_timeout: 150.0
+# The ENFORCED per-scene budget (checked between objects in _attempt_opening_to_neighbour): bounds the
+# depth-2 exhaustive cost so rich scenes don't hog a worker. Unfinished setups -> MASK (never mislabeled).
+region_timeout_per_neighbour_sec: 120.0
 goals_per_region: 50
 region_min_reachable_fraction: 0.2
 
@@ -28,8 +31,12 @@ region_min_reachable_fraction: 0.2
 points_per_face: 15
 region_allow_collisions: true
 region_max_chain_depth: 2
-region_max_solutions_per_neighbor: 50
-region_max_recorded_solutions_per_neighbor: 5
+# Match the WORKING rung1_exhaustive labeler (these were EXIT-era rung2 leftovers): a huge beam =
+# effectively no pruning but a valid int (null caused the beam to not be passed -> wrong default);
+# solutions caps are ignored in exhaustive_mode anyway.
+region_max_solutions_per_neighbor: 1
+region_max_recorded_solutions_per_neighbor: 1
+region_frontier_beam_width: 10000
 region_chain_link_cost: 11
 region_ml_ignore_blacklist: false
 region_selection_strategy: ml_first
@@ -38,7 +45,6 @@ region_selection_strategy: ml_first
 region_label_mode: true
 region_exhaustive_mode: true
 region_sample_k: 0
-region_frontier_beam_width: null
 region_sample_restarts: 1
 
 # Goal strategy: R (antman-5) ranks candidate pushes; ml_first orders the frontier by that score.
