@@ -32,6 +32,11 @@ from torch.utils.data import Dataset, DataLoader
 
 NUM_DEPTHS = 5
 Q2_POS_WEIGHT = float(os.environ.get("Q2_POS_WEIGHT", "1.0"))   # up-weight positive (opener/setup) cells vs dead(0)
+# gamma-sweep at LOAD time: the H5 is built with setup cells stamped at 0.9 (gamma^1). Set NAMO_GAMMA
+# to re-stamp those setup cells to a different discount at load, so ALL gamma variants train from ONE
+# H5 (no 4x on-disk duplication of the 40KB/row ctx). openers(1)/dead(0)/masked(-1) are untouched.
+_NAMO_GAMMA = os.environ.get("NAMO_GAMMA")
+_Q2_GAMMA = float(_NAMO_GAMMA) if _NAMO_GAMMA else None
 
 
 class Q2ValueDataset(Dataset):
@@ -54,6 +59,9 @@ class Q2ValueDataset(Dataset):
         ctx = torch.from_numpy(f["ctx"][i].astype(np.float32))             # (5,64,64)
         r_mask = torch.from_numpy(f["r_mask"][i].astype(np.float32))        # (60,5)
         v_tgt = torch.from_numpy(f["value_target"][i].astype(np.float32))   # (60,5) {-1,0,0.9,1}
+        if _Q2_GAMMA is not None:                                           # gamma-sweep: setup 0.9 -> gamma
+            v_tgt = torch.where(torch.isclose(v_tgt, torch.tensor(0.9, dtype=v_tgt.dtype)),
+                                torch.tensor(_Q2_GAMMA, dtype=v_tgt.dtype), v_tgt)
         v_mask = torch.from_numpy(f["value_mask"][i].astype(np.float32))    # (60,5) {0,1}
         loss_mask = v_mask * r_mask                                         # reachable-and-tried cells
         out = {
