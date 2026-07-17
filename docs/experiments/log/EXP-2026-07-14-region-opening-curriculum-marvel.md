@@ -74,6 +74,18 @@ PURE DAgger  antman-r (r = 1,2,…):
 LADDER: 1-push loop to plateau → start the 2-push stage (beast-*) on the banked post-setup scenes, same loop.
 ```
 
+## Beast (2-push) — concrete plan [2026-07-16, from the design discussion]
+
+**ONE ranker R, two query points.** `R(board, push) → γ^(pushes-to-open)`: opener/finish ≈ 1, setup ≈ 0.9, dead = 0. "antman-5" = R after the 1-push stage; "beast-r" = the SAME R after folding in 2-push labels — not a separate network. FINISH = R queried at a post-setup board ("which push opens now?"); setup-ranking = R at the root. One evolving R, used at parent vs child node.
+
+**`LABEL(scene)` — exhaustive setups, model-ORDERED finish + exhaustive fallback.** Enumerate ALL reachable first-pushes (no beam, no sampling). Direct opener → 1. Else run FINISH on the post-setup state: walk EVERY candidate finish **in R's ranked order**, stop at the first that opens G. Opens within top-k → cheap; opens only beyond top-k → still found, but log a recall-miss (hard example that sharpens R); the full ordered sweep opens nothing → TRUE dead. Setup-with-a-finish → 0.9; exhaustively-no-finish → 0. **R never declares dead — only the exhausted sweep does; R only ever saves sims** (the fallback follows R's order too, so even it tries the likely finishes first). Cost ≈ b·k when recall@k is high, → b² as it drops.
+
+**beast-0 bootstrap = RELABEL the 178,364 solvable antman scenes** (NOT "collect fresh dead scenes first"). The 1-push `0`s are unreliable — **41.8% are real setups** — so rerun LABEL over the 178k: openers stay 1, setups flip 0 → 0.9, true dead-ends stay 0. This both fixes the reuse-contradiction (one value scale, no contradictory 0-vs-0.9) AND seeds beast-0. It IS a full depth-2 collection (a sim per push; the finish-tries dominate, so cached states wouldn't save much). Off-distribution worry is a NON-issue: opener(1) outranks setup(0.9), so R uses the opener wherever one exists and a setup only on dead scenes — the "wasteful" setup is simply never selected (card's own point: discounting keeps direct openers preferred).
+
+**Then DAgger on the dead bank.** Sources: ~1.04M xml-only screen-dead leads (`phase2_bank/screen_dead_scenes.txt`) + 30,052 labeled-dead (`phase2_bank/labeled_dead_r*.h5`, full identity, exhaustively 1push-dead). Screen fresh dead scenes with beast_{r-1}: solved-in-2 & winning setup in top-k → DROP; beast's 2-push mistake → KEEP → LABEL (exhaustive) → accumulate → retrain beast_r. Unsolvable-in-2 → bank for 3-push (Cyclops).
+
+**Cap = recall@k on post-setup states** (R reliably puts the finish in its top-k) AND keep-yield → 0 → climb to 3-push, same R one level deeper. **Two feedback loops per round, one R:** (A) finish recall-misses sharpen R's finish-finding (fewer fallbacks → cheaper labeling); (B) newly labeled setup-mistakes sharpen R's setup-valuing. Both are examples into the same network; γ ties them onto one scale.
+
 ## Decisions locked [USER 2026-07-14]
 
 1. **Fresh restart** — discard the buggy lineage; new Marvel-named lineage.
