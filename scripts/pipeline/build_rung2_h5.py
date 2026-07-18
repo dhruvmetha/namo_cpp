@@ -303,13 +303,17 @@ def _write(path, rows):
         dt = h5py.string_dtype(encoding="utf-8")
         stack = lambda k: np.stack([r[k] for r in rows])
         arr = lambda k, npy: np.array([r[k] for r in rows], npy)
-        f.create_dataset("ctx", data=stack("ctx"))
-        f.create_dataset("contact_px", data=stack("contact_px"))
-        f.create_dataset("r_mask", data=stack("r_mask"))
-        f.create_dataset("value_target", data=stack("value_target"))
-        f.create_dataset("value_mask", data=stack("value_mask"))
-        f.create_dataset("f_grid", data=stack("f_grid"))
-        f.create_dataset("robot_goal", data=stack("robot_goal"))
+        # lzf + PER-ROW chunks: the ctx crop is 40KB/row uncompressed and dominates the file (this is
+        # what made the beast H5 107GB, which OOM'd the merge, was slow to move, and made training
+        # IO-bound). Masks are very sparse -> lzf compresses 18x (MEASURED on real ctx: 107GB -> ~6GB)
+        # with NO read penalty, and (1,)+shape chunks keep random-access reads O(1 chunk/row). At ~6GB
+        # the whole set page-caches in RAM after epoch 1, which also fixes the IO-bound training.
+        # (gzip gives 26x but heavier decompress under concurrent workers.) [data-format lesson 2026-07-17]
+        def _cds(name):
+            a = stack(name)
+            f.create_dataset(name, data=a, compression="lzf", chunks=(1,) + a.shape[1:])
+        for _k in ("ctx", "contact_px", "r_mask", "value_target", "value_mask", "f_grid", "robot_goal"):
+            _cds(_k)
         f.create_dataset("chain_depth", data=arr("chain_depth", np.int8))
         f.create_dataset("parent_edge", data=arr("parent_edge", np.int16))
         f.create_dataset("parent_depth", data=arr("parent_depth", np.int16))
