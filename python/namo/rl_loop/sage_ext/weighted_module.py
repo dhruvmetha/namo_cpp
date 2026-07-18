@@ -87,7 +87,14 @@ class WeightedClassifierModule(ClassifierModule):
                       batch.get("contact_px_zoom"), H=batch.get("H"), reach_edges=batch.get("reach_edges"))
         ceiling = batch.get("ceiling_mask")
         if ceiling is not None:
-            loss = self._split_loss(logits, f_labels, loss_mask, ceiling, None)   # val: unweighted, same split
+            # val stays PURE (no rank-aux, unweighted): exact-cell regression + censored fence only.
+            # Bypass _weighted_loss so RankAuxModule's override can't leak the aux into the monitor.
+            hl = self._hl(logits)
+            exact_mask = loss_mask * (1.0 - ceiling)
+            loss = self._compute_masked_loss(logits, f_labels, exact_mask)
+            cens_mask = loss_mask * ceiling
+            if cens_mask.any():
+                loss = loss + CENS_WEIGHT * hl.censored_loss(logits, f_labels, cens_mask)
         else:
             loss = self._compute_masked_loss(logits, f_labels, loss_mask)
         self.val_loss(loss)
