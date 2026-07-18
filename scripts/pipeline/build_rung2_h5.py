@@ -304,11 +304,13 @@ def _write(path, rows):
         stack = lambda k: np.stack([r[k] for r in rows])
         arr = lambda k, npy: np.array([r[k] for r in rows], npy)
         # lzf + PER-ROW chunks: the ctx crop is 40KB/row uncompressed and dominates the file (this is
-        # what made the beast H5 107GB, which OOM'd the merge, was slow to move, and made training
-        # IO-bound). Masks are very sparse -> lzf compresses 18x (MEASURED on real ctx: 107GB -> ~6GB)
-        # with NO read penalty, and (1,)+shape chunks keep random-access reads O(1 chunk/row). At ~6GB
-        # the whole set page-caches in RAM after epoch 1, which also fixes the IO-bound training.
-        # (gzip gives 26x but heavier decompress under concurrent workers.) [data-format lesson 2026-07-17]
+        # what made the beast H5 107GB, which OOM'd the merge, was slow to move Amarel->CS, and blew
+        # /scratch quota). Masks are very sparse -> lzf compresses 18x (MEASURED on real ctx: 107GB ->
+        # ~6GB); (1,)+shape chunks keep random-access reads O(1 chunk/row). This is a SIZE win
+        # (storage / transfer / quota / merge-OOM) — NOT a training-speed win: NFS is round-trip-COUNT
+        # bound not byte-bound, and local-uncompressed reads beat local-compressed (decode CPU, no IO
+        # saved). Training speed is fixed separately (node-local staging + torch.compile) —
+        # see memory reference_training_speedup. gzip=26x but heavier decode. [data-format lesson 2026-07-17]
         def _cds(name):
             a = stack(name)
             f.create_dataset(name, data=a, compression="lzf", chunks=(1,) + a.shape[1:])
