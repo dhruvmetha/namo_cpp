@@ -74,6 +74,8 @@ class Q2ValueDataset(Dataset):
         }
         if "contact_px" in f:
             out["contact_px"] = torch.from_numpy(f["contact_px"][i].astype(np.float32))
+        if "ceiling_mask" in f:                                        # beast-0a censored cells
+            out["ceiling_mask"] = torch.from_numpy(f["ceiling_mask"][i].astype(np.float32))
         return out
 
 

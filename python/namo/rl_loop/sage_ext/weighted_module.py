@@ -12,12 +12,34 @@ existing masked reductions:
 Validation stays UNWEIGHTED and uses loss_mask (so the V monitor supervises only the chosen
 cell, matching training) — it is just the checkpoint monitor.
 """
+import os
+
 import torch
 
 from ._sage import ClassifierModule, HLGauss
+from .hl_gauss_censored import CensoredHLGauss
+
+# ceiling cells (censored observations, beast-0a): loss weight for the censored group-mean term.
+CENS_WEIGHT = float(os.environ.get("NAMO_CENS_WEIGHT", "1.0"))
 
 
 class WeightedClassifierModule(ClassifierModule):
+    def _hl(self, logits):
+        """Ensure the (censored-capable, endpoint-fixed) HL-Gauss helper exists and matches the head."""
+        if not isinstance(self._hl_gauss, CensoredHLGauss) or self._hl_gauss.num_bins != logits.shape[-1]:
+            self._hl_gauss = CensoredHLGauss(num_bins=logits.shape[-1],
+                                             vmin=self.value_vmin, vmax=self.value_vmax)
+        return self._hl_gauss
+
+    def _split_loss(self, logits, f_labels, loss_mask, ceiling, weight):
+        """Exact cells -> HL-Gauss CE (weighted); ceiling cells -> censored NLL. Group-mean each."""
+        hl = self._hl(logits)
+        exact_mask = loss_mask * (1.0 - ceiling)
+        cens_mask = loss_mask * ceiling
+        loss = self._weighted_loss(logits, f_labels, exact_mask, weight)
+        if cens_mask.any():
+            loss = loss + CENS_WEIGHT * hl.censored_loss(logits, f_labels, cens_mask)
+        return loss
     def _weighted_loss(self, logits, labels, mask, weight):
         if weight is None:
             return self._compute_masked_loss(logits, labels, mask)
@@ -49,7 +71,11 @@ class WeightedClassifierModule(ClassifierModule):
         loss_mask = batch.get("loss_mask", r_mask)
         logits = self(context, batch.get("contact_px"), batch.get("context_zoom"),
                       batch.get("contact_px_zoom"), H=batch.get("H"), reach_edges=batch.get("reach_edges"))
-        loss = self._weighted_loss(logits, f_labels, loss_mask, batch.get("weight"))
+        ceiling = batch.get("ceiling_mask")
+        if ceiling is not None:
+            loss = self._split_loss(logits, f_labels, loss_mask, ceiling, batch.get("weight"))
+        else:
+            loss = self._weighted_loss(logits, f_labels, loss_mask, batch.get("weight"))
         self.train_loss(loss)
         self.log("train_loss", self.train_loss, on_step=True, on_epoch=True, prog_bar=True)
         return loss
@@ -59,7 +85,11 @@ class WeightedClassifierModule(ClassifierModule):
         loss_mask = batch.get("loss_mask", r_mask)
         logits = self(context, batch.get("contact_px"), batch.get("context_zoom"),
                       batch.get("contact_px_zoom"), H=batch.get("H"), reach_edges=batch.get("reach_edges"))
-        loss = self._compute_masked_loss(logits, f_labels, loss_mask)
+        ceiling = batch.get("ceiling_mask")
+        if ceiling is not None:
+            loss = self._split_loss(logits, f_labels, loss_mask, ceiling, None)   # val: unweighted, same split
+        else:
+            loss = self._compute_masked_loss(logits, f_labels, loss_mask)
         self.val_loss(loss)
         self.log("val_loss", self.val_loss, on_epoch=True, prog_bar=True)
         return loss
