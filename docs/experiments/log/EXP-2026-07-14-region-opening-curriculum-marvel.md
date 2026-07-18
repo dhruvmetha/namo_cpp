@@ -98,6 +98,18 @@ LADDER: 1-push loop to plateau → start the 2-push stage (beast-*) on the banke
 
 **Storage (non-overwriting):** everything under `curriculum2/beast/round0/` (`collect/` h5/ models/ eval/); antman data (178k h5, antman-5 ckpt, dagger_orchestrator) is **read-only input**. **Code:** `region_label_mode` in region_opening.py (exhaustive setups + early-stop finish + score/rank log + cost-prune disabled), config `region_opening_beast_relabel_car.yaml`, `build_rung2_h5 --gamma`. Scene XMLs (the 178k) live on **Amarel** → collection runs there.
 
+### beast-0 round-0 execution retro — lessons [2026-07-17]
+
+Round-0 collect→build→train→eval ran end-to-end but execution was bumpy (an evening of firefighting). Root causes + durable fixes, so the next round is smooth:
+
+**H→E→V: the data format was too heavy (the #1 root cause).** H: a rendered 40KB ctx crop per tree-node is fine. E: 40k scenes → 2.47M rows → **107GB**, which OOM'd the merge (32G), was slow to move Amarel→CS, and made A100 training **IO-bound** (~12 steps/s, GPU starved on NFS reads). V: **REJECT** uncompressed. Fixed `fa1e8cc` — `build_rung2_h5` now lzf-compresses ctx (**MEASURED 18× → ~6GB**, page-caches in RAM, zero read penalty). Open deeper lever: do we need a distinct crop per node, or render on-the-fly / share within a scene?
+
+**Smoke every stage on the TARGET box.** The 4-train full launch failed 3× — python-PATH (`env.ilab.sh` doesn't conda-activate → bare `python` absent in sbatch), then OpenBLAS thread-limit (CS `ulimit -u=2000`, 64 thr/proc) — all catchable by a 2-min 1-epoch smoke. Fixed: `scaled-run` skill (pre-flight checklist) + `scripts/slurm/train.slurm` (all fixes baked in).
+
+**Estimates were ~3× optimistic** (collection 1.25h→3h; walltimes too short → 26 build shards + a merge job killed). Fixed: calibrate from the smoke; walltime = 2-3× measured, never omit (CS default is 2min) or partition-MAX (blocks GPU backfill) — memory `feedback_no_slurm_time_limits`.
+
+**Strategic — pilot small for exploratory rounds.** Round-0 only needed to answer "does beast-0 beat antman-5 on 2-push?" yet ran a full 40k→107GB→4γ pipeline (~6h) for a first look. Next exploratory round: few-k-scene pilot, one γ, fewer epochs → signal in ~1h, then scale only if it pays.
+
 ## Decisions locked [USER 2026-07-14]
 
 1. **Fresh restart** — discard the buggy lineage; new Marvel-named lineage.
