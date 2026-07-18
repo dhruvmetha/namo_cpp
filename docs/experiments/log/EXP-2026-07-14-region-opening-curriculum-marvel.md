@@ -110,6 +110,14 @@ Round-0 collect→build→train→eval ran end-to-end but execution was bumpy (a
 
 **Strategic — pilot small for exploratory rounds.** Round-0 only needed to answer "does beast-0 beat antman-5 on 2-push?" yet ran a full 40k→107GB→4γ pipeline (~6h) for a first look. Next exploratory round: few-k-scene pilot, one γ, fewer epochs → signal in ~1h, then scale only if it pays.
 
+### beast-0a — censored labels, root boards only [2026-07-18, USER-driven redesign]
+
+**The diagnosis behind it (from round-0's post-mortem):** labels are depth-conditioned censored observations, not values. A depth-k search either finds an opening (d exact → V=γ^(d-1)) or proves only d>k (→ **ceiling V ≤ γ^k**); "truly dead" is never observable. Round-0 wrote ceilings as hard 0s → 91% of the loss was false zeros + a 50× post-setup-state flood → the 1-push regression. Three research sweeps (survival-analysis lit, gpt-5.6-sol second opinion, combinatorial-search lit) converged: censored NLL for ceilings; the field never exhaustively proves negatives; ordering beats calibration (Chrestien 2023 — the repo's own "order, not calibration" is a theorem). Reading list: queue.md "Labels from search" section.
+
+**beast-0a experiment:** ONE model, root/start-state boards ONLY (no post-setup rows at all — bets that "does this push open from this board" generalizes to post-setup boards). Data = antman 1-push set (178,364 rows; 0s → **ceiling 0.9**) ∪ beast-0 root rows (46,314 unique; setups → **exact 0.9**, exhausted deads → **ceiling 0.81**), dedup key (xml, object_id), beast wins overlap (39,373) → ~183.8k boards, `beast0a_train.h5` (lzf). Build: `scripts/pipeline/build_beast0a_h5.py`. Loss: exact cells → HL-Gauss CE (+ y=vmax one-hot endpoint fix); ceiling cells → censored NLL `-log P(V≤c)` (fractional-bin cut, group-mean, `NAMO_CENS_WEIGHT`=1): `sage_ext/hl_gauss_censored.py`, wired via `ceiling_mask` (commit 57e3581, unit-tested incl. monotone tightening). Train: rankaux recipe, γ=0.9 labels only (no sweep), ~5 epochs/early-stop (round-0 overfit by ep3-4). Eval: both axes vs the brackets antman-5 (1-push recovery = must-pass) / beast-0 (2-push hold) / random.
+
+**Readout:** (1) 1-push recovers AND 2-push ≥ beast-0 ⇒ the 2.4M-row flood was waste; future collection = root labels only (~50× less data, no b² dead-proofs — unresolved scenes just wait for the next round). (2) 1-push recovers, 2-push → antman-5 level ⇒ add back a *sampled* slice of post-setup exact openers only. (3) 1-push doesn't recover ⇒ loss/weighting bug — short suspect list. Deferred (stackable later): B-vs-C mask-ablation, certain-pairs ranking aux, ranking-primary arm (Chrestien/LevinTS), hindsight mining of failed sweeps for other-pair openers.
+
 ## Decisions locked [USER 2026-07-14]
 
 1. **Fresh restart** — discard the buggy lineage; new Marvel-named lineage.
