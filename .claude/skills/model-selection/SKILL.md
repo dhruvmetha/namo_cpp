@@ -1,6 +1,6 @@
 ---
 name: model-selection
-description: Use whenever spawning a subagent (Agent tool) and choosing its `model` (opus/sonnet/haiku/fable) and `effort` (low/medium/high/xhigh/max) — before every delegation, not just expensive-looking ones. Gives a task-archetype lookup table and cost-aware defaults so work is capable but not over-provisioned. Trigger on "which model should this agent use," "spawn a subagent for X," "is this worth Opus," "pick effort level," or any orchestration step that sets model/effort.
+description: Use whenever spawning a subagent (Agent tool) and choosing its `model` (opus/sonnet/haiku/fable) and `effort` (low/medium/high/xhigh/max) — before EVERY delegation, not just expensive-looking ones. Fires IN ADDITION to task-level skills like superpowers:dispatching-parallel-agents, subagent-driven-development, or deep-research — those decide what/how to delegate, this one sets each agent's model+effort, so invoke both. Trigger on "spawn an agent to research/do X", "delegate this to a subagent", "fork agents to run in parallel", "which model should this agent use", "is this worth Opus or something cheaper", "pick effort level", or any orchestration step that sets model/effort.
 ---
 
 # Model + effort selection for subagents

@@ -1,6 +1,6 @@
 ---
 name: scaled-run
-description: Use BEFORE launching any scaled-up / multi-hour job — a SLURM collection, a training run or array, an eval sweep, or a big data build. The pre-flight checklist that turns a bumpy full-scale launch into a smooth one. Trigger on "run the full collection/train/eval", "launch the N-way array", "kick off the big run", "scale this up", or any step going from a tested idea to production scale.
+description: Use BEFORE launching any scaled-up / multi-hour job — a SLURM collection, a training run or array, an eval sweep, or a big data build — and BEFORE reading code/docs, asking clarifying questions, or running any command toward such a launch (pre-flight comes first). Trigger on "launch the full collection/train/eval", "run the full X", "kick off the big run/sweep", "launch the N-way array", "scale this up to all scenes", or going from a tested pilot to production scale. Fires IN ADDITION to namo-data-pipeline when the scaled job is data work (labeling/collection/eval) — invoke both; this one owns smoke-test, time calibration, SLURM sizing, and monitoring.
 ---
 
 # Scaled-run pre-flight
