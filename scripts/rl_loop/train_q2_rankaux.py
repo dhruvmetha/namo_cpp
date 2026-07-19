@@ -75,7 +75,10 @@ class RankAuxModule(WeightedClassifierModule):
     def _weighted_loss(self, logits, labels, mask, weight):
         base = super()._weighted_loss(logits, labels, mask, weight)   # also guarantees self._hl_gauss
         val = self._hl_gauss.value(logits.float())                   # (B,60,5) differentiable E[bin]
-        aux = rank_aux_loss(val, labels, mask, self.rank_temp)
+        # -b fix: censored runs set _rank_list_mask = exact+ceiling so openers compete against the
+        # capped cells (certain pairs) — the exact-only mask degenerates to openers-vs-nobody.
+        rank_mask = getattr(self, "_rank_list_mask", None)
+        aux = rank_aux_loss(val, labels, rank_mask if rank_mask is not None else mask, self.rank_temp)
         self.log("rank_aux", aux, on_step=False, on_epoch=True, prog_bar=False)
         return base + self.rank_lambda * aux
 

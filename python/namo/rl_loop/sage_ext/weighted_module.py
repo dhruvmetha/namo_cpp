@@ -32,11 +32,20 @@ class WeightedClassifierModule(ClassifierModule):
         return self._hl_gauss
 
     def _split_loss(self, logits, f_labels, loss_mask, ceiling, weight):
-        """Exact cells -> HL-Gauss CE (weighted); ceiling cells -> censored NLL. Group-mean each."""
+        """Exact cells -> HL-Gauss CE (weighted); ceiling cells -> censored NLL. Group-mean each.
+
+        _rank_list_mask [the -b fix]: the rank-aux's competition list must include the CEILING cells
+        as opponents (certain pairs: a verified opener at 1.0 provably outranks anything capped
+        <=0.9/0.81). The -a wiring fed the aux exact-only cells, which for 1-push data collapses the
+        list to openers-only -> a competition with no opponents -> the sharpening force silently
+        vanished (and with the zeros' drag also gone, hard@1 regressed 40.7->33.8). RankAuxModule
+        picks this up when set; ceiling cells stay opponents-only (positives need label>=0.999)."""
         hl = self._hl(logits)
         exact_mask = loss_mask * (1.0 - ceiling)
         cens_mask = loss_mask * ceiling
+        self._rank_list_mask = loss_mask                     # exact + ceiling cells compete in the aux
         loss = self._weighted_loss(logits, f_labels, exact_mask, weight)
+        self._rank_list_mask = None
         if cens_mask.any():
             loss = loss + CENS_WEIGHT * hl.censored_loss(logits, f_labels, cens_mask)
         return loss
