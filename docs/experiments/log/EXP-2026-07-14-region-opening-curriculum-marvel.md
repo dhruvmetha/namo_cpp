@@ -118,6 +118,16 @@ Round-0 collect→build→train→eval ran end-to-end but execution was bumpy (a
 
 **Readout:** (1) 1-push recovers AND 2-push ≥ beast-0 ⇒ the 2.4M-row flood was waste; future collection = root labels only (~50× less data, no b² dead-proofs — unresolved scenes just wait for the next round). (2) 1-push recovers, 2-push → antman-5 level ⇒ add back a *sampled* slice of post-setup exact openers only. (3) 1-push doesn't recover ⇒ loss/weighting bug — short suspect list. Deferred (stackable later): B-vs-C mask-ablation, certain-pairs ranking aux, ranking-primary arm (Chrestien/LevinTS), hindsight mining of failed sweeps for other-pair openers.
 
+### Round-1 (2026-07-19 overnight): full-rich coverage + the ceiling A/B — CHAMPION beast-1-c081
+
+**Pipeline (all pilot-gated):** sweep-ranker pilot (200 scenes × 3 rankers + n=2.41M counterfactual from round-0's logged ranks) picked **antman-5c @ k=15** (97.7% retention, ~70% cost cut; 99.86% cross-ranker agreement on solvable/dead — the ranker changes cost, never answers). k-cap knob `region_label_topk` (243c6c7). Collection: 124,568/124,568 scenes, zero timeouts, ~2.5h at 320×12 pinned. Build: per-run-dir globs (recursive `**` glob × 128 workers = NFS livelock — TotalCPU=0 is the tell). Merge: dual variants for the fail-ceiling A/B [USER's Bayesian point: post-k15-failure ⇒ ~96% dead; strict honesty says ≤0.9, posterior says ≤0.81 at ~4%×0.09 label optimism].
+
+**Results (count-asserted; 1push e/m/h/all@1 | 2push solve/avg/@30 | hardh2 s2s):** beast-0c 98.1/85.3/45.6/85.9 | 93.7/117/65.9 | 10.3 · beast1_c09-strict 97.3/83.8/38.7/84.0 | 94.5/104/67.6 | 11.3 · **beast1_c081-posterior 97.9/86.9/48.5/86.8 | 95.1/93/69.4 | 8.5**.
+
+**Verdicts:** (1) **posterior ceilings WIN** (+2.8 all@1, +9.8 hard@1 on identical data); strict lost to beast-0c despite 4× rich data → loose ceilings squander data; recipe rule = tightest ceiling the posterior supports. (2) **beast-1-c081 = best model of the project on every axis** (vs antman-5: all@1 83.5→86.8, hard@1 40.7→48.5, 2push 154→93 avg sims). (3) Density ablation (same night): labels-per-board is load-bearing (full/30/15/8 → hard@1 45.6/40.2/35.3/25.5) — don't sample setups. (4) Hard-1push tier is a depth-1 artifact: random@depth-2 solves 98.5% (177/201 via 2-push plans); models beat random only under ~30-sim budgets → tight-budget ordering is the battleground.
+
+**Open queue:** M1 (50/50 root/finish boards) + M2 (all roots + 1-2 finish boards/scene, sampled from round-0's dense 2.41M + round-1's k15 depth2 rows — on disk, no sims) → dense-finish masking gate → only then decide exhaustive finish recollection (~28k wh). Confirm-seed of beast1_c081. Registry/RESULTS rows.
+
 ## Decisions locked [USER 2026-07-14]
 
 1. **Fresh restart** — discard the buggy lineage; new Marvel-named lineage.
