@@ -1218,6 +1218,7 @@ def main():
             # Enforced per-scene (per-neighbour) time budget so rich depth-2 scenes don't hog a worker.
             # Same set_defaults(yaml) path; must be in this dict to reach the planner.
             "region_timeout_per_neighbour_sec": getattr(args, 'region_timeout_per_neighbour_sec', None),
+            "region_label_topk": getattr(args, 'region_label_topk', 0),
             # horizon-Q sampled collection: uniform k-subset of (edge,depth) candidates per chain level
             # (0 = off). Set via --config-yaml (region_sample_k), like the exhaustive-mode keys.
             "region_sample_k": getattr(args, 'region_sample_k', 0),

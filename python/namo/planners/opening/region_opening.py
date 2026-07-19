@@ -235,6 +235,11 @@ class RegionOpeningPlanner(BasePlanner):
         # disable cost-optimality pruning so setups in direct-opener scenes still get a finish sweep. See
         # card EXP-2026-07-14 "Beast (2-push)". False = off (rung-1/legacy behaviour unchanged).
         self.label_mode = bool(algo_params.get("region_label_mode", False))
+        # label-mode top-k cap on the FINISH sweep (deepest level only): stop after k failed finish
+        # candidates instead of exhausting (~60). Misses become honest ceilings, never false labels.
+        # Pilot-validated (2026-07-19, n=2.4M): antman-5c k=15 retains 97.7% of successes at ~30% cost.
+        # 0 = exhaustive (round-0 behavior). Setup enumeration (depth-1) is NEVER capped by this.
+        self.label_topk = int(algo_params.get("region_label_topk", 0) or 0)
         # Restart-on-failure ([USER]: "run the same instance up to 3 times with different seeds, only if
         # we don't find a solution"): total search attempts per (object, neighbour); each retry draws
         # fresh random subsets at every level; trial logs are MERGED (union of tried cells = the training
@@ -2622,6 +2627,12 @@ class RegionOpeningPlanner(BasePlanner):
         candidate_idx = 0
 
         while candidate_idx < len(candidates):
+            # label-mode k-cap: at the finish level, stop after label_topk tried candidates (success
+            # still early-stops first via the label_mode break below; this bounds the FAILURE cost).
+            if (self.label_mode and self.label_topk > 0
+                    and current_chain_depth >= self.max_chain_depth
+                    and candidate_idx >= self.label_topk):
+                break
             # ══════════════════════════════════════════════════════════════════
             # ASYNC ML POLLING: Check if ML inference is ready (non-blocking)
             # ══════════════════════════════════════════════════════════════════
