@@ -21,6 +21,9 @@ from .hl_gauss_censored import CensoredHLGauss
 
 # ceiling cells (censored observations, beast-0a): loss weight for the censored group-mean term.
 CENS_WEIGHT = float(os.environ.get("NAMO_CENS_WEIGHT", "1.0"))
+# -c variant: supervise the -1 unreachable band to value 0 (one-hot bin0). 0.0 (default) = off.
+# Group-mean, so the band's 76% cell share cannot swamp the reachable signal.
+UNREACH_WEIGHT = float(os.environ.get("NAMO_UNREACH_WEIGHT", "0.0"))
 
 
 class WeightedClassifierModule(ClassifierModule):
@@ -48,6 +51,10 @@ class WeightedClassifierModule(ClassifierModule):
         self._rank_list_mask = None
         if cens_mask.any():
             loss = loss + CENS_WEIGHT * hl.censored_loss(logits, f_labels, cens_mask)
+        if UNREACH_WEIGHT > 0.0:
+            unreach = (f_labels < -0.5).float()                  # the -1 band (disjoint from loss_mask: rm=0 there)
+            if unreach.any():
+                loss = loss + UNREACH_WEIGHT * hl.loss(logits, torch.zeros_like(f_labels), unreach)
         return loss
     def _weighted_loss(self, logits, labels, mask, weight):
         if weight is None:
@@ -104,6 +111,10 @@ class WeightedClassifierModule(ClassifierModule):
             cens_mask = loss_mask * ceiling
             if cens_mask.any():
                 loss = loss + CENS_WEIGHT * hl.censored_loss(logits, f_labels, cens_mask)
+            if UNREACH_WEIGHT > 0.0:
+                unreach = (f_labels < -0.5).float()
+                if unreach.any():
+                    loss = loss + UNREACH_WEIGHT * hl.loss(logits, torch.zeros_like(f_labels), unreach)
         else:
             loss = self._compute_masked_loss(logits, f_labels, loss_mask)
         self.val_loss(loss)
