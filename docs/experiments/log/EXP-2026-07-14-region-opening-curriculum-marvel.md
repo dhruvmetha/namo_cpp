@@ -134,6 +134,50 @@ Round-0 collect→build→train→eval ran end-to-end but execution was bumpy (a
 
 **Open queue:** M1 (50/50 root/finish boards) + M2 (all roots + 1-2 finish boards/scene, sampled from round-0's dense 2.41M + round-1's k15 depth2 rows — on disk, no sims) → dense-finish masking gate → only then decide exhaustive finish recollection (~28k wh). Confirm-seed of beast1_c081. Registry/RESULTS rows (include @2).
 
+### Post-round-1 diagnostics (2026-07-20 overnight) — model forensics + the round-2 data recipe
+
+Three studies, all reusing round-1 artifacts (no new collection). Champion checkpoint = `round1/models/beast1_c081/checkpoints/epoch015-val_loss1.7523.ckpt`. Single seed throughout (as the champion is) — the recurring caveat below.
+
+**1. What has beast-1-c081 learned? (report: `round1/analysis/beast1_c081/report.md` + 8 plots).**
+Score-forensics over the test sets, scores in the raw grammar space [0,1] (deployed sigmoid squash is monotone → rankings invariant).
+- **Openers mastered, setups NOT.** True openers score median **0.973** (target 1.0; AUC 0.894 vs dead); verified setups score median **0.583** (target 0.9) — collapsed toward the dead pile (setup-vs-dead AUC only 0.721). This single representational gap is the root cause of buried setups (first-setup rank median 3/6/14 easy/med/hard) and the 32.4 perfect-play ceiling. **The #1 actionable defect for round-2.**
+- **Forward-ness is REAL** (not just ordering): a board's MAX score separates 1push-solvable from 2push-only at **AUC 0.892**; board-max ≥0.95 flags "opener exists" at FPR 0.046. One-sided/tier-dependent (hard-1push AUC 0.770 — hard openers score low enough to overlap 2push-only maxes).
+- **Hard-1push misses = "bad pushes scored high," not "opener scored low":** on every missed board 100% of the pushes out-ranking the true opener are proven non-openers; the opener still scores ~0.893. The ranker's weakness is discrimination AMONG high-scoring candidates.
+- **vs antman-5c: net +37 outright 2push solves (34 hard)** — the clearest capability gain. 1push flips are churny (net +22 hard, but 134 boards flip either way). Shape bias: gains on square objects (aspect 1.21), loses on elongated (1.44).
+- **Unreachable floor clean:** median 0.0098 over 526k unreachable cells, 0.9% leak >0.5.
+
+**2. k-policy for round-2 finish sweeps (same report, §E) — TWO corrections + a recipe.**
+- **The finish-layer live/dead base rate is 74/26, NOT the 54/46 the round-1 note claimed** (measured on 1.86M dense depth-2 finish boards). ⚠ caveat: that population is Q1-*expanded* nodes (promise-biased) and train-lineage/in-distribution — the round-2 exhaustive-root pool will be more dead-heavy.
+- **At the 74/26 prior, NO sweep depth k reaches 95% posterior-dead** on the (conservative) offline numbers — declaring "dead" needs finish-recall ≥ **0.982**, and the champion's measured recall is a strict LOWER bound (every live finish board on disk was early-stopped at ONE known finisher; zero exhaustively-swept live boards exist → the LB gap can't be closed offline). LB recall@k: 0.51@5, 0.77@15, 0.90@30.
+- **Recommended round-2 finish policy:** sweep **k≈20 with a ≥0.95-score early-exit** (catches ~71% of live top-1s in 1-few sims; dead false-alarm 5.8%), write a **~0.85 ceiling on a failed sweep (not 0.81)**, and run a **1–2k exhaustive-finish CALIBRATION batch** early in round-2 to measure TRUE recall, then tighten toward 0.81 only if it confirms recall≥0.98. **TENSION worth noting:** c081's 0.81 posterior ceilings empirically WON the round-1 A/B (+9.8 hard@1) — so the recipe worked even though the posterior justification is now shakier than believed; the win may owe more to "aggressive negative bounds are cheap" than to a calibrated 96%-dead claim.
+
+**3. Finish-board gates M1/M2/masking (report: `round1/mix_arms/REPORT.md`) — round-2 data recipe settled.**
+All arms built from on-disk labels (zero sims), champion recipe, count-asserted 1323/1018/204.
+
+| model | 1p hard@1 | 1p all@1 | 2p solve | 2p avg | **2p @2** | 2p @30 | hardh2 s2s |
+|---|---|---|---|---|---|---|---|
+| champion beast1_c081 | 48.5 | 86.8 | 95.1 | 93.0 | 32.4 | 69.4 | 8.5 |
+| **M2-k15** (roots + k15 finish) | 43.6 | 86.1 | 95.0 | 89.4 | **34.7** | **72.4** | 9.8 |
+| M2-dense (roots + dense finish) | 43.1 | 85.0 | 95.8 | 89.1 | 29.4 | 72.2 | 8.5 |
+| M1 (50/50 root/finish swap) | 35.8 | 82.7 | 94.2 | 111.7 | 27.4 | 65.3 | 14.1 |
+
+- **Gate 2 (masking): PASS → the ~28k-wh exhaustive finish recollection is CANCELLED.** k15 finish labels ≥ dense on every axis (@2 34.7 vs 29.4) at 58% fewer finish ceilings. Dense finish ceilings actually DILUTE perfect-play.
+- **Gate 1: finish boards belong in round-2 — ADDED to full roots, in k15 form.** M2-k15 = best 2-push yet (@2 32.4→34.7, @30 69.4→72.4, avg 93→89). **Never substitute:** M1 (roots swapped out) lost on every axis — roots carry the 1-push skill.
+- NOT a contradiction of the density ablation: that varied ROOT setup density (keep dense); this varies FINISH ceiling density (want k15-sparse).
+
+**4. Extras attribution — beast-1-c081-noextra (results: `round1/eval/noextra_results.md`).**
+Champion recipe retrained on the champion's H5 minus the extras (literal filter: drop 20,931, keep **170,772**; the verifier's 23,639 is not exactly reproducible — ~2.7k fuzz in 4,447 old-rich-duplicate-key rows; conclusion robust to the boundary).
+
+| axis | champion (191,703) | noextra (170,772) | Δ |
+|---|---|---|---|
+| 1p med/hard/all@1 | 86.9/48.5/86.8 | 83.4/45.1/85.3 | −3.5/−3.4/−1.5 |
+| 2p solve/@2/@30 | 95.1/32.4/69.4 | 95.4/28.0/69.3 | +0.3/−4.4/−0.1 |
+| hardh2 s2s | 8.5 | 7.6 | better |
+
+**Verdict: extras mildly load-bearing, keep them** (already collected, cost nothing). Dropping ~21k of the HARDER episodes cost ~3 hard@1 / ~4 @2, left solve/@30 flat — the antman "volume is the lift" pattern. **Seed nuance:** champion's 48.5 hard@1 now looks like a HIGH seed — noextra 45.1 + M2 arms 43.6/43.1 all cluster at 43–45. On 2push@2 (champion not an outlier) noextra is genuinely lowest (28.0) — the real evidence the extras helped. Champion stays champion (this was attribution). **The 45/43/43-vs-48.5 clustering is a second vote for a confirm-seed before locking round-2.**
+
+**⇒ Round-2 recipe (fully specified):** source = dead-bank (~1M antman-failed leads; true-2push-only supply) + fresh scenes → exhaustive ROOT setup sweeps (dense labels) + champion-ordered finish sweeps (k≈20, ≥0.95 early-exit, ~0.85 ceilings, 1–2k calibration batch first) → train on dense roots + k15 finish boards ADDED. Fix target = the setup-anchor gap (setups scored 0.583 not 0.9). Scene-selection stays dumb (3-arm control proved targeting ≈ volume). Confirm-seed the champion/M2-k15 before committing.
+
 ## Decisions locked [USER 2026-07-14]
 
 1. **Fresh restart** — discard the buggy lineage; new Marvel-named lineage.
