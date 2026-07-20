@@ -20,10 +20,13 @@ episodes_per_env: 1
 max_depth: 5
 max_goals_per_object: 5
 max_terminal_checks: 5000
-search_timeout: 150.0
+search_timeout: 600.0
 # The ENFORCED per-scene budget (checked between objects in _attempt_opening_to_neighbour): bounds the
 # depth-2 exhaustive cost so rich scenes don't hog a worker. Unfinished setups -> MASK (never mislabeled).
-region_timeout_per_neighbour_sec: 120.0
+# 120s clipped 14.8% of round-1 boards (~1.1% of reachable cells left untried); 480s buys near-complete
+# sweeps while still catching true pathologies — raise, don't remove (the guard exists for the
+# 2026-07-17 unbounded-worker-hog incident).
+region_timeout_per_neighbour_sec: 480.0
 goals_per_region: 50
 region_min_reachable_fraction: 0.2
 
