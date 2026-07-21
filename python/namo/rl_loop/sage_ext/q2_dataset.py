@@ -131,6 +131,18 @@ class Q2DataModule(pl.LightningDataModule):
         return kw
 
     def train_dataloader(self):
+        # Q2_BALANCE_COL=<h5 column>: expected-exposure re-balancing (arm-B root-vs-postpush ~50/50)
+        # via WeightedRandomSampler over per-row weights stored in the H5. Unset -> plain shuffle (arm A).
+        col = os.environ.get("Q2_BALANCE_COL")
+        if col:
+            with h5py.File(self.h5_path, "r") as h5:
+                w = h5[col][:].astype("float64")
+            sampler = torch.utils.data.WeightedRandomSampler(
+                weights=torch.as_tensor(w[self.train_idx]),
+                num_samples=len(self.train_idx), replacement=True)
+            print(f"[q2 setup] balance sampler on '{col}' over {len(self.train_idx)} rows", flush=True)
+            return DataLoader(self.train_dataset, batch_size=self.batch_size, sampler=sampler,
+                              drop_last=False, **self._kw())
         return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True,
                           drop_last=False, **self._kw())
 
