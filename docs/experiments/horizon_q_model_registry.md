@@ -134,3 +134,5 @@ All CS paths under `/common/users/dm1487/scratch_namo/curriculum2/beast/`. Full 
 - **beast-2 armA (uniform):** `round2/models/beast2_armA/checkpoints/epoch011-val_loss0.5267.ckpt` — 2p solve 96.7 / 81.6 avg sims / 71.4@30 (best-ever 2p search axis); 1p hard@1 43.1.
 - **beast-2 armB (balanced 50/50):** `round2/models/beast2_armB/checkpoints/epoch004-val_loss0.5799.ckpt` — 1p hard@1 **49.5** (best of line); 2p 96.3/94.5/67.4.
 - Train data: `round2/h5/beast2_all.h5` (1,039,341 rows); dead-bank eval GT: `round2/h5/round2_eval.h5` (73,368 rows, 940 rooms).
+- **beast-2 2×2 twins (corrected data, 2026-07-21):** `round2/models/beast2_arm{A,B}_{ceil,hard}/checkpoints/` — identical 859,766 rows (`beast2_exh_ceil/hard.h5`), one-variable label ablation × exposure. **armB_ceil = 2p front-runner (97.2 solve/78.6 sims/69.7 @30/86.4 1p-all@1)**; hard twins deploy-degraded (magnitude collapse). v0 arms (beast2_all.h5, pre-correction) = lineage only.
+- **Canonical finish-layer GT:** `round2/h5/testset_gt.h5` (66,456 nodes, 982/983 pure2push scenes, REF full-exhaustive) — first exhaustive root+finish GT on the canonical set. EVAL-ONLY, never train.

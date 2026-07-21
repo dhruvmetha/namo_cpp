@@ -297,3 +297,30 @@ Solve@1 by fixed-cut tier on held-out `namo_testset_v1` (1,323 eps; hard 204 / m
 | H7 | true recall@20 uncensored | **ACCEPT, largest effect of the round**: 67.0→90.6 (A) — round-1 missed 1/3 of true openers in top-20 on post-setup boards; r2 training cuts it to ~1/10 |
 
 **Caveats/pending:** single seed both arms (armA hit the 12-epoch cap with val still improving — possibly undertrained); 6 straggler scenes excluded from v1 (cleanup job running); H3/H5 pending; collection-trickery lever measured: 27% of setups are no-ops → skippable finish sweeps. Ckpts: `round2/models/beast2_armA/checkpoints/epoch011-val_loss0.5267.ckpt`, `beast2_armB/checkpoints/epoch004-val_loss0.5799.ckpt`.
+
+## Round-2 CORRECTED: label-grammar fixes + the 2×2 (ceiling × exposure) [2026-07-21 afternoon, USER-driven]
+
+**Two label corrections [USER, on review of the morning build]:** (1) a full finish sweep proves failure only WITHIN the 2-push horizon, so tried-dead cells are CEILINGS, not exact zeros — root dead → 0.81 (=γ²: could be first push of a 3-push plan), finish dead → 0.9 (=γ: proven not-opener, could be a deeper setup); the morning build had adopted build_rung2's soft-0 wholesale while build_beast0a's docstring already stated the right rule. (2) top-5-hit finish boards are 5-cell slivers, not exhaustive — dropped from training entirely (179,575 rows). The morning arms are demoted to v0 (pre-correction data, hard-ish labels) — lineage reference only.
+
+**The 2×2:** identical 859,766 rows (`beast2_exh_ceil.h5` / `beast2_exh_hard.h5` — byte-twins, one variable: every ceiling cell incl. R1-inherited → exact 0 in hard, 48.9M cells; verified zero uncensored hard-0s in soft, zero ceilings in hard), × exposure arms A (uniform) / B (balanced 50/50 root-vs-postpush sampler). Identical recipe/seed/split. Ckpts: armA_ceil epoch011-1.2819 · armB_ceil epoch007-1.3080 · armA_hard epoch011-0.3016 · armB_hard epoch008-0.2912 (val losses not comparable across label rules).
+
+**Deploy (standard suites, 46/46 shards each):**
+
+| | 1p e/m/h/all @1 | 2p solve/avg sims/@2/@30 | hardh2 solve/s2s |
+|---|---|---|---|
+| armA_ceil | 98.6/85.3/38.7/85.1 | 95.6/107.8/17.4/62.0 | 99.5/13.6 |
+| armB_ceil | 98.4/86.2/45.6/**86.4** | **97.2/78.6**/25.5/**69.7** | 99.0/8.9 |
+| armA_hard | 97.4/84.3/42.2/84.7 | 92.9/135.0/11.7/57.7 | 98.5/10.5 |
+| armB_hard | 98.0/85.0/44.1/85.6 | 94.1/127.8/12.4/57.8 | 98.0/9.3 |
+
+**VERDICT — the ceiling BINDS in the dead-heavy regime.** Ceil > hard on EVERY 2-push axis in BOTH pairs, no sign flips: solve +2.7/+3.1, avg sims −27.2/−49.2 (round-1 clean pair: −12 to −20 → the edge ~tripled at 40:1 dead ratio), @2 +5.7/+13.1, @30 +4.3/+11.9. Deltas far outside the pre-registered noise guardrails. The round-1 "wash" was a property of opener-rich data, exactly as the [USER] synthesis predicted.
+
+**Mechanism, measured (scoring 2×2, dead-bank + canonical GT):** ORDERING is label-rule-invariant (AUC deltas ≤0.01–0.03; recall@20 soft +0.8–1.1 consistently) — but MAGNITUDES are not: ceil twins calibrate (setup median 0.86–0.88 vs 0.9 target; opener 0.63–0.75), hard twins collapse the scale (opener median **0.11–0.19** out of 1.0; setups 0.46–0.68) under the dead flood's gradient war. Best-first compares raw scores ACROSS boards (root candidates vs expanded-node finish candidates in one priority queue), so the crushed scale misorders the queue → the sims/solve gap. The fence loss is what protects the scale.
+
+**Canonical finish-GT minted (982/983 pure2push scenes, REF full-exhaustive sweep → `testset_gt.h5`, 66,456 nodes):** first exhaustive root+finish GT on the canonical set. Tempering findings: (1) recall@20 on canonical is 94.6–97.7% for ALL models — the dramatic 67→90.6% gap is dead-bank-distribution-specific; round-2 training adds +2.5–3 canonical points. (2) Root setup-vs-dead on canonical GT: champion 0.791 ≥ all round-2 models (0.745–0.799) — the "wall" is 0.75–0.80 on this distribution for everyone and round-2 data does NOT lift it here (it lifts dead-bank roots to 0.91–0.93). Separations are strongly distribution-bound.
+
+**Framing locked [USER, discussion 2026-07-21]:** the model is ONE unconditioned γ^k scorer (no horizon input) ⇒ the ceiling is the CORRECT label at any horizon; hard-0 is always false, merely CHEAP at hmax=2 where the lied-about cells are ones search can't cash anyway. The proof boundary is depth 2, so labels can only lie about depth ≥3 — and only depth-≥3 consumers read that part. Ceiling = the contract between curriculum rungs: rung-h's model is the instrument that makes rung-h+1 collection affordable, and the soft model's dead-cell suspicion gradient is that instrument for rung 3. The dead-bank binding trigger from the round-1 synthesis is RETIRED (it only applied to sampled labels; exhaust-on-miss dissolved it); remaining triggers: deeper horizons + magnitude-reading consumers — and the 2×2 shows the magnitude channel already leaks into hmax-2 deploy via cross-board priorities.
+
+**Proposed next [pending user]: the depth-3 observability pilot** — best-first at hmax=3 on ~100–200 scenes UNSOLVED at depth ≤2 (the ~44% dead-bank frontier), ceil vs hard twins vs random ordering. Tests whether the soft dead-ordering carries real depth-3 signal (falsifiable: soft ≈ random damages the suspicion-gradient story). Verify harness hmax=3 support first. Doubles as the rung-3 curriculum pilot.
+
+**Caveats:** single seed per cell of the 2×2 (but ceil-vs-hard deltas are 5–10× the guardrails, and direction replicates across arms); armA_ceil/armA_hard hit the 12-epoch cap (val still falling); 1 canonical GT scene still re-collecting (982/983); champion still holds @2 (32.4) and v0-armB holds 1p hard@1 (49.5) — single-seed caveats apply to both.
