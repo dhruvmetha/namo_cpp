@@ -176,6 +176,24 @@ Champion recipe retrained on the champion's H5 minus the extras (literal filter:
 
 **Verdict: extras mildly load-bearing, keep them** (already collected, cost nothing). Dropping ~21k of the HARDER episodes cost ~3 hard@1 / ~4 @2, left solve/@30 flat — the antman "volume is the lift" pattern. **Seed nuance:** champion's 48.5 hard@1 now looks like a HIGH seed — noextra 45.1 + M2 arms 43.6/43.1 all cluster at 43–45. On 2push@2 (champion not an outlier) noextra is genuinely lowest (28.0) — the real evidence the extras helped. Champion stays champion (this was attribution). **The 45/43/43-vs-48.5 clustering is a second vote for a confirm-seed before locking round-2.**
 
+### Round-2 pre-registered hypotheses (2026-07-20, logged BEFORE collection) — H→E→V pending
+
+**Design [USER]:** no DAgger loop — single pass; exhaustive root setups; champion-ordered finish sweep, top-5 early-stop; on a top-5 MISS → FULL exhaustive finish sweep so the missed board becomes a complete 1-push training row from the post-setup state distribution ("DAgger for the finish phase" without a loop). Two trains on ALL the data, differing only in sampler weights: A = as-collected (uniform), B = balanced (~50/50 1push-solvable vs 2push-only expected exposure). No easy/hard curation (falsified by the 3-arm control). Eval: standard suites + the held-out exhaustively-labeled dead-bank slice (~1-2k scenes, carved at collection, by room).
+
+**Noise guardrails (pre-committed):** single seed; hard@1 band ±1.5; @2 and hardh2-s2s flip sign across same-data pairs at |Δ|≤5 (clean-pair lesson) → demand deltas beyond these bands; AUC run-noise ≈ ±0.03.
+
+| # | hypothesis | current stuck value | pre-committed read |
+|---|---|---|---|
+| H1 [CLAUDE] | Concentrated setup data MOVES setup-vs-dead AUC | 0.71–0.73, invariant to label rule across 4 models | >0.78 = data was the bottleneck (confirmed); 0.71–0.75 = architectural/representational limit → rethink model, not data |
+| H2 [CLAUDE] | Setup median score rises toward its 0.9 anchor | 0.58–0.62 | >0.70 = anchor learnable with enough setup signal; flat = anchor unlearnable from root boards alone |
+| H3 [CLAUDE] | Setups surface in the ranking | first-setup rank med 6 / hard 14 | median rank ≤3 (med tier) = un-buried; unchanged = ranking bottleneck not fed by this data |
+| H4 [CLAUDE] | Deploy 2-push improves beyond noise | @2 ≈ 29, @30 ≈ 69 (best line) | @2 > 34 or @30 > 74 = real; inside bands = data type insufficient, revisit finish-board emphasis |
+| H5 [—] | Dead-bank eval solve (NEW number, no prior) | — | record baseline for champion + both round-2 arms; the gap champion→round-2 IS the direct measure of "did it learn the regime" |
+| H6 [USER] | Balanced exposure (arm B) beats as-collected (arm A) | untested axis (ratio vs presence) | B > A beyond bands on H1/H4/H5 = ratio matters, adopt balancing; tie = presence suffices, drop the knob |
+| H7 [CLAUDE] | Hard finish boards (top-5-miss, exhaustive) lift finish-phase skill | champion finish-recall LB 0.83@20; hardh2 s2s 6–12 | true recall@20 on the held-out slice (first uncensored measurement) + hardh2 s2s improvement |
+
+Verdicts on NUMBERS ONLY when evals land; each H gets accept/reject + the measured value appended here.
+
 **⇒ Round-2 recipe (fully specified):** source = dead-bank (~1M antman-failed leads; true-2push-only supply) + fresh scenes → exhaustive ROOT setup sweeps (dense labels) + champion-ordered finish sweeps (k≈20, ≥0.95 early-exit, ~0.85 ceilings, 1–2k calibration batch first) → train on dense roots + k15 finish boards ADDED. Fix target = the setup-anchor gap (setups scored 0.583 not 0.9). Scene-selection stays dumb (3-arm control proved targeting ≈ volume). Confirm-seed the champion/M2-k15 before committing.
 
 ## Decisions locked [USER 2026-07-14]
