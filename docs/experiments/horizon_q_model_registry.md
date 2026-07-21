@@ -126,3 +126,11 @@ Accumulated train h5: `.../dagger_orchestrator/accumulated/accumulated_train.h5`
 - 1-push answer key: `/scratch/dm1487/datasets/namo_testset_v1/labels/onepush_episodes.json`
 - 2-push key + divisions: `.../labels/pure2push.json`, `.../labels/pure2push_divisions.json` (hard≤2/med 3-8/easy>8 setups)
 - fpv aggregate (M2b): `/scratch/dm1487/eval/diag_fpv_aggregate.json`
+
+## Beast line (2-push rankers, curriculum2) — added 2026-07-21
+All CS paths under `/common/users/dm1487/scratch_namo/curriculum2/beast/`. Full numbers: RESULTS.md + card EXP-2026-07-14. Single-seed each.
+- **beast-1-c081 (champion, round-1):** `round1/models/beast1_c081/…` — 1p 97.9/86.9/48.5 all 86.8 · 2p 95.1 solve/93.0 sims/32.4@2/69.4@30 · hardh2 98.0/8.5. Trained on 191k (incl. 23.6k extras).
+- **beast-1-clean / clean-hard (label-rule ablation pair):** `round1/models/beast1_clean{,_hard}/checkpoints/epoch016-*.ckpt` — purged 166,325 rows; the soft-vs-hard WASH result.
+- **beast-2 armA (uniform):** `round2/models/beast2_armA/checkpoints/epoch011-val_loss0.5267.ckpt` — 2p solve 96.7 / 81.6 avg sims / 71.4@30 (best-ever 2p search axis); 1p hard@1 43.1.
+- **beast-2 armB (balanced 50/50):** `round2/models/beast2_armB/checkpoints/epoch004-val_loss0.5799.ckpt` — 1p hard@1 **49.5** (best of line); 2p 96.3/94.5/67.4.
+- Train data: `round2/h5/beast2_all.h5` (1,039,341 rows); dead-bank eval GT: `round2/h5/round2_eval.h5` (73,368 rows, 940 rooms).

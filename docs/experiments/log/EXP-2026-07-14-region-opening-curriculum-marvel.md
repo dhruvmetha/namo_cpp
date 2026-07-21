@@ -265,3 +265,35 @@ Solve@1 by fixed-cut tier on held-out `namo_testset_v1` (1,323 eps; hard 204 / m
 - **CS `unlimited` rejects `--cpus-per-task`** — omit it (job rejected otherwise). `train_cs.sbatch` fixed.
 - **loky DataLoader TMPDIR collision:** two trains co-scheduled on ilab1 crashed their DataLoader workers (`FileNotFoundError` on shared `/loky-*` temp dirs) → 0 ckpts. FIXED with per-job `export TMPDIR=/tmp/namo_$SLURM_JOB_ID` in the sbatch (matches the orchestrator's node-local-tmp pattern).
 - **zsh arrays are 1-indexed** — `${arr[0]}` is empty; pass GPU ids explicitly in eval fan-out, don't index a bash-style array.
+
+## Round-2 results — exhaust-on-miss slice + arms A/B [2026-07-21 overnight, autonomous run]
+
+**Pipeline (all overnight, one arc):** 500-scene cost probe → 24,168/24,174-scene collection burst (job 58606117, ~1h20 on 5,600 CPUs, 5 tasks walltimed → 6 scenes re-run separately) → 1,276,787 node rows built (200 shards) → `beast2_all.h5` 1,039,341 train rows (163,597 r1-clean + 875,744 r2; 347k `depth2_noop` duplicate-ctx rows dropped; 2,288 r1 rows superseded by exact r2 copies; 940 eval rooms carved to `round2_eval.h5`, 73,368 rows — the first exhaustive finish-layer GT eval set) → arms A (uniform) / B (sampler-balanced root-vs-postpush 50/50) trained (jobs 185616/185617, identical recipe/seed/split) → dead-bank scoring + testset scoring + full deploy suites, all count-asserted.
+
+**Probe facts (498 scenes):** 0.167 wh/scene mean (600s wall; median 325s, p90 1356s); top-5 finish hit-rate 90.2% of boards-with-a-finish; 79.8% of boards full-exhaustive (mostly genuinely dead); 0 timeouts; **bank false-dead measured: 14.5% of "dead" scenes have 1-push root openers** (2,832 openers), 41.2% are 2-push solvable.
+
+**Deploy (standard suites, 1323/1018/204):**
+
+| metric | champion c081 | r1-clean (data-lineage baseline) | armA uniform | armB balanced |
+|---|---|---|---|---|
+| 1p easy/med/hard@1 | 97.9/86.9/48.5 | 98.9/84.8/41.2 | 97.9/83.8/43.1 | 97.3/81.0/**49.5** |
+| 1p all@1 | 86.8 | 85.5 | 85.0 | 84.7 |
+| 2p solve / avg sims | 95.1 / 93.0 | 93.7 / 108.6 | **96.7 / 81.6** | 96.3 / 94.5 |
+| 2p @2 / @30 | 32.4 / 69.4 | 28.7 / 68.7 | 28.8 / **71.4** | 24.3 / 67.4 |
+| hardh2 solve / s2s | 98.0 / 8.5 | 100.0 / 11.8 | 99.0 / 8.0 | 99.5 / 9.3 |
+
+**Scoring (dead-bank GT uncensored | testset_v1):** setup-vs-dead AUC r1-clean 0.876|0.716 → armA 0.913|0.720, armB **0.921**|0.733. opener-vs-dead (post-setup) 0.860 → **0.962**(A)/0.952(B); testset opener-vs-dead 0.956 → **0.984**(A). **H7 true recall@20 (exhausted win boards): r1-clean 67.0% → armA 90.6%, armB 86.9%.** Medians shifted far down (dead flood recalibration: setup 0.61→0.13-0.21, dead 0.24→0.03) with deploy INTACT — ordering is what deploy consumes, confirmed empirically.
+
+**H-verdicts (numbers only):**
+
+| H | pre-registered read | verdict |
+|---|---|---|
+| H1 | setup-vs-dead >0.78 = data-bottleneck; 0.71-0.75 = architectural | **ILL-POSED, resolved**: testset wall UNMOVED (0.716→0.720/0.733, within ±0.03 guardrail) despite 33× exact dead data ⇒ wall = testset-distribution property; on regime-matched dead-bank GT all models separate well and r2 data adds +0.04 (above guardrail) |
+| H2 | setup median >0.70 | **REJECT** (0.34/0.50) — wrong metric: medians fell by design (dead flood recalibration), separation improved; ranker frame vindicated |
+| H3 | first-setup rank ≤3 med | **PENDING** (needs 2push leaf rank parse) |
+| H4 | @2>34 or @30>74 | **REJECT strictly**; real gains anyway: armA 2p solve 96.7 (best ever), avg sims 81.6 (beats champion 93.0), @30 71.4 |
+| H5 | dead-bank search-solve baseline | **PENDING** (needs eval-room search harness) |
+| H6 [USER] | B>A = ratio matters | **SPLIT, ratio matters**: B +6.4 hard@1 (49.5, best of beast line) vs A wins 2p search axis (−12.9 avg sims, +4.0 @30, +4.5 @2). Exposure ratio trades 1p-hard skill vs 2p search efficiency; no dominant arm |
+| H7 | true recall@20 uncensored | **ACCEPT, largest effect of the round**: 67.0→90.6 (A) — round-1 missed 1/3 of true openers in top-20 on post-setup boards; r2 training cuts it to ~1/10 |
+
+**Caveats/pending:** single seed both arms (armA hit the 12-epoch cap with val still improving — possibly undertrained); 6 straggler scenes excluded from v1 (cleanup job running); H3/H5 pending; collection-trickery lever measured: 27% of setups are no-ops → skippable finish sweeps. Ckpts: `round2/models/beast2_armA/checkpoints/epoch011-val_loss0.5267.ckpt`, `beast2_armB/checkpoints/epoch004-val_loss0.5799.ckpt`.
