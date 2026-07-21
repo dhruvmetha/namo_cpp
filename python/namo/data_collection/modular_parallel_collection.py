@@ -1219,6 +1219,10 @@ def main():
             # Same set_defaults(yaml) path; must be in this dict to reach the planner.
             "region_timeout_per_neighbour_sec": getattr(args, 'region_timeout_per_neighbour_sec', None),
             "region_label_topk": getattr(args, 'region_label_topk', 0),
+            # Round-2 EXHAUST-ON-MISS finish policy (set via --config-yaml, set_defaults path). MUST be
+            # in this dict to reach the planner (set_defaults alone is inert — this bit us on
+            # region_label_mode/region_timeout). 0 = off (use label_topk / plain early-stop).
+            "region_exhaust_on_miss_topk": getattr(args, 'region_exhaust_on_miss_topk', 0),
             # horizon-Q sampled collection: uniform k-subset of (edge,depth) candidates per chain level
             # (0 = off). Set via --config-yaml (region_sample_k), like the exhaustive-mode keys.
             "region_sample_k": getattr(args, 'region_sample_k', 0),

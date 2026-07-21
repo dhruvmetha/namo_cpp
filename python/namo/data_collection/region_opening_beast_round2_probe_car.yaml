@@ -1,0 +1,64 @@
+# BEAST round-2 EXHAUST-ON-MISS probe config — CAR robot. Derived from
+# region_opening_beast_relabel_car.yaml; the ONLY behavioural change is the finish-sweep policy:
+#   region_exhaust_on_miss_topk: 5  (round-2 semantics, region_opening.py):
+#     - a sim-verified finish within the top-5 (1-based rank <= 5) -> STOP (cheap verified setup;
+#       the finish board stays sparse — same cheap case as the round-1 early-stop);
+#     - NO verified finish within the top-5 -> commit to the FULL EXHAUSTIVE finish sweep of this
+#       post-setup board (do NOT early-stop even on a later hit): every reachable finish candidate is
+#       labelled, so the missed board becomes a COMPLETE exhaustively-labelled 1-push instance
+#       (verified openers 1.0, tried-fails exact-dead), concentrated on R's finish-ranking misses.
+# Setups (depth-1) stay EXHAUSTIVE, exactly as round-1. region_label_topk is deliberately UNSET (the
+# two knobs are mutually exclusive). trial_log score+rank per try is kept for the H5 build.
+# RUN WITH `--target-goal-region` (CLI store_true; goal-opening only). Scorer (beast-1-clean = the soft
+# champion of the clean line) overridable with --scorer-ckpt; device with --ml-device (cpu on Amarel).
+
+algorithm: region_opening
+episodes_per_env: 1
+
+# Generic planner limits
+max_depth: 5
+max_goals_per_object: 5
+max_terminal_checks: 5000
+search_timeout: 600.0
+# Enforced per-neighbour time budget (checked between candidate objects in _attempt_opening_to_neighbour);
+# bounds the depth-2 exhaustive-on-miss cost so a pathological rich scene can't hog a worker. 480s (already
+# committed for round-2); unfinished setups are MASKED, never mislabelled.
+region_timeout_per_neighbour_sec: 480.0
+goals_per_region: 50
+region_min_reachable_fraction: 0.2
+
+# Region opening parameters
+points_per_face: 15
+region_allow_collisions: true
+region_max_chain_depth: 2
+region_max_solutions_per_neighbor: 1
+region_max_recorded_solutions_per_neighbor: 1
+region_frontier_beam_width: 10000
+region_chain_link_cost: 11
+region_ml_ignore_blacklist: false
+region_selection_strategy: ml_first
+
+# --- LABEL block ---
+region_label_mode: true
+region_exhaustive_mode: true
+region_sample_k: 0
+region_sample_restarts: 1
+# ROUND-2 finish policy: exhaust the finish board on a top-5 miss (see header). 0 = off.
+region_exhaust_on_miss_topk: 5
+
+# Goal strategy: R (beast-1-clean) ranks candidate pushes; ml_first orders the frontier by that score.
+goal_strategy: scorer
+scorer_ckpt: /scratch/dm1487/curriculum2/beast/round2/probe/beast1_clean.ckpt
+ml_device: cpu
+
+# 5-DEPTH car primitives -> 60x5 = (4 edges x 15 pts) x 5 depths.
+primitive_prefix: "1x_car_d5_"
+config_file: config/namo_config_complete_skill15_car_1x.yaml
+
+xml_dir: ${NAMO_DATASETS}/car_envs
+
+verbose: false
+filter_minimum_length: false
+smooth_solutions: false
+refine_actions: false
+validate_refinement: false

@@ -240,6 +240,16 @@ class RegionOpeningPlanner(BasePlanner):
         # Pilot-validated (2026-07-19, n=2.4M): antman-5c k=15 retains 97.7% of successes at ~30% cost.
         # 0 = exhaustive (round-0 behavior). Setup enumeration (depth-1) is NEVER capped by this.
         self.label_topk = int(algo_params.get("region_label_topk", 0) or 0)
+        # label-mode EXHAUST-ON-MISS (round-2 semantics) on the FINISH sweep (deepest level only):
+        #   - a sim-verified finish within the top-K (1-based position <= K) -> STOP (cheap verified
+        #     setup; finish board stays sparse — same cheap case as plain early-stop);
+        #   - NO verified finish within the top-K -> commit to the FULL EXHAUSTIVE finish sweep of this
+        #     post-setup board: do NOT early-stop even on a later hit; try EVERY reachable finish
+        #     candidate so the missed board becomes a COMPLETE exhaustively-labeled 1-push instance
+        #     (verified openers 1.0, tried-fails exact-dead), concentrated on R's finish-ranking misses.
+        # Setups (depth-1) are ALWAYS exhaustive — unaffected. Takes precedence over label_topk (they
+        # are mutually-exclusive knobs; set exactly one). 0 = off (use label_topk / plain early-stop).
+        self.exhaust_on_miss_topk = int(algo_params.get("region_exhaust_on_miss_topk", 0) or 0)
         # Restart-on-failure ([USER]: "run the same instance up to 3 times with different seeds, only if
         # we don't find a solution"): total search attempts per (object, neighbour); each retry draws
         # fresh random subsets at every level; trial logs are MERGED (union of tried cells = the training
@@ -2629,7 +2639,9 @@ class RegionOpeningPlanner(BasePlanner):
         while candidate_idx < len(candidates):
             # label-mode k-cap: at the finish level, stop after label_topk tried candidates (success
             # still early-stops first via the label_mode break below; this bounds the FAILURE cost).
-            if (self.label_mode and self.label_topk > 0
+            # DISABLED when exhaust_on_miss_topk is set — that mode deliberately exhausts on a top-K
+            # miss instead of capping (the two are mutually-exclusive knobs).
+            if (self.label_mode and self.label_topk > 0 and self.exhaust_on_miss_topk <= 0
                     and current_chain_depth >= self.max_chain_depth
                     and candidate_idx >= self.label_topk):
                 break
@@ -2987,12 +2999,22 @@ class RegionOpeningPlanner(BasePlanner):
                 # Prevent exploring deeper depths for this edge in this BFS call
                 solved_edges_this_skill.add(edge_idx)
 
-                # LABEL mode: at the FINISH level (deepest chain) stop at the first opening finish.
-                # Candidates are scorer-sorted, so this is R's best-ranked finish that works; its rank
-                # (in trial_log) says if it was within top-k. Setups (chain_depth < max) stay exhaustive —
-                # this break does NOT fire for them.
+                # LABEL mode: at the FINISH level (deepest chain) decide whether to stop or keep sweeping.
+                # Candidates are scorer-sorted, so this success is R's best-ranked finish that works; its
+                # rank (in trial_log) says if it was within top-k. Setups (chain_depth < max) stay
+                # exhaustive — this break does NOT fire for them.
                 if self.label_mode and current_chain_depth >= self.max_chain_depth:
-                    break
+                    if self.exhaust_on_miss_topk > 0:
+                        # EXHAUST-ON-MISS: candidate_idx is the 1-based position of the just-tried
+                        # candidate (incremented at the top of the loop). A hit within the top-K
+                        # (candidate_idx <= K) is a cheap verified setup -> STOP. A hit beyond the top-K
+                        # can only happen after top-K already MISSED, so we are committed to the full
+                        # exhaustive sweep -> do NOT break; label every remaining finish candidate.
+                        if candidate_idx <= self.exhaust_on_miss_topk:
+                            break
+                    else:
+                        # plain early-stop: stop at the first verified finish (round-0/1 behaviour).
+                        break
 
                 # If we're only collecting a fixed number of solutions, stop immediately
                 # once we reach the cap (don’t wait for the next candidate iteration).
