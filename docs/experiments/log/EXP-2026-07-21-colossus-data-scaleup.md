@@ -67,7 +67,9 @@ Live labeling shows only **~29% of bank scenes are usable** (24% dead-root + 5% 
 
 ## Run
 
-_(pending — smoke → analyze → full burst)_
+**Colossus-0 1M scale-up launch (2026-07-22).** Generate a fresh, fixed-generator source and select exactly 1,000,000 geometry-clean pair XMLs at the locked 60/40 aug9/feb mix, then collect every XML at depth 2 with `beast-2c-d20`, exhaustive root setups, and exhaust-on-top-5-missed finishes. Keep the complete natural census: direct 1-push, true 2-push, and dead. This is one Colossus-0 dataset; DAgger follows after the scale-up.
+
+**Target-box smoke.** On Amarel `main-redhat`, the fixed generator emitted 2/2 valid feb pair XMLs and the exact d20 collector completed them with real primitive progress and 3 stored episodes. Collection took 20.6 minutes on 2 workers = 0.344 worker-hours/XML. Together with the earlier 498-scene Beast probe (0.167 worker-hours/scene), the honest 1M collection range is about 25–51 hours at the 6,720-CPU hard ceiling, before queue/straggler loss. Therefore XML generation runs overnight, while collection is staged as safe ≤470-task waves and continues beyond the night; no prior data is overwritten or deleted.
 
 ## Result
 
