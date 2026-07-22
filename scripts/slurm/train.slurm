@@ -67,11 +67,23 @@ if [ -n "${POSTCHECK_LIMIT:-}" ]; then EXTRA+=(--postcheck-limit "$POSTCHECK_LIM
   --epochs "${EPOCHS:-12}" --batch-size "${BATCH:-256}" --num-workers "${WORKERS:-8}" \
   --lr "${LR:-3e-4}" --seed "${SEED:-1}" --split-seed 0 "${EXTRA[@]}" > "$LOG" 2>&1 &
 PID=$!
+MARKER_SEEN=0
 # (5) hang-kill: ckpt written + "[eval_scorer-load check]" printed, then teardown hangs -> kill
 while kill -0 $PID 2>/dev/null; do
   if grep -q "eval_scorer-load check" "$LOG" 2>/dev/null; then
-    echo "train done (marker seen); killing hung teardown"; sleep 5; kill -9 $PID 2>/dev/null; break
+    echo "train done (marker seen); killing hung teardown"; MARKER_SEEN=1
+    sleep 5; kill -9 $PID 2>/dev/null; wait "$PID" 2>/dev/null || true; break
+  fi
+  STATE=$(ps -o stat= -p "$PID" 2>/dev/null || true)
+  if [[ "$STATE" == Z* ]]; then
+    wait "$PID"; STATUS=$?
+    echo "train exited before completion marker status=$STATUS"
+    exit "$STATUS"
   fi
   sleep 30
 done
+if [ "$MARKER_SEEN" -eq 0 ]; then
+  wait "$PID"; STATUS=$?
+  if [ "$STATUS" -ne 0 ]; then echo "train exited before completion marker status=$STATUS"; exit "$STATUS"; fi
+fi
 echo "TRAIN DONE gamma=${NAMO_GAMMA:-none} $(date)"; ls -lh "$OUT/checkpoints/" 2>/dev/null
