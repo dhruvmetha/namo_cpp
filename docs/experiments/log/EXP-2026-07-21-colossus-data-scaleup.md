@@ -4,7 +4,7 @@ thread: rl_loop
 robot: car
 updated: 2026-07-22
 parent: EXP-2026-07-14-region-opening-curriculum-marvel
-commit: 04f9934
+commit: 337df4e
 ---
 
 # EXP-2026-07-21 — Colossus: data scale-up (overall) + dead dose (Marvel/Beast lineage)
