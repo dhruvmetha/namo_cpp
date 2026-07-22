@@ -7,8 +7,14 @@
 #SBATCH --output=/common/users/dm1487/scratch_namo/eval/push_depth/logs/%x_%j.out
 set -euo pipefail
 
-: "${CKPT:?set CKPT=<checkpoint>}"
 : "${OUT:?set OUT=<result.json>}"
+
+if [ -z "${CKPT:-}" ]; then
+  : "${TRAIN_LOG:?set CKPT=<checkpoint> or TRAIN_LOG=<completed train.log>}"
+  CKPT=$(sed -n 's/^\[train_q2\] best ckpt: //p' "$TRAIN_LOG" | tail -1)
+  : "${CKPT:?completed training log has no best-checkpoint marker: $TRAIN_LOG}"
+fi
+test -s "$CKPT"
 
 REPO=${NAMO_REPO:-/common/home/dm1487/robotics_research/ktamp/namo}
 SAGE_OVERRIDE=${SAGE_REPO:-}
