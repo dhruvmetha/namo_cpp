@@ -11,8 +11,10 @@ set -euo pipefail
 : "${OUT:?set OUT=<result.json>}"
 
 REPO=${NAMO_REPO:-/common/home/dm1487/robotics_research/ktamp/namo}
+SAGE_OVERRIDE=${SAGE_REPO:-}
 cd "$REPO"
 source env.ilab.sh >/dev/null 2>&1
+if [ -n "$SAGE_OVERRIDE" ]; then export SAGE_REPO="$SAGE_OVERRIDE"; fi
 
 PY=/common/users/dm1487/envs/mjxrl/bin/python
 export PATH="$(dirname "$PY"):$PATH"
