@@ -4,7 +4,7 @@ thread: rl_loop
 robot: car
 updated: 2026-07-22
 parent: EXP-2026-07-14-region-opening-curriculum-marvel
-commit: 337df4e
+commit: 897c398
 ---
 
 # EXP-2026-07-21 — Colossus: data scale-up (overall) + dead dose (Marvel/Beast lineage)
@@ -51,6 +51,7 @@ Locked after a long clarification pass (see chat 2026-07-21):
 - **Root rejection:** d20 score-orders every reachable root push. The first simulator-verified direct opener stops that object episode immediately and skips all depth-2 work; the small root trial record remains for audit but is excluded from Colossus training. An episode may be retained as root-negative only after every reachable root candidate has failed, because the ranker controls order but the simulator establishes the label.
 - **Depth-2 labeler under smoke test:** d20 ranks every reachable finish and every episode tries at most the top 20 first. A stable seed-42 20% sample of complete `(xml, object, goal-region)` episodes exhausts every top-20-miss board; the other 80% stop at 20 and mark the unresolved parent setup censored/unknown, never dead. A verified opener at any tried rank confirms the setup. Every tried finish keeps its d20 score and rank, and untried cells stay masked.
 - **Compute:** Amarel `main-redhat`; collect in staged waves of at most 470 tasks × 350 XMLs/task, with 14 CPUs and 12 workers per task.
+- **Cross-cluster gate:** Amarel collection/rendering and CS training/evaluation use isolated checkouts pinned to the recorded commit; every transferred H5 shard is SHA256-verified after rsync, and the combined-H5/training launch must fail on a commit or checksum mismatch.
 - **Census (deliverable):** count rejected direct-1push, confirmed true-2push, censored depth-2, audit-proven dead-within-depth2, and eligible training rows separately, always preserving `(xml, pushed object, goal region)` identity.
 - **Data unit:** one XML may yield multiple independent `(pushed object, goal region)` episodes and every episode may yield one root board plus many post-push boards; the 200,000 target counts selected H5 board rows, never XMLs or object episodes.
 
