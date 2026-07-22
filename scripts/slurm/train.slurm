@@ -38,7 +38,9 @@ set -uo pipefail
 : "${OUT:?set OUT=<output dir (base dir for gamma-sweep)>}"
 
 REPO=${NAMO_REPO:-/common/home/dm1487/robotics_research/ktamp/namo}
+SAGE_OVERRIDE=${SAGE_REPO:-}
 cd "$REPO" && source env.ilab.sh >/dev/null 2>&1            # Amarel: source env.amarel.sh
+if [ -n "$SAGE_OVERRIDE" ]; then export SAGE_REPO="$SAGE_OVERRIDE"; fi
 
 # (1) resolve a WORKING interpreter — env.ilab.sh leaves NAMO_PYTHON="python", absent in sbatch
 PY="${NAMO_PYTHON:-python}"
