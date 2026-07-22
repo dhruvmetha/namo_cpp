@@ -2,7 +2,7 @@
 type: experiment
 status: live
 created: 2026-07-22
-commit: 75c8c11
+commit: 780b365
 metric: Antman-5c 1push edge-vs-depth diagnostic complete; architecture A/B pending; final 1push solve@1/@5 and 2push solve@2/@5/@10/@30 plus sims-to-solve by easy/med/hard
 thread: rl_loop
 parent: EXP-2026-07-14-region-opening-curriculum-marvel
@@ -78,6 +78,8 @@ Accept the depth-aware head only if it preserves 1-push performance within 2 per
 The existing Antman-5c H5 already stores `contact_px`, whose ordered rectangle samples recover the target object's current axes, size family, and yaw. The loader therefore constructs the exact active primitive table from the pinned `1x_car_d5_motion_primitives_15_{square,wide,tall}.dat` files without XML lookup or simulator calls. Focused tests cover all three shape families and rotation, the original Antman-5c checkpoint still loads through `eval_scorer`, and an actual H5 batch completes forward/loss/backward with finite values. Parameter counts are closely matched: baseline 4,397,055 versus treatment 4,395,891.
 
 **Future-data requirement.** Main-tree commit `d602a97` updates the Colossus-0 card to require direct `(N,60,5,3)` `action_motion` storage, current per-board object pose/size, primitive database identity/hash, PKL→NPZ→H5 preservation, and a 300-action alignment gate. Historical Antman data remains usable through exact reconstruction, but new post-push data must not depend on reopening the initial XML.
+
+**First target-box smoke attempt (jobs `186716`/`186717`).** Both jobs exited before model construction because `env.ilab.sh` replaced the explicitly exported Sage worktree path with the main Sage checkout, whose `EdgeCrossAttn` does not yet have `action_motion_dim`; no epoch, checkpoint, or GPU training ran. Commit `780b365` preserves an explicit `SAGE_REPO` across environment activation, and an exact launcher-environment import check resolves `EdgeCrossAttn` to Sage commit `09acfe3` with the expected constructor.
 
 ## Result + Verdict
 
