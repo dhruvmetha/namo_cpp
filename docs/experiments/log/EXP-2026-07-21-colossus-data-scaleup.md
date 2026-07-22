@@ -59,9 +59,11 @@ Colossus is an **overall scale-up**, not a dead-only harvest. The build:
 - **Sweep X** (e.g. 20 / 40 / max) on the grown base; compare hard@1 vs the d20 baseline (39.7) to read the dose-response.
 - Base for the stack = **d20** [USER] (d20 positives already = 2c positives; colossus positives append; dead pool grows).
 
-## Yield finding → generator follow-up
+## Yield finding — pre-fix scenes (not a new problem)
 
-Live labeling shows only **~29% of bank scenes are usable** (24% dead-root + 5% success); ~71% are out-of-scope (60% `goal_region_not_in_snapshot` = goal enclosed, 11% `no_reachable_objects`). The bank+leftover supply is enough for the dose-sweep to ~55%, but scaling further at 29% yield is wasteful. Fix = a yield-aware generator (adjacency-guaranteed, dead-biased) → **child card [EXP-2026-07-22-yield-aware-generator](EXP-2026-07-22-yield-aware-generator.md)** (parked; un-park only if the colossus dose curve is still rising at ~45%).
+Live labeling shows only **~29% of bank scenes are usable** (24% dead-root + 5% success); ~71% are out-of-scope (60% `goal_region_not_in_snapshot` = goal not 1-hop from robot, 11% `no_reachable_objects` = movable exists but robot can't reach a push pose). **This is expected: the bank (`collect3/bank.txt`) was generated 2026-07-13, before the gen↔label adjacency fix (`mujoco_env_creator@55badcb`, 2026-07-14) that took `goal_region_not_in_snapshot` 77.8%→0%.** The scenes that pass are valid and correctly labeled — the data is not corrupted, just low-yield. Future generation uses the fixed `generate_envs.py` (feb pilot ~90% accept) and does not repeat this. So the yield hit here costs compute, not correctness; the dead we harvest is fine.
+
+The genuinely open scene problem is **hard-1push scarcity** (only ~3.5% of solvable scenes are hard) → child card [EXP-2026-07-22-hard1push-scarcity](EXP-2026-07-22-hard1push-scarcity.md) (parked; separate from the dead-dose question).
 
 ## Run
 
