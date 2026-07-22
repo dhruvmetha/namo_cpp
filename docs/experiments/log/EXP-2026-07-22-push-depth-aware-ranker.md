@@ -85,6 +85,8 @@ The existing Antman-5c H5 already stores `contact_px`, whose ordered rectangle s
 
 **Matched one-epoch smoke PASS (jobs `186720`/`186721`).** Baseline and treatment ran concurrently on two `rlab2` A100s with `num_workers=0`, each completing all 178,364 rows, checkpoint save/reload, and deployment-loader shape checks. Baseline completed in 4m34s with epoch-0 train/validation loss 1.6200/1.0502; treatment completed in 4m37s with 1.5943/1.2034. Both reloads had zero logit delta and both produced `(1,60,5,51)` logits and `(1,60,5)` values. The near-identical runtime makes 20 epochs approximately 92 minutes before final checks, so the full pair uses the proven worker-free path with a four-hour limit; the postcheck subset is diagnostic-only and does not alter training or the full validation monitor.
 
+**Full one-seed A/B launched (jobs `186722`/`186723`, 2026-07-22).** NAMO launch commit `fd17abe`, Sage commit `09acfe3`; two concurrent `rlab2` A100s; baseline/treatment respectively; exact Antman-5c H5; seed 1; room split seed 0; 20 epochs; batch 256; learning rate `3e-4`; rank auxiliary weight/temperature `0.1/0.15`; `num_workers=0`; four-hour limit. Both jobs entered `RUNNING` on the intended node; outputs are under `/common/users/dm1487/scratch_namo/curriculum2/push_depth/antman5c_ab/full_seed1/{baseline,treatment}`.
+
 ## Result + Verdict
 
 All count and identity gates passed: easy/med/hard = 698/421/204, no valid ground-truth cells were missing from any live candidate pool, and the evaluator made zero push simulations.
