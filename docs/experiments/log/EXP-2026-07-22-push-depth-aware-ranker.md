@@ -1,8 +1,8 @@
 ---
 type: experiment
-status: idea
+status: live
 created: 2026-07-22
-commit:
+commit: ddb18d2
 metric: Antman-5c edge-vs-depth failure decomposition; 1push solve@1/@5; 2push solve@2/@5/@10/@30 and sims-to-solve, all by easy/med/hard
 thread: rl_loop
 parent: EXP-2026-07-14-region-opening-curriculum-marvel
@@ -67,7 +67,7 @@ Accept the depth-aware head only if it preserves 1-push performance within 2 per
 
 ## Run
 
-_(pending; no code change, commit, training, or evaluation has been launched.)_
+**Phase-0 implementation (2026-07-22).** Commit `ddb18d2` extends `scripts/eval_scorer.py` in place with a zero-push live-canonical mode, adds the three-way category tests, and adds the CS `unlimited` launcher `scripts/slurm/eval_scorer_live.slurm`. Local compile + focused tests pass (2/2). Target-cluster one-episode smoke and the calibrated full 1,323-episode run are next.
 
 ## Result + Verdict
 
