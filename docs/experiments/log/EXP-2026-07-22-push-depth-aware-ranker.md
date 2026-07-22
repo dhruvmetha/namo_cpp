@@ -2,7 +2,7 @@
 type: experiment
 status: live
 created: 2026-07-22
-commit: c86a86a
+commit: 17b4df3
 metric: Legacy-motion one-seed 1push A/B was promising; corrected image-aligned final-pose 3-seed A/B pending; 2push simulator verdict deferred
 thread: rl_loop
 parent: EXP-2026-07-14-region-opening-curriculum-marvel
@@ -90,6 +90,8 @@ This fresh A/B does not authorize 2-push simulator evaluation; the final cross-h
 **Canonical Phase-0 run (job 186712, commit `c131c8e`, 2026-07-22).** One `unlimited` GPU on `ilab1`; checkpoint `antman5c/checkpoints/epoch018-val_loss0.6276.ckpt`; 1,323/1,323 episodes completed in 2m38s with exit code 0 and 0.110 seconds/episode steady-state. Artifacts: `/common/users/dm1487/scratch_namo/eval/push_depth/full/antman5c_depth_diag.{json,jsonl}` and log `logs/a5cdepth_full_186712.out`.
 
 **Legacy Phase-1 implementation frozen (2026-07-22).** NAMO commit `75c8c11` and Sage commit `09acfe3` implement the first cheap treatment: the existing 60 contact tokens complete attention unchanged, then each token is expanded to its five candidate depths, combined with that candidate's normalized nominal `(dx,dy,dtheta)`, and scored by one shared 51-bin value head. `NAMO_ACTION_MOTION=0` retains the original Antman-5c architecture and checkpoint keys; the historical `NAMO_ACTION_MOTION=1` run used this legacy three-number treatment.
+
+**Corrected final-pose implementation frozen (commit `17b4df3`, 2026-07-22).** New treatments use the four-number image-aligned final pose from Phase 3; checkpoint-inferred feature dimensionality keeps the legacy three-number model evaluable. Eight focused tests pass, including all shape families, exact crop-coordinate equality, angle-wrap continuity, and scorer diagnostics. An actual Antman H5 row completes corrected `(1,60,5,51)` forward/backward with finite logits, and the legacy treatment checkpoint reloads and forwards with its inferred three-number feature. Parameter counts remain closely controlled: baseline 4,397,055 versus corrected treatment 4,396,083.
 
 The existing Antman-5c H5 already stores `contact_px`, whose ordered rectangle samples recover the target object's current axes, size family, and yaw. The loader therefore constructs the exact active primitive table from the pinned `1x_car_d5_motion_primitives_15_{square,wide,tall}.dat` files without XML lookup or simulator calls. Focused tests cover all three shape families and rotation, the original Antman-5c checkpoint still loads through `eval_scorer`, and an actual H5 batch completes forward/loss/backward with finite values. Parameter counts are closely matched: baseline 4,397,055 versus treatment 4,395,891.
 
