@@ -1,8 +1,8 @@
 ---
-status: active
+status: live
 thread: rl_loop
 robot: car
-updated: 2026-07-21
+updated: 2026-07-22
 parent: EXP-2026-07-14-region-opening-curriculum-marvel
 commit: 18d0ce3
 ---
@@ -13,7 +13,7 @@ commit: 18d0ce3
 
 ## The one sentence
 
-**Scale the whole 2-push dataset** with +175k fresh labeled scenes (collect3 screen-bank, exhaust-on-miss, beast-2c-d20 finish ranker): the openers/setups/true-2push it yields are **new positive boards that grow the base**, and the dead roots grow the **dead pool** — then train the ranker on the grown base with an **X% dead dose** on top, sweeping X. NOT a dead-only harvest; dead is one component + a dose knob.
+**Scale the whole 2-push dataset** by collecting the geometry-clean Colossus-0 manifest of 1,000,000 fresh XMLs with the fixed generator, exhaust-on-top-5-miss, and the beast-2c-d20 finish ranker: the openers/setups/true-2push it yields are **new positive boards that grow the base**, and the dead roots grow the **dead pool** — then train the ranker on the grown base with an **X% dead dose** on top, sweeping X. NOT a dead-only harvest; dead is one component + a dose knob.
 
 ## Why (the evidence that triggered this)
 
@@ -43,20 +43,21 @@ Locked after a long clarification pass (see chat 2026-07-21):
 
 `ceiling_mask=1` on every dead cell. The fence is one-sided (cap, free below), so **0.81 + ceiling already encodes "≤0.81"** — no sub-0.81 label, no code delta. Only **1.0 and 0.9-exact** are two-sided targets. There is no 0 in the trained DB except unreachable.
 
-## Collection plan (round-0)
+## Collection plan (Colossus-0)
 
-- **Source:** +175k fresh roots from Amarel `collect3/bank.txt` (234,342 screen-dead leads; dead-heavy, disjoint from round-2's ~26k).
+- **Source:** exactly 1,000,000 generated pair XMLs selected with seed 42 from the geometry-clean pool at the locked 600,000 aug9 / 400,000 feb mix; full-room geometry is disjoint from the canonical test set.
 - **Ranker in loop:** beast-2c-d20 (`epoch010-val_loss1.7072`) → Amarel `colossus/d20_finish_ranker.ckpt`.
-- **Labeler:** exhaust-on-miss, `region_exhaust_on_miss_topk=5`, setups exhaustive, chain-depth 2. Finish sweep follows d20's rank order end-to-end (stop rule flips at the top-5 boundary; try-order never randomizes — records the rank the opener sat at).
-- **Compute:** Amarel main-redhat, wide burst up to the 6,720-CPU / 500-task cap, target ≤3-4h. Smoke + calibrate first (scaled-run).
+- **Labeler:** chain-depth 2 with exhaustive root setups. For each post-setup board, d20 ranks every reachable finish: stop at the first verified opener when it appears in positions 1–5; if none of the first five opens, commit to the full remaining finish sweep and do not stop on a later hit. Thus top five is the trigger for exhaustive miss collection, not a five-sample cap; try order never randomizes, and every tried finish keeps its d20 score and rank.
+- **Compute:** Amarel `main-redhat`; collect in staged waves of at most 470 tasks × 350 XMLs/task, with 14 CPUs and 12 workers per task.
 - **Census (deliverable):** count 1-push (root direct), 1-push (post-push finish), true 2-push (setup, no direct), dead 1-push (post-push exhausted empty), dead 2-push (root all-dead). Positives AND dead both matter — the positives grow the base, the dead feed the dose.
+- **Data unit:** 1,000,000 is the number of input XMLs, not the final number of training episodes; each room may yield multiple independent `(pushed object, goal region)` episodes.
 
 ## Training recipe (the reframe)
 
 Colossus is an **overall scale-up**, not a dead-only harvest. The build:
 
-- **Base** = all positive boards = prior positives (d20/2c ≈ 192k) **+ colossus positives** (its openers/setups/true-2push, ~5% of scenes ≈ ~8k). The grown base is the point of "scale-up."
-- **Dead dose** = add **X% dead** (of base size) from the enlarged dead pool = d20's 38k + colossus dead (~40k roots + finishes). 50/50 root/finish, non-dup, ceilings at build (root 0.81, finish 0.9).
+- **Base** = all positive boards = prior positives (d20/2c ≈ 192k) **+ measured colossus positives** after the full census (openers/setups/true-2push). The grown base is the point of "scale-up."
+- **Dead dose** = add **X% dead** (of base size) from the enlarged pool of d20 dead examples plus measured colossus dead roots and finishes. Use 50/50 root/finish, non-dup, with ceilings applied at build (root 0.81, finish 0.9).
 - **Sweep X** (e.g. 20 / 40 / max) on the grown base; compare hard@1 vs the d20 baseline (39.7) to read the dose-response.
 - Base for the stack = **d20** [USER] (d20 positives already = 2c positives; colossus positives append; dead pool grows).
 
@@ -74,6 +75,12 @@ Live labeling shows only **~29% of bank scenes are usable** (24% dead-root + 5% 
 
 **Launch.** Code commit `18d0ce3` (card stamp `9987060`), isolated checkout `/cache/home/dm1487/projects/namo/namo_cpp_colossus0_1m`, scratch root `/scratch/dm1487/curriculum2_amarel/colossus0_1m`, detached driver PID 1861775, generation array `58742902` (240 exclusive-node shards, three-hour cap). The driver selects exactly 600,000 aug9 + 400,000 feb XMLs only after the canonical full-room geometry gate, then submits ≤470-task collection waves of 350 XMLs/task using the exact d20 checkpoint SHA256 `6c1dfbb7108fb1a84b1a821b7b5d79d54198f3ef1e44af8acd0472dea6746046`. First live check: 50 generation tasks running, pair XML artifacts present, zero matched error logs.
 
+**Generation and manifest gate complete (verified 2026-07-22).** Generation produced 2,031,481 unique parseable XMLs. The geometry gate found all 2,031,481 disjoint from the 8,773 canonical test-room geometries (`n_dropped=0`, `n_unparseable=0`). The clean pools contain 668,547 aug9 and 1,362,934 feb XMLs; `manifests/colossus0_1m.txt` contains exactly 1,000,000 paths selected with seed 42 at 600,000 aug9 + 400,000 feb. Manifest SHA256 is `22430e0b76f17cf248f9fe3e49a46078fed642afbf6b36bf11ec63fa7168c1ff`.
+
+**Finalizer recovery.** The first finalizer, job `58744260`, used `ThreadPoolExecutor` for the CPU-bound XML geometry parser and timed out at 3:00:00 before writing the manifest. The isolated Amarel checkout was changed to `ProcessPoolExecutor`; retry job `58784784` completed the full 2,031,481-XML gate and exact manifest in 37:55. This ProcessPool change is currently uncommitted in that isolated Amarel checkout and must be ported to the main repository before the finalizer is reused.
+
+**Current state (verified 2026-07-22).** The original driver exited after the first finalizer timed out, so it did not submit collection after the successful retry. Amarel currently has no pending or running jobs for this account, and `/scratch/dm1487/curriculum2_amarel/colossus0_1m/collect` contains zero result files. The next action is to submit the staged depth-2 d20 collection waves from the validated 1,000,000-XML manifest; do not regenerate or refilter.
+
 ## Result
 
-_(pending)_
+_(pending: the XML-generation and manifest prerequisite is complete; depth-2 collection, the per-episode census, training, and evaluation have not started.)_
