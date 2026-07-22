@@ -72,6 +72,8 @@ Live labeling shows only **~29% of bank scenes are usable** (24% dead-root + 5% 
 
 **Target-box smoke.** On Amarel `main-redhat`, the fixed generator emitted 2/2 valid feb pair XMLs and the exact d20 collector completed them with real primitive progress and 3 stored episodes. Collection took 20.6 minutes on 2 workers = 0.344 worker-hours/XML. Together with the earlier 498-scene Beast probe (0.167 worker-hours/scene), the honest 1M collection range is about 25–51 hours at the 6,720-CPU hard ceiling, before queue/straggler loss. Therefore XML generation runs overnight, while collection is staged as safe ≤470-task waves and continues beyond the night; no prior data is overwritten or deleted.
 
+**Launch.** Code commit `18d0ce3` (card stamp `9987060`), isolated checkout `/cache/home/dm1487/projects/namo/namo_cpp_colossus0_1m`, scratch root `/scratch/dm1487/curriculum2_amarel/colossus0_1m`, detached driver PID 1861775, generation array `58742902` (240 exclusive-node shards, three-hour cap). The driver selects exactly 600,000 aug9 + 400,000 feb XMLs only after the canonical full-room geometry gate, then submits ≤470-task collection waves of 350 XMLs/task using the exact d20 checkpoint SHA256 `6c1dfbb7108fb1a84b1a821b7b5d79d54198f3ef1e44af8acd0472dea6746046`. First live check: 50 generation tasks running, pair XML artifacts present, zero matched error logs.
+
 ## Result
 
 _(pending)_
