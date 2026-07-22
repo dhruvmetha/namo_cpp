@@ -6,13 +6,18 @@ updated: 2026-07-22
 parent: EXP-2026-07-21-colossus-data-scaleup
 ---
 
-# EXP-2026-07-22 — Yield-aware scene generator (single-hop, dead-biased)
+# EXP-2026-07-22 — Yield-aware scene generator (single-hop, mix-controllable)
 
 **⛔ Read [docs/problem_and_approach.md](../../problem_and_approach.md) first.** An episode = robot region + goal region + the ONE movable between them; the ranker orders the pushes on that object. A scene is only usable if the wavefront makes a distinct `goal` region **immediately adjacent** to the robot region with a movable on the boundary. This card is about generating scenes that actually satisfy that.
 
 ## The one sentence
 
-Build a generator that produces **valid single-hop region-opening scenes at high yield** (goal is an immediate neighbour of the robot region, one movable between, biased toward dead), so future dead-data collection stops wasting ~70% of its scenes.
+Build a generator that produces **valid single-hop region-opening scenes at high yield** (goal immediately adjacent to the robot region, one movable between) **with a controllable live-vs-dead mix** — so we can grow BOTH the positive base (openers/setups/true-2push) AND the dead pool on demand, instead of wasting ~70% of scenes and harvesting almost only dead.
+
+## Two goals (why "yield-aware" is not enough)
+
+1. **High yield** — stop the ~70% out-of-scope waste (goal enclosed / no adjacent movable).
+2. **Controllable positive/live fraction** — the colossus bank is screen-**dead** by construction, so it grows the dead pool but barely the positive base (+4%). A true "full data scale-up" needs **openable** scenes (a movable that CAN merge robot+goal in 1-2 pushes), which no pre-screened source gives us. The generator must be able to dial the live-vs-dead ratio, not just emit dead.
 
 ## Why (measured, not theorized)
 
@@ -31,24 +36,31 @@ Verified live (`colossus/repro.py`): failing scenes give wavefront labels like `
 
 ## Hypothesis
 
-A generator that **constructs** the robot-region / goal-region / blocking-movable topology directly (rather than placing a goal and hoping the wavefront cooperates) can reach **≥80% usable yield** while keeping a **high dead fraction** (the whole point — dead roots are the scarce, valuable class).
+A generator that **constructs** the robot-region / goal-region / blocking-movable topology directly (rather than placing a goal and hoping the wavefront cooperates) can reach **≥80% usable yield** AND hit a **target live-vs-dead ratio** via a difficulty knob — giving us positives (openable) and dead on demand from one generator.
 
 ## Plan (round-0, when un-parked)
 
 1. **Diagnose the current 29%** — read `template_generation.py` end-to-end: how goal cell + robot + movables are placed, why ~60% enclose the goal. Is it a placement bug (goal dropped into occupied/walled cell) or a topology choice (multi-region layouts where goal lands 2+ hops away)? This decides whether it's a fix or a rewrite.
-2. **Adjacency-guaranteed construction** — generate the wavefront topology first: robot region, one adjacent goal region, a movable straddling the shared boundary; then realize XML from that. Verify each scene with the SAME `get_region_snapshot(..., use_xml_goal=True)` the planner uses — keep only scenes where `goal` is an immediate neighbour of `robot`.
-3. **Dead-bias knob** — tune obstacle density / boundary geometry so a target fraction of the movables are un-pushable-to-merge (dead roots) vs openable — we want dead-heavy but with a live tail for openers/setups.
-4. **Yield gate (smoke)** — label a 200-scene smoke through region_opening; require usable-yield ≥80% and dead-fraction in the target band before any scale run. (scaled-run skill.)
+2. **Adjacency-guaranteed construction** — generate the wavefront topology first: robot region, one adjacent goal region, a movable straddling the shared boundary; then realize XML from that. Verify each scene with the SAME `get_region_snapshot(..., use_xml_goal=True)` the planner uses — keep only scenes where `goal` is an immediate neighbour of `robot`. This alone fixes yield.
+3. **Live-vs-dead mix knob** — parametrize the boundary/obstacle geometry so the blocking movable is **openable** (clear merge path in 1-2 pushes → openers/setups/true-2push = positives) vs **dead** (boxed-in, no merge → dead root). Sweep the knob to hit a target ratio (e.g. 60/40 live/dead for base growth, or dead-heavy for a dose top-up). The point: **dial positives, not just harvest dead**.
+4. **Difficulty control** — within live scenes, tune how many first-pushes merge (n_setups) to place the scene in easy/med/hard tiers on demand — the hard 1-push tier is the scarce one.
+5. **Yield + mix gate (smoke)** — label a 200-scene smoke through region_opening; require usable-yield ≥80% AND the realized live/dead ratio within ±10% of target before any scale run. (scaled-run skill.)
 
 ## Success metric
 
 - **Usable yield ≥ 80%** (dead-root + success) vs current 29%.
-- Dead-root fraction high enough to feed the dose-sweep (colossus needs ~tens of k dead roots per dose step).
-- Scenes are geometry-disjoint from `namo_testset_v1` (hold-out by room; [[reference_room_pool_lineage]]).
+- **Realized live/dead ratio tracks the knob** (±10%) — can produce a positive-rich batch (grow base) OR a dead batch (dose) from the same generator.
+- Live scenes span easy/med/hard tiers (not all trivial openers).
+- Scenes geometry-disjoint from `namo_testset_v1` (hold-out by room; [[reference_room_pool_lineage]]).
 
 ## Gating (why parked)
 
-**Blocked on the colossus dose-response.** Colossus (EXP-2026-07-21) stacks ~51k dead on the d20 base → dose 20%→~45%. Only build+run this generator if hard@1 is **still climbing at ~45%** (i.e. more dead volume than bank+leftover can supply is actually needed). If it plateaus, generation is moot. Free bridge before generation: 59k bank leftover + `collect3/keep.txt` (already generated, disjoint).
+Parked, but **two independent un-park triggers** (either fires it):
+
+1. **Dead-dose still rising.** Colossus (EXP-2026-07-21) stacks ~51k dead on the d20 base → dose 20%→~45%. If hard@1 is still climbing at ~45%, we need more dead than bank+leftover (59k) can supply → generate (dead-heavy knob). If it plateaus, this trigger is off.
+2. **Positive base needs to grow (full scale-up).** This is NOT gated on the dose curve — the bank is dead-biased and *cannot* grow positives (colossus added only +4%), so any real full-data scale-up needs the generator's **live/openable** output regardless of what the dead-dose does. If the plan is to grow the whole set (more openers/setups/true-2push, harder tiers), un-park for positives even if dead plateaus.
+
+Free bridge before generating dead: 59k bank leftover + `collect3/keep.txt` (already generated, disjoint). There is **no** free bridge for positives — that's the gap only this generator fills.
 
 ## Run
 
