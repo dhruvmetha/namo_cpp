@@ -31,6 +31,7 @@ def _make_network(value_bins: int) -> EdgeCrossAttn:
         num_depths=NUM_DEPTHS, num_edges=60, use_local=True,
         pos_fourier=True, use_edge_embed=True,          # sharp/e4 identity recipe
         budget_cond=False, value_bins=value_bins,       # single ranker (no horizon conditioning)
+        action_motion_dim=(3 if os.environ.get("NAMO_ACTION_MOTION", "0") == "1" else 0),
     )
 
 

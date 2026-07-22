@@ -59,9 +59,11 @@ fi
 mkdir -p "$OUT"; LOG="$OUT/train.log"
 
 echo "TRAIN start $(date) host=$(hostname) H5=$H5 GAMMA=${NAMO_GAMMA:-none} PY=$PY OUT=$OUT"
+EXTRA=()
+if [ -n "${POSTCHECK_LIMIT:-}" ]; then EXTRA+=(--postcheck-limit "$POSTCHECK_LIMIT"); fi
 "$PY" scripts/rl_loop/train_q2_rankaux.py --h5 "$H5" --out-dir "$OUT" \
   --epochs "${EPOCHS:-12}" --batch-size "${BATCH:-256}" --num-workers "${WORKERS:-8}" \
-  --lr "${LR:-3e-4}" --seed "${SEED:-1}" --split-seed 0 > "$LOG" 2>&1 &
+  --lr "${LR:-3e-4}" --seed "${SEED:-1}" --split-seed 0 "${EXTRA[@]}" > "$LOG" 2>&1 &
 PID=$!
 # (5) hang-kill: ckpt written + "[eval_scorer-load check]" printed, then teardown hangs -> kill
 while kill -0 $PID 2>/dev/null; do

@@ -96,9 +96,11 @@ def load_scorer(ckpt, num_depths, device, network="dit_classifier"):
             kw["max_budget"] = sd["network.budget_embed.weight"].shape[0] - 1
         if "network.reach_embed.weight" in sd:           # M2d: per-edge reachability input flag
             kw["reach_flag_input"] = True
+        if "network.action_motion_proj.0.weight" in sd:
+            kw["action_motion_dim"] = sd["network.action_motion_proj.0.weight"].shape[1]
         head_out = sd["network.head.2.weight"].shape[0]
-        if head_out != num_depths:                       # HL-Gauss value head: num_depths * bins logits
-            kw["value_bins"] = head_out // num_depths
+        if head_out != num_depths:                       # HL-Gauss value head
+            kw["value_bins"] = head_out if kw.get("action_motion_dim", 0) else head_out // num_depths
         net = EdgeCrossAttn(**kw)
     else:
         from src.model.dit.dit_classifier import DiTClassifier
@@ -424,6 +426,9 @@ def main():
                     for (te, _td) in tried:
                         if 0 <= te < 60: rbits[0, te] = 1
                     hkw["reach_edges"] = rbits
+                if getattr(model.network, "action_motion_dim", 0) > 0:
+                    from namo.rl_loop.action_motion import action_motion_from_contact_px
+                    hkw["action_motion"] = action_motion_from_contact_px(cpx_t)
                 t = model(ctx, cpx_t, ztup[0], ztup[1], **hkw)[0]
                 if t.dim() == 3:
                     from src.model.hl_gauss import HLGauss
