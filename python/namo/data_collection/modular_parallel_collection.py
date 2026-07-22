@@ -1215,6 +1215,9 @@ def main():
             # Beast LABEL mode: exhaustive setups + early-stop finish sweep + score/rank log + cost-prune off.
             # Set via --config-yaml (region_label_mode), same set_defaults path as region_exhaustive_mode.
             "region_label_mode": getattr(args, 'region_label_mode', False),
+            # Reject 1-push-solvable roots before any depth-2 expansion while retaining a minimal
+            # audit record. YAML-only collection knob; default False preserves existing runs.
+            "region_stop_after_root_opener": getattr(args, 'region_stop_after_root_opener', False),
             # Enforced per-scene (per-neighbour) time budget so rich depth-2 scenes don't hog a worker.
             # Same set_defaults(yaml) path; must be in this dict to reach the planner.
             "region_timeout_per_neighbour_sec": getattr(args, 'region_timeout_per_neighbour_sec', None),

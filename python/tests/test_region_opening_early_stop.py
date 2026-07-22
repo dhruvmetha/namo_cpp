@@ -1,4 +1,5 @@
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -29,6 +30,7 @@ def test_attempt_opening_stops_after_max_solutions(monkeypatch):
         algorithm_params={
             "region_max_solutions_per_neighbor": 1,
             "region_stop_after_max_solutions": True,
+            "region_stop_after_root_opener": True,
         },
     )
     planner = RegionOpeningPlanner(env, config)
@@ -58,7 +60,7 @@ def test_attempt_opening_stops_after_max_solutions(monkeypatch):
                 0,               # unique_movable_collision_count
             )
         ]
-        return successful_goals, 0, {"ML-only": 1}, "ML-only", False, 0, []
+        return successful_goals, 0, {"all": 1}, "all", False, 0, [], []
 
     monkeypatch.setattr(planner, "_search_with_chaining_bfs", _fake_search)
 
@@ -76,6 +78,70 @@ def test_attempt_opening_stops_after_max_solutions(monkeypatch):
     # Should stop after the first success instead of searching other objects.
     assert len(calls) == 1
     assert any(a.success for a in attempts)
+    assert attempts[0].root_opener_rejected is True
+
+
+def test_root_opener_rejection_skips_depth_two_and_replay(monkeypatch):
+    monkeypatch.setattr(RegionOpeningPlanner, "_setup_constraints", lambda self: None)
+    monkeypatch.setattr(
+        RegionOpeningPlanner,
+        "_initialize_algorithm",
+        lambda self: setattr(self, "goal_strategy", SimpleNamespace()),
+    )
+
+    class _SearchEnv(_DummyEnv):
+        def __init__(self):
+            super().__init__(["obj1"])
+            self.step_calls = 0
+
+        def get_observation(self):
+            return {}
+
+        def get_reachable_edges(self, _object_id):
+            return [0]
+
+        def step(self, _action):
+            self.step_calls += 1
+            raise AssertionError("rejection mode must not replay the verified root opener")
+
+    env = _SearchEnv()
+    planner = RegionOpeningPlanner(
+        env,
+        PlannerConfig(
+            verbose=False,
+            algorithm_params={
+                "region_max_chain_depth": 2,
+                "region_exhaustive_mode": True,
+                "region_label_mode": True,
+                "region_stop_after_root_opener": True,
+                "region_selection_strategy": "ml_first",
+            },
+        ),
+    )
+    goal = Goal(x=0.0, y=0.0, theta=0.0, score=1.0, edge_idx=0, depth=0)
+    planner.goal_strategy.generate_goals = lambda *_args, **_kwargs: [[goal]]
+    searched_depths = []
+
+    def _fake_bfs(*_args, **kwargs):
+        searched_depths.append(kwargs["current_chain_depth"])
+        success_node = SimpleNamespace(step_cost=1, skill_calls_before_success=1)
+        success = (goal, [{}], [{}], object(), None, [], success_node, time.time())
+        trial = {"chain_depth": 1, "edge_idx": 0, "depth": 0, "success": True}
+        return [success], 1, [], False, set(), [trial]
+
+    monkeypatch.setattr(planner, "_search_bfs", _fake_bfs)
+
+    result = planner._search_with_chaining_bfs(
+        "obj1",
+        object(),
+        "region_1",
+        {},
+    )
+
+    assert searched_depths == [1]
+    assert env.step_calls == 0
+    assert result[1] == 1
+    assert result[6][0]["success"] is True
 
 
 def test_explore_stops_after_first_neighbour_success(monkeypatch):

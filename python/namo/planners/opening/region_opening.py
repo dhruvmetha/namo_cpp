@@ -142,6 +142,9 @@ class AttemptResult:
     phase_push_counts: Optional[Dict[str, int]] = None
     # Which phase found the solution: "ML-only", "primitives", or "" if not found
     solved_in_phase: str = ""
+    # Colossus rejection audit marker: this object episode found a direct root opener and therefore
+    # stopped before depth 2. Downstream training builders exclude these rows; census tools retain them.
+    root_opener_rejected: bool = False
     # Primitive ranking/sorting timings in BFS candidate ordering.
     primitive_ranking_calls: int = 0
     primitive_ranking_ms_total: float = 0.0
@@ -231,10 +234,15 @@ class RegionOpeningPlanner(BasePlanner):
         # subset (randomized-repeats lever). 0 = off (legacy exhaustive-over-reachable).
         self.sample_k = int(algo_params.get("region_sample_k", 0))
         # LABEL mode (Beast 2-push): exhaustive setups + scorer-ordered finish with EARLY-STOP at the first
-        # opening finish; setups stay exhaustive; log each finish's score+rank for recall-miss recycling;
-        # disable cost-optimality pruning so setups in direct-opener scenes still get a finish sweep. See
-        # card EXP-2026-07-14 "Beast (2-push)". False = off (rung-1/legacy behaviour unchanged).
+        # opening finish; log each finish's score+rank for recall-miss recycling; disable cost-optimality
+        # pruning so setups in direct-opener scenes still get a finish sweep unless the opt-in rejection
+        # gate below stops them. See card EXP-2026-07-14 "Beast (2-push)". False = off.
         self.label_mode = bool(algo_params.get("region_label_mode", False))
+        # Rejection-sampling gate for 2-push-only collection: search the root in scorer order and
+        # stop the entire object episode at the first verified 1-push opener. If the root has no
+        # opener, every reachable root candidate is tried before depth-2 expansion begins. This
+        # deliberately keeps a small rejection record while avoiding all post-push work on 1-push roots.
+        self.stop_after_root_opener = bool(algo_params.get("region_stop_after_root_opener", False))
         # label-mode top-k cap on the FINISH sweep (deepest level only): stop after k failed finish
         # candidates instead of exhausting (~60). Misses become honest ceilings, never false labels.
         # Pilot-validated (2026-07-19, n=2.4M): antman-5c k=15 retains 97.7% of successes at ~30% cost.
@@ -1632,6 +1640,7 @@ class RegionOpeningPlanner(BasePlanner):
                             unique_movable_collision_count=unique_movable_collision_count,
                             phase_push_counts=phase_push_counts,
                             solved_in_phase=solved_in_phase,
+                            root_opener_rejected=self.stop_after_root_opener,
                             primitive_trial_log=object_trial_log if self.exhaustive_mode else None,
                             reachability_log=object_reachability_log if self.exhaustive_mode else None,
                         ))
@@ -2054,7 +2063,10 @@ class RegionOpeningPlanner(BasePlanner):
         # Phase 1: Try ONLY ML goals (score > 0) across ALL depths
         # Phase 2: If Phase 1 fails, try ONLY primitives (score = 0) across ALL depths
         # This ensures ML predictions get global priority before falling back to primitives
-        use_two_phase = self.selection_strategy == "ml_first"
+        # Root-opener rejection needs one complete scorer-ordered root pass before ANY depth-2 work.
+        # The legacy two-phase traversal searches ML depth-2 before zero-score root fallbacks, so use
+        # the normal score-sorted candidate pass when this gate is active.
+        use_two_phase = self.selection_strategy == "ml_first" and not self.stop_after_root_opener
         # phases: (stop_at_score_zero, primitives_only, phase_name)
         phases = [
             (True, False, "ML-only"),      # Phase 1: ML goals only
@@ -2067,6 +2079,7 @@ class RegionOpeningPlanner(BasePlanner):
         solved_in_phase = ""
         any_wall_collision_during_search = False
         movable_collisions_during_search: Set[str] = set()
+        root_opener_found = False
 
         # Cache goals per node to avoid redundant ML inference across phases and depths
         # Key: node id, Value: (goals_per_edge, reachable_edge_indices)
@@ -2255,6 +2268,8 @@ class RegionOpeningPlanner(BasePlanner):
 
                     # If we found success, reconstruct ALL goal chains with their state observations
                     if successful_results:
+                        if self.stop_after_root_opener and chain_depth == 1:
+                            root_opener_found = True
                         for (final_goal, final_state_obs, final_post_state_obs, resulting_state, region_goal_used, all_region_goals, success_node, success_time) in successful_results:
                             # For multi-push chains, reconstruct full chain with observations
                             if chain_depth > 1:
@@ -2266,34 +2281,43 @@ class RegionOpeningPlanner(BasePlanner):
                                 goal_chain = [final_goal]
                                 state_obs = final_state_obs
                                 post_state_obs = final_post_state_obs
-                                # For single push, we don't have reachable objects captured during BFS
-                                # So collect them now with collision tracking
-                                replay_start = time.perf_counter()
-                                self.env.set_full_state(baseline_state)
-                                reachable_before = [self.env.get_reachable_objects()]
-                                # Execute the action to get reachable after and collision info.
-                                # CRITICAL: include edge_idx + depth so the C++ env re-runs
-                                # the *same* primitive the search just declared a success.
-                                # Without these, the env falls back to picking a primitive
-                                # from (x, y, theta), which routes to a different edge/depth
-                                # — visible in --viewer as a different last push than what
-                                # gets recorded in the chain. See chain JSON vs viewer
-                                # discrepancy reported 2026-05-20.
-                                action = namo_rl.Action()
-                                action.object_id = object_id
-                                action.x = final_goal.x
-                                action.y = final_goal.y
-                                action.theta = final_goal.theta
-                                action.edge_idx = final_goal.edge_idx
-                                action.depth = final_goal.depth
-                                self._consume_push_budget()
-                                step_result = self.env.step(action)
-                                reachable_after = [self.env.get_reachable_objects()]
-                                # Extract collision info from step result
-                                any_wall_collision = step_result.info.get("wall_collision", "false") == "true"
-                                movable_str = step_result.info.get("movable_collisions", "")
-                                unique_movable_collision_count = len([s for s in movable_str.split(",") if s]) if movable_str else 0
-                                self._record_chain_observation_replay_timing((time.perf_counter() - replay_start) * 1000.0)
+                                if self.stop_after_root_opener:
+                                    # The successful search push already produced the observations and trial
+                                    # record needed for rejection auditing. Do not replay it: rejection mode
+                                    # stops simulator work at the first verified root opener.
+                                    reachable_before = None
+                                    reachable_after = None
+                                    any_wall_collision = any_wall_collision_during_search
+                                    unique_movable_collision_count = len(movable_collisions_during_search)
+                                else:
+                                    # For single push, we don't have reachable objects captured during BFS
+                                    # So collect them now with collision tracking
+                                    replay_start = time.perf_counter()
+                                    self.env.set_full_state(baseline_state)
+                                    reachable_before = [self.env.get_reachable_objects()]
+                                    # Execute the action to get reachable after and collision info.
+                                    # CRITICAL: include edge_idx + depth so the C++ env re-runs
+                                    # the *same* primitive the search just declared a success.
+                                    # Without these, the env falls back to picking a primitive
+                                    # from (x, y, theta), which routes to a different edge/depth
+                                    # — visible in --viewer as a different last push than what
+                                    # gets recorded in the chain. See chain JSON vs viewer
+                                    # discrepancy reported 2026-05-20.
+                                    action = namo_rl.Action()
+                                    action.object_id = object_id
+                                    action.x = final_goal.x
+                                    action.y = final_goal.y
+                                    action.theta = final_goal.theta
+                                    action.edge_idx = final_goal.edge_idx
+                                    action.depth = final_goal.depth
+                                    self._consume_push_budget()
+                                    step_result = self.env.step(action)
+                                    reachable_after = [self.env.get_reachable_objects()]
+                                    # Extract collision info from step result
+                                    any_wall_collision = step_result.info.get("wall_collision", "false") == "true"
+                                    movable_str = step_result.info.get("movable_collisions", "")
+                                    unique_movable_collision_count = len([s for s in movable_str.split(",") if s]) if movable_str else 0
+                                    self._record_chain_observation_replay_timing((time.perf_counter() - replay_start) * 1000.0)
                                 # For single push, total_cost equals the primitive depth at which success occurred
                                 total_cost = max(1, getattr(success_node, "step_cost", 1))
 
@@ -2391,7 +2415,7 @@ class RegionOpeningPlanner(BasePlanner):
                     print(f"    ◼ Completed {processed_frontiers}/{orig_frontier_len} frontiers | avg {avg_ms:.1f} ms | total {total_frontier_time_ms:.1f} ms")
 
                 # Check early termination conditions
-                if reached_cap:
+                if reached_cap or root_opener_found:
                     break
 
             # End of phase - log push count (outside chain_depth loop)
@@ -3015,6 +3039,11 @@ class RegionOpeningPlanner(BasePlanner):
                     else:
                         # plain early-stop: stop at the first verified finish (round-0/1 behaviour).
                         break
+
+                # 2-push rejection sampling: a verified root opener makes this object out of scope.
+                # Stop the root sweep immediately; the outer chain loop then skips depth 2 entirely.
+                if self.stop_after_root_opener and current_chain_depth == 1:
+                    break
 
                 # If we're only collecting a fixed number of solutions, stop immediately
                 # once we reach the cap (don’t wait for the next candidate iteration).

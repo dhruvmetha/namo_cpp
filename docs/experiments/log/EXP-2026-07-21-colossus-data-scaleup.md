@@ -13,7 +13,7 @@ commit: 18d0ce3
 
 ## The one sentence
 
-**Scale the whole 2-push dataset** by collecting the geometry-clean Colossus-0 manifest of 1,000,000 fresh XMLs with the fixed generator, exhaust-on-top-5-miss, and the beast-2c-d20 finish ranker: the openers/setups/true-2push it yields are **new positive boards that grow the base**, and the dead roots grow the **dead pool** — then train the ranker on the grown base with an **X% dead dose** on top, sweeping X. NOT a dead-only harvest; dead is one component + a dose knob.
+**Rejection-sample at least 200,000 genuine 2-push-only object episodes** from the geometry-clean Colossus-0 pool: beast-2c-d20 orders the complete root screen, any verified direct opener rejects the episode immediately, and only root-negative episodes receive the depth-2 setup/finish search; retain their root and post-push boards, then train the ranker on this grown hard-positive/dead base with an **X% dead dose** on top, sweeping X.
 
 ## Why (the evidence that triggered this)
 
@@ -45,18 +45,20 @@ Locked after a long clarification pass (see chat 2026-07-21):
 
 ## Collection plan (Colossus-0)
 
-- **Source:** exactly 1,000,000 generated pair XMLs selected with seed 42 from the geometry-clean pool at the locked 600,000 aug9 / 400,000 feb mix; full-room geometry is disjoint from the canonical test set.
-- **Ranker in loop:** beast-2c-d20 (`epoch010-val_loss1.7072`) → Amarel `colossus/d20_finish_ranker.ckpt`.
-- **Labeler:** chain-depth 2 with exhaustive root setups. For each post-setup board, d20 ranks every reachable finish: stop at the first verified opener when it appears in positions 1–5; if none of the first five opens, commit to the full remaining finish sweep and do not stop on a later hit. Thus top five is the trigger for exhaustive miss collection, not a five-sample cap; try order never randomizes, and every tried finish keeps its d20 score and rank.
+- **Source:** the 2,031,481 generated, parseable, geometry-clean pair XMLs; the locked seed-42 1,000,000-XML manifest is wave 1, not a hard campaign ceiling. Full-room geometry is disjoint from the canonical test set.
+- **Yield target:** stop staged collection only after the canonical per-episode census contains at least 200,000 genuine 2-push-only roots (`not is_1push_solvable and is_2push_solvable`) plus their collected post-push boards. XML count is an input budget, never the yield definition.
+- **Ranker in loop:** beast-2c-d20 (`epoch010-val_loss1.7072`) → Amarel `colossus/d20_finish_ranker.ckpt`; d20 orders both root/setup candidates and finish candidates.
+- **Root rejection:** d20 score-orders every reachable root push. The first simulator-verified direct opener stops that object episode immediately and skips all depth-2 work; the small root trial record remains for audit but is excluded from Colossus training. An episode may be retained as root-negative only after every reachable root candidate has failed, because the ranker controls order but the simulator establishes the label.
+- **Depth-2 labeler:** for each post-setup board of a retained root-negative episode, d20 ranks every reachable finish: stop at the first verified opener when it appears in positions 1–5; if none of the first five opens, commit to the full remaining finish sweep and do not stop on a later hit. Thus top five is the trigger for exhaustive miss collection, not a five-sample cap; try order never randomizes, and every tried finish keeps its d20 score and rank.
 - **Compute:** Amarel `main-redhat`; collect in staged waves of at most 470 tasks × 350 XMLs/task, with 14 CPUs and 12 workers per task.
-- **Census (deliverable):** count 1-push (root direct), 1-push (post-push finish), true 2-push (setup, no direct), dead 1-push (post-push exhausted empty), dead 2-push (root all-dead). Positives AND dead both matter — the positives grow the base, the dead feed the dose.
-- **Data unit:** 1,000,000 is the number of input XMLs, not the final number of training episodes; each room may yield multiple independent `(pushed object, goal region)` episodes.
+- **Census (deliverable):** count rejected direct-1push episodes separately from retained true-2push and dead-within-depth2 episodes, always per `(pushed object, goal region)`. Retained true-2push setup/finish positives grow the base and retained dead roots/finishes feed the dose.
+- **Data unit:** one XML may yield multiple independent `(pushed object, goal region)` episodes; rejection and the 200,000 target apply per episode, not per XML.
 
 ## Training recipe (the reframe)
 
 Colossus is an **overall scale-up**, not a dead-only harvest. The build:
 
-- **Base** = all positive boards = prior positives (d20/2c ≈ 192k) **+ measured colossus positives** after the full census (openers/setups/true-2push). The grown base is the point of "scale-up."
+- **Base** = prior positives (d20/2c ≈ 192k) **+ retained Colossus true-2push setup and finish boards** after the full census. Rejected direct-1push audit rows do not enter this training build.
 - **Dead dose** = add **X% dead** (of base size) from the enlarged pool of d20 dead examples plus measured colossus dead roots and finishes. Use 50/50 root/finish, non-dup, with ceilings applied at build (root 0.81, finish 0.9).
 - **Sweep X** (e.g. 20 / 40 / max) on the grown base; compare hard@1 vs the d20 baseline (39.7) to read the dose-response.
 - Base for the stack = **d20** [USER] (d20 positives already = 2c positives; colossus positives append; dead pool grows).
@@ -69,7 +71,7 @@ Live labeling shows only **~29% of bank scenes are usable** (24% dead-root + 5% 
 
 ## Run
 
-**Colossus-0 1M scale-up launch (2026-07-22).** Generate a fresh, fixed-generator source and select exactly 1,000,000 geometry-clean pair XMLs at the locked 60/40 aug9/feb mix, then collect every XML at depth 2 with `beast-2c-d20`, exhaustive root setups, and exhaust-on-top-5-missed finishes. Keep the complete natural census: direct 1-push, true 2-push, and dead. This is one Colossus-0 dataset; DAgger follows after the scale-up.
+**Colossus-0 staged rejection collection (updated 2026-07-22).** Screen the clean pool in staged waves with `beast-2c-d20`: reject an object episode at the first verified root opener, expand depth 2 only after a complete negative root screen, retain exhaust-on-top-5-missed finish behavior, and stop after at least 200,000 canonically confirmed genuine 2-push-only roots plus their post-push boards. DAgger follows after this scale-up.
 
 **Target-box smoke.** On Amarel `main-redhat`, the fixed generator emitted 2/2 valid feb pair XMLs and the exact d20 collector completed them with real primitive progress and 3 stored episodes. Collection took 20.6 minutes on 2 workers = 0.344 worker-hours/XML. Together with the earlier 498-scene Beast probe (0.167 worker-hours/scene), the honest 1M collection range is about 25–51 hours at the 6,720-CPU hard ceiling, before queue/straggler loss. Therefore XML generation runs overnight, while collection is staged as safe ≤470-task waves and continues beyond the night; no prior data is overwritten or deleted.
 
@@ -79,8 +81,12 @@ Live labeling shows only **~29% of bank scenes are usable** (24% dead-root + 5% 
 
 **Finalizer recovery.** The first finalizer, job `58744260`, used `ThreadPoolExecutor` for the CPU-bound XML geometry parser and timed out at 3:00:00 before writing the manifest. The isolated Amarel checkout was changed to `ProcessPoolExecutor`; retry job `58784784` completed the full 2,031,481-XML gate and exact manifest in 37:55. This ProcessPool change is currently uncommitted in that isolated Amarel checkout and must be ported to the main repository before the finalizer is reused.
 
-**Current state (verified 2026-07-22).** The original driver exited after the first finalizer timed out, so it did not submit collection after the successful retry. Amarel currently has no pending or running jobs for this account, and `/scratch/dm1487/curriculum2_amarel/colossus0_1m/collect` contains zero result files. The next action is to submit the staged depth-2 d20 collection waves from the validated 1,000,000-XML manifest; do not regenerate or refilter.
+**100-XML baseline smoke (old full-depth behavior; partial census at 98/100 results).** The canonical builder found 106 object episodes: 65 direct-1push (61.3%), 15 genuine 2-push-only (14.2% of all episodes; 18.8% of solvable episodes), and 26 unsolved within depth 2. The genuine-2push rate is about 0.153 per completed XML in this small sample, implying about 1.31M XMLs in expectation for 200,000 roots; use 1.5–2.0M as the cautious campaign range and stop by measured episode yield rather than this estimate.
+
+**Measured speed limit and rejection savings.** Across those 98 completed XMLs, the old full-depth path executed 138,590 simulator pushes; direct-1push episodes consumed 38,096 of them, while d20's first verified root opener appeared after only 70 total root trials across all 65 such episodes (median rank 1). The rejection gate therefore removes about 38,026 pushes, or 27% of all primitive work in this sample. Runtime profiling attributes 30,469 of 36,539 worker-seconds to push execution, while primitive ranking consumed 0.2 seconds, so the remaining safe speed lever is cluster parallelism; materially faster labeling would require changing coverage by sampling setups or abandoning exhaustive top-5 misses.
+
+**Current state (verified 2026-07-22).** Production collection has not started. The validated clean pool and exact 1M wave-1 manifest remain intact. Root-opener rejection is being target-box smoke-tested before any production wave; after it passes, submit staged waves and run the canonical census between waves until the 200,000 genuine-2push target is reached.
 
 ## Result
 
-_(pending: the XML-generation and manifest prerequisite is complete; depth-2 collection, the per-episode census, training, and evaluation have not started.)_
+_(pending: the XML-generation and manifest prerequisite is complete; rejection-gated depth-2 collection, the per-episode census, training, and evaluation have not started.)_
