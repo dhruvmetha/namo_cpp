@@ -89,6 +89,8 @@ The existing Antman-5c H5 already stores `contact_px`, whose ordered rectangle s
 
 **Treatment live-eval preflight (jobs `186745`–`186748`, 2026-07-22).** The first three one-episode attempts were useful zero-data failures: the isolated NAMO worktree lacked compiled bindings, the isolated Sage worktree lacked the main checkout's `fast_scorer` visualizer interface, and the selected epoch-4 best checkpoint was deleted by normal Lightning best-checkpoint rotation before its job began. NAMO commits `231ce96`/`4556bd4` preserve the Sage override and resolve shared bindings; Sage commit `912e276` adds the byte-equivalent fast-render interface; subsequent smokes use an immutable checkpoint copy. Job `186748` then passed on `rlab3` in 16 seconds: one canonical episode scored, the valid `(contact,depth)` ranked first, zero valid cells were missing, and no push simulation ran.
 
+**Deferred best-checkpoint resolution smoke PASS (job `186749`).** Commit `9e22239` lets the live-eval launcher resolve the exact best-checkpoint path printed by a completed training log, avoiding Lightning filename rotation. The exact no-`CKPT` path completed one treatment episode on `rlab3` in 17 seconds with the valid action ranked first and zero missing valid cells. The full baseline/treatment prediction jobs may therefore be submitted with `afterok` dependencies on both training jobs and will start without manual polling only after both trainers succeed.
+
 **Staged evaluation scope (user, 2026-07-22).** After training, run only the prediction-based canonical 1-push baseline/treatment comparison now. The 2-push simulator evaluation and final cross-horizon acceptance verdict are explicitly deferred.
 
 ## Result + Verdict
