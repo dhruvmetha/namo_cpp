@@ -76,13 +76,15 @@ def _node_key(cd, pe, pd):
             None if pd is None else int(pd))
 
 
-def _labels_for_node(node_trials, reach, chain_depth, winning_setups):
-    """value_target(60,5), value_mask(60,5), n_tried, n_win for ONE node's grid.
+def _labels_for_node(node_trials, reach, chain_depth, winning_setups, *, colossus0=False,
+                     censored_setups=frozenset()):
+    """value_target, value_mask, ceiling_mask, n_tried, n_win for one node's 60x5 grid.
 
     winning_setups: set of (edge,depth) at the ROOT that spawned >=1 depth-2 win (setup->gamma overlay).
     """
     vt = np.zeros((60, NUM_DEPTHS), np.float32)
     vm = np.zeros((60, NUM_DEPTHS), np.float32)
+    cm = np.zeros((60, NUM_DEPTHS), np.float32)
     tried = {}                                    # (e,d) -> success bool (OR across dup entries)
     for t in node_trials:
         e, d = int(t["edge_idx"]), int(t["depth"])
@@ -96,22 +98,32 @@ def _labels_for_node(node_trials, reach, chain_depth, winning_setups):
                     vt[e, d] = 1.0; vm[e, d] = 1.0; n_win += 1          # opener leaf gamma^0
                 elif chain_depth == 1 and (e, d) in winning_setups:
                     vt[e, d] = GAMMA; vm[e, d] = 1.0                     # setup gamma^1 (subtree won)
+                elif colossus0 and chain_depth == 1 and (e, d) in censored_setups:
+                    vm[e, d] = 0.0                                       # capped child unresolved -> UNKNOWN
+                elif colossus0 and chain_depth == 1:
+                    vt[e, d] = GAMMA * GAMMA; vm[e, d] = 1.0; cm[e, d] = 1.0
+                elif colossus0:
+                    vt[e, d] = GAMMA; vm[e, d] = 1.0; cm[e, d] = 1.0     # verified non-opener, may setup depth 3
                 else:
                     vt[e, d] = 0.0; vm[e, d] = 1.0                       # searched-to-budget-nothing
             elif e in reach:
                 vm[e, d] = 0.0                                           # reachable-but-untried -> MASK
             else:
                 vt[e, d] = -1.0; vm[e, d] = 1.0                          # unreachable edge -> feasibility -1
-    return vt, vm, len(tried), n_win
+    return vt, vm, cm, len(tried), n_win
 
 
-def _episode_rows(e, renderer, env, xml, stats, hand_checks):
+def _episode_rows(e, renderer, env, xml, stats, hand_checks, *, colossus0=False):
     st = _getf(e, "algorithm_stats") or {}
     tl = st.get("primitive_trial_log") or []
     rl = st.get("reachability_log") or []
     goal = _getf(e, "robot_goal") or FALLBACK_GOAL
     if not tl or not rl:
         stats["skipped_no_tree"] += 1
+        return []
+
+    if colossus0 and bool(st.get("root_opener_rejected", False)):
+        stats["skipped_root_opener_rejected"] += 1
         return []
 
     # index trials by node; collect depth-1 setup states
@@ -155,6 +167,13 @@ def _episode_rows(e, renderer, env, xml, stats, hand_checks):
             else:
                 stats["recovered_1push_openers"] += 1
 
+    censored_setups = {
+        (int(t["parent_edge"]), int(t["parent_depth"]))
+        for t in tl
+        if (int(t.get("chain_depth", 1)) == 2 and t.get("parent_edge") is not None
+            and t.get("parent_depth") is not None and bool(t.get("finish_sweep_censored", False)))
+    } - winning_setups
+
     rows = []
     root_row_idx = None
     for node in rl:
@@ -188,7 +207,10 @@ def _episode_rows(e, renderer, env, xml, stats, hand_checks):
         agree = live is not None and live == reach
         stats["edges_agree" if agree else "edges_disagree"] += 1
 
-        vt, vm, n_tried, n_win = _labels_for_node(node_trials, reach, cd, winning_setups)
+        vt, vm, cm, n_tried, n_win = _labels_for_node(
+            node_trials, reach, cd, winning_setups, colossus0=colossus0,
+            censored_setups=censored_setups,
+        )
         r_mask = np.zeros((60, NUM_DEPTHS), np.float32)
         for ed in reach:
             if 0 <= ed < 60:
@@ -198,9 +220,13 @@ def _episode_rows(e, renderer, env, xml, stats, hand_checks):
         cpx = renderer.contact_px_live(env, obj)
 
         is_sol = 1 if ((cd == 2 and n_win > 0) or (cd == 1 and len(winning_setups) > 0)) else 0
+        win_ranks = [int(t.get("rank", -1)) + 1 for t in node_trials if t.get("success")]
+        node_censored = any(bool(t.get("finish_sweep_censored", False)) for t in node_trials)
+        node_audit = any(bool(t.get("finish_miss_audit_selected", False)) for t in node_trials)
         row = dict(
             ctx=ctx.astype(np.float16), contact_px=cpx.astype(np.float32), r_mask=r_mask,
-            value_target=vt, value_mask=vm, f_grid=(vt == 1.0).astype(np.float32),
+            value_target=vt, value_mask=vm, ceiling_mask=cm,
+            f_grid=(vt == 1.0).astype(np.float32),
             xml=str(xml), object_id=str(obj), robot_goal=np.array(goal[:3], np.float32),
             chain_depth=np.int8(cd),
             parent_edge=np.int16(-1 if pe is None else int(pe)),
@@ -208,6 +234,9 @@ def _episode_rows(e, renderer, env, xml, stats, hand_checks):
             node_kind=node_kind, is_solution_node=np.int8(is_sol), setup_moved=np.int8(setup_moved_flag),
             n_reach_edges=np.int32(len(reach)), n_tried=np.int32(n_tried), n_win=np.int32(n_win),
             edges_agree=np.int8(1 if agree else 0),
+            finish_sweep_censored=np.int8(1 if node_censored else 0),
+            finish_miss_audit_selected=np.int8(1 if node_audit else 0),
+            winner_rank=np.int32(min(win_ranks) if win_ranks else 0),
         )
         rows.append(row)
         if cd == 1:
@@ -240,7 +269,7 @@ def _episode_rows(e, renderer, env, xml, stats, hand_checks):
     return rows
 
 
-def build(pkl_glob, out_h5, render_config, limit=None, shard_idx=0, shard_count=1):
+def build(pkl_glob, out_h5, render_config, limit=None, shard_idx=0, shard_count=1, *, colossus0=False):
     pkls = sorted(glob.glob(pkl_glob, recursive=True))
     if shard_count > 1:
         pkls = pkls[shard_idx::shard_count]
@@ -250,10 +279,12 @@ def build(pkl_glob, out_h5, render_config, limit=None, shard_idx=0, shard_count=
 
     rows = []
     hand_checks = []
-    stats = dict(episodes=0, skipped_no_tree=0, skipped_no_setup_state=0,
+    stats = dict(episodes=0, skipped_no_tree=0, skipped_no_setup_state=0, skipped_duplicate_episode=0,
+                 skipped_root_opener_rejected=0,
                  edges_agree=0, edges_disagree=0, nodes_root=0, nodes_depth2=0, nodes_depth2_noop=0,
                  free_1push_finishes=0, recovered_finish_cells=0, two_shove_solutions=0,
                  two_shove_solutions_genuine=0, recovered_1push_openers=0, ep_with_solution=0)
+    seen_episodes = set()
     for p in pkls:
         try:
             d = pickle.load(open(p, "rb"))
@@ -266,6 +297,13 @@ def build(pkl_glob, out_h5, render_config, limit=None, shard_idx=0, shard_count=
             if not tl:
                 continue
             xml = _getf(e, "xml_file")
+            if colossus0:
+                episode_key = (os.path.realpath(str(xml)), str(st.get("chosen_object_id")),
+                               str(st.get("neighbour_region_label")))
+                if episode_key in seen_episodes:
+                    stats["skipped_duplicate_episode"] += 1
+                    continue
+                seen_episodes.add(episode_key)
             if xml not in env_cache:
                 env_cache.clear()                                       # single-slot: each xml unique -> avoid env leak
                 env_cache[xml] = make_env(xml)
@@ -274,7 +312,7 @@ def build(pkl_glob, out_h5, render_config, limit=None, shard_idx=0, shard_count=
             stats["two_shove_solutions"] += n_sol
             if n_sol > 0:
                 stats["ep_with_solution"] += 1
-            ep_rows = _episode_rows(e, renderer, env, xml, stats, hand_checks)
+            ep_rows = _episode_rows(e, renderer, env, xml, stats, hand_checks, colossus0=colossus0)
             rows.extend(ep_rows)
             stats["episodes"] += 1
             if limit and len(rows) >= limit:
@@ -314,7 +352,8 @@ def _write(path, rows):
         def _cds(name):
             a = stack(name)
             f.create_dataset(name, data=a, compression="lzf", chunks=(1,) + a.shape[1:])
-        for _k in ("ctx", "contact_px", "r_mask", "value_target", "value_mask", "f_grid", "robot_goal"):
+        for _k in ("ctx", "contact_px", "r_mask", "value_target", "value_mask", "ceiling_mask",
+                   "f_grid", "robot_goal"):
             _cds(_k)
         f.create_dataset("chain_depth", data=arr("chain_depth", np.int8))
         f.create_dataset("parent_edge", data=arr("parent_edge", np.int16))
@@ -325,6 +364,9 @@ def _write(path, rows):
         f.create_dataset("n_tried", data=arr("n_tried", np.int32))
         f.create_dataset("n_win", data=arr("n_win", np.int32))
         f.create_dataset("edges_agree", data=arr("edges_agree", np.int8))
+        f.create_dataset("finish_sweep_censored", data=arr("finish_sweep_censored", np.int8))
+        f.create_dataset("finish_miss_audit_selected", data=arr("finish_miss_audit_selected", np.int8))
+        f.create_dataset("winner_rank", data=arr("winner_rank", np.int32))
         f.create_dataset("xml", data=np.array([r["xml"] for r in rows], dtype=object), dtype=dt)
         f.create_dataset("object_id", data=np.array([r["object_id"] for r in rows], dtype=object), dtype=dt)
         f.create_dataset("node_kind", data=np.array([r["node_kind"] for r in rows], dtype=object), dtype=dt)
@@ -335,7 +377,9 @@ def _report(rows, stats, hand_checks, out_h5):
     print("\n================ RUNG-2 H5 SUMMARY ================")
     print(f"out_h5 = {out_h5}")
     print(f"episodes = {stats['episodes']}  | skipped_no_tree={stats['skipped_no_tree']} "
-          f"skipped_no_setup_state={stats['skipped_no_setup_state']}")
+          f"skipped_no_setup_state={stats['skipped_no_setup_state']} "
+          f"skipped_duplicate_episode={stats['skipped_duplicate_episode']} "
+          f"skipped_root_opener_rejected={stats['skipped_root_opener_rejected']}")
     print(f"tree nodes(rows) = {n}  (root={stats['nodes_root']}  depth2_moved={stats['nodes_depth2']}  "
           f"depth2_noop={stats['nodes_depth2_noop']})")
     print(f"depth-2 winning finishers (raw) = {stats['two_shove_solutions']}  "
@@ -390,7 +434,10 @@ if __name__ == "__main__":
     ap.add_argument("--gamma", type=float, default=GAMMA,
                     help="1-step setup discount: setup value = gamma^1, opener/finish = gamma^0 = 1. "
                          "Vary to build beast-0-{gamma} variants from the SAME collection.")
+    ap.add_argument("--colossus0", action="store_true",
+                    help="apply capped Colossus label grammar, reject direct-root episodes, and dedup episodes")
     a = ap.parse_args()
     GAMMA = a.gamma
-    rows, stats, hand_checks = build(a.pkl_glob, a.out, a.render_config, a.limit, a.shard_idx, a.shard_count)
+    rows, stats, hand_checks = build(a.pkl_glob, a.out, a.render_config, a.limit, a.shard_idx, a.shard_count,
+                                    colossus0=a.colossus0)
     _report(rows, stats, hand_checks, a.out)
