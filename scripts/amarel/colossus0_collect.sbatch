@@ -22,7 +22,7 @@ source env.amarel.sh >/dev/null 2>&1
 export PYTHONPATH="$NAMO_REPO/build_python:$NAMO_REPO/python:$NAMO_REPO/scripts:$NAMO_REPO/scripts/sandbox:$NAMO_REPO/scripts/pipeline:${SAGE_REPO:-}:${PYTHONPATH:-}"
 export NAMO_PIN_THREADS=1 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 OPENCV_NUM_THREADS=1
 
-shard=350
+shard=${SHARD_SIZE:-350}
 start=$((BATCH_START + SLURM_ARRAY_TASK_ID * shard))
 end=$((start + shard))
 if ((end > BATCH_END)); then end=$BATCH_END; fi
