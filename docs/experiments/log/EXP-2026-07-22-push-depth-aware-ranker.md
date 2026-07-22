@@ -2,7 +2,7 @@
 type: experiment
 status: live
 created: 2026-07-22
-commit: 780b365
+commit: c86a86a
 metric: Antman-5c 1push edge-vs-depth diagnostic complete; architecture A/B pending; final 1push solve@1/@5 and 2push solve@2/@5/@10/@30 plus sims-to-solve by easy/med/hard
 thread: rl_loop
 parent: EXP-2026-07-14-region-opening-curriculum-marvel
@@ -80,6 +80,10 @@ The existing Antman-5c H5 already stores `contact_px`, whose ordered rectangle s
 **Future-data requirement.** Main-tree commit `d602a97` updates the Colossus-0 card to require direct `(N,60,5,3)` `action_motion` storage, current per-board object pose/size, primitive database identity/hash, PKL→NPZ→H5 preservation, and a 300-action alignment gate. Historical Antman data remains usable through exact reconstruction, but new post-push data must not depend on reopening the initial XML.
 
 **First target-box smoke attempt (jobs `186716`/`186717`).** Both jobs exited before model construction because `env.ilab.sh` replaced the explicitly exported Sage worktree path with the main Sage checkout, whose `EdgeCrossAttn` does not yet have `action_motion_dim`; no epoch, checkpoint, or GPU training ran. Commit `780b365` preserves an explicit `SAGE_REPO` across environment activation, and an exact launcher-environment import check resolves `EdgeCrossAttn` to Sage commit `09acfe3` with the expected constructor.
+
+**Worker-start retry (jobs `186718`/`186719`).** Both correct models reached Lightning setup on `rlab2`, then the CS multiprocessing `spawn` workers lost their startup semaphore and the Python parents exited before the first batch. The dead polling shells were canceled after 59 seconds; neither job trained an epoch or wrote a checkpoint. Commit `c86a86a` makes the canonical launcher surface an early trainer death instead of polling its zombie indefinitely.
+
+**Matched one-epoch smoke PASS (jobs `186720`/`186721`).** Baseline and treatment ran concurrently on two `rlab2` A100s with `num_workers=0`, each completing all 178,364 rows, checkpoint save/reload, and deployment-loader shape checks. Baseline completed in 4m34s with epoch-0 train/validation loss 1.6200/1.0502; treatment completed in 4m37s with 1.5943/1.2034. Both reloads had zero logit delta and both produced `(1,60,5,51)` logits and `(1,60,5)` values. The near-identical runtime makes 20 epochs approximately 92 minutes before final checks, so the full pair uses the proven worker-free path with a four-hour limit; the postcheck subset is diagnostic-only and does not alter training or the full validation monitor.
 
 ## Result + Verdict
 
