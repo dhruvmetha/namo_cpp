@@ -40,7 +40,7 @@ def _write_base(path):
 
 
 def _write_new(path):
-    arrays = _arrays(5)
+    arrays = _arrays(6)
     # root setup-positive; finish rank-2 positive; finish rank-1 positive (excluded)
     arrays["value_target"][0:3, 0, 0] = [0.9, 1.0, 1.0]
     arrays["value_mask"][0:3, 0, 0] = 1.0
@@ -48,14 +48,17 @@ def _write_new(path):
     arrays["value_target"][3:5, 0, 0] = [0.81, 0.9]
     arrays["value_mask"][3:5, 0, 0] = 1.0
     arrays["ceiling_mask"][3:5, 0, 0] = 1.0
+    arrays["value_target"][5, 0, 0] = 0.9
+    arrays["value_mask"][5, 0, 0] = 1.0
+    arrays["ceiling_mask"][5, 0, 0] = 1.0
     with h5py.File(path, "w") as h5:
         for key, value in arrays.items():
             h5[key] = value
-        h5["xml"] = np.array([f"new/{i}.xml" for i in range(5)], dtype=h5py.string_dtype())
-        h5["object_id"] = np.array([f"o{i}" for i in range(5)], dtype=h5py.string_dtype())
-        h5["node_kind"] = np.array(["root", "depth2", "depth2", "root", "depth2"],
+        h5["xml"] = np.array([f"new/{i}.xml" for i in range(6)], dtype=h5py.string_dtype())
+        h5["object_id"] = np.array([f"o{i}" for i in range(6)], dtype=h5py.string_dtype())
+        h5["node_kind"] = np.array(["root", "depth2", "depth2", "root", "depth2", "depth2_noop"],
                                          dtype=h5py.string_dtype())
-        h5["winner_rank"] = np.array([0, 2, 1, 0, 0], np.int32)
+        h5["winner_rank"] = np.array([0, 2, 1, 0, 0, 0], np.int32)
 
 
 def test_exact_mix_appends_to_d20_base(tmp_path, monkeypatch):
@@ -77,6 +80,7 @@ def test_exact_mix_appends_to_d20_base(tmp_path, monkeypatch):
         assert h5.attrs["base_rows"] == 2
         xmls = BUILD._dec(h5["xml"][:])
         assert "new/2.xml" not in xmls
+        assert "new/5.xml" not in xmls
         assert set(xmls[2:]) == {"new/0.xml", "new/1.xml", "new/3.xml", "new/4.xml"}
         assert np.isclose(h5["sample_weight"][:][h5["is_root"][:] == 1].sum(), 3.0)
         assert np.isclose(h5["sample_weight"][:][h5["is_root"][:] == 0].sum(), 3.0)

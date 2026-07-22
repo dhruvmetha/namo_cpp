@@ -30,7 +30,7 @@ def _candidate_pools(paths):
     negative_root = []
     negative_finish = []
     counts = {"rows": 0, "positive": 0, "rank1_finish_excluded": 0, "negative_root": 0,
-              "negative_finish": 0, "empty": 0}
+              "negative_finish": 0, "noop_excluded": 0, "empty": 0}
     for file_idx, path in enumerate(paths):
         with h5py.File(path, "r") as h5:
             n = len(h5["ctx"])
@@ -49,6 +49,9 @@ def _candidate_pools(paths):
                     raise AssertionError(f"false exact-zero reachable label in {path} row {start + int(np.where(bad_zero)[0][0])}")
                 for local in range(end - start):
                     idx = start + local
+                    if kinds[idx] == "depth2_noop":
+                        counts["noop_excluded"] += 1
+                        continue
                     root = kinds[idx] == "root"
                     if exact_positive[local]:
                         if root or int(winner_rank[idx]) > 1:
