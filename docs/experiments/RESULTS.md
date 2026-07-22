@@ -74,3 +74,14 @@ Four studies reusing round-1 artifacts, no new collection. Full detail → [EXP-
 ## 2026-07-21 (PM) — The 2×2: ceiling×exposure on corrected round-2 data (card EXP-2026-07-14)
 
 Label corrections [USER]: dead cells are ceilings (root 0.81=γ², finish 0.9=γ — proof covers only depth≤2), sparse top-5-hit boards dropped. Identical-data twins (859,766 rows). **Ceiling BINDS in the dead-heavy regime:** ceil>hard on every 2p axis, both arms — solve +2.7/+3.1, avg sims −27/−49 (clean-pair edge tripled), @2 +5.7/+13.1, @30 +4.3/+11.9. Mechanism measured: ordering is label-invariant, MAGNITUDES are not (hard opener median 0.11–0.19 vs ceil 0.63–0.75) → cross-board priority queue misorders. **armB_ceil = new 2p front-runner: 97.2 solve / 78.6 avg sims / 69.7 @30, 1p 86.4 all@1.** Canonical finish-GT minted (testset_gt.h5, 982 scenes): recall@20 94.6–97.7 for ALL models (the 67→90.6 gap was dead-bank-specific); canonical root wall 0.75–0.80 for everyone, unmoved by round-2 data. Single seed/cell; deltas 5–10× guardrails.
+
+## 2026-07-21 — d20 dose test: +20% dead added to 2c-A-ceil (card EXP-2026-07-21-colossus)
+
+Does adding dead data past the 2c ablation keep helping? Took **beast-2c-A-ceil** (192,822 positive rows) and appended **20% dead, 50/50 non-dup**: 19,282 dead roots + 19,282 dead finishes sampled from `beast2_exh_ceil.h5` → **beast2c_d20_ceil** (231,386 rows). Same -c recipe, ceilings at build (root 0.81, finish 0.9), single seed. ckpt `round2/models/beast2c_d20_ceil/checkpoints/epoch010-val_loss1.7072.ckpt`.
+
+| model | 1p e/m/h/all@1 | 2p solve/avg-sims/@2/@30 |
+|---|---|---|
+| beast-2c-A-ceil (0% dead) | 97.1/84.1/**35.3**/83.4 | 95.7/50.9/24.3/70.5 |
+| **beast-2c-d20 (20% dead)** | 97.4/80.8/**39.7**/83.2 | 96.5/54.6/**26.6**/69.1 |
+
+**Dead helps, measured two ways.** (1) Deploy: 1p **hard@1 +4.4** (35.3→39.7), 2p @2 +2.3, solve +0.8 — small cost at med@1 (−3.3) and @30 (−1.4); the dose sharpens the hard tier + tight-budget ordering at a mild mid-tier/deep-search cost. (2) Dead-bank GT AUC: opener-vs-dead **0.859→0.940 (+0.081)**, setup-vs-dead 0.851→0.906, dead-cell score median 0.196→0.022 (pushed down). A ~19-episode solve move AND an independent 0.08 AUC jump point the same way. **AUC→top-1 gap stays large** (0.94 vs 39.7 hard@1) — pooled separation good, per-board hard top-1 not yet — which is what MORE dead volume (colossus) is meant to close. **Supply wall:** used 19,282 of 19,448 available dead roots (166 left) → scaling past 20% needs new collection (colossus).
