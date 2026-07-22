@@ -3,7 +3,7 @@ type: experiment
 status: live
 created: 2026-07-22
 commit: c86a86a
-metric: Antman-5c 1push edge-vs-depth diagnostic complete; architecture A/B pending; final 1push solve@1/@5 and 2push solve@2/@5/@10/@30 plus sims-to-solve by easy/med/hard
+metric: One-seed 1push A/B complete; depth-aware hard exact hit@1 47.1% vs 36.3% (+10.8 pp), easy/med preserved; 2push simulator verdict deferred
 thread: rl_loop
 parent: EXP-2026-07-14-region-opening-curriculum-marvel
 related: EXP-2026-07-12-depth-geometric-grounding
@@ -93,6 +93,10 @@ The existing Antman-5c H5 already stores `contact_px`, whose ordered rectangle s
 
 **Automatic prediction-only comparison queued (jobs `186751`/`186752`).** Baseline and treatment full-canonical evaluators are pending on `afterok:186722:186723`, request one `rlab3` A4000 each with a one-hour limit, and resolve their respective best checkpoint from the completed training log. Outputs are `/common/users/dm1487/scratch_namo/eval/push_depth/action_head_full_seed1/{baseline,treatment}.{json,jsonl}`. SLURM reports both dependencies unfulfilled as intended; neither evaluation can start before both trainers complete successfully.
 
+**Full one-seed A/B training PASS (jobs `186722`/`186723`).** Baseline and treatment completed all 20 epochs with exit code 0 in 1h25m15s and 1h24m50s. Baseline selected `epoch012-val_loss0.6324.ckpt` (SHA-256 `bf8c1c1dac2faf44cb0cdfe74e3057b20ff0e3007da8b9d072ab9d5c508026a4`); treatment selected `epoch019-val_loss0.6371.ckpt` (SHA-256 `9f10d93828537f78f26f91df083845fc9ffca4a6488d0afe5ebbede290714d12`). Both checkpoints had zero two-reload logit delta and passed the deployment loader with `(1,60,5,51)` logits and `(1,60,5)` values. The separate pooled postcheck loss is not the Lightning validation monitor because it uses different mask normalization, so it is excluded from checkpoint selection and comparison.
+
+**Automatic prediction-only comparison PASS (jobs `186751`/`186752`).** The dependency chain selected the exact checkpoints above and completed both canonical 1-push evaluations on `rlab3` with exit code 0 in 3m41s/3m42s. Each output has 1,323 unique episode identities in identical order, easy/med/hard = 698/421/204, zero missing valid actions, and `mode=live_canonical`; the evaluator contains no `env.step` call, so these jobs made predictions and compared them with saved ground truth without simulating pushes.
+
 **Staged evaluation scope (user, 2026-07-22).** After training, run only the prediction-based canonical 1-push baseline/treatment comparison now. The 2-push simulator evaluation and final cross-horizon acceptance verdict are explicitly deferred.
 
 ## Result + Verdict
@@ -118,9 +122,29 @@ These are prediction-versus-saved-GT hits, not replayed-physics open rates. The 
 
 This Phase-0 diagnostic covers only canonical 1-push ground-truth comparison. No 2-push search evaluation was run because that would require forward simulations; both horizons remain mandatory for the eventual trained architecture verdict.
 
+### One-seed architecture A/B — prediction-only 1-push
+
+The controlled comparison below trains both models from scratch on the same 178,364 Antman boards and changes only whether the head receives each complete push's nominal motion.
+
+| 1push tier | n | baseline exact @1 | depth-aware exact @1 | delta | baseline exact @5 | depth-aware exact @5 | delta |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| easy | 698 | 97.9% (683) | 98.1% (685) | +0.2 pp | 100.0% (698) | 99.9% (697) | -0.1 pp |
+| med | 421 | 82.7% (348) | 82.7% (348) | 0.0 pp | 96.0% (404) | 95.5% (402) | -0.5 pp |
+| hard | 204 | 36.3% (74) | 47.1% (96) | **+10.8 pp** | 76.0% (155) | 79.4% (162) | **+3.4 pp** |
+
+| 1push tier | baseline right-contact/wrong-depth | depth-aware right-contact/wrong-depth | delta | baseline wrong-contact | depth-aware wrong-contact | delta |
+|---|---:|---:|---:|---:|---:|---:|
+| easy | 0.6% (4) | 0.9% (6) | +0.3 pp | 1.6% (11) | 1.0% (7) | -0.6 pp |
+| med | 2.4% (10) | 3.3% (14) | +0.9 pp | 15.0% (63) | 14.0% (59) | -1.0 pp |
+| hard | 5.4% (11) | 3.9% (8) | **-1.5 pp** | 58.3% (119) | 49.0% (100) | **-9.3 pp** |
+
+**Interim 1-push verdict: promising, not final.** The depth-aware head stays within the pre-registered two-point guardrail on every 1-push tier and materially improves the hard tier: exact hit@1 rises by 22 episodes / 10.8 points, hit@5 rises by seven episodes / 3.4 points, and both wrong-contact and right-contact/wrong-depth errors fall. It does not improve every cell—medium/easy @5 regress by two/one episodes and right-contact/wrong-depth rises slightly there—so this one-seed result supports the mechanism but is not a universal win.
+
+The pre-registered architecture decision still requires 2-push search cost and solve@k. Per the staged user scope, no 2-push simulator evaluation was launched, so the treatment is neither accepted nor rejected yet.
+
 ## Next
 
-Wait for jobs `186722`/`186723`, freeze and verify each best checkpoint, then run the prepared prediction-only canonical 1-push comparison by easy/medium/hard. Do not launch 2-push simulation evaluation yet.
+Stop here under the staged user scope. Do not launch the 2-push simulator evaluation until explicitly requested; when authorized, compare solve@2/@5/@10/@30 and simulator calls by easy/medium/hard before making the final architecture decision.
 
 ## Discussion
 
