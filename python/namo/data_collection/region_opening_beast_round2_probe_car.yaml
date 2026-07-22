@@ -1,14 +1,9 @@
-# BEAST round-2 EXHAUST-ON-MISS + root-opener rejection config — CAR robot. Derived from
-# region_opening_beast_relabel_car.yaml; the finish-sweep policy is:
-#   region_exhaust_on_miss_topk: 5  (round-2 semantics, region_opening.py):
-#     - a sim-verified finish within the top-5 (1-based rank <= 5) -> STOP (cheap verified setup;
-#       the finish board stays sparse — same cheap case as the round-1 early-stop);
-#     - NO verified finish within the top-5 -> commit to the FULL EXHAUSTIVE finish sweep of this
-#       post-setup board (do NOT early-stop even on a later hit): every reachable finish candidate is
-#       labelled, so the missed board becomes a COMPLETE exhaustively-labelled 1-push instance
-#       (verified openers 1.0, tried-fails exact-dead), concentrated on R's finish-ranking misses.
-# Retained roots (no direct opener) exhaust depth-1 before entering depth 2. region_label_topk is
-# deliberately UNSET (the two knobs are mutually exclusive). trial_log score+rank is kept for the H5 build.
+# COLOSSUS top-20 capped finish collection + 20% exhaustive audit — CAR robot.
+# Every post-push board follows d20 order. Non-audit episodes stop after 20 failed finishes and mark the
+# unresolved setup CENSORED/UNKNOWN. A stable seed-42 20% sample of complete object episodes instead uses
+# exhaust-on-top-20-miss, recovering buried finishers and measuring the cap's false-negative rate.
+# Retained roots (no direct opener) exhaust depth-1 before entering depth 2. The mixed-policy knobs take
+# precedence over the disabled legacy global caps. trial_log score+rank is kept for the H5 build.
 # Colossus rejection mode: root pushes follow d20 score order. A verified root opener immediately
 # rejects that object episode and skips every post-push finish sweep; only roots with no opener after
 # the complete reachable root sweep enter depth 2. The rejected root keeps a minimal audit record.
@@ -47,8 +42,12 @@ region_exhaustive_mode: true
 region_stop_after_root_opener: true
 region_sample_k: 0
 region_sample_restarts: 1
-# ROUND-2 finish policy: exhaust the finish board on a top-5 miss (see header). 0 = off.
-region_exhaust_on_miss_topk: 5
+# Mixed finish policy (takes precedence over the two legacy global finish knobs).
+region_label_topk: 0
+region_exhaust_on_miss_topk: 0
+region_finish_topk_cap: 20
+region_finish_miss_audit_fraction: 0.20
+region_finish_miss_audit_seed: 42
 
 # Goal strategy: R (beast-1-clean) ranks candidate pushes; ml_first orders the frontier by that score.
 goal_strategy: scorer

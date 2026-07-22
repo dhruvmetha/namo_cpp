@@ -6,6 +6,7 @@ validates the opening, logs an episode, then restores the baseline and proceeds 
 the next neighbour.
 """
 
+import hashlib
 import math
 import random
 import time
@@ -145,6 +146,11 @@ class AttemptResult:
     # Colossus rejection audit marker: this object episode found a direct root opener and therefore
     # stopped before depth 2. Downstream training builders exclude these rows; census tools retain them.
     root_opener_rejected: bool = False
+    # Capped finish collection metadata. A censored depth-2 episode has at least one post-push board
+    # that stopped after top-k misses; its unobserved cells and unresolved parent setup stay masked.
+    finish_topk_cap: int = 0
+    finish_miss_audit_selected: bool = False
+    depth2_censored: bool = False
     # Primitive ranking/sorting timings in BFS candidate ordering.
     primitive_ranking_calls: int = 0
     primitive_ranking_ms_total: float = 0.0
@@ -258,6 +264,13 @@ class RegionOpeningPlanner(BasePlanner):
         # Setups (depth-1) are ALWAYS exhaustive — unaffected. Takes precedence over label_topk (they
         # are mutually-exclusive knobs; set exactly one). 0 = off (use label_topk / plain early-stop).
         self.exhaust_on_miss_topk = int(algo_params.get("region_exhaust_on_miss_topk", 0) or 0)
+        # Mixed Colossus finish policy: every post-push board gets a hard top-k cap, while a stable
+        # pseudo-random fraction of object episodes uses exhaustive-on-miss at that same k. This is
+        # cluster sampling by the true episode unit (xml, object, goal region), not by individual board.
+        self.finish_topk_cap = int(algo_params.get("region_finish_topk_cap", 0) or 0)
+        self.finish_miss_audit_fraction = float(algo_params.get("region_finish_miss_audit_fraction", 0.0) or 0.0)
+        self.finish_miss_audit_seed = int(algo_params.get("region_finish_miss_audit_seed", 42))
+        self._current_finish_miss_audit_selected = False
         # Restart-on-failure ([USER]: "run the same instance up to 3 times with different seeds, only if
         # we don't find a solution"): total search attempts per (object, neighbour); each retry draws
         # fresh random subsets at every level; trial logs are MERGED (union of tried cells = the training
@@ -800,6 +813,15 @@ class RegionOpeningPlanner(BasePlanner):
         if reverse is not None:
             return sorted(self._normalize_boundary_object_ids(reverse)), None
         return [], None
+
+    def _select_finish_miss_audit(self, object_id: str, neighbour_label: str) -> bool:
+        """Stable pseudo-random episode audit assignment for capped finish collection."""
+        if self.finish_topk_cap <= 0 or self.finish_miss_audit_fraction <= 0.0:
+            return False
+        xml_file = str(self.algorithm_params.get("xml_file") or "")
+        key = f"{self.finish_miss_audit_seed}|{xml_file}|{object_id}|{neighbour_label}".encode()
+        draw = int.from_bytes(hashlib.sha256(key).digest()[:8], "big") / float(1 << 64)
+        return draw < self.finish_miss_audit_fraction
 
     def _build_target_summary(self, target_neighbor: Optional[str]) -> Optional[Dict[str, Any]]:
         if target_neighbor is None:
@@ -1427,6 +1449,9 @@ class RegionOpeningPlanner(BasePlanner):
 
             print(f"  🎯 [_attempt_opening_to_neighbour] Trying object {obj_idx}/{len(candidates)}: {object_id} for neighbour '{neighbour_label}'")
 
+            object_finish_miss_audit_selected = self._select_finish_miss_audit(object_id, neighbour_label)
+            self._current_finish_miss_audit_selected = object_finish_miss_audit_selected
+
             # Reset diffusion call counter so per-object stats reflect only this object's search.
             if hasattr(self.goal_strategy, "reset_diffusion_call_counter"):
                 try:
@@ -1489,6 +1514,12 @@ class RegionOpeningPlanner(BasePlanner):
                     object_reachability_log.extend(attempt_reach_log or [])
                     if successful_goals:
                         break
+
+            object_depth2_censored = any(
+                bool(entry.get("finish_sweep_censored", False))
+                for entry in object_trial_log
+                if entry.get("chain_depth") == 2
+            )
 
             pushes_for_this_object = neighbour_push_counter.get("count", 0) - pushes_before_object
             obj_goal_strategy_profile = None
@@ -1641,6 +1672,9 @@ class RegionOpeningPlanner(BasePlanner):
                             phase_push_counts=phase_push_counts,
                             solved_in_phase=solved_in_phase,
                             root_opener_rejected=self.stop_after_root_opener,
+                            finish_topk_cap=self.finish_topk_cap,
+                            finish_miss_audit_selected=object_finish_miss_audit_selected,
+                            depth2_censored=object_depth2_censored,
                             primitive_trial_log=object_trial_log if self.exhaustive_mode else None,
                             reachability_log=object_reachability_log if self.exhaustive_mode else None,
                         ))
@@ -1724,6 +1758,9 @@ class RegionOpeningPlanner(BasePlanner):
                             unique_movable_collision_count=unique_movable_collision_count,
                             phase_push_counts=phase_push_counts,
                             solved_in_phase=solved_in_phase,
+                            finish_topk_cap=self.finish_topk_cap,
+                            finish_miss_audit_selected=object_finish_miss_audit_selected,
+                            depth2_censored=object_depth2_censored,
                             primitive_trial_log=object_trial_log if self.exhaustive_mode else None,
                             reachability_log=object_reachability_log if self.exhaustive_mode else None,
                         ))
@@ -1835,8 +1872,11 @@ class RegionOpeningPlanner(BasePlanner):
                     chain_observation_replay_ms_avg=float(obj_runtime_timing.get("chain_observation_replay_ms_avg", 0.0)),
                     any_wall_collision=search_any_wall_collision,
                     unique_movable_collision_count=search_unique_movable_collision_count,
+                    finish_topk_cap=self.finish_topk_cap,
+                    finish_miss_audit_selected=object_finish_miss_audit_selected,
+                    depth2_censored=object_depth2_censored,
                     primitive_trial_log=object_trial_log if self.exhaustive_mode else None,
-                            reachability_log=object_reachability_log if self.exhaustive_mode else None,
+                    reachability_log=object_reachability_log if self.exhaustive_mode else None,
                 ))
 
             # Execution-mode early exit: once we have at least one successful opening
@@ -2659,15 +2699,26 @@ class RegionOpeningPlanner(BasePlanner):
 
         # Track position for re-sorting remaining candidates
         candidate_idx = 0
+        effective_label_topk = self.label_topk
+        effective_exhaust_on_miss_topk = self.exhaust_on_miss_topk
+        if self.finish_topk_cap > 0:
+            if self._current_finish_miss_audit_selected:
+                effective_label_topk = 0
+                effective_exhaust_on_miss_topk = self.finish_topk_cap
+            else:
+                effective_label_topk = self.finish_topk_cap
+                effective_exhaust_on_miss_topk = 0
+        stopped_by_finish_cap = False
 
         while candidate_idx < len(candidates):
             # label-mode k-cap: at the finish level, stop after label_topk tried candidates (success
             # still early-stops first via the label_mode break below; this bounds the FAILURE cost).
             # DISABLED when exhaust_on_miss_topk is set — that mode deliberately exhausts on a top-K
             # miss instead of capping (the two are mutually-exclusive knobs).
-            if (self.label_mode and self.label_topk > 0 and self.exhaust_on_miss_topk <= 0
+            if (self.label_mode and effective_label_topk > 0 and effective_exhaust_on_miss_topk <= 0
                     and current_chain_depth >= self.max_chain_depth
-                    and candidate_idx >= self.label_topk):
+                    and candidate_idx >= effective_label_topk):
+                stopped_by_finish_cap = True
                 break
             # ══════════════════════════════════════════════════════════════════
             # ASYNC ML POLLING: Check if ML inference is ready (non-blocking)
@@ -3028,13 +3079,13 @@ class RegionOpeningPlanner(BasePlanner):
                 # rank (in trial_log) says if it was within top-k. Setups (chain_depth < max) stay
                 # exhaustive — this break does NOT fire for them.
                 if self.label_mode and current_chain_depth >= self.max_chain_depth:
-                    if self.exhaust_on_miss_topk > 0:
+                    if effective_exhaust_on_miss_topk > 0:
                         # EXHAUST-ON-MISS: candidate_idx is the 1-based position of the just-tried
                         # candidate (incremented at the top of the loop). A hit within the top-K
                         # (candidate_idx <= K) is a cheap verified setup -> STOP. A hit beyond the top-K
                         # can only happen after top-K already MISSED, so we are committed to the full
                         # exhaustive sweep -> do NOT break; label every remaining finish candidate.
-                        if candidate_idx <= self.exhaust_on_miss_topk:
+                        if candidate_idx <= effective_exhaust_on_miss_topk:
                             break
                     else:
                         # plain early-stop: stop at the first verified finish (round-0/1 behaviour).
@@ -3068,6 +3119,12 @@ class RegionOpeningPlanner(BasePlanner):
                         step_cost=depth + 1
                     )
                     frontier_nodes.append(new_node)
+
+        if current_chain_depth >= self.max_chain_depth:
+            for entry in trial_log:
+                entry["finish_topk_cap"] = int(self.finish_topk_cap)
+                entry["finish_miss_audit_selected"] = bool(self._current_finish_miss_audit_selected)
+                entry["finish_sweep_censored"] = bool(stopped_by_finish_cap)
 
         # ══════════════════════════════════════════════════════════════════
         # CLEANUP: Cancel pending ML inference if not yet merged

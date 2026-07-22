@@ -144,6 +144,32 @@ def test_root_opener_rejection_skips_depth_two_and_replay(monkeypatch):
     assert result[6][0]["success"] is True
 
 
+def test_finish_miss_audit_assignment_is_stable_per_episode(monkeypatch):
+    monkeypatch.setattr(RegionOpeningPlanner, "_setup_constraints", lambda self: None)
+    monkeypatch.setattr(
+        RegionOpeningPlanner,
+        "_initialize_algorithm",
+        lambda self: setattr(self, "goal_strategy", SimpleNamespace()),
+    )
+    env = _DummyEnv(["obj1"])
+    planner = RegionOpeningPlanner(
+        env,
+        PlannerConfig(
+            algorithm_params={
+                "xml_file": "/tmp/room.xml",
+                "region_finish_topk_cap": 20,
+                "region_finish_miss_audit_fraction": 1.0,
+                "region_finish_miss_audit_seed": 42,
+            }
+        ),
+    )
+
+    assert planner._select_finish_miss_audit("obj1", "goal") is True
+    assert planner._select_finish_miss_audit("obj1", "goal") is True
+    planner.finish_miss_audit_fraction = 0.0
+    assert planner._select_finish_miss_audit("obj1", "goal") is False
+
+
 def test_explore_stops_after_first_neighbour_success(monkeypatch):
     # Avoid strategy initialization (primitive DB, ML models, etc.).
     monkeypatch.setattr(RegionOpeningPlanner, "_setup_constraints", lambda self: None)

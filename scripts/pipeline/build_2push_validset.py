@@ -10,6 +10,7 @@ log is tagged per entry with `chain_depth` + `parent_{edge,depth}` (region_openi
   F1' (valid_first_push)   = { (parent_edge,parent_dep): success, chain_depth==2 }   <- first-pushes ENABLING a 2-push solve
   tried_1push              = { (edge,depth)            : chain_depth==1 }            <- reachable depth-1 cells (denominator)
   tried_first_push         = { (parent_edge,parent_dep): chain_depth==2 }            <- first-pushes expanded to depth-2
+  censored_first_push      = capped parent boards with no observed opener            <- UNKNOWN, never dead
 
 Output: {realpath: [{object_id, object_center, object_theta, region,
                      valid_1push, valid_first_push, tried_1push, tried_first_push,
@@ -102,7 +103,7 @@ def main():
             for r in recs:
                 e = agg.setdefault(r["epkey"], {
                     "theta": r["theta"], "f1": set(), "f1p": set(),
-                    "tried1": set(), "triedfp": set(), "tagged": False,
+                    "tried1": set(), "triedfp": set(), "censoredfp": set(), "tagged": False,
                     # per-first-push child outcomes {pcell: {cell: success}} — child state is
                     # deterministic given the parent, so restart-merged duplicate trials of the same
                     # child cell collapse here (dict key) instead of inflating the denominator.
@@ -123,22 +124,29 @@ def main():
                         if pe is None:
                             continue
                         pcell = (pe, pd)
-                        e["triedfp"].add(pcell)
                         if t.get("success"):
                             e["f1p"].add(pcell)
+                            e["triedfp"].add(pcell)
+                        elif t.get("finish_sweep_censored", False):
+                            e["censoredfp"].add(pcell)
+                        else:
+                            e["triedfp"].add(pcell)
                         e["kids"][pcell][(t["edge_idx"], t["depth"])] = bool(t.get("success"))
 
     by_real = defaultdict(list)
-    n_1, n_2only, n_unsolved = 0, 0, 0
+    n_1, n_2only, n_unsolved, n_censored = 0, 0, 0, 0
     for (real, obj, oc, region), e in agg.items():
         f1 = sorted(e["f1"]); f1p = sorted(e["f1p"])
         t1 = sorted(e["tried1"]); tfp = sorted(e["triedfp"])
+        cfp = sorted(e["censoredfp"] - e["f1p"] - e["triedfp"])
         is1 = len(f1) > 0
         is2 = is1 or len(f1p) > 0
         if is1:
             n_1 += 1
         elif len(f1p) > 0:
             n_2only += 1
+        elif cfp:
+            n_censored += 1
         else:
             n_unsolved += 1
         by_real[real].append({
@@ -147,8 +155,11 @@ def main():
             "valid_first_push": [list(t) for t in f1p],
             "tried_1push": [list(t) for t in t1],
             "tried_first_push": [list(t) for t in tfp],
+            "censored_first_push": [list(t) for t in cfp],
             "is_1push_solvable": is1,
             "is_2push_solvable": is2,
+            "depth2_censored": bool(cfp),
+            "is_dead_within_2push": (not is1) and (not is2) and (not cfp),
             "solve_rate_1push": (len(f1) / len(t1)) if t1 else 0.0,
             "solve_rate_first_push": (len(f1p) / len(tfp)) if tfp else 0.0,
             # SUCCESS-FRACTION per first push (robustness signal, locked decision): for each expanded
@@ -162,7 +173,8 @@ def main():
 
     json.dump(dict(by_real), open(a.out, "w"))
     print(f"{len(by_real)} scenes, {len(agg)} episodes "
-          f"(1push-solvable {n_1}, 2push-only {n_2only}, unsolved-<=2 {n_unsolved})", file=sys.stderr)
+          f"(1push-solvable {n_1}, 2push-only {n_2only}, censored {n_censored}, "
+          f"unsolved-<=2 {n_unsolved})", file=sys.stderr)
     if n_untagged:
         print(f"⚠ {n_untagged} UNTAGGED trial entries skipped — re-collect with the tagged region_opening.py",
               file=sys.stderr)

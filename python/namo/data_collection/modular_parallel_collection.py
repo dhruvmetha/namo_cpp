@@ -525,6 +525,9 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                                 'phase_push_counts': getattr(attempt, 'phase_push_counts', None),
                                 'solved_in_phase': getattr(attempt, 'solved_in_phase', ''),
                                 'root_opener_rejected': getattr(attempt, 'root_opener_rejected', False),
+                                'finish_topk_cap': getattr(attempt, 'finish_topk_cap', 0),
+                                'finish_miss_audit_selected': getattr(attempt, 'finish_miss_audit_selected', False),
+                                'depth2_censored': getattr(attempt, 'depth2_censored', False),
                                 # F characterization: per-primitive trial log (exhaustive mode only)
                                 'primitive_trial_log': getattr(attempt, 'primitive_trial_log', None),
                                 'reachability_log': getattr(attempt, 'reachability_log', None),
@@ -1227,6 +1230,9 @@ def main():
             # in this dict to reach the planner (set_defaults alone is inert — this bit us on
             # region_label_mode/region_timeout). 0 = off (use label_topk / plain early-stop).
             "region_exhaust_on_miss_topk": getattr(args, 'region_exhaust_on_miss_topk', 0),
+            "region_finish_topk_cap": getattr(args, 'region_finish_topk_cap', 0),
+            "region_finish_miss_audit_fraction": getattr(args, 'region_finish_miss_audit_fraction', 0.0),
+            "region_finish_miss_audit_seed": getattr(args, 'region_finish_miss_audit_seed', 42),
             # horizon-Q sampled collection: uniform k-subset of (edge,depth) candidates per chain level
             # (0 = off). Set via --config-yaml (region_sample_k), like the exhaustive-mode keys.
             "region_sample_k": getattr(args, 'region_sample_k', 0),
