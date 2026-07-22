@@ -87,6 +87,10 @@ The existing Antman-5c H5 already stores `contact_px`, whose ordered rectangle s
 
 **Full one-seed A/B launched (jobs `186722`/`186723`, 2026-07-22).** NAMO launch commit `fd17abe`, Sage commit `09acfe3`; two concurrent `rlab2` A100s; baseline/treatment respectively; exact Antman-5c H5; seed 1; room split seed 0; 20 epochs; batch 256; learning rate `3e-4`; rank auxiliary weight/temperature `0.1/0.15`; `num_workers=0`; four-hour limit. Both jobs entered `RUNNING` on the intended node; outputs are under `/common/users/dm1487/scratch_namo/curriculum2/push_depth/antman5c_ab/full_seed1/{baseline,treatment}`.
 
+**Treatment live-eval preflight (jobs `186745`–`186748`, 2026-07-22).** The first three one-episode attempts were useful zero-data failures: the isolated NAMO worktree lacked compiled bindings, the isolated Sage worktree lacked the main checkout's `fast_scorer` visualizer interface, and the selected epoch-4 best checkpoint was deleted by normal Lightning best-checkpoint rotation before its job began. NAMO commits `231ce96`/`4556bd4` preserve the Sage override and resolve shared bindings; Sage commit `912e276` adds the byte-equivalent fast-render interface; subsequent smokes use an immutable checkpoint copy. Job `186748` then passed on `rlab3` in 16 seconds: one canonical episode scored, the valid `(contact,depth)` ranked first, zero valid cells were missing, and no push simulation ran.
+
+**Staged evaluation scope (user, 2026-07-22).** After training, run only the prediction-based canonical 1-push baseline/treatment comparison now. The 2-push simulator evaluation and final cross-horizon acceptance verdict are explicitly deferred.
+
 ## Result + Verdict
 
 All count and identity gates passed: easy/med/hard = 698/421/204, no valid ground-truth cells were missing from any live candidate pool, and the evaluator made zero push simulations.
@@ -112,7 +116,7 @@ This Phase-0 diagnostic covers only canonical 1-push ground-truth comparison. No
 
 ## Next
 
-Run matched one-epoch baseline/treatment target-box smokes on CS `unlimited`, use the measured runtime to size the full jobs, then train the controlled Antman-5c pair. Evaluate both canonical 1-push and 2-push tiers before accepting or rejecting the architecture.
+Wait for jobs `186722`/`186723`, freeze and verify each best checkpoint, then run the prepared prediction-only canonical 1-push comparison by easy/medium/hard. Do not launch 2-push simulation evaluation yet.
 
 ## Discussion
 
