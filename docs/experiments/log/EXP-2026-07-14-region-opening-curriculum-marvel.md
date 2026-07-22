@@ -10,6 +10,8 @@ supersedes: EXP-2026-07-12-opener-curriculum-loop (buggy lineage — retracted, 
 
 **⛔ Read [docs/problem_and_approach.md](../../problem_and_approach.md) first.** The model is a **ranker** that orders pushes so **search** solves region-opening cheaply (beat random, fewer sim calls, every tier). This card is the *reproducible framework* for building that ranker; it does not restate the problem.
 
+**Children:** [EXP-2026-07-21 — Colossus (dead-data scale-up)](EXP-2026-07-21-colossus-data-scaleup.md) — +175k dead-heavy roots, d20 finish ranker; motivated by the d20 dose test (dead helps: hard@1 35.3→39.7, opener-vs-dead AUC 0.859→0.940).
+
 ## The one sentence
 
 Learn the ranker via a **curriculum ladder** (1-push → 2-push → …), running **pure DAgger within each stage**, on a **clean, correctly-labeled, in-sync-generated** data pipeline — starting from a **balanced bootstrap seed**.

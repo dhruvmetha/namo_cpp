@@ -3,7 +3,7 @@ status: parked
 thread: rl_loop
 robot: car
 updated: 2026-07-22
-parent: EXP-2026-07-21-colossus-dead-scaleup
+parent: EXP-2026-07-21-colossus-data-scaleup
 ---
 
 # EXP-2026-07-22 — Yield-aware scene generator (single-hop, dead-biased)
