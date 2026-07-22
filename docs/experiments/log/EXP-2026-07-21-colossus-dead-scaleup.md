@@ -6,13 +6,13 @@ updated: 2026-07-21
 parent: EXP-2026-07-14-region-opening-curriculum-marvel
 ---
 
-# EXP-2026-07-21 — Colossus: dead-data scale-up (Marvel/Beast lineage)
+# EXP-2026-07-21 — Colossus: data scale-up (overall) + dead dose (Marvel/Beast lineage)
 
-**⛔ Read [docs/problem_and_approach.md](../../problem_and_approach.md) first.** The model is a **ranker** that orders pushes so **search** solves region-opening cheaply. This card continues the curriculum framework in [EXP-2026-07-14](EXP-2026-07-14-region-opening-curriculum-marvel.md) (parent) — same ranker, same γ^k grammar, same labeler; the only new thing here is **scale + dead-data dosage**.
+**⛔ Read [docs/problem_and_approach.md](../../problem_and_approach.md) first.** The model is a **ranker** that orders pushes so **search** solves region-opening cheaply. This card continues the curriculum framework in [EXP-2026-07-14](EXP-2026-07-14-region-opening-curriculum-marvel.md) (parent) — same ranker, same γ^k grammar, same labeler; the new things here are **overall data scale + dead dosage**.
 
 ## The one sentence
 
-Scale the 2-push dataset by **+175k fresh dead-heavy roots** (collect3 screen-bank), labeled with the existing exhaust-on-miss pipeline using **beast-2c-d20 as the finish ranker** — because adding dead data measurably sharpens the ranker, and we've exhausted the local dead-root supply.
+**Scale the whole 2-push dataset** with +175k fresh labeled scenes (collect3 screen-bank, exhaust-on-miss, beast-2c-d20 finish ranker): the openers/setups/true-2push it yields are **new positive boards that grow the base**, and the dead roots grow the **dead pool** — then train the ranker on the grown base with an **X% dead dose** on top, sweeping X. NOT a dead-only harvest; dead is one component + a dose knob.
 
 ## Why (the evidence that triggered this)
 
@@ -48,7 +48,16 @@ Locked after a long clarification pass (see chat 2026-07-21):
 - **Ranker in loop:** beast-2c-d20 (`epoch010-val_loss1.7072`) → Amarel `colossus/d20_finish_ranker.ckpt`.
 - **Labeler:** exhaust-on-miss, `region_exhaust_on_miss_topk=5`, setups exhaustive, chain-depth 2. Finish sweep follows d20's rank order end-to-end (stop rule flips at the top-5 boundary; try-order never randomizes — records the rank the opener sat at).
 - **Compute:** Amarel main-redhat, wide burst up to the 6,720-CPU / 500-task cap, target ≤3-4h. Smoke + calibrate first (scaled-run).
-- **Census (deliverable):** count 1-push (root direct), 1-push (post-push finish), true 2-push (setup, no direct), dead 1-push (post-push exhausted empty), dead 2-push (root all-dead).
+- **Census (deliverable):** count 1-push (root direct), 1-push (post-push finish), true 2-push (setup, no direct), dead 1-push (post-push exhausted empty), dead 2-push (root all-dead). Positives AND dead both matter — the positives grow the base, the dead feed the dose.
+
+## Training recipe (the reframe)
+
+Colossus is an **overall scale-up**, not a dead-only harvest. The build:
+
+- **Base** = all positive boards = prior positives (d20/2c ≈ 192k) **+ colossus positives** (its openers/setups/true-2push, ~5% of scenes ≈ ~8k). The grown base is the point of "scale-up."
+- **Dead dose** = add **X% dead** (of base size) from the enlarged dead pool = d20's 38k + colossus dead (~40k roots + finishes). 50/50 root/finish, non-dup, ceilings at build (root 0.81, finish 0.9).
+- **Sweep X** (e.g. 20 / 40 / max) on the grown base; compare hard@1 vs the d20 baseline (39.7) to read the dose-response.
+- Base for the stack = **d20** [USER] (d20 positives already = 2c positives; colossus positives append; dead pool grows).
 
 ## Yield finding → generator follow-up
 
