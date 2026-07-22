@@ -67,7 +67,9 @@ Accept the depth-aware head only if it preserves 1-push performance within 2 per
 
 ## Run
 
-**Phase-0 implementation (2026-07-22).** Commit `ddb18d2` extends `scripts/eval_scorer.py` in place with a zero-push live-canonical mode, adds the three-way category tests, and adds the CS `unlimited` launcher `scripts/slurm/eval_scorer_live.slurm`. Local compile + focused tests pass (2/2). Target-cluster one-episode smoke and the calibrated full 1,323-episode run are next.
+**Phase-0 implementation (2026-07-22).** Commit `ddb18d2` extends `scripts/eval_scorer.py` in place with a zero-push live-canonical mode, adds the three-way category tests, and adds the CS `unlimited` launcher `scripts/slurm/eval_scorer_live.slurm`. Local compile + focused tests pass (2/2).
+
+**CS smoke (job 186711, 2026-07-22).** The exact one-episode live path passed on `ilab1` in 15 seconds total and 0.367 seconds for scoring: zero `env.step` calls, one row written, no valid cells missing from the live candidate pool, and the labeled push ranked first. At that measured rate the full 1,323-episode diagnostic is approximately eight minutes of scoring, so one GPU job is sufficient.
 
 ## Result + Verdict
 
