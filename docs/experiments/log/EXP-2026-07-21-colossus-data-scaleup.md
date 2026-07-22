@@ -55,6 +55,18 @@ Locked after a long clarification pass (see chat 2026-07-21):
 - **Census (deliverable):** count rejected direct-1push, confirmed true-2push, censored depth-2, audit-proven dead-within-depth2, and eligible training rows separately, always preserving `(xml, pushed object, goal region)` identity.
 - **Data unit:** one XML may yield multiple independent `(pushed object, goal region)` episodes and every episode may yield one root board plus many post-push boards; the 200,000 target counts selected H5 board rows, never XMLs or object episodes.
 
+## Data artifact contract — push-depth-ready
+
+Colossus artifacts must make the complete candidate action explicit at every board, including post-push boards: the 60 contact locations are not enough because each contact has five push depths with different nominal object motion.
+
+- **Required per-board field:** carry `action_motion` with shape `(60, 5, 3)`, aligned exactly with the scorer and label tensors as `[edge, push_depth, (dx, dy, dtheta)]`. This is the primitive database's nominal pre-simulation object motion, so collecting it requires no additional simulator calls.
+- **Frame and units:** store translation in the world/crop axes and rotation about the object, normalized as `(dx / 0.5 m, dy / 0.5 m, dtheta / pi)` for direct model use. Record the frame, units, and normalization in artifact metadata; never leave them implicit.
+- **Provenance:** record the active primitive database identifier and SHA256, the shape-family choice (`square`, `wide`, or `tall`), and the target object's current `(x, y, yaw, size_x, size_y)` at that board. The current state is required because an XML's initial object pose is wrong for post-push finish boards.
+- **PKL → NPZ → H5:** preserve the same field and ordering through every conversion rather than reconstructing it later. H5 stores dense `action_motion` as `(N, 60, 5, 3)` in `float16` or `float32`, alongside `contact_px`, `value_target`, and `r_mask`; PKL/NPZ retain the per-board tensor plus provenance metadata.
+- **Build-time gate:** fail conversion if `action_motion`, labels, masks, and the live action generator do not agree on all 300 `(edge, push_depth)` candidate indices. Also reject mixed primitive-database hashes within one H5 unless the row-level provenance is retained explicitly.
+
+This contract lets a future ranker consume push depth directly without reopening historical XMLs, inferring object geometry from contact points, or running forward simulations. Existing data can still reconstruct these features from `contact_px` plus the pinned primitive files, but Colossus must store them directly.
+
 ## Training recipe (the reframe)
 
 Colossus-0 tests whether **d20-guided, partially censored experience is useful training data**, not whether raw row volume alone helps. Its new-data block is exactly 200,000 rows selected with a fixed seed:
