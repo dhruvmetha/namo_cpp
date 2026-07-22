@@ -2,7 +2,7 @@
 type: experiment
 status: live
 created: 2026-07-22
-commit: ddb18d2
+commit: 75c8c11
 metric: Antman-5c 1push edge-vs-depth diagnostic complete; architecture A/B pending; final 1push solve@1/@5 and 2push solve@2/@5/@10/@30 plus sims-to-solve by easy/med/hard
 thread: rl_loop
 parent: EXP-2026-07-14-region-opening-curriculum-marvel
@@ -73,6 +73,12 @@ Accept the depth-aware head only if it preserves 1-push performance within 2 per
 
 **Canonical Phase-0 run (job 186712, commit `c131c8e`, 2026-07-22).** One `unlimited` GPU on `ilab1`; checkpoint `antman5c/checkpoints/epoch018-val_loss0.6276.ckpt`; 1,323/1,323 episodes completed in 2m38s with exit code 0 and 0.110 seconds/episode steady-state. Artifacts: `/common/users/dm1487/scratch_namo/eval/push_depth/full/antman5c_depth_diag.{json,jsonl}` and log `logs/a5cdepth_full_186712.out`.
 
+**Phase-1 implementation frozen (2026-07-22).** NAMO commit `75c8c11` and Sage commit `09acfe3` implement the cheap treatment exactly as planned: the existing 60 contact tokens complete attention unchanged, then each token is expanded to its five candidate depths, combined with that candidate's normalized nominal `(dx,dy,dtheta)`, and scored by one shared 51-bin value head. `NAMO_ACTION_MOTION=0` retains the original Antman-5c architecture and checkpoint keys; `NAMO_ACTION_MOTION=1` selects the treatment.
+
+The existing Antman-5c H5 already stores `contact_px`, whose ordered rectangle samples recover the target object's current axes, size family, and yaw. The loader therefore constructs the exact active primitive table from the pinned `1x_car_d5_motion_primitives_15_{square,wide,tall}.dat` files without XML lookup or simulator calls. Focused tests cover all three shape families and rotation, the original Antman-5c checkpoint still loads through `eval_scorer`, and an actual H5 batch completes forward/loss/backward with finite values. Parameter counts are closely matched: baseline 4,397,055 versus treatment 4,395,891.
+
+**Future-data requirement.** Main-tree commit `d602a97` updates the Colossus-0 card to require direct `(N,60,5,3)` `action_motion` storage, current per-board object pose/size, primitive database identity/hash, PKL→NPZ→H5 preservation, and a 300-action alignment gate. Historical Antman data remains usable through exact reconstruction, but new post-push data must not depend on reopening the initial XML.
+
 ## Result + Verdict
 
 All count and identity gates passed: easy/med/hard = 698/421/204, no valid ground-truth cells were missing from any live candidate pool, and the evaluator made zero push simulations.
@@ -98,7 +104,7 @@ This Phase-0 diagnostic covers only canonical 1-push ground-truth comparison. No
 
 ## Next
 
-Implement the cheap post-attention 60×5 nominal-motion head, then train the controlled Antman-5c baseline/treatment pair. Evaluate both canonical 1-push and 2-push tiers before accepting or rejecting the architecture.
+Run matched one-epoch baseline/treatment target-box smokes on CS `unlimited`, use the measured runtime to size the full jobs, then train the controlled Antman-5c pair. Evaluate both canonical 1-push and 2-push tiers before accepting or rejecting the architecture.
 
 ## Discussion
 
