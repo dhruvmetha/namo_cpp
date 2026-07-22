@@ -20,6 +20,7 @@ from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 from ._bootstrap import ensure_paths
 ensure_paths()
 from .config import LoopConfig, NUM_DEPTHS
+from .action_motion import FINAL_POSE_DIM
 from .sage_ext._sage import EdgeCrossAttn
 from .sage_ext.weighted_module import WeightedClassifierModule
 from .sage_ext.rl_dataset import RLDataModule
@@ -31,7 +32,7 @@ def _make_network(value_bins: int) -> EdgeCrossAttn:
         num_depths=NUM_DEPTHS, num_edges=60, use_local=True,
         pos_fourier=True, use_edge_embed=True,          # sharp/e4 identity recipe
         budget_cond=False, value_bins=value_bins,       # single ranker (no horizon conditioning)
-        action_motion_dim=(3 if os.environ.get("NAMO_ACTION_MOTION", "0") == "1" else 0),
+        action_motion_dim=(FINAL_POSE_DIM if os.environ.get("NAMO_ACTION_MOTION", "0") == "1" else 0),
     )
 
 

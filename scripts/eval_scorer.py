@@ -428,7 +428,8 @@ def main():
                     hkw["reach_edges"] = rbits
                 if getattr(model.network, "action_motion_dim", 0) > 0:
                     from namo.rl_loop.action_motion import action_motion_from_contact_px
-                    hkw["action_motion"] = action_motion_from_contact_px(cpx_t)
+                    hkw["action_motion"] = action_motion_from_contact_px(
+                        cpx_t, feature_dim=model.network.action_motion_dim)
                 t = model(ctx, cpx_t, ztup[0], ztup[1], **hkw)[0]
                 if t.dim() == 3:
                     from src.model.hl_gauss import HLGauss

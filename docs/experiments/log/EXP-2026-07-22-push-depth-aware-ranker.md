@@ -3,7 +3,7 @@ type: experiment
 status: live
 created: 2026-07-22
 commit: c86a86a
-metric: One-seed 1push A/B complete; depth-aware hard exact hit@1 47.1% vs 36.3% (+10.8 pp), easy/med preserved; 2push simulator verdict deferred
+metric: Legacy-motion one-seed 1push A/B was promising; corrected image-aligned final-pose 3-seed A/B pending; 2push simulator verdict deferred
 thread: rl_loop
 parent: EXP-2026-07-14-region-opening-curriculum-marvel
 related: EXP-2026-07-12-depth-geometric-grounding
@@ -65,6 +65,22 @@ Report both horizons and every difficulty tier. For 1-push, report solve@1/@5 pl
 
 Accept the depth-aware head only if it preserves 1-push performance within 2 percentage points on every tier, improves 2-push average simulator calls by at least 10%, and improves solve@2 or solve@5 by at least 3 percentage points with a matching mechanism shift toward the valid setup depth. Reject it if those search gains do not appear, even if validation loss improves.
 
+### Phase 3 — corrected representation and fresh three-seed confirmation
+
+_(user, 2026-07-22)_ Correct the action feature to the image-aligned final pose, then train three fresh corrected treatments and three fresh baselines simultaneously on six cluster GPUs.
+
+The crop generator translates the target object to the image center but does not rotate the crop: world X/Y remain the image axes, world Y increases with image row, and the 0.5 m crop spans ±0.25 m around the object. The corrected feature for each complete push is therefore `(2*world_dx/0.5m, 2*world_dy/0.5m, sin(theta+dtheta), cos(theta+dtheta))`: the proposed final center in the same `[-1,1]` coordinates as the image/contact positions plus the proposed final yaw without an angle discontinuity.
+
+This correction remains a cheap late-fusion treatment. The image and 60 contact tokens complete scene/contact attention first; the model then expands to 60×5 actions, adds each action's four-number final-pose embedding, and applies the shared value head. Action-specific attention or a rasterized final footprint is a separate architecture experiment and is not mixed into this test.
+
+Preserve the legacy three-number `(world_dx/0.5m, world_dy/0.5m, dtheta/pi)` path when loading its existing checkpoint, but make every newly trained treatment use the corrected four-number feature. Focused gates must verify all three shape families, crop-coordinate equality, wrapped-angle-safe final orientation, an actual H5 forward/backward, and successful legacy-checkpoint forward loading before cluster smoke.
+
+Train a fresh `3 seeds × {baseline, corrected}` A/B: seeds 1/2/3, room split seed 0, the same 178,364-row H5, 20 epochs, batch 256, learning rate `3e-4`, rank auxiliary weight/temperature `0.1/0.15`, and `num_workers=0`. Run all six jobs concurrently on six identical GPUs so neither paired deltas nor seed variance are mixed with hardware changes.
+
+After training, run the same zero-simulation canonical 1-push comparison for all six checkpoints and report paired baseline→corrected deltas by easy/medium/hard. Strong confirmation means hard exact hit@1 improves in all three seeds, the three-seed mean hard wrong-contact rate falls, and easy/medium exact hit@1 stay within the existing two-point guardrail in every seed. Two positive hard seeds with a positive mean is partial confirmation; one or zero positive hard seeds is a failure to replicate. Right-contact/wrong-depth remains a reported mechanism diagnostic rather than a gate because the legacy seed-1 gain was dominated by fewer wrong contacts.
+
+This fresh A/B does not authorize 2-push simulator evaluation; the final cross-horizon architecture verdict remains deferred.
+
 ## Run
 
 **Phase-0 implementation (2026-07-22).** Commit `ddb18d2` extends `scripts/eval_scorer.py` in place with a zero-push live-canonical mode, adds the three-way category tests, and adds the CS `unlimited` launcher `scripts/slurm/eval_scorer_live.slurm`. Local compile + focused tests pass (2/2).
@@ -73,7 +89,7 @@ Accept the depth-aware head only if it preserves 1-push performance within 2 per
 
 **Canonical Phase-0 run (job 186712, commit `c131c8e`, 2026-07-22).** One `unlimited` GPU on `ilab1`; checkpoint `antman5c/checkpoints/epoch018-val_loss0.6276.ckpt`; 1,323/1,323 episodes completed in 2m38s with exit code 0 and 0.110 seconds/episode steady-state. Artifacts: `/common/users/dm1487/scratch_namo/eval/push_depth/full/antman5c_depth_diag.{json,jsonl}` and log `logs/a5cdepth_full_186712.out`.
 
-**Phase-1 implementation frozen (2026-07-22).** NAMO commit `75c8c11` and Sage commit `09acfe3` implement the cheap treatment exactly as planned: the existing 60 contact tokens complete attention unchanged, then each token is expanded to its five candidate depths, combined with that candidate's normalized nominal `(dx,dy,dtheta)`, and scored by one shared 51-bin value head. `NAMO_ACTION_MOTION=0` retains the original Antman-5c architecture and checkpoint keys; `NAMO_ACTION_MOTION=1` selects the treatment.
+**Legacy Phase-1 implementation frozen (2026-07-22).** NAMO commit `75c8c11` and Sage commit `09acfe3` implement the first cheap treatment: the existing 60 contact tokens complete attention unchanged, then each token is expanded to its five candidate depths, combined with that candidate's normalized nominal `(dx,dy,dtheta)`, and scored by one shared 51-bin value head. `NAMO_ACTION_MOTION=0` retains the original Antman-5c architecture and checkpoint keys; the historical `NAMO_ACTION_MOTION=1` run used this legacy three-number treatment.
 
 The existing Antman-5c H5 already stores `contact_px`, whose ordered rectangle samples recover the target object's current axes, size family, and yaw. The loader therefore constructs the exact active primitive table from the pinned `1x_car_d5_motion_primitives_15_{square,wide,tall}.dat` files without XML lookup or simulator calls. Focused tests cover all three shape families and rotation, the original Antman-5c checkpoint still loads through `eval_scorer`, and an actual H5 batch completes forward/loss/backward with finite values. Parameter counts are closely matched: baseline 4,397,055 versus treatment 4,395,891.
 
@@ -122,7 +138,7 @@ These are prediction-versus-saved-GT hits, not replayed-physics open rates. The 
 
 This Phase-0 diagnostic covers only canonical 1-push ground-truth comparison. No 2-push search evaluation was run because that would require forward simulations; both horizons remain mandatory for the eventual trained architecture verdict.
 
-### One-seed architecture A/B — prediction-only 1-push
+### One-seed legacy-motion architecture A/B — prediction-only 1-push
 
 The controlled comparison below trains both models from scratch on the same 178,364 Antman boards and changes only whether the head receives each complete push's nominal motion.
 
@@ -138,13 +154,13 @@ The controlled comparison below trains both models from scratch on the same 178,
 | med | 2.4% (10) | 3.3% (14) | +0.9 pp | 15.0% (63) | 14.0% (59) | -1.0 pp |
 | hard | 5.4% (11) | 3.9% (8) | **-1.5 pp** | 58.3% (119) | 49.0% (100) | **-9.3 pp** |
 
-**Interim 1-push verdict: promising, not final.** The depth-aware head stays within the pre-registered two-point guardrail on every 1-push tier and materially improves the hard tier: exact hit@1 rises by 22 episodes / 10.8 points, hit@5 rises by seven episodes / 3.4 points, and both wrong-contact and right-contact/wrong-depth errors fall. It does not improve every cell—medium/easy @5 regress by two/one episodes and right-contact/wrong-depth rises slightly there—so this one-seed result supports the mechanism but is not a universal win.
+**Interim legacy-v1 1-push verdict: promising, not final.** The depth-aware head stays within the pre-registered two-point guardrail on every 1-push tier and materially improves the hard tier: exact hit@1 rises by 22 episodes / 10.8 points, hit@5 rises by seven episodes / 3.4 points, and both wrong-contact and right-contact/wrong-depth errors fall. It does not improve every cell—medium/easy @5 regress by two/one episodes and right-contact/wrong-depth rises slightly there—so this one-seed result supports the mechanism but is not a universal win.
 
 The pre-registered architecture decision still requires 2-push search cost and solve@k. Per the staged user scope, no 2-push simulator evaluation was launched, so the treatment is neither accepted nor rejected yet.
 
 ## Next
 
-Stop here under the staged user scope. Do not launch the 2-push simulator evaluation until explicitly requested; when authorized, compare solve@2/@5/@10/@30 and simulator calls by easy/medium/hard before making the final architecture decision.
+Smoke the baseline and corrected treatment on the selected target node, then launch the six fresh seed-1/2/3 training jobs simultaneously and queue their prediction-only canonical 1-push evaluations. Do not launch the 2-push simulator evaluation until explicitly requested.
 
 ## Discussion
 

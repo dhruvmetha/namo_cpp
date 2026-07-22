@@ -12,6 +12,8 @@ REPO = Path(__file__).resolve().parents[3]
 SHAPES = ("square", "wide", "tall")
 NUM_EDGES = 60
 NUM_DEPTHS = 5
+LEGACY_MOTION_DIM = 3
+FINAL_POSE_DIM = 4
 
 
 @lru_cache(maxsize=1)
@@ -28,13 +30,19 @@ def primitive_motion_tables() -> torch.Tensor:
     return torch.from_numpy(tables)
 
 
-def action_motion_from_contact_px(contact_px: torch.Tensor, crop_m: float = 0.5) -> torch.Tensor:
-    """Build the exact active primitive motion in crop coordinates from stored contact geometry.
+def action_motion_from_contact_px(contact_px: torch.Tensor, crop_m: float = 0.5,
+                                  feature_dim: int = FINAL_POSE_DIM) -> torch.Tensor:
+    """Build the exact active primitive pose feature from stored contact geometry.
 
     Contact indices 0→28 span the object's local x axis and 30→58 span its local y axis. Their
     lengths therefore recover the same square/wide/tall choice used by ``PrimitiveGoalStrategy``;
-    the x-axis direction recovers object yaw. The returned dimensionless feature is
-    ``(world_dx/crop_m, world_dy/crop_m, dtheta/pi)`` for every complete push.
+    the x-axis direction recovers object yaw. The corrected feature describes the primitive's
+    nominal final pose in the world-aligned object-centered crop:
+    ``(2*world_dx/crop_m, 2*world_dy/crop_m, sin(theta+dtheta), cos(theta+dtheta))``. Thus the crop
+    center is (0,0), either crop edge is +/-1, and orientation uses the same axes as the image.
+
+    ``feature_dim=3`` preserves the original experiment's
+    ``(world_dx/crop_m, world_dy/crop_m, dtheta/pi)`` encoding so its checkpoints remain evaluable.
     """
     unbatched = contact_px.ndim == 2
     cp = contact_px.unsqueeze(0) if unbatched else contact_px
@@ -51,5 +59,11 @@ def action_motion_from_contact_px(contact_px: torch.Tensor, crop_m: float = 0.5)
     dx, dy = local[..., 0], local[..., 1]
     world_dx = c[:, None, None] * dx - s[:, None, None] * dy
     world_dy = s[:, None, None] * dx + c[:, None, None] * dy
-    out = torch.stack((world_dx / crop_m, world_dy / crop_m, local[..., 2] / math.pi), dim=-1)
+    if feature_dim == LEGACY_MOTION_DIM:
+        out = torch.stack((world_dx / crop_m, world_dy / crop_m, local[..., 2] / math.pi), dim=-1)
+    else:
+        theta = torch.atan2(s, c)
+        final_theta = theta[:, None, None] + local[..., 2]
+        out = torch.stack((2.0 * world_dx / crop_m, 2.0 * world_dy / crop_m,
+                           torch.sin(final_theta), torch.cos(final_theta)), dim=-1)
     return out[0] if unbatched else out
