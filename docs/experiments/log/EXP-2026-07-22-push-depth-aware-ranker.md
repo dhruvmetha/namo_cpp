@@ -91,6 +91,8 @@ The existing Antman-5c H5 already stores `contact_px`, whose ordered rectangle s
 
 **Deferred best-checkpoint resolution smoke PASS (job `186749`).** Commit `9e22239` lets the live-eval launcher resolve the exact best-checkpoint path printed by a completed training log, avoiding Lightning filename rotation. The exact no-`CKPT` path completed one treatment episode on `rlab3` in 17 seconds with the valid action ranked first and zero missing valid cells. The full baseline/treatment prediction jobs may therefore be submitted with `afterok` dependencies on both training jobs and will start without manual polling only after both trainers succeed.
 
+**Automatic prediction-only comparison queued (jobs `186751`/`186752`).** Baseline and treatment full-canonical evaluators are pending on `afterok:186722:186723`, request one `rlab3` A4000 each with a one-hour limit, and resolve their respective best checkpoint from the completed training log. Outputs are `/common/users/dm1487/scratch_namo/eval/push_depth/action_head_full_seed1/{baseline,treatment}.{json,jsonl}`. SLURM reports both dependencies unfulfilled as intended; neither evaluation can start before both trainers complete successfully.
+
 **Staged evaluation scope (user, 2026-07-22).** After training, run only the prediction-based canonical 1-push baseline/treatment comparison now. The 2-push simulator evaluation and final cross-horizon acceptance verdict are explicitly deferred.
 
 ## Result + Verdict
