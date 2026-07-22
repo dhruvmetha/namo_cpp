@@ -5,7 +5,7 @@ import glob
 import json
 import os
 import sys
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -38,7 +38,7 @@ def main():
 
     unique_generated = list(dict.fromkeys(generated))
     signatures = {}
-    with ThreadPoolExecutor(max_workers=args.workers) as executor:
+    with ProcessPoolExecutor(max_workers=args.workers) as executor:
         for xml_path, (full, _) in zip(
             unique_generated,
             executor.map(geom_sig, unique_generated, chunksize=64),
