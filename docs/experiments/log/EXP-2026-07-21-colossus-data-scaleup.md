@@ -61,9 +61,9 @@ Colossus is an **overall scale-up**, not a dead-only harvest. The build:
 
 ## Yield finding — pre-fix scenes (not a new problem)
 
-Live labeling shows only **~29% of bank scenes are usable** (24% dead-root + 5% success); ~71% are out-of-scope (60% `goal_region_not_in_snapshot` = goal not 1-hop from robot, 11% `no_reachable_objects` = movable exists but robot can't reach a push pose). **This is expected: the bank (`collect3/bank.txt`) was generated 2026-07-13, before the gen↔label adjacency fix (`mujoco_env_creator@55badcb`, 2026-07-14) that took `goal_region_not_in_snapshot` 77.8%→0%.** The scenes that pass are valid and correctly labeled — the data is not corrupted, just low-yield. Future generation uses the fixed `generate_envs.py` (feb pilot ~90% accept) and does not repeat this. So the yield hit here costs compute, not correctness; the dead we harvest is fine.
+Live labeling shows only **~29% of bank scenes are usable** (24% dead-root + 5% success); ~71% are out-of-scope (60% `goal_region_not_in_snapshot` = goal not 1-hop from robot, 11% `no_reachable_objects` = movable exists but robot can't reach a push pose). **This is expected: the bank (`collect3/bank.txt`) was generated 2026-07-13, before the gen↔label adjacency fix (`mujoco_env_creator@55badcb`, 2026-07-14) that took `goal_region_not_in_snapshot` 77.8%→0%.** The scenes that pass are valid and correctly labeled — the data is not corrupted, just low-yield.
 
-The genuinely open scene problem is **hard-1push scarcity** (only ~3.5% of solvable scenes are hard) → child card [EXP-2026-07-22-hard1push-scarcity](EXP-2026-07-22-hard1push-scarcity.md) (parked; separate from the dead-dose question).
+**No follow-up needed on the generator** — it is already fixed (`mujoco_env_creator/generate_envs.py`, feb pilot ~90% accept). To get more XMLs (positives OR dead), just **rerun `generate_envs.py`**; there is no research problem here, only a rerun. Hard-1push is the rare tier (~3.5% of solvable, per EXP-2026-07-14 pilot) — a volume/cost fact, not a blocker.
 
 ## Run
 
