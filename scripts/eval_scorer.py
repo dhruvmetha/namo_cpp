@@ -29,6 +29,7 @@ import json
 import math
 import os
 import sys
+import time
 
 import cv2
 import h5py
@@ -122,6 +123,211 @@ def topk_hit(scores, valid_cells, cand_idx, ks):
     return out
 
 
+KS = [1, 5, 10, 20]
+
+
+def diagnostic_record(scores, valid, tried, reach_cp=None, identity=None):
+    """Grade one score grid against one episode's exact valid/tried action sets.
+
+    ``reach_cp`` is the deployment-realistic candidate pool. Legacy H5 evaluation derives it from
+    contact-level reachability; live evaluation passes the exact primitive pool produced by the current
+    deployment code. ``tried`` remains the oracle per-cell reachability pool from the answer key.
+    """
+    valid = {tuple(t) for t in valid}
+    tried = {tuple(t) for t in tried}
+    if reach_cp is None:
+        reach_cp = [ee * 5 + dd for ee in {x for x, _ in tried} for dd in range(5)]
+    reach_cp = sorted(set(int(j) for j in reach_cp))
+    reach_exact = sorted(ee * 5 + dd for (ee, dd) in tried if dd < 5 and ee * 5 + dd in reach_cp)
+    if not reach_cp:
+        raise ValueError("episode has no deployment-realistic candidate pushes")
+
+    hit_o = topk_hit(scores, valid, reach_exact, KS)
+    hit_r = topk_hit(scores, valid, reach_cp, KS)
+    flat = scores.reshape(-1)
+    order = sorted(reach_cp, key=lambda j: -flat[j])
+    valid_flat = {ee * 5 + dd for (ee, dd) in valid}
+    solving_edges = {ee for (ee, _) in valid}
+    best = order[0]
+    be, bd = best // 5, best % 5
+    if best in valid_flat:
+        cat = "success"
+    elif be in solving_edges:
+        cat = "right_edge_wrong_depth"
+    else:
+        cat = "wrong_edge"
+    edge_hit = {k: any((j // 5) in solving_edges for j in order[:k]) for k in KS}
+    rank_fv = next((idx + 1 for idx, j in enumerate(order) if j in valid_flat), None)
+    depth_right = (bd in {dd for (ee, dd) in valid if ee == be}) if be in solving_edges else None
+    sc = np.array([flat[j] for j in reach_cp])
+    vm = np.array([1 if j in valid_flat else 0 for j in reach_cp])
+    sep = float(sc[vm == 1].mean() - sc[vm == 0].mean()) \
+        if (vm.sum() > 0 and (len(sc) - vm.sum()) > 0) else None
+    candidate_cells = {(j // 5, j % 5) for j in reach_cp}
+    rec = {
+        "nF": len(valid_flat & set(reach_cp)), "nR": len(reach_cp),
+        "hit_r": hit_r, "hit_o": hit_o, "edge_hit": edge_hit, "cat": cat,
+        "top1_edge": be, "top1_depth": bd, "top1_score": float(flat[best]),
+        "depth_right": depth_right, "rank_fv": rank_fv, "sep": sep,
+        "n_valid_total": len(valid), "n_tried_total": len(tried),
+        "n_valid_missing_from_pool": len(valid - candidate_cells),
+    }
+    if identity:
+        rec.update(identity)
+    return rec
+
+
+def aggregate_records(records):
+    """Aggregate the shared scorer diagnostic panel by true per-episode difficulty."""
+    out = {}
+    for b in ("hard", "med", "easy"):
+        rows = [r for r in records if bin_of(r["sr"]) == b]
+        n = len(rows)
+        if not n:
+            out[b] = {"n": 0}
+            continue
+        real = {f"@{k}": round(np.mean([r["hit_r"][k] for r in rows]) * 100, 1) for k in KS}
+        orac = {f"@{k}": round(np.mean([r["hit_o"][k] for r in rows]) * 100, 1) for k in KS}
+        floor = {f"@{k}": round(np.mean([floor_no_replacement(r["nF"], r["nR"], k)
+                                          for r in rows]) * 100, 1) for k in KS}
+        edge = {f"@{k}": round(np.mean([r["edge_hit"][k] for r in rows]) * 100, 1) for k in KS}
+        decomp = {c: round(np.mean([r["cat"] == c for r in rows]) * 100, 1)
+                  for c in ("success", "right_edge_wrong_depth", "wrong_edge")}
+        decomp["not_reachable"] = 0.0
+        n_miss = sum(1 for r in rows if r["cat"] != "success")
+        we_overall = round(np.mean([r["cat"] == "wrong_edge" for r in rows]) * 100, 1)
+        we_of_miss = round(sum(r["cat"] == "wrong_edge" for r in rows) / n_miss * 100, 1) if n_miss else 0.0
+        dh = [0] * 5
+        for r in rows:
+            dh[r["top1_depth"]] += 1
+        depth_hist = {f"d{i}": round(100 * dh[i] / n, 1) for i in range(5)}
+        dr = [r["depth_right"] for r in rows if r["depth_right"] is not None]
+        depth_acc = round(np.mean(dr) * 100, 1) if dr else None
+        ranks = [r["rank_fv"] for r in rows if r["rank_fv"] is not None]
+        rank_stats = {"median": float(np.median(ranks)) if ranks else None,
+                      "pct_le3": round(np.mean([x <= 3 for x in ranks]) * 100, 1) if ranks else None,
+                      "pct_le10": round(np.mean([x <= 10 for x in ranks]) * 100, 1) if ranks else None,
+                      "pct_le20": round(np.mean([x <= 20 for x in ranks]) * 100, 1) if ranks else None,
+                      "n_with_valid_in_pool": len(ranks)}
+        seps = [r["sep"] for r in rows if r["sep"] is not None]
+        sep_stats = {"mean_margin": round(float(np.mean(seps)), 3) if seps else None,
+                     "pct_positive": round(np.mean([s > 0 for s in seps]) * 100, 1) if seps else None}
+        out[b] = {
+            "n": n, "sr_mean_pct": round(np.mean([r["sr"] for r in rows]) * 100, 2),
+            "scorer_realistic": real, "scorer_oracle": orac, "floor": floor,
+            "edge_at_k": edge, "failure_decomp_at1_pct": decomp,
+            "wrong_edge_overall_pct": we_overall, "wrong_edge_of_misses_pct": we_of_miss,
+            "depth_top1_hist_pct": depth_hist, "depth_acc_given_right_edge_pct": depth_acc,
+            "rank_first_valid": rank_stats, "score_separation": sep_stats,
+            "valid_missing_from_pool": int(sum(r["n_valid_missing_from_pool"] for r in rows)),
+        }
+    return out
+
+
+def write_result(ckpt, records, out_path, mode):
+    res = {"ckpt": ckpt, "mode": mode, "n_episodes": len(records),
+           "divisions": aggregate_records(records)}
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    with open(out_path, "w") as f:
+        json.dump(res, f, indent=2)
+    for b in ("hard", "med", "easy"):
+        r = res["divisions"][b]
+        if not r.get("n"):
+            continue
+        sk = r["scorer_realistic"]; fl = r["floor"]; ek = r["edge_at_k"]
+        fd = r["failure_decomp_at1_pct"]; dh = r["depth_top1_hist_pct"]
+        rk = r["rank_first_valid"]; ss = r["score_separation"]
+        print(f"\n===== [{b}]  n={r['n']}  sr_mean={r['sr_mean_pct']}% =====", file=sys.stderr)
+        print(f"  success@k   1/5/10/20 : {sk['@1']}/{sk['@5']}/{sk['@10']}/{sk['@20']}", file=sys.stderr)
+        print(f"  edge@k      1/5/10/20 : {ek['@1']}/{ek['@5']}/{ek['@10']}/{ek['@20']}   (right edge, any depth)", file=sys.stderr)
+        print(f"  floor@k     1/5/10/20 : {fl['@1']}/{fl['@5']}/{fl['@10']}/{fl['@20']}   (random, no-replacement)", file=sys.stderr)
+        print(f"  fail@1   succ/rEwD/wrongE : {fd['success']}/{fd['right_edge_wrong_depth']}/{fd['wrong_edge']}%", file=sys.stderr)
+        print(f"  wrong-edge  overall={r['wrong_edge_overall_pct']}%  of-misses={r['wrong_edge_of_misses_pct']}%", file=sys.stderr)
+        print(f"  depth top1  d0..d4 : {dh['d0']}/{dh['d1']}/{dh['d2']}/{dh['d3']}/{dh['d4']}%   depth-acc|rightEdge={r['depth_acc_given_right_edge_pct']}%", file=sys.stderr)
+        print(f"  rank-1st-valid  median={rk['median']}  <=3={rk['pct_le3']}%  <=10={rk['pct_le10']}%  <=20={rk['pct_le20']}%", file=sys.stderr)
+        print(f"  score-sep   margin={ss['mean_margin']}  positive={ss['pct_positive']}%", file=sys.stderr)
+        print(f"  valid cells missing from live pool: {r['valid_missing_from_pool']}", file=sys.stderr)
+    print(f"\nwrote {out_path}", file=sys.stderr)
+    return res
+
+
+def live_canonical_records(ckpt, episodes_path, start, end, leaf_out):
+    """Score canonical one-push episodes through the current live deployment renderer, with zero pushes."""
+    from namo.core.xml_goal_parser import extract_goal_with_fallback
+    from namo.paths import resolve
+    from scorer_beam import BeamPlanner, FALLBACK_GOAL, make_env
+    from eval_m3 import rank_first_pushes_h2
+
+    cv2.setNumThreads(1)
+    key = json.load(open(episodes_path))
+    episodes = [(xml, rec_idx, rec) for xml in sorted(key)
+                for rec_idx, rec in enumerate(key[xml])]
+    identities = [(xml, rec["object_id"], rec.get("region"),
+                   round(float(rec["object_center"][0]), 4), round(float(rec["object_center"][1]), 4))
+                  for xml, _rec_idx, rec in episodes]
+    if len(set(identities)) != len(identities):
+        raise RuntimeError(f"duplicate episode identities: {len(identities) - len(set(identities))}")
+    stop = len(episodes) if end < 0 else min(end, len(episodes))
+    selected = episodes[start:stop]
+    if not selected:
+        raise ValueError(f"empty live episode slice [{start}:{stop}] of {len(episodes)}")
+
+    planner = BeamPlanner(ckpt=ckpt)
+    records = []
+    fout = open(leaf_out, "w") if leaf_out else None
+    t0 = time.perf_counter()
+    for local_i, (xml, rec_idx, gt) in enumerate(selected):
+        global_i = start + local_i
+        xp = str(resolve(xml))
+        env = make_env(xp)
+        goal = extract_goal_with_fallback(xp, FALLBACK_GOAL)
+        env.set_robot_goal(*goal)
+        env.get_reachable_objects()
+        obs = env.get_observation()
+        obj = gt["object_id"]
+        pose_key = f"{obj}_pose"
+        if pose_key not in obs:
+            raise RuntimeError(f"episode {global_i}: {obj} absent from live observation for {xp}")
+        center = gt["object_center"]
+        center_err = math.hypot(float(obs[pose_key][0]) - float(center[0]),
+                                float(obs[pose_key][1]) - float(center[1]))
+        if center_err > 0.01:
+            raise RuntimeError(f"episode {global_i}: object-center mismatch {center_err:.6f} m for {obj}")
+        s0 = env.get_full_state()
+        pool = rank_first_pushes_h2(planner, env, goal, xp, s0, 1,
+                                    restrict_obj=obj, score=True, raw=True)
+        scores = np.full((60, 5), -1e9, dtype=np.float32)
+        cells = []
+        for pool_obj, g, q in pool:
+            if pool_obj != obj:
+                raise RuntimeError(f"episode {global_i}: candidate escaped object restriction")
+            e, d = int(g.edge_idx), int(g.depth)
+            if (e, d) in cells:
+                raise RuntimeError(f"episode {global_i}: duplicate live action {(e, d)}")
+            cells.append((e, d))
+            scores[e, d] = float(q)
+        identity = {
+            "i": global_i, "xml": xml, "object_id": obj, "region": gt.get("region"),
+            "object_center": [float(center[0]), float(center[1])], "object_center_error_m": center_err,
+            "sr": min(1.0, float(gt.get("solve_rate", len(gt["valid"]) / max(1, len(gt["tried"]))))),
+        }
+        rec = diagnostic_record(scores, gt["valid"], gt["tried"],
+                                reach_cp=[e * 5 + d for e, d in cells], identity=identity)
+        if rec["rank_fv"] is None:
+            raise RuntimeError(f"episode {global_i}: no valid GT action appears in the live candidate pool")
+        records.append(rec)
+        if fout:
+            fout.write(json.dumps(rec) + "\n")
+            fout.flush()
+        if (local_i + 1) % 10 == 0 or local_i == 0:
+            elapsed = time.perf_counter() - t0
+            print(f"  [live {local_i + 1}/{len(selected)}] {elapsed:.1f}s ",
+                  f"({elapsed / (local_i + 1):.3f}s/episode)", file=sys.stderr, flush=True)
+    if fout:
+        fout.close()
+    return records, len(episodes)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ckpt", required=True)
@@ -136,8 +342,27 @@ def main():
                     "2=does the H=2 query still rank 1-push openers on this 1-push set). Ignored for non-budget ckpts.")
     ap.add_argument("--network", default="dit_classifier", choices=["dit_classifier", "edge_crossattn"])
     ap.add_argument("--zoom-window", type=float, default=0.24, help="dual-crop zoom window (m), must match the build")
+    ap.add_argument("--live-canonical", action="store_true",
+                    help="score onepush_episodes.json through the current live renderer; no push simulations")
+    ap.add_argument("--start", type=int, default=0, help="live mode: inclusive index in canonical episode order")
+    ap.add_argument("--end", type=int, default=-1, help="live mode: exclusive index; -1 means all episodes")
+    ap.add_argument("--leaf-out", help="live mode: optional per-episode JSONL for audit/monitoring")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
+
+    if a.live_canonical:
+        records, total = live_canonical_records(a.ckpt, a.episodes, a.start, a.end, a.leaf_out)
+        full_run = a.start == 0 and (a.end < 0 or a.end >= total)
+        if full_run:
+            counts = {b: sum(bin_of(r["sr"]) == b for r in records) for b in ("easy", "med", "hard")}
+            expected = {"easy": 698, "med": 421, "hard": 204}
+            if len(records) != 1323 or counts != expected:
+                raise RuntimeError(f"canonical count gate failed: n={len(records)} bins={counts}, expected 1323/{expected}")
+            missing = sum(r["n_valid_missing_from_pool"] for r in records)
+            if missing:
+                raise RuntimeError(f"live candidate pool omitted {missing} valid GT cells")
+        write_result(a.ckpt, records, a.out, mode="live_canonical")
+        return
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = load_scorer(a.ckpt, a.num_depths, device, a.network)
@@ -146,8 +371,6 @@ def main():
     if USE_ZOOM:
         print(f"  [dual-crop eval] zoom_window={a.zoom_window}m zoom_size={ZS}", file=sys.stderr)
     epf = json.load(open(a.episodes))
-    KS = [1, 5, 10, 20]
-
     # per-episode records, deduped across division files
     seen = set()
     recs_out = []  # (sr, {hit_real}, {hit_oracle}, cov_real)
@@ -207,104 +430,13 @@ def main():
                     t = HLGauss(num_bins=t.shape[-1]).value(t)
                 logits = t.cpu().numpy()  # (60,5)
             scores = 1.0 / (1.0 + np.exp(-logits))
-            # candidate sets (flat indices)
-            reach_exact = [ee * 5 + dd for (ee, dd) in tried if dd < 5]                 # oracle
             reach_cp = [ee * 5 + dd for ee in {x for x, _ in tried} for dd in range(5)]  # realistic (contact-pt)
-            hit_o = topk_hit(scores, valid, reach_exact, KS)
-            hit_r = topk_hit(scores, valid, reach_cp, KS)
-
-            # ----- diagnostics (same forward pass, deployment-realistic reach_cp pool) -----
-            flat = scores.reshape(-1)
-            order = sorted(reach_cp, key=lambda j: -flat[j])     # reachable candidates, best score first
-            valid_flat = {ee * 5 + dd for (ee, dd) in valid}
-            solving_edges = {ee for (ee, _) in valid}
-            best = order[0]; be, bd = best // 5, best % 5
-            # failure category of the top-1 pick (not_reachable is 0 by construction — we rank reachable only)
-            if best in valid_flat:
-                cat = "success"
-            elif be in solving_edges:
-                cat = "right_edge_wrong_depth"
-            else:
-                cat = "wrong_edge"
-            edge_hit = {k: any((j // 5) in solving_edges for j in order[:k]) for k in KS}  # right edge in top-k
-            rank_fv = next((idx + 1 for idx, j in enumerate(order) if j in valid_flat), None)  # 1-indexed
-            depth_right = (bd in {dd for (ee, dd) in valid if ee == be}) if be in solving_edges else None
-            sc = np.array([flat[j] for j in reach_cp])
-            vm = np.array([1 if j in valid_flat else 0 for j in reach_cp])
-            sep = float(sc[vm == 1].mean() - sc[vm == 0].mean()) if (vm.sum() > 0 and (len(sc) - vm.sum()) > 0) else None
-
-            recs_out.append({"sr": sr, "nF": len(valid), "nR": len(tried), "hit_r": hit_r, "hit_o": hit_o,
-                             "edge_hit": edge_hit, "cat": cat, "top1_depth": bd, "depth_right": depth_right,
-                             "rank_fv": rank_fv, "sep": sep})
+            recs_out.append(diagnostic_record(scores, valid, tried, reach_cp=reach_cp,
+                                               identity={"sr": sr}))
         f.close()
         print(f"  scored {div}: total kept={len(recs_out)}", file=sys.stderr, flush=True)
 
-    # aggregate per true-difficulty bin
-    def agg(records):
-        out = {}
-        for b in ("hard", "med", "easy"):
-            R = [r for r in records if bin_of(r["sr"]) == b]
-            n = len(R)
-            if not n:
-                out[b] = {"n": 0}; continue
-            real = {f"@{k}": round(np.mean([r["hit_r"][k] for r in R]) * 100, 1) for k in KS}
-            orac = {f"@{k}": round(np.mean([r["hit_o"][k] for r in R]) * 100, 1) for k in KS}
-            # random floor: without replacement (hypergeometric), per-episode F=nF, R=nR
-            floor = {f"@{k}": round(np.mean([floor_no_replacement(r["nF"], r["nR"], k) for r in R]) * 100, 1) for k in KS}
-            edge = {f"@{k}": round(np.mean([r["edge_hit"][k] for r in R]) * 100, 1) for k in KS}  # right edge, any depth
-            # failure decomposition of the top-1 pick (not_reachable=0 by construction for the scorer)
-            decomp = {c: round(np.mean([r["cat"] == c for r in R]) * 100, 1)
-                      for c in ("success", "right_edge_wrong_depth", "wrong_edge")}
-            decomp["not_reachable"] = 0.0
-            n_miss = sum(1 for r in R if r["cat"] != "success")
-            we_overall = round(np.mean([r["cat"] == "wrong_edge" for r in R]) * 100, 1)
-            we_of_miss = round(sum(r["cat"] == "wrong_edge" for r in R) / n_miss * 100, 1) if n_miss else 0.0
-            # depth of top-1 pick + depth-accuracy given the edge was a solving edge
-            dh = [0] * 5
-            for r in R:
-                dh[r["top1_depth"]] += 1
-            depth_hist = {f"d{i}": round(100 * dh[i] / n, 1) for i in range(5)}
-            dr = [r["depth_right"] for r in R if r["depth_right"] is not None]
-            depth_acc = round(np.mean(dr) * 100, 1) if dr else None
-            # rank of first valid push in the score-sorted reachable pool (1-indexed)
-            ranks = [r["rank_fv"] for r in R if r["rank_fv"] is not None]
-            rank_stats = {"median": float(np.median(ranks)) if ranks else None,
-                          "pct_le3": round(np.mean([x <= 3 for x in ranks]) * 100, 1) if ranks else None,
-                          "pct_le10": round(np.mean([x <= 10 for x in ranks]) * 100, 1) if ranks else None,
-                          "pct_le20": round(np.mean([x <= 20 for x in ranks]) * 100, 1) if ranks else None,
-                          "n_with_valid_in_pool": len(ranks)}
-            # score separation: mean(valid) - mean(invalid) over the reachable pool
-            seps = [r["sep"] for r in R if r["sep"] is not None]
-            sep_stats = {"mean_margin": round(float(np.mean(seps)), 3) if seps else None,
-                         "pct_positive": round(np.mean([s > 0 for s in seps]) * 100, 1) if seps else None}
-            out[b] = {"n": n, "sr_mean_pct": round(np.mean([r["sr"] for r in R]) * 100, 2),
-                      "scorer_realistic": real, "scorer_oracle": orac, "floor": floor,    # existing keys (do not rename)
-                      "edge_at_k": edge, "failure_decomp_at1_pct": decomp,
-                      "wrong_edge_overall_pct": we_overall, "wrong_edge_of_misses_pct": we_of_miss,
-                      "depth_top1_hist_pct": depth_hist, "depth_acc_given_right_edge_pct": depth_acc,
-                      "rank_first_valid": rank_stats, "score_separation": sep_stats}
-        return out
-
-    res = {"ckpt": a.ckpt, "n_episodes": len(recs_out), "divisions": agg(recs_out)}
-    import os
-    os.makedirs(os.path.dirname(a.out), exist_ok=True)
-    json.dump(res, open(a.out, "w"), indent=2)
-    for b in ("hard", "med", "easy"):
-        r = res["divisions"][b]
-        if not r.get("n"):
-            continue
-        sk = r["scorer_realistic"]; fl = r["floor"]; ek = r["edge_at_k"]; fd = r["failure_decomp_at1_pct"]
-        dh = r["depth_top1_hist_pct"]; rk = r["rank_first_valid"]; ss = r["score_separation"]
-        print(f"\n===== [{b}]  n={r['n']}  sr_mean={r['sr_mean_pct']}% =====", file=sys.stderr)
-        print(f"  success@k   1/5/10/20 : {sk['@1']}/{sk['@5']}/{sk['@10']}/{sk['@20']}", file=sys.stderr)
-        print(f"  edge@k      1/5/10/20 : {ek['@1']}/{ek['@5']}/{ek['@10']}/{ek['@20']}   (right edge, any depth)", file=sys.stderr)
-        print(f"  floor@k     1/5/10/20 : {fl['@1']}/{fl['@5']}/{fl['@10']}/{fl['@20']}   (random, no-replacement)", file=sys.stderr)
-        print(f"  fail@1   succ/rEwD/wrongE : {fd['success']}/{fd['right_edge_wrong_depth']}/{fd['wrong_edge']}%", file=sys.stderr)
-        print(f"  wrong-edge  overall={r['wrong_edge_overall_pct']}%  of-misses={r['wrong_edge_of_misses_pct']}%", file=sys.stderr)
-        print(f"  depth top1  d0..d4 : {dh['d0']}/{dh['d1']}/{dh['d2']}/{dh['d3']}/{dh['d4']}%   depth-acc|rightEdge={r['depth_acc_given_right_edge_pct']}%", file=sys.stderr)
-        print(f"  rank-1st-valid  median={rk['median']}  ≤3={rk['pct_le3']}%  ≤10={rk['pct_le10']}%  ≤20={rk['pct_le20']}%", file=sys.stderr)
-        print(f"  score-sep   margin={ss['mean_margin']}  positive={ss['pct_positive']}%", file=sys.stderr)
-    print(f"\nwrote {a.out}", file=sys.stderr)
+    write_result(a.ckpt, recs_out, a.out, mode="legacy_h5")
 
 
 if __name__ == "__main__":
