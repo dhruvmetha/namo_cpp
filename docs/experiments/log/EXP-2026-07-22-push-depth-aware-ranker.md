@@ -3,7 +3,7 @@ type: experiment
 status: live
 created: 2026-07-22
 commit: ddb18d2
-metric: Antman-5c edge-vs-depth failure decomposition; 1push solve@1/@5; 2push solve@2/@5/@10/@30 and sims-to-solve, all by easy/med/hard
+metric: Antman-5c 1push edge-vs-depth diagnostic complete; architecture A/B pending; final 1push solve@1/@5 and 2push solve@2/@5/@10/@30 plus sims-to-solve by easy/med/hard
 thread: rl_loop
 parent: EXP-2026-07-14-region-opening-curriculum-marvel
 related: EXP-2026-07-12-depth-geometric-grounding
@@ -71,13 +71,34 @@ Accept the depth-aware head only if it preserves 1-push performance within 2 per
 
 **CS smoke (job 186711, 2026-07-22).** The exact one-episode live path passed on `ilab1` in 15 seconds total and 0.367 seconds for scoring: zero `env.step` calls, one row written, no valid cells missing from the live candidate pool, and the labeled push ranked first. At that measured rate the full 1,323-episode diagnostic is approximately eight minutes of scoring, so one GPU job is sufficient.
 
+**Canonical Phase-0 run (job 186712, commit `c131c8e`, 2026-07-22).** One `unlimited` GPU on `ilab1`; checkpoint `antman5c/checkpoints/epoch018-val_loss0.6276.ckpt`; 1,323/1,323 episodes completed in 2m38s with exit code 0 and 0.110 seconds/episode steady-state. Artifacts: `/common/users/dm1487/scratch_namo/eval/push_depth/full/antman5c_depth_diag.{json,jsonl}` and log `logs/a5cdepth_full_186712.out`.
+
 ## Result + Verdict
 
-_(pending.)_
+All count and identity gates passed: easy/med/hard = 698/421/204, no valid ground-truth cells were missing from any live candidate pool, and the evaluator made zero push simulations.
+
+| 1push tier | n | exact GT hit@1 | right contact, wrong depth | wrong contact | wrong-depth share of misses | depth accuracy given right contact |
+|---|---:|---:|---:|---:|---:|---:|
+| easy | 698 | 98.9% (690) | 0.4% (3) | 0.7% (5) | 37.5% (3/8) | 99.6% |
+| med | 421 | 86.0% (362) | 2.9% (12) | 11.2% (47) | 20.3% (12/59) | 96.8% |
+| hard | 204 | 41.2% (84) | 7.4% (15) | 51.5% (105) | 12.5% (15/120) | 84.8% |
+| all | 1,323 | 85.9% (1,136) | 2.3% (30) | 11.9% (157) | 16.0% (30/187) | 97.4% |
+
+| 1push tier | exact GT hit@1 | @5 | @10 | @20 | right-contact@1 |
+|---|---:|---:|---:|---:|---:|
+| easy | 98.9% | 99.9% | 99.9% | 100.0% | 99.3% |
+| med | 86.0% | 95.5% | 98.6% | 99.8% | 88.8% |
+| hard | 41.2% | 81.9% | 90.7% | 96.1% | 48.5% |
+
+These are prediction-versus-saved-GT hits, not replayed-physics open rates. The existing Antman-5c deployment row remains easy/med/hard open@1 = 98.3/85.3/39.7; its evaluator executes the selected push and tests the live opening criterion, while this diagnostic intentionally performs no push and asks whether the predicted action is in the saved valid set.
+
+**Phase-0 verdict: PASS the pre-registered architecture-test gate, with a narrow mechanism claim.** Medium has 20.3% right-contact/wrong-depth among misses, meeting the ≥20% gate; easy also crosses it but has only eight misses, while no tier breaches the <80% conditional-depth-accuracy gate. Depth is therefore a measurable error source worth representing explicitly, but it is not Antman-5c's main hard-tier defect: 105/120 hard misses (87.5%) choose the wrong contact. Expect the Antman A/B primarily to serve as a clean 1-push mechanism test and guardrail; the larger intended payoff remains ordering setup depths in 2-push search.
+
+This Phase-0 diagnostic covers only canonical 1-push ground-truth comparison. No 2-push search evaluation was run because that would require forward simulations; both horizons remain mandatory for the eventual trained architecture verdict.
 
 ## Next
 
-Run Phase 0 first. The measured Antman-5c failure split decides whether Antman receives the full architecture A/B or serves only as the 1-push guardrail before the setup-labeled Beast test.
+Implement the cheap post-attention 60×5 nominal-motion head, then train the controlled Antman-5c baseline/treatment pair. Evaluate both canonical 1-push and 2-push tiers before accepting or rejecting the architecture.
 
 ## Discussion
 
