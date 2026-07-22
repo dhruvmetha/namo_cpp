@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Tuple, Dict, Any, Set, Union
 
 import namo_rl
+import numpy as np
 
 # Default camera settings for top-down view
 DEFAULT_CAMERA_DISTANCE = 15.0
@@ -249,6 +250,14 @@ class RegionOpeningPlanner(BasePlanner):
         # opener, every reachable root candidate is tried before depth-2 expansion begins. This
         # deliberately keeps a small rejection record while avoiding all post-push work on 1-push roots.
         self.stop_after_root_opener = bool(algo_params.get("region_stop_after_root_opener", False))
+        # Colossus artifact contract: persist the live 60x5 primitive motion field at every expanded
+        # board. This is opt-in so historical collectors retain their exact output schema.
+        self.record_action_motion = bool(algo_params.get("region_record_action_motion", False))
+        # Safe Colossus throughput optimization: a setup that did not move the target object cannot
+        # create a new state for a same-object two-push solution, so do not expand it at depth 2.
+        self.prune_noop_setups = bool(algo_params.get("region_prune_noop_setups", False))
+        self.noop_translation_tol = float(algo_params.get("region_noop_translation_tol", 0.01))
+        self.noop_yaw_tol = float(algo_params.get("region_noop_yaw_tol", 0.05))
         # label-mode top-k cap on the FINISH sweep (deepest level only): stop after k failed finish
         # candidates instead of exhausting (~60). Misses become honest ceilings, never false labels.
         # Pilot-validated (2026-07-19, n=2.4M): antman-5c k=15 retains 97.7% of successes at ~30% cost.
@@ -822,6 +831,70 @@ class RegionOpeningPlanner(BasePlanner):
         key = f"{self.finish_miss_audit_seed}|{xml_file}|{object_id}|{neighbour_label}".encode()
         draw = int.from_bytes(hashlib.sha256(key).digest()[:8], "big") / float(1 << 64)
         return draw < self.finish_miss_audit_fraction
+
+    @staticmethod
+    def _object_pose_moved(
+        before: Dict[str, Any],
+        after: Dict[str, Any],
+        object_id: str,
+        translation_tol: float,
+        yaw_tol: float,
+    ) -> bool:
+        before_pose = before[f"{object_id}_pose"]
+        after_pose = after[f"{object_id}_pose"]
+        yaw_delta = abs(((float(after_pose[2]) - float(before_pose[2]) + math.pi) % (2 * math.pi)) - math.pi)
+        return (
+            abs(float(after_pose[0]) - float(before_pose[0])) > translation_tol
+            or abs(float(after_pose[1]) - float(before_pose[1])) > translation_tol
+            or yaw_delta > yaw_tol
+        )
+
+    def _build_action_motion_record(
+        self,
+        goals_per_edge: List[List[Goal]],
+        state_observation: Dict[str, Any],
+        object_id: str,
+    ) -> Dict[str, Any]:
+        """Build the push-depth-ready tensor from the exact 300 live goals for this board."""
+        pose = state_observation[f"{object_id}_pose"]
+        obj_x, obj_y, obj_yaw = map(float, pose[:3])
+        action_motion = np.full((60, 5, 3), np.nan, dtype=np.float32)
+        occupied = set()
+        for edge_goals in goals_per_edge:
+            for goal in edge_goals:
+                slot = (int(goal.edge_idx), int(goal.depth))
+                if not (0 <= slot[0] < 60 and 0 <= slot[1] < 5) or slot in occupied:
+                    raise ValueError(f"invalid or duplicate live primitive slot {slot}")
+                occupied.add(slot)
+                yaw_delta = ((float(goal.theta) - obj_yaw + math.pi) % (2 * math.pi)) - math.pi
+                action_motion[slot] = (
+                    (float(goal.x) - obj_x) / 0.5,
+                    (float(goal.y) - obj_y) / 0.5,
+                    yaw_delta / math.pi,
+                )
+        if len(occupied) != 300 or not np.isfinite(action_motion).all():
+            raise ValueError(f"live action generator produced {len(occupied)}/300 primitive slots")
+
+        provenance_fn = getattr(self.goal_strategy, "primitive_database_provenance", None)
+        if provenance_fn is None:
+            raise TypeError("region_record_action_motion requires a primitive-backed goal strategy")
+        provenance = provenance_fn(object_id, self.env)
+        object_info = self.env.get_object_info()[object_id]
+        if "size_x" in object_info and "size_y" in object_info:
+            size_x, size_y = float(object_info["size_x"]), float(object_info["size_y"])
+        elif "width" in object_info and "height" in object_info:
+            size_x, size_y = float(object_info["width"]), float(object_info["height"])
+        else:
+            size_x, size_y = float(object_info["size"][0]), float(object_info["size"][1])
+        return {
+            "action_motion": action_motion,
+            "action_motion_frame": "world_xy_object_yaw",
+            "action_motion_units": "normalized",
+            "action_motion_normalization": np.array([0.5, 0.5, math.pi], dtype=np.float32),
+            "action_generator_slot_count": 300,
+            "target_object_state": np.array([obj_x, obj_y, obj_yaw, size_x, size_y], dtype=np.float32),
+            **provenance,
+        }
 
     def _build_target_summary(self, target_neighbor: Optional[str]) -> Optional[Dict[str, Any]]:
         if target_neighbor is None:
@@ -2232,7 +2305,8 @@ class RegionOpeningPlanner(BasePlanner):
                         reachable_edge_indices = set(self.env.get_reachable_edges(object_id)) if goals_per_edge else set()
                         node_goals_cache[id(node)] = (goals_per_edge, reachable_edge_indices)
                         _ng = getattr(node, "goal", None)
-                        reachability_log.append({
+                        state_observation = self.env.get_observation()
+                        reachability_entry = {
                             'chain_depth': node.depth + 1,
                             'parent_edge': getattr(_ng, "edge_idx", None) if _ng is not None else None,
                             'parent_depth': getattr(_ng, "depth", None) if _ng is not None else None,
@@ -2243,9 +2317,14 @@ class RegionOpeningPlanner(BasePlanner):
                             # training rows (correct by construction — the actual s1 the a2 labels came from;
                             # the replay route DIVERGED on collisions, 86fd9b2). object_id tags whose pose
                             # is the pushed object so the renderer can anchor the crop.
-                            'state_observation': self.env.get_observation(),
+                            'state_observation': state_observation,
                             'object_id': object_id,
-                        })
+                        }
+                        if self.record_action_motion:
+                            reachability_entry.update(
+                                self._build_action_motion_record(goals_per_edge, state_observation, object_id)
+                            )
+                        reachability_log.append(reachability_entry)
 
                         # Verbose: show reachable edges and object state
                         if self.config.verbose:
@@ -3108,7 +3187,17 @@ class RegionOpeningPlanner(BasePlanner):
             elif not (collision_detected or stuck_detected) and collect_frontier:
                 # Valid push but didn't create opening - add to frontier
                 # (Don't add stuck/collision states to frontier - they're already blacklisted)
-                if remaining_budget is None or (depth + 1) <= remaining_budget:
+                setup_moved = True
+                if self.prune_noop_setups:
+                    setup_moved = self._object_pose_moved(
+                        pre_state_obs,
+                        post_state_obs,
+                        object_id,
+                        self.noop_translation_tol,
+                        self.noop_yaw_tol,
+                    )
+                    trial_log[-1]["frontier_pruned_noop"] = not setup_moved
+                if setup_moved and (remaining_budget is None or (depth + 1) <= remaining_budget):
                     new_node = ChainNode(
                         state=self.env.get_full_state(),
                         goal=goal,

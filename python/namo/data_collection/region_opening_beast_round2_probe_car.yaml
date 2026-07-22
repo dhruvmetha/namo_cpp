@@ -40,6 +40,11 @@ region_selection_strategy: ml_first
 region_label_mode: true
 region_exhaustive_mode: true
 region_stop_after_root_opener: true
+region_record_action_motion: true
+# Same-object two-push setup must create a new object pose; do not expand slips/no-ops at depth 2.
+region_prune_noop_setups: true
+region_noop_translation_tol: 0.01
+region_noop_yaw_tol: 0.05
 region_sample_k: 0
 region_sample_restarts: 1
 # Mixed finish policy (takes precedence over the two legacy global finish knobs).

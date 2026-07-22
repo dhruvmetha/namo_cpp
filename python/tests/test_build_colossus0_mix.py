@@ -59,6 +59,11 @@ def _write_new(path):
         h5["node_kind"] = np.array(["root", "depth2", "depth2", "root", "depth2", "depth2_noop"],
                                          dtype=h5py.string_dtype())
         h5["winner_rank"] = np.array([0, 2, 1, 0, 0, 0], np.int32)
+        h5["action_motion"] = np.ones((6, 60, 5, 3), np.float32)
+        h5["target_object_state"] = np.ones((6, 5), np.float32)
+        h5["primitive_database_id"] = np.array(["db.dat"] * 6, dtype=h5py.string_dtype())
+        h5["primitive_database_sha256"] = np.array(["a" * 64] * 6, dtype=h5py.string_dtype())
+        h5["shape_family"] = np.array(["square"] * 6, dtype=h5py.string_dtype())
 
 
 def test_exact_mix_appends_to_d20_base(tmp_path, monkeypatch):
@@ -84,3 +89,6 @@ def test_exact_mix_appends_to_d20_base(tmp_path, monkeypatch):
         assert set(xmls[2:]) == {"new/0.xml", "new/1.xml", "new/3.xml", "new/4.xml"}
         assert np.isclose(h5["sample_weight"][:][h5["is_root"][:] == 1].sum(), 3.0)
         assert np.isclose(h5["sample_weight"][:][h5["is_root"][:] == 0].sum(), 3.0)
+        assert h5["action_motion"].shape == (6, 60, 5, 3)
+        assert h5["action_motion_available"][:2].tolist() == [0, 0]
+        assert h5["action_motion_available"][2:].tolist() == [1, 1, 1, 1]

@@ -18,6 +18,8 @@ import numpy as np
 
 
 COLS = ["ctx", "contact_px", "r_mask", "value_target", "value_mask", "ceiling_mask", "xml", "object_id"]
+ACTION_COLS = ["action_motion", "target_object_state"]
+ACTION_STR_COLS = ["primitive_database_id", "primitive_database_sha256", "shape_family"]
 CHUNK = 20000
 
 
@@ -33,6 +35,11 @@ def _candidate_pools(paths):
               "negative_finish": 0, "noop_excluded": 0, "empty": 0}
     for file_idx, path in enumerate(paths):
         with h5py.File(path, "r") as h5:
+            missing = [key for key in ACTION_COLS + ACTION_STR_COLS if key not in h5]
+            if missing:
+                raise AssertionError(f"push-depth artifact fields missing from {path}: {missing}")
+            if h5["action_motion"].shape[1:] != (60, 5, 3):
+                raise AssertionError(f"bad action_motion shape in {path}: {h5['action_motion'].shape}")
             n = len(h5["ctx"])
             kinds = _dec(h5["node_kind"][:])
             winner_rank = h5["winner_rank"][:]
@@ -100,7 +107,20 @@ def _make_output(path, base, n):
                                compression="lzf", chunks=(1,) + src.shape[1:])
     out.create_dataset("is_root", shape=(n,), dtype=np.int8)
     out.create_dataset("sample_weight", shape=(n,), dtype=np.float32)
+    out.create_dataset("action_motion", shape=(n, 60, 5, 3), dtype=np.float32, fillvalue=np.nan,
+                       compression="lzf", chunks=(1, 60, 5, 3))
+    out.create_dataset("target_object_state", shape=(n, 5), dtype=np.float32, fillvalue=np.nan,
+                       compression="lzf", chunks=(1, 5))
+    for col in ACTION_STR_COLS:
+        out.create_dataset(col, shape=(n,), dtype=h5py.string_dtype())
+    out.create_dataset("action_motion_available", shape=(n,), dtype=np.int8, fillvalue=0)
     out.attrs["n_samples"] = n
+    out.attrs["action_motion_frame"] = "world_xy_object_yaw"
+    out.attrs["action_motion_units"] = "normalized"
+    out.attrs["action_motion_normalization"] = json.dumps({"dx_m": 0.5, "dy_m": 0.5, "dtheta_rad": "pi"})
+    out.attrs["action_motion_layout"] = "[row, edge=60, push_depth=5, (dx,dy,dtheta)=3]"
+    out.attrs["primitive_provenance"] = "row-level where action_motion_available=1"
+    out.attrs["legacy_base_action_motion"] = "not stored; reconstructable from primitive DB and object state"
     return out
 
 
@@ -126,6 +146,9 @@ def _copy_selected(paths, selected, out, offset):
                 end = offset + len(batch)
                 for col in COLS:
                     out[col][offset:end] = src[col][batch]
+                for col in ACTION_COLS + ACTION_STR_COLS:
+                    out[col][offset:end] = src[col][batch]
+                out["action_motion_available"][offset:end] = 1
                 kinds = _dec(src["node_kind"][batch])
                 out["is_root"][offset:end] = np.array([kind == "root" for kind in kinds], np.int8)
                 offset = end

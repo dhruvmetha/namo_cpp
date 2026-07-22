@@ -63,3 +63,30 @@ def test_legacy_labels_remain_exact_zero():
     )
 
     assert (vt[8, 3], vm[8, 3], cm[8, 3]) == (0.0, 1.0, 0.0)
+
+
+def test_action_contract_requires_aligned_live_300_slots_and_provenance():
+    node = {
+        "action_motion": np.zeros((60, 5, 3), np.float32),
+        "action_generator_slot_count": 300,
+        "action_motion_frame": "world_xy_object_yaw",
+        "action_motion_units": "normalized",
+        "action_motion_normalization": np.array([0.5, 0.5, np.pi], np.float32),
+        "target_object_state": np.array([1.0, 2.0, 0.1, 0.2, 0.3], np.float32),
+        "state_observation": {"obj_pose": [1.0, 2.0, 0.1]},
+        "primitive_database_id": "db.dat",
+        "primitive_database_sha256": "a" * 64,
+        "shape_family": "square",
+    }
+    grid = np.zeros((60, 5), np.float32)
+
+    artifact = BUILD._action_contract(node, "obj", grid, grid, grid)
+
+    assert artifact["action_motion"].shape == (60, 5, 3)
+    bad = dict(node, action_generator_slot_count=299)
+    try:
+        BUILD._action_contract(bad, "obj", grid)
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("299-slot live generator must fail the build")

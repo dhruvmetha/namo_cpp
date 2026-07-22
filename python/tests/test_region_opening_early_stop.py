@@ -2,6 +2,7 @@ import time
 from types import SimpleNamespace
 
 import pytest
+import numpy as np
 
 from namo.core.base_planner import PlannerConfig
 from namo.planners.opening.region_opening import RegionOpeningPlanner
@@ -168,6 +169,39 @@ def test_finish_miss_audit_assignment_is_stable_per_episode(monkeypatch):
     assert planner._select_finish_miss_audit("obj1", "goal") is True
     planner.finish_miss_audit_fraction = 0.0
     assert planner._select_finish_miss_audit("obj1", "goal") is False
+
+
+def test_action_motion_record_is_aligned_with_all_live_slots():
+    planner = object.__new__(RegionOpeningPlanner)
+    planner.env = SimpleNamespace(
+        get_object_info=lambda: {"obj1": {"size_x": 0.2, "size_y": 0.1}},
+    )
+    planner.goal_strategy = SimpleNamespace(
+        primitive_database_provenance=lambda *_args: {
+            "primitive_database_id": "db.dat",
+            "primitive_database_sha256": "a" * 64,
+            "shape_family": "wide",
+        }
+    )
+    goals = [
+        [Goal(x=1.0 + edge / 100.0, y=2.0 + depth / 100.0, theta=0.25 + depth / 100.0,
+              edge_idx=edge, depth=depth) for depth in range(5)]
+        for edge in range(60)
+    ]
+
+    record = planner._build_action_motion_record(goals, {"obj1_pose": [1.0, 2.0, 0.25]}, "obj1")
+
+    assert record["action_motion"].shape == (60, 5, 3)
+    assert np.allclose(record["action_motion"][7, 3], [0.14, 0.06, 0.03 / np.pi])
+    assert np.allclose(record["target_object_state"], [1.0, 2.0, 0.25, 0.2, 0.1])
+    assert record["action_generator_slot_count"] == 300
+
+
+def test_noop_setup_detection_uses_translation_or_yaw():
+    before = {"obj1_pose": [1.0, 2.0, 0.0]}
+    assert not RegionOpeningPlanner._object_pose_moved(before, {"obj1_pose": [1.005, 2.0, 0.02]}, "obj1", 0.01, 0.05)
+    assert RegionOpeningPlanner._object_pose_moved(before, {"obj1_pose": [1.02, 2.0, 0.02]}, "obj1", 0.01, 0.05)
+    assert RegionOpeningPlanner._object_pose_moved(before, {"obj1_pose": [1.0, 2.0, 0.06]}, "obj1", 0.01, 0.05)
 
 
 def test_explore_stops_after_first_neighbour_success(monkeypatch):

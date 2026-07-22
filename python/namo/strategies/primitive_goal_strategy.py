@@ -5,6 +5,7 @@ from binary database files. Primitives are shape-specific (square/tall/wide)
 and organized by edge points and push steps.
 """
 
+import hashlib
 import struct
 import os
 import math
@@ -160,6 +161,7 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
         self.max_push_steps = max_push_steps
         self._rng = random.Random(seed) if seed is not None else None
         self._primitive_cache: Dict[str, List[Primitive]] = {}
+        self._primitive_sha256_cache: Dict[str, str] = {}
         self._last_edge_ordering: List[int] = []  # Track ordering for analysis
 
     def reseed(self, seed: int):
@@ -343,6 +345,23 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
         else:
             shape = "tall"
         return f"{self.primitive_prefix}motion_primitives_15_{shape}.dat"
+
+    def primitive_database_provenance(self, object_name: str, env: namo_rl.RLEnvironment) -> Dict[str, str]:
+        """Identify the exact shape-specific primitive database used for this object."""
+        primitive_file = self._select_primitive_file(object_name, env)
+        filepath = os.path.realpath(os.path.join(self.data_dir, primitive_file))
+        if filepath not in self._primitive_sha256_cache:
+            digest = hashlib.sha256()
+            with open(filepath, "rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            self._primitive_sha256_cache[filepath] = digest.hexdigest()
+        shape_family = primitive_file.rsplit("_", 1)[-1].removesuffix(".dat")
+        return {
+            "primitive_database_id": primitive_file,
+            "primitive_database_sha256": self._primitive_sha256_cache[filepath],
+            "shape_family": shape_family,
+        }
 
     def _group_by_edge(self, primitives: List[Primitive]) -> Dict[int, List[Primitive]]:
         """Group primitives by edge index.

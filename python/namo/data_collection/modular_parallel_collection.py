@@ -1222,6 +1222,10 @@ def main():
             # Reject 1-push-solvable roots before any depth-2 expansion while retaining a minimal
             # audit record. YAML-only collection knob; default False preserves existing runs.
             "region_stop_after_root_opener": getattr(args, 'region_stop_after_root_opener', False),
+            "region_record_action_motion": getattr(args, 'region_record_action_motion', False),
+            "region_prune_noop_setups": getattr(args, 'region_prune_noop_setups', False),
+            "region_noop_translation_tol": getattr(args, 'region_noop_translation_tol', 0.01),
+            "region_noop_yaw_tol": getattr(args, 'region_noop_yaw_tol', 0.05),
             # Enforced per-scene (per-neighbour) time budget so rich depth-2 scenes don't hog a worker.
             # Same set_defaults(yaml) path; must be in this dict to reach the planner.
             "region_timeout_per_neighbour_sec": getattr(args, 'region_timeout_per_neighbour_sec', None),

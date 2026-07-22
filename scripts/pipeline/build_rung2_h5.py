@@ -40,7 +40,7 @@ LABEL SEMANTICS (grounded, not invented) — card docs/experiments/log/EXP-2026-
 NOT done here [USER]: the CROSS-RUNG re-stamp (flip a rung-1 `0` that a rung-2 search solves *through* ->
 gamma). That is a POOL-MERGE concern over the combined rung-1+rung-2 H5s, not a per-episode label. FLAGGED.
 """
-import sys, os, glob, argparse, pickle
+import sys, os, glob, argparse, json, pickle
 from collections import defaultdict
 from pathlib import Path
 
@@ -64,6 +64,7 @@ MOVE_TOL = 0.01   # m: a depth-1 setup that moves the target object less than th
                   # 1-push opener the root sampling missed (post-shove state == start). We KEEP those winning
                   # finisher rows (recovered opener labels, ctx==start) but do NOT gamma-stamp the no-op setup.
 CAR_CFG = f"{REPO}/config/namo_config_complete_skill15_car_1x.yaml"
+ACTION_NORMALIZATION = np.array([0.5, 0.5, np.pi], np.float32)
 
 
 def _getf(e, k, default=None):
@@ -111,6 +112,43 @@ def _labels_for_node(node_trials, reach, chain_depth, winning_setups, *, colossu
             else:
                 vt[e, d] = -1.0; vm[e, d] = 1.0                          # unreachable edge -> feasibility -1
     return vt, vm, cm, len(tried), n_win
+
+
+def _action_contract(node, object_id, *aligned_grids):
+    """Fail the Colossus build unless the live 300-action field and provenance are complete."""
+    motion = np.asarray(node.get("action_motion"), dtype=np.float32)
+    if motion.shape != (60, NUM_DEPTHS, 3) or not np.isfinite(motion).all():
+        raise AssertionError(f"bad action_motion for {object_id}: {motion.shape}")
+    if int(node.get("action_generator_slot_count", -1)) != 60 * NUM_DEPTHS:
+        raise AssertionError(f"live generator slot count is not 300 for {object_id}")
+    for grid in aligned_grids:
+        if np.asarray(grid).shape != motion.shape[:2]:
+            raise AssertionError(f"action/label/mask slot mismatch for {object_id}")
+    if node.get("action_motion_frame") != "world_xy_object_yaw":
+        raise AssertionError(f"bad action motion frame for {object_id}")
+    if node.get("action_motion_units") != "normalized":
+        raise AssertionError(f"bad action motion units for {object_id}")
+    normalization = np.asarray(node.get("action_motion_normalization"), dtype=np.float32)
+    if normalization.shape != (3,) or not np.allclose(normalization, ACTION_NORMALIZATION):
+        raise AssertionError(f"bad action normalization for {object_id}: {normalization}")
+    target_state = np.asarray(node.get("target_object_state"), dtype=np.float32)
+    if target_state.shape != (5,) or not np.isfinite(target_state).all():
+        raise AssertionError(f"bad target object state for {object_id}: {target_state.shape}")
+    recorded_pose = np.asarray((node.get("state_observation") or {}).get(f"{object_id}_pose"), dtype=np.float32)
+    if recorded_pose.ndim != 1 or recorded_pose.shape[0] < 3 or not np.allclose(recorded_pose[:3], target_state[:3], atol=1e-6):
+        raise AssertionError(f"target object state does not match board state for {object_id}")
+    primitive_id = str(node.get("primitive_database_id") or "")
+    primitive_sha = str(node.get("primitive_database_sha256") or "")
+    shape_family = str(node.get("shape_family") or "")
+    if not primitive_id or len(primitive_sha) != 64 or shape_family not in {"square", "wide", "tall"}:
+        raise AssertionError(f"incomplete primitive provenance for {object_id}")
+    return {
+        "action_motion": motion,
+        "target_object_state": target_state,
+        "primitive_database_id": primitive_id,
+        "primitive_database_sha256": primitive_sha,
+        "shape_family": shape_family,
+    }
 
 
 def _episode_rows(e, renderer, env, xml, stats, hand_checks, *, colossus0=False):
@@ -238,6 +276,8 @@ def _episode_rows(e, renderer, env, xml, stats, hand_checks, *, colossus0=False)
             finish_miss_audit_selected=np.int8(1 if node_audit else 0),
             winner_rank=np.int32(min(win_ranks) if win_ranks else 0),
         )
+        if colossus0:
+            row.update(_action_contract(node, obj, vt, vm, cm, r_mask))
         rows.append(row)
         if cd == 1:
             root_row_idx = len(rows) - 1
@@ -336,6 +376,14 @@ def _write(path, rows):
                                    "unreachable-edge=-1 | reachable-untried=MASK. row=one tree node "
                                    "(root start-state OR depth-2 post-shove state).")
         f.attrs["generation"] = 2
+        has_action_motion = bool(rows) and all("action_motion" in row for row in rows)
+        if has_action_motion:
+            f.attrs["action_motion_frame"] = "world_xy_object_yaw"
+            f.attrs["action_motion_units"] = "normalized"
+            f.attrs["action_motion_normalization"] = json.dumps({"dx_m": 0.5, "dy_m": 0.5, "dtheta_rad": "pi"})
+            f.attrs["action_motion_layout"] = "[row, edge=60, push_depth=5, (dx,dy,dtheta)=3]"
+            f.attrs["primitive_provenance"] = "row-level"
+            f.attrs["primitive_database_sha256s"] = json.dumps(sorted({r["primitive_database_sha256"] for r in rows}))
         if not rows:
             return
         dt = h5py.string_dtype(encoding="utf-8")
@@ -355,6 +403,9 @@ def _write(path, rows):
         for _k in ("ctx", "contact_px", "r_mask", "value_target", "value_mask", "ceiling_mask",
                    "f_grid", "robot_goal"):
             _cds(_k)
+        if has_action_motion:
+            _cds("action_motion")
+            _cds("target_object_state")
         f.create_dataset("chain_depth", data=arr("chain_depth", np.int8))
         f.create_dataset("parent_edge", data=arr("parent_edge", np.int16))
         f.create_dataset("parent_depth", data=arr("parent_depth", np.int16))
@@ -370,6 +421,9 @@ def _write(path, rows):
         f.create_dataset("xml", data=np.array([r["xml"] for r in rows], dtype=object), dtype=dt)
         f.create_dataset("object_id", data=np.array([r["object_id"] for r in rows], dtype=object), dtype=dt)
         f.create_dataset("node_kind", data=np.array([r["node_kind"] for r in rows], dtype=object), dtype=dt)
+        if has_action_motion:
+            for key in ("primitive_database_id", "primitive_database_sha256", "shape_family"):
+                f.create_dataset(key, data=np.array([r[key] for r in rows], dtype=object), dtype=dt)
 
 
 def _report(rows, stats, hand_checks, out_h5):
