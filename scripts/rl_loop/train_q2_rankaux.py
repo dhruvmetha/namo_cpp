@@ -78,20 +78,22 @@ def certain_order_rank_aux_losses(value, labels, mask, ceiling, temp):
         if not valid.any():
             continue
 
-        competitors = pos | lower
-        scores = (vf / temp).masked_fill(~competitors, float("-inf"))
+        valid_idx = valid.nonzero(as_tuple=False).squeeze(1)
+        competitors = (pos | lower)[valid]
+        scores = (vf[valid] / temp).masked_fill(~competitors, float("-inf"))
         logp = torch.log_softmax(scores, dim=1)
-        target = pos.float() / pos.sum(dim=1, keepdim=True).clamp_min(1)
+        valid_pos = pos[valid]
+        target = valid_pos.float() / valid_pos.sum(dim=1, keepdim=True)
         ce = -(target * logp.clamp(min=-30.0)).sum(dim=1)
-        valid_f = valid.to(value.dtype)
-        row_sum = row_sum + ce * valid_f
-        row_terms = row_terms + valid_f
+        ones = torch.ones_like(ce)
+        row_sum = row_sum.index_add(0, valid_idx, ce)
+        row_terms = row_terms.index_add(0, valid_idx, ones)
         if float(level) >= 0.999:
-            opener_sum = opener_sum + ce * valid_f
-            opener_terms = opener_terms + valid_f
+            opener_sum = opener_sum.index_add(0, valid_idx, ce)
+            opener_terms = opener_terms.index_add(0, valid_idx, ones)
         else:
-            setup_sum = setup_sum + ce * valid_f
-            setup_terms = setup_terms + valid_f
+            setup_sum = setup_sum.index_add(0, valid_idx, ce)
+            setup_terms = setup_terms.index_add(0, valid_idx, ones)
 
     valid_rows = row_terms > 0
     if not valid_rows.any():

@@ -69,3 +69,26 @@ def test_multiple_exact_tiers_each_receive_ranking_pressure():
     assert setup > 0
     assert value.grad is not None
     assert torch.isfinite(value.grad).all()
+
+
+def test_mixed_batch_with_different_valid_tiers_stays_finite():
+    value = torch.tensor([
+        [[0.8, 0.2, 0.5]],
+        [[0.5, 0.7, 0.1]],
+    ], requires_grad=True)
+    labels = torch.tensor([
+        [[1.0, 0.9, 0.9]],
+        [[0.9, 0.9, 0.81]],
+    ])
+    mask = torch.ones_like(labels)
+    ceiling = torch.tensor([
+        [[0.0, 1.0, 1.0]],
+        [[0.0, 1.0, 1.0]],
+    ])
+    total, opener, setup = certain_order_rank_aux_losses(
+        value, labels, mask, ceiling, temp=0.15)
+    total.backward()
+    assert torch.isfinite(total)
+    assert torch.isfinite(opener)
+    assert torch.isfinite(setup)
+    assert torch.isfinite(value.grad).all()
