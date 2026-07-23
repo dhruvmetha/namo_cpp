@@ -37,3 +37,12 @@ scripts/amarel/pull_balanced_eval_h5_from_amarel.sh
 logs/*
 !logs/.gitkeep
 external/
+
+# paper-reader: the reading lives here (queue.md + papers/<slug>/notes.md are
+# Dhruv's words and belong in git). Everything else under papers/ is a fetched or
+# derived copy of a published paper -- excluded, then notes.md re-included, which
+# git only honours if the parent dirs are re-included first.
+papers/**
+!papers/
+!papers/*/
+!papers/*/notes.md
