@@ -27,6 +27,11 @@ UNREACH_WEIGHT = float(os.environ.get("NAMO_UNREACH_WEIGHT", "0.0"))
 
 
 class WeightedClassifierModule(ClassifierModule):
+    def on_save_checkpoint(self, checkpoint):
+        """Tag same-width motion encodings so deployment cannot silently reinterpret them."""
+        checkpoint["action_motion_encoding"] = getattr(
+            self.network, "action_motion_encoding", "none")
+
     def _hl(self, logits):
         """Ensure the (censored-capable, endpoint-fixed) HL-Gauss helper exists and matches the head."""
         if not isinstance(self._hl_gauss, CensoredHLGauss) or self._hl_gauss.num_bins != logits.shape[-1]:

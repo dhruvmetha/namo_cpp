@@ -168,7 +168,8 @@ class LiveScorer:
         if getattr(self.model.network, "action_motion_dim", 0) > 0:
             from namo.rl_loop.action_motion import action_motion_from_contact_px
             kw["action_motion"] = action_motion_from_contact_px(
-                cp, feature_dim=self.model.network.action_motion_dim)
+                cp, encoding=self.model.network.action_motion_encoding,
+                feature_dim=self.model.network.action_motion_dim)
         with torch.no_grad():
             t = self.model(ct, cp, **kw)[0]
             is_hl = t.dim() == 3

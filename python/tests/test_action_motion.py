@@ -4,9 +4,14 @@ import pytest
 import torch
 
 from namo.rl_loop.action_motion import (
+    CROP_RELATIVE_MOTION_DIM,
+    CROP_RELATIVE_MOTION_ENCODING,
     FINAL_POSE_DIM,
+    FINAL_POSE_ENCODING,
+    LEGACY_MOTION_ENCODING,
     LEGACY_MOTION_DIM,
     action_motion_from_contact_px,
+    checkpoint_action_motion_encoding,
     primitive_motion_tables,
 )
 
@@ -61,6 +66,21 @@ def test_corrected_translation_matches_normalized_image_coordinates():
     torch.testing.assert_close(got[..., 1], expected_v, atol=1e-6, rtol=1e-5)
 
 
+def test_crop_relative_motion_uses_image_scale_and_relative_rotation():
+    theta = 0.37
+    got = action_motion_from_contact_px(
+        _contact_px(0.08, 0.04, theta), encoding=CROP_RELATIVE_MOTION_ENCODING)
+    local = primitive_motion_tables()[1]
+    c, s = math.cos(theta), math.sin(theta)
+    expected = torch.stack((
+        2.0 * (c * local[..., 0] - s * local[..., 1]) / 0.5,
+        2.0 * (s * local[..., 0] + c * local[..., 1]) / 0.5,
+        local[..., 2] / math.pi,
+    ), dim=-1)
+    torch.testing.assert_close(got, expected, atol=1e-6, rtol=1e-5)
+    assert got.shape == (60, 5, CROP_RELATIVE_MOTION_DIM)
+
+
 def test_final_orientation_is_continuous_across_angle_wrap():
     theta = math.pi - 0.01
     a = action_motion_from_contact_px(_contact_px(0.08, 0.04, theta))
@@ -81,3 +101,11 @@ def test_legacy_three_vector_encoding_remains_available():
     ), dim=-1)
     torch.testing.assert_close(got, expected, atol=1e-6, rtol=1e-5)
     assert got.shape == (60, 5, LEGACY_MOTION_DIM)
+
+
+def test_checkpoint_tag_disambiguates_same_width_encodings():
+    assert checkpoint_action_motion_encoding({}, 3) == LEGACY_MOTION_ENCODING
+    assert checkpoint_action_motion_encoding(
+        {"action_motion_encoding": CROP_RELATIVE_MOTION_ENCODING}, 3
+    ) == CROP_RELATIVE_MOTION_ENCODING
+    assert checkpoint_action_motion_encoding({}, 4) == FINAL_POSE_ENCODING

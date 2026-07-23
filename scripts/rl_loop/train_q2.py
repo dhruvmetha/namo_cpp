@@ -151,9 +151,10 @@ def evaluate(module, ds, device, tag="val"):
                 n_win=n_win, n_tried=len(y))
 
 
-def _build_net_like_eval_scorer(sd, num_depths):
+def _build_net_like_eval_scorer(ck, num_depths):
     """Replicate eval_scorer.load_scorer's edge_crossattn arch auto-detect (the value_bins branch is
     what we must confirm) so we KNOW the ckpt loads the same way eval_scorer loads it."""
+    sd = ck["state_dict"]
     dim = sd["network.edge_norm.weight"].shape[0]
     sdep = sum(1 for k in sd if k.startswith("network.scene_blocks.") and k.endswith(".n1.weight"))
     edep = sum(1 for k in sd if k.startswith("network.edge_blocks.") and k.endswith(".n1.weight"))
@@ -168,7 +169,16 @@ def _build_net_like_eval_scorer(sd, num_depths):
     if "network.edge_embed.weight" in sd:
         kw["use_edge_embed"] = True
     if "network.action_motion_proj.0.weight" in sd:
-        kw["action_motion_dim"] = sd["network.action_motion_proj.0.weight"].shape[1]
+        from namo.rl_loop.action_motion import action_motion_feature_dim
+        motion_proj_in = sd["network.action_motion_proj.0.weight"].shape[1]
+        motion_tag = ck.get("action_motion_encoding")
+        motion_dim = action_motion_feature_dim(motion_tag) if motion_tag else motion_proj_in
+        kw["action_motion_dim"] = motion_dim
+        if motion_proj_in != motion_dim:
+            kw.update(action_motion_fourier=True,
+                      action_motion_fourier_L=motion_proj_in // (2 * motion_dim))
+        if "network.action_depth_embed.weight" in sd:
+            kw["action_depth_embed"] = True
     head_out = sd["network.head.2.weight"].shape[0]
     value_bins = None
     if head_out != num_depths:
@@ -263,7 +273,7 @@ def main():
     # --- eval_scorer-loadable check: rebuild the net via eval_scorer's EXACT arch auto-detect,
     #     load the full state_dict through a stock ClassifierModule, forward, confirm (60,5) value ---
     sd = ck["state_dict"]
-    net_es, vb_det = _build_net_like_eval_scorer(sd, num_depths=5)
+    net_es, vb_det = _build_net_like_eval_scorer(ck, num_depths=5)
     es_model = ClassifierModule(network=net_es, head_mode="hl_gauss",
                                 value_vmin=0.0, value_vmax=1.0)
     es_model.load_state_dict(sd)   # must succeed -> arch matches

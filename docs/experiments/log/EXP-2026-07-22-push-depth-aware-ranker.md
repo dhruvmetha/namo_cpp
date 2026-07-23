@@ -1,9 +1,9 @@
 ---
 type: experiment
-status: done
+status: live
 created: 2026-07-22
 commit: 17b4df3
-metric: Corrected final-pose late fusion failed the 3-seed 1push replication — hard exact @1 40.4→37.2 (-3.1 pp), hard wrong-contact 53.6→54.6 (+1.0 pp), @5 flat; no 2push simulation run
+metric: Correct crop-relative-motion three-seed repair pending; absolute-final-yaw treatment failed hard exact @1 40.4→37.2 (-3.1 pp)
 thread: rl_loop
 parent: EXP-2026-07-14-region-opening-curriculum-marvel
 related: EXP-2026-07-12-depth-geometric-grounding
@@ -80,6 +80,20 @@ Train a fresh `3 seeds × {baseline, corrected}` A/B: seeds 1/2/3, room split se
 After training, run the same zero-simulation canonical 1-push comparison for all six checkpoints and report paired baseline→corrected deltas by easy/medium/hard. Strong confirmation means hard exact hit@1 improves in all three seeds, the three-seed mean hard wrong-contact rate falls, and easy/medium exact hit@1 stay within the existing two-point guardrail in every seed. Two positive hard seeds with a positive mean is partial confirmation; one or zero positive hard seeds is a failure to replicate. Right-contact/wrong-depth remains a reported mechanism diagnostic rather than a gate because the legacy seed-1 gain was dominated by fewer wrong contacts.
 
 This fresh A/B does not authorize 2-push simulator evaluation; the final cross-horizon architecture verdict remains deferred.
+
+### Phase 4 — repair the motion semantics and repeat three treatment seeds
+
+_(user, 2026-07-22)_ The Phase-3 treatment mistakenly injected absolute final yaw even though the intended signal is the push's motion relative to the centered object; correct that representation and train three seeds.
+
+For every `(contact, depth)` action, use exactly `(2*world_dx/0.5m, 2*world_dy/0.5m, dtheta/pi)`. The first two values are the proposed center displacement in the crop's image-aligned `[-1,1]` coordinates, so a displacement to a crop boundary has magnitude one; the third is the primitive's relative rotation, not the object's absolute yaw and not `theta+dtheta`.
+
+Keep the cheap late-fusion location and the rest of the Antman-5c recipe unchanged. Tag new checkpoints with the named encoding `crop_relative` because this corrected feature and the historical legacy feature are both three numbers; untagged three-number checkpoints must continue to load as legacy, while untagged four-number checkpoints continue to load as Phase-3 final pose.
+
+Train treatment seeds 1/2/3 concurrently on three identical `rlab3` A4000 GPUs using the same 178,364-row Antman-5c H5, room split seed 0, 20 epochs, batch 256, learning rate `3e-4`, rank auxiliary weight/temperature `0.1/0.15`, and `num_workers=0`. Reuse the fresh Phase-3 baseline seeds because they were trained moments earlier with exactly this data, recipe, seed set, and hardware; retraining identical controls would add no new comparison information.
+
+Before the full launch, require focused unit tests, an actual H5 forward/backward, preservation of legacy/final-pose checkpoint loading, and one full-epoch target-node smoke that saves a `crop_relative`-tagged checkpoint and reloads it through the deployment scorer. Then run the same zero-simulation canonical 1-push evaluation for all three treatments and the same paired three-seed comparator against the existing baseline JSONL identities. No D20, rasterized footprint treatment, 2-push search, or push simulation is authorized in this phase.
+
+Also test a separate `crop_relative_sharp` treatment requested after this repair was specified. It applies eight-band Fourier features independently to normalized `(dx,dy,dtheta)` and adds a learned five-way depth embedding before the same additive late fusion. This mirrors the existing contact encoder's Fourier position plus learned edge identity without adding 300-token attention; it adds only 9,600 parameters to the small action projection in the controlled one-block construction. Train seeds 1/2/3 with the same recipe and hardware alongside the three plain-relative seeds, and report it as a separate arm against the same saved baselines.
 
 ## Run
 
