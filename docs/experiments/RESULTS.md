@@ -2,7 +2,7 @@
 status: hub
 tags:
   - results
-updated: 2026-07-16
+updated: 2026-07-22
 ---
 # Results — DAgger curriculum training framework
 
@@ -85,3 +85,21 @@ Does adding dead data past the 2c ablation keep helping? Took **beast-2c-A-ceil*
 | **beast-2c-d20 (20% dead)** | 97.4/80.8/**39.7**/83.2 | 96.5/54.6/**26.6**/69.1 |
 
 **Dead helps, measured two ways.** (1) Deploy: 1p **hard@1 +4.4** (35.3→39.7), 2p @2 +2.3, solve +0.8 — small cost at med@1 (−3.3) and @30 (−1.4); the dose sharpens the hard tier + tight-budget ordering at a mild mid-tier/deep-search cost. (2) Dead-bank GT AUC: opener-vs-dead **0.859→0.940 (+0.081)**, setup-vs-dead 0.851→0.906, dead-cell score median 0.196→0.022 (pushed down). A ~19-episode solve move AND an independent 0.08 AUC jump point the same way. **AUC→top-1 gap stays large** (0.94 vs 39.7 hard@1) — pooled separation good, per-board hard top-1 not yet — which is what MORE dead volume (colossus) is meant to close. **Supply wall:** used 19,282 of 19,448 available dead roots (166 left) → scaling past 20% needs new collection (colossus).
+
+## 2026-07-22 — Push-depth-aware corrected final-pose head: three-seed negative result
+
+Fresh baseline/corrected models used the same 178,364 Antman-5c ceiling-labeled boards and differed only in whether the shared post-attention action head received the corrected image-aligned final pose `(final_x, final_y, sin(final_yaw), cos(final_yaw))`. Three paired seeds trained from scratch on six identical `rlab3` A4000s; canonical prediction-only 1-push evaluation used the same 1,323 episode identities for every checkpoint and ran no push simulations.
+
+| 1push tier | baseline mean @1 | corrected mean @1 | delta | baseline mean @5 | corrected mean @5 | delta |
+|---|---:|---:|---:|---:|---:|---:|
+| easy | 97.1% | 97.6% | +0.5 pp | 99.6% | 99.7% | +0.1 pp |
+| med | 82.3% | 80.4% | -1.9 pp | 95.0% | 95.4% | +0.4 pp |
+| hard | 40.4% | 37.2% | **-3.1 pp** | 72.9% | 73.0% | +0.1 pp |
+
+| 1push tier | baseline wrong contact | corrected wrong contact | delta | baseline right-contact/wrong-depth | corrected right-contact/wrong-depth | delta |
+|---|---:|---:|---:|---:|---:|---:|
+| easy | 1.9% | 1.3% | -0.6 pp | 1.0% | 1.2% | +0.2 pp |
+| med | 14.0% | 14.8% | +0.8 pp | 3.6% | 4.8% | +1.1 pp |
+| hard | 53.6% | 54.6% | **+1.0 pp** | 6.1% | 8.1% | **+2.1 pp** |
+
+**Verdict: failure to replicate.** Hard exact @1 fell in every seed (`-3.9/-2.0/-3.5` points), mean hard wrong-contact rose, and medium breached the two-point guardrail in two seeds. Mean @5 stayed flat, indicating that the treatment mainly worsened precise top-1 ordering rather than removing valid pushes from the shortlist. The earlier legacy-motion one-seed `+10.8` hard@1 result did not survive the corrected representation plus proper seed replication. Keep the original Antman-5c head; no D20 or 2-push simulator evaluation was run. Full per-seed tables and artifacts → [EXP-2026-07-22 card](log/EXP-2026-07-22-push-depth-aware-ranker.md).

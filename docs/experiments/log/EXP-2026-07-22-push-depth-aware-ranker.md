@@ -1,9 +1,9 @@
 ---
 type: experiment
-status: live
+status: done
 created: 2026-07-22
 commit: 17b4df3
-metric: Legacy-motion one-seed 1push A/B was promising; corrected image-aligned final-pose 3-seed A/B pending; 2push simulator verdict deferred
+metric: Corrected final-pose late fusion failed the 3-seed 1push replication — hard exact @1 40.4→37.2 (-3.1 pp), hard wrong-contact 53.6→54.6 (+1.0 pp), @5 flat; no 2push simulation run
 thread: rl_loop
 parent: EXP-2026-07-14-region-opening-curriculum-marvel
 related: EXP-2026-07-12-depth-geometric-grounding
@@ -103,7 +103,9 @@ This fresh A/B does not authorize 2-push simulator evaluation; the final cross-h
 
 **Automatic verdict queued (job `186804`).** One lightweight CPU job depends `afterok` on all six prediction jobs and will write `/common/users/dm1487/scratch_namo/eval/push_depth/final_pose_3seed/comparison.md`; the full training→evaluation→paired-comparison chain now requires no active polling.
 
-The existing Antman-5c H5 already stores `contact_px`, whose ordered rectangle samples recover the target object's current axes, size family, and yaw. The loader therefore constructs the exact active primitive table from the pinned `1x_car_d5_motion_primitives_15_{square,wide,tall}.dat` files without XML lookup or simulator calls. Focused tests cover all three shape families and rotation, the original Antman-5c checkpoint still loads through `eval_scorer`, and an actual H5 batch completes forward/loss/backward with finite values. Parameter counts are closely matched: baseline 4,397,055 versus treatment 4,395,891.
+**Fresh corrected three-seed execution PASS (jobs `186785`–`186796`, verdict job `186804`).** All six 20-epoch trainers completed with exit code 0 in 2h21m–2h30m on separate identical `rlab3` A4000s; all six canonical prediction-only evaluators completed with exit code 0 in 3m31s–3m38s; the paired comparator completed in three seconds. Best checkpoints by seed were baseline `epoch017-val_loss0.6282`, `epoch015-val_loss0.6587`, `epoch013-val_loss0.6413` and corrected `epoch018-val_loss0.6620`, `epoch015-val_loss0.6604`, `epoch017-val_loss0.6444`. Every output used the same 1,323 canonical identities in the same order, easy/med/hard = 698/421/204, with zero valid actions missing from the candidate pool. No 2-push or forward-simulation job ran.
+
+The existing Antman-5c H5 already stores `contact_px`, whose ordered rectangle samples recover the target object's current axes, size family, and yaw. The loader therefore constructs the exact active primitive table from the pinned `1x_car_d5_motion_primitives_15_{square,wide,tall}.dat` files without XML lookup or simulator calls. Focused tests cover all three shape families and rotation, the original Antman-5c checkpoint still loads through `eval_scorer`, and an actual H5 batch completes forward/loss/backward with finite values. The legacy three-number treatment's parameter count was also closely matched to baseline: 4,395,891 versus 4,397,055.
 
 **Future-data requirement.** Main-tree commit `d602a97` updates the Colossus-0 card to require direct `(N,60,5,3)` `action_motion` storage, current per-board object pose/size, primitive database identity/hash, PKL→NPZ→H5 preservation, and a 300-action alignment gate. Historical Antman data remains usable through exact reconstruction, but new post-push data must not depend on reopening the initial XML.
 
@@ -168,11 +170,43 @@ The controlled comparison below trains both models from scratch on the same 178,
 
 **Interim legacy-v1 1-push verdict: promising, not final.** The depth-aware head stays within the pre-registered two-point guardrail on every 1-push tier and materially improves the hard tier: exact hit@1 rises by 22 episodes / 10.8 points, hit@5 rises by seven episodes / 3.4 points, and both wrong-contact and right-contact/wrong-depth errors fall. It does not improve every cell—medium/easy @5 regress by two/one episodes and right-contact/wrong-depth rises slightly there—so this one-seed result supports the mechanism but is not a universal win.
 
-The pre-registered architecture decision still requires 2-push search cost and solve@k. Per the staged user scope, no 2-push simulator evaluation was launched, so the treatment is neither accepted nor rejected yet.
+### Corrected final-pose three-seed A/B — prediction-only 1-push
+
+| tier | seed | n | baseline @1 | corrected @1 | delta | baseline @5 | corrected @5 | delta |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| easy | 1 | 698 | 98.0% | 97.0% | -1.0 pp | 99.7% | 99.9% | +0.2 pp |
+| easy | 2 | 698 | 96.1% | 97.7% | +1.6 pp | 99.3% | 99.7% | +0.4 pp |
+| easy | 3 | 698 | 97.1% | 98.0% | +0.9 pp | 99.9% | 99.6% | -0.3 pp |
+| easy | mean | 698 | 97.1% | 97.6% | +0.5 pp | 99.6% | 99.7% | +0.1 pp |
+| med | 1 | 421 | 84.3% | 81.7% | -2.6 pp | 94.8% | 96.2% | +1.4 pp |
+| med | 2 | 421 | 81.7% | 77.2% | -4.5 pp | 94.1% | 94.3% | +0.2 pp |
+| med | 3 | 421 | 81.0% | 82.4% | +1.4 pp | 96.2% | 95.7% | -0.5 pp |
+| med | mean | 421 | 82.3% | 80.4% | -1.9 pp | 95.0% | 95.4% | +0.4 pp |
+| hard | 1 | 204 | 39.7% | 35.8% | -3.9 pp | 72.5% | 72.5% | 0.0 pp |
+| hard | 2 | 204 | 39.7% | 37.7% | -2.0 pp | 69.6% | 72.5% | +2.9 pp |
+| hard | 3 | 204 | 41.7% | 38.2% | -3.5 pp | 76.5% | 74.0% | -2.5 pp |
+| hard | mean | 204 | 40.4% | 37.2% | **-3.1 pp** | 72.9% | 73.0% | +0.1 pp |
+
+| tier | seed | baseline wrong contact | corrected wrong contact | delta | baseline right-contact/wrong-depth | corrected right-contact/wrong-depth | delta |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| easy | 1 | 1.3% | 1.4% | +0.1 pp | 0.7% | 1.6% | +0.9 pp |
+| easy | 2 | 2.3% | 1.0% | -1.3 pp | 1.6% | 1.3% | -0.3 pp |
+| easy | 3 | 2.1% | 1.4% | -0.7 pp | 0.7% | 0.6% | -0.1 pp |
+| easy | mean | 1.9% | 1.3% | -0.6 pp | 1.0% | 1.2% | +0.2 pp |
+| med | 1 | 13.5% | 13.8% | +0.3 pp | 2.1% | 4.5% | +2.4 pp |
+| med | 2 | 14.7% | 17.3% | +2.6 pp | 3.6% | 5.5% | +1.9 pp |
+| med | 3 | 13.8% | 13.3% | -0.5 pp | 5.2% | 4.3% | -0.9 pp |
+| med | mean | 14.0% | 14.8% | +0.8 pp | 3.6% | 4.8% | +1.1 pp |
+| hard | 1 | 54.4% | 56.4% | +2.0 pp | 5.9% | 7.8% | +1.9 pp |
+| hard | 2 | 53.4% | 54.4% | +1.0 pp | 6.9% | 7.8% | +0.9 pp |
+| hard | 3 | 52.9% | 52.9% | 0.0 pp | 5.4% | 8.8% | +3.4 pp |
+| hard | mean | 53.6% | 54.6% | **+1.0 pp** | 6.1% | 8.1% | **+2.1 pp** |
+
+**Final staged verdict: FAILURE TO REPLICATE.** Hard exact hit@1 fell in all three seeds, by 3.9/2.0/3.5 points, while mean hard wrong-contact rose by 1.0 point and mean hard right-contact/wrong-depth rose by 2.1 points. The easy/medium guardrail also failed because medium fell by 2.6 and 4.5 points in seeds 1 and 2. Exact @5 was essentially flat on average in every tier, so the corrected representation usually leaves a valid push nearby but makes top-1 ordering worse. The earlier legacy one-seed gain is therefore not reliable evidence for this corrected late-fusion design; this experiment changes both the representation and the seed cohort, so it cannot isolate whether that earlier gain came from the legacy encoding or seed noise. Per the staged scope, this is a complete rejection on the canonical Antman 1-push test only; no claim is made about D20/setup data or 2-push search.
 
 ## Next
 
-Smoke the baseline and corrected treatment on the selected target node, then launch the six fresh seed-1/2/3 training jobs simultaneously and queue their prediction-only canonical 1-push evaluations. Do not launch the 2-push simulator evaluation until explicitly requested.
+Keep the original Antman-5c head for now and close this corrected late-fusion arm. Do not run D20 or 2-push evaluation for this treatment. If action grounding is revisited, open a separate experiment for a materially different interaction—HACMan-style concatenation/gating, action-conditioned attention, or sampling scene features at the proposed final footprint—rather than extending this failed additive late-fusion test.
 
 ## Discussion
 
