@@ -2,9 +2,9 @@
 status: live
 thread: rl_loop
 robot: car
-updated: 2026-07-22
+updated: 2026-07-23
 parent: EXP-2026-07-14-region-opening-curriculum-marvel
-commit: 897c398
+commit: ccbb2d1
 ---
 
 # EXP-2026-07-21 — Colossus: data scale-up (overall) + dead dose (Marvel/Beast lineage)
@@ -121,7 +121,9 @@ Live labeling shows only **~29% of bank scenes are usable** (24% dead-root + 5% 
 
 **Artifacts.** Amarel root `/scratch/dm1487/colossus0_200k_1bf5f7a/smoke100`; `candidates.h5` SHA256 `3fcdd50d07042fd0e26ff40b008d99560a5d318157c7855340be835fff567150`; `census.json` SHA256 `7c82b06244a0c36632f5b8486846842928eb437223a9cdd95c8178a79b176c34`.
 
-**Current state (verified 2026-07-22).** The first 10,000-XML production pilot is complete and the validated 1M manifest remains intact. The top-20 + 20%-audit policy, unknown masking, no-op pruning, push-depth artifact contract, and d20+200k stack builder have passed their collection gates. Next action is the sharded 10k H5 render plus exact locked-selector count; only a matching result authorizes collection from 10k toward the provisional buffered 225k-XML target.
+**Exact 10k H5 yield gate passed.** Amarel H5 array `58954220` completed all 32 shards and count job `58954221` reported 148,315 rendered rows: 7,868 positive/mistake rows, 3,260 negative roots, 119,684 negative finishes, 17,421 excluded rank-1 finish rows, zero excluded no-ops, and 82 empty rows. This exactly reproduced the pre-render positive estimate and projects 177,030 positives at 225,000 XMLs, above the locked 166,666-positive target, so it authorized the buffered continuation.
+
+**Current state (verified 2026-07-23).** Collection wave 1 (`58956051`, 470/470 tasks) completed and wave 2 (`58964890`) produced 224,996/225,000 result PKLs before two 350-XML shards timed out at 3:00:14 with four pathological rooms unfinished. The final rooms accumulated roughly 14,000–16,000 simulator primitives at 1–3 pushes/second because the per-neighbour timeout is checked between candidate objects rather than inside one large exhaustive object sweep; no completed artifact was lost. Repair orchestrator `58995977` is running four one-XML jobs (`58999914`–`58999917`) with six-hour caps for manifest indices 151662, 159069, 198514, and 201449, after which it verifies exactly 225,000 PKLs and submits the census. The original census `58968670` is correctly blocked by the failed wave dependency.
 
 **Unattended continuation gate.** The committed continuation job consumes the exact 32-shard H5 count-only report and refuses to scale unless all 32 shards exist, rendered rows are at least 100k, positive/mistake rows are at least 7,408, eligible negatives exceed 33,334, and the 225k projection exceeds 166,666 positives. On pass it verifies exactly 10,000 existing PKLs, atomically claims a fresh continuation marker, collects disjoint manifest indices 10,000–224,999 in sequential ≤470-task waves with three-hour caps, requires every array task to succeed and exactly 225,000 final PKLs, then submits the canonical full census. It never overwrites an H5, census, or collection artifact.
 
@@ -129,4 +131,4 @@ Live labeling shows only **~29% of bank scenes are usable** (24% dead-root + 5% 
 
 ## Result
 
-The 10,000-XML collection pilot and audit passed. Sharded H5 materialization, the remaining buffered collection, combined d20+200k training, and difficulty×horizon evaluation remain pending.
+The 10,000-XML collection and exact H5 yield gates passed, and 224,996/225,000 buffered XMLs are complete. Four pathological rooms are in isolated repair; the full census, final 225k H5 materialization, combined d20+200k training, and difficulty×horizon evaluation remain pending.
