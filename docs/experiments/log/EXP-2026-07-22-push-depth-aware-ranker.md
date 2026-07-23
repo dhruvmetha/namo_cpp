@@ -1,9 +1,9 @@
 ---
 type: experiment
-status: live
+status: done
 created: 2026-07-22
 commit: 17b4df3
-metric: Correct crop-relative-motion three-seed repair pending; absolute-final-yaw treatment failed hard exact @1 40.4→37.2 (-3.1 pp)
+metric: Correct crop-relative plain/sharp late fusion also failed 3-seed top-1 replication — hard @1 40.4→39.9/40.5 (-0.5/+0.1 pp), though hard @5 rose +2.5/+3.9 pp; no 2push simulation run
 thread: rl_loop
 parent: EXP-2026-07-14-region-opening-curriculum-marvel
 related: EXP-2026-07-12-depth-geometric-grounding
@@ -104,6 +104,8 @@ Also test a separate `crop_relative_sharp` treatment requested after this repair
 **Phase-4 six-run launch (jobs `186817`–`186822`).** Plain-relative seeds 1/2/3 are `186817`/`186818`/`186819` and sharp-relative seeds 1/2/3 are `186820`/`186821`/`186822`; all six entered `RUNNING` together on six separate `rlab3` A4000s from pre-run card commit `6e9e94d`. Each uses the exact frozen 20-epoch Antman-5c recipe and writes under `/common/users/dm1487/scratch_namo/curriculum2/push_depth/crop_relative_3seed/full/seed{1,2,3}/{plain,sharp}`.
 
 **Automatic Phase-4 evaluation and comparison queued.** Prediction-only canonical evaluators `186824`–`186829` each depend on their matching trainer and will write the six JSON/JSONL pairs under `/common/users/dm1487/scratch_namo/eval/push_depth/crop_relative_3seed/seed{1,2,3}/`. CPU verdict jobs `186830`/`186831`/`186832` depend on all evaluators and will respectively compare plain versus the saved fresh baselines, sharp versus the saved fresh baselines, and sharp versus plain. The chain contains no D20, 2-push, forward simulation, or active polling requirement.
+
+**Phase-4 execution PASS (jobs `186817`–`186832`).** All six 20-epoch trainers completed with exit code 0 in 2h21m–2h28m, all six canonical prediction-only evaluators completed in 3m29s–3m35s, and all three paired comparators completed in one second. Best checkpoints were plain `epoch014-val_loss0.6320`, `epoch015-val_loss0.6436`, `epoch018-val_loss0.6514` and sharp `epoch016-val_loss0.6408`, `epoch016-val_loss0.6289`, `epoch018-val_loss0.6511`. Every comparison verified the same 1,323 canonical episode identities in the same order, easy/med/hard = 698/421/204, with zero missing valid actions.
 
 **Phase-0 implementation (2026-07-22).** Commit `ddb18d2` extends `scripts/eval_scorer.py` in place with a zero-push live-canonical mode, adds the three-way category tests, and adds the CS `unlimited` launcher `scripts/slurm/eval_scorer_live.slurm`. Local compile + focused tests pass (2/2).
 
@@ -226,9 +228,32 @@ The controlled comparison below trains both models from scratch on the same 178,
 
 **Final staged verdict: FAILURE TO REPLICATE.** Hard exact hit@1 fell in all three seeds, by 3.9/2.0/3.5 points, while mean hard wrong-contact rose by 1.0 point and mean hard right-contact/wrong-depth rose by 2.1 points. The easy/medium guardrail also failed because medium fell by 2.6 and 4.5 points in seeds 1 and 2. Exact @5 was essentially flat on average in every tier, so the corrected representation usually leaves a valid push nearby but makes top-1 ordering worse. The earlier legacy one-seed gain is therefore not reliable evidence for this corrected late-fusion design; this experiment changes both the representation and the seed cohort, so it cannot isolate whether that earlier gain came from the legacy encoding or seed noise. Per the staged scope, this is a complete rejection on the canonical Antman 1-push test only; no claim is made about D20/setup data or 2-push search.
 
+### Correct crop-relative-motion three-seed A/B — prediction-only 1-push
+
+Both repaired treatments use the intended relative motion `(2*world_dx/0.5m, 2*world_dy/0.5m, dtheta/pi)`. Plain sends the three raw numbers through the late-fusion MLP; sharp first applies eight-band Fourier features and adds a learned five-depth identity. Both are paired against the same fresh baseline seeds above.
+
+| 1push tier | baseline @1 | plain @1 | delta | sharp @1 | delta | baseline @5 | plain @5 | delta | sharp @5 | delta |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| easy | 97.1% | 97.7% | +0.7 pp | 97.1% | +0.0 pp | 99.6% | 99.9% | +0.3 pp | 99.8% | +0.1 pp |
+| med | 82.3% | 82.0% | -0.4 pp | 81.4% | -0.9 pp | 95.0% | 95.2% | +0.1 pp | 95.6% | +0.6 pp |
+| hard | 40.4% | 39.9% | **-0.5 pp** | 40.5% | **+0.1 pp** | 72.9% | 75.3% | **+2.5 pp** | 76.8% | **+3.9 pp** |
+
+| hard seed | baseline @1 | plain @1 | delta | sharp @1 | delta |
+|---|---:|---:|---:|---:|---:|
+| 1 | 39.7% | 39.7% | +0.0 pp | 39.2% | -0.5 pp |
+| 2 | 39.7% | 39.2% | -0.5 pp | 43.1% | +3.4 pp |
+| 3 | 41.7% | 40.7% | -1.0 pp | 39.2% | -2.5 pp |
+
+| hard error | baseline | plain | delta | sharp | delta |
+|---|---:|---:|---:|---:|---:|
+| wrong contact | 53.6% | 54.2% | +0.7 pp | 54.1% | +0.5 pp |
+| right contact, wrong depth | 6.1% | 5.9% | -0.2 pp | 5.4% | -0.7 pp |
+
+**Phase-4 verdict: FAILURE TO REPLICATE for both treatments.** Plain improved hard exact @1 in 0/3 seeds and averaged -0.5 points; sharp improved 1/3 and averaged +0.1 points, while its medium seed-2 result breached the two-point guardrail. Neither reduced hard wrong-contact errors, which remain the dominant miss. The consistent hard @5 gains (+2.5 plain, +3.9 sharp) mean explicit relative motion makes a valid push more likely to enter the shortlist, but it does not teach the ranker to put the correct push first—the user's stated objective. Sharp beats plain only by +0.6 mean hard @1 and +1.5 hard @5, with the top-1 gain entirely concentrated in one seed, so Fourier features plus a learned depth identity are not supported as a deployment change.
+
 ## Next
 
-Keep the original Antman-5c head for now and close this corrected late-fusion arm. Do not run D20 or 2-push evaluation for this treatment. If action grounding is revisited, open a separate experiment for a materially different interaction—HACMan-style concatenation/gating, action-conditioned attention, or sampling scene features at the proposed final footprint—rather than extending this failed additive late-fusion test.
+Keep the original Antman-5c head and close all additive late-fusion motion arms: absolute final pose, correct raw relative motion, and Fourier-relative motion plus depth identity. Do not run D20 or 2-push evaluation for these treatments. If action grounding is revisited, use a materially different interaction—action-conditioned attention or sampling scene features at the proposed final footprint—rather than another encoding change at the same late-fusion location.
 
 ## Discussion
 

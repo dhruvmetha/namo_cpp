@@ -2,7 +2,7 @@
 status: hub
 tags:
   - results
-updated: 2026-07-22
+updated: 2026-07-23
 ---
 # Results — DAgger curriculum training framework
 
@@ -103,3 +103,15 @@ Fresh baseline/corrected models used the same 178,364 Antman-5c ceiling-labeled 
 | hard | 53.6% | 54.6% | **+1.0 pp** | 6.1% | 8.1% | **+2.1 pp** |
 
 **Verdict: failure to replicate.** Hard exact @1 fell in every seed (`-3.9/-2.0/-3.5` points), mean hard wrong-contact rose, and medium breached the two-point guardrail in two seeds. Mean @5 stayed flat, indicating that the treatment mainly worsened precise top-1 ordering rather than removing valid pushes from the shortlist. The earlier legacy-motion one-seed `+10.8` hard@1 result did not survive the corrected representation plus proper seed replication. Keep the original Antman-5c head; no D20 or 2-push simulator evaluation was run. Full per-seed tables and artifacts → [EXP-2026-07-22 card](log/EXP-2026-07-22-push-depth-aware-ranker.md).
+
+## 2026-07-23 — Correct crop-relative motion and Fourier+depth identity: three-seed negative result
+
+The final repair uses exactly the intended image-aligned relative push `(2dx/0.5m, 2dy/0.5m, dtheta/pi)`. Plain sends those three numbers through the post-attention action MLP; sharp adds eight-band Fourier features plus a learned five-depth identity. Both reuse the matched fresh Antman baseline seeds and the same 1,323 canonical prediction-versus-GT episodes; no push simulations ran.
+
+| 1push tier | baseline @1 | plain @1 | sharp @1 | baseline @5 | plain @5 | sharp @5 |
+|---|---:|---:|---:|---:|---:|---:|
+| easy | 97.1% | 97.7% | 97.1% | 99.6% | 99.9% | 99.8% |
+| med | 82.3% | 82.0% | 81.4% | 95.0% | 95.2% | 95.6% |
+| hard | **40.4%** | **39.9%** | **40.5%** | 72.9% | **75.3%** | **76.8%** |
+
+**Verdict: reject both for top-1 ranking.** Plain improved hard @1 in 0/3 seeds (mean -0.5 points); sharp improved 1/3 (mean +0.1), failed a medium guardrail, and did not reduce hard wrong-contact errors. Both improve the hard shortlist at @5 (+2.5/+3.9), but the research goal is to order the correct push first, not merely keep it nearby. This closes additive post-attention motion fusion; a future action-grounding experiment must change the interaction itself, such as action-conditioned attention or scene sampling at the proposed final footprint. Full per-seed and mechanism tables → [EXP-2026-07-22 card](log/EXP-2026-07-22-push-depth-aware-ranker.md).
