@@ -40,7 +40,8 @@ import lightning.pytorch as pl                                   # noqa: E402
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping, Callback  # noqa: E402
 
 from namo.rl_loop.train_gen import _make_network                 # noqa: E402  (e4 EdgeCrossAttn builder)
-from namo.rl_loop.sage_ext.weighted_module import WeightedClassifierModule  # noqa: E402
+from namo.rl_loop.sage_ext.weighted_module import (                    # noqa: E402
+    CENS_WEIGHT, UNREACH_WEIGHT, WeightedClassifierModule)
 from namo.rl_loop.sage_ext.q2_dataset import Q2DataModule        # noqa: E402
 from namo.rl_loop.sage_ext._sage import EdgeCrossAttn, HLGauss, ClassifierModule  # noqa: E402
 
@@ -174,6 +175,28 @@ def _build_net_like_eval_scorer(sd, num_depths):
     return net, value_bins
 
 
+def _pure_validation_loss(module, logits, batch):
+    """Match WeightedClassifierModule.validation_step without logging or the ranking auxiliary."""
+    labels = batch["f_labels"]
+    loss_mask = batch["loss_mask"]
+    ceiling = batch.get("ceiling_mask")
+    if ceiling is None:
+        return module._compute_masked_loss(logits, labels, loss_mask)
+
+    hl = module._hl(logits)
+    exact_mask = loss_mask * (1.0 - ceiling)
+    loss = module._compute_masked_loss(logits, labels, exact_mask)
+    cens_mask = loss_mask * ceiling
+    if cens_mask.any():
+        loss = loss + CENS_WEIGHT * hl.censored_loss(logits, labels, cens_mask)
+    if UNREACH_WEIGHT > 0.0:
+        unreach = (labels < -0.5).float()
+        if unreach.any():
+            loss = loss + UNREACH_WEIGHT * hl.loss(
+                logits, torch.zeros_like(labels), unreach)
+    return loss
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--h5", required=True)
@@ -234,16 +257,22 @@ def main():
     print(f"[reload check] two-reload max|Δlogit| = {d:.3e} "
           f"({'OK identical' if d == 0.0 else 'NONDETERMINISTIC'})", flush=True)
 
-    # reproduce monitored best val_loss (hl_gauss CE) with the reloaded model (one big val batch)
+    # Reproduce the monitored validation formula in normal-size batches. A single pooled batch OOMs
+    # on d20 and changes the group-mean reduction; it also used to treat ceiling cells as exact.
     from torch.utils.data import DataLoader
-    vb = next(iter(DataLoader(dm.val_dataset, batch_size=len(dm.val_dataset))))
-    vb = {k: (v.to(device) if torch.is_tensor(v) else v) for k, v in vb.items()}
+    val_loss_sum = torch.zeros((), device=device)
+    val_rows = 0
     with torch.no_grad():
-        vlogits = m1(vb["context"], vb.get("contact_px"))
-        vloss = float(m1._compute_masked_loss(vlogits, vb["f_labels"], vb["loss_mask"]))
+        for vb in DataLoader(dm.val_dataset, batch_size=a.batch_size, shuffle=False, num_workers=0):
+            vb = {k: (v.to(device) if torch.is_tensor(v) else v) for k, v in vb.items()}
+            vlogits = m1(vb["context"], vb.get("contact_px"))
+            batch_rows = vb["context"].shape[0]
+            val_loss_sum += _pure_validation_loss(m1, vlogits, vb).detach() * batch_rows
+            val_rows += batch_rows
+    vloss = float(val_loss_sum / val_rows)
     monitored = float(getattr(ckpt_cb, "best_model_score", None) or 0.0)
     print(f"[reload check] reloaded val_loss = {vloss:.4f}  (monitored best = {monitored:.4f}, "
-          f"Δ={abs(vloss - monitored):.4f}; small Δ expected — batch-vs-pooled mask normalization)",
+          f"Δ={abs(vloss - monitored):.4f})",
           flush=True)
 
     # --- eval_scorer-loadable check: rebuild the net via eval_scorer's EXACT arch auto-detect,

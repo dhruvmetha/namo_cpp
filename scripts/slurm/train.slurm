@@ -20,7 +20,7 @@
 #   e.g.  H5=... OUT=/path/models sbatch --array=0-3 --gres=gpu:a100:1 scripts/slurm/train.slurm
 # Amarel deltas: `--partition=gpu-redhat`; `--cpus-per-task=8` is allowed; NAMO_PYTHON is already
 #   an absolute path there so (1) is a no-op; `source env.amarel.sh` instead of env.ilab.sh.
-# Tunables via env: EPOCHS(12) BATCH(256) WORKERS(8) LR(3e-4) SEED(1) RANK_LAMBDA(0.1) RANK_TEMP(0.15)
+# Tunables via env: EPOCHS(12) BATCH(256) WORKERS(8) LR(3e-4) SEED(1) PATIENCE(0) RANK_LAMBDA(0.1) RANK_TEMP(0.15)
 # SPEED (measured 2026-07-17, test-small-first before trusting — see memory reference_training_speedup):
 #   train is CO-bottlenecked (NFS reads ~= GPU compute). Two fixes TOGETHER: (a) stage the H5 to
 #   node-local /dev/shm before the train line (4.3x dataloader); (b) torch.compile the net (1.78x).
@@ -61,7 +61,8 @@ mkdir -p "$OUT"; LOG="$OUT/train.log"
 echo "TRAIN start $(date) host=$(hostname) H5=$H5 GAMMA=${NAMO_GAMMA:-none} PY=$PY OUT=$OUT"
 "$PY" scripts/rl_loop/train_q2_rankaux.py --h5 "$H5" --out-dir "$OUT" \
   --epochs "${EPOCHS:-12}" --batch-size "${BATCH:-256}" --num-workers "${WORKERS:-8}" \
-  --lr "${LR:-3e-4}" --seed "${SEED:-1}" --split-seed 0 > "$LOG" 2>&1 &
+  --lr "${LR:-3e-4}" --seed "${SEED:-1}" --split-seed 0 \
+  --patience "${PATIENCE:-0}" > "$LOG" 2>&1 &
 PID=$!
 # (5) hang-kill: ckpt written + "[eval_scorer-load check]" printed, then teardown hangs -> kill
 while kill -0 $PID 2>/dev/null; do
