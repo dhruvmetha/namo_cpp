@@ -2,7 +2,7 @@
 status: hub
 tags:
   - results
-updated: 2026-07-16
+updated: 2026-07-23
 ---
 # Results — DAgger curriculum training framework
 
@@ -89,3 +89,33 @@ Does adding dead data past the 2c ablation keep helping? Took **beast-2c-A-ceil*
 ## 2026-07-22 — Colossus-0 top-20 + 20%-audit labeling smoke (card EXP-2026-07-21-colossus)
 
 On the same 100 XMLs as the exhaustive baseline, root rejection + capped finishes + random exhaustive audits used **53,226 vs 173,902 simulator trials (−69.4%, 3.27× fewer)** while recovering all **15/15** shared genuine-2push roots and all 65/65 direct roots; old dead roots split into proven-dead or censored, never false-dead. Label H5: 269 exact setups + 269 exact finishers, 0 false exact-zero reachable cells, unknown parents/finishes masked. Finish winners: rank1 222 / rank2–5 40 / rank6–20 7 / audited >20 0. Locked training selector yields **63 positive-mistake + 1,354 negative rows per 100 XMLs**, so positive mistakes bottleneck the 166,666+33,334 Colossus block at a point estimate ~265k XMLs. No-op rows 562 and rank1-only finish rows 222 are excluded. This validates scalable labeling, not model improvement; d20+200k training/eval is next.
+
+## 2026-07-22 — Push-depth-aware corrected final-pose head: three-seed negative result
+
+Fresh baseline/corrected models used the same 178,364 Antman-5c ceiling-labeled boards and differed only in whether the shared post-attention action head received the corrected image-aligned final pose `(final_x, final_y, sin(final_yaw), cos(final_yaw))`. Three paired seeds trained from scratch on six identical `rlab3` A4000s; canonical prediction-only 1-push evaluation used the same 1,323 episode identities for every checkpoint and ran no push simulations.
+
+| 1push tier | baseline mean @1 | corrected mean @1 | delta | baseline mean @5 | corrected mean @5 | delta |
+|---|---:|---:|---:|---:|---:|---:|
+| easy | 97.1% | 97.6% | +0.5 pp | 99.6% | 99.7% | +0.1 pp |
+| med | 82.3% | 80.4% | -1.9 pp | 95.0% | 95.4% | +0.4 pp |
+| hard | 40.4% | 37.2% | **-3.1 pp** | 72.9% | 73.0% | +0.1 pp |
+
+| 1push tier | baseline wrong contact | corrected wrong contact | delta | baseline right-contact/wrong-depth | corrected right-contact/wrong-depth | delta |
+|---|---:|---:|---:|---:|---:|---:|
+| easy | 1.9% | 1.3% | -0.6 pp | 1.0% | 1.2% | +0.2 pp |
+| med | 14.0% | 14.8% | +0.8 pp | 3.6% | 4.8% | +1.1 pp |
+| hard | 53.6% | 54.6% | **+1.0 pp** | 6.1% | 8.1% | **+2.1 pp** |
+
+**Verdict: failure to replicate.** Hard exact @1 fell in every seed (`-3.9/-2.0/-3.5` points), mean hard wrong-contact rose, and medium breached the two-point guardrail in two seeds. Mean @5 stayed flat, indicating that the treatment mainly worsened precise top-1 ordering rather than removing valid pushes from the shortlist. The earlier legacy-motion one-seed `+10.8` hard@1 result did not survive the corrected representation plus proper seed replication. Keep the original Antman-5c head; no D20 or 2-push simulator evaluation was run. Full per-seed tables and artifacts → [EXP-2026-07-22 card](log/EXP-2026-07-22-push-depth-aware-ranker.md).
+
+## 2026-07-23 — Correct crop-relative motion and Fourier+depth identity: three-seed negative result
+
+The final repair uses exactly the intended image-aligned relative push `(2dx/0.5m, 2dy/0.5m, dtheta/pi)`. Plain sends those three numbers through the post-attention action MLP; sharp adds eight-band Fourier features plus a learned five-depth identity. Both reuse the matched fresh Antman baseline seeds and the same 1,323 canonical prediction-versus-GT episodes; no push simulations ran.
+
+| 1push tier | baseline @1 | plain @1 | sharp @1 | baseline @5 | plain @5 | sharp @5 |
+|---|---:|---:|---:|---:|---:|---:|
+| easy | 97.1% | 97.7% | 97.1% | 99.6% | 99.9% | 99.8% |
+| med | 82.3% | 82.0% | 81.4% | 95.0% | 95.2% | 95.6% |
+| hard | **40.4%** | **39.9%** | **40.5%** | 72.9% | **75.3%** | **76.8%** |
+
+**Verdict: reject both for top-1 ranking.** Plain improved hard @1 in 0/3 seeds (mean -0.5 points); sharp improved 1/3 (mean +0.1), failed a medium guardrail, and did not reduce hard wrong-contact errors. Both improve the hard shortlist at @5 (+2.5/+3.9), but the research goal is to order the correct push first, not merely keep it nearby. This closes additive post-attention motion fusion; a future action-grounding experiment must change the interaction itself, such as action-conditioned attention or scene sampling at the proposed final footprint. Full per-seed and mechanism tables → [EXP-2026-07-22 card](log/EXP-2026-07-22-push-depth-aware-ranker.md).

@@ -96,10 +96,26 @@ def load_scorer(ckpt, num_depths, device, network="dit_classifier"):
             kw["max_budget"] = sd["network.budget_embed.weight"].shape[0] - 1
         if "network.reach_embed.weight" in sd:           # M2d: per-edge reachability input flag
             kw["reach_flag_input"] = True
+        if "network.action_motion_proj.0.weight" in sd:
+            from namo.rl_loop.action_motion import action_motion_feature_dim
+            motion_proj_in = sd["network.action_motion_proj.0.weight"].shape[1]
+            motion_tag = ck.get("action_motion_encoding")
+            motion_dim = action_motion_feature_dim(motion_tag) if motion_tag else motion_proj_in
+            kw["action_motion_dim"] = motion_dim
+            if motion_proj_in != motion_dim:
+                denom = 2 * motion_dim
+                if motion_proj_in % denom:
+                    raise ValueError(f"invalid Fourier motion width {motion_proj_in} for dim {motion_dim}")
+                kw.update(action_motion_fourier=True, action_motion_fourier_L=motion_proj_in // denom)
+            if "network.action_depth_embed.weight" in sd:
+                kw["action_depth_embed"] = True
         head_out = sd["network.head.2.weight"].shape[0]
-        if head_out != num_depths:                       # HL-Gauss value head: num_depths * bins logits
-            kw["value_bins"] = head_out // num_depths
+        if head_out != num_depths:                       # HL-Gauss value head
+            kw["value_bins"] = head_out if kw.get("action_motion_dim", 0) else head_out // num_depths
         net = EdgeCrossAttn(**kw)
+        from namo.rl_loop.action_motion import checkpoint_action_motion_encoding
+        net.action_motion_encoding = checkpoint_action_motion_encoding(
+            ck, kw.get("action_motion_dim", 0))
     else:
         from src.model.dit.dit_classifier import DiTClassifier
         net = DiTClassifier(img_size=64, in_channels=5, num_depths=num_depths)
@@ -424,6 +440,11 @@ def main():
                     for (te, _td) in tried:
                         if 0 <= te < 60: rbits[0, te] = 1
                     hkw["reach_edges"] = rbits
+                if getattr(model.network, "action_motion_dim", 0) > 0:
+                    from namo.rl_loop.action_motion import action_motion_from_contact_px
+                    hkw["action_motion"] = action_motion_from_contact_px(
+                        cpx_t, encoding=model.network.action_motion_encoding,
+                        feature_dim=model.network.action_motion_dim)
                 t = model(ctx, cpx_t, ztup[0], ztup[1], **hkw)[0]
                 if t.dim() == 3:
                     from src.model.hl_gauss import HLGauss

@@ -104,7 +104,9 @@ def evaluate(module, ds, device, tag="val"):
         ctx = b["context"].unsqueeze(0).to(device)
         cpx = b.get("contact_px")
         cpx = cpx.unsqueeze(0).to(device) if cpx is not None else None
-        logits = module(ctx, cpx)                        # (1,60,5,51)
+        am = b.get("action_motion")
+        am = am.unsqueeze(0).to(device) if am is not None else None
+        logits = module(ctx, cpx, action_motion=am)       # (1,60,5,51)
         val = hg.value(logits.float())[0].cpu()          # (60,5) predicted value in [0,1]
         f = b["f_labels"]; lm = b["loss_mask"]; rm = b["r_mask"]
         tried = lm > 0.5
@@ -149,9 +151,10 @@ def evaluate(module, ds, device, tag="val"):
                 n_win=n_win, n_tried=len(y))
 
 
-def _build_net_like_eval_scorer(sd, num_depths):
+def _build_net_like_eval_scorer(ck, num_depths):
     """Replicate eval_scorer.load_scorer's edge_crossattn arch auto-detect (the value_bins branch is
     what we must confirm) so we KNOW the ckpt loads the same way eval_scorer loads it."""
+    sd = ck["state_dict"]
     dim = sd["network.edge_norm.weight"].shape[0]
     sdep = sum(1 for k in sd if k.startswith("network.scene_blocks.") and k.endswith(".n1.weight"))
     edep = sum(1 for k in sd if k.startswith("network.edge_blocks.") and k.endswith(".n1.weight"))
@@ -165,10 +168,21 @@ def _build_net_like_eval_scorer(sd, num_depths):
         kw.update(pos_fourier=True, fourier_L=pin // 4)
     if "network.edge_embed.weight" in sd:
         kw["use_edge_embed"] = True
+    if "network.action_motion_proj.0.weight" in sd:
+        from namo.rl_loop.action_motion import action_motion_feature_dim
+        motion_proj_in = sd["network.action_motion_proj.0.weight"].shape[1]
+        motion_tag = ck.get("action_motion_encoding")
+        motion_dim = action_motion_feature_dim(motion_tag) if motion_tag else motion_proj_in
+        kw["action_motion_dim"] = motion_dim
+        if motion_proj_in != motion_dim:
+            kw.update(action_motion_fourier=True,
+                      action_motion_fourier_L=motion_proj_in // (2 * motion_dim))
+        if "network.action_depth_embed.weight" in sd:
+            kw["action_depth_embed"] = True
     head_out = sd["network.head.2.weight"].shape[0]
     value_bins = None
     if head_out != num_depths:
-        value_bins = head_out // num_depths
+        value_bins = head_out if kw.get("action_motion_dim", 0) else head_out // num_depths
         kw["value_bins"] = value_bins
     net = EdgeCrossAttn(**kw)
     return net, value_bins
@@ -188,6 +202,8 @@ def main():
     ap.add_argument("--train-split", type=float, default=0.9)
     ap.add_argument("--patience", type=int, default=0, help="EarlyStopping patience (0=off)")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--postcheck-limit", type=int, default=0,
+                    help="limit each post-training reload/diagnostic split; 0 keeps the full split")
     a = ap.parse_args()
 
     pl.seed_everything(a.seed, workers=True)
@@ -215,6 +231,12 @@ def main():
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dm.setup()
+    from torch.utils.data import DataLoader, Subset
+    train_post = dm.train_dataset
+    val_post = dm.val_dataset
+    if a.postcheck_limit > 0:
+        train_post = Subset(train_post, range(min(a.postcheck_limit, len(train_post))))
+        val_post = Subset(val_post, range(min(a.postcheck_limit, len(val_post))))
 
     # --- save+reload integrity (two independent reloads must be bit-identical) ---
     ck = torch.load(best, map_location="cpu", weights_only=False)
@@ -225,21 +247,23 @@ def main():
         return m.eval().to(device)
 
     m1, m2 = _reload(), _reload()
-    b = dm.val_dataset[0]
+    b = val_post[0]
     ctx = b["context"].unsqueeze(0).to(device)
     cpx = b.get("contact_px")
     cpx = cpx.unsqueeze(0).to(device) if cpx is not None else None
     with torch.no_grad():
-        d = float((m1(ctx, cpx).float() - m2(ctx, cpx).float()).abs().max())
+        am = b.get("action_motion")
+        am = am.unsqueeze(0).to(device) if am is not None else None
+        d = float((m1(ctx, cpx, action_motion=am).float() -
+                   m2(ctx, cpx, action_motion=am).float()).abs().max())
     print(f"[reload check] two-reload max|Δlogit| = {d:.3e} "
           f"({'OK identical' if d == 0.0 else 'NONDETERMINISTIC'})", flush=True)
 
     # reproduce monitored best val_loss (hl_gauss CE) with the reloaded model (one big val batch)
-    from torch.utils.data import DataLoader
-    vb = next(iter(DataLoader(dm.val_dataset, batch_size=len(dm.val_dataset))))
+    vb = next(iter(DataLoader(val_post, batch_size=len(val_post))))
     vb = {k: (v.to(device) if torch.is_tensor(v) else v) for k, v in vb.items()}
     with torch.no_grad():
-        vlogits = m1(vb["context"], vb.get("contact_px"))
+        vlogits = m1(vb["context"], vb.get("contact_px"), action_motion=vb.get("action_motion"))
         vloss = float(m1._compute_masked_loss(vlogits, vb["f_labels"], vb["loss_mask"]))
     monitored = float(getattr(ckpt_cb, "best_model_score", None) or 0.0)
     print(f"[reload check] reloaded val_loss = {vloss:.4f}  (monitored best = {monitored:.4f}, "
@@ -249,13 +273,13 @@ def main():
     # --- eval_scorer-loadable check: rebuild the net via eval_scorer's EXACT arch auto-detect,
     #     load the full state_dict through a stock ClassifierModule, forward, confirm (60,5) value ---
     sd = ck["state_dict"]
-    net_es, vb_det = _build_net_like_eval_scorer(sd, num_depths=5)
+    net_es, vb_det = _build_net_like_eval_scorer(ck, num_depths=5)
     es_model = ClassifierModule(network=net_es, head_mode="hl_gauss",
                                 value_vmin=0.0, value_vmax=1.0)
     es_model.load_state_dict(sd)   # must succeed -> arch matches
     es_model.eval().to(device)
     with torch.no_grad():
-        es_logits = es_model(ctx, cpx)                    # (1,60,5,51)
+        es_logits = es_model(ctx, cpx, action_motion=am)  # (1,60,5,51)
         es_val = HLGauss(num_bins=VALUE_BINS).value(es_logits.float())  # (1,60,5)
     print(f"[eval_scorer-load check] detected value_bins={vb_det}  "
           f"logits shape={tuple(es_logits.shape)}  value shape={tuple(es_val.shape)}  "
@@ -264,8 +288,8 @@ def main():
           flush=True)
 
     # --- value-ranking diagnostics: train (can it fit?) then held-out rooms (does it generalize?) ---
-    evaluate(m1, dm.train_dataset, device, tag="TRAIN (reloaded best ckpt)")
-    evaluate(m1, dm.val_dataset, device, tag="VAL held-out rooms (reloaded best ckpt)")
+    evaluate(m1, train_post, device, tag="TRAIN (reloaded best ckpt)")
+    evaluate(m1, val_post, device, tag="VAL held-out rooms (reloaded best ckpt)")
 
 
 if __name__ == "__main__":

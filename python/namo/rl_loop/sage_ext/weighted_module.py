@@ -27,6 +27,11 @@ UNREACH_WEIGHT = float(os.environ.get("NAMO_UNREACH_WEIGHT", "0.0"))
 
 
 class WeightedClassifierModule(ClassifierModule):
+    def on_save_checkpoint(self, checkpoint):
+        """Tag same-width motion encodings so deployment cannot silently reinterpret them."""
+        checkpoint["action_motion_encoding"] = getattr(
+            self.network, "action_motion_encoding", "none")
+
     def _hl(self, logits):
         """Ensure the (censored-capable, endpoint-fixed) HL-Gauss helper exists and matches the head."""
         if not isinstance(self._hl_gauss, CensoredHLGauss) or self._hl_gauss.num_bins != logits.shape[-1]:
@@ -86,7 +91,8 @@ class WeightedClassifierModule(ClassifierModule):
         context = batch["context"]; f_labels = batch["f_labels"]; r_mask = batch["r_mask"]
         loss_mask = batch.get("loss_mask", r_mask)
         logits = self(context, batch.get("contact_px"), batch.get("context_zoom"),
-                      batch.get("contact_px_zoom"), H=batch.get("H"), reach_edges=batch.get("reach_edges"))
+                      batch.get("contact_px_zoom"), H=batch.get("H"), reach_edges=batch.get("reach_edges"),
+                      action_motion=batch.get("action_motion"))
         ceiling = batch.get("ceiling_mask")
         if ceiling is not None:
             loss = self._split_loss(logits, f_labels, loss_mask, ceiling, batch.get("weight"))
@@ -100,7 +106,8 @@ class WeightedClassifierModule(ClassifierModule):
         context = batch["context"]; f_labels = batch["f_labels"]; r_mask = batch["r_mask"]
         loss_mask = batch.get("loss_mask", r_mask)
         logits = self(context, batch.get("contact_px"), batch.get("context_zoom"),
-                      batch.get("contact_px_zoom"), H=batch.get("H"), reach_edges=batch.get("reach_edges"))
+                      batch.get("contact_px_zoom"), H=batch.get("H"), reach_edges=batch.get("reach_edges"),
+                      action_motion=batch.get("action_motion"))
         ceiling = batch.get("ceiling_mask")
         if ceiling is not None:
             # val stays PURE (no rank-aux, unweighted): exact-cell regression + censored fence only.

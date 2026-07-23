@@ -29,6 +29,11 @@ import numpy as np
 import torch
 import lightning.pytorch as pl
 from torch.utils.data import Dataset, DataLoader
+from namo.rl_loop.action_motion import (
+    NO_MOTION_ENCODING,
+    action_motion_from_contact_px,
+    configured_action_motion_encoding,
+)
 
 NUM_DEPTHS = 5
 Q2_POS_WEIGHT = float(os.environ.get("Q2_POS_WEIGHT", "1.0"))   # up-weight positive (opener/setup) cells vs dead(0)
@@ -44,6 +49,7 @@ class Q2ValueDataset(Dataset):
         self.h5_path = h5_path
         self.indices = indices
         self._h5 = None
+        self.action_motion_encoding = configured_action_motion_encoding()
 
     def __len__(self):
         return len(self.indices)
@@ -74,6 +80,9 @@ class Q2ValueDataset(Dataset):
         }
         if "contact_px" in f:
             out["contact_px"] = torch.from_numpy(f["contact_px"][i].astype(np.float32))
+            if self.action_motion_encoding != NO_MOTION_ENCODING:
+                out["action_motion"] = action_motion_from_contact_px(
+                    out["contact_px"], encoding=self.action_motion_encoding)
         if "ceiling_mask" in f:                                        # beast-0a censored cells
             out["ceiling_mask"] = torch.from_numpy(f["ceiling_mask"][i].astype(np.float32))
         return out
