@@ -15,7 +15,7 @@ set -euo pipefail
 REPO=${NAMO_REPO:-/common/home/dm1487/robotics_research/ktamp/namo}
 cd "$REPO"
 source env.ilab.sh >/dev/null 2>&1
-export PYTHONPATH="$REPO/build_python:$REPO/python"
+export PYTHONPATH="${NAMO_BINDINGS:-$REPO/build_python}:$REPO/python"
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 OPENCV_NUM_THREADS=1
 export CUDA_VISIBLE_DEVICES=""
 PY="${NAMO_PYTHON:-python}"
