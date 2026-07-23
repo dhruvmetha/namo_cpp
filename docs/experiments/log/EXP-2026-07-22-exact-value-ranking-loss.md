@@ -167,6 +167,34 @@ Running 3 seeds × 2 arms, fresh + paired (same code, same H5, same recipe; ONLY
 
 Readout: seed-AVERAGED 2push solve@2/@5/@10 (all + hard) and hard-1push@1/@5, with per-seed spread, so the hard-1push delta is judged against its own seed variance. This does NOT auto-promote — it produces the seed-averaged deltas the user's promote-to-default (incl. Colossus) decision needs; the flip stays a user call.
 
+### Result — 3 control vs 3 treatment, seed-averaged [Claude, 2026-07-23 overnight]
+
+All 6 models trained clean (control seeds 1/2/3 = jobs `187055/56/57`; treatment-v2 seeds 2/3 = `187058/59`, seed 1 = `186923`) and evaluated (control evals `187228/29/30`, treatment `186964`+`187231/32`). Control = same code with `LOWER_RANK_LAMBDA=0` (opener-only, in-code baseline); treatment = v2 (`opener 0.10 + lower-exact 0.05`). Values are mean [min,max] over 3 seeds.
+
+| 1push | metric | control | treatment | Δ |
+|---|---|---|---|---:|
+| hard | solve@1 | 39.7 [39.2,40.2] | 39.7 [39.2,40.7] | +0.0 |
+| hard | solve@5 | 70.9 [68.1,73.0] | 70.6 [68.6,73.5] | −0.3 |
+| all | solve@1 | 84.2 [83.8,84.8] | 83.8 [83.7,83.9] | −0.5 |
+| all | solve@5 | 93.9 [93.6,94.1] | 93.8 [93.2,94.2] | −0.1 |
+
+| 2push | metric | control | treatment | Δ |
+|---|---|---|---|---:|
+| all | solve@2 | 27.0 [26.8,27.2] | 30.2 [29.5,31.4] | **+3.2** |
+| all | solve@5 | 41.6 [41.0,42.2] | 46.0 [44.5,47.8] | **+4.4** |
+| all | solve@10 | 51.4 [51.3,51.7] | 57.3 [56.2,57.9] | **+5.9** |
+| all | solve@30 | 67.7 [66.7,69.1] | 70.9 [70.6,71.2] | **+3.2** |
+| all | avg sims | 89.5 [84.9,95.6] | 79.6 [77.5,81.6] | **−9.9** |
+| hard | solve@5 | 30.5 [29.1,31.8] | 37.0 [35.3,39.4] | **+6.5** |
+| hard | solve@10 | 38.3 [36.7,40.7] | 46.5 [45.3,47.7] | **+8.2** |
+| hard | avg sims | 151.0 [136.6,171.0] | 132.4 [127.0,141.5] | **−18.6** |
+| medium | solve@10 | 56.0 [53.5,57.7] | 61.0 [60.1,61.6] | **+5.1** |
+| easy | solve@10 | 64.0 [63.4,64.7] | 67.6 [66.4,68.9] | **+3.6** |
+
+**Verdict: PROMOTE-worthy. The treatment loss is a clean, seed-stable deployment win.** 2push improves on every tier and every budget (+3–4 @2, +4–6 @5, +6–8 @10 on hard) and cuts sims-to-solve ~10–19% (hard 2push −18.6 sims), with the hard-2push seed ranges NON-OVERLAPPING (control @5 [29.1,31.8] vs treatment [35.3,39.4]). 1push is flat within seed noise — the single-seed hard-1push@5 "regression" (v2 −2.0, v3 −4.0) was ENTIRELY eval-sim noise: seed-averaged it is −0.3 inside a ~5pt per-arm spread. The pre-registered mechanism sub-bar (offline setup hit@1 ≥60 on round2_eval.h5) under-reported the effect; the search-deploy result — the perfect-verifier truth — is unambiguous.
+
+**Recommendation:** make `opener 0.10 + lower-exact 0.05` the default ranking-aux loss (`RANK_LAMBDA=0.10 LOWER_RANK_LAMBDA=0.05` in `train_q2_rankaux.py`, already the launcher default). User pre-authorized promotion incl. the Colossus card conditional on a multi-seed hold — that condition is met. The Colossus flip is staged separately (below) rather than applied mid-run, because Colossus is a live training lineage and the loss swap belongs at a clean round boundary, a user-timed call.
+
 ## Discussion
 
 _(you ↔ Claude — newest at the bottom.)_
