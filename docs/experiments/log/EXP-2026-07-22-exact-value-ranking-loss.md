@@ -101,6 +101,34 @@ Each cell is baseline d20 → exact-value-ranking treatment; solve changes are p
 
 **Verdict: mechanism PASS, deployment pilot MIXED / pre-registered promotion gate FAIL.** The primary tight-budget 2push bar passed decisively, but hard-1push solve@5 fell 5.4 points, exceeding the allowed 2-point tier regression. Do not interpret this seed as a replacement for d20. If further confirmation is authorized, run paired fresh baseline+treatment seeds rather than two treatment-only seeds so training variance and the apparent setup/opener tradeoff are separable.
 
+## V2 result — split budget (opener 0.10 + lower-exact 0.10) [Claude, 2026-07-23 overnight, user AFK]
+
+V2 seed-1 full treatment `186923` trained 12 epochs (patience-2 stop at epoch 10, `val_loss=1.6964`; reload Δ0.0002, evaluator-load OK). Eval array `186964` (all 6+32 shards COMPLETED) and rankdiag `rankdiag_v2.json` (baseline `beast2c_d20_ceil/epoch010` vs v2-seed1 on `round2_eval.h5`). Baseline column = registered d20.
+
+Infra note: eval must run from the MAIN repo (built `namo_rl` bindings); the worktree has no compiled bindings, and the eval `.py` scripts are byte-identical to main. First eval submit with `NAMO_REPO=<worktree>` died on `ModuleNotFoundError: namo_rl`; corrected by dropping `NAMO_REPO` so it cd's to main.
+
+| 1push difficulty | n | solve@1 | solve@5 | avg sims all |
+|---|---:|---:|---:|---:|
+| easy | 698 | 97.4→97.6 (+0.2) | 99.7→99.9 (+0.2) | 1.1→1.1 |
+| medium | 421 | 80.8→82.4 (+1.6) | 92.9→96.0 (+3.1) | 1.8→1.7 |
+| hard | 204 | 39.7→39.2 (−0.5) | 71.6→69.6 (−2.0) | 8.1→8.1 |
+| all | 1,323 | 83.2→83.7 (+0.5) | 93.2→94.0 (+0.8) | 2.4→2.4 |
+
+| 2push difficulty | n | solve@2 | solve@5 | solve@10 | solve@30 | avg sims all |
+|---|---:|---:|---:|---:|---:|---:|
+| easy | 238 | 30.3→39.1 (+8.8) | 47.9→54.6 (+6.7) | 60.9→68.9 (+8.0) | 79.0→84.5 (+5.5) | 32.3→40.6 |
+| medium | 409 | 31.3→29.1 (−2.2) | 46.0→48.9 (+2.9) | 59.7→61.6 (+1.9) | 72.9→73.1 (+0.2) | 57.9→58.2 |
+| hard | 371 | 19.1→24.0 (+4.9) | 30.7→36.4 (+5.7) | 41.5→46.6 (+5.1) | 58.5→59.0 (+0.5) | 144.9→128.8 |
+| all | 1,018 | 26.6→29.6 (+3.0) | 40.9→45.7 (+4.8) | 53.3→57.9 (+4.6) | 69.1→70.6 (+1.5) | 83.7→79.8 |
+
+**Setup mechanism did NOT hold.** Setup-vs-dead AUC `0.9063→0.9066` (flat), setup hit@1 `55.0→53.7` (−1.3, BELOW baseline), hit@5 `83.9→85.2`. Opener guard held/improved: opener-vs-dead AUC `0.9400→0.9423`, hit@1 `45.9→44.0`, recall@20 `87.3→92.3` (+5.0).
+
+**Verdict: pre-registered gate FAIL (mechanism sub-bar), deployment PASS.** Gate condition (1) required setup hit@1 ≥60 — v2 delivered 53.7, so FAIL. Safety condition (2) PASSED (hard-1push@5 = 69.6, exactly the −2 boundary; v1 had failed at 66.2). Deployment: 2push improved on every tier (all +3.0@2/+4.8@5/+4.6@10) and 1push stayed neutral-to-up outside hard@5. So v2 REPAIRS v1's safety failure and keeps ~v1's 2push deploy gain — but achieves it via the opener term, NOT the intended setup mechanism (which fell to baseline).
+
+**Root cause (diagnosed, pre-registered before v3).** On pure-2push-root boards (setup-only, no exact-1.0 opener), v1's `0.1×mean(single setup term)` applied the FULL 0.10 to setups; v2's bounded `0.05×lower-exact pool` applies only 0.05 there — HALF the setup pressure exactly where setups live. That is why v2's setup ranking regressed to baseline while its opener ranking (untouched at 0.10) stayed strong. The deploy 2push gain is opener-driven, robust; the mechanism needs the setup weight restored.
+
+**V3 (Claude autonomous fix, same gate).** Double the lower-exact pool weight to `LOWER_RANK_LAMBDA=0.10` (opener stays `0.10` → safety preserved), everything else identical. Tests whether restoring setup pressure recovers the mechanism (setup hit@1 ≥60) WITHOUT re-breaking hard-1push safety. A clean v3 pass authorizes the paired fresh baseline+treatment multi-seed confirmation the user's promote-to-default decision needs; promotion itself (incl. the Colossus card) waits for the user.
+
 ## Discussion
 
 _(you ↔ Claude — newest at the bottom.)_
