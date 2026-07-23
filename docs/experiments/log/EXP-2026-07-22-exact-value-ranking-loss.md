@@ -75,6 +75,10 @@ The v2 seed-1 gate requires both: (1) retain a meaningful setup gain—held-out 
 
 **V2 launch at handoff.** Implementation and tests are frozen at commit `3785aa5` (code commit `cddbe15`); target-box one-epoch smoke `186922` is running on ilab2 A4500 with output `exact_value_rank/v2_smoke_epoch1`. No v2 full training or evaluation job has been launched yet; those remain gated on finite epoch metrics, checkpoint reload agreement, and the evaluator-load marker.
 
+**V2 smoke `186922` passed all three launch gates (Claude, 2026-07-23, overnight drive; user AFK).** Finite epoch (`train_loss=3.0939 val_loss=2.2926`); two-reload `max|Δlogit|=0.000e+00` and reloaded `val_loss=2.2915` vs monitored `2.2926` (Δ0.0011); evaluator reconstructed `value_bins=51`, value shape `(1,60,5)`. Submitted with `NAMO_REPO=<worktree>` so the split-budget code runs (main lacks it).
+
+**V2 seed-1 full treatment launched: job `186923`**, ilab2 A4500, `EPOCHS=12 SEED=1 PATIENCE=2`, OUT `exact_value_rank/d20_exact_value_rank_v2_seed1` (v1 artifacts untouched). Eval (array 0-37), aggregation, and rankdiag (baseline `beast2c_d20_ceil/epoch010` vs v2-seed1 on `round2_eval.h5`) fire on completion. Seed-1 gate: setup hit@1 ≥60% + (2push solve@2 or @5 ≥+3pt) AND hard-1push solve@5 ≥69.6%. Pass → paired fresh baseline+treatment multi-seed; hold across seeds → promote the loss to default incl. the Colossus card [USER].
+
 ## Result + Verdict
 
 Each cell is baseline d20 → exact-value-ranking treatment; solve changes are percentage points.
