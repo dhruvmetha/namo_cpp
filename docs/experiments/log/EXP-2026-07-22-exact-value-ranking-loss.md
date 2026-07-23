@@ -195,6 +195,17 @@ All 6 models trained clean (control seeds 1/2/3 = jobs `187055/56/57`; treatment
 
 **Recommendation:** make `opener 0.10 + lower-exact 0.05` the default ranking-aux loss (`RANK_LAMBDA=0.10 LOWER_RANK_LAMBDA=0.05` in `train_q2_rankaux.py`, already the launcher default). User pre-authorized promotion incl. the Colossus card conditional on a multi-seed hold — that condition is met. The Colossus flip is staged separately (below) rather than applied mid-run, because Colossus is a live training lineage and the loss swap belongs at a clean round boundary, a user-timed call.
 
+## Colossus default-flip — STAGED (needs user go)
+
+Colossus-0 trains its d20+200k successor ranker with "the same HL-Gauss + listwise rank-aux recipe" as d20 (card EXP-2026-07-21-colossus-data-scaleup, line 77) — i.e. the OLD opener-only rank aux. That training is UPCOMING (collection/H5-sync still in progress per the colossus resume), NOT in-flight, so the flip carries no live-run disruption.
+
+To make v2 the Colossus default, exactly one change: train the d20+200k ranker with the split-budget loss instead of opener-only.
+- Code: the split-loss lives in `train_q2_rankaux.py` + `certain_order_rank_aux_losses` on branch `exp/exact-value-ranking` (commit `cddbe15`); MAIN and the Colossus checkout do NOT have it. Cherry-pick just that loss change (do NOT merge the whole worktree branch — it carries unrelated stale churn).
+- Knobs: `RANK_LAMBDA=0.10 LOWER_RANK_LAMBDA=0.05 RANK_TEMP=0.15` (already the `scripts/slurm/train.slurm` default).
+- Verify: the `[rankaux] RANK_LAMBDA=0.1 LOWER_RANK_LAMBDA=0.05` line prints at train start.
+
+Held for a user go because it cherry-picks loss code into the live Colossus lineage — a one-time, deliberate cross-checkout step. User pre-authorized the promotion on a multi-seed hold (met); this is the mechanics, staged for a clean hand-off.
+
 ## Discussion
 
 _(you ↔ Claude — newest at the bottom.)_
