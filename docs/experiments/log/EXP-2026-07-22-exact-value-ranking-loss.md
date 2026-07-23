@@ -129,6 +129,44 @@ Infra note: eval must run from the MAIN repo (built `namo_rl` bindings); the wor
 
 **V3 (Claude autonomous fix, same gate).** Double the lower-exact pool weight to `LOWER_RANK_LAMBDA=0.10` (opener stays `0.10` → safety preserved), everything else identical. Tests whether restoring setup pressure recovers the mechanism (setup hit@1 ≥60) WITHOUT re-breaking hard-1push safety. A clean v3 pass authorizes the paired fresh baseline+treatment multi-seed confirmation the user's promote-to-default decision needs; promotion itself (incl. the Colossus card) waits for the user.
 
+## V3 result — lower-exact 0.10, and the tradeoff across all configs [Claude, 2026-07-23 overnight]
+
+V3 seed-1 (`187002`, `RANK_LAMBDA=0.10 LOWER_RANK_LAMBDA=0.10`) trained clean (epoch 10, `val_loss=1.7069`, reload Δ0.0004, evaluator-load OK). Eval `187005` + rankdiag `187043`, baseline = registered d20.
+
+| 1push (v3) | n | solve@1 | solve@5 |
+|---|---:|---:|---:|
+| hard | 204 | 39.7→35.8 (−3.9) | 71.6→**67.6** (−4.0) |
+| all | 1,323 | 83.2→82.4 (−0.8) | 93.2→93.3 (+0.1) |
+
+| 2push (v3) | n | solve@2 | solve@5 | solve@10 | solve@30 |
+|---|---:|---:|---:|---:|---:|
+| all | 1,018 | 26.6→30.7 (+4.1) | 40.9→47.1 (+6.2) | 53.3→59.5 (+6.2) | 69.1→72.5 (+3.4) |
+
+V3 rankdiag: setup hit@1 `55.0→56.7`, AUC `0.9063→0.9103`; opener hit@1 `45.9→43.4`, recall@20 `87.3→89.3`.
+
+**Verdict: v3 FAILS both gate bars.** Setup hit@1 = 56.7 (<60) AND hard-1push@5 = 67.6 (<69.6). Doubling the setup weight nudged setups up (+3 vs v2) but pulled hard-1push DOWN (−2 vs v2) — the same axis v1 exposed.
+
+**The finding — a tradeoff, not a clean win.** Across baseline/v1/v2/v3, the exact-value setup-ranking loss RELIABLY improves 2push deployment (+3–4 solve@2, +5–6 solve@5, EVERY config) but TAXES hard-1push@5 whenever setup pressure is high enough to move setup ranking; and setup hit@1 never reaches 60 once the opener term is kept at full strength (v1's 64.5 came WITH the opener-halving bug).
+
+| config | opener_w | setup_w | setup hit@1 | hard-1push@5 | 2push all@2 | 2push all@5 |
+|---|---|---|---:|---:|---:|---:|
+| baseline d20 | 0.10 | 0 | 55.0 | 71.6 | 26.6 | 40.9 |
+| v1 (opener halved) | 0.05* | 0.05 | 64.5 | 66.2 | 29.7 | 46.8 |
+| v2 | 0.10 | 0.05 | 53.7 | 69.6 | 29.6 | 45.7 |
+| v3 | 0.10 | 0.10 | 56.7 | 67.6 | 30.7 | 47.1 |
+
+*unintentional.
+
+**Why single-seed can't close this.** The hard-1push@5 deltas (−2 to −4 on 204 episodes) are inside car eval-sim noise (~0.3 mm warmstart jitter flips near-threshold rooms — see reference_eval_sim_nondeterminism). The 2push gains (+5–6 on 1,018 episodes) are larger and consistent, but the promote-or-not question hinges on whether the hard-1push tax is REAL or noise. That requires paired multi-seed with the noise averaged down.
+
+## Paired multi-seed confirmation [Claude, 2026-07-23 overnight — resolving the user's promote criterion]
+
+Running 3 seeds × 2 arms, fresh + paired (same code, same H5, same recipe; ONLY the loss differs):
+- **Control arm** (`LOWER_RANK_LAMBDA=0` → opener-only 0.10, reproduces baseline recipe in-code): seeds 1/2/3.
+- **Treatment arm = v2** (`opener 0.10 + lower-exact 0.05`, the safety-respecting config; v2 seed-1 = `186923` reused): seeds 1/2/3.
+
+Readout: seed-AVERAGED 2push solve@2/@5/@10 (all + hard) and hard-1push@1/@5, with per-seed spread, so the hard-1push delta is judged against its own seed variance. This does NOT auto-promote — it produces the seed-averaged deltas the user's promote-to-default (incl. Colossus) decision needs; the flip stays a user call.
+
 ## Discussion
 
 _(you ↔ Claude — newest at the bottom.)_
