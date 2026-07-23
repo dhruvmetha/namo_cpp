@@ -73,6 +73,8 @@ The v2 seed-1 gate requires both: (1) retain a meaningful setup gain—held-out 
 
 **Full treatment and evaluation completed.** Training job `186859` ran all 12 epochs on ilab2 A4500 and selected `d20_exact_value_rank_seed1/checkpoints/epoch011-val_loss1.6855.ckpt`; reload validation was `1.6860` versus monitored `1.6855`. Evaluation smoke `186864` and canonical 38-shard array `186866` completed successfully on all 1,323 one-push and 1,018 pure-two-push episodes. Board-level diagnostic job `186921` scored baseline and treatment on the same 73,368-row exhaustive held-out H5 using commit `4a72536`.
 
+**V2 launch at handoff.** Implementation and tests are frozen at commit `3785aa5` (code commit `cddbe15`); target-box one-epoch smoke `186922` is running on ilab2 A4500 with output `exact_value_rank/v2_smoke_epoch1`. No v2 full training or evaluation job has been launched yet; those remain gated on finite epoch metrics, checkpoint reload agreement, and the evaluator-load marker.
+
 ## Result + Verdict
 
 Each cell is baseline d20 → exact-value-ranking treatment; solve changes are percentage points.
