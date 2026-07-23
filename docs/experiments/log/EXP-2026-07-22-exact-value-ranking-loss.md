@@ -1,9 +1,9 @@
 ---
 type: experiment
-status: live
+status: complete
 created: 2026-07-22
-commit: 3aa667d
-metric: pending loss-only d20 A/B; report 1push solve@1/@5 and 2push solve@2/@5/@10/@30 plus sims-to-solve by easy/med/hard
+commit: 4a72536
+metric: setup ranking confirmed and tight-budget 2push improved, but hard-1push@5 regressed 5.4pp; mixed pilot, no automatic promotion
 thread: rl_loop
 parent: EXP-2026-07-14-region-opening-curriculum-marvel
 related: EXP-2026-07-22-push-depth-aware-ranker
@@ -63,9 +63,29 @@ Accept the one-seed pilot only if 2push solve@2 or solve@5 improves by at least 
 
 **Third target-box smoke passed every launch gate (`186852`, ilab2 A4500, commit `41cc9e3`).** One epoch completed in 4m05s with `train_loss=2.8530` and monitored `val_loss=2.2676`; two independent reloads were bit-identical, streamed reload validation was `2.2665` (`0.0011` from Lightning's monitor), and the evaluator reconstructed the 51-bin head with the expected `(1,60,5)` value shape. The canonical launcher observed the success marker and ended the known diagnostic teardown cleanly at 5m05s. This authorizes the planned 12-epoch d20 treatment with patience 2 on the same GPU type.
 
+**Full treatment and evaluation completed.** Training job `186859` ran all 12 epochs on ilab2 A4500 and selected `d20_exact_value_rank_seed1/checkpoints/epoch011-val_loss1.6855.ckpt`; reload validation was `1.6860` versus monitored `1.6855`. Evaluation smoke `186864` and canonical 38-shard array `186866` completed successfully on all 1,323 one-push and 1,018 pure-two-push episodes. Board-level diagnostic job `186921` scored baseline and treatment on the same 73,368-row exhaustive held-out H5 using commit `4a72536`.
+
 ## Result + Verdict
 
-Pending.
+Each cell is baseline d20 → exact-value-ranking treatment; solve changes are percentage points.
+
+| 1push difficulty | n | solve@1 | solve@5 | avg sims all |
+|---|---:|---:|---:|---:|
+| easy | 698 | 97.4→96.8 (−0.6) | 99.7→99.4 (−0.3) | 1.1→1.2 |
+| medium | 421 | 80.8→82.9 (+2.1) | 92.9→94.1 (+1.2) | 1.8→2.1 |
+| hard | 204 | 39.7→40.2 (+0.5) | 71.6→66.2 (−5.4) | 8.1→10.3 |
+| all | 1,323 | 83.2→83.7 (+0.5) | 93.2→92.6 (−0.6) | 2.4→2.9 |
+
+| 2push difficulty | n | solve@2 | solve@5 | solve@10 | solve@30 | avg sims all |
+|---|---:|---:|---:|---:|---:|---:|
+| easy | 238 | 30.3→34.0 (+3.7) | 47.9→55.0 (+7.1) | 60.9→71.0 (+10.1) | 79.0→85.3 (+6.3) | 32.3→29.4 |
+| medium | 409 | 31.3→33.3 (+2.0) | 46.0→52.1 (+6.1) | 59.7→64.8 (+5.1) | 72.9→78.7 (+5.8) | 57.9→51.5 |
+| hard | 371 | 19.1→22.9 (+3.8) | 30.7→35.6 (+4.9) | 41.5→44.2 (+2.7) | 58.5→56.9 (−1.6) | 144.9→146.3 |
+| all | 1,018 | 26.6→29.7 (+3.1) | 40.9→46.8 (+5.9) | 53.3→58.7 (+5.4) | 69.1→72.3 (+3.2) | 83.7→80.9 |
+
+**The intended mechanism is confirmed on 547 held-out root boards with exact setups and exact dead alternatives.** Setup-vs-dead AUC rose `0.9063→0.9252`, setup hit@1 `55.0→64.5` (+9.5), hit@5 `83.9→88.1` (+4.2), mean first-setup rank improved `4.01→3.44`, and p90 improved `8→7`. The finish-opener guard was mixed: opener-vs-dead AUC `0.9400→0.9339`, hit@1 `45.9→44.8`, hit@5 `82.9→83.7`, and recall@20 `87.3→87.8`.
+
+**Verdict: mechanism PASS, deployment pilot MIXED / pre-registered promotion gate FAIL.** The primary tight-budget 2push bar passed decisively, but hard-1push solve@5 fell 5.4 points, exceeding the allowed 2-point tier regression. Do not interpret this seed as a replacement for d20. If further confirmation is authorized, run paired fresh baseline+treatment seeds rather than two treatment-only seeds so training variance and the apparent setup/opener tradeoff are separable.
 
 ## Discussion
 
