@@ -97,6 +97,10 @@ Also test a separate `crop_relative_sharp` treatment requested after this repair
 
 ## Run
 
+**Phase-4 implementation frozen (NAMO `3a0577a`, Sage `e9dcb76`).** The new `crop_relative` feature is exactly `(2*world_dx/0.5m, 2*world_dy/0.5m, dtheta/pi)`; checkpoints now carry a semantic encoding tag so same-width legacy and corrected features cannot be confused. The separate sharp arm applies eight-band Fourier features to all three relative-motion values and adds a learned five-depth identity after the unchanged 60-contact attention. Ten focused tests pass, both new arms complete finite forward/backward on an actual Antman H5 row, and the historical untagged 3D/4D checkpoints still load as legacy/final-pose respectively.
+
+**Matched Phase-4 target-node smoke PASS (jobs `186815`/`186816`).** Plain-relative and sharp-relative ran concurrently on separate `rlab3` A4000s with one full 178,364-row epoch, seed 1, and the exact full-run launcher; both completed with exit code 0 in 8m05s/8m04s. Both checkpoints are tagged `crop_relative`, reload through the deployment scorer with `(1,60,5,51)` logits, and are correctly auto-detected as plain `(Fourier=False, depth identity=False)` versus sharp `(Fourier=True, depth identity=True)`.
+
 **Phase-0 implementation (2026-07-22).** Commit `ddb18d2` extends `scripts/eval_scorer.py` in place with a zero-push live-canonical mode, adds the three-way category tests, and adds the CS `unlimited` launcher `scripts/slurm/eval_scorer_live.slurm`. Local compile + focused tests pass (2/2).
 
 **CS smoke (job 186711, 2026-07-22).** The exact one-episode live path passed on `ilab1` in 15 seconds total and 0.367 seconds for scoring: zero `env.step` calls, one row written, no valid cells missing from the live candidate pool, and the labeled push ranked first. At that measured rate the full 1,323-episode diagnostic is approximately eight minutes of scoring, so one GPU job is sufficient.
