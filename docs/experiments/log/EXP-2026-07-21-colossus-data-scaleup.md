@@ -133,6 +133,20 @@ Live labeling shows only **~29% of bank scenes are usable** (24% dead-root + 5% 
 
 **Combined H5 verified + synced + training launched (2026-07-23 night).** Mix `59015790` → verify `59015791` produced `colossus0_d20_plus_200k.h5` (431,386 rows, verify asserts count/base/new/xml_overlap all pass). Checksum-synced Amarel→CS at `.../curriculum2/beast/round3/h5/` (sha256 `bff38b6e…` MATCH). Training launched: ilab SLURM job **`187062`** on rlab1 (RTX 4500 Ada, partition `unlimited`), d20 recipe (HL-Gauss + listwise rank-aux, `--epochs 12 --lr 3e-4 --seed 1 --patience 2`, room-grouped split train=388,248/val=43,138), 3 benign deltas (no `--time`, `--postcheck-limit 3000` to dodge d20's post-hoc OOM, H5 kept for eval). Ckpts → `.../round3/models/colossus0_d20plus200k/checkpoints/`. Watchdog `kill -9` at end is expected/benign — verify by artifact.
 
+**Training + eval complete (2026-07-23 night).** Successor `colossus0_d20plus200k` trained clean (job 187062, ran full 12 epochs, no early-stop, val_loss 1.7072→**1.6542**, still improving at ep11). Best ckpt `round3/models/colossus0_d20plus200k/checkpoints/epoch011-val_loss1.6542.ckpt`. Evaluated vs d20 on namo_testset_v1 (car), all shards clean (2push 32/32 1018 eps, 1push 6/6 1323 eps, hard1p_h2 8/8, reactive-2push 13/13 each). Offline hit@k ranker (`eval_scorer.py`) NOT run — its `v3_test_*_lzf_tight` H5s are Amarel-only, absent on CS; sim-verified solve@1 covers the ranking ground.
+
+**Difficulty × horizon, d20 → successor:**
+
+1push (1323 eps): solve@1 easy 97.4→97.6 / med 80.8→**83.6** / hard 39.7→**42.2**; hard deep tail regresses (solve@10 84.8→78.9, @20 90.7→87.3, avg sims 8.06→9.83).
+
+2push search (1018 eps, budget 900): solve@900 all 96.5→96.7 (tie, jitter); sims-to-solve all 54.6→**51.1**, med 47.5→**44.3**, hard 78.5→**72.3**.
+
+2push reactive (no-search, greedy open@2 — cleanest paired signal): easy 55.0→**62.6** / med 42.1→**46.0** / hard 25.6→**32.9** / all 39.1→**45.1 (+6.0)**.
+
+hard-1push @ depth-2: solve@300 98.0→**99.5**.
+
+**Verdict (numbers only): net win, one contained regression.** Successor beats d20 on the deploy-relevant slices — solve@1 every tier, reactive open@2 +6.0 pooled every tier, sims-to-solve down every non-easy tier. Easy slices + 2push solve@900 tie within eval-sim jitter (~0.3 mm). Genuine LOSS = hard-1push shallow-search deep tail (@10 −5.9, @20 −3.4, avg sims +1.77): for the ~15% of hard-1push episodes whose opener isn't top-few, the successor ranks it deeper. That tier recovers under depth-2 search, so the cost is specific to shallow 1-push. Eval outputs under `round3/eval/{1push,2push,hard1p_h2,reactive_2push}/`; d20 search reused from `round2/eval/`, d20 reactive newly paired at `round3/eval/reactive_2push/d20/`.
+
 ## Result
 
-The full Colossus-0 data pipeline is complete and the d20+200k successor is training: 224,996-XML pool frozen, 32-shard H5 built, yield gate passed (183,005 positives, shortfall 0), 431,386-row combined H5 verified and checksum-synced to CS, and successor training running as ilab job `187062`. Difficulty×horizon evaluation vs d20 (the actual research gate) remains pending on training completion.
+Colossus-0 is complete end-to-end and the d20+200k successor is a net win over d20: the full data policy (root-rejection + top-20/audit + censoring + dead dose) collected 224,996 XMLs at 3.27× fewer sims, yielded a verified 431,386-row training H5, and the trained successor improves the decision-relevant ranking metrics (solve@1 every tier, +6.0 pooled reactive open@2, lower sims-to-solve on 2push) with solve-rates tied within jitter and one contained hard-1push shallow-search deep-tail regression. This validates the experience policy → authorizes expanding toward the million-XML campaign. Open question for the next round: close the hard-1push deep-tail without losing the top-of-ranking gains.
