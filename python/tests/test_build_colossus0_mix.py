@@ -92,3 +92,21 @@ def test_exact_mix_appends_to_d20_base(tmp_path, monkeypatch):
         assert h5["action_motion"].shape == (6, 60, 5, 3)
         assert h5["action_motion_available"][:2].tolist() == [0, 0]
         assert h5["action_motion_available"][2:].tolist() == [1, 1, 1, 1]
+
+
+def test_count_only_reports_locked_candidate_pools(tmp_path, monkeypatch):
+    new = tmp_path / "new.h5"
+    report = tmp_path / "report.json"
+    _write_new(new)
+    monkeypatch.setattr(sys, "argv", [
+        "build_colossus0_mix.py", "--new-h5-glob", str(new), "--report", str(report), "--count-only",
+        "--new-rows", "4", "--negative-rows", "2",
+    ])
+
+    BUILD.main()
+
+    payload = __import__("json").load(open(report))
+    assert payload["candidate_counts"]["positive"] == 2
+    assert payload["candidate_counts"]["negative_root"] == 1
+    assert payload["candidate_counts"]["negative_finish"] == 1
+    assert payload["positive_shortfall"] == 0

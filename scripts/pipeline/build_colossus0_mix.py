@@ -157,10 +157,12 @@ def _copy_selected(paths, selected, out, offset):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base-h5", required=True)
+    parser.add_argument("--base-h5")
     parser.add_argument("--new-h5-glob", required=True)
-    parser.add_argument("--out", required=True)
+    parser.add_argument("--out")
     parser.add_argument("--report", required=True)
+    parser.add_argument("--count-only", action="store_true",
+                        help="count locked candidate pools and write --report without sampling or mixing")
     parser.add_argument("--new-rows", type=int, default=200000)
     parser.add_argument("--negative-rows", type=int, default=33334)
     parser.add_argument("--seed", type=int, default=42)
@@ -171,6 +173,21 @@ def main():
         raise RuntimeError(f"no candidate H5s match {args.new_h5_glob}")
     positive_target = args.new_rows - args.negative_rows
     positive, negative_root, negative_finish, counts = _candidate_pools(paths)
+    if args.count_only:
+        report = {
+            "candidate_h5s": [os.path.realpath(path) for path in paths],
+            "candidate_counts": counts,
+            "positive_target": positive_target,
+            "negative_target": args.negative_rows,
+            "positive_shortfall": max(0, positive_target - len(positive)),
+            "count_only": True,
+        }
+        with open(args.report, "x") as handle:
+            json.dump(report, handle, indent=2)
+        print(json.dumps(report, indent=2))
+        return
+    if not args.base_h5 or not args.out:
+        parser.error("--base-h5 and --out are required unless --count-only is set")
     if len(positive) < positive_target:
         raise RuntimeError(f"need {positive_target} positive/mistake rows, found only {len(positive)}")
 
