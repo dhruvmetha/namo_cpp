@@ -2,19 +2,21 @@
 """train_q2 + a certain-order listwise softmax-CE ranking auxiliary.
 
 For each exact-value tier on a board, the auxiliary ranks those actions above trained actions whose
-exact value or ceiling is strictly lower. Equal ceilings and unknown cells are not compared. This
-preserves opener ranking and adds the missing exact-0.9 setup versus ceiling-0.81 competition.
+exact value or ceiling is strictly lower. Equal ceilings and unknown cells are not compared. The
+exact-1.0 opener term retains its original coefficient, while all lower exact tiers share a separate
+bounded coefficient so adding a tier never dilutes opener supervision.
 
-Total loss = exact HL-Gauss + censored ceiling + unreachable floor + lambda * certain-order ranking.
+Total loss = exact HL-Gauss + censored ceiling + unreachable floor + opener rank + lower-exact rank.
 
 Subclass ONLY — no edit to the shared weighted_module.py. Reuses ALL of train_q2's plumbing (dataloader,
 callbacks, reload + eval_scorer-load checks, the hang marker) by monkeypatching build_module, so the
 emitted ckpt is byte-for-byte eval_scorer/time_bestfirst-compatible. Validation stays PURE hl_gauss
 (the checkpoint monitor is unchanged -> apples-to-apples ckpt selection vs model_1a_rs).
 
-Knobs (env or the flags train_q2 already parses are reused; these two are env-only):
-  RANK_LAMBDA (default 0.5)   aux weight
-  RANK_TEMP   (default 0.15)  softmax temperature over value in [0,1]
+Knobs (env or the flags train_q2 already parses are reused; these are env-only):
+  RANK_LAMBDA       (default 0.1)   exact-1.0 opener auxiliary weight
+  LOWER_RANK_LAMBDA (default 0.05)  shared lower-exact auxiliary weight
+  RANK_TEMP         (default 0.15)  softmax temperature over value in [0,1]
 
 Usage:
   RANK_LAMBDA=0.5 RANK_TEMP=0.15 CUDA_VISIBLE_DEVICES=3 TMPDIR=/tmp \
@@ -44,6 +46,7 @@ sys.modules["train_q2"] = tq2
 _spec.loader.exec_module(tq2)
 
 RANK_LAMBDA = float(os.environ.get("RANK_LAMBDA", "0.1"))   # 0.1 = the bracket winner -> loop default
+LOWER_RANK_LAMBDA = float(os.environ.get("LOWER_RANK_LAMBDA", "0.05"))
 RANK_TEMP = float(os.environ.get("RANK_TEMP", "0.15"))
 
 
@@ -114,8 +117,15 @@ def rank_aux_loss(value, labels, mask, temp, ceiling=None):
     return certain_order_rank_aux_losses(value, labels, mask, ceiling, temp)[0]
 
 
+def weighted_rank_aux(opener_aux, lower_aux, opener_weight=RANK_LAMBDA,
+                      lower_weight=LOWER_RANK_LAMBDA):
+    """Keep the opener anchor full-strength and add a fixed lower-tier pool."""
+    return opener_weight * opener_aux + lower_weight * lower_aux
+
+
 class RankAuxModule(WeightedClassifierModule):
     rank_lambda = RANK_LAMBDA
+    lower_rank_lambda = LOWER_RANK_LAMBDA
     rank_temp = RANK_TEMP
 
     def _split_loss(self, logits, f_labels, loss_mask, ceiling, weight):
@@ -130,12 +140,14 @@ class RankAuxModule(WeightedClassifierModule):
         val = self._hl_gauss.value(logits.float())                   # (B,60,5) differentiable E[bin]
         rank_mask = getattr(self, "_rank_list_mask", None)
         rank_ceiling = getattr(self, "_rank_ceiling_mask", None)
-        aux, opener_aux, setup_aux = certain_order_rank_aux_losses(
+        _, opener_aux, setup_aux = certain_order_rank_aux_losses(
             val, labels, rank_mask if rank_mask is not None else mask, rank_ceiling, self.rank_temp)
+        aux = weighted_rank_aux(
+            opener_aux, setup_aux, self.rank_lambda, self.lower_rank_lambda)
         self.log("rank_aux", aux, on_step=False, on_epoch=True, prog_bar=False)
         self.log("rank_aux_opener", opener_aux, on_step=False, on_epoch=True, prog_bar=False)
         self.log("rank_aux_setup", setup_aux, on_step=False, on_epoch=True, prog_bar=False)
-        return base + self.rank_lambda * aux
+        return base + aux
 
 
 def build_module(base_lr, warmup_steps, decay_steps):
@@ -148,6 +160,7 @@ def build_module(base_lr, warmup_steps, decay_steps):
 
 
 if __name__ == "__main__":
-    print(f"[rankaux] RANK_LAMBDA={RANK_LAMBDA}  RANK_TEMP={RANK_TEMP}", flush=True)
+    print(f"[rankaux] RANK_LAMBDA={RANK_LAMBDA}  LOWER_RANK_LAMBDA={LOWER_RANK_LAMBDA}  "
+          f"RANK_TEMP={RANK_TEMP}", flush=True)
     tq2.build_module = build_module   # main() + reload-checks resolve build_module at call time
     tq2.main()

@@ -1,9 +1,9 @@
 ---
 type: experiment
-status: complete
+status: live
 created: 2026-07-22
 commit: 4a72536
-metric: setup ranking confirmed and tight-budget 2push improved, but hard-1push@5 regressed 5.4pp; mixed pilot, no automatic promotion
+metric: v2 pending — restore full opener rank weight and retain a bounded lower-exact pool
 thread: rl_loop
 parent: EXP-2026-07-14-region-opening-curriculum-marvel
 related: EXP-2026-07-22-push-depth-aware-ranker
@@ -50,6 +50,14 @@ Run one treatment seed with the registered d20 architecture, split, optimizer, s
 The mechanism readout is setup-versus-dead ranking on held-out pure-2-push roots, including setup hit@1/@5 and first-valid-setup rank by easy/medium/hard. The deployment verdict still requires both canonical horizons: 1push solve@1/@5 and pure-2-push solve@2/@5/@10/@30 plus average/median simulator calls, all split by easy/medium/hard.
 
 Accept the one-seed pilot only if 2push solve@2 or solve@5 improves by at least 3 percentage points or average simulator calls improves by at least 10%, setup-ranking diagnostics move in the same direction, and no 1push difficulty tier drops by more than 2 percentage points. A passing pilot authorizes paired seeds; it is not a final result by itself.
+
+## Follow-up v2 — split opener and lower-exact rank budgets
+
+**Cause found after v1, pre-registered before v2 training.** On a board with both exact `1.0` openers and exact `0.9` setups, v1 optimized `0.1 × mean(opener term, setup term)`, so each term received effective weight `0.05`. This unintentionally halved the original opener auxiliary on 140,426 of 182,178 opener-eligible d20 rows (77.1%) while adding setup pressure. The mechanism and deployment results moved in exactly those directions.
+
+V2 preserves the original opener auxiliary as an independent `0.10 × opener-ranking` term and adds one bounded `0.05 × lower-exact-ranking` pool. The lower pool automatically includes every exact tier below `1.0`, averages multiple lower tiers within a board, and therefore does not grow when future exact tiers are added. The exact-value, ceiling, unreachable, temperature, architecture, d20 H5, split, optimizer, schedule, seed, and evaluation protocol remain unchanged.
+
+The v2 seed-1 gate requires both: (1) retain a meaningful setup gain—held-out setup hit@1 at least 60% and either 2push solve@2 or solve@5 at least 3 points above baseline; (2) repair the safety failure—hard-1push solve@5 at least 69.6% (within 2 points of baseline 71.6%). Report the same complete difficulty×horizon table and opener/setup diagnostics. This is a corrective single-seed pilot, not a multi-seed confirmation.
 
 ## Run
 

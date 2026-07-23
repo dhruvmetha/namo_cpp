@@ -10,6 +10,7 @@ SPEC = importlib.util.spec_from_file_location(
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 certain_order_rank_aux_losses = MODULE.certain_order_rank_aux_losses
+weighted_rank_aux = MODULE.weighted_rank_aux
 
 
 def _loss(value, labels, mask, ceiling):
@@ -92,3 +93,10 @@ def test_mixed_batch_with_different_valid_tiers_stays_finite():
     assert torch.isfinite(opener)
     assert torch.isfinite(setup)
     assert torch.isfinite(value.grad).all()
+
+
+def test_split_weights_preserve_full_opener_and_add_lower_pool():
+    opener = torch.tensor(2.0)
+    lower = torch.tensor(4.0)
+    assert torch.equal(weighted_rank_aux(opener, torch.tensor(0.0)), torch.tensor(0.2))
+    assert torch.equal(weighted_rank_aux(opener, lower), torch.tensor(0.4))
