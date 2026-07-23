@@ -61,6 +61,8 @@ Accept the one-seed pilot only if 2push solve@2 or solve@5 improves by at least 
 
 **Second target-box smoke completed training cleanly, then exposed an old diagnostic-only OOM (`186850`, ilab2 A4500).** The full epoch finished in 4m25s with `train_loss=2.8414`, `val_loss=2.2859`, and checkpoint `epoch000-val_loss2.2859.ckpt`; there was no NaN warning. After checkpointing, the inherited reload check put all 23,139 validation rows into one GPU batch and exhausted 20 GB. Commit `3aa667d` streams that check at the training batch size, uses the same exact/ceiling/unreachable validation formula as the trainer, and exposes the registered early-stopping patience through the canonical SLURM launcher. A third one-epoch smoke is required because the training run must also pass its checkpoint reload/loadability checks before the full treatment begins.
 
+**Third target-box smoke passed every launch gate (`186852`, ilab2 A4500, commit `41cc9e3`).** One epoch completed in 4m05s with `train_loss=2.8530` and monitored `val_loss=2.2676`; two independent reloads were bit-identical, streamed reload validation was `2.2665` (`0.0011` from Lightning's monitor), and the evaluator reconstructed the 51-bin head with the expected `(1,60,5)` value shape. The canonical launcher observed the success marker and ended the known diagnostic teardown cleanly at 5m05s. This authorizes the planned 12-epoch d20 treatment with patience 2 on the same GPU type.
+
 ## Result + Verdict
 
 Pending.
