@@ -2,7 +2,7 @@
 type: experiment
 status: live
 created: 2026-07-22
-commit: 9b8f5ba
+commit: 365f8ec
 metric: pending loss-only d20 A/B; report 1push solve@1/@5 and 2push solve@2/@5/@10/@30 plus sims-to-solve by easy/med/hard
 thread: rl_loop
 parent: EXP-2026-07-14-region-opening-curriculum-marvel
@@ -53,11 +53,11 @@ Accept the one-seed pilot only if 2push solve@2 or solve@5 improves by at least 
 
 ## Run
 
-**Implementation frozen at `9b8f5ba`.** `train_q2_rankaux.py` now finds every exact target tier on each board and applies the existing listwise softmax competition only against tried-reachable cells with a strictly lower exact value or ceiling; the total remains averaged once per board, and opener/setup components are logged separately. Equal ceilings, reachable-untried cells, and unreachable cells are excluded from ranking. Six focused tests pass, covering opener ranking, the new setup ranking, equal-ceiling exclusion, unknown/unreachable exclusion, no-comparison rows, multiple exact tiers, and finite gradients.
+**Implementation frozen at `365f8ec`.** `train_q2_rankaux.py` now finds every exact target tier on each board and applies the existing listwise softmax competition only against tried-reachable cells with a strictly lower exact value or ceiling; the total remains averaged once per board, and opener/setup components are logged separately. Equal ceilings, reachable-untried cells, and unreachable cells are excluded from ranking. Seven focused tests pass, covering opener ranking, the new setup ranking, equal-ceiling exclusion, unknown/unreachable exclusion, no-comparison rows, multiple exact tiers, mixed-validity batches, and finite gradients.
 
 **Real-d20 label-tensor gate passed.** On the first 1,024 artifact rows, the new path produced finite nonzero total/opener/setup losses (`3.5744/3.5368/3.6440`) and finite gradients on 69,261 value cells. No H5 data or labels were changed.
 
-No training job launched yet. The required next gate is one complete epoch on the target SLURM box using the exact full-run command and d20 H5.
+**First target-box smoke caught and contained a mixed-row NaN (`186849`, canceled at 2m24s before any checkpoint).** Invalid rows for one exact tier entered an all-masked softmax before the valid-row filter; the warning appeared during the first real epoch even though single-row unit tests were finite. Commit `365f8ec` computes each tier softmax only on valid rows and adds the reproducing mixed-batch test. The required next gate remains a fresh complete epoch on the target SLURM box using the exact full-run command and d20 H5.
 
 ## Result + Verdict
 
