@@ -26,7 +26,7 @@ def configured_action_motion_encoding() -> str:
     """Return the explicitly configured training encoding, or ``none`` for a baseline."""
     if os.environ.get("NAMO_ACTION_MOTION", "0") != "1":
         return NO_MOTION_ENCODING
-    return os.environ.get("NAMO_ACTION_MOTION_ENCODING", FINAL_POSE_ENCODING)
+    return os.environ.get("NAMO_ACTION_MOTION_ENCODING", CROP_RELATIVE_MOTION_ENCODING)
 
 
 def action_motion_feature_dim(encoding: str) -> int:

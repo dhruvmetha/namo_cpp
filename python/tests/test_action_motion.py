@@ -12,6 +12,7 @@ from namo.rl_loop.action_motion import (
     LEGACY_MOTION_DIM,
     action_motion_from_contact_px,
     checkpoint_action_motion_encoding,
+    configured_action_motion_encoding,
     primitive_motion_tables,
 )
 
@@ -109,3 +110,9 @@ def test_checkpoint_tag_disambiguates_same_width_encodings():
         {"action_motion_encoding": CROP_RELATIVE_MOTION_ENCODING}, 3
     ) == CROP_RELATIVE_MOTION_ENCODING
     assert checkpoint_action_motion_encoding({}, 4) == FINAL_POSE_ENCODING
+
+
+def test_motion_enabled_defaults_to_crop_relative(monkeypatch):
+    monkeypatch.setenv("NAMO_ACTION_MOTION", "1")
+    monkeypatch.delenv("NAMO_ACTION_MOTION_ENCODING", raising=False)
+    assert configured_action_motion_encoding() == CROP_RELATIVE_MOTION_ENCODING
