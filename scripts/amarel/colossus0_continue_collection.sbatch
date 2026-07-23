@@ -80,11 +80,23 @@ wait_submit_slots() {
 
 wait_job() {
   local job_id=$1
-  while squeue -h -j "$job_id" | grep -q .; do sleep 60; done
-  if sacct -X -j "$job_id" -n -o State | grep -Eq 'FAILED|CANCELLED|TIMEOUT|OUT_OF_MEMORY|NODE_FAIL|PREEMPTED'; then
-    echo "collection wave failed: $job_id" >&2
-    return 1
-  fi
+  while true; do
+    if squeue -h -j "$job_id" | grep -q .; then
+      sleep 60
+      continue
+    fi
+    local states
+    states=$(sacct -X -j "$job_id" -n -P -o State | sed '/^$/d')
+    if [[ -z "$states" ]] || grep -Eq 'PENDING|RUNNING|CONFIGURING|COMPLETING|REQUEUED|RESIZING|SUSPENDED' <<<"$states"; then
+      sleep 60
+      continue
+    fi
+    if grep -Evq '^COMPLETED\+?$' <<<"$states"; then
+      echo "collection wave failed: $job_id" >&2
+      return 1
+    fi
+    return
+  done
 }
 
 wave=1

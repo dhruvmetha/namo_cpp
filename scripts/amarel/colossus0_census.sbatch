@@ -18,6 +18,12 @@ export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_TH
 
 out=${CENSUS_OUT:-$RESULT_ROOT/census_225k.json}
 pure_out=${PURE_OUT:-$RESULT_ROOT/pure2_225k.json}
+expected_results=${EXPECTED_RESULTS:-225000}
+actual_results=$(find "$RESULT_ROOT/collect" -type f -name '*_results.pkl' | wc -l)
+if [[ "$actual_results" -ne "$expected_results" ]]; then
+  echo "expected $expected_results result PKLs, found $actual_results" >&2
+  exit 1
+fi
 if [[ -e "$out" || -e "$pure_out" ]]; then
   echo "refusing to overwrite census output" >&2
   exit 1
