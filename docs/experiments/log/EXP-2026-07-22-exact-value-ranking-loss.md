@@ -2,7 +2,7 @@
 type: experiment
 status: live
 created: 2026-07-22
-commit: 365f8ec
+commit: 3aa667d
 metric: pending loss-only d20 A/B; report 1push solve@1/@5 and 2push solve@2/@5/@10/@30 plus sims-to-solve by easy/med/hard
 thread: rl_loop
 parent: EXP-2026-07-14-region-opening-curriculum-marvel
@@ -58,6 +58,8 @@ Accept the one-seed pilot only if 2push solve@2 or solve@5 improves by at least 
 **Real-d20 label-tensor gate passed.** On the first 1,024 artifact rows, the new path produced finite nonzero total/opener/setup losses (`3.5744/3.5368/3.6440`) and finite gradients on 69,261 value cells. No H5 data or labels were changed.
 
 **First target-box smoke caught and contained a mixed-row NaN (`186849`, canceled at 2m24s before any checkpoint).** Invalid rows for one exact tier entered an all-masked softmax before the valid-row filter; the warning appeared during the first real epoch even though single-row unit tests were finite. Commit `365f8ec` computes each tier softmax only on valid rows and adds the reproducing mixed-batch test. The required next gate remains a fresh complete epoch on the target SLURM box using the exact full-run command and d20 H5.
+
+**Second target-box smoke completed training cleanly, then exposed an old diagnostic-only OOM (`186850`, ilab2 A4500).** The full epoch finished in 4m25s with `train_loss=2.8414`, `val_loss=2.2859`, and checkpoint `epoch000-val_loss2.2859.ckpt`; there was no NaN warning. After checkpointing, the inherited reload check put all 23,139 validation rows into one GPU batch and exhausted 20 GB. Commit `3aa667d` streams that check at the training batch size, uses the same exact/ceiling/unreachable validation formula as the trainer, and exposes the registered early-stopping patience through the canonical SLURM launcher. A third one-epoch smoke is required because the training run must also pass its checkpoint reload/loadability checks before the full treatment begins.
 
 ## Result + Verdict
 
