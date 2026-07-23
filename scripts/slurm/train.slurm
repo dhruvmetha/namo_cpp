@@ -21,6 +21,9 @@
 # Amarel deltas: `--partition=gpu-redhat`; `--cpus-per-task=8` is allowed; NAMO_PYTHON is already
 #   an absolute path there so (1) is a no-op; `source env.amarel.sh` instead of env.ilab.sh.
 # Tunables via env: EPOCHS(12) BATCH(256) WORKERS(8) LR(3e-4) SEED(1) RANK_LAMBDA(0.1) RANK_TEMP(0.15)
+# Optional action grounding: NAMO_ACTION_MOTION=1 enables plain crop-relative (dx,dy,dtheta) late
+#   fusion. Add NAMO_ACTION_MOTION_SHARP=1 for Fourier features + learned depth identity. Motion
+#   remains OFF by default; NAMO_ACTION_MOTION_ENCODING is only needed for explicit historical modes.
 # SPEED (measured 2026-07-17, test-small-first before trusting — see memory reference_training_speedup):
 #   train is CO-bottlenecked (NFS reads ~= GPU compute). Two fixes TOGETHER: (a) stage the H5 to
 #   node-local /dev/shm before the train line (4.3x dataloader); (b) torch.compile the net (1.78x).
