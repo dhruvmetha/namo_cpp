@@ -123,6 +123,8 @@ Live labeling shows only **~29% of bank scenes are usable** (24% dead-root + 5% 
 
 **Current state (verified 2026-07-22).** The first 10,000-XML production pilot is complete and the validated 1M manifest remains intact. The top-20 + 20%-audit policy, unknown masking, no-op pruning, push-depth artifact contract, and d20+200k stack builder have passed their collection gates. Next action is the sharded 10k H5 render plus exact locked-selector count; only a matching result authorizes collection from 10k toward the provisional buffered 225k-XML target.
 
+**Unattended continuation gate.** The committed continuation job consumes the exact 32-shard H5 count-only report and refuses to scale unless all 32 shards exist, rendered rows are at least 100k, positive/mistake rows are at least 7,408, eligible negatives exceed 33,334, and the 225k projection exceeds 166,666 positives. On pass it verifies exactly 10,000 existing PKLs, atomically claims a fresh continuation marker, collects disjoint manifest indices 10,000–224,999 in sequential ≤470-task waves with three-hour caps, requires every array task to succeed and exactly 225,000 final PKLs, then submits the canonical full census. It never overwrites an H5, census, or collection artifact.
+
 ## Result
 
 The 10,000-XML collection pilot and audit passed. Sharded H5 materialization, the remaining buffered collection, combined d20+200k training, and difficulty×horizon evaluation remain pending.
