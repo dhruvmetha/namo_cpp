@@ -2,7 +2,7 @@
 type: experiment
 status: live
 created: 2026-07-22
-commit: 4a72536
+commit: cddbe15
 metric: v2 pending — restore full opener rank weight and retain a bounded lower-exact pool
 thread: rl_loop
 parent: EXP-2026-07-14-region-opening-curriculum-marvel
