@@ -20,7 +20,7 @@
 #   e.g.  H5=... OUT=/path/models sbatch --array=0-3 --gres=gpu:a100:1 scripts/slurm/train.slurm
 # Amarel deltas: `--partition=gpu-redhat`; `--cpus-per-task=8` is allowed; NAMO_PYTHON is already
 #   an absolute path there so (1) is a no-op; `source env.amarel.sh` instead of env.ilab.sh.
-# Tunables via env: EPOCHS(12) BATCH(256) WORKERS(8) LR(3e-4) SEED(1) RANK_LAMBDA(0.1) RANK_TEMP(0.15)
+# Tunables via env: EPOCHS(12) BATCH(256) WORKERS(8) LR(3e-4) SEED(1) PATIENCE(0) RANK_LAMBDA(0.1) LOWER_RANK_LAMBDA(0.05) RANK_TEMP(0.15)
 # Optional action grounding: NAMO_ACTION_MOTION=1 enables plain crop-relative (dx,dy,dtheta) late
 #   fusion. Add NAMO_ACTION_MOTION_SHARP=1 for Fourier features + learned depth identity. Motion
 #   remains OFF by default; NAMO_ACTION_MOTION_ENCODING is only needed for explicit historical modes.
@@ -54,7 +54,7 @@ export PYTHONPATH="$REPO/build_python:$REPO/python:$REPO/scripts:$REPO/scripts/s
 # (2) pin BLAS/OMP thread pools (CS ulimit -u=2000; GPU does the compute, CPU threads just thrash)
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1
 export TMPDIR=/tmp/namo_${SLURM_JOB_ID}; mkdir -p "$TMPDIR"   # loky DataLoader temp-dir collision fix
-export RANK_LAMBDA=${RANK_LAMBDA:-0.1} RANK_TEMP=${RANK_TEMP:-0.15}
+export RANK_LAMBDA=${RANK_LAMBDA:-0.1} LOWER_RANK_LAMBDA=${LOWER_RANK_LAMBDA:-0.05} RANK_TEMP=${RANK_TEMP:-0.15}
 
 # gamma-sweep: array task -> gamma (load-time setup-label remap; all variants train from ONE H5)
 if [ -n "${SLURM_ARRAY_TASK_ID:-}" ]; then
@@ -68,7 +68,8 @@ EXTRA=()
 if [ -n "${POSTCHECK_LIMIT:-}" ]; then EXTRA+=(--postcheck-limit "$POSTCHECK_LIMIT"); fi
 "$PY" scripts/rl_loop/train_q2_rankaux.py --h5 "$H5" --out-dir "$OUT" \
   --epochs "${EPOCHS:-12}" --batch-size "${BATCH:-256}" --num-workers "${WORKERS:-8}" \
-  --lr "${LR:-3e-4}" --seed "${SEED:-1}" --split-seed 0 "${EXTRA[@]}" > "$LOG" 2>&1 &
+  --lr "${LR:-3e-4}" --seed "${SEED:-1}" --split-seed 0 \
+  --patience "${PATIENCE:-0}" "${EXTRA[@]}" > "$LOG" 2>&1 &
 PID=$!
 MARKER_SEEN=0
 # (5) hang-kill: ckpt written + "[eval_scorer-load check]" printed, then teardown hangs -> kill

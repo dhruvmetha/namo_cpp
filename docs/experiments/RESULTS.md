@@ -119,3 +119,30 @@ The final repair uses exactly the intended image-aligned relative push `(2dx/0.5
 | hard | **40.4%** | **39.9%** | **40.5%** | 72.9% | **75.3%** | **76.8%** |
 
 **Verdict: reject both for top-1 ranking.** Plain improved hard @1 in 0/3 seeds (mean -0.5 points); sharp improved 1/3 (mean +0.1), failed a medium guardrail, and did not reduce hard wrong-contact errors. Both improve the hard shortlist at @5 (+2.5/+3.9), but the research goal is to order the correct push first, not merely keep it nearby. This closes additive post-attention motion fusion; a future action-grounding experiment must change the interaction itself, such as action-conditioned attention or scene sampling at the proposed final footprint. Full per-seed and mechanism tables → [EXP-2026-07-22 card](log/EXP-2026-07-22-push-depth-aware-ranker.md).
+## 2026-07-23 — Exact-value ranking loss pilot (card EXP-2026-07-22-exact-value-ranking-loss)
+
+Generalizing the listwise auxiliary from exact `1.0` openers to every exact tier fixed the missing pure-2push-root supervision on unchanged d20 data. The intended mechanism moved strongly on exhaustive held-out roots: setup-vs-dead AUC **0.9063→0.9252**, setup hit@1 **55.0→64.5**, hit@5 **83.9→88.1**, and mean first-setup rank **4.01→3.44**.
+
+| model | 1p easy/med/hard/all@1 | 1p hard@5 | 2p @2/@5/@10/@30 | 2p avg sims all |
+|---|---|---:|---|---:|
+| d20 baseline | 97.4/80.8/39.7/83.2 | 71.6 | 26.6/40.9/53.3/69.1 | 83.7 |
+| exact-value rank seed1 | 96.8/82.9/40.2/83.7 | 66.2 | **29.7/46.8/58.7/72.3** | **80.9** |
+
+**Mixed verdict; not promoted.** Tight-budget 2push improved at every tier and passed the primary bar, but hard-1push@5 regressed **5.4 points**, failing the pre-registered no-tier-regression guard. The finish-opener diagnostic also shows the likely tradeoff: AUC `0.9400→0.9339` and hit@1 `45.9→44.8`, while hit@5 and recall@20 were flat-to-up. Any follow-up must use paired fresh baseline+treatment seeds, not treatment-only repeats.
+
+### 2026-07-23 update — paired 3-seed confirmation FLIPS the verdict to WIN
+
+The single-seed "regression" was eval-sim noise. Paired 3 control (opener-only, `LOWER_RANK_LAMBDA=0`) vs 3 treatment (`opener 0.10 + lower-exact 0.05`) seeds, same code/data/recipe, mean [min,max]:
+
+| metric | control | treatment | Δ |
+|---|---|---|---:|
+| 1p hard solve@5 | 70.9 [68.1,73.0] | 70.6 [68.6,73.5] | −0.3 |
+| 1p all solve@1 | 84.2 | 83.8 | −0.5 |
+| 2p all solve@5 | 41.6 [41.0,42.2] | 46.0 [44.5,47.8] | **+4.4** |
+| 2p all solve@10 | 51.4 | 57.3 | **+5.9** |
+| 2p all avg sims | 89.5 | 79.6 | **−9.9** |
+| 2p hard solve@5 | 30.5 [29.1,31.8] | 37.0 [35.3,39.4] | **+6.5** |
+| 2p hard solve@10 | 38.3 | 46.5 | **+8.2** |
+| 2p hard avg sims | 151.0 | 132.4 | **−18.6** |
+
+**WIN — recommend default.** 2push improves on every tier/budget with hard-2push seed ranges NON-overlapping; 1push flat within a ~5pt per-arm seed spread. The v1/v2/v3 single-seed hard-1push dips were noise. Loss `opener 0.10 + lower-exact 0.05` recommended as the default ranking-aux; Colossus flip staged for user (live-run timing).
