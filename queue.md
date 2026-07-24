@@ -57,6 +57,20 @@ right. For 2-push it is not: comparing a direct push at `p=0.3` against a setup-
 `0.5 × 0.6 = 0.3` needs the numbers, not the ranking. The literature's form is a shallow
 prerequisite tree with the finish conditioned on the realised setup state.
 
+## Adapting the search when the heuristic misleads (failure-discount lineage)
+
+*Added 2026-07-24, motivated by the queue-suppression trace (EXP-2026-07-21 card): 63–77% of 2push search cost is depth-2 children of wrong roots flooding the static queue above the true setup. The proposed fix — per-board credibility demoted by verified failures — has ancestors in four separate communities. Citations web-verified 2026-07-24 (Haiku sweep, links checked), NOT PDF-audited. The sweep found NO published match for the exact mechanism (learned ranker + perfect verifier + sibling demotion on failure) — closest strands below; `adaptive-submodularity` above is the theory anchor for "failures are informative re-ranking evidence."*
+
+- [ ] `koopman-search` — **Koopman — Search and Screening: General Principles with Historical Applications** (OEG Report 56, 1946; republished MORS 1999). Bayesian search theory: failed looks in a box shift posterior mass away from it; allocate next look by posterior × detection probability. The exact math of our board demotion (boards = boxes, sims = looks); lineage runs through the USS Scorpion and MH370 searches.
+- [ ] `gbfs-behaviour` — **Heusner, Keller, Helmert — Understanding the Search Behaviour of Greedy Best-First Search** (SoCS 2017). Formalizes how GBFS gets trapped in misleading heuristic regions (high-water-mark benches) — the named pathology our suppression trace measured with a verifier.
+- [ ] `gbfs-exploration` — **Valenzano, Sturtevant, Schaeffer, Xie — A Comparison of Knowledge-Based GBFS Enhancements and Knowledge-Free Exploration** (ICAPS 2014). ε-greedy node selection as the cure for heuristic error in GBFS. *Sweep correction: venue is ICAPS, not SoCS.*
+- [ ] `type-gbfs` — **Xie, Müller, Holte, Imai — Type-Based Exploration with Multiple Search Queues for Satisficing Planning** (AAAI 2014). Alternating typed queues so one misleading region can't monopolize expansion — the alternation flavor of anti-camping.
+- [ ] `lds` — **Harvey & Ginsberg — Limited Discrepancy Search** (IJCAI 1995). Budget the number of times you disobey the heuristic; trust-but-bound. Closest classic in spirit to taxing (not obeying, not discarding) an unreliable ranking.
+- [ ] `chaff-vsids` — **Moskewicz, Madigan, Zhao, Zhang, Malik — Chaff: Engineering an Efficient SAT Solver** (DAC 2001). VSIDS: the solver's own conflicts (failures) continuously re-weight its branching heuristic, with decay. Failure-driven heuristic adaptation at industrial scale.
+- [ ] `dirt` — **Littlefield & Bekris — Efficient and Asymptotically Optimal Kinodynamic Motion Planning via Dominance-Informed Regions** (IROS 2018). Own lab. Heuristic-guided single-query planner that demotes a node after each selection so the heuristic can't camp — our regime, count-weighted where ours is verifier-evidence-weighted.
+- [ ] `uct` — **Kocsis & Szepesvári — Bandit Based Monte-Carlo Planning** (ECML 2006). UCT: visit-count exploration + outcome backup. Our mechanism is the backup step in the deterministic perfect-verifier limit (no revisits, so the UCB term degenerates); PUCT (Silver et al., AlphaGo/AlphaZero) adds the learned prior, as we do.
+- [ ] `rtaa-star` — **Koenig & Likhachev — Real-Time Adaptive A\*** (AAMAS 2006). The heuristic-learns-online family: exact admissibility-preserving h-updates from search experience. Contrast, not ancestor — our q has no cost algebra to correct, so our update is Bayesian trust, not arithmetic.
+
 ## Combinatorial search where contact dynamics decide feasibility
 
 *Who else searches over discrete choices with physics deciding what's feasible. This is a small
