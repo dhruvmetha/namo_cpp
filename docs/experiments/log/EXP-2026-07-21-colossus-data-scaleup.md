@@ -156,6 +156,12 @@ hard-1push @ depth-2: solve@300 98.0→**99.5**.
 
 **Setup-only ablation (NEW, live) — chase the hard-tail dilution.** Hypothesis: the 157k Colossus post-push FINISH boards starved the hard-1push opener signal. Build = d20 base + Colossus SETUP roots only (26,023; drop all finishers + dead) = 257,409 rows (`round3/h5/d20_plus_setup_only.h5`), split loss, job **`187593`** rlab1 (rankaux verified 0.1/0.05, rows=257409, 0 leakage). Eval 3-way on completion. Subsetter `scripts/sandbox/subset_setup_only_h5.py`.
 
+**Setup-only RESULT (187593, ckpt val_loss 1.6952 @ep11 — WORST val_loss, BEST deploy). HYPOTHESIS CONFIRMED — the winner.** 4-way eval d20 | opener | split-full | setup-only on namo_testset_v1 car:
+- **Hard-1push tail RECOVERED:** solve@1 39.7/42.2/33.3/**39.2** · @5 71.6/70.6/64.2/**72.1**(best) · @10 84.8/78.9/77.0/**85.8**(best) · @20 90.7/87.3/85.8/**89.7** · avg sims 8.06/9.83/9.62/**7.92**(lowest). Split-full's hard-tail collapse fully reversed; @5/@10 best-of-four, @1≈d20.
+- **2push HELD:** solve@900 all 96.5/96.7/96.3/**97.5**(best), hard 91.6/91.4/91.1/**94.1**(best — solves MORE); sims-to-solve all 54.6/51.1/44.0/46.0 (off split-full's peak, still beats d20/opener).
+- **reactive open@2 all: 39.1/45.1/47.3/44.6** — the one small cost (below opener + split-full, +5.5 over d20).
+- **Verdict:** dropping the 157k Colossus post-push finish boards RECOVERED the hard-1push tail — confirming the finish-flood diluted the opener signal. Setup-only is the **best overall tradeoff**: only model with d20-class hard-1push tail AND the 2push/reactive gains. Substantially answers this card's open question (close hard-1push tail without losing top-of-ranking). val_loss does NOT track deploy (worst val_loss, best metrics). Outputs `round3/eval/*/setuponly_splitloss/`. **RECOMMENDED Colossus successor; timed campaign next on this winner.**
+
 **Success-vs-time (wall-clock) eval — planned, not yet run.** Current success-vs-sims curves are cross-box-valid (sims substrate). For success-vs-TIME, existing t_wall is unusable (colossus/d20/antman evals free-scheduled across ilab1+ilab2, no `--exclusive`/`--constraint`). Infra exists on Amarel: `scripts/amarel/{launch_time_campaign.sh, time_bestfirst_shard.slurm, time_bestfirst.slurm, time_benchmark.slurm}` (`--exclusive` + `--constraint=<arch>`, single-thread, interleaved via `scripts/sandbox/time_bestfirst.py`). New work: extend `time_bestfirst.py`'s 2-ckpt registry to 4 named (colossus-0/d20/antman-5c/random) + a `launch_time_campaign_4model.sh` sibling. PENDING [USER].
 
 ## Result
