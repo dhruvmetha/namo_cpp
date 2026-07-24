@@ -47,6 +47,14 @@ _(Claude, falsifiable refinements)_ (1) Any sane demotion (γ=0.65) recovers the
 
 **Phase 1–2 launched (2026-07-24):** Opus agent in isolated worktree building the flag-gated search + lifetime logging, then the two-arm train-side lifetime sweep (SLURM `unlimited`, no --time) and the survival fit. Outputs → `round3/eval/gfit/{ranker,random}/`, g_table JSON + fit script. Testset discount column fires on gate-pass + g delivery.
 
+**g fit DONE (2026-07-24, clean array 188502 after a false-alarm incident — see parent-card memory `squeue-ssh-banner-bug`).** 1616 train-side pure-2push episodes (validset_r2, never testset), 34,385 ranker child boards (63.6% censored, KM handles). Implementation verified LEAF-IDENTICAL at `--discount off` before any run. Fit outputs `round3/eval/gfit/v2/fit/{g_table.json, g_table_random.json, g_fit_report.json}`; code synced to main `scripts/sandbox/{eval_bestfirst.py, fit_g_survival.py, build_gfit_episodes.py}`.
+
+- **The measured curve is FAR steeper than the Bayes anchor and non-geometric:** g(1)=**0.284** (anchor predicted 0.65), g(2)=0.168, g(5)=0.085, plateau ~0.02-0.03 by k≥8 (tail low-confidence, single-digit events past k≈9). Best-fit γ=0.773 misfits BOTH ends (0.77 vs 0.28 at k=1; 0.006 vs 0.018 at k=20) — the true discount is a sharp 1-2-strike drop then flat, which a single γ cannot express. Mechanism: **g0 = 0.63%** — over 99% of post-setup child boards are dead, so a top-ranked miss is highly diagnostic; the 0.65 anchor wrongly assumed a ~50% alive prior.
+- **Random arm needs its OWN empirical curve** (g(1)=0.754 — an early random miss carries little signal), and the analytic (n−k)/n is falsified by the same dead-board mass (predicted 0.978 at k=1). Design deviation from plan: random×discount uses `g_table_random.json`, not the analytic form.
+- Pre-eval read on the [USER] hypothesis: shape-misfit of γ is mechanistic support for fitted>γ; the eval decides. γ arm runs at 0.28 (the measured first-strike), not the falsified 0.65.
+
+**Discount column LAUNCHED:** ilab array `188650` (96 tasks): ranker×fitted, ranker×γ0.28, random×fitted-random on testset pure2push 1018, budget 900, canonical shards. Static column reused (setup-only 97.5/46.0, random 89.9/194).
+
 ## Result
 
-(pending)
+(pending — grid aggregation on 188650 completion)
