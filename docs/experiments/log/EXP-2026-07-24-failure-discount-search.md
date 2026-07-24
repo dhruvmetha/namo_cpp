@@ -1,6 +1,6 @@
 ---
 type: experiment
-status: live
+status: done
 created: 2026-07-24
 thread: rl_loop
 robot: car
@@ -55,6 +55,20 @@ _(Claude, falsifiable refinements)_ (1) Any sane demotion (γ=0.65) recovers the
 
 **Discount column LAUNCHED:** ilab array `188650` (96 tasks): ranker×fitted, ranker×γ0.28, random×fitted-random on testset pure2push 1018, budget 900, canonical shards. Static column reused (setup-only 97.5/46.0, random 89.9/194).
 
-## Result
+## Result — grid complete (188650, testset pure2push 1018, budget 900, paired vs reused static column)
 
-(pending — grid aggregation on 188650 completion)
+| arm | solve@900 | s2s | @2 | @5 | @10 | @30 | hard: solve / s2s / @30 |
+|---|--:|--:|--:|--:|--:|--:|---|
+| ranker static | 97.5 | 46.0 | 33.9 | 51.6 | 61.6 | 74.4 | 94.1 / 74.3 / 60.1 |
+| **ranker fitted-g** | **98.0** | **30.0** | 33.9 | 49.7 | **64.4** | **81.6** | **95.4 / 50.5 / 68.5** |
+| ranker γ=0.28 | 98.0 | 30.2 | 33.9 | 49.7 | 64.4 | 81.6 | 95.7 / 52.2 / 68.5 |
+| random static | 89.9 | 115.6 | 3.1 | 9.6 | 19.4 | 37.6 | 76.5 / 179.3 / 22.6 |
+| random fitted-g | 93.6 | 98.3 | 2.6 | 8.2 | 17.5 | 39.5 | 84.9 / 166.3 / 22.1 |
+
+**Verdict 1 — ADOPT (pre-registered bar PASSED).** Discount cuts ranker sims-to-solve **−35% overall** (46.0→30.0; easy −50%, med −34%, hard −32%) with solve@900 UP on every tier (hard 94.1→95.4) and @30 +7.2. The one cost: tight-budget @5 dips −1.9 (hard −3.7) — the predicted delay of deep winners on live boards after early strikes; @10 already net-positive. Deltas far exceed eval-sim jitter.
+
+**Verdict 2 — [USER] hypothesis (fitted > γ): NOT confirmed at equal calibration.** Fitted and γ=0.28 are a tie (s2s 30.0 vs 30.2; identical @k; tier diffs inside noise). The refined truth: the MEASUREMENT was the value — γ's winning value (0.28) came from the fitted curve and is 2.3× steeper than the falsified theory anchor (0.65, untested arm). Ship **fitted** anyway: no extra knob, self-refits from run logs per checkpoint.
+
+**Verdict 3 — baseline symmetry holds, margin intact.** Random also gains (solve 89.9→93.6, hard +8.4; s2s −15%) — as predicted it benefits, and MORE in solve-rate. But the ranker's margin within the discount column stays decisive: 3.3× fewer sims-to-solve (30 vs 98), 6× @5 (49.7 vs 8.2).
+
+**Adopted deploy search: best-first + fitted-g failure discount** (`--discount fitted --gtable round3/eval/gfit/v2/fit/g_table.json`). Follow-ups queued for the next round: rerun hard1p_h2 + reactive under the new search; re-state parent-card headline numbers in the discount column; timed campaign on the adopted configuration; τ/tempered-conf arm only if the @5 dip matters for a deploy target. Eval outputs `round3/eval/discount_2push/*`; sbatch `run_discount_2push.sbatch`.
