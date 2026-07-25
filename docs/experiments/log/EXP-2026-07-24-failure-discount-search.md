@@ -55,6 +55,25 @@ _(Claude, falsifiable refinements)_ (1) Any sane demotion (γ=0.65) recovers the
 
 **Discount column LAUNCHED:** ilab array `188650` (96 tasks): ranker×fitted, ranker×γ0.28, random×fitted-random on testset pure2push 1018, budget 900, canonical shards. Static column reused (setup-only 97.5/46.0, random 89.9/194).
 
+## Post-adoption trace — WHERE the remaining cost sits (job 188958+188998, full 1018, discount=fitted)
+
+Re-ran the attribution tracer under the adopted search (tracer ported to the discount modes; same episodes/harness as the static trace). Mean sims on labeled-setup solves, static → discount:
+
+| tier | place | supp | finish | total | shares (place/supp/finish) |
+|---|--:|--:|--:|--:|---|
+| easy | 2.6 → 2.5 | 12.2 → **1.3** | 10.9 → 10.0 | 26.8 → **14.9** | 10/46/41 → 17/9/68 |
+| med | 3.8 → 3.6 | 27.2 → **2.1** | 12.1 → 21.7 | 44.1 → **28.5** | 9/62/27 → 13/8/76 |
+| hard | 7.2 → 11.0 | 65.0 → **8.8** | 25.0 → 48.2 | 98.3 → **69.0** | 7/66/25 → 16/13/70 |
+| all | 4.8 → 6.2 | 37.6 → **4.4** | 16.5 → 29.1 | 59.9 → **40.7** | 8/63/28 → 15/11/72 |
+
+**Mechanism confirmed:** suppression collapsed 8.5× (all 37.6→4.4; hard 65.0→8.8), exactly the targeted term. Per-wrong-root cost is now ~1.8 sims (push + one probe) vs ~17 before. Placement (r0) is unchanged by construction — the ranker is untouched (r0 mean identical: easy 9.3 / med 9.7 / hard 17.6).
+
+**Unpredicted side effect — the finish term GREW** (all 16.5→29.1; hard 25.0→48.2) and is now the dominant cost (70-76% on med/hard). Hypothesis (UNVERIFIED): the discount also benches the CORRECT setup's board when its first finish misses, so live boards whose winner is not rank-1 pay repeated round-trips through the root list before being revisited. Same mechanism as the measured @5 dip, larger than expected. Note the totals still fall on every tier (hard −30%), and the eval-level s2s (50.5 hard) is lower than this subset's 69.0 because ~58% of solves route through UNLABELED first pushes not counted here.
+
+**Correction to an earlier claim in this card's chat:** the post-fix bottleneck is NOT placement (16%) — it is finish ranking after the correct setup. An arithmetic estimate that assumed finish held at ~16 sims was wrong; only measurement settled it.
+
+**Next experiments this motivates (cheap, one sweep each, not yet run):** (a) `conf` mode — demote proportional to the FAILED candidate's score (a low-scored miss should barely dent a board), already implemented; (b) asymmetric patience — exempt or floor the board reached via a high-V setup; (c) the cap-1-then-requeue ablation to separate first-pass benching from graded revisits.
+
 ## Result — grid complete (188650, testset pure2push 1018, budget 900, paired vs reused static column)
 
 | arm | solve@900 | s2s | @2 | @5 | @10 | @30 | hard: solve / s2s / @30 |
