@@ -21,6 +21,8 @@ The canonical eval distribution. Answer keys (which episodes + difficulty), veri
 
 The solve@k/sims eval uses the **live simulator** as verifier, NOT these. These are for offline ranking / "how buried is the true winner" analysis.
 
+**1-push has no separate GT h5 — the manifest IS the exhaustive 1-push GT.** `onepush_episodes.json` already exhausts every **reachable** push per episode (`tried` mean 81.6/300, rest unreachable) and records **every** valid opener (`valid` mean 30.8). 1-push is single-ply so exhaustion is cheap; only 2-push needs a separate GT (`testset_gt.h5`) because its finish tree is deep. So: 1-push exhaustive GT = `onepush_episodes.json` itself; 2-push exhaustive GT = `testset_gt.h5`.
+
 | artifact | path | size | what it is | ⚠ |
 |---|---|---|---|---|
 | **canonical 2push GT** | `curriculum2/beast/round2/h5/testset_gt.h5` | 66,456 nodes / **1117 roots** | REF full-exhaustive root+finish sweep on the canonical set. EVAL-ONLY, never train. | Covers **981/1018** manifest episodes — see alignment below. |
