@@ -50,3 +50,19 @@ PURE2PUSH = path("pure2push_manifest")
 DIVISIONS = path("pure2push_divisions")
 TWOPUSH_SOURCE = path("twopush_source")
 TWOPUSH_GT_H5 = path("twopush_gt_h5")
+
+
+if __name__ == "__main__":
+    # CLI for slurm/sh: resolve a named eval-set path single-source.
+    #   python -m namo.eval_sets <name>   → one absolute path, no trailing junk
+    #   python -m namo.eval_sets --list   → all names, one per line
+    import sys
+
+    if len(sys.argv) != 2:
+        sys.exit("usage: python -m namo.eval_sets <name>|--list")
+    arg = sys.argv[1]
+    if arg == "--list":
+        for name in _FILES:
+            print(name)
+    else:
+        print(path(arg))

@@ -24,6 +24,7 @@ from scorer_beam import BeamPlanner, make_env, make_action, FALLBACK_GOAL       
 from eval_m3 import rank_first_pushes_h2, sample_goal_points, goal_open_pts          # noqa: E402
 from namo.core.xml_goal_parser import extract_goal_with_fallback                     # noqa: E402
 from namo.paths import DATASETS, resolve                                             # noqa: E402
+from namo import eval_sets                                                            # noqa: E402
 
 KRANK = 8          # sweep the model's top-KRANK setups
 FIN_CAP = 25       # cap oracle-finish tries per setup
@@ -46,7 +47,7 @@ def finishable(pl, env, goal, xml, s0, obj, g_setup, gp):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ckpt", required=True)
-    ap.add_argument("--key", default=str(DATASETS / "namo_testset_v1/labels/pure2push.json"))
+    ap.add_argument("--key", default=str(eval_sets.PURE2PUSH))
     ap.add_argument("--start", type=int, default=0)
     ap.add_argument("--end", type=int, default=0)
     ap.add_argument("--out", required=True)

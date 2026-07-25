@@ -16,9 +16,10 @@ export CUDA_VISIBLE_DEVICES="" OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
 : "${OUT_DIR:?}"; : "${SHARD:?}"
 mkdir -p "$OUT_DIR"
 START=$(( SLURM_ARRAY_TASK_ID * SHARD )); END=$(( START + SHARD ))
+KEY=${KEY:-$("$NAMO_PYTHON" -m namo.eval_sets pure2push_manifest)}
 echo "shard ${SLURM_ARRAY_TASK_ID}: [$START,$END) budget=${BUDGET:-900} hmax=${HMAX:-2} on $(hostname) [$(scontrol show node "$(hostname)" 2>/dev/null | grep -oE 'icelake|sapphirerapids' | head -1)]"
 "$NAMO_PYTHON" -u scripts/sandbox/time_bestfirst.py --start "$START" --end "$END" \
-  --budget "${BUDGET:-900}" --hmax "${HMAX:-2}" --key "${KEY:-$NAMO_DATASETS/namo_testset_v1/labels/pure2push.json}" \
+  --budget "${BUDGET:-900}" --hmax "${HMAX:-2}" --key "$KEY" \
   ${STRAT:+--strat} --n-per-tier "${NPER:-50}" \
   ${HZ_CKPT:+--hz-ckpt "$HZ_CKPT"} ${NOHZ_CKPT:+--nohz-ckpt "$NOHZ_CKPT"} --rng-seed "${RNG_SEED:-7}" \
   ${MODELS:+--models "$MODELS"} \

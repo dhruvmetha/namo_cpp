@@ -8,9 +8,8 @@
 set -euo pipefail
 REPO=/common/home/dm1487/robotics_research/ktamp/namo; cd "$REPO"
 S=/common/users/dm1487/scratch_namo/sage_outputs/scorer
-DS=/common/users/dm1487/scratch_namo/datasets/namo_testset_v1/labels
 OUT=/common/users/dm1487/scratch_namo/eval/fullsearch_1push
-KEY=$DS/onepush_episodes.json
+KEY=$(PYTHONPATH="$REPO/build_python:$REPO/python:${PYTHONPATH:-}" "${NAMO_PYTHON:-python}" -m namo.eval_sets onepush_manifest)
 # Pin to a high-core, low-contention node so unlimited-partition preemption doesn't churn these short jobs.
 NODE="${NODELIST:-rlab7}"
 declare -A NOHZ=(

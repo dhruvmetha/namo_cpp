@@ -14,6 +14,8 @@ import json
 import re
 from collections import defaultdict
 
+from namo import eval_sets
+
 
 def build_gt(onepush_key: str):
     k = json.load(open(onepush_key))
@@ -34,7 +36,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--leaf-glob", required=True, help="glob of eval_reactive_argmax leaf jsonl shard(s)")
     ap.add_argument("--onepush-key",
-                    default="/common/users/dm1487/scratch_namo/datasets/namo_testset_v1/labels/onepush_episodes.json")
+                    default=str(eval_sets.ONEPUSH))
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
 

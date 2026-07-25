@@ -12,5 +12,6 @@ cd "${NAMO_REPO:-/cache/home/dm1487/projects/namo/namo_cpp}"
 source env.amarel.sh >/dev/null 2>&1
 export CUDA_VISIBLE_DEVICES="" OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
 : "${OUT:?}"
+KEY=${KEY:-$("$NAMO_PYTHON" -m namo.eval_sets pure2push_manifest)}
 "$NAMO_PYTHON" -u scripts/sandbox/time_bestfirst.py --n-per-tier "${NPER:-50}" --budget "${BUDGET:-30}" \
-  --hmax "${HMAX:-2}" --key "${KEY:-$NAMO_DATASETS/namo_testset_v1/labels/pure2push.json}" --out "$OUT"
+  --hmax "${HMAX:-2}" --key "$KEY" --out "$OUT"

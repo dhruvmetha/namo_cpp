@@ -20,7 +20,7 @@ source env.ilab.sh >/dev/null 2>&1
 export CUDA_VISIBLE_DEVICES="" OMP_NUM_THREADS=2 MKL_NUM_THREADS=2
 PY=/common/users/dm1487/envs/mjxrl/bin/python
 : "${CKPT:?set CKPT}"; : "${OUT_DIR:?set OUT_DIR}"
-KEY=${KEY:-/common/users/dm1487/scratch_namo/datasets/namo_testset_v1/labels/pure2push.json}
+KEY=${KEY:-$("$PY" -m namo.eval_sets pure2push_manifest)}
 SHARD=${SHARD:-62}; MAXP=${MAXP:-2}
 START=$(( SLURM_ARRAY_TASK_ID * SHARD )); END=$(( START + SHARD ))
 mkdir -p "$OUT_DIR" /common/users/dm1487/scratch_namo/rl_runs/logs

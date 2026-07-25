@@ -14,8 +14,9 @@ Gate: ARM (i)-any >=85 => proceed; <65 => stop/rethink; grey => teacher-forced k
 import json, glob, os, statistics as st
 from collections import defaultdict
 
+from namo import eval_sets
+
 D    = os.environ.get("D", "/common/users/dm1487/scratch_namo/eval/phase0_gate")
-LAB  = "/common/users/dm1487/scratch_namo/datasets/namo_testset_v1/labels"
 OUT  = f"{D}/AGG"
 BINS = ["easy", "medium", "hard", "all"]
 SEEDS = [1, 2, 3]
@@ -33,7 +34,7 @@ def load_seed(d):
 
 
 def diffmap():
-    d = json.load(open(f"{LAB}/pure2push_divisions.json"))
+    d = json.load(open(eval_sets.DIVISIONS))
     return {(x, r["object_id"], r["region"]): r["division"] for x in d for r in d[x]}
 
 

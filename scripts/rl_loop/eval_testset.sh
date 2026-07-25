@@ -6,10 +6,12 @@
 # prints both tables. Frequent operations get tools, not rituals [USER 2026-07-08].
 set -euo pipefail
 CKPT=$1; PREFIX=$2; NOWAIT=${3:-}
-TS=/common/users/dm1487/scratch_namo/datasets/namo_testset_v1/labels
 R=/common/users/dm1487/scratch_namo/rl_runs
 PY=/common/users/dm1487/envs/mjxrl/bin/python
 HERE=$(cd "$(dirname "$0")" && pwd)
+REPO=$(cd "$HERE/../.." && pwd)
+ES() { PYTHONPATH="$REPO/build_python:$REPO/python:${PYTHONPATH:-}" "$PY" -m namo.eval_sets "$1"; }
+ONEPUSH_KEY=$(ES onepush_manifest); PURE2PUSH_KEY=$(ES pure2push_manifest); DIVISIONS_KEY=$(ES pure2push_divisions)
 EPS_PER_SHARD=70
 
 submit() { # tier key maxp
@@ -24,8 +26,8 @@ submit() { # tier key maxp
   echo "$out $nsh $tier"
 }
 
-read O1 N1 T1 <<< "$(submit 1p $TS/onepush_episodes.json 1)"
-read O2 N2 T2 <<< "$(submit 2p $TS/pure2push.json 2)"
+read O1 N1 T1 <<< "$(submit 1p $ONEPUSH_KEY 1)"
+read O2 N2 T2 <<< "$(submit 2p $PURE2PUSH_KEY 2)"
 [ "$NOWAIT" = "--no-wait" ] && exit 0
 
 for spec in "$O1 $N1" "$O2 $N2"; do
@@ -33,4 +35,4 @@ for spec in "$O1 $N1" "$O2 $N2"; do
   until [ "$(ls "$out"/shard_*.jsonl 2>/dev/null | wc -l)" -ge "$nsh" ]; do sleep 60; done
 done
 echo "== 1push =="; $PY "$HERE/agg_testset_onepush.py" --leaf-glob "$O1/shard_*.jsonl" --out "$O1/agg.json" | $PY -c "import json,sys;d=json.load(sys.stdin);print(d['by_division'])"
-echo "== 2push =="; $PY "$HERE/agg_testset_reactive.py" --leaf-glob "$O2/shard_*.jsonl" --divisions $TS/pure2push_divisions.json --out "$O2/agg.json" | tail -1
+echo "== 2push =="; $PY "$HERE/agg_testset_reactive.py" --leaf-glob "$O2/shard_*.jsonl" --divisions $DIVISIONS_KEY --out "$O2/agg.json" | tail -1

@@ -18,7 +18,7 @@ export LD_LIBRARY_PATH="$MJ_PATH/lib:${LD_LIBRARY_PATH:-}"
 export PYTHONPATH="$PWD/build_python:$PWD/python:$PWD/scripts:$PWD/scripts/sandbox:$PWD/scripts/pipeline:$SAGE_REPO"
 export OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 CUDA_VISIBLE_DEVICES=""
 : "${CKPT:?}"; : "${OUT_DIR:?}"
-KEY=${KEY:-"$NAMO_DATASETS/namo_testset_v1/labels/pure2push.json"}
+KEY=${KEY:-$("$NAMO_PYTHON" -m namo.eval_sets pure2push_manifest)}
 SHARD=${SHARD:-25}; FIXED=${FIXED:---fixed-setup}
 mkdir -p "$OUT_DIR"
 START=$(( SLURM_ARRAY_TASK_ID * SHARD )); END=$(( START + SHARD ))

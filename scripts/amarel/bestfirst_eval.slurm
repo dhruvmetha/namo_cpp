@@ -18,7 +18,7 @@ export OMP_NUM_THREADS=2 MKL_NUM_THREADS=2
 
 : "${CKPT:?}"; : "${MANIFEST:?}"; : "${OUT_DIR:?}"
 HMAX=${HMAX:-2}; SIM_BUDGET=${SIM_BUDGET:-900}; PRIOR=${PRIOR:-model}; AGG=${AGG:-mean5}; COMBINE=${COMBINE:-blend}; SHARD=${SHARD:-13}
-KEY=${KEY:-"$NAMO_DATASETS/namo_testset_v1/labels/pure2push.json"}
+KEY=${KEY:-$("$NAMO_PYTHON" -m namo.eval_sets pure2push_manifest)}
 SEED_BASE=${SEED_BASE:-7000}; DIVE_BONUS=${DIVE_BONUS:-0}
 mkdir -p "$OUT_DIR"
 START=$(( SLURM_ARRAY_TASK_ID * SHARD )); END=$(( START + SHARD ))

@@ -9,7 +9,7 @@
 set -euo pipefail
 REPO="${NAMO_REPO:-/cache/home/dm1487/projects/namo/namo_cpp}"; cd "$REPO"
 S=/scratch/dm1487/sage_outputs/scorer
-DS=/scratch/dm1487/datasets/namo_testset_v1/labels
+PURE2PUSH_KEY=$(PYTHONPATH="$REPO/build_python:$REPO/python:${PYTHONPATH:-}" "${NAMO_PYTHON:-python}" -m namo.eval_sets pure2push_manifest)
 OUT=/scratch/dm1487/eval/fullsearch
 CON="${CONSTRAINT:-emeraldrapids}"
 declare -A NOHZ=(
@@ -20,14 +20,14 @@ declare -A NOHZ=(
 # --- 3 NoHz model seeds (deterministic; MODELS=NoHz) ---
 for sd in s1 s2 s3; do
   sbatch --constraint="$CON" --array=0-2 \
-    --export="ALL,OUT_DIR=$OUT/nohz_${sd},SHARD=340,BUDGET=900,HMAX=2,KEY=$DS/pure2push.json,MODELS=NoHz,NOHZ_CKPT=${NOHZ[$sd]},RNG_SEED=7,NAMO_REPO=$REPO" \
+    --export="ALL,OUT_DIR=$OUT/nohz_${sd},SHARD=340,BUDGET=900,HMAX=2,KEY=$PURE2PUSH_KEY,MODELS=NoHz,NOHZ_CKPT=${NOHZ[$sd]},RNG_SEED=7,NAMO_REPO=$REPO" \
     scripts/amarel/time_bestfirst_shard.slurm | sed "s/^/  nohz $sd -> /"
 done
 
 # --- 10 random rng-seeds (MODELS=random; nohz ckpt is only a planner shell -> prim only, no scoring) ---
 for rs in 0 1 2 3 4 5 6 7 8 9; do
   sbatch --constraint="$CON" --array=0-2 \
-    --export="ALL,OUT_DIR=$OUT/rand_s${rs},SHARD=340,BUDGET=900,HMAX=2,KEY=$DS/pure2push.json,MODELS=random,NOHZ_CKPT=${NOHZ[s1]},RNG_SEED=${rs},NAMO_REPO=$REPO" \
+    --export="ALL,OUT_DIR=$OUT/rand_s${rs},SHARD=340,BUDGET=900,HMAX=2,KEY=$PURE2PUSH_KEY,MODELS=random,NOHZ_CKPT=${NOHZ[s1]},RNG_SEED=${rs},NAMO_REPO=$REPO" \
     scripts/amarel/time_bestfirst_shard.slurm | sed "s/^/  rand s${rs} -> /"
 done
 echo "launched 13 arrays (3 NoHz ckpt-seeds + 10 random rng-seeds), emeraldrapids exclusive, budget 900, pure2push"

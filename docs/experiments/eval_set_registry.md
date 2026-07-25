@@ -4,6 +4,14 @@ The authoritative list of every NAMO **eval / test / GT** artifact — what it i
 Companion to the [model registry](horizon_q_model_registry.md) (which logs trained models). Do not reconstruct eval paths by glob — read here.
 All paths under `/common/users/dm1487/scratch_namo/`.
 
+## ⭐ Single source — `config/eval_sets.yaml`
+
+**All eval code resolves test-set paths from `config/eval_sets.yaml` via `namo.eval_sets`.** This doc is the human-readable truth; the yaml is the machine truth (one file, both must agree). Change the test set = edit the yaml only; every reader follows.
+- Python: `from namo import eval_sets` → `eval_sets.PURE2PUSH` / `.ONEPUSH` / `.DIVISIONS` / `.TWOPUSH_SOURCE` / `.TWOPUSH_GT_H5` (resolved absolute Paths, box-portable via `namo.paths`).
+- Shell/slurm: `python -m namo.eval_sets pure2push_manifest` prints the resolved path; `--list` prints all names.
+- Guard: `python/tests/test_eval_sets.py` asserts every path resolves to an existing file with the expected counts (1323 / 1018 / 238·409·371 / 2341 / 66,456). Run it before trusting a config edit.
+- Migrated: all committed eval entrypoints + agg + slurm launchers. Not yet migrated: `scripts/sandbox/eval_bestfirst.py` (`--key` default still literal — but slurm passes the resolved `--key`, so runs are single-sourced; carries unrelated in-progress `--discount` work, left for its owner).
+
 ## Canonical test manifests (testset_v1) — USE THESE
 
 The canonical eval distribution. Answer keys (which episodes + difficulty), verified by live sim at eval time.

@@ -22,6 +22,7 @@ PY="${NAMO_PYTHON:-python}"
 command -v "$PY" >/dev/null 2>&1 || PY=/common/users/dm1487/envs/mjxrl/bin/python
 NOHZ=${NOHZ:-"$NAMO_OUTPUTS/scorer/qfull_nohz_v3_v4hq_s1/namo-classifier/wl8k6iyv/checkpoints/epoch012-val_loss0.6896.ckpt"}
 ID=$SLURM_ARRAY_TASK_ID
+KEY=${KEY:-$("$PY" -m namo.eval_sets onepush_manifest)}
 
 echo "EVAL start $(date) host=$(hostname) CKPT=$CKPT ID=$ID"
 if [ "$ID" -lt 6 ]; then
@@ -30,7 +31,7 @@ if [ "$ID" -lt 6 ]; then
   EN=${BND[$((ID + 1))]}
   mkdir -p "$OUT/1push"
   "$PY" scripts/sandbox/time_bestfirst.py --hmax 1 --budget 300 \
-    --key "$NAMO_DATASETS/namo_testset_v1/labels/onepush_episodes.json" \
+    --key "$KEY" \
     --hz-ckpt "$CKPT" --nohz-ckpt "$NOHZ" \
     --models Hz --start "$S" --end "$EN" --out "$OUT/1push/shard_${S}_${EN}.jsonl"
 else

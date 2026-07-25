@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 
 from namo.paths import DATASETS, resolve
+from namo import eval_sets
 
 ONEPUSH_CUTS = (1, 5, 300)
 TWOPUSH_CUTS = (2, 5, 10, 30, 900)
@@ -72,7 +73,7 @@ def main():
     parser.add_argument("--twopush-dir", default=None)
     parser.add_argument(
         "--divisions",
-        default=str(DATASETS / "namo_testset_v1/labels/pure2push_divisions.json"),
+        default=str(eval_sets.DIVISIONS),
     )
     parser.add_argument("--out", required=True)
     parser.add_argument("--expect-1push", type=int, default=1323)

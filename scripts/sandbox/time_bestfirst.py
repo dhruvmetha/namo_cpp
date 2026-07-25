@@ -12,11 +12,12 @@ from eval_bestfirst import candidates, priority                                 
 from eval_m3 import sample_goal_points, goal_open_pts                              # noqa: E402
 from namo.core.xml_goal_parser import extract_goal_with_fallback                   # noqa: E402
 from namo.paths import resolve                                                     # noqa: E402
+from namo import eval_sets                                                          # noqa: E402
 
 S = "/scratch/dm1487/sage_outputs/scorer"
 HZ = f"{S}/qfull_v3_v4hq_s1/namo-classifier/qkfk0slk/checkpoints/epoch011-val_loss0.6571.ckpt"
 NOHZ = f"{S}/qfull_nohz_v3_v4hq_s1/namo-classifier/wl8k6iyv/checkpoints/epoch012-val_loss0.6896.ckpt"
-KEY = "/scratch/dm1487/datasets/namo_testset_v1/labels/pure2push.json"
+KEY = str(eval_sets.PURE2PUSH)
 PC = time.perf_counter
 
 

@@ -39,6 +39,7 @@ import torch
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from eval_common import MASKS, OUT, match_episode, bin_of, floor_no_replacement  # shared grading contract
 from namo.paths import DATASETS, H5  # noqa: E402
+from namo import eval_sets  # noqa: E402
 
 
 def contact_px(edge, hw, hd, theta, crop_m, S=64):
@@ -350,7 +351,7 @@ def main():
     # Canonical 1-push answer key = namo_testset_v1 under the stricter 20% success bar (2026-06-10).
     # (Old key $NAMO_SCRATCH/manifests/v3_test_episodes.json was the "any point reachable" bar.)
     ap.add_argument("--episodes",
-                    default=str(DATASETS / "namo_testset_v1/labels/onepush_episodes.json"))
+                    default=str(eval_sets.ONEPUSH))
     ap.add_argument("--h5-root", default=str(H5))
     ap.add_argument("--divisions", default="hard,med,easy")
     ap.add_argument("--num-depths", type=int, default=5)

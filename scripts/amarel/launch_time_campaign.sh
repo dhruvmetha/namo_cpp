@@ -6,7 +6,8 @@
 set -euo pipefail
 REPO="${NAMO_REPO:-/cache/home/dm1487/projects/namo/namo_cpp}"; cd "$REPO"
 S=/scratch/dm1487/sage_outputs/scorer
-DS=/scratch/dm1487/datasets/namo_testset_v1/labels
+ES() { PYTHONPATH="$REPO/build_python:$REPO/python:${PYTHONPATH:-}" "${NAMO_PYTHON:-python}" -m namo.eval_sets "$1"; }
+PURE2PUSH_KEY=$(ES pure2push_manifest); ONEPUSH_KEY=$(ES onepush_manifest)
 OUT=/scratch/dm1487/eval/timebench
 declare -A HZ=(
   [s1]=$S/qfull_v3_v4hq_s1/namo-classifier/qkfk0slk/checkpoints/epoch011-val_loss0.6571.ckpt
@@ -19,10 +20,10 @@ declare -A NOHZ=(
 declare -A RNG=( [s1]=7 [s2]=8 [s3]=9 )
 for sd in s1 s2 s3; do
   sbatch --constraint=icelake --array=0-19 \
-    --export="ALL,OUT_DIR=$OUT/full2_${sd}_b900,SHARD=51,BUDGET=900,HMAX=2,KEY=$DS/pure2push.json,HZ_CKPT=${HZ[$sd]},NOHZ_CKPT=${NOHZ[$sd]},RNG_SEED=${RNG[$sd]},NAMO_REPO=$REPO" \
+    --export="ALL,OUT_DIR=$OUT/full2_${sd}_b900,SHARD=51,BUDGET=900,HMAX=2,KEY=$PURE2PUSH_KEY,HZ_CKPT=${HZ[$sd]},NOHZ_CKPT=${NOHZ[$sd]},RNG_SEED=${RNG[$sd]},NAMO_REPO=$REPO" \
     scripts/amarel/time_bestfirst_shard.slurm | sed "s/^/  2push $sd -> /"
   sbatch --constraint=sapphirerapids --array=0-19 \
-    --export="ALL,OUT_DIR=$OUT/full1_${sd}_b900,SHARD=67,BUDGET=900,HMAX=1,KEY=$DS/onepush_episodes.json,HZ_CKPT=${HZ[$sd]},NOHZ_CKPT=${NOHZ[$sd]},RNG_SEED=${RNG[$sd]},NAMO_REPO=$REPO" \
+    --export="ALL,OUT_DIR=$OUT/full1_${sd}_b900,SHARD=67,BUDGET=900,HMAX=1,KEY=$ONEPUSH_KEY,HZ_CKPT=${HZ[$sd]},NOHZ_CKPT=${NOHZ[$sd]},RNG_SEED=${RNG[$sd]},NAMO_REPO=$REPO" \
     scripts/amarel/time_bestfirst_shard.slurm | sed "s/^/  1push $sd -> /"
 done
 echo "launched 6 arrays (3 seeds x 2 push, full set, budget 900, random rng 7/8/9)"
