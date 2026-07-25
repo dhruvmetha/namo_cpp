@@ -13,7 +13,7 @@ The canonical eval distribution. Answer keys (which episodes + difficulty), veri
 | **1push manifest** | `datasets/namo_testset_v1/labels/onepush_episodes.json` | 991 xml / **1323 episodes** | 1-push answer key (`valid`/`tried`/`solve_rate`). Consumed by `eval_scorer.py`, `time_bestfirst.py`. |
 | **2push manifest** | `datasets/namo_testset_v1/labels/pure2push.json` | 983 xml / **1018 episodes** | genuine-2push answer key (1push-unsolvable ∧ 2push-solvable). Consumed by `eval_bestfirst.py` (`--key`). |
 | **2push tiers** | `datasets/namo_testset_v1/labels/pure2push_divisions.json` | same 1018 + `division` | difficulty by solve_rate: **easy 238 / medium 409 / hard 371**. THE tier source (join by xml,object,region). |
-| combined view | `datasets/namo_testset_v1/labels/twopush.json` | 2341 episodes | union of 1push+2push; used by `derive_onepush_from_2push.py`, `summarize_2push.py`. |
+| **SOURCE (root)** | `datasets/namo_testset_v1/labels/twopush.json` | 2341 episodes | the **one depth-2 exhaustive collection pass** (`build_2push_validset.py → twopush.json`, keyed by realpath). `onepush_episodes.json` and `pure2push.json` are **DERIVED from this** (via `derive_onepush_from_2push.py`). This is the master; the two above are the consumed splits. Also read by `summarize_2push.py`. |
 
 **INVARIANT:** the unit is per **(xml, object, region)** region-opening instance, never per room. One xml holds many instances with different tiers.
 
@@ -26,8 +26,7 @@ The solve@k/sims eval uses the **live simulator** as verifier, NOT these. These 
 | artifact | path | size | what it is | ⚠ |
 |---|---|---|---|---|
 | **canonical 2push GT** | `curriculum2/beast/round2/h5/testset_gt.h5` | 66,456 nodes / **1117 roots** | REF full-exhaustive root+finish sweep on the canonical set. EVAL-ONLY, never train. | Covers **981/1018** manifest episodes — see alignment below. |
-| aligned-981 manifest | `datasets/namo_testset_v1/labels/pure2push_aligned981.json` | 981 episodes | pure2push.json ∩ testset_gt roots. Use this when an analysis needs BOTH manifest + exhaustive GT. |
-| alignment sidecar | `datasets/namo_testset_v1/labels/pure2push_gt_alignment.json` | — | records the 981 aligned keys, the **37 manifest episodes with no GT**, and the **136 GT roots not in the manifest** (92 are 1push-solvable). |
+The manifest↔GT alignment is the TRUTH below (not a file — the derived aligned artifacts were archived to `deprecated/`; this text is the record).
 
 **testset_gt.h5 ↔ pure2push mismatch (investigated 2026-07-25):** benign build-version drift, NOT corruption. testset_gt.h5 (Jul 21) rooted a slightly different per-scene object set than pure2push.json (Jun 10). 37 manifest episodes lack a GT root (mostly scenes where the sweep rooted fewer objects — the missing ones are above-average-solvable, not marginal); 136 GT roots aren't in the manifest (92 are 1push-solvable, correctly excluded from the *pure*-2push manifest). The sweep is exhaustively-correct on the 981 it rooted. Decision: **align by intersection (981)** — did NOT re-sweep (data not in doubt). To make GT 1:1 with the manifest later: re-run the sweep keyed to pure2push.json's object list.
 
@@ -44,7 +43,9 @@ The solve@k/sims eval uses the **live simulator** as verifier, NOT these. These 
 | artifact | why deprecated |
 |---|---|
 | `pure2push_HARD.json` | byte-identical to the `division=="hard"` slice of `pure2push_divisions.json`. Use the divisions file. |
-| `onepush_HARD.json` | undocumented derived tertile view (442/1323); not in the testset README. Derive from the manifest if needed. |
+| `onepush_HARD.json` | undocumented derived tertile view (442/1323); not in the testset README. |
+| `pure2push_aligned981.json` | pure2push.json filtered to the 981 GT-covered episodes — derived; alignment recorded above. |
+| `pure2push_gt_alignment.json` | the 981/37/136 diff map — derived; alignment recorded above. |
 
 (Historical `v3_test_validsets.json` — already gone; README still warns about it: had no `object_center`, not what `eval_scorer.py` consumes.)
 
