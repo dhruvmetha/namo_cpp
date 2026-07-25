@@ -123,3 +123,11 @@ Five finish-phase patience arms targeting the 48-sim post-setup term, all paired
 **Verdict 3 — baseline symmetry holds, margin intact.** Random also gains (solve 89.9→93.6, hard +8.4; s2s −15%) — as predicted it benefits, and MORE in solve-rate. But the ranker's margin within the discount column stays decisive: 3.3× fewer sims-to-solve (30 vs 98), 6× @5 (49.7 vs 8.2).
 
 **Adopted deploy search: best-first + fitted-g failure discount** (`--discount fitted --gtable round3/eval/gfit/v2/fit/g_table.json`). Follow-ups queued for the next round: rerun hard1p_h2 + reactive under the new search; re-state parent-card headline numbers in the discount column; timed campaign on the adopted configuration; τ/tempered-conf arm only if the @5 dip matters for a deploy target. Eval outputs `round3/eval/discount_2push/*`; sbatch `run_discount_2push.sbatch`. Plot: `round3/eval/plots/success_vs_sims_discount.png` (anytime curves, all + hard, 5 arms).
+
+## Spun-out child: search DEPTH (2026-07-25)
+
+The depth question — does capping at `hmax=2` cost us, and is deeper viable — was run as a sibling experiment with the discount OFF, so the two search changes stay separable. **→ [EXP-2026-07-25-search-depth-horizon](EXP-2026-07-25-search-depth-horizon.md).**
+
+Headline: depth helps a RANDOM searcher substantially and the ranker not at all — at hmax≥3 the ranker falls BELOW random on solve@900 (hard 85.0 vs 87.8) because training contains no state deeper than one push. It relocates the "where does the model actually fail" question from calibration to horizon: this card's cross-board AUC 0.583 is measured at depth 1, and the child card shows the ranker's advantage evaporating entirely by depth 4.
+
+Consequence for THIS card: the adopted `conf τ=0.15` rule is validated only at `hmax=2`, and the fitted `g` was estimated on boards that were leaves. At hmax≥3 those boards become interior, where a failed sim is no longer evidence of deadness — the discount would need the composed form, not the fitted table. Do not carry the adopted rule to deeper search without refitting.
