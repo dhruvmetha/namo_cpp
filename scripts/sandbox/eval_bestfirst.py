@@ -34,6 +34,7 @@ from scorer_beam import BeamPlanner, make_env, make_action, read_manifest, FALLB
 from eval_m3 import rank_first_pushes_h2, sample_goal_points, goal_open_pts  # noqa: E402
 from namo.core.xml_goal_parser import extract_goal_with_fallback  # noqa: E402
 from namo.paths import MANIFESTS, DATASETS, SCRATCH  # noqa: E402
+from namo import eval_sets  # noqa: E402
 
 PURE2PUSH = str(MANIFESTS / "test_pure2_fromkey.txt")
 
@@ -179,7 +180,7 @@ def main():
                     help="child board starting credibility: one=1.0 (default) | v=board value V (model prior)")
     ap.add_argument("--free-strike-q", type=float, default=2.0,
                     help="boards reached via a setup with q >= this get 1 free strike (2.0 = disabled)")
-    ap.add_argument("--key", default=str(DATASETS / "namo_testset_v1/labels/pure2push.json"),
+    ap.add_argument("--key", default=str(eval_sets.PURE2PUSH),
                     help="key: {xml: [ {object_id, region, ...} ]}. Search restricted to object_id per record.")
     ap.add_argument("--seed-base", type=int, default=7000,
                     help="RNG base for the uniform baseline; model is deterministic so only matters for --prior uniform.")
