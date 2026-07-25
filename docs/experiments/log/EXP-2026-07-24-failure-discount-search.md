@@ -74,6 +74,16 @@ Re-ran the attribution tracer under the adopted search (tracer ported to the dis
 
 **Next experiments this motivates (cheap, one sweep each, not yet run):** (a) `conf` mode — demote proportional to the FAILED candidate's score (a low-scored miss should barely dent a board), already implemented; (b) asymmetric patience — exempt or floor the board reached via a high-V setup; (c) the cap-1-then-requeue ablation to separate first-pass benching from graded revisits.
 
+## GT model-error diagnosis (2026-07-24, exhaustive testset_gt.h5 — replaces two withdrawn analyses)
+
+Scored the deploy ckpt over the exhaustive root+finish GT (66,456 nodes, 982 scenes; sanity anchor: labeled-only hard rank 17.37 reproduces the trace's 17.6). Full tables + provenance: `round3/eval/gt_model_errors/REPORT.md`. Random-permutation reference rows in every table.
+
+- **The "hard setup placement problem" was a LABEL ARTIFACT.** Against exhaustive truth the model ranks a true setup at hard median rank 2 / mean 7.2 / hit@1 **46.8%** (3× random 15.6) — the labeled-only view (mean 17.4, hit@1 15.8 ≈ random) understated it 2.4× because valid_first_push is completion-sampled.
+- **Within-board finish ranking is excellent and tier-flat:** best true finish at median rank 1, hit@1 65–72% (5× random). Not the failure.
+- **The real failure is CROSS-BOARD calibration:** on hard, the median dead post-push board's top cell (0.675) outscores the median root's best true setup (0.632) — root-vs-dead AUC **0.47, below chance**; ~29 dead boards per hard episode outscore the median true setup. This is precisely the queue-flooding driver the discount search patches empirically. True live-board rate 28% all / 14% hard (the earlier train-side 0.62% was a selection artifact); board-level live/dead AUC only 0.75–0.77 against a 6:1 dead majority on hard.
+- Second-order: setup-quality ordering weak (Spearman ~0.25 vs child n_win).
+- **Model-side implication:** the next training target is score comparability across boards / confident-dead suppression (board-level calibration or a live-board term), NOT more within-board ranking pressure — the last several loss experiments pushed on the part that is already strong. The discount search is the empirical stand-in for exactly the missing signal.
+
 ## Result — grid complete (188650, testset pure2push 1018, budget 900, paired vs reused static column)
 
 | arm | solve@900 | s2s | @2 | @5 | @10 | @30 | hard: solve / s2s / @30 |
