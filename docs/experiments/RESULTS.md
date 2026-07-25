@@ -146,3 +146,33 @@ The single-seed "regression" was eval-sim noise. Paired 3 control (opener-only, 
 | 2p hard avg sims | 151.0 | 132.4 | **−18.6** |
 
 **WIN — recommend default.** 2push improves on every tier/budget with hard-2push seed ranges NON-overlapping; 1push flat within a ~5pt per-arm seed spread. The v1/v2/v3 single-seed hard-1push dips were noise. Loss `opener 0.10 + lower-exact 0.05` recommended as the default ranking-aux; Colossus flip staged for user (live-run timing).
+
+## 2026-07-24 — Failure-discount best-first ADOPTED (card EXP-2026-07-24-failure-discount-search)
+
+Per-board credibility `w` demoted by verified failed sims on that board (root frozen, floor ε, lazy stale-reinsert). Frozen ranker, search-only change. Testset pure2push 1018, budget 900, paired vs the reused static column.
+
+| arm | solve@900 | sims-to-solve | @30 | hard solve / s2s |
+|---|--:|--:|--:|---|
+| static | 97.5 | 46.0 | 74.4 | 94.1 / 74.3 |
+| fitted-g | 98.0 | 30.0 | 81.6 | 95.4 / 50.5 |
+| **conf τ=0.15** | **98.1** | **27.8** | **82.6** | **95.7 / 47.0** |
+| random static | 89.9 | 115.6 | 37.6 | 76.5 / 179.3 |
+
+**ADOPT `--discount conf --tau 0.15`** — sims-to-solve −40% overall with solve@900 up on every tier. Fitted g remains the calibration reference. User hypothesis (fitted > γ) NOT confirmed at equal calibration — the measurement was the value, not the functional form. Cap-1 ablation confirms graded return is load-bearing for solve: bench, never bury.
+
+## 2026-07-25 — Search depth vs label horizon: the ranker's value is horizon-local (card EXP-2026-07-25-search-depth-horizon)
+
+{model, random} × hmax {2,3,4}, discount OFF, 180 paired episodes (60/tier), budget 900. Random = 3 seeds. hmax=2 controls reused (both reproduce their parent rows exactly). Model on ilab, random on Amarel; `eval_bestfirst.py` md5-matched across boxes, no C++ delta.
+
+| hard tier | @5 | @30 | @100 | solve@900 |
+|---|--:|--:|--:|--:|
+| model h2 | 31.7 | 60.0 | 68.3 | **98.3** |
+| model h3 | 40.0 | 63.3 | 76.7 | 85.0 |
+| model h4 | 36.7 | 58.3 | 71.7 | 78.3 |
+| random h2 | 4.4 | 16.7 | 37.8 | 73.9 ±6.8 |
+| random h3 | 6.1 | 35.0 | 62.2 | **87.8** ±1.6 |
+| random h4 | 10.0 | 48.9 | 67.8 | 85.6 ±2.1 |
+
+**Depth helps RANDOM, not the model.** Random climbs monotonically (hard @30 16.7→35.0→48.9); the model does not (60.0→63.3→58.3). **At hmax≥3 the ranker falls below random on solve@900** (hard 85.0 vs 87.8; 78.3 vs 85.6); its @30 margin collapses 3.6×→1.8×→1.19×. Model still dominates tight budgets at every depth (hard @5 36.7 vs 10.0 at h4). All failures were budget exhaustion, ZERO queue exhaustion — a ranking failure, not a combinatorial wall.
+
+**Cause (verified):** training nodes are `{root, depth2}` only — no supervision past one push. Plus 48.1% of supervised cells carry only a one-sided ceiling and **0.0% of exact cells are 0**, so there is no downward gradient anywhere on the ranked action space. Dead finish boards are only 46.1% full sweeps, so the 0.81 ceiling is "tried nearly all and failed", not proof.
