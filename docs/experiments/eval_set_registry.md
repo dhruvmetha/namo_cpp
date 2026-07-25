@@ -10,7 +10,7 @@ All paths under `/common/users/dm1487/scratch_namo/`.
 - Python: `from namo import eval_sets` → `eval_sets.PURE2PUSH` / `.ONEPUSH` / `.DIVISIONS` / `.TWOPUSH_SOURCE` / `.TWOPUSH_GT_H5` (resolved absolute Paths, box-portable via `namo.paths`).
 - Shell/slurm: `python -m namo.eval_sets pure2push_manifest` prints the resolved path; `--list` prints all names.
 - Guard: `python/tests/test_eval_sets.py` asserts every path resolves to an existing file with the expected counts (1323 / 1018 / 238·409·371 / 2341 / 66,456). Run it before trusting a config edit.
-- Migrated: all committed eval entrypoints + agg + slurm launchers. Not yet migrated: `scripts/sandbox/eval_bestfirst.py` (`--key` default still literal — but slurm passes the resolved `--key`, so runs are single-sourced; carries unrelated in-progress `--discount` work, left for its owner).
+- Migrated: **all** committed eval entrypoints (incl. `eval_bestfirst.py` / `time_bestfirst.py`) + agg scripts + slurm launchers. No committed eval code hardcodes a `namo_testset_v1/labels` path any more.
 
 ## Canonical test manifests (testset_v1) — USE THESE
 
