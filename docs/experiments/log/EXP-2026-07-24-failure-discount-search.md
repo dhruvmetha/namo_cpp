@@ -84,6 +84,28 @@ Scored the deploy ckpt over the exhaustive root+finish GT (66,456 nodes, 982 sce
 - Second-order: setup-quality ordering weak (Spearman ~0.25 vs child n_win).
 - **Model-side implication:** the next training target is score comparability across boards / confident-dead suppression (board-level calibration or a live-board term), NOT more within-board ranking pressure — the last several loss experiments pushed on the part that is already strong. The discount search is the empirical stand-in for exactly the missing signal.
 
+## Patience arms (2026-07-24 evening, job 189016, user-authorized AFK drive) — NEW WINNER: conf τ=0.15
+
+Five finish-phase patience arms targeting the 48-sim post-setup term, all paired on the same 1018 episodes vs the adopted fitted-g (30.0 s2s / 98.0 solve). Regression gate: default flags bit-match the adopted run.
+
+| arm | solve@900 | s2s | @30 | hard: solve / s2s / @5 |
+|---|--:|--:|--:|---|
+| static | 97.5 | 46.0 | 74.4 | 94.1 / 74.3 / 42.0 |
+| fitted-g (adopted) | 98.0 | 30.0 | 81.6 | 95.4 / 50.5 / 38.3 |
+| **conf τ=0.15** | **98.1** | **27.8** | **82.6** | **95.7 / 47.0 / 38.8** |
+| conf τ=0.30 | 98.1 | 31.9 | 81.6 | 95.7 / 54.7 / 38.3 |
+| V-prior (w0=V) | 98.3 | 79.9 | 16.4 | 96.0 / 89.7 / 1.1 |
+| free-strike q≥0.85 | 98.0 | 30.0 | 81.6 | 95.4 / 50.5 / 38.3 |
+| cap-1 (γ≈0) | 97.1 | 29.0 | 81.6 | 93.8 / 49.3 / 38.3 |
+
+- **conf τ=0.15 strictly dominates fitted-g** (s2s −2.2 all / −3.5 hard, solve +0.1, @30 +1.0, @5 no worse) → **new recommended deploy search**. Notably τ=0.15 is the Bayes-matched temperature derived BEFORE the g fit (predicted τ≈0.15–0.2 from hit@1 calibration) — confidence-weighted demotion works once tempered; raw 1−q (τ=1) would over-demote exactly as predicted. τ=0.30 too gentle (hard s2s regresses).
+- **V-prior FALSIFIED as implemented:** w0=V demotes ALL children ~uniformly below the root list (V doesn't separate boards enough), destroying dive behavior — tight budgets collapse (@5 0.5) even though solve@900 is best (98.3, pure breadth). A useful V-prior needs the CALIBRATED board value (the model-side lever), not raw mean-top5.
+- **free-strike q≥0.85 inert** — hard-tier setup scores rarely reach 0.85, the exemption never triggered; identical output to fitted-g. Threshold would need to be score-relative.
+- **cap-1 confirms graded return is load-bearing for SOLVE:** s2s fine (29.0) but solve drops below static (97.1; hard 93.8) — killing benched boards outright loses episodes whose winner sits deep. Bench, never bury.
+- Plots: `round3/eval/plots/success_vs_sims_patience_arms.png`, `search_arc_s2s_bytier.png`.
+
+**Adopted deploy search (updated): best-first + conf τ=0.15 discount** (`--discount conf --tau 0.15`). The fitted g_table remains the calibration REFERENCE (and the random arm's machinery); conf τ=0.15 is the runtime rule.
+
 ## Result — grid complete (188650, testset pure2push 1018, budget 900, paired vs reused static column)
 
 | arm | solve@900 | s2s | @2 | @5 | @10 | @30 | hard: solve / s2s / @30 |
