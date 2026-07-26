@@ -1,8 +1,10 @@
 #!/bin/bash
 # Step-0 "mean_top5" first-push-value eval on the CLEAN pure-2-push set (namo_testset_v1).
 # Per first-push a1: sim s0->s1, score s1, log first-push-value SCALARS (mean_top5, maxP, ...) + edge1/depth1.
-# Graded POST-HOC vs the exhaustive F1' (labels/pure2push.json) by aggregate_fpv_vs_f1prime.py — NOT the
-# beam's budget-limited good/dead label. Reuses scripts/sandbox/diag_leaf_s1.py (no fork).
+# RETIRED grading note: this was graded POST-HOC against labels/pure2push.json's F1' by
+# aggregate_fpv_vs_f1prime.py, which was deleted 2026-07-26 — that key is NOT exhaustive (median 4 good
+# first pushes per episode vs 11 in testset_gt.h5), so it understates the model. Grade against
+# testset_gt.h5 via scripts/eval_auc.py instead. Reuses scripts/sandbox/diag_leaf_s1.py (no fork).
 # Pinned settings: collisions-allowed + target-region-goal.
 #SBATCH --job-name=fpv-clean
 #SBATCH --partition=main-redhat
