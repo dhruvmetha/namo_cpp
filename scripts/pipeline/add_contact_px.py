@@ -71,8 +71,11 @@ def main():
         if key not in pose:
             miss += 1; cpx[i] = 32.0; continue   # center fallback (should not happen)
         th, hw, hd, cm = pose[key]
+        offs = contact_offsets_world(hw, hd, th)  # hoisted: same for all 60 edges of this row
+        res = cm / 64; cx = 64 / 2.0
         for e in range(60):
-            cpx[i, e] = contact_px(e, hw, hd, th, cm)
+            wx, wy = offs[e]
+            cpx[i, e] = (cx + wx / res, cx + wy / res)
     if "contact_px" in d:
         del d["contact_px"]
     d.create_dataset("contact_px", data=cpx, compression="lzf")

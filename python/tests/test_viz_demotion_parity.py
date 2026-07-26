@@ -1,9 +1,12 @@
 """Pins `_update_w_on_fail` (scripts/sandbox/eval_bestfirst.py) -- the per-board weight demotion rule that
 viz/search/app.js's `demote()` reimplements in JavaScript to replay a recorded search's queue order.
 
-This is the PYTHON reference: app.js has no test runner of its own, so the JS is verified at runtime instead
-(verifyReconstruction() vs every recorded pop) and PINNED here by exercising the generator's own function
-directly, so a future change to the demotion rule cannot drift between the two implementations unnoticed.
+This is the PYTHON reference only: these tests pin the Python implementation's behavior over time, they do
+NOT cross-check it against app.js's `demote()`. The page's own runtime guard (verifyReconstruction() vs every
+recorded pop) is the only thing that exercises the JS side, and only for whichever single discount mode a
+given recorded trace actually used -- currently just one of the four ("off"/"gamma"/"conf"/"fitted") -- so a
+JS-side drift in an untested discount mode on a trace that never uses it would NOT be caught by either of
+these.
 
 Direct import of eval_bestfirst.py (not a copy/reimplementation) -- it turned out importable without pulling
 in the simulator: its own top-of-file sys.path setup is enough, no MJ_PATH/build_python bindings were touched

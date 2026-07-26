@@ -540,13 +540,19 @@ async function init() {
   }
   const [model, strategy] = arm.split("|");
 
-  const manifest = await (await fetch("manifest.json")).json();
-  const row = manifest.index[arm].find((r) => r.key === key);
+  let manifest, row, trace, gt;
+  try {
+    manifest = await (await fetch("manifest.json")).json();
+    row = manifest.index[arm].find((r) => r.key === key);
+    trace = await (await fetch(`trace/${model}/${strategy}/${key}.json`)).json();
+    gt = row.has_gt ? await (await fetch(`gt/${key}.json`)).json() : null;
+  } catch (err) {
+    header.textContent = `Failed to load episode data: ${err}`;
+    return;
+  }
   state.manifestRow = row;
-
-  const trace = await (await fetch(`trace/${model}/${strategy}/${key}.json`)).json();
   state.trace = trace;
-  state.gt = row.has_gt ? await (await fetch(`gt/${key}.json`)).json() : null;
+  state.gt = gt;
 
   document.getElementById("no-gt-banner").style.display = state.gt ? "none" : "";
 
