@@ -34,6 +34,33 @@ The solve@k/sims eval uses the **live simulator** as verifier, NOT these. These 
 | artifact | path | size | what it is | ⚠ |
 |---|---|---|---|---|
 | **canonical 2push GT** | `curriculum2/beast/round2/h5/testset_gt.h5` | 66,456 nodes / **1117 roots** | REF full-exhaustive root+finish sweep on the canonical set. EVAL-ONLY, never train. | Covers **981/1018** manifest episodes — see alignment below. |
+
+**testset_gt.h5 schema** (verified 2026-07-26 by opening the file):
+```
+chain_depth       (N,)         int8
+contact_px        (N,60,2)     f32
+ctx               (N,5,64,64)  f16
+edges_agree       (N,)         int8
+f_grid            (N,60,5)     f32
+is_solution_node  (N,)         int8
+n_reach_edges     (N,)         int32
+n_tried           (N,)         int32
+n_win             (N,)         int32
+node_kind         (N,)         str   in {root, depth2, depth2_noop}
+object_id         (N,)         str
+parent_depth      (N,)         int16
+parent_edge       (N,)         int16
+r_mask            (N,60,5)     f32
+value_mask        (N,60,5)     f32
+value_target      (N,60,5)     f32
+robot_goal        (N,3)        f32
+setup_moved       (N,)         int8
+xml               (N,)         str
+```
+Row counts by `node_kind`: root=1117, depth2=49622, depth2_noop=15717.
+Join keys: a root row is identified by `(xml, object_id)`; a finish state (depth2 or depth2_noop) is identified by `(xml, object_id, parent_edge, parent_depth)`.
+This file carries **no `ceiling_mask` dataset** — so its `0` cells are hard zeros from an exhaustive sweep, not ceiling-optimistic placeholders (contrast with H5s that do carry a ceiling_mask, where `0` can just mean "not swept").
+
 The manifest↔GT alignment is the TRUTH below (not a file — the derived aligned artifacts were archived to `deprecated/`; this text is the record).
 
 **testset_gt.h5 ↔ pure2push mismatch (investigated 2026-07-25):** benign build-version drift, NOT corruption. testset_gt.h5 (Jul 21) rooted a slightly different per-scene object set than pure2push.json (Jun 10). 37 manifest episodes lack a GT root (mostly scenes where the sweep rooted fewer objects — the missing ones are above-average-solvable, not marginal); 136 GT roots aren't in the manifest (92 are 1push-solvable, correctly excluded from the *pure*-2push manifest). The sweep is exhaustively-correct on the 981 it rooted. Decision: **align by intersection (981)** — did NOT re-sweep (data not in doubt). To make GT 1:1 with the manifest later: re-run the sweep keyed to pure2push.json's object list.
