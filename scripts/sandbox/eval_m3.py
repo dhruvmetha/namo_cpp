@@ -52,19 +52,24 @@ def goal_open_pts(env, pts, frac=0.2):
     return rc >= max(1, math.ceil(frac * len(pts)))
 
 
-def rank_first_pushes_h2(planner, env, robot_goal, xml, s0, h, restrict_obj=None, score=True, raw=False):
+def rank_first_pushes_h2(planner, env, robot_goal, xml, s0, h, restrict_obj=None, score=True, raw=False,
+                          return_grid=False):
     """Rank reachable (obj, edge, depth) first pushes by Q(s0, ., h). ZERO sims.
     Returns [(obj, Goal, value)] sorted desc. restrict_obj (per-episode invariant): if set, consider ONLY
     that object — the search must push the LABELED blocking object, so it's the true k-push problem on it
     (not 'open the path via any object'). Mirrors BeamPlanner._candidates' reachability pooling at budget h.
     score=False: skip the model forward pass entirely, return q=0.0 for every candidate (the RANDOM baseline
-    must not touch the model — same candidate SET, no scores; caller assigns random priority)."""
+    must not touch the model — same candidate SET, no scores; caller assigns random priority).
+    return_grid (default False, opt-in — existing callers' return shape is unaffected): also return the last
+    computed (60,5) score grid P as a plain nested list (None if score=False or no object was scored) — lets
+    callers that need the grid (e.g. a search trace) reuse this pass instead of paying a second forward one."""
     env.set_full_state(s0)
     reach_objs = list(env.get_reachable_objects())          # warms wavefront
     if restrict_obj is not None:
         reach_objs = [o for o in reach_objs if o == restrict_obj]   # ONLY the labeled object
     redges = {o: set(env.get_reachable_edges(o)) for o in reach_objs}
     pool = []
+    grid = None
     for obj in reach_objs:
         if not redges[obj]:
             continue
@@ -72,6 +77,8 @@ def rank_first_pushes_h2(planner, env, robot_goal, xml, s0, h, restrict_obj=None
             P = planner.scorer.score_state(env, obj, robot_goal, xml, h=h, raw=raw)   # (60,5) at budget h
             env.set_full_state(s0)                                            # score_state may move state
             ndepth = P.shape[1]
+            if return_grid:
+                grid = P.tolist()
         else:
             P = None; ndepth = 5                                              # uniform baseline: no model call
         goals_per_edge = planner.prim.generate_goals(obj, s0, env, max_goals=0)
@@ -83,6 +90,8 @@ def rank_first_pushes_h2(planner, env, robot_goal, xml, s0, h, restrict_obj=None
                 if e in redges[obj] and 0 <= d < ndepth:
                     pool.append((obj, g, float(P[e, d]) if score else 0.0))
     pool.sort(key=lambda x: -x[2])
+    if return_grid:
+        return pool, grid
     return pool
 
 

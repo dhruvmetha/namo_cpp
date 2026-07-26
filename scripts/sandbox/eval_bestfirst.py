@@ -41,19 +41,26 @@ from viz.trace_schema import build_trace, episode_filename, make_board, make_pop
 PURE2PUSH = str(MANIFESTS / "test_pure2_fromkey.txt")
 
 
-def candidates(planner, env, goal, xml, state, h, prior, agg, rng, restrict_obj=None, raw=False):
+def candidates(planner, env, goal, xml, state, h, prior, agg, rng, restrict_obj=None, raw=False, want_grid=False):
     """Reachable pushes from `state` (restricted to restrict_obj = the labeled object) with a priority-base
-    value + the state value V. model: q = Q(state,a,h); V = agg of top Q (mean5 robust, or max). uniform: random q, V=0."""
-    pool = rank_first_pushes_h2(planner, env, goal, xml, state, h, restrict_obj=restrict_obj,
-                                score=(prior != "uniform"), raw=raw)          # uniform: skip the model forward pass
+    value + the state value V. model: q = Q(state,a,h); V = agg of top Q (mean5 robust, or max). uniform: random q, V=0.
+    want_grid (viz only, default False = no extra cost): also return the model's (60,5) score grid for `state`,
+    reusing the forward pass rank_first_pushes_h2 already made — None when prior=uniform or the pool is empty."""
+    if want_grid:
+        pool, grid = rank_first_pushes_h2(planner, env, goal, xml, state, h, restrict_obj=restrict_obj,
+                                          score=(prior != "uniform"), raw=raw, return_grid=True)
+    else:
+        pool = rank_first_pushes_h2(planner, env, goal, xml, state, h, restrict_obj=restrict_obj,
+                                    score=(prior != "uniform"), raw=raw)      # uniform: skip the model forward pass
+        grid = None
     if not pool:
-        return [], 0.0
+        return [], 0.0, None
     if prior == "uniform":
         out = [(o, g, rng.random()) for (o, g, _q) in pool]
-        return out, 0.0                                              # no state value for the random baseline
+        return out, 0.0, grid                                        # no state value for the random baseline (grid is None)
     qs = sorted((q for (_o, _g, q) in pool), reverse=True)
     V = (sum(qs[:5]) / min(5, len(qs))) if agg == "mean5" else qs[0]
-    return pool, V
+    return pool, V, grid
 
 
 def priority(q, V, combine):
@@ -116,14 +123,9 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
     def trace_rows(cand):                                          # every candidate of a board, popped or not
         return [{"obj": o, "edge": int(g.edge_idx), "depth": int(g.depth), "q": float(q)} for (o, g, q) in cand]
 
-    def trace_grid(state, h):
-        grid = planner.scorer.score_state(env, restrict_obj, goal, xml, h=h, raw=raw).tolist()
-        env.set_full_state(state)                                  # score_state may move the state (eval_m3.py:73)
-        return grid
-
-    pool, V0 = candidates(planner, env, goal, xml, s0, hmax, prior, agg, rng, restrict_obj=restrict_obj, raw=raw)
-    root = new_board(0, len(pool), pool_rows=(trace_rows(pool) if tracing else None),
-                     grid=(trace_grid(s0, hmax) if tracing and pool and prior != "uniform" else None))
+    pool, V0, grid0 = candidates(planner, env, goal, xml, s0, hmax, prior, agg, rng, restrict_obj=restrict_obj,
+                                 raw=raw, want_grid=tracing)
+    root = new_board(0, len(pool), pool_rows=(trace_rows(pool) if tracing else None), grid=grid0)
     for (obj, g, q) in pool:                              # roots: ndone=0
         push({"obj": obj, "g": g, "from": s0, "ndone": 0, "plan": [(obj, g)], "q": q},
              priority(q, V0, combine), root)
@@ -147,14 +149,15 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
         if ndone < hmax:                                  # room for another push -> expand the reached state
             s_new = env.get_full_state()
             h = hmax - ndone
-            pool2, V = candidates(planner, env, goal, xml, s_new, h, prior, agg, rng,
-                                  restrict_obj=restrict_obj, raw=raw)
+            pool2, V, grid2 = candidates(planner, env, goal, xml, s_new, h, prior, agg, rng,
+                                         restrict_obj=restrict_obj, raw=raw, want_grid=tracing)
             child = new_board(ndone, len(pool2),
                               w0=(V if w0_mode == "v" else 1.0),
                               free_strikes=(1 if float(it["q"]) >= free_strike_q else 0),
-                              parent_edge=int(it["g"].edge_idx), parent_depth=int(it["g"].depth),
+                              parent_edge=(int(it["g"].edge_idx) if tracing else -1),
+                              parent_depth=(int(it["g"].depth) if tracing else -1),
                               pool_rows=(trace_rows(pool2) if tracing else None),
-                              grid=(trace_grid(s_new, h) if tracing and pool2 and prior != "uniform" else None))
+                              grid=grid2)
             for (obj2, g2, q2) in pool2:                  # children: +dive_bonus*ndone bias (kept for parity)
                 push({"obj": obj2, "g": g2, "from": s_new, "ndone": ndone,
                       "plan": it["plan"] + [(obj2, g2)], "q": q2},
