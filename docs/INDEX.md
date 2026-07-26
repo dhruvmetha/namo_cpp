@@ -63,6 +63,7 @@ The active work now lives in experiment **cards** ([`experiments/log/`](experime
 - [`horizon_q_build_journal.md`](experiments/horizon_q_build_journal.md) — pre-redesign empirical record (v2/v3/v4, ExIt); §9 log. `[FROZEN]` — evidence archive; active log is `horizon_q_redesign_execution.md`.
 - [`multipush_horizonQ_journal.md`](experiments/multipush_horizonQ_journal.md) — multi-push / horizon-Q design spec ledger (37 decisions); self-parked 2026-06-10. `[FROZEN]`
 - [`horizon_q_model_registry.md`](experiments/horizon_q_model_registry.md) — authoritative model / ckpt / headline-number catalog. `[HUB]` — read for paths, never glob.
+- [`auc_metrics_reconciliation.md`](experiments/auc_metrics_reconciliation.md) — **read before quoting ANY "setup-vs-dead AUC"**: seven distinct metrics shared the name; variant table + which numbers are retired. `[REF]` `[LIVE]`
 - [`horizon_q_related_work.md`](experiments/horizon_q_related_work.md) — related-work / novelty positioning. `[REF]`
 - [`policy_value_search_hypothesis.md`](experiments/policy_value_search_hypothesis.md) — newest (2026-07-01) falsifiable π+V split hypothesis (NOT committed). `[REF]`
 

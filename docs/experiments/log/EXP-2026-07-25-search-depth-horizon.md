@@ -77,6 +77,8 @@ Verified on the deploy training set `round3/h5/d20_plus_setup_only.h5` (sampled 
 
 Consistent prior evidence (parent card): within-board ranking is strong (hard setup hit@1 ~47–50%, hard finish hit@1 ~63–66%, both 3–5× random) while cross-board comparability is weak (root-setup-vs-dead AUC 0.583).
 
+> **⚠ CORRECTION 2026-07-26 — the `0.583` anchor is retired; see [`auc_metrics_reconciliation.md`](../auc_metrics_reconciliation.md).** It does not reproduce (the same setup-cell-vs-moved-dead-board-max construction gives hard **0.515**; unrestricted it is the 07-24 REPORT's 0.469). The *conclusion* survives but the *mechanism* is narrower than "the model can't compare boards": setup cell vs a random dead post-push **cell** is **0.892 all / 0.864 hard** — per cell the model is fine. It only loses to the dead board's **max**, and a dead board offers ~70 draws. So the weakness is a right-tail / order-statistic problem, and the cross-board claim must be quoted as such. Also corrected: root setup separation is **tier-flat** (V1 0.809/0.825/0.814), not hard-degraded — the old tier slope was a `valid_first_push` label artifact.
+
 ## The design tension this exposes [USER framing, 2026-07-25]
 
 The γ-ladder (1.0 opener / 0.9 setup / 0.9 dead-finish / 0.81 dead-root) is the semantics of an **unbounded-horizon** value: 0.81 = γ² means "provably not 1 or 2, could still open at 3+." The deployed search is **fixed-horizon**. Under `hmax=2` that reserved value can never be cashed, and the model is never taught to evaluate the future it is reserving it for.

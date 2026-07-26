@@ -284,7 +284,8 @@ Solve@1 by fixed-cut tier on held-out `namo_testset_v1` (1,323 eps; hard 204 / m
 | 2p @2 / @30 | 32.4 / 69.4 | 28.7 / 68.7 | 28.8 / **71.4** | 24.3 / 67.4 |
 | hardh2 solve / s2s | 98.0 / 8.5 | 100.0 / 11.8 | 99.0 / 8.0 | 99.5 / 9.3 |
 
-**Scoring (dead-bank GT uncensored | testset_v1):** setup-vs-dead AUC r1-clean 0.876|0.716 → armA 0.913|0.720, armB **0.921**|0.733. opener-vs-dead (post-setup) 0.860 → **0.962**(A)/0.952(B); testset opener-vs-dead 0.956 → **0.984**(A). **H7 true recall@20 (exhausted win boards): r1-clean 67.0% → armA 90.6%, armB 86.9%.** Medians shifted far down (dead flood recalibration: setup 0.61→0.13-0.21, dead 0.24→0.03) with deploy INTACT — ordering is what deploy consumes, confirmed empirically.
+**Scoring (dead-bank GT uncensored | testset_v1):** setup-vs-dead AUC r1-clean 0.876|0.716 → armA 0.913|0.720, armB **0.921**|0.733. opener-vs-dead (post-setup) 0.860 → **0.962**(A)/0.952(B); testset opener-vs-dead 0.956 → **0.984**(A). **H7 true recall@20 (exhausted win boards): r1-clean 67.0% → armA 90.6%, armB 86.9%.**
+> **⚠ NOTE 2026-07-26 — [`auc_metrics_reconciliation.md`](../auc_metrics_reconciliation.md):** the testset column here (0.716/0.720/0.733) is **doubly depressed** and should not be cited as "the testset wall" — positives are `valid_first_push` (completion-sampled, undercounts true setups ~2.4×) and negatives are **tried-only** cells (search-selected hard negatives). The exhaustive-GT number for the same family is the line-322 figure (0.745–0.799), continuing to 0.829 for the current deploy ckpt. The distribution-bound conclusion (dead-bank ≫ testset) is unaffected. Medians shifted far down (dead flood recalibration: setup 0.61→0.13-0.21, dead 0.24→0.03) with deploy INTACT — ordering is what deploy consumes, confirmed empirically.
 
 **H-verdicts (numbers only):**
 

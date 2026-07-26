@@ -37,7 +37,7 @@ Adding further models means dropping another trace directory in and appending on
 
 ## Data model
 
-Episode key is `(xml_realpath, object_id)` throughout — matching `pure2push.json`, which is nested `{xml_path: [episode_dict, ...]}` with `object_id` inside each episode dict. There is no separate episode id field. On disk that key becomes a filename as `<xml basename without extension>__<object_id>.json`; `manifest.json` holds the mapping back to the full realpath so nothing has to parse filenames.
+Episode key is `(xml_realpath, object_id)` throughout — matching `pure2push.json`, which is nested `{xml_path: [episode_dict, ...]}` with `object_id` inside each episode dict. There is no separate episode id field. On disk that key becomes a filename as `<xml basename without extension>__<object_id>__<first 8 hex of sha1(xml_realpath)>.json`. The hash is load-bearing, not decoration: XML basenames repeat across scene directories, so basename plus object id collides for 509 of the 1018 episodes (one name 17 ways). `manifest.json` holds the mapping back to the full realpath so nothing has to parse filenames.
 
 ### Ground truth is a badge, not a number
 

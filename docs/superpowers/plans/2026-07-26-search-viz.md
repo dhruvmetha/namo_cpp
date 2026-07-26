@@ -16,7 +16,7 @@
 - Never hardcode data paths. Use `namo.paths` (`SCRATCH`, `DATASETS`, `MANIFESTS`) and `namo.eval_sets`. Guard: `check_no_hardcoded_paths.sh`.
 - Markdown prose is one line per paragraph. No hard-wrapping sentences across source lines.
 - With `--trace-out` unset, `eval_bestfirst.py` must behave byte-identically to today. This is a gate, not an aspiration.
-- Episode key is `(xml_realpath, object_id)`. On disk: `<xml basename without extension>__<object_id>.json`.
+- Episode key is `(xml_realpath, object_id)`. On disk: `<xml stem>__<object_id>__<sha1(xml_realpath).hexdigest()[:8]>.json`. The hash is required — basenames repeat across scene directories and collide for 509 of the 1018 episodes.
 - Ground truth is a badge, never a number: `value_target == 1.0` is an opener, `== 0.9` is a setup, everything else is not green.
 
 ---
@@ -193,7 +193,7 @@ Pure functions describing what a trace file contains. No simulator, no model —
 **Interfaces:**
 - Consumes: nothing.
 - Produces:
-  - `episode_filename(xml_path: str, object_id: str) -> str` — `"<xml stem>__<object_id>.json"`.
+  - `episode_filename(xml_path: str, object_id: str) -> str` — `"<xml stem>__<object_id>__<sha1(os.path.realpath(xml_path)).hexdigest()[:8]>.json"`.
   - `make_board(board_id: int, depth: int, parent_edge: int, parent_depth: int, pool: list[dict], grid: list[list[float]] | None, w0: float, free_strikes: int) -> dict`. Each `pool` entry is `{"obj": str, "edge": int, "depth": int, "q": float}`. Root boards use `parent_edge = parent_depth = -1`.
   - `make_pop(t: int, board_id: int, obj: str, edge: int, depth: int, q: float, bp: float, w: float, opened: bool) -> dict` — includes the derived `"se": bp * w`.
   - `build_trace(meta: dict, scene: dict, boards: list[dict], pops: list[dict], result: dict) -> dict` — the top-level document, with a `"schema_version": 1` field.
@@ -213,8 +213,16 @@ from viz.trace_schema import build_trace, episode_filename, make_board, make_pop
 
 
 def test_episode_filename_uses_stem_and_object_id():
-    name = episode_filename("/scratch/x/run_0056/env_0056_pair_001.xml", "obstacle_7_movable")
-    assert name == "env_0056_pair_001__obstacle_7_movable.json"
+    import hashlib, os
+    p = "/scratch/x/run_0056/env_0056_pair_001.xml"
+    h = hashlib.sha1(os.path.realpath(p).encode()).hexdigest()[:8]
+    assert episode_filename(p, "obstacle_7_movable") == f"env_0056_pair_001__obstacle_7_movable__{h}.json"
+
+
+def test_episode_filename_disambiguates_same_basename_in_different_directories():
+    a = episode_filename("/scratch/x/run_1/env_0007_pair_001.xml", "obstacle_0_movable")
+    b = episode_filename("/scratch/x/run_2/env_0007_pair_001.xml", "obstacle_0_movable")
+    assert a != b
 
 
 def test_root_board_has_sentinel_parent():
@@ -849,7 +857,7 @@ def test_index_row_uses_the_root_board_ordering():
     assert row["rank_best_green"] == 2
     assert row["top1"] == "dead"
     assert row["tier"] == "hard" and row["has_gt"] is True
-    assert row["key"] == "a__o"
+    assert row["key"].startswith("a__o__")
 
 
 def test_index_row_without_gt_is_marked_and_has_no_rank():
