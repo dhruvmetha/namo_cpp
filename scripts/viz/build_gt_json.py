@@ -64,33 +64,38 @@ def build_episode_gt(h5, xml, object_id):
     return _build_doc(rows, kinds, vt, pe, pd)
 
 
+def build_all(h5, key, out_dir):
+    # index once: (realpath, object_id) -> row ids, so the pass is linear not quadratic
+    xmls = [os.path.realpath(_s(v)) for v in h5["xml"][:]]
+    objs = [_s(v) for v in h5["object_id"][:]]
+    kinds = [_s(v) for v in h5["node_kind"][:]]
+    vt, pe, pd = h5["value_target"], h5["parent_edge"][:], h5["parent_depth"][:]
+    by_ep = defaultdict(list)
+    for i in range(len(xmls)):
+        by_ep[(xmls[i], objs[i])].append(i)
+    covered, uncovered = 0, []
+    for xml, recs in key.items():
+        rp = os.path.realpath(xml)
+        for rec in recs:
+            oid = rec["object_id"]
+            rows = by_ep.get((rp, oid), [])
+            doc = _build_doc(rows, kinds, vt, pe, pd)
+            if doc is None:
+                uncovered.append([xml, oid])
+                continue
+            json.dump(doc, open(os.path.join(out_dir, episode_filename(xml, oid)), "w"))
+            covered += 1
+    return covered, uncovered
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out-dir", required=True)
     a = ap.parse_args()
     os.makedirs(a.out_dir, exist_ok=True)
     key = json.load(open(eval_sets.PURE2PUSH))
-    covered, uncovered = 0, []
     with h5py.File(eval_sets.TWOPUSH_GT_H5, "r") as f:
-        # index once: (realpath, object_id) -> row ids, so the pass is linear not quadratic
-        xmls = [os.path.realpath(_s(v)) for v in f["xml"][:]]
-        objs = [_s(v) for v in f["object_id"][:]]
-        kinds = [_s(v) for v in f["node_kind"][:]]
-        vt, pe, pd = f["value_target"], f["parent_edge"][:], f["parent_depth"][:]
-        by_ep = defaultdict(list)
-        for i in range(len(xmls)):
-            by_ep[(xmls[i], objs[i])].append(i)
-        for xml, recs in key.items():
-            rp = os.path.realpath(xml)
-            for rec in recs:
-                oid = rec["object_id"]
-                rows = by_ep.get((rp, oid), [])
-                doc = _build_doc(rows, kinds, vt, pe, pd)
-                if doc is None:
-                    uncovered.append([xml, oid])
-                    continue
-                json.dump(doc, open(os.path.join(a.out_dir, episode_filename(xml, oid)), "w"))
-                covered += 1
+        covered, uncovered = build_all(f, key, a.out_dir)
     json.dump({"covered": covered, "uncovered": uncovered},
               open(os.path.join(a.out_dir, "_coverage.json"), "w"))
     print(f"covered={covered} uncovered={len(uncovered)}")
