@@ -12,15 +12,33 @@ import h5py, numpy as np
 from namo.paths import H5
 
 
-def contact_px(edge, hw, hd, theta, crop_m, S=64):
+def _local_edge_point(edge, hw, hd):
     n = 15
     sl = lambda a, b, i: a + (b - a) * (i / (n - 1))
     if edge < 30:
         j = edge // 2; lx = sl(-hw, hw, j); ly = hd if edge % 2 == 0 else -hd
     else:
         k = (edge - 30) // 2; lx = hw if edge % 2 == 0 else -hw; ly = sl(-hd, hd, k)
+    return lx, ly
+
+
+def contact_offsets_world(hw, hd, theta):
+    """World-frame XY offsets (meters) from the object center for all 60 contact points.
+
+    Edge ordering is 4 faces x 15 points, matching generate_rectangular_edge_points in
+    src/skills/namo_push_controller.cpp. This is the single source of that ordering; the
+    pixel-space helper below is a thin wrapper over it."""
+    out = np.zeros((60, 2), np.float32)
     c, s = math.cos(theta), math.sin(theta)
-    wx = c * lx - s * ly; wy = s * lx + c * ly
+    for e in range(60):
+        lx, ly = _local_edge_point(e, hw, hd)
+        out[e, 0] = lx * c - ly * s
+        out[e, 1] = lx * s + ly * c
+    return out
+
+
+def contact_px(edge, hw, hd, theta, crop_m, S=64):
+    wx, wy = contact_offsets_world(hw, hd, theta)[edge]
     res = crop_m / S; cx = S / 2.0
     return cx + wx / res, cx + wy / res
 
