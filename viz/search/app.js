@@ -29,6 +29,10 @@ const SEARCH_DEFAULTS = {
   discount: "off", gamma: 0.65, tau: 1.0, eps: 1e-3, gtable: null,
 };
 const RECON_TOL = 1e-9;
+// The schema_version this page knows how to reconstruct (scripts/viz/trace_schema.py SCHEMA_VERSION). Keyed
+// on the version itself, not on the presence of any one field -- a later schema bump that happens to keep
+// meta.search around must still be caught here, not slip through unflagged.
+const SUPPORTED_SCHEMA_VERSION = 2;
 
 const state = { trace: null, gt: null, t: 0, hover: null, manifestRow: null };
 const boardVCache = new Map(); // board_id -> V (the board's pool aggregate, fixed at board creation)
@@ -68,6 +72,8 @@ function bpOf(board, q) {
 
 // One failed sim on `board` (its kFailed-th), scoring q. Mirrors _update_w_on_fail: root boards never demote,
 // `free_strikes` initial failures are forgiven, w is floored at eps and only ever decreases.
+// Parity reference: python/tests/test_viz_demotion_parity.py pins this rule against the generator's own
+// `_update_w_on_fail` (scripts/sandbox/eval_bestfirst.py) -- keep this function's behavior matching that test.
 function demote(board, w, kFailed, qFailed) {
   const p = sp();
   if (board.depth < 1 || p.discount === "off") return w;
@@ -104,6 +110,7 @@ function boardWAt(t) {
   }
   for (let i = 0; i < t; i++) {
     const p = state.trace.pops[i];
+    if (p.opened) continue; // mirrors _update_w_on_fail's early return on success -- opened pops never demote
     const b = boardById(p.board_id);
     const k = kFailed.get(p.board_id) + 1;
     kFailed.set(p.board_id, k);
@@ -119,8 +126,11 @@ function verifyReconstruction() {
   for (let i = 0; i < state.trace.pops.length; i++) {
     const p = state.trace.pops[i];
     const b = boardById(p.board_id);
-    if (Math.abs(bpOf(b, p.q) - p.bp) > RECON_TOL) bad++;
-    else if (Math.abs(boardWAt(i).get(p.board_id) - p.w) > RECON_TOL) bad++;
+    // `<=` (not `>` negated implicitly) so a NaN recomputation -- e.g. a `fitted` gtable gap the Python
+    // generator would raise on -- counts as a mismatch instead of silently passing (NaN fails every
+    // comparison, so `NaN > TOL` is false and a naive `>` check would let it through uncaught).
+    if (!(Math.abs(bpOf(b, p.q) - p.bp) <= RECON_TOL)) bad++;
+    else if (!(Math.abs(boardWAt(i).get(p.board_id) - p.w) <= RECON_TOL)) bad++;
   }
   return bad;
 }
@@ -543,12 +553,13 @@ async function init() {
   // The displayed order is a reconstruction; say so out loud when it fails to reproduce the recorded search.
   const banner = document.getElementById("recon-banner");
   const nBad = verifyReconstruction();
-  const missing = !trace.meta.search;
+  const missing = trace.schema_version !== SUPPORTED_SCHEMA_VERSION;
   banner.style.display = nBad || missing ? "" : "none";
   banner.textContent = missing
-    ? `This trace predates schema_version 2 and does not record the search parameters, so the queue below is` +
-      ` ordered with the generator's DEFAULTS (${SEARCH_DEFAULTS.combine} priority, discount` +
-      ` ${SEARCH_DEFAULTS.discount}) and may not be the order the search used. Regenerate the trace.`
+    ? `This trace's schema_version (${trace.schema_version}) is not ${SUPPORTED_SCHEMA_VERSION}, the version` +
+      ` this page understands, so the queue below is ordered with the generator's DEFAULTS` +
+      ` (${SEARCH_DEFAULTS.combine} priority, discount ${SEARCH_DEFAULTS.discount}) and may not be the order` +
+      ` the search used. Regenerate the trace.`
     : `The displayed order could NOT be verified: ${nBad} of ${trace.pops.length} recorded pops disagree with` +
       ` the bp/w this page recomputed from meta.search. Treat the ranking below as unreliable.`;
 
