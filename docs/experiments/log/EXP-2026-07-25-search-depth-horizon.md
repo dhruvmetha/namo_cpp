@@ -110,3 +110,42 @@ Recorded so they are not carried forward:
 2. **No-op boards at deploy.** `node_kind='depth2_noop'` rows (setup push did not move the object) are dropped from training as duplicates, but the search still expands them, and they score *higher* than real dead boards (top-score median 0.813 vs 0.676). A free pose check before expanding would refuse them. One sweep against the adopted `conf τ=0.15` config.
 3. **Budget sensitivity of the depth trade.** All depth losses were budget starvation, so a larger `--sim-budget` should recover them; that would separate "depth is worse" from "depth needs more budget."
 4. **Two-siding the dead cells is NOT a free fix.** It writes a number we have not verified (see §The design tension) and bakes hmax=2 into the label semantics. If attempted, it must be a stated design decision, and note it addresses the ceiling problem while leaving the past-one-push blindness untouched.
+
+## Where the model can improve — the mechanical cause, and the two candidate directions (2026-07-25, post-result analysis)
+
+**The ranking pressure has always been within-board.** `certain_order_rank_aux_losses` in [scripts/rl_loop/train_q2_rankaux.py](../../../scripts/rl_loop/train_q2_rankaux.py) aggregates per ROW (`row_sum.index_add(0, valid_idx, ce)`), and one row IS one board's 60×5 candidate grid. So every ranking term the model has ever received compares cells *inside a single board*. Cross-board ordering — the thing best-first actually needs, and the thing measured weak at AUC 0.583 — has never appeared in any loss.
+
+That resolves what looked like two problems into one plus one:
+
+- **"Dead post-push boards outrank true setups" and "make the correct setup rank higher" are the SAME axis** — score comparability across boards. Within its own board the model already places the true setup well (hard setup hit@1 ~47–50%, median rank 2; hard finish hit@1 ~63–66%, both 3–5× random). The setup only ranks "too low" relative to cells on *other* boards.
+- **The genuinely separate second problem is depth** (this card's result): no supervision past one push, so the ranker is below random at hmax≥3. Fixing cross-board calibration at depth 1 does nothing for it.
+
+**Candidate A — cross-board pairs in the rank-aux** (small change). Within a batch, form (cell on a live board, cell on a dead board) pairs and enforce the ordering, reusing the existing `RANK_LAMBDA`/`RANK_TEMP` plumbing. Directly optimizes the measured metric.
+
+**Candidate B — board-level live/dead head** (cleaner supervision). Predict "does this board contain an opener" as its own scalar. That IS the quantity best-first needs for cross-board comparison, rather than hoping per-cell values become globally comparable as a side effect. Label = `n_win > 0`.
+
+**Constraint on either:** restrict the DEAD side to the 46.1% of boards that were full sweeps. The rest are "tried ~98% and failed"; training a hard negative on an unproven one is exactly the error the ceiling exists to avoid.
+
+## Bootstrapping a value function — what it would concretely do here [USER question, 2026-07-25]
+
+**Mechanically it changes one thing: the ceiling stops being a cap and becomes a number.**
+
+We already do half of it. `region_label_topk` (commit `243c6c7`) uses the model to CHOOSE which finishes to simulate, capping the sweep at k failures — pilot-validated at k=15 retaining **97.7% of the successes an exhaustive sweep finds at ~30% of the sim cost**. What we do NOT do is use the model to VALUE the candidates we skipped: when the top-k all fail the board is stamped censored, and the untried remainder contributes no gradient.
+
+| | today | bootstrapped |
+|---|---|---|
+| top-k finishes all fail | ceiling 0.81, one-sided, no gradient | target = γ · (model estimate over the untried remainder) — a definite low value |
+| sim cost per dead board | median **61 of ~70** candidates tried | k ≈ 15, then a forward pass |
+| depth reachable | 1 push (the labeler stops there) | any — the recursion is depth-agnostic |
+
+So the concrete payoff: **it dissolves the "only 46% of dead boards are real sweeps" problem**, because producing a negative no longer requires a sweep. And it is the only route to supervision past one push that does not need exhaustive GT — which the project rules out by construction.
+
+**Why it is not circular**, despite backing up through a model measured at AUC 0.583: the base case is VERIFIED, not estimated. At the finish level "does this push open the goal" is decided exactly by one simulator call, so the backup chain terminates in truth one level down. That is what makes bootstrapping viable here and not in a domain without a cheap perfect verifier. Grounding is further helped by plentiful exact anchors (verified 1.0 openers).
+
+**Why policy-dependence is acceptable here specifically:** bootstrapped targets measure "expensive for MY searcher at budget B", not true value. For a calibrated probability that would be a defect; for a **search heuristic** whose objective is minimum sims (see [problem_and_approach.md](../../problem_and_approach.md)) it is arguably more aligned than the true γ^k value.
+
+**Limits, stated plainly:** (1) it cannot create information the search never found — systematic blind spots get frozen into the next round's labels, so it only pays if you ITERATE; (2) targets are relative to budget B, which becomes a knob trading bound-tightness against compute; (3) the further you back up, the more of the chain rests on model opinion rather than sims — a finish board is well-grounded, a depth-3 board leans on two layers of estimate. Trustworthy depth therefore grows with iterations, NOT immediately, which is the opposite of the "just raise hmax" intuition this card started from.
+
+**Relevant history:** this is the ExIt/search-and-learn loop that was parked. Per memory `project_levints_abandoned`, the LevinTS overnight run was a STATIC-DATA shortcut and never the real search+learn loop — so this direction is untested, not falsified.
+
+**Recommended staging [CLAUDE]:** run Candidate B as a cheap one-round probe first (labels already on disk) to confirm cross-board calibration is the live bottleneck, and design the bootstrap loop in parallel. If B moves deploy numbers, the bootstrap loop is well-motivated and the signal is identified; if it does not, the bottleneck is depth coverage — which points at bootstrapping too, for the other reason.
