@@ -18,7 +18,8 @@
   <div class="timeline-row">
     <button id="step-back" class="step-btn" title="Left arrow">&larr;</button>
     <div class="timeline-track">
-      <input id="timeline-slider" type="range" min="0" max="0" value="0">
+      <input id="timeline-slider" type="range" min="0" max="0" value="0"
+             title="t = number of pushes simulated so far. Scrubbing to t shows the search's state right after those t simulations have run.">
       <div id="timeline-ticks" class="timeline-ticks"></div>
     </div>
     <button id="step-fwd" class="step-btn" title="Right arrow">&rarr;</button>
@@ -34,7 +35,7 @@
   </section>
 
   <section id="zone-b" class="zone zone-queue">
-    <h2>Priority queue at t</h2>
+    <h2>Priority queue after t sims</h2>
     <div class="best-green-row">best green currently at <span id="best-green-marker" class="best-green-marker">&mdash;</span></div>
     <div class="queue-legend">rank &middot; board &middot; (edge/depth) &middot; bp &times; w bar &middot; truth</div>
     <div id="queue-list" class="queue-list"></div>

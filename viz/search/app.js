@@ -202,9 +202,17 @@ function isGreen(truth) {
   return truth === "opener" || truth === "setup";
 }
 
+// The board whose candidates are live "now", at t: since pops[t] (0-indexed) IS the candidate the
+// search tries next -- literally whatever queueAt(t)'s top row is, once bp/w reconstruction is
+// faithful -- this keeps zone A (scene) and zone D (grid) showing the SAME board zone B's queue is
+// about to act on. Before this fix it returned pops[t - 1].board_id, i.e. the board the MOST
+// RECENT pop came FROM: one step behind the queue by construction (pops[t-1] is always exactly
+// what queueAt(t-1)'s top row was, since that's what a best-first search just popped), which is the
+// concrete mechanism behind "the reachable edges ... seem 1 sim step delayed". At the end of the
+// search (t === pops.length, nothing left to try next) fall back to the final pop's own board.
 function currentBoardIdAt(t) {
-  if (t === 0) return 0;
-  return state.trace.pops[t - 1].board_id;
+  const pops = state.trace.pops;
+  return t < pops.length ? pops[t].board_id : pops[pops.length - 1].board_id;
 }
 
 function bestGreenRank(rows, greenFor) {
@@ -378,7 +386,7 @@ function renderQueueB() {
         `</div>`
     );
   });
-  list.innerHTML = frag.join("") || `<div class="queue-empty">queue is empty at t=${state.t}</div>`;
+  list.innerHTML = frag.join("") || `<div class="queue-empty">queue is empty after ${state.t} sims</div>`;
   wireHover(list, ".queue-row");
 }
 
@@ -400,15 +408,25 @@ function renderTimelineC() {
   });
   ticks.innerHTML = frag.join("");
   ticks.querySelectorAll(".tick").forEach((el) => {
+    // Each tick's own data-t is a pop's `t` field, i.e. clicking it means "show the state right
+    // after THIS pop ran" -- exactly the new t semantics, so no translation needed here.
+    el.classList.toggle("tick-current", Number(el.dataset.t) === state.t);
     el.addEventListener("click", () => {
       state.t = Number(el.dataset.t);
       renderAll();
     });
   });
 
-  document.getElementById("timeline-label").textContent =
-    `t = ${state.t} / ${sims} sims` + (state.t > 0 ? ` -- last: board ${state.trace.pops[state.t - 1].board_id}, ` +
-      `${state.trace.pops[state.t - 1].opened ? "opened" : "failed"}` : " -- start");
+  // "after t sims": say so explicitly, and name the most-recently-executed push (board + edge/depth
+  // + outcome) so the scrubber's meaning and the scene/queue's current board can't be conflated.
+  const label = document.getElementById("timeline-label");
+  if (state.t === 0) {
+    label.textContent = `after 0 of ${sims} sims -- nothing simulated yet`;
+  } else {
+    const last = state.trace.pops[state.t - 1];
+    label.textContent = `after ${state.t} of ${sims} sims -- most recent: board ${last.board_id} ` +
+      `e${last.edge}/d${last.depth} (${last.opened ? "opened" : "failed"})`;
+  }
 }
 
 // ---- Zone D: rank space ---------------------------------------------------------------------

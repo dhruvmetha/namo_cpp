@@ -241,6 +241,16 @@ td.no { color: var(--dead); }
 }
 .tick-pass { background: var(--opener); }
 .tick-fail { background: var(--dead); }
+/* The tick for the most-recently-executed pop (data-t === state.t) -- widened and outlined so the
+   "after t sims" position reads at a glance, distinct from the pass/fail fill color underneath. */
+.tick-current {
+  width: 4px;
+  height: 14px;
+  top: -2px;
+  transform: translateX(-2px);
+  outline: 1px solid #222;
+  z-index: 1;
+}
 
 .episode-grid {
   display: grid;
