@@ -41,3 +41,31 @@ def test_top1_truth_labels_the_highest_scoring_candidate():
     assert top1_truth(pool, {(5, 0)}, set()) == "opener"
     assert top1_truth(pool, set(), {(5, 0)}) == "setup"
     assert top1_truth(pool, {(7, 1)}, set()) == "dead"
+
+
+from viz.build_manifest import index_row  # noqa: E402
+
+
+def _trace(pool, solved=True, sims=3):
+    return {"meta": {"xml": "/x/a.xml", "object_id": "o"},
+            "boards": [{"board_id": 0, "depth": 0, "pool": pool}],
+            "result": {"solved": solved, "sims": sims}}
+
+
+def test_index_row_uses_the_root_board_ordering():
+    pool = [{"obj": "o", "edge": 5, "depth": 0, "q": 0.9},
+            {"obj": "o", "edge": 7, "depth": 1, "q": 0.4}]
+    gt = {"root": {"openers": [[7, 1]], "setups": []}}
+    row = index_row(_trace(pool), gt, "hard")
+    assert row["rank_best_green"] == 2
+    assert row["top1"] == "dead"
+    assert row["tier"] == "hard" and row["has_gt"] is True
+    assert row["key"].startswith("a__o__")
+
+
+def test_index_row_without_gt_is_marked_and_has_no_rank():
+    pool = [{"obj": "o", "edge": 5, "depth": 0, "q": 0.9}]
+    row = index_row(_trace(pool), None, "easy")
+    assert row["has_gt"] is False
+    assert row["rank_best_green"] is None
+    assert row["top1"] == "unknown"
