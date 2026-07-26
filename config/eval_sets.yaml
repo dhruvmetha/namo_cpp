@@ -15,6 +15,10 @@ files:
   twopush_source:      datasets/namo_testset_v1/labels/twopush.json             # SOURCE (onepush/pure2push derived from this)
   # exhaustive ground truth (offline analysis only; solve@k uses the live sim, not this)
   twopush_gt_h5:       curriculum2/beast/round2/h5/testset_gt.h5                 # 2push exhaustive GT
+  # NON-CANONICAL GT — dead-bank distribution, not the testset. Separations here do NOT replicate
+  # on the canonical set (see eval_set_registry.md). Never headline off it; it is here so
+  # scripts/eval_auc.py can resolve it single-source instead of hardcoding the path.
+  deadbank_gt_h5:      curriculum2/beast/round2/h5/round2_eval.h5                # dead-bank exhaustive GT
 
 # loader self-test assertions (namo.eval_sets validates against these)
 expected_counts:

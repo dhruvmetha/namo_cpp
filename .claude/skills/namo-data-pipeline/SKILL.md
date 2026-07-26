@@ -29,7 +29,9 @@ If nothing fits, say so out loud, then write the new script in **committed** `sc
 Three layers, one rulebook shared so the scorer and diffusion are graded apples-to-apples:
 
 ```
-eval_common.py     RULEBOOK   match_episode / bin_of / floor — imported, never re-defined. Not runnable.
+eval_common.py     RULEBOOK   match_episode / bin_of / floor / mw_auc — imported, never re-defined. Not runnable.
+eval_auc.py        PANEL      offline separation (AUC) + rank over exhaustive-GT H5s (2-push). ← the ONLY AUC tool
+agg_auc_grid.py    TABLES     renders an eval_auc grid (models × eval sets) into markdown + seed bands
 eval_scorer.py     REFEREE    one checkpoint → full diagnostic panel.        ← run this after training
 resolve_robust.sh  VERDICT    runs the referee over all ckpts × 3 seeds, paired compare. ← run this to DECIDE
 eval_grounding.py  (diffusion counterpart of eval_scorer — same rulebook; its mask-decode helpers = eval_feasibility.py)
@@ -44,6 +46,7 @@ eval_grounding.py  (diffusion counterpart of eval_scorer — same rulebook; its 
 (`--network dit_classifier` only for the old global-readout E0; arch variants auto-detected from the ckpt.)
 - **Decide if a change helped** (the real verdict — hard@1 carries ±3–4 ckpt noise) → add the run's group to `GRPS=()` in `resolve_robust.sh`, then run it. It averages per-seed and compares paired across seeds. (It parses `divisions.hard.scorer_realistic.@1` from each JSON — keep that key name stable.)
 - **`eval_common.py` is a library, not a script** — running it does nothing; both evals `import` it.
+- **Any AUC / setup-rank / opener-rank number** → `scripts/eval_auc.py` (2-push, exhaustive GT) or `eval_scorer.py --live-canonical` (1-push). Never write a new AUC: seven definitions once drifted across four scripts. Name the variant (V1/V4/V5/F1…) when quoting — grammar in `docs/experiments/auc_metrics_reconciliation.md`.
 
 ## 2. Enforce the invariants (hard gate)
 - [ ] Unit of work = **(pushed object, goal region)**, never `xml` alone.

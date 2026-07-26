@@ -1,65 +1,123 @@
 # AUC reconciliation — one name, seven different measurements
 
-**Status:** `[REF]` · reconciled 2026-07-26 · supersedes every loose "setup-vs-dead AUC" citation in the cards.
+**Status:** `[REF]` `[LIVE]` · reconciled 2026-07-26 · supersedes every loose "setup-vs-dead AUC" citation in the cards.
 
-**The headline: the conflicting AUC numbers are not disagreements — they are seven different metrics that all got written down as "AUC".** Once each is named by what it actually compares, the whole spread from 0.47 to 0.93 is consistent and every number lands where it should. Two numbers are genuinely retired (stale labels), and one number in current use (`0.583`) does not reproduce.
+**The headline: the conflicting AUC numbers were never disagreements — they were seven different metrics that all got written down as "AUC", computed by four scripts, two of which were never in git.** Once each is named by what it compares, the whole spread from 0.47 to 0.93 is consistent. Everything below is now produced by ONE tool over a full model × eval-set grid with seed bands, so nothing here has to be argued about again.
 
-Everything below for the current deploy checkpoint was recomputed in one pass from a single cached score file, so the variants differ **only** in metric definition — same model, same scores, same eval set: script `scripts/sandbox/auc_reconcile.py`, scores `round3/eval/gt_model_errors/values.npy` (ckpt `round3/models/d20_plus_setup_only_splitloss/checkpoints/epoch011-val_loss1.6952.ckpt`), eval `round2/h5/testset_gt.h5` (exhaustive root+finish GT, 66,456 nodes / 982 canonical scenes), tiers joined via `pure2push_divisions.json`.
+## How to get these numbers
 
-## The one-paragraph plain-English version
+```bash
+source env.<box>.sh
+python scripts/eval_auc.py --ckpt label:PATH.ckpt [--ckpt ...] --eval-set twopush_gt_h5 --out grid.json   # 2-push panel
+python scripts/eval_scorer.py --live-canonical --network edge_crossattn --num-depths 5 --ckpt PATH --out one.json  # 1-push panel
+python scripts/agg_auc_grid.py --canonical grid.json --deadbank db.json --onepush deploy=one.json > tables.md
+```
 
-Every AUC asks "does a good push score above a bad one?" — but "good", "bad", and "compared against what" were never held fixed across cards. Three axes moved silently: **which truth** (exhaustive simulation vs the incomplete `valid_first_push` label, which undercounts real setups ~2.4×), **which eval set** (the training-distribution dead-bank vs the canonical testset — separations are strongly distribution-bound), and **what the negative is** (another cell on the same board, a cell on some other board, or the single best-scoring cell out of ~70 on another board). The third axis is the one that produced the scary numbers: comparing one setup cell against another board's *maximum* is comparing a single draw against the best of seventy, so it reads near-chance even when the model is fine per-cell.
+`scripts/eval_common.py:mw_auc` is the single AUC definition, imported by both evals — same status as `match_episode` / `bin_of` / `floor_no_replacement`. Eval-set paths resolve through `config/eval_sets.yaml` (`namo.eval_sets`); see [`eval_set_registry.md`](eval_set_registry.md). Scores are cached per (ckpt, eval set), so re-running with new variants is free. **Do not add a fifth AUC code path.**
 
-## Variant table — same model, same scores, same eval set
+## The variant grammar
 
-| # | what it compares | easy | med | hard | all |
-|---|---|--:|--:|--:|--:|
-| **V1** | root **cell-level, pooled** across boards: exact setup cells (0.9) vs exact root dead cells (0.0) | 0.809 | 0.825 | 0.814 | **0.829** |
-| **V2** | same masks, **within board** (mean of per-board AUCs) | 0.811 | 0.840 | 0.810 | 0.822 |
-| **V3** | cross-board, symmetric: root board-max vs dead post-push board-max | 0.663 | 0.613 | 0.574 | 0.614 |
-| **V4** | cross-board, **cell vs cell**: best true setup cell vs all reachable dead post-push cells | 0.925 | 0.912 | 0.864 | **0.892** |
-| **V5** | cross-board, as reported in the 07-24 card's D5: best true setup cell vs dead board-**MAX** | 0.609 | 0.559 | **0.469** | 0.545 |
-| **V5m** | V5 restricted to moved (non-noop) dead boards | 0.707 | 0.626 | **0.515** | 0.608 |
-| **V6** | board-level live vs dead (07-24 REPORT D2): live board-max vs dead board-max | 0.686 | 0.747 | 0.768 | 0.750 |
+Every AUC asks "does a good push score above a bad one?" Three axes were moving silently: **which truth** (exhaustive sim vs the `valid_first_push` label, which undercounts real setups ~2.4×), **which eval set** (canonical testset vs dead-bank), and **what the negative is** (another cell on the same board, a cell on another board, or the best-scoring cell out of ~70 on another board). Name all three or the number is not citable.
+
+| # | positives | negatives | pooling |
+|---|---|---|---|
+| **V1** | root exact setup cells (0.9) | root exact dead cells (0.0) | pooled across boards |
+| **V2** | same | same | within board, then averaged |
+| **V3** | root board-max | dead child board-max | board level, symmetric |
+| **V4** | best true setup cell | all reachable dead child **cells** | cell vs cell |
+| **V5** | best true setup cell | dead child board-**MAX** | 1 draw vs best-of-~70 |
+| **V5m** | same | same, moved (non-noop) boards only | — |
+| **V6** | live child board-max | dead child board-max | board level |
+| **F1** | child exact opener cells (1.0) | child exact dead cells (0.0) | pooled across boards |
+| **F2** | same | same | within board, then averaged |
 
 Median reachable cells per dead board: **70–75**. That number is the whole story of the V4-vs-V5 gap.
+
+## The grid — 12 checkpoints, canonical testset (`twopush_gt_h5`, 981 tiered episodes)
+
+| metric | d20_base | exactv2_s1 | exactv2_s2 | exactv2_s3 | ctrl_s1 | ctrl_s2 | ctrl_s3 | deploy_s1 | deploy_s2 | deploy_s3 | colossus_openeronly | colossus_split |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| V1 | 0.779 | 0.757 | 0.775 | 0.778 | 0.754 | 0.770 | 0.768 | 0.829 | 0.825 | 0.827 | 0.825 | 0.831 |
+| V2 | 0.775 | 0.767 | 0.783 | 0.781 | 0.743 | 0.748 | 0.756 | 0.822 | 0.817 | 0.821 | 0.817 | 0.826 |
+| V3 | 0.594 | 0.604 | 0.579 | 0.631 | 0.614 | 0.575 | 0.610 | 0.615 | 0.601 | 0.611 | 0.669 | 0.675 |
+| V4 | 0.875 | 0.893 | 0.877 | 0.899 | 0.887 | 0.864 | 0.883 | 0.893 | 0.887 | 0.897 | 0.919 | 0.912 |
+| V5 | 0.490 | 0.497 | 0.484 | 0.525 | 0.482 | 0.453 | 0.491 | 0.547 | 0.535 | 0.547 | 0.593 | 0.624 |
+| V6 | 0.747 | 0.782 | 0.793 | 0.773 | 0.779 | 0.784 | 0.769 | 0.750 | 0.771 | 0.735 | 0.681 | 0.702 |
+| F1 | 0.862 | 0.865 | 0.860 | 0.851 | 0.882 | 0.870 | 0.870 | 0.837 | 0.852 | 0.840 | 0.820 | 0.796 |
+| F2 | 0.917 | 0.917 | 0.906 | 0.917 | 0.922 | 0.909 | 0.920 | 0.913 | 0.902 | 0.911 | 0.908 | 0.894 |
+| setup hit@1 | 51.9 | 49.8 | 51.7 | 50.7 | 45.1 | 46.8 | 47.3 | 59.7 | 59.9 | 59.9 | 59.4 | 63.8 |
+| finish hit@1 | 70.0 | 70.0 | 70.4 | 70.6 | 68.5 | 68.5 | 69.6 | 69.4 | 70.7 | 69.2 | 68.4 | 68.6 |
+
+Random floors over the same boards (hypergeometric, `eval_common.floor_no_replacement`): setup @1 **27.6**, finish @1 **15.4**.
+
+Per tier, for the three reference models:
+
+| model | tier | V1 | V5 | setup hit@1 | floor@1 |
+|---|---|--:|--:|--:|--:|
+| d20_base | easy / med / hard | 0.752 / 0.780 / 0.757 | 0.567 / 0.497 / 0.414 | 66.8 / 56.3 / 37.4 | 47.4 / 27.6 / 14.9 |
+| deploy_s1 | easy / med / hard | 0.809 / 0.825 / 0.814 | 0.609 / 0.562 / 0.470 | 70.5 / 65.2 / 46.5 | 47.4 / 27.6 / 14.9 |
+| colossus_split | easy / med / hard | 0.805 / 0.840 / 0.802 | 0.648 / 0.639 / 0.574 | 74.7 / 68.0 / 52.1 | 47.4 / 27.6 / 14.9 |
+
+## The seed noise floor — measured, not guessed
+
+Marvel pre-committed "AUC run-noise ≈ ±0.03". Three paired 3-seed conditions say it is **3× tighter than that** for the pooled metrics, and much looser for the cross-board ones. Mean ± half-range within a condition:
+
+| metric | exactv2 | ctrl | deploy |
+|---|--:|--:|--:|
+| V1 | 0.770 ± 0.011 | 0.764 ± 0.008 | 0.827 ± 0.002 |
+| V2 | 0.777 ± 0.008 | 0.749 ± 0.007 | 0.820 ± 0.003 |
+| V3 | 0.604 ± 0.026 | 0.599 ± 0.020 | 0.609 ± 0.007 |
+| V4 | 0.890 ± 0.011 | 0.878 ± 0.011 | 0.892 ± 0.005 |
+| V5 | 0.502 ± 0.021 | 0.475 ± 0.019 | 0.543 ± 0.006 |
+| V6 | 0.783 ± 0.010 | 0.777 ± 0.008 | 0.752 ± 0.018 |
+| F1 | 0.858 ± 0.007 | 0.874 ± 0.006 | 0.843 ± 0.007 |
+| F2 | 0.913 ± 0.005 | 0.917 ± 0.007 | 0.909 ± 0.005 |
+| setup hit@1 | 50.7 ± 0.950 | 46.4 ± 1.100 | 59.8 ± 0.100 |
+| finish hit@1 | 70.3 ± 0.300 | 68.9 ± 0.550 | 69.8 ± 0.750 |
+
+**Use ±0.01 for V1/V2/F1/F2, ±0.025 for V3/V5, ±1.1 pt for hit@1.** A delta inside those bands is nothing.
+
+## Five conclusions
+
+**1. Dead-bank's famous separation advantage is a POOLING ARTIFACT.** Same 12 models, canonical vs dead-bank:
+
+| metric | canonical | dead-bank | Δ |
+|---|--:|--:|--:|
+| V1 (pooled) | 0.793 | 0.913 | **+0.120** |
+| V2 (within board) | 0.788 | 0.785 | **−0.003** |
+| F1 (pooled) | 0.850 | 0.929 | +0.078 |
+| F2 (within board) | 0.911 | 0.693 | **−0.218** |
+
+**Within a board the model is identical on the two distributions.** The entire +0.12 is between-board variance: the dead-bank contains whole-dead-root boards, so pooling hands you a free board-level signal that has nothing to do with ranking skill. On the finish side the pooled number goes *up* while the within-board number falls **0.22** — the dead-bank finish boards are genuinely harder to order, and the pooled metric hides it. So dead-bank AUC absolutes (0.91–0.93) were largely measuring board composition. Model-vs-model deltas **on the same set** stay valid; the absolutes and any cross-set reading do not.
+
+**2. Root setup separation is TIER-FLAT (~0.75–0.83), cross-board comparability is NOT.** V1 barely moves easy→hard for any model (deploy 0.809/0.825/0.814); V5 falls hard every time (deploy 0.609/0.562/**0.470**; d20_base 0.567/0.497/**0.414**). The long-standing "setup separation collapses on hard" reading came from `valid_first_push` labels, which undercount true setups worst exactly where setups are rarest. The real tier-dependent defect is cross-board score comparability.
+
+**3. The flooding mechanism is an order statistic, not average mis-scoring.** V4 (cell vs cell) is **0.86–0.92** for every model — the model is not confused about cells. V5 puts the same setup cell against the dead board's *best* cell and lands near chance, because each dead board gets ~70 draws. Quote V5 **as** an order statistic. It is not "the model can't tell a setup from a dead push", and it is not below chance.
+
+**4. AUC and hit@1 disagree, and hit@1 is the one that matters.** The adopted split-budget loss vs its paired control: V1 **+0.006** (inside the ±0.01 band — invisible) but setup hit@1 **+4.3 pts** (4× its band). AUC scores average separation over ~70 candidates; best-first only ever consumes the top of the list. Every time these two have disagreed — the peek diagnostic, exact-value v1, this pair — hit@1 was the one that predicted deploy. **Headline rank metrics; keep AUC as a diagnostic.**
+
+**5. The two axes trade, and the panel shows it.** `colossus_split` is best on the setup/cross-board axis (V5 0.624, setup hit@1 63.8) and **worst on finish separation** (F1 0.796) — which is exactly its deploy signature (fastest 2-push search, worst hard-1-push tail @5 64.2 vs deploy's 72.1). `deploy` is the mirror image. Reading only one half of the panel will pick the wrong model. (Correlational, n≈5 conditions, and `d20_base` is a partial counterexample — F1 0.862 with a mid tail. Treat as a lens, not a law.)
 
 ## What each historically-cited number actually was
 
 | cited | where | metric | eval set | truth source | verdict |
 |---|---|---|---|---|---|
-| 0.93 "H2 setup AUC" | `horizon_q_build_journal.md` | setup-vs-**nonsetup** at H=2, Hz model | horizon-q era | old | **stale** — different model family, different label, pre-dates the single-ranker framing |
-| ~0.46 held-out setup | `EXP-2026-07-11-curriculum-ladder` | setup-vs-rest with `pos_weight=6` | ladder-era | broken labels | **retired** — the card itself concludes "fix the data, not the loss" |
-| 0.80 / 0.75 hard | `_ranker_bottleneck.md` Detector A | V1-family (root cell, pooled) | testset_v1 | `valid_first_push` (incomplete) | valid as written; **depressed** by label incompleteness |
-| 0.805 / 0.799 / 0.762 | `_setup_value_check.md` Table 2 | V1-family per tier | testset_v1 | `valid_first_push` | same family, reproduces the above; **depressed** the same way |
-| 0.716 / 0.720 / 0.733 | `EXP-…-marvel` line 287, `auc_r2_testset.json` | V1-family, but negatives = **tried-only** cells | testset_v1 | `valid_first_push` | **doubly depressed** — incomplete positives AND search-selected hard negatives. Do not cite as "the testset wall" |
-| 0.745–0.799 | `EXP-…-marvel` line 322 | **V1** proper | `testset_gt.h5` | exhaustive | **canonical**; current deploy ckpt continues this line at 0.829 |
-| 0.876–0.925 | `rankdiag_*.json`, colossus / exact-value cards | **V1** proper | `round2_eval.h5` | exhaustive | **canonical but a different distribution** — dead-bank / in-training-distribution rooms, not the canonical testset. Never compare it to a testset number |
+| 0.93 "H2 setup AUC" | `horizon_q_build_journal.md` | setup-vs-**nonsetup** at H=2, Hz model | horizon-q era | old | **stale** — different model family and label, pre-dates the single-ranker framing |
+| ~0.46 held-out setup | `EXP-2026-07-11-curriculum-ladder` | setup-vs-rest, `pos_weight=6` | ladder-era | broken labels | **retired** — the card itself concludes "fix the data, not the loss" |
+| 0.80 / 0.75 hard | `_ranker_bottleneck.md` Detector A | V1-family | testset_v1 | `valid_first_push` | valid as written; **depressed**, and its tier slope is a label artifact |
+| 0.805 / 0.799 / 0.762 | `_setup_value_check.md` Table 2 | V1-family per tier | testset_v1 | `valid_first_push` | same family; same artifact |
+| 0.716 / 0.720 / 0.733 | marvel line 287, `auc_r2_testset.json` | V1-family, negatives = **tried-only** | testset_v1 | `valid_first_push` | **doubly depressed** — incomplete positives AND search-selected hard negatives. Not "the testset wall" |
+| 0.745–0.799 | marvel line 322 | **V1** | `testset_gt.h5` | exhaustive | **canonical**; this grid continues the line (d20_base 0.779 → deploy 0.827 ± 0.002) |
+| 0.876–0.925 | `rankdiag_*.json`, colossus / exact-value cards | **V1** | `round2_eval.h5` | exhaustive | correct for that set, but **pooling-inflated ~+0.12** (conclusion 1). Never compare to a canonical number |
 | 0.750 / 0.768 hard | 07-24 `REPORT.md` D2 | **V6** | `testset_gt.h5` | exhaustive | reproduces exactly |
-| 0.469 | 07-24 `REPORT.md` D5 | **V5** | `testset_gt.h5` | exhaustive | reproduces exactly — but see the order-statistic caveat below |
-| **0.583** | 07-24 card ("orchestrator recompute"), used as the anchor in 07-25 | claimed V5 restricted to moved boards | `testset_gt.h5` | exhaustive | **does NOT reproduce** — V5m gives 0.515 hard. The 0.583 depends on undocumented join/subset choices; stop citing it |
-
-## The three real conclusions
-
-**1. Root setup separation is 0.81–0.83 and TIER-FLAT — it does not degrade on hard.** V1 is 0.809 / 0.825 / 0.814 across easy/med/hard. The long-standing "setup separation collapses on hard" reading (0.805 → 0.762, or 0.80 → 0.75) came from `valid_first_push` labels, which undercount true setups worst exactly where setups are rarest. Against exhaustive truth the effect disappears. This does not overturn the *ranking* story — hard top-1 placement is genuinely worse (hit@1 70.6 / 65.2 / 46.8 by tier, 07-24 D1) — separation and top-1 placement are different failures, and only the second is tier-dependent.
-
-**2. "Within-board strong, pooled weak" is false at the root cell level.** V1 (pooled, 0.829) ≈ V2 (within-board, 0.822). Root cells are comparably ordered whether or not you mix boards. The cross-board weakness is real but lives specifically **between a root board and post-push dead boards** (V3 0.614), not in pooling per se.
-
-**3. The flooding mechanism is an order statistic, not average mis-scoring.** V4 says a true setup cell outscores a random dead post-push cell **89%** of the time — the model is not confused about cells. V5 says the same setup cell loses to a dead board's *best* cell more than half the time on hard. The difference is entirely that each dead board gets ~70 draws to produce one high score. So the honest statement is: **the model's score distribution has a fat enough right tail on dead boards that ~70 draws routinely beat one true setup** — a tail/calibration problem about extremes. It is *not* "the model rates dead boards higher than live ones on average" (V6 says 0.75–0.77 in the right direction), and it is *not* "below chance discrimination".
-
-For choosing what to fix, V5's near-chance reading is the deploy-relevant one — best-first really does pop each board's max first, so the order statistic is what floods the queue. But it must be quoted **as** an order-statistic comparison, never as "the model can't tell a setup from a dead push."
+| 0.469 | 07-24 `REPORT.md` D5 | **V5** | `testset_gt.h5` | exhaustive | reproduces (grid: deploy_s1 hard V5 0.470) |
+| **0.583** | 07-24 card, anchor of 07-25 | claimed V5, moved boards only | `testset_gt.h5` | exhaustive | **does NOT reproduce** — V5m gives 0.515 hard. Depends on undocumented join/subset choices. **Stop citing it** |
 
 ## Rules going forward
 
-- **Name the variant, always.** Write "V1 root-cell pooled, exhaustive GT, testset" — not "setup-vs-dead AUC 0.83". Any AUC without positives/negatives/eval-set/truth-source stated is not citable.
-- **Exhaustive GT only.** `valid_first_push` is completion-sampled; every AUC built on it is a lower bound of unknown tightness. Use `testset_gt.h5` / `round2_eval.h5`.
-- **Never compare across eval sets.** `round2_eval.h5` (≈0.91) and `testset_gt.h5` (≈0.83) measure the same thing on different distributions. Marvel already established separations are distribution-bound; the numbers are not each other's baselines.
-- **V1 is the default headline metric** for setup ordering (it is what `scripts/rl_loop/score_round2_eval.py` reports, and what the model registry tracks). Report V4 and V5 together whenever the claim is about cross-board comparability — V4 alone hides the flooding, V5 alone overstates it.
-- **Tier the report** (easy/med/hard), same as every other result.
-
-## Reproduce
-
-```bash
-source env.ilab.sh
-python scripts/sandbox/auc_reconcile.py       # ~2 min, CPU only, uses the cached values.npy
-```
+- **Name the variant, always.** "V1 root-cell pooled, exhaustive GT, canonical testset" — not "setup-vs-dead AUC 0.83".
+- **Report V2 alongside V1, and F2 alongside F1.** The pooled-vs-within pair is what exposes a board-composition effect; V1 alone is how the dead-bank illusion survived for weeks.
+- **Exhaustive GT only.** `valid_first_push` is completion-sampled; every AUC built on it is a lower bound of unknown tightness.
+- **Never compare across eval sets.** Same metric, different distributions, +0.12 of pure composition.
+- **Rank metrics are the headline; AUC is the diagnostic.** Always print the random floor next to hit@k.
+- **Tier everything** (easy/med/hard) and report both horizons (1-push / 2-push) — the tier slope lives in different variants than you'd guess.

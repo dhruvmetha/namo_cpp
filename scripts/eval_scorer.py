@@ -37,7 +37,7 @@ import numpy as np
 import torch
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from eval_common import MASKS, OUT, match_episode, bin_of, floor_no_replacement  # shared grading contract
+from eval_common import MASKS, OUT, match_episode, bin_of, floor_no_replacement, mw_auc  # shared grading contract
 from namo.paths import DATASETS, H5  # noqa: E402
 from namo import eval_sets  # noqa: E402
 
@@ -180,12 +180,19 @@ def diagnostic_record(scores, valid, tried, reach_cp=None, identity=None):
     vm = np.array([1 if j in valid_flat else 0 for j in reach_cp])
     sep = float(sc[vm == 1].mean() - sc[vm == 0].mean()) \
         if (vm.sum() > 0 and (len(sc) - vm.sum()) > 0) else None
+    # opener-vs-dead separation at horizon 1 — the 1-push half of the AUC panel that
+    # scripts/eval_auc.py reports for 2-push. Same variant grammar (pooled vs within-board):
+    # see docs/experiments/auc_metrics_reconciliation.md. Raw score piles kept so the
+    # cross-episode POOLED AUC can be formed in aggregate_records.
+    pos_scores = sc[vm == 1].tolist()
+    neg_scores = sc[vm == 0].tolist()
     candidate_cells = {(j // 5, j % 5) for j in reach_cp}
     rec = {
         "nF": len(valid_flat & set(reach_cp)), "nR": len(reach_cp),
         "hit_r": hit_r, "hit_o": hit_o, "edge_hit": edge_hit, "cat": cat,
         "top1_edge": be, "top1_depth": bd, "top1_score": float(flat[best]),
         "depth_right": depth_right, "rank_fv": rank_fv, "sep": sep,
+        "pos_scores": pos_scores, "neg_scores": neg_scores,
         "n_valid_total": len(valid), "n_tried_total": len(tried),
         "n_valid_missing_from_pool": len(valid - candidate_cells),
     }
@@ -229,6 +236,12 @@ def aggregate_records(records):
         seps = [r["sep"] for r in rows if r["sep"] is not None]
         sep_stats = {"mean_margin": round(float(np.mean(seps)), 3) if seps else None,
                      "pct_positive": round(np.mean([s > 0 for s in seps]) * 100, 1) if seps else None}
+        graded = [r for r in rows if r["pos_scores"] and r["neg_scores"]]
+        sep_stats["auc_pooled"] = mw_auc([s for r in graded for s in r["pos_scores"]],
+                                         [s for r in graded for s in r["neg_scores"]])
+        within = [mw_auc(r["pos_scores"], r["neg_scores"]) for r in graded]
+        sep_stats["auc_within_episode"] = round(float(np.mean(within)), 4) if within else None
+        sep_stats["auc_n_episodes"] = len(graded)
         out[b] = {
             "n": n, "sr_mean_pct": round(np.mean([r["sr"] for r in rows]) * 100, 2),
             "scorer_realistic": real, "scorer_oracle": orac, "floor": floor,

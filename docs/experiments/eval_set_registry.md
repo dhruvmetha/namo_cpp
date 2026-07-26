@@ -44,7 +44,11 @@ The manifest↔GT alignment is the TRUTH below (not a file — the derived align
 
 | artifact | path | size | what it is | ⚠ |
 |---|---|---|---|---|
-| dead-bank GT | `curriculum2/beast/round2/h5/round2_eval.h5` | 73,368 rows / 1609 roots, 940 rooms | exhaustive GT on the **dead-bank distribution**, NOT canonical. | Separations here are **distribution-bound** and do NOT replicate on the canonical set (marvel card: recall@20 67→90 gap was dead-bank-specific). Don't headline results off this. |
+| dead-bank GT | `curriculum2/beast/round2/h5/round2_eval.h5` (`deadbank_gt_h5`) | 73,368 rows / 1609 roots, 940 rooms | exhaustive GT on the **dead-bank distribution**, NOT canonical. | Separations here are **distribution-bound** and do NOT replicate on the canonical set (marvel card: recall@20 67→90 gap was dead-bank-specific; V1 runs ~0.08 higher here than on the canonical set for the SAME model). Don't headline results off this. Its rooms are not in `pure2push_divisions.json`, so it has **no tiers** — all-only. |
+
+## Who consumes these — the offline ranking panel
+
+`scripts/eval_auc.py` is the single tool for separation (AUC) + rank metrics over the exhaustive-GT H5s, for BOTH sets above; `scripts/eval_scorer.py --live-canonical` is the 1-push counterpart on `onepush_manifest`. Both take their AUC definition from `scripts/eval_common.py:mw_auc`. Which variant means what, and which historical numbers are retired: [`auc_metrics_reconciliation.md`](auc_metrics_reconciliation.md). Do not add a fifth AUC code path.
 
 ## Deprecated / redundant (moved to `labels/deprecated/`)
 

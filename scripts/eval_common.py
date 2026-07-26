@@ -37,6 +37,24 @@ def bin_of(sr):
     return "hard" if sr < 0.05 else ("med" if sr < 0.30 else "easy")
 
 
+def mw_auc(positive, negative):
+    """Mann-Whitney ROC-AUC — THE one AUC definition for NAMO. Returns None if either side is empty.
+
+    Lives here for the same reason match_episode does: seven different "AUC"s once drifted across
+    four scripts (docs/experiments/auc_metrics_reconciliation.md). The *definition* is now single-
+    source; what still has to be stated at every call site is WHICH positives, WHICH negatives, and
+    whether the pile is pooled across boards or averaged within them.
+    """
+    import numpy as np
+
+    positive, negative = np.asarray(positive, float), np.asarray(negative, float)
+    if not positive.size or not negative.size:
+        return None
+    ranks = np.concatenate([positive, negative]).argsort().argsort().astype(float) + 1
+    return round(float((ranks[:positive.size].sum() - positive.size * (positive.size + 1) / 2)
+                       / (positive.size * negative.size)), 4)
+
+
 def floor_no_replacement(F, R, k):
     """Random floor: P(>=1 of F valid pushes in k DISTINCT draws from R reachable). Hypergeometric,
     exact. A sensible random agent never re-tries a known-failed push, so WITHOUT replacement is the
