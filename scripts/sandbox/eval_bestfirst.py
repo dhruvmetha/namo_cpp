@@ -27,7 +27,8 @@ import sys, os, json, time, argparse, random, heapq
 from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 SAGE = os.environ.get("SAGE_REPO", "")
-for _p in (f"{REPO}/build_python", f"{REPO}/python", f"{REPO}/scripts", f"{REPO}/scripts/sandbox", SAGE):
+for _p in (f"{REPO}/build_python", f"{REPO}/python", f"{REPO}/scripts", f"{REPO}/scripts/sandbox",
+           f"{REPO}/scripts/pipeline", SAGE):
     if _p and _p not in sys.path:
         sys.path.insert(0, _p)
 from scorer_beam import BeamPlanner, make_env, make_action, read_manifest, FALLBACK_GOAL  # noqa: E402
@@ -35,6 +36,7 @@ from eval_m3 import rank_first_pushes_h2, sample_goal_points, goal_open_pts  # n
 from namo.core.xml_goal_parser import extract_goal_with_fallback  # noqa: E402
 from namo.paths import MANIFESTS, DATASETS, SCRATCH  # noqa: E402
 from namo import eval_sets  # noqa: E402
+from viz.trace_schema import build_trace, episode_filename, make_board, make_pop  # noqa: E402
 
 PURE2PUSH = str(MANIFESTS / "test_pure2_fromkey.txt")
 
@@ -83,10 +85,13 @@ def _update_w_on_fail(board, q_failed, discount, gamma, tau, g_table, gkmax, eps
 def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combine, rng, restrict_obj=None,
                 is_open=lambda e: e.is_robot_goal_reachable(), raw=False, dive_bonus=0.0,
                 discount="off", gamma=0.65, tau=1.0, g_table=None, eps=1e-3,
-                w0_mode="one", free_strike_q=2.0):
+                w0_mode="one", free_strike_q=2.0, trace_out=None):
     """Greedy best-first ON THE LABELED OBJECT (restrict_obj). Returns (solved, sims, plan_len|None, boards, end).
-    boards = per-board lifetime records; end in {solved, budget, exhausted}. w(b) via --discount (off=static)."""
+    boards = per-board lifetime records; end in {solved, budget, exhausted}. w(b) via --discount (off=static).
+    trace_out (list, viz only): every pop is appended as a make_pop row and every board also carries its full
+    candidate pool + the model grid. None (default) = not one extra op anywhere."""
     gkmax = (max(g_table) if g_table else 0)
+    tracing = trace_out is not None
     heap = []; sims = 0
     boards = []                                                    # index == board_id
     ctr = [0]
@@ -94,10 +99,13 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
     def next_ctr():
         ctr[0] += 1; return ctr[0] - 1
 
-    def new_board(depth, npool, w0=1.0, free_strikes=0):
+    def new_board(depth, npool, w0=1.0, free_strikes=0, parent_edge=-1, parent_depth=-1,
+                  pool_rows=None, grid=None):
         w0 = min(max(w0, eps), 1.0)
         boards.append({"board_id": len(boards), "depth": depth, "n_candidates": npool,
-                       "k_failed": 0, "w": w0, "w0": w0, "free_strikes": free_strikes, "tries": []})
+                       "k_failed": 0, "w": w0, "w0": w0, "free_strikes": free_strikes, "tries": [],
+                       "parent_edge": parent_edge, "parent_depth": parent_depth,
+                       "pool": pool_rows, "grid": grid})
         return boards[-1]
 
     def push(item, bp, board):
@@ -105,8 +113,17 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
         item["se"] = bp * board["w"]
         heapq.heappush(heap, (-item["se"], next_ctr(), item))
 
+    def trace_rows(cand):                                          # every candidate of a board, popped or not
+        return [{"obj": o, "edge": int(g.edge_idx), "depth": int(g.depth), "q": float(q)} for (o, g, q) in cand]
+
+    def trace_grid(state, h):
+        grid = planner.scorer.score_state(env, restrict_obj, goal, xml, h=h, raw=raw).tolist()
+        env.set_full_state(state)                                  # score_state may move the state (eval_m3.py:73)
+        return grid
+
     pool, V0 = candidates(planner, env, goal, xml, s0, hmax, prior, agg, rng, restrict_obj=restrict_obj, raw=raw)
-    root = new_board(0, len(pool))
+    root = new_board(0, len(pool), pool_rows=(trace_rows(pool) if tracing else None),
+                     grid=(trace_grid(s0, hmax) if tracing and pool and prior != "uniform" else None))
     for (obj, g, q) in pool:                              # roots: ndone=0
         push({"obj": obj, "g": g, "from": s0, "ndone": 0, "plan": [(obj, g)], "q": q},
              priority(q, V0, combine), root)
@@ -118,6 +135,10 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
             it["se"] = cur; heapq.heappush(heap, (-cur, next_ctr(), it)); continue
         env.set_full_state(it["from"]); env.step(make_action(it["obj"], it["g"])); sims += 1
         opened = bool(is_open(env))
+        if tracing:
+            trace_out.append(make_pop(sims, it["board_id"], it["obj"], int(it["g"].edge_idx),
+                                      int(it["g"].depth), float(it["q"]), float(it["bp"]),
+                                      float(board["w"]), opened))
         board["tries"].append((len(board["tries"]) + 1, float(it["q"]), opened))   # (within-board try#, q, opened)
         if opened:
             return True, sims, len(it["plan"]), boards, "solved"
@@ -130,7 +151,10 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
                                   restrict_obj=restrict_obj, raw=raw)
             child = new_board(ndone, len(pool2),
                               w0=(V if w0_mode == "v" else 1.0),
-                              free_strikes=(1 if float(it["q"]) >= free_strike_q else 0))
+                              free_strikes=(1 if float(it["q"]) >= free_strike_q else 0),
+                              parent_edge=int(it["g"].edge_idx), parent_depth=int(it["g"].depth),
+                              pool_rows=(trace_rows(pool2) if tracing else None),
+                              grid=(trace_grid(s_new, h) if tracing and pool2 and prior != "uniform" else None))
             for (obj2, g2, q2) in pool2:                  # children: +dive_bonus*ndone bias (kept for parity)
                 push({"obj": obj2, "g": g2, "from": s_new, "ndone": ndone,
                       "plan": it["plan"] + [(obj2, g2)], "q": q2},
@@ -157,6 +181,20 @@ def _finalize_boards(boards, ep):
                      "n_tried": n_tried, "status": status, "winner_try": win_try,
                      "tries": [[t[0], round(t[1], 6), t[2]] for t in tries]})
     return rows
+
+
+def _scene_dict(env, goal):
+    """The scene as the viz draws it, world frame in meters, AT THE CURRENT STATE (call at s0).
+    static = walls (pose baked into object_info), movable = boxes (pose from the observation)."""
+    info = env.get_object_info(); obs = env.get_observation()
+    static = [{"name": k, "x": v["pos_x"], "y": v["pos_y"], "hw": v["size_x"], "hd": v["size_y"],
+               "qw": v["quat_w"], "qz": v["quat_z"]}
+              for k, v in info.items() if "pos_x" in v]
+    movable = [{"name": k, "x": obs[f"{k}_pose"][0], "y": obs[f"{k}_pose"][1], "theta": obs[f"{k}_pose"][2],
+                "hw": v["size_x"], "hd": v["size_y"]}
+               for k, v in info.items() if k != "robot" and f"{k}_pose" in obs and "pos_x" not in v]
+    return {"bounds": list(env.get_world_bounds()), "static": static, "movable": movable,
+            "robot": list(obs["robot_pose"]), "goal": list(goal)}
 
 
 def main():
@@ -190,6 +228,8 @@ def main():
     ap.add_argument("--out", default=str(SCRATCH / "eval/bestfirst.json"))
     ap.add_argument("--leaf-out", default=str(SCRATCH / "eval/bestfirst.jsonl"))
     ap.add_argument("--lifetime-out", default="", help="per-board lifetime JSONL (one row per board).")
+    ap.add_argument("--trace-out", default="", help="per-episode search trace JSON dir (for viz/search)")
+    ap.add_argument("--trace-model", default="", help="model label written into each trace's meta")
     a = ap.parse_args()
 
     import os as _os
@@ -205,6 +245,9 @@ def main():
     n = n_solved = n_already = n_norec = sims_tot = sims_solved = 0; t0 = time.time()
     lf = open(a.leaf_out, "w")
     ltf = open(a.lifetime_out, "w") if a.lifetime_out else None
+    if a.trace_out:
+        from add_contact_px import contact_offsets_world
+        os.makedirs(a.trace_out, exist_ok=True)
     ep_ctr = 0
     for xi, xml in enumerate(xmls):
         try:
@@ -222,13 +265,22 @@ def main():
             if is_open(env):
                 n_already += 1; continue
             s0 = env.get_full_state()
+            scene = _scene_dict(env, goal) if a.trace_out else None
             for ri, rec in enumerate(recs):
                 rng = random.Random(a.seed_base + xi * 17 + ri)
                 obj = rec.get("object_id")
+                pops = [] if a.trace_out else None
+                if a.trace_out:
+                    env.set_full_state(s0)                     # the previous record left the env post-search
+                    oi = env.get_object_info()[obj]
+                    opose = env.get_observation()[f"{obj}_pose"]
+                    off = contact_offsets_world(oi["size_x"], oi["size_y"], opose[2])
+                    ep_scene = dict(scene, contacts=[[float(opose[0] + dx), float(opose[1] + dy)] for dx, dy in off])
                 solved, sims, plen, boards, end = solve_scene(
                     planner, env, goal, xml, s0, a.hmax, a.sim_budget, a.prior, a.agg, a.combine, rng,
                     restrict_obj=obj, is_open=is_open, raw=a.raw, dive_bonus=a.dive_bonus,
-                    discount=a.discount, gamma=a.gamma, tau=a.tau, g_table=g_table, eps=a.eps, w0_mode=a.w0_mode, free_strike_q=a.free_strike_q)
+                    discount=a.discount, gamma=a.gamma, tau=a.tau, g_table=g_table, eps=a.eps, w0_mode=a.w0_mode, free_strike_q=a.free_strike_q,
+                    trace_out=pops)
                 n += 1; sims_tot += sims; n_solved += int(solved); sims_solved += sims if solved else 0
                 lf.write(json.dumps({"xml": xml, "object_id": obj, "region": rec.get("region"),
                                      "solved": solved, "sims": sims, "plan_len": plen}) + "\n")
@@ -237,6 +289,16 @@ def main():
                           "solved": solved, "sims": sims, "end": end}
                     for row in _finalize_boards(boards, ep):
                         ltf.write(json.dumps(row) + "\n")
+                if a.trace_out:
+                    doc = build_trace(
+                        meta={"xml": xml, "object_id": obj, "region": rec.get("region"),
+                              "model": a.trace_model or os.path.basename(a.ckpt),
+                              "strategy": (a.discount if a.discount == "off" else f"{a.discount}_tau{a.tau}")},
+                        scene=ep_scene,
+                        boards=[make_board(b["board_id"], b["depth"], b["parent_edge"], b["parent_depth"],
+                                           b["pool"], b["grid"], b["w0"], b["free_strikes"]) for b in boards],
+                        pops=pops, result={"solved": solved, "sims": sims, "plan_len": plen, "end": end})
+                    json.dump(doc, open(os.path.join(a.trace_out, episode_filename(xml, obj)), "w"))
                 ep_ctr += 1
             if xi % 20 == 0:
                 print(f"  [{xi}/{len(xmls)}] episodes={n} solved={n_solved} avg_sims={sims_tot/max(n,1):.1f} "
