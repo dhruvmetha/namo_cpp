@@ -29,9 +29,9 @@ Two models, both search strategies — four trace arms.
 | search strategy | `off` (plain best-first) and `conf τ=0.15` (adopted failure-discount) | `eval_bestfirst.py --discount` |
 | difficulty | easy 238 / medium 409 / hard 371 | `datasets/namo_testset_v1/labels/pure2push_divisions.json` |
 
-The two models are the same data and architecture under **different label regimes** — ceiling uses the fence and masks non-labeled cells, HARD labels every reachable cell two-sided with nothing masked. This is the pair that makes the visualization worth building: HARD wins the deep 1-push tail but regresses 2-push ordering (sims-to-solve 46.0 → 53.8), and nobody has seen *where* in the grid that trade happens.
+The two models are the same data and architecture under **different label regimes** (`build_rung2_h5.py:102-109`). Ceiling refuses to call a searched-but-unresolved push dead: because the sweep stopped at depth 2, "found nothing" only means unresolved, so those cells get the best value they could still have — `γ²=0.81` at a root, `γ=0.9` at a depth-2 node — flagged in `ceiling_mask`, with capped/unresolved children masked out entirely. HARD instead labels every reachable cell two-sided and exact, dead and unknown alike to `0`, with no fence and nothing masked. This is the pair that makes the visualization worth building: HARD wins the deep 1-push tail but regresses 2-push ordering (sims-to-solve 46.0 → 53.8), and nobody has seen *where* in the grid that trade happens.
 
-Because the regimes differ, the heatmaps must not be compared on a shared absolute color scale. Zone D normalizes color **per model**, states the raw range on the panel, and offers a mask toggle so the ceiling model's fenced cells can be shown as masked or as raw values. Cross-model claims are about **ordering within a grid**, never about matching magnitudes across the two.
+Because the regimes differ, magnitudes are not comparable across the two models — the ceiling model puts `0.81` where HARD puts `0`. Zone D sidesteps this entirely by working in **rank space within a grid**, so a cross-model comparison is always "where did each model rank the green cells", never "whose number is bigger". A mask toggle still shows or hides the ceiling model's fenced cells.
 
 Adding further models means dropping another trace directory in and appending one line to a manifest. No code change.
 
@@ -39,7 +39,25 @@ Adding further models means dropping another trace directory in and appending on
 
 Episode key is `(xml_realpath, object_id)` throughout — matching `pure2push.json`, which is nested `{xml_path: [episode_dict, ...]}` with `object_id` inside each episode dict. There is no separate episode id field. On disk that key becomes a filename as `<xml basename without extension>__<object_id>.json`; `manifest.json` holds the mapping back to the full realpath so nothing has to parse filenames.
 
-Two truth tiers are used throughout, read off the GT grid cell for a candidate `(edge, depth)`: an **opener** is a push whose GT cell marks it as merging robot and goal outright, a **setup** is one that leads to a merging finish push, and everything else is **dead**. "True-good" in the index means opener-or-setup at the root board. The exact numeric cell encoding is not asserted here — the joiner reads it off the GT builder (`scripts/pipeline/build_rung2_h5.py`, the producer of `value_target`) rather than assuming a value convention.
+### Ground truth is a badge, not a number
+
+The model's cell values only ever determine an **ordering**. Nothing in this page compares a model magnitude to a GT magnitude, which is what makes the two label regimes safe to show side by side: the ceiling model was trained with `γ²=0.81` on searched-dead root pushes where GT says `0`, and that offset is label-regime bookkeeping, not model error.
+
+So GT collapses to **green / not green**, read off `value_target` at the candidate's `(edge, depth)` (`scripts/pipeline/build_rung2_h5.py:95-113`):
+
+| GT cell | meaning | shown as |
+| --- | --- | --- |
+| `1.0` | **opener** — this push merges robot and goal | solid green |
+| `0.9` | **setup** — its subtree contained a verified win | hollow green |
+| `0` | searched exhaustively, nothing found — dead | red |
+| `-1` | unreachable edge | never appears; see below |
+| masked (`value_mask == 0`) | reachable but untried — no signal | grey |
+
+`0.9` only ever appears on root rows; at a depth-2 (finish) board the only green is `1.0`. That is correct for the search — at a finish board a "setup" means nothing, you need the merge — so green semantics track board depth automatically with no special-casing.
+
+Unreachable (`-1`) cells never enter the priority queue at all, because candidates come from `rank_first_pushes_h2`, which enumerates reachable pushes only. They are drawn in the grid for completeness and are absent from the queue by construction.
+
+**Rank of best green** is the page's headline quantity: the queue position of the highest-ranked green candidate. Model good means green at rank 1-3; model bad means green at rank 22 and twenty-one red pops burn before it.
 
 Two offline artifacts per (episode, arm):
 
@@ -77,18 +95,18 @@ Static files served by `python -m http.server` from the data root: `index.html`,
 
 ### Index
 
-Three dropdowns — model, search strategy, difficulty — then a sortable table of matching episodes with columns: scene, object, tier, solved, sims used, rank of the first true-good push in the root ordering, what the model's top-1 push actually was (`opener` / `setup` / `dead`), and a `no GT` flag where applicable.
+Three dropdowns — model, search strategy, difficulty — then a sortable table of matching episodes with columns: scene, object, tier, solved, sims used, **rank of best green** in the root ordering, what the model's top-1 push actually was (`opener` / `setup` / `dead`), and a `no GT` flag where applicable.
 
-Default sort: rank of first true-good push, worst first. That column is the ranker's job stated directly — the answer sitting at rank 12 instead of rank 1 is exactly the failure we are hunting. For the 37 no-GT episodes the column falls back to the rank of the push that actually solved the episode (known from the trace) and is marked as a fallback.
+Default sort: rank of best green, worst first. That column is the ranker's job stated directly — the answer sitting at rank 12 instead of rank 1 is exactly the failure we are hunting. For the 37 no-GT episodes the column falls back to the rank of the push that actually solved the episode (known from the trace) and is marked as a fallback.
 
 ### Episode view
 
 One clock `t` (the sim counter), four linked zones:
 
 - **A. Scene** — SVG top-down room from `scene`: walls, goal region, robot, the movable object, and its 60 contact points. Point color encodes the model's `q`; an outline ring encodes GT truth. Already-popped candidates are dimmed and numbered with their pop order.
-- **B. Priority queue at `t`** — the unsimulated candidates ordered by `se`, one row each: board tag, `(edge, depth)`, and a bar split into its `bp` and `×w` components. Rows are colored by board, so a child board being demoted by the failure discount is visible as a whole block sinking at once. Each row carries its GT badge.
+- **B. Priority queue at `t`** — the unsimulated candidates ordered by `se`, one row each: board tag, `(edge, depth)`, and a bar split into its `bp` and `×w` components. Rows are colored by board, so a child board being demoted by the failure discount is visible as a whole block sinking at once. Each row carries its green / not-green badge, and a persistent marker tracks **best green currently at #k** across the whole scrub — watching that number sink as the failure discount demotes a green candidate's board is the mechanism made visible.
 - **C. Timeline** — sims 1..N as ticks marked pass/fail, with a scrubber. Moving it re-sorts B, updates the dimming in A, and switches D to the board the popped entry belonged to.
-- **D. Model vs GT** — the current board's 60×5 model `P` heatmap, the matching GT `value_target` heatmap, and their difference.
+- **D. Model ranking vs truth** — rank space, not value space. Left: the current board's 60×5 model grid colored by the model's own rank or percentile within that grid. Right: the same grid with green cells only. There is no raw-value difference panel; the comparison is summarized by the single number *rank of best green*, the same quantity the index sorts on.
 
 Cross-highlighting is global: hovering a heatmap cell in D lights the corresponding contact point in A and the corresponding row in B, and vice versa.
 
