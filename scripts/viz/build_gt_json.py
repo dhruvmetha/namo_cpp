@@ -39,25 +39,29 @@ def _pairs(s):
     return sorted([int(e), int(d)] for e, d in s)
 
 
+def _build_doc(rows, kinds, vt, pe, pd):
+    root_rows = [i for i in rows if kinds[i] == "root"]
+    if not root_rows:
+        return None
+    o, s = green_sets_from_grid(vt[root_rows[0]])
+    doc = {"root": {"openers": _pairs(o), "setups": _pairs(s)}, "finish": {}}
+    for i in rows:
+        if kinds[i] == "root":
+            continue
+        fo, fs = green_sets_from_grid(vt[i])
+        doc["finish"][f"{int(pe[i])}_{int(pd[i])}"] = {"openers": _pairs(fo), "setups": _pairs(fs)}
+    return doc
+
+
 def build_episode_gt(h5, xml, object_id):
     xmls = [_s(v) for v in h5["xml"][:]]
     objs = [_s(v) for v in h5["object_id"][:]]
     kinds = [_s(v) for v in h5["node_kind"][:]]
     rows = [i for i in range(len(xmls))
             if os.path.realpath(xmls[i]) == os.path.realpath(xml) and objs[i] == object_id]
-    root_rows = [i for i in rows if kinds[i] == "root"]
-    if not root_rows:
-        return None
     vt = h5["value_target"]
-    o, s = green_sets_from_grid(vt[root_rows[0]])
-    out = {"root": {"openers": _pairs(o), "setups": _pairs(s)}, "finish": {}}
     pe, pd = h5["parent_edge"][:], h5["parent_depth"][:]
-    for i in rows:
-        if kinds[i] == "root":
-            continue
-        fo, fs = green_sets_from_grid(vt[i])
-        out["finish"][f"{int(pe[i])}_{int(pd[i])}"] = {"openers": _pairs(fo), "setups": _pairs(fs)}
-    return out
+    return _build_doc(rows, kinds, vt, pe, pd)
 
 
 def main():
@@ -81,18 +85,10 @@ def main():
             for rec in recs:
                 oid = rec["object_id"]
                 rows = by_ep.get((rp, oid), [])
-                root_rows = [i for i in rows if kinds[i] == "root"]
-                if not root_rows:
+                doc = _build_doc(rows, kinds, vt, pe, pd)
+                if doc is None:
                     uncovered.append([xml, oid])
                     continue
-                o, s = green_sets_from_grid(vt[root_rows[0]])
-                doc = {"root": {"openers": _pairs(o), "setups": _pairs(s)}, "finish": {}}
-                for i in rows:
-                    if kinds[i] == "root":
-                        continue
-                    fo, fs = green_sets_from_grid(vt[i])
-                    doc["finish"][f"{int(pe[i])}_{int(pd[i])}"] = {
-                        "openers": _pairs(fo), "setups": _pairs(fs)}
                 json.dump(doc, open(os.path.join(a.out_dir, episode_filename(xml, oid)), "w"))
                 covered += 1
     json.dump({"covered": covered, "uncovered": uncovered},

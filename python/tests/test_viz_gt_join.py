@@ -1,4 +1,6 @@
+import os
 import sys
+from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
@@ -9,7 +11,7 @@ h5py = pytest.importorskip("h5py")
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
-from viz.build_gt_json import build_episode_gt, green_sets_from_grid  # noqa: E402
+from viz.build_gt_json import _build_doc, _s, build_episode_gt, green_sets_from_grid  # noqa: E402
 
 
 def test_green_sets_split_openers_from_setups():
@@ -50,3 +52,20 @@ def test_join_returns_root_and_finish_grids(synthetic_h5):
 def test_missing_root_returns_none(synthetic_h5):
     with h5py.File(synthetic_h5, "r") as f:
         assert build_episode_gt(f, "/x/missing.xml", "obj1") is None
+
+
+def test_main_indexed_path_agrees_with_build_episode_gt(synthetic_h5):
+    with h5py.File(synthetic_h5, "r") as f:
+        via_scan = build_episode_gt(f, "/x/a.xml", "obj1")
+
+        xmls = [os.path.realpath(_s(v)) for v in f["xml"][:]]
+        objs = [_s(v) for v in f["object_id"][:]]
+        kinds = [_s(v) for v in f["node_kind"][:]]
+        vt, pe, pd = f["value_target"], f["parent_edge"][:], f["parent_depth"][:]
+        by_ep = defaultdict(list)
+        for i in range(len(xmls)):
+            by_ep[(xmls[i], objs[i])].append(i)
+        rows = by_ep[(os.path.realpath("/x/a.xml"), "obj1")]
+        via_index = _build_doc(rows, kinds, vt, pe, pd)
+
+    assert via_index == via_scan
