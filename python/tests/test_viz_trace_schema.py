@@ -1,3 +1,5 @@
+import hashlib
+import os
 import sys
 from pathlib import Path
 
@@ -8,8 +10,16 @@ from viz.trace_schema import build_trace, episode_filename, make_board, make_pop
 
 
 def test_episode_filename_uses_stem_and_object_id():
-    name = episode_filename("/scratch/x/run_0056/env_0056_pair_001.xml", "obstacle_7_movable")
-    assert name == "env_0056_pair_001__obstacle_7_movable.json"
+    xml_path = "/scratch/x/run_0056/env_0056_pair_001.xml"
+    digest = hashlib.sha1(os.path.realpath(xml_path).encode()).hexdigest()[:8]
+    name = episode_filename(xml_path, "obstacle_7_movable")
+    assert name == f"env_0056_pair_001__obstacle_7_movable__{digest}.json"
+
+
+def test_episode_filename_disambiguates_same_basename_across_dirs():
+    name_a = episode_filename("/scratch/x/run_0056/env_0056_pair_001.xml", "obstacle_7_movable")
+    name_b = episode_filename("/scratch/y/run_0099/env_0056_pair_001.xml", "obstacle_7_movable")
+    assert name_a != name_b
 
 
 def test_root_board_has_sentinel_parent():

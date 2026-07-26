@@ -1,13 +1,16 @@
 """On-disk contract for one episode's search trace. Pure data, no simulator imports.
 
 Consumed by the static page in viz/search/. Bump schema_version if any field changes meaning."""
+import hashlib
 import os
 
 SCHEMA_VERSION = 1
 
 
 def episode_filename(xml_path, object_id):
-    return f"{os.path.splitext(os.path.basename(xml_path))[0]}__{object_id}.json"
+    stem = os.path.splitext(os.path.basename(xml_path))[0]
+    digest = hashlib.sha1(os.path.realpath(xml_path).encode()).hexdigest()[:8]
+    return f"{stem}__{object_id}__{digest}.json"
 
 
 def make_board(board_id, depth, parent_edge, parent_depth, pool, grid, w0, free_strikes):
