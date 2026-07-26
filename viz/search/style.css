@@ -1,0 +1,121 @@
+/* Shared palette for viz/search: opener/setup/dead/masked-or-unknown badges.
+   Used by index.html and (Task 8) episode.html — keep these four rules stable. */
+:root {
+  --opener: #2e7d32;
+  --dead: #c62828;
+  --masked: #9e9e9e;
+  --bg: #fff;
+  --fg: #1a1a1a;
+  --border: #ddd;
+  --row-hover: #f2f6f2;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 1.5rem 2rem 3rem;
+  font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: var(--fg);
+  background: var(--bg);
+}
+
+h1 { margin: 0 0 0.25rem; font-size: 1.4rem; }
+.sub { margin: 0 0 1rem; color: #555; font-size: 0.9rem; }
+
+.controls {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+.controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.8rem;
+  color: #444;
+}
+.controls select {
+  font-size: 0.95rem;
+  padding: 0.25rem 0.4rem;
+}
+
+.summary {
+  font-size: 0.9rem;
+  color: #333;
+  margin-bottom: 0.75rem;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.9rem;
+}
+
+th, td {
+  padding: 0.35rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+th {
+  cursor: pointer;
+  user-select: none;
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  border-bottom: 2px solid #999;
+}
+th.sort-asc::after { content: " \25B2"; }
+th.sort-desc::after { content: " \25BC"; }
+
+th.num, td.num { text-align: right; }
+
+.mono {
+  font-family: "SF Mono", Menlo, Consolas, "Courier New", monospace;
+}
+
+tr.row-link { cursor: pointer; }
+tr.row-link:hover { background: var(--row-hover); }
+
+td a {
+  color: inherit;
+  text-decoration: none;
+}
+td a:hover { text-decoration: underline; }
+
+td.yes { color: var(--opener); font-weight: 600; }
+td.no { color: var(--dead); }
+
+.rank-none { color: var(--dead); }
+
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 3px;
+  font-size: 0.8rem;
+  border: 1px solid transparent;
+}
+.badge-opener {
+  background: var(--opener);
+  border-color: var(--opener);
+  color: #fff;
+}
+.badge-setup {
+  background: transparent;
+  border-color: var(--opener);
+  color: var(--opener);
+}
+.badge-dead {
+  background: var(--dead);
+  border-color: var(--dead);
+  color: #fff;
+}
+.badge-unknown, .badge-empty {
+  background: var(--masked);
+  border-color: var(--masked);
+  color: #fff;
+}

@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NAMO search viz — episode index</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Episode index</h1>
+  <p class="sub">Where does the model's ranking fail? Worst episodes (highest rank of best green) sort to the top by default.</p>
+  <div class="controls">
+    <label>Model
+      <select id="model-select"></select>
+    </label>
+    <label>Strategy
+      <select id="strategy-select"></select>
+    </label>
+    <label>Tier
+      <select id="tier-select">
+        <option value="all">all</option>
+        <option value="easy">easy</option>
+        <option value="medium">medium</option>
+        <option value="hard">hard</option>
+      </select>
+    </label>
+  </div>
+  <div id="summary" class="summary">loading manifest.json&hellip;</div>
+</header>
+<main>
+<table id="episode-table">
+  <thead>
+    <tr>
+      <th data-col="xml">Scene</th>
+      <th data-col="object_id">Object</th>
+      <th data-col="tier">Tier</th>
+      <th data-col="solved">Solved</th>
+      <th data-col="sims" class="num">Sims</th>
+      <th data-col="rank_best_green" class="num">Rank(best green)</th>
+      <th data-col="top1">Top-1 truth</th>
+      <th data-col="has_gt">GT</th>
+    </tr>
+  </thead>
+  <tbody id="episode-tbody"></tbody>
+</table>
+</main>
+<script>
+"use strict";
+
+let manifest = null;
+let sortCol = "rank_best_green";
+let sortDir = "desc"; // spec default: worst (rank_best_green descending, nulls at the worst end) first
+
+const modelSelect = document.getElementById("model-select");
+const strategySelect = document.getElementById("strategy-select");
+const tierSelect = document.getElementById("tier-select");
+const tbody = document.getElementById("episode-tbody");
+const summary = document.getElementById("summary");
+
+fetch("manifest.json")
+  .then((r) => r.json())
+  .then((m) => {
+    manifest = m;
+    init();
+  })
+  .catch((err) => {
+    summary.textContent = "Failed to load manifest.json: " + err;
+  });
+
+function init() {
+  const models = [...new Set(manifest.arms.map((a) => a.model))].sort();
+  models.forEach((m) => modelSelect.add(new Option(m, m)));
+  modelSelect.value = models[0];
+  populateStrategies();
+
+  modelSelect.addEventListener("change", () => {
+    populateStrategies();
+    render();
+  });
+  strategySelect.addEventListener("change", render);
+  tierSelect.addEventListener("change", render);
+
+  document.querySelectorAll("th[data-col]").forEach((th) => {
+    th.addEventListener("click", () => {
+      const col = th.dataset.col;
+      if (sortCol === col) {
+        sortDir = sortDir === "asc" ? "desc" : "asc";
+      } else {
+        sortCol = col;
+        sortDir = "asc";
+      }
+      render();
+    });
+  });
+
+  render();
+}
+
+function populateStrategies() {
+  const model = modelSelect.value;
+  const strategies = [...new Set(
+    manifest.arms.filter((a) => a.model === model).map((a) => a.strategy)
+  )].sort();
+  const prev = strategySelect.value;
+  strategySelect.innerHTML = "";
+  strategies.forEach((s) => strategySelect.add(new Option(s, s)));
+  strategySelect.value = strategies.includes(prev) ? prev : strategies[0];
+}
+
+function sceneName(xml) {
+  return xml.split("/").pop();
+}
+
+// Numeric/string key per column for the comparator below. rank_best_green
+// nulls become +Infinity so they always land at the "worst" end regardless
+// of sort direction (spec requirement).
+function sortValue(row, col) {
+  if (col === "rank_best_green") {
+    return row.rank_best_green === null ? Infinity : row.rank_best_green;
+  }
+  if (col === "xml") {
+    return sceneName(row.xml);
+  }
+  if (col === "solved" || col === "has_gt") {
+    return row[col] ? 1 : 0;
+  }
+  return row[col];
+}
+
+function render() {
+  const model = modelSelect.value;
+  const strategy = strategySelect.value;
+  const arm = model + "|" + strategy;
+  const tier = tierSelect.value;
+
+  const rows = (manifest.index[arm] || []).filter(
+    (r) => tier === "all" || r.tier === tier
+  );
+
+  rows.sort((a, b) => {
+    const va = sortValue(a, sortCol);
+    const vb = sortValue(b, sortCol);
+    const cmp = typeof va === "string" ? va.localeCompare(vb) : va - vb;
+    return sortDir === "asc" ? cmp : -cmp;
+  });
+
+  tbody.innerHTML = "";
+  rows.forEach((row) => {
+    const href =
+      "episode.html?arm=" + encodeURIComponent(arm) + "&key=" + encodeURIComponent(row.key);
+    const tr = document.createElement("tr");
+    tr.className = "row-link";
+    tr.innerHTML =
+      '<td><a href="' + href + '" title="' + row.xml + '">' + sceneName(row.xml) + "</a></td>" +
+      '<td class="mono">' + row.object_id + "</td>" +
+      "<td>" + row.tier + "</td>" +
+      '<td class="' + (row.solved ? "yes" : "no") + '">' + (row.solved ? "yes" : "no") + "</td>" +
+      '<td class="mono num">' + row.sims + "</td>" +
+      '<td class="mono num' + (row.rank_best_green === null ? " rank-none" : "") + '">' +
+        (row.rank_best_green === null ? "none" : row.rank_best_green) + "</td>" +
+      '<td><span class="badge badge-' + row.top1 + '">' + row.top1 + "</span></td>" +
+      '<td class="' + (row.has_gt ? "yes" : "no") + '">' + (row.has_gt ? "yes" : "no") + "</td>";
+    tr.addEventListener("click", (ev) => {
+      if (ev.target.tagName !== "A") window.location.href = href;
+    });
+    tbody.appendChild(tr);
+  });
+
+  const solvedCount = rows.filter((r) => r.solved).length;
+  const noGtCount = rows.filter((r) => !r.has_gt).length;
+  summary.textContent =
+    rows.length + " episodes shown · " + solvedCount + " solved · " + noGtCount + " without GT";
+
+  updateSortIndicators();
+}
+
+function updateSortIndicators() {
+  document.querySelectorAll("th[data-col]").forEach((th) => {
+    th.classList.remove("sort-asc", "sort-desc");
+    if (th.dataset.col === sortCol) {
+      th.classList.add(sortDir === "asc" ? "sort-asc" : "sort-desc");
+    }
+  });
+}
+</script>
+</body>
+</html>
