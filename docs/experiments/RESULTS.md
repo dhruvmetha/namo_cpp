@@ -176,3 +176,41 @@ Per-board credibility `w` demoted by verified failed sims on that board (root fr
 **Depth helps RANDOM, not the model.** Random climbs monotonically (hard @30 16.7→35.0→48.9); the model does not (60.0→63.3→58.3). **At hmax≥3 the ranker falls below random on solve@900** (hard 85.0 vs 87.8; 78.3 vs 85.6); its @30 margin collapses 3.6×→1.8×→1.19×. Model still dominates tight budgets at every depth (hard @5 36.7 vs 10.0 at h4). All failures were budget exhaustion, ZERO queue exhaustion — a ranking failure, not a combinatorial wall.
 
 **Cause (verified):** training nodes are `{root, depth2}` only — no supervision past one push. Plus 48.1% of supervised cells carry only a one-sided ceiling and **0.0% of exact cells are 0**, so there is no downward gradient anywhere on the ranked action space. Dead finish boards are only 46.1% full sweeps, so the 0.81 ceiling is "tried nearly all and failed", not proof.
+
+## 2026-07-26 — Deploy sigmoid squashes the trained value scale; ordering unaffected (card EXP-2026-07-26-scorer-scale-and-combine-mode)
+
+The scorer trains an unbounded HL-Gauss value in [0,1] (`train_q2_rankaux.py:158`, no sigmoid anywhere in the trainer), but `live_scorer.py:184` applies a sigmoid at inference, folding it into [0.5, 0.7311]. Measured over 361,755 ceiling-model candidates: sigmoid path [0.5025, 0.7291] (median 0.5380) vs `--raw` path [0.0098, 0.9899] (median 0.1525); hard model raw median 0.0496 over 412,720 candidates. The trained opener/setup gap (1.0 vs 0.9) is served as 0.731 vs 0.711 — a 0.10 gap crushed to 0.02.
+
+Confirmed on the 2-push test set (1018 episodes, `--combine q --discount off`, hmax 2, budget 30) — raw and sigmoid are identical cell-for-cell, as monotonicity requires:
+
+| model | tier | solve@30 | avg sims | median sims-to-solve |
+|---|---|--:|--:|--:|
+| ceiling | easy | 84.9 | 9.82 | 3 |
+| ceiling | medium | 80.9 | 10.06 | 3 |
+| ceiling | hard | 59.6 | 16.01 | 3 |
+| hard model | easy | 81.1 | 11.63 | 4 |
+| hard model | medium | 80.2 | 11.25 | 4 |
+| hard model | hard | 60.1 | 15.89 | 4 |
+
+**Every ordering-only result (top-1, hit@k, rank-of-first-good-push) is immune to this — a sigmoid is monotone, verified to max abs error 6.1e-08.** What IS affected is every deploy consumer of magnitude: the `blend` combine, the `conf` failure discount, and `free_strike_q`. Under the squashed scale, the adopted `(1-q)^0.15` discount ranges only 0.821-0.901 (within 8% of a flat 0.87 multiplier); under raw values it would range ~0.50-0.99. **Open question, not a conclusion:** the adopted `conf tau=0.15` win (sims-to-solve 46→27.8, card [EXP-2026-07-24](log/EXP-2026-07-24-failure-discount-search.md)) may be substantially a failure-counting effect rather than a confidence effect — the discriminating `--discount gamma --gamma 0.87` control has not been run. `--free-strike-q` defaults to 2.0 but sigmoid `q` never exceeds 0.7311, so that allowance never fires at default settings. Full derivation → [EXP-2026-07-26 card](log/EXP-2026-07-26-scorer-scale-and-combine-mode.md).
+
+## 2026-07-26 — `--combine q` beats the default `--combine blend` on every tier (same card)
+
+Same 1018-episode 2-push test set, hmax 2, budget 30, both models (ceiling, hard), both discount settings. `blend` (current default) = `0.5*q + 0.5*V` (V = board mean top-5 q); `q` = raw action score alone.
+
+| arm | tier | solve% blend → q | avg sims blend → q |
+| --- | --- | --- | --- |
+| ceiling conf tau=0.15 | easy | 90.3 → 93.3 | 9.28 → 8.20 |
+| ceiling conf tau=0.15 | medium | 83.9 → 87.5 | 10.12 → 9.19 |
+| ceiling conf tau=0.15 | hard | 66.8 → 70.6 | 15.48 → 14.61 |
+| ceiling off | easy | 80.3 → 84.9 | 11.10 → 9.82 |
+| ceiling off | medium | 79.0 → 80.9 | 10.96 → 10.06 |
+| ceiling off | hard | 55.8 → 59.6 | 16.80 → 16.01 |
+| hard conf tau=0.15 | easy | 84.5 → 89.9 | 11.42 → 9.66 |
+| hard conf tau=0.15 | medium | 79.0 → 84.1 | 11.49 → 10.58 |
+| hard conf tau=0.15 | hard | 59.3 → 64.4 | 16.64 → 15.43 |
+| hard off | easy | 73.5 → 81.1 | 13.40 → 11.63 |
+| hard off | medium | 75.6 → 80.2 | 12.19 → 11.25 |
+| hard off | hard | 55.8 → 60.1 | 17.07 → 15.89 |
+
+**12 of 12 cells improve on both solve rate and sims** — both models, both discount settings, every tier. Single seed, one test set. **Hypothesis, not a conclusion:** `V` mixes two boards' score scales when comparing across boards, and dropping it removes that distortion — consistent with the sigmoid finding above (the scorer's scale is weakest exactly at cross-board magnitude comparison). Worth considering a deploy-default change from `blend` to `q`; **not adopted here** — user's call. Full table + design → [EXP-2026-07-26 card](log/EXP-2026-07-26-scorer-scale-and-combine-mode.md).

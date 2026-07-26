@@ -67,6 +67,17 @@ The manifest↔GT alignment is the TRUTH below (not a file — the derived align
 
 **Sweep provenance:** config `amarel:/scratch/dm1487/curriculum2/beast/round2/testset_finish_gt/ref_fullexhaust.yaml` (region_opening, `region_exhaustive_mode: true`, no early-stop) → driver `gt_build.sbatch` (100-way array) → H5 builder `scripts/pipeline/build_rung2_h5.py` → merged to `testset_gt.h5`.
 
+**testset_gt.h5 ↔ pure2push.json `valid_first_push` agreement, cell level (verified 2026-07-26, 287 sampled pure-2push episodes):** this is a different check from the root-alignment above — it asks, for each individual first-push candidate, whether GT's green set (openers + setups at the root) and the manifest's `valid_first_push` agree, not just whether the episode is rooted in both.
+
+- **Join key confirmed correct.** Correctly-paired episodes score mean Jaccard **0.443** between the two green sets; a deliberately SHUFFLED pairing scores **0.015** — a 30x separation, the proof that `(xml_realpath, object_id)` is the right join key.
+- **GT is the more complete source.** Cells in both = 1605, GT-only = 3549, manifest-only = 107. GT is a strict superset of the manifest's valid set in **238/287 episodes (83%)**. Median green-set size: GT **11**, manifest **4**.
+- **Cause, from trial counts:** median first pushes TRIED per episode is comparable at depth 1 — 55 (manifest) vs 65 (GT sweep). The gap opens at depth 2: the manifest only marks a first push valid if it *also* found a finishing push, and its finish sweep was not exhaustive, while GT's was (49,622 `depth2` + 15,717 `depth2_noop` rows over 1117 roots).
+- **Practical guidance:** for any per-candidate truth badge or rank-of-first-good-push metric, use `testset_gt.h5`, not `pure2push.json`'s `valid_first_push` — the manifest would mis-score roughly two-thirds of genuinely good pushes as failures.
+- **Honest caveat:** the 107 manifest-only cells are good pushes GT does NOT mark, about 6% of the greens the manifest knows about. Where that bites, a GT-based metric is slightly pessimistic about the model — the safe direction.
+- **`robot_goal` gotcha (cost time to rediscover):** GT's `robot_goal` field is a SAMPLED POINT INSIDE the goal region, not the XML's designated goal site. They differ by 0.02-0.22 m on sampled episodes. Treating the two as equal produces a false mismatch alarm (2 of 115 "agreeing" cases were actually this).
+
+**Design note, not a defect:** 85 rows carry a root cell of 0.0 whose own child grid contains an opener. All 85 are `node_kind == depth2_noop` with `setup_moved == 0`. This is deliberate per `scripts/pipeline/build_rung2_h5.py:182-206` — a setup push that did not move the object is not a genuine 2-push setup, so its "win" is really a recovered 1-push opener and is withheld from the gamma overlay on purpose.
+
 ## Non-canonical GT — USE WITH CAUTION
 
 | artifact | path | size | what it is | ⚠ |
