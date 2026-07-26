@@ -21,15 +21,19 @@ Audience: the user, at the desk and over screen-share with advisors. Not a paper
 
 ## Scope of v1
 
-One arm: model `d20+setupsonly` (the ceiling model), both search strategies.
+Two models, both search strategies — four trace arms.
 
 | axis | v1 values | source |
 | --- | --- | --- |
-| model | `d20_plus_setup_only_splitloss` — `round3/models/d20_plus_setup_only_splitloss/checkpoints/epoch011-val_loss1.6952.ckpt` | model registry |
+| model | **ceiling** `d20_plus_setup_only_splitloss` — `round3/models/d20_plus_setup_only_splitloss/checkpoints/epoch011-val_loss1.6952.ckpt`; **HARD** `setup_split_HARD_seed1` — `round3/models/setup_split_HARD_seed1/checkpoints/epoch011-val_loss0.8787.ckpt` | model registry |
 | search strategy | `off` (plain best-first) and `conf τ=0.15` (adopted failure-discount) | `eval_bestfirst.py --discount` |
 | difficulty | easy 238 / medium 409 / hard 371 | `datasets/namo_testset_v1/labels/pure2push_divisions.json` |
 
-Both dropdowns ship with one model entry; adding a model means dropping another trace directory in and appending one line to a manifest. No code change.
+The two models are the same data and architecture under **different label regimes** — ceiling uses the fence and masks non-labeled cells, HARD labels every reachable cell two-sided with nothing masked. This is the pair that makes the visualization worth building: HARD wins the deep 1-push tail but regresses 2-push ordering (sims-to-solve 46.0 → 53.8), and nobody has seen *where* in the grid that trade happens.
+
+Because the regimes differ, the heatmaps must not be compared on a shared absolute color scale. Zone D normalizes color **per model**, states the raw range on the panel, and offers a mask toggle so the ceiling model's fenced cells can be shown as masked or as raw values. Cross-model claims are about **ordering within a grid**, never about matching magnitudes across the two.
+
+Adding further models means dropping another trace directory in and appending one line to a manifest. No code change.
 
 ## Data model
 
@@ -65,7 +69,7 @@ Coverage: `testset_gt.h5` roots 981 of the 1018 manifest episodes (Jun-10 manife
 
 Additive, flag-gated patch to `scripts/sandbox/eval_bestfirst.py`: a `--trace-out DIR` option that writes one JSON per episode. With the flag unset, behavior is byte-identical to today — verified by running a smoke set with and without the flag and diffing `--out`/`--leaf-out`.
 
-Cost: 1018 episodes × roughly 28 sims × about 1 s ≈ 8 CPU-hours per arm, embarrassingly parallel across episodes. Two arms (`off`, `conf τ=0.15`) on a 64-core SLURM slice is well under an hour. Follow the `scaled-run` skill for the launch.
+Cost: 1018 episodes × roughly 28 sims × about 1 s ≈ 8 CPU-hours per arm, embarrassingly parallel across episodes. Four arms (2 models × 2 strategies) ≈ 32 CPU-hours, which is well under an hour on a 64-core SLURM slice. Follow the `scaled-run` skill for the launch.
 
 ## The page
 
