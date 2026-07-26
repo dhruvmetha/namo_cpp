@@ -6,7 +6,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
-from viz.trace_schema import build_trace, episode_filename, make_board, make_pop  # noqa: E402
+from viz.trace_schema import (build_trace, episode_filename, make_board, make_pop,  # noqa: E402
+                              rle_decode, rle_encode)
 
 
 def test_episode_filename_uses_stem_and_object_id():
@@ -26,6 +27,39 @@ def test_root_board_has_sentinel_parent():
     b = make_board(0, 0, -1, -1, [], None, 1.0, 0)
     assert b["board_id"] == 0 and b["depth"] == 0
     assert b["parent_edge"] == -1 and b["parent_depth"] == -1
+
+
+def test_board_geometry_is_optional_and_defaults_to_none():
+    """v3 is ADDITIVE: a caller that does not record geometry still gets the keys, set to None, so
+    the page can branch on presence instead of on schema_version arithmetic."""
+    b = make_board(0, 0, -1, -1, [], None, 1.0, 0)
+    assert b["geom"] is None and b["regions"] is None
+
+
+def test_board_carries_per_state_geometry_and_regions():
+    geom = {"movable": {"obj_1": [0.1, 0.2, 0.3]}, "robot": [0.0, 0.0, 1.0],
+            "contacts": [[0.0, 0.0]] * 60}
+    regions = {"nx": 2, "ny": 3, "res": 0.005, "origin": [-0.4, -0.4],
+               "labels": {"1": "robot", "2": "goal"}, "rle": [1, 3, 0, 1, 2, 2]}
+    b = make_board(1, 1, 5, 0, [], None, 1.0, 0, geom=geom, regions=regions)
+    assert b["geom"]["robot"] == [0.0, 0.0, 1.0]
+    assert len(b["geom"]["contacts"]) == 60
+    assert b["regions"]["labels"]["2"] == "goal"
+
+
+def test_rle_roundtrips_and_never_crosses_a_row():
+    grid = [[0, 0, 1, 1, 1], [1, 1, 1, 1, 1], [2, 0, 2, 0, 2]]
+    flat = rle_encode(grid)
+    # runs are per row: row 0 -> (0,2),(1,3); row 1 -> (1,5); row 2 -> five singletons.
+    assert flat == [0, 2, 1, 3, 1, 5, 2, 1, 0, 1, 2, 1, 0, 1, 2, 1]
+    assert sum(flat[1::2]) == 3 * 5
+    assert rle_decode(flat, 3, 5) == grid
+
+
+def test_rle_roundtrips_a_uniform_grid():
+    grid = [[7] * 4 for _ in range(3)]
+    assert rle_encode(grid) == [7, 4, 7, 4, 7, 4]     # one run per row, not one run overall
+    assert rle_decode(rle_encode(grid), 3, 4) == grid
 
 
 def test_child_board_records_the_setup_push_that_spawned_it():
@@ -59,7 +93,7 @@ def test_build_trace_is_json_serializable_and_versioned():
         pops=[make_pop(1, 0, "o", 5, 0, 0.9, 0.9, 1.0, True)],
         result={"solved": True, "sims": 1, "plan_len": 1, "end": "solved"},
     )
-    assert doc["schema_version"] == 2
+    assert doc["schema_version"] == 3
     assert doc["result"]["solved"] is True
     json.dumps(doc)
 
@@ -84,3 +118,15 @@ def test_generator_writes_the_full_parameter_set():
                  "w0_mode", "free_strike_q", "dive_bonus", "raw", "gtable"):
         assert f'"{flag}"' in block, flag
     assert '"search": search_params' in src
+
+
+def test_generator_records_geometry_per_board_and_only_under_trace_out():
+    """v3 contract on the writer: boards are built with geom/regions, the capture is created only on
+    the --trace-out path (so the flag-off run stays byte-identical), and it restores the sim state
+    before reading, since the scorer moves it."""
+    src = (REPO_ROOT / "scripts/sandbox/eval_bestfirst.py").read_text()
+    assert 'geom=b["geom"], regions=b["regions"]' in src
+    body = src.split("def _make_capture(", 1)[1].split("\ndef main(", 1)[0]
+    assert body.count("env.set_full_state(state)") == 2      # restore on entry AND after the snapshot
+    assert "rle_encode(rm.tolist())" in body
+    assert "capture = _make_capture(" in src.split("if a.trace_out:", 2)[-1]

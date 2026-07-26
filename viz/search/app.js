@@ -1,13 +1,21 @@
 "use strict";
 /* Episode replay view: one search, replayed pop by pop.
  *
- * Data shapes (see docs/superpowers/specs/2026-07-26-search-viz-design.md), schema_version 2:
+ * Data shapes (see docs/superpowers/specs/2026-07-26-search-viz-design.md), schema_version 3:
  *   trace = {meta:{..., search:{combine,agg,prior,raw,dive_bonus,discount,gamma,tau,eps,w0_mode,
  *                               free_strike_q,gtable,hmax,sim_budget}},
  *            scene, boards:[{board_id,depth,parent_edge,parent_depth,pool:[{obj,edge,depth,q}],grid|null,
- *                            w0,free_strikes}],
+ *                            w0,free_strikes,geom|null,regions|null}],
  *            pops:[{t,board_id,obj,edge,depth,q,bp,w,se,opened}], result:{solved,sims,plan_len,end}}
  *   gt    = null | {root:{openers:[[e,d]],setups:[[e,d]]}, finish:{"<parent_edge>_<parent_depth>":{openers,setups}}}
+ *
+ * v3 adds PER-BOARD state. `scene` is still the episode's START geometry (and the only geometry a v2
+ * trace has), but every board now also carries `geom` -- the movable/robot poses and the target's 60
+ * contact points AT THAT BOARD'S OWN STATE -- and `regions` -- the wavefront region decomposition
+ * there, run-length encoded (scripts/viz/trace_schema.py rle_encode documents the format). So zone A
+ * redraws for the board being viewed instead of freezing at the start pose, and the two regions the
+ * whole problem is about (the robot's and the goal's, which a successful push MERGES) are visible.
+ * Both fields are read defensively: a v2 trace has neither, and then zone A renders exactly as before.
  *
  * ORDERING IS RECOMPUTED, NOT READ OFF THE POPS. Two values set a candidate's place in the queue:
  *   bp -- the base priority. Only recorded for already-popped candidates, so queued ones need the formula:
@@ -32,7 +40,7 @@ const RECON_TOL = 1e-9;
 // The schema_version this page knows how to reconstruct (scripts/viz/trace_schema.py SCHEMA_VERSION). Keyed
 // on the version itself, not on the presence of any one field -- a later schema bump that happens to keep
 // meta.search around must still be caught here, not slip through unflagged.
-const SUPPORTED_SCHEMA_VERSION = 2;
+const SUPPORTED_SCHEMA_VERSION = 3;
 
 const state = { trace: null, gt: null, t: 0, hover: null, manifestRow: null };
 const boardVCache = new Map(); // board_id -> V (the board's pool aggregate, fixed at board creation)
@@ -252,6 +260,58 @@ function fmtPct(x) {
 
 // ---- Zone A: the scene ---------------------------------------------------------------------
 
+// Decode board.regions.rle straight into DRAWABLE runs, skipping the intermediate grid: each run is
+// one region id filling a contiguous span of one column ix, i.e. exactly one rectangle. Format is
+// pinned by scripts/viz/trace_schema.py rle_encode -- flat [value, count, ...] over the row-major
+// flatten of the (nx, ny) id grid, runs never crossing a row -- but the walk below splits at row
+// boundaries anyway, so a run that did span rows would still decode to correct rectangles.
+function regionRuns(regions) {
+  const { nx, ny, res, origin, rle } = regions;
+  const runs = [];
+  let ix = 0;
+  let iy = 0;
+  for (let i = 0; i < rle.length && ix < nx; i += 2) {
+    const v = rle[i];
+    let n = rle[i + 1];
+    while (n > 0 && ix < nx) {
+      const take = Math.min(n, ny - iy);
+      if (v !== 0) runs.push({ v, x: origin[0] + ix * res, y: origin[1] + iy * res, h: take * res });
+      iy += take;
+      n -= take;
+      if (iy >= ny) {
+        iy = 0;
+        ix += 1;
+      }
+    }
+  }
+  return runs;
+}
+
+// The problem in one picture: "robot" = where the robot can currently get to, "goal" = the pocket it
+// is trying to reach, and a push succeeds exactly when the two become one region ("robot_goal").
+// Everything else is background free space -- drawn, but deliberately dull.
+function regionClass(label) {
+  if (label === "robot") return "region-robot";
+  if (label === "goal") return "region-goal";
+  if (label === "robot_goal") return "region-merged";
+  return "region-other";
+}
+
+function regionLayer(regions) {
+  if (!regions) return "";
+  const res = regions.res;
+  const cells = regionRuns(regions).map((r) => {
+    const label = regions.labels[String(r.v)] || `region_${r.v}`;
+    // 2% overhang on the width so neighbouring columns of the same region overlap instead of
+    // leaving antialiased hairlines between them (0.1 mm of overdraw at 5 mm cells).
+    return (
+      `<rect class="region-cell ${regionClass(label)}" x="${r.x}" y="${r.y}" ` +
+      `width="${res * 1.02}" height="${r.h}"><title>${label}</title></rect>`
+    );
+  });
+  return `<g class="region-layer">${cells.join("")}</g>`;
+}
+
 function renderSceneA() {
   const svg = document.getElementById("scene-svg");
   const scene = state.trace.scene;
@@ -280,8 +340,18 @@ function renderSceneA() {
   const qmin = qs_.length ? Math.min(...qs_) : 0;
   const qmax = qs_.length ? Math.max(...qs_) : 1;
 
+  // v3: everything that MOVES comes from the board's own geometry; sizes and walls never move, so they
+  // stay on the episode-level `scene`. A v2 trace has no board.geom -- fall back to the start state,
+  // which is exactly what this page drew before.
+  const geom = board.geom || null;
+  const poseOf = (m) => (geom && geom.movable[m.name]) || [m.x, m.y, m.theta];
+  const robotPose = (geom && geom.robot) || scene.robot;
+  const contacts = (geom && geom.contacts) || scene.contacts;
+
   const parts = [];
   const stroke = 0.0025;
+
+  parts.push(regionLayer(board.regions));   // first = beneath everything else
 
   for (const s of scene.static) {
     const theta = 2 * Math.atan2(s.qz, s.qw);
@@ -302,16 +372,17 @@ function renderSceneA() {
   );
 
   for (const m of scene.movable) {
-    const deg = (m.theta * 180) / Math.PI;
+    const [mx, my, mtheta] = poseOf(m);
+    const deg = (mtheta * 180) / Math.PI;
     const isTarget = m.name === state.trace.meta.object_id;
     parts.push(
       `<rect x="${-m.hw}" y="${-m.hd}" width="${2 * m.hw}" height="${2 * m.hd}" ` +
         `class="${isTarget ? "movable-target" : "movable-other"}" ` +
-        `transform="translate(${m.x},${m.y}) rotate(${deg})"><title>${m.name}</title></rect>`
+        `transform="translate(${mx},${my}) rotate(${deg})"><title>${m.name}</title></rect>`
     );
   }
 
-  const [rx, ry, rtheta] = scene.robot;
+  const [rx, ry, rtheta] = robotPose;
   const rr = 0.025;
   parts.push(
     `<g class="robot-marker" transform="translate(${rx},${ry}) rotate(${(rtheta * 180) / Math.PI})">` +
@@ -319,7 +390,7 @@ function renderSceneA() {
   );
 
   const cr = 0.008;
-  scene.contacts.forEach((pt, edge) => {
+  contacts.forEach((pt, edge) => {
     const [cx, cy] = pt;
     const best = bestByEdge.get(edge);
     if (!best) {
@@ -348,6 +419,17 @@ function renderSceneA() {
 
   svg.innerHTML = parts.join("");
   wireHover(svg, "g.contact-pt");
+
+  const note = document.getElementById("scene-note");
+  note.innerHTML = geom
+    ? `Drawn at <strong>board ${boardId}</strong>'s own state (${boardTag(board)}) &mdash; objects, robot ` +
+      `and contact points move as you scrub. Tint = free space split into regions: ` +
+      `<span class="legend-swatch region-robot"></span>&nbsp;robot's region, ` +
+      `<span class="legend-swatch region-goal"></span>&nbsp;goal's region, ` +
+      `<span class="legend-swatch region-other"></span>&nbsp;elsewhere. A push succeeds exactly when ` +
+      `the first two merge.`
+    : `This trace has no per-board geometry (pre-v3), so the scene is drawn once from the state the ` +
+      `search started from; only the contact colors/pop markers change as you scrub.`;
 }
 
 // ---- Zone B: the priority queue ---------------------------------------------------------------

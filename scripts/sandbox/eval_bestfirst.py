@@ -31,12 +31,12 @@ for _p in (f"{REPO}/build_python", f"{REPO}/python", f"{REPO}/scripts", f"{REPO}
            f"{REPO}/scripts/pipeline", SAGE):
     if _p and _p not in sys.path:
         sys.path.insert(0, _p)
-from scorer_beam import BeamPlanner, make_env, make_action, read_manifest, FALLBACK_GOAL  # noqa: E402
+from scorer_beam import BeamPlanner, make_env, make_action, read_manifest, FALLBACK_GOAL, CFG  # noqa: E402
 from eval_m3 import rank_first_pushes_h2, sample_goal_points, goal_open_pts  # noqa: E402
 from namo.core.xml_goal_parser import extract_goal_with_fallback  # noqa: E402
 from namo.paths import MANIFESTS, DATASETS, SCRATCH  # noqa: E402
 from namo import eval_sets  # noqa: E402
-from viz.trace_schema import build_trace, episode_filename, make_board, make_pop  # noqa: E402
+from viz.trace_schema import build_trace, episode_filename, make_board, make_pop, rle_encode  # noqa: E402
 
 PURE2PUSH = str(MANIFESTS / "test_pure2_fromkey.txt")
 
@@ -92,11 +92,13 @@ def _update_w_on_fail(board, q_failed, discount, gamma, tau, g_table, gkmax, eps
 def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combine, rng, restrict_obj=None,
                 is_open=lambda e: e.is_robot_goal_reachable(), raw=False, dive_bonus=0.0,
                 discount="off", gamma=0.65, tau=1.0, g_table=None, eps=1e-3,
-                w0_mode="one", free_strike_q=2.0, trace_out=None):
+                w0_mode="one", free_strike_q=2.0, trace_out=None, capture=None):
     """Greedy best-first ON THE LABELED OBJECT (restrict_obj). Returns (solved, sims, plan_len|None, boards, end).
     boards = per-board lifetime records; end in {solved, budget, exhausted}. w(b) via --discount (off=static).
     trace_out (list, viz only): every pop is appended as a make_pop row and every board also carries its full
-    candidate pool + the model grid. None (default) = not one extra op anywhere."""
+    candidate pool + the model grid. None (default) = not one extra op anywhere.
+    capture (viz only): capture(state) -> (geom, regions) recorded on the board created AT that state, so the
+    page can redraw the scene where the search actually was instead of at the start state."""
     gkmax = (max(g_table) if g_table else 0)
     tracing = trace_out is not None
     heap = []; sims = 0
@@ -107,12 +109,13 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
         ctr[0] += 1; return ctr[0] - 1
 
     def new_board(depth, npool, w0=1.0, free_strikes=0, parent_edge=-1, parent_depth=-1,
-                  pool_rows=None, grid=None):
+                  pool_rows=None, grid=None, state=None):
         w0 = min(max(w0, eps), 1.0)
+        geom, regions = capture(state) if capture is not None else (None, None)
         boards.append({"board_id": len(boards), "depth": depth, "n_candidates": npool,
                        "k_failed": 0, "w": w0, "w0": w0, "free_strikes": free_strikes, "tries": [],
                        "parent_edge": parent_edge, "parent_depth": parent_depth,
-                       "pool": pool_rows, "grid": grid})
+                       "pool": pool_rows, "grid": grid, "geom": geom, "regions": regions})
         return boards[-1]
 
     def push(item, bp, board):
@@ -125,7 +128,7 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
 
     pool, V0, grid0 = candidates(planner, env, goal, xml, s0, hmax, prior, agg, rng, restrict_obj=restrict_obj,
                                  raw=raw, want_grid=tracing)
-    root = new_board(0, len(pool), pool_rows=(trace_rows(pool) if tracing else None), grid=grid0)
+    root = new_board(0, len(pool), pool_rows=(trace_rows(pool) if tracing else None), grid=grid0, state=s0)
     for (obj, g, q) in pool:                              # roots: ndone=0
         push({"obj": obj, "g": g, "from": s0, "ndone": 0, "plan": [(obj, g)], "q": q},
              priority(q, V0, combine), root)
@@ -157,7 +160,7 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
                               parent_edge=(int(it["g"].edge_idx) if tracing else -1),
                               parent_depth=(int(it["g"].depth) if tracing else -1),
                               pool_rows=(trace_rows(pool2) if tracing else None),
-                              grid=grid2)
+                              grid=grid2, state=s_new)
             for (obj2, g2, q2) in pool2:                  # children: +dive_bonus*ndone bias (kept for parity)
                 push({"obj": obj2, "g": g2, "from": s_new, "ndone": ndone,
                       "plan": it["plan"] + [(obj2, g2)], "q": q2},
@@ -198,6 +201,33 @@ def _scene_dict(env, goal):
                for k, v in info.items() if k != "robot" and f"{k}_pose" in obs and "pos_x" not in v]
     return {"bounds": list(env.get_world_bounds()), "static": static, "movable": movable,
             "robot": list(obs["robot_pose"]), "goal": list(goal)}
+
+
+def _make_capture(env, exporter, xml, obj, hw, hd, mov_names, offsets_world):
+    """VIZ ONLY (--trace-out). Returns capture(state) -> (geom, regions) for the board AT `state`.
+
+    Both halves recompute from the LIVE env, so they are only correct if the env really is at that
+    board's state -- hence the set_full_state on entry (the scorer's forward pass moves the sim as a
+    side effect; same restore convention as scripts/sandbox/eval_m3.py:73). ~54 ms/board, all of it
+    the region decomposition, which genuinely differs board to board: that is the point."""
+    def capture(state):
+        env.set_full_state(state)
+        obs = env.get_observation()
+        opose = obs[f"{obj}_pose"]
+        off = offsets_world(hw, hd, float(opose[2]))
+        geom = {"movable": {m: [round(float(c), 6) for c in obs[f"{m}_pose"]] for m in mov_names},
+                "robot": [round(float(c), 6) for c in obs["robot_pose"]],
+                "contacts": [[round(float(opose[0] + dx), 6), round(float(opose[1] + dy), 6)]
+                             for dx, dy in off]}
+        snap = exporter.build_snapshot(xml_path=xml, config_path=CFG, use_current_state=True)
+        rm = snap.region_map
+        regions = {"nx": int(rm.shape[0]), "ny": int(rm.shape[1]), "res": float(snap.resolution),
+                   "origin": [float(snap.bounds[0]), float(snap.bounds[2])],
+                   "labels": {str(int(k)): v for k, v in snap.region_labels.items()},
+                   "rle": rle_encode(rm.tolist())}
+        env.set_full_state(state)          # the snapshot pass must not leak state back into the search
+        return geom, regions
+    return capture
 
 
 def main():
@@ -258,6 +288,9 @@ def main():
     ltf = open(a.lifetime_out, "w") if a.lifetime_out else None
     if a.trace_out:
         from add_contact_px import contact_offsets_world
+        # scipy (via the exporter's connected-components pass) + the exporter itself are imported ONLY
+        # on the tracing path, so the flag-off run keeps its exact dependency set and startup cost.
+        from namo.visualization.wavefront_snapshot import WavefrontSnapshotExporter
         os.makedirs(a.trace_out, exist_ok=True)
     ep_ctr = 0
     for xi, xml in enumerate(xmls):
@@ -277,21 +310,27 @@ def main():
                 n_already += 1; continue
             s0 = env.get_full_state()
             scene = _scene_dict(env, goal) if a.trace_out else None
+            if a.trace_out:
+                exporter = WavefrontSnapshotExporter(env)      # one per env: static geometry never moves
+                mov_names = [m["name"] for m in scene["movable"]]
             for ri, rec in enumerate(recs):
                 rng = random.Random(a.seed_base + xi * 17 + ri)
                 obj = rec.get("object_id")
                 pops = [] if a.trace_out else None
+                capture = None
                 if a.trace_out:
                     env.set_full_state(s0)                     # the previous record left the env post-search
                     oi = env.get_object_info()[obj]
                     opose = env.get_observation()[f"{obj}_pose"]
                     off = contact_offsets_world(oi["size_x"], oi["size_y"], opose[2])
                     ep_scene = dict(scene, contacts=[[float(opose[0] + dx), float(opose[1] + dy)] for dx, dy in off])
+                    capture = _make_capture(env, exporter, xml, obj, oi["size_x"], oi["size_y"],
+                                            mov_names, contact_offsets_world)
                 solved, sims, plen, boards, end = solve_scene(
                     planner, env, goal, xml, s0, a.hmax, a.sim_budget, a.prior, a.agg, a.combine, rng,
                     restrict_obj=obj, is_open=is_open, raw=a.raw, dive_bonus=a.dive_bonus,
                     discount=a.discount, gamma=a.gamma, tau=a.tau, g_table=g_table, eps=a.eps, w0_mode=a.w0_mode, free_strike_q=a.free_strike_q,
-                    trace_out=pops)
+                    trace_out=pops, capture=capture)
                 n += 1; sims_tot += sims; n_solved += int(solved); sims_solved += sims if solved else 0
                 lf.write(json.dumps({"xml": xml, "object_id": obj, "region": rec.get("region"),
                                      "solved": solved, "sims": sims, "plan_len": plen}) + "\n")
@@ -308,7 +347,8 @@ def main():
                               "search": search_params},
                         scene=ep_scene,
                         boards=[make_board(b["board_id"], b["depth"], b["parent_edge"], b["parent_depth"],
-                                           b["pool"], b["grid"], b["w0"], b["free_strikes"]) for b in boards],
+                                           b["pool"], b["grid"], b["w0"], b["free_strikes"],
+                                           geom=b["geom"], regions=b["regions"]) for b in boards],
                         pops=pops, result={"solved": solved, "sims": sims, "plan_len": plen, "end": end})
                     json.dump(doc, open(os.path.join(a.trace_out, episode_filename(xml, obj)), "w"))
                 ep_ctr += 1
