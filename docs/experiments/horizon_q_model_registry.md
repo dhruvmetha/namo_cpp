@@ -14,6 +14,21 @@ updated: 2026-06-26
 > registered models ([[feedback_reuse_baselines]]). Roots: ckpts `/scratch/dm1487/sage_outputs/scorer/`,
 > evals `/scratch/dm1487/eval/`, H5s `/scratch/dm1487/h5/`. Updated 2026-06-15 (added Horizon-v2 / NoHorizon-v2).
 
+## Canonical offline ranking panel (2026-07-26) — the ONE place AUC/rank numbers come from
+
+Produced by `scripts/eval_auc.py` (2-push, `twopush_gt_h5`) + `eval_scorer.py --live-canonical` (1-push); grid JSONs under `$NAMO_SCRATCH/eval/auc_grid/`. **Any AUC quoted anywhere must name its variant** — grammar, seed bands, and the retired numbers are in [auc_metrics_reconciliation.md](auc_metrics_reconciliation.md). Seed-mean; noise bands ±0.01 (V1/F1), ±0.025 (V5), ±1.1 pt (setup hit@1), ±2.2 pt (1-push hard hit@1).
+
+| model | V1 | V5 | F1 | setup hit@1 (floor 27.6) | finish hit@1 (floor 15.4) | 1p hard hit@1 (floor 2.5) |
+|---|--:|--:|--:|--:|--:|--:|
+| beast2c_d20_ceil (`d20_base`) | 0.779 | 0.490 | 0.862 | 51.9 | 70.0 | 40.7 |
+| exact-value-rank v2 (3 seeds) | 0.770 | 0.502 | 0.858 | 50.7 | 70.3 | 40.7 |
+| … its paired control (3 seeds) | 0.764 | 0.475 | 0.874 | 46.4 | 68.9 | 41.0 |
+| **d20+setup-only split (deploy, 3 seeds)** | **0.827** | 0.543 | 0.843 | **59.8** | 69.8 | 39.2 |
+| colossus0 opener-only | 0.825 | 0.593 | 0.820 | 59.4 | 68.4 | **44.1** |
+| colossus0 split-full | 0.831 | **0.624** | **0.796** | **63.8** | 68.6 | **35.3** |
+
+⚠ The `round2_eval.h5` AUCs quoted in the colossus / exact-value cards (0.876–0.925) are on the **dead-bank** distribution and run **~+0.12 pooling-inflated** vs these; within-board they are identical. Never put the two on one axis.
+
 ## Marvel 1-push DAgger ladder (antman-0..5) — 🔵 ACTIVE [2026-07-16]
 
 `train_q2_rankaux` (λ=0.1), NOT the horizon `edge_crossattn` line. Screener for round r = antman_{r-1}; best ckpt = min val_loss in each `checkpoints/`. Eval: best-first hmax1 budget300 on `namo_testset_v1`, `agg_table.txt` beside each. Full detail → [log/EXP-2026-07-14-region-opening-curriculum-marvel.md](log/EXP-2026-07-14-region-opening-curriculum-marvel.md). Ckpts are CS-side (arrakis) under `/common/users/dm1487/scratch_namo/`.

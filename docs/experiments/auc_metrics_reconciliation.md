@@ -58,6 +58,21 @@ Per tier, for the three reference models:
 | deploy_s1 | easy / med / hard | 0.809 / 0.825 / 0.814 | 0.609 / 0.562 / 0.470 | 70.5 / 65.2 / 46.5 | 47.4 / 27.6 / 14.9 |
 | colossus_split | easy / med / hard | 0.805 / 0.840 / 0.802 | 0.648 / 0.639 / 0.574 | 74.7 / 68.0 / 52.1 | 47.4 / 27.6 / 14.9 |
 
+## The 1-push horizon (canonical `onepush_manifest`, `eval_scorer.py --live-canonical`, 1323 episodes)
+
+Seed-mean per condition; opener AUC = valid vs invalid over the deploy-realistic candidate pool (the horizon-1 analogue of F1/F2).
+
+| condition | AUC pooled e/m/h | within-episode e/m/h | hit@1 e/m/h | floor@1 e/m/h |
+|---|---|---|---|---|
+| d20_base | 0.849 / 0.856 / 0.859 | 0.885 / 0.895 / 0.896 | 98.3 / 82.2 / 40.7 | 62.8 / 15.4 / 2.5 |
+| exactv2 (3 seeds) | 0.876 / 0.872 / 0.865 | 0.891 / 0.916 / 0.909 | 97.7 / 83.6 / 40.7 | " |
+| ctrl (3 seeds) | 0.903 / 0.888 / 0.877 | 0.918 / 0.925 / 0.911 | 98.7 / 83.8 / 41.0 | " |
+| deploy (3 seeds) | 0.844 / 0.840 / 0.837 | 0.872 / 0.899 / 0.893 | 97.9 / 84.9 / 39.2 | " |
+| colossus_openeronly | 0.852 / 0.847 / 0.833 | 0.879 / 0.902 / 0.874 | 98.3 / 84.3 / **44.1** | " |
+| colossus_split | 0.843 / 0.831 / 0.806 | 0.867 / 0.888 / 0.866 | 98.0 / 84.6 / **35.3** | " |
+
+Opener separation is **tier-flat** too (d20_base even rises slightly on hard: 0.849 → 0.859). Seed spread on 1-push hard hit@1 is **±2.2 pts** (deploy 39.7 / 36.8 / 41.2) — much looser than the 2-push setup hit@1 band, and the reason single-seed hard-1-push comparisons keep flipping.
+
 ## The seed noise floor — measured, not guessed
 
 Marvel pre-committed "AUC run-noise ≈ ±0.03". Three paired 3-seed conditions say it is **3× tighter than that** for the pooled metrics, and much looser for the cross-board ones. Mean ± half-range within a condition:
@@ -94,7 +109,16 @@ Marvel pre-committed "AUC run-noise ≈ ±0.03". Three paired 3-seed conditions 
 
 **3. The flooding mechanism is an order statistic, not average mis-scoring.** V4 (cell vs cell) is **0.86–0.92** for every model — the model is not confused about cells. V5 puts the same setup cell against the dead board's *best* cell and lands near chance, because each dead board gets ~70 draws. Quote V5 **as** an order statistic. It is not "the model can't tell a setup from a dead push", and it is not below chance.
 
-**4. AUC and hit@1 disagree, and hit@1 is the one that matters.** The adopted split-budget loss vs its paired control: V1 **+0.006** (inside the ±0.01 band — invisible) but setup hit@1 **+4.3 pts** (4× its band). AUC scores average separation over ~70 candidates; best-first only ever consumes the top of the list. Every time these two have disagreed — the peek diagnostic, exact-value v1, this pair — hit@1 was the one that predicted deploy. **Headline rank metrics; keep AUC as a diagnostic.**
+**4. AUC is UNDERPOWERED on the setup axis and UNINFORMATIVE on the opener axis.** Spearman across all 12 checkpoints:
+
+| pair | ρ |
+|---|--:|
+| V1 vs setup hit@1 (2-push root) | **+0.94** |
+| V5 vs setup hit@1 | +0.84 |
+| F1 vs finish hit@1 (2-push child) | **+0.07** |
+| 1-push opener AUC vs hit@1 — easy / med / hard | +0.39 / **−0.63** / +0.37 |
+
+Two different failures, not one. On the **setup** axis AUC orders models correctly but has almost no dynamic range: the adopted split-budget loss beats its paired control by **+0.006 V1** (inside the ±0.01 noise band, i.e. invisible) while gaining **+4.3 pts setup hit@1** (4× its band). Same direction, unusable resolution. On the **opener/finish** axis AUC does not track ranking at all — `ctrl` has the best 1-push hard opener AUC of any model (0.877 seed-mean) and a completely ordinary hard hit@1 (41.0), while `colossus_openeronly` has one of the worst AUCs (0.833) and the **best** hard hit@1 (44.1). The asymmetry has an obvious cause: setup positives are rare (~2% base rate) so separation and top-1 nearly coincide, whereas openers are abundant, so a model can average well across ~70 candidates and still not put a winner first. **Headline rank metrics with their floor; use AUC as a diagnostic, and never as the opener-side gate.**
 
 **5. The two axes trade, and the panel shows it.** `colossus_split` is best on the setup/cross-board axis (V5 0.624, setup hit@1 63.8) and **worst on finish separation** (F1 0.796) — which is exactly its deploy signature (fastest 2-push search, worst hard-1-push tail @5 64.2 vs deploy's 72.1). `deploy` is the mirror image. Reading only one half of the panel will pick the wrong model. (Correlational, n≈5 conditions, and `d20_base` is a partial counterexample — F1 0.862 with a mid tail. Treat as a lens, not a law.)
 
@@ -119,5 +143,6 @@ Marvel pre-committed "AUC run-noise ≈ ±0.03". Three paired 3-seed conditions 
 - **Report V2 alongside V1, and F2 alongside F1.** The pooled-vs-within pair is what exposes a board-composition effect; V1 alone is how the dead-bank illusion survived for weeks.
 - **Exhaustive GT only.** `valid_first_push` is completion-sampled; every AUC built on it is a lower bound of unknown tightness.
 - **Never compare across eval sets.** Same metric, different distributions, +0.12 of pure composition.
-- **Rank metrics are the headline; AUC is the diagnostic.** Always print the random floor next to hit@k.
+- **Rank metrics are the headline; AUC is the diagnostic.** Always print the random floor next to hit@k. On the opener/finish axis AUC is not even a valid tiebreak (ρ≈0).
+- **Noise bands to clear:** ±0.01 on V1/V2/F1/F2, ±0.025 on V3/V5, ±1.1 pt on 2-push setup hit@1, **±2.2 pt on 1-push hard hit@1**.
 - **Tier everything** (easy/med/hard) and report both horizons (1-push / 2-push) — the tier slope lives in different variants than you'd guess.
