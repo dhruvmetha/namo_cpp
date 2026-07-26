@@ -97,8 +97,11 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
     boards = per-board lifetime records; end in {solved, budget, exhausted}. w(b) via --discount (off=static).
     trace_out (list, viz only): every pop is appended as a make_pop row and every board also carries its full
     candidate pool + the model grid. None (default) = not one extra op anywhere.
-    capture (viz only): capture(state) -> (geom, regions) recorded on the board created AT that state, so the
-    page can redraw the scene where the search actually was instead of at the start state."""
+    capture (viz only): capture(state) -> (geom, regions), recorded on EVERY pop (the state that push reached)
+    and on every board (the state its candidates were generated at), so the page can redraw the scene where
+    the search actually was instead of at the start state. Captured for the pop BEFORE the early return on
+    success, so a solved episode's winning push -- which creates no board at all -- is recorded too; the child
+    board spawned by a failed pop reuses that same capture rather than paying for the identical state twice."""
     gkmax = (max(g_table) if g_table else 0)
     tracing = trace_out is not None
     heap = []; sims = 0
@@ -109,9 +112,10 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
         ctr[0] += 1; return ctr[0] - 1
 
     def new_board(depth, npool, w0=1.0, free_strikes=0, parent_edge=-1, parent_depth=-1,
-                  pool_rows=None, grid=None, state=None):
+                  pool_rows=None, grid=None, state=None, geom=None, regions=None):
         w0 = min(max(w0, eps), 1.0)
-        geom, regions = capture(state) if capture is not None else (None, None)
+        if geom is None and capture is not None:      # already captured by the pop that reached this state?
+            geom, regions = capture(state)
         boards.append({"board_id": len(boards), "depth": depth, "n_candidates": npool,
                        "k_failed": 0, "w": w0, "w0": w0, "free_strikes": free_strikes, "tries": [],
                        "parent_edge": parent_edge, "parent_depth": parent_depth,
@@ -140,17 +144,24 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
             it["se"] = cur; heapq.heappush(heap, (-cur, next_ctr(), it)); continue
         env.set_full_state(it["from"]); env.step(make_action(it["obj"], it["g"])); sims += 1
         opened = bool(is_open(env))
+        # VIZ ONLY. The state this push REACHED, read while the sim is still standing in it and before the
+        # `opened` return, so the winning push of a solved episode is recorded like any other. Nothing has
+        # touched the sim since env.step() -- is_open only reads.
+        s_after = pop_geom = pop_regions = None
+        if capture is not None:
+            s_after = env.get_full_state()
+            pop_geom, pop_regions = capture(s_after)
         if tracing:
             trace_out.append(make_pop(sims, it["board_id"], it["obj"], int(it["g"].edge_idx),
                                       int(it["g"].depth), float(it["q"]), float(it["bp"]),
-                                      float(board["w"]), opened))
+                                      float(board["w"]), opened, geom=pop_geom, regions=pop_regions))
         board["tries"].append((len(board["tries"]) + 1, float(it["q"]), opened))   # (within-board try#, q, opened)
         if opened:
             return True, sims, len(it["plan"]), boards, "solved"
         _update_w_on_fail(board, float(it["q"]), discount, gamma, tau, g_table, gkmax, eps)
         ndone = it["ndone"] + 1
         if ndone < hmax:                                  # room for another push -> expand the reached state
-            s_new = env.get_full_state()
+            s_new = env.get_full_state() if s_after is None else s_after
             h = hmax - ndone
             pool2, V, grid2 = candidates(planner, env, goal, xml, s_new, h, prior, agg, rng,
                                          restrict_obj=restrict_obj, raw=raw, want_grid=tracing)
@@ -160,7 +171,7 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
                               parent_edge=(int(it["g"].edge_idx) if tracing else -1),
                               parent_depth=(int(it["g"].depth) if tracing else -1),
                               pool_rows=(trace_rows(pool2) if tracing else None),
-                              grid=grid2, state=s_new)
+                              grid=grid2, state=s_new, geom=pop_geom, regions=pop_regions)
             for (obj2, g2, q2) in pool2:                  # children: +dive_bonus*ndone bias (kept for parity)
                 push({"obj": obj2, "g": g2, "from": s_new, "ndone": ndone,
                       "plan": it["plan"] + [(obj2, g2)], "q": q2},
@@ -204,12 +215,14 @@ def _scene_dict(env, goal):
 
 
 def _make_capture(env, exporter, xml, obj, hw, hd, mov_names, offsets_world):
-    """VIZ ONLY (--trace-out). Returns capture(state) -> (geom, regions) for the board AT `state`.
+    """VIZ ONLY (--trace-out). Returns capture(state) -> (geom, regions) AT `state`.
 
     Both halves recompute from the LIVE env, so they are only correct if the env really is at that
-    board's state -- hence the set_full_state on entry (the scorer's forward pass moves the sim as a
-    side effect; same restore convention as scripts/sandbox/eval_m3.py:73). ~54 ms/board, all of it
-    the region decomposition, which genuinely differs board to board: that is the point."""
+    state -- hence the set_full_state on entry (the scorer's forward pass moves the sim as a side
+    effect; same restore convention as scripts/sandbox/eval_m3.py:73). ~54 ms/call, all of it the
+    region decomposition, which genuinely differs state to state: that is the point. Called once per
+    POP (the state that push reached) plus once for the root board (nothing reached it), i.e. ~sims+1
+    times per episode."""
     def capture(state):
         env.set_full_state(state)
         obs = env.get_observation()

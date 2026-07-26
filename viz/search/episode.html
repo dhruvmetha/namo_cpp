@@ -29,7 +29,13 @@
 
 <main class="episode-grid">
   <section id="zone-a" class="zone zone-scene">
-    <h2>Scene</h2>
+    <h2>Scene
+      <span id="scene-view-toggle" class="scene-view-toggle">
+        <label title="the state the most recent push LEFT BEHIND -- what it actually did"><input type="radio" name="scene-view" value="outcome" checked> outcome of push t</label>
+        <label title="the state the next push starts from -- the board the queue and rank space are about"><input type="radio" name="scene-view" value="next"> start of push t+1</label>
+      </span>
+      <span id="scene-jump" class="scene-jump" style="display:none"></span>
+    </h2>
     <svg id="scene-svg" class="scene-svg" preserveAspectRatio="xMidYMid meet"></svg>
     <p id="scene-note" class="zone-note"></p>
   </section>

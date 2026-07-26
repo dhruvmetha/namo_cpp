@@ -311,7 +311,37 @@ td.no { color: var(--dead); }
 .robot-marker circle { fill: #1565c0; }
 .robot-marker line { stroke: #1565c0; }
 
+/* Zone A's two states (v4). The toggle picks WHICH state is drawn; the chip next to it says whether the
+   search actually continues from it -- reusing the page's existing hues, no new palette. */
+.scene-view-toggle {
+  font-weight: 400;
+  font-size: 0.75rem;
+  color: #555;
+  margin-left: 0.4rem;
+}
+.scene-view-toggle label { margin-right: 0.5rem; cursor: pointer; white-space: nowrap; }
+.scene-view-toggle input { vertical-align: -1px; margin-right: 0.15rem; }
+.scene-view-toggle.is-disabled { color: var(--masked); cursor: not-allowed; }
+.scene-view-toggle.is-disabled label { cursor: not-allowed; }
+
+.scene-jump {
+  display: inline-block;
+  font-weight: 600;
+  font-size: 0.72rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+/* The search LEFT this state: loudest of the three, because reading past it is the actual mistake. */
+.jump-yes { background: #fdecea; border-color: var(--dead); color: #7f1d1d; }
+.jump-no { background: transparent; border-color: var(--opener); color: var(--opener); }
+.jump-end, .jump-off { background: #f5f5f5; border-color: var(--masked); color: #666; font-weight: 400; }
+
 .contact-unreachable { fill: var(--masked); opacity: 0.35; }
+/* no board here at all -- reachability unknown, not known-unreachable: hollow, so it cannot be mistaken
+   for the filled "unreachable" dot */
+.contact-nopool { fill: none; stroke: var(--masked); stroke-width: 0.0015; opacity: 0.6; }
 .contact-pt circle { stroke: #333; stroke-width: 0.0012; cursor: pointer; }
 .contact-pt.truth-opener circle { stroke: var(--opener); stroke-width: 0.003; }
 .contact-pt.truth-setup circle { stroke: var(--opener); stroke-width: 0.0022; stroke-dasharray: 0.004 0.003; }

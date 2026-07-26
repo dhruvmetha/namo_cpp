@@ -4,7 +4,8 @@ Consumed by the static page in viz/search/. Bump schema_version if any field cha
 import hashlib
 import os
 
-SCHEMA_VERSION = 3   # v3: each board carries the geometry AND the region decomposition of ITS OWN state
+SCHEMA_VERSION = 4   # v4: each POP carries the geometry + regions of the state ITS OWN push REACHED
+# v3: each board carries the geometry AND the region decomposition of ITS OWN state
 # v2: meta carries the generator's full search-parameter set (meta["search"])
 
 
@@ -61,7 +62,8 @@ def rle_decode(flat, nx, ny):
 
 def make_board(board_id, depth, parent_edge, parent_depth, pool, grid, w0, free_strikes,
                geom=None, regions=None):
-    """geom / regions (v3, both None on a trace written without --trace-out geometry):
+    """geom / regions (v3, both None on a trace written without --trace-out geometry). THE geometry
+    shape for the whole file -- make_pop carries the same two dicts, for the state its push reached:
       geom    = {"movable": {name: [x, y, theta]}, "robot": [x, y, theta], "contacts": [[x, y] x60]}
                 -- the poses AT THIS BOARD'S STATE (sizes stay in the episode-level `scene`, they
                 never move). contacts = the 60 push points of the target object at this state.
@@ -77,11 +79,19 @@ def make_board(board_id, depth, parent_edge, parent_depth, pool, grid, w0, free_
             "geom": geom, "regions": regions}
 
 
-def make_pop(t, board_id, obj, edge, depth, q, bp, w, opened):
+def make_pop(t, board_id, obj, edge, depth, q, bp, w, opened, geom=None, regions=None):
     """`w` is the board weight AS THE POP SAW IT -- i.e. BEFORE this pop's own failure demotes it. A board's
-    post-failure weight is therefore NOT in pops[]; consumers must recompute it from meta["search"]."""
+    post-failure weight is therefore NOT in pops[]; consumers must recompute it from meta["search"].
+
+    geom / regions (v4, both None pre-v4 or on a trace written without --trace-out geometry) = the state
+    this push REACHED, in exactly make_board's shape (same keys, same rle_encode format -- one encoder, one
+    decoder). This is the OUTCOME of the push, which is NOT the same thing as the state the next push starts
+    from: best-first search may pop its next candidate off an entirely different board. Recording it per pop
+    is the only way the outcome of a WINNING push (the search returns immediately, no board is ever created)
+    or of a depth-hmax finish push (no room to expand, so again no board) is visible at all."""
     return {"t": t, "board_id": board_id, "obj": obj, "edge": edge, "depth": depth,
-            "q": q, "bp": bp, "w": w, "se": bp * w, "opened": bool(opened)}
+            "q": q, "bp": bp, "w": w, "se": bp * w, "opened": bool(opened),
+            "geom": geom, "regions": regions}
 
 
 def build_trace(meta, scene, boards, pops, result):

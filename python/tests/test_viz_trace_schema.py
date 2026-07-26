@@ -77,6 +77,34 @@ def test_pop_carries_the_effective_priority():
     assert p["opened"] is False
 
 
+def test_pop_outcome_geometry_is_optional_and_defaults_to_none():
+    """v4 is ADDITIVE the same way v3 was: a caller that records no geometry still gets the keys, set
+    to None, so the page branches on presence rather than on schema_version arithmetic."""
+    p = make_pop(7, 3, "o", 12, 1, 0.4, 0.5, 0.2, False)
+    assert p["geom"] is None and p["regions"] is None
+
+
+def test_pop_carries_the_state_its_push_reached_in_the_board_shape():
+    """v4: the outcome of EVERY pop, in exactly make_board's geometry shape -- one format, one decoder."""
+    geom = {"movable": {"obj_1": [0.4, 0.2, 0.3]}, "robot": [0.1, 0.0, 1.0],
+            "contacts": [[0.0, 0.0]] * 60}
+    regions = {"nx": 2, "ny": 3, "res": 0.005, "origin": [-0.4, -0.4],
+               "labels": {"1": "robot_goal"}, "rle": [1, 3, 0, 1, 1, 2]}
+    p = make_pop(7, 3, "o", 12, 1, 0.4, 0.5, 0.2, True, geom=geom, regions=regions)
+    assert p["geom"]["movable"]["obj_1"] == [0.4, 0.2, 0.3]
+    assert len(p["geom"]["contacts"]) == 60
+    assert p["regions"]["labels"]["1"] == "robot_goal"
+    assert set(make_board(0, 0, -1, -1, [], None, 1.0, 0, geom=geom, regions=regions)) >= {"geom", "regions"}
+
+
+def test_pop_keeps_every_pre_v4_field_unchanged():
+    """Purely additive: the v3 key set must survive verbatim, since the page and every analysis script
+    read these by name."""
+    p = make_pop(7, 3, "o", 12, 1, 0.4, 0.5, 0.2, False)
+    assert set(p) == {"t", "board_id", "obj", "edge", "depth", "q", "bp", "w", "se", "opened",
+                      "geom", "regions"}
+
+
 SEARCH_PARAMS = {"hmax": 2, "sim_budget": 30, "prior": "model", "agg": "mean5", "combine": "blend",
                  "discount": "conf", "gamma": 0.65, "tau": 0.15, "eps": 1e-3, "w0_mode": "one",
                  "free_strike_q": 2.0, "dive_bonus": 0.0, "raw": False, "gtable": None}
@@ -93,7 +121,7 @@ def test_build_trace_is_json_serializable_and_versioned():
         pops=[make_pop(1, 0, "o", 5, 0, 0.9, 0.9, 1.0, True)],
         result={"solved": True, "sims": 1, "plan_len": 1, "end": "solved"},
     )
-    assert doc["schema_version"] == 3
+    assert doc["schema_version"] == 4
     assert doc["result"]["solved"] is True
     json.dumps(doc)
 
@@ -130,3 +158,15 @@ def test_generator_records_geometry_per_board_and_only_under_trace_out():
     assert body.count("env.set_full_state(state)") == 2      # restore on entry AND after the snapshot
     assert "rle_encode(rm.tolist())" in body
     assert "capture = _make_capture(" in src.split("if a.trace_out:", 2)[-1]
+
+
+def test_generator_captures_every_pop_before_the_early_return_on_success():
+    """v4 contract on the writer, and the whole point of the change: the post-push state is read for EVERY
+    pop -- while the sim still stands in it, and ABOVE the `if opened: return` -- so the winning push of a
+    solved episode (which spawns no board, so v3 recorded nothing) is captured too."""
+    src = (REPO_ROOT / "scripts/sandbox/eval_bestfirst.py").read_text()
+    loop = src.split("opened = bool(is_open(env))", 1)[1].split("if ndone < hmax:", 1)[0]
+    cap = loop.index("pop_geom, pop_regions = capture(s_after)")
+    assert cap < loop.index("geom=pop_geom, regions=pop_regions")   # captured before it is written to the pop
+    assert cap < loop.index('if opened:')                           # ... and before the search returns
+    assert "s_new = env.get_full_state() if s_after is None else s_after" in src

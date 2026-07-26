@@ -1,12 +1,13 @@
 "use strict";
 /* Episode replay view: one search, replayed pop by pop.
  *
- * Data shapes (see docs/superpowers/specs/2026-07-26-search-viz-design.md), schema_version 3:
+ * Data shapes (see docs/superpowers/specs/2026-07-26-search-viz-design.md), schema_version 4:
  *   trace = {meta:{..., search:{combine,agg,prior,raw,dive_bonus,discount,gamma,tau,eps,w0_mode,
  *                               free_strike_q,gtable,hmax,sim_budget}},
  *            scene, boards:[{board_id,depth,parent_edge,parent_depth,pool:[{obj,edge,depth,q}],grid|null,
  *                            w0,free_strikes,geom|null,regions|null}],
- *            pops:[{t,board_id,obj,edge,depth,q,bp,w,se,opened}], result:{solved,sims,plan_len,end}}
+ *            pops:[{t,board_id,obj,edge,depth,q,bp,w,se,opened,geom|null,regions|null}],
+ *            result:{solved,sims,plan_len,end}}
  *   gt    = null | {root:{openers:[[e,d]],setups:[[e,d]]}, finish:{"<parent_edge>_<parent_depth>":{openers,setups}}}
  *
  * v3 adds PER-BOARD state. `scene` is still the episode's START geometry (and the only geometry a v2
@@ -16,6 +17,19 @@
  * redraws for the board being viewed instead of freezing at the start pose, and the two regions the
  * whole problem is about (the robot's and the goal's, which a successful push MERGES) are visible.
  * Both fields are read defensively: a v2 trace has neither, and then zone A renders exactly as before.
+ *
+ * v4 adds the same two fields PER POP -- the state that push REACHED. Boards alone could never show
+ * this: a board only exists where the search kept searching, so a push that OPENED the goal (search
+ * returns at once) and a push at the depth limit (nothing to expand) both left no record of their own
+ * result. That was ~65% of all simulated pushes, including every solve. Zone A therefore has two
+ * things it can draw, and they are genuinely different in a best-first search:
+ *   OUTCOME (default)  -- pops[t-1].geom/regions: what the push you just watched actually did.
+ *   NEXT               -- board(pops[t].board_id).geom/regions: where the next push starts from.
+ * After a failed push the search may jump to a completely different board, so those two states can be
+ * unrelated; sceneViewAt() reports that as `jumped` and the header says so, because silently showing
+ * one while the queue talks about the other is exactly how a viewer concludes the search marched
+ * forward in a straight line when it did not. Pre-v4 traces have no pops[].geom -> the toggle is
+ * disabled and zone A behaves exactly as in v3.
  *
  * ORDERING IS RECOMPUTED, NOT READ OFF THE POPS. Two values set a candidate's place in the queue:
  *   bp -- the base priority. Only recorded for already-popped candidates, so queued ones need the formula:
@@ -40,9 +54,12 @@ const RECON_TOL = 1e-9;
 // The schema_version this page knows how to reconstruct (scripts/viz/trace_schema.py SCHEMA_VERSION). Keyed
 // on the version itself, not on the presence of any one field -- a later schema bump that happens to keep
 // meta.search around must still be caught here, not slip through unflagged.
-const SUPPORTED_SCHEMA_VERSION = 3;
+const SUPPORTED_SCHEMA_VERSION = 4;
 
-const state = { trace: null, gt: null, t: 0, hover: null, manifestRow: null };
+// view: which state zone A draws -- "outcome" = the state pops[t-1] reached (v4 only, the default,
+// since "what did that push do?" is the question the scrubber poses), "next" = the state pops[t]
+// starts from (the board zones B/D are about, and the only thing a pre-v4 trace can show).
+const state = { trace: null, gt: null, t: 0, hover: null, manifestRow: null, view: "outcome" };
 const boardVCache = new Map(); // board_id -> V (the board's pool aggregate, fixed at board creation)
 
 function qs(name) {
@@ -143,18 +160,27 @@ function verifyReconstruction() {
   return bad;
 }
 
+// The board whose OWN state is the state pop `p` reached, i.e. the child p spawned -- or null when it
+// spawned none. A pop that OPENED the goal (the search returns immediately) and a pop at the depth limit
+// (no room to expand) both spawn nothing, so their outcome state has no candidate pool anywhere in the
+// file; that is precisely the hole pops[].geom fills. Detected generically (no hmax hardcoding) by
+// matching (parent_edge, parent_depth) to a pop whose own board is one depth shallower.
+function childBoardOf(p) {
+  if (!p || p.opened) return null;
+  const popBoard = boardById(p.board_id);
+  return (
+    state.trace.boards.find(
+      (b) => b.parent_edge === p.edge && b.parent_depth === p.depth && b.depth === popBoard.depth + 1
+    ) || null
+  );
+}
+
 // Which boards exist by time t. Root (board 0) always exists; every other board is spawned by
-// exactly one FAILED pop with room left to expand -- detected generically (no hmax hardcoding) by
-// matching (parent_edge, parent_depth) to a failed pop whose own board is one depth shallower.
+// exactly one FAILED pop with room left to expand.
 function revealedBoardsAt(t) {
   const revealed = new Set([0]);
   for (let i = 0; i < t; i++) {
-    const p = state.trace.pops[i];
-    if (p.opened) continue; // search stops on open -- no child spawned
-    const popBoard = boardById(p.board_id);
-    const child = state.trace.boards.find(
-      (b) => b.parent_edge === p.edge && b.parent_depth === p.depth && b.depth === popBoard.depth + 1
-    );
+    const child = childBoardOf(state.trace.pops[i]);
     if (child) revealed.add(child.board_id);
   }
   return revealed;
@@ -187,8 +213,8 @@ function queueAt(t) {
 // board a "setup" would only set up a THIRD push -- it does not open the way, so only openers are green.
 function greenAt(boardId) {
   const empty = { openers: new Set(), setups: new Set(), setupsGreen: false };
-  if (!state.gt) return empty;
   const b = boardById(boardId);
+  if (!state.gt || !b) return empty;              // !b: a state with no board of its own (v4 pop outcome)
   const src = b.depth === 0 ? state.gt.root : state.gt.finish[`${b.parent_edge}_${b.parent_depth}`];
   if (!src) return empty;
   return {
@@ -221,6 +247,31 @@ function isGreen(truth) {
 function currentBoardIdAt(t) {
   const pops = state.trace.pops;
   return t < pops.length ? pops[t].board_id : pops[pops.length - 1].board_id;
+}
+
+// What zone A should draw at t, and how honest the page has to be about it.
+//   geom/regions -- the state itself (null geom => nothing recorded; fall back to the episode start).
+//   board        -- the board whose candidate pool describes THIS state, or null when no board sits here
+//                   (a winning push, or one at the depth limit): then there are simply no candidates to
+//                   colour, and the contact points are drawn as plain markers rather than faked.
+//   jumped       -- true when the next push does NOT start from the state being drawn, i.e. the search
+//                   left this branch. The one thing a viewer must not be allowed to miss.
+function sceneViewAt(t) {
+  const pops = state.trace.pops;
+  const last = t > 0 ? pops[t - 1] : null;
+  const nextBoard = boardById(currentBoardIdAt(t));
+  const outcomeBoard = childBoardOf(last);
+  const hasOutcome = !!(last && last.geom);
+  const atEnd = t >= pops.length;
+  // "the search continues from what you are looking at" only holds when a next push exists AND it pops
+  // off the very board this push spawned.
+  const jumped = !atEnd && (outcomeBoard === null || outcomeBoard.board_id !== nextBoard.board_id);
+  if (state.view === "outcome" && hasOutcome) {
+    return { mode: "outcome", geom: last.geom, regions: last.regions, board: outcomeBoard,
+             last, nextBoard, jumped, atEnd, hasOutcome };
+  }
+  return { mode: "next", geom: nextBoard.geom, regions: nextBoard.regions, board: nextBoard,
+           last, nextBoard, jumped, atEnd, hasOutcome };
 }
 
 function bestGreenRank(rows, greenFor) {
@@ -325,14 +376,14 @@ function renderSceneA() {
   // to match against.)
   svg.setAttribute("viewBox", `${xmin} ${ymin} ${w} ${h}`);
 
-  const boardId = currentBoardIdAt(state.t);
-  const board = boardById(boardId);
-  const green = greenAt(boardId);
+  const view = sceneViewAt(state.t);
+  const board = view.board;                       // null = no candidate pool exists at this state
+  const green = board ? greenAt(board.board_id) : greenAt(-1);
   const popped = poppedKeySet(state.t);
 
   // best q per edge (max over that edge's depths in this board's pool), with the winning depth
   const bestByEdge = new Map();
-  for (const c of board.pool) {
+  for (const c of board ? board.pool : []) {
     const cur = bestByEdge.get(c.edge);
     if (!cur || c.q > cur.q) bestByEdge.set(c.edge, { q: c.q, depth: c.depth });
   }
@@ -340,10 +391,10 @@ function renderSceneA() {
   const qmin = qs_.length ? Math.min(...qs_) : 0;
   const qmax = qs_.length ? Math.max(...qs_) : 1;
 
-  // v3: everything that MOVES comes from the board's own geometry; sizes and walls never move, so they
-  // stay on the episode-level `scene`. A v2 trace has no board.geom -- fall back to the start state,
-  // which is exactly what this page drew before.
-  const geom = board.geom || null;
+  // v3/v4: everything that MOVES comes from the state being viewed (a board's own state, or the state a
+  // pop reached); sizes and walls never move, so they stay on the episode-level `scene`. A v2 trace has
+  // neither -- fall back to the start state, which is exactly what this page drew before.
+  const geom = view.geom || null;
   const poseOf = (m) => (geom && geom.movable[m.name]) || [m.x, m.y, m.theta];
   const robotPose = (geom && geom.robot) || scene.robot;
   const contacts = (geom && geom.contacts) || scene.contacts;
@@ -351,7 +402,7 @@ function renderSceneA() {
   const parts = [];
   const stroke = 0.0025;
 
-  parts.push(regionLayer(board.regions));   // first = beneath everything else
+  parts.push(regionLayer(view.regions));    // first = beneath everything else
 
   for (const s of scene.static) {
     const theta = 2 * Math.atan2(s.qz, s.qw);
@@ -394,7 +445,10 @@ function renderSceneA() {
     const [cx, cy] = pt;
     const best = bestByEdge.get(edge);
     if (!best) {
-      parts.push(`<circle cx="${cx}" cy="${cy}" r="${cr * 0.6}" class="contact-unreachable" data-edge="${edge}"/>`);
+      // no board here at all => reachability was never computed for this state, so say "unknown" rather
+      // than reusing the "unreachable" marker, which would assert something the trace does not know.
+      const cls = board ? "contact-unreachable" : "contact-nopool";
+      parts.push(`<circle cx="${cx}" cy="${cy}" r="${cr * 0.6}" class="${cls}" data-edge="${edge}"/>`);
       return;
     }
     const truth = truthOf(green, edge, best.depth);
@@ -420,16 +474,64 @@ function renderSceneA() {
   svg.innerHTML = parts.join("");
   wireHover(svg, "g.contact-pt");
 
-  const note = document.getElementById("scene-note");
-  note.innerHTML = geom
-    ? `Drawn at <strong>board ${boardId}</strong>'s own state (${boardTag(board)}) &mdash; objects, robot ` +
-      `and contact points move as you scrub. Tint = free space split into regions: ` +
-      `<span class="legend-swatch region-robot"></span>&nbsp;robot's region, ` +
-      `<span class="legend-swatch region-goal"></span>&nbsp;goal's region, ` +
-      `<span class="legend-swatch region-other"></span>&nbsp;elsewhere. A push succeeds exactly when ` +
-      `the first two merge.`
-    : `This trace has no per-board geometry (pre-v3), so the scene is drawn once from the state the ` +
-      `search started from; only the contact colors/pop markers change as you scrub.`;
+  renderSceneCaption(view, geom);
+}
+
+// Says WHICH state is on screen, and -- when the search jumped -- that the next push does not start
+// from it. Split out of renderSceneA because it is all prose and no drawing.
+function renderSceneCaption(view, geom) {
+  const legend =
+    `Tint = free space split into regions: ` +
+    `<span class="legend-swatch region-robot"></span>&nbsp;robot's region, ` +
+    `<span class="legend-swatch region-goal"></span>&nbsp;goal's region, ` +
+    `<span class="legend-swatch region-other"></span>&nbsp;elsewhere. A push succeeds when enough of the ` +
+    `goal pocket becomes reachable &mdash; usually, but not always, visible as those two joining into one ` +
+    `<span class="legend-swatch region-merged"></span>&nbsp;merged region.`;
+
+  let what;
+  if (!geom) {
+    what = `This trace has no recorded geometry (pre-v3), so the scene is drawn once from the state the ` +
+      `search started from; only the contact colors/pop markers change as you scrub. `;
+  } else if (view.mode === "outcome") {
+    const l = view.last;
+    what = `<strong>Outcome</strong> of sim #${l.t} &mdash; the state left behind by pushing ` +
+      `<span class="mono">e${l.edge}/d${l.depth}</span> from board ${l.board_id}, which ` +
+      `<strong>${l.opened ? "OPENED the goal" : "did not open the goal"}</strong>. ` +
+      (view.board
+        ? `The search kept this state as board ${view.board.board_id}, so its candidates are drawn on it. `
+        : `No board was created here (${l.opened ? "the search stopped on the open" : "depth limit reached"}), ` +
+          `so this state has no candidate pool &mdash; contact points are drawn plain. `);
+  } else if (state.t === 0) {
+    what = `The <strong>start state</strong>, before any simulation. Candidates shown are board ` +
+      `${view.board.board_id}'s (${boardTag(view.board)}). `;
+  } else if (view.atEnd) {
+    what = `The search is over (${state.trace.result.solved ? "solved" : state.trace.result.end}), so there ` +
+      `is no next push; drawn at board ${view.board.board_id}'s own state (${boardTag(view.board)}), the ` +
+      `board the last push came off. `;
+  } else {
+    what = `Where the <strong>next</strong> push starts: board ${view.board.board_id}'s own state ` +
+      `(${boardTag(view.board)}) &mdash; the board zones B and D are about. `;
+  }
+  document.getElementById("scene-note").innerHTML = what + legend;
+
+  // The jump warning. In a best-first search the next pop can come off any board, so "the frame you are
+  // looking at" and "where the search goes next" are different claims; only this line stops the replay
+  // reading as one straight line of pushes.
+  const chip = document.getElementById("scene-jump");
+  if (view.mode === "outcome" && view.atEnd) {
+    chip.className = "scene-jump jump-end";
+    chip.textContent = `search ended here (${state.trace.result.solved ? "solved" : state.trace.result.end})`;
+  } else if (view.mode === "outcome" && view.jumped) {
+    chip.className = "scene-jump jump-yes";
+    chip.textContent = `↷ next push starts elsewhere — board ${view.nextBoard.board_id} (${boardTag(view.nextBoard)})`;
+  } else if (view.mode === "outcome") {
+    chip.className = "scene-jump jump-no";
+    chip.textContent = "→ next push continues from this state";
+  } else {
+    chip.className = "scene-jump jump-off";
+    chip.textContent = view.hasOutcome ? "showing the next push's start state" : "";
+  }
+  chip.style.display = chip.textContent ? "" : "none";
 }
 
 // ---- Zone B: the priority queue ---------------------------------------------------------------
@@ -661,11 +763,17 @@ async function init() {
   const nBad = verifyReconstruction();
   const missing = trace.schema_version !== SUPPORTED_SCHEMA_VERSION;
   banner.style.display = nBad || missing ? "" : "none";
+  // Two different failures, so two different sentences: an OLD trace loses features (and, pre-v2, the
+  // recorded search parameters, hence the defaults warning) -- a trace whose recorded bp/w this page
+  // cannot reproduce means the displayed ORDER is wrong, which is far worse.
   banner.textContent = missing
     ? `This trace's schema_version (${trace.schema_version}) is not ${SUPPORTED_SCHEMA_VERSION}, the version` +
-      ` this page understands, so the queue below is ordered with the generator's DEFAULTS` +
-      ` (${SEARCH_DEFAULTS.combine} priority, discount ${SEARCH_DEFAULTS.discount}) and may not be the order` +
-      ` the search used. Regenerate the trace.`
+      ` this page understands. ` +
+      (trace.meta.search
+        ? `The queue order is still reconstructed from its meta.search, but per-pop outcome geometry is` +
+          ` missing, so the scene can only show board states. Regenerate the trace.`
+        : `The queue below is ordered with the generator's DEFAULTS (${SEARCH_DEFAULTS.combine} priority,` +
+          ` discount ${SEARCH_DEFAULTS.discount}) and may not be the order the search used. Regenerate the trace.`)
     : `The displayed order could NOT be verified: ${nBad} of ${trace.pops.length} recorded pops disagree with` +
       ` the bp/w this page recomputed from meta.search. Treat the ranking below as unreliable.`;
 
@@ -676,6 +784,28 @@ async function init() {
     ` &middot; tier ${row.tier}` +
     ` &middot; ${trace.meta.model}/${trace.meta.strategy}` +
     ` &middot; ${trace.result.solved ? "solved" : trace.result.end} in ${trace.result.sims} sims`;
+
+  // The outcome view needs pops[].geom (v4). Older traces: force the board view and disable the toggle,
+  // rather than offering a control that silently does nothing.
+  const hasPopGeom = trace.pops.some((p) => p.geom);
+  const toggle = document.getElementById("scene-view-toggle");
+  if (!hasPopGeom) {
+    state.view = "next";
+    toggle.classList.add("is-disabled");
+    toggle.title = "this trace records no per-pop outcome state (pre-v4)";
+    toggle.querySelectorAll("input").forEach((el) => {
+      el.disabled = true;
+      el.checked = el.value === "next";
+    });
+  }
+  toggle.querySelectorAll("input").forEach((el) =>
+    el.addEventListener("change", () => {
+      if (el.checked) {
+        state.view = el.value;
+        renderAll();
+      }
+    })
+  );
 
   document.getElementById("timeline-slider").addEventListener("input", (ev) => setT(Number(ev.target.value)));
   document.getElementById("step-back").addEventListener("click", () => setT(state.t - 1));
