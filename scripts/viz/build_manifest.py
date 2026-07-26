@@ -35,18 +35,22 @@ def index_row(trace, gt, tier):
             "rank_best_green": rank, "top1": top1, "has_gt": gt is not None}
 
 
-def _tiers():
-    # pure2push_divisions.json is keyed by xml path -> list of per-object entries
-    # (one entry per (xml, object_id) pair, with "object_id" and "division" fields),
-    # NOT {tier: [entries]}. Join on realpath since the same basename recurs across
-    # many different scene directories.
-    div = json.load(open(eval_sets.DIVISIONS))
+def _tier_lookup(div):
+    # div is pure2push_divisions.json's parsed form: xml path -> list of
+    # per-object entries (one entry per (xml, object_id) pair, with
+    # "object_id" and "division" fields), NOT {tier: [entries]}. Join on
+    # realpath since the same basename recurs across many different scene
+    # directories.
     out = {}
     for xml, entries in div.items():
         rp = os.path.realpath(xml)
         for e in entries:
             out[(rp, e["object_id"])] = e["division"]
     return out
+
+
+def _tiers():
+    return _tier_lookup(json.load(open(eval_sets.DIVISIONS)))
 
 
 def main():
