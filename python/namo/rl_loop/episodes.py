@@ -12,7 +12,7 @@ Formats handled:
     {object_id, object_center, ..., solve_rate_first_push, is_2push_solvable, division} -> 2push
 """
 from dataclasses import dataclass, field
-from typing import FrozenSet, List, Optional, Tuple
+from typing import List, Optional, Tuple
 import json
 
 from ._bootstrap import ensure_paths
@@ -32,7 +32,6 @@ class EpisodeSpec:
     difficulty: str              # "easy" | "med" | "hard"
     horizon: str                 # "1push" | "2push"
     solve_rate: Optional[float]
-    valid_setups: FrozenSet[Tuple[int, int]] = frozenset()   # GT opening/setup (edge,depth), if known
 
     @property
     def key(self) -> Tuple[str, str, float, float]:
@@ -49,20 +48,17 @@ def _spec_from_validset(xml_key: str, r: dict) -> EpisodeSpec:
         object_theta=r.get("object_theta"), region=r.get("region"),
         difficulty=bin_of(sr) if sr is not None else "med",
         horizon="1push", solve_rate=sr,
-        valid_setups=frozenset(tuple(t) for t in r.get("valid", [])),
     )
 
 
 def _spec_from_pure2push(xml_key: str, r: dict) -> EpisodeSpec:
     sr = r.get("solve_rate_first_push")
     div = r.get("division") or (bin_of(sr) if sr is not None else "med")
-    setups = frozenset(tuple(t) for t in r.get("valid_first_push", [])) | \
-        frozenset(tuple(t) for t in r.get("valid_1push", []))
     return EpisodeSpec(
         xml_key=xml_key, xml=str(resolve(xml_key)),
         object_id=r["object_id"], object_center=tuple(r["object_center"]),
         object_theta=r.get("object_theta"), region=r.get("region"),
-        difficulty=div, horizon="2push", solve_rate=sr, valid_setups=setups,
+        difficulty=div, horizon="2push", solve_rate=sr,
     )
 
 

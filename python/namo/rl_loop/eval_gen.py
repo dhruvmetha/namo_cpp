@@ -96,10 +96,9 @@ def _finishable(pl, env, goal, xml, s0, obj, g_setup, gp, frac) -> bool:
 
 def setup_ranking(pi_ckpt: str, specs: List[EpisodeSpec], cfg: LoopConfig, limit: int = 0) -> dict:
     """Per (horizon, difficulty): setup-hit@k (a finishable setup in the policy's top-k first pushes)
-    + median rank of the first finishable setup. sim = oracle-finish (no GT); key = GT valid_setups
-    (conservative lower bound), reported where the episode carries a GT key."""
+    + median rank of the first finishable setup. sim = oracle-finish, simulator-grounded (no GT key)."""
     pl = BeamPlanner(ckpt=pi_ckpt)
-    bins = defaultdict(lambda: {"n": 0, "sim_at": [], "key_at": [], "n_key": 0})
+    bins = defaultdict(lambda: {"n": 0, "sim_at": []})
     done = 0
     for ep in specs:
         if limit and done >= limit:
@@ -122,30 +121,18 @@ def setup_ranking(pi_ckpt: str, specs: List[EpisodeSpec], cfg: LoopConfig, limit
         done += 1
         b = bins[(ep.horizon, ep.difficulty)]; b["n"] += 1
         top = pool0[:KRANK]
-        sim_at = 0; key_at = 0
+        sim_at = 0
         for r, (_o, g, _sc) in enumerate(top, 1):
-            ed = (int(g.edge_idx), int(g.depth))
-            if key_at == 0 and ed in ep.valid_setups:
-                key_at = r
-            if sim_at == 0 and _finishable(pl, env, goal, ep.xml, s0, ep.object_id, g, gp, cfg.open_frac):
+            if _finishable(pl, env, goal, ep.xml, s0, ep.object_id, g, gp, cfg.open_frac):
                 sim_at = r
-            if sim_at and (key_at or not ep.valid_setups):
                 break
         b["sim_at"].append(sim_at)
-        if ep.valid_setups:
-            b["n_key"] += 1
-            b["key_at"].append(key_at)
     report = {}
     for (hor, diff), b in bins.items():
         sim_found = [a for a in b["sim_at"] if a > 0]
-        key_found = [a for a in b["key_at"] if a > 0]
         cell = {"n": b["n"]}
         for k in SETUP_KS:
             cell[f"setup_hit@{k}"] = round(100 * sum(1 for a in b["sim_at"] if 0 < a <= k) / max(1, b["n"]), 1)
         cell["median_setup_rank"] = (median(sim_found) if sim_found else None)
-        if b["n_key"]:
-            cell["key_hit@1"] = round(100 * sum(1 for a in b["key_at"] if a == 1) / b["n_key"], 1)
-            cell["key_hit@8"] = round(100 * sum(1 for a in b["key_at"] if 0 < a <= 8) / b["n_key"], 1)
-            cell["median_key_rank"] = (median(key_found) if key_found else None)
         report[f"{hor}/{diff}"] = cell
     return report
