@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NAMO search viz — episode replay</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="episode-body">
+<header class="episode-topbar">
+  <div id="episode-header" class="episode-header">loading&hellip;</div>
+  <div id="no-gt-banner" class="no-gt-banner" style="display:none">
+    No ground truth for this episode (outside the exhaustive sweep's coverage) &mdash; truth badges and the rank-space green panel are suppressed rather than faked.
+  </div>
+</header>
+
+<section id="zone-c" class="zone zone-timeline">
+  <div class="timeline-row">
+    <button id="step-back" class="step-btn" title="Left arrow">&larr;</button>
+    <input id="timeline-slider" type="range" min="0" max="0" value="0">
+    <button id="step-fwd" class="step-btn" title="Right arrow">&rarr;</button>
+    <span id="timeline-label" class="timeline-label mono"></span>
+  </div>
+  <div id="timeline-ticks" class="timeline-ticks"></div>
+</section>
+
+<main class="episode-grid">
+  <section id="zone-a" class="zone zone-scene">
+    <h2>Scene</h2>
+    <svg id="scene-svg" class="scene-svg" preserveAspectRatio="xMidYMid meet"></svg>
+    <p class="zone-note">Geometry is drawn once, from the state the search started from (per the trace note on <code>scene.contacts</code>); only the contact colors/pop markers change as you scrub &mdash; the object's actual post-setup pose is not re-rendered.</p>
+  </section>
+
+  <section id="zone-b" class="zone zone-queue">
+    <h2>Priority queue at t</h2>
+    <div class="best-green-row">best green currently at <span id="best-green-marker" class="best-green-marker">&mdash;</span></div>
+    <div class="queue-legend">rank &middot; board &middot; (edge/depth) &middot; bp &times; w bar &middot; truth</div>
+    <div id="queue-list" class="queue-list"></div>
+  </section>
+
+  <section id="zone-d" class="zone zone-grid">
+    <h2>Rank space <span id="grid-board-label" class="mono grid-board-label"></span></h2>
+    <div id="grid-no-data" class="grid-no-data" style="display:none">no grid recorded for this board (uniform prior, or tracing was off for it)</div>
+    <div id="grid-panes" class="grid-panes">
+      <div class="grid-pane">
+        <div class="grid-pane-title">model rank (rank&nbsp;1 darkest)</div>
+        <div id="grid-left" class="rank-grid"></div>
+      </div>
+      <div id="grid-right-wrap" class="grid-pane">
+        <div class="grid-pane-title">green cells only (ground truth)</div>
+        <div id="grid-right" class="rank-grid"></div>
+      </div>
+    </div>
+    <div id="grid-range" class="grid-range mono"></div>
+  </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
