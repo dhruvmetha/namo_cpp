@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Phase-0 GATE (EXP-2026-07-06-rl-only-self-imitation): oracle reactive decomposition on the pure-2push set,
+"""RETIRED: the GT-valid-setup arms below (ARM (i), ARM (ii), and the wrong_setup taxonomy leg) are scored against
+`pure2push.json`'s `valid_first_push` list. That list is badly incomplete — an exhaustive sweep over `testset_gt.h5`
+finds a median of 11 good first pushes per episode where the manifest records only 4, because the manifest's
+finish search was budget-limited. These numbers are therefore a lower bound that understates the model and
+distorts the easy/medium/hard tier comparison — consistent with, just stronger than, the "conservative lower
+bound" this module already calls the key-based numbers below.
+Canonical replacement: `scripts/eval_auc.py` over `testset_gt.h5` (see docs/experiments/auc_metrics_reconciliation.md).
+The BASELINE arm (fully-learned greedy@2, sim-grounded via goal_open_pts) is unaffected by this issue.
+
+Phase-0 GATE (EXP-2026-07-06-rl-only-self-imitation): oracle reactive decomposition on the pure-2push set,
 GREEDY protocol (forced-dive reactive, NOT best-first search). Car robot, region criterion, object-constrained,
 same protocol as eval_reactive_argmax (H=2 setup / H=1 finish, restrict_obj=labeled object). One pass per episode
 computes all three arms + the fully-learned baseline, so open@2 reproduces the reactive-MPC 40.7 anchor.

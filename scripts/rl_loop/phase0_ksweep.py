@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Phase-0 GREY-ZONE diagnostic (EXP-2026-07-06-rl-only-self-imitation): teacher-forced-finish sweep over the
+"""RETIRED: the key-based hit@k in this script is scored against `pure2push.json`'s `valid_first_push` list.
+That list is badly incomplete — an exhaustive sweep over `testset_gt.h5` finds a median of 11 good first pushes
+per episode where the manifest records only 4, because the manifest's finish search was budget-limited.
+These key-based numbers are therefore a lower bound that understates the model and distorts the easy/medium/hard
+tier comparison; treat them the same as the "conservative LB" caveat already noted below, just more so.
+Canonical replacement: `scripts/eval_auc.py` over `testset_gt.h5` (see docs/experiments/auc_metrics_reconciliation.md).
+The sim-grounded oracle-finish hit@k in this script is unaffected by this issue.
+
+Phase-0 GREY-ZONE diagnostic (EXP-2026-07-06-rl-only-self-imitation): teacher-forced-finish sweep over the
 model's SETUP ranks k=1,2,4,8. For each pure2push episode, rank the model's first pushes at s0 (H=2, object-
 constrained), take the top-8. For each ranked setup, teacher-force the FINISH (oracle: does ANY 2nd push open at
 the setup's resulting state?) -> the setup is 'finishable'. Also flag key-validity (GT valid_first_push).

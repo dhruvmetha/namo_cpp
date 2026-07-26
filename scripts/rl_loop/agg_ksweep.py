@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Aggregate the Phase-0 grey-zone k-sweep (phase0_ksweep.py leaves). setup-hit@k = a finishable setup appears in
+"""RETIRED: the key-based hit@k this script aggregates is scored against `pure2push.json`'s `valid_first_push` list.
+That list is badly incomplete — an exhaustive sweep over `testset_gt.h5` finds a median of 11 good first pushes
+per episode where the manifest records only 4, because the manifest's finish search was budget-limited.
+These key-based numbers are therefore a lower bound that understates the model and distorts the easy/medium/hard
+tier comparison; treat them the same as the "conservative LB" caveat already noted below, just more so.
+Canonical replacement: `scripts/eval_auc.py` over `testset_gt.h5` (see docs/experiments/auc_metrics_reconciliation.md).
+The sim-grounded oracle-finish hit@k this script also aggregates is unaffected by this issue.
+
+Aggregate the Phase-0 grey-zone k-sweep (phase0_ksweep.py leaves). setup-hit@k = a finishable setup appears in
 the model's top-k setup ranking, k=1,2,4,8, split easy/med/hard/all, mean +/- std across 3 NoHz-v3 ckpt-seeds.
 Reports sim-grounded (oracle-finish) AND key-based (GT valid_first_push, conservative LB) hit@k."""
 import json, glob, os, statistics as st
