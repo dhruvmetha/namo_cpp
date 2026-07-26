@@ -4,7 +4,7 @@ Consumed by the static page in viz/search/. Bump schema_version if any field cha
 import hashlib
 import os
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2   # v2: meta carries the generator's full search-parameter set (meta["search"])
 
 
 def episode_filename(xml_path, object_id):
@@ -21,6 +21,8 @@ def make_board(board_id, depth, parent_edge, parent_depth, pool, grid, w0, free_
 
 
 def make_pop(t, board_id, obj, edge, depth, q, bp, w, opened):
+    """`w` is the board weight AS THE POP SAW IT -- i.e. BEFORE this pop's own failure demotes it. A board's
+    post-failure weight is therefore NOT in pops[]; consumers must recompute it from meta["search"]."""
     return {"t": t, "board_id": board_id, "obj": obj, "edge": edge, "depth": depth,
             "q": q, "bp": bp, "w": w, "se": bp * w, "opened": bool(opened)}
 

@@ -239,6 +239,14 @@ def main():
     g_table = None
     if a.discount == "fitted":
         raw = json.load(open(a.gtable)); g_table = {int(k): float(v) for k, v in raw.items()}
+    # Every knob that changes the ORDER the queue pops in. Written verbatim into each trace's meta so the
+    # viz reconstructs bp = priority(q,V,combine) and the per-board w demotion with the same rule the search
+    # ran, instead of assuming the defaults. Recording only -- the search reads `a`, never this dict.
+    search_params = {"hmax": a.hmax, "sim_budget": a.sim_budget, "prior": a.prior, "agg": a.agg,
+                     "combine": a.combine, "discount": a.discount, "gamma": a.gamma, "tau": a.tau,
+                     "eps": a.eps, "w0_mode": a.w0_mode, "free_strike_q": a.free_strike_q,
+                     "dive_bonus": a.dive_bonus, "raw": bool(a.raw),
+                     "gtable": ({str(k): v for k, v in g_table.items()} if g_table else None)}
     key = json.load(open(a.key)); keyrp = {_os.path.realpath(k): v for k, v in key.items()}
     planner = BeamPlanner(ckpt=a.ckpt)
     print(f"device={planner.scorer.device} hmax={a.hmax} sim_budget={a.sim_budget} prior={a.prior} "
@@ -296,7 +304,8 @@ def main():
                     doc = build_trace(
                         meta={"xml": xml, "object_id": obj, "region": rec.get("region"),
                               "model": a.trace_model or os.path.basename(a.ckpt),
-                              "strategy": (a.discount if a.discount == "off" else f"{a.discount}_tau{a.tau}")},
+                              "strategy": (a.discount if a.discount == "off" else f"{a.discount}_tau{a.tau}"),
+                              "search": search_params},
                         scene=ep_scene,
                         boards=[make_board(b["board_id"], b["depth"], b["parent_edge"], b["parent_depth"],
                                            b["pool"], b["grid"], b["w0"], b["free_strikes"]) for b in boards],

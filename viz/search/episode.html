@@ -11,16 +11,19 @@
   <div id="no-gt-banner" class="no-gt-banner" style="display:none">
     No ground truth for this episode (outside the exhaustive sweep's coverage) &mdash; truth badges and the rank-space green panel are suppressed rather than faked.
   </div>
+  <div id="recon-banner" class="recon-banner" style="display:none"></div>
 </header>
 
 <section id="zone-c" class="zone zone-timeline">
   <div class="timeline-row">
     <button id="step-back" class="step-btn" title="Left arrow">&larr;</button>
-    <input id="timeline-slider" type="range" min="0" max="0" value="0">
+    <div class="timeline-track">
+      <input id="timeline-slider" type="range" min="0" max="0" value="0">
+      <div id="timeline-ticks" class="timeline-ticks"></div>
+    </div>
     <button id="step-fwd" class="step-btn" title="Right arrow">&rarr;</button>
     <span id="timeline-label" class="timeline-label mono"></span>
   </div>
-  <div id="timeline-ticks" class="timeline-ticks"></div>
 </section>
 
 <main class="episode-grid">

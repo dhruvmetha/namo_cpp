@@ -1,44 +1,86 @@
 "use strict";
 /* Episode replay view: one search, replayed pop by pop.
  *
- * Data shapes (see docs/superpowers/specs/2026-07-26-search-viz-design.md):
- *   trace = {meta, scene, boards:[{board_id,depth,parent_edge,parent_depth,pool:[{obj,edge,depth,q}],grid|null,w0}],
+ * Data shapes (see docs/superpowers/specs/2026-07-26-search-viz-design.md), schema_version 2:
+ *   trace = {meta:{..., search:{combine,agg,prior,raw,dive_bonus,discount,gamma,tau,eps,w0_mode,
+ *                               free_strike_q,gtable,hmax,sim_budget}},
+ *            scene, boards:[{board_id,depth,parent_edge,parent_depth,pool:[{obj,edge,depth,q}],grid|null,
+ *                            w0,free_strikes}],
  *            pops:[{t,board_id,obj,edge,depth,q,bp,w,se,opened}], result:{solved,sims,plan_len,end}}
  *   gt    = null | {root:{openers:[[e,d]],setups:[[e,d]]}, finish:{"<parent_edge>_<parent_depth>":{openers,setups}}}
  *
- * REAL-DATA NOTE (found by reading a trace, not assumed): board.pool entries only ever carry
- * {obj, edge, depth, q} -- `bp` is recorded ONLY on already-popped candidates (scripts/sandbox/eval_bestfirst.py
- * push()/make_pop()). So there is no `bp` sitting on disk for a still-queued candidate to sort by. Reading
- * eval_bestfirst.py's priority(q, V, combine) (default combine="blend" => 0.5*q + 0.5*V) and its board-level V
- * (mean of the board's own top-5 pool q, agg="mean5" default) reproduces every recorded `bp` in all 5 sample
- * traces EXACTLY (max abs error 0.0 across 60+ pops checked). So `bp` for a queued candidate is derived here as
- * 0.5*q + 0.5*V(board) -- not a guess, a verified closed-form reconstruction of the same formula the search used.
- * The board WEIGHT `w`, in contrast, really is only ever recorded at pop time (a floating per-board multiplier
- * demoted on failure, root frozen at 1) -- so per the brief, `w` is replayed off the pops, never recomputed.
+ * ORDERING IS RECOMPUTED, NOT READ OFF THE POPS. Two values set a candidate's place in the queue:
+ *   bp -- the base priority. Only recorded for already-popped candidates, so queued ones need the formula:
+ *         priority(q, V, combine) + dive_bonus*depth, V = the board's own pool aggregate (agg).
+ *   w  -- the board weight. `pops[].w` is the weight the pop SAW, i.e. BEFORE its own failure demoted it, and
+ *         most child boards are popped exactly once -- so a board's post-failure weight is simply NOT in the
+ *         file. Replaying pops[].w therefore leaves nearly every board at 1.0 and shows an order the search
+ *         never used. Instead w is recomputed by re-applying the generator's demotion rule to that board's
+ *         failures in order (seeded from w0, honouring free_strikes, root frozen at 1).
+ * Both use meta.search -- the generator's actual flags -- never assumed defaults, because e.g. `--combine q`
+ * changes the formula outright. verifyReconstruction() then checks the result against every recorded (bp, w);
+ * any mismatch raises a visible banner instead of quietly presenting a wrong order.
  */
 
+// Generator defaults (scripts/sandbox/eval_bestfirst.py argparse) -- used ONLY for pre-v2 traces, which also
+// raise the verification banner, since assuming these is exactly the bug this page had.
+const SEARCH_DEFAULTS = {
+  combine: "blend", agg: "mean5", prior: "model", dive_bonus: 0.0,
+  discount: "off", gamma: 0.65, tau: 1.0, eps: 1e-3, gtable: null,
+};
+const RECON_TOL = 1e-9;
+
 const state = { trace: null, gt: null, t: 0, hover: null, manifestRow: null };
-const boardVCache = new Map(); // board_id -> V (mean top-5 pool q)
+const boardVCache = new Map(); // board_id -> V (the board's pool aggregate, fixed at board creation)
 
 function qs(name) {
   return new URLSearchParams(window.location.search).get(name);
+}
+
+function sp() {
+  return state.trace.meta.search || SEARCH_DEFAULTS;
 }
 
 function boardById(id) {
   return state.trace.boards.find((b) => b.board_id === id);
 }
 
+// V(board) = eval_bestfirst.py candidates(): the state value the board was pushed with. uniform prior has no
+// state value at all (V=0); otherwise mean of the top 5 pool q (agg=mean5) or the single best (agg=max).
 function boardV(board) {
   if (boardVCache.has(board.board_id)) return boardVCache.get(board.board_id);
   const qsSorted = board.pool.map((c) => c.q).sort((a, b) => b - a);
-  const top = qsSorted.slice(0, Math.min(5, qsSorted.length));
-  const v = top.length ? top.reduce((a, b) => a + b, 0) / top.length : 0;
+  let v = 0;
+  if (sp().prior !== "uniform" && qsSorted.length) {
+    v = sp().agg === "max" ? qsSorted[0] : qsSorted.slice(0, 5).reduce((a, b) => a + b, 0) / Math.min(5, qsSorted.length);
+  }
   boardVCache.set(board.board_id, v);
   return v;
 }
 
+// bp = eval_bestfirst.py priority(q, V, combine) + the cascade dive bonus children were pushed with.
 function bpOf(board, q) {
-  return 0.5 * q + 0.5 * boardV(board);
+  const p = sp();
+  const V = boardV(board);
+  const base = p.combine === "q" ? q : p.combine === "product" ? q * V : 0.5 * q + 0.5 * V;
+  return base + (p.dive_bonus || 0) * board.depth;
+}
+
+// One failed sim on `board` (its kFailed-th), scoring q. Mirrors _update_w_on_fail: root boards never demote,
+// `free_strikes` initial failures are forgiven, w is floored at eps and only ever decreases.
+function demote(board, w, kFailed, qFailed) {
+  const p = sp();
+  if (board.depth < 1 || p.discount === "off") return w;
+  const k = kFailed - board.free_strikes;
+  if (k <= 0) return w;
+  let out = w;
+  if (p.discount === "gamma") out *= p.gamma;
+  else if (p.discount === "conf") out *= Math.pow(1 - qFailed, p.tau);
+  else if (p.discount === "fitted") {
+    const kmax = Math.max(...Object.keys(p.gtable).map(Number));
+    out = board.w0 * p.gtable[String(Math.min(k, kmax))];
+  }
+  return Math.max(out, p.eps);
 }
 
 // ---- Pure state-derived functions (Step 1) ---------------------------------------------------
@@ -52,14 +94,35 @@ function poppedKeySet(t) {
   return s;
 }
 
+// Every board's weight after pops[0..t) -- recomputed, since the post-failure value is never on disk.
 function boardWAt(t) {
   const w = new Map();
-  for (const b of state.trace.boards) w.set(b.board_id, b.w0);
+  const kFailed = new Map();
+  for (const b of state.trace.boards) {
+    w.set(b.board_id, b.w0);
+    kFailed.set(b.board_id, 0);
+  }
   for (let i = 0; i < t; i++) {
     const p = state.trace.pops[i];
-    w.set(p.board_id, p.w);
+    const b = boardById(p.board_id);
+    const k = kFailed.get(p.board_id) + 1;
+    kFailed.set(p.board_id, k);
+    w.set(p.board_id, demote(b, w.get(p.board_id), k, p.q));
   }
   return w;
+}
+
+// Check the reconstruction against the trace: at every pop, the bp and w this page would have displayed must
+// equal what the search recorded. Returns the mismatch count (0 = the replayed order is the real one).
+function verifyReconstruction() {
+  let bad = 0;
+  for (let i = 0; i < state.trace.pops.length; i++) {
+    const p = state.trace.pops[i];
+    const b = boardById(p.board_id);
+    if (Math.abs(bpOf(b, p.q) - p.bp) > RECON_TOL) bad++;
+    else if (Math.abs(boardWAt(i).get(p.board_id) - p.w) > RECON_TOL) bad++;
+  }
+  return bad;
 }
 
 // Which boards exist by time t. Root (board 0) always exists; every other board is spawned by
@@ -89,20 +152,23 @@ function queueAt(t) {
   for (const b of state.trace.boards) {
     if (!revealed.has(b.board_id)) continue;
     const w = wAt.get(b.board_id);
-    for (const c of b.pool) {
+    b.pool.forEach((c, idx) => {
       const key = `${b.board_id}:${c.edge}:${c.depth}`;
-      if (popped.has(key)) continue;
+      if (popped.has(key)) return;
       const bp = bpOf(b, c.q);
-      rows.push({ board_id: b.board_id, obj: c.obj, edge: c.edge, depth: c.depth, q: c.q, bp, w, se: bp * w });
-    }
+      rows.push({ board_id: b.board_id, idx, obj: c.obj, edge: c.edge, depth: c.depth, q: c.q, bp, w, se: bp * w });
+    });
   }
-  rows.sort((a, b) => b.se - a.se || a.board_id - b.board_id || a.edge - b.edge || a.depth - b.depth);
+  // ties break the way the generator's heap does: by insertion counter, i.e. board creation order then pool order
+  rows.sort((a, b) => b.se - a.se || a.board_id - b.board_id || a.idx - b.idx);
   return rows;
 }
 
-// greenAt(boardId): opener/setup (edge,depth) sets for that board. Empty when gt is null.
+// greenAt(boardId): the opener/setup (edge,depth) sets for that board, PLUS whether a setup counts as green
+// there. At the root both count: an opener merges robot+goal now, a setup earns a finish push. At a finish
+// board a "setup" would only set up a THIRD push -- it does not open the way, so only openers are green.
 function greenAt(boardId) {
-  const empty = { openers: new Set(), setups: new Set() };
+  const empty = { openers: new Set(), setups: new Set(), setupsGreen: false };
   if (!state.gt) return empty;
   const b = boardById(boardId);
   const src = b.depth === 0 ? state.gt.root : state.gt.finish[`${b.parent_edge}_${b.parent_depth}`];
@@ -110,14 +176,20 @@ function greenAt(boardId) {
   return {
     openers: new Set(src.openers.map(([e, d]) => `${e}:${d}`)),
     setups: new Set(src.setups.map(([e, d]) => `${e}:${d}`)),
+    setupsGreen: b.depth === 0,
   };
 }
 
+// "setup-late" = ground truth calls it a setup, but on this board that buys nothing -- labelled, never green.
 function truthOf(green, edge, depth) {
   const key = `${edge}:${depth}`;
   if (green.openers.has(key)) return "opener";
-  if (green.setups.has(key)) return "setup";
+  if (green.setups.has(key)) return green.setupsGreen ? "setup" : "setup-late";
   return state.gt ? "dead" : "unknown";
+}
+
+function isGreen(truth) {
+  return truth === "opener" || truth === "setup";
 }
 
 function currentBoardIdAt(t) {
@@ -125,11 +197,10 @@ function currentBoardIdAt(t) {
   return state.trace.pops[t - 1].board_id;
 }
 
-function bestGreenRank(rows, greenCache) {
+function bestGreenRank(rows, greenFor) {
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
-    const green = greenCache(r.board_id);
-    if (green.openers.has(`${r.edge}:${r.depth}`) || green.setups.has(`${r.edge}:${r.depth}`)) return i + 1;
+    if (isGreen(truthOf(greenFor(r.board_id), r.edge, r.depth))) return i + 1;
   }
   return null;
 }
@@ -283,7 +354,7 @@ function renderQueueB() {
     const bpW = fmtPct(r.bp / bpMax);
     const seW = fmtPct(r.se / bpMax);
     const badge = state.gt
-      ? `<span class="badge badge-${truth}">${truth}</span>`
+      ? `<span class="badge badge-${truth}"${truth === "setup-late" ? ' title="ground truth calls this a setup, but on a finish board a setup only sets up a third push -- not green here"' : ""}>${truth === "setup-late" ? "setup*" : truth}</span>`
       : `<span class="badge badge-unknown">?</span>`;
     frag.push(
       `<div class="queue-row" data-edge="${r.edge}" data-depth="${r.depth}" ` +
@@ -309,9 +380,12 @@ function renderTimelineC() {
   slider.max = String(sims);
   slider.value = String(state.t);
 
+  // Ticks live inside the slider's own track box, and are placed on the thumb's travel (which is inset by
+  // half a thumb at each end) -- so a tick sits exactly under the thumb position it annotates.
   const ticks = document.getElementById("timeline-ticks");
   const frag = state.trace.pops.map((p) => {
-    const left = sims > 0 ? fmtPct((p.t - 0.5) / sims) : "0%";
+    const f = sims > 0 ? p.t / sims : 0;
+    const left = `calc(var(--thumb) / 2 + (100% - var(--thumb)) * ${f})`;
     return `<div class="tick ${p.opened ? "tick-pass" : "tick-fail"}" style="left:${left}" data-t="${p.t}" title="t=${p.t} ${p.opened ? "opened" : "failed"}"></div>`;
   });
   ticks.innerHTML = frag.join("");
@@ -456,47 +530,33 @@ async function init() {
   }
   const [model, strategy] = arm.split("|");
 
-  let manifest;
-  try {
-    manifest = await (await fetch("manifest.json")).json();
-  } catch (err) {
-    header.textContent = "Failed to load manifest.json: " + err;
-    return;
-  }
-  const rows = manifest.index[arm] || [];
-  const row = rows.find((r) => r.key === key);
-  state.manifestRow = row || null;
+  const manifest = await (await fetch("manifest.json")).json();
+  const row = manifest.index[arm].find((r) => r.key === key);
+  state.manifestRow = row;
 
-  let trace;
-  try {
-    const resp = await fetch(`trace/${model}/${strategy}/${key}.json`);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    trace = await resp.json();
-  } catch (err) {
-    header.textContent = `Failed to load trace for ${key}: ${err}`;
-    return;
-  }
+  const trace = await (await fetch(`trace/${model}/${strategy}/${key}.json`)).json();
   state.trace = trace;
-
-  const hasGt = row ? row.has_gt : true; // manifest is the authority; fall back to trying if unknown
-  if (hasGt) {
-    try {
-      const resp = await fetch(`gt/${key}.json`);
-      state.gt = resp.ok ? await resp.json() : null;
-    } catch (err) {
-      state.gt = null;
-    }
-  } else {
-    state.gt = null;
-  }
+  state.gt = row.has_gt ? await (await fetch(`gt/${key}.json`)).json() : null;
 
   document.getElementById("no-gt-banner").style.display = state.gt ? "none" : "";
+
+  // The displayed order is a reconstruction; say so out loud when it fails to reproduce the recorded search.
+  const banner = document.getElementById("recon-banner");
+  const nBad = verifyReconstruction();
+  const missing = !trace.meta.search;
+  banner.style.display = nBad || missing ? "" : "none";
+  banner.textContent = missing
+    ? `This trace predates schema_version 2 and does not record the search parameters, so the queue below is` +
+      ` ordered with the generator's DEFAULTS (${SEARCH_DEFAULTS.combine} priority, discount` +
+      ` ${SEARCH_DEFAULTS.discount}) and may not be the order the search used. Regenerate the trace.`
+    : `The displayed order could NOT be verified: ${nBad} of ${trace.pops.length} recorded pops disagree with` +
+      ` the bp/w this page recomputed from meta.search. Treat the ranking below as unreliable.`;
 
   const sceneName = trace.meta.xml.split("/").pop();
   header.innerHTML =
     `<a href="index.html">&larr; index</a>` +
     `<span class="mono">${sceneName}</span> &middot; <span class="mono">${trace.meta.object_id}</span>` +
-    ` &middot; tier ${row ? row.tier : "?"}` +
+    ` &middot; tier ${row.tier}` +
     ` &middot; ${trace.meta.model}/${trace.meta.strategy}` +
     ` &middot; ${trace.result.solved ? "solved" : trace.result.end} in ${trace.result.sims} sims`;
 
@@ -504,6 +564,8 @@ async function init() {
   document.getElementById("step-back").addEventListener("click", () => setT(state.t - 1));
   document.getElementById("step-fwd").addEventListener("click", () => setT(state.t + 1));
   document.addEventListener("keydown", (ev) => {
+    // the range input steps itself natively once focused -- stepping again here would double every press
+    if (ev.target === document.getElementById("timeline-slider")) return;
     if (ev.key === "ArrowLeft") setT(state.t - 1);
     if (ev.key === "ArrowRight") setT(state.t + 1);
   });

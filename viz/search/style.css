@@ -119,8 +119,18 @@ td.no { color: var(--dead); }
   border-color: var(--masked);
   color: #fff;
 }
+/* setup-late: ground truth says "setup", but on a finish board that opens nothing -- never styled green. */
+.badge-setup-late {
+  background: transparent;
+  border-color: var(--masked);
+  color: #777;
+}
 
-/* ===================== Episode view (Task 8) ===================== */
+/* ===================== Episode view (Task 8) =====================
+   Single LIGHT theme, deliberately. The palette above (--bg/--fg/--border) is shared with the index page and
+   has no dark variant, so per-widget prefers-color-scheme overrides down here only ever produced dark widgets
+   sitting on a white page. Either the whole palette goes dark or nothing does; the index page is out of scope
+   for this change, so nothing does. */
 
 .episode-body { padding: 1rem 1.25rem 2.5rem; }
 
@@ -144,9 +154,16 @@ td.no { color: var(--dead); }
   font-size: 0.82rem;
   border-radius: 3px;
 }
-:root[data-theme="dark"] .no-gt-banner { background: #2a2a2a; color: #bbb; }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .no-gt-banner { background: #2a2a2a; color: #bbb; }
+
+.recon-banner {
+  margin-top: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  background: #fdecea;
+  border: 1px solid var(--dead);
+  color: #7f1d1d;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-radius: 3px;
 }
 
 .zone {
@@ -160,9 +177,48 @@ td.no { color: var(--dead); }
   margin: 0 0 0.4rem;
 }
 
-.zone-timeline { margin-bottom: 0.75rem; }
+.zone-timeline { margin-bottom: 0.75rem; --thumb: 12px; }
 .timeline-row { display: flex; align-items: center; gap: 0.5rem; }
-.timeline-row input[type="range"] { flex: 1; }
+/* The ticks annotate slider positions, so they must share the slider's box: same parent, same width, and the
+   same half-a-thumb inset at each end (app.js places each tick with calc() over --thumb). The thumb is sized
+   here rather than left to the UA default so that inset is a known number. */
+.timeline-track { flex: 1; min-width: 0; }
+.timeline-track input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: var(--thumb);
+  margin: 0;
+  background: transparent;
+}
+.timeline-track input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+}
+.timeline-track input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: var(--thumb);
+  height: var(--thumb);
+  margin-top: calc((4px - var(--thumb)) / 2);
+  border-radius: 50%;
+  background: #1565c0;
+  cursor: pointer;
+}
+.timeline-track input[type="range"]::-moz-range-track {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+}
+.timeline-track input[type="range"]::-moz-range-thumb {
+  width: var(--thumb);
+  height: var(--thumb);
+  border: 0;
+  border-radius: 50%;
+  background: #1565c0;
+  cursor: pointer;
+}
 .step-btn {
   font-size: 0.9rem;
   padding: 0.1rem 0.5rem;
@@ -173,7 +229,7 @@ td.no { color: var(--dead); }
 .timeline-ticks {
   position: relative;
   height: 10px;
-  margin-top: 0.3rem;
+  margin-top: 0.15rem;
 }
 .tick {
   position: absolute;
@@ -212,18 +268,10 @@ td.no { color: var(--dead); }
   background: #fafafa;
   border: 1px solid var(--border);
 }
-:root[data-theme="dark"] .scene-svg { background: #1c1c1c; }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .scene-svg { background: #1c1c1c; }
-}
 
 .zone-note { font-size: 0.78rem; color: #666; margin: 0.5rem 0 0; }
 
 .wall-rect { fill: #ddd; stroke: #999; stroke-width: 0.0015; }
-:root[data-theme="dark"] .wall-rect { fill: #3a3a3a; stroke: #666; }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .wall-rect { fill: #3a3a3a; stroke: #666; }
-}
 .movable-other { fill: #cfd8dc; stroke: #78909c; stroke-width: 0.0015; }
 .movable-target { fill: #ffe0b2; stroke: #e65100; stroke-width: 0.0025; }
 .goal-marker line { stroke: #b71c1c; }
@@ -235,12 +283,9 @@ td.no { color: var(--dead); }
 .contact-pt circle { stroke: #333; stroke-width: 0.0012; cursor: pointer; }
 .contact-pt.truth-opener circle { stroke: var(--opener); stroke-width: 0.003; }
 .contact-pt.truth-setup circle { stroke: var(--opener); stroke-width: 0.0022; stroke-dasharray: 0.004 0.003; }
+.contact-pt.truth-setup-late circle { stroke: var(--masked); stroke-width: 0.0022; stroke-dasharray: 0.004 0.003; }
 .contact-pt.is-popped circle { opacity: 0.35; }
 .contact-pt.is-hovered circle { stroke: #000; stroke-width: 0.004; }
-:root[data-theme="dark"] .contact-pt.is-hovered circle { stroke: #fff; }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .contact-pt.is-hovered circle { stroke: #fff; }
-}
 .pop-order { fill: #fff; pointer-events: none; font-weight: 600; }
 
 .best-green-row { font-size: 0.9rem; margin-bottom: 0.3rem; }
@@ -274,10 +319,6 @@ td.no { color: var(--dead); }
   border-radius: 2px;
   overflow: hidden;
 }
-:root[data-theme="dark"] .q-bar { background: #333; }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .q-bar { background: #333; }
-}
 .bar-bp {
   position: absolute; left: 0; top: 0; bottom: 0;
   background: #90caf9;
@@ -307,10 +348,6 @@ td.no { color: var(--dead); }
 .grid-cell.truth-opener { background: var(--opener); }
 .grid-cell.truth-setup { background: repeating-linear-gradient(45deg, #fff, #fff 2px, var(--opener) 2px, var(--opener) 4px); }
 .grid-cell.truth-dead, .grid-cell.truth-unknown { background: #f3f3f3; }
-:root[data-theme="dark"] .grid-cell { background: #333; }
-:root[data-theme="dark"] .grid-cell.truth-dead, :root[data-theme="dark"] .grid-cell.truth-unknown { background: #2a2a2a; }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .grid-cell { background: #333; }
-  :root:not([data-theme="light"]) .grid-cell.truth-dead, :root:not([data-theme="light"]) .grid-cell.truth-unknown { background: #2a2a2a; }
-}
+/* grey hatch, not green: a GT setup on a finish board would only set up a third push */
+.grid-cell.truth-setup-late { background: repeating-linear-gradient(45deg, #fff, #fff 2px, #ccc 2px, #ccc 4px); }
 .grid-range { font-size: 0.75rem; color: #666; margin-top: 0.4rem; }
