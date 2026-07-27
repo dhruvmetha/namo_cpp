@@ -277,6 +277,11 @@ public:
     void clear_collision_tracking() {
         wall_collision_during_push_ = false;
         movable_collisions_during_push_.clear();
+        // last_collision_object_ used to survive here. The skill infers
+        // failure_type = OBJECT_COLLISION_DURING_PUSH from it being non-empty
+        // (namo_push_skill.cpp:186), so a stale name from an earlier push
+        // mislabelled every later failure in the same episode as a collision.
+        last_collision_object_.clear();
     }
 
     /**

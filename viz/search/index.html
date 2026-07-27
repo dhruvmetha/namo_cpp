@@ -24,6 +24,14 @@
         <option value="hard">hard</option>
       </select>
     </label>
+    <label>Tier (GT)
+      <select id="tiergt-select" title="Difficulty from exhaustive GT setup density: hard &lt;5%, medium 5-30%, easy &gt;=30%. The plain Tier column comes from the manifest's incomplete setup count.">
+        <option value="all">all</option>
+        <option value="easy">easy</option>
+        <option value="medium">medium</option>
+        <option value="hard">hard</option>
+      </select>
+    </label>
     <label>Solved
       <select id="solved-select">
         <option value="all">all</option>
@@ -68,9 +76,13 @@
       <th data-col="xml">Scene</th>
       <th data-col="object_id">Object</th>
       <th data-col="tier">Tier</th>
+      <th data-col="tier_gt">Tier (GT)</th>
       <th data-col="solved">Solved</th>
       <th data-col="sims" class="num">Sims</th>
       <th data-col="rank_best_green" class="num">Rank(best green)</th>
+      <th data-col="setup_hardness_pct" class="num" title="GT setups at the root / reachable pushes at the root. Higher = more of the pushes work = easier.">Setup %</th>
+      <th data-col="finish_hardness_mean" class="num" title="Per true setup: GT openers on that finish board / reachable pushes there. Mean across the episode's setups.">Finish % (mean)</th>
+      <th data-col="finish_hardness_sd" class="num" title="Standard deviation of the per-setup finish percentages, in percentage points. 0 when the episode has a single setup.">Finish sd</th>
       <th data-col="top1">Top-1 truth</th>
     </tr>
   </thead>
@@ -87,6 +99,7 @@ let sortDir = "desc"; // spec default: worst (rank_best_green descending, nulls 
 const modelSelect = document.getElementById("model-select");
 const strategySelect = document.getElementById("strategy-select");
 const tierSelect = document.getElementById("tier-select");
+const tierGtSelect = document.getElementById("tiergt-select");
 const solvedSelect = document.getElementById("solved-select");
 const top1Select = document.getElementById("top1-select");
 const rankSelect = document.getElementById("rank-select");
@@ -101,7 +114,7 @@ const summary = document.getElementById("summary");
 // user, no size ceiling, and nothing rides along on every request to a plain static file server.
 const STORE_KEY = "namo-viz-index-state";
 const FILTERS = [
-  [tierSelect, "all"], [solvedSelect, "all"], [top1Select, "all"],
+  [tierSelect, "all"], [tierGtSelect, "all"], [solvedSelect, "all"], [top1Select, "all"],
   [rankSelect, "all"], [simsMin, ""], [simsMax, ""], [textFilter, ""],
 ];
 
@@ -192,6 +205,11 @@ function populateStrategies() {
   strategySelect.value = strategies.includes(prev) ? prev : strategies[0];
 }
 
+// null when the episode has no GT rows to compute it from; show a dash rather than "null"
+function pct(v) {
+  return v === null || v === undefined ? "-" : v.toFixed(1);
+}
+
 function sceneName(xml) {
   return xml.split("/").pop();
 }
@@ -206,6 +224,9 @@ function sortValue(row, col) {
   if (col === "xml") {
     return sceneName(row.xml);
   }
+  if (col === "setup_hardness_pct" || col === "finish_hardness_mean" || col === "finish_hardness_sd") {
+    return row[col] === null || row[col] === undefined ? Infinity : row[col];
+  }
   if (col === "solved") {
     return row[col] ? 1 : 0;
   }
@@ -218,6 +239,7 @@ function matches(r, tier) {
   // metric is undefined for both, so they never appear in this table.
   if (r.rank_best_green === null) return false;
   if (tier !== "all" && r.tier !== tier) return false;
+  if (tierGtSelect.value !== "all" && r.tier_gt !== tierGtSelect.value) return false;
   if (solvedSelect.value !== "all" && r.solved !== (solvedSelect.value === "yes")) return false;
   if (top1Select.value !== "all" && r.top1 !== top1Select.value) return false;
 
@@ -266,10 +288,14 @@ function render() {
       '<td><a href="' + href + '" title="' + row.xml + '">' + sceneName(row.xml) + "</a></td>" +
       '<td class="mono">' + row.object_id + "</td>" +
       "<td>" + row.tier + "</td>" +
+      "<td>" + (row.tier_gt || "-") + "</td>" +
       '<td class="' + (row.solved ? "yes" : "no") + '">' + (row.solved ? "yes" : "no") + "</td>" +
       '<td class="mono num">' + row.sims + "</td>" +
       '<td class="mono num' + (row.rank_best_green === null ? " rank-none" : "") + '">' +
         (row.rank_best_green === null ? "none" : row.rank_best_green) + "</td>" +
+      '<td class="mono num">' + pct(row.setup_hardness_pct) + "</td>" +
+      '<td class="mono num">' + pct(row.finish_hardness_mean) + "</td>" +
+      '<td class="mono num">' + pct(row.finish_hardness_sd) + "</td>" +
       '<td><span class="badge badge-' + row.top1 + '">' + row.top1 + "</span></td>" +
       "";
     tr.addEventListener("click", (ev) => {

@@ -17,6 +17,16 @@ from viz.index_metrics import rank_of_best_green, top1_truth  # noqa: E402
 from viz.trace_schema import episode_filename  # noqa: E402
 
 
+# Difficulty from EXHAUSTIVE ground truth, on the project's usual fixed cuts. The shipped
+# pure2push_divisions.json instead cuts on the MANIFEST's setup count, which is ~1/3 complete and
+# undercounts worst on the sparsest episodes -- so its "hard" tier largely means "poorly labelled".
+# Same cut values, honest denominator; kept as a SEPARATE field so existing reporting is untouched.
+def tier_from_gt(setup_pct):
+    if setup_pct is None:
+        return None
+    return "hard" if setup_pct < 5 else ("medium" if setup_pct < 30 else "easy")
+
+
 def index_row(trace, gt, tier):
     xml = trace["meta"]["xml"]
     oid = trace["meta"]["object_id"]
@@ -29,7 +39,13 @@ def index_row(trace, gt, tier):
         setups = {(e, d) for e, d in gt["root"]["setups"]}
         rank = rank_of_best_green(pool, openers | setups)
         top1 = top1_truth(pool, openers, setups)
+    h = (gt or {}).get("hardness") or {}
     return {"key": episode_filename(xml, oid)[:-len(".json")],
+            "setup_hardness_pct": h.get("setup_hardness_pct"),
+            "tier_gt": tier_from_gt(h.get("setup_hardness_pct")),
+            "finish_hardness_mean": h.get("finish_hardness_mean"),
+            "finish_hardness_sd": h.get("finish_hardness_sd"),
+            "n_setups": h.get("n_setups"),
             "xml": xml, "object_id": oid, "tier": tier,
             "solved": trace["result"]["solved"], "sims": trace["result"]["sims"],
             "rank_best_green": rank, "top1": top1, "has_gt": gt is not None}

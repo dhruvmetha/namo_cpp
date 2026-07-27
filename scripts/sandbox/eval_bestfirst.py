@@ -108,7 +108,7 @@ def _unmoved(before, after, obj, tol=1e-6):
 def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combine, rng, restrict_obj=None,
                 is_open=lambda e: e.is_robot_goal_reachable(), raw=False, dive_bonus=0.0,
                 discount="off", gamma=0.65, tau=1.0, g_table=None, eps=1e-3,
-                w0_mode="one", free_strike_q=2.0, dedupe_noop=True, trace_out=None, capture=None):
+                w0_mode="one", free_strike_q=2.0, dedupe_noop=True, prune_jam_depth=True, trace_out=None, capture=None):
     """Greedy best-first ON THE LABELED OBJECT (restrict_obj). Returns (solved, sims, plan_len|None, boards, end).
     boards = per-board lifetime records; end in {solved, budget, exhausted}. w(b) via --discount (off=static).
     trace_out (list, viz only): every pop is appended as a make_pop row and every board also carries its full
@@ -119,6 +119,12 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
     success, so a solved episode's winning push -- which creates no board at all -- is recorded too; the child
     board spawned by a failed pop reuses that same capture rather than paying for the identical state twice."""
     gkmax = (max(g_table) if g_table else 0)
+    # (board, edge) -> shallowest depth known to jam there. push_steps = depth+1 and the controller runs
+    # ONE continuous push, so depth k+1 is depth k's trajectory continued: if the robot jams partway
+    # through k it hits the same obstruction at the same tick for every deeper k'. Verified on a full
+    # arm: 1214 of 1215 such pairs held (the one exception is the sim's known ~0.3mm warmstart jitter).
+    # Pruning upward only -- a SHORTER push may stop before the obstruction, so those stay.
+    jam_at = {}
     tracing = trace_out is not None
     heap = []; sims = 0
     boards = []                                                    # index == board_id
@@ -158,6 +164,10 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
         cur = it["bp"] * board["w"]                       # lazy stale-reinsert (w only decreases)
         if cur < it["se"] - 1e-12:
             it["se"] = cur; heapq.heappush(heap, (-cur, next_ctr(), it)); continue
+        _jk = (it["board_id"], int(it["g"].edge_idx))
+        _jd = jam_at.get(_jk)
+        if prune_jam_depth and _jd is not None and int(it["g"].depth) >= _jd:
+            continue                                      # same trajectory, already known to jam -- no sim
         env.set_full_state(it["from"])
         obs_before = env.get_observation() if dedupe_noop else None
         step_res = env.step(make_action(it["obj"], it["g"])); sims += 1
@@ -183,6 +193,10 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
                                       int(it["g"].depth), float(it["q"]), float(it["bp"]),
                                       float(board["w"]), opened, geom=pop_geom, regions=pop_regions,
                                       fail=fail))
+        if fail is not None:
+            _d0 = int(it["g"].depth)
+            if _jd is None or _d0 < _jd:
+                jam_at[_jk] = _d0
         board["tries"].append((len(board["tries"]) + 1, float(it["q"]), opened))   # (within-board try#, q, opened)
         if opened:
             return True, sims, len(it["plan"]), boards, "solved"
@@ -314,6 +328,11 @@ def main():
                          "pushes just tried -- 27.4%% of all sims went there, and no solve ever came from "
                          "one. That child is now skipped; pass this flag to restore the old behaviour.")
     ap.set_defaults(dedupe_noop=True)
+    ap.add_argument("--no-prune-jam-depth", dest="prune_jam_depth", action="store_false",
+                    help="ADOPTED 2026-07-27: once a push jams at (state, edge, depth k), every deeper "
+                         "depth on that edge is the same trajectory continued and jams identically, so it "
+                         "is skipped without spending a simulation. Pass this to restore the old behaviour.")
+    ap.set_defaults(prune_jam_depth=True)
     ap.add_argument("--trace-out", default="", help="per-episode search trace JSON dir (for viz/search)")
     ap.add_argument("--trace-model", default="", help="model label written into each trace's meta")
     a = ap.parse_args()
@@ -382,7 +401,7 @@ def main():
                 solved, sims, plen, boards, end = solve_scene(
                     planner, env, goal, xml, s0, a.hmax, a.sim_budget, a.prior, a.agg, a.combine, rng,
                     restrict_obj=obj, is_open=is_open, raw=a.raw, dive_bonus=a.dive_bonus,
-                    discount=a.discount, gamma=a.gamma, tau=a.tau, g_table=g_table, eps=a.eps, w0_mode=a.w0_mode, free_strike_q=a.free_strike_q, dedupe_noop=a.dedupe_noop,
+                    discount=a.discount, gamma=a.gamma, tau=a.tau, g_table=g_table, eps=a.eps, w0_mode=a.w0_mode, free_strike_q=a.free_strike_q, dedupe_noop=a.dedupe_noop, prune_jam_depth=a.prune_jam_depth,
                     trace_out=pops, capture=capture)
                 n += 1; sims_tot += sims; n_solved += int(solved); sims_solved += sims if solved else 0
                 lf.write(json.dumps({"xml": xml, "object_id": obj, "region": rec.get("region"),
