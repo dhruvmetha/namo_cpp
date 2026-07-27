@@ -413,3 +413,11 @@ td.no { color: var(--dead); }
 /* grey hatch, not green: a GT setup on a finish board would only set up a third push */
 .grid-cell.truth-setup-late { background: repeating-linear-gradient(45deg, #fff, #fff 2px, #ccc 2px, #ccc 4px); }
 .grid-range { font-size: 0.75rem; color: #666; margin-top: 0.4rem; }
+
+/* Index filter bar: many controls, so keep them compact and let them wrap above the table. */
+.controls .range { display: inline-flex; gap: 4px; }
+.controls .range input { width: 4.5em; }
+.controls input[type="search"] { width: 11em; }
+.controls input { font: inherit; padding: 2px 4px; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: var(--fg); }
+#reset-btn { align-self: end; font: inherit; padding: 3px 10px; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: var(--fg); cursor: pointer; }
+#reset-btn:hover { background: var(--border); }

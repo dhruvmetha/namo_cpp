@@ -24,6 +24,49 @@
         <option value="hard">hard</option>
       </select>
     </label>
+    <label>Solved
+      <select id="solved-select">
+        <option value="all">all</option>
+        <option value="yes">solved</option>
+        <option value="no">unsolved</option>
+      </select>
+    </label>
+    <label>Top-1 truth
+      <select id="top1-select">
+        <option value="all">all</option>
+        <option value="opener">opener</option>
+        <option value="setup">setup</option>
+        <option value="dead">dead</option>
+        <option value="unknown">unknown</option>
+      </select>
+    </label>
+    <label>Rank(best green)
+      <select id="rank-select">
+        <option value="all">all</option>
+        <option value="1">exactly 1</option>
+        <option value="2-5">2&ndash;5</option>
+        <option value="6-20">6&ndash;20</option>
+        <option value="20+">&gt; 20</option>
+        <option value="none">none in pool</option>
+      </select>
+    </label>
+    <label>GT
+      <select id="gt-select">
+        <option value="all">all</option>
+        <option value="yes">has GT</option>
+        <option value="no">no GT</option>
+      </select>
+    </label>
+    <label>Sims
+      <span class="range">
+        <input type="number" id="sims-min" min="0" placeholder="min">
+        <input type="number" id="sims-max" min="0" placeholder="max">
+      </span>
+    </label>
+    <label>Search
+      <input type="search" id="text-filter" placeholder="scene or object">
+    </label>
+    <button type="button" id="reset-btn" title="Clear every filter and forget the saved state">Reset</button>
   </div>
   <div id="summary" class="summary">loading manifest.json&hellip;</div>
 </header>
@@ -54,8 +97,50 @@ let sortDir = "desc"; // spec default: worst (rank_best_green descending, nulls 
 const modelSelect = document.getElementById("model-select");
 const strategySelect = document.getElementById("strategy-select");
 const tierSelect = document.getElementById("tier-select");
+const solvedSelect = document.getElementById("solved-select");
+const top1Select = document.getElementById("top1-select");
+const rankSelect = document.getElementById("rank-select");
+const gtSelect = document.getElementById("gt-select");
+const simsMin = document.getElementById("sims-min");
+const simsMax = document.getElementById("sims-max");
+const textFilter = document.getElementById("text-filter");
+const resetBtn = document.getElementById("reset-btn");
 const tbody = document.getElementById("episode-tbody");
 const summary = document.getElementById("summary");
+
+// Filter + sort state persists across reloads. localStorage rather than cookies: same effect for the
+// user, no size ceiling, and nothing rides along on every request to a plain static file server.
+const STORE_KEY = "namo-viz-index-state";
+const FILTERS = [
+  [tierSelect, "all"], [solvedSelect, "all"], [top1Select, "all"],
+  [rankSelect, "all"], [gtSelect, "all"], [simsMin, ""], [simsMax, ""], [textFilter, ""],
+];
+
+function saveState() {
+  const f = {};
+  FILTERS.forEach(([el]) => { f[el.id] = el.value; });
+  localStorage.setItem(STORE_KEY, JSON.stringify({
+    model: modelSelect.value, strategy: strategySelect.value, sortCol, sortDir, filters: f,
+  }));
+}
+
+// A saved arm goes stale every time the traces are regenerated, so anything that is no longer an
+// option falls back to the default rather than rendering an empty table that looks like data loss.
+function restoreState() {
+  const raw = localStorage.getItem(STORE_KEY);
+  if (!raw) return;
+  const s = JSON.parse(raw);
+  const has = (sel, v) => [...sel.options].some((o) => o.value === v);
+  if (s.model && has(modelSelect, s.model)) modelSelect.value = s.model;
+  populateStrategies();
+  if (s.strategy && has(strategySelect, s.strategy)) strategySelect.value = s.strategy;
+  if (s.sortCol) sortCol = s.sortCol;
+  if (s.sortDir) sortDir = s.sortDir;
+  FILTERS.forEach(([el, dflt]) => {
+    const v = s.filters && s.filters[el.id];
+    el.value = v !== undefined && (el.tagName !== "SELECT" || has(el, v)) ? v : dflt;
+  });
+}
 
 fetch("manifest.json")
   .then((r) => r.json())
@@ -72,13 +157,24 @@ function init() {
   models.forEach((m) => modelSelect.add(new Option(m, m)));
   modelSelect.value = models[0];
   populateStrategies();
+  restoreState();
 
   modelSelect.addEventListener("change", () => {
     populateStrategies();
     render();
   });
   strategySelect.addEventListener("change", render);
-  tierSelect.addEventListener("change", render);
+  FILTERS.forEach(([el]) => el.addEventListener("input", render));
+
+  resetBtn.addEventListener("click", () => {
+    localStorage.removeItem(STORE_KEY);
+    FILTERS.forEach(([el, dflt]) => { el.value = dflt; });
+    modelSelect.value = models[0];
+    populateStrategies();
+    sortCol = "rank_best_green";
+    sortDir = "desc";
+    render();
+  });
 
   document.querySelectorAll("th[data-col]").forEach((th) => {
     th.addEventListener("click", () => {
@@ -127,15 +223,41 @@ function sortValue(row, col) {
   return row[col];
 }
 
+// Every filter narrows: a row survives only if it passes all of them.
+function matches(r, tier) {
+  if (tier !== "all" && r.tier !== tier) return false;
+  if (solvedSelect.value !== "all" && r.solved !== (solvedSelect.value === "yes")) return false;
+  if (top1Select.value !== "all" && r.top1 !== top1Select.value) return false;
+  if (gtSelect.value !== "all" && r.has_gt !== (gtSelect.value === "yes")) return false;
+
+  const k = rankSelect.value;
+  if (k !== "all") {
+    const g = r.rank_best_green;
+    if (k === "none" ? g !== null : g === null) return false;
+    if (k === "1" && g !== 1) return false;
+    if (k === "2-5" && !(g >= 2 && g <= 5)) return false;
+    if (k === "6-20" && !(g >= 6 && g <= 20)) return false;
+    if (k === "20+" && !(g > 20)) return false;
+  }
+
+  if (simsMin.value !== "" && r.sims < Number(simsMin.value)) return false;
+  if (simsMax.value !== "" && r.sims > Number(simsMax.value)) return false;
+
+  const q = textFilter.value.trim().toLowerCase();
+  if (q && !(sceneName(r.xml).toLowerCase().includes(q) || r.object_id.toLowerCase().includes(q))) {
+    return false;
+  }
+  return true;
+}
+
 function render() {
   const model = modelSelect.value;
   const strategy = strategySelect.value;
   const arm = model + "|" + strategy;
   const tier = tierSelect.value;
 
-  const rows = (manifest.index[arm] || []).filter(
-    (r) => tier === "all" || r.tier === tier
-  );
+  const all = manifest.index[arm];
+  const rows = all.filter((r) => matches(r, tier));
 
   rows.sort((a, b) => {
     const va = sortValue(a, sortCol);
@@ -168,10 +290,13 @@ function render() {
 
   const solvedCount = rows.filter((r) => r.solved).length;
   const noGtCount = rows.filter((r) => !r.has_gt).length;
+  const hidden = all.length - rows.length;
   summary.textContent =
-    rows.length + " episodes shown · " + solvedCount + " solved · " + noGtCount + " without GT";
+    rows.length + " episodes shown · " + solvedCount + " solved · " + noGtCount + " without GT" +
+    (hidden ? " · " + hidden + " hidden by filters" : "");
 
   updateSortIndicators();
+  saveState();
 }
 
 function updateSortIndicators() {
