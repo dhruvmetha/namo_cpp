@@ -421,3 +421,6 @@ td.no { color: var(--dead); }
 .controls input { font: inherit; padding: 2px 4px; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: var(--fg); }
 #reset-btn { align-self: end; font: inherit; padding: 3px 10px; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: var(--fg); cursor: pointer; }
 #reset-btn:hover { background: var(--border); }
+
+.controls .check { flex-direction: row; align-items: center; gap: 6px; align-self: end; white-space: nowrap; }
+.controls .check input { width: auto; }

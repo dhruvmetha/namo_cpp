@@ -66,6 +66,9 @@
     <label>Search
       <input type="search" id="text-filter" placeholder="scene or object">
     </label>
+    <label class="check" title="Hides the 37 episodes with no ground truth and the 21 where GT's root green set is empty — neither has a meaningful rank. Ignored when Rank is set to 'none in pool'.">
+      <input type="checkbox" id="hide-norank" checked> Hide episodes with no GT rank
+    </label>
     <button type="button" id="reset-btn" title="Clear every filter and forget the saved state">Reset</button>
   </div>
   <div id="summary" class="summary">loading manifest.json&hellip;</div>
@@ -104,6 +107,7 @@ const gtSelect = document.getElementById("gt-select");
 const simsMin = document.getElementById("sims-min");
 const simsMax = document.getElementById("sims-max");
 const textFilter = document.getElementById("text-filter");
+const hideNoRank = document.getElementById("hide-norank");
 const resetBtn = document.getElementById("reset-btn");
 const tbody = document.getElementById("episode-tbody");
 const summary = document.getElementById("summary");
@@ -121,6 +125,7 @@ function saveState() {
   FILTERS.forEach(([el]) => { f[el.id] = el.value; });
   localStorage.setItem(STORE_KEY, JSON.stringify({
     model: modelSelect.value, strategy: strategySelect.value, sortCol, sortDir, filters: f,
+    hideNoRank: hideNoRank.checked,
   }));
 }
 
@@ -140,6 +145,7 @@ function restoreState() {
     const v = s.filters && s.filters[el.id];
     el.value = v !== undefined && (el.tagName !== "SELECT" || has(el, v)) ? v : dflt;
   });
+  if (s.hideNoRank !== undefined) hideNoRank.checked = s.hideNoRank;
 }
 
 fetch("manifest.json")
@@ -165,10 +171,12 @@ function init() {
   });
   strategySelect.addEventListener("change", render);
   FILTERS.forEach(([el]) => el.addEventListener("input", render));
+  hideNoRank.addEventListener("change", render);
 
   resetBtn.addEventListener("click", () => {
     localStorage.removeItem(STORE_KEY);
     FILTERS.forEach(([el, dflt]) => { el.value = dflt; });
+    hideNoRank.checked = true;
     modelSelect.value = models[0];
     populateStrategies();
     sortCol = "rank_best_green";
@@ -225,6 +233,10 @@ function sortValue(row, col) {
 
 // Every filter narrows: a row survives only if it passes all of them.
 function matches(r, tier) {
+  // A null rank means either no GT (37 episodes) or GT's root green set is empty (21) -- in both cases
+  // the headline metric is undefined, so they are hidden by default. Asking for them explicitly via the
+  // Rank filter overrides the checkbox, otherwise that combination would silently show nothing.
+  if (hideNoRank.checked && rankSelect.value !== "none" && r.rank_best_green === null) return false;
   if (tier !== "all" && r.tier !== tier) return false;
   if (solvedSelect.value !== "all" && r.solved !== (solvedSelect.value === "yes")) return false;
   if (top1Select.value !== "all" && r.top1 !== top1Select.value) return false;
