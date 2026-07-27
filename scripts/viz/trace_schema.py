@@ -4,7 +4,7 @@ Consumed by the static page in viz/search/. Bump schema_version if any field cha
 import hashlib
 import os
 
-SCHEMA_VERSION = 5   # v5: each POP carries the controller failure_reason; v4 added per-pop geometry
+SCHEMA_VERSION = 6   # v6: pop["fail"] is the full cause {reason,type,collision,movable,wall}, not just a reason string
 # v3: each board carries the geometry AND the region decomposition of ITS OWN state
 # v2: meta carries the generator's full search-parameter set (meta["search"])
 

@@ -188,6 +188,18 @@ function revealedBoardsAt(t) {
 
 // queueAt(t): replay pops[0..t) to know what's left unsimulated and each board's live w, then
 // sort the remainder by bp*w descending. This is the priority queue the search is holding at t.
+// Has this (edge, depth) already failed to move anything, on any board, before step t?
+function jammedBefore(t, edge, depth) {
+  for (let i = 0; i < t; i++) {
+    const p = state.trace.pops[i];
+    if (p.edge === edge && p.depth === depth) {
+      const fi = failInfo(p);
+      if (fi) return fi;
+    }
+  }
+  return null;
+}
+
 function queueAt(t) {
   const popped = poppedKeySet(t);
   const wAt = boardWAt(t);
@@ -200,7 +212,10 @@ function queueAt(t) {
       const key = `${b.board_id}:${c.edge}:${c.depth}`;
       if (popped.has(key)) return;
       const bp = bpOf(b, c.q);
-      rows.push({ board_id: b.board_id, idx, obj: c.obj, edge: c.edge, depth: c.depth, q: c.q, bp, w, se: bp * w });
+      // This exact push may already have jammed on another board. Surfacing that is the point: without
+      // --dedupe-noop the search will happily re-simulate it, and this is where that becomes visible.
+      const jam = jammedBefore(t, c.edge, c.depth);
+      rows.push({ board_id: b.board_id, idx, obj: c.obj, edge: c.edge, depth: c.depth, q: c.q, bp, w, se: bp * w, jam });
     });
   }
   // ties break the way the generator's heap does: by insertion counter, i.e. board creation order then pool order
@@ -463,7 +478,7 @@ function renderSceneA() {
     parts.push(
       `<g class="${classes.join(" ")}" data-edge="${edge}" data-depth="${best.depth}">` +
         `<circle cx="${cx}" cy="${cy}" r="${cr}" fill="${fill}"/>` +
-        `<title>edge ${edge} depth ${best.depth}: q=${best.q.toFixed(3)}${isPopped ? ` (sim #${popEntry.t}, ${popEntry.opened ? "opened" : "failed"})` : ""}</title>` +
+        `<title>edge ${edge} depth ${best.depth}: q=${best.q.toFixed(3)}${isPopped ? ` (sim #${popEntry.t}, ${popEntry.opened ? "opened" : (failInfo(popEntry) || { long: "moved, but did not open the way" }).long})` : ""}</title>` +
         `</g>`
     );
   });
@@ -533,6 +548,17 @@ function renderSceneCaption(view, geom) {
 
 // ---- Zone B: the priority queue ---------------------------------------------------------------
 
+// v6 pops carry WHY a push failed. "jammed against a wall" and "blocked by obstacle_3" are different
+// situations and must not both read as "failed". v5 stored a bare reason string; older traces have none.
+function failInfo(p) {
+  if (!p || !p.fail) return null;
+  const f = typeof p.fail === "string" ? { reason: p.fail } : p.fail;
+  const hit = f.collision || f.movable || "";
+  const what = f.type === "OBJECT_STUCK" ? "stuck" : f.type === "OBJECT_COLLISION_DURING_PUSH" ? "collided" : "failed";
+  const against = hit === "walls" ? " with a wall" : hit ? ` with ${hit}` : "";
+  return { short: what + (hit === "walls" ? " (wall)" : hit ? ` (${hit})` : ""), long: `${what}${against} -- ${f.reason}` };
+}
+
 function renderQueueB() {
   const rows = queueAt(state.t);
   const rank = bestGreenRank(rows, greenAt);
@@ -564,6 +590,7 @@ function renderQueueB() {
         `<span class="q-bar"><span class="bar-bp" style="width:${bpW}"></span><span class="bar-se" style="width:${seW}"></span></span>` +
         `<span class="q-w mono">×${r.w.toFixed(2)}</span>` +
         badge +
+        (r.jam ? `<span class="jam-chip" title="${r.jam.long}">${r.jam.short}</span>` : "") +
         `</div>`
     );
   });
@@ -585,7 +612,10 @@ function renderTimelineC() {
   const frag = state.trace.pops.map((p) => {
     const f = sims > 0 ? p.t / sims : 0;
     const left = `calc(var(--thumb) / 2 + (100% - var(--thumb)) * ${f})`;
-    return `<div class="tick ${p.opened ? "tick-pass" : "tick-fail"}" style="left:${left}" data-t="${p.t}" title="t=${p.t} ${p.opened ? "opened" : "failed"}"></div>`;
+    const fi = failInfo(p);
+    const cls = p.opened ? "tick-pass" : fi ? "tick-jam" : "tick-fail";
+    const tip = p.opened ? "opened" : fi ? fi.long : "moved, but did not open the way";
+    return `<div class="tick ${cls}" style="left:${left}" data-t="${p.t}" title="t=${p.t} ${tip}"></div>`;
   });
   ticks.innerHTML = frag.join("");
   ticks.querySelectorAll(".tick").forEach((el) => {
@@ -605,8 +635,10 @@ function renderTimelineC() {
     label.textContent = `after 0 of ${sims} sims -- nothing simulated yet`;
   } else {
     const last = state.trace.pops[state.t - 1];
+    const fi = failInfo(last);
+    const outcome = last.opened ? "opened" : fi ? fi.long : "moved, but did not open the way";
     label.textContent = `after ${state.t} of ${sims} sims -- most recent: board ${last.board_id} ` +
-      `e${last.edge}/d${last.depth} (${last.opened ? "opened" : "failed"})`;
+      `e${last.edge}/d${last.depth} (${outcome})`;
   }
 }
 

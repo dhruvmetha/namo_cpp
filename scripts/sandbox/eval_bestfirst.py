@@ -89,6 +89,11 @@ def _update_w_on_fail(board, q_failed, discount, gamma, tau, g_table, gkmax, eps
         board["w"] = eps
 
 
+_FAILTYPE = {"0": "NONE", "1": "ROBOT_PLACEMENT_COLLISION", "2": "OBJECT_COLLISION_DURING_PUSH",
+             "3": "OBJECT_STUCK", "4": "NO_REACHABLE_EDGES", "5": "NO_PLAN_FOUND",
+             "6": "ITERATION_LIMIT_REACHED", "7": "INVALID_PARAMETERS", "8": "UNKNOWN"}
+
+
 def _unmoved(before, after, obj, tol=1e-6):
     """Did this push leave BOTH the pushed object and the robot exactly where they were?"""
     if before is None:
@@ -157,7 +162,15 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
         obs_before = env.get_observation() if dedupe_noop else None
         step_res = env.step(make_action(it["obj"], it["g"])); sims += 1
         opened = bool(is_open(env))
-        fail = (step_res.info or {}).get("failure_reason") or None
+        # WHY the push failed, not just that it did. The skill maps causes into failure_type and
+        # collision_object (namo_push_skill.cpp:183-196): a wall collision and a jam against another
+        # movable object are completely different situations, and reason alone cannot tell them apart.
+        _i = step_res.info or {}
+        fail = None
+        if _i.get("failure_reason"):
+            fail = {"reason": _i["failure_reason"], "type": _FAILTYPE.get(str(_i.get("failure_type")), str(_i.get("failure_type"))),
+                    "collision": _i.get("collision_object") or "", "movable": _i.get("movable_collisions") or "",
+                    "wall": str(_i.get("wall_collision")).lower() == "true"}
         # VIZ ONLY. The state this push REACHED, read while the sim is still standing in it and before the
         # `opened` return, so the winning push of a solved episode is recorded like any other. Nothing has
         # touched the sim since env.step() -- is_open only reads.
