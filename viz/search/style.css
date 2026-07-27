@@ -348,7 +348,6 @@ td.no { color: var(--dead); }
 .contact-pt.truth-setup-late circle { stroke: var(--masked); stroke-width: 0.0022; stroke-dasharray: 0.004 0.003; }
 .contact-pt.is-popped circle { opacity: 0.35; }
 .contact-pt.is-hovered circle { stroke: #000; stroke-width: 0.004; }
-.pop-order { fill: #fff; pointer-events: none; font-weight: 600; }
 
 .best-green-row { font-size: 0.9rem; margin-bottom: 0.3rem; }
 .best-green-marker { font-weight: 700; font-size: 1.1rem; }

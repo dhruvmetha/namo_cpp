@@ -440,7 +440,7 @@ function renderSceneA() {
       `<circle r="${rr}"/><line x1="0" y1="0" x2="${rr * 1.6}" y2="0" stroke-width="${stroke * 2}"/></g>`
   );
 
-  const cr = 0.008;
+  const cr = 0.004;
   contacts.forEach((pt, edge) => {
     const [cx, cy] = pt;
     const best = bestByEdge.get(edge);
@@ -463,9 +463,6 @@ function renderSceneA() {
     parts.push(
       `<g class="${classes.join(" ")}" data-edge="${edge}" data-depth="${best.depth}">` +
         `<circle cx="${cx}" cy="${cy}" r="${cr}" fill="${fill}"/>` +
-        (popEntry
-          ? `<text x="${cx}" y="${cy}" class="pop-order" font-size="0.013" text-anchor="middle" dominant-baseline="central">${popEntry.t}</text>`
-          : "") +
         `<title>edge ${edge} depth ${best.depth}: q=${best.q.toFixed(3)}${isPopped ? ` (sim #${popEntry.t}, ${popEntry.opened ? "opened" : "failed"})` : ""}</title>` +
         `</g>`
     );
