@@ -56,7 +56,10 @@ const RECON_TOL = 1e-9;
 // The schema_version this page knows how to reconstruct (scripts/viz/trace_schema.py SCHEMA_VERSION). Keyed
 // on the version itself, not on the presence of any one field -- a later schema bump that happens to keep
 // meta.search around must still be caught here, not slip through unflagged.
-const SUPPORTED_SCHEMA_VERSION = 4;
+// Schema versions are ADDITIVE: v5 added the failure reason, v6 the full failure cause, and neither
+// removed a field. So the page needs a FLOOR, not an exact match -- demanding equality made every
+// forward regeneration look like a broken trace and told the user to regenerate data that was fine.
+const MIN_SCHEMA_VERSION = 4;
 
 // view: which state zone A draws -- "outcome" = the state pops[t-1] reached (v4 only, the default,
 // since "what did that push do?" is the question the scrubber poses), "next" = the state pops[t]
@@ -794,14 +797,14 @@ async function init() {
   // The displayed order is a reconstruction; say so out loud when it fails to reproduce the recorded search.
   const banner = document.getElementById("recon-banner");
   const nBad = verifyReconstruction();
-  const missing = trace.schema_version !== SUPPORTED_SCHEMA_VERSION;
+  const missing = !(trace.schema_version >= MIN_SCHEMA_VERSION);
   banner.style.display = nBad || missing ? "" : "none";
   // Two different failures, so two different sentences: an OLD trace loses features (and, pre-v2, the
   // recorded search parameters, hence the defaults warning) -- a trace whose recorded bp/w this page
   // cannot reproduce means the displayed ORDER is wrong, which is far worse.
   banner.textContent = missing
-    ? `This trace's schema_version (${trace.schema_version}) is not ${SUPPORTED_SCHEMA_VERSION}, the version` +
-      ` this page understands. ` +
+    ? `This trace's schema_version (${trace.schema_version}) is older than ${MIN_SCHEMA_VERSION}, the` +
+      ` minimum this page understands. ` +
       (trace.meta.search
         ? `The queue order is still reconstructed from its meta.search, but per-pop outcome geometry is` +
           ` missing, so the scene can only show board states. Regenerate the trace.`
