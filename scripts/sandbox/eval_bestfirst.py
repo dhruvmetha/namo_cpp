@@ -108,7 +108,7 @@ def _unmoved(before, after, obj, tol=1e-6):
 def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combine, rng, restrict_obj=None,
                 is_open=lambda e: e.is_robot_goal_reachable(), raw=False, dive_bonus=0.0,
                 discount="off", gamma=0.65, tau=1.0, g_table=None, eps=1e-3,
-                w0_mode="one", free_strike_q=2.0, dedupe_noop=False, trace_out=None, capture=None):
+                w0_mode="one", free_strike_q=2.0, dedupe_noop=True, trace_out=None, capture=None):
     """Greedy best-first ON THE LABELED OBJECT (restrict_obj). Returns (solved, sims, plan_len|None, boards, end).
     boards = per-board lifetime records; end in {solved, budget, exhausted}. w(b) via --discount (off=static).
     trace_out (list, viz only): every pop is appended as a make_pop row and every board also carries its full
@@ -308,9 +308,12 @@ def main():
     ap.add_argument("--out", default=str(SCRATCH / "eval/bestfirst.json"))
     ap.add_argument("--leaf-out", default=str(SCRATCH / "eval/bestfirst.jsonl"))
     ap.add_argument("--lifetime-out", default="", help="per-board lifetime JSONL (one row per board).")
-    ap.add_argument("--dedupe-noop", action="store_true",
-                    help="skip creating a child board when the push moved nothing (the child would be an "
-                         "exact duplicate of its parent and just re-offers the same pushes)")
+    ap.add_argument("--no-dedupe-noop", dest="dedupe_noop", action="store_false",
+                    help="ADOPTED 2026-07-27: a push that moves nothing reaches the state it started from, "
+                         "so its child board is an exact duplicate of its parent and merely re-offers the "
+                         "pushes just tried -- 27.4%% of all sims went there, and no solve ever came from "
+                         "one. That child is now skipped; pass this flag to restore the old behaviour.")
+    ap.set_defaults(dedupe_noop=True)
     ap.add_argument("--trace-out", default="", help="per-episode search trace JSON dir (for viz/search)")
     ap.add_argument("--trace-model", default="", help="model label written into each trace's meta")
     a = ap.parse_args()
