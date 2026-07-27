@@ -4,7 +4,7 @@ Consumed by the static page in viz/search/. Bump schema_version if any field cha
 import hashlib
 import os
 
-SCHEMA_VERSION = 4   # v4: each POP carries the geometry + regions of the state ITS OWN push REACHED
+SCHEMA_VERSION = 5   # v5: each POP carries the controller failure_reason; v4 added per-pop geometry
 # v3: each board carries the geometry AND the region decomposition of ITS OWN state
 # v2: meta carries the generator's full search-parameter set (meta["search"])
 
@@ -79,7 +79,7 @@ def make_board(board_id, depth, parent_edge, parent_depth, pool, grid, w0, free_
             "geom": geom, "regions": regions}
 
 
-def make_pop(t, board_id, obj, edge, depth, q, bp, w, opened, geom=None, regions=None):
+def make_pop(t, board_id, obj, edge, depth, q, bp, w, opened, geom=None, regions=None, fail=None):
     """`w` is the board weight AS THE POP SAW IT -- i.e. BEFORE this pop's own failure demotes it. A board's
     post-failure weight is therefore NOT in pops[]; consumers must recompute it from meta["search"].
 
@@ -90,7 +90,7 @@ def make_pop(t, board_id, obj, edge, depth, q, bp, w, opened, geom=None, regions
     is the only way the outcome of a WINNING push (the search returns immediately, no board is ever created)
     or of a depth-hmax finish push (no room to expand, so again no board) is visible at all."""
     return {"t": t, "board_id": board_id, "obj": obj, "edge": edge, "depth": depth,
-            "q": q, "bp": bp, "w": w, "se": bp * w, "opened": bool(opened),
+            "q": q, "bp": bp, "w": w, "se": bp * w, "opened": bool(opened), "fail": fail,
             "geom": geom, "regions": regions}
 
 
