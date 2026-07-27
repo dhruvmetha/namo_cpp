@@ -37,7 +37,6 @@
         <option value="opener">opener</option>
         <option value="setup">setup</option>
         <option value="dead">dead</option>
-        <option value="unknown">unknown</option>
       </select>
     </label>
     <label>Rank(best green)
@@ -47,14 +46,6 @@
         <option value="2-5">2&ndash;5</option>
         <option value="6-20">6&ndash;20</option>
         <option value="20+">&gt; 20</option>
-        <option value="none">none in pool</option>
-      </select>
-    </label>
-    <label>GT
-      <select id="gt-select">
-        <option value="all">all</option>
-        <option value="yes">has GT</option>
-        <option value="no">no GT</option>
       </select>
     </label>
     <label>Sims
@@ -65,9 +56,6 @@
     </label>
     <label>Search
       <input type="search" id="text-filter" placeholder="scene or object">
-    </label>
-    <label class="check" title="Hides the 37 episodes with no ground truth and the 21 where GT's root green set is empty — neither has a meaningful rank. Ignored when Rank is set to 'none in pool'.">
-      <input type="checkbox" id="hide-norank" checked> Hide episodes with no GT rank
     </label>
     <button type="button" id="reset-btn" title="Clear every filter and forget the saved state">Reset</button>
   </div>
@@ -84,7 +72,6 @@
       <th data-col="sims" class="num">Sims</th>
       <th data-col="rank_best_green" class="num">Rank(best green)</th>
       <th data-col="top1">Top-1 truth</th>
-      <th data-col="has_gt">GT</th>
     </tr>
   </thead>
   <tbody id="episode-tbody"></tbody>
@@ -103,11 +90,9 @@ const tierSelect = document.getElementById("tier-select");
 const solvedSelect = document.getElementById("solved-select");
 const top1Select = document.getElementById("top1-select");
 const rankSelect = document.getElementById("rank-select");
-const gtSelect = document.getElementById("gt-select");
 const simsMin = document.getElementById("sims-min");
 const simsMax = document.getElementById("sims-max");
 const textFilter = document.getElementById("text-filter");
-const hideNoRank = document.getElementById("hide-norank");
 const resetBtn = document.getElementById("reset-btn");
 const tbody = document.getElementById("episode-tbody");
 const summary = document.getElementById("summary");
@@ -117,7 +102,7 @@ const summary = document.getElementById("summary");
 const STORE_KEY = "namo-viz-index-state";
 const FILTERS = [
   [tierSelect, "all"], [solvedSelect, "all"], [top1Select, "all"],
-  [rankSelect, "all"], [gtSelect, "all"], [simsMin, ""], [simsMax, ""], [textFilter, ""],
+  [rankSelect, "all"], [simsMin, ""], [simsMax, ""], [textFilter, ""],
 ];
 
 function saveState() {
@@ -125,7 +110,6 @@ function saveState() {
   FILTERS.forEach(([el]) => { f[el.id] = el.value; });
   localStorage.setItem(STORE_KEY, JSON.stringify({
     model: modelSelect.value, strategy: strategySelect.value, sortCol, sortDir, filters: f,
-    hideNoRank: hideNoRank.checked,
   }));
 }
 
@@ -145,7 +129,6 @@ function restoreState() {
     const v = s.filters && s.filters[el.id];
     el.value = v !== undefined && (el.tagName !== "SELECT" || has(el, v)) ? v : dflt;
   });
-  if (s.hideNoRank !== undefined) hideNoRank.checked = s.hideNoRank;
 }
 
 fetch("manifest.json")
@@ -171,12 +154,10 @@ function init() {
   });
   strategySelect.addEventListener("change", render);
   FILTERS.forEach(([el]) => el.addEventListener("input", render));
-  hideNoRank.addEventListener("change", render);
 
   resetBtn.addEventListener("click", () => {
     localStorage.removeItem(STORE_KEY);
     FILTERS.forEach(([el, dflt]) => { el.value = dflt; });
-    hideNoRank.checked = true;
     modelSelect.value = models[0];
     populateStrategies();
     sortCol = "rank_best_green";
@@ -225,7 +206,7 @@ function sortValue(row, col) {
   if (col === "xml") {
     return sceneName(row.xml);
   }
-  if (col === "solved" || col === "has_gt") {
+  if (col === "solved") {
     return row[col] ? 1 : 0;
   }
   return row[col];
@@ -233,19 +214,16 @@ function sortValue(row, col) {
 
 // Every filter narrows: a row survives only if it passes all of them.
 function matches(r, tier) {
-  // A null rank means either no GT (37 episodes) or GT's root green set is empty (21) -- in both cases
-  // the headline metric is undefined, so they are hidden by default. Asking for them explicitly via the
-  // Rank filter overrides the checkbox, otherwise that combination would silently show nothing.
-  if (hideNoRank.checked && rankSelect.value !== "none" && r.rank_best_green === null) return false;
+  // A null rank means either no GT (37 episodes) or GT's root green set is empty (21). The headline
+  // metric is undefined for both, so they never appear in this table.
+  if (r.rank_best_green === null) return false;
   if (tier !== "all" && r.tier !== tier) return false;
   if (solvedSelect.value !== "all" && r.solved !== (solvedSelect.value === "yes")) return false;
   if (top1Select.value !== "all" && r.top1 !== top1Select.value) return false;
-  if (gtSelect.value !== "all" && r.has_gt !== (gtSelect.value === "yes")) return false;
 
   const k = rankSelect.value;
   if (k !== "all") {
     const g = r.rank_best_green;
-    if (k === "none" ? g !== null : g === null) return false;
     if (k === "1" && g !== 1) return false;
     if (k === "2-5" && !(g >= 2 && g <= 5)) return false;
     if (k === "6-20" && !(g >= 6 && g <= 20)) return false;
@@ -293,7 +271,7 @@ function render() {
       '<td class="mono num' + (row.rank_best_green === null ? " rank-none" : "") + '">' +
         (row.rank_best_green === null ? "none" : row.rank_best_green) + "</td>" +
       '<td><span class="badge badge-' + row.top1 + '">' + row.top1 + "</span></td>" +
-      '<td class="' + (row.has_gt ? "yes" : "no") + '">' + (row.has_gt ? "yes" : "no") + "</td>";
+      "";
     tr.addEventListener("click", (ev) => {
       if (ev.target.tagName !== "A") window.location.href = href;
     });
@@ -301,11 +279,10 @@ function render() {
   });
 
   const solvedCount = rows.filter((r) => r.solved).length;
-  const noGtCount = rows.filter((r) => !r.has_gt).length;
   const hidden = all.length - rows.length;
   summary.textContent =
-    rows.length + " episodes shown · " + solvedCount + " solved · " + noGtCount + " without GT" +
-    (hidden ? " · " + hidden + " hidden by filters" : "");
+    rows.length + " episodes shown · " + solvedCount + " solved" +
+    (hidden ? " · " + hidden + " hidden (filters, or no GT rank)" : "");
 
   updateSortIndicators();
   saveState();
