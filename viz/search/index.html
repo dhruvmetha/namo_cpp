@@ -17,14 +17,6 @@
       <select id="strategy-select"></select>
     </label>
     <label>Tier
-      <select id="tier-select">
-        <option value="all">all</option>
-        <option value="easy">easy</option>
-        <option value="medium">medium</option>
-        <option value="hard">hard</option>
-      </select>
-    </label>
-    <label>Tier (GT)
       <select id="tiergt-select" title="Difficulty from exhaustive GT setup density: hard &lt;5%, medium 5-30%, easy &gt;=30%. The plain Tier column comes from the manifest's incomplete setup count.">
         <option value="all">all</option>
         <option value="easy">easy</option>
@@ -75,8 +67,7 @@
     <tr>
       <th data-col="xml">Scene</th>
       <th data-col="object_id">Object</th>
-      <th data-col="tier">Tier</th>
-      <th data-col="tier_gt">Tier (GT)</th>
+      <th data-col="tier_gt" title="Difficulty from exhaustive GT setup density: hard &lt;5%, medium 5-30%, easy &gt;=30%.">Tier</th>
       <th data-col="solved">Solved</th>
       <th data-col="sims" class="num">Sims</th>
       <th data-col="rank_best_green" class="num">Rank(best green)</th>
@@ -98,7 +89,6 @@ let sortDir = "desc"; // spec default: worst (rank_best_green descending, nulls 
 
 const modelSelect = document.getElementById("model-select");
 const strategySelect = document.getElementById("strategy-select");
-const tierSelect = document.getElementById("tier-select");
 const tierGtSelect = document.getElementById("tiergt-select");
 const solvedSelect = document.getElementById("solved-select");
 const top1Select = document.getElementById("top1-select");
@@ -114,7 +104,7 @@ const summary = document.getElementById("summary");
 // user, no size ceiling, and nothing rides along on every request to a plain static file server.
 const STORE_KEY = "namo-viz-index-state";
 const FILTERS = [
-  [tierSelect, "all"], [tierGtSelect, "all"], [solvedSelect, "all"], [top1Select, "all"],
+  [tierGtSelect, "all"], [solvedSelect, "all"], [top1Select, "all"],
   [rankSelect, "all"], [simsMin, ""], [simsMax, ""], [textFilter, ""],
 ];
 
@@ -234,11 +224,10 @@ function sortValue(row, col) {
 }
 
 // Every filter narrows: a row survives only if it passes all of them.
-function matches(r, tier) {
+function matches(r) {
   // A null rank means either no GT (37 episodes) or GT's root green set is empty (21). The headline
   // metric is undefined for both, so they never appear in this table.
   if (r.rank_best_green === null) return false;
-  if (tier !== "all" && r.tier !== tier) return false;
   if (tierGtSelect.value !== "all" && r.tier_gt !== tierGtSelect.value) return false;
   if (solvedSelect.value !== "all" && r.solved !== (solvedSelect.value === "yes")) return false;
   if (top1Select.value !== "all" && r.top1 !== top1Select.value) return false;
@@ -266,10 +255,9 @@ function render() {
   const model = modelSelect.value;
   const strategy = strategySelect.value;
   const arm = model + "|" + strategy;
-  const tier = tierSelect.value;
 
   const all = manifest.index[arm];
-  const rows = all.filter((r) => matches(r, tier));
+  const rows = all.filter(matches);
 
   rows.sort((a, b) => {
     const va = sortValue(a, sortCol);
@@ -287,7 +275,6 @@ function render() {
     tr.innerHTML =
       '<td><a href="' + href + '" title="' + row.xml + '">' + sceneName(row.xml) + "</a></td>" +
       '<td class="mono">' + row.object_id + "</td>" +
-      "<td>" + row.tier + "</td>" +
       "<td>" + (row.tier_gt || "-") + "</td>" +
       '<td class="' + (row.solved ? "yes" : "no") + '">' + (row.solved ? "yes" : "no") + "</td>" +
       '<td class="mono num">' + row.sims + "</td>" +
