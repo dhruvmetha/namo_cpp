@@ -544,9 +544,14 @@ function failInfo(p) {
   if (!p || !p.fail) return null;
   const f = typeof p.fail === "string" ? { reason: p.fail } : p.fail;
   const hit = f.collision || f.movable || "";
-  const what = f.type === "OBJECT_STUCK" ? "stuck" : f.type === "OBJECT_COLLISION_DURING_PUSH" ? "collided" : "failed";
-  const against = hit === "walls" ? " with a wall" : hit ? ` with ${hit}` : "";
-  return { short: what + (hit === "walls" ? " (wall)" : hit ? ` (${hit})` : ""), long: `${what}${against} -- ${f.reason}` };
+  // NB: the enum says OBJECT_COLLISION_DURING_PUSH, but this eval runs with pushed-object collision
+  // checking DISABLED (scorer_beam.make_env -> set_collision_checking(False)), so an object touching a
+  // wall cannot abort a push. Only the ungated ROBOT-collision branches abort. Say "blocked", not
+  // "the object hit a wall" -- the blocked body is the robot.
+  const what = f.type === "OBJECT_STUCK" ? "stuck" : hit ? "blocked" : "failed";
+  const against = hit ? ` by ${hit}` : "";
+  return { short: what + (hit ? ` (${hit})` : ""),
+           long: `${what}${against} -- ${f.reason}${hit ? " (robot could not get through; pushed-object contacts do not abort here)" : ""}` };
 }
 
 function renderQueueB() {
