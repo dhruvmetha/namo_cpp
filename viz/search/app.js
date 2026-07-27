@@ -193,18 +193,6 @@ function revealedBoardsAt(t) {
 
 // queueAt(t): replay pops[0..t) to know what's left unsimulated and each board's live w, then
 // sort the remainder by bp*w descending. This is the priority queue the search is holding at t.
-// Has this (edge, depth) already failed to move anything, on any board, before step t?
-function jammedBefore(t, edge, depth) {
-  for (let i = 0; i < t; i++) {
-    const p = state.trace.pops[i];
-    if (p.edge === edge && p.depth === depth) {
-      const fi = failInfo(p);
-      if (fi) return fi;
-    }
-  }
-  return null;
-}
-
 function queueAt(t) {
   const popped = poppedKeySet(t);
   const wAt = boardWAt(t);
@@ -217,10 +205,7 @@ function queueAt(t) {
       const key = `${b.board_id}:${c.edge}:${c.depth}`;
       if (popped.has(key)) return;
       const bp = bpOf(b, c.q);
-      // This exact push may already have jammed on another board. Surfacing that is the point: without
-      // --dedupe-noop the search will happily re-simulate it, and this is where that becomes visible.
-      const jam = jammedBefore(t, c.edge, c.depth);
-      rows.push({ board_id: b.board_id, idx, obj: c.obj, edge: c.edge, depth: c.depth, q: c.q, bp, w, se: bp * w, jam });
+      rows.push({ board_id: b.board_id, idx, obj: c.obj, edge: c.edge, depth: c.depth, q: c.q, bp, w, se: bp * w });
     });
   }
   // ties break the way the generator's heap does: by insertion counter, i.e. board creation order then pool order
@@ -595,7 +580,6 @@ function renderQueueB() {
         `<span class="q-bar"><span class="bar-bp" style="width:${bpW}"></span><span class="bar-se" style="width:${seW}"></span></span>` +
         `<span class="q-w mono">×${r.w.toFixed(2)}</span>` +
         badge +
-        (r.jam ? `<span class="jam-chip" title="${r.jam.long}">${r.jam.short}</span>` : "") +
         `</div>`
     );
   });

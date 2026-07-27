@@ -423,5 +423,4 @@ td.no { color: var(--dead); }
 
 /* A queued candidate whose identical push already jammed elsewhere, and the timeline tick for a jam
    (distinct from a push that ran fine but simply did not open the way). */
-.jam-chip { font-size: 11px; padding: 0 4px; border-radius: 3px; background: #fdecea; color: #a2261c; border: 1px solid #f3c4bd; white-space: nowrap; }
 .tick.tick-jam { background: #a2261c; }
