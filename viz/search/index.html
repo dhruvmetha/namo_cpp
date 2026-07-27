@@ -131,7 +131,7 @@ function restoreState() {
   });
 }
 
-fetch("manifest.json")
+fetch("manifest.json", { cache: "no-store" })
   .then((r) => r.json())
   .then((m) => {
     manifest = m;

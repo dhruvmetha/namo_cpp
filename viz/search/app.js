@@ -1,4 +1,6 @@
 "use strict";
+
+const NOCACHE = { cache: "no-store" };
 /* Episode replay view: one search, replayed pop by pop.
  *
  * Data shapes (see docs/superpowers/specs/2026-07-26-search-viz-design.md), schema_version 4:
@@ -773,10 +775,12 @@ async function init() {
 
   let manifest, row, trace, gt;
   try {
-    manifest = await (await fetch("manifest.json")).json();
+    // no-store on every fetch: these files are REGENERATED in place at the same paths, so a cached copy
+    // silently shows a stale search -- e.g. the index reporting 5 sims while the episode view shows 11.
+    manifest = await (await fetch("manifest.json", NOCACHE)).json();
     row = manifest.index[arm].find((r) => r.key === key);
-    trace = await (await fetch(`trace/${model}/${strategy}/${key}.json`)).json();
-    gt = row.has_gt ? await (await fetch(`gt/${key}.json`)).json() : null;
+    trace = await (await fetch(`trace/${model}/${strategy}/${key}.json`, NOCACHE)).json();
+    gt = row.has_gt ? await (await fetch(`gt/${key}.json`, NOCACHE)).json() : null;
   } catch (err) {
     header.textContent = `Failed to load episode data: ${err}`;
     return;
