@@ -214,3 +214,20 @@ Same 1018-episode 2-push test set, hmax 2, budget 30, both models (ceiling, hard
 | hard off | hard | 55.8 → 60.1 | 17.07 → 15.89 |
 
 **12 of 12 cells improve on both solve rate and sims** — both models, both discount settings, every tier. Single seed, one test set. **Hypothesis, not a conclusion:** `V` mixes two boards' score scales when comparing across boards, and dropping it removes that distortion — consistent with the sigmoid finding above (the scorer's scale is weakest exactly at cross-board magnitude comparison). Worth considering a deploy-default change from `blend` to `q`; **not adopted here** — user's call. Full table + design → [EXP-2026-07-26 card](log/EXP-2026-07-26-scorer-scale-and-combine-mode.md).
+
+## 2026-07-29 — Post-pruning canonical search beats seeded random on every fixed tier
+
+The setup-only ranker and a three-seed random ranker used identical Amarel search settings on both registered test sets: `hmax=2`, budget 900, `combine=q`, confidence discount τ=0.15, no-op dedupe on, and jam-depth pruning on. Random values are mean ± sample standard deviation. “Tight” is solve@1 for 1push and solve@2 for pure-2push; `s2s` is average simulator calls among solved episodes.
+
+| horizon | tier | model tight | random tight | model @30 | random @30 | model @900 | random @900 | model s2s | random s2s |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1push | easy | 97.6 | 60.0±2.3 | 99.9 | 99.9±0.0 | 99.9 | 99.9±0.0 | 1.0 | 1.8±0.1 |
+| 1push | medium | 84.6 | 12.7±0.5 | 99.5 | 97.9±0.5 | 100.0 | 100.0±0.0 | 1.6 | 6.4±0.2 |
+| 1push | hard | 39.7 | 3.3±1.2 | 96.6 | 80.1±2.1 | 100.0 | 100.0±0.0 | 4.6 | 23.0±1.0 |
+| 1push | all | 84.5 | 36.2±1.5 | 99.2 | 96.2±0.3 | 99.9 | 99.9±0.0 | 1.8 | 6.6±0.3 |
+| 2push | easy | 39.1 | 5.0±1.9 | 94.1 | 71.6±2.7 | 100.0 | 99.9±0.2 | 9.8 | 34.4±2.2 |
+| 2push | medium | 39.1 | 3.1±1.5 | 89.0 | 45.9±3.1 | 99.5 | 98.8±0.9 | 17.7 | 71.4±1.7 |
+| 2push | hard | 25.1 | 1.1±0.3 | 73.6 | 25.0±1.8 | 96.5 | 89.8±0.6 | 39.8 | 157.3±13.5 |
+| 2push | all | 34.0 | 2.8±1.0 | 84.6 | 44.3±2.1 | 98.5 | 95.8±0.5 | 23.7 | 91.7±4.4 |
+
+**WIN.** The learned ordering is dramatically better where simulator calls are scarce and remains better on every fixed difficulty tier. Hard 2push reaches 73.6% by 30 calls versus random's 25.0±1.8%, while solved episodes need 39.8 calls versus 157.3±13.5. Hard 1push reaches 83.3% versus 25.7±6.0% by five calls. Both methods eventually saturate on 1push, but the learned ranker reaches the verified opening far sooner. Full solve@{1,2,5,10,30,100,300,900} tables and run audit → [experiment card](archive/EXP-2026-07-29-post-pruning-canonical-search.md).

@@ -10,8 +10,8 @@ OUT_ROOT=${OUT_ROOT:-/cache/home/dm1487/eval/postprune_hmax2/full}
 SHARD_1P=${SHARD_1P:-34}
 SHARD_2P=${SHARD_2P:-26}
 MAX_PARALLEL=${MAX_PARALLEL:-40}
-ONEPUSH_KEY=$("$NAMO_PYTHON" -m namo.eval_sets onepush_manifest)
-TWOPUSH_KEY=$("$NAMO_PYTHON" -m namo.eval_sets pure2push_manifest)
+ONEPUSH_KEY=${ONEPUSH_KEY:-$("$NAMO_PYTHON" -m namo.eval_sets onepush_manifest)}
+TWOPUSH_KEY=${TWOPUSH_KEY:-$("$NAMO_PYTHON" -m namo.eval_sets pure2push_manifest)}
 ONEPUSH_SCENES=$("$NAMO_PYTHON" -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$ONEPUSH_KEY")
 TWOPUSH_SCENES=$("$NAMO_PYTHON" -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$TWOPUSH_KEY")
 
