@@ -4,6 +4,7 @@ status: live
 created: 2026-07-29
 thread: rl_loop
 robot: car
+commit: 2d8b040
 tags: [experiment, search, random-baseline, no-op-dedupe, jam-pruning, hmax2, canonical-eval]
 ---
 
