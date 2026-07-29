@@ -133,7 +133,7 @@ def test_meta_carries_every_order_affecting_search_parameter():
     doc = build_trace(meta={"xml": "/x/a.xml", "object_id": "o", "search": SEARCH_PARAMS},
                       scene={}, boards=[], pops=[], result={})
     required = {"hmax", "sim_budget", "prior", "agg", "combine", "discount", "gamma", "tau", "eps",
-                "w0_mode", "free_strike_q", "dive_bonus", "raw", "gtable"}
+                "w0_mode", "free_strike_q", "dive_bonus", "raw", "dedupe_noop", "prune_jam_depth", "gtable"}
     assert required <= set(doc["meta"]["search"])
 
 
@@ -143,9 +143,17 @@ def test_generator_writes_the_full_parameter_set():
     src = (REPO_ROOT / "scripts/sandbox/eval_bestfirst.py").read_text()
     block = src.split("search_params = {", 1)[1].split("}\n", 1)[0]
     for flag in ("hmax", "sim_budget", "prior", "agg", "combine", "discount", "gamma", "tau", "eps",
-                 "w0_mode", "free_strike_q", "dive_bonus", "raw", "gtable"):
+                 "w0_mode", "free_strike_q", "dive_bonus", "raw", "dedupe_noop", "prune_jam_depth", "gtable"):
         assert f'"{flag}"' in block, flag
     assert '"search": search_params' in src
+
+
+def test_generator_defaults_to_and_records_dedupe_and_jam_pruning():
+    src = (REPO_ROOT / "scripts/sandbox/eval_bestfirst.py").read_text()
+    assert "ap.set_defaults(dedupe_noop=True)" in src
+    assert "ap.set_defaults(prune_jam_depth=True)" in src
+    assert '"dedupe_noop": bool(a.dedupe_noop)' in src
+    assert '"prune_jam_depth": bool(a.prune_jam_depth)' in src
 
 
 def test_generator_records_geometry_per_board_and_only_under_trace_out():

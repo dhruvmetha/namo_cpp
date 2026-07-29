@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Aggregate the 1push testset reactive eval into open@1/@2 by CANONICAL solve-rate TERTILES.
+"""Aggregate the 1push testset reactive eval into open@1/@2 by the canonical fixed solve-rate bins.
 
 Reuses the STRICT POSITIONAL episode<->leaf join proven in scripts/sandbox/agg_1push_bottleneck.py:
 the harness (eval_reactive_argmax on onepush_episodes.json) writes one leaf per episode in
-full_episodes() order = sorted(xml) then per-xml record order, no skips. So gt[i] <-> leaf[i];
-we assert len + object_id alignment (the hard gate). Difficulty = equal-count solve_rate tertiles
-(hard = lowest third), deterministic from onepush_episodes.json — NOT bin_of fixed thresholds (the
-predecessor's documented 1push-tier mistake). Asserts all == weighted tier mean.
+full_episodes() order = sorted(xml) then per-xml record order, no skips. Difficulty is per episode:
+hard < 0.05, medium < 0.30, easy otherwise, imported from eval_common rather than redefined here.
+Asserts all == weighted tier mean.
 """
 import argparse
 import glob
@@ -15,6 +14,7 @@ import re
 from collections import defaultdict
 
 from namo import eval_sets
+from eval_common import bin_of
 
 
 def build_gt(onepush_key: str):
@@ -23,13 +23,9 @@ def build_gt(onepush_key: str):
     for xml in sorted(k):
         for r in k[xml]:
             pos.append({"xml": xml, "object_id": r["object_id"], "solve_rate": r["solve_rate"]})
-    srt = sorted(g["solve_rate"] for g in pos)
-    n = len(srt)
-    t1, t2 = srt[n // 3], srt[2 * n // 3]
     for g in pos:
-        sr = g["solve_rate"]
-        g["division"] = "hard" if sr < t1 else ("medium" if sr < t2 else "easy")
-    return pos, (t1, t2, n)
+        g["division"] = "medium" if bin_of(g["solve_rate"]) == "med" else bin_of(g["solve_rate"])
+    return pos, (0.05, 0.30, len(pos))
 
 
 def main():
@@ -71,7 +67,7 @@ def main():
                 b["o1"] += 1
             if 0 < oa <= 2:
                 b["o2"] += 1
-    rep = {"tertiles": {"hard_below": round(t1, 4), "med_below": round(t2, 4), "n": n},
+    rep = {"fixed_bins": {"hard_below": t1, "medium_below": t2, "n": n},
            "by_division": {}}
     for tier, b in bins.items():
         rep["by_division"][tier] = {"n": b["n"],

@@ -205,7 +205,7 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
         # A push that moved NOTHING reaches the state it started from, so the child board would be a
         # byte-identical duplicate of this one -- same pool, same scores -- and would simply re-offer the
         # pushes we just tried. Measured: 27.4% of all sims are spent on such duplicates, and no solved
-        # episode has ever won from one. Off by default so the untraced/legacy path is bit-identical.
+        # episode has ever won from one. Adopted on by default; --no-dedupe-noop restores the legacy path.
         if dedupe_noop and _unmoved(obs_before, env.get_observation(), it["obj"]):
             continue
         if ndone < hmax:                                  # room for another push -> expand the reached state
@@ -294,7 +294,8 @@ def _make_capture(env, exporter, xml, obj, hw, hd, mov_names, offsets_world):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ckpt", required=True)
-    ap.add_argument("--manifest", default=PURE2PUSH)
+    ap.add_argument("--manifest", default="",
+                    help="optional scene-list override; default derives sorted scenes directly from --key")
     ap.add_argument("--start", type=int, default=0)
     ap.add_argument("--end", type=int, default=985)
     ap.add_argument("--hmax", type=int, default=2, help="max pushes (search depth bound; model saw H in {1,2})")
@@ -348,13 +349,16 @@ def main():
                      "combine": a.combine, "discount": a.discount, "gamma": a.gamma, "tau": a.tau,
                      "eps": a.eps, "w0_mode": a.w0_mode, "free_strike_q": a.free_strike_q,
                      "dive_bonus": a.dive_bonus, "raw": bool(a.raw),
+                     "dedupe_noop": bool(a.dedupe_noop), "prune_jam_depth": bool(a.prune_jam_depth),
                      "gtable": ({str(k): v for k, v in g_table.items()} if g_table else None)}
     key = json.load(open(a.key)); keyrp = {_os.path.realpath(k): v for k, v in key.items()}
     planner = BeamPlanner(ckpt=a.ckpt)
     print(f"device={planner.scorer.device} hmax={a.hmax} sim_budget={a.sim_budget} prior={a.prior} "
-          f"agg={a.agg} combine={a.combine} discount={a.discount} gamma={a.gamma} key={_os.path.basename(a.key)} "
-          f"success={a.success}", flush=True)
-    xmls = read_manifest(a.manifest, None)[a.start:a.end]
+          f"agg={a.agg} combine={a.combine} discount={a.discount} tau={a.tau} "
+          f"dedupe_noop={a.dedupe_noop} prune_jam_depth={a.prune_jam_depth} "
+          f"key={_os.path.basename(a.key)} success={a.success}", flush=True)
+    xmls_all = read_manifest(a.manifest, None) if a.manifest else sorted(key)
+    xmls = xmls_all[a.start:a.end]
     n = n_solved = n_already = n_norec = sims_tot = sims_solved = 0; t0 = time.time()
     lf = open(a.leaf_out, "w")
     ltf = open(a.lifetime_out, "w") if a.lifetime_out else None
@@ -405,7 +409,8 @@ def main():
                     trace_out=pops, capture=capture)
                 n += 1; sims_tot += sims; n_solved += int(solved); sims_solved += sims if solved else 0
                 lf.write(json.dumps({"xml": xml, "object_id": obj, "region": rec.get("region"),
-                                     "solved": solved, "sims": sims, "plan_len": plen}) + "\n")
+                                     "solved": solved, "sims": sims, "plan_len": plen,
+                                     "search": search_params, "seed_base": a.seed_base}) + "\n")
                 if ltf is not None:
                     ep = {"ep": ep_ctr, "xml": xml, "object_id": obj, "region": rec.get("region"),
                           "solved": solved, "sims": sims, "end": end}
@@ -432,8 +437,7 @@ def main():
     lf.close()
     if ltf is not None:
         ltf.close()
-    res = {"ckpt": a.ckpt, "hmax": a.hmax, "sim_budget": a.sim_budget, "prior": a.prior, "agg": a.agg,
-           "combine": a.combine, "discount": a.discount, "gamma": a.gamma, "dive_bonus": a.dive_bonus,
+    res = {"ckpt": a.ckpt, **search_params, "seed_base": a.seed_base,
            "key": _os.path.basename(a.key), "n_episodes": n,
            "n_already_open": n_already, "n_no_record": n_norec,
            "solve_rate": round(100.0 * n_solved / max(n, 1), 1),

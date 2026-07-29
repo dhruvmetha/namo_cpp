@@ -12,6 +12,7 @@ import h5py
 import pytest
 
 from namo import eval_sets as E
+from eval_common import bin_of
 
 
 def _n_episodes(p):
@@ -40,6 +41,16 @@ def test_division_tiers_match_expected():
         for e in eps:
             counts[e["division"]] += 1
     assert counts == E.EXPECTED["divisions"]
+
+
+def test_onepush_fixed_difficulty_counts_match_expected():
+    d = json.load(open(E.ONEPUSH))
+    counts = {"easy": 0, "medium": 0, "hard": 0}
+    for eps in d.values():
+        for e in eps:
+            tier = bin_of(e["solve_rate"])
+            counts["medium" if tier == "med" else tier] += 1
+    assert counts == E.EXPECTED["onepush_divisions"]
 
 
 def test_gt_h5_node_count():

@@ -18,7 +18,7 @@ The canonical eval distribution. Answer keys (which episodes + difficulty), veri
 
 | artifact | path | size | what it is |
 |---|---|---|---|
-| **1push manifest** | `datasets/namo_testset_v1/labels/onepush_episodes.json` | 991 xml / **1323 episodes** | 1-push answer key (`valid`/`tried`/`solve_rate`). Consumed by `eval_scorer.py`, `time_bestfirst.py`. |
+| **1push manifest** | `datasets/namo_testset_v1/labels/onepush_episodes.json` | 991 xml / **1323 episodes** | 1-push answer key (`valid`/`tried`/`solve_rate`). Fixed per-episode tiers: hard <0.05 (**204**), medium <0.30 (**421**), easy otherwise (**698**). Consumed by `eval_scorer.py`, `time_bestfirst.py`. |
 | **2push manifest** | `datasets/namo_testset_v1/labels/pure2push.json` | 983 xml / **1018 episodes** | genuine-2push answer key (1push-unsolvable ∧ 2push-solvable). Consumed by `eval_bestfirst.py` (`--key`). |
 | **2push tiers** | `datasets/namo_testset_v1/labels/pure2push_divisions.json` | same 1018 + `division` | difficulty by solve_rate: **easy 238 / medium 409 / hard 371**. THE tier source (join by xml,object,region). |
 | **SOURCE (root)** | `datasets/namo_testset_v1/labels/twopush.json` | 2341 episodes | the **one depth-2 exhaustive collection pass** (`build_2push_validset.py → twopush.json`, keyed by realpath). `onepush_episodes.json` and `pure2push.json` are **DERIVED from this** (via `derive_onepush_from_2push.py`). This is the master; the two above are the consumed splits. Also read by `summarize_2push.py`. |

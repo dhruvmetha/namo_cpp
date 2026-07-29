@@ -23,6 +23,7 @@ files:
 # loader self-test assertions (namo.eval_sets validates against these)
 expected_counts:
   onepush_manifest_episodes:   1323
+  onepush_divisions: {easy: 698, medium: 421, hard: 204}
   pure2push_manifest_episodes: 1018
   twopush_source_episodes:     2341
   divisions:  {easy: 238, medium: 409, hard: 371}
