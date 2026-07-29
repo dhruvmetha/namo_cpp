@@ -6,7 +6,7 @@ REPO="${NAMO_REPO:-/cache/home/dm1487/projects/namo/namo_postprune_eval}"
 cd "$REPO"
 source env.amarel.sh >/dev/null 2>&1
 : "${CKPT:?set CKPT to the synced setup-only checkpoint}"
-OUT_ROOT=${OUT_ROOT:-/scratch/dm1487/eval/postprune_hmax2}
+OUT_ROOT=${OUT_ROOT:-/cache/home/dm1487/eval/postprune_hmax2/full}
 SHARD_1P=${SHARD_1P:-34}
 SHARD_2P=${SHARD_2P:-26}
 MAX_PARALLEL=${MAX_PARALLEL:-40}

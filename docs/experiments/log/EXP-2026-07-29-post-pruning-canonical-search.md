@@ -22,7 +22,7 @@ Run the registered `namo_testset_v1` one-push key (1,323 episodes) and pure-two-
 
 ## Run
 
-Pending target-box smoke and calibrated pilot.
+Committed implementation `2d8b040`, orchestration stamp `45899ba`. A dedicated Amarel clone avoids the existing dirty checkout. Scratch was quota-full, so the checksum-matched setup-only checkpoint and all outputs live under `/cache/home/dm1487/eval{_inputs,}/postprune_hmax2/`. The first binding build and smoke exposed that `scripts/amarel/activate.sh` changes the working directory back to the old clone; no eval ran. Rebuilding after activation with an explicit `cd` produced the dedicated-clone binding in job 59505171. Four one-scene target-box smokes (59505238–59505241) then passed for model/random × 1push/2push and recorded `hmax=2`, `dedupe_noop=true`, `prune_jam_depth=true`. The 12-scene pilots (59505343–59505346) completed in 37–38 seconds for 1push and 3:36–4:29 for 2push; production shards of 34/26 scenes therefore calibrate to roughly 2/8–10 minutes, with the three-hour limit providing ample tail margin.
 
 ## Result
 
