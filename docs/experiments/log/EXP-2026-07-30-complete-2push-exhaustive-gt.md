@@ -21,7 +21,7 @@ Build a 37-line manifest from the recorded alignment gap, with every non-target 
 
 ## Run
 
-Pending.
+Commit `54b42ea` adds the focused-manifest builder, exact target-tree H5 merge, and Amarel collection/build launchers. The generated manifest contains 37 unique `(xml, object, goal)` targets and skips every other movable object in each target's goal region. Amarel `main-redhat` smoke job `59683573` runs the first target with the unchanged full-exhaustive reference config.
 
 ## Result
 
