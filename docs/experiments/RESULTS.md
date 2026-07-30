@@ -219,6 +219,8 @@ Same 1018-episode 2-push test set, hmax 2, budget 30, both models (ceiling, hard
 
 The setup-only ranker and a three-seed random ranker used identical Amarel search settings on both registered test sets: `hmax=2`, budget 900, `combine=q`, confidence discount τ=0.15, no-op dedupe on, and jam-depth pruning on. Random values are mean ± sample standard deviation. “Tight” is solve@1 for 1push and solve@2 for pure-2push; `s2s` is average simulator calls among solved episodes.
 
+![Success versus simulator calls for the learned ranker and three-seed random baseline, split by fixed difficulty and horizon.](plots/postprune_hmax2/success_vs_sims_both_horizons.png)
+
 | horizon | tier | model tight | random tight | model @30 | random @30 | model @900 | random @900 | model s2s | random s2s |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|
 | 1push | easy | 97.6 | 60.0±2.3 | 99.9 | 99.9±0.0 | 99.9 | 99.9±0.0 | 1.0 | 1.8±0.1 |

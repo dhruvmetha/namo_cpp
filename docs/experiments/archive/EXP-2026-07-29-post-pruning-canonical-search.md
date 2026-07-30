@@ -59,6 +59,12 @@ Random entries are mean ± sample standard deviation over RNG seeds 7000/8000/90
 
 The largest separation is where ordering matters most. On hard 1push, model versus random is 83.3% versus 25.7±6.0% by five simulator calls and 4.6 versus 23.0±1.0 calls per solved episode. On hard 2push, it is 73.6% versus 25.0±1.8% by 30 calls, 96.5% versus 89.8±0.6% by 900, and 39.8 versus 157.3±13.5 calls per solved episode. The model reaches saturation sooner on every tier; 1push equality at the 900-call ceiling does not erase its large early-budget and simulator-efficiency advantage.
 
+### Plots
+
+![Both horizons: learned ranker versus three-seed random success as simulator calls increase.](../plots/postprune_hmax2/success_vs_sims_both_horizons.png)
+
+Separate publication-size figures: [1push PNG](../plots/postprune_hmax2/success_vs_sims_1push.png), [1push PDF](../plots/postprune_hmax2/success_vs_sims_1push.pdf), [2push PNG](../plots/postprune_hmax2/success_vs_sims_2push.png), and [2push PDF](../plots/postprune_hmax2/success_vs_sims_2push.pdf). The combined figure is also available as [PDF](../plots/postprune_hmax2/success_vs_sims_both_horizons.pdf).
+
 No wall-time comparison is claimed because the arms were parallel Slurm arrays rather than interleaved on one microarchitecture-pinned node. Machine-independent simulator calls are the comparison substrate here. Aggregates are archived locally at `/common/users/dm1487/scratch_namo/eval/postprune_hmax2/full/agg_{model,random_s7000,random_s8000,random_s9000}.json` and on Amarel under `/cache/home/dm1487/eval/postprune_hmax2/full/`.
 
 ## Verdict
