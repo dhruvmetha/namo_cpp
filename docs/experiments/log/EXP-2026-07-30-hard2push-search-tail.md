@@ -1,6 +1,6 @@
 ---
 type: experiment
-status: live
+status: done
 created: 2026-07-30
 thread: rl_loop
 robot: car
@@ -32,8 +32,12 @@ Amarel job `59598946` runs the remaining ten corrected-tier hard tails at the sa
 
 ## Result
 
-Pending.
+All 12 reruns remained unsolved through simulator call 900, so conditional tail splicing is valid. Eight solved afterward at calls 950, 1,071, 1,175, 1,185, 1,619, 2,261, 2,507, and 3,831. Four exhausted their complete queues without solving at 1,163, 1,461, 7,099, and 7,977. No episode reached the 10,000-call cap.
+
+On the corrected exhaustive-GT hard tier, learned-ranker success rises from 128/140 = 91.43% at 900 calls to 136/140 = 97.14% by 3,831 calls and remains there through complete queue exhaustion. The random three-seed baseline ends at its registered 900-call cap at 74.7±2.3%.
+
+![Corrected exhaustive-GT hard-2push success curve with the learned tail extended to natural queue exhaustion.](../plots/postprune_hmax2_gt_tiers/success_vs_sims_2push_hard_tail.png)
 
 ## Verdict
 
-Pending.
+**Plateau reached; 100% is impossible under the unchanged search.** More simulator budget recovered eight real solutions, but the four exhausted queues prove a hard ceiling of 136/140 = 97.14% for this search configuration. Reaching 100% requires changing candidate generation or pruning/search semantics, not raising the cap again.

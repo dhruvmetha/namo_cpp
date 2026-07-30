@@ -99,12 +99,15 @@ def main():
         linewidth=0,
     )
     ax.plot(random_grid, random_mean, color=RANDOM_COLOR, linewidth=2.3,
-            label="Random (3 seeds, mean ± SD; capped at 900)")
+            label="Random (3 seeds, mean ± SD; ends at 900)")
     ax.scatter([args.base_budget], [random_mean[-1]], color=RANDOM_COLOR, s=28, zorder=3)
     ax.plot(model_grid, model_curve, color=MODEL_COLOR, linewidth=2.6,
-            label="Learned ranker (tail extended to queue exhaustion or 10,000)")
+            label="Learned ranker (extended tail)")
     ax.axvline(args.base_budget, color="#777777", linestyle=":", linewidth=1.2)
     ax.text(args.base_budget * 1.05, 3, "original cap", color="#666666", fontsize=10)
+    ax.text(9500, model_curve[-1] - 6.0,
+            f"{sum(row['solved'] for row in model)}/{len(model)} = {model_curve[-1]:.1f}%",
+            color=MODEL_COLOR, fontsize=10.5, ha="right")
     ax.set_xscale("log")
     ax.set_xlim(1, args.tail_budget)
     ax.set_ylim(0, 103)
@@ -118,7 +121,7 @@ def main():
     ax.set_ylabel("Verified success (%)")
     ax.set_title("Hard 2push (<5% exhaustive-GT setups) · hmax=2", fontsize=15,
                  fontweight="semibold")
-    ax.legend(loc="lower right")
+    ax.legend(loc="upper left")
     fig.subplots_adjust(left=0.11, right=0.98, top=0.88, bottom=0.15)
 
     out = Path(args.out)

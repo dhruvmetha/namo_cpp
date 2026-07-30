@@ -8,7 +8,7 @@ updated: 2026-07-23
 
 The maintained approach. A clean seed, then rounds of **{ generate fresh scenes → screen with the current model → keep its mistakes → label → accumulate → retrain → eval }**, laddering **1-push → 2-push → …** (Ant-Man → Beast → …). Each stage's model also produces the *next* stage's dataset for free (screened-dead scenes become the multi-push bank).
 
-**Setting:** CAR robot, testset `namo_testset_v1`, region-opening criterion. Every result split by **difficulty (easy/med/hard)**. Difficulty is defined *per horizon* (compare within a horizon, not across): **1-push** = `solve_rate` fixed cuts (hard < 0.05 / med 0.05–0.30 / easy ≥ 0.30); **2-push** = number of solving first-pushes (`n_setups`). Full per-experiment detail lives in each card under `log/`.
+**Setting:** CAR robot, testset `namo_testset_v1`, region-opening criterion. Every result split by **difficulty (easy/med/hard)**. Difficulty is defined *per horizon* (compare within a horizon, not across): **1-push** = `solve_rate` fixed cuts (hard < 0.05 / med 0.05–0.30 / easy ≥ 0.30); **2-push** = exhaustive-GT setup density with the same fixed percentage cuts, with 37 build-version-unmatched roots reported as unknown. Full per-experiment detail lives in each card under `log/`.
 
 **Archive:** the pre-curriculum line — horizon-Q / NoHz single-ranker, RL-only self-imitation, horizon-role probe, prior-work ledger — is preserved verbatim in [archive/RESULTS_pre_dagger_horizonq_2026-07.md](archive/RESULTS_pre_dagger_horizonq_2026-07.md).
 
@@ -215,11 +215,13 @@ Same 1018-episode 2-push test set, hmax 2, budget 30, both models (ceiling, hard
 
 **12 of 12 cells improve on both solve rate and sims** — both models, both discount settings, every tier. Single seed, one test set. **Hypothesis, not a conclusion:** `V` mixes two boards' score scales when comparing across boards, and dropping it removes that distortion — consistent with the sigmoid finding above (the scorer's scale is weakest exactly at cross-board magnitude comparison). Worth considering a deploy-default change from `blend` to `q`; **not adopted here** — user's call. Full table + design → [EXP-2026-07-26 card](log/EXP-2026-07-26-scorer-scale-and-combine-mode.md).
 
-## 2026-07-29 — Post-pruning canonical search beats seeded random on every fixed tier
+## 2026-07-29/30 — Post-pruning canonical search beats seeded random on every fixed tier
 
 The setup-only ranker and a three-seed random ranker used identical Amarel search settings on both registered test sets: `hmax=2`, budget 900, `combine=q`, confidence discount τ=0.15, no-op dedupe on, and jam-depth pruning on. Random values are mean ± sample standard deviation. “Tight” is solve@1 for 1push and solve@2 for pure-2push; `s2s` is average simulator calls among solved episodes.
 
-![Exact per-episode success versus simulator calls for the learned ranker and three-seed random baseline, split by fixed difficulty and horizon.](plots/postprune_hmax2/success_vs_sims_both_horizons.png)
+The 2push rows use the corrected exhaustive-GT fixed tiers: hard <5% setups (140), medium 5–30% (471), easy ≥30% (370), and 37 unmatched roots explicitly unknown. The earlier incomplete-manifest count bins are retained only for historical reproduction.
+
+![Exact per-episode success versus simulator calls for the learned ranker and three-seed random baseline, split by fixed difficulty and horizon.](plots/postprune_hmax2_gt_tiers/success_vs_sims_both_horizons.png)
 
 | horizon | tier | model tight | random tight | model @30 | random @30 | model @900 | random @900 | model s2s | random s2s |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -227,9 +229,16 @@ The setup-only ranker and a three-seed random ranker used identical Amarel searc
 | 1push | medium | 84.6 | 12.7±0.5 | 99.5 | 97.9±0.5 | 100.0 | 100.0±0.0 | 1.6 | 6.4±0.2 |
 | 1push | hard | 39.7 | 3.3±1.2 | 96.6 | 80.1±2.1 | 100.0 | 100.0±0.0 | 4.6 | 23.0±1.0 |
 | 1push | all | 84.5 | 36.2±1.5 | 99.2 | 96.2±0.3 | 99.9 | 99.9±0.0 | 1.8 | 6.6±0.3 |
-| 2push | easy | 39.1 | 5.0±1.9 | 94.1 | 71.6±2.7 | 100.0 | 99.9±0.2 | 9.8 | 34.4±2.2 |
-| 2push | medium | 39.1 | 3.1±1.5 | 89.0 | 45.9±3.1 | 99.5 | 98.8±0.9 | 17.7 | 71.4±1.7 |
-| 2push | hard | 25.1 | 1.1±0.3 | 73.6 | 25.0±1.8 | 96.5 | 89.8±0.6 | 39.8 | 157.3±13.5 |
+| 2push | easy | 43.5 | 6.2±2.1 | 95.7 | 73.1±2.7 | 99.7 | 99.7±0.0 | 8.5 | 28.6±1.2 |
+| 2push | medium | 33.5 | 0.8±0.7 | 85.4 | 30.7±2.4 | 99.8 | 98.7±0.5 | 23.7 | 100.2±1.6 |
+| 2push | hard | 9.3 | 0.0±0.0 | 54.3 | 9.1±1.5 | 91.4 | 74.7±2.3 | 67.4 | 286.1±38.7 |
+| 2push | unknown | 37.8 | 5.4±5.4 | 78.4 | 62.2±2.7 | 97.3 | 97.3±0.0 | 24.6 | 66.6±17.8 |
 | 2push | all | 34.0 | 2.8±1.0 | 84.6 | 44.3±2.1 | 98.5 | 95.8±0.5 | 23.7 | 91.7±4.4 |
 
-**WIN.** The learned ordering is dramatically better where simulator calls are scarce and remains better on every fixed difficulty tier. Hard 2push reaches 73.6% by 30 calls versus random's 25.0±1.8%, while solved episodes need 39.8 calls versus 157.3±13.5. Hard 1push reaches 83.3% versus 25.7±6.0% by five calls. Both methods eventually saturate on 1push, but the learned ranker reaches the verified opening far sooner. Full solve@{1,2,5,10,30,100,300,900} tables and run audit → [experiment card](archive/EXP-2026-07-29-post-pruning-canonical-search.md).
+**WIN.** The learned ordering is dramatically better where simulator calls are scarce and remains better on every fixed difficulty tier. Exhaustive-GT hard 2push reaches 54.3% by 30 calls versus random's 9.1±1.5%, while solved episodes need 67.4 calls versus 286.1±38.7. Hard 1push reaches 83.3% versus 25.7±6.0% by five calls. Both methods eventually saturate on 1push, but the learned ranker reaches the verified opening far sooner. Full solve@{1,2,5,10,30,100,300,900} tables and original run audit → [experiment card](archive/EXP-2026-07-29-post-pruning-canonical-search.md).
+
+Only the 12 GT-hard learned-ranker episodes truncated at 900 were then extended to a 10,000-call cap. Eight solved; four exhausted naturally; none hit the cap. Hard success therefore rises from 128/140 = 91.4% at 900 to a final plateau of 136/140 = 97.1%. More budget cannot reach 100% under unchanged search.
+
+![Exhaustive-GT hard-2push learned tail extended beyond the original 900-call random baseline.](plots/postprune_hmax2_gt_tiers/success_vs_sims_2push_hard_tail.png)
+
+Tail run and queue-exhaustion audit → [experiment card](log/EXP-2026-07-30-hard2push-search-tail.md).
