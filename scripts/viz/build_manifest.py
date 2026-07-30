@@ -83,9 +83,12 @@ def main():
         rows = []
         for tf in sorted(glob.glob(os.path.join(tdir, "*.json"))):
             trace = json.load(open(tf))
+            trace_key = (os.path.realpath(trace["meta"]["xml"]), trace["meta"]["object_id"])
+            if trace_key not in tiers:
+                continue
             gtf = os.path.join(a.data_root, "gt", os.path.basename(tf))
             gt = json.load(open(gtf)) if os.path.exists(gtf) else None
-            tier = tiers.get((os.path.realpath(trace["meta"]["xml"]), trace["meta"]["object_id"]), "unknown")
+            tier = tiers[trace_key]
             row = index_row(trace, gt, tier)
             rows.append(row)
             episodes[row["key"]] = {"xml": row["xml"], "object_id": row["object_id"],

@@ -125,10 +125,12 @@ def build_all(h5, key, out_dir):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out-dir", required=True)
+    ap.add_argument("--h5", default=str(eval_sets.TWOPUSH_GT_H5))
+    ap.add_argument("--key", default=str(eval_sets.PURE2PUSH))
     a = ap.parse_args()
     os.makedirs(a.out_dir, exist_ok=True)
-    key = json.load(open(eval_sets.PURE2PUSH))
-    with h5py.File(eval_sets.TWOPUSH_GT_H5, "r") as f:
+    key = json.load(open(a.key))
+    with h5py.File(a.h5, "r") as f:
         covered, uncovered = build_all(f, key, a.out_dir)
     json.dump({"covered": covered, "uncovered": uncovered},
               open(os.path.join(a.out_dir, "_coverage.json"), "w"))

@@ -54,8 +54,9 @@ def main():
 
     if len(seen) != len(gt_rows):
         raise RuntimeError(f"source has {len(seen)} episodes but manifest has {len(gt_rows)}")
-    if sum(counts.values()) != 1018:
-        raise RuntimeError(f"expected 1018 episodes, got {sum(counts.values())}")
+    expected = sum(len(records) for records in source.values())
+    if sum(counts.values()) != expected:
+        raise RuntimeError(f"expected {expected} episodes, got {sum(counts.values())}")
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
