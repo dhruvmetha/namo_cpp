@@ -1,6 +1,6 @@
 ---
 type: experiment
-status: live
+status: done
 created: 2026-07-30
 thread: rl_loop
 robot: car
@@ -21,12 +21,12 @@ Register the two exact `(xml, object, goal region)` exclusions, derive filtered 
 
 ## Run
 
-Pending.
+Commit `b7dde0c` registers the two exact per-episode exclusions, derives filtered manifests from the untouched source labels, and makes aggregation filter archival raw rows to the registered manifest. The resulting search eval contains 1,322 1push episodes and 1,017 2push episodes.
 
 ## Result
 
-Pending.
+Easy 1push now contains 697 episodes and both learned and all three random seeds reach 100%; learned reaches it at 6 simulator calls versus random at 19. Easy 2push contains 385 episodes after the 35-root GT fill and both reach 100%; learned reaches it at 229 calls versus random at 708.
 
 ## Verdict
 
-Pending.
+**Adopt.** These two exclusions remove candidate-generation failures shared by every ordering policy; the exhaustive source labels remain unchanged and auditable.
