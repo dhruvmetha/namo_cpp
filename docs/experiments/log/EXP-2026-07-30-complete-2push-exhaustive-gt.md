@@ -21,7 +21,7 @@ Build a 37-line manifest from the recorded alignment gap, with every non-target 
 
 ## Run
 
-Commit `54b42ea` adds the focused-manifest builder, exact target-tree H5 merge, and Amarel collection/build launchers. The generated manifest contains 37 unique `(xml, object, goal)` targets and skips every other movable object in each target's goal region. Amarel `main-redhat` smoke job `59683573` completed one target in 11m03s: exactly `obstacle_3_movable` in `goal`, one root plus 50 depth-2 boards, 2,370 trials, and zero censored finish sweeps. Pilot job `59685510` runs targets 1–3; after one pilot artifact completed cleanly and the remaining two continued normally, production job `59687984` released targets 4–36 with the calibrated 45-minute task wall limit.
+Commit `54b42ea` adds the focused-manifest builder, exact target-tree H5 merge, and Amarel collection/build launchers. The generated manifest contains 37 unique `(xml, object, goal)` targets and skips every other movable object in each target's goal region. Amarel `main-redhat` smoke job `59683573` completed one target in 11m03s: exactly `obstacle_3_movable` in `goal`, one root plus 50 depth-2 boards, 2,370 trials, and zero censored finish sweeps. Pilot job `59685510` completed targets 1–3. Production job `59687984` completed 28 targets; targets 9, 10, 12, 27, and 28 reached the 45-minute wall limit, so job `59703609` reruns only those five with the script's 60-minute limit.
 
 ## Result
 
