@@ -11,7 +11,8 @@ files:
   # canonical manifests (consumed by eval as --key / answer keys)
   onepush_manifest:    datasets/namo_testset_v1/labels/onepush_episodes.json    # 1push manifest = 1push exhaustive GT (single-ply)
   pure2push_manifest:  datasets/namo_testset_v1/labels/pure2push.json           # 2push eval key
-  pure2push_divisions: datasets/namo_testset_v1/labels/pure2push_divisions.json # tiers easy/med/hard
+  pure2push_divisions: datasets/namo_testset_v1/labels/pure2push_gt_divisions.json # fixed exhaustive-GT setup-density tiers
+  pure2push_sampled_divisions: datasets/namo_testset_v1/labels/pure2push_divisions.json # legacy incomplete-manifest tiers
   twopush_source:      datasets/namo_testset_v1/labels/twopush.json             # SOURCE (onepush/pure2push derived from this)
   # exhaustive ground truth (offline analysis only; solve@k uses the live sim, not this)
   twopush_gt_h5:       curriculum2/beast/round2/h5/testset_gt.h5                 # 2push exhaustive GT
@@ -26,5 +27,6 @@ expected_counts:
   onepush_divisions: {easy: 698, medium: 421, hard: 204}
   pure2push_manifest_episodes: 1018
   twopush_source_episodes:     2341
-  divisions:  {easy: 238, medium: 409, hard: 371}
+  divisions:  {easy: 370, medium: 471, hard: 140, unknown: 37}
+  sampled_divisions: {easy: 238, medium: 409, hard: 371}
   twopush_gt_h5_nodes:         66456

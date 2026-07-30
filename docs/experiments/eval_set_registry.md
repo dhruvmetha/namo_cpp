@@ -7,9 +7,9 @@ All paths under `/common/users/dm1487/scratch_namo/`.
 ## ⭐ Single source — `config/eval_sets.yaml`
 
 **All eval code resolves test-set paths from `config/eval_sets.yaml` via `namo.eval_sets`.** This doc is the human-readable truth; the yaml is the machine truth (one file, both must agree). Change the test set = edit the yaml only; every reader follows.
-- Python: `from namo import eval_sets` → `eval_sets.PURE2PUSH` / `.ONEPUSH` / `.DIVISIONS` / `.TWOPUSH_SOURCE` / `.TWOPUSH_GT_H5` (resolved absolute Paths, box-portable via `namo.paths`).
+- Python: `from namo import eval_sets` → `eval_sets.PURE2PUSH` / `.ONEPUSH` / `.DIVISIONS` / `.SAMPLED_DIVISIONS` / `.TWOPUSH_SOURCE` / `.TWOPUSH_GT_H5` (resolved absolute Paths, box-portable via `namo.paths`).
 - Shell/slurm: `python -m namo.eval_sets pure2push_manifest` prints the resolved path; `--list` prints all names.
-- Guard: `python/tests/test_eval_sets.py` asserts every path resolves to an existing file with the expected counts (1323 / 1018 / 238·409·371 / 2341 / 66,456). Run it before trusting a config edit.
+- Guard: `python/tests/test_eval_sets.py` asserts every path resolves to an existing file with the expected counts (1323 / 1018 / GT tiers 370·471·140 + 37 unmatched / 2341 / 66,456). Run it before trusting a config edit.
 - Migrated: **all** committed eval entrypoints (incl. `eval_bestfirst.py` / `time_bestfirst.py`) + agg scripts + slurm launchers. No committed eval code hardcodes a `namo_testset_v1/labels` path any more.
 
 ## Canonical test manifests (testset_v1) — USE THESE
@@ -20,7 +20,8 @@ The canonical eval distribution. Answer keys (which episodes + difficulty), veri
 |---|---|---|---|
 | **1push manifest** | `datasets/namo_testset_v1/labels/onepush_episodes.json` | 991 xml / **1323 episodes** | 1-push answer key (`valid`/`tried`/`solve_rate`). Fixed per-episode tiers: hard <0.05 (**204**), medium <0.30 (**421**), easy otherwise (**698**). Consumed by `eval_scorer.py`, `time_bestfirst.py`. |
 | **2push manifest** | `datasets/namo_testset_v1/labels/pure2push.json` | 983 xml / **1018 episodes** | genuine-2push answer key (1push-unsolvable ∧ 2push-solvable). Consumed by `eval_bestfirst.py` (`--key`). |
-| **2push tiers** | `datasets/namo_testset_v1/labels/pure2push_divisions.json` | same 1018 + `division` | difficulty by solve_rate: **easy 238 / medium 409 / hard 371**. THE tier source (join by xml,object,region). |
+| **2push tiers** | `datasets/namo_testset_v1/labels/pure2push_gt_divisions.json` | same 1018 + `division` | Fixed exhaustive-GT setup density: hard <5% (**140**), medium 5–30% (**471**), easy ≥30% (**370**), unmatched GT root (**37 unknown**). THE tier source (join by xml,object,region). |
+| **legacy sampled 2push tiers** | `datasets/namo_testset_v1/labels/pure2push_divisions.json` | same 1018 + `division` | Historical incomplete-manifest setup-count bins: easy 238 / medium 409 / hard 371. Retained only to reproduce earlier tables; do not use for new headline results. |
 | **SOURCE (root)** | `datasets/namo_testset_v1/labels/twopush.json` | 2341 episodes | the **one depth-2 exhaustive collection pass** (`build_2push_validset.py → twopush.json`, keyed by realpath). `onepush_episodes.json` and `pure2push.json` are **DERIVED from this** (via `derive_onepush_from_2push.py`). This is the master; the two above are the consumed splits. Also read by `summarize_2push.py`. |
 
 **INVARIANT:** the unit is per **(xml, object, region)** region-opening instance, never per room. One xml holds many instances with different tiers.

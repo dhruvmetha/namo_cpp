@@ -22,6 +22,7 @@ def _n_episodes(p):
 
 def test_all_files_exist():
     for name in ("onepush_manifest", "pure2push_manifest", "pure2push_divisions",
+                 "pure2push_sampled_divisions",
                  "twopush_source", "twopush_gt_h5"):
         p = E.path(name)
         assert p.exists(), f"{name} resolves to a missing file: {p}"
@@ -36,11 +37,22 @@ def test_episode_counts_match_expected():
 
 def test_division_tiers_match_expected():
     d = json.load(open(E.DIVISIONS))
-    counts = {"easy": 0, "medium": 0, "hard": 0}
+    counts = {}
     for eps in d.values():
         for e in eps:
-            counts[e["division"]] += 1
+            tier = e["division"]
+            counts[tier] = counts.get(tier, 0) + 1
     assert counts == E.EXPECTED["divisions"]
+
+
+def test_legacy_sampled_division_tiers_match_expected():
+    d = json.load(open(E.SAMPLED_DIVISIONS))
+    counts = {}
+    for eps in d.values():
+        for e in eps:
+            tier = e["division"]
+            counts[tier] = counts.get(tier, 0) + 1
+    assert counts == E.EXPECTED["sampled_divisions"]
 
 
 def test_onepush_fixed_difficulty_counts_match_expected():

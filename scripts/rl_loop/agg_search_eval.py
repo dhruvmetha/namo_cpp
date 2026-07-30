@@ -81,7 +81,8 @@ def _summarize(rows, cuts):
         grouped[row["division"]].append(row)
         grouped["all"].append(row)
     result = {}
-    for tier in TIERS:
+    tiers = TIERS[:-1] + (("unknown",) if grouped["unknown"] else ()) + ("all",)
+    for tier in tiers:
         tier_rows = grouped[tier]
         sims = np.asarray([row["sims"] for row in tier_rows], dtype=np.float64)
         solved_sims = np.asarray([row["sims"] for row in tier_rows if row["solved"]], dtype=np.float64)
@@ -186,6 +187,7 @@ def main():
         "search": search_config,
         "onepush_difficulty": {"hard": "solve_rate < 0.05", "medium": "0.05 <= solve_rate < 0.30",
                                "easy": "solve_rate >= 0.30"},
+        "twopush_divisions": str(Path(args.divisions).resolve()),
         "1push": _summarize(tiered["1push"], ONEPUSH_CUTS),
         "2push": _summarize(tiered["2push"], TWOPUSH_CUTS),
     }
