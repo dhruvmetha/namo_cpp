@@ -23,10 +23,16 @@ def main():
     parser.add_argument("--divisions", default=str(eval_sets.DIVISIONS))
     parser.add_argument("--tier", choices=("easy", "medium", "hard"), required=True)
     parser.add_argument("--min-sims", type=int, default=0)
+    parser.add_argument("--exclude-leaf-dir", action="append", default=[])
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
 
     rows = _read_jsonl(args.leaf_dir)
+    excluded = {
+        (_canonical_xml(row["xml"]), row["object_id"], row.get("region"))
+        for directory in args.exclude_leaf_dir
+        for row in _read_jsonl(directory)
+    }
     config = _search_config(rows)
     divisions = _load_divisions(args.divisions)
     source = json.load(open(args.source_key))
@@ -50,6 +56,8 @@ def main():
         tier_unsolved += 1
         if _row_sims(row) < args.min_sims:
             continue
+        if key in excluded:
+            continue
         if key not in source_lookup:
             raise RuntimeError(f"tail episode absent from source key: {key}")
         if key in selected:
@@ -66,6 +74,7 @@ def main():
         "tier": args.tier,
         "tier_unsolved": tier_unsolved,
         "min_sims": args.min_sims,
+        "excluded": len(excluded),
         "selected": len(selected),
         "search": config,
         "out": str(Path(args.out).resolve()),
