@@ -28,7 +28,7 @@ The calibrated 10,000-call worst-case estimate is 53m37s per episode. Amarel job
 
 The user caught that the existing 2push divisions were based on incomplete-manifest setup counts rather than the available exhaustive-GT setup percentage. Commit `3b4cc1b` makes the fixed GT cuts canonical: hard <5% (140), medium 5–30% (471), easy ≥30% (370), with 37 unmatched roots explicitly unknown; the old 371/409/238 bins remain registered only for historical reproduction. All 12 selected budget-900 tails are in the corrected GT-hard tier, so the tail run remains correctly scoped. The first pilot exhaustion proves a corrected-tier ceiling of at most 139/140 = 99.29% under unchanged search.
 
-Amarel job `59598946` runs the remaining ten corrected-tier hard tails at the same 10,000-call cap after the registry JSON validation passed.
+Amarel job `59598946` runs the remaining ten corrected-tier hard tails at the same 10,000-call cap after the registry JSON validation passed. Array task 2 saw a transient NFS checkout mismatch before any simulation and failed; retry job `59599451` runs only that episode on a different node.
 
 ## Result
 
