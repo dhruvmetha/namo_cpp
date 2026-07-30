@@ -24,7 +24,9 @@ Keep the adopted search unchanged (`hmax=2`, `combine=q`, confidence discount τ
 
 Smoke job `59590943` ran one budget-truncated tail episode on Amarel `main-redhat` at commit `7c3339d`, with `hmax=2`, budget 1,200, `combine=q`, confidence discount τ=0.15, no-op dedupe on, and jam-depth pruning on. It reproduced the expected unsolved result at exactly 1,200 simulations and completed in 6m26s.
 
-The calibrated 10,000-call worst-case estimate is 53m37s per episode. Amarel job `59592040` pilots two of the 12 tail episodes at the full 10,000-call cap with a 2h wall limit; if both reproduce unsolved-through-900 and complete cleanly, run the other ten with the same configuration.
+The calibrated 10,000-call worst-case estimate is 53m37s per episode. Amarel job `59592040` piloted two of the 12 tail episodes at the full 10,000-call cap with a 2h wall limit. Both reproduced unsolved-through-900 and then exhausted their queues naturally at 1,461 and 7,099 calls in 4m38s and 40m19s.
+
+The user caught that the existing 2push divisions were based on incomplete-manifest setup counts rather than the available exhaustive-GT setup percentage. Commit `3b4cc1b` makes the fixed GT cuts canonical: hard <5% (140), medium 5–30% (471), easy ≥30% (370), with 37 unmatched roots explicitly unknown; the old 371/409/238 bins remain registered only for historical reproduction. All 12 selected budget-900 tails are in the corrected GT-hard tier, so the tail run remains correctly scoped. The first pilot exhaustion proves a corrected-tier ceiling of at most 139/140 = 99.29% under unchanged search.
 
 ## Result
 
