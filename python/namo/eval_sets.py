@@ -30,6 +30,7 @@ def _load():
 _CFG = _load()
 _FILES = _CFG["files"]
 EXPECTED = _CFG.get("expected_counts", {})
+EXCLUSIONS = _CFG.get("search_eval_exclusions", [])
 TESTSET = _CFG["testset"]
 
 

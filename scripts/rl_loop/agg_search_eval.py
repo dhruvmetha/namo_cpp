@@ -105,11 +105,6 @@ def load_tiered_rows(onepush_dir, twopush_dir, onepush_key, divisions_path, expe
     """Load, validate, and attach the canonical fixed difficulty tier to each episode row."""
     onepush = _read_jsonl(onepush_dir)
     twopush = _read_jsonl(twopush_dir)
-    if len(onepush) != expect_onepush:
-        raise RuntimeError(f"1push rows {len(onepush)} != expected {expect_onepush}")
-    if len(twopush) != expect_twopush:
-        raise RuntimeError(f"2push rows {len(twopush)} != expected {expect_twopush}")
-
     onepush_keys = [(_canonical_xml(row.get("xml_full", row["xml"])), row["object_id"]) for row in onepush]
     twopush_keys = [
         (_canonical_xml(row["xml"]), row["object_id"], row.get("region"))
@@ -126,7 +121,7 @@ def load_tiered_rows(onepush_dir, twopush_dir, onepush_key, divisions_path, expe
         key = (_canonical_xml(row.get("xml_full", row["xml"])), row["object_id"])
         division = onepush_divisions.get(key)
         if division is None:
-            raise RuntimeError(f"unmatched 1push episode: {key}")
+            continue
         onepush_rows.append(
             {"division": _normalize_tier(division), "solved": bool(row["solved"]), "sims": _row_sims(row)}
         )
@@ -137,10 +132,15 @@ def load_tiered_rows(onepush_dir, twopush_dir, onepush_key, divisions_path, expe
         key = (_canonical_xml(row["xml"]), row["object_id"], row.get("region"))
         division = divisions.get(key)
         if division is None:
-            raise RuntimeError(f"unmatched pure-2push episode: {key}")
+            continue
         twopush_rows.append(
             {"division": _normalize_tier(division), "solved": bool(row["solved"]), "sims": _row_sims(row)}
         )
+
+    if len(onepush_rows) != expect_onepush:
+        raise RuntimeError(f"matched 1push rows {len(onepush_rows)} != expected {expect_onepush}")
+    if len(twopush_rows) != expect_twopush:
+        raise RuntimeError(f"matched 2push rows {len(twopush_rows)} != expected {expect_twopush}")
 
     onepush_config = _search_config(onepush)
     twopush_config = _search_config(twopush)

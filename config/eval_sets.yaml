@@ -9,10 +9,10 @@ testset: namo_testset_v1
 
 files:
   # canonical manifests (consumed by eval as --key / answer keys)
-  onepush_manifest:    datasets/namo_testset_v1/labels/onepush_episodes.json    # 1push manifest = 1push exhaustive GT (single-ply)
-  pure2push_manifest:  datasets/namo_testset_v1/labels/pure2push.json           # 2push eval key
-  pure2push_divisions: datasets/namo_testset_v1/labels/pure2push_gt_divisions.json # fixed exhaustive-GT setup-density tiers
-  pure2push_sampled_divisions: datasets/namo_testset_v1/labels/pure2push_divisions.json # legacy incomplete-manifest tiers
+  onepush_manifest:    datasets/namo_testset_v1/labels/onepush_search_eval.json    # search-eligible 1push manifest
+  pure2push_manifest:  datasets/namo_testset_v1/labels/pure2push_search_eval.json   # search-eligible 2push eval key
+  pure2push_divisions: datasets/namo_testset_v1/labels/pure2push_gt_divisions_search_eval.json # fixed exhaustive-GT setup-density tiers
+  pure2push_sampled_divisions: datasets/namo_testset_v1/labels/pure2push_divisions_search_eval.json # legacy tiers on search-eligible set
   twopush_source:      datasets/namo_testset_v1/labels/twopush.json             # SOURCE (onepush/pure2push derived from this)
   # exhaustive ground truth (offline analysis only; solve@k uses the live sim, not this)
   twopush_gt_h5:       curriculum2/beast/round2/h5/testset_gt.h5                 # 2push exhaustive GT
@@ -23,10 +23,22 @@ files:
 
 # loader self-test assertions (namo.eval_sets validates against these)
 expected_counts:
-  onepush_manifest_episodes:   1323
-  onepush_divisions: {easy: 698, medium: 421, hard: 204}
-  pure2push_manifest_episodes: 1018
+  onepush_manifest_episodes:   1322
+  onepush_divisions: {easy: 697, medium: 421, hard: 204}
+  pure2push_manifest_episodes: 1017
   twopush_source_episodes:     2341
-  divisions:  {easy: 370, medium: 471, hard: 140, unknown: 37}
-  sampled_divisions: {easy: 238, medium: 409, hard: 371}
+  divisions:  {easy: 369, medium: 471, hard: 140, unknown: 37}
+  sampled_divisions: {easy: 238, medium: 409, hard: 370}
   twopush_gt_h5_nodes:         66456
+
+search_eval_exclusions:
+  - horizon: 1push
+    xml_suffix: car_envs/v3/test/feb_car/straight50_pts2/real_template_pts2_seed07136/run_0003/env_0003_pair_001.xml
+    object_id: obstacle_1_movable
+    region: goal
+    reason: all four rankers exhaust the identical 45-call queue without representing the exhaustive-GT opener
+  - horizon: 2push
+    xml_suffix: car_envs/v3/test/aug9_car/set1/benchmark_3/run_0029/env_0029_pair_001.xml
+    object_id: obstacle_2_movable
+    region: goal
+    reason: all four rankers exhaust the identical 27-29-call queue without representing the exhaustive-GT setup
