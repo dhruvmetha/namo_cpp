@@ -61,9 +61,9 @@ The largest separation is where ordering matters most. On hard 1push, model vers
 
 ### Plots
 
-![Both horizons: learned ranker versus three-seed random success as simulator calls increase.](../plots/postprune_hmax2/success_vs_sims_both_horizons.png)
+![Both horizons: exact per-episode learned-ranker versus three-seed-random success as simulator calls increase.](../plots/postprune_hmax2/success_vs_sims_both_horizons.png)
 
-Separate publication-size figures: [1push PNG](../plots/postprune_hmax2/success_vs_sims_1push.png), [1push PDF](../plots/postprune_hmax2/success_vs_sims_1push.pdf), [2push PNG](../plots/postprune_hmax2/success_vs_sims_2push.png), and [2push PDF](../plots/postprune_hmax2/success_vs_sims_2push.pdf). The combined figure is also available as [PDF](../plots/postprune_hmax2/success_vs_sims_both_horizons.pdf).
+These curves are computed from every episode's exact solve index at all integer budgets 1–900; they are not interpolated from the eight reported table cutoffs. Separate publication-size figures: [1push PNG](../plots/postprune_hmax2/success_vs_sims_1push.png), [1push PDF](../plots/postprune_hmax2/success_vs_sims_1push.pdf), [2push PNG](../plots/postprune_hmax2/success_vs_sims_2push.png), and [2push PDF](../plots/postprune_hmax2/success_vs_sims_2push.pdf). The combined figure is also available as [PDF](../plots/postprune_hmax2/success_vs_sims_both_horizons.pdf).
 
 No wall-time comparison is claimed because the arms were parallel Slurm arrays rather than interleaved on one microarchitecture-pinned node. Machine-independent simulator calls are the comparison substrate here. Aggregates are archived locally at `/common/users/dm1487/scratch_namo/eval/postprune_hmax2/full/agg_{model,random_s7000,random_s8000,random_s9000}.json` and on Amarel under `/cache/home/dm1487/eval/postprune_hmax2/full/`.
 

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from namo.paths import DATASETS, resolve
+from namo.paths import resolve
 from namo import eval_sets
 from eval_common import bin_of
 
@@ -100,6 +100,54 @@ def _summarize(rows, cuts):
     return result
 
 
+def load_tiered_rows(onepush_dir, twopush_dir, onepush_key, divisions_path, expect_onepush, expect_twopush):
+    """Load, validate, and attach the canonical fixed difficulty tier to each episode row."""
+    onepush = _read_jsonl(onepush_dir)
+    twopush = _read_jsonl(twopush_dir)
+    if len(onepush) != expect_onepush:
+        raise RuntimeError(f"1push rows {len(onepush)} != expected {expect_onepush}")
+    if len(twopush) != expect_twopush:
+        raise RuntimeError(f"2push rows {len(twopush)} != expected {expect_twopush}")
+
+    onepush_keys = [(_canonical_xml(row.get("xml_full", row["xml"])), row["object_id"]) for row in onepush]
+    twopush_keys = [
+        (_canonical_xml(row["xml"]), row["object_id"], row.get("region"))
+        for row in twopush
+    ]
+    if len(set(onepush_keys)) != len(onepush_keys):
+        raise RuntimeError("duplicate 1push episode rows")
+    if len(set(twopush_keys)) != len(twopush_keys):
+        raise RuntimeError("duplicate 2push episode rows")
+
+    onepush_divisions = _onepush_divisions(onepush_key)
+    onepush_rows = []
+    for row in onepush:
+        key = (_canonical_xml(row.get("xml_full", row["xml"])), row["object_id"])
+        division = onepush_divisions.get(key)
+        if division is None:
+            raise RuntimeError(f"unmatched 1push episode: {key}")
+        onepush_rows.append(
+            {"division": _normalize_tier(division), "solved": bool(row["solved"]), "sims": _row_sims(row)}
+        )
+
+    divisions = _load_divisions(divisions_path)
+    twopush_rows = []
+    for row in twopush:
+        key = (_canonical_xml(row["xml"]), row["object_id"], row.get("region"))
+        division = divisions.get(key)
+        if division is None:
+            raise RuntimeError(f"unmatched pure-2push episode: {key}")
+        twopush_rows.append(
+            {"division": _normalize_tier(division), "solved": bool(row["solved"]), "sims": _row_sims(row)}
+        )
+
+    onepush_config = _search_config(onepush)
+    twopush_config = _search_config(twopush)
+    if onepush_config != twopush_config:
+        raise RuntimeError(f"1push/2push search config mismatch: {onepush_config} != {twopush_config}")
+    return {"1push": onepush_rows, "2push": twopush_rows}, onepush_config
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--eval-root", required=True, help="directory containing 1push/ and 2push/")
@@ -118,64 +166,28 @@ def main():
     parser.add_argument("--require-prune-jam-depth", action="store_true")
     args = parser.parse_args()
 
-    onepush = _read_jsonl(args.onepush_dir or Path(args.eval_root) / "1push")
-    twopush = _read_jsonl(args.twopush_dir or Path(args.eval_root) / "2push")
-    if len(onepush) != args.expect_1push:
-        raise RuntimeError(f"1push rows {len(onepush)} != expected {args.expect_1push}")
-    if len(twopush) != args.expect_2push:
-        raise RuntimeError(f"2push rows {len(twopush)} != expected {args.expect_2push}")
-
-    onepush_keys = [(_canonical_xml(row.get("xml_full", row["xml"])), row["object_id"]) for row in onepush]
-    twopush_keys = [(row["xml"], row["object_id"], row.get("region")) for row in twopush]
-    if len(set(onepush_keys)) != len(onepush_keys):
-        raise RuntimeError("duplicate 1push episode rows")
-    if len(set(twopush_keys)) != len(twopush_keys):
-        raise RuntimeError("duplicate 2push episode rows")
-
-    onepush_divisions = _onepush_divisions(args.onepush_key)
-    onepush_rows = []
-    for row in onepush:
-        key = (_canonical_xml(row.get("xml_full", row["xml"])), row["object_id"])
-        division = onepush_divisions.get(key)
-        if division is None:
-            raise RuntimeError(f"unmatched 1push episode: {key}")
-        onepush_rows.append(
-            {"division": _normalize_tier(division), "solved": bool(row["solved"]), "sims": _row_sims(row)}
-        )
-
-    divisions = _load_divisions(args.divisions)
-    twopush_rows = []
-    for row in twopush:
-        key = (_canonical_xml(row["xml"]), row["object_id"], row.get("region"))
-        division = divisions.get(key)
-        if division is None:
-            raise RuntimeError(f"unmatched pure-2push episode: {key}")
-        twopush_rows.append(
-            {
-                "division": _normalize_tier(division),
-                "solved": bool(row["solved"]),
-                "sims": _row_sims(row),
-            }
-        )
-
-    onepush_config = _search_config(onepush)
-    twopush_config = _search_config(twopush)
-    if onepush_config != twopush_config:
-        raise RuntimeError(f"1push/2push search config mismatch: {onepush_config} != {twopush_config}")
-    if args.require_hmax is not None and onepush_config.get("hmax") != args.require_hmax:
-        raise RuntimeError(f"hmax={onepush_config.get('hmax')} != required {args.require_hmax}")
-    if args.require_dedupe_noop and not onepush_config.get("dedupe_noop"):
+    tiered, search_config = load_tiered_rows(
+        args.onepush_dir or Path(args.eval_root) / "1push",
+        args.twopush_dir or Path(args.eval_root) / "2push",
+        args.onepush_key,
+        args.divisions,
+        args.expect_1push,
+        args.expect_2push,
+    )
+    if args.require_hmax is not None and search_config.get("hmax") != args.require_hmax:
+        raise RuntimeError(f"hmax={search_config.get('hmax')} != required {args.require_hmax}")
+    if args.require_dedupe_noop and not search_config.get("dedupe_noop"):
         raise RuntimeError("no-op dedupe was not enabled")
-    if args.require_prune_jam_depth and not onepush_config.get("prune_jam_depth"):
+    if args.require_prune_jam_depth and not search_config.get("prune_jam_depth"):
         raise RuntimeError("jam-depth pruning was not enabled")
 
     report = {
         "eval_root": str(Path(args.eval_root).resolve()),
-        "search": onepush_config,
+        "search": search_config,
         "onepush_difficulty": {"hard": "solve_rate < 0.05", "medium": "0.05 <= solve_rate < 0.30",
                                "easy": "solve_rate >= 0.30"},
-        "1push": _summarize(onepush_rows, ONEPUSH_CUTS),
-        "2push": _summarize(twopush_rows, TWOPUSH_CUTS),
+        "1push": _summarize(tiered["1push"], ONEPUSH_CUTS),
+        "2push": _summarize(tiered["2push"], TWOPUSH_CUTS),
     }
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     with open(args.out, "w") as stream:

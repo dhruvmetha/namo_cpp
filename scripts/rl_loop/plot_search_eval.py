@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-"""Plot fixed-tier success-vs-simulator-call curves from agg_search_eval.py outputs."""
+"""Plot exact fixed-tier success-vs-simulator-call curves from best-first leaf rows."""
 import argparse
-import json
 from pathlib import Path
 
 import matplotlib
@@ -10,21 +9,16 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import FixedFormatter, FixedLocator, NullLocator
 import numpy as np
 
+from namo import eval_sets
+from agg_search_eval import load_tiered_rows
+
 
 HORIZONS = ("1push", "2push")
 TIERS = ("easy", "medium", "hard")
+SIM_BUDGET = 900
+SIM_GRID = np.arange(1, SIM_BUDGET + 1)
+SIM_TICKS = (1, 2, 5, 10, 30, 100, 300, 900)
 COLORS = {"model": "#0072B2", "random": "#D55E00"}
-
-
-def _load(path):
-    with open(path) as stream:
-        return json.load(stream)
-
-
-def _cuts(report, horizon, tier):
-    row = report[horizon][tier]
-    cuts = sorted(int(key.split("@", 1)[1]) for key in row if key.startswith("solve@"))
-    return np.asarray(cuts), np.asarray([row[f"solve@{cut}"] for cut in cuts], dtype=float)
 
 
 def _style():
@@ -45,39 +39,60 @@ def _style():
     })
 
 
-def _panel(ax, model, random_reports, horizon, tier):
-    cuts, model_curve = _cuts(model, horizon, tier)
+def _success_curve(rows, tier):
+    tier_rows = [row for row in rows if row["division"] == tier]
+    solved_sims = np.sort([row["sims"] for row in tier_rows if row["solved"]])
+    curve = 100.0 * np.searchsorted(solved_sims, SIM_GRID, side="right") / len(tier_rows)
+    return curve, len(tier_rows)
+
+
+def _same_config(left, right):
+    left = dict(left)
+    right = dict(right)
+    left.pop("prior")
+    right.pop("prior")
+    return left == right
+
+
+def _load_arm(onepush_dir, twopush_dir, args):
+    return load_tiered_rows(
+        onepush_dir,
+        twopush_dir,
+        args.onepush_key,
+        args.divisions,
+        args.expect_1push,
+        args.expect_2push,
+    )
+
+
+def _panel(ax, model, random_seeds, horizon, tier):
+    model_curve, n = _success_curve(model[horizon], tier)
     seed_curves = []
-    for report in random_reports:
-        seed_cuts, seed_curve = _cuts(report, horizon, tier)
-        if not np.array_equal(seed_cuts, cuts):
-            raise RuntimeError(f"solve@K cuts differ for {horizon}/{tier}")
-        if report[horizon][tier]["n"] != model[horizon][tier]["n"]:
-            raise RuntimeError(f"episode count differs for {horizon}/{tier}")
-        seed_curves.append(seed_curve)
+    for seed in random_seeds:
+        curve, seed_n = _success_curve(seed[horizon], tier)
+        if seed_n != n:
+            raise RuntimeError(f"episode count differs for {horizon}/{tier}: model={n}, random={seed_n}")
+        seed_curves.append(curve)
     seed_curves = np.vstack(seed_curves)
     random_mean = seed_curves.mean(axis=0)
     random_std = seed_curves.std(axis=0, ddof=1)
     ax.fill_between(
-        cuts,
+        SIM_GRID,
         np.clip(random_mean - random_std, 0.0, 100.0),
         np.clip(random_mean + random_std, 0.0, 100.0),
         color=COLORS["random"],
         alpha=0.18,
-        step="post",
         linewidth=0,
     )
-    ax.plot(cuts, random_mean, color=COLORS["random"], linewidth=2.2, marker="o", markersize=3.5,
-            drawstyle="steps-post", label="Random (3 seeds, mean ± SD)")
-    ax.plot(cuts, model_curve, color=COLORS["model"], linewidth=2.4, marker="o", markersize=3.5,
-            drawstyle="steps-post", label="Learned ranker")
-    n = model[horizon][tier]["n"]
+    ax.plot(SIM_GRID, random_mean, color=COLORS["random"], linewidth=2.2,
+            label="Random (3 seeds, mean ± SD)")
+    ax.plot(SIM_GRID, model_curve, color=COLORS["model"], linewidth=2.4, label="Learned ranker")
     ax.set_title(f"{tier.capitalize()}  ·  n={n}")
     ax.set_xscale("log")
-    ax.set_xlim(cuts[0], cuts[-1])
+    ax.set_xlim(1, SIM_BUDGET)
     ax.set_ylim(0, 103)
-    ax.xaxis.set_major_locator(FixedLocator(cuts))
-    ax.xaxis.set_major_formatter(FixedFormatter([str(cut) for cut in cuts]))
+    ax.xaxis.set_major_locator(FixedLocator(SIM_TICKS))
+    ax.xaxis.set_major_formatter(FixedFormatter([str(cut) for cut in SIM_TICKS]))
     ax.xaxis.set_minor_locator(NullLocator())
     ax.grid(axis="y", color="#E1E1E1", linewidth=0.7)
     ax.set_xlabel("Simulator calls")
@@ -91,54 +106,80 @@ def _save(fig, stem):
     print(f"saved {stem}.{{png,pdf}}")
 
 
-def _single_horizon(model, random_reports, horizon, out_dir):
+def _single_horizon(model, random_seeds, horizon, out_dir):
     fig, axes = plt.subplots(1, 3, figsize=(12.8, 3.8), sharey=True)
     for ax, tier in zip(axes, TIERS):
-        _panel(ax, model, random_reports, horizon, tier)
+        _panel(ax, model, random_seeds, horizon, tier)
     handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="lower center", ncol=2, bbox_to_anchor=(0.5, -0.02))
-    fig.suptitle(f"{horizon}: verified success vs simulator calls · hmax=2", fontsize=14, fontweight="semibold")
+    fig.suptitle(
+        f"{horizon}: exact verified-success curve · hmax=2",
+        fontsize=14,
+        fontweight="semibold",
+    )
     fig.subplots_adjust(left=0.07, right=0.99, top=0.82, bottom=0.25, wspace=0.12)
     _save(fig, out_dir / f"success_vs_sims_{horizon}")
 
 
-def _combined(model, random_reports, out_dir):
+def _combined(model, random_seeds, out_dir):
     fig, axes = plt.subplots(2, 3, figsize=(12.8, 7.3), sharey=True)
     for row, horizon in enumerate(HORIZONS):
         for col, tier in enumerate(TIERS):
-            _panel(axes[row, col], model, random_reports, horizon, tier)
-        axes[row, 0].annotate(horizon, xy=(-0.30, 0.5), xycoords="axes fraction", rotation=90,
-                              ha="center", va="center", fontsize=13, fontweight="semibold")
+            _panel(axes[row, col], model, random_seeds, horizon, tier)
+        axes[row, 0].annotate(
+            horizon,
+            xy=(-0.30, 0.5),
+            xycoords="axes fraction",
+            rotation=90,
+            ha="center",
+            va="center",
+            fontsize=13,
+            fontweight="semibold",
+        )
     handles, labels = axes[0, 0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="lower center", ncol=2, bbox_to_anchor=(0.5, 0.005))
-    fig.suptitle("Verified region openings vs simulator calls · hmax=2", fontsize=15, fontweight="semibold")
+    fig.suptitle(
+        "Exact verified region-opening success vs simulator calls · hmax=2",
+        fontsize=15,
+        fontweight="semibold",
+    )
     fig.subplots_adjust(left=0.09, right=0.99, top=0.90, bottom=0.12, hspace=0.38, wspace=0.12)
     _save(fig, out_dir / "success_vs_sims_both_horizons")
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", required=True, help="one agg_search_eval.py JSON for the deterministic ranker")
-    parser.add_argument("--random", required=True, nargs=3, help="three seeded random agg_search_eval.py JSONs")
+    parser.add_argument("--model-onepush-dir", required=True)
+    parser.add_argument("--model-twopush-dir", required=True)
+    parser.add_argument("--random-onepush-dirs", required=True, nargs=3)
+    parser.add_argument("--random-twopush-dirs", required=True, nargs=3)
+    parser.add_argument("--onepush-key", default=str(eval_sets.ONEPUSH))
+    parser.add_argument("--divisions", default=str(eval_sets.DIVISIONS))
+    parser.add_argument("--expect-1push", type=int, default=eval_sets.EXPECTED["onepush_manifest_episodes"])
+    parser.add_argument("--expect-2push", type=int, default=eval_sets.EXPECTED["pure2push_manifest_episodes"])
     parser.add_argument("--out-dir", required=True)
     args = parser.parse_args()
-    model = _load(args.model)
-    random_reports = [_load(path) for path in args.random]
-    normalized = []
-    for report in [model, *random_reports]:
-        config = dict(report["search"])
-        config.pop("prior")
-        normalized.append(config)
-    if any(config != normalized[0] for config in normalized[1:]):
-        raise RuntimeError("aggregate JSONs do not share one search configuration apart from prior")
-    if model["search"].get("hmax") != 2:
-        raise RuntimeError("expected hmax=2 aggregates")
+
+    model, model_config = _load_arm(args.model_onepush_dir, args.model_twopush_dir, args)
+    random_seeds = []
+    configs = [model_config]
+    for onepush_dir, twopush_dir in zip(args.random_onepush_dirs, args.random_twopush_dirs):
+        tiered, config = _load_arm(onepush_dir, twopush_dir, args)
+        random_seeds.append(tiered)
+        configs.append(config)
+    if any(not _same_config(model_config, config) for config in configs[1:]):
+        raise RuntimeError("leaf rows do not share one search configuration apart from prior")
+    if model_config.get("hmax") != 2:
+        raise RuntimeError("expected hmax=2 leaf rows")
+    if not model_config.get("dedupe_noop") or not model_config.get("prune_jam_depth"):
+        raise RuntimeError("expected no-op dedupe and jam-depth pruning")
+
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     _style()
     for horizon in HORIZONS:
-        _single_horizon(model, random_reports, horizon, out_dir)
-    _combined(model, random_reports, out_dir)
+        _single_horizon(model, random_seeds, horizon, out_dir)
+    _combined(model, random_seeds, out_dir)
 
 
 if __name__ == "__main__":
