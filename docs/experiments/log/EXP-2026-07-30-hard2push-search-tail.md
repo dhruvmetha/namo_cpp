@@ -4,7 +4,7 @@ status: live
 created: 2026-07-30
 thread: rl_loop
 robot: car
-commit: pending
+commit: d24434f
 tags: [experiment, search, hard-2push, tail, hmax2]
 ---
 
