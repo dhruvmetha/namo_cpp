@@ -21,7 +21,7 @@ Use the finalized 142-episode hard tier from the 35-root GT fill. For each rando
 
 ## Run
 
-Pending.
+Amarel smoke job `59738428` ran one random hard episode end-to-end on `main-redhat` with the production evaluator and shared-scratch outputs. It completed successfully in 4m31s; the actual 100-call search took 32s, produced one valid leaf row, and verified `hmax=2`, uniform prior, no-op dedupe on, jam-depth pruning on, `combine=q`, and confidence discount τ=0.15. A preceding 1,200-call timing probe (`59738062`) took 11m11s but wrote into Amarel's unpublished home cache, so it is used only for the pessimistic runtime estimate and not as a result artifact. The 10,000-call worst-case estimate is about 80 minutes, with a two-hour production cap.
 
 ## Result
 
