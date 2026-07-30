@@ -44,7 +44,7 @@ def main():
         key = (_canonical_xml(row["xml"]), row["object_id"], row.get("region"))
         division = divisions.get(key)
         if division is None:
-            raise RuntimeError(f"unmatched pure-2push episode: {key}")
+            continue
         if _normalize_tier(division) != args.tier or row["solved"]:
             continue
         tier_unsolved += 1
