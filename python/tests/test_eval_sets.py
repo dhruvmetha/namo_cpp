@@ -97,6 +97,7 @@ def test_canonical_random_baseline_is_three_seed_hmax2():
         assert result["search"]["prune_jam_depth"] is True
         assert result["1push"]["all"]["n"] == E.EXPECTED["onepush_manifest_episodes"]
         assert result["2push"]["all"]["n"] == E.EXPECTED["pure2push_manifest_episodes"]
+        assert result["2push"]["hard"]["n"] == E.EXPECTED["divisions"]["hard"]
 
 
 def test_unknown_name_raises():
