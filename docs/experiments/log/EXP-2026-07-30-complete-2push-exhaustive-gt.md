@@ -25,7 +25,7 @@ Commit `54b42ea` adds the focused-manifest builder, exact target-tree H5 merge, 
 
 ## Result
 
-The completed 35 trees add 1,937 rows to the 66,456-row base H5, producing `testset_gt_plus35.h5` with 68,393 rows. On the search-eligible 1,017-episode 2push set, GT coverage is 1,015/1,017 and the fixed tiers are easy 385, medium 488, hard 142, unknown 2.
+The completed 35 trees add 1,937 rows to the 66,456-row base H5, producing `testset_gt_plus35.h5` with 68,393 rows. The initial search view had 1,017 episodes with GT coverage 1,015/1,017 and fixed tiers easy 385, medium 488, hard 142, unknown 2. On 2026-07-31, four hard records whose exhaustive roots contain zero genuine setups were removed from the canonical eval by user decision; the final registered view is 1,013 episodes with coverage 1,011/1,013 and tiers easy 385, medium 488, hard 138, unknown 2. The full 1,018-episode source and H5 are unchanged.
 
 ## Verdict
 

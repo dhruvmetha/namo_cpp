@@ -38,3 +38,7 @@ All three random tails pass the splice invariant: no episode changed outcome at 
 ## Verdict
 
 **WIN on search efficiency; tied at the natural ceiling.** Learned needs 16.3×/7.8×/3.9×/3.1× fewer simulator calls to reach 50/75/90/95% success. Its final 96.5% plateau is only 0.5 points above the random mean and equals two random seeds, so the durable result is faster ordering, not a higher solvable ceiling.
+
+## 2026-07-31 canonical GT cleanup — final registered result
+
+User removed four episodes whose exhaustive-GT roots contain zero genuine setups. Registry-aware filtering of the existing seed-stable tails leaves 138 hard episodes; no simulation was rerun. Learned finishes 137/138 = 99.3%; random seeds 7000/8000/9000 finish 135/138, 136/138, and 137/138 = 98.6±0.7%. Learned reaches 50/75/90/95/99% at 20/110/354/1,175/3,831 calls; random mean reaches 50/75/90/95% at 335/874/1,791/3,574 calls and never reaches 99%. The final speed factors are 16.8×/7.9×/5.1×/3.0× at 50/75/90/95%. Solved episodes average 171.1 calls for learned versus 733.3±52.9 for random. This paragraph supersedes the 142-episode arithmetic above while preserving the run audit.

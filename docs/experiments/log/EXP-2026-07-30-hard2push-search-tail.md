@@ -41,3 +41,7 @@ On the corrected exhaustive-GT hard tier, learned-ranker success rises from 128/
 ## Verdict
 
 **Plateau reached; 100% is impossible under the unchanged search.** More simulator budget recovered eight real solutions, but the four exhausted queues prove a hard ceiling of 136/140 = 97.14% for this search configuration. Reaching 100% requires changing candidate generation or pruning/search semantics, not raising the cap again.
+
+## 2026-07-31 canonical GT cleanup — supersedes the denominators above
+
+Four naturally exhausted episodes were removed from the canonical eval because their fully exhaustive roots contain zero genuine setup pushes even though the sampled manifest calls them 2-push-solvable. Filtering the saved tail by the new registered key leaves 138 hard episodes: learned is 129/138 = 93.5% at 900 calls and 137/138 = 99.3% at natural exhaustion. The one remaining learned failure has one exhaustive-GT setup (0.833% density) and exhausts at 7,977 calls; this is the only current ceiling failure. The tail plot was regenerated from saved rows with no new simulation.

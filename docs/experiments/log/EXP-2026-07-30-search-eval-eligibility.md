@@ -34,3 +34,5 @@ Easy 1push now contains 697 episodes and both learned and all three random seeds
 ## 2026-07-31 exhaustive-GT cleanup
 
 The extended hard tail exposed four additional episodes whose sampled manifest calls them 2-push-solvable but whose completed exhaustive-GT root contains zero genuine setup pushes: aug9 `set2/benchmark_5/run_0207/pair_000` obstacle 1, aug9 `set1/benchmark_4/run_0245/pair_000` obstacle 3, aug9 `set1/benchmark_4/run_0282/pair_001` obstacle 4, and feb straight100 seed01036 `run_0006/pair_001` obstacle 3. User decision: exclude these exact `(xml, object, region)` records from the canonical search view, preserve the untouched 1,018-episode source manifest, regenerate the derived manifests, and recompute all saved aggregates and plots from existing rows without new simulation.
+
+The rebuilt registry contains 1,013 2push episodes: easy 385, medium 488, hard 138, unknown 2. All four budget-900 aggregates and both saved plots were recomputed by filtering the original leaf rows through the registered episode keys; no simulator rerun was needed. The manifest guard passes 8/8 checks.
