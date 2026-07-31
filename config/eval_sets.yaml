@@ -51,7 +51,7 @@ expected_counts:
   pure2push_gt_divisions_source_episodes: 1018
   twopush_source_episodes:     2341
   divisions:  {easy: 385, medium: 488, hard: 138, unknown: 2}
-  sampled_divisions: {easy: 238, medium: 409, hard: 366}
+  sampled_divisions: {easy: 238, medium: 408, hard: 367}
   twopush_gt_h5_nodes:         68393
 
 search_eval_exclusions:
