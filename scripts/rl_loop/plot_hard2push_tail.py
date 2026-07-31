@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plot the exhaustive-GT hard-2push model tail beyond the random 900-call cap."""
+"""Plot equal-budget exhaustive-GT hard-2push model and random tails."""
 import argparse
 import glob
 import json
@@ -51,7 +51,7 @@ def _curve(rows, grid):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-spliced", required=True)
-    parser.add_argument("--random-dirs", required=True, nargs=3)
+    parser.add_argument("--random-spliced", required=True, nargs=3)
     parser.add_argument("--divisions", required=True)
     parser.add_argument("--base-budget", type=int, default=900)
     parser.add_argument("--tail-budget", type=int, default=10000)
@@ -61,19 +61,17 @@ def main():
     hard_keys = _hard_keys(args.divisions)
     model = _read_jsonl(args.model_spliced)
     random_seeds = [
-        [row for row in _read_jsonl(directory) if _key(row) in hard_keys]
-        for directory in args.random_dirs
+        [row for row in _read_jsonl(path) if _key(row) in hard_keys]
+        for path in args.random_spliced
     ]
     if len(model) != len(hard_keys) or any(len(rows) != len(hard_keys) for rows in random_seeds):
         raise RuntimeError("model/random rows do not match the exhaustive-GT hard tier")
 
-    model_grid = np.arange(1, args.tail_budget + 1)
-    random_grid = np.arange(1, args.base_budget + 1)
-    model_curve = _curve(model, model_grid)
-    seed_curves = np.vstack([_curve(rows, random_grid) for rows in random_seeds])
+    grid = np.arange(1, args.tail_budget + 1)
+    model_curve = _curve(model, grid)
+    seed_curves = np.vstack([_curve(rows, grid) for rows in random_seeds])
     random_mean = seed_curves.mean(axis=0)
     random_std = seed_curves.std(axis=0, ddof=1)
-
     plt.rcParams.update({
         "font.family": "sans-serif",
         "font.sans-serif": ["DejaVu Sans", "Helvetica", "Arial"],
@@ -91,23 +89,19 @@ def main():
     })
     fig, ax = plt.subplots(figsize=(8.6, 5.2))
     ax.fill_between(
-        random_grid,
+        grid,
         np.clip(random_mean - random_std, 0, 100),
         np.clip(random_mean + random_std, 0, 100),
         color=RANDOM_COLOR,
         alpha=0.18,
         linewidth=0,
     )
-    ax.plot(random_grid, random_mean, color=RANDOM_COLOR, linewidth=2.3,
-            label="Random (3 seeds, mean ± SD; ends at 900)")
-    ax.scatter([args.base_budget], [random_mean[-1]], color=RANDOM_COLOR, s=28, zorder=3)
-    ax.plot(model_grid, model_curve, color=MODEL_COLOR, linewidth=2.6,
-            label="Learned ranker (extended tail)")
+    ax.plot(grid, random_mean, color=RANDOM_COLOR, linewidth=2.3,
+            label=f"Random · final {random_mean[-1]:.1f}±{random_std[-1]:.1f}%")
+    ax.plot(grid, model_curve, color=MODEL_COLOR, linewidth=2.6,
+            label=f"Learned ranker · final {model_curve[-1]:.1f}%")
     ax.axvline(args.base_budget, color="#777777", linestyle=":", linewidth=1.2)
     ax.text(args.base_budget * 1.05, 3, "original cap", color="#666666", fontsize=10)
-    ax.text(9500, model_curve[-1] - 6.0,
-            f"{sum(row['solved'] for row in model)}/{len(model)} = {model_curve[-1]:.1f}%",
-            color=MODEL_COLOR, fontsize=10.5, ha="right")
     ax.set_xscale("log")
     ax.set_xlim(1, args.tail_budget)
     ax.set_ylim(0, 103)

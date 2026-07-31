@@ -219,26 +219,26 @@ Same 1018-episode 2-push test set, hmax 2, budget 30, both models (ceiling, hard
 
 The setup-only ranker and a three-seed random ranker used identical Amarel search settings on both registered test sets: `hmax=2`, budget 900, `combine=q`, confidence discount τ=0.15, no-op dedupe on, and jam-depth pruning on. Random values are mean ± sample standard deviation. “Tight” is solve@1 for 1push and solve@2 for pure-2push; `s2s` is average simulator calls among solved episodes.
 
-The 2push rows use the corrected exhaustive-GT fixed tiers: hard <5% setups (140), medium 5–30% (471), easy ≥30% (370), and 37 unmatched roots explicitly unknown. The earlier incomplete-manifest count bins are retained only for historical reproduction.
+The 2push rows use the finalized 35-root exhaustive-GT fill and fixed setup-density tiers: hard <5% (142), medium 5–30% (488), easy ≥30% (385), and two explicitly unknown. Search-ineligible queue-exhausted episodes are excluded by the eval registry, leaving 1,322 1push and 1,017 2push episodes.
 
 ![Exact per-episode success versus simulator calls for the learned ranker and three-seed random baseline, split by fixed difficulty and horizon.](plots/postprune_hmax2_gt_tiers/success_vs_sims_both_horizons.png)
 
 | horizon | tier | model tight | random tight | model @30 | random @30 | model @900 | random @900 | model s2s | random s2s |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| 1push | easy | 97.6 | 60.0±2.3 | 99.9 | 99.9±0.0 | 99.9 | 99.9±0.0 | 1.0 | 1.8±0.1 |
+| 1push | easy | 97.7 | 60.1±2.3 | 100.0 | 100.0±0.0 | 100.0 | 100.0±0.0 | 1.0 | 1.8±0.1 |
 | 1push | medium | 84.6 | 12.7±0.5 | 99.5 | 97.9±0.5 | 100.0 | 100.0±0.0 | 1.6 | 6.4±0.2 |
 | 1push | hard | 39.7 | 3.3±1.2 | 96.6 | 80.1±2.1 | 100.0 | 100.0±0.0 | 4.6 | 23.0±1.0 |
-| 1push | all | 84.5 | 36.2±1.5 | 99.2 | 96.2±0.3 | 99.9 | 99.9±0.0 | 1.8 | 6.6±0.3 |
-| 2push | easy | 43.5 | 6.2±2.1 | 95.7 | 73.1±2.7 | 99.7 | 99.7±0.0 | 8.5 | 28.6±1.2 |
-| 2push | medium | 33.5 | 0.8±0.7 | 85.4 | 30.7±2.4 | 99.8 | 98.7±0.5 | 23.7 | 100.2±1.6 |
-| 2push | hard | 9.3 | 0.0±0.0 | 54.3 | 9.1±1.5 | 91.4 | 74.7±2.3 | 67.4 | 286.1±38.7 |
-| 2push | unknown | 37.8 | 5.4±5.4 | 78.4 | 62.2±2.7 | 97.3 | 97.3±0.0 | 24.6 | 66.6±17.8 |
-| 2push | all | 34.0 | 2.8±1.0 | 84.6 | 44.3±2.1 | 98.5 | 95.8±0.5 | 23.7 | 91.7±4.4 |
+| 1push | all | 84.6 | 36.2±1.5 | 99.3 | 96.2±0.3 | 100.0 | 100.0±0.0 | 1.8 | 6.6±0.3 |
+| 2push | easy | 44.4 | 6.3±2.1 | 96.1 | 73.4±2.8 | 100.0 | 100.0±0.0 | 8.4 | 28.6±1.1 |
+| 2push | medium | 33.0 | 0.9±0.6 | 84.6 | 31.6±2.4 | 99.8 | 98.8±0.4 | 24.0 | 99.7±2.2 |
+| 2push | hard | 9.2 | 0.0±0.0 | 53.5 | 8.9±1.5 | 90.8 | 74.4±2.3 | 68.5 | 287.4±39.4 |
+| 2push | unknown | 50.0 | 0.0±0.0 | 100.0 | 50.0±0.0 | 100.0 | 100.0±0.0 | 3.5 | 26.7±1.8 |
+| 2push | all | 34.0 | 2.8±1.0 | 84.7 | 44.3±2.1 | 98.6 | 95.9±0.5 | 23.7 | 91.7±4.4 |
 
-**WIN.** The learned ordering is dramatically better where simulator calls are scarce and remains better on every fixed difficulty tier. Exhaustive-GT hard 2push reaches 54.3% by 30 calls versus random's 9.1±1.5%, while solved episodes need 67.4 calls versus 286.1±38.7. Hard 1push reaches 83.3% versus 25.7±6.0% by five calls. Both methods eventually saturate on 1push, but the learned ranker reaches the verified opening far sooner. Full solve@{1,2,5,10,30,100,300,900} tables and original run audit → [experiment card](archive/EXP-2026-07-29-post-pruning-canonical-search.md).
+**WIN.** The learned ordering is dramatically better where simulator calls are scarce and remains better on every fixed difficulty tier. Exhaustive-GT hard 2push reaches 53.5% by 30 calls versus random's 8.9±1.5%, while solved episodes need 68.5 calls versus 287.4±39.4. Hard 1push reaches 83.3% versus 25.7±6.0% by five calls. Both methods eventually saturate on 1push, but the learned ranker reaches the verified opening far sooner. Full solve@{1,2,5,10,30,100,300,900} tables and original run audit → [experiment card](archive/EXP-2026-07-29-post-pruning-canonical-search.md).
 
-Only the 12 GT-hard learned-ranker episodes truncated at 900 were then extended to a 10,000-call cap. Eight solved; four exhausted naturally; none hit the cap. Hard success therefore rises from 128/140 = 91.4% at 900 to a final plateau of 136/140 = 97.1%. More budget cannot reach 100% under unchanged search.
+The GT-hard tails were then extended from 900 calls to natural queue exhaustion under a 10,000-call cap, preserving each random episode's original seed index. Learned rises from 129/142 = 90.8% at 900 to 137/142 = 96.5%; random finishes at 135/142, 137/142, and 137/142 = 96.0±0.8%. None hit the cap, so neither ordering can reach 100% under unchanged search. Learned remains the speed winner: it reaches 50/75/90/95% success in 22/118/631/2,261 calls versus random-mean 358/916/2,446/6,997 calls, or 16.3×/7.8×/3.9×/3.1× fewer calls.
 
-![Exhaustive-GT hard-2push learned tail extended beyond the original 900-call random baseline.](plots/postprune_hmax2_gt_tiers/success_vs_sims_2push_hard_tail.png)
+![Equal-budget exhaustive-GT hard-2push learned and three-seed random tails.](plots/postprune_hmax2_gt_tiers/success_vs_sims_2push_hard_tail.png)
 
-Tail run and queue-exhaustion audit → [experiment card](log/EXP-2026-07-30-hard2push-search-tail.md).
+Tail run, seed-stability audit, and queue-exhaustion results → [experiment card](log/EXP-2026-07-30-random-hard2push-search-tail.md).

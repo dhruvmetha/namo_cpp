@@ -1,6 +1,6 @@
 ---
 type: experiment
-status: live
+status: done
 created: 2026-07-30
 thread: rl_loop
 robot: car
@@ -29,10 +29,12 @@ The filtered random retry arrays (`59746011`–`59746013`) completed but failed 
 
 Seed-stability smoke `59774102` used the original 1,018-episode key, original 26-XML shard 0, and a one-episode `--only-key` at budget 900. It reproduced the base row exactly (`solved=false`, `sims=900`) with seed 7374, clearing the corrected random-tail launch.
 
+Corrected arrays `59775067`–`59775069` ran the 107 random tail episodes in their original 26-XML shard positions. All 64 selected shards completed, produced 107 unique target rows, and logged zero tracebacks.
+
 ## Result
 
-Pending.
+All three random tails pass the splice invariant: no episode changed outcome at or before the original 900-call cap. Final hard-2push success is learned 137/142 = 96.5%; random seeds 7000/8000/9000 are 135/142, 137/142, and 137/142 = 96.0±0.8%. All remaining failures exhausted the search queue naturally; none reached 10,000 calls. Learned reaches 50/75/90/95% success at 22/118/631/2,261 calls versus random-mean 358/916/2,446/6,997 calls. Among ultimately solved episodes, learned averages 171.1 calls versus random 733.5±53.2.
 
 ## Verdict
 
-Pending.
+**WIN on search efficiency; tied at the natural ceiling.** Learned needs 16.3×/7.8×/3.9×/3.1× fewer simulator calls to reach 50/75/90/95% success. Its final 96.5% plateau is only 0.5 points above the random mean and equals two random seeds, so the durable result is faster ordering, not a higher solvable ceiling.
