@@ -27,6 +27,8 @@ The first production arrays (`59738500`–`59738503`) hit Amarel scratch's expir
 
 The filtered random retry arrays (`59746011`–`59746013`) completed but failed the splice invariant: 37 reruns solved at or before 900 despite being unsolved in the base run. Code inspection found that random seeds depend on each record's position within its original 26-XML shard, so filtering/re-sharding the key changes the baseline. Those rows are rejected. The evaluator now supports `--only-key`: it iterates the original full key and original shard boundaries, skips non-target episodes without changing their indices, and therefore preserves the exact base RNG stream. The learned delta from `59746014` is deterministic and passed the splice invariant, giving 137/142 = 96.5% final hard success with five naturally exhausted searches.
 
+Seed-stability smoke `59774102` used the original 1,018-episode key, original 26-XML shard 0, and a one-episode `--only-key` at budget 900. It reproduced the base row exactly (`solved=false`, `sims=900`) with seed 7374, clearing the corrected random-tail launch.
+
 ## Result
 
 Pending.
