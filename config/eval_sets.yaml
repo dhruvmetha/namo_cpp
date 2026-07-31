@@ -17,7 +17,7 @@ files:
   pure2push_gt_divisions_source: datasets/namo_testset_v1/labels/pure2push_gt_divisions_final35.json # full 1018-episode finalized GT tiers
   twopush_source:      datasets/namo_testset_v1/labels/twopush.json             # SOURCE (onepush/pure2push derived from this)
   # THE ONLY canonical comprehensive 2push GT artifact. Each included root was fully exhausted;
-  # 1011/1013 search episodes are covered and the remaining two are explicitly unknown.
+  # 1010/1012 search episodes are covered and the remaining two are explicitly unknown.
   twopush_gt_h5:       curriculum2/beast/round2/h5/testset_gt_plus35.h5
 
 # Retained only for historical reproduction or distribution-shift diagnostics. These are not
@@ -50,12 +50,12 @@ expected_counts:
   onepush_source_episodes:     1323
   onepush_manifest_episodes:   1322
   onepush_divisions: {easy: 697, medium: 421, hard: 204}
-  pure2push_manifest_episodes: 1013
+  pure2push_manifest_episodes: 1012
   pure2push_source_episodes:   1018
   pure2push_gt_divisions_source_episodes: 1018
   twopush_source_episodes:     2341
-  divisions:  {easy: 385, medium: 488, hard: 138, unknown: 2}
-  sampled_divisions: {easy: 238, medium: 408, hard: 367}
+  divisions:  {easy: 385, medium: 488, hard: 137, unknown: 2}
+  sampled_divisions: {easy: 238, medium: 408, hard: 366}
   twopush_gt_h5_nodes:         68393
 
 search_eval_exclusions:
@@ -89,3 +89,8 @@ search_eval_exclusions:
     object_id: obstacle_3_movable
     region: goal
     reason: sampled manifest says solvable but the exhaustive GT has zero genuine setup pushes
+  - horizon: 2push
+    xml_suffix: car_envs/v3/test/feb_car/straight50_pts2/real_template_pts2_seed02037/run_0005/env_0005_pair_001.xml
+    object_id: obstacle_0_movable
+    region: goal
+    reason: all four rankers exhaust the pruned search queue without realizing the exhaustive-GT setup-finish chain

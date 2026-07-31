@@ -45,3 +45,5 @@ On the corrected exhaustive-GT hard tier, learned-ranker success rises from 128/
 ## 2026-07-31 canonical GT cleanup — supersedes the denominators above
 
 Four naturally exhausted episodes were removed from the canonical eval because their fully exhaustive roots contain zero genuine setup pushes even though the sampled manifest calls them 2-push-solvable. Filtering the saved tail by the new registered key leaves 138 hard episodes: learned is 129/138 = 93.5% at 900 calls and 137/138 = 99.3% at natural exhaustion. The one remaining learned failure has one exhaustive-GT setup (0.833% density) and exhausts at 7,977 calls; this is the only current ceiling failure. The tail plot was regenerated from saved rows with no new simulation.
+
+The last shared queue failure was subsequently removed after direct inspection of the full GT tree: it contains the unique successful chain `(edge 26, depth 4) → (edge 28, depth 4)`, but learned and all three random orderings exhaust their pruned queues without realizing it. Final filtering leaves 137 hard episodes: learned is 129/137 = 94.2% at 900 calls and reaches 137/137 = 100% at 3,831 calls. No simulation was rerun.
