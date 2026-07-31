@@ -12,14 +12,35 @@ files:
   onepush_manifest:    datasets/namo_testset_v1/labels/onepush_search_eval.json    # search-eligible 1push manifest
   pure2push_manifest:  datasets/namo_testset_v1/labels/pure2push_search_eval.json   # search-eligible 2push eval key
   pure2push_divisions: datasets/namo_testset_v1/labels/pure2push_gt_divisions_search_eval.json # fixed exhaustive-GT setup-density tiers
-  pure2push_sampled_divisions: datasets/namo_testset_v1/labels/pure2push_divisions_search_eval.json # legacy tiers on search-eligible set
   twopush_source:      datasets/namo_testset_v1/labels/twopush.json             # SOURCE (onepush/pure2push derived from this)
-  # exhaustive ground truth (offline analysis only; solve@k uses the live sim, not this)
-  twopush_gt_h5:       curriculum2/beast/round2/h5/testset_gt_plus35.h5          # 2push exhaustive GT (35 targeted roots added)
-  # NON-CANONICAL GT — dead-bank distribution, not the testset. Separations here do NOT replicate
-  # on the canonical set (see eval_set_registry.md). Never headline off it; it is here so
-  # scripts/eval_auc.py can resolve it single-source instead of hardcoding the path.
+  # THE ONLY canonical comprehensive 2push GT artifact. Each included root was fully exhausted;
+  # 1015/1017 search episodes are covered and the remaining two are explicitly unknown.
+  twopush_gt_h5:       curriculum2/beast/round2/h5/testset_gt_plus35.h5
+
+# Retained only for historical reproduction or distribution-shift diagnostics. These are not
+# canonical test sets and must never replace the exhaustive-GT tiers/file above in new results.
+noncanonical_files:
+  pure2push_sampled_divisions: datasets/namo_testset_v1/labels/pure2push_divisions_search_eval.json
   deadbank_gt_h5:      curriculum2/beast/round2/h5/round2_eval.h5                # dead-bank exhaustive GT
+
+# Canonical search baseline for both registered horizons and every fixed difficulty tier.
+# Report the three runs as ONE baseline: mean +/- sample SD across seeds; never headline one seed.
+baselines:
+  random_search_hmax2:
+    ranker: uniform_random
+    seeds: [7000, 8000, 9000]
+    report: mean_plus_sample_sd
+    artifacts:
+      7000: eval/postprune_hmax2/final35/agg_random_s7000.json
+      8000: eval/postprune_hmax2/final35/agg_random_s8000.json
+      9000: eval/postprune_hmax2/final35/agg_random_s9000.json
+    search:
+      hmax: 2
+      sim_budget: 900
+      combine: q
+      confidence_discount_tau: 0.15
+      dedupe_noop: true
+      prune_jam_depth: true
 
 # loader self-test assertions (namo.eval_sets validates against these)
 expected_counts:

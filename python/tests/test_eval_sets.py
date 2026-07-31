@@ -46,7 +46,7 @@ def test_division_tiers_match_expected():
 
 
 def test_legacy_sampled_division_tiers_match_expected():
-    d = json.load(open(E.SAMPLED_DIVISIONS))
+    d = json.load(open(E.LEGACY_SAMPLED_DIVISIONS))
     counts = {}
     for eps in d.values():
         for e in eps:
@@ -68,6 +68,31 @@ def test_onepush_fixed_difficulty_counts_match_expected():
 def test_gt_h5_node_count():
     with h5py.File(E.TWOPUSH_GT_H5, "r") as f:
         assert f["node_kind"].shape[0] == E.EXPECTED["twopush_gt_h5_nodes"]
+
+
+def test_canonical_random_baseline_is_three_seed_hmax2():
+    baseline = E.RANDOM_SEARCH_BASELINE
+    assert baseline["ranker"] == "uniform_random"
+    assert baseline["seeds"] == [7000, 8000, 9000]
+    assert baseline["report"] == "mean_plus_sample_sd"
+    assert baseline["search"] == {
+        "hmax": 2,
+        "sim_budget": 900,
+        "combine": "q",
+        "confidence_discount_tau": 0.15,
+        "dedupe_noop": True,
+        "prune_jam_depth": True,
+    }
+    for seed, artifact in E.baseline_paths("random_search_hmax2").items():
+        assert artifact.exists(), f"random seed {seed} artifact is missing: {artifact}"
+        result = json.load(open(artifact))
+        assert result["search"]["prior"] == "uniform"
+        assert result["search"]["hmax"] == 2
+        assert result["search"]["sim_budget"] == 900
+        assert result["search"]["dedupe_noop"] is True
+        assert result["search"]["prune_jam_depth"] is True
+        assert result["1push"]["all"]["n"] == E.EXPECTED["onepush_manifest_episodes"]
+        assert result["2push"]["all"]["n"] == E.EXPECTED["pure2push_manifest_episodes"]
 
 
 def test_unknown_name_raises():

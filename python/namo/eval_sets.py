@@ -29,35 +29,47 @@ def _load():
 
 _CFG = _load()
 _FILES = _CFG["files"]
+_NONCANONICAL_FILES = _CFG.get("noncanonical_files", {})
 EXPECTED = _CFG.get("expected_counts", {})
 EXCLUSIONS = _CFG.get("search_eval_exclusions", [])
+BASELINES = _CFG.get("baselines", {})
 TESTSET = _CFG["testset"]
 
 
 def path(name):
     """Resolve a named eval-set file to an absolute Path on this box.
 
-    ``name`` is a key under ``files:`` in config/eval_sets.yaml. Raises KeyError
-    (loud, not a silent wrong path) if the name is unknown.
+    ``name`` is a key under ``files:`` or ``noncanonical_files:`` in
+    config/eval_sets.yaml. Raises KeyError (loud, not a silent wrong path) if
+    the name is unknown.
     """
-    if name not in _FILES:
-        raise KeyError(f"unknown eval-set {name!r}; known: {sorted(_FILES)}")
-    return SCRATCH / _FILES[name]
+    known = {**_FILES, **_NONCANONICAL_FILES}
+    if name not in known:
+        raise KeyError(f"unknown eval-set {name!r}; known: {sorted(known)}")
+    return SCRATCH / known[name]
+
+
+def baseline_paths(name):
+    """Resolve every per-seed result artifact for one registered baseline."""
+    if name not in BASELINES:
+        raise KeyError(f"unknown eval baseline {name!r}; known: {sorted(BASELINES)}")
+    return {int(seed): SCRATCH / artifact for seed, artifact in BASELINES[name]["artifacts"].items()}
 
 
 # Convenience attributes — the canonical set, resolved.
 ONEPUSH = path("onepush_manifest")
 PURE2PUSH = path("pure2push_manifest")
 DIVISIONS = path("pure2push_divisions")
-SAMPLED_DIVISIONS = path("pure2push_sampled_divisions")
+LEGACY_SAMPLED_DIVISIONS = path("pure2push_sampled_divisions")
 TWOPUSH_SOURCE = path("twopush_source")
 TWOPUSH_GT_H5 = path("twopush_gt_h5")
+RANDOM_SEARCH_BASELINE = BASELINES["random_search_hmax2"]
 
 
 if __name__ == "__main__":
     # CLI for slurm/sh: resolve a named eval-set path single-source.
     #   python -m namo.eval_sets <name>   → one absolute path, no trailing junk
-    #   python -m namo.eval_sets --list   → all names, one per line
+    #   python -m namo.eval_sets --list   → canonical names, one per line
     import sys
 
     if len(sys.argv) != 2:

@@ -7,9 +7,9 @@ All paths under `/common/users/dm1487/scratch_namo/`.
 ## ⭐ Single source — `config/eval_sets.yaml`
 
 **All eval code resolves test-set paths from `config/eval_sets.yaml` via `namo.eval_sets`.** This doc is the human-readable truth; the yaml is the machine truth (one file, both must agree). Change the test set = edit the yaml only; every reader follows.
-- Python: `from namo import eval_sets` → `eval_sets.PURE2PUSH` / `.ONEPUSH` / `.DIVISIONS` / `.SAMPLED_DIVISIONS` / `.TWOPUSH_SOURCE` / `.TWOPUSH_GT_H5` (resolved absolute Paths, box-portable via `namo.paths`).
+- Python: `from namo import eval_sets` → `eval_sets.PURE2PUSH` / `.ONEPUSH` / `.DIVISIONS` / `.TWOPUSH_SOURCE` / `.TWOPUSH_GT_H5` (resolved absolute Paths, box-portable via `namo.paths`). The historical sampled tiers and dead-bank H5 live under `noncanonical_files`, not the canonical registry surface.
 - Shell/slurm: `python -m namo.eval_sets pure2push_manifest` prints the resolved path; `--list` prints all names.
-- Guard: `python/tests/test_eval_sets.py` asserts every path resolves to an existing file with the expected counts (1322 / 1017 / GT tiers 385·488·142 + 2 unknown / 2341 / 68,393). Run it before trusting a config edit.
+- Guard: `python/tests/test_eval_sets.py` asserts every path resolves to an existing file with the expected counts (1322 / 1017 / GT tiers 385·488·142 + 2 unknown / 2341 / 68,393), and verifies all three canonical random artifacts use the registered search. Run it before trusting a config edit.
 - Migrated: **all** committed eval entrypoints (incl. `eval_bestfirst.py` / `time_bestfirst.py`) + agg scripts + slurm launchers. No committed eval code hardcodes a `namo_testset_v1/labels` path any more.
 
 ## Canonical test manifests (testset_v1) — USE THESE
@@ -28,15 +28,34 @@ The unfiltered `onepush_episodes.json` (1323) and `pure2push.json` (1018) remain
 
 **INVARIANT:** the unit is per **(xml, object, region)** region-opening instance, never per room. One xml holds many instances with different tiers.
 
+## Canonical random-search baseline — USE THIS
+
+The baseline is **one three-seed measurement**, not three separate baselines: uniform-random push ordering with seeds **7000/8000/9000**, reported as mean ± sample standard deviation at every simulator budget. It uses the same search as the learned ranker on both registered horizons: `hmax=2`, budget 900, `combine=q`, confidence discount τ=0.15, no-op dedupe on, and jam-depth pruning on. The learned arm is deterministic and therefore runs once. “Tight” below means solve@1 for 1push and solve@2 for 2push.
+
+The machine-readable entry is `baselines.random_search_hmax2` in `config/eval_sets.yaml`; its three budget-900 aggregates are `eval/postprune_hmax2/final35/agg_random_s{7000,8000,9000}.json` under `$NAMO_SCRATCH`. New comparisons must use their mean curve and sample-SD band; a single seed is only a debugging/reproduction view.
+
+| horizon | tier | random tight | random @30 | random @900 | random solved-only calls |
+|---|---|---:|---:|---:|---:|
+| 1push | easy | 60.1±2.3 | 100.0±0.0 | 100.0±0.0 | 1.8±0.1 |
+| 1push | medium | 12.7±0.5 | 97.9±0.5 | 100.0±0.0 | 6.4±0.2 |
+| 1push | hard | 3.3±1.2 | 80.1±2.1 | 100.0±0.0 | 23.0±1.0 |
+| 2push | easy | 6.3±2.1 | 73.4±2.8 | 100.0±0.0 | 28.6±1.1 |
+| 2push | medium | 0.9±0.6 | 31.6±2.4 | 98.8±0.4 | 99.7±2.2 |
+| 2push | hard | 0.0±0.0 | 8.9±1.5 | 74.4±2.3 | 287.4±39.4 |
+
+The equal-budget hard-2push tails use the same three seeds with original per-episode RNG streams preserved: final random success is 96.0±0.8% after natural queue exhaustion, and random reaches 95% at 6,997 calls on average versus 2,261 for learned. Full learned-versus-random results and plots are in [RESULTS.md](RESULTS.md).
+
 ## Exhaustive GT (offline analysis only — NOT used by solve@k)
 
 The solve@k/sims eval uses the **live simulator** as verifier, NOT these. These are for offline ranking / "how buried is the true winner" analysis.
 
-**1-push has no separate GT h5 — the manifest IS the exhaustive 1-push GT.** `onepush_episodes.json` already exhausts every **reachable** push per episode (`tried` mean 81.6/300, rest unreachable) and records **every** valid opener (`valid` mean 30.8). 1-push is single-ply so exhaustion is cheap; only 2-push needs a separate GT (`testset_gt.h5`) because its finish tree is deep. So: 1-push exhaustive GT = `onepush_episodes.json` itself; 2-push exhaustive GT = `testset_gt.h5`.
+**1-push has no separate GT h5 — the manifest IS the exhaustive 1-push GT.** `onepush_episodes.json` already exhausts every **reachable** push per episode (`tried` mean 81.6/300, rest unreachable) and records **every** valid opener (`valid` mean 30.8). 1-push is single-ply so exhaustion is cheap; only 2-push needs a separate GT because its finish tree is deep. So: 1-push exhaustive GT = `onepush_episodes.json` itself; the **only canonical comprehensive 2-push GT artifact** = `testset_gt_plus35.h5`.
 
 | artifact | path | size | what it is | ⚠ |
 |---|---|---|---|---|
 | **canonical 2push GT** | `curriculum2/beast/round2/h5/testset_gt_plus35.h5` | 68,393 nodes / **1152 roots** | REF full-exhaustive root+finish sweep plus 35 targeted missing roots. EVAL-ONLY, never train. | Covers **1016/1018** source episodes and **1015/1017** search-eligible episodes. |
+
+**Canonicality rule:** this H5 is the only comprehensive 2-push GT test artifact for new results. `twopush.json` is the live-search answer key, not comprehensive per-candidate GT; `pure2push_divisions_search_eval.json` contains historical sampled tiers, not GT; and `round2_eval.h5` is a noncanonical dead-bank diagnostic distribution, not a test set. “Exhaustive” means every candidate under each included root was swept; it does not erase the two uncovered search episodes, which remain explicitly `unknown` and are excluded from tier-specific GT claims.
 
 **testset_gt.h5 schema** (verified 2026-07-26 by opening the file):
 ```
