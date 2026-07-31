@@ -89,6 +89,7 @@ def main():
         "model": {
             "final_success": round(float(model_curve[-1]), 3),
             "solved": int(sum(row["solved"] for row in model)),
+            "avg_calls_to_solve": round(float(np.mean([row["sims"] for row in model if row["solved"]])), 3),
             "calls_to_success": {str(target): _first_at(model_curve, grid, target) for target in thresholds},
             "last_solve_call": max(int(row["sims"]) for row in model if row["solved"]),
         },
@@ -100,6 +101,9 @@ def main():
             "last_solve_call_per_seed": [max(int(row["sims"]) for row in rows if row["solved"]) for rows in random_rows],
         },
     }
+    random_avg_calls = [float(np.mean([row["sims"] for row in rows if row["solved"]])) for rows in random_rows]
+    summary["random"]["avg_calls_to_solve_mean"] = round(float(np.mean(random_avg_calls)), 3)
+    summary["random"]["avg_calls_to_solve_sample_sd"] = round(float(np.std(random_avg_calls, ddof=1)), 3)
     Path(args.summary).parent.mkdir(parents=True, exist_ok=True)
     with open(args.summary, "w") as stream:
         json.dump(summary, stream, indent=2)
