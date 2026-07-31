@@ -30,3 +30,7 @@ Easy 1push now contains 697 episodes and both learned and all three random seeds
 ## Verdict
 
 **Adopt.** These two exclusions remove candidate-generation failures shared by every ordering policy; the exhaustive source labels remain unchanged and auditable.
+
+## 2026-07-31 exhaustive-GT cleanup
+
+The extended hard tail exposed four additional episodes whose sampled manifest calls them 2-push-solvable but whose completed exhaustive-GT root contains zero genuine setup pushes: aug9 `set2/benchmark_5/run_0207/pair_000` obstacle 1, aug9 `set1/benchmark_4/run_0245/pair_000` obstacle 3, aug9 `set1/benchmark_4/run_0282/pair_001` obstacle 4, and feb straight100 seed01036 `run_0006/pair_001` obstacle 3. User decision: exclude these exact `(xml, object, region)` records from the canonical search view, preserve the untouched 1,018-episode source manifest, regenerate the derived manifests, and recompute all saved aggregates and plots from existing rows without new simulation.

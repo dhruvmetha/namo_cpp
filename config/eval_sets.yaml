@@ -14,7 +14,7 @@ files:
   pure2push_divisions: datasets/namo_testset_v1/labels/pure2push_gt_divisions_search_eval.json # fixed exhaustive-GT setup-density tiers
   twopush_source:      datasets/namo_testset_v1/labels/twopush.json             # SOURCE (onepush/pure2push derived from this)
   # THE ONLY canonical comprehensive 2push GT artifact. Each included root was fully exhausted;
-  # 1015/1017 search episodes are covered and the remaining two are explicitly unknown.
+  # 1011/1013 search episodes are covered and the remaining two are explicitly unknown.
   twopush_gt_h5:       curriculum2/beast/round2/h5/testset_gt_plus35.h5
 
 # Retained only for historical reproduction or distribution-shift diagnostics. These are not
@@ -46,10 +46,10 @@ baselines:
 expected_counts:
   onepush_manifest_episodes:   1322
   onepush_divisions: {easy: 697, medium: 421, hard: 204}
-  pure2push_manifest_episodes: 1017
+  pure2push_manifest_episodes: 1013
   twopush_source_episodes:     2341
-  divisions:  {easy: 385, medium: 488, hard: 142, unknown: 2}
-  sampled_divisions: {easy: 238, medium: 409, hard: 370}
+  divisions:  {easy: 385, medium: 488, hard: 138, unknown: 2}
+  sampled_divisions: {easy: 238, medium: 409, hard: 366}
   twopush_gt_h5_nodes:         68393
 
 search_eval_exclusions:
@@ -63,3 +63,23 @@ search_eval_exclusions:
     object_id: obstacle_2_movable
     region: goal
     reason: all four rankers exhaust the identical 27-29-call queue without representing the exhaustive-GT setup
+  - horizon: 2push
+    xml_suffix: car_envs/v3/test/aug9_car/set2/benchmark_5/run_0207/env_0207_pair_000.xml
+    object_id: obstacle_1_movable
+    region: goal
+    reason: sampled manifest says solvable but the exhaustive GT has zero genuine setup pushes
+  - horizon: 2push
+    xml_suffix: car_envs/v3/test/aug9_car/set1/benchmark_4/run_0245/env_0245_pair_000.xml
+    object_id: obstacle_3_movable
+    region: goal
+    reason: sampled manifest says solvable but the exhaustive GT has zero genuine setup pushes
+  - horizon: 2push
+    xml_suffix: car_envs/v3/test/aug9_car/set1/benchmark_4/run_0282/env_0282_pair_001.xml
+    object_id: obstacle_4_movable
+    region: goal
+    reason: sampled manifest says solvable but the exhaustive GT has zero genuine setup pushes
+  - horizon: 2push
+    xml_suffix: car_envs/v3/test/feb_car/straight100_pts2/real_template_pts2_seed01036/run_0006/env_0006_pair_001.xml
+    object_id: obstacle_3_movable
+    region: goal
+    reason: sampled manifest says solvable but the exhaustive GT has zero genuine setup pushes
