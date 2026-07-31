@@ -2,7 +2,7 @@
 status: live
 thread: rl_loop
 robot: car
-updated: 2026-07-23
+updated: 2026-07-31
 parent: EXP-2026-07-14-region-opening-curriculum-marvel
 commit: ccbb2d1
 ---
@@ -178,7 +178,29 @@ hard-1push @ depth-2: solve@300 98.0→**99.5**.
 - Caveat: only 42%/36% of solves route via a LABELED setup (valid_first_push is a ~15-sample incomplete set; unlabeled first pushes are usually genuine setups the labeler never tried) — attribution describes the ~40% that fall back to the labeled one; hit@1 understates the ranker.
 - **Motivates the next experiment: failure-discount best-first** (per-board credibility w demoted by verified sibling failures — DIRT-style demotion / MCTS backup in the deterministic limit; model-free, so the random baseline gets the same machinery, eval is the 2×2 {random, ranker} × {static, discount}). Upper bound from the trace: killing suppression cuts labeled-setup solve cost ~60→~22 sims (all), ~98→~33 (hard). **→ Spun out as child card [EXP-2026-07-24-failure-discount-search](EXP-2026-07-24-failure-discount-search.md)** (design, g-fitting, the grid, decision bar live there); on adoption, this card's search-based numbers get re-stated under the new search per baseline symmetry.
 
-**Success-vs-time (wall-clock) eval — planned, not yet run.** Current success-vs-sims curves are cross-box-valid (sims substrate). For success-vs-TIME, existing t_wall is unusable (colossus/d20/antman evals free-scheduled across ilab1+ilab2, no `--exclusive`/`--constraint`). Infra exists on Amarel: `scripts/amarel/{launch_time_campaign.sh, time_bestfirst_shard.slurm, time_bestfirst.slurm, time_benchmark.slurm}` (`--exclusive` + `--constraint=<arch>`, single-thread, interleaved via `scripts/sandbox/time_bestfirst.py`). New work: extend `time_bestfirst.py`'s 2-ckpt registry to 4 named (colossus-0/d20/antman-5c/random) + a `launch_time_campaign_4model.sh` sibling. PENDING [USER].
+**Final adopted-search evaluation (2026-07-31) — setup-only Colossus vs three-seed random, `hmax=2`.** The deploy checkpoint is `round3/models/d20_plus_setup_only_splitloss/checkpoints/epoch011-val_loss1.6952.ckpt`; its Amarel evaluation copy is `/cache/home/dm1487/eval_inputs/postprune_hmax2/setup_only.ckpt`, SHA256 `3a43f5ea5fe5e553abbb1bb099f657699dda82cc2b08e079bd6a54677fc2c2b6`. Both arms use the identical search: `hmax=2`, `combine=q`, confidence discount τ=0.15, no-op dedupe on, jam-depth pruning on, budget 900; only the push ordering differs (`model` versus uniform random seeds 7000/8000/9000). The finalized registry provides 1,322 search-eligible 1push episodes and 1,017 2push episodes; fixed 2push setup-density tiers are easy 385, medium 488, hard 142, plus two explicitly unknown.
+
+| horizon | tier | model tight | random tight | model @30 | random @30 | model @900 | random @900 | model s2s | random s2s |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1push | easy | 97.7 | 60.1±2.3 | 100.0 | 100.0±0.0 | 100.0 | 100.0±0.0 | 1.0 | 1.8±0.1 |
+| 1push | medium | 84.6 | 12.7±0.5 | 99.5 | 97.9±0.5 | 100.0 | 100.0±0.0 | 1.6 | 6.4±0.2 |
+| 1push | hard | 39.7 | 3.3±1.2 | 96.6 | 80.1±2.1 | 100.0 | 100.0±0.0 | 4.6 | 23.0±1.0 |
+| 1push | all | 84.6 | 36.2±1.5 | 99.3 | 96.2±0.3 | 100.0 | 100.0±0.0 | 1.8 | 6.6±0.3 |
+| 2push | easy | 44.4 | 6.3±2.1 | 96.1 | 73.4±2.8 | 100.0 | 100.0±0.0 | 8.4 | 28.6±1.1 |
+| 2push | medium | 33.0 | 0.9±0.6 | 84.6 | 31.6±2.4 | 99.8 | 98.8±0.4 | 24.0 | 99.7±2.2 |
+| 2push | hard | 9.2 | 0.0±0.0 | 53.5 | 8.9±1.5 | 90.8 | 74.4±2.3 | 68.5 | 287.4±39.4 |
+| 2push | unknown | 50.0 | 0.0±0.0 | 100.0 | 50.0±0.0 | 100.0 | 100.0±0.0 | 3.5 | 26.7±1.8 |
+| 2push | all | 34.0 | 2.8±1.0 | 84.7 | 44.3±2.1 | 98.6 | 95.9±0.5 | 23.7 | 91.7±4.4 |
+
+![Final setup-only Colossus versus random search curves across both horizons and every fixed tier.](../plots/postprune_hmax2_gt_tiers/success_vs_sims_both_horizons.png)
+
+**Hard-2push natural-exhaustion tail.** Under equal 10,000-call caps with original per-episode random seeds preserved, learned finishes at 137/142 = 96.5%; random seeds finish at 135/142, 137/142, and 137/142 = 96.0±0.8%. No run hits the cap: all residual failures exhaust the queue, so neither arm can reach 100% without changing the search. Learned reaches 50/75/90/95% at 22/118/631/2,261 calls versus random-mean 358/916/2,446/6,997, giving 16.3×/7.8×/3.9×/3.1× fewer simulator calls. Among ultimately solved hard episodes, learned averages 171.1 calls versus random 733.5±53.2.
+
+![Equal-budget hard-2push learned and random tails through natural queue exhaustion.](../plots/postprune_hmax2_gt_tiers/success_vs_sims_2push_hard_tail.png)
+
+**Artifacts.** Budget-900 aggregates are under `/common/users/dm1487/scratch_namo/eval/postprune_hmax2/final35/agg_{model,random_s7000,random_s8000,random_s9000}.json`; validated hard-tail splices are under `/common/users/dm1487/scratch_namo/eval/postprune_hmax2/final35/tail/spliced_seedstable/`. The seed-stability/quota audit and exact tail jobs are in [EXP-2026-07-30-random-hard2push-search-tail](EXP-2026-07-30-random-hard2push-search-tail.md); the committed plots are under `docs/experiments/plots/postprune_hmax2_gt_tiers/`.
+
+**Success-vs-time status — harness exists; current final timing is not yet measured.** The exact code path is `scripts/sandbox/time_bestfirst.py`, launched interleaved on one node through `scripts/amarel/{time_bestfirst_shard.slurm,time_bestfirst.slurm,launch_time_campaign.sh}` with `--exclusive`, one pinned CPU microarchitecture, and single-thread execution. Historical pinned hard-2push search converted a 2.1× simulator reduction (344→165) into a 1.8× wall-time reduction (46.5→26.3 s), showing that ranking overhead makes wall speedup smaller than sim speedup. Applying that measured conversion only as a forecast, the current 3.1× call advantage at 95% suggests roughly 2.5–2.7× wall-clock speedup; this is **NOT a measured Colossus result** and must stay off a success-vs-time axis until the final setup-only/random pair is re-timed interleaved on pinned identical hardware.
 
 **Seeded confirmation COMPLETE (2026-07-24, 4 conditions × 3 seeds).** d20-ctrl | setup+split | full+split | setup+opener, all 3-seed. 1push: full+split hard-tail collapse REPLICATES (non-overlapping seeds); setup recovers under BOTH split+opener loss → **recovery is a pure DATA effect (drop finishers), loss-independent**. 2push sims-to-solve all 55.2/45.2/42.0/46.2 (all colossus beat d20; full+split fastest-mean but overlaps setup+split — NOT seed-robust); solve@900 4-way tie ~96/92. split-vs-opener loss indistinguishable everywhere. **NET winner = setup DATA: only variant with BOTH d20-class hard-1push AND colossus-class 2push efficiency; full+split trades the hard tail for a non-robust sims edge.** 12 seeded models in registry. (Reactive 3/12 seeds partial — not final.)
 

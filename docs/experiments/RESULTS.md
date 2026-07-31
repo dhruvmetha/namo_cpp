@@ -217,7 +217,7 @@ Same 1018-episode 2-push test set, hmax 2, budget 30, both models (ceiling, hard
 
 ## 2026-07-29/30 — Post-pruning canonical search beats seeded random on every fixed tier
 
-The setup-only ranker and a three-seed random ranker used identical Amarel search settings on both registered test sets: `hmax=2`, budget 900, `combine=q`, confidence discount τ=0.15, no-op dedupe on, and jam-depth pruning on. Random values are mean ± sample standard deviation. “Tight” is solve@1 for 1push and solve@2 for pure-2push; `s2s` is average simulator calls among solved episodes.
+The setup-only Colossus ranker (`d20_plus_setup_only_splitloss`, epoch 11, SHA256 `3a43f5ea5fe5e553abbb1bb099f657699dda82cc2b08e079bd6a54677fc2c2b6`) and a three-seed random ranker used identical Amarel search settings on both registered test sets: `hmax=2`, budget 900, `combine=q`, confidence discount τ=0.15, no-op dedupe on, and jam-depth pruning on. Random values are mean ± sample standard deviation. “Tight” is solve@1 for 1push and solve@2 for pure-2push; `s2s` is average simulator calls among solved episodes.
 
 The 2push rows use the finalized 35-root exhaustive-GT fill and fixed setup-density tiers: hard <5% (142), medium 5–30% (488), easy ≥30% (385), and two explicitly unknown. Search-ineligible queue-exhausted episodes are excluded by the eval registry, leaving 1,322 1push and 1,017 2push episodes.
 
@@ -242,3 +242,5 @@ The GT-hard tails were then extended from 900 calls to natural queue exhaustion 
 ![Equal-budget exhaustive-GT hard-2push learned and three-seed random tails.](plots/postprune_hmax2_gt_tiers/success_vs_sims_2push_hard_tail.png)
 
 Tail run, seed-stability audit, and queue-exhaustion results → [experiment card](log/EXP-2026-07-30-random-hard2push-search-tail.md).
+
+**Wall-clock status.** The repository already has the correct measurement path: interleaved `scripts/sandbox/time_bestfirst.py` through the exclusive, CPU-microarchitecture-pinned Amarel launchers in `scripts/amarel/`. The final setup-only/random pair has not yet been timed with that protocol, so no exact minutes or success-vs-time curve are claimed. Historical pinned hard-2push search converted a 2.1× sim reduction into a 1.8× wall reduction; this supports a rough 2.5–2.7× wall forecast from the current 3.1× call advantage at 95%, but the forecast is not a result. Full checkpoint/config/artifact record → [Colossus card](log/EXP-2026-07-21-colossus-data-scaleup.md).
