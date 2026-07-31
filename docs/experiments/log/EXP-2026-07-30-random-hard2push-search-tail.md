@@ -25,6 +25,8 @@ Amarel smoke job `59738428` ran one random hard episode end-to-end on `main-redh
 
 The first production arrays (`59738500`–`59738503`) hit Amarel scratch's expired soft quota after 23 valid results: seed 7000 completed 10/34, seed 8000 completed 13/39, seed 9000 completed 0/34, and the one learned delta completed 0/1. The valid rows were preserved and excluded by exact episode key from retry manifests of 24/26/34/1 missing episodes. Filesystem probe `59745583` verified persistent writes through canonical `/home`; retry smoke `59745687` then produced a valid evaluator leaf artifact there with the unchanged production settings.
 
+The filtered random retry arrays (`59746011`–`59746013`) completed but failed the splice invariant: 37 reruns solved at or before 900 despite being unsolved in the base run. Code inspection found that random seeds depend on each record's position within its original 26-XML shard, so filtering/re-sharding the key changes the baseline. Those rows are rejected. The evaluator now supports `--only-key`: it iterates the original full key and original shard boundaries, skips non-target episodes without changing their indices, and therefore preserves the exact base RNG stream. The learned delta from `59746014` is deterministic and passed the splice invariant, giving 137/142 = 96.5% final hard success with five naturally exhausted searches.
+
 ## Result
 
 Pending.

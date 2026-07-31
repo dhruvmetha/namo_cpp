@@ -21,6 +21,7 @@ export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_TH
 HMAX=${HMAX:-2}; SIM_BUDGET=${SIM_BUDGET:-900}; PRIOR=${PRIOR:-model}; AGG=${AGG:-mean5}; COMBINE=${COMBINE:-blend}; SHARD=${SHARD:-13}
 DISCOUNT=${DISCOUNT:-off}; TAU=${TAU:-1.0}; GAMMA=${GAMMA:-0.65}; RAW=${RAW:-0}
 KEY=${KEY:-$("$NAMO_PYTHON" -m namo.eval_sets pure2push_manifest)}
+ONLY_KEY=${ONLY_KEY:-}
 SEED_BASE=${SEED_BASE:-7000}; DIVE_BONUS=${DIVE_BONUS:-0}
 mkdir -p "$OUT_DIR"
 START=$(( SLURM_ARRAY_TASK_ID * SHARD )); END=$(( START + SHARD ))
@@ -28,9 +29,11 @@ MANIFEST_ARGS=()
 if [[ -n "${MANIFEST:-}" ]]; then MANIFEST_ARGS=(--manifest "$MANIFEST"); fi
 RAW_ARGS=()
 if [[ "$RAW" == "1" ]]; then RAW_ARGS=(--raw); fi
+ONLY_ARGS=()
+if [[ -n "$ONLY_KEY" ]]; then ONLY_ARGS=(--only-key "$ONLY_KEY"); fi
 echo "task ${SLURM_ARRAY_TASK_ID}: [$START,$END) hmax=$HMAX budget=$SIM_BUDGET prior=$PRIOR seed=$SEED_BASE combine=$COMBINE discount=$DISCOUNT tau=$TAU dedupe=on jam_prune=on key=$(basename "$KEY") on $(hostname)"
 "$NAMO_PYTHON" -u scripts/sandbox/eval_bestfirst.py \
-    --ckpt "$CKPT" "${MANIFEST_ARGS[@]}" --hmax "$HMAX" --sim-budget "$SIM_BUDGET" --key "$KEY" \
+    --ckpt "$CKPT" "${MANIFEST_ARGS[@]}" --hmax "$HMAX" --sim-budget "$SIM_BUDGET" --key "$KEY" "${ONLY_ARGS[@]}" \
     --prior "$PRIOR" --agg "$AGG" --combine "$COMBINE" --discount "$DISCOUNT" --tau "$TAU" --gamma "$GAMMA" \
     --seed-base "$SEED_BASE" --dive-bonus "$DIVE_BONUS" "${RAW_ARGS[@]}" --start "$START" --end "$END" \
     --out "$OUT_DIR/shard_${SLURM_ARRAY_TASK_ID}.json" --leaf-out "$OUT_DIR/shard_${SLURM_ARRAY_TASK_ID}.jsonl"

@@ -315,6 +315,8 @@ def main():
                     help="boards reached via a setup with q >= this get 1 free strike (2.0 = disabled)")
     ap.add_argument("--key", default=str(eval_sets.PURE2PUSH),
                     help="key: {xml: [ {object_id, region, ...} ]}. Search restricted to object_id per record.")
+    ap.add_argument("--only-key", default="",
+                    help="optional episode subset to evaluate while preserving --key scene/record indices and RNG seeds")
     ap.add_argument("--seed-base", type=int, default=7000,
                     help="RNG base for the uniform baseline; model is deterministic so only matters for --prior uniform.")
     ap.add_argument("--raw", action="store_true", help="use raw HL-Gauss E[bin] (no sigmoid) for the priority")
@@ -352,6 +354,13 @@ def main():
                      "dedupe_noop": bool(a.dedupe_noop), "prune_jam_depth": bool(a.prune_jam_depth),
                      "gtable": ({str(k): v for k, v in g_table.items()} if g_table else None)}
     key = json.load(open(a.key)); keyrp = {_os.path.realpath(k): v for k, v in key.items()}
+    only = None
+    if a.only_key:
+        only_raw = json.load(open(a.only_key))
+        only = {
+            _os.path.realpath(xml): {(rec.get("object_id"), rec.get("region")) for rec in recs}
+            for xml, recs in only_raw.items()
+        }
     planner = BeamPlanner(ckpt=a.ckpt)
     print(f"device={planner.scorer.device} hmax={a.hmax} sim_budget={a.sim_budget} prior={a.prior} "
           f"agg={a.agg} combine={a.combine} discount={a.discount} tau={a.tau} "
@@ -371,6 +380,9 @@ def main():
     ep_ctr = 0
     for xi, xml in enumerate(xmls):
         try:
+            xmlrp = _os.path.realpath(xml)
+            if only is not None and xmlrp not in only:
+                continue
             recs = key.get(xml) or keyrp.get(_os.path.realpath(xml))
             if not recs:
                 n_norec += 1; continue
@@ -390,6 +402,8 @@ def main():
                 exporter = WavefrontSnapshotExporter(env)      # one per env: static geometry never moves
                 mov_names = [m["name"] for m in scene["movable"]]
             for ri, rec in enumerate(recs):
+                if only is not None and (rec.get("object_id"), rec.get("region")) not in only[xmlrp]:
+                    continue
                 rng = random.Random(a.seed_base + xi * 17 + ri)
                 obj = rec.get("object_id")
                 pops = [] if a.trace_out else None
