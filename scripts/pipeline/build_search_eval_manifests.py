@@ -45,8 +45,8 @@ def _write(path, data):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="config/eval_sets.yaml")
-    parser.add_argument("--onepush-source", required=True)
-    parser.add_argument("--twopush-source", required=True)
+    parser.add_argument("--onepush-source", default=str(eval_sets.ONEPUSH_SOURCE))
+    parser.add_argument("--twopush-source", default=str(eval_sets.PURE2PUSH_SOURCE))
     parser.add_argument("--twopush-gt-divisions-source", default=str(eval_sets.GT_DIVISIONS_SOURCE))
     parser.add_argument("--twopush-sampled-divisions-source", required=True)
     parser.add_argument("--out-dir", required=True)

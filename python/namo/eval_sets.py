@@ -57,7 +57,9 @@ def baseline_paths(name):
 
 
 # Convenience attributes — the canonical set, resolved.
+ONEPUSH_SOURCE = path("onepush_source")
 ONEPUSH = path("onepush_manifest")
+PURE2PUSH_SOURCE = path("pure2push_source")
 PURE2PUSH = path("pure2push_manifest")
 DIVISIONS = path("pure2push_divisions")
 GT_DIVISIONS_SOURCE = path("pure2push_gt_divisions_source")

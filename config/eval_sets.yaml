@@ -8,8 +8,10 @@
 testset: namo_testset_v1
 
 files:
-  # canonical manifests (consumed by eval as --key / answer keys)
+  # canonical manifests (consumed by eval as --key / answer keys) and their untouched sources
+  onepush_source:      datasets/namo_testset_v1/labels/onepush_episodes_canonical.json # full 1323, canonical test-room paths
   onepush_manifest:    datasets/namo_testset_v1/labels/onepush_search_eval.json    # search-eligible 1push manifest
+  pure2push_source:    datasets/namo_testset_v1/labels/pure2push.json              # full 1018
   pure2push_manifest:  datasets/namo_testset_v1/labels/pure2push_search_eval.json   # search-eligible 2push eval key
   pure2push_divisions: datasets/namo_testset_v1/labels/pure2push_gt_divisions_search_eval.json # fixed exhaustive-GT setup-density tiers
   pure2push_gt_divisions_source: datasets/namo_testset_v1/labels/pure2push_gt_divisions_final35.json # full 1018-episode finalized GT tiers
@@ -45,9 +47,11 @@ baselines:
 
 # loader self-test assertions (namo.eval_sets validates against these)
 expected_counts:
+  onepush_source_episodes:     1323
   onepush_manifest_episodes:   1322
   onepush_divisions: {easy: 697, medium: 421, hard: 204}
   pure2push_manifest_episodes: 1013
+  pure2push_source_episodes:   1018
   pure2push_gt_divisions_source_episodes: 1018
   twopush_source_episodes:     2341
   divisions:  {easy: 385, medium: 488, hard: 138, unknown: 2}
