@@ -23,6 +23,8 @@ Use the finalized 142-episode hard tier from the 35-root GT fill. For each rando
 
 Amarel smoke job `59738428` ran one random hard episode end-to-end on `main-redhat` with the production evaluator and shared-scratch outputs. It completed successfully in 4m31s; the actual 100-call search took 32s, produced one valid leaf row, and verified `hmax=2`, uniform prior, no-op dedupe on, jam-depth pruning on, `combine=q`, and confidence discount τ=0.15. A preceding 1,200-call timing probe (`59738062`) took 11m11s but wrote into Amarel's unpublished home cache, so it is used only for the pessimistic runtime estimate and not as a result artifact. The 10,000-call worst-case estimate is about 80 minutes, with a two-hour production cap.
 
+The first production arrays (`59738500`–`59738503`) hit Amarel scratch's expired soft quota after 23 valid results: seed 7000 completed 10/34, seed 8000 completed 13/39, seed 9000 completed 0/34, and the one learned delta completed 0/1. The valid rows were preserved and excluded by exact episode key from retry manifests of 24/26/34/1 missing episodes. Filesystem probe `59745583` verified persistent writes through canonical `/home`; retry smoke `59745687` then produced a valid evaluator leaf artifact there with the unchanged production settings.
+
 ## Result
 
 Pending.
