@@ -22,6 +22,7 @@ def _n_episodes(p):
 
 def test_all_files_exist():
     for name in ("onepush_manifest", "pure2push_manifest", "pure2push_divisions",
+                 "pure2push_gt_divisions_source",
                  "pure2push_sampled_divisions",
                  "twopush_source", "twopush_gt_h5"):
         p = E.path(name)
@@ -33,6 +34,7 @@ def test_episode_counts_match_expected():
     assert _n_episodes(E.ONEPUSH) == exp["onepush_manifest_episodes"]
     assert _n_episodes(E.PURE2PUSH) == exp["pure2push_manifest_episodes"]
     assert _n_episodes(E.TWOPUSH_SOURCE) == exp["twopush_source_episodes"]
+    assert _n_episodes(E.GT_DIVISIONS_SOURCE) == exp["pure2push_gt_divisions_source_episodes"]
 
 
 def test_division_tiers_match_expected():

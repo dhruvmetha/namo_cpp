@@ -60,6 +60,7 @@ def baseline_paths(name):
 ONEPUSH = path("onepush_manifest")
 PURE2PUSH = path("pure2push_manifest")
 DIVISIONS = path("pure2push_divisions")
+GT_DIVISIONS_SOURCE = path("pure2push_gt_divisions_source")
 LEGACY_SAMPLED_DIVISIONS = path("pure2push_sampled_divisions")
 TWOPUSH_SOURCE = path("twopush_source")
 TWOPUSH_GT_H5 = path("twopush_gt_h5")

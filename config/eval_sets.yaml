@@ -12,6 +12,7 @@ files:
   onepush_manifest:    datasets/namo_testset_v1/labels/onepush_search_eval.json    # search-eligible 1push manifest
   pure2push_manifest:  datasets/namo_testset_v1/labels/pure2push_search_eval.json   # search-eligible 2push eval key
   pure2push_divisions: datasets/namo_testset_v1/labels/pure2push_gt_divisions_search_eval.json # fixed exhaustive-GT setup-density tiers
+  pure2push_gt_divisions_source: datasets/namo_testset_v1/labels/pure2push_gt_divisions_final35.json # full 1018-episode finalized GT tiers
   twopush_source:      datasets/namo_testset_v1/labels/twopush.json             # SOURCE (onepush/pure2push derived from this)
   # THE ONLY canonical comprehensive 2push GT artifact. Each included root was fully exhausted;
   # 1011/1013 search episodes are covered and the remaining two are explicitly unknown.
@@ -47,6 +48,7 @@ expected_counts:
   onepush_manifest_episodes:   1322
   onepush_divisions: {easy: 697, medium: 421, hard: 204}
   pure2push_manifest_episodes: 1013
+  pure2push_gt_divisions_source_episodes: 1018
   twopush_source_episodes:     2341
   divisions:  {easy: 385, medium: 488, hard: 138, unknown: 2}
   sampled_divisions: {easy: 238, medium: 409, hard: 366}
