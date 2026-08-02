@@ -8,7 +8,9 @@ parent: EXP-2026-07-25-search-depth-horizon
 tags: [experiment, bootstrap, fitted-q, exit-loop, search-as-collector, claude-active]
 ---
 
-# EXP-2026-08-02 — Bootstrap value loop (fitted-Q / ExIt): guesses fill the gaps facts leave
+# EXP-2026-08-02 — Aquaman: bootstrap value loop (fitted-Q / ExIt): guesses fill the gaps facts leave
+
+**Lineage: DC (alphabetical, one letter per method revision) — this is `aquaman`.** Models: `aquaman-0` = round-0 zero-sim relabel, `aquaman-1/2/3` = crank rounds. Next revision (e.g. the from-scratch clean-room loop) = `batman`. The Marvel lineage (antman/beast/colossus) is the truth-only curriculum; DC is the bootstrap loop. The 2M-XML clean pool keeps its historical disk paths but the method is not "colossus" [USER 2026-08-02].
 
 **⛔ Read [docs/problem_and_approach.md](../../problem_and_approach.md) first.** The model is a ranker; search + free perfect verifier; objective = fewer sims to solve than random, every tier. **This card is what Claude is actively working on.**
 
@@ -41,10 +43,12 @@ Where a capped sweep left a mute one-sided ceiling, write a two-sided target `mi
 
 ```
 θ ← d20_plus_setup_only_splitloss/epoch011      BUFFER ← d20_plus_setup_only.h5 (257k rows, facts)
-ROUND 0 (zero sims): precheck → rebuild H5 (root capped cells only) → train θ₁ scratch → gate
-ROUND 1..3: collect(θ, ~20k eps) → BUFFER += raw traces → rebuild (uniform rule) → train scratch → gate
+ROUND 0 (zero sims): precheck → rebuild H5 (root capped cells only) → train aquaman-0 scratch → gate
+ROUND 1..3: collect(θ, ~20k eps) → BUFFER += raw traces → rebuild (uniform rule) → train aquaman-r scratch → gate
 VERDICT after round 3, pre-committed (one-turn results are not verdicts — the 07-10 lesson).
 ```
+
+**From-scratch clean-room reference (= `batman`, only after aquaman proves the mechanism):** θ random → round 0 collects with RANDOM best-first, trains facts-only (guesses are noise at θ-random); rounds 1+ = the same loop, curriculum emerges from the sims-to-solve quota (no hand-built stages), linkage-complete data from the first sim. Buys purity + the strongest claim; costs re-spending the Marvel climb (~4–6 rounds × ~3M sims before the depth question is even testable) and cannot isolate the bootstrap question — hence seeded-first.
 
 Collector (round ≥1) = the deploy best-first search itself, budget-capped; NO setup sweeps, NO top-20 rule, NO mass audits — zero sims spent proving deadness. Every simmed push's resulting state is persisted (makes the guess rule uniform).
 
