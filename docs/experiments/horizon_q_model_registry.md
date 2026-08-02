@@ -2,10 +2,10 @@
 status: hub
 tags: [experiment]
 thread: scorer-search
-updated: 2026-06-26
+updated: 2026-08-02
 ---
 
-# Horizon-Q Model Registry
+# Model and Evaluation Artifact Registry
 
 > **⚠ Framing note (2026-07-06): budget/horizon-conditioning was DROPPED** (measured ≈ no-horizon, **NoHz** ahead — 40.7 vs 34.1). This registry is STILL the authoritative catalog — **all checkpoint paths / numbers / eval dirs below stay valid** — but the horizon-conditioned models (Horizon-v2/v3, the `budget_cond` variants) are a **historical** line; the live model is **NoHz** ("no-horizon", a single value/ranker). Current framing: [../problem_and_approach.md](../problem_and_approach.md).
 
@@ -13,6 +13,21 @@ updated: 2026-06-26
 > training data, and eval-output dir. **Do not reconstruct paths by glob; read here.** Never retrain
 > registered models ([[feedback_reuse_baselines]]). Roots: ckpts `/scratch/dm1487/sage_outputs/scorer/`,
 > evals `/scratch/dm1487/eval/`, H5s `/scratch/dm1487/h5/`. Updated 2026-06-15 (added Horizon-v2 / NoHorizon-v2).
+
+## Canonical evaluated-model artifacts — read this before launching an eval
+
+This is the durable lookup from a model and exact search policy to its saved outputs. A full evaluation is reusable only when the checkpoint, canonical manifests, `hmax`, budget, combination rule, discount policy, no-op dedupe, and jam-depth pruning all match; a mismatch is a different experiment, not a cached control.
+
+We store aggregates as JSON, raw per-episode records as JSONL, offline score caches as NPY, and plots as PNG; there is no canonical pickle format. All CS paths below are under `/common/users/dm1487/scratch_namo/` and are immediately visible from every iLab/rlab/arrakis/westeros box.
+
+| eval ID | model / checkpoint | exact protocol and population | aggregate / diagnostic | raw per-episode artifacts | status |
+|---|---|---|---|---|---|
+| `deploy-conf-hmax2-v1` | deployed `d20_plus_setup_only_splitloss`, `curriculum2/beast/round3/models/d20_plus_setup_only_splitloss/checkpoints/epoch011-val_loss1.6952.ckpt` | canonical 1322 1push + 1012 2push; hmax=2, budget=900, `combine=q`, confidence discount τ=0.15, no-op dedupe + jam pruning | `eval/postprune_hmax2/final35/agg_model.json` | `eval/postprune_hmax2/raw/model_1push_full/`, `eval/postprune_hmax2/raw/model_2push/` | complete; deployed-policy reference |
+| `deploy-nodiscount-hmax2-v1` | same deployed checkpoint | canonical 1322 1push + 1012 2push; hmax=2, budget=900, `combine=q`, discount off, no-op dedupe + jam pruning | `curriculum2/beast/round4/eval/depthlocal_s1_nodiscount/control/aggregate_hmax2.json` | `curriculum2/beast/round4/eval/depthlocal_s1_nodiscount/control/1push_hmax2/`; `curriculum2/beast/round4/eval/depthlocal_s1_nodiscount/control/2push/` | running 2026-08-02; clean architecture control |
+| `depth-token-nodiscount-hmax2-s1` | depth-token seed 1, `curriculum2/beast/round4/models/d20_setup_depthlocal_s1/checkpoints/epoch011-val_loss1.7126.ckpt` | same canonical no-discount hmax=2 protocol as its paired control | `curriculum2/beast/round4/eval/depthlocal_s1_nodiscount/treatment/aggregate_hmax2.json` | `curriculum2/beast/round4/eval/depthlocal_s1_nodiscount/treatment/1push_hmax2/`; `curriculum2/beast/round4/eval/depthlocal_s1_nodiscount/treatment/2push/` | running 2026-08-02 |
+| `depth-token-offline-s1` | depth-token seed 1 + deployed control | exhaustive 2push GT ranking on 68,393 nodes plus canonical 1push direct ranking | `curriculum2/beast/round4/eval/depthlocal_s1_nodiscount/auc/result.json`; `curriculum2/beast/round4/eval/depthlocal_s1_nodiscount/treatment/1push/result.json`; `curriculum2/beast/round4/eval/depthlocal_s1_nodiscount/control/1push/result.json` | `curriculum2/beast/round4/eval/depthlocal_s1_nodiscount/treatment/1push/leaf.jsonl`; `curriculum2/beast/round4/eval/depthlocal_s1_nodiscount/control/1push/leaf.jsonl`; shared score cache `eval/auc_grid/cache/` | complete 2026-08-02 |
+
+Every new full canonical evaluation must add or update one row here before its experiment card closes. Reuse a row only after checking the recorded protocol in the raw JSONL `search` field; never infer compatibility from a directory name.
 
 ## Canonical offline ranking panel (2026-07-26) — the ONE place AUC/rank numbers come from
 
