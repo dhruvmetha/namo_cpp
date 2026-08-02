@@ -1,9 +1,9 @@
 ---
 type: experiment
-status: idea
+status: live
 created: 2026-08-02
-commit: pending
-metric: Preflight complete; no training or evaluation launched
+commit: namo 1aea06a; sage 6f90dc6
+metric: Seed-1 training complete; canonical evaluation pending
 thread: region_opening
 parent: EXP-2026-07-22-push-depth-aware-ranker
 tags: [experiment, ranker, architecture, action-motion, depth-attention, colossus]
@@ -34,13 +34,19 @@ Advance to three treatment seeds only if seed 1 reduces medium+hard 2push simula
 
 ## Run
 
-**Preflight only; no training or evaluation job has been launched.** The implementation adds a single-head local-depth block behind the opt-in flag, wires it through training and all canonical checkpoint loaders, and leaves the prior architectures free of new state-dict keys.
+The implementation adds a single-head local-depth block behind the opt-in flag, wires it through training and all canonical checkpoint loaders, and leaves the prior architectures free of new state-dict keys.
 
 The deployed network has 4,397,055 parameters, the existing sharp-motion late-fusion network has 4,405,491, and this treatment has 4,554,099: +157,044 parameters (+3.6%) versus deployed and +148,608 versus motion-only. The extra attention is linear over 60 groups of five tokens, not quadratic over 300 tokens.
 
 Focused CPU gates pass: 13/13 action-motion/architecture/loader tests and 10/10 existing rank-loss/scorer-diagnostic tests. A real row from `d20_plus_setup_only.h5` completed forward, the existing split ceiling loss, and backward with input motion `(1,60,5,3)`, logits `(1,60,5,51)`, finite loss `4.19665`, and finite nonzero local-attention gradient. The actual deployed checkpoint also reloads strictly as 4,397,055 parameters with motion and local-depth attention both off.
 
 Recommended run name: `d20_setup_depthlocal_s1`.
+
+**Training completed 2026-08-02.** The first target-box smoke on ilab3 completed one epoch and wrote a reloadable checkpoint; Blackwell job `197731` then passed a real forward/backward smoke with the CUDA-12.8 environment. Full seed-1 job `198016` completed all 12 epochs on one RTX PRO 5000 Blackwell in 22m14s with exit code 0.
+
+The full run used exactly 257,409 rows and the registered room-grouped split: 231,668 train rows and 25,741 validation rows across 20,162 validation rooms. Validation loss fell from 2.3345 at epoch 0 to the best 1.7126 at epoch 11; the deployed same-data control is 1.6952, so validation loss alone does not favor the treatment.
+
+Checkpoint: `/common/users/dm1487/scratch_namo/curriculum2/beast/round4/models/d20_setup_depthlocal_s1/checkpoints/epoch011-val_loss1.7126.ckpt`. Reload is bit-identical (`max|Δlogit|=0`), reloaded validation loss is 1.7127, and the canonical eval loader detects the `(60,5,51)` value head plus `action_motion_encoding=crop_relative` and the local-depth attention block.
 
 One-epoch CS target smoke command, intentionally not run:
 
