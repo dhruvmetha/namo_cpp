@@ -32,7 +32,7 @@ The unfiltered canonical-path `onepush_episodes_canonical.json` (1323) and `pure
 
 The baseline is **one three-seed measurement**, not three separate baselines: uniform-random push ordering with seeds **7000/8000/9000**, reported as mean ± sample standard deviation at every simulator budget. It uses the same search as the learned ranker on both registered horizons: `hmax=2`, budget 900, `combine=q`, confidence discount τ=0.15, no-op dedupe on, and jam-depth pruning on. The learned arm is deterministic and therefore runs once. “Tight” below means solve@1 for 1push and solve@2 for 2push.
 
-The machine-readable entry is `baselines.random_search_hmax2` in `config/eval_sets.yaml`; its three budget-900 aggregates are `eval/postprune_hmax2/final35/agg_random_s{7000,8000,9000}.json` under `$NAMO_SCRATCH`. New comparisons must use their mean curve and sample-SD band; a single seed is only a debugging/reproduction view.
+The machine-readable entry is `baselines.random_search_hmax2` in `config/eval_sets.yaml`; its three budget-900 aggregates are `eval/postprune_hmax2/final35/agg_random_s{7000,8000,9000}.json` under `$NAMO_SCRATCH`. Raw per-episode records are `eval/postprune_hmax2/raw/random_s{7000,8000,9000}_1push_full/` and `eval/postprune_hmax2/raw/random_s{7000,8000,9000}_2push/`; seed-stable hard-2push tail extensions are `eval/postprune_hmax2/final35/tail/spliced_seedstable/random_s{7000,8000,9000}_hard_b10000.jsonl`. New comparisons must use their mean curve and sample-SD band; a single seed is only a debugging/reproduction view.
 
 | horizon | tier | random tight | random @30 | random @900 | random solved-only calls |
 |---|---|---:|---:|---:|---:|
