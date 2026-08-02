@@ -69,7 +69,7 @@ def priority(q, V, combine):
     return 0.5 * q + 0.5 * V                           # blend (default): action score tempered by state value
 
 
-def _update_w_on_fail(board, q_failed, discount, gamma, tau, g_table, gkmax, eps):
+def _update_w_on_fail(board, q_failed, discount, gamma, tau, g_table, gkmax, eps, child_patience=1):
     """A candidate of `board` was simulated and DID NOT open the goal. Always bump k_failed (for the lifetime
     log). Demote w ONLY for child boards (depth>=1) and ONLY when a discount mode is active; root w frozen=1.
     free_strikes (per board, default 0): that many initial failures are ignored by the demotion (patience)."""
@@ -79,7 +79,7 @@ def _update_w_on_fail(board, q_failed, discount, gamma, tau, g_table, gkmax, eps
     k = board["k_failed"] - board.get("free_strikes", 0)
     if k <= 0:
         return
-    if discount == "gamma":
+    if discount == "gamma" and k % child_patience == 0:
         board["w"] *= gamma
     elif discount == "conf":
         board["w"] *= (1.0 - q_failed) ** tau
@@ -108,7 +108,8 @@ def _unmoved(before, after, obj, tol=1e-6):
 def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combine, rng, restrict_obj=None,
                 is_open=lambda e: e.is_robot_goal_reachable(), raw=False, dive_bonus=0.0,
                 discount="off", gamma=0.65, tau=1.0, g_table=None, eps=1e-3,
-                w0_mode="one", free_strike_q=2.0, dedupe_noop=True, prune_jam_depth=True, trace_out=None, capture=None):
+                w0_mode="one", free_strike_q=2.0, child_patience=1, dedupe_noop=True,
+                prune_jam_depth=True, trace_out=None, capture=None):
     """Greedy best-first ON THE LABELED OBJECT (restrict_obj). Returns (solved, sims, plan_len|None, boards, end).
     boards = per-board lifetime records; end in {solved, budget, exhausted}. w(b) via --discount (off=static).
     trace_out (list, viz only): every pop is appended as a make_pop row and every board also carries its full
@@ -200,7 +201,7 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
         board["tries"].append((len(board["tries"]) + 1, float(it["q"]), opened))   # (within-board try#, q, opened)
         if opened:
             return True, sims, len(it["plan"]), boards, "solved"
-        _update_w_on_fail(board, float(it["q"]), discount, gamma, tau, g_table, gkmax, eps)
+        _update_w_on_fail(board, float(it["q"]), discount, gamma, tau, g_table, gkmax, eps, child_patience)
         ndone = it["ndone"] + 1
         # A push that moved NOTHING reaches the state it started from, so the child board would be a
         # byte-identical duplicate of this one -- same pool, same scores -- and would simply re-offer the
@@ -306,6 +307,8 @@ def main():
     ap.add_argument("--discount", default="off", choices=["off", "gamma", "fitted", "conf"],
                     help="per-board failure demotion. off=static queue (BIT-IDENTICAL baseline).")
     ap.add_argument("--gamma", type=float, default=0.65, help="--discount gamma: w *= gamma per failed sim")
+    ap.add_argument("--child-patience", type=int, default=1,
+                    help="--discount gamma: demote after each block of this many failed child-board probes")
     ap.add_argument("--tau", type=float, default=1.0, help="--discount conf: w *= (1-q_failed)^tau")
     ap.add_argument("--gtable", default="", help="--discount fitted: JSON {k: g_norm} (g_norm[0]=1)")
     ap.add_argument("--eps", type=float, default=1e-3, help="floor on w (never prune)")
@@ -337,6 +340,8 @@ def main():
                          "is skipped without spending a simulation. Pass this to restore the old behaviour.")
     ap.set_defaults(prune_jam_depth=True)
     ap.add_argument("--trace-out", default="", help="per-episode search trace JSON dir (for viz/search)")
+    ap.add_argument("--trace-lite", action="store_true",
+                    help="record ordered pools/pops without per-pop geometry (same search order, smaller/faster trace)")
     ap.add_argument("--trace-model", default="", help="model label written into each trace's meta")
     a = ap.parse_args()
 
@@ -349,6 +354,7 @@ def main():
     # ran, instead of assuming the defaults. Recording only -- the search reads `a`, never this dict.
     search_params = {"hmax": a.hmax, "sim_budget": a.sim_budget, "prior": a.prior, "agg": a.agg,
                      "combine": a.combine, "discount": a.discount, "gamma": a.gamma, "tau": a.tau,
+                     "child_patience": a.child_patience,
                      "eps": a.eps, "w0_mode": a.w0_mode, "free_strike_q": a.free_strike_q,
                      "dive_bonus": a.dive_bonus, "raw": bool(a.raw),
                      "dedupe_noop": bool(a.dedupe_noop), "prune_jam_depth": bool(a.prune_jam_depth),
@@ -371,11 +377,12 @@ def main():
     n = n_solved = n_already = n_norec = sims_tot = sims_solved = 0; t0 = time.time()
     lf = open(a.leaf_out, "w")
     ltf = open(a.lifetime_out, "w") if a.lifetime_out else None
-    if a.trace_out:
+    if a.trace_out and not a.trace_lite:
         from add_contact_px import contact_offsets_world
         # scipy (via the exporter's connected-components pass) + the exporter itself are imported ONLY
         # on the tracing path, so the flag-off run keeps its exact dependency set and startup cost.
         from namo.visualization.wavefront_snapshot import WavefrontSnapshotExporter
+    if a.trace_out:
         os.makedirs(a.trace_out, exist_ok=True)
     ep_ctr = 0
     for xi, xml in enumerate(xmls):
@@ -397,8 +404,8 @@ def main():
             if is_open(env):
                 n_already += 1; continue
             s0 = env.get_full_state()
-            scene = _scene_dict(env, goal) if a.trace_out else None
-            if a.trace_out:
+            scene = _scene_dict(env, goal) if a.trace_out and not a.trace_lite else {}
+            if a.trace_out and not a.trace_lite:
                 exporter = WavefrontSnapshotExporter(env)      # one per env: static geometry never moves
                 mov_names = [m["name"] for m in scene["movable"]]
             for ri, rec in enumerate(recs):
@@ -408,7 +415,8 @@ def main():
                 obj = rec.get("object_id")
                 pops = [] if a.trace_out else None
                 capture = None
-                if a.trace_out:
+                ep_scene = scene
+                if a.trace_out and not a.trace_lite:
                     env.set_full_state(s0)                     # the previous record left the env post-search
                     oi = env.get_object_info()[obj]
                     opose = env.get_observation()[f"{obj}_pose"]
@@ -419,7 +427,9 @@ def main():
                 solved, sims, plen, boards, end = solve_scene(
                     planner, env, goal, xml, s0, a.hmax, a.sim_budget, a.prior, a.agg, a.combine, rng,
                     restrict_obj=obj, is_open=is_open, raw=a.raw, dive_bonus=a.dive_bonus,
-                    discount=a.discount, gamma=a.gamma, tau=a.tau, g_table=g_table, eps=a.eps, w0_mode=a.w0_mode, free_strike_q=a.free_strike_q, dedupe_noop=a.dedupe_noop, prune_jam_depth=a.prune_jam_depth,
+                    discount=a.discount, gamma=a.gamma, tau=a.tau, g_table=g_table, eps=a.eps,
+                    w0_mode=a.w0_mode, free_strike_q=a.free_strike_q, child_patience=a.child_patience,
+                    dedupe_noop=a.dedupe_noop, prune_jam_depth=a.prune_jam_depth,
                     trace_out=pops, capture=capture)
                 n += 1; sims_tot += sims; n_solved += int(solved); sims_solved += sims if solved else 0
                 lf.write(json.dumps({"xml": xml, "object_id": obj, "region": rec.get("region"),

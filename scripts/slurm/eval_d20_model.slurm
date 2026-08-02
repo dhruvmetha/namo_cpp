@@ -36,11 +36,12 @@ if [ "$ID" -lt 6 ]; then
     --models Hz --start "$S" --end "$EN" --out "$OUT/1push/shard_${S}_${EN}.jsonl"
 else
   I=$((ID - 6))
-  S=$((I * 1018 / 32))
-  EN=$(((I + 1) * 1018 / 32))
+  N2=$($PY -c 'from namo import eval_sets; print(eval_sets.EXPECTED["pure2push_manifest_episodes"])')
+  S=$((I * N2 / 32))
+  EN=$(((I + 1) * N2 / 32))
   mkdir -p "$OUT/2push"
   "$PY" scripts/sandbox/eval_bestfirst.py --ckpt "$CKPT" --hmax 2 --sim-budget 900 \
-    --prior model --agg mean5 --combine q --start "$S" --end "$EN" \
+    --prior model --agg mean5 --combine q --discount off --start "$S" --end "$EN" \
     --out "$OUT/2push/shard_${I}.json" --leaf-out "$OUT/2push/shard_${I}.jsonl"
 fi
 echo "EVAL done $(date) ID=$ID"
