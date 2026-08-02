@@ -85,6 +85,9 @@ class Q2ValueDataset(Dataset):
                     out["contact_px"], encoding=self.action_motion_encoding)
         if "ceiling_mask" in f:                                        # beast-0a censored cells
             out["ceiling_mask"] = torch.from_numpy(f["ceiling_mask"][i].astype(np.float32))
+        if "guess_mask" in f:                                          # aquaman bootstrapped cells: half weight
+            g = torch.from_numpy(f["guess_mask"][i].astype(np.float32))
+            out["weight"] = out["weight"] * (1.0 - 0.5 * g)
         return out
 
 
