@@ -105,7 +105,7 @@ Collector (round ≥1) = the deploy best-first search itself, budget-capped; NO 
 
 Paths (arrakis): H5 `$SCRATCH/curriculum2/beast/round3/h5/d20_plus_setup_only.h5` (995M); ckpt `$SCRATCH/curriculum2/beast/round3/models/d20_plus_setup_only_splitloss/checkpoints/epoch011-val_loss1.6952.ckpt`.
 
-## Round-0 results (running)
+## Round-0 results — COMPLETE 2026-08-02 evening
 
 **Offline AUC panel (exhaustive-GT `twopush_gt_h5`, 1,152 eps; canonical variants; A/B = 3-seed mean [min,max]).** All 6 aquaman ckpts + θ₀ scored same-run (`$SCRATCH/aquaman/round0/auc/`).
 
@@ -118,6 +118,23 @@ Paths (arrakis): H5 `$SCRATCH/curriculum2/beast/round3/h5/d20_plus_setup_only.h5
 | all setup hit@1 | **57.3** | 53.2 [52.4,54.4] | 55.4 [55.0,56.1] |
 | all V1 | 0.817 | 0.798 | 0.800 |
 | all V5 | 0.557 | 0.543 | 0.533 |
+
+
+**Deploy gate (hmax=2, discount off, canonical 1322/1012; θ₀ = `deploy-nodiscount-hmax2-v1` control; A/B 3-seed mean±sd).** Full table `$SCRATCH/aquaman/round0/gate.json`; curves `success_vs_sims.png`.
+
+| slice | θ₀ | arm A | arm B | verdict |
+|---|--:|--:|--:|---|
+| hard-2p @2 / @5 / @30 | 9.5 / 22.6 / 50.4 | **13.6±1.5 / 27.7±1.2 / 54.5±0.3** | **13.1±1.6 / 28.7±3.7 / 54.3±1.9** | **WIN, both arms, beyond noise** |
+| medium-2p @5 / @30 | 57.4 / 80.1 | 51.4±0.9 / 77.2±0.5 | 52.1±2.2 / 78.3±1.3 | the tax; recovers by tail |
+| hard-1p @1 / @5 | 39.7 / 82.4 | 39.2±2.4 / 79.9±1.7 | 39.9±0.5 / 78.9±1.7 | held / slight @5 softness |
+| ceilings @900 (all slices) | — | — | — | held within noise everywhere |
+
+**Depth attribution (the honest correction):** aquaman@h3 hard@900 = 95.6–96.1 LOOKED like H3 confirmed — but θ₀ re-run with current search defaults (dedupe_noop + jam-prune, added post-July by round-4 work) scores **98.3**, and random-with-new-defaults 90.0. **The July depth wall was substantially search hygiene, not missing supervision.** H3's motivating symptom no longer exists under current defaults; aquaman adds nothing at depth (≈−2, near jitter). Recorded in the artifacts table (`aquaman0-depth-h3`).
+
+**Hypothesis scoreboard:** H0 PASS (quiz AUC 0.853). H1 MIXED — not "every slice within noise": hard-2p improves beyond noise, medium-2p@5 and hard-1p@5 regress beyond noise, ceilings hold. No stop-rule condition fired. H3 RETIRED as motivation (symptom was artifact); surviving rationale = the negative-gradient/separation mechanism — measurably real (V6 dose-response) and deploy-visible (hard-2p). H2/H4 untested (need rounds 1+).
+
+**Round-0 verdict [numbers]:** mechanism validated; net deploy effect = budget shift medium→hard at zero ceiling cost; recommend ROUND 1 with `medium-2p@5` promoted to a named per-round stop-metric. Round-1 go/no-go = user's call.
+
 
 **Read:** the bootstrap's target quantity — board-level live/dead separation (V6, the metric EXP-2026-07-25 said might need a dedicated head) — improved with clean A→B dose-response, +3–4 pts. Hard-tier within-board ranking up. Watch-item: pooled setup hit@1 dips 2–4 pts (easy/med only; hard improves) — deploy sweep arbitrates whether it costs sims. No disqualifying regression offline.
 
