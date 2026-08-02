@@ -140,6 +140,17 @@ Paths (arrakis): H5 `$SCRATCH/curriculum2/beast/round3/h5/d20_plus_setup_only.h5
 
 **Read:** the bootstrap's target quantity — board-level live/dead separation (V6, the metric EXP-2026-07-25 said might need a dedicated head) — improved with clean A→B dose-response, +3–4 pts. Hard-tier within-board ranking up. Watch-item: pooled setup hit@1 dips 2–4 pts (easy/med only; hard improves) — deploy sweep arbitrates whether it costs sims. No disqualifying regression offline.
 
+
+## 📌 PINNED — round-3+ design discussion (resume after round-1 gate) [2026-08-02 evening, USER+Claude]
+
+1. **Re-rooting + compositional chain verification (the round-3 core; NO arms — one design).** Post-push boards become fresh episode roots (stored qpos, `set_full_state`); an h2 search from a depth-1 board verifies a 2-chain suffix; determinism composes it with the verified parent link into a fully-verified 3-chain → parent cell gets **exact γ² = 0.81** (the label class that cannot exist today). Recurse for γ³+. Requirements: (a) exact state identity; (b) lineage tag (parent xml, object, parent-cell) on every re-rooted episode; (c) builder join step propagating exact γ^(k+1) onto parent cells (re-rooted failures tighten parents too); (d) values are found-chain lower bounds — same semantics as 0.9 setups. **Doctrine: collection search stays hmax=2 at every depth forever; depth = laddered roots + composition; hmax=3 is eval-only.**
+2. **Retry list.** Unsolved episodes carry into the next round's manifest (better θ, fresh budget); cap ≤20% of manifest. Meter: retry solve-rate = cleanest round-over-round progress number.
+3. **Deep-audit exhaustion tier.** Fail-twice residue (~≤500 eps/round) gets full-tree exhaustion (budget=∞, stop on queue-empty; ~2,800 sims/ep) → mints proven-dead-within-h2 (exact-zero anchors). NOTE: tonight's 5% audit slice = 900-budget extension, NOT exhaustion.
+4. **Budget at depth.** B=150 fine for h2 (solves mean ~29 sims, cap non-binding); re-rooted rounds keep h2 so B=150 likely stands; recalibrate from round-1 sims histograms.
+5. **Collector upgrades:** fat tasks (12 cpu + worker pool) [locked]; record 1-line stubs for quota-dropped episodes (per-mode true solve rates — 3-line fix); consider collector-mix across rounds (monoculture hedge).
+6. **Exploration dial policy:** 20% random slice = detection-sized; if buried-winner meter stalls, prefer TARGETED exploration of flagged classes over raising the global dose.
+7. **Round-2 (backfill) already authorized:** replay old root caps (5M) + child caps (2.8M, 2-push replay chains via raw linkage — no PKLs needed) → guesses by round-1 model → mute caps 44%→~2%; doubles as ~8M-push lineage audit. Colossus PKLs (35GB Amarel) thereby deletable.
+
 ## Log
 
 - **2026-08-02 [Claude]** Card created; worktrees `exp/bootstrap-value-loop` (namo @ fb02310, sage @ 6f90dc6). Design converged in chat (brainstorm with user): label rule, locked defaults, meters, round schedule. Next: round-0 step 1 precheck.
