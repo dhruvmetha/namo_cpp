@@ -19,7 +19,7 @@ source env.ilab.sh >/dev/null 2>&1
 export PYTHONPATH="$MAIN/build_python:$MAIN/python:$MAIN/scripts:$MAIN/scripts/sandbox:$MAIN/scripts/pipeline:${SAGE_REPO}:${PYTHONPATH:-}"
 export OMP_NUM_THREADS=2 MKL_NUM_THREADS=2
 export TMPDIR=/tmp                 # spawn-worker tempdirs off NFS (avoids .nfs busy cleanup noise)
-PY=/common/users/dm1487/envs/mjxrl/bin/python
+PY="${NAMO_PYTHON:?source env.ilab.sh or set NAMO_PYTHON to an interpreter}"
 : "${H5:?set H5=/path/to/rung1_full.h5}"
 OUT=${OUT:-/common/users/dm1487/scratch_namo/exit/q1_full}
 EPOCHS=${EPOCHS:-40}; BATCH=${BATCH:-256}; LR=${LR:-3e-4}; WORKERS=${WORKERS:-8}; PATIENCE=${PATIENCE:-8}
