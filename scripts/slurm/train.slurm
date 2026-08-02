@@ -24,6 +24,8 @@
 # Optional action grounding: NAMO_ACTION_MOTION=1 enables plain crop-relative (dx,dy,dtheta) late
 #   fusion. Add NAMO_ACTION_MOTION_SHARP=1 for Fourier features + learned depth identity. Motion
 #   remains OFF by default; NAMO_ACTION_MOTION_ENCODING is only needed for explicit historical modes.
+#   NAMO_ACTION_DEPTH_SELF_ATTN=1 additionally compares the five motion-grounded depths within each
+#   contact using one local attention head; it never runs attention across all 300 actions.
 # SPEED (measured 2026-07-17, test-small-first before trusting — see memory reference_training_speedup):
 #   train is CO-bottlenecked (NFS reads ~= GPU compute). Two fixes TOGETHER: (a) stage the H5 to
 #   node-local /dev/shm before the train line (4.3x dataloader); (b) torch.compile the net (1.78x).

@@ -180,6 +180,8 @@ def _build_net_like_eval_scorer(ck, num_depths):
                       action_motion_fourier_L=motion_proj_in // (2 * motion_dim))
         if "network.action_depth_embed.weight" in sd:
             kw["action_depth_embed"] = True
+        if "network.action_depth_attn.attn.in_proj_weight" in sd:
+            kw["action_depth_self_attn"] = True
     head_out = sd["network.head.2.weight"].shape[0]
     value_bins = None
     if head_out != num_depths:

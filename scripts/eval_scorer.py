@@ -110,6 +110,8 @@ def load_scorer(ckpt, num_depths, device, network="dit_classifier"):
                 kw.update(action_motion_fourier=True, action_motion_fourier_L=motion_proj_in // denom)
             if "network.action_depth_embed.weight" in sd:
                 kw["action_depth_embed"] = True
+            if "network.action_depth_attn.attn.in_proj_weight" in sd:
+                kw["action_depth_self_attn"] = True
         head_out = sd["network.head.2.weight"].shape[0]
         if head_out != num_depths:                       # HL-Gauss value head
             kw["value_bins"] = head_out if kw.get("action_motion_dim", 0) else head_out // num_depths

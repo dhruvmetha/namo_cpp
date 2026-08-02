@@ -15,6 +15,7 @@ from namo.rl_loop.action_motion import (
     configured_action_motion_encoding,
     primitive_motion_tables,
 )
+from namo.rl_loop.sage_ext._sage import ClassifierModule, EdgeCrossAttn
 
 
 def _contact_px(hw, hd, theta, crop_m=0.5, size=64):
@@ -116,3 +117,87 @@ def test_motion_enabled_defaults_to_crop_relative(monkeypatch):
     monkeypatch.setenv("NAMO_ACTION_MOTION", "1")
     monkeypatch.delenv("NAMO_ACTION_MOTION_ENCODING", raising=False)
     assert configured_action_motion_encoding() == CROP_RELATIVE_MOTION_ENCODING
+
+
+def _small_action_token_model(depth_self_attn):
+    return EdgeCrossAttn(
+        img_size=16, patch=4, in_channels=5, dim=32, scene_depth=1, edge_depth=1,
+        heads=1, num_depths=5, num_edges=60, pos_fourier=True, fourier_L=2,
+        use_edge_embed=True, value_bins=7, action_motion_dim=3,
+        action_motion_fourier=True, action_motion_fourier_L=2,
+        action_depth_embed=True, action_depth_self_attn=depth_self_attn,
+    )
+
+
+def test_depth_self_attention_is_local_to_five_depths_and_backpropagates():
+    model = _small_action_token_model(depth_self_attn=True)
+    seen = []
+    hook = model.action_depth_attn.attn.register_forward_pre_hook(
+        lambda _module, args: seen.append(tuple(args[0].shape)))
+    context = torch.randn(2, 5, 16, 16)
+    contact_px = torch.rand(2, 60, 2) * 15.0
+    action_motion = torch.randn(2, 60, 5, 3)
+
+    logits = model(context, contact_px, action_motion=action_motion)
+    hook.remove()
+    assert logits.shape == (2, 60, 5, 7)
+    assert seen == [(2 * 60, 5, 32)]
+    assert model.action_depth_attn.attn.num_heads == 1
+
+    loss = logits.square().mean()
+    loss.backward()
+    grad = model.action_depth_attn.attn.in_proj_weight.grad
+    assert grad is not None and torch.isfinite(grad).all() and grad.abs().sum() > 0
+
+
+def test_prior_motion_variant_strict_state_dict_is_unchanged():
+    prior = _small_action_token_model(depth_self_attn=False)
+    restored = _small_action_token_model(depth_self_attn=False)
+    restored.load_state_dict(prior.state_dict(), strict=True)
+    assert not hasattr(restored, "action_depth_attn")
+
+
+def test_training_builder_enables_depth_local_attention_only_by_flag(monkeypatch):
+    from namo.rl_loop.train_gen import _make_network
+
+    monkeypatch.setenv("NAMO_ACTION_MOTION", "1")
+    monkeypatch.setenv("NAMO_ACTION_MOTION_SHARP", "1")
+    monkeypatch.setenv("NAMO_ACTION_DEPTH_SELF_ATTN", "1")
+    treatment = _make_network(value_bins=51)
+    assert treatment.action_motion_dim == CROP_RELATIVE_MOTION_DIM
+    assert treatment.action_depth_self_attn is True
+    assert treatment.action_depth_attn.attn.num_heads == 1
+
+    monkeypatch.setenv("NAMO_ACTION_DEPTH_SELF_ATTN", "0")
+    prior = _make_network(value_bins=51)
+    assert prior.action_depth_self_attn is False
+    assert not hasattr(prior, "action_depth_attn")
+
+
+def test_eval_loader_detects_depth_local_attention(tmp_path):
+    from eval_auc import load_network
+    from eval_scorer import load_scorer
+
+    network = EdgeCrossAttn(
+        img_size=64, patch=16, in_channels=5, dim=32, scene_depth=1, edge_depth=1,
+        heads=1, num_depths=5, num_edges=60, value_bins=7,
+        action_motion_dim=3, action_depth_embed=True, action_depth_self_attn=True,
+    )
+    module = ClassifierModule(
+        network=network, head_mode="hl_gauss", value_vmin=0.0, value_vmax=1.0,
+        dice_weight=0.0)
+    checkpoint = tmp_path / "depth_local.ckpt"
+    torch.save({
+        "state_dict": module.state_dict(),
+        "hyper_parameters": dict(
+            head_mode="hl_gauss", value_vmin=0.0, value_vmax=1.0, dice_weight=0.0),
+        "action_motion_encoding": CROP_RELATIVE_MOTION_ENCODING,
+    }, checkpoint)
+
+    loaded = load_scorer(str(checkpoint), 5, "cpu", "edge_crossattn")
+    assert loaded.network.action_depth_self_attn is True
+    assert loaded.network.action_depth_attn.attn.num_heads == 1
+    auc_network, hl = load_network(str(checkpoint), "cpu")
+    assert auc_network.action_depth_self_attn is True
+    assert auc_network.action_motion_encoding == CROP_RELATIVE_MOTION_ENCODING
+    assert hl.num_bins == 7

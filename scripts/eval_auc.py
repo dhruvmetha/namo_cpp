@@ -67,12 +67,12 @@ def load_network(ckpt, device):
     from src.model.dit.edge_crossattn import EdgeCrossAttn
     from src.model.hl_gauss import HLGauss
 
-    state = torch.load(ckpt, map_location=device, weights_only=False)["state_dict"]
+    checkpoint = torch.load(ckpt, map_location=device, weights_only=False)
+    state = checkpoint["state_dict"]
     net_state = {k[len("network."):]: v for k, v in state.items() if k.startswith("network.")}
     dim = state["network.edge_norm.weight"].shape[0]
     pos_in = state["network.edge_pos.0.weight"].shape[1]
     pos_fourier = pos_in != 2
-    value_bins = state["network.head.2.weight"].shape[0] // 5
     kwargs = dict(
         img_size=64, patch=64 // int(round(state["network.scene_pos"].shape[1] ** 0.5)),
         in_channels=5, num_depths=5, dim=dim, heads=dim // 32,
@@ -82,13 +82,31 @@ def load_network(ckpt, device):
         fine_stem="network.fine_conv.weight" in state,
         use_edge_embed="network.edge_embed.weight" in state,
         edge_self_attn="network.edge_blocks.0.slf.in_proj_weight" in state,
-        value_bins=value_bins,
     )
     if pos_fourier:
         kwargs.update(pos_fourier=True, fourier_L=pos_in // 4)
     if kwargs["fine_stem"]:
         kwargs["fine_stride"] = state["network.fine_conv.weight"].shape[-1]
+    if "network.action_motion_proj.0.weight" in state:
+        from namo.rl_loop.action_motion import action_motion_feature_dim
+        motion_proj_in = state["network.action_motion_proj.0.weight"].shape[1]
+        motion_tag = checkpoint.get("action_motion_encoding")
+        motion_dim = action_motion_feature_dim(motion_tag) if motion_tag else motion_proj_in
+        kwargs["action_motion_dim"] = motion_dim
+        if motion_proj_in != motion_dim:
+            kwargs.update(action_motion_fourier=True,
+                          action_motion_fourier_L=motion_proj_in // (2 * motion_dim))
+        if "network.action_depth_embed.weight" in state:
+            kwargs["action_depth_embed"] = True
+        if "network.action_depth_attn.attn.in_proj_weight" in state:
+            kwargs["action_depth_self_attn"] = True
+    head_out = state["network.head.2.weight"].shape[0]
+    value_bins = head_out if kwargs.get("action_motion_dim", 0) else head_out // 5
+    kwargs["value_bins"] = value_bins
     net = EdgeCrossAttn(**kwargs)
+    from namo.rl_loop.action_motion import checkpoint_action_motion_encoding
+    net.action_motion_encoding = checkpoint_action_motion_encoding(
+        checkpoint, kwargs.get("action_motion_dim", 0))
     net.load_state_dict(net_state)
     return net.eval().to(device), HLGauss(num_bins=value_bins)
 
@@ -108,7 +126,14 @@ def score_h5(ckpt, h5_path, device, batch=512):
             ctx = torch.from_numpy(data["ctx"][start:end].astype(np.float32)).to(device)
             cpx = torch.from_numpy(data["contact_px"][start:end].astype(np.float32)).to(device)
             with torch.no_grad():
-                values[start:end] = hl.value(net(ctx, cpx, None, None).float()).cpu().numpy()
+                action_motion = None
+                if net.action_motion_dim > 0:
+                    from namo.rl_loop.action_motion import action_motion_from_contact_px
+                    action_motion = action_motion_from_contact_px(
+                        cpx, encoding=net.action_motion_encoding,
+                        feature_dim=net.action_motion_dim)
+                values[start:end] = hl.value(
+                    net(ctx, cpx, action_motion=action_motion).float()).cpu().numpy()
             print(f"  score {end}/{n}", flush=True)
     cache.parent.mkdir(parents=True, exist_ok=True)
     np.save(cache, values)
