@@ -254,3 +254,18 @@ The full registered 2-push population contains 488 medium and 137 hard episodes.
 Full clean no-discount traces cover all 24 expensive-medium episodes and all eight hard budget-900 failures. The hard traces do not usually miss the setup: all seven usable-GT cases expose and pop a correct setup board, but their median finisher rank is 33, the correct board receives only 19 probes across 13 visits, and only 2/7 correct finishers are popped. Across traces, 88.6% of medium and 94.4% of hard calls go to child boards; each wrong root can inject roughly 70–80 new actions into the same flat heap, while training's listwise loss only compares actions inside one board.
 
 **Diagnosis:** sparse setup ordering is the population weakness; multiplicative branch flooding, missing cross-board liveness supervision, and rare finisher ranks 14–57 create the catastrophic tail. Fixed 2/3/5-strike γ patience is rejected on the hard panel because it benches correct and dead boards alike. Next tests are a two-level scheduler with increasing probe tranches, the narrow one-step-live board head, and targeted exploratory DAgger; use all 58 episodes over 100 calls plus matched cheap controls before full canonical evaluation. Nineteen hard episodes currently have no genuine setup in the canonical H5 despite live success, so exact hard rank metrics use 118/137 and the disagreement remains a separate integrity audit. Full evidence, tables, artifacts, and caveats → [failure-audit card](log/EXP-2026-08-02-2push-failure-audit.md).
+
+## 2026-08-02 — Five-depth local attention improves hard 2push shortlist recall but regresses the single ranker
+
+The seed-1 depth-token treatment expands each contact into five motion-grounded depth tokens and applies one local self-attention head across those five depths. It adds 157,044 parameters (+3.6%) to the deployed 4.40M model and trains on the identical 257,409-row `d20+setup-only` H5. Canonical evaluation is a paired clean architecture read: all 1,322 1push and 1,012 genuine-2push episodes, `hmax=2`, budget 900, `combine=q`, discount off, no-op dedupe and jam-depth pruning.
+
+| horizon | tier | tight control → depth-token | solve@5 control → depth-token | solve@30 control → depth-token | solve@900 control → depth-token | avg calls control → depth-token |
+|---|---|---:|---:|---:|---:|---:|
+| 1push | easy | 97.7 → 98.3 | 99.9 → 99.9 | 100.0 → 100.0 | 100.0 → 100.0 | 1.1 → 1.0 |
+| 1push | medium | 84.6 → 84.3 | 97.9 → 97.6 | 99.8 → 100.0 | 100.0 → 100.0 | 1.8 → 1.4 |
+| 1push | hard | **39.7 → 33.8** | **82.4 → 77.5** | 96.6 → 95.1 | 100.0 → 100.0 | **7.6 → 10.1** |
+| 2push | easy | 44.4 → 44.7 | 67.3 → 69.9 | 94.3 → 93.0 | 100.0 → 100.0 | 9.3 → 10.9 |
+| 2push | medium | **32.8 → 30.3** | **57.4 → 51.0** | 80.1 → 81.8 | 99.6 → 99.2 | **38.1 → 46.6** |
+| 2push | hard | **9.5 → 13.9** | **22.6 → 29.2** | **50.4 → 54.0** | 92.0 → 92.7 | 149.5 → 150.7 |
+
+**REJECT as the next deployed ranker; do not run seeds 2–3.** The intended mechanism exists—hard exhaustive-GT setup hit@5 rises 44.9→55.1 and hard 2push solve@5 rises 22.6→29.2—but it is not a global win. Hard 1push solve@1 falls 5.9 points, medium 2push solve@5 falls 6.4, and weighted medium+hard 2push calls rise 62.52→69.42 (+11.0%) instead of falling ≥10%. The useful takeaway is narrow: local depth attention can promote sparse hard setups, but the loss/data composition must preserve contact ordering and medium finish ranking before this mechanism is deployable. Full tables, offline diagnosis, checkpoint, and exact aggregate/raw artifact paths → [depth-token card](log/EXP-2026-08-02-depth-token-push-motion.md) and the [model/evaluation artifact registry](horizon_q_model_registry.md).
