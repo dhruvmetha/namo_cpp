@@ -149,6 +149,24 @@ def load_tiered_rows(onepush_dir, twopush_dir, onepush_key, divisions_path, expe
     return {"1push": onepush_rows, "2push": twopush_rows}, onepush_config
 
 
+def load_twopush_rows(twopush_dir, divisions_path, expect_twopush):
+    """Load and validate a standalone canonical 2push search arm."""
+    twopush = _read_jsonl(twopush_dir)
+    keys = [(_canonical_xml(row["xml"]), row["object_id"], row.get("region")) for row in twopush]
+    if len(set(keys)) != len(keys):
+        raise RuntimeError("duplicate 2push episode rows")
+    divisions = _load_divisions(divisions_path)
+    rows = []
+    for row, key in zip(twopush, keys):
+        division = divisions.get(key)
+        if division is not None:
+            rows.append({"division": _normalize_tier(division), "solved": bool(row["solved"]),
+                         "sims": _row_sims(row)})
+    if len(rows) != expect_twopush:
+        raise RuntimeError(f"matched 2push rows {len(rows)} != expected {expect_twopush}")
+    return rows, _search_config(twopush)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--eval-root", required=True, help="directory containing 1push/ and 2push/")
@@ -165,16 +183,23 @@ def main():
     parser.add_argument("--require-hmax", type=int)
     parser.add_argument("--require-dedupe-noop", action="store_true")
     parser.add_argument("--require-prune-jam-depth", action="store_true")
+    parser.add_argument("--twopush-only", action="store_true",
+                        help="aggregate only the canonical 2push arm (no matching 1push search run required)")
     args = parser.parse_args()
 
-    tiered, search_config = load_tiered_rows(
-        args.onepush_dir or Path(args.eval_root) / "1push",
-        args.twopush_dir or Path(args.eval_root) / "2push",
-        args.onepush_key,
-        args.divisions,
-        args.expect_1push,
-        args.expect_2push,
-    )
+    if args.twopush_only:
+        twopush_rows, search_config = load_twopush_rows(
+            args.twopush_dir or Path(args.eval_root) / "2push", args.divisions, args.expect_2push)
+        tiered = {"2push": twopush_rows}
+    else:
+        tiered, search_config = load_tiered_rows(
+            args.onepush_dir or Path(args.eval_root) / "1push",
+            args.twopush_dir or Path(args.eval_root) / "2push",
+            args.onepush_key,
+            args.divisions,
+            args.expect_1push,
+            args.expect_2push,
+        )
     if args.require_hmax is not None and search_config.get("hmax") != args.require_hmax:
         raise RuntimeError(f"hmax={search_config.get('hmax')} != required {args.require_hmax}")
     if args.require_dedupe_noop and not search_config.get("dedupe_noop"):
@@ -188,9 +213,10 @@ def main():
         "onepush_difficulty": {"hard": "solve_rate < 0.05", "medium": "0.05 <= solve_rate < 0.30",
                                "easy": "solve_rate >= 0.30"},
         "twopush_divisions": str(Path(args.divisions).resolve()),
-        "1push": _summarize(tiered["1push"], ONEPUSH_CUTS),
         "2push": _summarize(tiered["2push"], TWOPUSH_CUTS),
     }
+    if not args.twopush_only:
+        report["1push"] = _summarize(tiered["1push"], ONEPUSH_CUTS)
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     with open(args.out, "w") as stream:
         json.dump(report, stream, indent=2)
