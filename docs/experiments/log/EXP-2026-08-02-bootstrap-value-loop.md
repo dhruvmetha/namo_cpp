@@ -76,6 +76,7 @@ Collector (round ≥1) = the deploy best-first search itself, budget-capped; NO 
 | pool | colossus 2,031,481 clean geometry-disjoint XMLs | no new generation needed |
 | scores | **RAW HL-Gauss E[bin] everywhere — never the post-sigmoid** [USER 2026-08-02] | targets need true [0,1] magnitudes; sigmoid squashes to [0.5,0.73] → min(0.81, 0.9·V̂) could never go low, downward gradient destroyed. Collector runs `--raw`; precheck/rebuild use HLGauss.value (already raw) |
 | eval | canonical testset BOTH tiers × difficulty, + hmax=3 subset-180 vs random | the target wall |
+| eval depth | **1-push tier at hmax=2 ALWAYS** [USER 2026-08-02]; 2-push at hmax=2; depth arm hmax=3 | deploy search always has depth-2 freedom; hard-1p@h1 is partly a depth artifact. Registry 1p rows are h1 → d20 + random 1p baselines RE-RUN at h2 in this card's sweep |
 
 ## Meters (per round, pre-registered)
 
