@@ -36,7 +36,7 @@ if [ "$ID" -lt 6 ]; then
     --models Hz --start "$S" --end "$EN" --out "$OUT/1push/shard_${S}_${EN}.jsonl"
 else
   I=$((ID - 6))
-  N2=$($PY -c 'from namo import eval_sets; print(eval_sets.EXPECTED["pure2push_manifest_episodes"])')
+  N2=$($PY -c 'import json; from namo import eval_sets; print(len(json.load(open(eval_sets.PURE2PUSH))))')
   S=$((I * N2 / 32))
   EN=$(((I + 1) * N2 / 32))
   mkdir -p "$OUT/2push"
