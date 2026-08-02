@@ -16,6 +16,15 @@ tags: [experiment, bootstrap, fitted-q, exit-loop, search-as-collector, claude-a
 
 **Worktree:** branch `exp/bootstrap-value-loop`, checkouts `.claude/worktrees/bootstrap-value-loop` (namo) + `bootstrap-value-loop-sage` (sage). Card lives on the main branch; results land here after each step.
 
+## Hypotheses (H→E→V; drafted by Claude 2026-08-02, user to veto/edit)
+
+- **H-main:** the binding constraint is missing negative + depth supervision (not volume/arch); fact-capped model guesses, iterated, hold hmax=2 and close the hmax=3 gap to random with zero new exhaustive labeling.
+- **H0 (precheck):** θ₀'s top5-mean over an unswept remainder separates remainder-has-winner from remainder-dead boards on the 41.5k near-exhaustive child boards (52/48 classes). Bar: AUC ≥0.75 proceed; ≈0.5 stop.
+- **H1 (aquaman-0):** two-sided targets on ~200k colossus setup-root capped cells leave every testset slice within seed-noise of d20 (flat expected; regression = stop). Not the payoff round.
+- **H2 (rounds 1–2):** buried-winner rate falls round-over-round; refreshed target histogram migrates down (ratchet). Rising rate = stop rule.
+- **H3 (rounds 2–3, payoff):** at hmax=3 the model reaches ≥ random's solve@900 band on hard (today 85.0 vs 87.8±1.6) while keeping hard @5 ≥3× random.
+- **H4 (economics, feeds batman):** search-as-collector ≥ sweep labeling in deploy-delta per sim (rows/sim + testset delta per Msim).
+
 ## The one sentence
 
 Where a capped sweep left a mute one-sided ceiling, write a two-sided target `min(ceiling, γ·V̂(child))` with V̂ from the current model over the child board's untried cells, retrain, and iterate the loop ≥2 turns — testing whether model-opinion-capped-by-facts supplies the missing downward gradient and depth supervision that truth-only labels cannot.
