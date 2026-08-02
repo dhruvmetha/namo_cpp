@@ -74,6 +74,7 @@ Collector (round ≥1) = the deploy best-first search itself, budget-capped; NO 
 | aggregator | top5-mean (not max) | softened backup, anti-overestimation |
 | training | from scratch each round, same rankaux recipe + per-cell weight column | clean attribution |
 | pool | colossus 2,031,481 clean geometry-disjoint XMLs | no new generation needed |
+| scores | **RAW HL-Gauss E[bin] everywhere — never the post-sigmoid** [USER 2026-08-02] | targets need true [0,1] magnitudes; sigmoid squashes to [0.5,0.73] → min(0.81, 0.9·V̂) could never go low, downward gradient destroyed. Collector runs `--raw`; precheck/rebuild use HLGauss.value (already raw) |
 | eval | canonical testset BOTH tiers × difficulty, + hmax=3 subset-180 vs random | the target wall |
 
 ## Meters (per round, pre-registered)
