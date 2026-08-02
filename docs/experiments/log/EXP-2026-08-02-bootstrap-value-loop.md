@@ -105,6 +105,22 @@ Collector (round ≥1) = the deploy best-first search itself, budget-capped; NO 
 
 Paths (arrakis): H5 `$SCRATCH/curriculum2/beast/round3/h5/d20_plus_setup_only.h5` (995M); ckpt `$SCRATCH/curriculum2/beast/round3/models/d20_plus_setup_only_splitloss/checkpoints/epoch011-val_loss1.6952.ckpt`.
 
+## Round-0 results (running)
+
+**Offline AUC panel (exhaustive-GT `twopush_gt_h5`, 1,152 eps; canonical variants; A/B = 3-seed mean [min,max]).** All 6 aquaman ckpts + θ₀ scored same-run (`$SCRATCH/aquaman/round0/auc/`).
+
+| metric | d20+su (θ₀) | arm A | arm B |
+|---|--:|--:|--:|
+| V6 live-vs-dead board, all | 0.753 | 0.777 [.774,.779] | **0.785** [.763,.807] |
+| V6, hard | 0.725 | 0.757 [.741,.779] | **0.766** [.734,.802] |
+| hard setup hit@1 | 21.2 | 22.9 [21.2,24.6] | **24.6** [20.3,27.1] |
+| hard finish hit@1 | 51.2 | 54.8 [53.3,55.8] | **56.3** [51.2,60.3] |
+| all setup hit@1 | **57.3** | 53.2 [52.4,54.4] | 55.4 [55.0,56.1] |
+| all V1 | 0.817 | 0.798 | 0.800 |
+| all V5 | 0.557 | 0.543 | 0.533 |
+
+**Read:** the bootstrap's target quantity — board-level live/dead separation (V6, the metric EXP-2026-07-25 said might need a dedicated head) — improved with clean A→B dose-response, +3–4 pts. Hard-tier within-board ranking up. Watch-item: pooled setup hit@1 dips 2–4 pts (easy/med only; hard improves) — deploy sweep arbitrates whether it costs sims. No disqualifying regression offline.
+
 ## Log
 
 - **2026-08-02 [Claude]** Card created; worktrees `exp/bootstrap-value-loop` (namo @ fb02310, sage @ 6f90dc6). Design converged in chat (brainstorm with user): label rule, locked defaults, meters, round schedule. Next: round-0 step 1 precheck.
