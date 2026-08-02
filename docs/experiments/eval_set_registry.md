@@ -45,6 +45,11 @@ The machine-readable entry is `baselines.random_search_hmax2` in `config/eval_se
 
 The equal-budget hard-2push tails use the same three seeds with original per-episode RNG streams preserved: learned reaches 100% at 3,831 calls, while final random success is 99.3±0.7% and its mean curve reaches 95% at 3,456 calls versus 1,071 for learned. Full learned-versus-random results and plots are in [RESULTS.md](RESULTS.md).
 
+
+## Canonical no-discount random baseline (2026-08-02)
+
+Sibling of the conf-τ0.15 baseline above, for no-discount comparisons (the `deploy-nodiscount-hmax2-v1` control family): uniform-random ordering, seeds 7000/8000/9000, hmax=2, budget 900, combine=q, **discount off**, dedupe+jam on, canonical 1322+1012 populations. Registered as `random-nodiscount-hmax2-v1` in the evaluated-artifacts table; aggregate in `$NAMO_SCRATCH/aquaman/round0/gate.json`, raw `…/aquaman/round0/eval_amarel/random_s*/`. Headline: 2push hard @30 11.2±2.8, @900 70.1±2.1; 1push hard @1 3.3±1.0, @30 78.4±3.2.
+
 ## Exhaustive GT (offline analysis only — NOT used by solve@k)
 
 The solve@k/sims eval uses the **live simulator** as verifier, NOT these. These are for offline ranking / "how buried is the true winner" analysis.
