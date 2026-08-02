@@ -151,6 +151,21 @@ Paths (arrakis): H5 `$SCRATCH/curriculum2/beast/round3/h5/d20_plus_setup_only.h5
 6. **Exploration dial policy:** 20% random slice = detection-sized; if buried-winner meter stalls, prefer TARGETED exploration of flagged classes over raising the global dose.
 7. **Round-2 (backfill) already authorized:** replay old root caps (5M) + child caps (2.8M, 2-push replay chains via raw linkage — no PKLs needed) → guesses by round-1 model → mute caps 44%→~2%; doubles as ~8M-push lineage audit. Colossus PKLs (35GB Amarel) thereby deletable.
 
+
+## References (the named ancestry of each component)
+
+- **Fitted Q-Iteration** — Ernst, Geurts & Wehenkel 2005, *Tree-Based Batch Mode RL* (JMLR): batch Bellman backups with targets recomputed per iteration → our guess-refresh.
+- **Expert Iteration** — Anthony, Tian & Barber 2017, *Thinking Fast and Slow with Deep Learning and Tree Search* (NeurIPS): search improves net, net improves search → the crank.
+- **AlphaZero** — Silver et al. 2017/2018 (Nature/Science): self-play data generation, gating, replay buffer; our cost-inverted adaptation (sims expensive, net cheap).
+- **DAgger** — Ross, Gordon & Bagnell 2011 (AISTATS): on-policy state aggregation D₀∪…∪Dᵢ → collection base loop; expert = the simulator.
+- **Prioritized Level Replay** — Jiang, Grefenstette & Rocktäschel 2021 (ICML): replay worst-performing environments → the retry list.
+- **Go-Explore** — Ecoffet et al. 2019/2021 (Nature): return-to-stored-state then explore → re-rooting from stored boards.
+- **Reverse curriculum from start states** — Florensa et al. 2017 (CoRL): laddered start-state curricula → effective-depth-1 rungs, mechanized.
+- **KataGo** — Wu 2019: mixed self-play data diet (fresh openings + salvaged positions) → the three-stream collection budget.
+- **Deadly triad** — Sutton & Barto, *RL: An Introduction* (2nd ed.), §11.3: the divergence risk our caps/anchors/half-weight are rails against.
+- **Censored regression / survival analysis** — one-sided ceiling losses (beast-0a lineage, in-house validated).
+- **Verified-subproof composition** (analogy) — HTPS/AlphaProof-style theorem-proving RL: composing verified sub-results → our deterministic chain composition (the domain-specific piece; enabled by bit-identical physics).
+
 ## Log
 
 - **2026-08-02 [Claude]** Card created; worktrees `exp/bootstrap-value-loop` (namo @ fb02310, sage @ 6f90dc6). Design converged in chat (brainstorm with user): label rule, locked defaults, meters, round schedule. Next: round-0 step 1 precheck.
