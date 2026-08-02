@@ -67,6 +67,7 @@ Collector (round ≥1) = the deploy best-first search itself, budget-capped; NO 
 |---|---|---|
 | budget B | 150 sims/episode | enough to cap boards meaningfully, ~2.5 min/ep |
 | collection hmax | 2 (round 1) → 3 (rounds 2+) | θ must earn two-sided values before deep trust |
+| round-1 extra arm | **depth-token arch × 3 seeds on the same round-1 H5** [USER 2026-08-02]; NEVER used as collector (B_s1 collects) | re-tests the rejected architecture on on-policy depth-linked data; clean arch-only comparison |
 | collection task shape | **rounds 2+: `--cpus-per-task=12` + in-process worker pool** [USER 2026-08-02] | Amarel submit cap = 500 jobs; fat tasks reach ~6,000 CPUs (colossus shape). Round-1 collector was 2-cpu single-process |
 | exploration | 1-in-5 episodes random-ordered | polices wrong-LOW guesses; live random baseline; feeds buried-winner meter |
 | easy quota | solved ≤5 sims → keep 1/10 | sims-to-solve under current θ IS the difficulty meter; frontier ratchets |
