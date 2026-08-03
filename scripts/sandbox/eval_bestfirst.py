@@ -108,7 +108,8 @@ def _unmoved(before, after, obj, tol=1e-6):
 def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combine, rng, restrict_obj=None,
                 is_open=lambda e: e.is_robot_goal_reachable(), raw=False, dive_bonus=0.0,
                 discount="off", gamma=0.65, tau=1.0, g_table=None, eps=1e-3,
-                w0_mode="one", free_strike_q=2.0, dedupe_noop=True, prune_jam_depth=True, trace_out=None, capture=None):
+                w0_mode="one", free_strike_q=2.0, dedupe_noop=True, prune_jam_depth=True, trace_out=None, capture=None,
+                stop_on_open=True, win_bar=5, max_wins=64):
     """Greedy best-first ON THE LABELED OBJECT (restrict_obj). Returns (solved, sims, plan_len|None, boards, end).
     boards = per-board lifetime records; end in {solved, budget, exhausted}. w(b) via --discount (off=static).
     trace_out (list, viz only): every pop is appended as a make_pop row and every board also carries its full
@@ -199,7 +200,15 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
                 jam_at[_jk] = _d0
         board["tries"].append((len(board["tries"]) + 1, float(it["q"]), opened))   # (within-board try#, q, opened)
         if opened:
-            return True, sims, len(it["plan"]), boards, "solved"
+            if stop_on_open:
+                return True, sims, len(it["plan"]), boards, "solved"
+            # multi-solution collection mode (round-3 doctrine): record the win, keep mining unless
+            # the model met the deploy bar on its FIRST win (nothing to learn) or the win-cap hit.
+            _wins = boards[0].setdefault("_wins", [])
+            _wins.append((sims, len(it["plan"])))
+            if (len(_wins) == 1 and sims <= win_bar) or len(_wins) >= max_wins:
+                return True, sims, len(it["plan"]), boards, "solved"
+            continue
         _update_w_on_fail(board, float(it["q"]), discount, gamma, tau, g_table, gkmax, eps)
         ndone = it["ndone"] + 1
         # A push that moved NOTHING reaches the state it started from, so the child board would be a
@@ -225,6 +234,9 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
                       "plan": it["plan"] + [(obj2, g2)], "q": q2},
                      priority(q2, V, combine) + dive_bonus * ndone, child)
     end = "budget" if sims >= sim_budget else "exhausted"
+    _wins = boards[0].get("_wins") if boards else None
+    if _wins:
+        return True, _wins[0][0], _wins[0][1], boards, "solved_mined"
     return False, sims, None, boards, end
 
 
