@@ -152,6 +152,9 @@ class RankAuxModule(WeightedClassifierModule):
 
 def build_module(base_lr, warmup_steps, decay_steps):
     net = _make_network(value_bins=tq2.VALUE_BINS)
+    if os.environ.get("NAMO_COMPILE", "0") == "1":
+        net.compile()          # in-place: ckpt keys unchanged (never torch.compile(net) — renames keys)
+        print("[compile] torch in-place compile ENABLED")
     return RankAuxModule(
         network=net, base_lr=base_lr, weight_decay=0.01,
         warmup_steps=warmup_steps, decay_steps=decay_steps, end_lr=1e-6,
