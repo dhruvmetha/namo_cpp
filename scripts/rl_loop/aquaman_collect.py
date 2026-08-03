@@ -81,6 +81,7 @@ def main():
     ap.add_argument("--ckpt", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--budget", type=int, default=BUDGET)
+    ap.add_argument("--mine", action="store_true", help="multi-solution collection (round-3 doctrine)")
     args = ap.parse_args()
 
     planner = BeamPlanner(args.ckpt, CFG)
@@ -121,7 +122,8 @@ def main():
                         planner, env, goal, xml, s0, HMAX, budget, mode, "mean5", "q", rng,
                         restrict_obj=obj, is_open=is_open, raw=True,
                         discount="off", dedupe_noop=True, prune_jam_depth=True,
-                        trace_out=pops, capture=capture)
+                        trace_out=pops, capture=capture,
+                        **({"stop_on_open": False} if args.mine else {}))
                     census["solved"] += int(solved)
                     if solved and sims <= 5 and h % 10 != 0:
                         census["quota_dropped"] += 1
