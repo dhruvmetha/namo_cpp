@@ -152,6 +152,8 @@ Paths (arrakis): H5 `$SCRATCH/curriculum2/beast/round3/h5/d20_plus_setup_only.h5
 7. **Round-2 (backfill) already authorized:** replay old root caps (5M) + child caps (2.8M, 2-push replay chains via raw linkage — no PKLs needed) → guesses by round-1 model → mute caps 44%→~2%; doubles as ~8M-push lineage audit. Colossus PKLs (35GB Amarel) thereby deletable.
 
 
+8. **Speed-lever ledger [USER 2026-08-02 ~22:45, pinned]:** DONE tonight: /dev/shm train staging (in template, NFS fallback); eval fine-shards (SHARD 4-6) in two half-waves + hard-first ordering (straggler elimination — same CPUs, ~3× less wall); fat 12-cpu shape locked for v2. QUEUED for v2: collect+render fusion; cost-balanced sharding (shard by expected sims, not scene count). DECLINED: **torch.compile — user call, not worth the churn**; Amarel-GPU scoring (10-min stage, plumbing > payoff); sub-900 eval budgets & episode subsetting (protocol-breaking). BATMAN-ERA: streaming actor fleets (kills inter-stage troughs). Post-v2 utilization ≈85-90% of the 6,720-cpu quota during waves; residual floors = slowest single unit + stage boundaries + CS-GPU train epochs.
+
 ## References (the named ancestry of each component)
 
 - **Fitted Q-Iteration** — Ernst, Geurts & Wehenkel 2005, *Tree-Based Batch Mode RL* (JMLR): batch Bellman backups with targets recomputed per iteration → our guess-refresh.
