@@ -37,6 +37,7 @@ scripts/amarel/pull_balanced_eval_h5_from_amarel.sh
 # SLURM job logs (relative #SBATCH --output target); keep the dir, ignore contents
 logs/*
 !logs/.gitkeep
+*.out
 external/
 
 # paper-reader: the reading lives here (queue.md + papers/<slug>/notes.md are

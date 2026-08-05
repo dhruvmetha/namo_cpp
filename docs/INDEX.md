@@ -35,6 +35,7 @@ The active work now lives in experiment **cards** ([`experiments/log/`](experime
 ## docs/ (loose)
 
 - [`problem_and_approach.md`](problem_and_approach.md) — **canonical plain-English north-star** (search is expensive → learn a ranker to speed it up → beat the random ranker). Start here. `[HUB]` `[LIVE]`
+- [`icra27_paper.md`](icra27_paper.md) — living ICRA 2027 paper brief: scoped claims, action-primitive position, required baselines, saturation study, evidence, gaps, and paper outline. `[HUB]` `[LIVE]`
 - [`horizon_q_overview.md`](horizon_q_overview.md) — deeper map + **historical** Horizon-Q record (budget-conditioning framing superseded by `problem_and_approach.md`). `[HUB]`
 - [`cluster_resources.md`](cluster_resources.md) — Amarel SLURM partition/GPU guidance (append-only dated log). `[LIVE]`
 - [`planner_contract_drifts.md`](planner_contract_drifts.md) — confirmed config-key drift in the legacy collection path. `[REF]`
