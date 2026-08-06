@@ -14,6 +14,10 @@ from eval_common import bin_of
 
 ONEPUSH_CUTS = (1, 2, 5, 10, 30, 100, 300, 900)
 TWOPUSH_CUTS = (1, 2, 5, 10, 30, 100, 300, 900)
+# Wall-clock budgets in SECONDS, for the success-vs-time axis. Only emitted when every row carries
+# t_wall (runs from the instrumented search); pre-instrumentation artifacts aggregate exactly as before.
+# Times are comparable ONLY within one pinned-hardware campaign -- never pool across boxes.
+TIME_CUTS = (0.5, 1, 2, 5, 10, 30, 60, 120, 300)
 TIERS = ("easy", "medium", "hard", "all")
 
 
@@ -47,6 +51,13 @@ def _row_sims(row):
     if value is None:
         raise RuntimeError(f"row has no n_sim/sims: {row}")
     return int(value)
+
+
+def _row_timing(row):
+    """Per-episode wall-clock, or None for rows written before the search was instrumented."""
+    if row.get("t_wall") is None:
+        return None
+    return {k: float(row[k]) for k in ("t_wall", "t_sim", "t_score") if row.get(k) is not None}
 
 
 def _search_config(rows):
@@ -98,6 +109,34 @@ def _summarize(rows, cuts):
             "avg_sims_to_solve": round(float(solved_sims.mean()), 1) if solved_sims.size else None,
             "median_sims_to_solve": round(float(np.median(solved_sims)), 1) if solved_sims.size else None,
         }
+        # Wall-clock twin of the block above, on the SAME episodes -- emitted only when the whole tier
+        # carries timing, so a partially-instrumented mix can never be silently averaged.
+        if all(row.get("timing") for row in tier_rows):
+            wall = np.asarray([row["timing"]["t_wall"] for row in tier_rows], dtype=np.float64)
+            solved_wall = np.asarray(
+                [row["timing"]["t_wall"] for row in tier_rows if row["solved"]], dtype=np.float64
+            )
+            sim_t = np.asarray([row["timing"]["t_sim"] for row in tier_rows], dtype=np.float64)
+            score_t = np.asarray([row["timing"]["t_score"] for row in tier_rows], dtype=np.float64)
+            result[tier].update(
+                {
+                    **{
+                        f"solve@{cut}s": round(
+                            100.0 * np.count_nonzero(solved_wall <= cut) / max(1, len(tier_rows)), 1
+                        )
+                        for cut in TIME_CUTS
+                    },
+                    "avg_wall_all": round(float(wall.mean()), 2),
+                    "avg_wall_to_solve": round(float(solved_wall.mean()), 2) if solved_wall.size else None,
+                    "median_wall_to_solve": (
+                        round(float(np.median(solved_wall)), 2) if solved_wall.size else None
+                    ),
+                    # where the time actually went: sim vs ranking overhead (score_frac ~0 for random)
+                    "sim_frac": round(float(sim_t.sum() / max(wall.sum(), 1e-9)), 3),
+                    "score_frac": round(float(score_t.sum() / max(wall.sum(), 1e-9)), 3),
+                    "sec_per_sim": round(float(sim_t.sum() / max(sims.sum(), 1e-9)), 4),
+                }
+            )
     return result
 
 
@@ -123,7 +162,8 @@ def load_tiered_rows(onepush_dir, twopush_dir, onepush_key, divisions_path, expe
         if division is None:
             continue
         onepush_rows.append(
-            {"division": _normalize_tier(division), "solved": bool(row["solved"]), "sims": _row_sims(row)}
+            {"division": _normalize_tier(division), "solved": bool(row["solved"]), "sims": _row_sims(row),
+             "timing": _row_timing(row)}
         )
 
     divisions = _load_divisions(divisions_path)
@@ -134,7 +174,8 @@ def load_tiered_rows(onepush_dir, twopush_dir, onepush_key, divisions_path, expe
         if division is None:
             continue
         twopush_rows.append(
-            {"division": _normalize_tier(division), "solved": bool(row["solved"]), "sims": _row_sims(row)}
+            {"division": _normalize_tier(division), "solved": bool(row["solved"]), "sims": _row_sims(row),
+             "timing": _row_timing(row)}
         )
 
     if len(onepush_rows) != expect_onepush:
@@ -161,6 +202,7 @@ def load_twopush_rows(twopush_dir, divisions_path, expect_twopush):
         division = divisions.get(key)
         if division is not None:
             rows.append({"division": _normalize_tier(division), "solved": bool(row["solved"]),
+                         "timing": _row_timing(row),
                          "sims": _row_sims(row)})
     if len(rows) != expect_twopush:
         raise RuntimeError(f"matched 2push rows {len(rows)} != expected {expect_twopush}")
@@ -179,6 +221,7 @@ def load_onepush_rows(onepush_dir, onepush_key, expect_onepush):
         division = divisions.get(key)
         if division is not None:
             rows.append({"division": _normalize_tier(division), "solved": bool(row["solved"]),
+                         "timing": _row_timing(row),
                          "sims": _row_sims(row)})
     if len(rows) != expect_onepush:
         raise RuntimeError(f"matched 1push rows {len(rows)} != expected {expect_onepush}")

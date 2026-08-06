@@ -2,7 +2,7 @@
 status: hub
 tags:
   - results
-updated: 2026-07-23
+updated: 2026-08-06
 ---
 # Results — DAgger curriculum training framework
 
@@ -243,7 +243,7 @@ The GT-hard tails were then extended from 900 calls to natural queue exhaustion 
 
 Tail run, seed-stability audit, and queue-exhaustion results → [experiment card](log/EXP-2026-07-30-random-hard2push-search-tail.md).
 
-**Wall-clock status.** The repository already has the correct measurement path: interleaved `scripts/sandbox/time_bestfirst.py` through the exclusive, CPU-microarchitecture-pinned Amarel launchers in `scripts/amarel/`. The final setup-only/random pair has not yet been timed with that protocol, so no exact minutes or success-vs-time curve are claimed. Historical pinned hard-2push search converted a 2.1× sim reduction into a 1.8× wall reduction; this supports a rough 2.6–2.8× wall forecast from the current 3.2× call advantage at 95%, but the forecast is not a result. Full checkpoint/config/artifact record → [Colossus card](log/EXP-2026-07-21-colossus-data-scaleup.md).
+**Wall-clock status: MEASURED 2026-08-06 — see the wall-clock section below.** The forecast that stood here (2.6–2.8× wall from the 3.2× call advantage) was not confirmed as stated: measured wall speedup is **1.77× on 1push and 1.93× on 2push** by mean time-to-solve, and the forecast's anchor statistic (95% success on hard 2push) is unreachable under this budget-900 protocol by either arm, so it could not be checked at all. The forecast's *direction* was right — wall gain is smaller than call gain — but the conversion is worse than assumed. Full checkpoint/config/artifact record → [Colossus card](log/EXP-2026-07-21-colossus-data-scaleup.md).
 
 ## 2026-08-02 — Failure audit: hard setups are sparse, then the flat queue under-probes the correct board
 
@@ -269,3 +269,32 @@ The seed-1 depth-token treatment expands each contact into five motion-grounded 
 | 2push | hard | **9.5 → 13.9** | **22.6 → 29.2** | **50.4 → 54.0** | 92.0 → 92.7 | 149.5 → 150.7 |
 
 **REJECT as the next deployed ranker; do not run seeds 2–3.** The intended mechanism exists—hard exhaustive-GT setup hit@5 rises 44.9→55.1 and hard 2push solve@5 rises 22.6→29.2—but it is not a global win. Hard 1push solve@1 falls 5.9 points, medium 2push solve@5 falls 6.4, and weighted medium+hard 2push calls rise 62.52→69.42 (+11.0%) instead of falling ≥10%. The useful takeaway is narrow: local depth attention can promote sparse hard setups, but the loss/data composition must preserve contact ordering and medium finish ranking before this mechanism is deployable. Full tables, offline diagnosis, checkpoint, and exact aggregate/raw artifact paths → [depth-token card](log/EXP-2026-08-02-depth-token-push-motion.md) and the [model/evaluation artifact registry](horizon_q_model_registry.md).
+
+## 2026-08-06 — Wall-clock: the learned ordering wins in seconds too, on every tier but easy-1push (card EXP-2026-07-21-colossus)
+
+The first measured success-vs-time result. Same deployed setup-only ranker (`d20_plus_setup_only_splitloss` epoch011) and three-seed random baseline, full registered populations (1,322 1push + 1,012 2push), `hmax=2`, budget 900, `combine=q`, **discount off**, no-op dedupe and jam-depth pruning on. Every shard ran `--exclusive --constraint=icelake` on Amarel `main-redhat` — one task per whole 64-core node, single-threaded, model scoring on **CPU** (no GPU at deploy). Times are seconds per episode; comparable only within this campaign.
+
+| horizon | tier | n | model @1s | random @1s | model @5s | random @5s | model @30s | random @30s | model mean s | random mean s | wall speedup |
+|---|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| 1push | easy | 697 | 99.1 | 96.7±0.6 | 100.0 | 100.0±0.1 | 100.0 | 100.0±0.0 | 0.4 | 0.3±0.0 | **0.85×** |
+| 1push | medium | 421 | 92.2 | 70.9±0.8 | 99.3 | 95.4±0.5 | 99.8 | 99.4±0.4 | 0.8 | 1.6±0.2 | 2.06× |
+| 1push | hard | 204 | 62.3 | 35.9±2.7 | 91.7 | 78.1±2.8 | 99.0 | 97.0±1.3 | 2.6 | 5.4±1.0 | 2.09× |
+| 1push | all | 1322 | 91.2 | 79.1±0.4 | 98.5 | 95.2±0.4 | 99.8 | 99.3±0.3 | 0.9 | 1.5±0.2 | **1.77×** |
+| 2push | easy | 385 | 37.9 | 24.8±0.7 | 86.2 | 75.0±1.0 | 99.7 | 98.4±0.9 | 3.0 | 4.7±0.4 | 1.53× |
+| 2push | medium | 488 | 34.6 | 10.6±0.7 | 72.1 | 40.3±0.8 | 92.6 | 79.2±2.3 | 9.3 | 19.4±0.8 | 2.08× |
+| 2push | hard | 137 | 16.1 | 3.6±0.8 | 42.3 | 13.8±1.3 | 75.9 | 35.0±0.8 | 19.6 | 42.9±2.4 | 2.19× |
+| 2push | all | 1012 | 33.4 | 15.0±0.3 | 73.5 | 49.9±0.6 | 93.1 | 80.6±1.2 | 8.2 | 15.8±0.1 | **1.93×** |
+
+![Verified success versus wall-clock seconds for the learned ranker and three-seed random baseline, split by fixed difficulty and horizon.](plots/walltime_hmax2/success_vs_time_both_horizons.png)
+
+**WIN, with one honest exception.** The advantage survives the conversion to seconds on seven of eight rows: hard 2push reaches 42.3% within five seconds against random's 13.8±1.3%, and 75.9% vs 35.0±0.8% within thirty. **The exception is easy 1push, where the model is 15% SLOWER** (0.40 s vs 0.34 s): both arms are at 100% by five seconds, so there is no ordering left to win, and the model simply pays its ranking overhead for nothing. Informed ordering does not pay when the problem is already trivial — report this rather than hide it behind the aggregate.
+
+**The wall gain is consistently smaller than the call gain** (1push 2.96× calls → 1.77× wall; 2push 3.03× → 1.93×), for two measured reasons. (1) Ranking overhead: render + NN forward costs the model **17% of wall on 1push but only 6% on 2push** — inference matters least exactly where search is most expensive. (2) **Simulator calls are not a uniform-cost unit**: the model's calls cost more than random's (2push 0.234 vs 0.165 s/sim). Cause verified by direct measurement — sim time scales near-linearly with push depth (0.087 / 0.170 / 0.252 / 0.331 / 0.397 s for depths 0–4, 4.6× end to end), while failure is *not* the driver (failed 0.228 s vs clean 0.241 s, i.e. jams do not terminate early). Consequence for the paper: **a sim-count axis mildly flatters whichever method pushes less**, so both axes belong in the results.
+
+**The speedup depends strongly on which statistic you quote.** On hard 2push, mean time-to-solve gives 2.19×, but time to resolve the first half of the population gives **7.89× (7.2 s vs 57.1±—s)** — averages are dominated by the expensive tail where both arms are slow. Report the curve, not one ratio.
+
+**⚠ What the 1push rows actually measure [USER caught this].** The canonical protocol runs `hmax=2` on BOTH horizons, so a "1push" episode may be closed by a setup+finish chain — the rows above are **time to open the region by any route within two pushes**, NOT time to find the single opening push. The two arms take very different routes, so this is not a cosmetic distinction: the model closes 1push episodes in ONE push **93.1%** of the time (easy 98.9 / medium 93.8 / hard 72.1), while random manages only **56.9%** (easy 79.3 / medium 38.5 / **hard 18.1**) — i.e. 82% of random's hard-1push solves are 2-push chains it stumbled into, not opening pushes it ranked. This re-derives the beast-round-1 finding that the hard 1-push tier is a depth-1 artifact, and it is why random stays competitive on easy 1push: depth is doing its work for it. An isolated depth-1 ranking comparison would need an `hmax=1` arm; not run (declined 2026-08-06 [USER]). Same figure confirms population integrity in the other direction: **0% of pure-2push episodes were closed in one push** by either arm, on every tier.
+
+![Share of episodes closed in one push versus two, by arm, tier, and horizon.](plots/walltime_hmax2/plan_depth_share.png)
+
+**Measurement integrity.** The timed search IS the canonical search: `solve_scene` was instrumented in place (`t_wall`/`t_sim`/`t_score`/`n_score`) and the pre-existing `scripts/sandbox/time_bestfirst.py` fork was retired — it kept a private copy of the loop that predated `dedupe_noop` and `prune_jam_depth`, so it had been timing a different, slower search. Determinism cross-check against the registered `deploy-nodiscount-hmax2-v1` control: **1,321/1,322 1push episodes (99.92%) and 999/1,012 2push episodes (98.72%)** reproduce sims and solved exactly; the differences are the documented ~0.3 mm warmstart jitter, amplified at depth 2 where one flip changes the branch. Node-pooling validity: arms ran on separate (pinned, exclusive) nodes rather than per-episode interleaved, so seconds/sim was checked across the three random seeds at matched shard index — arm-level standard error ≈ ±3%, far below the effects above, and node assignment overlaps between arms. Per-episode interleaving remains the strictly cleaner design and is the standing limitation of this campaign. Raw rows `$NAMO_SCRATCH/eval/walltime_hmax2/v1/{model,random_s{7000,8000,9000}}_{1push,2push}/`.
