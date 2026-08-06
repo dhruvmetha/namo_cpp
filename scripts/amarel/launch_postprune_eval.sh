@@ -23,7 +23,10 @@ launch() {
   local last=$(( (count + shard - 1) / shard - 1 ))
   local out="$OUT_ROOT/$label"
   local job
-  job=$(sbatch --parsable --array="0-${last}%${MAX_PARALLEL}" \
+  # SBATCH_EXTRA: wall-clock protocol passes "--exclusive --constraint=icelake" so every shard owns its
+  # node and every shard runs on ONE CPU microarchitecture -- the only way pooled times stay comparable.
+  # Empty (default) = the ordinary shared-node sim-count run, unchanged.
+  job=$(sbatch --parsable ${SBATCH_EXTRA:-} --array="0-${last}%${MAX_PARALLEL}" \
     --export="ALL,MANIFEST=,NAMO_REPO=$REPO,CKPT=$CKPT,KEY=$key,OUT_DIR=$out,HMAX=2,SIM_BUDGET=900,PRIOR=$prior,AGG=mean5,COMBINE=q,DISCOUNT=$DISCOUNT,TAU=$TAU,SEED_BASE=$seed,SHARD=$shard" \
     scripts/amarel/bestfirst_eval.slurm)
   printf '%-24s %s\n' "$label" "$job"

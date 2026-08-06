@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""WALL-CLOCK best-first SEARCH timing — Hz / NoHz / random, SAME node, interleaved, warm-only.
+"""RETIRED 2026-08-06 for the canonical wall-clock protocol — DO NOT use for paper numbers.
+
+timed_bf() below is a private COPY of the search that predates the two adopted pruning rules
+(dedupe_noop, prune_jam_depth, both default-on in eval_bestfirst.solve_scene), so it times a
+different — slower — search than the one behind every number in RESULTS.md. eval_bestfirst.py
+now carries the timing itself (t_wall/t_sim/t_score/n_score per episode in --leaf-out), so a
+timed run IS a canonical run. Kept only for the historical Hz/NoHz reactive comparison.
+
+WALL-CLOCK best-first SEARCH timing — Hz / NoHz / random, SAME node, interleaved, warm-only.
 
 The search-regime counterpart of time_benchmark.py (reactive@2). Reuses the EXACT search (candidates/priority
 from eval_bestfirst, combine='q' which the user confirmed). Now that render ~0.1s (< a sim), this shows the
