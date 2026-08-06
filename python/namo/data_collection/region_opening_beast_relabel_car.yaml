@@ -52,7 +52,7 @@ region_sample_restarts: 1
 
 # Goal strategy: R (antman-5) ranks candidate pushes; ml_first orders the frontier by that score.
 goal_strategy: scorer
-scorer_ckpt: /common/users/dm1487/scratch_namo/curriculum2/control_r5/mistakes_s1/checkpoints/epoch015-val_loss0.7907.ckpt
+scorer_ckpt: $NAMO_SCRATCH/curriculum2/control_r5/mistakes_s1/checkpoints/epoch015-val_loss0.7907.ckpt
 ml_device: cuda
 
 # 5-DEPTH car primitives -> 60x5 = (4 edges x 15 pts) x 5 depths.

@@ -3,7 +3,8 @@
 
 collect_shard.py reads LoopConfig.from_json; this writes it with the growth-collection knobs
 (R=16, T=0.1, eps=0.10, forced sweeps on, object-restricted) and Amarel-native pool/split/ckpt
-paths. Run on either box (paths are stored as /scratch/dm1487 keys, box-agnostic)."""
+paths. Run on either box: keys are stored in the legacy-scratch form and mapped onto the
+current box by ``namo.paths.resolve`` (see ``_LEGACY_SCRATCH`` there), so they stay box-agnostic."""
 import argparse
 import sys
 from pathlib import Path

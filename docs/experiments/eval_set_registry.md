@@ -92,7 +92,7 @@ The manifest↔GT alignment is the TRUTH below (not a file — the derived align
 
 **GT alignment (finalized 2026-07-30):** the original H5 had benign build-version drift: 37 source-manifest episodes lacked a root and 136 roots were outside the manifest. A targeted exhaustive fill completed 35 of those 37 exact `(xml, object, goal region)` episodes and added 1,937 rows. Two unusually large sweeps were stopped by user decision and remain explicitly unknown; fixed-tier charts exclude those two rather than mis-bin them.
 
-**Sweep provenance:** config `amarel:/scratch/dm1487/curriculum2/beast/round2/testset_finish_gt/ref_fullexhaust.yaml` (region_opening, `region_exhaustive_mode: true`, no early-stop) → driver `gt_build.sbatch` (100-way array) → H5 builder `scripts/pipeline/build_rung2_h5.py` → merged to `testset_gt.h5`.
+**Sweep provenance:** config `amarel:$NAMO_SCRATCH/curriculum2/beast/round2/testset_finish_gt/ref_fullexhaust.yaml` (region_opening, `region_exhaustive_mode: true`, no early-stop) → driver `gt_build.sbatch` (100-way array) → H5 builder `scripts/pipeline/build_rung2_h5.py` → merged to `testset_gt.h5`.
 
 **testset_gt.h5 ↔ pure2push.json `valid_first_push` agreement, cell level (verified 2026-07-26, 287 sampled pure-2push episodes):** this is a different check from the root-alignment above — it asks, for each individual first-push candidate, whether GT's green set (openers + setups at the root) and the manifest's `valid_first_push` agree, not just whether the episode is rooted in both.
 

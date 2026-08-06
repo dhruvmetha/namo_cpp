@@ -56,7 +56,7 @@ region_finish_miss_audit_seed: 42
 
 # Goal strategy: R (beast-1-clean) ranks candidate pushes; ml_first orders the frontier by that score.
 goal_strategy: scorer
-scorer_ckpt: /scratch/dm1487/curriculum2/beast/round2/probe/beast1_clean.ckpt
+scorer_ckpt: $NAMO_SCRATCH/curriculum2/beast/round2/probe/beast1_clean.ckpt
 ml_device: cpu
 
 # 5-DEPTH car primitives -> 60x5 = (4 edges x 15 pts) x 5 depths.

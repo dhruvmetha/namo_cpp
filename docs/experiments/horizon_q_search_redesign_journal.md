@@ -35,7 +35,7 @@ Reactive@2 = the **rank-1 corner** (setup rank 1 AND finish rank 1) = "how good 
 ---
 
 ## 1. THE SIMS DECOMPOSITION — the central evidence [2026-06-23, exhaustive pairmap, canonical 1018]
-`scripts/sandbox/` ad-hoc on `/scratch/dm1487/eval/exhaustive_pairmap_pure2.pkl` (`pairmap[(xml,obj)][a1][a2]=opens?`). Expected sims, sampling w/o replacement, `E[trials-to-first-success] = (N+1)/(m+1)`. Per-tier via `pure2push_divisions.json`.
+`scripts/sandbox/` ad-hoc on `$NAMO_SCRATCH/eval/exhaustive_pairmap_pure2.pkl` (CS only) (`pairmap[(xml,obj)][a1][a2]=opens?`). Expected sims, sampling w/o replacement, `E[trials-to-first-success] = (N+1)/(m+1)`. Per-tier via `pure2push_divisions.json`.
 
 **Where the 31.5 naive sims go, removed one chunk at a time (oracle ladder):**
 | regime | sims | chunk removed | saves |

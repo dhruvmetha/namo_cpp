@@ -80,7 +80,7 @@ All share `m2b` + `h2` + `aug`; they differ only in the **finish** ingredient:
 - **v4** = v3 with ExIt **scaled 24k→47k + dead-s1 coverage** (the "finish rebalance").
 
 ## 5. RESULTS (the headline table — 3 seeds, region criterion, n=1018 pure-2-push episodes)
-**Reactive@2** = forced-dive (argmax setup → argmax finish, 2 sims). **Best-first@2 (combine=q)** = solved within ≤2 sims by value-guided search. **dive tax** = reactive − best-first (how much forcing the dive buys). **s@900** = search ceiling (≤900 sims). Eval dirs: `/scratch/dm1487/eval/{reactarg_*,bfq_*}`.
+**Reactive@2** = forced-dive (argmax setup → argmax finish, 2 sims). **Best-first@2 (combine=q)** = solved within ≤2 sims by value-guided search. **dive tax** = reactive − best-first (how much forcing the dive buys). **s@900** = search ceiling (≤900 sims). Eval dirs: `$NAMO_SCRATCH/eval/{reactarg_*,bfq_*}` — **⚠ ARTIFACT GONE (verified 2026-08-06)**.
 
 | cell | reactive@2 | best-first@2 (q) | dive tax | s@900 (ceiling) |
 |---|---|---|---|---|
@@ -116,4 +116,4 @@ The v2→v3→v4 saturation + the structural dive tax drove a pivot: **the model
 ## 8. Key paths
 - Code: `sage_learning/src/model/dit/edge_crossattn.py` (arch), `src/model/classifier_module.py` (loss), `src/data/scorer_data.py` (data). Evals: `namo_cpp/scripts/sandbox/{eval_reactive_argmax,eval_bestfirst,eval_m3, eval_scorer}.py`. Aggregator: `scripts/sandbox/agg_seed_table.py`.
 - Ckpts/numbers: `docs/experiments/horizon_q_model_registry.md` (NEVER glob — wandb-hash dirs).
-- Python: `/scratch/dm1487/envs/namo/bin/python`; build C++ bindings via `./build_python_bindings.sh`.
+- Python: `$NAMO_SCRATCH/envs/namo/bin/python` (Amarel only); build C++ bindings via `./build_python_bindings.sh`.

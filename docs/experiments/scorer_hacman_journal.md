@@ -190,7 +190,7 @@ Implemented via `pos_fourier`/`use_edge_embed`/`use_local`/`fine_stem` flags (ev
 
 ## Reading list (for the user on waking)
 Grounding for the per-edge / point-critic architecture we built:
-- **HACMan** (Zhou et al., CoRL 2023) — the per-point Q-map + actor-critic we replicate. https://arxiv.org/abs/2305.03942 · code: github.com/HACMan-2023/HACMan (cloned at /scratch/dm1487/refs/HACMan). Read §"per-point feature extractor" + the PointNet++ U-Net (SA encoder + FP decoder w/ skips) — that's exactly what our edge-token cross-attention does, on a 60-edge cloud.
+- **HACMan** (Zhou et al., CoRL 2023) — the per-point Q-map + actor-critic we replicate. https://arxiv.org/abs/2305.03942 · code: github.com/HACMan-2023/HACMan (cloned at `$NAMO_SCRATCH/refs/HACMan`, Amarel only). Read §"per-point feature extractor" + the PointNet++ U-Net (SA encoder + FP decoder w/ skips) — that's exactly what our edge-token cross-attention does, on a 60-edge cloud.
 - **HACMan++** (Jiang et al., RSS 2024) — spatially-grounded *parameterized* primitives (what/where/how), the chaining we'll use for 2-push. https://arxiv.org/abs/2407.08585 · code: github.com/JiangBowen0008/HACManPP. Note it uses a **point_transformer** over the points — validates our transformer-over-edges choice.
 - **Point Transformer** (Zhao et al., ICCV 2021) — local self-attention → per-point features fusing local+global. https://arxiv.org/abs/2012.09164 . This is the backbone idea of our edge self-attention.
 
@@ -359,7 +359,7 @@ Hypothesis history (each step tested — this is the audit trail; see the ⭐ FI
 ## ⭐ DEPLOYABLE 2-PUSH — FINAL STATUS & HANDOFF [2026-06-07 ~05:30]
 
 **What was built (all working, verified):**
-1. **Champion 1-push scorer** `sharp` (EdgeCrossAttn + Fourier PE + per-edge Embedding(60)): 33.2 hard@1, +5.1 vs E4 baseline (t≈11, all seeds). Ckpt: `/scratch/dm1487/sage_outputs/scorer/sharp_s1/namo-classifier/9yizg6i8/checkpoints/epoch017-val_loss0.2713.ckpt`
+1. **Champion 1-push scorer** `sharp` (EdgeCrossAttn + Fourier PE + per-edge Embedding(60)): 33.2 hard@1, +5.1 vs E4 baseline (t≈11, all seeds). Ckpt: `$NAMO_SCRATCH/sage_outputs/scorer/sharp_s1/namo-classifier/9yizg6i8/checkpoints/epoch017-val_loss0.2713.ckpt` — **⚠ ARTIFACT GONE (verified 2026-08-06)**
 2. **Live-scorer bridge** `scripts/sandbox/live_scorer.py` — env state → 5-ch crop + contact_px → (60,5) P. Validated bit-for-bit vs the H5. Config: `namo_config_complete_skill15_car_1x.yaml`.
 3. **Depth-≤2 scorer-beam search** `scripts/sandbox/scorer_beam.py` — 1-push scorer as the value function, MuJoCo as the transition model, NO 2-push labels. depth-1 = top-K1 by P; depth-2 = broad un-P-ranked first-push budget ranked by V(s1)=max 2nd-push P, verified-by-sim.
 4. **Deployable entrypoint** `scripts/sandbox/deploy_plan.py` — scene → executable plan `(object, edge_idx, push_steps, target_se2)`. Defaults to STRICT (real-robot).

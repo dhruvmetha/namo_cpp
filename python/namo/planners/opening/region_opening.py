@@ -8,6 +8,7 @@ the next neighbour.
 
 import hashlib
 import math
+import os
 import random
 import time
 from dataclasses import dataclass, field
@@ -724,7 +725,9 @@ class RegionOpeningPlanner(BasePlanner):
             )
             scorer_ckpt = algo_params.get("scorer_ckpt")
             if scorer_ckpt:
-                scorer_kwargs["ckpt"] = scorer_ckpt
+                # Expand $NAMO_SCRATCH/... so a committed config is not box-locked.
+                # No-op on literal paths, so existing absolute configs still work.
+                scorer_kwargs["ckpt"] = os.path.expandvars(str(scorer_ckpt))
             self.goal_strategy = ScorerGoalStrategy(**scorer_kwargs)
             self._debug("▶ Using scorer-guided goal strategy (F-scorer ranks pushes)")
         elif strategy_name and strategy_name.lower() in {"geometric", "geometric_transport"}:
