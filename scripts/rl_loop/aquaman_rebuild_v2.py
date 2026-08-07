@@ -165,13 +165,16 @@ def run_reduce(arm):
         for m, (r, cells) in enumerate(by_row.items()):
             vt = f["value_target"][r]
             cm = f["ceiling_mask"][r]
+            vm = f["value_mask"][r]
             g = np.zeros((60, 5), np.uint8)
             for e, d, t in cells:
                 vt[e, d] = t
                 cm[e, d] = 0.0
+                vm[e, d] = 1.0     # class-1 parents were masked; loss_mask = value_mask * r_mask
                 g[e, d] = 1
             f["value_target"][r] = vt
             f["ceiling_mask"][r] = cm
+            f["value_mask"][r] = vm
             gm[r] = g
             if m % 2000 == 0:
                 print(f"  write {m}/{len(by_row)}", flush=True)
@@ -190,7 +193,7 @@ if __name__ == "__main__":
     ap.add_argument("mode", choices=["map", "reduce"])
     ap.add_argument("--shard", type=int)
     ap.add_argument("--gpu", type=int, default=0)
-    ap.add_argument("--arm", choices=["A", "B"], default="B")
+    ap.add_argument("--arm", choices=["A", "B", "Bfix"], default="B")  # Bfix == B with the loss mask opened
     a = ap.parse_args()
     if a.mode == "map":
         run_map(a.shard, 0)  # CUDA_VISIBLE_DEVICES pins the physical GPU
