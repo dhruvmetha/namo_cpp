@@ -195,7 +195,10 @@ def build_module(base_lr, warmup_steps, decay_steps):
 
 
 if __name__ == "__main__":
+    # EXCLUDE_GUESS is printed because it silently changes what the aux ranks, and on 2026-08-08 it
+    # could only be confirmed after the fact by noticing v4 and v3 had identical wall times (the
+    # 386-tier pathology costs ~4x/epoch, so its absence was the only evidence the flag took).
     print(f"[rankaux] RANK_LAMBDA={RANK_LAMBDA}  LOWER_RANK_LAMBDA={LOWER_RANK_LAMBDA}  "
-          f"RANK_TEMP={RANK_TEMP}", flush=True)
+          f"RANK_TEMP={RANK_TEMP}  EXCLUDE_GUESS={int(EXCLUDE_GUESS)}", flush=True)
     tq2.build_module = build_module   # main() + reload-checks resolve build_module at call time
     tq2.main()
