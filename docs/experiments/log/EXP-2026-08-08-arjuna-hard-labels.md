@@ -95,7 +95,39 @@ Offline panel (`twopush_gt_h5`, 1,152 eps), mean [sd]:
 | setup hit@1 hard | 22.9 [1.4] | **24.6** [3.8] |
 | finish hit@1 hard | 54.8 [1.1] | 52.6 [2.9] |
 
-## Verdict [numbers] — the floor hypothesis is FALSIFIED
+## ⛔ SCOPE CORRECTION (2026-08-08, after the verdict below was written)
+
+**v1 changed 1.4% of the bounded cells. The verdict below is true of that dose and must not be read as a test of "does the model need a floor".**
+
+| file | in-loss | bounded ("at most X") | converted vs θ₀ | zeros |
+|---|--:|--:|--:|--:|
+| θ₀ | 17,428,630 | 8,294,162 (47.6%) | — | 0 |
+| aquaman arm A | 17,428,630 | 8,255,643 | 38,519 (**0.5%**) | 0 |
+| aquaman Bfix | 17,966,355 | 8,255,643 | 38,519 (**0.5%**) | 0 |
+| **arjuna-0 v1** | 17,428,630 | 8,179,502 (46.9%) | **114,660 (1.4%)** | 114,660 |
+
+Every label intervention this project has run moved ≤1.4% of the bounded population. After all of them, ~47% of supervised cells still say "at most X" with nothing pulling them down.
+
+**Why so little was reachable — a join limit, not a choice:**
+
+| region | rows | in-loss | bounded | bound value |
+|---|--:|--:|--:|---|
+| base-root | 188,467 | 13.28M | 37.2% | **≤0.81** |
+| base-child | 42,885 | 3.00M | **94.8%** | **≤0.90** |
+| colossus-root | 26,057 | 1.06M | 54.2% | ≤0.81 |
+
+Only the 26,023 Colossus setup roots have child boards in the raw shards, so only they can be resolved by linkage. **94% of bounded cells sit on d20-base rows for which no child board was ever stored** — unresolvable as archived, at any effort. Within the reachable population v1 actually converted **20%**, a real dose; it is 1.4% only against a file that is 94% out of reach.
+
+**And the two bounds are inverted relative to what the deployed searcher can cash:**
+
+| cell | current bound | correct under hmax=2 |
+|---|---|---|
+| root, simmed, failed, child unresolved | ≤0.81 — *below* setup grade, so undiscovered setups are pre-emptively buried | ≤0.9 (a setup is still possible) |
+| child, simmed, failed | ≤0.90 — the loosest bound in the system | **= 0** (no third push exists) |
+
+The mis-set one is the large one: **2.84M child cells that should be exact zeros are bounded at 0.9**, on the tier carrying 88–94% of deploy pops, and every one was already simmed. That is the floor experiment v1 did not run — and is what v2 below does.
+
+## Verdict [numbers] — the floor hypothesis is FALSIFIED **at the 1.4% dose**
 
 **Pre-registered before training** [Claude, 2026-08-07]: *"if the floor theory is right the gain shows up first in cross-board — V5 above its stuck 0.53 — and if V5 doesn't move, the theory is wrong regardless of what the solve rates do."*
 
@@ -108,6 +140,31 @@ That fits a narrower mechanism than the one proposed: a proven zero says *this s
 
 **2-push is flat** (27.7 vs 27.7 @5), and finish hit@1 hard *fell* 54.8 → 52.6. Since `solve@2 ≈ setup@1 × finish@1` (verified to ~1 pt across conditions), the better setup pick was cancelled by the worse finish pick.
 
+## arjuna-0 **v2** — the big-dose floor test [USER 2026-08-08, IN FLIGHT]
+
+v1 is superseded as the floor test (its artifacts stay registered; nothing was deleted — `arjuna0_train.h5` is a standalone copy and the ARJ models are cited in the registry).
+
+**Label scheme [USER]** — needs no linkage at all, so it reaches the whole file, not just the 6% Colossus block:
+
+| cell | v2 label |
+|---|---|
+| opener (finish) | **1.0** |
+| setup | **0.5** (γ drops 0.9 → 0.5, widening the finish ≫ setup ≫ rest ladder) |
+| **every bounded cell** (≤0.81 root and ≤0.90 child) | **0.0 exact, two-sided, full weight** |
+| untried | masked — unchanged; we never invent a value for a push nobody executed |
+
+Build `scripts/rl_loop/arjuna_build_v2.py` → `round0/arjuna0v2_train.h5`. Census: openers 3,422,785 · setups 5,592,004 · **bounded→zero 8,372,367** · untried still masked 1,016,234. Gate (no GPU touched until it passed): distinct values exactly `[0.0, 0.5, 1.0]`, **zeros 48.2% / setups 32.2% / openers 19.5%**, bounds remaining **0**, untried preserved.
+
+**Zeros go 0.66% → 48.2% — a 70× dose.** This is the first label file in the project's history whose targets genuinely vary; every earlier result was measured inside a regime where 96–100% of targets sat ≥0.8 and the regression could satisfy itself by emitting ~0.87 everywhere.
+
+**Arms:** 3 seeds × {ranking ON, ranking OFF}, `RANK_LAMBDA = LOWER_RANK_LAMBDA = 0.1` (equal budget [USER]) → `AJ2_s{1,2,3}` / `AJ2NR_s{1,2,3}`. The aux fires on exactly three tiers — openers above setups+zeros, setups above zeros, level-0 skipped for want of anything lower — i.e. finish > setup > rest, with no fictional tiers (this file contains no guesses).
+
+**What each contrast decides:**
+- **v2-ON vs arm A / ARJ** — does a real floor achieve what 1.4% could not? Watch **V5**, stuck at 0.53–0.54 through every intervention to date.
+- **v2-ON vs v2-OFF** — the sharper one. Every previous aux ablation ran on a file that was ~47% bounds, where regression had almost nothing to learn and the aux carried it by default. This is the first fair test of whether ordering supervision is *intrinsically* dominant or was compensating for degenerate labels. **Pre-registered prediction [Claude]: the gap narrows but the aux still wins**, because ranking optimises the top of the list while regression averages over ~68 cells in which one setup matters.
+
+**⚠ Honest asymmetry, recorded BEFORE results:** zeroing *child* bounded cells is correct under hmax=2 (a failed push-2 has no successor). Zeroing *root* bounded cells asserts "this is not a setup" for **~5.5M cells** whose children were never resolved — some are genuine setups, so those labels are wrong. This is the move that regressed 2026-07-25 (sims-to-solve 46.0 → 53.8), differing in one respect: that run also zeroed **untried** cells, inventing facts about pushes nobody executed; v2 only zeroes cells that were simmed. **If v2 regresses, this is the first suspect**, and the follow-up arm is the split — child→0, root→masked — which separates the safe half from the risky half.
+
 ## Open / next
 
 - **The cross-board hole is unaddressed by labels.** It needs a signal spanning boards: a board-ordering head ([EXP-2026-08-02-board-live-head](EXP-2026-08-02-board-live-head.md), labels already balanced 22,271 live / 19,282 dead), or a ranking competition list that is not `dim=1`. Within-episode comparability suffices — the deploy queue only ever holds one episode's boards.
@@ -116,5 +173,7 @@ That fits a narrower mechanism than the one proposed: a proven zero says *this s
 - **Not attempted, deliberately:** the γ² grandchild bootstrap (needs states we never stored) and any re-collection.
 
 ## Log
+
+- **2026-08-08 (PM) [Claude] SCOPE CORRECTION + v2 launched.** Measuring the bounded population showed v1 converted only **114,660 of 8,294,162** bounded cells (1.4%), and that aquaman arm A / Bfix converted 38,519 (0.5%) — i.e. *every* label intervention in this project has moved ≤1.4% of the cells that carry no value. Cause is a join limit: only the 26,023 Colossus setup roots have child boards in the raw shards, and **94% of bounded cells sit on d20-base rows with no child stored at all**. Also found the bounds are inverted: root cells are capped ≤0.81 (below setup grade, burying undiscovered setups) while child cells — where a failed push-2 is worth exactly 0 under hmax=2 — get the loosest cap in the system, ≤0.90, across **2.84M cells on the tier holding 88–94% of deploy pops**. The v1 verdict is therefore true only of a 1.4% dose and has been re-titled accordingly; it was overclaimed as written. **v2 [USER]:** opener 1.0 / setup 0.5 / every bounded cell 0.0 / untried masked — needs no linkage, reaches the whole file, takes zeros from 0.66% → **48.2%**. Six runs launched (3 seeds × ranking on/off, λ=0.1 both levels). Nothing deleted; v1 artifacts remain registered.
 
 - **2026-08-08 [Claude] arjuna-0 built, trained, evaluated; floor hypothesis falsified on its own pre-registered test.** Build `arjuna_build.py` over 32 raw shards → 141,581 exact zeros (`arjuna0_train.h5`), verification gate passed (4/4 invariants), 3 seeds trained on CS SLURM (val_loss 1.6825/1.6811/1.6964 — *lower* than arm A's 1.7056–1.7230, so facts fit better than guesses), canonical eval on Amarel (216/216 shards, zero unmatched), AUC panel on westeros. Headline: **1push-hard@1 42.5 (best in line, bands [41.7,43.6] barely overlapping arm A), 2push flat, V5 0.533 unchanged.** Chain ran unattended and gated: training would not have started had the census failed.
