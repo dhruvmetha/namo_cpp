@@ -63,10 +63,16 @@ if [ -n "${SLURM_ARRAY_TASK_ID:-}" ]; then
   GAMMAS=(0.3 0.5 0.7 0.9); G=${GAMMAS[$SLURM_ARRAY_TASK_ID]}
   export NAMO_GAMMA=$G; OUT="$OUT/g${G}"
 fi
-# SPEED: stage the H5 to node-local /dev/shm (measured 4.3x dataloader; see header notes).
+# SPEED: stage the H5 to node-local storage (measured 4.3x dataloader; see header notes).
+# Stage dir is overridable: /dev/shm is fastest but systemd RemoveIPC DELETES it when the user's
+# last session on that node closes, which silently kills a running train ("unable to open file:
+# /dev/shm/namo_train_<jobid>.h5"). It also competes for RAM -- one 1 GB copy PER JOB, so a fleet
+# on one node can exhaust it and get workers killed by signal Aborted. Both were hit on
+# 2026-08-08 with 12 concurrent runs. Set NAMO_STAGE_DIR=/tmp for fleets: node-local disk, no
+# RemoveIPC, no RAM pressure, still far better than NFS.
 # Falls back to NFS silently if the copy fails (e.g. tmpfs too small) — correctness unaffected.
 if [ "${NAMO_STAGE_SHM:-1}" = "1" ]; then
-  SH5="/dev/shm/namo_train_${SLURM_JOB_ID:-$$}.h5"
+  SH5="${NAMO_STAGE_DIR:-/dev/shm}/namo_train_${SLURM_JOB_ID:-$$}.h5"
   if cp "$H5" "$SH5" 2>/dev/null; then
     H5="$SH5"; trap 'rm -f "$SH5"' EXIT
     echo "staged H5 to $SH5"
