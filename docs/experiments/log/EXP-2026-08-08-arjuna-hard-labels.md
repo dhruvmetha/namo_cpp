@@ -233,6 +233,29 @@ AJ2NR  2push  hard   n=411   @1=0.0   @5=20.0  @30=40.6   @900=87.8   s2s=134.5
 
 Two things to read off. **The aux's contribution is uniform across difficulty, not concentrated in the hard tail** — AJ2 beats AJ2NR by +7.1 / +7.0 / +6.8 points at 2push easy/medium/hard @5. And **on 1push-easy the aux is very slightly harmful** (96.9 vs 97.7 @1), the same easy-tier inversion the wall-clock campaign saw. Neither arm reaches θ₀'s 2p-hard@900 of 92.0.
 
+### v2 AUC panel — `round0/auc_aj2.json`, 1,152 episodes, 3 seeds (script `round0/auc_compare.py`)
+
+```
+arm             V1        V2        F1        F2        V4        V5       V5m        V6   setup@1  finish@1
+Bfix         0.796     0.790     0.848     0.902     0.866     0.527     0.563     0.786      56.2      69.9
+BfixNR       0.797     0.784     0.761     0.735     0.847     0.625     0.693     0.707      59.9      46.0
+ANR          0.810     0.791     0.774     0.736     0.869     0.616     0.685     0.688      60.7      44.1
+BNG          0.798     0.797     0.837     0.902     0.880     0.538     0.582     0.786      55.2      69.6
+ARJ          0.801     0.801     0.859     0.906     0.885     0.533     0.576     0.790      55.2      69.5
+AJ2          0.785     0.792     0.826     0.882     0.900     0.543     0.593     0.760      55.1      64.9
+AJ2NR        0.785     0.789     0.823     0.877     0.882     0.642     0.723     0.734      56.7      63.4
+```
+
+**1. V5 is confirmed immovable by labels — the pre-registered watch resolves.** `AJ2` V5 = 0.543 [0.529, 0.562], overlapping BNG [0.522, 0.551] and ARJ [0.505, 0.556]. Seven rank-on arms across three label regimes — bootstrap guesses, 1.4% floor, 47.6% floor — all sit in 0.527–0.543. A 72× label dose does not touch cross-board comparability. **This closes the label route to V5 for good; it is a loss-structure problem, and the board-ordering head is the only remaining lever.**
+
+**2. `AJ2NR` posts the highest V5 ever measured — 0.642 [0.631, 0.648]**, above BfixNR (0.625) and ANR (0.616). Cross-board comparability is *best* with honest labels and no aux, and the aux costs a full 0.10 of it (bands nowhere near overlapping). The aux does not merely fail to help V5 — it actively suppresses it, exactly as the `log_softmax(dim=1)` shift-invariance predicts.
+
+**3. The F2 collapse is CURED by labels, and this is the mechanism behind verdict 2.** Removing the aux used to destroy finish separation: 0.902 → 0.735. Under hard labels it does not: **0.882 → 0.877, bands overlapping.** So the aux was never teaching finish ordering *per se* — it was compensating for labels in which finish and setup were nearly the same number. Give the model a real 1.0 / 0.5 / 0.0 ladder and it learns that ordering from the regression alone. This is why `AJ2NR` (19.9) nearly doubles `BfixNR` (11.2).
+
+**4. V4 improves while V5 does not — the order-statistic gap, isolated.** `AJ2` posts the best V4 in the line (0.900 vs ARJ 0.885, BNG 0.880): it beats the *typical* dead cell better than any model we have. But V5 — the same comparison against each dead board's **maximum** — is flat. With a median of 75 cells per dead board, the max is an extreme order statistic, and being better than average buys nothing against it. **This is the cleanest statement yet of what "cross-board weakness" actually is.**
+
+**⚠ 5. The AUC panel does NOT explain v2's deploy gap, and I am flagging that rather than inventing a mechanism.** Under hard labels, aux-on vs aux-off is: V1/V2 identical (0.785/0.792 vs 0.785/0.789), F2 overlapping, setup@1 *worse* with the aux (55.1 vs 56.7), finish@1 +1.5, V5 −0.10. The only non-overlapping gain is **V6, live-board-max vs dead-board-max, 0.760 [0.751, 0.779] vs 0.734 [0.726, 0.745]** — board-level triage, which is precisely what orders the best-first queue. **Hypothesis [Claude, UNVERIFIED]: under honest labels the aux's deploy value comes through board triage (V6), not within-board finish ordering (F2) as it did under bootstrap labels.** A +0.026 V6 gain is small to account for +6.9 deploy points, so this needs a direct test before it is believed — it is not a conclusion.
+
 ### The asymmetry flagged before launch is the surviving suspect
 
 Zeroing *child* bounded cells is provably correct under hmax=2. Zeroing *root* bounded cells asserts "this is not a setup" for ~5.5M cells whose children were never resolved, and the flat-to-slightly-down result is exactly what that predicts: real information added on the child half, false labels added on the root half, netting to zero. **This is now the pre-registered next arm** — child→0, root→masked — and it is the only way to tell "the floor doesn't help" from "the floor helps, and 5.5M wrong labels cancel it out." Until it runs, verdict 1 should be read as *the floor as applied* rather than *any floor*.
