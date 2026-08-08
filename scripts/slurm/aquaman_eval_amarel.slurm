@@ -30,7 +30,7 @@ set -euo pipefail
 # siblings of it (a fresh worktree has no build_python of its own -- point NAMO_BINDINGS at the
 # checkout that does). Override any of the three by env; nothing here is a literal box path.
 REPO=${NAMO_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}
-SAGE=${SAGE_REPO:?set SAGE_REPO -- it MUST match the checkpoint's code version (round-1 incident)}
+SAGE=${SAGE_REPO:?set SAGE_REPO -- it MUST match the code version the ckpt was trained with}
 BIND=${NAMO_BINDINGS:-$REPO/build_python}
 N1SH=${N1SH:-40}
 N2SH=${N2SH:-32}
