@@ -41,7 +41,7 @@ from viz.trace_schema import build_trace, episode_filename, make_board, make_pop
 PURE2PUSH = str(MANIFESTS / "test_pure2_fromkey.txt")
 
 
-def candidates(planner, env, goal, xml, state, h, prior, agg, rng, restrict_obj=None, raw=False, want_grid=False):
+def candidates(planner, env, goal, xml, state, h, prior, agg, rng, restrict_obj=None, raw=True, want_grid=False):
     """Reachable pushes from `state` (restricted to restrict_obj = the labeled object) with a priority-base
     value + the state value V. model: q = Q(state,a,h); V = agg of top Q (mean5 robust, or max). uniform: random q, V=0.
     want_grid (viz only, default False = no extra cost): also return the model's (60,5) score grid for `state`,
@@ -106,7 +106,7 @@ def _unmoved(before, after, obj, tol=1e-6):
 
 
 def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combine, rng, restrict_obj=None,
-                is_open=lambda e: e.is_robot_goal_reachable(), raw=False, dive_bonus=0.0,
+                is_open=lambda e: e.is_robot_goal_reachable(), raw=True, dive_bonus=0.0,
                 discount="off", gamma=0.65, tau=1.0, g_table=None, eps=1e-3,
                 w0_mode="one", free_strike_q=2.0, child_patience=1, dedupe_noop=True,
                 prune_jam_depth=True, trace_out=None, capture=None, timing=None,
@@ -349,7 +349,15 @@ def main():
                     help="optional episode subset to evaluate while preserving --key scene/record indices and RNG seeds")
     ap.add_argument("--seed-base", type=int, default=7000,
                     help="RNG base for the uniform baseline; model is deterministic so only matters for --prior uniform.")
-    ap.add_argument("--raw", action="store_true", help="use raw HL-Gauss E[bin] (no sigmoid) for the priority")
+    # RAW is the default: the hl_gauss head already emits a value in [0,1], so the extra sigmoid is a
+    # leftover from the old sigmoid_bce head. It squashes [0.09,0.98] into [0.52,0.73], which is inert
+    # under combine=q + discount=off (monotonic -> same queue order) but destroys the magnitudes that
+    # the bootstrap target min(cap, 0.9*V-hat) and any multiplicative search term (q*w) depend on.
+    # --sigmoid restores the legacy scale; every result registered before 2026-08-07 was run that way.
+    ap.add_argument("--raw", dest="raw", action="store_true", default=True,
+                    help="use raw HL-Gauss E[bin] for the priority (DEFAULT)")
+    ap.add_argument("--sigmoid", dest="raw", action="store_false",
+                    help="legacy: squash the value through a sigmoid before ranking (pre-2026-08-07 default)")
     ap.add_argument("--dive-bonus", type=float, default=0.0, help="CASCADE dive bonus per push-already-done (default 0)")
     ap.add_argument("--success", default="region", choices=["region", "point"])
     ap.add_argument("--out", default=str(SCRATCH / "eval/bestfirst.json"))
