@@ -190,10 +190,10 @@ Phases produce PKLs → NPZ masks → a single HDF5 the trainer reads. End to en
 
 1. **NPZ gen (dual-crop, overlap-filtered)**: `scripts/amarel/submit_npz_gen.sh <phase_dir> <out_masks_dir>` builds a PKL manifest and submits the mask array → `outputs/<corpus>_<phase>_masks`. Defaults (car): wide 0.6 m + tight 0.5 m crop, 2 mm wavefront, `--local-only`, `--filter-overlaps`. (Rolling per-phase variant for the aug9 cascade: `aug9_post_phase4_5_npz.slurm` / `aug9_rolling_npz_driver.slurm`.)
 2. **Cross-phase overlap filter**: `scripts/amarel/filter_npz_overlaps.slurm` dedups masks shared across phases → `*_masks_overlap_filtered`.
-3. **Build the balanced H5** (in `sage_learning`): `scripts/build_v3_balanced_h5.slurm` → `/scratch/dm1487/h5/v3_balanced_1to1*` — 1:1 balanced, lzf-compressed, tight crop. This is the trainer's input.
+3. **Build the balanced H5** (in `sage_learning`): `scripts/build_v3_balanced_h5.slurm` → `$NAMO_H5/v3_balanced_1to1*` — 1:1 balanced, lzf-compressed, tight crop. This is the trainer's input. (**⚠ No `v3_balanced_1to1*` currently exists on either box — verified 2026-08-05. Rebuild via this step before training; do not expect to find one.**)
    - Generic raw-concat alternative (no balancing): `scripts/amarel/build_h5_all.slurm` (env vars `STAGE_DIR`, `OUTPUT_H5`).
    - Optional chain-depth filter on a built H5: `scripts/amarel/filter_h5_chain_depth.slurm`.
-4. **Train** in `sage_learning` with `data_dir=/scratch/dm1487/h5/v3_balanced_1to1_lzf_tight_data`, `use_h5=true`, `crop_prefix=local_tight`.
+4. **Train** in `sage_learning` with `data_dir=$NAMO_H5/v3_balanced_1to1_lzf_tight_data`, `use_h5=true`, `crop_prefix=local_tight` (build it in step 3 first — see the warning there).
 
 ---
 

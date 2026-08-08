@@ -387,9 +387,12 @@ def main():
         full_run = a.start == 0 and (a.end < 0 or a.end >= total)
         if full_run:
             counts = {b: sum(bin_of(r["sr"]) == b for r in records) for b in ("easy", "med", "hard")}
-            expected = {"easy": 698, "med": 421, "hard": 204}
-            if len(records) != 1323 or counts != expected:
-                raise RuntimeError(f"canonical count gate failed: n={len(records)} bins={counts}, expected 1323/{expected}")
+            registered = eval_sets.EXPECTED["onepush_divisions"]
+            expected = {"easy": registered["easy"], "med": registered["medium"], "hard": registered["hard"]}
+            expected_n = eval_sets.EXPECTED["onepush_manifest_episodes"]
+            if len(records) != expected_n or counts != expected:
+                raise RuntimeError(
+                    f"canonical count gate failed: n={len(records)} bins={counts}, expected {expected_n}/{expected}")
             missing = sum(r["n_valid_missing_from_pool"] for r in records)
             if missing:
                 raise RuntimeError(f"live candidate pool omitted {missing} valid GT cells")

@@ -63,6 +63,17 @@ if [ -n "${SLURM_ARRAY_TASK_ID:-}" ]; then
   GAMMAS=(0.3 0.5 0.7 0.9); G=${GAMMAS[$SLURM_ARRAY_TASK_ID]}
   export NAMO_GAMMA=$G; OUT="$OUT/g${G}"
 fi
+# SPEED: stage the H5 to node-local /dev/shm (measured 4.3x dataloader; see header notes).
+# Falls back to NFS silently if the copy fails (e.g. tmpfs too small) — correctness unaffected.
+if [ "${NAMO_STAGE_SHM:-1}" = "1" ]; then
+  SH5="/dev/shm/namo_train_${SLURM_JOB_ID:-$$}.h5"
+  if cp "$H5" "$SH5" 2>/dev/null; then
+    H5="$SH5"; trap 'rm -f "$SH5"' EXIT
+    echo "staged H5 to $SH5"
+  else
+    rm -f "$SH5" 2>/dev/null; echo "shm staging failed; using NFS path"
+  fi
+fi
 mkdir -p "$OUT"; LOG="$OUT/train.log"
 
 echo "TRAIN start $(date) host=$(hostname) H5=$H5 GAMMA=${NAMO_GAMMA:-none} PY=$PY OUT=$OUT"

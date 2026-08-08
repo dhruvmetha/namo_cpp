@@ -68,6 +68,6 @@ Add a `depth_geom` feature: per (edge,depth), the nominal displacement `(Δ‖ m
 ## Files / evidence
 - Model / head: `sage_learning/src/model/dit/edge_crossattn.py` (head lines 125–126, 180–183; budget_embed precedent 103–104, 173–174).
 - Loss (soft_depth_sigma disabled for hl_gauss): `sage_learning/src/model/classifier_module.py` (`_compute_masked_loss` 300–309, `_build_soft_target` 200–268).
-- Data / semantics: `sage_learning/src/data/scorer_data.py`; H5s `/scratch/dm1487/h5/v4_hq_m1_scorer/data.h5`, `/scratch/dm1487/h5/v4_hq_h2_scorer/data.h5`.
+- Data / semantics: `sage_learning/src/data/scorer_data.py`; H5s `$NAMO_H5/v4_hq_m1_scorer/data.h5` (**gone as of 2026-08-05**), `$NAMO_H5/v4_hq_h2_scorer/data.h5` (CS only).
 - Geometry: `scripts/pipeline/add_contact_px.py` `contact_px()`; config `config/namo_config_complete_skill15_car_1x_d5.yaml` (`dynamic_direction=false`, `max_push_steps=5`).
-- Model behavior: `/scratch/dm1487/eval/m2b_verdict/m2b_v4hq_s3__epoch013-val_loss0.6780.json`; `EXP-2026-07-09-horizon-role-probe.md`.
+- Model behavior: `$NAMO_SCRATCH/eval/m2b_verdict/m2b_v4hq_s3__epoch013-val_loss0.6780.json`; `EXP-2026-07-09-horizon-role-probe.md`.

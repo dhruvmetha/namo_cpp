@@ -35,6 +35,7 @@ The active work now lives in experiment **cards** ([`experiments/log/`](experime
 ## docs/ (loose)
 
 - [`problem_and_approach.md`](problem_and_approach.md) — **canonical plain-English north-star** (search is expensive → learn a ranker to speed it up → beat the random ranker). Start here. `[HUB]` `[LIVE]`
+- [`icra27_paper.md`](icra27_paper.md) — living ICRA 2027 paper brief: scoped claims, action-primitive position, required baselines, saturation study, evidence, gaps, and paper outline. `[HUB]` `[LIVE]`
 - [`horizon_q_overview.md`](horizon_q_overview.md) — deeper map + **historical** Horizon-Q record (budget-conditioning framing superseded by `problem_and_approach.md`). `[HUB]`
 - [`cluster_resources.md`](cluster_resources.md) — Amarel SLURM partition/GPU guidance (append-only dated log). `[LIVE]`
 - [`planner_contract_drifts.md`](planner_contract_drifts.md) — confirmed config-key drift in the legacy collection path. `[REF]`
@@ -62,7 +63,8 @@ The active work now lives in experiment **cards** ([`experiments/log/`](experime
 - [`horizon_q_search_redesign_journal.md`](experiments/horizon_q_search_redesign_journal.md) — the pivot: model = sims-minimizing ranker; D1–D5 decision ledger. `[REF]`
 - [`horizon_q_build_journal.md`](experiments/horizon_q_build_journal.md) — pre-redesign empirical record (v2/v3/v4, ExIt); §9 log. `[FROZEN]` — evidence archive; active log is `horizon_q_redesign_execution.md`.
 - [`multipush_horizonQ_journal.md`](experiments/multipush_horizonQ_journal.md) — multi-push / horizon-Q design spec ledger (37 decisions); self-parked 2026-06-10. `[FROZEN]`
-- [`horizon_q_model_registry.md`](experiments/horizon_q_model_registry.md) — authoritative model / ckpt / headline-number catalog. `[HUB]` — read for paths, never glob.
+- [`horizon_q_model_registry.md`](experiments/horizon_q_model_registry.md) — authoritative model / checkpoint / **saved evaluation-artifact** catalog. `[HUB]` — check here before training or evaluating; reuse exact matching controls instead of rerunning them.
+- [`eval_set_registry.md`](experiments/eval_set_registry.md) — authoritative canonical manifests, fixed difficulty tiers, exhaustive GT, counts, and random-baseline artifacts. `[HUB]`
 - [`auc_metrics_reconciliation.md`](experiments/auc_metrics_reconciliation.md) — **read before quoting ANY "setup-vs-dead AUC"**: seven distinct metrics shared the name; variant table + which numbers are retired. `[REF]` `[LIVE]`
 - [`horizon_q_related_work.md`](experiments/horizon_q_related_work.md) — related-work / novelty positioning. `[REF]`
 - [`policy_value_search_hypothesis.md`](experiments/policy_value_search_hypothesis.md) — newest (2026-07-01) falsifiable π+V split hypothesis (NOT committed). `[REF]`

@@ -19,7 +19,7 @@
 > `__pycache__` + `PYTHONDONTWRITEBYTECODE=1` and re-collecting that shard.
 
 
-The single source of truth for evaluating Region-Opening scorers / policies / value functions on the **car**. Lives at `/scratch/dm1487/datasets/namo_testset_v1/` (full datasheet + stats in its `README.md`). This doc is the repo-side record so the build is reproducible and we stop confusing test artifacts.
+The single source of truth for evaluating Region-Opening scorers / policies / value functions on the **car**. Lives at `$NAMO_DATASETS/namo_testset_v1/` (full datasheet + stats in its `README.md`). This doc is the repo-side record so the build is reproducible and we stop confusing test artifacts.
 
 ## What it is
 - **2173** geometry-clean scenes from the held-out `car_envs/v3/test/{feb,aug9}_car` pool, **0 leaks** into the `v3_scorer_e4` training corpus (proven by geometry, not file names — see below).

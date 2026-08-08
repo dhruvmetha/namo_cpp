@@ -50,7 +50,7 @@ region_sample_restarts: 1
 # Goal strategy: Q1 F-scorer ranks candidate pushes by P(this push opens the neighbour region).
 goal_strategy: scorer
 # Q1 checkpoint (trained on rung-1 60x5 value field). last.ckpt == the freshest rung-1 ranker.
-scorer_ckpt: /common/users/dm1487/scratch_namo/exit/q1_full/checkpoints/epoch009-val_loss0.9532.ckpt
+scorer_ckpt: $NAMO_SCRATCH/exit/q1_full/checkpoints/epoch009-val_loss0.9532.ckpt
 # Scorer device: cpu for CPU SLURM collection nodes (rlab7). Override with --ml-device cuda on GPU boxes.
 # NOTE: honored only with the modular_parallel_collection.py scorer-branch ml_device wiring (this PR).
 ml_device: cpu

@@ -76,7 +76,7 @@ Decomposing reactive@2 with the ground-truth (a1,a2)→opens map:
 
 ## Part 1B — Compiled results by TRUE difficulty (multi-seed headline)
 
-The authoritative tables, **split by true solution density** (NOT finish-density — that's R1 below), **fixed cutoffs** ([USER]: non-tertile; verified **binning-robust** — the conclusion is identical under 33% tertiles). Cells = mean±std across seeds (R2 = 2 seeds s1/s2; R3 = 3 seeds). Regenerate via `scripts/sandbox/compile_uniform.py`. Full tables: `/scratch/dm1487/eval/compiled/results_tables.md`; uniform figures: `compiled/fig_R2.png`, `compiled/fig_R3.png`.
+The authoritative tables, **split by true solution density** (NOT finish-density — that's R1 below), **fixed cutoffs** ([USER]: non-tertile; verified **binning-robust** — the conclusion is identical under 33% tertiles). Cells = mean±std across seeds (R2 = 2 seeds s1/s2; R3 = 3 seeds). Regenerate via `scripts/sandbox/compile_uniform.py`. Full tables: `$NAMO_SCRATCH/eval/compiled/results_tables.md` — **⚠ ARTIFACT GONE (verified 2026-08-06)**; uniform figures: `compiled/fig_R2.png`, `compiled/fig_R3.png`.
 
 ### R1 — finish difficulty per solvable post-push state (ground truth, no model)
 **88% of post-push states are DEAD** (7,551 finishable of 64,061). On the solvable ones:

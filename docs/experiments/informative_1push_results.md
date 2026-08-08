@@ -41,7 +41,7 @@ updated: 2026-06-06
 
 **Takeaways:** specialist beats the (reachability-aware) floor on hard — 5.9 vs 2.7 @1 (~2.2×), 55.2 vs 41.3 @20. **General sits at the floor on hard** (3.1 / 39.7) → the *informative training* is what teaches the hard-scene skill. Annealing ≈ no-anneal. EASY is a tie (random-reachable already wins). **Coverage is the ceiling** — only ~55% of hard scenes crack within 20 samples.
 
-Source JSONs: `/scratch/dm1487/eval_grounding/{informative_ep500,annealing_ep400,older_safe_fp32}_rebin.json`.
+Source JSONs: `$NAMO_SCRATCH/eval_grounding/{informative_ep500,annealing_ep400,older_safe_fp32}_rebin.json` (Amarel only).
 
 ---
 

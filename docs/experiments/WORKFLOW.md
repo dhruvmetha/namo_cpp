@@ -13,7 +13,7 @@ updated: 2026-07-03
 3. **Claude** runs it on SLURM/GPU (compute-resources skill; submit `gpu,gpu-redhat`, never wait >1h).
 4. On finish, **Claude** auto-fills **Run + Result + Verdict** and sets `metric` + `status: done`. **Two reporting depths:**
    - **The card (`_*.md`)** holds the **DETAILED results + highly verbose analysis** — every table, the full difficulty×horizon breakdown, all plots, the a/b/c/d diagnostics, the caveats. This is the working record.
-   - **[RESULTS.md](RESULTS.md)** reads like a **paper's Results section**: for each experiment, the **MAIN table(s) + MAIN figure + a tight key-finding paragraph** — curated, not exhaustive. Deep detail stays in the card; RESULTS.md is the polished, scannable compilation. Always split by difficulty × horizon. Then `git mv` the note to [archive/](archive/) and update the [model registry](horizon_q_model_registry.md) if a model trained.
+   - **[RESULTS.md](RESULTS.md)** reads like a **paper's Results section**: for each experiment, the **MAIN table(s) + MAIN figure + a tight key-finding paragraph** — curated, not exhaustive. Deep detail stays in the card; RESULTS.md is the polished, scannable compilation. Always split by difficulty × horizon. Then `git mv` the note to [archive/](archive/) and update the [model and evaluation artifact registry](horizon_q_model_registry.md) if a model trained or a full canonical evaluation finished.
 5. **You** read the paper-style entry in RESULTS.md / the board and spin the next stub.
 
 ## Role separation (so two writers never collide)
@@ -35,7 +35,7 @@ Accept/reject **on numbers only** (Hypothesis → Evidence → Verdict). No vibe
 
 ## Reporting conventions [USER]
 - **Splits — ALWAYS:** every result split by **difficulty (easy/med/hard)** AND **horizon (1push/2push)**, never aggregate-only. If only one horizon ran, run/aggregate the other. Binning mechanics (tertiles, `pure2push_divisions.json`, `agg_react_search.py`) → [difficulty_stratification.md](../pipeline/difficulty_stratification.md); canonical table shape = `_reactive_search.md`.
-- **Testset = BOTH tiers, explicitly [USER 2026-07-07]:** a model is not "testset-evaluated" until it has BOTH `namo_testset_v1` rows — `labels/onepush_episodes.json` (1323 eps) AND `labels/pure2push.json` (1018 eps). A same-family dev eval does NOT substitute for the 1push tier. (Lesson: the RL-loop gen evals ran 2push-only; the missing 1push row delayed the composition-vs-mechanical diagnosis by a day.)
+- **Testset = BOTH horizons, explicitly [USER 2026-07-07]:** a model is not "testset-evaluated" until it has BOTH registered `namo_testset_v1` search views — `onepush_manifest` (**1322 episodes**) AND `pure2push_manifest` (**1012 episodes**). A same-family dev eval does NOT substitute for either horizon; exact paths and exclusions live in [eval_set_registry.md](eval_set_registry.md).
 - **Framing by regime:** REACTIVE = success only → **open-rate** (open@1 / open@2) by difficulty×horizon, no time/sim axis. SEARCH = **wall-time FIRST** (`avg t_wall`, `solve@1s/@5s/@30s`), THEN **sims** as the diagnostic (sims-to-solve, rank-of-winner).
 - **Depth:** see step 4 above — card (`_*.md`) = full verbose detail; RESULTS.md = curated paper-style.
 
@@ -44,7 +44,7 @@ Accept/reject **on numbers only** (Hypothesis → Evidence → Verdict). No vibe
 
 ## Must-do's [Claude]
 1. **Commit before every run** — stamp the SHA in `commit:`.
-2. **On finish** — append RESULTS.md + update the registry (if a model trained).
+2. **On finish** — append RESULTS.md + update the registry if a model trained or a full canonical evaluation produced reusable artifacts; record checkpoint, protocol, populations, aggregate JSON, raw JSONL roots, plots, and status.
 
 ## Entrypoints (the real commands)
 - **Train:** sage `scripts/train_h5_sampling.slurm` / config `train_scorer_edge`.

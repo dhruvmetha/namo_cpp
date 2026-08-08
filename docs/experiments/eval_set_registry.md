@@ -32,7 +32,7 @@ The unfiltered canonical-path `onepush_episodes_canonical.json` (1323) and `pure
 
 The baseline is **one three-seed measurement**, not three separate baselines: uniform-random push ordering with seeds **7000/8000/9000**, reported as mean ± sample standard deviation at every simulator budget. It uses the same search as the learned ranker on both registered horizons: `hmax=2`, budget 900, `combine=q`, confidence discount τ=0.15, no-op dedupe on, and jam-depth pruning on. The learned arm is deterministic and therefore runs once. “Tight” below means solve@1 for 1push and solve@2 for 2push.
 
-The machine-readable entry is `baselines.random_search_hmax2` in `config/eval_sets.yaml`; its three budget-900 aggregates are `eval/postprune_hmax2/final35/agg_random_s{7000,8000,9000}.json` under `$NAMO_SCRATCH`. New comparisons must use their mean curve and sample-SD band; a single seed is only a debugging/reproduction view.
+The machine-readable entry is `baselines.random_search_hmax2` in `config/eval_sets.yaml`; its three budget-900 aggregates are `eval/postprune_hmax2/final35/agg_random_s{7000,8000,9000}.json` under `$NAMO_SCRATCH`. Raw per-episode records are `eval/postprune_hmax2/raw/random_s{7000,8000,9000}_1push_full/` and `eval/postprune_hmax2/raw/random_s{7000,8000,9000}_2push/`; seed-stable hard-2push tail extensions are `eval/postprune_hmax2/final35/tail/spliced_seedstable/random_s{7000,8000,9000}_hard_b10000.jsonl`. New comparisons must use their mean curve and sample-SD band; a single seed is only a debugging/reproduction view.
 
 | horizon | tier | random tight | random @30 | random @900 | random solved-only calls |
 |---|---|---:|---:|---:|---:|
@@ -44,6 +44,11 @@ The machine-readable entry is `baselines.random_search_hmax2` in `config/eval_se
 | 2push | hard | 0.0±0.0 | 9.2±1.5 | 76.9±2.8 | 285.6±36.4 |
 
 The equal-budget hard-2push tails use the same three seeds with original per-episode RNG streams preserved: learned reaches 100% at 3,831 calls, while final random success is 99.3±0.7% and its mean curve reaches 95% at 3,456 calls versus 1,071 for learned. Full learned-versus-random results and plots are in [RESULTS.md](RESULTS.md).
+
+
+## Canonical no-discount random baseline (2026-08-02)
+
+Sibling of the conf-τ0.15 baseline above, for no-discount comparisons (the `deploy-nodiscount-hmax2-v1` control family): uniform-random ordering, seeds 7000/8000/9000, hmax=2, budget 900, combine=q, **discount off**, dedupe+jam on, canonical 1322+1012 populations. Registered as `random-nodiscount-hmax2-v1` in the evaluated-artifacts table; aggregate in `$NAMO_SCRATCH/aquaman/round0/gate.json`, raw `…/aquaman/round0/eval_amarel/random_s*/`. Headline: 2push hard @30 11.2±2.8, @900 70.1±2.1; 1push hard @1 3.3±1.0, @30 78.4±3.2.
 
 ## Exhaustive GT (offline analysis only — NOT used by solve@k)
 
@@ -87,7 +92,7 @@ The manifest↔GT alignment is the TRUTH below (not a file — the derived align
 
 **GT alignment (finalized 2026-07-30):** the original H5 had benign build-version drift: 37 source-manifest episodes lacked a root and 136 roots were outside the manifest. A targeted exhaustive fill completed 35 of those 37 exact `(xml, object, goal region)` episodes and added 1,937 rows. Two unusually large sweeps were stopped by user decision and remain explicitly unknown; fixed-tier charts exclude those two rather than mis-bin them.
 
-**Sweep provenance:** config `amarel:/scratch/dm1487/curriculum2/beast/round2/testset_finish_gt/ref_fullexhaust.yaml` (region_opening, `region_exhaustive_mode: true`, no early-stop) → driver `gt_build.sbatch` (100-way array) → H5 builder `scripts/pipeline/build_rung2_h5.py` → merged to `testset_gt.h5`.
+**Sweep provenance:** config `amarel:$NAMO_SCRATCH/curriculum2/beast/round2/testset_finish_gt/ref_fullexhaust.yaml` (region_opening, `region_exhaustive_mode: true`, no early-stop) → driver `gt_build.sbatch` (100-way array) → H5 builder `scripts/pipeline/build_rung2_h5.py` → merged to `testset_gt.h5`.
 
 **testset_gt.h5 ↔ pure2push.json `valid_first_push` agreement, cell level (verified 2026-07-26, 287 sampled pure-2push episodes):** this is a different check from the root-alignment above — it asks, for each individual first-push candidate, whether GT's green set (openers + setups at the root) and the manifest's `valid_first_push` agree, not just whether the episode is rooted in both.
 

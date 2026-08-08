@@ -2,17 +2,42 @@
 status: hub
 tags: [experiment]
 thread: scorer-search
-updated: 2026-06-26
+updated: 2026-08-02
 ---
 
-# Horizon-Q Model Registry
+# Model and Evaluation Artifact Registry
 
 > **⚠ Framing note (2026-07-06): budget/horizon-conditioning was DROPPED** (measured ≈ no-horizon, **NoHz** ahead — 40.7 vs 34.1). This registry is STILL the authoritative catalog — **all checkpoint paths / numbers / eval dirs below stay valid** — but the horizon-conditioned models (Horizon-v2/v3, the `budget_cond` variants) are a **historical** line; the live model is **NoHz** ("no-horizon", a single value/ranker). Current framing: [../problem_and_approach.md](../problem_and_approach.md).
 
 > THE authoritative location list — every trained model, its exact best-val checkpoint, headline number,
 > training data, and eval-output dir. **Do not reconstruct paths by glob; read here.** Never retrain
-> registered models ([[feedback_reuse_baselines]]). Roots: ckpts `/scratch/dm1487/sage_outputs/scorer/`,
-> evals `/scratch/dm1487/eval/`, H5s `/scratch/dm1487/h5/`. Updated 2026-06-15 (added Horizon-v2 / NoHorizon-v2).
+> registered models ([[feedback_reuse_baselines]]). Roots are **box-relative** — resolve via `$NAMO_*` / `namo.paths`, never a literal box path
+> ([PORTABILITY.md](../PORTABILITY.md)): ckpts `$NAMO_SCRATCH/sage_outputs/scorer/`, evals `$NAMO_SCRATCH/eval/`, H5s `$NAMO_H5/` (= `$NAMO_SCRATCH/h5`).
+> On CS `$NAMO_SCRATCH` = `/common/users/dm1487/scratch_namo`; on Amarel = `/scratch/dm1487`.
+> **The v4_hq training H5s below live on CS only — there is no `h5/` under Amarel `$NAMO_SCRATCH` (verified 2026-08-05).**
+> Updated 2026-06-15 (added Horizon-v2 / NoHorizon-v2); roots de-hardcoded 2026-08-05.
+
+## Canonical evaluated-model artifacts — read this before launching an eval
+
+This is the durable lookup from a model and exact search policy to its saved outputs. A full evaluation is reusable only when the checkpoint, canonical manifests, `hmax`, budget, combination rule, discount policy, no-op dedupe, and jam-depth pruning all match; a mismatch is a different experiment, not a cached control.
+
+We store aggregates as JSON, raw per-episode records as JSONL, offline score caches as NPY, and plots as PNG; there is no canonical pickle format. All CS paths below are under `/common/users/dm1487/scratch_namo/` and are immediately visible from every iLab/rlab/arrakis/westeros box.
+
+| eval ID | model / checkpoint | exact protocol and population | aggregate / diagnostic | raw per-episode artifacts | status |
+|---|---|---|---|---|---|
+| `deploy-conf-hmax2-v1` | deployed `d20_plus_setup_only_splitloss`, `curriculum2/beast/round3/models/d20_plus_setup_only_splitloss/checkpoints/epoch011-val_loss1.6952.ckpt` | canonical 1322 1push + 1012 2push; hmax=2, budget=900, `combine=q`, confidence discount τ=0.15, no-op dedupe + jam pruning | `eval/postprune_hmax2/final35/agg_model.json` | `eval/postprune_hmax2/raw/model_1push_full/`, `eval/postprune_hmax2/raw/model_2push/` | complete; deployed-policy reference |
+| `random-conf-hmax2-v1` | uniform-random ranker, seeds 7000/8000/9000; no checkpoint | same canonical 1322 1push + 1012 2push and search policy as `deploy-conf-hmax2-v1`; report one baseline as seed mean ± sample SD | `eval/postprune_hmax2/final35/agg_random_s{7000,8000,9000}.json` | `eval/postprune_hmax2/raw/random_s{7000,8000,9000}_1push_full/`; `eval/postprune_hmax2/raw/random_s{7000,8000,9000}_2push/`; hard-tail extensions `eval/postprune_hmax2/final35/tail/spliced_seedstable/random_s{7000,8000,9000}_hard_b10000.jsonl` | complete; canonical random reference |
+| `deploy-nodiscount-hmax2-v1` | same deployed checkpoint | canonical 1322 1push + 1012 2push; hmax=2, budget=900, `combine=q`, discount off, no-op dedupe + jam pruning | `curriculum2/beast/round4/eval/depthlocal_s1_nodiscount/control/aggregate_hmax2.json` | `curriculum2/beast/round4/eval/depthlocal_s1_nodiscount/control/1push_hmax2/`; `curriculum2/beast/round4/eval/depthlocal_s1_nodiscount/control/2push/` | complete 2026-08-02; permanent clean architecture control |
+| `depth-token-nodiscount-hmax2-s1` | depth-token seed 1, `curriculum2/beast/round4/models/d20_setup_depthlocal_s1/checkpoints/epoch011-val_loss1.7126.ckpt` | same canonical no-discount hmax=2 protocol as its paired control | `curriculum2/beast/round4/eval/depthlocal_s1_nodiscount/treatment/aggregate_hmax2.json` | `curriculum2/beast/round4/eval/depthlocal_s1_nodiscount/treatment/1push_hmax2/`; `curriculum2/beast/round4/eval/depthlocal_s1_nodiscount/treatment/2push/` | complete 2026-08-02; rejected as deploy replacement |
+| `walltime-nodiscount-hmax2-v1` | deployed `d20_plus_setup_only_splitloss` epoch011 (Amarel copy `/cache/home/dm1487/eval_inputs/postprune_hmax2/setup_only.ckpt`) + uniform random seeds 7000/8000/9000 | **the wall-clock campaign.** Canonical 1322 1push + 1012 2push; hmax=2, budget=900, `combine=q`, discount off, no-op dedupe + jam pruning — identical to `deploy-nodiscount-hmax2-v1`, but every shard `--exclusive --constraint=icelake` on Amarel `main-redhat` (one task per whole 64-core node, single-threaded, model scoring on CPU) so per-episode `t_wall`/`t_sim`/`t_score`/`n_score` are meaningful. Timing lives in `eval_bestfirst.solve_scene` itself; `scripts/sandbox/time_bestfirst.py` is RETIRED (its fork predated dedupe/jam-prune). Times comparable ONLY within this campaign. | RESULTS.md § 2026-08-06; plots `docs/experiments/plots/walltime_hmax2/{success_vs_time_*,success_vs_sims_*,plan_depth_share}.png` | `eval/walltime_hmax2/v1/{model,random_s{7000,8000,9000}}_{1push,2push}/` (Amarel originals `/scratch/dm1487/eval/walltime_hmax2/v1/`) | complete 2026-08-06; wall 1.77× (1push) / 1.93× (2push), easy-1push 0.85× (model slower); sim counts reproduce `deploy-nodiscount-hmax2-v1` on 99.92% / 98.72% of episodes |
+| `depth-token-offline-s1` | depth-token seed 1 + deployed control | exhaustive 2push GT ranking on 68,393 nodes plus canonical 1push direct ranking | `curriculum2/beast/round4/eval/depthlocal_s1_nodiscount/auc/result.json`; `curriculum2/beast/round4/eval/depthlocal_s1_nodiscount/treatment/1push/result.json`; `curriculum2/beast/round4/eval/depthlocal_s1_nodiscount/control/1push/result.json` | `curriculum2/beast/round4/eval/depthlocal_s1_nodiscount/treatment/1push/leaf.jsonl`; `curriculum2/beast/round4/eval/depthlocal_s1_nodiscount/control/1push/leaf.jsonl`; shared score cache `eval/auc_grid/cache/` | complete 2026-08-02 |
+
+| `aquaman0-A-nodiscount-hmax2` | aquaman-0 arm A seeds 1-3 (capped-only bootstrap labels, 45,469 guessed cells), ckpts `/common/users/dm1487/scratch_namo/aquaman/round0/models/A_s{1,2,3}/checkpoints/` (best-val; Amarel copies `/cache/home/dm1487/aquaman0/ckpts/A_s*.ckpt`) | canonical 1322 1push@hmax2 + 1012 2push; hmax=2, budget 900, combine=q, **discount off**, dedupe+jam on | `/common/users/dm1487/scratch_namo/aquaman/round0/gate.json` | CS `/common/users/dm1487/scratch_namo/aquaman/round0/eval_amarel/A_s*/{1push_hmax2,2push}/`; Amarel originals `/cache/home/dm1487/aquaman0/eval/` | complete 2026-08-02; hard-2p @2/@5/@30 +4-6 vs control, medium-2p @5 −6, ceilings held |
+| `aquaman0-B-nodiscount-hmax2` | aquaman-0 arm B seeds 1-3 (+censored-masked cells, 591,504 guessed), ckpts `/common/users/dm1487/scratch_namo/aquaman/round0/models/B_s{1,2,3}/checkpoints/` | same protocol as arm A | `/common/users/dm1487/scratch_namo/aquaman/round0/gate.json` | `/common/users/dm1487/scratch_namo/aquaman/round0/eval_amarel/B_s*/…` | complete 2026-08-02; **⛔ trained on supervision identical to arm A** — reduce never opened `value_mask`, so the 546k class-1 cells were inert (correction 2026-08-07); read A+B as one 6-seed condition |
+| `random-nodiscount-hmax2-v1` | uniform-random ranker, seeds 7000/8000/9000; no checkpoint | same canonical populations and search as `deploy-nodiscount-hmax2-v1` (discount off, dedupe+jam on); mean ± sample SD | `/common/users/dm1487/scratch_namo/aquaman/round0/gate.json` (rand_* arms) | `/common/users/dm1487/scratch_namo/aquaman/round0/eval_amarel/random_s*/{1push_hmax2,2push_fine}/` | complete 2026-08-02; canonical no-discount random reference |
+| `aquaman0-depth-h3` | 6 aquaman ckpts + θ₀-with-current-defaults + uniform×3, subset180 | hmax=3, budget 900, discount off, dedupe+jam on (≠ July protocol: those lacked dedupe/jam) | inline in card | `/common/users/dm1487/scratch_namo/aquaman/round0/depth/h3/{A_s*,B_s*,theta0_newdefaults,randomU_s*}/` | complete 2026-08-02; **attribution: θ₀+new-defaults hard@900=98.3 ≥ aquaman 95.6-96.1 — July depth wall was search hygiene, not labels** |
+
+Every new full canonical evaluation must add or update one row here before its experiment card closes. Reuse a row only after checking the recorded protocol in the raw JSONL `search` field; never infer compatibility from a directory name.
 
 ## Canonical offline ranking panel (2026-07-26) — the ONE place AUC/rank numbers come from
 
@@ -47,8 +72,8 @@ Accumulated train h5 = `train_h5` for antman-5: `.../dagger_orchestrator/accumul
 ## Models (all `edge_crossattn`, pos_fourier + use_edge_embed, 3 seeds; "BEST" = lowest val_loss ckpt)
 
 ### champion B30 (the pre-v4 baseline — old data v3_scorer_e4)
-- ckpts: `/scratch/dm1487/eval/final_verdict_snapshot/h5samp_B30_s{1,2,3}.ckpt`
-- evals: `/scratch/dm1487/eval/newbar_verdict/eval_h5samp_B30_s*.json`
+- ckpts: `$NAMO_SCRATCH/eval/final_verdict_snapshot/h5samp_B30_s{1,2,3}.ckpt` — **⚠ ARTIFACT GONE (verified 2026-08-06)**
+- evals: `$NAMO_SCRATCH/eval/newbar_verdict/eval_h5samp_B30_s*.json` — **⚠ ARTIFACT GONE (verified 2026-08-06)**
 - **hard@1 = 23.27 ± 1.38** (@5 52.4). Recipe: sigmoid_bce, sample_k=30.
 - train_h5: unrecorded
 
@@ -57,45 +82,45 @@ Accumulated train h5 = `train_h5` for antman-5: `.../dagger_orchestrator/accumul
   - s1 `m1_v4hq_s1/namo-classifier/kibc9ig2/checkpoints/epoch018-val_loss0.4886.ckpt`
   - s2 `m1_v4hq_s2/namo-classifier/89wrbgn1/checkpoints/epoch016-val_loss0.4913.ckpt`
   - s3 `m1_v4hq_s3/namo-classifier/06wmgcvz/checkpoints/epoch019-val_loss0.4815.ckpt`
-- data: `/scratch/dm1487/h5/v4_hq_m1_scorer/data.h5` (123,269 solvable, 65:35 feb:aug9)
-- train_h5: `/scratch/dm1487/h5/v4_hq_m1_scorer/data.h5`
-- evals: `/scratch/dm1487/eval/m1_verdict/`  · **hard@1 = 29.40 ± 1.50** (@5 59.5)
+- data: `$NAMO_H5/v4_hq_m1_scorer/data.h5` — **⚠ ARTIFACT GONE (verified 2026-08-05): absent on BOTH CS and Amarel.** (123,269 solvable, 65:35 feb:aug9)
+- train_h5: same (gone) — M1/M2a are **not reproducible from source data**; the checkpoints remain, the H5 does not
+- evals: `$NAMO_SCRATCH/eval/m1_verdict/`  · **hard@1 = 29.40 ± 1.50** (@5 59.5)
 
 ### M2a — budget-Q arch (H-embed + HL-Gauss), same M1 data
 - BEST: s1 `m2a_v4hq_s1/namo-classifier/fixo4s7i/checkpoints/epoch015-val_loss0.7605.ckpt` · s2 `m2a_v4hq_s2/namo-classifier/670z73ct/checkpoints/epoch015-val_loss0.7674.ckpt` · s3 `m2a_v4hq_s3/namo-classifier/hi0u7t1o/checkpoints/epoch015-val_loss0.7558.ckpt`
-- data: `/scratch/dm1487/h5/v4_hq_m1_scorer/data.h5` · evals: `/scratch/dm1487/eval/m2a_verdict/`
-- train_h5: `/scratch/dm1487/h5/v4_hq_m1_scorer/data.h5` (same M1 data)
+- data: `$NAMO_H5/v4_hq_m1_scorer/data.h5` — **⚠ ARTIFACT GONE (verified 2026-08-05)**, see M1 · evals: `$NAMO_SCRATCH/eval/m2a_verdict/`
+- train_h5: same (gone; same M1 data)
 - **hard@1 = 29.62 ± 0.93** · flags: budget_cond, value_bins=51, head_mode=hl_gauss, budget_h
 
 ### M2b — + dead-ends (THE current best 1-push model / Q-full warm-start + baseline)
 - BEST: s1 `m2b_v4hq_s1/namo-classifier/tryggakf/checkpoints/epoch012-val_loss0.6814.ckpt` · s2 `m2b_v4hq_s2/namo-classifier/rxn54385/checkpoints/epoch016-val_loss0.6802.ckpt` · **s3 (best-val, used for fpv) `m2b_v4hq_s3/namo-classifier/ql60myva/checkpoints/epoch013-val_loss0.6780.ckpt`**
-- data: `/scratch/dm1487/h5/v4_hq_m2b_scorer/data.h5` (252,805 = 123,269 solvable + 129,536 dead)
-- train_h5: `/scratch/dm1487/h5/v4_hq_m2b_scorer/data.h5`
-- evals: `/scratch/dm1487/eval/m2b_verdict/` · 2-push search: `/scratch/dm1487/eval/fpv_m2b/`
+- data: `$NAMO_H5/v4_hq_m2b_scorer/data.h5` (252,805 = 123,269 solvable + 129,536 dead) — **CS only**
+- train_h5: `$NAMO_H5/v4_hq_m2b_scorer/data.h5`
+- evals: `$NAMO_SCRATCH/eval/m2b_verdict/` · 2-push search: `$NAMO_SCRATCH/eval/fpv_m2b/`
 - **hard@1 = 32.86 ± 2.38** (@5 65.4) · dead-slice cand-pool V_dead 0.065, AUC 0.987 · 2-push search 75.2@1 / e2e 61.9%
 
 ### M2c — + 20 unreachable-cell zeros (ablation; data-side flag unreachable_k=20)
 - BEST: **s1 (fpv) `m2c_v4hq_s1/namo-classifier/y1rtra4f/checkpoints/epoch013-val_loss0.6793.ckpt`** · s2 `m2c_v4hq_s2/namo-classifier/i5fu1h23/checkpoints/epoch016-val_loss0.6853.ckpt` · s3 `m2c_v4hq_s3/namo-classifier/d9l0zs60/checkpoints/epoch013-val_loss0.6845.ckpt`
-- data: `/scratch/dm1487/h5/v4_hq_m2b_scorer/data.h5` (same as M2b) · evals: `/scratch/dm1487/eval/m2c_verdict/` · 2-push search: `/scratch/dm1487/eval/fpv_m2c/` (job 56008453, running)
-- train_h5: `/scratch/dm1487/h5/v4_hq_m2b_scorer/data.h5` (same as M2b)
+- data: `$NAMO_H5/v4_hq_m2b_scorer/data.h5` (same as M2b) · evals: `$NAMO_SCRATCH/eval/m2c_verdict/` · 2-push search: `$NAMO_SCRATCH/eval/fpv_m2c/` (job 56008453, running)
+- train_h5: `$NAMO_H5/v4_hq_m2b_scorer/data.h5` (same as M2b)
 - **hard@1 = 32.21 ± 1.48** (ranking ≈ M2b) · all-cells V_dead **0.072** (vs M2b 0.327 — hallucination killed)
 
 ### M2d — + reachability input bit (ablation; reach_flag_input, network flag)
 - BEST: s1 `m2d_v4hq_s1/namo-classifier/eoz348sj/checkpoints/epoch015-val_loss0.6828.ckpt` · s2 `m2d_v4hq_s2/namo-classifier/yvq3jtsq/checkpoints/epoch012-val_loss0.6793.ckpt` · s3 `m2d_v4hq_s3/namo-classifier/be1ehs8b/checkpoints/epoch016-val_loss0.6771.ckpt`
-- data: `/scratch/dm1487/h5/v4_hq_m2b_scorer/data.h5` · evals: `/scratch/dm1487/eval/m2d_verdict/`
-- train_h5: `/scratch/dm1487/h5/v4_hq_m2b_scorer/data.h5`
+- data: `$NAMO_H5/v4_hq_m2b_scorer/data.h5` · evals: `$NAMO_SCRATCH/eval/m2d_verdict/`
+- train_h5: `$NAMO_H5/v4_hq_m2b_scorer/data.h5`
 - **hard@1 = 34.20 ± 2.09** (within noise of M2b) · all-cells V_dead 0.621 (degraded — tell<teach)
 
 ### Q-full (M3/M4) — mixed-H, TRAINING (job **56015587**, 3 seeds, L40S; 56013237/56013312 = dead false-starts)
-- run dirs `/scratch/dm1487/sage_outputs/scorer/qfull_v4hq_s{1,2,3}/`; ep11 BEST ckpts (still training, val↓):
+- run dirs `$NAMO_SCRATCH/sage_outputs/scorer/qfull_v4hq_s{1,2,3}/`; ep11 BEST ckpts (still training, val↓):
   - s1 `qfull_v4hq_s1/namo-classifier/zxt3n1tm/checkpoints/epoch011-val_loss0.6572.ckpt`
   - s2 `qfull_v4hq_s2/namo-classifier/a91eflex/checkpoints/epoch011-val_loss0.6582.ckpt`
   - s3 `qfull_v4hq_s3/namo-classifier/h2lcraeg/checkpoints/epoch011-val_loss0.6582.ckpt`
 - **ep11 H=1 feeler (job 56022469): hard@1/@5 — s1 34.4/65.1 · s2 41.3/67.2 · s3 30.7/68.3 · MEAN 35.5/66.9 vs M2b 32.86/65.4 (+2.6/+1.5pp). H=1 sanity only; M3 foresight = headline. wrong-edge/miss≈89%.**
-- data (multi-H5, ';'-joined): `/scratch/dm1487/h5/v4_hq_m2b_scorer/data.h5` (252,805 H=1 rows) + `/scratch/dm1487/h5/v4_hq_h2_scorer/data.h5` (311,324 = 155,662 ep × {H=1,H=2}; 172,104 dead; gamma=0.9, format=twopush) → ~564k total rows, room-grouped across files (realpath-normalized)
-- train_h5: `/scratch/dm1487/h5/v4_hq_m2b_scorer/data.h5`; `/scratch/dm1487/h5/v4_hq_h2_scorer/data.h5`
+- data (multi-H5, ';'-joined): `$NAMO_H5/v4_hq_m2b_scorer/data.h5` (252,805 H=1 rows) + `$NAMO_H5/v4_hq_h2_scorer/data.h5` (311,324 = 155,662 ep × {H=1,H=2}; 172,104 dead; gamma=0.9, format=twopush) → ~564k total rows, room-grouped across files (realpath-normalized)
+- train_h5: `$NAMO_H5/v4_hq_m2b_scorer/data.h5`; `$NAMO_H5/v4_hq_h2_scorer/data.h5`
 - flags: budget_cond, value_bins=51, head_mode=hl_gauss, budget_h (NO unreachable_k/reach_flag — M2c/M2d parked)
-- evals (planned): `/scratch/dm1487/eval/qfull_verdict/` + `fpv_qfull/` + bifurcation/M3 slices
+- evals (planned): `$NAMO_SCRATCH/eval/qfull_verdict/` + `fpv_qfull/` + bifurcation/M3 slices
 - GATES when done: (a) H=1 ranking ≈ M2b 32.86; (b) M3 = zero-sim setup-pick on pure2push vs 34.5 (registered) & 75.2-with-sims (fpv_m2b); (c) H-bifurcation probe (525ea31); (d) per-division (pure2push_divisions)
 - NOTE: this Q-full = **Horizon-v1** (`qfull_v4hq`, ep16 converged). Its NoHorizon twin = `qfull_nohz_v4hq` (unregistered; glob if needed). v2 below adds the 1push@H2 augmentation on top of this mix.
 
@@ -112,8 +137,8 @@ Accumulated train h5 = `train_h5` for antman-5: `.../dagger_orchestrator/accumul
   - s2 `qfull_nohz_v2_v4hq_s2/namo-classifier/rbbqq0ya/checkpoints/epoch009-val_loss0.7004.ckpt`
   - s3 `qfull_nohz_v2_v4hq_s3/namo-classifier/c82jwuw5/checkpoints/epoch010-val_loss0.6968.ckpt`
   - **1-push hard@1: 31.7** (H-invariant) · **2-push s1: s@2 32.6, s@900 91.6** (avg-sims 76.7)
-- ⚠ s1 headline evals (2-push solve + 1-push rank) used the ADJACENT final epoch (Hz epoch010 val0.6734 / NoHz epoch009 val0.7050) — val Δ<0.001 vs best-val above, ranking-identical. ckpt root `/scratch/dm1487/sage_outputs/scorer/`.
-- **evals:** 2-push solve `/scratch/dm1487/eval/bf900_qfull_v2_v4hq_s1/` + `bf900_qfull_nohz_v2_v4hq_s1/` · 1-push rank `/scratch/dm1487/eval/onepush_rank_v2/` (running 56308524 H1 / 56308525 H2 as of 2026-06-15)
+- ⚠ s1 headline evals (2-push solve + 1-push rank) used the ADJACENT final epoch (Hz epoch010 val0.6734 / NoHz epoch009 val0.7050) — val Δ<0.001 vs best-val above, ranking-identical. ckpt root `$NAMO_SCRATCH/sage_outputs/scorer/`.
+- **evals:** 2-push solve `$NAMO_SCRATCH/eval/bf900_qfull_v2_v4hq_s1/` + `bf900_qfull_nohz_v2_v4hq_s1/` — **⚠ ARTIFACT GONE (verified 2026-08-06)** · 1-push rank `$NAMO_SCRATCH/eval/onepush_rank_v2/` — **⚠ ARTIFACT GONE (verified 2026-08-06)** (running 56308524 H1 / 56308525 H2 as of 2026-06-15)
 - **TAKEAWAY:** reactive@2 NoHz>Hz EVERY difficulty tier; search@900 Hz>NoHz (decisive on hard 90 vs 82). Horizon = search accelerator, not a reactive win. See journal DIFFICULTY DEEP-DIVE + `results_design_report_2026-06-15.md`. ⚠ **SUPERSEDED for reactive [2026-06-22]:** that "NoHz>Hz reactive" was best-first @2 (search free to NOT dive). Under the FORCED-DIVE reactive (`eval_reactive_argmax`, argmax setup→argmax finish, region, 3 seeds) **Hz≈NoHz (38.5±2.1 vs 38.2±3.0 — TIED)**; the single-seed gap was noise. Horizon's best-first deficit is the un-forced dive; force it and Horizon reaches parity (not a win). See Horizon-v3/NoHorizon-v3 below + journal §9 [2026-06-22].
 
 ### Horizon-v3 / NoHorizon-v3 — the ExIt FINISH retrain (v3 mix = v2 with narrow postpush REPLACED by ExIt finish)
@@ -135,7 +160,7 @@ Accumulated train h5 = `train_h5` for antman-5: `.../dagger_orchestrator/accumul
 - **qboot_density_s1** (γ·findability target = Stage-1): BEST-val `qboot_density_s1/namo-classifier/v5x21lsi/checkpoints/epoch012-val_loss0.7152.ckpt` · val_top1 **0.674** / top5 0.745 (peak top1 0.697) · job 166181, COMPLETED 5:15h, early-stop ep37.
 - **qboot_depth_s1** (γ·existence target = Stage-3 density-vs-depth control): BEST-val `qboot_depth_s1/namo-classifier/xdbdc8vv/checkpoints/epoch014-val_loss0.7192.ckpt` · val_top1 **0.704** / top5 0.774 (peak 0.704) · job 166182, COMPLETED 5:14h, early-stop ep39.
 - **EARLY VAL SIGNAL (NOT the gate): depth val-top1 0.704 > density 0.674** — directionally matches the pre-registered "depth ≥ density". Caveat: val = all-difficulty room-grouped ranking, NOT test-set hard@1; both overfit after ep12-14.
-- **⏳ GATE PENDING (runs on Amarel — where the SLURM eval harness + v3 baseline ckpts live; NOT Amarel-only: the eval script is portable repo code and `namo_testset_v1` is also mirrored on arrakis `/common/users/dm1487/scratch_namo/datasets/`):** reactive@2 + best-first@2(combine=q) vs **NoHz-v3 reactive 40.7 / best-first 37.8 @2** (region, n=1018). Handoff: rsync best-val ckpt → Amarel `/scratch/dm1487/sage_outputs/scorer/qboot_{density,depth}_s1/.../` then `eval_afterok.slurm RUN_DIR=qboot_density_s1 LABEL=boot_density MINEP=8` (+ depth). Eval dirs will be `reactarg_boot_*` + `bfq_boot_*`.
+- **⏳ GATE PENDING (runs on Amarel — where the SLURM eval harness + v3 baseline ckpts live; NOT Amarel-only: the eval script is portable repo code and `namo_testset_v1` is also mirrored on arrakis `/common/users/dm1487/scratch_namo/datasets/`):** reactive@2 + best-first@2(combine=q) vs **NoHz-v3 reactive 40.7 / best-first 37.8 @2** (region, n=1018). Handoff: rsync best-val ckpt → Amarel `$NAMO_SCRATCH/sage_outputs/scorer/qboot_{density,depth}_s1/.../` — **⚠ ARTIFACT GONE (verified 2026-08-06)** then `eval_afterok.slurm RUN_DIR=qboot_density_s1 LABEL=boot_density MINEP=8` (+ depth). Eval dirs will be `reactarg_boot_*` + `bfq_boot_*`.
 
 ### Eval tools for the reactive/search comparison (2026-06-22, combine=q standard)
 - **reactive@2 (forced dive):** `scripts/sandbox/eval_reactive_argmax.py` (argmax setup@H2 → argmax finish@H1 → region open?, exactly 2 sims, object-constrained). Sharded by `scripts/amarel/reactive_argmax.slurm`. Out `reactarg_*`.
@@ -148,9 +173,9 @@ Accumulated train h5 = `train_h5` for antman-5: `.../dagger_orchestrator/accumul
 - mask H5s: `v4_hq_m1_65_35`, `v4_hq_de_masks(_rest)`, `v4_hq_h2_root_p{0..3}`
 
 ## Eval / test keys
-- 1-push answer key: `/scratch/dm1487/datasets/namo_testset_v1/labels/onepush_episodes.json`
+- 1-push answer key: `$NAMO_DATASETS/namo_testset_v1/labels/onepush_episodes.json`
 - 2-push key + divisions: `.../labels/pure2push.json`, `.../labels/pure2push_divisions.json` (hard≤2/med 3-8/easy>8 setups)
-- fpv aggregate (M2b): `/scratch/dm1487/eval/diag_fpv_aggregate.json`
+- fpv aggregate (M2b): `$NAMO_SCRATCH/eval/diag_fpv_aggregate.json` — **⚠ ARTIFACT GONE (verified 2026-08-06)**
 
 ## Beast line (2-push rankers, curriculum2) — added 2026-07-21
 All CS paths under `/common/users/dm1487/scratch_namo/curriculum2/beast/`. Full numbers: RESULTS.md + card EXP-2026-07-14. Single-seed each.
@@ -180,3 +205,12 @@ All CS paths under `/common/users/dm1487/scratch_namo/curriculum2/beast/`. Full 
   - **2push seed-averaged, mean [min,max]** — sims-to-solve all: d20 55.2 [48,61] / setup+split 45.2 [43.8,46] / full+split 42.0 [40.5,44] / setup+opener 46.2 [44.6,49]; hard 86.1/70.5/65.1/71.6. solve@900 4-way TIE (all ~96 / hard ~92). Reactive 3/12 seeds partial (not final).
   - **setup-only HARD+dense labels (2026-07-25, REJECTED, 1 seed):** `round3/models/setup_split_HARD_seed1/checkpoints/epoch011-val_loss0.8787.ckpt` (job 189366), data `round3/h5/d20_plus_setup_only_HARD.h5` — every reachable cell exact two-sided (opener 1.0/setup 0.9/dead+unknown 0), no fence, nothing masked. **No magnitude collapse** (opener raw median 0.949 vs ceiling 0.965 — marvel's 0.11–0.19 crush was FLOOD-driven, not intrinsic), but **ordering regresses**: 2push sims-to-solve 46.0→53.8 (+17%, above the ceiling 3-seed band max), solve@2/@5/@10 below band min, 1push top-1 down every tier; solve@900 unchanged. WINS the deep 1push tail (hard@5 **77.0** best-of-all, avg-sims 7.32 lowest). **Ceiling/fence stays default;** keep this rule in mind only for a deep-1push-search arm. val_loss NOT comparable across label regimes. train_h5: `round3/h5/d20_plus_setup_only_HARD.h5`. **This ckpt is the "hard" model in the 2026-07-26 scorer-scale + combine-mode audit** (sigmoid squashing, `--combine q` vs `blend`) → [EXP-2026-07-26 card](log/EXP-2026-07-26-scorer-scale-and-combine-mode.md).
   - **Verdicts (seed-robust):** (a) full+split hard-1push tail collapse replicates across 3 seeds (not noise); (b) **recovery is a PURE DATA effect — dropping the 157k finisher boards, loss-independent** (setup recovers under BOTH losses; full collapses under both). (c) split vs opener loss INDISTINGUISHABLE on 1push AND 2push → loss doesn't matter on setup data, keep simpler. (d) 2push: all colossus beat d20 on sims (data helps); solve@900 4-way tie; full+split fastest sims-mean but NOT seed-robust vs setup+split (ranges overlap). **NET: setup-only = best all-around — only variant with BOTH d20-class hard-1push AND colossus-class 2push efficiency; full+split trades the hard tail for a non-robust sims edge. Seed-confirmed winner = setup DATA.**
+
+## Aquaman line (DC lineage — bootstrap value loop) — added 2026-08-02
+
+Card [EXP-2026-08-02-bootstrap-value-loop](log/EXP-2026-08-02-bootstrap-value-loop.md). θ₀ = `d20_plus_setup_only_splitloss/epoch011`; label change ONLY (arch/recipe identical): capped/censored root cells → `min(cap, 0.9·V̂(child))` two-sided at weight 0.5 (`guess_mask` column; trainer reads it via `q2_dataset`).
+
+- **aquaman-0 arm A (3 seeds):** train_h5 `/common/users/dm1487/scratch_namo/aquaman/round0/aquaman0_train_A.h5` (45,469 guessed cells, capped-only). ckpts `/common/users/dm1487/scratch_namo/aquaman/round0/models/A_s{1,2,3}/checkpoints/` best-val ep010/010/011, val_loss 1.7230/1.7203/1.7056.
+- **aquaman-0 arm B (3 seeds) — ⛔ VOID as a distinct arm (correction 2026-08-07):** train_h5 `…/aquaman0_train_B.h5` (591,504 cells written). ckpts `…/models/B_s{1,2,3}/checkpoints/` ep011/011/010, val_loss 1.7068/1.7047/1.7128. `run_reduce` never wrote `value_mask`, so the 546,035 class-1 cells stayed outside `loss_mask = value_mask * r_mask` — **B trained on supervision byte-identical to A** (6,129 rows sampled, 413,869 in-loss cells, max delta 0.000000; guess cells in loss A=845 / B=845). Treat A and B together as ONE condition with SIX seeds. Arm B's hypothesis is untested; refired as `Bfix` (`aquaman0_train_Bfix.h5`, reduce now sets `value_mask=1`).
+- **Headline (vs θ₀ control, discount off):** hard-2p solve@2 9.5→13.6/13.1, @5 22.6→27.7/28.7, @30 50.4→54.5/54.3; medium-2p @5 57.4→51.4/52.1 (the tax); 1push ≈ held; all ceilings within noise. Offline: V6 live/dead board 0.753→0.777/0.785 (the A/B spread is seed noise, NOT a dose response — see the 2026-08-07 correction), hard setup hit@1 21.2→22.9/24.6.
+- **Builders:** `aquaman_rebuild_v2.py` (exact-linkage map/reduce over colossus raw shards), `aquaman_precheck.py` (H0 quiz, AUC 0.853), `aquaman_agg.py` (gate aggregation) — worktree branch `exp/bootstrap-value-loop`.

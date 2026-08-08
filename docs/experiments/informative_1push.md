@@ -44,7 +44,7 @@ updated: 2026-06-06
 - [x] best-ckpt eval = validation; both plateaued (info ep66 / base ep19), base cancelled @ep62
 - [x] hard wall-time cap — train jobs --time=04:00:00 (info ran 40 min; base cancelled)
 
-**RESULT** (`docs/experiments/informative_1push_results.md`, full json `/scratch/dm1487/eval/`): informative ≫ baseline on **every** division at s@1 — hard 0.063 vs 0.010 (6.3×), med 0.099 vs 0.020 (5×), easy 0.115 vs 0.034 (3.4×). Informative beats the random floor on **hard** (0.063 vs 0.027); baseline model is **below the floor everywhere**. val_loss was near-identical (0.0037 vs 0.0038) — feasibility test, not val_loss, separates them.
+**RESULT** (`docs/experiments/informative_1push_results.md`, full json `$NAMO_SCRATCH/eval/`): informative ≫ baseline on **every** division at s@1 — hard 0.063 vs 0.010 (6.3×), med 0.099 vs 0.020 (5×), easy 0.115 vs 0.034 (3.4×). Informative beats the random floor on **hard** (0.063 vs 0.027); baseline model is **below the floor everywhere**. val_loss was near-identical (0.0037 vs 0.0038) — feasibility test, not val_loss, separates them.
 
 ### Analysis
 - [x] seed overlap — ⚠️ test shares 100% of templates with train (same arenas, new objects)
