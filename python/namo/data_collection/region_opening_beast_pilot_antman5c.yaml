@@ -1,0 +1,65 @@
+# BEAST (2-push) LABEL config — CAR robot. Realizes the card's line-25 LABEL exactly:
+#   - region_label_mode: true  -> exhaustive setups (every reachable first-push, no beam/sample) AND,
+#     at the FINISH level only, stop at the first scorer-ranked finish that opens G (early-stop). The
+#     winning finish's score+rank are logged in primitive_trial_log so build_rung2_h5 can flag recall
+#     misses (rank > k). The best_total_cost cost-prune is disabled in label_mode so setups in
+#     DIRECT-OPENER scenes (the 178k solvable relabel set) still get a finish sweep.
+#   - region_sample_k: 0        -> exhaustive over reachable candidates (no random subset).
+#   - region_frontier_beam_width: null -> no setup pruning; every depth-1 setup expands to depth-2.
+#   - goal_strategy: scorer + region_selection_strategy: ml_first -> R (antman-5) ranks pushes; setups
+#     at the root, finishes at each post-setup node. ONE ranker, two query points.
+#   - region_exhaustive_mode: true -> keep the exhaustive primitive_trial_log + resulting_state dumps
+#     (build_rung2_h5 renders each node's ctx from its post-shove state).
+# RUN WITH `--target-goal-region` (CLI store_true; goal-opening only, never "open any neighbour").
+# Scorer ckpt (antman-5, best-val redo seed) can be overridden with --scorer-ckpt; device with --ml-device.
+
+algorithm: region_opening
+episodes_per_env: 1
+
+# Generic planner limits
+max_depth: 5
+max_goals_per_object: 5
+max_terminal_checks: 5000
+search_timeout: 150.0
+# The ENFORCED per-scene budget (checked between objects in _attempt_opening_to_neighbour): bounds the
+# depth-2 exhaustive cost so rich scenes don't hog a worker. Unfinished setups -> MASK (never mislabeled).
+region_timeout_per_neighbour_sec: 120.0
+goals_per_region: 50
+region_min_reachable_fraction: 0.2
+
+# Region opening parameters
+points_per_face: 15
+region_allow_collisions: true
+region_max_chain_depth: 2
+# Match the WORKING rung1_exhaustive labeler (these were EXIT-era rung2 leftovers): a huge beam =
+# effectively no pruning but a valid int (null caused the beam to not be passed -> wrong default);
+# solutions caps are ignored in exhaustive_mode anyway.
+region_max_solutions_per_neighbor: 1
+region_max_recorded_solutions_per_neighbor: 1
+region_frontier_beam_width: 10000
+region_chain_link_cost: 11
+region_ml_ignore_blacklist: false
+region_selection_strategy: ml_first
+
+# --- LABEL block (the card's exact procedure) ---
+region_label_mode: true
+region_exhaustive_mode: true
+region_sample_k: 0
+region_sample_restarts: 1
+
+# Goal strategy: R (antman-5) ranks candidate pushes; ml_first orders the frontier by that score.
+goal_strategy: scorer
+scorer_ckpt: $NAMO_SCRATCH/curriculum2/beast/pilot/antman5c.ckpt
+ml_device: cpu
+
+# 5-DEPTH car primitives -> 60x5 = (4 edges x 15 pts) x 5 depths.
+primitive_prefix: "1x_car_d5_"
+config_file: config/namo_config_complete_skill15_car_1x.yaml
+
+xml_dir: ${NAMO_DATASETS}/car_envs
+
+verbose: false
+filter_minimum_length: false
+smooth_solutions: false
+refine_actions: false
+validate_refinement: false
