@@ -233,6 +233,12 @@ AJ2NR  2push  hard   n=411   @1=0.0   @5=20.0  @30=40.6   @900=87.8   s2s=134.5
 
 Two things to read off. **The aux's contribution is uniform across difficulty, not concentrated in the hard tail** — AJ2 beats AJ2NR by +7.1 / +7.0 / +6.8 points at 2push easy/medium/hard @5. And **on 1push-easy the aux is very slightly harmful** (96.9 vs 97.7 @1), the same easy-tier inversion the wall-clock campaign saw. Neither arm reaches θ₀'s 2p-hard@900 of 92.0.
 
+### Plot — `round0/v2_success_vs_sims.png` (script `round0/plot_v2_curves.py`)
+
+Success vs simulator calls, 2×4 horizon × difficulty, line = 3-seed mean, band = seed min–max. Encoding is deliberate: **colour = label regime** (blue bootstrap guesses, orange hard floor), **line style = aux** (solid on, dashed off). The substitution result is then legible without reading the legend — **the blue pair is far apart, the orange pair is close**, in every one of the eight panels. Random is the dotted grey reference.
+
+Two things visible in the plot that the scalar table hides: the aux's benefit is concentrated in the **1–30 sim range** and closes by ~300 sims on every tier (it buys ordering, not reach), and on **1push-easy all four models are indistinguishable from each other** and only the random baseline separates — that tier is saturated and carries no signal about labels or loss at all.
+
 ### v2 AUC panel — `round0/auc_aj2.json`, 1,152 episodes, 3 seeds (script `round0/auc_compare.py`)
 
 ```
