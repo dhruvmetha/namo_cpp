@@ -30,6 +30,8 @@ Eight arms × 3 seeds, one canonical protocol (1322 1push@hmax2 + 1012 2push, bu
 | **ANG** = arm A + guess-exclusion | **14.6** | **30.7** | 53.1 | **91.8** | 39.0 | 81.0 |
 | BNG = Bfix + guess-exclusion | **14.6** | **32.1** | **55.7** | 88.6 | 38.4 | 81.4 |
 | ARJ = arjuna-0, 141k exact **zeros** | 14.1 | 27.7 | 54.7 | 91.0 | **42.5** | 80.9 |
+| AJ2 = arjuna-0 **v2**, 8.4M exact zeros (47.6%) | — | 26.8 | 53.3 | 90.0 | 38.1 | 78.8 |
+| AJ2NR = v2, ranking aux OFF | — | 20.0 | 40.6 | 87.8 | 29.4 | 73.5 |
 
 **Headline: the listwise ranking auxiliary carries ~half of deployed performance, and it had never been swept.** Removing it costs hard-2p@5 27.7→10.7 and 1p-hard@1 39.2→15.4, at both label doses, every band non-overlapping. For contrast the depth-token architecture moved ±3–4 pts (rejected) and a 12× label dose moved ±4–5. It is also the **only** consumer of the ceilings, which are 46–48% of supervised cells — regression can penalise a bound but never order it.
 
@@ -42,6 +44,19 @@ Eight arms × 3 seeds, one canonical protocol (1322 1push@hmax2 + 1012 2push, bu
 **Arm B rejected, with the sharper reading.** Its 546,035 extra cells are *exactly* the children whose sweeps were censored — the one population whose answer is unrecoverable from this data. Guessing there cost 4–5 pts of hard-2p reach. Not "more labels hurt" but **"labels on the unknowable hurt."** Arm A's population is fully resolved; it succeeded partly by accident of which cells the H5 recorded.
 
 **Floor hypothesis FALSIFIED on its own pre-registered test.** arjuna-0 wrote the project's first exact zeros (141,581 proven-dead cells, zero new sims). Pre-registered: *"if V5 doesn't move, the theory is wrong regardless of solve rates."* **V5 = 0.533 vs arm A's 0.543 — unmoved.** The floor bought precision, not comparability: best 1push-hard@1 in the line (**42.5** vs θ₀ 39.7), best setup hit@1 (24.6), best V6 (0.790), but 2-push flat.
+
+**Floor hypothesis re-tested at 72× the dose — still falsified, and the null is now solid.** v1's zeros reached only 1.4% of the 8.29M bounded cells (a join limit: 94% sit on d20-base rows with no child stored), so its null was dismissible. v2 needs no linkage — every bounded cell becomes an exact 0, taking zeros from 0.66% to **47.6%** of supervised cells. `AJ2`'s hard-2p@5 band **[24.8, 28.5]** contains arm A (27.7), ARJ (27.7) and Bfix (28.9); BNG (32.1) sits above the whole band. **Giving the regression a real zero to predict is not what the ranker was missing.**
+
+**But the aux and the labels turn out to be SUBSTITUTES — the session's most useful number.** Re-run the ablation under honest labels and most of the aux's apparent dominance evaporates:
+
+| labels | aux off | aux on | aux's marginal value |
+|---|--:|--:|--:|
+| bootstrap guesses (`BfixNR`→`Bfix`) | 11.2 | 28.9 | **+17.7** |
+| hard floor (`AJ2NR`→`AJ2`) | 19.9 | 26.8 | **+6.9** |
+
+Hard labels nearly **double** the no-ranking model (11.2 → 19.9 hard-2p@5; 15.2 → 29.4 1p-hard@1) and cut the aux's contribution by ~60%. So "ordering supervision carries half of deployed performance" is true *only while the labels are degenerate* — with 96–100% of targets ≥0.8 the regression has nothing to learn and the aux carries the model alone. The aux still wins by ~7 pts with non-overlapping bands, so it is not merely a workaround; and its contribution is **uniform across difficulty** (+7.1/+7.0/+6.8 at 2push easy/medium/hard@5), not concentrated in the hard tail.
+
+**One caveat, pre-registered before the run:** zeroing *child* bounded cells is provably correct under hmax=2, but zeroing *root* ones asserts "not a setup" for ~5.5M cells whose children were never resolved. Flat-to-slightly-down is exactly what "real information on one half, false labels on the other" predicts. The split arm (child→0, root→masked) is the outstanding test.
 
 **Cross-board comparability is a LOSS-STRUCTURE problem, measured not inferred.** The aux is `log_softmax(dim=1)` over one board — shift-invariant per board, so nothing keeps boards on a common scale. Measured: within-board spread 0.516 (off) → 0.666 (on), spread across board maxima 0.227 → 0.204, and **dead-board maxima inflated 0.625 → 0.720**. V5 is exactly "setup cell vs dead board max". No label change touches this; it needs a signal spanning boards.
 

@@ -26,16 +26,27 @@ set -euo pipefail
 : "${CKPT:?set CKPT=<checkpoint path>}"
 : "${OUT:?set OUT=<evaluation output root>}"
 
-# Box-agnostic: the checkout is wherever this script lives; sage and the built bindings are
-# siblings of it (a fresh worktree has no build_python of its own -- point NAMO_BINDINGS at the
-# checkout that does). Override any of the three by env; nothing here is a literal box path.
-REPO=${NAMO_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}
+# Box-agnostic: the checkout is $NAMO_REPO, else the directory the job was SUBMITTED from, else
+# where this file lives. Sage and the built bindings are siblings of it (a fresh worktree has no
+# build_python of its own -- point NAMO_BINDINGS at the checkout that does). Override any of the
+# three by env; nothing here is a literal box path.
+#
+# ⛔ ${BASH_SOURCE[0]} IS NOT THE REPO UNDER sbatch. SLURM copies the batch script to
+# /var/lib/slurm/slurmd/job<N>/slurm_script before running it, so deriving the checkout from it
+# yields REPO=/var/lib/slurm -- the cd succeeds, `source env.amarel.sh` fails, and set -e kills
+# the task with the error swallowed by the redirect below: 1 s runtime, 0-byte log, no clue.
+# That cost ~30 min on 2026-08-08 and 432 dead tasks; it had only ever worked because callers
+# happened to have NAMO_REPO exported and sbatch --export=ALL carried it in. SLURM_SUBMIT_DIR is
+# the correct fallback -- it survives the spooling.
+REPO=${NAMO_REPO:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}}
 SAGE=${SAGE_REPO:?set SAGE_REPO -- it MUST match the code version the ckpt was trained with}
 BIND=${NAMO_BINDINGS:-$REPO/build_python}
 N1SH=${N1SH:-40}
 N2SH=${N2SH:-32}
-cd "$REPO"
-source env.amarel.sh >/dev/null 2>&1
+cd "$REPO" || { echo "FATAL: REPO=$REPO is not a directory"; exit 1; }
+# NOT silenced: a failure here used to be invisible. env.amarel.sh is chatty on success, so the
+# noise is the price of ever seeing the failure again.
+source env.amarel.sh || { echo "FATAL: could not source env.amarel.sh from $REPO"; exit 1; }
 export SAGE_REPO="$SAGE"
 export PYTHONPATH="$BIND:$REPO/python:$REPO/scripts:$REPO/scripts/sandbox:$SAGE"
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 OPENCV_NUM_THREADS=1

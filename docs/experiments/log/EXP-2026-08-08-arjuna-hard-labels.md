@@ -140,7 +140,7 @@ That fits a narrower mechanism than the one proposed: a proven zero says *this s
 
 **2-push is flat** (27.7 vs 27.7 @5), and finish hit@1 hard *fell* 54.8 → 52.6. Since `solve@2 ≈ setup@1 × finish@1` (verified to ~1 pt across conditions), the better setup pick was cancelled by the worse finish pick.
 
-## arjuna-0 **v2** — the big-dose floor test [USER 2026-08-08, IN FLIGHT]
+## arjuna-0 **v2** — the big-dose floor test [USER 2026-08-08, COMPLETE]
 
 v1 is superseded as the floor test (its artifacts stay registered; nothing was deleted — `arjuna0_train.h5` is a standalone copy and the ARJ models are cited in the registry).
 
@@ -181,6 +181,62 @@ Three things this settles:
 
 **⚠ Honest asymmetry, recorded BEFORE results:** zeroing *child* bounded cells is correct under hmax=2 (a failed push-2 has no successor). Zeroing *root* bounded cells asserts "this is not a setup" for **~5.5M cells** whose children were never resolved — some are genuine setups, so those labels are wrong. This is the move that regressed 2026-07-25 (sims-to-solve 46.0 → 53.8), differing in one respect: that run also zeroed **untried** cells, inventing facts about pushes nobody executed; v2 only zeroes cells that were simmed. **If v2 regresses, this is the first suspect**, and the follow-up arm is the split — child→0, root→masked — which separates the safe half from the risky half.
 
+## v2 RESULT — canonical gate, 3 seeds, mean [min,max] (2026-08-08 16:40)
+
+Aggregate `round0/gate_aj2.json` (spec `arms_aj2.json`), 432/432 shards, zero unmatched. Reference rows are the registered 3-seed pooled numbers.
+
+| arm | labels | aux | 2p-hard@5 | 2p-hard@900 | 1p-hard@1 | 2p-hard s2s |
+|---|---|---|---|---|---|---|
+| θ₀ | base | on | 22.6 | 92.0 | 39.7 | — |
+| arm A | +602 guesses | on | 27.7 | 91.5 | 38.0 | — |
+| Bfix | +9,006 guesses | on | 28.9 | 87.1 | 41.8 | — |
+| **BNG** | +9,006 guesses | on, guesses barred | **32.1** | 88.6 | 38.4 | — |
+| ARJ v1 | 1.4% floor | on | 27.7 | 91.0 | **42.5** | — |
+| **AJ2** | **47.6% floor** | on | 26.8 [24.8, 28.5] | 90.0 [86.9, 92.0] | 38.1 [35.8, 39.7] | 105.0 |
+| **AJ2NR** | **47.6% floor** | **off** | 19.9 [17.5, 21.9] | 87.8 [86.9, 88.3] | 29.4 [28.4, 30.9] | 134.5 |
+
+### Verdict 1 [numbers] — the floor hypothesis is FALSIFIED at FULL dose, not just at 1.4%
+
+v2's 2p-hard@5 band [24.8, 28.5] contains arm A (27.7), ARJ v1 (27.7) and Bfix (28.9): **no gain, and no regression either.** BNG's 32.1 sits above v2's entire band and remains the best model in the line. 1p-hard@1 is *below* both ARJ v1 (42.5) and Bfix (41.8), and its band's top just touches θ₀ (39.7).
+
+This closes the question the scope correction reopened. v1's null was dismissible as a 1.4% dose; **72× more floor changes nothing.** Giving the regression a real zero to predict is not what the ranker was missing.
+
+### Verdict 2 [numbers] — the aux and the labels are SUBSTITUTES, and this is the session's real finding
+
+The rank-off arms are where the dose shows up. Same ablation, two label regimes:
+
+| labels | aux off | aux on | aux's marginal value |
+|---|---|---|---|
+| bootstrap guesses (`BfixNR` → `Bfix`) | 11.2 | 28.9 | **+17.7** |
+| hard floor (`AJ2NR` → `AJ2`) | 19.9 | 26.8 | **+6.9** |
+
+Real labels nearly **double** the no-ranking model (11.2 → 19.9 on 2p-hard@5; 15.2 → 29.4 on 1p-hard@1) and cut the aux's marginal contribution by ~60%. The earlier reading — "everything is ranking, the labels barely move anything" [USER 2026-08-08] — was true *only because the labels were degenerate*: with 96–100% of targets ≥0.8 the regression had nothing to learn, so the aux was carrying the model alone. Fix the labels and most of that gap closes by itself.
+
+The aux still wins by ~7 points and the bands do not overlap ([24.8, 28.5] vs [17.5, 21.9]), so ordering supervision is **not** purely a workaround for bad labels — it contributes on its own. **The pre-registered prediction ("the gap narrows but the aux still wins") is confirmed on both halves.**
+
+### Splits (difficulty × horizon) — required reporting
+
+```
+AJ2    1push  easy   n=2091  @1=96.9  @5=99.5  @30=100.0  @900=100.0  s2s=1.1
+AJ2    1push  medium n=1263  @1=80.0  @5=96.4  @30=99.7   @900=100.0  s2s=1.8
+AJ2    1push  hard   n=612   @1=38.1  @5=78.8  @30=94.6   @900=100.0  s2s=9.6
+AJ2    2push  easy   n=1155  @1=0.1   @5=69.2  @30=90.7   @900=99.8   s2s=15.2
+AJ2    2push  medium n=1464  @1=0.0   @5=50.2  @30=75.3   @900=97.7   s2s=43.7
+AJ2    2push  hard   n=411   @1=0.0   @5=26.8  @30=53.3   @900=90.0   s2s=105.3
+AJ2NR  1push  easy   n=2091  @1=97.7  @5=99.8  @30=100.0  @900=100.0  s2s=1.0
+AJ2NR  1push  medium n=1263  @1=80.3  @5=95.8  @30=99.6   @900=100.0  s2s=1.9
+AJ2NR  1push  hard   n=612   @1=29.4  @5=73.5  @30=92.2   @900=99.7   s2s=13.6
+AJ2NR  2push  easy   n=1155  @1=0.2   @5=62.1  @30=86.9   @900=99.7   s2s=19.2
+AJ2NR  2push  medium n=1464  @1=0.0   @5=43.2  @30=68.7   @900=97.9   s2s=58.4
+AJ2NR  2push  hard   n=411   @1=0.0   @5=20.0  @30=40.6   @900=87.8   s2s=134.5
+```
+
+Two things to read off. **The aux's contribution is uniform across difficulty, not concentrated in the hard tail** — AJ2 beats AJ2NR by +7.1 / +7.0 / +6.8 points at 2push easy/medium/hard @5. And **on 1push-easy the aux is very slightly harmful** (96.9 vs 97.7 @1), the same easy-tier inversion the wall-clock campaign saw. Neither arm reaches θ₀'s 2p-hard@900 of 92.0.
+
+### The asymmetry flagged before launch is the surviving suspect
+
+Zeroing *child* bounded cells is provably correct under hmax=2. Zeroing *root* bounded cells asserts "this is not a setup" for ~5.5M cells whose children were never resolved, and the flat-to-slightly-down result is exactly what that predicts: real information added on the child half, false labels added on the root half, netting to zero. **This is now the pre-registered next arm** — child→0, root→masked — and it is the only way to tell "the floor doesn't help" from "the floor helps, and 5.5M wrong labels cancel it out." Until it runs, verdict 1 should be read as *the floor as applied* rather than *any floor*.
+
 ## Open / next
 
 - **The cross-board hole is unaddressed by labels.** It needs a signal spanning boards: a board-ordering head ([EXP-2026-08-02-board-live-head](EXP-2026-08-02-board-live-head.md), labels already balanced 22,271 live / 19,282 dead), or a ranking competition list that is not `dim=1`. Within-episode comparability suffices — the deploy queue only ever holds one episode's boards.
@@ -189,6 +245,10 @@ Three things this settles:
 - **Not attempted, deliberately:** the γ² grandchild bootstrap (needs states we never stored) and any re-collection.
 
 ## Log
+
+- **2026-08-08 (PM) [Claude] v2 COMPLETE — floor falsified at full dose; the aux/label substitution is the real finding.** Six models trained and evaluated (432/432 shards), numbers in the v2 RESULT section. Two ops notes worth keeping. **(1) `--gres` on the sbatch command line is rejected by CS `unlimited`** ("Please do not specify the number of CPUs") — pick the GPU type with `--nodelist` and let the template's own `--gres=gpu:1` stand. **(2) Racing beat migrating.** The seed-1 pair landed on ilab1 (a4500, 6.7 min/epoch) while seed 2 got rlab2 (a100, 1.5 min/epoch) — 4.5×. Killing the laggards to move them would have forfeited 45 min of real progress on an unverifiable bet that a fast GPU was free (rlab2's GPUs are not visible from its login shell). Duplicating seed 1 onto rlab2/rlab7 and taking whichever COMPLETED first cost nothing and won: the a100 duplicate finished in **18:09** and cancelled the ilab1 original at 64 min. The rlab7 pair died at 54 s and didn't matter. **On a shared cluster with free capacity, race — don't migrate, and don't wait.**
+
+- **2026-08-08 (PM) [Claude] 432 eval tasks died in 1 s with 0-byte logs; three stacked causes, each hiding the next.** Cost ~30 min. **(a) `NAMO_REPO` unset:** the template derived the checkout from `${BASH_SOURCE[0]}`, but **SLURM copies the batch script to `/var/lib/slurm/slurmd/job<N>/slurm_script`**, so `REPO` resolved to `/var/lib/slurm`. **(b) `set -e` + `source env.amarel.sh >/dev/null 2>&1`:** the resulting failure was discarded, leaving no trace anywhere. **(c) `NAMO_BINDINGS` unset:** `namo_bfix` has no `build_python`, and `BIND` is computed *before* the env is sourced, so past (a) it would have died on `ModuleNotFoundError: namo_rl`. Every earlier wave worked only because an interactive shell had both exported and `sbatch --export=ALL` carried them in; submitting over ssh does not. Template fixed to fall back to `SLURM_SUBMIT_DIR` (which survives spooling) and to stop silencing the `source`. **My own probes cost half that time:** I tested with `sbatch --wrap`, which runs under `sh`, where `source` does *not* search the current directory, and briefly concluded `env.amarel.sh` was missing when it was present. **Lesson: reproduce with the real interpreter and `set -x`, not with a convenience wrapper.**
 
 - **2026-08-08 (PM) [Claude] eval waiter would have shipped epoch-0 checkpoints — caught before it ran.** The stage-2 chain gated on "6 `epoch*.ckpt` files exist AND the queue is empty". Both were already true minutes after launch: Lightning writes an `epoch000` file almost immediately, and the chain runs on **arrakis, which has no `squeue`**, so the queue test was vacuously 0. Had the script been running it would have evaluated six barely-trained models and produced a clean-looking, entirely false result table. It had never actually started, which is the only reason nothing was lost. Rewritten to gate on SLURM **job state** (`sacct -X` over ilab2, a submit host) and to abort unless all six report `COMPLETED`; parser dry-run verified against the live jobs. **General lesson: artifact-existence is not a completion signal for anything that checkpoints per epoch — poll the scheduler, not the filesystem.** (The `scaled-run` skill's "monitor by artifact count, not buffered logs" advice is about *liveness*; for *doneness* it is actively wrong here.)
 
