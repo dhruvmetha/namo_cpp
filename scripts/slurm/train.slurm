@@ -63,21 +63,26 @@ if [ -n "${SLURM_ARRAY_TASK_ID:-}" ]; then
   GAMMAS=(0.3 0.5 0.7 0.9); G=${GAMMAS[$SLURM_ARRAY_TASK_ID]}
   export NAMO_GAMMA=$G; OUT="$OUT/g${G}"
 fi
-# SPEED: stage the H5 to node-local storage (measured 4.3x dataloader; see header notes).
-# Stage dir is overridable: /dev/shm is fastest but systemd RemoveIPC DELETES it when the user's
-# last session on that node closes, which silently kills a running train ("unable to open file:
-# /dev/shm/namo_train_<jobid>.h5"). It also competes for RAM -- one 1 GB copy PER JOB, so a fleet
-# on one node can exhaust it and get workers killed by signal Aborted. Both were hit on
-# 2026-08-08 with 12 concurrent runs. Set NAMO_STAGE_DIR=/tmp for fleets: node-local disk, no
-# RemoveIPC, no RAM pressure, still far better than NFS.
-# Falls back to NFS silently if the copy fails (e.g. tmpfs too small) — correctness unaffected.
+# SPEED: stage the H5 to node-local storage (the 4.3x is vs NFS; see header notes).
+#
+# ⛔ DEFAULT IS /tmp, NOT /dev/shm — changed 2026-08-08 after /dev/shm cost 7 of 8 job failures in
+# a 12-run fleet. /dev/shm is marginally faster (RAM vs node-local disk) but has two failure modes,
+# both silent and both looking like unrelated bugs:
+#   * systemd RemoveIPC DELETES /dev/shm contents when the user's LAST session on that node closes
+#     -- so a sibling job exiting kills a RUNNING train: "unable to open file:
+#     /dev/shm/namo_train_<jobid>.h5". Nothing in the log points at the real cause.
+#   * it is RAM. One 1 GB copy PER JOB means a fleet on one node exhausts it, and the failure
+#     surfaces as "DataLoader worker killed by signal: Aborted" or a loky resource_tracker error.
+# Both beat NFS by roughly the same margin, so the speed argument for /dev/shm never justified the
+# fragility. Set NAMO_STAGE_DIR=/dev/shm to opt back in for a single run on a known-idle node.
+# Falls back to NFS silently if the copy fails (e.g. filesystem too small) — correctness unaffected.
 if [ "${NAMO_STAGE_SHM:-1}" = "1" ]; then
-  SH5="${NAMO_STAGE_DIR:-/dev/shm}/namo_train_${SLURM_JOB_ID:-$$}.h5"
+  SH5="${NAMO_STAGE_DIR:-/tmp}/namo_train_${SLURM_JOB_ID:-$$}.h5"
   if cp "$H5" "$SH5" 2>/dev/null; then
     H5="$SH5"; trap 'rm -f "$SH5"' EXIT
     echo "staged H5 to $SH5"
   else
-    rm -f "$SH5" 2>/dev/null; echo "shm staging failed; using NFS path"
+    rm -f "$SH5" 2>/dev/null; echo "stage-dir copy failed; using NFS path"
   fi
 fi
 mkdir -p "$OUT"; LOG="$OUT/train.log"
