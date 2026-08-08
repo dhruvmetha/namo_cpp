@@ -45,7 +45,30 @@ cmake -S . -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release -DBUILD_PYTHON_BINDINGS=ON
     -DPython3_SOABI="$PYTHON_SOABI"
 cmake --build "$BUILD_DIR" --target namo_rl -j"$(nproc)"
 
+# Stamp what this .so was actually built from. Timestamps cannot answer "does this binary contain
+# commit X" -- a build-then-commit workflow leaves the .so mtime EARLIER than the commit that
+# describes it, and a stale checkout leaves it later than nothing at all. The C++ tree hash is exact:
+# scripts/check_box_sync.sh compares it against HEAD's and refuses to launch a campaign on a mismatch.
+# Motivated by 2026-08-08: an Amarel .so from July 2 predated d6088d0 (the sticky-collision fix to
+# namo_push_controller.hpp), so a collection there would have run different push physics than CS with
+# nothing in the output to reveal it.
+# SLURM compute nodes may have no `git` on PATH (verified on Amarel main-redhat 2026-08-08), so the
+# submitting host can pass these in: NAMO_BUILD_SHA / NAMO_BUILD_CPP_TREE / NAMO_BUILD_SRC_TREE /
+# NAMO_BUILD_DIRTY. Local `git` is used when available and the env is unset.
+{
+  echo "git_sha=${NAMO_BUILD_SHA:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
+  echo "cpp_tree=${NAMO_BUILD_CPP_TREE:-$(git rev-parse HEAD:include 2>/dev/null || echo unknown)}"
+  echo "src_tree=${NAMO_BUILD_SRC_TREE:-$(git rev-parse HEAD:src 2>/dev/null || echo unknown)}"
+  echo "dirty_cpp=${NAMO_BUILD_DIRTY:-$(git status --porcelain -- include/ src/ cpp_bindings/ 2>/dev/null | wc -l)}"
+  echo "built_at=$(date -Is)"
+  echo "host=$(hostname)"
+  echo "python=$($PYTHON_BIN --version 2>&1)"
+  echo "march=${NAMO_MARCH}"
+  echo "mj_path=${MJ_PATH:-unset}"
+} > "$BUILD_DIR/BUILD_INFO"
+
 echo
 echo "Build completed successfully."
+echo "Stamped $BUILD_DIR/BUILD_INFO:"; sed "s/^/  /" "$BUILD_DIR/BUILD_INFO"
 echo "Canonical PYTHONPATH usage:"
 echo "  export PYTHONPATH=$(pwd)/${BUILD_DIR}:\$PYTHONPATH"
