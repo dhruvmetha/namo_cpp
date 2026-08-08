@@ -63,21 +63,23 @@ if [ -n "${SLURM_ARRAY_TASK_ID:-}" ]; then
   GAMMAS=(0.3 0.5 0.7 0.9); G=${GAMMAS[$SLURM_ARRAY_TASK_ID]}
   export NAMO_GAMMA=$G; OUT="$OUT/g${G}"
 fi
-# SPEED: stage the H5 to node-local storage (the 4.3x is vs NFS; see header notes).
+# SPEED: stage the H5 to node-local storage (4.3x vs NFS; see header notes).
 #
-# ⛔ DEFAULT IS /tmp, NOT /dev/shm — changed 2026-08-08 after /dev/shm cost 7 of 8 job failures in
-# a 12-run fleet. /dev/shm is marginally faster (RAM vs node-local disk) but has two failure modes,
-# both silent and both looking like unrelated bugs:
-#   * systemd RemoveIPC DELETES /dev/shm contents when the user's LAST session on that node closes
-#     -- so a sibling job exiting kills a RUNNING train: "unable to open file:
-#     /dev/shm/namo_train_<jobid>.h5". Nothing in the log points at the real cause.
-#   * it is RAM. One 1 GB copy PER JOB means a fleet on one node exhausts it, and the failure
-#     surfaces as "DataLoader worker killed by signal: Aborted" or a loky resource_tracker error.
-# Both beat NFS by roughly the same margin, so the speed argument for /dev/shm never justified the
-# fragility. Set NAMO_STAGE_DIR=/dev/shm to opt back in for a single run on a known-idle node.
-# Falls back to NFS silently if the copy fails (e.g. filesystem too small) — correctness unaffected.
+# DEFAULT IS /dev/shm. Measured 2026-08-08 on rlab3, same node/data/code, only this differing:
+#     /dev/shm  4.15 min/epoch          /tmp  ~15 min/epoch    (3.6x)
+# because /tmp IS NODE-DEPENDENT: NVMe on ilab2 (/dev/nvme0n1p4) but the ROOT RAID array on rlab3
+# (/dev/md2, no separate mount). Staging a fleet to /tmp there means every worker does random
+# reads against spinning storage. An earlier edit today defaulted to /tmp on the untested
+# assumption that node-local disk ~ RAM; it is not, and it cost ~40 min of wall time.
+#
+# /dev/shm caveats, both real but narrower than they looked:
+#   * systemd RemoveIPC deletes it when the user's LAST session on the node closes -- this killed
+#     jobs on rlab7. Other nodes ran a dozen /dev/shm jobs today without incident.
+#   * it is RAM, but rlab3 shows 502 GB with 1.8 GB used, so exhaustion is not the usual case.
+# Set NAMO_STAGE_DIR=/tmp on nodes where /tmp is genuinely NVMe, or to dodge RemoveIPC.
+# Falls back to NFS silently if the copy fails -- correctness unaffected.
 if [ "${NAMO_STAGE_SHM:-1}" = "1" ]; then
-  SH5="${NAMO_STAGE_DIR:-/tmp}/namo_train_${SLURM_JOB_ID:-$$}.h5"
+  SH5="${NAMO_STAGE_DIR:-/dev/shm}/namo_train_${SLURM_JOB_ID:-$$}.h5"
   if cp "$H5" "$SH5" 2>/dev/null; then
     H5="$SH5"; trap 'rm -f "$SH5"' EXIT
     echo "staged H5 to $SH5"
