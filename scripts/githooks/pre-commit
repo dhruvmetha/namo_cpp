@@ -1,4 +1,28 @@
 #!/bin/bash
-# Pre-commit guard: block hardcoded machine paths from re-entering code.
-# Enable once per clone:  git config core.hooksPath scripts/githooks
-exec bash "$(git rev-parse --show-toplevel)/scripts/portability/check_no_hardcoded_paths.sh"
+# Pre-commit guards.  Enable once per clone:  git config core.hooksPath scripts/githooks
+#   1. hardcoded machine paths     -- BLOCKING
+#   2. checkpoints missing in docs -- WARNING, served from cache
+set -u
+ROOT=$(git rev-parse --show-toplevel)
+
+bash "$ROOT/scripts/portability/check_no_hardcoded_paths.sh" || exit $?
+
+# Registry coverage. The scan walks scratch over NFS (~30s) -- far too slow to put in front of a
+# commit, and a slow hook is a hook everyone bypasses with --no-verify. So the hook PRINTS THE LAST
+# SCAN instantly and kicks off a fresh one detached. The warning is at most one commit stale, which
+# is fine for something that already lags the training run by hours.
+CACHE="$ROOT/.git/registry_coverage.txt"
+[ -s "$CACHE" ] && cat "$CACHE" >&2
+# The subshell carries its own redirections so the scan cannot hold the hook's stdout open --
+# otherwise anything reading the hook's output (a pipe, a GUI client) blocks for the full 30s.
+PY=$(command -v python3 || true)
+if [ -n "$PY" ]; then
+  (
+    setsid "$PY" "$ROOT/scripts/experiments/check_registry_coverage.py" \
+      --days 14 --quiet >"$CACHE.tmp" 2>&1
+    mv -f "$CACHE.tmp" "$CACHE"
+  ) >/dev/null 2>&1 </dev/null &
+  disown 2>/dev/null
+fi
+
+exit 0
