@@ -157,6 +157,22 @@ Build `scripts/rl_loop/arjuna_build_v2.py` → `round0/arjuna0v2_train.h5`. Cens
 
 **Zeros go 0.66% → 48.2% — a 70× dose.** This is the first label file in the project's history whose targets genuinely vary; every earlier result was measured inside a regime where 96–100% of targets sat ≥0.8 and the regression could satisfy itself by emitting ~0.87 everywhere.
 
+**Arjuna v2 is NOT arm A or arm B — it is a third condition, and the distinction is the whole fork.** All four files below are copies of the same base, `round3/h5/d20_plus_setup_only.h5` (θ₀'s own training data); they differ only in what is written on top. Measured directly, ~4,000 rows sampled per file:
+
+| file | in-loss cells | untried (masked) | bounds left | **guessed cells** | zeros | distinct values |
+|---|---|---|---|---|---|---|
+| base `d20_plus_setup_only` | 272,389 | 16,266 | 129,628 | 0 | **0.0%** | `{0.81, 0.9, 1.0}` |
+| **arjuna v2** | 272,389 | 16,266 | **0** | **0** | **47.6%** | `{0.0, 0.5, 1.0}` |
+| aquaman arm A | 272,389 | 16,266 | 129,026 | 602 | 0.0% | continuous |
+| aquaman Bfix | **280,793** | **7,862** | 129,026 | 9,006 | 0.0% | continuous |
+
+Three things this settles:
+- **Guesses belong to the DC/bootstrap lineage only.** A and B invent values (`min(cap, 0.9·V̂)` from the model's own top-5) for cells the simulator never resolved. v2 invents nothing — bounds are the only population it touches, and its file is **178 bytes** larger than the base because it rewrites values in place.
+- **The base data contained no zeros at all** — every label was 0.81, 0.9, or 1.0. The model had never once been shown "this push is worthless." v2 is the first file in which it is, for 47.6% of its supervision.
+- **The round-0 `value_mask` bug and its fix are visible in the table:** Bfix's in-loss count is 8,404 higher than every other file's and its untried count correspondingly lower — those are the class-1 parents the missing mask had locked out of the loss.
+
+**Where it runs** — `round0/run_arjuna_v2.sh` (gated build→verify→train; no GPU is touched unless the label census passes) → `run_arjuna_v2_eval.sh` (ship to Amarel, 6 × 72 shards in two waves at the submit cap, pull back) → `run_arjuna_v2_agg.sh` (`arms_aj2.json` → `gate_aj2.json` + the difficulty × horizon table against every registered reference). CS jobs **203552–203557**, launched 15:00.
+
 **Arms:** 3 seeds × {ranking ON, ranking OFF}, `RANK_LAMBDA = LOWER_RANK_LAMBDA = 0.1` (equal budget [USER]) → `AJ2_s{1,2,3}` / `AJ2NR_s{1,2,3}`. The aux fires on exactly three tiers — openers above setups+zeros, setups above zeros, level-0 skipped for want of anything lower — i.e. finish > setup > rest, with no fictional tiers (this file contains no guesses).
 
 **What each contrast decides:**
@@ -173,6 +189,8 @@ Build `scripts/rl_loop/arjuna_build_v2.py` → `round0/arjuna0v2_train.h5`. Cens
 - **Not attempted, deliberately:** the γ² grandchild bootstrap (needs states we never stored) and any re-collection.
 
 ## Log
+
+- **2026-08-08 (PM) [Claude] eval waiter would have shipped epoch-0 checkpoints — caught before it ran.** The stage-2 chain gated on "6 `epoch*.ckpt` files exist AND the queue is empty". Both were already true minutes after launch: Lightning writes an `epoch000` file almost immediately, and the chain runs on **arrakis, which has no `squeue`**, so the queue test was vacuously 0. Had the script been running it would have evaluated six barely-trained models and produced a clean-looking, entirely false result table. It had never actually started, which is the only reason nothing was lost. Rewritten to gate on SLURM **job state** (`sacct -X` over ilab2, a submit host) and to abort unless all six report `COMPLETED`; parser dry-run verified against the live jobs. **General lesson: artifact-existence is not a completion signal for anything that checkpoints per epoch — poll the scheduler, not the filesystem.** (The `scaled-run` skill's "monitor by artifact count, not buffered logs" advice is about *liveness*; for *doneness* it is actively wrong here.)
 
 - **2026-08-08 (PM) [Claude] SCOPE CORRECTION + v2 launched.** Measuring the bounded population showed v1 converted only **114,660 of 8,294,162** bounded cells (1.4%), and that aquaman arm A / Bfix converted 38,519 (0.5%) — i.e. *every* label intervention in this project has moved ≤1.4% of the cells that carry no value. Cause is a join limit: only the 26,023 Colossus setup roots have child boards in the raw shards, and **94% of bounded cells sit on d20-base rows with no child stored at all**. Also found the bounds are inverted: root cells are capped ≤0.81 (below setup grade, burying undiscovered setups) while child cells — where a failed push-2 is worth exactly 0 under hmax=2 — get the loosest cap in the system, ≤0.90, across **2.84M cells on the tier holding 88–94% of deploy pops**. The v1 verdict is therefore true only of a 1.4% dose and has been re-titled accordingly; it was overclaimed as written. **v2 [USER]:** opener 1.0 / setup 0.5 / every bounded cell 0.0 / untried masked — needs no linkage, reaches the whole file, takes zeros from 0.66% → **48.2%**. Six runs launched (3 seeds × ranking on/off, λ=0.1 both levels). Nothing deleted; v1 artifacts remain registered.
 
