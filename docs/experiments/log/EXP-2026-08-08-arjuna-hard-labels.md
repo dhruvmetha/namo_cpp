@@ -260,7 +260,34 @@ AJ2NR        0.785     0.789     0.823     0.877     0.882     0.642     0.723  
 
 **4. V4 improves while V5 does not — the order-statistic gap, isolated.** `AJ2` posts the best V4 in the line (0.900 vs ARJ 0.885, BNG 0.880): it beats the *typical* dead cell better than any model we have. But V5 — the same comparison against each dead board's **maximum** — is flat. With a median of 75 cells per dead board, the max is an extreme order statistic, and being better than average buys nothing against it. **This is the cleanest statement yet of what "cross-board weakness" actually is.**
 
-**⚠ 5. The AUC panel does NOT explain v2's deploy gap, and I am flagging that rather than inventing a mechanism.** Under hard labels, aux-on vs aux-off is: V1/V2 identical (0.785/0.792 vs 0.785/0.789), F2 overlapping, setup@1 *worse* with the aux (55.1 vs 56.7), finish@1 +1.5, V5 −0.10. The only non-overlapping gain is **V6, live-board-max vs dead-board-max, 0.760 [0.751, 0.779] vs 0.734 [0.726, 0.745]** — board-level triage, which is precisely what orders the best-first queue. **Hypothesis [Claude, UNVERIFIED]: under honest labels the aux's deploy value comes through board triage (V6), not within-board finish ordering (F2) as it did under bootstrap labels.** A +0.026 V6 gain is small to account for +6.9 deploy points, so this needs a direct test before it is believed — it is not a conclusion.
+**5. The aux's whole remaining value is SETUP ranking on HARD boards — and the pooled table inverts this.** Per-difficulty blocks (`easy`/`med`/`hard`) are in the same panel; the table above is the `all` row, which is dominated by easy+med (865 of 983 setup boards).
+
+```
+hard tier only          setup@1  finish@1      V2      F2      V5      V6   2p-h@2   2p-h@5
+Bfix     bootstrap on      23.2      56.1   0.773   0.915   0.385   0.762     13.4      28.9
+BfixNR   bootstrap OFF     17.5      32.5   0.722   0.747   0.483   0.679      5.8      11.2
+BNG      bootstrap on      24.0      57.0   0.800   0.913   0.411   0.762     14.6      32.1
+ARJ      1.4% floor on     24.6      52.6   0.802   0.919   0.404   0.766     14.1      27.7
+AJ2      47.6% floor on    25.1      50.8   0.779   0.890   0.455   0.740     12.7      26.8
+AJ2NR    47.6% floor OFF   14.4      49.8   0.755   0.888   0.535   0.705      4.9      20.0
+```
+
+**`AJ2NR` is not failing at finish — it is failing at setup, only on hard boards.** Finish is a tie (49.8 vs 50.8, F2 0.888 vs 0.890); setup hit@1 is **14.4 vs 25.1, a 43% relative loss.** The pooled row said the opposite (`AJ2NR` 56.7 *better* than `AJ2` 55.1) because per tier it goes **easy 80.8 vs 72.7 (+8.1, 377 boards) · med 52.9 vs 53.3 (tie, 488) · hard 14.4 vs 25.1 (−10.7, 118)** — it wins where boards are plentiful and loses where they are few, so the average inverts the truth. Same aggregation trap that retired the 0.583 anchor ([project_auc_reconciliation]).
+
+Seed bands on the hard tier settle which of those two is signal: **setup@1 `AJ2` [22.0, 27.1] vs `AJ2NR` [11.0, 16.9] — disjoint**, while **finish@1 [48.8, 53.7] vs [47.9, 50.8] — overlapping**. The setup collapse is real; the finish tie is real.
+
+The arithmetic closes on the independently verified identity `solve@2 ≈ setup@1 × finish@1`:
+
+| arm | setup@1 × finish@1 | predicted 2p-hard@2 | actual |
+|---|---|--:|--:|
+| `AJ2` | .251 × .508 | 12.8% | **12.7** |
+| `AJ2NR` | .144 × .498 | 7.2% | **4.9** |
+
+**Mechanism.** Hard boards are *defined* by low setup density — a few valid setups among ~68 candidates. The listwise aux optimises the top of the list; the regression optimises mean error across all cells. When positives are rare the mean is dominated by negatives, so a regression can be numerically accurate and still bury the one setup. On easy boards positives are everywhere and getting the general level right suffices — which is exactly why `AJ2NR` *beats* `AJ2` there.
+
+**This qualifies verdict 2.** Hard labels substitute for the aux on **finish** ranking (the cured F2 collapse) but **not for setup ranking on sparse boards**. That residual is the entire remaining 6.9 points, and it says the next lever is a loss that up-weights rare positives — not more labels.
+
+> **⛔ CORRECTION [Claude 2026-08-08].** This section first read "the AUC panel does NOT explain v2's deploy gap" and floated V6 board-triage as an unverified hypothesis. **That was wrong**, and wrong for an avoidable reason: I read only the pooled `all` block when the panel had `easy`/`med`/`hard` all along. The panel explains the gap precisely. The V6 hypothesis is withdrawn — V6 does move (0.760 vs 0.734) but it is not the mechanism.
 
 ### The asymmetry flagged before launch is the surviving suspect
 
@@ -268,6 +295,7 @@ Zeroing *child* bounded cells is provably correct under hmax=2. Zeroing *root* b
 
 ## Open / next
 
+- **Next lever is a rare-positive loss, not more labels [new 2026-08-08].** The aux's entire surviving contribution is setup ranking on hard boards (25.1 vs 14.4 hit@1, disjoint bands), and hard boards are exactly those with a few valid setups among ~68 candidates. Regression's mean-error objective cannot see rare positives; the listwise aux can. Anything that up-weights the rare positive directly — focal/ranking hybrids, positive-weighted CE, top-k losses — is now better motivated than another label scheme. Note this is *not* the 2026-08-02 read that "there are no negatives to down-weight, so it isn't a focal-loss problem": that was true of the **old** labels, where 96–100% of targets sat ≥0.8. `arjuna0v2_train.h5` is 47.6% zeros, so the class imbalance is now real and the objection no longer applies.
 - **The cross-board hole is unaddressed by labels.** It needs a signal spanning boards: a board-ordering head ([EXP-2026-08-02-board-live-head](EXP-2026-08-02-board-live-head.md), labels already balanced 22,271 live / 19,282 dead), or a ranking competition list that is not `dim=1`. Within-episode comparability suffices — the deploy queue only ever holds one episode's boards.
 - **Why finish hit@1 dropped** is unexplained and is the reason 2-push stayed flat. First thing to chase.
 - **546,035 censored children** remain unresolvable from stored data. Grounding them means re-rooting: replay the parent push (1 sim, physics is deterministic), then sweep the child's untried remainder. Colossus stores no qpos and `chain_depth ∈ {1,2}`, so no grandchildren exist and the world-value route is closed without new collection.
