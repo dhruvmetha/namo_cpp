@@ -246,6 +246,14 @@ class RegionOpeningPlanner(BasePlanner):
         # pruning so setups in direct-opener scenes still get a finish sweep unless the opt-in rejection
         # gate below stops them. See card EXP-2026-07-14 "Beast (2-push)". False = off.
         self.label_mode = bool(algo_params.get("region_label_mode", False))
+        # Keep sweeping a finish board even AFTER a verified opener is found. Default off = round-0/1
+        # behaviour (stop at the first hit), which is enough to label the PARENT cell a setup but leaves
+        # the child board with a single known cell — a positive and no negatives, which no ranking loss
+        # can learn from. Measured on the tree smoke: 40% of children are live and 60% of those resolve
+        # on try #1, so under the default the boards that CONTAIN an opener are exactly the ones left
+        # unlabelled. Turning this on costs ~2x the sweep and is the only source of finish-ranking
+        # negatives. Applies to the finish level only; setup levels were already exhaustive.
+        self.finish_exhaustive = bool(algo_params.get("region_finish_exhaustive", False))
         # Rejection-sampling gate for 2-push-only collection: search the root in scorer order and
         # stop the entire object episode at the first verified 1-push opener. If the root has no
         # opener, every reachable root candidate is tried before depth-2 expansion begins. This
@@ -3160,7 +3168,8 @@ class RegionOpeningPlanner(BasePlanner):
                 # Candidates are scorer-sorted, so this success is R's best-ranked finish that works; its
                 # rank (in trial_log) says if it was within top-k. Setups (chain_depth < max) stay
                 # exhaustive — this break does NOT fire for them.
-                if self.label_mode and current_chain_depth >= self.max_chain_depth:
+                if (self.label_mode and current_chain_depth >= self.max_chain_depth
+                        and not self.finish_exhaustive):
                     if effective_exhaust_on_miss_topk > 0:
                         # EXHAUST-ON-MISS: candidate_idx is the 1-based position of the just-tried
                         # candidate (incremented at the top of the loop). A hit within the top-K

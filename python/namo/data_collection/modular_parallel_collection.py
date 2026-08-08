@@ -1219,6 +1219,11 @@ def main():
             # Beast LABEL mode: exhaustive setups + early-stop finish sweep + score/rank log + cost-prune off.
             # Set via --config-yaml (region_label_mode), same set_defaults path as region_exhaustive_mode.
             "region_label_mode": getattr(args, 'region_label_mode', False),
+            # Sweep a finish board to exhaustion even after a verified opener. label_mode alone stops at
+            # the first hit, which labels the parent but leaves the winning child board with one known
+            # cell and no negatives — nothing a ranking loss can use. YAML-only; default False keeps
+            # every historical collection byte-identical.
+            "region_finish_exhaustive": getattr(args, 'region_finish_exhaustive', False),
             # Reject 1-push-solvable roots before any depth-2 expansion while retaining a minimal
             # audit record. YAML-only collection knob; default False preserves existing runs.
             "region_stop_after_root_opener": getattr(args, 'region_stop_after_root_opener', False),

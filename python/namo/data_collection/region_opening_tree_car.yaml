@@ -1,0 +1,93 @@
+# TREE collection — CAR robot. Exhaustive depth-2 sweep with FULL STATE at every node.
+#
+# Differences from the Colossus round-2 probe (region_opening_beast_round2_probe_car.yaml), and why:
+#   region_finish_topk_cap      20 -> 0     the cap is what produced 546,035 `finish_sweep_censored`
+#                                           children — boards whose sweep stopped early, so "no opener
+#                                           found" could never be distinguished from "we gave up". 0 =
+#                                           sweep every reachable finish, so every miss is a PROVEN miss.
+#   region_finish_miss_audit_*  dropped     the audit sample only existed to measure the cap's false
+#                                           negative rate; with no cap there is nothing to audit.
+#   region_stop_after_root_opener true->false
+#                                           Colossus rejected an object episode the moment a root opener
+#                                           was verified, skipping every finish sweep under it. Bounded
+#                                           cells live on those roots too, so we must expand them.
+#
+# NO schema change is needed for the ladder. Every depth-1 trial row already carries
+# `resulting_state` = {qpos, qvel}, i.e. the exact child state that each bounded root cell leads to,
+# so a dead child can be re-rooted with set_full_state and run through THIS SAME config as a fresh
+# episode. Its grandchildren then become depth-1 rows of that run and get their own resulting_state,
+# so the ladder recurses without ever storing anything new. (`state_observation` on the reachability
+# log is poses only — fine for rendering, useless for resuming; do not confuse the two.)
+# This matters because scripts/pipeline/replay_postpush.py is BLOCKED (2026-06-13): replaying the
+# action path reproduces free-space pushes exactly but DIVERGES on collision pushes, so stored state
+# is the only reliable route back to a node.
+#
+# Depth stays at 2 forever. The ladder is a re-rooted hmax=2 pass, never an exhaustive depth-3 sweep:
+# at a median 75 reachable cells per board, depth-2 is 75^2 = 5.6k sims/episode but depth-3 would be
+# 75^3 = 422k sims/episode (~29 h each) — infeasible at any fleet width.
+# Everything else is held identical to the Colossus probe so the new tree joins the existing raw shards.
+
+algorithm: region_opening
+episodes_per_env: 1
+
+# Generic planner limits
+max_depth: 5
+max_goals_per_object: 5
+max_terminal_checks: 5000
+search_timeout: 600.0
+# Exhaustive sweeps are slower than the capped ones, so the per-neighbour bound is raised. It stays
+# FINITE on purpose: a pathological scene must not hog a worker. Anything it truncates is reported as
+# censored, never as a proven miss — the one invariant this whole collection exists to protect.
+region_timeout_per_neighbour_sec: 1800.0
+goals_per_region: 50
+region_min_reachable_fraction: 0.2
+
+# Region opening parameters
+points_per_face: 15
+region_allow_collisions: true
+region_max_chain_depth: 2
+region_max_solutions_per_neighbor: 1
+region_max_recorded_solutions_per_neighbor: 1
+region_frontier_beam_width: 10000
+region_chain_link_cost: 11
+region_ml_ignore_blacklist: false
+region_selection_strategy: ml_first
+
+# --- LABEL block ---
+region_label_mode: true
+region_exhaustive_mode: true
+region_stop_after_root_opener: false
+region_record_action_motion: true
+# Sweep live child boards to exhaustion too. Without this, label_mode stops at the first verified
+# opener, so a live child is recorded as one winning cell with NO negatives — the boards that actually
+# contain an opener end up being the ones we know least about, which is precisely the finish-ranking
+# training signal (finish@1 has slid 56.1 -> 54.8 -> 52.6 -> 50.8 across the label line). Costs ~2x.
+region_finish_exhaustive: true
+# Same-object two-push setup must create a new object pose; do not expand slips/no-ops at depth 2.
+region_prune_noop_setups: true
+region_noop_translation_tol: 0.01
+region_noop_yaw_tol: 0.05
+region_sample_k: 0
+region_sample_restarts: 1
+# NO finish cap: every reachable finish is tried, so `finish_sweep_censored` can only be set by the
+# per-neighbour timeout above.
+region_label_topk: 0
+region_exhaust_on_miss_topk: 0
+region_finish_topk_cap: 0
+
+# Ordering only — with an exhaustive sweep the scorer changes speed, never the recorded content.
+goal_strategy: scorer
+scorer_ckpt: $NAMO_SCRATCH/curriculum2/beast/round3/models/d20_plus_setup_only_splitloss/checkpoints/epoch011-val_loss1.6952.ckpt
+ml_device: cpu
+
+# 5-DEPTH car primitives -> 60x5 = (4 edges x 15 pts) x 5 depths.
+primitive_prefix: "1x_car_d5_"
+config_file: config/namo_config_complete_skill15_car_1x.yaml
+
+xml_dir: ${NAMO_DATASETS}/car_envs
+
+verbose: false
+filter_minimum_length: false
+smooth_solutions: false
+refine_actions: false
+validate_refinement: false
