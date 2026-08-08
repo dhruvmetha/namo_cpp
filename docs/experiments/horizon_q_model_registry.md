@@ -214,3 +214,24 @@ Card [EXP-2026-08-02-bootstrap-value-loop](log/EXP-2026-08-02-bootstrap-value-lo
 - **aquaman-0 arm B (3 seeds) — ⛔ VOID as a distinct arm (correction 2026-08-07):** train_h5 `…/aquaman0_train_B.h5` (591,504 cells written). ckpts `…/models/B_s{1,2,3}/checkpoints/` ep011/011/010, val_loss 1.7068/1.7047/1.7128. `run_reduce` never wrote `value_mask`, so the 546,035 class-1 cells stayed outside `loss_mask = value_mask * r_mask` — **B trained on supervision byte-identical to A** (6,129 rows sampled, 413,869 in-loss cells, max delta 0.000000; guess cells in loss A=845 / B=845). Treat A and B together as ONE condition with SIX seeds. Arm B's hypothesis is untested; refired as `Bfix` (`aquaman0_train_Bfix.h5`, reduce now sets `value_mask=1`).
 - **Headline (vs θ₀ control, discount off):** hard-2p solve@2 9.5→13.6/13.1, @5 22.6→27.7/28.7, @30 50.4→54.5/54.3; medium-2p @5 57.4→51.4/52.1 (the tax); 1push ≈ held; all ceilings within noise. Offline: V6 live/dead board 0.753→0.777/0.785 (the A/B spread is seed noise, NOT a dose response — see the 2026-08-07 correction), hard setup hit@1 21.2→22.9/24.6.
 - **Builders:** `aquaman_rebuild_v2.py` (exact-linkage map/reduce over colossus raw shards), `aquaman_precheck.py` (H0 quiz, AUC 0.853), `aquaman_agg.py` (gate aggregation) — worktree branch `exp/bootstrap-value-loop`.
+
+## Round-0 refire + loss-anatomy arms — added 2026-08-08
+
+Card [EXP-2026-08-02](log/EXP-2026-08-02-bootstrap-value-loop.md) § Round-0 REDONE; arjuna on [EXP-2026-08-08](log/EXP-2026-08-08-arjuna-hard-labels.md).
+All arms: **3 seeds**, ckpts `/common/users/dm1487/scratch_namo/aquaman/round0/models/<NAME>_s{1,2,3}/checkpoints/`, Amarel copies `/cache/home/dm1487/aquaman0/ckpts_bfix/<NAME>_s*.ckpt`.
+All evals: **canonical 1322 1push@hmax2 + 1012 2push, budget 900, `prior=model`, `agg=mean5`, `combine=q`, discount OFF, dedupe+jam ON, `raw:false`** — byte-identical protocol to the round-0 gate (verified against arm-A shard headers). Raw shards `…/round0/eval_bfix/<NAME>/{1push_hmax2,2push}/shard_*.json(l)`, zero unmatched episodes in every arm. Launcher `scripts/slurm/aquaman_eval_amarel.slurm` (now version-controlled; `N1SH/N2SH` default 40/32 reproduce these runs byte-identically).
+
+| name | what | train_h5 | aggregate | 2p h@5 | 2p h@900 | 1p h@1 | status |
+|---|---|---|---|--:|--:|--:|---|
+| `Bfix` | arm B done properly (591,504 cells in loss) | `round0/aquaman0_train_Bfix.h5` | `round0/gate_all.json` | 28.9 | 87.1 | 41.8 | complete 2026-08-07; reach cost REAL |
+| `BfixNR` | Bfix, `RANK_LAMBDA=0 LOWER_RANK_LAMBDA=0` | same | `gate_all.json` | 11.2 | 81.5 | 15.2 | complete; aux-ablation, catastrophic |
+| `ANR` | arm A, aux off | `aquaman0_train_A.h5` | `gate_all.json` | 10.7 | 82.9 | 15.4 | complete; aux-ablation |
+| `aL10` | arm A, `LOWER_RANK_LAMBDA=0.10` | `aquaman0_train_A.h5` | `gate_al10.json` | 27.0 | 91.3 | 37.6 | complete; λ saturates, no gain |
+| `BNG` | Bfix + `NAMO_RANK_EXCLUDE_GUESS=1` | `aquaman0_train_Bfix.h5` | `gate_bng.json` | **32.1** | 88.6 | 38.4 | complete; fastest, 4× cheaper to train |
+| **`ANG`** | **arm A + `NAMO_RANK_EXCLUDE_GUESS=1`** | `aquaman0_train_A.h5` | `gate_ang.json` | **30.7** | **91.8** | 39.0 | complete; **best all-round, deploy candidate** |
+| `ARJ` | arjuna-0 — 141,581 exact **0.0** facts | `round0/arjuna0_train.h5` | `gate_arj.json` | 27.7 | 91.0 | **42.5** | complete; best 1push@1, V5 unmoved |
+
+- **AUC panels** (`twopush_gt_h5`, 1,152 eps, raw HL-Gauss E[bin], score cache `eval/auc_grid/cache/`): `round0/auc_bfix.json` (Bfix/BfixNR/ANR + arm A ref), `auc_bng.json`, `auc_arj.json`.
+- **Reference rows** for these comparisons: θ₀ = `deploy-nodiscount-hmax2-v1` (2p-hard @2/@5/@30/@900 = 9.5/22.6/50.4/92.0; 1p-hard @1/@5 = 39.7/82.4); random 3-seed (2p-hard @5 1.7, @900 70.1).
+- **Do not compare `val_loss` across these arms** — different in-loss cell populations (Bfix has 12× arm A's) and different loss composition (aux on/off). The canonical deploy gate is the only arbiter.
+- **Builders/flags introduced:** `arjuna_build.py` (facts from `n_win`/`finish_sweep_censored`), `NAMO_RANK_EXCLUDE_GUESS` in `train_q2_rankaux.py`, raw scorer default in `eval_bestfirst.py` (`--sigmoid` restores the legacy scale; every row registered before 2026-08-08 was produced with the sigmoid, which is provably inert under `combine=q`+discount off but NOT under `blend`/`product`/`--discount conf`).

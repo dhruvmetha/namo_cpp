@@ -2,7 +2,7 @@
 status: hub
 tags:
   - results
-updated: 2026-08-06
+updated: 2026-08-08
 ---
 # Results — DAgger curriculum training framework
 
@@ -11,6 +11,41 @@ The maintained approach. A clean seed, then rounds of **{ generate fresh scenes 
 **Setting:** CAR robot, testset `namo_testset_v1`, region-opening criterion. Every result split by **difficulty (easy/med/hard)**. Difficulty is defined *per horizon* (compare within a horizon, not across): **1-push** = `solve_rate` fixed cuts (hard < 0.05 / med 0.05–0.30 / easy ≥ 0.30); **2-push** = exhaustive-GT setup density with the same fixed percentage cuts, with the two unfinished GT roots reported as unknown. Full per-experiment detail lives in each card under `log/`.
 
 **Archive:** the pre-curriculum line — horizon-Q / NoHz single-ranker, RL-only self-imitation, horizon-role probe, prior-work ledger — is preserved verbatim in [archive/RESULTS_pre_dagger_horizonq_2026-07.md](archive/RESULTS_pre_dagger_horizonq_2026-07.md).
+
+---
+
+## 2026-08-07/08 — Loss anatomy: ordering supervision dominates labels and architecture (cards [EXP-2026-08-02 DC](log/EXP-2026-08-02-bootstrap-value-loop.md), [EXP-2026-08-08 arjuna](log/EXP-2026-08-08-arjuna-hard-labels.md))
+
+Eight arms × 3 seeds, one canonical protocol (1322 1push@hmax2 + 1012 2push, budget 900, `combine=q`, discount off, dedupe+jam on), zero unmatched episodes anywhere.
+
+| arm | 2p h@2 | 2p h@5 | 2p h@30 | 2p h@900 | 1p h@1 | 1p h@5 |
+|---|--:|--:|--:|--:|--:|--:|
+| random (3 seeds) | 0.0 | 1.7 | 11.2 | 70.1 | 3.3 | 28.1 |
+| θ₀ deployed | 9.5 | 22.6 | 50.4 | **92.0** | 39.7 | **82.4** |
+| arm A (45k guessed cells) | 13.6 | 27.7 | 54.5 | 91.5 | 39.2 | 79.9 |
+| arm A, ranking aux OFF | 3.7 | 10.7 | 31.1 | 82.9 | 15.4 | 57.3 |
+| arm A, λ_lower 0.10 | 13.6 | 27.0 | 55.5 | 91.3 | 37.6 | 79.9 |
+| Bfix (591k guessed cells) | 13.4 | 28.9 | 50.4 | 87.1 | **41.8** | **83.5** |
+| Bfix, ranking aux OFF | 5.8 | 11.2 | 28.2 | 81.5 | 15.2 | 58.1 |
+| **ANG** = arm A + guess-exclusion | **14.6** | **30.7** | 53.1 | **91.8** | 39.0 | 81.0 |
+| BNG = Bfix + guess-exclusion | **14.6** | **32.1** | **55.7** | 88.6 | 38.4 | 81.4 |
+| ARJ = arjuna-0, 141k exact **zeros** | 14.1 | 27.7 | 54.7 | 91.0 | **42.5** | 80.9 |
+
+**Headline: the listwise ranking auxiliary carries ~half of deployed performance, and it had never been swept.** Removing it costs hard-2p@5 27.7→10.7 and 1p-hard@1 39.2→15.4, at both label doses, every band non-overlapping. For contrast the depth-token architecture moved ±3–4 pts (rejected) and a 12× label dose moved ±4–5. It is also the **only** consumer of the ceilings, which are 46–48% of supervised cells — regression can penalise a bound but never order it.
+
+**Why regression can't carry it: 96–100% of all training targets sit ≥ 0.8, and zero of 143,705 exact facts is a 0.** The regression term fits a near-constant. Not a focal-loss problem — there are no negatives to down-weight.
+
+**λ_lower saturates at 0.05.** 0→0.05 is +24 pts on hard-2p@2; 0.05→0.10 is nothing. Question closed.
+
+**Guessed cells were being enforced as CERTAIN tiers.** Bootstrapped targets are continuous floats and the aux treats each distinct value as a known tier: θ₀ 2 tiers per batch, arm A 27, Bfix **593** — asserting 4th-decimal model noise as ground truth, at full weight (the half-weight only reaches the regression), and costing ~300× the loop iterations. Barring them (`NAMO_RANK_EXCLUDE_GUESS=1`, still competitors) gives **+3.0 hard-2p@5 on arm A, +3.2 on Bfix**, both non-overlapping, plus **4× faster training** (20 → 5 min/epoch).
+
+**Arm B rejected, with the sharper reading.** Its 546,035 extra cells are *exactly* the children whose sweeps were censored — the one population whose answer is unrecoverable from this data. Guessing there cost 4–5 pts of hard-2p reach. Not "more labels hurt" but **"labels on the unknowable hurt."** Arm A's population is fully resolved; it succeeded partly by accident of which cells the H5 recorded.
+
+**Floor hypothesis FALSIFIED on its own pre-registered test.** arjuna-0 wrote the project's first exact zeros (141,581 proven-dead cells, zero new sims). Pre-registered: *"if V5 doesn't move, the theory is wrong regardless of solve rates."* **V5 = 0.533 vs arm A's 0.543 — unmoved.** The floor bought precision, not comparability: best 1push-hard@1 in the line (**42.5** vs θ₀ 39.7), best setup hit@1 (24.6), best V6 (0.790), but 2-push flat.
+
+**Cross-board comparability is a LOSS-STRUCTURE problem, measured not inferred.** The aux is `log_softmax(dim=1)` over one board — shift-invariant per board, so nothing keeps boards on a common scale. Measured: within-board spread 0.516 (off) → 0.666 (on), spread across board maxima 0.227 → 0.204, and **dead-board maxima inflated 0.625 → 0.720**. V5 is exactly "setup cell vs dead board max". No label change touches this; it needs a signal spanning boards.
+
+**Deploy candidate: `ANG`** — hard-2p@5 **30.7 vs θ₀ 22.6 (+8.1)** with reach intact (91.8 vs 92.0). Not yet promoted; pending user call.
 
 ---
 
