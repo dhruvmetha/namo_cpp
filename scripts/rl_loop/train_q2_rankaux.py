@@ -17,6 +17,22 @@ Knobs (env or the flags train_q2 already parses are reused; these are env-only):
   RANK_LAMBDA       (default 0.1)   exact-1.0 opener auxiliary weight
   LOWER_RANK_LAMBDA (default 0.05)  shared lower-exact auxiliary weight
   RANK_TEMP         (default 0.15)  softmax temperature over value in [0,1]
+  NAMO_RANK_EXCLUDE_GUESS (default 0) bootstrapped cells may NOT be positives (still competitors)
+
+NAMO_RANK_EXCLUDE_GUESS=1 -- why. The aux loops over torch.unique(labels[exact]) and treats each
+distinct value as a CERTAIN tier whose exact order it enforces. That was written for discrete data:
+theta0 has exactly two values, 1.0 and 0.9, so the loop ran twice per batch. Bootstrapped targets
+min(cap, 0.9*V-hat) are continuous, so nearly every guessed cell is its own float -- measured 593
+unique levels per 256-row batch on aquaman0_train_Bfix vs 27 on arm A and 2 on theta0. Two costs:
+(1) it asserts a KNOWN ordering between values differing in the 4th decimal, which is model noise
+    graded as ground truth (and the guess half-weight does not reach the aux -- it only weights the
+    regression term), and
+(2) ~300x the loop iterations, each a masked softmax+CE over the whole batch -- the measured 4x
+    epoch-time gap between Bfix (~20 min) and arm A (~5 min) on the SAME a4000.
+With the flag, only facts may be the group pushed to the top; guessed cells stay in `lower` (built
+from the loss mask, not from `exact`), so every bit of their downward pressure is preserved.
+Guess detection reuses the dataset's weight column (guesses are the only 0.5-weighted cells), which
+is unambiguous ONLY at Q2_POS_WEIGHT=1.0 -- asserted at import.
 
 Usage:
   RANK_LAMBDA=0.5 RANK_TEMP=0.15 CUDA_VISIBLE_DEVICES=3 TMPDIR=/tmp \
@@ -48,14 +64,25 @@ _spec.loader.exec_module(tq2)
 RANK_LAMBDA = float(os.environ.get("RANK_LAMBDA", "0.1"))   # 0.1 = the bracket winner -> loop default
 LOWER_RANK_LAMBDA = float(os.environ.get("LOWER_RANK_LAMBDA", "0.05"))
 RANK_TEMP = float(os.environ.get("RANK_TEMP", "0.15"))
+EXCLUDE_GUESS = os.environ.get("NAMO_RANK_EXCLUDE_GUESS", "0") == "1"
+if EXCLUDE_GUESS:
+    from namo.rl_loop.sage_ext.q2_dataset import Q2_POS_WEIGHT
+    assert Q2_POS_WEIGHT == 1.0, (
+        "NAMO_RANK_EXCLUDE_GUESS recovers the guess mask from the weight column (guesses are the "
+        f"only 0.5-weighted cells). At Q2_POS_WEIGHT={Q2_POS_WEIGHT} that is ambiguous: a guessed "
+        "positive-target cell and a plain negative-target cell would both weigh 1.0.")
 
 
-def certain_order_rank_aux_losses(value, labels, mask, ceiling, temp):
+def certain_order_rank_aux_losses(value, labels, mask, ceiling, temp, guess=None):
     """Rank each exact tier above actions with a strictly lower known upper bound.
 
     value/labels/mask/ceiling: (B,60,5). ``mask`` is tried-and-reachable. ``ceiling`` marks
     one-sided targets, so only mask & ~ceiling cells can be positives. Each board is averaged once
     even if it contains multiple exact tiers. Returns total, opener-only, and sub-1 setup losses.
+
+    guess (B,60,5, optional): bootstrapped cells. Barred from being POSITIVES -- a positive is an
+    assertion that this cell is KNOWN to outrank the list, and a model-authored float is not known.
+    They stay in ``lower`` (built from ``mf``), so their downward pressure is untouched.
     """
     B = value.shape[0]
     vf = value.reshape(B, -1)
@@ -63,6 +90,8 @@ def certain_order_rank_aux_losses(value, labels, mask, ceiling, temp):
     labf = labels.reshape(B, -1)
     cf = torch.zeros_like(mf) if ceiling is None else ceiling.reshape(B, -1)
     exact = (mf > 0) & (cf <= 0)
+    if guess is not None:
+        exact = exact & (guess.reshape(B, -1) <= 0)
     zero = value.sum() * 0.0
     if not exact.any():
         return zero, zero, zero
@@ -140,8 +169,11 @@ class RankAuxModule(WeightedClassifierModule):
         val = self._hl_gauss.value(logits.float())                   # (B,60,5) differentiable E[bin]
         rank_mask = getattr(self, "_rank_list_mask", None)
         rank_ceiling = getattr(self, "_rank_ceiling_mask", None)
+        # guesses are the only 0.5-weighted cells (asserted Q2_POS_WEIGHT==1.0 at import)
+        guess = (weight < 0.75).float() if (EXCLUDE_GUESS and weight is not None) else None
         _, opener_aux, setup_aux = certain_order_rank_aux_losses(
-            val, labels, rank_mask if rank_mask is not None else mask, rank_ceiling, self.rank_temp)
+            val, labels, rank_mask if rank_mask is not None else mask, rank_ceiling, self.rank_temp,
+            guess)
         aux = weighted_rank_aux(
             opener_aux, setup_aux, self.rank_lambda, self.lower_rank_lambda)
         self.log("rank_aux", aux, on_step=False, on_epoch=True, prog_bar=False)

@@ -1,0 +1,63 @@
+#!/bin/bash
+# Aquaman canonical eval on AMAREL (CPU-only). Protocol copied verbatim from the round-0 arm-A/B
+# shard headers so results stay directly comparable:
+#   hmax=2 sim_budget=900 prior=model agg=mean5 combine=q discount=off
+#   w0_mode=one raw=false dedupe_noop=true prune_jam_depth=true
+# Layout: $OUT/{1push_hmax2,2push}/shard_N.json(+.jsonl).
+#
+# SHARDING (N1SH 1push shards, N2SH 2push shards; array size must be N1SH+N2SH):
+#   default  N1SH=40 N2SH=32  --array=0-71    <- reproduces every pre-2026-08-08 eval byte-identically
+#   fine     N1SH=128 N2SH=128 --array=0-255  <- ~4x less wall
+# Why fine helps: wall time is set by the SLOWEST shard, not the average. A 2push shard holding a
+# few hard episodes at the full 900-sim budget (~3.5 min each) strands everyone else. Splitting the
+# same work finer shortens the straggler. FLOOR: one 900-sim episode is ~3.5 min and cannot be
+# split, so no sharding takes the eval below ~4 min.
+# NOTE: 256 tasks x several models trips Amarel's submit limit -- submit in waves (see eval_wave2.sh).
+#
+# SAGE MUST MATCH THE CKPT (round-1 incident: 204 tasks died on an unknown action_motion_dim).
+#SBATCH --job-name=aq0_eval
+#SBATCH --partition=main-redhat
+#SBATCH --time=03:00:00
+#SBATCH --mem=16G
+#SBATCH --cpus-per-task=1
+#SBATCH --output=logs/%x_%A_%a.out
+set -euo pipefail
+
+: "${CKPT:?set CKPT=<checkpoint path>}"
+: "${OUT:?set OUT=<evaluation output root>}"
+
+REPO=${NAMO_REPO:-/cache/home/dm1487/projects/namo/namo_bfix}
+SAGE=${SAGE_REPO:-/cache/home/dm1487/projects/namo/sage_bfix}
+BIND=${NAMO_BINDINGS:-/cache/home/dm1487/projects/namo/namo_cpp/build_python}
+N1SH=${N1SH:-40}
+N2SH=${N2SH:-32}
+cd "$REPO"
+source env.amarel.sh >/dev/null 2>&1
+export SAGE_REPO="$SAGE"
+export PYTHONPATH="$BIND:$REPO/python:$REPO/scripts:$REPO/scripts/sandbox:$SAGE"
+export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 OPENCV_NUM_THREADS=1
+export CUDA_VISIBLE_DEVICES=""
+PY="${NAMO_PYTHON:-python}"
+command -v "$PY" >/dev/null 2>&1 || PY=$(command -v python3)
+ID=$SLURM_ARRAY_TASK_ID
+mkdir -p logs
+
+echo "AQ0 EVAL start $(date) host=$(hostname) CKPT=$CKPT ID=$ID N1SH=$N1SH N2SH=$N2SH"
+if [ "$ID" -lt "$N1SH" ]; then
+  KEY=$("$PY" -m namo.eval_sets onepush_manifest)
+  N1=$("$PY" -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$KEY")
+  S=$((ID * N1 / N1SH)); EN=$(((ID + 1) * N1 / N1SH))
+  mkdir -p "$OUT/1push_hmax2"
+  "$PY" scripts/sandbox/eval_bestfirst.py --ckpt "$CKPT" --key "$KEY" --hmax 2 --sim-budget 900 \
+    --prior model --agg mean5 --combine q --discount off --start "$S" --end "$EN" \
+    --out "$OUT/1push_hmax2/shard_${ID}.json" --leaf-out "$OUT/1push_hmax2/shard_${ID}.jsonl"
+else
+  I=$((ID - N1SH))
+  N2=$($PY -c 'import json; from namo import eval_sets; print(len(json.load(open(eval_sets.PURE2PUSH))))')
+  S=$((I * N2 / N2SH)); EN=$(((I + 1) * N2 / N2SH))
+  mkdir -p "$OUT/2push"
+  "$PY" scripts/sandbox/eval_bestfirst.py --ckpt "$CKPT" --hmax 2 --sim-budget 900 \
+    --prior model --agg mean5 --combine q --discount off --start "$S" --end "$EN" \
+    --out "$OUT/2push/shard_${I}.json" --leaf-out "$OUT/2push/shard_${I}.jsonl"
+fi
+echo "AQ0 EVAL done $(date) ID=$ID"
