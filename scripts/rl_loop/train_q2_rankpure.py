@@ -48,6 +48,11 @@ tq2 = rank.tq2
 
 RP_WB = float(os.environ.get("RP_WB", "1.0"))
 RP_XB = float(os.environ.get("RP_XB", "1.0"))
+# Round-2 [card § Round 2]: small regression BRAKE. Round-1 autopsy: rank-only inflated the whole
+# scale (spread 0.45->0.67, dead maxima 0.68) — regression's real job was keeping the scale tight,
+# not teaching order (F2 held at 0.889 without it). RP_BRAKE adds back exact-cell HL-Gauss at a
+# fraction of its old weight purely as the anti-stretch anchor.
+RP_BRAKE = float(os.environ.get("RP_BRAKE", "0.0"))
 
 
 class RankPureModule(rank.RankAuxModule):
@@ -68,9 +73,15 @@ class RankPureModule(rank.RankAuxModule):
         return loss
 
     # training path A (ceiling_mask present in the batch): competition list = loss_mask (exact +
-    # ceiling cells), exactly the -b wiring; regression and censored terms deliberately absent.
+    # ceiling cells), exactly the -b wiring; regression and censored terms deliberately absent
+    # (except the optional RP_BRAKE fraction of the exact-cell term — the anti-stretch anchor).
     def _split_loss(self, logits, f_labels, loss_mask, ceiling, weight):
-        return self._rank_only(logits, f_labels, loss_mask, ceiling)
+        loss = self._rank_only(logits, f_labels, loss_mask, ceiling)
+        if RP_BRAKE > 0.0:
+            hl = self._hl(logits)
+            exact_mask = loss_mask * (1.0 - ceiling)
+            loss = loss + RP_BRAKE * hl.loss(logits, f_labels, exact_mask)
+        return loss
 
     # training path B (no ceiling_mask in the batch)
     def _weighted_loss(self, logits, labels, mask, weight):

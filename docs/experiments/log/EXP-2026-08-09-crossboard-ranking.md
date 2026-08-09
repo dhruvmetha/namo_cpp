@@ -65,6 +65,33 @@ RP checkpoints on validation ranking loss (its monitor cannot be regression — 
 - No worktree: worktrees don't propagate to Amarel — pushed branches do. Develop on `feat/horizon-q-redesign`, push after every commit, Amarel pulls the branch for the canonical round only.
 - No C++ changes → no rebuild, no `.so` sync concern.
 
+## Round 2 — target the MAX, and the family (launched 2026-08-09 evening; user: "test everything sensible, list reasoning" )
+
+**Evidence that forced round 2** (2-seed early panel + score autopsy, full tables in Log):
+
+V5 flat under batch-flat softmax: XB 0.550 vs AJ2 0.543 (target was ≥0.60); RP 0.518. Yet RP posts the best V4 ever (0.915 all / 0.887 hard) — best-ever AVERAGE suppression of dead cells, near-worst on the MAX. The V5 hole is an order statistic, not average comparability — the third independent measurement saying so.
+
+Autopsy (child-board score geometry): XB left dead-board maxima undeflated (0.39–0.42 vs AJ2 0.415); RP inflated the whole scale (spread 0.45→0.67, dead max 0.68) — the no-brake stretch, mild form. AJ2NR still owns the V5-friendly geometry (dead max 0.302).
+
+**Mechanism 1 — softmax stalls before the tallest rival sinks.** The listwise CE has floor ≈ log(#positives) (positives share one probability pie); as positives dominate, TOTAL rival gradient shrinks toward zero, and the tallest dead cell keeps only a sliver. A margin-vs-max loss cannot stall: any rival above the gap gets full gradient — and "positive vs tallest rival" is literally the statistic V5 measures and the heap pops.
+
+**Mechanism 2 — training never contained the pair V5 grades.** V5 compares a setup against dead boards of its OWN episode (same room, near-identical images — the hard negatives). Batch-flat lists are 256 random strangers; measured in the train H5: only 12,868/215,909 episodes (6%) have ≥2 stored boards (54,368 rows, 21%), and random batching almost never co-locates a family. The model aced strangers (V4 record) and never saw family.
+
+**Arms (each = one mechanism, all else locked to round 1):**
+
+| arm | change vs AJ2 base | mechanism |
+|---|---|---|
+| `MM_s{1,2,3}` | + batch-flat margin-vs-max term (hinge, margin `MM_MARGIN=0.2`, `MM_LAMBDA=0.1`) | 1 alone |
+| `EG_s{1,2,3}` | + episode-grouped softmax term (family lists via grouped batch sampler) | 2 alone |
+| `EGMM_s{1,2,3}` | + margin-vs-max WITHIN family lists — "your setup must beat the tallest cell of every DEAD board in the episode (children of failed pushes, dead-end children) and the junk cells of live children; finishes stay above it by tier" [phrasing sharpened by USER 2026-08-09] — the deploy objective verbatim | 1 + 2 |
+| `RPB_s{1,2,3}` | RP + small regression brake (`RP_BRAKE=0.02` × exact HL-Gauss) | H2's remaining piece: brake-not-signal |
+
+Margin 0.2 reasoning: bounded [0,1] head, live–dead gap measured ≈0.2 — the margin demands that gap against the tallest rival specifically; env knob for the follow-up sweep if needed.
+
+Known limit, logged up front: the EG/EGMM terms fire only on the 21% of rows with stored siblings — per-term loss logging keeps their contribution visible; if the dose is too small the arm reads flat and says so.
+
+Round-2 arms get the FULL canonical treatment like round 1 [USER 2026-08-09]: offline panel + score autopsy on completion, then the same Amarel canonical sweep (1push+2push, difficulty × horizon) beside AJ2/AJ2NR/BNG via `run_fleet_eval.sh`. No accept/reject at any readout; verdicts on the user's read of the full tables.
+
 ## Log
 
 - 2026-08-09 [Claude] Card created; design discussion (loss structure, literature deep-read, bounded-vs-unbounded, weight semantics) in session `ranking_loss`. Code next: XB reshape + RP subclass + unit test.

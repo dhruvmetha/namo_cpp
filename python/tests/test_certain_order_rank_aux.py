@@ -135,6 +135,29 @@ def test_crossboard_flat_list_pushes_dead_board_junk_down():
     assert g[0, 0] < 0                              # the opener is pushed UP
 
 
+def test_margin_vs_max_targets_tallest_rival_only():
+    import importlib.util as _il
+    spec = _il.spec_from_file_location("r2t", REPO / "scripts/rl_loop/train_q2_round2.py")
+    r2 = _il.module_from_spec(spec); spec.loader.exec_module(r2)
+    labels = torch.tensor([[1.0, 0.0, 0.0, 0.0]]).reshape(1, 1, 4)
+    mask = torch.ones_like(labels)
+
+    def _loss(v):
+        value = torch.tensor([v]).reshape(1, 1, 4).clone().requires_grad_(True)
+        total, opener, setup = r2.margin_vs_max_losses(value, labels, mask, None, margin=0.2)
+        (g,) = torch.autograd.grad(total, value)
+        return total.item(), g.reshape(-1)
+
+    # positive clears tallest rival by > margin -> exactly zero (no CE floor)
+    t, _ = _loss([0.9, 0.6, 0.1, 0.1])
+    assert t == 0.0
+    # tallest rival inside the margin -> positive loss; gradient ONLY on positive + tallest rival
+    t, g = _loss([0.9, 0.8, 0.1, 0.1])
+    assert t > 0
+    assert g[0] < 0 and g[1] > 0          # opener up, tallest rival down
+    assert g[2] == 0 and g[3] == 0        # non-max rivals untouched
+
+
 def test_crossboard_loss_falls_when_dead_junk_sinks():
     def _flat_loss(dead_junk_score):
         value = torch.tensor([[0.9, 0.2, 0.1], [dead_junk_score, 0.1, 0.0]]).reshape(1, 1, 6)
