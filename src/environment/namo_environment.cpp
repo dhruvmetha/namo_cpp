@@ -933,8 +933,22 @@ void NAMOEnvironment::set_full_state(const FullSimState& state) {
         d->qvel[i] = state.qvel[i];
     }
     
+    // A restore must restore ALL of the state. Copying qpos/qvel leaves exactly two mjData
+    // fields carrying the previous push into this one, which is why sweeping the same candidate
+    // set in a different order used to move final object poses by up to ~1.5 mm:
+    //   ctrl           -- a push that aborts mid-primitive never runs its "stop the wheels"
+    //                     epilogue, so it leaves the wheel command it died holding.
+    //   qacc_warmstart -- the constraint solver's initial guess, seeding the next mj_step.
+    // Ordering matters: zero ctrl BEFORE mj_forward so the forward solve sees no actuator
+    // force, and qacc_warmstart AFTER it -- mj_forward ends its solve by copying qacc into
+    // qacc_warmstart, so zeroing that beforehand is a no-op.
+    sim->set_zero_control();
+
     // Forward kinematics and update tracking
     mj_forward(m, d);
+
+    mju_zero(d->qacc_warmstart, m->nv);
+
     update_object_states();
 }
 
