@@ -42,6 +42,16 @@ RAW = Path("/common/users/dm1487/scratch_namo/aquaman/round0/raw")
 WORK = Path("/common/users/dm1487/scratch_namo/aquaman/round0/v2")
 OUT = Path("/common/users/dm1487/scratch_namo/aquaman/round0/aquaman0_train_v2.h5")
 GAMMA, CAP, TOP_M = 0.9, 0.81, 5
+# Overridable at runtime (see __main__). Defaults reproduce the 2026-08-02 theta0 build exactly.
+#   --ckpt   WHICH MODEL ESTIMATES V-hat. Every guess shipped so far came from theta0, the WEAKEST
+#            ranker we have (22.6 hard-2p@5) -- and they still bought +4.4. A better estimator is
+#            the untested half of the bootstrap.
+#   --gamma  the discount folded into the target. It MUST match the file's setup label, or a guess
+#            outranks a verified setup: at gamma 0.9 into a 0.5-ladder file, 22.1% of guesses land
+#            above 0.5. A guess is gamma*V-hat and a known setup is gamma*1, so they only stay
+#            ordered when gamma agrees.
+#   --src    base H5 the reduce copies (default DEPLOY reproduces the original build).
+#   --work   edits dir -- MUST differ per checkpoint or a reduce silently mixes two models' V-hat.
 BATCH = 512
 
 
@@ -136,13 +146,13 @@ def run_map(shard, gpu):
     print(f"shard {shard}: edits={len(edits)} DONE", flush=True)
 
 
-def run_reduce(arm):
+def run_reduce(arm, CAPS={0: 0.81, 1: 0.9}):
     import shutil
     files = sorted(WORK.glob("edits_*.npy"))
     assert len(files) == 32, f"expected 32 edit files, found {len(files)}"
     all_e = np.concatenate([np.load(f) for f in files if np.load(f).size])
     print(f"total edits {len(all_e)}", flush=True)
-    caps = {0: 0.81, 1: 0.9}
+    caps = CAPS
     best = {}
     for drow, e, d, vh, cls in all_e:
         if arm == "A" and int(cls) != 0:
@@ -194,8 +204,21 @@ if __name__ == "__main__":
     ap.add_argument("--shard", type=int)
     ap.add_argument("--gpu", type=int, default=0)
     ap.add_argument("--arm", choices=["A", "B", "Bfix"], default="B")  # Bfix == B with the loss mask opened
+    ap.add_argument("--ckpt", default=None, help="value model producing V-hat (default theta0)")
+    ap.add_argument("--gamma", type=float, default=None, help="discount; must match the file's setup label")
+    ap.add_argument("--cap", type=float, default=None, help="per-class cap; use 0 to disable capping")
+    ap.add_argument("--src", default=None, help="base H5 the reduce copies from")
+    ap.add_argument("--work", default=None, help="edits dir (must differ per value model)")
+    ap.add_argument("--out", default=None, help="output H5 path")
     a = ap.parse_args()
+    if a.ckpt:  CKPT = Path(a.ckpt)
+    if a.gamma is not None: GAMMA = a.gamma
+    if a.src:   DEPLOY = Path(a.src)
+    if a.work:  WORK = Path(a.work); WORK.mkdir(parents=True, exist_ok=True)
+    if a.out:   OUT = Path(a.out)
     if a.mode == "map":
         run_map(a.shard, 0)  # CUDA_VISIBLE_DEVICES pins the physical GPU
     else:
-        run_reduce(a.arm)
+        # At gamma 0.5 the caps (0.81/0.9) can never bind, since tgt = gamma*V-hat <= 0.5.
+        caps = {0: a.cap, 1: a.cap} if a.cap else {0: 0.81, 1: 0.9}
+        run_reduce(a.arm, caps)
