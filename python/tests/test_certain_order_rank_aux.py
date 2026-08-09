@@ -100,3 +100,46 @@ def test_split_weights_preserve_full_opener_and_add_lower_pool():
     lower = torch.tensor(4.0)
     assert torch.equal(weighted_rank_aux(opener, torch.tensor(0.0)), torch.tensor(0.2))
     assert torch.equal(weighted_rank_aux(opener, lower), torch.tensor(0.4))
+
+
+# --- cross-board (batch-flat) list [EXP-2026-08-09]: the same loss over ONE flattened list, so a
+# dead board's cells compete against positives that live on OTHER boards. ---
+
+_LIVE_DEAD = dict(
+    value=[[0.9, 0.2, 0.1],    # board 1 (live): opener + junk
+           [0.8, 0.1, 0.0]],   # board 2 (dead): all junk — 0.8 is inflated dead-board junk
+    labels=[[1.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0]],
+)
+
+
+def _grads(per_board: bool):
+    value = torch.tensor(_LIVE_DEAD["value"], dtype=torch.float32, requires_grad=True)
+    labels = torch.tensor(_LIVE_DEAD["labels"], dtype=torch.float32)
+    shape = (2, 1, 3) if per_board else (1, 1, 6)
+    total, _, _ = certain_order_rank_aux_losses(
+        value.reshape(shape), labels.reshape(shape),
+        torch.ones(shape), None, temp=0.15)
+    (g,) = torch.autograd.grad(total, value)
+    return total, g
+
+
+def test_per_board_list_gives_dead_board_zero_gradient():
+    _, g = _grads(per_board=True)
+    assert torch.all(g[1] == 0)                     # dead board: no tiers -> no gradient at all
+
+
+def test_crossboard_flat_list_pushes_dead_board_junk_down():
+    _, g = _grads(per_board=False)
+    assert torch.all(g[1] > 0)                      # dead-board junk raises the loss -> pushed DOWN
+    assert g[0, 0] < 0                              # the opener is pushed UP
+
+
+def test_crossboard_loss_falls_when_dead_junk_sinks():
+    def _flat_loss(dead_junk_score):
+        value = torch.tensor([[0.9, 0.2, 0.1], [dead_junk_score, 0.1, 0.0]]).reshape(1, 1, 6)
+        labels = torch.tensor(_LIVE_DEAD["labels"]).reshape(1, 1, 6)
+        total, _, _ = certain_order_rank_aux_losses(
+            value, labels, torch.ones_like(labels), None, temp=0.15)
+        return total
+    assert _flat_loss(0.05) < _flat_loss(0.8)

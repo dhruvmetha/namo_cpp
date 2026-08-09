@@ -64,6 +64,10 @@ _spec.loader.exec_module(tq2)
 RANK_LAMBDA = float(os.environ.get("RANK_LAMBDA", "0.1"))   # 0.1 = the bracket winner -> loop default
 LOWER_RANK_LAMBDA = float(os.environ.get("LOWER_RANK_LAMBDA", "0.05"))
 RANK_TEMP = float(os.environ.get("RANK_TEMP", "0.15"))
+# XB [EXP-2026-08-09]: cross-board term — the SAME certain-order loss over ONE batch-flat list, so
+# cells on different boards compete (kills the per-board softmax's shift-invariance, the measured V5
+# hole). 0.0 (default) = off -> byte-identical to the AJ2 configuration.
+XB_LAMBDA = float(os.environ.get("XB_LAMBDA", "0.0"))
 EXCLUDE_GUESS = os.environ.get("NAMO_RANK_EXCLUDE_GUESS", "0") == "1"
 if EXCLUDE_GUESS:
     from namo.rl_loop.sage_ext.q2_dataset import Q2_POS_WEIGHT
@@ -179,6 +183,16 @@ class RankAuxModule(WeightedClassifierModule):
         self.log("rank_aux", aux, on_step=False, on_epoch=True, prog_bar=False)
         self.log("rank_aux_opener", opener_aux, on_step=False, on_epoch=True, prog_bar=False)
         self.log("rank_aux_setup", setup_aux, on_step=False, on_epoch=True, prog_bar=False)
+        if XB_LAMBDA > 0.0:
+            lm = rank_mask if rank_mask is not None else mask
+            def _flat(t):
+                return None if t is None else t.reshape(1, -1)
+            _, xb_opener, xb_setup = certain_order_rank_aux_losses(
+                _flat(val), _flat(labels), _flat(lm), _flat(rank_ceiling), self.rank_temp,
+                _flat(guess))
+            aux = aux + XB_LAMBDA * (xb_opener + xb_setup)
+            self.log("rank_xb_opener", xb_opener, on_step=False, on_epoch=True, prog_bar=False)
+            self.log("rank_xb_setup", xb_setup, on_step=False, on_epoch=True, prog_bar=False)
         return base + aux
 
 
@@ -199,6 +213,7 @@ if __name__ == "__main__":
     # could only be confirmed after the fact by noticing v4 and v3 had identical wall times (the
     # 386-tier pathology costs ~4x/epoch, so its absence was the only evidence the flag took).
     print(f"[rankaux] RANK_LAMBDA={RANK_LAMBDA}  LOWER_RANK_LAMBDA={LOWER_RANK_LAMBDA}  "
-          f"RANK_TEMP={RANK_TEMP}  EXCLUDE_GUESS={int(EXCLUDE_GUESS)}", flush=True)
+          f"RANK_TEMP={RANK_TEMP}  EXCLUDE_GUESS={int(EXCLUDE_GUESS)}  XB_LAMBDA={XB_LAMBDA}",
+          flush=True)
     tq2.build_module = build_module   # main() + reload-checks resolve build_module at call time
     tq2.main()
