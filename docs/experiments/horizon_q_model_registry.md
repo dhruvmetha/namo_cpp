@@ -9,6 +9,20 @@ updated: 2026-08-02
 
 > **⚠ Framing note (2026-07-06): budget/horizon-conditioning was DROPPED** (measured ≈ no-horizon, **NoHz** ahead — 40.7 vs 34.1). This registry is STILL the authoritative catalog — **all checkpoint paths / numbers / eval dirs below stay valid** — but the horizon-conditioned models (Horizon-v2/v3, the `budget_cond` variants) are a **historical** line; the live model is **NoHz** ("no-horizon", a single value/ranker). Current framing: [../problem_and_approach.md](../problem_and_approach.md).
 
+> **⛔ PHYSICS BOUNDARY — 2026-08-09. EVERY NUMBER BELOW WAS PRODUCED ON PRE-FIX PHYSICS.**
+> Amarel ran all of them against `namo_postprune_eval/build_python/*.so`, built **2026-07-29**, which predates
+> `5daaed5` ("set_full_state must restore ALL state — zero ctrl and qacc_warmstart"). Without that fix a restored
+> board was not the same board twice: `ctrl` and `qacc_warmstart` leaked across restores, so 17 of 2,990 pushes
+> were order-dependent and final poses moved up to 1.44 mm / 0.97°. Best-first restores before every candidate,
+> so the search took different paths.
+> **Measured cost:** the same shard, same source, same checkpoint scores **89 sims on the old binary vs 98 on a
+> current build** — one shard of 35 episodes, both clusters agreeing at 98 (verified bit-identical CS ↔ Amarel).
+> **What this does and does not invalidate:** every arm below used the SAME binary, so comparisons BETWEEN them
+> (BNG 32.1 vs arm A 27.7 vs AJ2–AJ5 …) remain valid. What is NOT valid is comparing any of them to a NEW eval:
+> expect roughly **+10% sims** on current physics. Re-baseline before mixing.
+> The 2026-07-29 binary is archived at Amarel `projects/namo/_archive_2026-08-09/namo_postprune_eval/` and is the
+> ONLY way to reproduce a row below exactly — do not delete it.
+
 > THE authoritative location list — every trained model, its exact best-val checkpoint, headline number,
 > training data, and eval-output dir. **Do not reconstruct paths by glob; read here.** Never retrain
 > registered models ([[feedback_reuse_baselines]]). Roots are **box-relative** — resolve via `$NAMO_*` / `namo.paths`, never a literal box path
