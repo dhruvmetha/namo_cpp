@@ -162,7 +162,9 @@ def run_reduce(arm, CAPS={0: 0.81, 1: 0.9}):
         if k not in best or tgt < best[k]:
             best[k] = float(tgt)  # collision -> keep LOWEST (conservative)
     print(f"unique cells {len(best)} (collisions {len(all_e) - len(best)})", flush=True)
-    out_path = OUT.with_name(f"aquaman0_train_{arm}.h5")
+    # honour an explicit --out; otherwise keep the historical derived name
+    out_path = OUT if OUT.suffix == ".h5" and "aquaman0_train_v2" not in OUT.name \
+        else OUT.with_name(f"aquaman0_train_{arm}.h5")
     shutil.copyfile(DEPLOY, out_path)
     targets = np.array(list(best.values()))
     by_row = {}

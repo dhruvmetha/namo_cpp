@@ -20,7 +20,7 @@ import json
 from pathlib import Path
 
 R0 = Path("/common/users/dm1487/scratch_namo/aquaman/round0")
-PANELS = {"auc_bfix.json": None, "auc_bng.json": None, "auc_arj.json": None, "auc_aj2.json": None}
+PANELS = {"auc_bfix.json": None, "auc_bng.json": None, "auc_arj.json": None, "auc_aj2.json": None, "auc_aj3.json": None}
 
 TIERS = ["all", "easy", "med", "hard"]
 

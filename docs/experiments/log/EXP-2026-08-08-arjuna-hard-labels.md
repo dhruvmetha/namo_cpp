@@ -293,6 +293,57 @@ The arithmetic closes on the independently verified identity `solve@2 ≈ setup@
 
 Zeroing *child* bounded cells is provably correct under hmax=2. Zeroing *root* bounded cells asserts "this is not a setup" for ~5.5M cells whose children were never resolved, and the flat-to-slightly-down result is exactly what that predicts: real information added on the child half, false labels added on the root half, netting to zero. **This is now the pre-registered next arm** — child→0, root→masked — and it is the only way to tell "the floor doesn't help" from "the floor helps, and 5.5M wrong labels cancel it out." Until it runs, verdict 1 should be read as *the floor as applied* rather than *any floor*.
 
+## v3 and v4 — the ladder width, and the guesses restored [USER 2026-08-08 evening]
+
+Two follow-ups, both single-variable against v2, all four cells sharing the 47.6% floor:
+
+| file | setup label | guesses on censored children |
+|---|---|---|
+| `arjuna0v2_train.h5` | 0.5 | none |
+| `arjuna0v3_train.h5` | **0.9** (the base value) | none |
+| `arjuna0v4_train.h5` | 0.9 | **546,035 cells restored from Bfix, verbatim** |
+
+**Why v3 exists.** v2 moved *two* things at once versus the base file — it added the floor AND narrowed setup 0.9 → 0.5. v3 keeps setup at 0.9, so v3-vs-base isolates the floor and v3-vs-v2 isolates the ladder width. Under the 51-bin HL-Gauss head that width is ~25 bins (v2) against ~5 (v3).
+
+**Why v4 exists.** It completes the 2×2 at setup 0.9: `base/θ₀` (no floor, no guesses) · `v3` (floor) · `Bfix` (guesses) · `v4` (both). Guessed VALUES are copied from `aquaman0_train_Bfix.h5` rather than recomputed — they are a deterministic function of a fixed checkpoint, so copying reproduces arm B exactly at zero GPU cost. Verification it hit the right population: restored **exactly 546,035** cells, landing on Bfix's in-loss (280,793) and masked (7,862) counts to the digit, while non-guess labels stayed `{0, 0.9, 1.0}`.
+
+**v4's aux-on arm runs with `NAMO_RANK_EXCLUDE_GUESS=1`, deliberately.** Measured on the v4 file, 256-row batch: **386 rank tiers without exclusion, 3 with** (`[0.0, 0.9, 1.0]`). Feeding the restored cells to the aux would recreate the 593-tier pathology — grading 4th-decimal model noise as certain ordering — and would confound "do guesses help?" with "reintroduce a known bug."
+
+### Results — canonical gate, 3 seeds, mean [min,max]
+
+| arm | setup | aux | 2p-hard@5 | 2p-hard@900 | 1p-hard@1 |
+|---|---|---|--:|--:|--:|
+| θ₀ | 0.9 | on | 22.6 | 92.0 | 39.7 |
+| Bfix | 0.9 | on | 28.9 | 87.1 | 41.8 |
+| **BNG** | 0.9 | on | **32.1** | 88.6 | 38.4 |
+| ARJ (v1) | 0.9 | on | 27.7 | 91.0 | 42.5 |
+| AJ2 | 0.5 | on | 26.8 | 90.0 | 38.1 |
+| AJ2NR | 0.5 | OFF | 20.0 | 87.8 | 29.4 |
+| AJ3 | 0.9 | on | 25.5 | 90.3 | 39.5 |
+| AJ3NR | 0.9 | OFF | 15.1 | 84.7 | **11.6** |
+| **AJ4** | 0.9 | on | **29.9** [28.5, 31.4] | 89.3 | 37.6 |
+| AJ4NR | 0.9 | OFF | *(seeds 1–2 still training)* | | |
+
+### Verdict 1 [numbers] — arm B's "labels on the unknowable hurt" was CONDITIONAL, not general
+
+**AJ4 vs AJ3 — add the guesses, floor held fixed: 25.5 → 29.9 (+4.4), and AJ3 sits below AJ4's entire band.** The identical guessed values that cost arm B 4–5 points now *help*, because they are barred from defining rank tiers. **The guesses were never the problem; letting the ranker treat them as certain grades was.** This is the second time the same distinction has decided a result — BNG beat Bfix by exactly this mechanism.
+
+**AJ4 vs BNG — add the floor, guesses held fixed: 32.1 → 29.9 (−2.2).** Consistent with everything else here. Caveat: AJ4's band [28.5, 31.4] overlaps BNG's 32.1 at the top, so BNG > AJ4 is suggestive, not established; the +4.4 is the solid claim.
+
+### Verdict 2 [numbers] — LABEL SPACING governs the regression, and only when the aux is off
+
+| labels | aux OFF | aux ON | aux's marginal value |
+|---|--:|--:|--:|
+| bootstrap (`BfixNR`→`Bfix`) | 11.2 | 28.9 | +17.7 |
+| floor, setup 0.5 (`AJ2NR`→`AJ2`) | 20.0 | 26.8 | +6.9 |
+| floor, setup 0.9 (`AJ3NR`→`AJ3`) | 15.1 | 25.5 | +10.4 |
+
+**This RETRACTS the v2 reading.** v2's headline was "hard labels substitute for the aux — they nearly double the no-aux model and cut its marginal value 60%." Holding the labels honest and moving *only* the spacing collapses it again: `AJ3NR` posts **1p-hard@1 = 11.6, the worst number in the project**, below bootstrap-label rank-off (15.2) against random's 3.3. So what rescued v2's aux-off arm was **25 bins of separation, not label honesty**.
+
+With the aux ON, spacing is irrelevant — AJ3 vs AJ2 F2 is .884 vs .882, finish@1 65.9 vs 64.9. **The aux makes the model insensitive to label spacing; without it, spacing IS the ordering signal.**
+
+Mechanism note, stated as hypothesis: F2 compares finish (1.0) against dead (0.0) on child boards, and *both those labels are identical in v2 and v3*. So the spacing effect must act through the shared representation — a target distribution with mass at 0.9 and 1.0 compresses the model's high range differently than 0.5 and 1.0 — rather than through the comparison F2 measures directly. Untested.
+
 ## Open / next
 
 - **Next lever is a rare-positive loss, not more labels [new 2026-08-08].** The aux's entire surviving contribution is setup ranking on hard boards (25.1 vs 14.4 hit@1, disjoint bands), and hard boards are exactly those with a few valid setups among ~68 candidates. Regression's mean-error objective cannot see rare positives; the listwise aux can. Anything that up-weights the rare positive directly — focal/ranking hybrids, positive-weighted CE, top-k losses — is now better motivated than another label scheme. Note this is *not* the 2026-08-02 read that "there are no negatives to down-weight, so it isn't a focal-loss problem": that was true of the **old** labels, where 96–100% of targets sat ≥0.8. `arjuna0v2_train.h5` is 47.6% zeros, so the class imbalance is now real and the objection no longer applies.
