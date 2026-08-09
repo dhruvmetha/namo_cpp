@@ -38,6 +38,13 @@ def compare(a_path, b_path):
             worst_deg = max(worst_deg, dth * 180.0 / 3.141592653589793)
     print(f"max position deviation: {worst_mm:.6f} mm   (worst: {worst_key})")
     print(f"max yaw deviation:      {worst_deg:.6f} deg")
+    oa, ob = A.get("opened", {}), B.get("opened", {})
+    both = [k for k in common if k in oa and k in ob]
+    if both:
+        flips = [k for k in both if oa[k] != ob[k]]
+        print(f"LABEL FLIPS (goal opened?): {len(flips)}/{len(both)} = {100.0*len(flips)/len(both):.3f}%")
+        for k in flips[:5]:
+            print(f"   flip: {k}  A={oa[k]} B={ob[k]}")
     ok = worst_mm < 1e-3 and worst_deg < 1e-3
     print("IDENTICAL — data is interchangeable" if ok else
           "DIFFERENT — do NOT mix data collected on these two builds")
@@ -49,6 +56,9 @@ def main():
     ap.add_argument("--manifest"); ap.add_argument("--out")
     ap.add_argument("--config", default="config/namo_config_complete_skill15_car_1x.yaml")
     ap.add_argument("--per-scene", type=int, default=8)
+    ap.add_argument("--reverse", action="store_true",
+                    help="try candidates in reverse order; same pushes, different history. Any diff vs "
+                         "forward means outcomes depend on what ran BEFORE them (warmstart carry-over)")
     ap.add_argument("--no-restore", action="store_true",
                     help="fresh env.reset() per push instead of set_full_state (isolates warmstart)")
     ap.add_argument("--compare", nargs=2)
@@ -96,7 +106,13 @@ def main():
                     e, d = int(getattr(g, "edge_idx", -1)), int(getattr(g, "depth", -1))
                     if e in redges and d >= 0:
                         flat.append((e, d, g))
-            for e, d, g in sorted(flat, key=lambda t: (t[0], t[1])):
+            # Select the candidate SET canonically, THEN choose execution order. Reversing the sort
+            # itself would change which candidates the per-scene cap admits, making the two runs
+            # incomparable (84 pushes each, only 4 keys in common) rather than testing order.
+            sel = sorted(flat, key=lambda t: (t[0], t[1]))[:max(0, a.per_scene - taken)]
+            if a.reverse:
+                sel = list(reversed(sel))
+            for e, d, g in sel:
                 if taken >= a.per_scene:
                     break
                 if a.no_restore:
@@ -114,6 +130,9 @@ def main():
                 key = f"{os.path.basename(xml)}|{obj}|{e}|{d}"
                 out["pushes"][key] = [[round(float(v), 12) for v in obs[f"{o}_pose"]]
                                       for o in objs if f"{o}_pose" in obs]
+                # The LABEL, not just the pose. Millimetres only matter where they flip this bit --
+                # this is what turns "1.2 mm of order-dependence" into "N cells got a different label".
+                out.setdefault("opened", {})[key] = bool(env.is_robot_goal_reachable())
                 taken += 1
             if taken >= a.per_scene:
                 break
