@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 """Arjuna-0 v2 -- the BIG-DOSE floor test. Every bounded cell becomes an exact 0. Zero sims.
 
-  opener  -> 1.0     (unchanged)
-  setup   -> 0.5     (was 0.9; gamma is now 0.5, so finish >> setup >> rest is a wide ladder)
-  bounded -> 0.0     exact, two-sided, full weight  <- the whole point
-  untried -> masked  (unchanged; we never invent a value for a push nobody tried)
+  opener  -> 1.0        (unchanged)
+  setup   -> --setup    0.5 = v2 (wide ladder, was 0.9) · 0.9 = v3 (base value kept)
+  bounded -> 0.0        exact, two-sided, full weight  <- the whole point
+  untried -> masked     (unchanged; we never invent a value for a push nobody tried)
+
+v3 exists because v2 moved TWO things at once versus the base file: it added the floor AND
+narrowed setup 0.9 -> 0.5. With --setup 0.9 the only difference from the base is the floor, so
+v3 vs base isolates the floor and v3 vs v2 isolates the ladder width. Under the 51-bin HL-Gauss
+head that width is ~25 bins (v2) against ~5 bins (v3), which is the actual quantity in question:
+how much separation the regression needs before it can order finish above setup on its own.
 
 Why v2 exists. v1 converted 114,660 cells = 1.4% of the 8.29M bounded population, because it could
 only reach the 26,023 Colossus setup roots that have child boards in the raw shards. Its null result
@@ -33,7 +39,6 @@ import numpy as np
 
 R3 = Path("/common/users/dm1487/scratch_namo/curriculum2/beast/round3")
 DEPLOY = R3 / "h5/d20_plus_setup_only.h5"
-SETUP_NEW = 0.5
 OPENER = 1.0
 
 
@@ -41,12 +46,17 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
     ap.add_argument("--chunk", type=int, default=2000)
+    ap.add_argument("--setup", type=float, default=0.5,
+                    help="setup label. 0.5 = v2 (wide ladder). 0.9 = v3, the base value -- keeping "
+                         "it isolates the floor, since v2 moved TWO things at once.")
     a = ap.parse_args()
+    SETUP_NEW = a.setup
 
     print(f"copying {DEPLOY} -> {a.out}", flush=True)
     shutil.copyfile(DEPLOY, a.out)
 
-    cen = dict(rows=0, opener=0, setup=0, bounded_zeroed=0, untouched_masked=0)
+    cen = dict(rows=0, opener=0, setup=0, bounded_zeroed=0, untouched_masked=0,
+               setup_label=SETUP_NEW)
     with h5py.File(a.out, "r+") as f:
         n = int(f.attrs["n_samples"])
         for s in range(0, n, a.chunk):
