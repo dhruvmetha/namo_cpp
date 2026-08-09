@@ -49,6 +49,8 @@ def main():
     ap.add_argument("--manifest"); ap.add_argument("--out")
     ap.add_argument("--config", default="config/namo_config_complete_skill15_car_1x.yaml")
     ap.add_argument("--per-scene", type=int, default=8)
+    ap.add_argument("--no-restore", action="store_true",
+                    help="fresh env.reset() per push instead of set_full_state (isolates warmstart)")
     ap.add_argument("--compare", nargs=2)
     a = ap.parse_args()
     if a.compare:
@@ -97,7 +99,13 @@ def main():
             for e, d, g in sorted(flat, key=lambda t: (t[0], t[1])):
                 if taken >= a.per_scene:
                     break
-                env.set_full_state(s0)
+                if a.no_restore:
+                    # A fresh reset re-derives MuJoCo's warmstart from scratch. set_full_state does NOT
+                    # restore that cache, so it can carry box-local state into the push -- this flag is
+                    # what separates "the physics differs" from "the RESTORE PATH differs".
+                    env = namo_rl.RLEnvironment(xml, a.config, False); env.reset()
+                else:
+                    env.set_full_state(s0)
                 try:
                     env.step(make_action(obj, g))
                 except Exception:
