@@ -11,7 +11,9 @@
 #SBATCH --error=/common/users/dm1487/scratch_namo/eval/phase0_gate/logs/p0-%A_%a.err
 set -euo pipefail
 MAIN=/common/home/dm1487/robotics_research/ktamp/namo
-WT=/common/home/dm1487/robotics_research/ktamp/namo/.claude/worktrees/agent-aa6c1e592dbdacbf9
+# The agent worktree this named was pruned long ago, so this script was silently broken.
+# Resolve the repo instead (ORCHESTRATION.md: prune worktrees after merge-back).
+WT=${NAMO_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}
 cd "$MAIN"
 export MJ_PATH=/common/users/dm1487/ktamp/mujoco
 export SAGE_REPO=/common/home/dm1487/robotics_research/ktamp/sage_learning
