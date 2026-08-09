@@ -35,6 +35,7 @@ Literature anchor: Chrestien et al. NeurIPS 2023 prove search efficiency ⇔ per
 | `XB_s{1,2,3}` | AJ2 loss (regression + censored + per-board rank λ=0.1/0.1) **+ cross-board rank `XB_LAMBDA=0.1`** | 3 |
 | `RP_s{1,2,3}` | ranking only: per-board (opener+setup) + cross-board (opener+setup), all weights 1.0, **no regression, no censored fence** | 3 |
 | `AJ2_s{1,2,3}` / `AJ2NR_s{1,2,3}` | registered baselines — reused, NOT retrained | — |
+| `BNG_s{1,2,3}` | best-ever bar (2p-hard@5 32.1) [USER 2026-08-09] — registered, reused for the panel and any canonical comparison | — |
 
 RP checkpoints on validation ranking loss (its monitor cannot be regression — it doesn't train it). XB keeps the standard monitor for apples-to-apples ckpt selection vs AJ2.
 
@@ -49,8 +50,8 @@ RP checkpoints on validation ranking loss (its monitor cannot be regression — 
 1. Unit test: two-board toy (live+dead board) — dead-board junk must receive downward gradient under the flat call, zero under the per-board call. Commit before run.
 2. Smoke: 1 XB seed, 2 epochs, arrakis — loss decreases, no NaN, epoch time sane (one-big-softmax cost check).
 3. Fleet: 6 runs (XB×3, RP×3) raced on the a100 boxes (~20 min each; box-sync + GPU check first).
-4. Gate: offline AUC panel (`auc_compare_arms.py`), per-tier as always. V5 ≥0.60 AND F2 ≥0.87 → pass. Score histograms per tier for the pile-up watch.
-5. Only on pass: canonical eval overnight (Amarel pulls the pushed branch; `check_box_sync.sh` before launch), difficulty × horizon splits, registry entry on completion.
+4. Panel readout (`auc_compare_arms.py`), per-tier as always, + BNG column + score histograms. The V5 ≥0.60 / F2 ≥0.87 line is a pre-registered REFERENCE, not a kill-switch — **no accept/reject at this step [USER 2026-08-09: "don't accept/reject, we might be onto something"]**; smoke-level bugs are the only thing that stops an arm here.
+5. Canonical eval overnight for ALL arms (Amarel pulls the pushed branch; `check_box_sync.sh` before launch), difficulty × horizon splits, registry entry on completion. Verdicts on the full numbers are the user's call.
 
 ## Outcome fork (pre-registered readings)
 
