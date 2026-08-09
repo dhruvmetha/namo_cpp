@@ -41,6 +41,23 @@ set -euo pipefail
 REPO=${NAMO_REPO:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}}
 SAGE=${SAGE_REPO:?set SAGE_REPO -- it MUST match the code version the ckpt was trained with}
 BIND=${NAMO_BINDINGS:-$REPO/build_python}
+# ⛔ STALE-BINDINGS GUARD. The .so is what actually simulates; the checkout only decides which
+# python runs. On 2026-08-09 a smoke shard scored 89 sims on Amarel and 98 on CS with identical
+# source -- the gap was entirely a .so built 2026-07-29, predating 5daaed5 ("set_full_state must
+# restore ALL state"), which leaked ctrl/qacc_warmstart across restores and made a replayed board
+# not the same board twice. Every registered number came from that binary. Silent, and worth ~10%
+# of sims. So: if the bindings are older than the newest C++ commit, say so loudly.
+if command -v git >/dev/null 2>&1 && [ -d "$REPO/.git" ]; then
+  _so=$(ls "$BIND"/namo_rl*.so 2>/dev/null | head -1)
+  if [ -n "$_so" ]; then
+    _so_t=$(stat -c %Y "$_so" 2>/dev/null)
+    _src_t=$(cd "$REPO" && git log -1 --format=%ct -- src include python/namo/cpp_bindings 2>/dev/null)
+    if [ -n "$_so_t" ] && [ -n "$_src_t" ] && [ "$_so_t" -lt "$_src_t" ]; then
+      echo "⚠⚠ STALE BINDINGS: $_so built $(date -d @$_so_t '+%F %T'), but C++ changed $(date -d @$_src_t '+%F %T')."
+      echo "⚠⚠ Results will NOT match a current build. Rebuild with ./build_python_bindings.sh, or set NAMO_BINDINGS deliberately."
+    fi
+  fi
+fi
 N1SH=${N1SH:-40}
 N2SH=${N2SH:-32}
 cd "$REPO" || { echo "FATAL: REPO=$REPO is not a directory"; exit 1; }

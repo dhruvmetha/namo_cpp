@@ -12,6 +12,11 @@ export NAMO_H5="${NAMO_H5:-$NAMO_SCRATCH/h5}"
 export NAMO_MANIFESTS="${NAMO_MANIFESTS:-$NAMO_SCRATCH/manifests}"
 export NAMO_OUTPUTS="${NAMO_OUTPUTS:-$NAMO_SCRATCH/outputs}"
 export NAMO_LOGS="${NAMO_LOGS:-$NAMO_SCRATCH/logs}"
+# Put the env's bin on PATH. Sourcing this used to set NAMO_PYTHON but leave bare `cmake`,
+# `python3` etc. resolving to the SYSTEM ones -- so ./build_python_bindings.sh died with
+# "cmake: command not found" and picked python3.9 on a compute node, even though both live in
+# $(dirname $NAMO_PYTHON). Every script worked around it separately (see train.slurm gotcha 1).
+export PATH="$(dirname "$NAMO_PYTHON"):$PATH"
 export PYTHONPATH="$PWD/build_python:$PWD/python:$PWD/scripts:$PWD/scripts/sandbox:$PWD/scripts/pipeline:$SAGE_REPO"
 export LD_LIBRARY_PATH="$MJ_PATH/lib:${LD_LIBRARY_PATH:-}"
 echo "[env.amarel] NAMO_SCRATCH=$NAMO_SCRATCH"
