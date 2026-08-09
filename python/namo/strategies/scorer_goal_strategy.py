@@ -16,8 +16,6 @@ depth-conditioned value V_d (trained on v3 2-push data) here for first-push / fr
 NOTE: imports the LiveScorer bridge from scripts/sandbox lazily (TODO: promote live_scorer +
 load_scorer into the package once this lever is validated).
 """
-import os
-import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -25,14 +23,23 @@ import namo_rl
 
 from .goal_selection_strategy import Goal
 from .primitive_goal_strategy import PrimitiveGoalStrategy
-from namo.paths import SCRATCH
 
 _SANDBOX = str(Path(__file__).resolve().parents[3] / "scripts/sandbox")
-_DEFAULT_CKPT = str(SCRATCH / "sage_outputs/scorer/sharp_s1/namo-classifier/9yizg6i8/checkpoints/epoch017-val_loss0.2713.ckpt")
+_DEFAULT_CKPT_RELATIVE = Path(
+    "sage_outputs/scorer/sharp_s1/namo-classifier/9yizg6i8/checkpoints/"
+    "epoch017-val_loss0.2713.ckpt"
+)
 
 # Process-level cache: load the (heavy) scorer model + renderer ONCE per (ckpt, config), so
 # running RO across many scenes (modular_parallel_collection) doesn't reload it every scene.
 _SCORER_CACHE = {}
+
+
+def _default_checkpoint() -> str:
+    """Resolve the historical scorer default only when that strategy is used."""
+    from namo.paths import SCRATCH
+
+    return str(SCRATCH / _DEFAULT_CKPT_RELATIVE)
 
 
 def _get_scorer(ckpt, namo_config_path, device):
@@ -55,16 +62,17 @@ def _get_scorer(ckpt, namo_config_path, device):
 class ScorerGoalStrategy(PrimitiveGoalStrategy):
     """PrimitiveGoalStrategy + champion scorer for goal.score (RO candidate ranking)."""
 
-    def __init__(self, ckpt: str = _DEFAULT_CKPT, namo_config_path: Optional[str] = None,
+    def __init__(self, ckpt: Optional[str] = None, namo_config_path: Optional[str] = None,
                  xml_path: Optional[str] = None, device: Optional[str] = None,
                  data_dir: str = "data", primitive_prefix: str = "", verbose: bool = False,
                  max_push_steps: Optional[int] = None):
         super().__init__(data_dir=data_dir, verbose=verbose,
                          primitive_prefix=primitive_prefix, max_push_steps=max_push_steps)
-        self.ckpt = ckpt
+        resolved_ckpt = ckpt or _default_checkpoint()
+        self.ckpt = resolved_ckpt
         self.xml_path = xml_path
         # Reuse a process-cached scorer (loaded once per ckpt/config) — avoids per-scene model reload.
-        self._scorer = _get_scorer(ckpt, namo_config_path, device)
+        self._scorer = _get_scorer(resolved_ckpt, namo_config_path, device)
 
     @property
     def strategy_name(self) -> str:
