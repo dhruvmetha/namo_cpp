@@ -92,6 +92,20 @@ Known limit, logged up front: the EG/EGMM terms fire only on the 21% of rows wit
 
 Round-2 arms get the FULL canonical treatment like round 1 [USER 2026-08-09]: offline panel + score autopsy on completion, then the same Amarel canonical sweep (1push+2push, difficulty × horizon) beside AJ2/AJ2NR/BNG via `run_fleet_eval.sh`. No accept/reject at any readout; verdicts on the user's read of the full tables.
 
+## Round-1 RESULTS (canonical complete 2026-08-09 evening; 3 seeds pooled, 432/432 shards, zero unmatched)
+
+| arm | 2p-h@2 | 2p-h@5 | 2p-h@30 | 2p-h@900 | 2p-med@5 | 1p-h@1 | 1p-h@5 | s2s-hard |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| AJ2 (ctrl) | 12.7 | 26.8 | 53.3 | 90.0 | 50.2 | 38.1 | 78.8 | 105.3 |
+| AJ2NR | 4.9 | 20.0 | 40.6 | 87.8 | 43.2 | 29.4 | 73.5 | 134.5 |
+| XB | 12.4 | 28.7 | 54.7 | 91.0 | 49.5 | 38.2 | 78.4 | 99.6 |
+| RP | 12.9 | 24.3 | 50.9 | 89.3 | 50.3 | 36.9 | 80.9 | 104.6 |
+
+References: BNG 32.1 @5 · Bfix 28.9 · A 27.7 · θ₀ 22.6 · random 1.7. Aggregate `round0/gate_xbrp.json` (spec `arms_xbrp.json`), panel `round0/auc_xbrp.json` (3 seeds).
+
+Observations [numbers, no verdicts — user's call]: XB gains sit in the predicted mid-curve zone (+1.9 @5, +1.4 @30, −5.7 s2s) with V5 FLAT (0.456 vs 0.455 hard) — the deploy gain traces to finish ordering (offline finish@1 +2.3), not cross-board repair. RP (regression deleted) lands within ~2 pts of the full loss everywhere and takes best-in-table 2p-h@2 (12.9) and 1p-h@5 (80.9), against the historic no-aux collapse (4.9/20.0) — regression reads as largely replaceable at deploy, its absence costing ~2 mid-curve pts consistent with the un-braked stretch in the autopsy. H1's V5 mechanism remains open; that is round 2's target.
+
 ## Log
 
 - 2026-08-09 [Claude] Card created; design discussion (loss structure, literature deep-read, bounded-vs-unbounded, weight semantics) in session `ranking_loss`. Code next: XB reshape + RP subclass + unit test.
+- 2026-08-09 evening [Claude] Round-1 trained (6/6), panel + autopsy + canonical COMPLETE (tables above). Round-2 fleet (MM/EG/EGMM/RPB × 3) launched after 2-epoch smokes passed; canonical for round 2 queued on completion.
