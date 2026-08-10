@@ -115,6 +115,16 @@ Round-2 arms get the FULL canonical treatment like round 1 [USER 2026-08-09]: of
 
 `RPE_s{1,2,3}` (`train_q2_rankpure_egmm.py`): the fully value-free stack — RP's two softmax rank terms + EGMM's family margin-vs-max at `RPE_FAM=1.0`, NO regression anywhere, categorical labels only, monitor = RP's val rank loss. Rationale: if it lands near EGMM's profile, value machinery exits the project entirely. Pre-registered watch items: score-stretch (RP's, no brake) COMPOUNDING with the V6 board-scramble (EGMM's) — meters are the per-tier score histogram and V6; front-curve @2/@5 is where compounding would show.
 
+### Round-3b RESULTS (complete 2026-08-10 pre-dawn) — every axis closed
+
+**RPL2 (unbounded, margin 0.2 = 0.41σ): FULL RECOVERY + deploy twins with RPE** — offline V5 0.467/F2 0.906/V6 0.719; deploy @5 26.0 vs RPE 25.9, all cells within band. RPL's entire failure attributes to ONE constant (margin 2.2σ). **Boundedness axis CLOSED: free choice; keep the simpler bounded head; size margins to the adopted scale (σ-units) if ever unbounded.** RPL itself deploys functional (@5 21.7, reach 90.3) — damage LOCALIZED to family-type comparisons (offline panel wrecked, root skills intact): loss pathologies localize to the comparison classes that generate them.
+
+**RPEA (binary plates, USER-designed): the information-limit QED.** V5 0.429 ≈ RPE 0.431 (pre-registered lift absent); autopsy: dead-max 0.611→0.573 AND live-max 0.696→0.653 — **rigid −0.04 translation, gap unchanged (0.085→0.080)**. An ABSOLUTE anchor on dead cells cannot separate what the features cannot distinguish — it pushes live near-twins down equally. With this, every force class (softmax, hinge, plates) + 3 label regimes + 2 heads have failed to cleave the live/dead gap: **V5 is feature-knowledge-limited; the family corpus is the only door** (and the probe's 0.795 says the door is real). setup@1 19.9 — mild floating-setup sag, watch line grazed.
+
+**RPM (hole 4): sharpener does NOT survive anchor removal** — setup@1 16.5 vs anchored MM's 25.2. The stranger-hinge's within-board pressure needs the anchor.
+
+**RPG/RPEG canonical confirmed the grind at deploy:** @2 4.3/2.6, s2s 132/144 — offline collapse fully mirrored.
+
 ### Round-3 RESULT (complete 2026-08-10 early)
 
 `RPE` 3 seeds: offline V5 0.431/V6 0.720/F2 0.916 hard; deploy 2p-h@2 11.4 / @5 25.9 / @30 52.1 / **@900 90.9** / s2s 104. **Both pre-registered tripwires CLEAN**: no histogram walls (top bins ~0.3% mass — the margin self-stops, Kim's lineage vindicated) and V6 0.720 — BETTER than parent EGMM's 0.685, so removing regression relieved rather than compounded the board-scramble. RPU (unbounded head) therefore does NOT fire — its trigger never appeared; the bound is not binding. Verdict-shaped observation [no accept/reject]: the fully value-free stack (categorical labels, ordinal losses only) deploys ≈ the AJ2 control with second-best reach in the ledger. Aggregate `gate_rpe.json`, panel `auc_rpe.json`.
