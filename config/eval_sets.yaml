@@ -5,20 +5,22 @@
 # Paths are relative to $NAMO_SCRATCH (resolved per-box via namo.paths → portable).
 # Documented in docs/experiments/eval_set_registry.md.
 
-testset: namo_testset_v2
+testset: namo_testset_v3
 
 files:
   # canonical manifests (consumed by eval as --key / answer keys) and their untouched sources.
-  # testset_v2 = the 2026-08-09 exhaustive re-sweep on post-5daaed5 physics. See eval_set_registry.md.
-  onepush_source:      datasets/namo_testset_v2/labels/onepush_v2.json                 # 1204, 1push-solvable under the new bar
-  onepush_manifest:    datasets/namo_testset_v2/labels/onepush_v2.json                 # == source; no empirical exclusions derived yet on v2
-  pure2push_source:    datasets/namo_testset_v2/labels/pure2push_all.json              # full 961
-  pure2push_manifest:  datasets/namo_testset_v2/labels/pure2push_v2_search_eval.json   # 949 = source minus zero-GT-setup (3) and no-GT-root (9)
-  pure2push_divisions: datasets/namo_testset_v2/labels/pure2push_gt_divisions_v2_search_eval.json # exhaustive-GT setup-density tiers over the 949
-  pure2push_gt_divisions_source: datasets/namo_testset_v2/labels/pure2push_gt_divisions_v2.json   # full 1115-episode GT tiers
-  twopush_source:      datasets/namo_testset_v2/labels/twopush_all.json                # SOURCE (both derived from this)
-  # THE canonical comprehensive 2push GT artifact for v2: 100 re-swept shards merged.
-  twopush_gt_h5:       curriculum2/beast/round2/h5/testset_gt_v2.h5
+  # testset_v3 = the COMPLETE exhaustive sweep (2026-08-10): every geometric blocking object has an
+  # episode (2541/2541 candidates recorded). v1 and v2 were both truncated by a 480s per-neighbour
+  # timeout and silently missed ~11% of instances. See eval_set_registry.md.
+  onepush_source:      datasets/namo_testset_v3/labels/onepush_v3.json                 # 1328, 1push-solvable under the new bar
+  onepush_manifest:    datasets/namo_testset_v3/labels/onepush_v3.json                 # == source; empirical exclusions re-derived after the v3 re-eval
+  pure2push_source:    datasets/namo_testset_v3/labels/pure2push_all.json              # full 995
+  pure2push_manifest:  datasets/namo_testset_v3/labels/pure2push_v3_search_eval.json   # 992 = source minus 3 zero-GT-setup (0 no-GT-root)
+  pure2push_divisions: datasets/namo_testset_v3/labels/pure2push_gt_divisions_v3_search_eval.json # exhaustive-GT setup-density tiers over the 992
+  pure2push_gt_divisions_source: datasets/namo_testset_v3/labels/pure2push_gt_divisions_v3.json   # full 2541-episode GT tiers
+  twopush_source:      datasets/namo_testset_v3/labels/twopush_all.json                # SOURCE (both derived from this)
+  # THE canonical comprehensive 2push GT artifact for v3: 100 shards over the complete union, merged.
+  twopush_gt_h5:       curriculum2/beast/round2/h5/testset_gt_v3.h5
 
 # Retained only for historical reproduction or distribution-shift diagnostics. These are not
 # canonical test sets and must never replace the exhaustive-GT tiers/file above in new results.
@@ -34,7 +36,7 @@ baselines:
     # set of region-opening instances (108 rooms resolved a different blocking object), so these
     # numbers are NOT a valid floor for v2 results. Re-run before quoting any v2-vs-random claim.
     status: STALE_v1_population
-    population_episodes: {1push: 1322, 2push: 1012}
+    population_episodes: {1push: 1322, 2push: 1012}   # v1; v3 is 1328/992
     ranker: uniform_random
     seeds: [7000, 8000, 9000]
     report: mean_plus_sample_sd
@@ -52,16 +54,16 @@ baselines:
 
 # loader self-test assertions (namo.eval_sets validates against these)
 expected_counts:
-  onepush_source_episodes:     1204
-  onepush_manifest_episodes:   1204
-  onepush_divisions: {easy: 611, medium: 401, hard: 192}
-  pure2push_manifest_episodes: 949
-  pure2push_source_episodes:   961
-  pure2push_gt_divisions_source_episodes: 1115
-  twopush_source_episodes:     2352
-  divisions:  {easy: 366, medium: 467, hard: 116}
+  onepush_source_episodes:     1328
+  onepush_manifest_episodes:   1328
+  onepush_divisions: {easy: 681, medium: 442, hard: 205}
+  pure2push_manifest_episodes: 992
+  pure2push_source_episodes:   995
+  pure2push_gt_divisions_source_episodes: 2541
+  twopush_source_episodes:     2541
+  divisions:  {easy: 387, medium: 487, hard: 118}
   sampled_divisions: {easy: 238, medium: 408, hard: 366}   # legacy v1 artifact, intentionally unchanged
-  twopush_gt_h5_nodes:         66354
+  twopush_gt_h5_nodes:         104420
 
 # v1's exclusions do NOT carry over: they were specific (xml, object, region) records on the v1
 # population, and the two GT-derived classes are now applied programmatically when the v2 manifest is

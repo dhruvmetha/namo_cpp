@@ -30,7 +30,38 @@ The unfiltered canonical-path `onepush_episodes_canonical.json` (1323) and `pure
 
 **INVARIANT:** the unit is per **(xml, object, region)** region-opening instance, never per room. One xml holds many instances with different tiers.
 
-## ⭐ CANONICAL — testset_v2 (re-swept on fixed physics, live since 2026-08-09)
+## ⭐ CANONICAL — testset_v3 (COMPLETE sweep, live since 2026-08-10)
+
+**The first version of this test set in which every blocking object has an episode.** v1 and v2 were both silently truncated by the collector's 480 s per-neighbour timeout and each omitted ~11% of legitimate region-opening instances, biased toward the expensive-to-simulate (hard) end. v3 re-swept the 165 truncated neighbours with the caps lifted and passes an explicit acceptance test:
+
+```
+neighbours=1829  candidates=2541  recorded=2541 (100.0%)
+STILL TRUNCATED: 0   missing objects: 0
+```
+
+Completeness is **proved, not assumed** — truncation is detectable by construction (`candidate_objects_count > recorded objects`), and `verify_complete.py` asserts equality over every neighbour in all three collect dirs.
+
+| artifact | path (under `datasets/namo_testset_v3/labels/`) | size | tiers (easy/med/hard) |
+|---|---|---|---|
+| **1push manifest + source** | `onepush_v3.json` | **1328** (997 rooms) | 681 / 442 / 205 |
+| **2push manifest** | `pure2push_v3_search_eval.json` | **992** (958 rooms) | 387 / 487 / 118 |
+| **2push tiers** | `pure2push_gt_divisions_v3_search_eval.json` | 992 | same |
+| 2push source | `pure2push_all.json` | 995 | — |
+| GT tiers (full) | `pure2push_gt_divisions_v3.json` | 2541 | — |
+| SOURCE (root) | `twopush_all.json` | **2541** (1829 rooms) | — |
+| merged GT H5 | `curriculum2/beast/round2/h5/testset_gt_v3.h5` | **104,420 nodes** | — |
+
+Recovered vs v2: twopush source 2352 → 2541 (**+189**, exactly the count the audit predicted), pure2push 961 → 995, 1push 1204 → 1328. The 1push set now exceeds even v1's 1322, because v1 was truncated too.
+
+The union was built at **pkl level, preferring the complete re-sweep**: 165 topup + 1664 kept, 165 stale truncated pkls excluded. Run-dir-level linking would have double-counted all 165 re-swept scenes.
+
+Only **3** episodes are dropped from the 2push manifest (exhaustive GT has zero genuine setups) and **zero** for a missing GT root — v2 lost 9 to that. `search_eval_exclusions` stays empty: v1's remaining entries were empirical per-episode records that cannot transfer, and must be re-derived from a v3 re-eval.
+
+Tiers were recomputed through the **same v1-gated code path** (`hardness_v2.py`, `onepush_tiers_v2.py`, version-parameterized): the v1 gate reproduces the registered tiers exactly — 981/981 two-push, 1322/1322 one-push — before any v3 number is emitted. Against v1 the tiers move 11/1016 (1.1%) on 2push and 44/1322 (3.3%) on 1push, all threshold-adjacent.
+
+**Still true, and it invalidates cross-version comparison:** every registered arm number and the registered random baseline were produced on the v1 population. They must be re-evaluated before being quoted against a v3 number.
+
+## SUPERSEDED — testset_v2 (re-swept on fixed physics, canonical 2026-08-09 only)
 
 `config/eval_sets.yaml` points here. Nothing under `namo_testset_v1/` was deleted — it is retained for reproducing existing results.
 
