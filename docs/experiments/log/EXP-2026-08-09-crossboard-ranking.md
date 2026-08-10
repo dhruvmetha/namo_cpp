@@ -132,14 +132,14 @@ Observations [numbers, no verdicts — user's call]: XB gains sit in the predict
 | XB | 12.4 | 28.7 | 54.7 | 91.0 | 49.5 | 38.2 | 100 |
 | MM | 13.4 | **31.6** [27.7, 38.0] | 53.3 | 89.3 | 50.4 | **39.4** | 108 |
 | EG | 10.9 | 29.7 [26.3, 31.4] | **57.4** | 89.1 | 46.8 | 34.2 | 89 |
-| EGMM (2s) | 10.9 | 26.3 | 50.0 | 90.1 | 44.2 | 35.3 | **81** |
+| EGMM (3s final) | 12.2 | 27.3 | 50.4 | 90.0 | 45.9 | 36.9 | 93 |
 | RPB | 12.4 | 23.4 | 48.7 | 88.3 | **51.4** | 38.1 | 88 |
 
 References: BNG 32.1 · Bfix 28.9 · random 1.7. Aggregates `gate_r2.json` (spec `arms_r2.json`), offline panel `auc_round2.json` (12 seeds), plots `r2full_success_vs_sims.png`.
 
 Observations [numbers, no verdicts]:
 
-**The 2×2 personality grid held at deploy.** MM (sharpener): best early curve of the round — @5 31.6 pooled, BNG-class WITHOUT BNG's guess labels, 1p-h@1 39.4 best-in-table; its famous 38.0 was the s2 seed, band [27.7, 38.0]. EG (thinner): most consistent BNG-class @5 ([31.4, 31.4, 26.3]), best @30 (57.4), s2s 89 — the crowd-thinning cashes mid-curve exactly as the burial analysis predicted. EGMM (digger): best s2s ever (81) and the only robust offline V5 mover (0.492 3-seed) + best F2 (0.920), but worst front-curve — its V6 drop (board-vs-board scrambling) is the standing suspect. RPB: weakest at deploy (@5 23.4) — the 2% brake did NOT recover RP's mid-curve; the leash story is falsified at this dose.
+**The 2×2 personality grid held at deploy.** MM (sharpener): best early curve of the round — @5 31.6 pooled, BNG-class WITHOUT BNG's guess labels, 1p-h@1 39.4 best-in-table; its famous 38.0 was the s2 seed, band [27.7, 38.0]. EG (thinner): most consistent BNG-class @5 ([31.4, 31.4, 26.3]), best @30 (57.4), s2s 89 — the crowd-thinning cashes mid-curve exactly as the burial analysis predicted. EGMM (digger): s2s 93 as 3 seeds (the flashy 81 was the 2-seed subset; still the round's cheapest digging beside EG) and the only robust offline V5 mover (0.492 3-seed) + best F2 (0.920), but worst front-curve — its V6 drop (board-vs-board scrambling) is the standing suspect. RPB: weakest at deploy (@5 23.4) — the 2% brake did NOT recover RP's mid-curve; the leash story is falsified at this dose.
 
 **Offline meters anti-predicted the deploy podium** (burial/V5 crowned EGMM; sims crowned MM/EG) — front-curve tracks within-board sharpness (the @2 identity setup@1×finish@1 verified again: MM 0.252×0.536≈13.5 vs measured 13.4), while V5/burial improvements cash out as cheaper DIGGING (s2s 81–89 for the family arms), not earlier solves.
 
