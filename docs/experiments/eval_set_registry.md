@@ -28,6 +28,52 @@ The unfiltered canonical-path `onepush_episodes_canonical.json` (1323) and `pure
 
 **INVARIANT:** the unit is per **(xml, object, region)** region-opening instance, never per room. One xml holds many instances with different tiers.
 
+## testset_v2 — re-swept on fixed physics (BUILT + VERIFIED, **not yet canonical**)
+
+`config/eval_sets.yaml` still points at **testset_v1, and v1 remains the canonical eval set**. Nothing under `namo_testset_v1/` is archived or modified. This section records v2 so the switch (if we make it) is a one-line yaml edit against a verified artifact.
+
+**Why it exists:** the 2026-07-21 exhaustive sweep ran on physics that leaked `ctrl`/`qacc_warmstart` across `set_full_state` restores, fixed by `5daaed5`. Tiers are thresholds on success density, so a changed outcome can move an episode's tier. The whole test set was re-swept exhaustively on fixed bindings (Amarel, namo `ef70ae9`, `feat/horizon-q-redesign`, bindings rebuilt after `5daaed5`; same `ref_fullexhaust.yaml` config as July).
+
+**Headline: the physics fix barely moves the tiers — 2push 10/979 flips (1.0%), 1push 38/1201 flips (3.2%).** Flips are threshold-adjacent (median 0.029 from a cut, 30/38 within 0.05) and go both directions, i.e. boundary jitter rather than a systematic shift. Existing results binned on v1 tiers are therefore substantially unaffected.
+
+| artifact | path (under `datasets/namo_testset_v2/labels/`) | size | what it is |
+|---|---|---|---|
+| **SOURCE (root)** | `twopush_all.json` | 1829 rooms / **2352 episodes** | Union of both re-sweeps, built by `build_2push_validset.py` over a symlink root joining `collect_v2` (983 rooms, 2push manifest) + `collect_1push_v2` (846 rooms, 1push manifest). v1 counterpart: 1830 / 2341. |
+| **2push tiers** | `pure2push_gt_divisions_v2.json` | 983 rooms / **1115 episodes** | Exhaustive-GT setup density + `division`. Same schema as v1's `pure2push_gt_divisions_final35.json`. |
+| **1push tiers** | `onepush_divisions_v2.json` | 1829 rooms / 2352 episodes | `solve_rate` + `division` per episode. Only the **1201** episodes joinable to the v1 1push manifest are meaningful — the rest are 2push-only roots whose `solve_rate_1push` is 0 and would bin "hard" spuriously. |
+| **pure2push** | `pure2push_all.json` | 948 rooms / 961 episodes | 1push-unsolvable ∧ 2push-solvable, rebuilt from the union. |
+| **node-level GT** | `curriculum2/beast/round2/testset_finish_gt/h5_v2/shards/*.h5` | 100 shards / **66,354 nodes** | Re-swept depth-2 node GT (v1 counterpart: `testset_gt_plus35.h5`, 68,393 nodes). |
+
+**⛔ The tier formula — verified, and NOT what the label json's own ratio gives.** Setup hardness is
+
+```
+setup_hardness_pct = 100 * n_setups_gt / |tried_1push|
+n_setups_gt        = distinct (parent_edge, parent_depth) over depth-2 H5 nodes
+                     with setup_moved != 0 AND n_win > 0        # node-level, from the GT H5
+|tried_1push|      = len(episode["tried_1push"])                # from the twopush label json
+division           = hard <5% · medium <30% · easy >=30%
+```
+
+Recomputing this on v1 reproduces the registered `pure2push_gt_divisions_final35.json` **exactly: 981/981 on `n_setups_gt`, on `setup_hardness_pct`, and on `division`** (the other 35 of 1018 are the `+35` fill batch, which is absent from the merged v1 H5, and 2 carry a null `n_setups_gt`). The 1push rule is `bin_of(solve_rate)` per `agg_search_eval._onepush_divisions`, which reproduces the registered 697/421/204 on **1322/1322** episodes.
+The seductive shortcut `len(valid_first_push)/len(tried_first_push)` from the label json is **WRONG** — it reproduces only 105/1016 of v1's registered hardness values and inflates the apparent flip count to 21.4%. Do not reintroduce it. Scripts: `hardness_v2.py`, `onepush_tiers_v2.py` (both carry the v1 gate as mode/stage 1 — run the gate before believing any v2 number).
+
+**Tier movement (joined episodes only):**
+
+| horizon | joined | flips | old (easy/med/hard) | new (easy/med/hard) | direction |
+|---|---|---|---|---|---|
+| 2push | 979 | **10 (1.0%)** | 368 / 471 / 140 | 368 / 473 / 138 | 4 hard→med, 2 med→easy, 2 med→hard, 2 easy→med |
+| 1push | 1201 | **38 (3.2%)** | 630 / 378 / 193 | 611 / 400 / 190 | 20 easy→med, 10 hard→med, 7 med→hard, 1 med→easy |
+
+**Coverage gaps — read before switching.**
+121 of the v1 1push manifest's 1322 episodes (9.2%) have no v2 counterpart: in every case the **room is present but that object was not swept** (the collection picks a blocking object per configuration, so a room's episode set is not guaranteed identical across sweeps). Their v1 tier mix is easy 67 / medium 43 / hard 11.
+38 of the v1 2push episodes have no v2 root, for the same reason.
+Switching the yaml to v2 as-is would therefore silently shrink the 1push eval population by ~9%, which is a larger effect on reported numbers than the 3.2% of tiers it corrects. Either re-sweep the missing objects or hold the population fixed and use v2 only to re-bin.
+
+**Open items (unresolved):**
+- The four registered `search_eval_exclusions` on hard 2push episodes were justified by "fully exhaustive root contains zero genuine setups" **under the old physics**; two are GT-derived and must be re-checked against the v2 roots before v2 becomes canonical.
+- 63 episodes changed pure-2push membership, so v2 is not a pure re-bin of v1 — it is a slightly different population.
+- v1's `onepush_episodes.json` equivalent in v2 (`onepush_episodes.json`, 98 rooms / 102 episodes) is a **stale partial** from the first sweep, superseded by `onepush_divisions_v2.json`. Do not consume it.
+
 ## Canonical random-search baseline — USE THIS
 
 The baseline is **one three-seed measurement**, not three separate baselines: uniform-random push ordering with seeds **7000/8000/9000**, reported as mean ± sample standard deviation at every simulator budget. It uses the same search as the learned ranker on both registered horizons: `hmax=2`, budget 900, `combine=q`, confidence discount τ=0.15, no-op dedupe on, and jam-depth pruning on. The learned arm is deterministic and therefore runs once. “Tight” below means solve@1 for 1push and solve@2 for 2push.

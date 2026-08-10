@@ -22,6 +22,11 @@ updated: 2026-08-02
 > expect roughly **+10% sims** on current physics. Re-baseline before mixing.
 > The 2026-07-29 binary is archived at Amarel `projects/namo/_archive_2026-08-09/namo_postprune_eval/` and is the
 > ONLY way to reproduce a row below exactly — do not delete it.
+> **The difficulty TIERS, however, are essentially unchanged.** The whole test set was re-swept exhaustively on
+> fixed physics (`namo_testset_v2`): only **1.0% of 2push (10/979) and 3.2% of 1push (38/1201)** episodes change
+> tier, all threshold-adjacent and in both directions. So the per-tier splits reported below do not need restating;
+> it is the SIM COUNTS that shift. v2 is built and verified but **not canonical** — `config/eval_sets.yaml` still
+> points at v1. Details, formula, and coverage gaps: [eval_set_registry.md](eval_set_registry.md#testset_v2--re-swept-on-fixed-physics-built--verified-not-yet-canonical).
 
 > THE authoritative location list — every trained model, its exact best-val checkpoint, headline number,
 > training data, and eval-output dir. **Do not reconstruct paths by glob; read here.** Never retrain
