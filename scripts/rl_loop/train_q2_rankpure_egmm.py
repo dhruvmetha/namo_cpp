@@ -48,6 +48,12 @@ RPE_MARGIN = float(os.environ.get("RPE_MARGIN", "0")) or None   # None -> r2.MM_
 # RPG/RPEG [card § round 3]: family SOFTMAX term (EG's thinner, value-free). RPE_FAM=0 RPE_EGSOFT=1
 # -> RPG (thinner only); both >0 -> RPEG (the first thinner+duelist mixture).
 RPE_EGSOFT = float(os.environ.get("RPE_EGSOFT", "0.0"))
+# RPEA [USER 2026-08-10]: BINARY anchors — regress ONLY the categorical extremes (openers -> 1,
+# dead -> 0); setups get NO regression, floating between the anchored plates, placed purely by the
+# rank/hinge forces. Buys: (a) absolute down-force on dead champions (the anti-burial press the
+# grind arms aimed at the WRONG layer), (b) re-pinned scale for the margins, (c) zero label-value
+# engineering (no 0.5-vs-0.9 debate — setups have no target at all).
+RPE_ANCHOR = float(os.environ.get("RPE_ANCHOR", "0.0"))
 RPE_VMIN = float(os.environ.get("RPE_VMIN", "0.0"))
 RPE_VMAX = float(os.environ.get("RPE_VMAX", "1.0"))
 
@@ -75,6 +81,16 @@ class RankPureEGMM(rp.RankPureModule):
                     self.log("fam_egsoft", egs / n_fam, on_step=False, on_epoch=True)
             self.log("n_families", float(n_fam), on_step=False, on_epoch=True)
             self.log("fam_margin", fam / max(n_fam, 1), on_step=False, on_epoch=True)
+        return loss
+
+    def _split_loss(self, logits, f_labels, loss_mask, ceiling, weight):
+        loss = super()._split_loss(logits, f_labels, loss_mask, ceiling, weight)
+        if RPE_ANCHOR > 0.0:
+            hl = self._hl(logits)
+            plates = ((f_labels >= 0.999) | (f_labels <= 0.001)).float()
+            anchor_mask = loss_mask * (1.0 - ceiling) * plates      # extremes only; setups excluded
+            loss = loss + RPE_ANCHOR * hl.loss(logits, f_labels, anchor_mask)
+            self.log("anchor", loss * 0 + RPE_ANCHOR, on_step=False, on_epoch=True)
         return loss
 
     def training_step(self, batch, batch_idx):
