@@ -54,6 +54,9 @@ RPE_EGSOFT = float(os.environ.get("RPE_EGSOFT", "0.0"))
 # grind arms aimed at the WRONG layer), (b) re-pinned scale for the margins, (c) zero label-value
 # engineering (no 0.5-vs-0.9 debate — setups have no target at all).
 RPE_ANCHOR = float(os.environ.get("RPE_ANCHOR", "0.0"))
+# RPM [USER 2026-08-10, "hole 4"]: MM's stranger-hinge, value-free — batch-flat margin-vs-max at
+# RPE_MMSTR. Tests whether the front-curve sharpener (MM 31.6 @5 anchored) survives no-anchor.
+RPE_MMSTR = float(os.environ.get("RPE_MMSTR", "0.0"))
 RPE_VMIN = float(os.environ.get("RPE_VMIN", "0.0"))
 RPE_VMAX = float(os.environ.get("RPE_VMAX", "1.0"))
 
@@ -61,6 +64,14 @@ RPE_VMAX = float(os.environ.get("RPE_VMAX", "1.0"))
 class RankPureEGMM(rp.RankPureModule):
     def _rank_only(self, logits, labels, mask, ceiling):
         loss = super()._rank_only(logits, labels, mask, ceiling)
+        if RPE_MMSTR > 0.0:
+            def _flat(x):
+                return None if x is None else x.reshape(1, -1)
+            val_f = self._hl_gauss.value(logits.float())
+            _, mo, ms = r2.margin_vs_max_losses(_flat(val_f), _flat(labels), _flat(mask),
+                                                _flat(ceiling), RPE_MARGIN or r2.MM_MARGIN)
+            loss = loss + RPE_MMSTR * (mo + ms)
+            self.log("mmstr", mo + ms, on_step=False, on_epoch=True)
         ep_id = getattr(self, "_batch_ep_id", None)
         if ep_id is not None:
             fam = loss * 0.0
