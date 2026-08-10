@@ -14,7 +14,8 @@ share one degree of freedom; 1.0 is the unit the scores organize around — Kim/
 Plumbing notes, each deliberate:
   * tq2.HLGauss is shimmed scalar-tolerant so train_q2's post-training checks (eval_scorer-load,
     diagnostics) pass a (1,60,5) head instead of crashing before the completion marker.
-  * head_mode="sigmoid_bce" — the 5-out head's native module mode; all loss paths it gates are overridden.
+  * head_mode="raw_scalar" — honest contract name (added to ClassifierModule for this arm): raw
+    unactivated logits as unbounded sort keys; none of the module's own loss paths are reachable.
   * Deploy: eval loaders auto-detect head_out==num_depths (the legacy branch) and canonical runs
     --raw by default, which consumes unbounded scores natively. One canonical shard is sanity-run
     before any fleet (see card).
@@ -91,7 +92,7 @@ def build_module(base_lr, warmup_steps, decay_steps):
     return RankPureLinear(
         network=net, base_lr=base_lr, weight_decay=0.01,
         warmup_steps=warmup_steps, decay_steps=decay_steps, end_lr=1e-6,
-        head_mode="sigmoid_bce", dice_weight=0.0,
+        head_mode="raw_scalar", dice_weight=0.0,
     )
 
 

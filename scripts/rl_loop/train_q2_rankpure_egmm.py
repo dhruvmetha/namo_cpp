@@ -45,6 +45,9 @@ RPE_FAM = float(os.environ.get("RPE_FAM", "1.0"))
 # units of playground for margin 1.0, zero plumbing change (score stays E[bin]; every loader and the
 # deploy heap are order-only, and an affine re-span is order-preserving).
 RPE_MARGIN = float(os.environ.get("RPE_MARGIN", "0")) or None   # None -> r2.MM_MARGIN (0.2)
+# RPG/RPEG [card § round 3]: family SOFTMAX term (EG's thinner, value-free). RPE_FAM=0 RPE_EGSOFT=1
+# -> RPG (thinner only); both >0 -> RPEG (the first thinner+duelist mixture).
+RPE_EGSOFT = float(os.environ.get("RPE_EGSOFT", "0.0"))
 RPE_VMIN = float(os.environ.get("RPE_VMIN", "0.0"))
 RPE_VMAX = float(os.environ.get("RPE_VMAX", "1.0"))
 
@@ -57,12 +60,19 @@ class RankPureEGMM(rp.RankPureModule):
             fam = loss * 0.0
             n_fam = 0
             val = self._hl_gauss.value(logits.float())
+            egs = loss * 0.0
             for v_, l_, m_, c_ in r2._family_lists((val, labels, mask, ceiling), ep_id):
                 n_fam += 1
-                _, o, s = r2.margin_vs_max_losses(v_, l_, m_, c_, RPE_MARGIN or r2.MM_MARGIN)
-                fam = fam + o + s
+                if RPE_FAM > 0.0:
+                    _, o, s = r2.margin_vs_max_losses(v_, l_, m_, c_, RPE_MARGIN or r2.MM_MARGIN)
+                    fam = fam + o + s
+                if RPE_EGSOFT > 0.0:
+                    _, o, s = rp.rank.certain_order_rank_aux_losses(v_, l_, m_, c_, self.rank_temp)
+                    egs = egs + o + s
             if n_fam:
-                loss = loss + RPE_FAM * fam / n_fam
+                loss = loss + (RPE_FAM * fam + RPE_EGSOFT * egs) / n_fam
+                if RPE_EGSOFT > 0.0:
+                    self.log("fam_egsoft", egs / n_fam, on_step=False, on_epoch=True)
             self.log("n_families", float(n_fam), on_step=False, on_epoch=True)
             self.log("fam_margin", fam / max(n_fam, 1), on_step=False, on_epoch=True)
         return loss
