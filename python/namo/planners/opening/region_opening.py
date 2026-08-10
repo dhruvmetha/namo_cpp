@@ -130,6 +130,13 @@ class AttemptResult:
     ml_mask_vote_attach_ms_avg: float = 0.0
     reachable_edges_count: int = 0  # Number of reachable edges for the object
     candidate_objects_count: int = 0  # Number of candidate blocking objects
+    # Truncation bookkeeping. The per-neighbour timeout abandons remaining candidates, so a scene can
+    # silently contribute FEWER episodes than it has blocking objects. That went unnoticed until
+    # 2026-08-09, when an audit found ~11% of instances missing from the canonical test set: the
+    # failure_reason=="timeout" path below only fires when NOTHING succeeded, so a neighbour that
+    # solved some objects and then timed out recorded no trace at all. These two fields always do.
+    neighbour_timed_out: bool = False   # the per-neighbour/search timeout cut this neighbour short
+    candidates_unswept: int = 0         # blocking objects never tried (0 == exhaustive over objects)
     # Detailed ML goal info (for analysis/visualization)
     # Each entry: {'edge_idx': int, 'depth_idx': int, 'x': float, 'y': float, 'theta': float, 'votes': int}
     aligned_primitives: Optional[List[Dict]] = None
@@ -1509,6 +1516,7 @@ class RegionOpeningPlanner(BasePlanner):
         # Try each candidate object with BFS search (already filtered for reachability)
         # NOTE: We try ALL objects (no early termination) to record per-object triplets for eval
         timed_out = False
+        n_swept = len(candidates)          # set below if a break abandons the rest
         for obj_idx, object_id in enumerate(candidates, 1):
             if not self.exhaustive_mode and self.stop_after_max_solutions and total_solutions_collected >= max_solutions:
                 if self.config.verbose:
@@ -1516,6 +1524,7 @@ class RegionOpeningPlanner(BasePlanner):
                         f"    🛑 Collected {total_solutions_collected}/{max_solutions} solutions for '{neighbour_label}', "
                         f"stopping before trying remaining objects"
                     )
+                n_swept = obj_idx - 1      # this object and the rest were never tried
                 break
 
             # Check timeout before trying next object
@@ -1525,6 +1534,7 @@ class RegionOpeningPlanner(BasePlanner):
                     if self.config.verbose:
                         print(f"    ⏱ TIMEOUT after {elapsed_sec:.1f}s (limit: {self.timeout_per_neighbour_sec}s) - stopping search for '{neighbour_label}'")
                     timed_out = True
+                    n_swept = obj_idx - 1  # this object and the rest were never tried
                     break
 
             # CRITICAL: Reset to exploration_state before trying each object
@@ -2012,6 +2022,8 @@ class RegionOpeningPlanner(BasePlanner):
 
             for attempt in all_goal_attempts:
                 attempt.solutions_found_for_neighbour = solutions_by_object.get(attempt.chosen_object_id, 0)
+                attempt.neighbour_timed_out = timed_out
+                attempt.candidates_unswept = len(candidates) - n_swept
 
             return all_goal_attempts
         else:
@@ -2047,6 +2059,8 @@ class RegionOpeningPlanner(BasePlanner):
                 neighbour_region_label=neighbour_label,
                 error_message=error_msg,
                 connectivity_before=conn_before,
+                neighbour_timed_out=timed_out,
+                candidates_unswept=len(candidates) - n_swept,
                 timing_ms=(time.time() - attempt_start) * 1000,
                 region_goal_used=precheck_region_goal,
                 region_goals_sampled=all_region_goals,

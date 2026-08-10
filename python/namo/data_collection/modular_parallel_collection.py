@@ -488,6 +488,8 @@ def modular_worker_process(task: ModularWorkerTask) -> ModularWorkerResult:
                                 'pushes_total_for_neighbour': getattr(attempt, 'pushes_total_for_neighbour', None),
                                 'failure_reason': getattr(attempt, 'failure_reason', None),
                                 'candidate_objects_count': getattr(attempt, 'candidate_objects_count', None),
+                                'neighbour_timed_out': getattr(attempt, 'neighbour_timed_out', None),
+                                'candidates_unswept': getattr(attempt, 'candidates_unswept', None),
                                 'ml_goals_generated': getattr(attempt, 'ml_goals_generated', None),
                                 'ml_goals_aligned': getattr(attempt, 'ml_goals_aligned', None),
                                 'ml_diffusion_calls': getattr(attempt, 'ml_diffusion_calls', None),
