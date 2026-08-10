@@ -12,9 +12,11 @@ All paths under `/common/users/dm1487/scratch_namo/`.
 - Guard: `python/tests/test_eval_sets.py` asserts every path resolves to an existing file with the expected counts (1322 / 1012 / GT tiers 385·488·137 + 2 unknown / 2341 / 68,393), and verifies all three canonical random artifacts use the registered search. Run it before trusting a config edit.
 - Migrated: **all** committed eval entrypoints (incl. `eval_bestfirst.py` / `time_bestfirst.py`) + agg scripts + slurm launchers. No committed eval code hardcodes a `namo_testset_v1/labels` path any more.
 
-## Canonical test manifests (testset_v1) — USE THESE
+## SUPERSEDED — testset_v1 manifests (historical)
 
-The canonical eval distribution. Answer keys (which episodes + difficulty), verified by live sim at eval time.
+**⛔ v1 is NO LONGER canonical (switched to v2 on 2026-08-09).** Every arm number in the model registry was produced on THIS population and is **not comparable to any v2 result** — v2 is a partly different set of instances, not a re-bin. Keep this section to interpret existing results and to reproduce them exactly.
+
+The former canonical eval distribution. Answer keys (which episodes + difficulty), verified by live sim at eval time.
 
 | artifact | path | size | what it is |
 |---|---|---|---|
@@ -28,13 +30,30 @@ The unfiltered canonical-path `onepush_episodes_canonical.json` (1323) and `pure
 
 **INVARIANT:** the unit is per **(xml, object, region)** region-opening instance, never per room. One xml holds many instances with different tiers.
 
-## testset_v2 — re-swept on fixed physics (BUILT + VERIFIED, **not yet canonical**)
+## ⭐ CANONICAL — testset_v2 (re-swept on fixed physics, live since 2026-08-09)
 
-`config/eval_sets.yaml` still points at **testset_v1, and v1 remains the canonical eval set**. Nothing under `namo_testset_v1/` is archived or modified. This section records v2 so the switch (if we make it) is a one-line yaml edit against a verified artifact.
+`config/eval_sets.yaml` points here. Nothing under `namo_testset_v1/` was deleted — it is retained for reproducing existing results.
+
+**⛔ v2 IS A DIFFERENT POPULATION, NOT A RE-BIN.** In 108 rooms the re-sweep resolved a **different blocking object** than v1 did (63 of them have exactly one episode in each version, on different objects; v2 surfaced 84 objects those rooms never had in v1). Root cause is UNVERIFIED — physics-driven reachability change vs collector episode-enumeration — and worth settling before the next test-set build. Consequence: **every registered arm number predates this switch and must be re-evaluated before it can be quoted against a v2 number.**
+
+### Canonical v2 views (what the yaml resolves to)
+
+| name | file | episodes | tiers (easy/med/hard) |
+|---|---|---|---|
+| 1push manifest + source | `onepush_v2.json` | **1204** (920 rooms) | 611 / 401 / 192 |
+| 2push manifest | `pure2push_v2_search_eval.json` | **949** (936 rooms) | 366 / 467 / 116 |
+| 2push tiers | `pure2push_gt_divisions_v2_search_eval.json` | 949 | same |
+| 2push source | `pure2push_all.json` | 961 | — |
+| GT tiers (full) | `pure2push_gt_divisions_v2.json` | 1115 | — |
+| merged GT H5 | `curriculum2/beast/round2/h5/testset_gt_v2.h5` | **66,354 nodes** | — |
+
+The 2push manifest is the 961-episode source minus **3 zero-GT-setup** and **9 no-GT-root** episodes — the same two GT-derived rules that were hand-listed as v1 exclusions, now applied programmatically at build time. v1's remaining exclusions were EMPIRICAL (every ranker exhausted the queue without realizing the GT answer); they cannot transfer to a different population, so `search_eval_exclusions` is deliberately empty until re-derived from a v2 re-eval.
+
+**The registered random-search baseline is STALE** — it was run on the v1 population and is marked `status: STALE_v1_population` in the yaml with its own `population_episodes`. `test_eval_sets.py` enforces that a STALE baseline matches its declared population and does NOT silently pass as the current floor. Re-run it before quoting any v2-vs-random claim.
 
 **Why it exists:** the 2026-07-21 exhaustive sweep ran on physics that leaked `ctrl`/`qacc_warmstart` across `set_full_state` restores, fixed by `5daaed5`. Tiers are thresholds on success density, so a changed outcome can move an episode's tier. The whole test set was re-swept exhaustively on fixed bindings (Amarel, namo `ef70ae9`, `feat/horizon-q-redesign`, bindings rebuilt after `5daaed5`; same `ref_fullexhaust.yaml` config as July).
 
-**Headline: the physics fix barely moves the tiers — 2push 10/979 flips (1.0%), 1push 38/1201 flips (3.2%).** Flips are threshold-adjacent (median 0.029 from a cut, 30/38 within 0.05) and go both directions, i.e. boundary jitter rather than a systematic shift. Existing results binned on v1 tiers are therefore substantially unaffected.
+**On the episodes present in both, the physics fix barely moves the tiers — 2push 10/979 flips (1.0%), 1push 38/1201 flips (3.2%).** Flips are threshold-adjacent (median 0.029 from a cut, 30/38 within 0.05) and go both directions, i.e. boundary jitter rather than a systematic shift. Existing results binned on v1 tiers are therefore substantially unaffected.
 
 | artifact | path (under `datasets/namo_testset_v2/labels/`) | size | what it is |
 |---|---|---|---|

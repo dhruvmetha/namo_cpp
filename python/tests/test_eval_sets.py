@@ -95,9 +95,20 @@ def test_canonical_random_baseline_is_three_seed_hmax2():
         assert result["search"]["sim_budget"] == 900
         assert result["search"]["dedupe_noop"] is True
         assert result["search"]["prune_jam_depth"] is True
-        assert result["1push"]["all"]["n"] == E.EXPECTED["onepush_manifest_episodes"]
-        assert result["2push"]["all"]["n"] == E.EXPECTED["pure2push_manifest_episodes"]
-        assert result["2push"]["hard"]["n"] == E.EXPECTED["divisions"]["hard"]
+
+        # A baseline is only a valid floor for the CURRENT canonical population. A baseline carried
+        # over from an earlier test set must declare `status: STALE_<...>` and its own population, so
+        # the mismatch is explicit here instead of silently under-reporting the random floor.
+        if baseline.get("status", "").startswith("STALE"):
+            pop = baseline["population_episodes"]
+            assert result["1push"]["all"]["n"] == pop["1push"]
+            assert result["2push"]["all"]["n"] == pop["2push"]
+            assert pop["1push"] != E.EXPECTED["onepush_manifest_episodes"], \
+                "baseline marked STALE but already matches the current population — drop the marker"
+        else:
+            assert result["1push"]["all"]["n"] == E.EXPECTED["onepush_manifest_episodes"]
+            assert result["2push"]["all"]["n"] == E.EXPECTED["pure2push_manifest_episodes"]
+            assert result["2push"]["hard"]["n"] == E.EXPECTED["divisions"]["hard"]
 
 
 def test_unknown_name_raises():

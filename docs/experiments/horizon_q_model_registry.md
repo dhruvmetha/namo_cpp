@@ -22,7 +22,13 @@ updated: 2026-08-02
 > expect roughly **+10% sims** on current physics. Re-baseline before mixing.
 > The 2026-07-29 binary is archived at Amarel `projects/namo/_archive_2026-08-09/namo_postprune_eval/` and is the
 > ONLY way to reproduce a row below exactly — do not delete it.
-> **The difficulty TIERS, however, are essentially unchanged.** The whole test set was re-swept exhaustively on
+> **⛔ TEST SET SWITCHED TO v2 (2026-08-09) — EVERY NUMBER BELOW IS ON THE v1 POPULATION.**
+> `config/eval_sets.yaml` now resolves to `namo_testset_v2` (1push 1204 / 2push 949). v2 is **not** a re-bin of
+> v1: in 108 rooms the re-sweep resolved a different blocking object, so it is a partly different set of
+> region-opening instances. Arm-vs-arm comparisons BELOW remain valid among themselves (same population, same
+> binary); an arm below vs any NEW v2 number is **invalid** until that arm is re-evaluated. The registered random
+> baseline is likewise stale and marked `STALE_v1_population` in the yaml.
+> On the episodes common to both, tiers barely moved: The whole test set was re-swept exhaustively on
 > fixed physics (`namo_testset_v2`): only **1.0% of 2push (10/979) and 3.2% of 1push (38/1201)** episodes change
 > tier, all threshold-adjacent and in both directions. So the per-tier splits reported below do not need restating;
 > it is the SIM COUNTS that shift. v2 is built and verified but **not canonical** — `config/eval_sets.yaml` still

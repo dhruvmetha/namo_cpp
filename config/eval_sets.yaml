@@ -5,20 +5,20 @@
 # Paths are relative to $NAMO_SCRATCH (resolved per-box via namo.paths → portable).
 # Documented in docs/experiments/eval_set_registry.md.
 
-testset: namo_testset_v1
+testset: namo_testset_v2
 
 files:
-  # canonical manifests (consumed by eval as --key / answer keys) and their untouched sources
-  onepush_source:      datasets/namo_testset_v1/labels/onepush_episodes_canonical.json # full 1323, canonical test-room paths
-  onepush_manifest:    datasets/namo_testset_v1/labels/onepush_search_eval.json    # search-eligible 1push manifest
-  pure2push_source:    datasets/namo_testset_v1/labels/pure2push.json              # full 1018
-  pure2push_manifest:  datasets/namo_testset_v1/labels/pure2push_search_eval.json   # search-eligible 2push eval key
-  pure2push_divisions: datasets/namo_testset_v1/labels/pure2push_gt_divisions_search_eval.json # fixed exhaustive-GT setup-density tiers
-  pure2push_gt_divisions_source: datasets/namo_testset_v1/labels/pure2push_gt_divisions_final35.json # full 1018-episode finalized GT tiers
-  twopush_source:      datasets/namo_testset_v1/labels/twopush.json             # SOURCE (onepush/pure2push derived from this)
-  # THE ONLY canonical comprehensive 2push GT artifact. Each included root was fully exhausted;
-  # 1010/1012 search episodes are covered and the remaining two are explicitly unknown.
-  twopush_gt_h5:       curriculum2/beast/round2/h5/testset_gt_plus35.h5
+  # canonical manifests (consumed by eval as --key / answer keys) and their untouched sources.
+  # testset_v2 = the 2026-08-09 exhaustive re-sweep on post-5daaed5 physics. See eval_set_registry.md.
+  onepush_source:      datasets/namo_testset_v2/labels/onepush_v2.json                 # 1204, 1push-solvable under the new bar
+  onepush_manifest:    datasets/namo_testset_v2/labels/onepush_v2.json                 # == source; no empirical exclusions derived yet on v2
+  pure2push_source:    datasets/namo_testset_v2/labels/pure2push_all.json              # full 961
+  pure2push_manifest:  datasets/namo_testset_v2/labels/pure2push_v2_search_eval.json   # 949 = source minus zero-GT-setup (3) and no-GT-root (9)
+  pure2push_divisions: datasets/namo_testset_v2/labels/pure2push_gt_divisions_v2_search_eval.json # exhaustive-GT setup-density tiers over the 949
+  pure2push_gt_divisions_source: datasets/namo_testset_v2/labels/pure2push_gt_divisions_v2.json   # full 1115-episode GT tiers
+  twopush_source:      datasets/namo_testset_v2/labels/twopush_all.json                # SOURCE (both derived from this)
+  # THE canonical comprehensive 2push GT artifact for v2: 100 re-swept shards merged.
+  twopush_gt_h5:       curriculum2/beast/round2/h5/testset_gt_v2.h5
 
 # Retained only for historical reproduction or distribution-shift diagnostics. These are not
 # canonical test sets and must never replace the exhaustive-GT tiers/file above in new results.
@@ -30,6 +30,11 @@ noncanonical_files:
 # Report the three runs as ONE baseline: mean +/- sample SD across seeds; never headline one seed.
 baselines:
   random_search_hmax2:
+    # STALE: these three runs were executed on the testset_v1 POPULATION. v2 is a partly different
+    # set of region-opening instances (108 rooms resolved a different blocking object), so these
+    # numbers are NOT a valid floor for v2 results. Re-run before quoting any v2-vs-random claim.
+    status: STALE_v1_population
+    population_episodes: {1push: 1322, 2push: 1012}
     ranker: uniform_random
     seeds: [7000, 8000, 9000]
     report: mean_plus_sample_sd
@@ -47,50 +52,21 @@ baselines:
 
 # loader self-test assertions (namo.eval_sets validates against these)
 expected_counts:
-  onepush_source_episodes:     1323
-  onepush_manifest_episodes:   1322
-  onepush_divisions: {easy: 697, medium: 421, hard: 204}
-  pure2push_manifest_episodes: 1012
-  pure2push_source_episodes:   1018
-  pure2push_gt_divisions_source_episodes: 1018
-  twopush_source_episodes:     2341
-  divisions:  {easy: 385, medium: 488, hard: 137, unknown: 2}
-  sampled_divisions: {easy: 238, medium: 408, hard: 366}
-  twopush_gt_h5_nodes:         68393
+  onepush_source_episodes:     1204
+  onepush_manifest_episodes:   1204
+  onepush_divisions: {easy: 611, medium: 401, hard: 192}
+  pure2push_manifest_episodes: 949
+  pure2push_source_episodes:   961
+  pure2push_gt_divisions_source_episodes: 1115
+  twopush_source_episodes:     2352
+  divisions:  {easy: 366, medium: 467, hard: 116}
+  sampled_divisions: {easy: 238, medium: 408, hard: 366}   # legacy v1 artifact, intentionally unchanged
+  twopush_gt_h5_nodes:         66354
 
-search_eval_exclusions:
-  - horizon: 1push
-    xml_suffix: car_envs/v3/test/feb_car/straight50_pts2/real_template_pts2_seed07136/run_0003/env_0003_pair_001.xml
-    object_id: obstacle_1_movable
-    region: goal
-    reason: all four rankers exhaust the identical 45-call queue without representing the exhaustive-GT opener
-  - horizon: 2push
-    xml_suffix: car_envs/v3/test/aug9_car/set1/benchmark_3/run_0029/env_0029_pair_001.xml
-    object_id: obstacle_2_movable
-    region: goal
-    reason: all four rankers exhaust the identical 27-29-call queue without representing the exhaustive-GT setup
-  - horizon: 2push
-    xml_suffix: car_envs/v3/test/aug9_car/set2/benchmark_5/run_0207/env_0207_pair_000.xml
-    object_id: obstacle_1_movable
-    region: goal
-    reason: sampled manifest says solvable but the exhaustive GT has zero genuine setup pushes
-  - horizon: 2push
-    xml_suffix: car_envs/v3/test/aug9_car/set1/benchmark_4/run_0245/env_0245_pair_000.xml
-    object_id: obstacle_3_movable
-    region: goal
-    reason: sampled manifest says solvable but the exhaustive GT has zero genuine setup pushes
-  - horizon: 2push
-    xml_suffix: car_envs/v3/test/aug9_car/set1/benchmark_4/run_0282/env_0282_pair_001.xml
-    object_id: obstacle_4_movable
-    region: goal
-    reason: sampled manifest says solvable but the exhaustive GT has zero genuine setup pushes
-  - horizon: 2push
-    xml_suffix: car_envs/v3/test/feb_car/straight100_pts2/real_template_pts2_seed01036/run_0006/env_0006_pair_001.xml
-    object_id: obstacle_3_movable
-    region: goal
-    reason: sampled manifest says solvable but the exhaustive GT has zero genuine setup pushes
-  - horizon: 2push
-    xml_suffix: car_envs/v3/test/feb_car/straight50_pts2/real_template_pts2_seed02037/run_0005/env_0005_pair_001.xml
-    object_id: obstacle_0_movable
-    region: goal
-    reason: all four rankers exhaust the pruned search queue without realizing the exhaustive-GT setup-finish chain
+# v1's exclusions do NOT carry over: they were specific (xml, object, region) records on the v1
+# population, and the two GT-derived classes are now applied programmatically when the v2 manifest is
+# built (3 zero-GT-setup + 9 no-GT-root episodes dropped from pure2push_v2_search_eval.json).
+# The remaining v1 entries were EMPIRICAL (every ranker exhausted the queue without realizing the GT
+# answer) and can only be re-derived after the v2 re-eval. Until then this list is intentionally empty.
+search_eval_exclusions: []
+# archived for audit: the v1 records live in git history at config/eval_sets.yaml@164a42b
