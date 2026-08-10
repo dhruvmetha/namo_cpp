@@ -111,6 +111,10 @@ Known limit, logged up front: the EG/EGMM terms fire only on the 21% of rows wit
 
 Round-2 arms get the FULL canonical treatment like round 1 [USER 2026-08-09]: offline panel + score autopsy on completion, then the same Amarel canonical sweep (1push+2push, difficulty × horizon) beside AJ2/AJ2NR/BNG via `run_fleet_eval.sh`. No accept/reject at any readout; verdicts on the user's read of the full tables.
 
+## Round 3 — rank-pure EGMM (launched 2026-08-09 late night, USER: "start this only for now")
+
+`RPE_s{1,2,3}` (`train_q2_rankpure_egmm.py`): the fully value-free stack — RP's two softmax rank terms + EGMM's family margin-vs-max at `RPE_FAM=1.0`, NO regression anywhere, categorical labels only, monitor = RP's val rank loss. Rationale: if it lands near EGMM's profile, value machinery exits the project entirely. Pre-registered watch items: score-stretch (RP's, no brake) COMPOUNDING with the V6 board-scramble (EGMM's) — meters are the per-tier score histogram and V6; front-curve @2/@5 is where compounding would show.
+
 ## Round-1 RESULTS (canonical complete 2026-08-09 evening; 3 seeds pooled, 432/432 shards, zero unmatched)
 
 | arm | 2p-h@2 | 2p-h@5 | 2p-h@30 | 2p-h@900 | 2p-med@5 | 1p-h@1 | 1p-h@5 | s2s-hard |
