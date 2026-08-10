@@ -132,7 +132,8 @@ All under `$NAMO_SCRATCH/aquaman/round0/` (CS); ckpts `models/<ARM>_s{1,2,3}/che
 | EGMM | `train_q2_round2.py` `EGMM_LAMBDA=0.1 NAMO_GROUP_EPISODES=1` | `gate_r2.json` | `auc_round2.json` | complete (s1 = 3rd submission; 2 OOM crashes on oversubscribed ilab GPUs) |
 | RPB | `train_q2_rankpure.py` `RP_BRAKE=0.02` | `gate_r2.json` | `auc_round2.json` | complete |
 | RPE | `train_q2_rankpure_egmm.py` (margin 0.2, span [0,1]) | `gate_rpe.json` | `auc_rpe.json` | complete |
-| RPU | `train_q2_rankpure_egmm.py` `RPE_MARGIN=1.0 RPE_VMIN=-10 RPE_VMAX=10` | `gate_rpu.json` | `auc_rpu.json` | launching 2026-08-10 |
+| ~~RPU~~ | wide-span bridge arm | — | — | CANCELLED before fleet [USER 2026-08-10: "only RPL"] — superseded by the honest head |
+| RPL | `train_q2_rankpure_linear.py` (LINEAR 5-out head, margin 1.0, leash 1e-3, no bins/no regression — the Chrestien configuration + hinge-on-max + leash) | `gate_rpl.json` | `auc_rpl.json` | launching 2026-08-10 |
 | BNGre | BNG ckpts re-evaluated (drift check) | `gate_bngre.json` | (= `auc_bng.json`) | complete |
 
 Baselines reused, never retrained: AJ2/AJ2NR (`gate_aj2.json`), BNG (`gate_bng.json`), θ₀/random (registry). Full registry rows: [horizon_q_model_registry.md](../horizon_q_model_registry.md).
