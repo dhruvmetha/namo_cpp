@@ -36,9 +36,20 @@ The unfiltered canonical-path `onepush_episodes_canonical.json` (1323) and `pure
 
 **⛔ v2 IS A DIFFERENT POPULATION, NOT A RE-BIN.** In 108 rooms the re-sweep swept a **different blocking object** than v1 (63 of them have exactly one episode in each version, on different objects; v2 surfaced 84 objects those rooms never had in v1).
 
-**Root cause — VERIFIED, and it is not "physics deleted the object".** Sampling five such scenes and querying the current binary, the v1 object is **still reachable in every one**. What actually decides which object a scene contributes is the collector: `ref_fullexhaust.yaml` sets `episodes_per_env: 1` with `region_selection_strategy: ml_first` and `goal_strategy: scorer` (`probe/beast1_clean.ckpt`), so **the swept instance is chosen by a learned scorer, one per scene**. Both sweeps used the same config file and the same checkpoint, over the same rooms, with zero episodes filtered (July 983 pkls → 1118 episodes; re-sweep 983 → 1115). The only differing input was the physics binary, which shifted that argmax on ~11% of scenes.
+**Root cause — VERIFIED: the sweep is TRUNCATED BY COMPUTE BUDGET, and both v1 and v2 are.** Two earlier explanations were wrong and are recorded here so they are not re-derived: it is *not* that the physics fix made objects unreachable (sampling five divergent scenes, the v1 object is still reachable in every one), and it is *not* that a learned scorer picks the object (`region_selection_strategy: ml_first` sets FRONTIER PRIORITY — search order — not candidate selection).
 
-So v2's population is **not arbitrary** — it is the same selection rule evaluated under corrected physics, and is a well-defined function of (geometry, physics, scorer checkpoint). The standing caveat this exposes, equally true of v1, is that **the eval population depends on a model checkpoint**; if we ever want a population that is a pure function of geometry, the collector must enumerate reachable objects rather than take the scorer's top pick.
+What the code actually does: candidates are the **geometric** blocking objects on the robot/neighbour boundary, intersected with reachable, and `region_opening.py` tries **all** of them ("NOTE: We try ALL objects (no early termination) to record per-object triplets for eval"). The only exit is the timeout — `region_timeout_per_neighbour_sec: 480` and `search_timeout: 600` set `timed_out = True; break`, abandoning every remaining candidate.
+
+Measured, over the same 983 scenes:
+
+| sweep | geometric candidates | objects recorded | truncated neighbours |
+|---|---|---|---|
+| v1 (2026-07-21) | **1250** | 1118 (89.4%) | 114 |
+| v2 (2026-08-09) | **1250** | 1115 (89.2%) | 116 |
+
+Both sweeps find the **identical 1250 candidates** — geometry is deterministic — and each silently drops ~11% of them to the clock. The truncated neighbours are exactly the slow ones: median push-execution 1108 s vs 634 s for complete ones, with **94% at or over the 480 s cap**. Which candidates survive is therefore a function of wall-clock timing, which moves with machine load and with the physics change, and that is why 108 rooms ended up with a different object.
+
+**Consequence — state this whenever the test set is described.** The set is exhaustive *within* each recorded `(object, region)` instance (that part is trustworthy, and the GT tiers built on it are exact), but it is **NOT exhaustive over blocking objects per scene** in either version. ~11% of legitimate region-opening instances are missing, selected against by how expensive they are to simulate — i.e. biased toward the hard end. Fixing it is a targeted re-sweep of the 116 truncated neighbours with a raised cap, not a full rebuild.
 
 Consequence for results: **every registered arm number predates this switch and must be re-evaluated before it can be quoted against a v2 number.**
 
