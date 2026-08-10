@@ -115,6 +115,10 @@ Round-2 arms get the FULL canonical treatment like round 1 [USER 2026-08-09]: of
 
 `RPE_s{1,2,3}` (`train_q2_rankpure_egmm.py`): the fully value-free stack — RP's two softmax rank terms + EGMM's family margin-vs-max at `RPE_FAM=1.0`, NO regression anywhere, categorical labels only, monitor = RP's val rank loss. Rationale: if it lands near EGMM's profile, value machinery exits the project entirely. Pre-registered watch items: score-stretch (RP's, no brake) COMPOUNDING with the V6 board-scramble (EGMM's) — meters are the per-tier score histogram and V6; front-curve @2/@5 is where compounding would show.
 
+### Round-3 RESULT (complete 2026-08-10 early)
+
+`RPE` 3 seeds: offline V5 0.431/V6 0.720/F2 0.916 hard; deploy 2p-h@2 11.4 / @5 25.9 / @30 52.1 / **@900 90.9** / s2s 104. **Both pre-registered tripwires CLEAN**: no histogram walls (top bins ~0.3% mass — the margin self-stops, Kim's lineage vindicated) and V6 0.720 — BETTER than parent EGMM's 0.685, so removing regression relieved rather than compounded the board-scramble. RPU (unbounded head) therefore does NOT fire — its trigger never appeared; the bound is not binding. Verdict-shaped observation [no accept/reject]: the fully value-free stack (categorical labels, ordinal losses only) deploys ≈ the AJ2 control with second-best reach in the ledger. Aggregate `gate_rpe.json`, panel `auc_rpe.json`.
+
 ## Round-1 RESULTS (canonical complete 2026-08-09 evening; 3 seeds pooled, 432/432 shards, zero unmatched)
 
 | arm | 2p-h@2 | 2p-h@5 | 2p-h@30 | 2p-h@900 | 2p-med@5 | 1p-h@1 | 1p-h@5 | s2s-hard |
