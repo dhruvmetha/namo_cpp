@@ -12,6 +12,25 @@ tags:
 
 **⛔ Read [docs/problem_and_approach.md](../../problem_and_approach.md) first.** The model is a ranker; the simulator is a perfect free verifier; success is fewer sim calls than random on every tier.
 
+## Plain-language key [USER: define everything]
+
+| term | plain meaning |
+|---|---|
+| **board** | one snapshot of the room; one H5 row; up to 300 candidate pushes (60 contacts × 5 depths) |
+| **episode / family** | the root board + every child board its pushes spawned; the deploy heap only ever holds ONE episode's boards |
+| **dead board** | a child board with no verified finish anywhere on it — every push on it is junk |
+| **champion / impostor** | a dead board's HIGHEST-scored cell — the only cell of that board the heap ever compares against others |
+| **burial** | count of dead-board cells scored above the best true setup of the episode (measured on exhaustive GT; hard-tier median ~150–200 for every round-1 arm) |
+| **per-board rank aux** | round-0 loss term: softmax ordering of cells WITHIN one board (`dim=1`) — blind to everything cross-board |
+| **XB** | round-1 arm: AJ2 base + the SAME softmax ordering over one batch-flat list (256 random boards, "strangers") — crowd-suppressor, all rivals pushed a little |
+| **RP** | round-1 arm: rank-pure — regression and ceiling terms DELETED, per-board + batch-flat rank terms only, weights 1.0 |
+| **MM** | round-2 arm: AJ2 base + margin-vs-MAX on the batch-flat list — hinge, full gradient on the single tallest rival until beaten by `MM_MARGIN=0.2`, zero on the rest — champion-hunter aimed at strangers |
+| **EG** | round-2 arm: AJ2 base + the softmax ordering over the EPISODE FAMILY list (grouped sampler seats root+children together) — right classroom, soft penalty |
+| **EGMM** | round-2 arm: AJ2 base + margin-vs-MAX WITHIN the family list — "your setup must beat the champion of every dead board in its episode"; the deploy duel as a loss |
+| **RPB** | round-2 arm: RP + `RP_BRAKE=0.02` of the exact regression term — tests whether regression's only surviving job is keeping the score scale from stretching |
+| **V4 / V5** | setup vs a TYPICAL dead cell (crowd) / setup vs each dead board's CHAMPION (max) — V4 can be a record while V5 sits at coin-flip, because max-of-70 is a tail statistic |
+| **shovel vs grave** | within-board sharpness (how fast search recovers after entering a wrong board) vs cross-board burial (how many wrong boards outrank the setup) — independent axes, measured independently |
+
 ## Why now (evidence that forced this)
 
 Within-board supervision is saturated: 7 rank-on arms across 3 label regimes all sit at V5 0.527–0.543, a 72× label dose moved nothing ([EXP-2026-08-08](EXP-2026-08-08-arjuna-hard-labels.md)).
@@ -104,6 +123,29 @@ Round-2 arms get the FULL canonical treatment like round 1 [USER 2026-08-09]: of
 References: BNG 32.1 @5 · Bfix 28.9 · A 27.7 · θ₀ 22.6 · random 1.7. Aggregate `round0/gate_xbrp.json` (spec `arms_xbrp.json`), panel `round0/auc_xbrp.json` (3 seeds).
 
 Observations [numbers, no verdicts — user's call]: XB gains sit in the predicted mid-curve zone (+1.9 @5, +1.4 @30, −5.7 s2s) with V5 FLAT (0.456 vs 0.455 hard) — the deploy gain traces to finish ordering (offline finish@1 +2.3), not cross-board repair. RP (regression deleted) lands within ~2 pts of the full loss everywhere and takes best-in-table 2p-h@2 (12.9) and 1p-h@5 (80.9), against the historic no-aux collapse (4.9/20.0) — regression reads as largely replaceable at deploy, its absence costing ~2 mid-curve pts consistent with the un-braked stretch in the autopsy. H1's V5 mechanism remains open; that is round 2's target.
+
+## Round-2 RESULTS (canonical complete 2026-08-09 night; EGMM_s1 eval trailing, 2-seed rows marked)
+
+| arm | 2p-h@2 | 2p-h@5 | 2p-h@30 | 2p-h@900 | 2p-med@5 | 1p-h@1 | s2s-hard |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| AJ2 (ctrl) | 12.7 | 26.8 | 53.3 | 90.0 | 50.2 | 38.1 | 105 |
+| XB | 12.4 | 28.7 | 54.7 | 91.0 | 49.5 | 38.2 | 100 |
+| MM | 13.4 | **31.6** [27.7, 38.0] | 53.3 | 89.3 | 50.4 | **39.4** | 108 |
+| EG | 10.9 | 29.7 [26.3, 31.4] | **57.4** | 89.1 | 46.8 | 34.2 | 89 |
+| EGMM (2s) | 10.9 | 26.3 | 50.0 | 90.1 | 44.2 | 35.3 | **81** |
+| RPB | 12.4 | 23.4 | 48.7 | 88.3 | **51.4** | 38.1 | 88 |
+
+References: BNG 32.1 · Bfix 28.9 · random 1.7. Aggregates `gate_r2.json` (spec `arms_r2.json`), offline panel `auc_round2.json` (12 seeds), plots `r2full_success_vs_sims.png`.
+
+Observations [numbers, no verdicts]:
+
+**The 2×2 personality grid held at deploy.** MM (sharpener): best early curve of the round — @5 31.6 pooled, BNG-class WITHOUT BNG's guess labels, 1p-h@1 39.4 best-in-table; its famous 38.0 was the s2 seed, band [27.7, 38.0]. EG (thinner): most consistent BNG-class @5 ([31.4, 31.4, 26.3]), best @30 (57.4), s2s 89 — the crowd-thinning cashes mid-curve exactly as the burial analysis predicted. EGMM (digger): best s2s ever (81) and the only robust offline V5 mover (0.492 3-seed) + best F2 (0.920), but worst front-curve — its V6 drop (board-vs-board scrambling) is the standing suspect. RPB: weakest at deploy (@5 23.4) — the 2% brake did NOT recover RP's mid-curve; the leash story is falsified at this dose.
+
+**Offline meters anti-predicted the deploy podium** (burial/V5 crowned EGMM; sims crowned MM/EG) — front-curve tracks within-board sharpness (the @2 identity setup@1×finish@1 verified again: MM 0.252×0.536≈13.5 vs measured 13.4), while V5/burial improvements cash out as cheaper DIGGING (s2s 81–89 for the family arms), not earlier solves.
+
+**Oracle probe [same night]: inputs are NOT blind.** Fresh 4-layer CNN separates live/dead children at held-out AUC 0.795 (climbing) — resolution-blindness falsified; the trained rankers' V6 0.74–0.79 ≈ a 6-epoch toy, so liveness headroom exists and the missing-children collection is well-founded. Probe log `probe_livedead.log`, script in session scratchpad (to be landed in scripts/experiments).
+
+**Data census that motivates the collection:** children 16% of training rows vs 94% of deploy pops; dead children of non-setup pushes ~absent (children exist only under the 26k Colossus setup roots; "94% of bounded cells sit on rows with no child stored"). Bfix/BNG added LABELS to these same rows, never new boards — no label scheme could touch this hole.
 
 ## Log
 

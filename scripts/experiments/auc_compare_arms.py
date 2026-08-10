@@ -20,7 +20,7 @@ import json
 from pathlib import Path
 
 R0 = Path("/common/users/dm1487/scratch_namo/aquaman/round0")
-PANELS = {"auc_bfix.json": None, "auc_bng.json": None, "auc_arj.json": None, "auc_aj2.json": None, "auc_aj3.json": None, "auc_xbrp.json": None}
+PANELS = {"auc_bfix.json": None, "auc_bng.json": None, "auc_arj.json": None, "auc_aj2.json": None, "auc_aj3.json": None, "auc_xbrp.json": None, "auc_round2_early.json": None, "auc_round2.json": None}
 
 TIERS = ["all", "easy", "med", "hard"]
 
@@ -49,7 +49,7 @@ for fn in PANELS:
             })
 
 KEYS = ["V1", "V2", "F1", "F2", "V4", "V5", "V5m", "V6", "setup@1", "finish@1"]
-ORDER = [k for k in ("Bfix", "BfixNR", "ANR", "BNG", "ARJ", "AJ2", "AJ2NR", "XB", "RP")
+ORDER = [k for k in ("Bfix", "BfixNR", "ANR", "BNG", "ARJ", "AJ2", "AJ2NR", "XB", "RP", "MM", "EG", "EGMM", "RPB")
          if any(stem == k for stem, _ in rows)]
 for tier in TIERS:
     print(f"\n=== {tier} ===")
