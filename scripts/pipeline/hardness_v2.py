@@ -22,10 +22,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "python")
 from namo import paths                                          # box-portable roots
 
 MODE = sys.argv[1]
+VER = sys.argv[2] if len(sys.argv) > 2 else "v2"          # target test-set version
 SCRATCH = str(paths.SCRATCH)
 LAB1 = f"{paths.DATASETS}/namo_testset_v1/labels"
-LAB2 = f"{paths.DATASETS}/namo_testset_v2/labels"
+LAB2 = f"{paths.DATASETS}/namo_testset_{VER}/labels"
 B = f"{SCRATCH}/curriculum2/beast/round2/testset_finish_gt"
+SHARDS = f"{B}/h5_{VER}/shards"
 CUTS = ((0.05, "hard"), (0.30, "medium"))
 
 
@@ -98,7 +100,7 @@ if MODE == "v1":
     sys.exit(0 if ok else 1)
 
 # --------------------------------------------------------------------- v2 tiers
-ns = n_setups(sorted(glob.glob(f"{B}/h5_v2/shards/*.h5")))
+ns = n_setups(sorted(glob.glob(f"{SHARDS}/*.h5")))
 den = denominators(f"{LAB2}/twopush_all.json")
 div = json.load(open(f"{LAB1}/pure2push_gt_divisions_final35.json"))
 OLD = {(suf(x), e["object_id"]): e for x, eps in div.items() for e in eps}
@@ -135,6 +137,6 @@ for x, eps in full.items():
         if k in rows:
             out[x].append(dict(object_id=e["object_id"], region=e.get("region"),
                                division_source="exhaustive_gt_setup_density", **rows[k]))
-dst = f"{LAB2}/pure2push_gt_divisions_v2.json"
+dst = f"{LAB2}/pure2push_gt_divisions_{VER}.json"
 json.dump(out, open(dst, "w"))
 print(f"\n  wrote {dst}: rooms={len(out)} episodes={sum(len(v) for v in out.values())}")

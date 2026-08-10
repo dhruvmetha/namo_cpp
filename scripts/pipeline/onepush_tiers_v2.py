@@ -14,8 +14,9 @@ from collections import Counter, defaultdict
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "python"))
 from namo import paths                                          # box-portable roots
 
+VER = sys.argv[1] if len(sys.argv) > 1 else "v2"                      # target test-set version
 LAB1 = f"{paths.DATASETS}/namo_testset_v1/labels"
-LAB2 = f"{paths.DATASETS}/namo_testset_v2/labels"
+LAB2 = f"{paths.DATASETS}/namo_testset_{VER}/labels"
 
 
 def suf(p, n=5):
@@ -65,6 +66,6 @@ for x, eps in tp2.items():
                            solve_rate=float(e["solve_rate_1push"]),
                            division=bin_of(float(e["solve_rate_1push"])),
                            n_valid=len(e["valid_1push"]), n_tried=len(e["tried_1push"])))
-dst = f"{LAB2}/onepush_divisions_v2.json"
+dst = f"{LAB2}/onepush_divisions_{VER}.json"
 json.dump(out, open(dst, "w"))
 print(f"\n  wrote {dst}: rooms={len(out)} episodes={sum(len(v) for v in out.values())}")
