@@ -25,7 +25,8 @@ updated: 2026-08-02
 > **⛔ TEST SET SWITCHED TO v2 (2026-08-09) — EVERY NUMBER BELOW IS ON THE v1 POPULATION.**
 > `config/eval_sets.yaml` now resolves to `namo_testset_v2` (1push 1204 / 2push 949). v2 is **not** a re-bin of
 > v1: in 108 rooms the re-sweep resolved a different blocking object, so it is a partly different set of
-> region-opening instances. Arm-vs-arm comparisons BELOW remain valid among themselves (same population, same
+> region-opening instances (the collector picks ONE object per scene via a learned scorer, and the physics fix
+> shifted that pick on ~11% of scenes; the v1 objects are still reachable). Arm-vs-arm comparisons BELOW remain valid among themselves (same population, same
 > binary); an arm below vs any NEW v2 number is **invalid** until that arm is re-evaluated. The registered random
 > baseline is likewise stale and marked `STALE_v1_population` in the yaml.
 > On the episodes common to both, tiers barely moved: The whole test set was re-swept exhaustively on

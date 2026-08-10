@@ -34,7 +34,13 @@ The unfiltered canonical-path `onepush_episodes_canonical.json` (1323) and `pure
 
 `config/eval_sets.yaml` points here. Nothing under `namo_testset_v1/` was deleted — it is retained for reproducing existing results.
 
-**⛔ v2 IS A DIFFERENT POPULATION, NOT A RE-BIN.** In 108 rooms the re-sweep resolved a **different blocking object** than v1 did (63 of them have exactly one episode in each version, on different objects; v2 surfaced 84 objects those rooms never had in v1). Root cause is UNVERIFIED — physics-driven reachability change vs collector episode-enumeration — and worth settling before the next test-set build. Consequence: **every registered arm number predates this switch and must be re-evaluated before it can be quoted against a v2 number.**
+**⛔ v2 IS A DIFFERENT POPULATION, NOT A RE-BIN.** In 108 rooms the re-sweep swept a **different blocking object** than v1 (63 of them have exactly one episode in each version, on different objects; v2 surfaced 84 objects those rooms never had in v1).
+
+**Root cause — VERIFIED, and it is not "physics deleted the object".** Sampling five such scenes and querying the current binary, the v1 object is **still reachable in every one**. What actually decides which object a scene contributes is the collector: `ref_fullexhaust.yaml` sets `episodes_per_env: 1` with `region_selection_strategy: ml_first` and `goal_strategy: scorer` (`probe/beast1_clean.ckpt`), so **the swept instance is chosen by a learned scorer, one per scene**. Both sweeps used the same config file and the same checkpoint, over the same rooms, with zero episodes filtered (July 983 pkls → 1118 episodes; re-sweep 983 → 1115). The only differing input was the physics binary, which shifted that argmax on ~11% of scenes.
+
+So v2's population is **not arbitrary** — it is the same selection rule evaluated under corrected physics, and is a well-defined function of (geometry, physics, scorer checkpoint). The standing caveat this exposes, equally true of v1, is that **the eval population depends on a model checkpoint**; if we ever want a population that is a pure function of geometry, the collector must enumerate reachable objects rather than take the scorer's top pick.
+
+Consequence for results: **every registered arm number predates this switch and must be re-evaluated before it can be quoted against a v2 number.**
 
 ### Canonical v2 views (what the yaml resolves to)
 
