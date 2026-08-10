@@ -149,5 +149,7 @@ Observations [numbers, no verdicts]:
 
 ## Log
 
+- 2026-08-09 late [Claude, USER-requested] BNG re-evaluated from original ckpts on tonight's stack, fresh dirs `BNGre_s*` (registered artifacts untouched): @2 14.6/@5 31.9/@30 55.5/@900 89.3 vs registered 14.6/32.1/55.7/88.6 — reproduction within sim jitter, eval stack drift-free, all cross-campaign comparisons clean. Aggregate `gate_bngre.json`.
+
 - 2026-08-09 [Claude] Card created; design discussion (loss structure, literature deep-read, bounded-vs-unbounded, weight semantics) in session `ranking_loss`. Code next: XB reshape + RP subclass + unit test.
 - 2026-08-09 evening [Claude] Round-1 trained (6/6), panel + autopsy + canonical COMPLETE (tables above). Round-2 fleet (MM/EG/EGMM/RPB × 3) launched after 2-epoch smokes passed; canonical for round 2 queued on completion.
