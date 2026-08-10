@@ -101,13 +101,24 @@ def load_network(ckpt, device):
         if "network.action_depth_attn.attn.in_proj_weight" in state:
             kwargs["action_depth_self_attn"] = True
     head_out = state["network.head.2.weight"].shape[0]
-    value_bins = head_out if kwargs.get("action_motion_dim", 0) else head_out // 5
+    # head_out == num_depths -> RAW linear head (rank-pure linear, EXP-2026-08-09): scores ARE the
+    # logits, no bins. The old inference (head_out//5 = 1 bin) built a 1-bin HL-Gauss whose value is
+    # the constant 0.5 — shapes load, output is garbage. (No 1- or 5-bin model has ever existed.)
+    if head_out == 5:
+        value_bins = 0
+    else:
+        value_bins = head_out if kwargs.get("action_motion_dim", 0) else head_out // 5
     kwargs["value_bins"] = value_bins
     net = EdgeCrossAttn(**kwargs)
     from namo.rl_loop.action_motion import checkpoint_action_motion_encoding
     net.action_motion_encoding = checkpoint_action_motion_encoding(
         checkpoint, kwargs.get("action_motion_dim", 0))
     net.load_state_dict(net_state)
+    if value_bins == 0:
+        class _Raw:
+            def value(self, x):
+                return x
+        return net.eval().to(device), _Raw()
     return net.eval().to(device), HLGauss(num_bins=value_bins)
 
 
