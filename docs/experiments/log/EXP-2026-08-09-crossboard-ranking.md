@@ -119,6 +119,26 @@ Round-2 arms get the FULL canonical treatment like round 1 [USER 2026-08-09]: of
 
 `RPE` 3 seeds: offline V5 0.431/V6 0.720/F2 0.916 hard; deploy 2p-h@2 11.4 / @5 25.9 / @30 52.1 / **@900 90.9** / s2s 104. **Both pre-registered tripwires CLEAN**: no histogram walls (top bins ~0.3% mass — the margin self-stops, Kim's lineage vindicated) and V6 0.720 — BETTER than parent EGMM's 0.685, so removing regression relieved rather than compounded the board-scramble. RPU (unbounded head) therefore does NOT fire — its trigger never appeared; the bound is not binding. Verdict-shaped observation [no accept/reject]: the fully value-free stack (categorical labels, ordinal losses only) deploys ≈ the AJ2 control with second-best reach in the ledger. Aggregate `gate_rpe.json`, panel `auc_rpe.json`.
 
+## Model mini-registry [USER: keep every model + location here]
+
+All under `$NAMO_SCRATCH/aquaman/round0/` (CS); ckpts `models/<ARM>_s{1,2,3}/checkpoints/epoch*.ckpt` (best-val = first alphabetically), eval dirs `eval_bfix/<ARM>_s*/{1push_hmax2,2push}/`, Amarel ckpt copies `/cache/home/dm1487/aquaman0/ckpts_bfix/`.
+
+| arm | script + key env | gate json | panel json | status |
+|---|---|---|---|---|
+| XB | `train_q2_rankaux.py` `XB_LAMBDA=0.1` (+RANK 0.1/0.1) | `gate_xbrp.json` | `auc_xbrp.json` | complete |
+| RP | `train_q2_rankpure.py` (defaults) | `gate_xbrp.json` | `auc_xbrp.json` | complete |
+| MM | `train_q2_round2.py` `MM_LAMBDA=0.1` | `gate_r2.json` | `auc_round2.json` | complete |
+| EG | `train_q2_round2.py` `EG_LAMBDA=0.1 NAMO_GROUP_EPISODES=1` | `gate_r2.json` | `auc_round2.json` | complete |
+| EGMM | `train_q2_round2.py` `EGMM_LAMBDA=0.1 NAMO_GROUP_EPISODES=1` | `gate_r2.json` | `auc_round2.json` | complete (s1 = 3rd submission; 2 OOM crashes on oversubscribed ilab GPUs) |
+| RPB | `train_q2_rankpure.py` `RP_BRAKE=0.02` | `gate_r2.json` | `auc_round2.json` | complete |
+| RPE | `train_q2_rankpure_egmm.py` (margin 0.2, span [0,1]) | `gate_rpe.json` | `auc_rpe.json` | complete |
+| RPU | `train_q2_rankpure_egmm.py` `RPE_MARGIN=1.0 RPE_VMIN=-10 RPE_VMAX=10` | `gate_rpu.json` | `auc_rpu.json` | launching 2026-08-10 |
+| BNGre | BNG ckpts re-evaluated (drift check) | `gate_bngre.json` | (= `auc_bng.json`) | complete |
+
+Baselines reused, never retrained: AJ2/AJ2NR (`gate_aj2.json`), BNG (`gate_bng.json`), θ₀/random (registry). Full registry rows: [horizon_q_model_registry.md](../horizon_q_model_registry.md).
+
+RPU design note [USER: margin 1 for both]: margin 1.0 on the bounded [0,1] head is degenerate (equals the whole range), so the pair is RPE at its natural 0.2/[0,1] (banked) vs RPU at 1.0/[-10,10] — same 51-bin head affinely re-spanned, 20 units of headroom, zero plumbing change, deploy order-preserving. Tests whether hard-tier family duels (RPE's weak spot, V5 0.431) improve with room for gaps beyond the unit box.
+
 ## Round-1 RESULTS (canonical complete 2026-08-09 evening; 3 seeds pooled, 432/432 shards, zero unmatched)
 
 | arm | 2p-h@2 | 2p-h@5 | 2p-h@30 | 2p-h@900 | 2p-med@5 | 1p-h@1 | 1p-h@5 | s2s-hard |
