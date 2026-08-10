@@ -69,6 +69,12 @@ The seductive shortcut `len(valid_first_push)/len(tried_first_push)` from the la
 38 of the v1 2push episodes have no v2 root, for the same reason.
 Switching the yaml to v2 as-is would therefore silently shrink the 1push eval population by ~9%, which is a larger effect on reported numbers than the 3.2% of tiers it corrects. Either re-sweep the missing objects or hold the population fixed and use v2 only to re-bin.
 
+**Re-binned results (population-fixed, no new sims) — the correction is negligible.**
+`scripts/rl_loop/rebin_v2.py` re-scores the existing eval shards under v2 tiers while holding the population fixed to the v1 eval set (a row keeps its v1 tier where v2 has no counterpart), so every difference is tier-driven rather than population-driven.
+Across 6 headline arms x 2 horizons x 4 tiers x 4 budgets the **largest single solve@k shift is 1.4 pt** (AJ2 2push-hard@5, 26.8 -> 25.4); pooled `all` rows are unchanged to 0.1 pt.
+**Arm ordering is preserved on both headline metrics** — 2push-hard@5 (BNG 32.1->31.9 > ANG 30.7->29.9 > Bfix 29.0->28.1 > XB 28.7->27.9 > ARJ 27.7->26.4 > AJ2 26.8->25.4) and 1push-hard@1 (ARJ > Bfix > ANG > BNG > XB > AJ2, unchanged).
+Conclusion: **no published result needs restating on account of the physics fix.** Full table `aquaman/round0/rebin_v2.json`.
+
 **Open items (unresolved):**
 - The four registered `search_eval_exclusions` on hard 2push episodes were justified by "fully exhaustive root contains zero genuine setups" **under the old physics**; two are GT-derived and must be re-checked against the v2 roots before v2 becomes canonical.
 - 63 episodes changed pure-2push membership, so v2 is not a pure re-bin of v1 — it is a slightly different population.
