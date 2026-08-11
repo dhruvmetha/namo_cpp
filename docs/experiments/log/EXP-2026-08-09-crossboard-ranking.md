@@ -197,7 +197,29 @@ Observations [numbers, no verdicts]:
 
 **Data census that motivates the collection:** children 16% of training rows vs 94% of deploy pops; dead children of non-setup pushes ~absent (children exist only under the 26k Colossus setup roots; "94% of bounded cells sit on rows with no child stored"). Bfix/BNG added LABELS to these same rows, never new boards — no label scheme could touch this hole.
 
+## Isolation 2×2 (launched 2026-08-11, USER: "let's isolate properly" / "Go")
+
+EGMMF won offline (V5 0.695) but cratered 1p-h@1 (38→24) and didn't convert at deploy. The family corpus changed THREE dials at once vs the old corpus: (1) root share of rows 84%→15% (root gradient ÷5.7); (2) root sweep depth cap 20→12 tried pushes (`finish_topk_cap`), rest censored; (3) added 1.045M child boards whose capped "dead" labels lie 12.8% of the time (audit-measured). Loss is already controlled: same EGMM recipe on the old corpus scored 1p-h@1 36.9. This grid separates the remaining two axes — root **ratio** and label **truth** — one dial per cell.
+
+| cell | train H5 | labels | root share | knob | status |
+|---|---|---|---|---|---|
+| EGMMF | `family0_train_v2.h5` (1.23M rows) | capped-12, lie-rate 12.8% | 15.2% | — | complete (baseline) |
+| R1 | `family0_train_v2.h5` | capped-12 (same lies) | 50% via sampler | `NAMO_ROOT_FRAC=0.5` | training |
+| R2 | `family1_train_v1.h5` (512k rows) | PROVEN (exhaustive, censored=0.0) | 15.7% natural | — | training |
+| G2 | `family1_train_v1.h5` | PROVEN | 50% via sampler | `NAMO_ROOT_FRAC=0.5` | training |
+
+All cells: `train_q2_round2.py` `EGMM_LAMBDA=0.1 NAMO_GROUP_EPISODES=1`, 12 epochs, seeds 1-3, ckpts `round0/models/{R1,R2,G2}_s{1,2,3}/`. Jobs 206702-206710 (CS, NFS reads — `NAMO_STAGE_SHM=0`; today's estate-wide /dev/shm purge killed two staged fleets in ~40s, plus one NFS-permission node failure; all three incidents were cluster-side, logged below).
+
+**The rebalance mechanism** (`NAMO_ROOT_FRAC`, commit 86b9414): appends duplicated SINGLETON root families to each epoch until roots reach the target fraction. `_family_lists` needs ≥2 rows, so singletons never enter the family loss — the cross-board terms that broke the V5 wall are byte-identical; only per-board base-loss exposure changes. Smoke-verified: exposure meter 0.152→0.500, measured batch stream 49.5% roots, epoch 1.23M→2.08M rows.
+
+**Gen-2 corpus** (`family1_train_v1.h5`, built+verified 2026-08-11): 511,657 rows = 80,551 roots + 431,106 children (44.4% live / 55.6% dead — mirrors family0's 46/54); `finish_sweep_censored` fraction **0.0** (label proof); per-row chunks + lzf; md5-verified CS copy. Amarel build: 200-shard array 13 min wall, pool 2.5 min (`pool_family_h5.py`). **Known confound riding the label dial:** exhaustive sweeps cost more per episode, so family1 has HALF the episodes of family0 (80.5k vs 188k roots) — if R2/G2 underperform, corpus SIZE and label truth are entangled; if they win, size can't be the explanation.
+
+**Pre-registered readings** (branch logic fixed before results): R1 recovers 1p-h@1 toward ~38 with V5 held ≥0.66 → crater was root starvation, ratio dial confirmed. R1 stays low → starvation insufficient, suspicion moves to root label depth/lies. R2 lifts V5/setup@1 over EGMMF at SAME 15% mix → lies were biting offline too. G2 = the product; its deploy curve vs θ₀ 92.0 @900 and MM's 39.4 1p-h@1 is the conversion test. Readouts: offline panel (V5/V6/F2/setup@1/finish@1 via `eval_auc`) + full canonical deploy (difficulty × horizon), no accept/reject at any readout [USER standing rule].
+
 ## Log
+
+- 2026-08-11 [Claude] Isolation 2×2 launched (section above). CS estate had a bad day, three distinct cluster-side failures in one hour: (1) jobs on rlab2 + later the ilab2 login node lost NFS access to `/common/home` ("Could not chdir to home directory: Permission denied") — submit host moved to ilab1; (2) staged `/dev/shm` H5s were deleted under running jobs within ~40s on BOTH rlab3 and rlab6 (RemoveIPC-style purge, now estate-wide — previously only rlab4/rlab7) — fleet resubmitted with `NAMO_STAGE_SHM=0`, NFS reads + page cache (both H5s ≪ 48G job memory, so only epoch 1 pays); (3) killed fleets left no SLURM output files at all (log write also blocked). Lesson: on CS, treat `/dev/shm` staging as UNSAFE until re-verified; page-cache NFS is the safe default for H5s that fit in job memory.
+- 2026-08-11 [Claude] Gen-2 exhaustive H5 built on Amarel and landed on CS (verification in section above); `pool_family_h5.py` landed in `scripts/pipeline/`.
 
 - 2026-08-09 late [Claude, USER-requested] BNG re-evaluated from original ckpts on tonight's stack, fresh dirs `BNGre_s*` (registered artifacts untouched): @2 14.6/@5 31.9/@30 55.5/@900 89.3 vs registered 14.6/32.1/55.7/88.6 — reproduction within sim jitter, eval stack drift-free, all cross-campaign comparisons clean. Aggregate `gate_bngre.json`.
 
