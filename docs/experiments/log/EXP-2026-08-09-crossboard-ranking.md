@@ -115,7 +115,11 @@ Round-2 arms get the FULL canonical treatment like round 1 [USER 2026-08-09]: of
 
 `RPE_s{1,2,3}` (`train_q2_rankpure_egmm.py`): the fully value-free stack — RP's two softmax rank terms + EGMM's family margin-vs-max at `RPE_FAM=1.0`, NO regression anywhere, categorical labels only, monitor = RP's val rank loss. Rationale: if it lands near EGMM's profile, value machinery exits the project entirely. Pre-registered watch items: score-stretch (RP's, no brake) COMPOUNDING with the V6 board-scramble (EGMM's) — meters are the per-tier score histogram and V6; front-curve @2/@5 is where compounding would show.
 
-### Round-3b RESULTS (complete 2026-08-10 pre-dawn) — every axis closed
+### Family corpus — pre-verdict data-quality audit (2026-08-11, BEFORE results by design)
+
+Audit-slice lie-rate MEASURED: **12.8%** of capped-dead children are secretly live (211/1,647 checked over 246 episodes matched between the capped base and the exhaustive 2% audit) — in the predicted 10–15% band. Branch readings pre-registered: partial verdict → escalation pass cleans a known 12.8% of the duel diet; strong verdict → headroom remains; null verdict → data cannot carry the blame at 12.8%, the hypothesis takes the hit. Also on record: rendered dose = 5.5 children/episode (re-render from same pkls is the cheap dose-increase), champion selection = old-model scores guarded by 2 random dead/episode.
+
+## Round-3b RESULTS (complete 2026-08-10 pre-dawn) — every axis closed
 
 **RPL2 (unbounded, margin 0.2 = 0.41σ): FULL RECOVERY + deploy twins with RPE** — offline V5 0.467/F2 0.906/V6 0.719; deploy @5 26.0 vs RPE 25.9, all cells within band. RPL's entire failure attributes to ONE constant (margin 2.2σ). **Boundedness axis CLOSED: free choice; keep the simpler bounded head; size margins to the adopted scale (σ-units) if ever unbounded.** RPL itself deploys functional (@5 21.7, reach 90.3) — damage LOCALIZED to family-type comparisons (offline panel wrecked, root skills intact): loss pathologies localize to the comparison classes that generate them.
 
