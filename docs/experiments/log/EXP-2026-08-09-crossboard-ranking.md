@@ -115,7 +115,11 @@ Round-2 arms get the FULL canonical treatment like round 1 [USER 2026-08-09]: of
 
 `RPE_s{1,2,3}` (`train_q2_rankpure_egmm.py`): the fully value-free stack — RP's two softmax rank terms + EGMM's family margin-vs-max at `RPE_FAM=1.0`, NO regression anywhere, categorical labels only, monitor = RP's val rank loss. Rationale: if it lands near EGMM's profile, value machinery exits the project entirely. Pre-registered watch items: score-stretch (RP's, no brake) COMPOUNDING with the V6 board-scramble (EGMM's) — meters are the per-tier score histogram and V6; front-curve @2/@5 is where compounding would show.
 
-### Family corpus — pre-verdict data-quality audit (2026-08-11, BEFORE results by design)
+### ⭐ FAMILY CORPUS VERDICT (2026-08-11, first seed — THE result of the card)
+
+**EGMMF_s1 (EGMM loss on the family corpus, 1.23M rows / 78% children): the V5 wall FELL.** Offline hard: **V5 0.455→0.492→0.721**, setup@1 28.0 (above the all-time 25–27 ceiling), finish@1 55.2, F2 0.898. Deploy: **2p-hard@900 = 94.9 — ALL-TIME RECORD** (θ₀'s 92.0 falls; the un-burial cashes exactly where burial theory said — deep search recovers formerly-outranked setups). Trade: front-curve down (1p-h@1 23.9, @5 23.7) — the 85%-children mix starved root-board supervision; a sampler-ratio fix (blend old-corpus roots), not a mystery. Pre-registered branch: STRONG verdict → the data hypothesis is crowned; V5 was hunger, as the elimination argument + plates QED said. Gen-2 recipe: proven-label exhaustive corpus (collecting) + root/child ratio rebalance. Bands from 5 remaining seeds pending.
+
+## Family corpus — pre-verdict data-quality audit (2026-08-11, BEFORE results by design)
 
 Audit-slice lie-rate MEASURED: **12.8%** of capped-dead children are secretly live (211/1,647 checked over 246 episodes matched between the capped base and the exhaustive 2% audit) — in the predicted 10–15% band. Branch readings pre-registered: partial verdict → escalation pass cleans a known 12.8% of the duel diet; strong verdict → headroom remains; null verdict → data cannot carry the blame at 12.8%, the hypothesis takes the hit. Also on record: rendered dose = 5.5 children/episode (re-render from same pkls is the cheap dose-increase), champion selection = old-model scores guarded by 2 random dead/episode.
 
