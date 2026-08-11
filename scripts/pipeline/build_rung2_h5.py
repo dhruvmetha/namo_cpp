@@ -151,7 +151,7 @@ def _action_contract(node, object_id, *aligned_grids):
     }
 
 
-def _episode_rows(e, renderer, env, xml, stats, hand_checks, *, colossus0=False):
+def _episode_rows(e, renderer, env, xml, stats, hand_checks, *, colossus0=False, family_select=False, sel_seed=0):
     st = _getf(e, "algorithm_stats") or {}
     tl = st.get("primitive_trial_log") or []
     rl = st.get("reachability_log") or []
@@ -212,6 +212,30 @@ def _episode_rows(e, renderer, env, xml, stats, hand_checks, *, colossus0=False)
             and t.get("parent_depth") is not None and bool(t.get("finish_sweep_censored", False)))
     } - winning_setups
 
+    # FAMILY-SELECT [EXP-2026-08-09 corpus]: cap rendered children per episode — all can't be
+    # rendered (6.1M swept children ~ 244GB). Policy: N_LIVE random live + N_CHAMP top-scored dead
+    # (the champions/impostors the duels need; score = the d20 ordering score RECORDED at collection,
+    # so selection needs no pre-render pass) + N_RAND random dead (unbiased filler).
+    selected_children = None
+    if family_select:
+        d1_score = {(int(t2.get("edge_idx", -1)), int(t2.get("depth", -1))): float(t2.get("score", 0.0))
+                    for t2 in tl if int(t2.get("chain_depth", 1)) == 1}
+        live_keys, swept_keys = set(), set()
+        for t2 in tl:
+            if int(t2.get("chain_depth", 1)) == 2 and t2.get("parent_edge") is not None:
+                k = (int(t2["parent_edge"]), int(t2["parent_depth"]))
+                swept_keys.add(k)
+                if t2.get("success"):
+                    live_keys.add(k)
+        dead_keys = sorted(swept_keys - live_keys, key=lambda k: -d1_score.get(k, 0.0))
+        import random as _r
+        rng = _r.Random(sel_seed)
+        live_pick = rng.sample(sorted(live_keys), min(4, len(live_keys)))
+        champ_pick = dead_keys[:4]
+        rest = dead_keys[4:]
+        rand_pick = rng.sample(rest, min(2, len(rest)))
+        selected_children = set(live_pick) | set(champ_pick) | set(rand_pick)
+
     rows = []
     root_row_idx = None
     for node in rl:
@@ -226,6 +250,10 @@ def _episode_rows(e, renderer, env, xml, stats, hand_checks, *, colossus0=False)
             env.reset()
             node_kind = "root"; setup_moved_flag = -1
         else:
+            if selected_children is not None and (pe is None or pd is None or
+                    (int(pe), int(pd)) not in selected_children):
+                stats["family_select_skipped"] = stats.get("family_select_skipped", 0) + 1
+                continue
             key = (int(pe), int(pd)) if (pe is not None and pd is not None) else None
             rs = setup_state.get(key)
             if rs is None:
@@ -309,7 +337,7 @@ def _episode_rows(e, renderer, env, xml, stats, hand_checks, *, colossus0=False)
     return rows
 
 
-def build(pkl_glob, out_h5, render_config, limit=None, shard_idx=0, shard_count=1, *, colossus0=False):
+def build(pkl_glob, out_h5, render_config, limit=None, shard_idx=0, shard_count=1, *, colossus0=False, family_select=False):
     pkls = sorted(glob.glob(pkl_glob, recursive=True))
     if shard_count > 1:
         pkls = pkls[shard_idx::shard_count]
@@ -352,7 +380,7 @@ def build(pkl_glob, out_h5, render_config, limit=None, shard_idx=0, shard_count=
             stats["two_shove_solutions"] += n_sol
             if n_sol > 0:
                 stats["ep_with_solution"] += 1
-            ep_rows = _episode_rows(e, renderer, env, xml, stats, hand_checks, colossus0=colossus0)
+            ep_rows = _episode_rows(e, renderer, env, xml, stats, hand_checks, colossus0=colossus0, family_select=family_select, sel_seed=abs(hash((xml, e.get('episode_id', 0)))) & 0xffffffff)
             rows.extend(ep_rows)
             stats["episodes"] += 1
             if limit and len(rows) >= limit:
@@ -488,10 +516,12 @@ if __name__ == "__main__":
     ap.add_argument("--gamma", type=float, default=GAMMA,
                     help="1-step setup discount: setup value = gamma^1, opener/finish = gamma^0 = 1. "
                          "Vary to build beast-0-{gamma} variants from the SAME collection.")
+    ap.add_argument("--family-select", action="store_true",
+                    help="FAMILY corpus: render per episode only 4 live + top-4-scored dead + 2 random dead children")
     ap.add_argument("--colossus0", action="store_true",
                     help="apply capped Colossus label grammar, reject direct-root episodes, and dedup episodes")
     a = ap.parse_args()
     GAMMA = a.gamma
-    rows, stats, hand_checks = build(a.pkl_glob, a.out, a.render_config, a.limit, a.shard_idx, a.shard_count,
+    rows, stats, hand_checks = build(a.pkl_glob, a.out, a.render_config, a.limit, a.shard_idx, a.shard_count, family_select=a.family_select,
                                     colossus0=a.colossus0)
     _report(rows, stats, hand_checks, a.out)
