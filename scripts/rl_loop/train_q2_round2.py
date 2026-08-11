@@ -57,6 +57,12 @@ MM_MARGIN = float(os.environ.get("MM_MARGIN", "0.2"))
 EG_LAMBDA = float(os.environ.get("EG_LAMBDA", "0.0"))
 EGMM_LAMBDA = float(os.environ.get("EGMM_LAMBDA", "0.0"))
 GROUP_EPISODES = os.environ.get("NAMO_GROUP_EPISODES", "0") == "1"
+# R1/gen-2 rebalance [EXP-2026-08-09 isolation 2x2]: family corpus is 85% children, which starved
+# root-board supervision (1p-h@1 38->24). NAMO_ROOT_FRAC=0.5 appends duplicated SINGLETON root
+# families until roots are that fraction of the epoch's rows. Singletons are skipped by
+# _family_lists (needs >=2 rows), so the family terms that broke the V5 wall are untouched —
+# only the per-board base loss sees roots more often.
+ROOT_FRAC = float(os.environ.get("NAMO_ROOT_FRAC", "0.0"))
 
 
 def margin_vs_max_losses(value, labels, mask, ceiling, margin):
@@ -188,6 +194,7 @@ class GroupedQ2DataModule(Q2DataModule):
         super().setup(stage)
         with h5py.File(self.h5_path, "r") as h5:
             xml = h5["xml"][:]; obj = h5["object_id"][:]
+            depth = h5["chain_depth"][:] if (ROOT_FRAC > 0.0 and "chain_depth" in h5) else None
         keys = {}
         self._row_ep = np.empty(len(xml), dtype=np.int64)
         for i, (x, o) in enumerate(zip(xml, obj)):
@@ -202,6 +209,19 @@ class GroupedQ2DataModule(Q2DataModule):
         self._families = list(fams.values())
         n_multi = sum(1 for f in self._families if len(f) >= 2)
         print(f"[q2 grouped] families={len(self._families)} multi-board={n_multi}", flush=True)
+        if ROOT_FRAC > 0.0:
+            assert depth is not None, "NAMO_ROOT_FRAC needs chain_depth in the H5"
+            root_pos = [pos for pos, i in enumerate(self.train_idx) if depth[i] == 1]
+            r = len(root_pos); tot = len(self.train_idx); c = tot - r
+            x = int((ROOT_FRAC * c - (1.0 - ROOT_FRAC) * r) / (1.0 - ROOT_FRAC))
+            if x > 0:
+                rng = np.random.RandomState(0)
+                reps, rem = divmod(x, r)
+                extra = root_pos * reps + [root_pos[j] for j in rng.choice(r, rem, replace=False)]
+                self._families += [[p] for p in extra]
+            # exposure meter [card law: when shifting a train distribution, meter what loses exposure]
+            print(f"[q2 grouped] root-frac {r/tot:.3f} -> {(r + max(x,0))/(tot + max(x,0)):.3f} "
+                  f"(+{max(x,0)} singleton root draws/epoch)", flush=True)
 
     def train_dataloader(self):
         if not GROUP_EPISODES:
@@ -245,7 +265,7 @@ def build_module(base_lr, warmup_steps, decay_steps):
 if __name__ == "__main__":
     print(f"[round2] MM_LAMBDA={MM_LAMBDA} MM_MARGIN={MM_MARGIN} EG_LAMBDA={EG_LAMBDA} "
           f"EGMM_LAMBDA={EGMM_LAMBDA} GROUP_EPISODES={int(GROUP_EPISODES)} "
-          f"XB_LAMBDA={rank.XB_LAMBDA}", flush=True)
+          f"XB_LAMBDA={rank.XB_LAMBDA} ROOT_FRAC={ROOT_FRAC}", flush=True)
     tq2.build_module = build_module
     tq2.Q2DataModule = GroupedQ2DataModule
     tq2.main()
