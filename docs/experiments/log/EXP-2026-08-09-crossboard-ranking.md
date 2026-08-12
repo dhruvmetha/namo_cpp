@@ -162,6 +162,8 @@ All under `$NAMO_SCRATCH/aquaman/round0/` (CS); ckpts `models/<ARM>_s{1,2,3}/che
 | EGMMF5 / R15 | EGMM recipe + `NAMO_GAMMA=0.5` on `family0_train_v2.h5` (R15 adds `NAMO_ROOT_FRAC=0.5`) | `gate_wladder_b.json` | `auc_wladder_b.json` | complete 2026-08-12 |
 | R25 / G25 | EGMM recipe + `NAMO_GAMMA=0.5` on `family1_train_v1.h5` (G25 adds `NAMO_ROOT_FRAC=0.5`) | `gate_wladder_a.json` | `auc_wladder_a.json` | complete 2026-08-12 |
 | **HY / HY5** | EGMM recipe on `hybrid_train_v1.h5` (old-corpus roots + family0 children; HY5 adds `NAMO_GAMMA=0.5`) — **1p 42.0/42.8, @900 94.9/96.3, V5 0.690 (HY): the campaign result** | `gate_hybrid.json` | `auc_hybrid.json` | complete 2026-08-12 |
+| **HY5U** | HY5 + `NAMO_UNREACH_W=0.1` (unreachable cells = exact zeros, regression only) — **best model ever trained here: @5 39.5, @900 97.5, 1p 45.3, setup@1 32.2, finish@1 60.1** | `gate_hy5u.json`, `gate_common.json` | `auc_hy5u.json` | complete 2026-08-12 |
+| HY5U3 | same, `NAMO_UNREACH_W=0.3` — dose probe (1 seed) | (pending 1 shard) | `auc_hy5u.json` | eval refilling |
 
 Baselines reused, never retrained: AJ2/AJ2NR (`gate_aj2.json`), BNG (`gate_bng.json`), θ₀/random (registry). Full registry rows: [horizon_q_model_registry.md](../horizon_q_model_registry.md).
 
@@ -271,6 +273,31 @@ Two follow-ups to the 2×2, 18 models total, same EGMM loss (hinge-vs-max in fam
 3. **Ladder effect is corpus-dependent and real:** on family0 the {0,0.5,1} ladder alone bought +5.9 1p / +8.5 @30 / 91.5 @900 with V5 held (EGMMF5); on family1 it traded V5 down for small deploy gains; on the hybrid it trades V5 (0.690→0.616) for reach (@900 96.3), sharpness (@2 13.6), and medium tier (51.4). Balance fix (`NAMO_ROOT_FRAC`) is NOT additive with the ladder (R15 ≈ EGMMF5 minus V5) — rebalance is superseded by better root content.
 4. **Remaining old-corpus edges:** MM keeps 2p-h@5 (31.6 vs HY5's 28.5) and AJ2/MM keep @30 (53.3 vs 50.6) — the early-mid hard curve is the surviving gap; everything else now belongs to the hybrids.
 5. Gates `gate_hybrid.json` (+`gate_hybrid_perseed.json`), `gate_wladder_a/b.json`; panels `auc_hybrid.json`, `auc_wladder_a/b.json`.
+
+## HY5U — unreachable cells as exact zeros: the campaign's largest deploy jump (2026-08-12) [USER: "force unreachable cells to be dead"]
+
+**The change.** Deploy only ever scores REACHABLE pushes (`candidates()` in `scripts/sandbox/eval_bestfirst.py` builds its pool from `rank_first_pushes_h2`), so unreachable cells had always been masked out of training entirely (`loss_mask = value_mask * r_mask`). `NAMO_UNREACH_W` (commit on `train_q2_round2.py`) puts them back as **exact zeros in the REGRESSION ONLY**, at fractional weight. Two guardrails, both load-bearing: (1) they are barred from every ranking list via a separate binary `rank_mask` (set for train AND val through `on_after_batch_transfer`) — an unreachable cell must never become the family hinge's tallest rival nor pad a softmax denominator; (2) weight 0.1, because unreachable cells outnumber labeled ones ~3.4:1 (smoke: 225 unreachable at 0.1 vs 64 labeled at 1.0 = 26% of loss mass). Arms: `HY5U_s{1,2,3}` (w=0.1, hybrid corpus + `NAMO_GAMMA=0.5`), `HY5U3_s1` (w=0.3 dose probe).
+
+**Cross-campaign comparability fix, applied FIRST.** Family-campaign evals and the arjuna/BNG-era evals ran different episode lists (measured: 32 episodes in AJ2 that HY5U never evaluated, 12 the other way; 1012 vs 992 two-push). `aquaman_agg.py` scores each arm on its own shards, so those solve@k rates were different populations. New tool `scripts/rl_loop/aquaman_agg_common.py` intersects every arm's episode set and re-bins — **common set 1314 one-push / 980 two-push, identical hard-tier n=591/354 for all arms.** Every number below is on that common set; earlier cross-campaign quotes in this card (and in Slack) used per-arm denominators and shift by 1-7 points.
+
+| arm (common set) | 2p-h@2 | 2p-h@5 | 2p-h@30 | 2p-h@100 | 2p-h@900 | s2s-h | 1p-h@1 | 1p-h@5 | 2p-m@5 |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| AJ2 | 13.0 | 26.6 | 51.7 | 63.6 | 90.4 | 114.1 | 38.7 | 80.2 | 50.6 |
+| BNG | 15.0 | 30.2 | 53.7 | 68.6 | 88.4 | 97.1 | 39.1 | 82.9 | 53.1 |
+| MM | 14.1 | 31.1 | 51.4 | 64.7 | 89.3 | 116.1 | 40.3 | 81.2 | 50.8 |
+| EG | 11.3 | 28.5 | 55.6 | 67.8 | 89.3 | 95.9 | 34.3 | 76.1 | 47.3 |
+| EGMMF | 11.0 | 24.6 | 41.8 | 62.4 | 90.7 | 124.4 | 24.7 | 60.1 | 36.5 |
+| HY | 12.4 | 23.7 | 50.6 | 73.7 | 94.9 | 90.2 | 42.1 | 76.1 | 45.1 |
+| HY5 | 13.6 | 28.5 | 50.6 | 74.0 | 96.3 | 98.3 | 42.8 | 81.4 | 51.4 |
+| **HY5U** | **23.4** | **39.5** | **62.7** | **78.8** | **97.5** | **77.8** | **45.3** | **87.6** | **65.6** |
+
+Seed bands (3 seeds): 1p-h@1 [44.7, 46.7, 44.7] · 2p-h@5 [40.7, 38.1, 39.8] · 2p-h@900 [95.8, 97.5, 99.2] — every seed beats every prior arm on every column. Offline: V5 **0.496** (DOWN from HY5's 0.616), V6 **0.803** (up from 0.749), setup@1 **32.2** and finish@1 **60.1** — both all-time highs by wide margins (previous: 27.1 setup@1 this campaign, 56.1 finish@1 from the earliest label generation). Gate `gate_hy5u.json` + `gate_common.json`, panel `auc_hy5u.json`.
+
+**Readings [numbers, no verdicts]:**
+1. **This closed the campaign's open front.** Early hard 2-push (@2/@5/@30) had resisted every corpus and loss change for two days, with BNG/MM unbeaten for months; teaching unreachability moved @5 from 31.1 to 39.5 (+8.4) and @2 from 15.0 to 23.4 (+8.4).
+2. **It is the single largest deploy improvement of the campaign — larger than the hybrid corpus itself** — and it is NOT a data change. It partially revises the arc's "composition explains the big swings, loss knobs the small ones" conclusion: an input-space supervision change (where you *cannot* push) outperformed everything collected.
+3. **Mechanism hypothesis, UNVERIFIED:** dense geometry supervision on 3.4× more cells teaches reachability structure explicitly, which the ranking sits on top of; previously the model had to infer that structure from sparse labeled cells alone. A clean test would ablate the auxiliary at fixed corpus (e.g. w ∈ {0, 0.1, 0.3, 1.0}) — the w=0.3 probe (`HY5U3_s1`) is the first point of that sweep, one shard refill pending.
+4. **V5 anti-predicted deploy for the FIFTH time** (0.496, the worst of any hybrid arm, on the best-deploying model ever trained here). V5 is a burial diagnostic; it is not a model-selection criterion under any circumstances.
 
 ## Arc narrative — every decision, its reason, and what it concluded (2026-08-11 → 08-12) [USER: record everything in detail]
 
