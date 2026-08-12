@@ -254,7 +254,7 @@ Two follow-ups to the 2×2, 18 models total, same EGMM loss (hinge-vs-max in fam
 
 | arm | V5 | setup@1 | finish@1 | 2p-h@2 | 2p-h@5 | 2p-h@30 | 2p-h@900 | s2s-h | 1p-h@1 | 1p-h@5 | 2p-m@5 |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
-| **HY** (hybrid, 0.9) | **0.690** | **27.1** | 52.3 | 12.4 | 23.7 | 50.6 | **94.9** | **90.2** | **42.0** | 76.3 | 45.1 |
+| **HY** (hybrid, 0.9) | **0.690** | **27.1** | 52.3 | 12.4 | 23.7 | 50.6 | **94.9** | **90.2** | **42.1** | 76.1 | 45.1 |
 | **HY5** (hybrid, 0.5) | 0.616 | 24.6 | 52.3 | **13.6** | 28.5 | 50.6 | **96.3** | 98.3 | **42.8** | **81.4** | **51.4** |
 | EGMMF5 (family0, 0.5) | 0.643 | 23.2 | 52.3 | 8.8 | 23.7 | 50.3 | 91.5 | 130.8 | 30.6 | 67.7 | 41.7 |
 | R15 (family0, 0.5 + RF) | 0.587 | 20.9 | 48.0 | 8.2 | 23.2 | 44.4 | 89.5 | 128.6 | 29.9 | 67.3 | 44.4 |
@@ -263,7 +263,7 @@ Two follow-ups to the 2×2, 18 models total, same EGMM loss (hinge-vs-max in fam
 | AJ2 (control) | 0.455 | 25.1 | 50.8 | 12.7 | 26.8 | **53.3** | 90.0 | 105.3 | 38.1 | 78.8 | 50.2 |
 | MM (old-corpus champ @5) | 0.439 | 24.6 | **53.7** | 13.4 | **31.6** | 53.3 | 89.3 | 108.5 | 39.4 | 80.4 | 50.4 |
 
-**Seed bands (retraction-proof):** HY 1p-h@1 [39.6, 41.7, 44.7] — band FLOOR above AJ2's 38.1; @900 = 94.9 on ALL THREE seeds. HY5 1p-h@1 [37.6, 44.7, 46.2]; @900 [94.9, 96.6, 97.5] — floor beats the all-time θ₀ 92.0 by +2.9. (HY_s3 1push refilled shard 1 of 40 post-pull; HY5 432/432 complete from the start.)
+**Seed bands (retraction-proof):** HY 1p-h@1 [39.6, 41.7, 44.7] — band FLOOR above AJ2's 38.1; @900 = 94.9 on ALL THREE seeds. HY5 1p-h@1 [37.6, 44.7, 46.2]; @900 [94.9, 96.6, 97.5] — floor beats the all-time θ₀ 92.0 by +2.9. (HY_s3 1push refilled shard 1 of 40 post-pull — final 432/432 numbers: HY 1p-h@1 42.1 / @5 76.1, table updated; HY5 432/432 complete from the start.)
 
 **Readings [numbers, no verdicts]:**
 1. **Both pre-registered hybrid bars CLEARED, seed-robust: the campaign's central claim is confirmed.** Root-content (d20-deep labels × 216k roots) fixes 1p (24.7→42.0, EXCEEDING the old corpus's 38.1) while family children keep V5 at 0.690. No trade — the two skills coexist in one corpus.
