@@ -298,6 +298,17 @@ This section is the reasoning trail for the isolation 2×2 → hybrid arc, writt
 5. **Offline V5 anti-predicted deploy for the fourth time this campaign** (EGMM crowned by V5 then out-deployed by MM; R25/G25 V5 down deploy up; EGMMF5 V5 down deploy up; HY5 V5 below HY yet the stronger deploy row). V5 remains a diagnosis meter for the burial mechanism, NOT a model-selection criterion; canonical deploy stays the only arbiter.
 6. **Open front:** early-mid hard 2-push (MM 31.6 @5 / AJ2-MM 53.3 @30 vs hybrid 28.5/50.6). Natural next cells: MM's batch-flat stranger-hinge crossed onto the hybrid corpus; exhaustive wave-2 (~45k unused rooms + pool-gen filler) to grow honest children under the now-proven recipe.
 
+**POST-HOC CORRECTION [2026-08-12, measured — supersedes the "root sweep depth / thin root labels" wording above].** The residual-1p diagnosis named "sweep depth" as the un-isolated dial. Direct measurement of the H5s refutes the *mechanism* while confirming the *conclusion* (root supervision content). Per-root-board census (sampled ~4k boards per corpus, in-loss reachable cells):
+
+| corpus | reachable cells labeled | openers/board | setups/board | boards with ≥1 opener | deploy 1p-h@1 |
+|---|--:|--:|--:|--:|--:|
+| old (arjuna0v2) | 95% | 15.5 | 26.4 | **76%** | 38.1 |
+| hybrid | — | 14.5 | 25.3 | **73%** | **42.1** |
+| family0 | 98% | 17.4 | 17.6 | 55% | 24.7 |
+| family1 (exhaustive) | 98% | 13.6 | 13.8 | 49% | 21.8 |
+
+Root boards are ~95-98% labeled in EVERY corpus — label density was never the difference, and `region_finish_topk_cap` (20 vs 12) governs FINISH sweeps on child boards, not root cells. What differs is **episode selection**: the family campaigns sampled far harder episodes, where only 49-55% of root boards contain any verified opener (vs 73-76% for old/hybrid). Deploy 1p-h@1 orders exactly with that column. A ranker learns "which push opens this board" from boards where an opener exists; a corpus half-composed of opener-free boards supplies little of that contrast, and no amount of re-showing (`NAMO_ROOT_FRAC`) or re-labeling (exhaustive recollect) can manufacture it — which is precisely why both cheap fixes failed. Setup-label supply skews the same way (26 vs 14-18 per board), explaining the parallel setup@1 ordering. **Actionable form: when collecting for 1-push/setup ranking, measure and control the opener-bearing fraction of root boards; difficulty-skewed collection silently starves the signal.**
+
 **Ops lessons this arc added (also in Log):** CS `/dev/shm` staging is unsafe estate-wide (RemoveIPC purge kills staged H5s AND loky semaphores; NFS + page cache is the safe default when the H5 fits job memory); teardown-noise FAIL events (FileNotFoundError after epoch 011) are benign — verify against sacct + final ckpt before acting; Amarel's evening queue swallows 432-task canonical waves in ~7 minutes, so eval is never the bottleneck; single missing shards are refilled with `sbatch --array=<id>` on the same env, never a full wave rerun.
 
 ## Log
