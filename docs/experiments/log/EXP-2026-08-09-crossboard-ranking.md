@@ -156,6 +156,9 @@ All under `$NAMO_SCRATCH/aquaman/round0/` (CS); ckpts `models/<ARM>_s{1,2,3}/che
 | RPL2 | `train_q2_rankpure_linear.py` `RPE_MARGIN=0.2` — the margin-recalibrated retry [USER 2026-08-10]: 0.2 ≈ 0.4σ of RPL's adopted scale, the demand ratio RPE proved safe. Isolates the HEAD axis properly (RPL-1.0 confounded head with miscalibrated margin). Pre-reg: ≈RPE closes boundedness as a free choice; >RPE earns unbounded real estate; still broken indicts free-scale dynamics themselves. | `gate_rpl2.json` | `auc_rpl2.json` | launched 2026-08-10 |
 | RPL | `train_q2_rankpure_linear.py` (LINEAR 5-out head, margin 1.0, leash 1e-3, no bins/no regression — the Chrestien configuration + hinge-on-max + leash) | `gate_rpl.json` | `auc_rpl.json` | launching 2026-08-10 |
 | BNGre | BNG ckpts re-evaluated (drift check) | `gate_bngre.json` | (= `auc_bng.json`) | complete |
+| R1 | `train_q2_round2.py` `EGMM_LAMBDA=0.1 NAMO_GROUP_EPISODES=1 NAMO_ROOT_FRAC=0.5` on `family0_train_v2.h5` — 2×2 ratio dial | `gate_2x2_r1.json` | `auc_2x2.json` | complete 2026-08-11 |
+| R2 | same recipe, `NAMO_ROOT_FRAC` unset, on `family1_train_v1.h5` (exhaustive proven labels) — 2×2 label dial | `gate_2x2_r2g2.json` | `auc_2x2.json` | complete 2026-08-11 |
+| G2 | same recipe + `NAMO_ROOT_FRAC=0.5` on `family1_train_v1.h5` — both dials | `gate_2x2_r2g2.json` | `auc_2x2.json` | complete 2026-08-11 |
 
 Baselines reused, never retrained: AJ2/AJ2NR (`gate_aj2.json`), BNG (`gate_bng.json`), θ₀/random (registry). Full registry rows: [horizon_q_model_registry.md](../horizon_q_model_registry.md).
 
@@ -215,6 +218,26 @@ All cells: `train_q2_round2.py` `EGMM_LAMBDA=0.1 NAMO_GROUP_EPISODES=1`, 12 epoc
 **Gen-2 corpus** (`family1_train_v1.h5`, built+verified 2026-08-11): 511,657 rows = 80,551 roots + 431,106 children (44.4% live / 55.6% dead — mirrors family0's 46/54); `finish_sweep_censored` fraction **0.0** (label proof); per-row chunks + lzf; md5-verified CS copy. Amarel build: 200-shard array 13 min wall, pool 2.5 min (`pool_family_h5.py`). **Known confound riding the label dial:** exhaustive sweeps cost more per episode, so family1 has HALF the episodes of family0 (80.5k vs 188k roots) — if R2/G2 underperform, corpus SIZE and label truth are entangled; if they win, size can't be the explanation.
 
 **Pre-registered readings** (branch logic fixed before results): R1 recovers 1p-h@1 toward ~38 with V5 held ≥0.66 → crater was root starvation, ratio dial confirmed. R1 stays low → starvation insufficient, suspicion moves to root label depth/lies. R2 lifts V5/setup@1 over EGMMF at SAME 15% mix → lies were biting offline too. G2 = the product; its deploy curve vs θ₀ 92.0 @900 and MM's 39.4 1p-h@1 is the conversion test. Readouts: offline panel (V5/V6/F2/setup@1/finish@1 via `eval_auc`) + full canonical deploy (difficulty × horizon), no accept/reject at any readout [USER standing rule].
+
+### 2×2 RESULTS (complete 2026-08-11 night; canonical 432/432 + 216/216 shards, 3 seeds pooled; hard tier)
+
+| arm | V5 | V6 | setup@1 | finish@1 | 2p-h@2 | 2p-h@5 | 2p-h@30 | 2p-h@900 | s2s-h | 1p-h@1 | 1p-h@5 | 2p-m@5 |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| R1 (rebalance, lying big corpus) | 0.606 | 0.654 | **26.8** | 49.3 | 9.9 | 24.3 | 45.8 | 88.1 | 123.8 | **29.4** | 67.5 | 44.0 |
+| R2 (honest small corpus, natural mix) | 0.539 | 0.692 | 11.6 | 44.5 | 6.6 | 19.1 | 39.4 | 88.9 | 133.8 | 21.8 | 64.6 | 38.2 |
+| G2 (honest + rebalance) | 0.564 | 0.690 | 20.6 | 51.4 | 10.5 | 20.6 | 44.9 | 88.7 | **114.2** | 25.5 | 67.0 | 43.0 |
+| EGMMF (baseline cell) | **0.682** | 0.642 | 23.8 | 49.2 | 11.0 | 24.6 | 41.8 | **90.7** | 124.4 | 24.7 | 60.1 | 36.5 |
+| AJ2 (old-corpus control) | 0.455 | — | — | — | 12.7 | 26.8 | 53.3 | 90.0 | 105.3 | 38.1 | 78.8 | 50.2 |
+
+Aggregates `gate_2x2_r2g2.json`, `gate_2x2_r1.json`; panels `auc_2x2.json` (+ early `auc_r2arm_early.json`, `auc_g2arm_early.json`); eval dirs `eval_bfix/{R1,R2,G2}_s*/`. Family-campaign gates share 42/36 unmatched episodes (hard n 591/350-354) vs AJ2-era matching (612/411) — within-campaign comparisons clean.
+
+**Readings [numbers, no verdicts — user's call]:**
+
+1. **Neither dial (nor both) recovers 1-push.** Ratio dial is real but small and consistent: +4.7 on the big corpus (24.7→29.4), +3.7 on the small one (21.8→25.5). Best family-corpus 1p-h@1 (29.4) still sits 8.7 under the old-corpus class (~38). The pre-registered "R1 stays low" branch fired: exposure was NOT the binding constraint.
+2. **Honest labels: V6 up, V5 down at this size.** Label truth improved live-board-vs-dead-board separation (V6 0.69 vs 0.64) but both honest cells sit far under EGMMF's V5 0.682 — the V5 wall-fall tracks corpus volume (1.045M vs 431k children), not label truth. Entanglement (half the episodes) was pre-flagged; R1 partially de-confounds: it shows even the big corpus loses V5 under rebalance.
+3. **Rebalance taxes V5** (0.682→0.606 on the same big corpus): extra root singleton batches dilute the family-loss gradient share per epoch, and best-val lands at epoch 3 (fewer family passes). Setup@1 moves opposite (23.8→26.8, band-top 27.1 — new all-time). V5 and setup@1 are NOT the same axis: one is cross-board altitude, the other within-board ordering.
+4. **Where the fixes DID cash:** medium-2p @5 44.0/43.0 (R1/G2) vs EGMMF 36.5 — the rebalanced arms are the best medium-tier family models; G2 digs cheapest (s2s 114.2).
+5. **The un-isolated dial is now prime suspect for the residual 1p gap: root sweep depth.** Family roots were swept at cap 12 (vs d20's 20 + Bfix/BNG label passes); no 2×2 cell varied this. The natural next cell is HYBRID: old-corpus root rows (deep exhaustive 1p labels) + family child boards — tests root-label depth without new collection.
 
 ## Log
 
