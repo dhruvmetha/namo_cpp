@@ -63,6 +63,14 @@ GROUP_EPISODES = os.environ.get("NAMO_GROUP_EPISODES", "0") == "1"
 # _family_lists (needs >=2 rows), so the family terms that broke the V5 wall are untouched —
 # only the per-board base loss sees roots more often.
 ROOT_FRAC = float(os.environ.get("NAMO_ROOT_FRAC", "0.0"))
+# Unreachable cells as exact zeros [USER 2026-08-12]. Deploy only ever scores REACHABLE pushes
+# (`candidates()` in eval_bestfirst builds the pool from rank_first_pushes_h2), so unreachable cells
+# were masked out entirely. Teaching them as hard zeros adds a geometry signal the context image can
+# support, at zero inference cost. Two constraints: they enter REGRESSION ONLY (never the ranking
+# lists -- an unreachable cell must not become the hinge's tallest rival or a softmax denominator
+# term), and they carry weight NAMO_UNREACH_W, because they outnumber labeled cells ~3.4:1
+# (~230 unreachable vs ~68 labeled per board) and would otherwise dominate the loss.
+UNREACH_W = float(os.environ.get("NAMO_UNREACH_W", "0.0"))
 
 
 def margin_vs_max_losses(value, labels, mask, ceiling, margin):
@@ -164,6 +172,12 @@ class Round2Module(rank.RankAuxModule):
                 self.log("egmm_term", egmm / max(n_fam, 1), on_step=False, on_epoch=True)
         return base + extra
 
+    def on_after_batch_transfer(self, batch, dataloader_idx=0):
+        batch = super().on_after_batch_transfer(batch, dataloader_idx)
+        if isinstance(batch, dict):                                # train AND val: rank lists stay
+            self._rank_list_mask = batch.get("rank_mask")          # reachable-only when UNREACH_W>0
+        return batch
+
     def training_step(self, batch, batch_idx):
         self._batch_ep_id = batch.get("ep_id")
         try:
@@ -181,6 +195,11 @@ class GroupedQ2Dataset(Q2ValueDataset):
     def __getitem__(self, k):
         out = super().__getitem__(k)
         out["ep_id"] = int(self.ep_ids[k])
+        if UNREACH_W > 0.0:
+            r = out["r_mask"]
+            out["rank_mask"] = out["loss_mask"]                    # binary reachable-and-tried: rank lists
+            out["f_labels"] = out["f_labels"] * r                  # unreachable target -> exact 0
+            out["loss_mask"] = out["loss_mask"] + UNREACH_W * (1.0 - r)   # fractional = per-cell weight
         return out
 
 
@@ -265,7 +284,7 @@ def build_module(base_lr, warmup_steps, decay_steps):
 if __name__ == "__main__":
     print(f"[round2] MM_LAMBDA={MM_LAMBDA} MM_MARGIN={MM_MARGIN} EG_LAMBDA={EG_LAMBDA} "
           f"EGMM_LAMBDA={EGMM_LAMBDA} GROUP_EPISODES={int(GROUP_EPISODES)} "
-          f"XB_LAMBDA={rank.XB_LAMBDA} ROOT_FRAC={ROOT_FRAC}", flush=True)
+          f"XB_LAMBDA={rank.XB_LAMBDA} ROOT_FRAC={ROOT_FRAC} UNREACH_W={UNREACH_W}", flush=True)
     tq2.build_module = build_module
     tq2.Q2DataModule = GroupedQ2DataModule
     tq2.main()
