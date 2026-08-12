@@ -159,6 +159,9 @@ All under `$NAMO_SCRATCH/aquaman/round0/` (CS); ckpts `models/<ARM>_s{1,2,3}/che
 | R1 | `train_q2_round2.py` `EGMM_LAMBDA=0.1 NAMO_GROUP_EPISODES=1 NAMO_ROOT_FRAC=0.5` on `family0_train_v2.h5` — 2×2 ratio dial | `gate_2x2_r1.json` | `auc_2x2.json` | complete 2026-08-11 |
 | R2 | same recipe, `NAMO_ROOT_FRAC` unset, on `family1_train_v1.h5` (exhaustive proven labels) — 2×2 label dial | `gate_2x2_r2g2.json` | `auc_2x2.json` | complete 2026-08-11 |
 | G2 | same recipe + `NAMO_ROOT_FRAC=0.5` on `family1_train_v1.h5` — both dials | `gate_2x2_r2g2.json` | `auc_2x2.json` | complete 2026-08-11 |
+| EGMMF5 / R15 | EGMM recipe + `NAMO_GAMMA=0.5` on `family0_train_v2.h5` (R15 adds `NAMO_ROOT_FRAC=0.5`) | `gate_wladder_b.json` | `auc_wladder_b.json` | complete 2026-08-12 |
+| R25 / G25 | EGMM recipe + `NAMO_GAMMA=0.5` on `family1_train_v1.h5` (G25 adds `NAMO_ROOT_FRAC=0.5`) | `gate_wladder_a.json` | `auc_wladder_a.json` | complete 2026-08-12 |
+| **HY / HY5** | EGMM recipe on `hybrid_train_v1.h5` (old-corpus roots + family0 children; HY5 adds `NAMO_GAMMA=0.5`) — **1p 42.0/42.8, @900 94.9/96.3, V5 0.690 (HY): the campaign result** | `gate_hybrid.json` | `auc_hybrid.json` | complete 2026-08-12 |
 
 Baselines reused, never retrained: AJ2/AJ2NR (`gate_aj2.json`), BNG (`gate_bng.json`), θ₀/random (registry). Full registry rows: [horizon_q_model_registry.md](../horizon_q_model_registry.md).
 
@@ -246,6 +249,28 @@ Two follow-ups to the 2×2, 18 models total, same EGMM loss (hinge-vs-max in fam
 **HYBRID (root-content dial, the one the 2×2 never varied):** `hybrid_train_v1.h5` = old-corpus rows (257,409; d20-deep 1p labels; setup tier harmonized 0.5→0.9 at build — mixed encodings would tier-split the rank losses) + family0 children (1,045,250). 1,302,659 rows; 215,856 roots. 66% of family child episodes share (xml, object_id) with an old-corpus row → smoke measured **78,196 families joining an old root with family children in one list**. Builder `scripts/pipeline/build_hybrid_h5.py`. Pre-registered: 1p-h@1 → ~38 AND V5 ~0.68 = root-content + volume stories both confirmed, recipe settled; 1p recovers but V5 sags = trade persists, tune mix; neither = the family-corpus direction has its answer.
 
 **WIDE LADDER {0, 0.5, 1} (USER):** all four 2×2 cells + hybrid retrained with `NAMO_GAMMA=0.5` (load-time setup remap; zero rebuild). Rationale: under the 0.9 ladder the opener-setup label gap (0.1) is SMALLER than the hinge margin (0.2) — regression and hinge fight; under 0.5 every tier gap (0.5) clears the margin. Arms: EGMMF5/R15/R25/G25 (grid cells at 0.5) + HY (hybrid at 0.9) + HY5 (hybrid at 0.5). Jobs 206939-206950 + 206959 (R25_s2 resubmit — /dev/shm purge ate a DataLoader semaphore on rlab4; purge now also kills loky sems, not just staged files) + 206968-206973. Eval: three auto-waves (A=R25+G25, B=EGMMF5+R15, C=HY+HY5), each offline panel (`auc_wladder_a/b.json`, `auc_hybrid.json`) + canonical fleet.
+
+### CAMPAIGN RESULTS (complete 2026-08-12; canonical, 3 seeds pooled, hard tier)
+
+| arm | V5 | setup@1 | finish@1 | 2p-h@2 | 2p-h@5 | 2p-h@30 | 2p-h@900 | s2s-h | 1p-h@1 | 1p-h@5 | 2p-m@5 |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| **HY** (hybrid, 0.9) | **0.690** | **27.1** | 52.3 | 12.4 | 23.7 | 50.6 | **94.9** | **90.2** | **42.0** | 76.3 | 45.1 |
+| **HY5** (hybrid, 0.5) | 0.616 | 24.6 | 52.3 | **13.6** | 28.5 | 50.6 | **96.3** | 98.3 | **42.8** | **81.4** | **51.4** |
+| EGMMF5 (family0, 0.5) | 0.643 | 23.2 | 52.3 | 8.8 | 23.7 | 50.3 | 91.5 | 130.8 | 30.6 | 67.7 | 41.7 |
+| R15 (family0, 0.5 + RF) | 0.587 | 20.9 | 48.0 | 8.2 | 23.2 | 44.4 | 89.5 | 128.6 | 29.9 | 67.3 | 44.4 |
+| R25 (family1, 0.5) | 0.462 | 15.8 | 47.6 | 10.2 | 18.4 | 40.1 | 88.1 | 136.1 | 24.7 | 65.0 | 41.0 |
+| G25 (family1, 0.5 + RF) | 0.481 | 20.0 | 50.3 | 10.7 | 23.7 | 48.6 | 88.7 | 115.1 | 26.6 | 71.9 | 46.7 |
+| AJ2 (control) | 0.455 | 25.1 | 50.8 | 12.7 | 26.8 | **53.3** | 90.0 | 105.3 | 38.1 | 78.8 | 50.2 |
+| MM (old-corpus champ @5) | 0.439 | 24.6 | **53.7** | 13.4 | **31.6** | 53.3 | 89.3 | 108.5 | 39.4 | 80.4 | 50.4 |
+
+**Seed bands (retraction-proof):** HY 1p-h@1 [39.6, 41.7, 44.7] — band FLOOR above AJ2's 38.1; @900 = 94.9 on ALL THREE seeds. HY5 1p-h@1 [37.6, 44.7, 46.2]; @900 [94.9, 96.6, 97.5] — floor beats the all-time θ₀ 92.0 by +2.9. (HY_s3 1push refilled shard 1 of 40 post-pull; HY5 432/432 complete from the start.)
+
+**Readings [numbers, no verdicts]:**
+1. **Both pre-registered hybrid bars CLEARED, seed-robust: the campaign's central claim is confirmed.** Root-content (d20-deep labels × 216k roots) fixes 1p (24.7→42.0, EXCEEDING the old corpus's 38.1) while family children keep V5 at 0.690. No trade — the two skills coexist in one corpus.
+2. **@900 94.9-96.3 = new all-time reach by a wide margin** (previous record θ₀ 92.0; band floors clear it). The family thesis finally cashed at deploy — on the corpus that ADDS children to the old corpus instead of replacing it.
+3. **Ladder effect is corpus-dependent and real:** on family0 the {0,0.5,1} ladder alone bought +5.9 1p / +8.5 @30 / 91.5 @900 with V5 held (EGMMF5); on family1 it traded V5 down for small deploy gains; on the hybrid it trades V5 (0.690→0.616) for reach (@900 96.3), sharpness (@2 13.6), and medium tier (51.4). Balance fix (`NAMO_ROOT_FRAC`) is NOT additive with the ladder (R15 ≈ EGMMF5 minus V5) — rebalance is superseded by better root content.
+4. **Remaining old-corpus edges:** MM keeps 2p-h@5 (31.6 vs HY5's 28.5) and AJ2/MM keep @30 (53.3 vs 50.6) — the early-mid hard curve is the surviving gap; everything else now belongs to the hybrids.
+5. Gates `gate_hybrid.json` (+`gate_hybrid_perseed.json`), `gate_wladder_a/b.json`; panels `auc_hybrid.json`, `auc_wladder_a/b.json`.
 
 ## Log
 
