@@ -406,6 +406,29 @@ Gates `gate_dose.json`, `gate_aj2u.json`; panels `auc_dose_aj2u.json`, `auc_aj2u
 3. **Random's hard-tier average is 790 calls (paired) of a 4000 ceiling**; the model averages 120 with a median of 12. Per-episode paired scatter shows the ranker is cheaper on **87% / 90% / 93%** of easy / medium / hard problems individually — the win is per-problem, not an averaging artifact.
 4. Method note: the previous 900-budget curves compared against a random baseline collected under different settings. This campaign supersedes those for any random comparison at any budget.
 
+## Depth-selection bias: measured, and it is ARGMAX AMPLIFICATION not a corpus artifact (2026-08-13)
+
+**The finding.** `HY5U_s1` scored on all 104,420 exhaustive-GT boards: its top-1 pick lands on the DEEPEST push (depth index 4) **69.6%** of the time, against a 26.2% share of true openers and a 20% uniform baseline (mean depth: model 3.30, true openers 2.24).
+
+**Why it matters — it splits the test set in two.** Top-1 accuracy conditioned on whether the board has any depth-4 opener, with a uniform-pick baseline to control for board difficulty:
+
+| board group | share | model top-1 | random pick | model lift |
+|---|--:|--:|--:|--:|
+| has a depth-4 opener | 57% | **79.2%** | 17.0% | **4.65×** |
+| no depth-4 opener | 43% | **7.0%** | 10.2% | **0.69× (WORSE than random)** |
+
+Overall 48.0% = 57% of boards at 79.2% + 43% at 7.0%. **The model is not uniformly mediocre — it is excellent on half the boards and anti-correlated on the other half**, and the split is almost entirely "does the answer happen to be at the deepest depth". This is the most likely single explanation for setup@1 and finish@1 sitting where they do. If the non-deep group merely achieved the same 4.65× lift, overall top-1 would go 48% → ~65%.
+
+**Mechanism (measured, and NOT what was first assumed).** The model's per-depth mean score rises 0.114 / 0.140 / 0.158 / 0.180 / 0.242 — a spread of 0.128 against a within-depth SD of 0.266, i.e. **only a 0.48-SD offset**, and directionally CORRECT (true opener rate rises 3.62 → 5.38% with depth). Taking the argmax over ~80 reachable cells converts that mild offset into a 69.6% depth-4 choice. **The ranking is roughly calibrated; the pathology is how a small systematic offset interacts with top-1 selection.**
+
+**Two retractions recorded here so they are not repeated:**
+1. "The collection planner prefers depths (4,3,2)" — WRONG. That default belongs to `BeamPlanner` in `scripts/sandbox/scorer_beam.py` (eval/deploy side). Collection's `region_opening.py` sorts `(depth ascending, score descending)` or `(score descending, depth ascending)` via `_sort_candidates_sync`; it does not favour deep. Root sweeps additionally run `region_exhaustive_mode: true`, so every reachable root cell is tried regardless of order — order cannot bias root coverage.
+2. "The corpus taught the deep bias" — OVERSTATED. Training's P(opener|depth) ratio (2.8×) is close to the exhaustive GT's (2.4×); the absolute rates differ (3-4× higher in training) because training boards are easier, not because depths were sampled unfairly.
+
+**Where sort order DOES matter:** child boards are capped at 12 tried finishes (`region_finish_topk_cap: 12`) and collection scores with `goal_strategy: scorer`, so the collecting model's own preference decides which finishes are ever labeled — a model-bias feedback loop into the next corpus. Untested; flagged.
+
+**Cheapest next test (one training run, no collection):** correct the per-depth score offset — subtract the per-depth mean at inference, or add a depth-calibration term to the loss. Pre-registered readout: top-1 accuracy on the no-depth-4-opener group rises off 7.0%, model's top-1 depth histogram moves toward the true-opener histogram, and seconds per simulator call fall toward random's ~0.25s (the deep-push preference is also what makes the model's calls 1.3-1.7× more expensive, halving the wall-clock speed-up relative to the sim-count speed-up).
+
 ## Arc narrative — every decision, its reason, and what it concluded (2026-08-11 → 08-12) [USER: record everything in detail]
 
 This section is the reasoning trail for the isolation 2×2 → hybrid arc, written so the choices are reconstructible without the chat.
