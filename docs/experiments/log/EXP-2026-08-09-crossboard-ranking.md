@@ -429,6 +429,36 @@ Gates `gate_dose.json`, `gate_aj2u.json`; panels `auc_dose_aj2u.json`, `auc_aj2u
 
 Where sort order DOES still matter, untested: child boards are capped at 12 tried finishes (`region_finish_topk_cap: 12`) and collection scores with `goal_strategy: scorer`, so the collecting model's preference decides which finishes are ever labeled — a possible model-bias feedback loop into the next corpus.
 
+## WALL-CLOCK campaign at budget 4000 (complete 2026-08-13) [USER: "do the time evaluation", "4000 only"]
+
+Protocol `scripts/slurm/eval_walltime.slurm`: every task takes a WHOLE node (`--exclusive`) of ONE fixed CPU generation, single-threaded, model scoring on CPU; timing accumulated inside `eval_bestfirst.solve_scene` so the timed search IS the canonical search. 12 arms (HY5U ×3 seeds, uniform random ×3 seeds, both legs), 20 shards each, budget 4000. Raw `eval_walltime4k/`, plots `plots/walltime4k/success_vs_time_{1push_hmax2,2push}.png`.
+
+**Ops note:** the campaign was first pinned to `icelake` and crawled at 5 concurrent tasks — ZERO idle icelake nodes cluster-wide while 146 nodes sat idle on other generations. Moved wholesale to `cascadelake` (73 idle) and DISCARDED the icelake partials: mixing CPU generations inside a timing campaign invalidates it, and the protocol needs one fixed generation, not that specific one. 5 → 125 concurrent.
+
+**TWO-PUSH — paired on episodes both arms solved:**
+
+| tier | pairs | model wall | random wall | wall ratio | MEDIAN wall ratio | sim-call ratio | scoring share of model wall |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| easy | 1140 | 2.46s | 7.01s | **2.85×** | 2.41× | 3.32× | 12.9% |
+| medium | 1439 | 8.56s | 35.79s | **4.18×** | **7.60×** | 5.96× | 6.6% |
+| hard | 343 | 35.97s | 177.20s | **4.93×** | **20.16×** | 6.42× | 3.7% |
+
+**ONE-PUSH:**
+
+| tier | pairs | model wall | random wall | wall ratio | sim-call ratio | scoring share |
+|---|--:|--:|--:|--:|--:|--:|
+| easy | 2091 | 0.49s | 0.51s | **1.03×** | 1.82× | 25.9% |
+| medium | 1260 | 0.88s | 2.47s | **2.82×** | 5.77× | 17.3% |
+| hard | 591 | 2.36s | 8.76s | **3.71×** | 6.45× | 11.4% |
+
+**Readings [numbers, no verdicts]:**
+1. **The sim-count advantage does NOT fully survive in seconds, but most of it does on 2push.** Hard 2push keeps 4.93× of a 6.42× sim ratio (77%); hard 1push keeps 3.71× of 6.45× (58%).
+2. **Scoring overhead is not the main leak, and it shrinks with difficulty** — 3.7% of model wall on hard 2push vs 25.9% on easy 1push. The network cost is fixed per decision while simulation time grows with the problem.
+3. **The bigger leak: the model's simulator calls are individually MORE EXPENSIVE** — 0.306s vs random's 0.244s on hard 2push (1.25×), 0.380s vs 0.246s on hard 1push (1.54×). The model chooses substantive pushes (contact, real motion, deeper chains); random frequently picks pushes that fail fast. **Simulator-call count is therefore not a neutral currency — it flatters the model by ~1.25-1.5×.** Wall-clock is the honest axis.
+4. **Medians are far stronger than means** (hard 2push 20.2× median vs 4.93× mean) — same heavy tail as the sim counts: a few expensive episodes dominate the model's average.
+5. **Easy 1push is a statistical tie (1.03×)** — the fixed scoring cost plus costlier calls cancel a 1.82× call advantage. The registered 2026-08-06 campaign found the then-model actually SLOWER there (0.85×), so this is an improvement, but "always run the ranker" is not the right deployment rule on trivial problems. Easy 2push has no such problem (2.85×).
+6. Cross-campaign caution: these are budget-4000 numbers on cascadelake; the registered `walltime-nodiscount-hmax2-v1` rows are budget-900 on icelake. **Do not put them on one axis.**
+
 ## Arc narrative — every decision, its reason, and what it concluded (2026-08-11 → 08-12) [USER: record everything in detail]
 
 This section is the reasoning trail for the isolation 2×2 → hybrid arc, written so the choices are reconstructible without the chat.
