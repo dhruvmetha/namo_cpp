@@ -478,6 +478,44 @@ Random's distribution is comparatively flat (hard 2push mean÷median 1.9; worst 
 
 **Actionable:** the remaining headroom is CONCENTRATED — fixing the worst 10% of episodes recovers ~70% of the model's total runtime. And the best target is arguably **2push MEDIUM, not hard**: same concentration (72%), same bimodality (5.5), but 1439 episodes against hard's 343 and presumably more tractable failures. This is an argument for the DAgger round independent of the ones already on its card.
 
+### Percentile grid — where the speed-up actually lives (2026-08-13)
+
+Wall-clock seconds, budget 4000, paired on episodes both arms solved. This is the aggregate tables broken open; the means alone hide both the peak and a regression.
+
+**TWO-PUSH**
+
+| tier | stat | p10 | p25 | p50 | p75 | p90 | p95 | p99 | mean |
+|---|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| easy (n=1140) | model | 0.81 | 0.99 | 1.34 | 1.99 | 3.98 | 6.71 | 23.41 | 2.46 |
+| | random | 0.96 | 1.56 | 3.23 | 7.35 | 16.65 | 26.00 | 52.74 | 7.01 |
+| | **ratio** | 1.2× | 1.6× | 2.4× | 3.7× | 4.2× | 3.9× | 2.3× | 2.9× |
+| medium (n=1439) | model | 0.87 | 1.10 | 1.55 | 4.17 | 14.85 | 32.16 | 125.18 | 8.56 |
+| | random | 1.57 | 3.78 | 11.80 | 36.74 | 91.63 | 160.04 | 375.29 | 35.79 |
+| | **ratio** | 1.8× | 3.4× | 7.6× | **8.8×** | 6.2× | 5.0× | 3.0× | 4.2× |
+| hard (n=343) | model | 0.93 | 1.31 | 4.53 | 23.64 | 91.82 | 174.45 | 549.15 | 35.97 |
+| | random | 4.65 | 25.05 | 91.40 | 232.97 | 510.67 | 670.24 | 1063.15 | 177.20 |
+| | **ratio** | 5.0× | 19.1× | **20.2×** | 9.9× | 5.6× | 3.8× | 1.9× | 4.9× |
+
+**ONE-PUSH**
+
+| tier | stat | p10 | p25 | p50 | p75 | p90 | p95 | p99 | mean |
+|---|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| easy (n=2091) | model | 0.29 | 0.36 | 0.46 | 0.58 | 0.71 | 0.80 | 1.10 | 0.49 |
+| | random | 0.16 | 0.25 | 0.40 | 0.57 | 0.91 | 1.24 | 2.57 | 0.51 |
+| | **ratio** | **0.5×** | **0.7×** | **0.9×** | 1.0× | 1.3× | 1.6× | 2.3× | 1.0× |
+| medium (n=1260) | model | 0.39 | 0.51 | 0.63 | 0.77 | 1.07 | 1.48 | 4.98 | 0.88 |
+| | random | 0.39 | 0.55 | 0.92 | 1.67 | 3.46 | 6.52 | 19.87 | 2.47 |
+| | **ratio** | 1.0× | 1.1× | 1.4× | 2.2× | 3.2× | 4.4× | 4.0× | 2.8× |
+| hard (n=591) | model | 0.47 | 0.58 | 0.82 | 1.33 | 2.71 | 5.51 | 27.85 | 2.36 |
+| | random | 0.68 | 1.19 | 2.63 | 6.82 | 16.05 | 29.13 | 100.43 | 8.76 |
+| | **ratio** | 1.5× | 2.1× | 3.2× | 5.1× | 5.9× | 5.3× | 3.6× | 3.7× |
+
+**Three readings the aggregates hid:**
+
+1. **The advantage is an ARC — it peaks mid-distribution and decays at both ends.** Hard 2push: 5.0× (p10) → **20.2× (p50)** → 1.9× (p99). Cheap problems are already fast for both arms; the model's own failures degrade it toward random. The honest headline therefore comes from the middle of the distribution, which is also what a user experiences.
+2. **The model is genuinely SLOWER than random on easy 1push below the median** — 0.5× at p10, 0.7× at p25, 0.9× at p50, crossing 1.0× only at p75. That is scoring overhead paid on problems random solves in one lucky draw. The aggregate 1.03× concealed a real regression on the fastest half. **Deployment rule: run the ranker on everything EXCEPT easy 1push.**
+3. **Even the model's worst cases stay ahead** — hard 2push p99 is 549s vs random's 1063s. The advantage shrinks but never inverts on 2push.
+
 ## Arc narrative — every decision, its reason, and what it concluded (2026-08-11 → 08-12) [USER: record everything in detail]
 
 This section is the reasoning trail for the isolation 2×2 → hybrid arc, written so the choices are reconstructible without the chat.
