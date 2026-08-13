@@ -35,10 +35,12 @@ RAW=${RAW:-1}
 
 # SLURM copies this script out of the repo, so never derive the checkout from BASH_SOURCE.
 REPO=${NAMO_REPO:-${SLURM_SUBMIT_DIR:?no NAMO_REPO and no SLURM_SUBMIT_DIR}}
+SAGE=${SAGE_REPO:?set SAGE_REPO -- it MUST match the code version the ckpt was trained with}
+BIND=${NAMO_BINDINGS:-$REPO/build_python}      # env.amarel.sh does NOT export these two
 cd "$REPO" || { echo "FATAL: REPO=$REPO is not a directory"; exit 1; }
 source env.amarel.sh || { echo "FATAL: could not source env.amarel.sh from $REPO"; exit 1; }
-export SAGE_REPO="${SAGE_REPO:-$SAGE}"
-export PYTHONPATH="$BIND:$REPO/python:$REPO/scripts:$REPO/scripts/sandbox:$SAGE_REPO"
+export SAGE_REPO="$SAGE"
+export PYTHONPATH="$BIND:$REPO/python:$REPO/scripts:$REPO/scripts/sandbox:$SAGE"
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 OPENCV_NUM_THREADS=1
 export CUDA_VISIBLE_DEVICES=""
 PY="${NAMO_PYTHON:-python}"
