@@ -27,11 +27,24 @@ ARMS=(
   "rand_s9000|uniform|$CK/HY5U_s1.ckpt|9000"
 )
 
-submit() {   # $1=name $2=prior $3=ckpt $4=seed
-  ssh "$AM" "cd $REPO && CKPT=$3 OUT=$OUT/$1 SIM_BUDGET=$BUDGET N2SH=$N2SH PRIOR=$2 \
-    SEED_BASE=$4 NAMO_REPO=$REPO SAGE_REPO=$SAGE \
-    sbatch --array=0-$((N2SH-1)) --time=6:00:00 --job-name=b4k_$1 \
-    scripts/slurm/eval_budget_2push.slurm" 2>&1 | grep -oE '[0-9]+$'
+submit() {   # $1=name $2=prior $3=ckpt $4=seed -- retries past the QOS submit cap
+  # ⛔ A wave whose predecessor still has stragglers queued can exceed Amarel's 500-job `main`
+  # cap; sbatch then prints QOSMaxSubmitJobPerUserLimit and exits nonzero. An earlier version
+  # only grepped for a job id, so a rejected arm vanished silently and was found later by a
+  # shard count. Retry until it lands.
+  local _try _out
+  for _try in $(seq 1 60); do
+    _out=$(ssh "$AM" "cd $REPO && CKPT=$3 OUT=$OUT/$1 SIM_BUDGET=$BUDGET N2SH=$N2SH PRIOR=$2 \
+      SEED_BASE=$4 NAMO_REPO=$REPO SAGE_REPO=$SAGE \
+      sbatch --array=0-$((N2SH-1)) --time=6:00:00 --job-name=b4k_$1 \
+      scripts/slurm/eval_budget_2push.slurm" 2>&1)
+    if echo "$_out" | grep -q "Submitted batch job"; then
+      echo "$_out" | grep -oE '[0-9]+$'; return 0
+    fi
+    echo "  submit of $1 rejected (attempt $_try): $(echo "$_out" | tail -1)" >&2
+    sleep 60
+  done
+  echo "FAILED_TO_SUBMIT_$1"; return 1
 }
 
 drain() {    # block until this user's queue is (nearly) empty
