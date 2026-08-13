@@ -1,6 +1,17 @@
-# DAgger round-4 collection spec (drafted 2026-08-12)
+---
+type: experiment
+status: idea
+created: 2026-08-12
+updated: 2026-08-12
+metric: "gate: 2p-hard@5 > HY5U's 39.5 on the COMMON episode set (aquaman_agg_common.py); guard: 1p-hard@1 ≥ 42; V5 explicitly barred from gating."
+tags:
+  - experiment
+  - data
+  - dagger
+---
+# DAgger round-4 — mix-constrained collection from the HY5U lessons
 
-Status: DRAFT, awaiting user go. Written from the lessons of [EXP-2026-08-09-crossboard-ranking](log/EXP-2026-08-09-crossboard-ranking.md) (isolation 2×2 → hybrid → HY5U). Nothing here is launched.
+Status: DRAFT, awaiting user go. Written from the lessons of [EXP-2026-08-09-crossboard-ranking](EXP-2026-08-09-crossboard-ranking.md) (isolation 2×2 → hybrid → HY5U). Nothing here is launched.
 
 ## Why this round, and the one trap it must avoid
 

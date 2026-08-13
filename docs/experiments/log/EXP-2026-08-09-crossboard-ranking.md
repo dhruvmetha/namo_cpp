@@ -2,7 +2,7 @@
 type: experiment
 status: active
 created: 2026-08-09
-updated: 2026-08-09
+updated: 2026-08-12
 metric: "TBD — gate: XB/RP must lift V5 ≥0.60 (from 0.543) with F2 ≥0.87 on the offline panel; canonical eval only for survivors."
 tags:
   - experiment
