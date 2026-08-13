@@ -1,5 +1,5 @@
 #!/bin/bash
-# WALL-CLOCK 2push eval — the timed protocol. [EXP-2026-08-09 § wall-clock, USER 2026-08-13]
+# WALL-CLOCK eval (1push or 2push) — the timed protocol. [EXP-2026-08-09 § wall-clock, USER 2026-08-13]
 #
 # Why this differs from eval_budget_2push.slurm: wall-time is only meaningful if nothing else
 # shares the node, so every task takes a WHOLE node (--exclusive) of one fixed CPU generation
@@ -14,9 +14,12 @@
 # seconds. Budget 900 to stay comparable with the registered walltime-nodiscount-hmax2-v1 rows.
 #
 # Usage (one array per arm):
-#   CKPT=<ckpt> OUT=<dir> PRIOR=model|uniform SEED_BASE=7000 NSH=10 \
-#     sbatch --array=0-9 --constraint=icelake scripts/slurm/eval_walltime_2push.slurm
-#SBATCH --job-name=wt2push
+#   CKPT=<ckpt> OUT=<dir> PRIOR=model|uniform SEED_BASE=7000 NSH=20 PUSH=2 \
+#     sbatch --array=0-19 --constraint=icelake scripts/slurm/eval_walltime.slurm
+# PUSH=1 evaluates the 1-push population (still hmax=2 search) into $OUT/1push_hmax2/.
+# BOTH legs are pinned to the SAME constraint here so every arm of this campaign shares one CPU
+# generation; never compare a 1push time against a 2push time regardless.
+#SBATCH --job-name=walltime
 #SBATCH --partition=main-redhat
 #SBATCH --nodes=1
 #SBATCH --exclusive
@@ -30,6 +33,7 @@ SIM_BUDGET=${SIM_BUDGET:-900}
 NSH=${NSH:-10}
 PRIOR=${PRIOR:-model}
 SEED_BASE=${SEED_BASE:-7000}
+PUSH=${PUSH:-2}
 
 REPO=${NAMO_REPO:-${SLURM_SUBMIT_DIR:?no NAMO_REPO and no SLURM_SUBMIT_DIR}}
 SAGE=${SAGE_REPO:?set SAGE_REPO -- must match the code the ckpt was trained with}
@@ -45,15 +49,23 @@ export CUDA_VISIBLE_DEVICES=""
 PY="${NAMO_PYTHON:-python}"
 command -v "$PY" >/dev/null 2>&1 || PY=$(command -v python3)
 ID=$SLURM_ARRAY_TASK_ID
-mkdir -p logs "$OUT/2push"
-
-N2=$("$PY" -c 'import json; from namo import eval_sets; print(len(json.load(open(eval_sets.PURE2PUSH))))')
-S=$((ID * N2 / NSH)); EN=$(((ID + 1) * N2 / NSH))
-echo "WALLTIME start $(date) host=$(hostname) cpu=$(lscpu | grep 'Model name' | head -1 | cut -d: -f2 | xargs) ID=$ID episodes[$S,$EN) prior=$PRIOR seed=$SEED_BASE"
+if [ "$PUSH" = "1" ]; then
+  LEG=1push_hmax2
+  KEY=$("$PY" -m namo.eval_sets onepush_manifest)
+  NEP=$("$PY" -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$KEY")
+  KEYARG=(--key "$KEY")
+else
+  LEG=2push
+  NEP=$("$PY" -c 'import json; from namo import eval_sets; print(len(json.load(open(eval_sets.PURE2PUSH))))')
+  KEYARG=()
+fi
+mkdir -p logs "$OUT/$LEG"
+S=$((ID * NEP / NSH)); EN=$(((ID + 1) * NEP / NSH))
+echo "WALLTIME start $(date) host=$(hostname) cpu=$(lscpu | grep 'Model name' | head -1 | cut -d: -f2 | xargs) leg=$LEG ID=$ID episodes[$S,$EN) prior=$PRIOR seed=$SEED_BASE budget=$SIM_BUDGET"
 [ "$S" -ge "$EN" ] && { echo "empty shard"; exit 0; }
 
 "$PY" scripts/sandbox/eval_bestfirst.py --ckpt "$CKPT" --hmax 2 --sim-budget "$SIM_BUDGET" \
   --prior "$PRIOR" --agg mean5 --combine q --discount off --seed-base "$SEED_BASE" \
-  --start "$S" --end "$EN" \
-  --out "$OUT/2push/shard_${ID}.json" --leaf-out "$OUT/2push/shard_${ID}.jsonl"
+  "${KEYARG[@]}" --start "$S" --end "$EN" \
+  --out "$OUT/$LEG/shard_${ID}.json" --leaf-out "$OUT/$LEG/shard_${ID}.jsonl"
 echo "WALLTIME done $(date) ID=$ID"
