@@ -50,9 +50,16 @@ This also dissolves an apparent paradox in the evidence: the hybrid TRAINING cor
 
 Measured on 104,420 GT boards: the model picks the DEEPEST push (index 4) **69.6%** of the time, against a 26.2% share of true openers and a 20% uniform baseline (mean depth: model 3.30, truth 2.24). Cost: its simulator calls are **1.3-1.7× more expensive** than random's, which is why the wall-clock speed-up (3.7× hard 1push) is roughly half the simulator-call speed-up (6.5×).
 
-Root cause is upstream of the model: `BeamPlanner(first_depths=(4, 3, 2))` in `scripts/sandbox/scorer_beam.py` preferentially TRIES deep pushes as first moves, so the corpus over-labels them (training labels every depth ~evenly at ~20%, while the exhaustive GT — which tries everything — ends up 26% shallow vs 15.7% deepest). Training then reports P(opener | depth 4) = 31% where truth says 8.9%.
+**⚠ CAUSE NOT ESTABLISHED — an earlier draft of this section blamed `BeamPlanner(first_depths=(4, 3, 2))` in `scripts/sandbox/scorer_beam.py`. That is WRONG: that default belongs to the EVAL/deploy-side beam planner, not to collection.** The collection planner `region_opening.py` sorts candidates by `(depth ascending, score descending)` or `(score descending, depth ascending)` (`_sort_candidates_sync`) — it does not favour deep pushes. Retracted 2026-08-13 on the user's challenge; do not propagate the (4,3,2) story.
 
-**Round-4 change:** sample first-move depths uniformly during collection (or record the sampling weights so the loss can invert them). Pre-registered readout: model's top-1 depth histogram should move toward the true-opener histogram, and mean seconds per simulator call should fall toward random's ~0.25s. This is cheap and independent of everything else in this round.
+What IS measured, and stands:
+- Training corpus (hybrid roots): labeled coverage ~even across depths (19.9/20.2/20.2/20.0/19.7%), P(opener | labeled) rising 11.0 → 31.1%.
+- Exhaustive test GT: labeled coverage shallow-heavy (26.0/22.5/19.2/16.7/15.7%), P(opener | labeled) rising 3.7 → 8.9%.
+- So both agree deep is better by a similar RATIO (2.8× vs 2.4×), but training's absolute opener rates are 3-4× higher, and the two disagree on which depths get labeled at all.
+
+The open question is why labeled coverage is even in training but shallow-heavy in exhaustive GT (note `r_mask` appears to be per-EDGE, marking all 5 depths reachable together, so the difference is in what was TRIED, not what was reachable). **Diagnose before designing a fix** — candidates include the goal generator's per-depth feasibility, `max_goals` truncation, and differing primitive availability. A wrong root cause here would produce a collection change that does nothing.
+
+**Round-4 change (conditional on that diagnosis):** make the per-depth TRY distribution match feasibility, or record per-depth sampling weights so the loss can invert them. Pre-registered readout: model's top-1 depth histogram moves toward the true-opener histogram; mean seconds per simulator call falls toward random's ~0.25s; and top-1 accuracy on boards WITHOUT a depth-4 opener rises off the floor (currently 7.0%, i.e. 0.69× random).
 
 ## Rooms
 
