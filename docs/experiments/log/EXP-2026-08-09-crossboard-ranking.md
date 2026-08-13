@@ -459,6 +459,25 @@ Protocol `scripts/slurm/eval_walltime.slurm`: every task takes a WHOLE node (`--
 5. **Easy 1push is a statistical tie (1.03×)** — the fixed scoring cost plus costlier calls cancel a 1.82× call advantage. The registered 2026-08-06 campaign found the then-model actually SLOWER there (0.85×), so this is an improvement, but "always run the ranker" is not the right deployment rule on trivial problems. Easy 2push has no such problem (2.85×).
 6. Cross-campaign caution: these are budget-4000 numbers on cascadelake; the registered `walltime-nodiscount-hmax2-v1` rows are budget-900 on icelake. **Do not put them on one axis.**
 
+### Tail structure of the wall-clock distribution (2026-08-13)
+
+The mean/median gap is not noise — it is the model's failure mode made visible, and it scales with difficulty on BOTH horizons.
+
+| horizon / tier | model mean | model median | mean÷median | worst 10% of episodes = X% of model's total time | median speed-up |
+|---|--:|--:|--:|--:|--:|
+| 1push easy | 0.49s | 0.46s | 1.1 | 18% | 0.9× |
+| 1push medium | 0.88s | 0.63s | 1.4 | 38% | 1.4× |
+| 1push hard | 2.36s | 0.82s | 2.9 | 65% | 3.2× |
+| 2push easy | 2.46s | 1.34s | 1.8 | 47% | 2.4× |
+| **2push medium** | 8.56s | 1.55s | **5.5** | **72%** | **7.6×** |
+| **2push hard** | 35.97s | 4.53s | **7.9** | **70%** | **20.2×** |
+
+Random's distribution is comparatively flat (hard 2push mean÷median 1.9; worst 10% = 42% of its time). Percentiles on hard 2push (model vs random): p25 1.31 vs 25.05s (**19.1×**), p50 4.53 vs 91.40s (20.2×), p90 91.82 vs 510.67s (5.6×), **p99 549 vs 1063s (1.9×)**.
+
+**Reading:** the ranker is effectively BIMODAL — when the answer is near the top of its ordering it finishes almost immediately (a quarter of hard 2push episodes in under 1.3 s), and when it is not, it degrades toward random (ratio 1.9× at p99). Random has no fast mode at all, so its distribution is tight in log terms. This is why the quoted speed-up depends entirely on the statistic: **20× describes the typical hard problem, 4.9× describes expected compute.** Report both; the mean alone understates the typical case and the median alone hides the tail.
+
+**Actionable:** the remaining headroom is CONCENTRATED — fixing the worst 10% of episodes recovers ~70% of the model's total runtime. And the best target is arguably **2push MEDIUM, not hard**: same concentration (72%), same bimodality (5.5), but 1439 episodes against hard's 343 and presumably more tractable failures. This is an argument for the DAgger round independent of the ones already on its card.
+
 ## Arc narrative — every decision, its reason, and what it concluded (2026-08-11 → 08-12) [USER: record everything in detail]
 
 This section is the reasoning trail for the isolation 2×2 → hybrid arc, written so the choices are reconstructible without the chat.
