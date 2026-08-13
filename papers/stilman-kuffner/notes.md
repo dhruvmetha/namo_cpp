@@ -7,6 +7,7 @@ tags: [manipulation planning, combinatorial planning]
 verdict: foundational
 read: with claude
 projects: "namo"
+slug: "stilman-kuffner"
 ---
 
 This work is quite foundational for the NAMO problem. Under the setting, the model of the system is known.

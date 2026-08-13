@@ -7,4 +7,5 @@ tags: ["puct", "expert-iteration", "search-guided-policy", "self-play"]
 verdict:
 read: false
 projects: "namo"
+slug: "alphazero"
 ---

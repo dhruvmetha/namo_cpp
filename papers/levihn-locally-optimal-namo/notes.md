@@ -7,4 +7,5 @@ tags: []
 verdict:
 read: false
 projects: "namo"
+slug: "levihn-locally-optimal-namo"
 ---

@@ -6,5 +6,6 @@ tags: []
 verdict:
 read: false
 projects: "namo"
+slug: "online-mssc-pandora"
 ---
 

@@ -7,4 +7,5 @@ tags: []
 verdict:
 read: false
 projects: "namo"
+slug: "stilman-artificial-constraints"
 ---

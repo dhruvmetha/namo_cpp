@@ -8,6 +8,7 @@ tags: ["llm-heuristics", "htn-planning", "learned-ranking", "heuristic-generatio
 verdict: "QUEUE-WORTHY — LLM-generated heuristics guide hierarchical search"
 read: false
 projects: "namo"
+slug: "2605.07707"
 ---
 
 Adapts LLM-generated heuristic methodology (from Corrêa et al. on classical planning) to hierarchical task network (HTN) planning. LLMs generate Python functions mapping (world state, task network) to numeric heuristic values. Methodology: generate-evaluate-select pipeline. Evaluates nine LLMs on six IPC 2020 HTN benchmark domains using Pytrich planner.

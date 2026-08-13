@@ -6,6 +6,7 @@ tags: []
 verdict:
 read: true
 projects: "namo"
+slug: "yao-local-namo"
 ---
 
 This work focuses on the keyhole problem of NAMO. Uses RL to solve for this problem, no planning, no search; Reactive policy. 

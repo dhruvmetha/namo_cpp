@@ -7,4 +7,5 @@ tags: []
 verdict:
 read: false
 projects: "namo"
+slug: "wu-unknown-namo"
 ---

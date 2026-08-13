@@ -6,5 +6,6 @@ tags: []
 verdict:
 read: false
 projects: "namo"
+slug: "em4m"
 ---
 

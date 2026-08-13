@@ -6,4 +6,5 @@ tags: []
 verdict:
 read: false
 projects: "namo"
+slug: "bejjani-learned-rhp"
 ---

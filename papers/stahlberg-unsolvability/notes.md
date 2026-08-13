@@ -7,5 +7,6 @@ tags: []
 verdict:
 read: false
 projects: "namo"
+slug: "stahlberg-unsolvability"
 ---
 
