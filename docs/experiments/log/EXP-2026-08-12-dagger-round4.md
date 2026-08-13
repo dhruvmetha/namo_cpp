@@ -59,7 +59,7 @@ What IS measured, and stands:
 
 The open question is why labeled coverage is even in training but shallow-heavy in exhaustive GT (note `r_mask` appears to be per-EDGE, marking all 5 depths reachable together, so the difference is in what was TRIED, not what was reachable). **Diagnose before designing a fix** — candidates include the goal generator's per-depth feasibility, `max_goals` truncation, and differing primitive availability. A wrong root cause here would produce a collection change that does nothing.
 
-**Round-4 change (conditional on that diagnosis):** make the per-depth TRY distribution match feasibility, or record per-depth sampling weights so the loss can invert them. Pre-registered readout: model's top-1 depth histogram moves toward the true-opener histogram; mean seconds per simulator call falls toward random's ~0.25s; and top-1 accuracy on boards WITHOUT a depth-4 opener rises off the floor (currently 7.0%, i.e. 0.69× random).
+**Round-4 change (conditional on that diagnosis):** make the per-depth TRY distribution match feasibility, or record per-depth sampling weights so the loss can invert them. Pre-registered readout: model's top-1 depth histogram moves toward the true-opener histogram; mean seconds per simulator call falls toward random's ~0.25s; and top-1 accuracy on boards WITHOUT a depth-4 opener rises from 70.7% (2.07× random) toward the 79.3% the deep-answer boards get. [Figures corrected 2026-08-13: the earlier 7.0%/0.69× was an artifact of scoring over per-EDGE r_mask cells that include infeasible deep pushes — see the crossboard card's retraction.]
 
 ## Rooms
 

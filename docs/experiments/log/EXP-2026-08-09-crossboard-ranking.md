@@ -406,28 +406,28 @@ Gates `gate_dose.json`, `gate_aj2u.json`; panels `auc_dose_aj2u.json`, `auc_aj2u
 3. **Random's hard-tier average is 790 calls (paired) of a 4000 ceiling**; the model averages 120 with a median of 12. Per-episode paired scatter shows the ranker is cheaper on **87% / 90% / 93%** of easy / medium / hard problems individually — the win is per-problem, not an averaging artifact.
 4. Method note: the previous 900-budget curves compared against a random baseline collected under different settings. This campaign supersedes those for any random comparison at any budget.
 
-## Depth-selection bias: measured, and it is ARGMAX AMPLIFICATION not a corpus artifact (2026-08-13)
+## Depth-selection bias — RETRACTED IN LARGE PART, then re-measured correctly (2026-08-13)
 
-**The finding.** `HY5U_s1` scored on all 104,420 exhaustive-GT boards: its top-1 pick lands on the DEEPEST push (depth index 4) **69.6%** of the time, against a 26.2% share of true openers and a 20% uniform baseline (mean depth: model 3.30, true openers 2.24).
+**⛔ RETRACTION.** An earlier version of this section reported that the model picks the deepest push 69.6% of the time, scores 48.0% top-1 overall, and is **worse than random (0.69×) on the 43% of boards without a depth-4 opener** — and claimed this explained setup@1/finish@1 with a ~17-point upside. **That was an artifact of the candidate set and is withdrawn.** It was posted to Slack before the error was found; the correction was posted immediately after.
 
-**Why it matters — it splits the test set in two.** Top-1 accuracy conditioned on whether the board has any depth-4 opener, with a uniform-pick baseline to control for board difficulty:
+**The error.** The analysis defined candidates as `r_mask > 0`. **`r_mask` is per-EDGE, not per-cell**: measured, it is identical across all 5 depths on 100% of (board, edge) pairs. It answers "can the robot reach this contact point", not "is this push executable". In the exhaustive GT only 60.4% of reachable depth-4 pushes are ever labeled (vs 100% at depth 0) because the deep push is often physically impossible — the object would hit a wall or another object, so no goal is generated and no trial happens. The old analysis therefore let the model "choose" cells that the deploy-time primitive generator would never offer, then scored it wrong when those were not openers.
 
-| board group | share | model top-1 | random pick | model lift |
-|---|--:|--:|--:|--:|
-| has a depth-4 opener | 57% | **79.2%** | 17.0% | **4.65×** |
-| no depth-4 opener | 43% | **7.0%** | 10.2% | **0.69× (WORSE than random)** |
+**Corrected, on FEASIBLE cells (`value_mask & r_mask`) — what deploy actually offers:**
 
-Overall 48.0% = 57% of boards at 79.2% + 43% at 7.0%. **The model is not uniformly mediocre — it is excellent on half the boards and anti-correlated on the other half**, and the split is almost entirely "does the answer happen to be at the deepest depth". This is the most likely single explanation for setup@1 and finish@1 sitting where they do. If the non-deep group merely achieved the same 4.65× lift, overall top-1 would go 48% → ~65%.
+| metric | artifact | corrected |
+|---|--:|--:|
+| top-1 picks landing on depth 4 | 69.6% | **46.0%** |
+| overall top-1 hit | 48.0% | **75.6%** |
+| boards WITH a depth-4 opener | 79.2% (4.65× random) | 79.3% (4.56×) |
+| boards WITHOUT a depth-4 opener | 7.0% (**0.69×**) | **70.7% (2.07× random)** |
 
-**Mechanism (measured, and NOT what was first assumed).** The model's per-depth mean score rises 0.114 / 0.140 / 0.158 / 0.180 / 0.242 — a spread of 0.128 against a within-depth SD of 0.266, i.e. **only a 0.48-SD offset**, and directionally CORRECT (true opener rate rises 3.62 → 5.38% with depth). Taking the argmax over ~80 reachable cells converts that mild offset into a 69.6% depth-4 choice. **The ranking is roughly calibrated; the pathology is how a small systematic offset interacts with top-1 selection.**
+**What stands after correction:** a real but modest depth tilt — 46.0% of top-1 picks at depth 4 against a 26.2% true-opener share — and a genuine but much smaller weakness on boards whose answer is not deep (70.7% vs 79.3%; lift 2.07× vs 4.56×). The model is **never worse than random**. The per-depth score offset is 0.48 SD (means 0.114 → 0.242, within-depth SD 0.266), directionally correct since the true opener rate does rise with depth; argmax over the candidate set amplifies it, but far less than the artifact suggested.
 
-**Two retractions recorded here so they are not repeated:**
-1. "The collection planner prefers depths (4,3,2)" — WRONG. That default belongs to `BeamPlanner` in `scripts/sandbox/scorer_beam.py` (eval/deploy side). Collection's `region_opening.py` sorts `(depth ascending, score descending)` or `(score descending, depth ascending)` via `_sort_candidates_sync`; it does not favour deep. Root sweeps additionally run `region_exhaustive_mode: true`, so every reachable root cell is tried regardless of order — order cannot bias root coverage.
-2. "The corpus taught the deep bias" — OVERSTATED. Training's P(opener|depth) ratio (2.8×) is close to the exhaustive GT's (2.4×); the absolute rates differ (3-4× higher in training) because training boards are easier, not because depths were sampled unfairly.
+**What is withdrawn:** "worse than random on 43% of boards", "this explains setup@1 / finish@1", and the 48% → ~65% upside estimate. Do not cite them.
 
-**Where sort order DOES matter:** child boards are capped at 12 tried finishes (`region_finish_topk_cap: 12`) and collection scores with `goal_strategy: scorer`, so the collecting model's own preference decides which finishes are ever labeled — a model-bias feedback loop into the next corpus. Untested; flagged.
+**Durable lesson (the reason this section is kept rather than deleted):** `r_mask` = reachable CONTACT, `value_mask & r_mask` = executable-and-tried PUSH. Any offline ranking analysis must use the latter as the candidate set, because that is what the deploy-time goal generator produces. Conflating them silently inflates every top-1-style number against the model. Two earlier claims in this same investigation were also wrong and are recorded so they are not repeated: (1) collection does NOT prefer depths (4,3,2) — that default belongs to `BeamPlanner` in `scripts/sandbox/scorer_beam.py` on the eval side, while collection's `region_opening.py` sorts `(depth asc, score desc)` or `(score desc, depth asc)` and runs root sweeps exhaustively; (2) the corpus does not "teach" the deep bias — training and exhaustive GT agree deep is better by a similar ratio (2.8× vs 2.4×), the difference in absolute opener rate being board easiness.
 
-**Cheapest next test (one training run, no collection):** correct the per-depth score offset — subtract the per-depth mean at inference, or add a depth-calibration term to the loss. Pre-registered readout: top-1 accuracy on the no-depth-4-opener group rises off 7.0%, model's top-1 depth histogram moves toward the true-opener histogram, and seconds per simulator call fall toward random's ~0.25s (the deep-push preference is also what makes the model's calls 1.3-1.7× more expensive, halving the wall-clock speed-up relative to the sim-count speed-up).
+Where sort order DOES still matter, untested: child boards are capped at 12 tried finishes (`region_finish_topk_cap: 12`) and collection scores with `goal_strategy: scorer`, so the collecting model's preference decides which finishes are ever labeled — a possible model-bias feedback loop into the next corpus.
 
 ## Arc narrative — every decision, its reason, and what it concluded (2026-08-11 → 08-12) [USER: record everything in detail]
 
