@@ -299,6 +299,64 @@ Seed bands (3 seeds): 1p-h@1 [44.7, 46.7, 44.7] · 2p-h@5 [40.7, 38.1, 39.8] · 
 3. **Mechanism hypothesis, UNVERIFIED:** dense geometry supervision on 3.4× more cells teaches reachability structure explicitly, which the ranking sits on top of; previously the model had to infer that structure from sparse labeled cells alone. A clean test would ablate the auxiliary at fixed corpus (e.g. w ∈ {0, 0.1, 0.3, 1.0}) — the w=0.3 probe (`HY5U3_s1`) is the first point of that sweep, one shard refill pending.
 4. **V5 anti-predicted deploy for the FIFTH time** (0.496, the worst of any hybrid arm, on the best-deploying model ever trained here). V5 is a burial diagnostic; it is not a model-selection criterion under any circumstances.
 
+## CHANGE LEDGER — every change, why it was made, what it did [USER 2026-08-12: "record of every change, why, and the result, positive or negative"]
+
+One row per change tried in this campaign, in order. **Verdict is against the change's own control**, not against the global best. Deploy numbers are 2p-hard unless noted; ⚠ marks rows measured on per-arm episode denominators (pre-dating the common-episode fix) — those are internally consistent within a round but shift 1-7 points when re-scored on the common set, so compare rows within a block, not across blocks. Rows marked ✅ are on the common set (`gate_common.json`).
+
+### Block 1 — loss shape, old corpus (rounds 1-3b). Control: AJ2 (@2 12.7 / @5 26.8 / @30 53.3 / @900 90.0 / s2s 105 / 1p 38.1) ⚠
+
+| change | why it was tried | result | verdict |
+|---|---|---|---|
+| **XB** — batch-flat cross-board softmax λ=0.1 | per-board softmax is shift-invariant, so nothing supervises across boards; make the list the whole batch | @5 28.7 / @30 54.7 / @900 91.0 / s2s 99.6 / 1p 38.2, **V5 FLAT 0.456 vs 0.455** | **mildly positive, wrong mechanism** — gain traced to finish ordering, not cross-board repair |
+| **RP** — delete regression + censored entirely | test whether the value head was ever needed under a ranking deploy (GBFS consumes order only) | within ~2 pts everywhere (@2 12.9 best-in-round, 1p@5 80.9) | **neutral = the finding** — regression is scaffolding, not signal |
+| **MM** — margin-vs-max on batch-flat list | softmax CE stalls at its floor ~log(#positives); a hinge on the single tallest rival cannot stall | @5 **31.6** / 1p **39.4** — best early curve of the round, BNG-class without BNG's guess labels | **positive** |
+| **EG** — softmax over the EPISODE FAMILY list | V5 grades setup-vs-own-episode's dead boards, a pair that almost never co-occurs in a random batch (21% of rows had siblings) | @30 **57.4** / s2s **89.3** — best mid-curve | **positive** |
+| **EGMM** — margin-vs-max WITHIN the family | the deploy duel written as a loss: beat the champion of every dead board in your episode | V5 0.492 (only robust offline mover), F2 0.920 — but worst front-curve of the round | **mixed** — offline yes, deploy no |
+| **RPB** — RP + 2% regression brake | hypothesis that regression's one surviving job is stopping score-scale stretch | @5 23.4, weakest of round 2 | **negative** — leash story falsified at this dose |
+| **RPE** — rank-pure EGMM | can the value-free stack carry the family hinge? | @5 25.9 / @900 90.9, V6 0.720 > parent EGMM's 0.685 | **neutral-positive** — removing regression relieved rather than compounded |
+| **RPG / RPEG** — unanchored family softmax | grid-completion arms: does the family list work with a softmax instead of a hinge? | setup@1 **12.9 / 9.8**; deploy @2 **4.3 / 2.6**, s2s 132 / 144 | **strongly negative** — the grind law: unanchored family softmax presses setups into the junk pile, and it jams a co-trained hinge |
+| **RPL** — linear head, margin 1.0 | truly unbounded scores, closest to the NeurIPS configuration | @5 21.7, offline family panel wrecked | **negative — but from a mis-sized constant**: margin 1.0 = 2.2σ of the adopted scale |
+| **RPL2** — same head, margin 0.2 (0.41σ) | isolate the HEAD axis from the miscalibrated margin | @5 26.0 ≈ RPE's 25.9, all cells within band | **neutral = the finding** — boundedness is a free choice; size margins in σ |
+| **RPEA** — binary plates (anchor openers→1, dead→0, setups float) [USER] | an absolute down-force on dead champions, with no setup target to grind | V5 0.429 ≈ RPE 0.431; autopsy: live-max AND dead-max both fell 0.04, **gap unchanged** | **null — and the QED**: an absolute anchor cannot separate what the features cannot distinguish → V5 is information-limited, data is the only door |
+| **RPM** — MM's stranger-hinge without the anchor | does the sharpener survive going value-free? | setup@1 16.5 vs anchored MM's 25.2; @5 20.6 | **negative** — the stranger-hinge needs the anchor |
+
+### Block 2 — corpus composition (family corpora, isolation 2×2) ⚠. Control: EGMMF
+
+| change | why it was tried | result | verdict |
+|---|---|---|---|
+| **Family corpus (EGMMF)** — add 1.045M child boards of failed pushes | 94% of deploy pops are child boards; training had ~16%. RPEA proved labels/losses couldn't fix V5, so the hole had to be data | **V5 0.455 → 0.682: the wall fell.** But 1p **38 → 24.7** | **mixed, and the pivotal result** — first offline breakthrough, first deploy regression |
+| **R1** — `NAMO_ROOT_FRAC=0.5` root rebalance | is the 1p crater just root exposure (84% → 15% of rows)? | 1p 24.7 → 29.4 (+4.7); V5 0.682 → 0.606; setup@1 **26.8** (then-record) | **small positive, hypothesis rejected** — exposure was not the cause |
+| **R2** — exhaustive proven labels (family1) | 12.8% of capped "dead" child labels are lies; do they matter? | V6 0.642 → 0.692 ✔; V5 → 0.539 ✘; 1p 21.8 (worst) | **negative overall** — truth helped live/dead only; half the children cost V5 |
+| **G2** — proven labels + rebalance | both dials together | V5 0.564, 1p 25.5, s2s 114.2 (best digging of the block) | **mixed** — no combination recovered 1p |
+| **(diagnosis)** per-board label census | why did none of the above work? | roots are 95-98% labeled in EVERY corpus; what differs is **opener-bearing root fraction**: 49-55% (family) vs 73-76% (old), and deploy 1p orders identically | **the mechanism** — episode difficulty skew, not label thinness |
+
+### Block 3 — label ladder {0, 0.5, 1} [USER call] ⚠ / ✅
+
+| change | why it was tried | result | verdict |
+|---|---|---|---|
+| **EGMMF5** — ladder on family0 | under the 0.9 ladder the opener-setup gap (0.1) is SMALLER than the hinge margin (0.2), so regression and hinge fight | 1p 24.7 → **30.6** (+5.9), @30 41.8 → 50.3, @900 91.5, **V5 held 0.643** | **positive** — the best single-knob gain before HY5U |
+| **R15** — ladder + rebalance | are the two additive? | ≈ EGMMF5 minus V5 (0.587) | **negative** — not additive; rebalance superseded |
+| **R25 / G25** — ladder on family1 | same knob, honest corpus | V5 −0.08; modest deploy gains (G25 @30 48.6, medium 46.7) | **mixed** — the ladder's value is corpus-dependent |
+
+### Block 4 — the two winners ✅ (common episode set; control BNG @2 15.0 / @5 30.2 / @30 53.7 / @900 88.4 / 1p 39.1)
+
+| change | why it was tried | result | verdict |
+|---|---|---|---|
+| **HY / HY5** — hybrid corpus: old-corpus roots + family children | Block 2 localized 1p to root content and V5 to child volume; the hybrid supplies both instead of trading them. Setup tier harmonized 0.5→0.9 at build (mixed encodings would tier-split the rank losses) | HY: 1p **42.1**, @900 94.9, **V5 0.690 held**, setup@1 27.1. HY5 (+ladder): @900 **96.3**, @5 28.5, medium 51.4 | **strongly positive** — both skills coexist, no trade; first family-lineage model to beat the old corpus at its own game |
+| **HY5U** — unreachable cells as exact zeros, regression only, weight 0.1 [USER] | deploy never scores unreachable pushes, so they were fully masked; teaching them as hard zeros adds geometry supervision on 3.4× more cells at zero inference cost. Kept OUT of ranking lists so no unreachable cell can become the hinge's tallest rival | **wins every column**: @2 23.4, @5 **39.5**, @30 62.7, @100 78.8, @900 **97.5**, s2s **77.8**, 1p **45.3**, 1p@5 87.6, medium **65.6**; setup@1 32.2 and finish@1 60.1 both all-time. V5 **fell** to 0.496 | **strongly positive — the campaign's largest single gain**, and the only change that moved the early hard curve (@5 31.1 → 39.5) |
+
+### Block 5 — methodology changes (no model, but they changed what the numbers mean)
+
+| change | why | result |
+|---|---|---|
+| `aquaman_agg_common.py` — common-episode aggregation | family-era and BNG/AJ2-era evals ran **different episode lists** (32 episodes in AJ2 that HY5U never saw, 12 the other way); solve@k rates were different populations | common set 1314 1push / 980 2push, identical hard-tier n for all arms. Cross-campaign numbers shift 1-7 pts; HY5U's dominance survives unchanged |
+| 3-seed pooling discipline | a single-seed 94.9 was announced as an all-time record, then retracted at 3 seeds (pooled 90.7) | every headline since carries seed bands; one public retraction was the cost of learning this |
+| per-board label census | the "sweep depth" diagnosis was a hypothesis stated as mechanism | measurement refuted it (roots 95-98% labeled everywhere) and replaced it with the opener-bearing fraction — correction banked in § POST-HOC CORRECTION |
+
+### Standing scoreboard of ideas that FAILED (kept so they are not retried blind)
+
+Unanchored family softmax (grind) · hinge without anchor (RPM) · regression brake at 2% (RPB) · absolute plates on dead cells (RPEA — and its null is a proof, not a shrug) · margins sized in raw units instead of σ (RPL) · root rebalancing as a fix for 1p (R1/G2) · exhaustive relabeling at the cost of corpus size (R2) · ladder+rebalance stacking (R15).
+
 ## Arc narrative — every decision, its reason, and what it concluded (2026-08-11 → 08-12) [USER: record everything in detail]
 
 This section is the reasoning trail for the isolation 2×2 → hybrid arc, written so the choices are reconstructible without the chat.
