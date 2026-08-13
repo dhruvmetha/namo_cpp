@@ -372,14 +372,14 @@ Two questions left open by HY5U, both answered on the COMMON episode set (`aquam
 
 We were NOT underdosing. 0.1 wins nearly every column and 1.0 regresses toward the no-rule baseline. Caveat: 0.3 and 1.0 are single seeds vs 0.1's three — but 1.0's @5 (34.7) sits BELOW 0.1's worst seed (38.1), so the decline is real, not seed noise. The 0.1 default came from mass balance (unreachable cells ~3.4:1 vs labeled, so w=0.1 ≈ 26% of loss mass); that reasoning landed close to optimal, but the curve's shape was not predicted and only two interior points exist — anyone wanting the true optimum should sweep 0.05-0.2 at 3 seeds.
 
-**(b) Corpus generality — the rule does NOT transfer to the root-heavy corpus.** `AJ2U` = AJ2's corpus + `NAMO_UNREACH_W=0.1`, 3 seeds (common set 949 2push).
+**(b) Corpus generality — the rule does NOT transfer to the root-heavy corpus.** `AJ2U` = AJ2's corpus + `NAMO_UNREACH_W=0.1`, 3 seeds (common set 980 2push, after refilling AJ2U_s1's missing shard 27 — an earlier reading on 949 episodes gave the same conclusion).
 
-| arm | 2p-h@2 | 2p-h@5 | 2p-h@30 | 2p-h@900 | s2s-h | 1p-h@1 | 1p-h@5 | 2p-m@5 |
-|---|--:|--:|--:|--:|--:|--:|--:|--:|
-| AJ2 | 13.5 | 27.5 | 53.2 | 91.8 | 110.4 | 38.7 | 80.2 | 51.0 |
-| AJ2U | 9.9 | 27.5 | 55.0 | 91.5 | **76.9** | 39.6 | 81.0 | 50.6 |
+| arm | 2p-h@2 | 2p-h@5 | 2p-h@30 | 2p-h@900 | s2s-h | 1p-h@1 | 2p-m@5 |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| AJ2 | 13.0 | 26.6 | 51.7 | 90.4 | 114.1 | 38.7 | 50.6 |
+| AJ2U | 9.9 | 26.8 | 53.7 | 90.7 | **80.5** | 39.6 | 50.3 |
 
-Solve rates are flat within noise (per-seed @5 [28.9, 28.1, 25.4]; 1p@1 [37.6, 41.6, 39.6]); the one real effect is **sims-to-solve 110.4 → 76.9** — it finds the same solutions faster — against a drop at @2. Nothing resembling the +8 to +12 across-the-board jump the same rule produced on the hybrid.
+Solve rates are flat within noise (per-seed @5 [28.0, 27.1, 25.4]); the one real effect is **sims-to-solve 114.1 → 80.5** — it finds the same solutions faster — against a drop at @2. Nothing resembling the +8 to +12 across-the-board jump the same rule produced on the hybrid.
 
 **Readings [numbers, no verdicts]:**
 1. **The unreachable rule is corpus-dependent, not a general training fix.** Hybrid = ~83% child boards (rule worth +8 to +12 everywhere); AJ2 corpus = ~84% ROOT boards (rule ≈ neutral, sims-to-solve aside). Mechanism hypothesis, UNVERIFIED: reachability geometry changes most after a push, so explicit geometry supervision pays where child boards dominate. The clean test would hold corpus fixed and vary child fraction alone.
