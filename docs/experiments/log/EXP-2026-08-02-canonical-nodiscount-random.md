@@ -1,7 +1,8 @@
 ---
 type: experiment
-status: live
+status: done
 created: 2026-08-02
+updated: 2026-08-12
 commit: namo 8891de3
 metric: pending
 thread: region_opening
@@ -57,3 +58,7 @@ cd /cache/home/dm1487/projects/namo/namo_postprune_eval && source env.amarel.sh 
 ## Result + Verdict
 
 Pending launch and aggregation.
+
+## Status reconciliation (2026-08-12)
+
+**Closed as `done` — the baseline this card specifies was produced elsewhere and registered, but this card was never updated to say so.** The card body still reads as pending launch; meanwhile `random-nodiscount-hmax2-v1` is marked complete 2026-08-02 in [horizon_q_model_registry.md](../horizon_q_model_registry.md), `$NAMO_SCRATCH/aquaman/round0/gate.json` carries `rand_7000/8000/9000`, and `eval_amarel/random_s{7000,8000,9000}/` exist on disk. The 3-seed uniform-random baseline under the exact canonical protocol came out as a side-artifact of the aquaman round-0 gate. No work outstanding; this was a bookkeeping gap.

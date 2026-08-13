@@ -73,3 +73,11 @@ Compare the deployed setup-only checkpoint, the head checkpoint with the head ig
 ## Discussion — one decision needed
 
 **[Claude 2026-08-02]** I recommend the narrow binary label: **does this post-push board contain a direct finish now?** The alternative categorical question—needs another setup, has both, only finish, or dead—cannot be answered for child boards with the present horizon-2 labels because “another setup” would require depth-3 truth. Please confirm whether to lock the binary child-only target, or whether you want to expand the data horizon before this model is trained.
+
+## Cross-reference (2026-08-12) — still unimplemented, and NOT what HY5U did
+
+Verified: no implementation exists (no `board_live`/`one_step_live` in `scripts/` or `python/`), no registry row, no results entry. `status: idea` is correct.
+
+**It does not overlap `HY5U`** (2026-08-12, [EXP-2026-08-09-crossboard-ranking](EXP-2026-08-09-crossboard-ranking.md) § HY5U). This card proposes a NEW auxiliary binary head predicting "does this child board contain any opener", consumed at search time as a bounded multiplicative prior on child-board scores. HY5U instead put previously-masked UNREACHABLE cells back into the EXISTING scalar value head as exact zeros (`NAMO_UNREACH_W`, regression only, barred from ranking lists) — a label/masking change, no new head, no search-time change.
+
+Relevance is that HY5U moved V6 (live-board max vs dead-board max) 0.749 → 0.803, i.e. board-liveness discrimination improved substantially as a side effect of geometry supervision. That RAISES the value of testing this card's dedicated head — the signal is evidently learnable — while also meaning its baseline has moved: any future run must compare against HY5U on the common episode set, not against the 2026-08-02 arms.

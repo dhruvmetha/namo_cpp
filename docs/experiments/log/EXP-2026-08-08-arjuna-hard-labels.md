@@ -1,7 +1,8 @@
 ---
 type: experiment
-status: live
+status: done
 created: 2026-08-08
+updated: 2026-08-12
 parent: EXP-2026-08-02-bootstrap-value-loop
 thread: rl_loop
 robot: car
@@ -363,3 +364,9 @@ Mechanism note, stated as hypothesis: F2 compares finish (1.0) against dead (0.0
 - **2026-08-08 (PM) [Claude] SCOPE CORRECTION + v2 launched.** Measuring the bounded population showed v1 converted only **114,660 of 8,294,162** bounded cells (1.4%), and that aquaman arm A / Bfix converted 38,519 (0.5%) — i.e. *every* label intervention in this project has moved ≤1.4% of the cells that carry no value. Cause is a join limit: only the 26,023 Colossus setup roots have child boards in the raw shards, and **94% of bounded cells sit on d20-base rows with no child stored at all**. Also found the bounds are inverted: root cells are capped ≤0.81 (below setup grade, burying undiscovered setups) while child cells — where a failed push-2 is worth exactly 0 under hmax=2 — get the loosest cap in the system, ≤0.90, across **2.84M cells on the tier holding 88–94% of deploy pops**. The v1 verdict is therefore true only of a 1.4% dose and has been re-titled accordingly; it was overclaimed as written. **v2 [USER]:** opener 1.0 / setup 0.5 / every bounded cell 0.0 / untried masked — needs no linkage, reaches the whole file, takes zeros from 0.66% → **48.2%**. Six runs launched (3 seeds × ranking on/off, λ=0.1 both levels). Nothing deleted; v1 artifacts remain registered.
 
 - **2026-08-08 [Claude] arjuna-0 built, trained, evaluated; floor hypothesis falsified on its own pre-registered test.** Build `arjuna_build.py` over 32 raw shards → 141,581 exact zeros (`arjuna0_train.h5`), verification gate passed (4/4 invariants), 3 seeds trained on CS SLURM (val_loss 1.6825/1.6811/1.6964 — *lower* than arm A's 1.7056–1.7230, so facts fit better than guesses), canonical eval on Amarel (216/216 shards, zero unmatched), AUC panel on westeros. Headline: **1push-hard@1 42.5 (best in line, bands [41.7,43.6] barely overlapping arm A), 2push flat, V5 0.533 unchanged.** Chain ran unattended and gated: training would not have started had the census failed.
+
+## Status reconciliation (2026-08-12)
+
+**Closed as `done`.** v1-v4 all ran, gated, and are registered (`ARJ`, `AJ2_s*`, `AJ2NR_s*`); headline in [RESULTS.md](../RESULTS.md). AJ2 remained the standing deploy control through the whole cross-board campaign and was finally beaten on every column by `HY5U` on 2026-08-12 (see [EXP-2026-08-09-crossboard-ranking](EXP-2026-08-09-crossboard-ranking.md) § HY5U; note that comparison uses the common-episode aggregation, since this card's evals and the family-era evals ran different episode lists).
+
+**Dangling:** the 546,035 censored children remain unresolvable from stored data (needs re-rooting/replay, never attempted); the "rare-positive loss" lever was superseded by the MM/EG/EGMM arms rather than built.

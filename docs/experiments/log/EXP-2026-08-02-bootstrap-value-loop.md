@@ -1,7 +1,8 @@
 ---
 type: experiment
-status: live
+status: done
 created: 2026-08-02
+updated: 2026-08-12
 thread: rl_loop
 robot: car
 parent: EXP-2026-07-25-search-depth-horizon
@@ -249,3 +250,9 @@ Offline panel (`twopush_gt_h5`, 1,152 eps), mean [sd]:
 ## Discussion
 
 _(you ↔ Claude — ask here; answers inline, dated. Newest at the bottom.)_
+
+## Status reconciliation (2026-08-12)
+
+**Closed as `done`.** Rounds 0/0-redone/1 fully gated and registered (registry rows for A/B/Bfix/BNG/ANG/ANR/aL10); round 2 hit its own stop-rule (RED) and the chain was parked by design. The thread forked into [EXP-2026-08-08-arjuna-hard-labels](EXP-2026-08-08-arjuna-hard-labels.md) and then [EXP-2026-08-09-crossboard-ranking](EXP-2026-08-09-crossboard-ranking.md), which is the live successor.
+
+**Dangling, deliberately unexecuted:** the PINNED round-3+ design (re-rooting/composition, retry list, deep-audit exhaustion, collector v2 fusion) and the `batman` clean-room reference run. Anyone reviving these should first read the 2026-08-12 corpus-composition findings on the crossboard card — the opener-bearing-root-fraction result changes what a re-rooting round should target.
