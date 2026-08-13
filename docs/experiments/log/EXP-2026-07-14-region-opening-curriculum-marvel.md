@@ -1,8 +1,8 @@
 ---
-status: active
+status: done
 thread: rl_loop
 robot: car
-updated: 2026-07-16
+updated: 2026-08-12
 supersedes: EXP-2026-07-12-opener-curriculum-loop (buggy lineage — retracted, see below)
 ---
 
@@ -327,3 +327,9 @@ Solve@1 by fixed-cut tier on held-out `namo_testset_v1` (1,323 eps; hard 204 / m
 **Proposed next [pending user]: the depth-3 observability pilot** — best-first at hmax=3 on ~100–200 scenes UNSOLVED at depth ≤2 (the ~44% dead-bank frontier), ceil vs hard twins vs random ordering. Tests whether the soft dead-ordering carries real depth-3 signal (falsifiable: soft ≈ random damages the suspicion-gradient story). Verify harness hmax=3 support first. Doubles as the rung-3 curriculum pilot.
 
 **Caveats:** single seed per cell of the 2×2 (but ceil-vs-hard deltas are 5–10× the guardrails, and direction replicates across arms); armA_ceil/armA_hard hit the 12-epoch cap (val still falling); 1 canonical GT scene still re-collecting (982/983); champion still holds @2 (32.4) and v0-armB holds 1p hard@1 (49.5) — single-seed caveats apply to both.
+
+## Status reconciliation (2026-08-12)
+
+**Closed as `done` — and this is the CANONICAL record of the curriculum / self-improving-loop line** (07-10 → 07-11 → 07-12 → this card; the first three are marked `superseded` and kept for diagnosis history). Unlike its predecessors it was never retracted: it is the acknowledged `parent:` of [colossus-data-scaleup](EXP-2026-07-21-colossus-data-scaleup.md), [exact-value-ranking-loss](EXP-2026-07-22-exact-value-ranking-loss.md) and [push-depth-aware-ranker](EXP-2026-07-22-push-depth-aware-ranker.md), and its ceiling×exposure 2×2 verdict (the ceiling binds) is what downstream work cites.
+
+Its own scope closed with that verdict; active work moved into the child cards. **Dangling:** the depth-3 observability pilot proposed at the end was never executed — no depth-3 evidence exists in the registry or RESULTS.

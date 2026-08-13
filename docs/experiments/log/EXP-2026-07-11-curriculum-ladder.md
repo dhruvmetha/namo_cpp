@@ -1,8 +1,8 @@
 ---
-status: running
+status: superseded
 thread: rl_loop
 robot: car
-updated: 2026-07-11
+updated: 2026-08-12
 ---
 
 # EXP-2026-07-11 — Curriculum ladder: exhaustive 1-push → self-collected clean 2-push
@@ -80,3 +80,7 @@ Paths: `/common/users/dm1487/scratch_namo/eval/curriculum_ladder_s1/`.
 **Implication (pivot, PROPOSED — pending USER):** the wall is where we diagnosed — **setups** (Stage 2; NoHz has no clean setup data) + **hard-example coverage** (NoHz hard @1 = 54% is too-few-hard-examples, i.e. the rejection-sampling lever, NOT incompleteness). Both run on the EXISTING v3 data (no opener re-collection): (1) rejection-sample hard v3 rooms → retrain → does hard @1 beat 54%; (2) Stage 2 clean setups on v3. Drop exit_pool; move all collection to the v3 `car_envs` lineage (testset home turf). Stuck0 A/B still finishes (isolates the relabel effect, reusable for v3 setup collection).
 
 _(run log appended below as stages complete)_
+
+## Status reconciliation (2026-08-12)
+
+**Marked `superseded`** — [EXP-2026-07-12-opener-curriculum-loop](EXP-2026-07-12-opener-curriculum-loop.md) declares `supersedes:` this card in its own frontmatter ("findings kept; this is the clean plan"). Stage 1 completed and produced a real finding: the apparent data wall was a room-pool lineage confound (`exit_pool` vs the testset's v3 lineage), not data incompleteness. **Dangling:** Stage 2 (clean setups on `exit_pool`) never ran — dropped for the v3-lineage pivot. Canonical record of this line: [EXP-2026-07-14](EXP-2026-07-14-region-opening-curriculum-marvel.md).

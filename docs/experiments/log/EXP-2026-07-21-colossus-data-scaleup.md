@@ -2,7 +2,7 @@
 status: live
 thread: rl_loop
 robot: car
-updated: 2026-08-06
+updated: 2026-08-12
 parent: EXP-2026-07-14-region-opening-curriculum-marvel
 commit: ccbb2d1
 ---

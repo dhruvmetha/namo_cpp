@@ -1,7 +1,8 @@
 ---
 type: experiment
-status: live
+status: done
 created: 2026-07-08
+updated: 2026-08-12
 commit:
 metric:
 thread: rl-loop
@@ -106,3 +107,7 @@ _(Claude, 2026-07-09)_ The growth-arms "flat" verdict was measured GREEDY (react
 | | mean sims | 50 | 108 | 113 |
 
 **Verdict [on numbers]:** (1) the greedy plateau was a MIS-GRADE — under search the RL pi nearly matches NoHz-v3 on solve-rate (hard 90 vs 92) and beats random decisively (hard median 34 vs 118 sims). The RL line is NOT falsified as a ranker. (2) BUT on the metric that IS the project — efficiency — RL-pi is only partway: 3.4× NoHz-v3's median sims on hard (34 vs 10), and its tail-heavy mean (all 108) sits at ~random (113), from a minority of scenes where it confidently commits to a DEAD setup and search must exhaust it. That dead-setup tail is the exact missing-negatives signature: NoHz-v3's median-10 efficiency IS its 300k dead-labels. **The efficiency gap 34→10 on hard is a direct price tag on dead-setup knowledge → motivates Experiment 1 (mine search-verified negatives → supervised recipe; target: RL-pi hard median 34→~10).** Note also RL-pi < random on EASY sims (mean 98 vs 27) — overconfidence on easy scenes, same mechanism.
+
+## Status reconciliation (2026-08-12)
+
+**Closed as `done` — dead-ended, not superseded.** Only generation 1 ran (both arms flat); the kill-gate required two flat generations, so the experiment never reached its own decision point. No registry rows, no RESULTS.md entry, and no later card cites it. **Dangling:** generation 2 for both arms was never launched. Its search-audit finding (the price of dead negatives) informally seeded the curriculum-ladder framing, but no card carries that link explicitly.

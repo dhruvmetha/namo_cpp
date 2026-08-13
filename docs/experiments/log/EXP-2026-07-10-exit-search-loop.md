@@ -1,7 +1,8 @@
 ---
-status: planning
+status: superseded
 thread: rl_loop
 created: 2026-07-10
+updated: 2026-08-12
 ---
 
 # EXP-2026-07-10 — Expert-Iteration depth-ladder ranker (single-object RO)
@@ -172,3 +173,9 @@ Pipeline executed end-to-end from zero, all heavy CPU on **SLURM arrays** (CS es
 - **Wrong pool** — a 1-shove-dominated pool repeats the last wall. Mitigated by regenerating + probe-filtering to genuine-2-push; verify the F=∅ composition and 60/40 mix before Stage B.
 - **Seed/geometry leak** — regenerated rooms must be geometry-disjoint from testset_v1; check against `canonical_scenes.txt` (0 leaks) before training.
 - **V-head hang** regression → the spawn-context fix (9191960) must hold.
+
+## Status reconciliation (2026-08-12)
+
+**Marked `superseded`** by [EXP-2026-07-11-curriculum-ladder](EXP-2026-07-11-curriculum-ladder.md), which opens by diagnosing this card's Q2 value-ranker as having failed on data. Rung-1 completed (Q1 checkpoint, AUC 0.82); **dangling:** Rung-2 (Q1-guided depth-2 search collection) never finished on this lineage — abandoned rather than resumed.
+
+Lineage note: this is the first of four cards in one linear curriculum/self-improving-loop chain (07-10 → 07-11 → 07-12 → 07-14). The canonical record of that line is [EXP-2026-07-14-region-opening-curriculum-marvel](EXP-2026-07-14-region-opening-curriculum-marvel.md); the earlier three are kept for diagnosis history.

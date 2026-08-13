@@ -1,7 +1,8 @@
 ---
 type: experiment
-status: live
+status: done
 created: 2026-07-22
+updated: 2026-08-12
 commit: cddbe15
 metric: v2 pending — restore full opener rank weight and retain a bounded lower-exact pool
 thread: rl_loop
@@ -209,3 +210,7 @@ Held for a user go because it cherry-picks loss code into the live Colossus line
 ## Discussion
 
 _(you ↔ Claude — newest at the bottom.)_
+
+## Status reconciliation (2026-08-12)
+
+**Closed as `done`.** 3-seed confirmed win, registered (⭐ entry in [horizon_q_model_registry.md](../horizon_q_model_registry.md)) and carried in [RESULTS.md](../RESULTS.md) as "WIN — recommend default". **Dangling / needs a check:** the staged "Colossus default-flip" was never explicitly confirmed executed — though the live checkpoint name `d20_plus_setup_only_splitloss` suggests the split loss is already in the Colossus lineage. Verify before re-running anything on that assumption.

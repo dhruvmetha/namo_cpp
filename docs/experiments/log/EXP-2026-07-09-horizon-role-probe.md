@@ -1,8 +1,8 @@
 ---
 type: experiment
-status: live
+status: done
 created: 2026-07-09
-updated: 2026-07-10
+updated: 2026-08-12
 commit: 3fa9b4a
 metric: reactive@1/@2 (route split) + best-first solve-vs-{budget,wall-time} by (set × difficulty); ceiling@exhaustion vs random
 thread: scorer-search
@@ -128,3 +128,7 @@ Two runs probe the far end of the curve on the **hard tiers** (hard keys `pure2p
 - **1push: NO floor — 100%, all arms exhaust and solve.** Pure speed problem; Hz reaches it ~3× cheaper than random (6 vs 19 sims).
 - **2push: a ~0.8% genuine FLOOR** (3/371 exhaust the object-constrained hmax-2 tree with no solving pair — physical floor / controller jam, per [[_offline_online_gap]]) + 2 truncated (trees >10000 nodes). True ceiling ~99%, **not** a ranking gap.
 - **THE EFFICIENCY POINT, EMPIRICALLY:** with the perfect verifier even **random reaches ~98%** on hard 2push — nothing is a capability gap; the ENTIRE arm difference is cost (Hz 209 sims/46s vs random 669/112s ≈ 2.4× cheaper). Confirms: perfect verifier ⇒ the claim is efficiency, not capability (bounded at hmax=2 where brute-force nearly solves; the capability regime only appears when depth makes brute-force intractable).
+
+## Status reconciliation (2026-08-12)
+
+**Closed as `done`.** Ceiling and wall-time results completed 2026-07-10; the finding ("horizon is a search accelerator, not a value re-scaler") is cited as canonical in [RESULTS.md](../RESULTS.md). No dangling work. An independent mechanistic probe — unrelated to the curriculum lineage below.

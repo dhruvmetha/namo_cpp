@@ -1,8 +1,8 @@
 ---
-status: running
+status: superseded
 thread: rl_loop
 robot: car
-updated: 2026-07-14
+updated: 2026-08-12
 supersedes: EXP-2026-07-11-curriculum-ladder (findings kept; this is the clean plan)
 ---
 
@@ -230,3 +230,7 @@ med@1 65.8→**71.7**(λ.1)/65.6(λ.5)/81.7 NoHz · all@1 73.8→**76.1**/73.5/8
 - ckpts: model_1a `epoch019`, model_1a_rs `epoch021-val_loss0.6376`, model_0a_rs `epoch021`, model_1c `epoch024`, model_0_hlgauss round0 `epoch022`. NoHz `outputs/scorer/qfull_nohz_v3_v4hq_s1/.../wl8k6iyv/epoch012`. Scripts + agg jsons + solve_curves plot all in `curriculum2/round1/`.
 
 _(appended as rounds complete)_
+
+## Status reconciliation (2026-08-12)
+
+**Marked `superseded`** — [EXP-2026-07-14-region-opening-curriculum-marvel](EXP-2026-07-14-region-opening-curriculum-marvel.md) declares `supersedes:` this card as a "buggy lineage — retracted". Its durable contribution survives the retraction: the ranking-auxiliary discovery (λ=0.1 decisive win, `model_1a_rs_rank01`), which is the ancestor of every ranking-loss arm in the August campaign. **Dangling:** the 150k-solvable scale-up was never executed on this lineage. Canonical record: [EXP-2026-07-14](EXP-2026-07-14-region-opening-curriculum-marvel.md).
