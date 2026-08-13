@@ -1,4 +1,5 @@
 ---
+uid: "rcwcgks2"
 title: "Hierarchical Task Network Planning with LLM-Generated Heuristics"
 arxiv: "2605.07707"
 authors: "Felipe Meneguzzi, Alexandre Buchweitz, Augusto B. Corrêa, Victor Scherer Putrich, André Grahl Pereira"
@@ -6,6 +7,7 @@ status: "Preprint (May 2026)"
 tags: ["llm-heuristics", "htn-planning", "learned-ranking", "heuristic-generation"]
 verdict: "QUEUE-WORTHY — LLM-generated heuristics guide hierarchical search"
 read: false
+projects: "namo"
 ---
 
 Adapts LLM-generated heuristic methodology (from Corrêa et al. on classical planning) to hierarchical task network (HTN) planning. LLMs generate Python functions mapping (world state, task network) to numeric heuristic values. Methodology: generate-evaluate-select pipeline. Evaluates nine LLMs on six IPC 2020 HTN benchmark domains using Pytrich planner.

@@ -1,10 +1,12 @@
 ---
+uid: "55y9dmsb"
 url: "https://www.ri.cmu.edu/pub_files/pub4/stilman_michael_2005_3/stilman_michael_2005_3.pdf"
 title: "stilman-kuffner"
 arxiv: ""
 tags: [manipulation planning, combinatorial planning]
 verdict: foundational
 read: with claude
+projects: "namo"
 ---
 
 This work is quite foundational for the NAMO problem. Under the setting, the model of the system is known.

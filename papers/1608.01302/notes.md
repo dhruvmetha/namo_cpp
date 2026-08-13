@@ -1,4 +1,5 @@
 ---
+uid: "613xz839"
 title: "Learning to Rank for Synthesizing Planning Heuristics"
 arxiv: "1608.01302"
 authors: "Caelan Reed Garrett, Leslie Pack Kaelbling, Tomás Lozano-Pérez"
@@ -6,6 +7,7 @@ venue: "IJCAI 2016"
 tags: ["learning-to-rank", "heuristic-learning", "planning-search", "ranksvm"]
 verdict: "QUEUE-WORTHY — directly addresses learned ranking to guide search with oracle verification"
 read: false
+projects: "namo"
 ---
 
 RankSVM approach to learning planning heuristics by optimizing ranking of states rather than regression to absolute heuristic values. Key insight: in greedy best-first search, the ordering induced by a heuristic is more important to planning success than mean squared error. Introduces pairwise-action features capturing temporal interactions in approximate plans.
