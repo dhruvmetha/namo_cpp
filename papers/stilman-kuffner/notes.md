@@ -1,4 +1,5 @@
 ---
+url: "https://www.ri.cmu.edu/pub_files/pub4/stilman_michael_2005_3/stilman_michael_2005_3.pdf"
 title: "stilman-kuffner"
 arxiv: ""
 tags: [manipulation planning, combinatorial planning]

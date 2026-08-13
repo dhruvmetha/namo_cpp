@@ -1,4 +1,5 @@
 ---
+url: "https://www.ijcai.org/Proceedings/95-1/Papers/080.pdf"
 title: "Limited Discrepancy Search"
 arxiv: ""
 tags: []

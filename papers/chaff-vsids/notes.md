@@ -1,4 +1,5 @@
 ---
+url: "https://www.princeton.edu/~chaff/publication/DAC2001v56.pdf"
 title: "Chaff: Engineering an Efficient SAT Solver"
 arxiv: ""
 tags: []

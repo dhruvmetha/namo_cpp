@@ -1,4 +1,5 @@
 ---
+url: "https://www.roboticsproceedings.org/rss11/p45.pdf"
 title: "krontiris-bekris"
 arxiv: ""
 tags: []

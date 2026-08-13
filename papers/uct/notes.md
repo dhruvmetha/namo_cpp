@@ -1,4 +1,5 @@
 ---
+url: "http://ggp.stanford.edu/readings/uct.pdf"
 title: "Bandit Based Monte-Carlo Planning"
 arxiv: ""
 tags: []
