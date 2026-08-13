@@ -357,6 +357,37 @@ One row per change tried in this campaign, in order. **Verdict is against the ch
 
 Unanchored family softmax (grind) · hinge without anchor (RPM) · regression brake at 2% (RPB) · absolute plates on dead cells (RPEA — and its null is a proof, not a shrug) · margins sized in raw units instead of σ (RPL) · root rebalancing as a fix for 1p (R1/G2) · exhaustive relabeling at the cost of corpus size (R2) · ladder+rebalance stacking (R15).
 
+## Unreachable-rule follow-ups: dose sweep + corpus generality (complete 2026-08-13)
+
+Two questions left open by HY5U, both answered on the COMMON episode set (`aquaman_agg_common.py`; 1314 1push / 980 2push, or 949 2push where AJ2U's episode list narrows it).
+
+**(a) Dose — 0.1 is near-optimal; the effect is NON-MONOTONE.** Arms `HY5U` (w=0.1, 3 seeds), `HY5U3_s1` (0.3), `HY5U10_s1` (1.0), against `HY5` (w=0).
+
+| unreachable weight | 2p-h@2 | 2p-h@5 | 2p-h@30 | 2p-h@900 | s2s-h | 1p-h@1 | 2p-m@5 |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| 0 (HY5) | 13.6 | 28.5 | 50.6 | 96.3 | 98.3 | 42.8 | 51.4 |
+| **0.1 (HY5U)** | 23.4 | **39.5** | **62.7** | **97.5** | 77.8 | **45.3** | **65.6** |
+| 0.3 (HY5U3) | **24.6** | 35.6 | 57.6 | **97.5** | 98.4 | 43.7 | 59.2 |
+| 1.0 (HY5U10) | 20.3 | 34.7 | 57.6 | 94.9 | **75.9** | 43.1 | 61.0 |
+
+We were NOT underdosing. 0.1 wins nearly every column and 1.0 regresses toward the no-rule baseline. Caveat: 0.3 and 1.0 are single seeds vs 0.1's three — but 1.0's @5 (34.7) sits BELOW 0.1's worst seed (38.1), so the decline is real, not seed noise. The 0.1 default came from mass balance (unreachable cells ~3.4:1 vs labeled, so w=0.1 ≈ 26% of loss mass); that reasoning landed close to optimal, but the curve's shape was not predicted and only two interior points exist — anyone wanting the true optimum should sweep 0.05-0.2 at 3 seeds.
+
+**(b) Corpus generality — the rule does NOT transfer to the root-heavy corpus.** `AJ2U` = AJ2's corpus + `NAMO_UNREACH_W=0.1`, 3 seeds (common set 949 2push).
+
+| arm | 2p-h@2 | 2p-h@5 | 2p-h@30 | 2p-h@900 | s2s-h | 1p-h@1 | 1p-h@5 | 2p-m@5 |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| AJ2 | 13.5 | 27.5 | 53.2 | 91.8 | 110.4 | 38.7 | 80.2 | 51.0 |
+| AJ2U | 9.9 | 27.5 | 55.0 | 91.5 | **76.9** | 39.6 | 81.0 | 50.6 |
+
+Solve rates are flat within noise (per-seed @5 [28.9, 28.1, 25.4]; 1p@1 [37.6, 41.6, 39.6]); the one real effect is **sims-to-solve 110.4 → 76.9** — it finds the same solutions faster — against a drop at @2. Nothing resembling the +8 to +12 across-the-board jump the same rule produced on the hybrid.
+
+**Readings [numbers, no verdicts]:**
+1. **The unreachable rule is corpus-dependent, not a general training fix.** Hybrid = ~83% child boards (rule worth +8 to +12 everywhere); AJ2 corpus = ~84% ROOT boards (rule ≈ neutral, sims-to-solve aside). Mechanism hypothesis, UNVERIFIED: reachability geometry changes most after a push, so explicit geometry supervision pays where child boards dominate. The clean test would hold corpus fixed and vary child fraction alone.
+2. **Offline predicted this correctly — the first time all campaign.** AJ2U's offline panel fell on every metric (V5 0.455→0.344, setup@1 25.1→20.3, finish@1 50.8→48.0) and deploy indeed showed no gain. Against five prior anti-predictions this does NOT rehabilitate offline metrics as a selection criterion; it is one agreement in six.
+3. **Deployment guidance:** keep `NAMO_UNREACH_W=0.1`, apply to child-heavy corpora only. The [DAgger round-4 spec](EXP-2026-08-12-dagger-round4.md) produces exactly such a corpus, so its assumptions survive unchanged.
+
+Gates `gate_dose.json`, `gate_aj2u.json`; panels `auc_dose_aj2u.json`, `auc_aj2u_early.json`.
+
 ## Arc narrative — every decision, its reason, and what it concluded (2026-08-11 → 08-12) [USER: record everything in detail]
 
 This section is the reasoning trail for the isolation 2×2 → hybrid arc, written so the choices are reconstructible without the chat.
