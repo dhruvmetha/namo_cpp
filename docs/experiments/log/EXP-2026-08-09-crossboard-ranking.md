@@ -516,6 +516,34 @@ Wall-clock seconds, budget 4000, paired on episodes both arms solved. This is th
 2. **The model is genuinely SLOWER than random on easy 1push below the median** — 0.5× at p10, 0.7× at p25, 0.9× at p50, crossing 1.0× only at p75. That is scoring overhead paid on problems random solves in one lucky draw. The aggregate 1.03× concealed a real regression on the fastest half. **Deployment rule: run the ranker on everything EXCEPT easy 1push.**
 3. **Even the model's worst cases stay ahead** — hard 2push p99 is 549s vs random's 1063s. The advantage shrinks but never inverts on 2push.
 
+### CANONICAL speed-up statistic: per-RO-instance, then percentiles across instances (2026-08-13) [USER: "compute speedup first, then give me the statistic"]
+
+**This supersedes the ratio-of-medians figures quoted earlier in this card.** Compute one speed-up per RO instance (median over the 3 seed pairings within that instance), then take percentiles ACROSS instances. This answers "how much faster on a typical problem", is paired, and is robust to the tail. Earlier tables used `median(random)/median(model)` — a ratio of two independent distributions' midpoints — which on hard 2push reads 20.2× where the per-instance median is 10.9×. **Quote the per-instance number.**
+
+**TWO-PUSH** — wall-clock speed-up per instance
+
+| tier | instances | p10 | p25 | **p50** | p75 | p90 | p95 | p99 | **% instances the ranker LOSES** | geo-mean |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| easy | 380 | 0.8× | 1.3× | **2.3×** | 4.3× | 7.2× | 10.7× | 17.5× | 18.7% | 2.3× |
+| medium | 480 | 1.0× | 2.1× | **5.4×** | 12.8× | 28.8× | 40.9× | 77.1× | 9.8% | 5.1× |
+| hard | 118 | 1.1× | 2.8× | **10.9×** | 46.0× | 82.9× | 162.1× | 300.4× | 5.9% | 11.1× |
+
+**ONE-PUSH**
+
+| tier | instances | p10 | p25 | **p50** | p75 | p90 | p95 | p99 | **% instances the ranker LOSES** | geo-mean |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| easy | 697 | 0.5× | 0.6× | **0.8×** | 1.1× | 1.6× | 2.2× | 4.3× | **66.3%** | 0.9× |
+| medium | 420 | 0.7× | 0.9× | **1.4×** | 2.3× | 4.0× | 6.9× | 25.9× | 29.8% | 1.6× |
+| hard | 197 | 0.8× | 1.4× | **2.6×** | 6.0× | 15.2× | 32.4× | 96.3× | 14.2% | 3.1× |
+
+**Readings:**
+1. **Speed-up is monotone in difficulty and is a DISTRIBUTION, not a number** — hard 2push spans 1.1× (p10) to 300× (p99). Geometric mean ≈ median throughout, so no single instance drives the summary.
+2. **Loss rates are now explicit and should always be quoted beside the median:** the ranker is SLOWER than random on 5.9% of hard 2push instances, 9.8% medium, 18.7% easy.
+3. **Easy 1push is a genuine LOSS, not a tie** — slower on **66.3%** of instances, median 0.8×, geo-mean 0.9×. The 1.03× aggregate came entirely from a thin right tail. **Do not run the ranker on that population.**
+4. Recommended phrasing for reporting: *"on hard two-push the ranker is 10.9× faster on the median instance, and slower on 5.9% of instances."*
+
+**Definitions that were conflated earlier (all four appear in the literature; state which one you mean):** (a) ratio of medians 20.2×; (b) median of pooled pair ratios 9.8×; (c) per-instance median then across instances **10.9× — canonical here**; (d) mean of pair ratios 47.5× — never quote this, one lucky episode contributes 400×.
+
 ## Arc narrative — every decision, its reason, and what it concluded (2026-08-11 → 08-12) [USER: record everything in detail]
 
 This section is the reasoning trail for the isolation 2×2 → hybrid arc, written so the choices are reconstructible without the chat.
