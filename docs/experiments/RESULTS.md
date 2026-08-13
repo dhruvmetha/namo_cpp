@@ -2,7 +2,7 @@
 status: hub
 tags:
   - results
-updated: 2026-08-08
+updated: 2026-08-12
 ---
 # Results — DAgger curriculum training framework
 
@@ -11,6 +11,44 @@ The maintained approach. A clean seed, then rounds of **{ generate fresh scenes 
 **Setting:** CAR robot, testset `namo_testset_v1`, region-opening criterion. Every result split by **difficulty (easy/med/hard)**. Difficulty is defined *per horizon* (compare within a horizon, not across): **1-push** = `solve_rate` fixed cuts (hard < 0.05 / med 0.05–0.30 / easy ≥ 0.30); **2-push** = exhaustive-GT setup density with the same fixed percentage cuts, with the two unfinished GT roots reported as unknown. Full per-experiment detail lives in each card under `log/`.
 
 **Archive:** the pre-curriculum line — horizon-Q / NoHz single-ranker, RL-only self-imitation, horizon-role probe, prior-work ledger — is preserved verbatim in [archive/RESULTS_pre_dagger_horizonq_2026-07.md](archive/RESULTS_pre_dagger_horizonq_2026-07.md).
+
+---
+
+## 📒 CHANGE LEDGER — one line per change, with its verdict [added 2026-08-12]
+
+The scannable cross-campaign index: **what we changed, why, and whether it helped.** Deep per-change detail (numbers, autopsies, pre-registrations) stays in the card named on each row — this table is a map, not a replacement. Cards are never merged; provenance lives with the original question.
+
+**Reading rule:** verdicts are against each change's OWN control, not the global best, and a "neutral" is often the finding (proving something is unnecessary is a result). Metric basis differs by era — see each card; the common-episode caveat below applies to any cross-campaign comparison.
+
+| date | change | why | verdict | card |
+|---|---|---|---|---|
+| 07-22 | push-depth-aware final-pose head | represent all 60×5 pushes with pose-aware depth | ❌ negative (3 seeds) | [push-depth-aware](log/EXP-2026-07-22-push-depth-aware-ranker.md) |
+| 07-22 | exact-value ranking loss (verified setups outrank known-worse) | teach order, not magnitude | ✅ positive — split-budget variant adopted | [exact-value-ranking](log/EXP-2026-07-22-exact-value-ranking-loss.md) |
+| 07-23 | crop-relative motion + Fourier depth identity | geometric grounding of the depth axis | ❌ negative (3 seeds) | [depth-token](log/EXP-2026-08-02-depth-token-push-motion.md) |
+| 07-24 | failure-discount best-first (`--discount conf --tau 0.15`) | demote a board's siblings when its child fails | ✅ ADOPTED — s2s 46→27.8 | [failure-discount](log/EXP-2026-07-24-failure-discount-search.md) |
+| 07-26 | drop the deploy sigmoid; `--combine q` | the inference sigmoid crushed the trained value scale | ✅ adopted — ordering unaffected, q beats blend on every tier | [scorer-scale](log/EXP-2026-07-26-scorer-scale-and-combine-mode.md) |
+| 08-02 | five-depth local attention | better shortlist recall | ⚠️ mixed — recall up, single ranker regressed | [depth-token](log/EXP-2026-08-02-depth-token-push-motion.md) |
+| 08-02 | bootstrap value loop (fitted-Q/ExIt, arms A/B/Bfix/BNG) | guess values for censored cells, iterate | ⚠️ mixed — BNG became the standing champion; loop hit its stop-rule at round 2 | [bootstrap-loop](log/EXP-2026-08-02-bootstrap-value-loop.md) |
+| 08-08 | hard labels — exact zeros instead of ceilings (AJ2) | give the model a floor it never had | ⚠️ neutral on V5 (0.533 vs 0.543); AJ2 became the deploy control | [arjuna](log/EXP-2026-08-08-arjuna-hard-labels.md) |
+| 08-09 | **XB** — batch-flat cross-board softmax | per-board softmax is shift-invariant; nothing supervises across boards | ⚠️ mildly positive, wrong mechanism (V5 flat; gain was finish ordering) | [crossboard](log/EXP-2026-08-09-crossboard-ranking.md) |
+| 08-09 | **RP** — delete regression entirely | is the value head needed when deploy consumes order only? | ⚖️ neutral = the finding — regression is scaffolding | [crossboard](log/EXP-2026-08-09-crossboard-ranking.md) |
+| 08-09 | **MM** — margin-vs-max hinge (batch-flat) | softmax CE stalls at its floor; a hinge cannot | ✅ positive — best early curve of its round | [crossboard](log/EXP-2026-08-09-crossboard-ranking.md) |
+| 08-09 | **EG** — softmax over the episode family | V5's pair almost never co-occurs in a random batch | ✅ positive — best mid-curve | [crossboard](log/EXP-2026-08-09-crossboard-ranking.md) |
+| 08-09 | **EGMM** — margin-vs-max within the family | the deploy duel written as a loss | ⚠️ mixed — only robust offline V5 mover, worst front curve | [crossboard](log/EXP-2026-08-09-crossboard-ranking.md) |
+| 08-10 | **RPG / RPEG** — unanchored family softmax | grid completion | ❌❌ strongly negative — the grind law | [crossboard](log/EXP-2026-08-09-crossboard-ranking.md) |
+| 08-10 | **RPL → RPL2** — unbounded head, margin 1.0 then 0.2 | is boundedness binding? | ⚖️ neutral once the margin was sized in σ — boundedness is a free choice | [crossboard](log/EXP-2026-08-09-crossboard-ranking.md) |
+| 08-10 | **RPEA** — binary plates on openers/dead | absolute down-force on dead champions | ⚖️ null — **and the QED**: anchors cannot separate what features cannot distinguish → data is the only door | [crossboard](log/EXP-2026-08-09-crossboard-ranking.md) |
+| 08-11 | **family corpus (EGMMF)** — +1.045M child boards | 94% of deploy pops are children; training had 16% | ⚠️ pivotal mixed — **V5 wall fell 0.455→0.682**, but 1-push cratered 38→24.7 | [crossboard](log/EXP-2026-08-09-crossboard-ranking.md) |
+| 08-11 | **R1 / R2 / G2** — root rebalance × proven labels (2×2) | isolate the crater's cause | ❌ both rejected — exposure worth +4, label truth moved V6 only | [crossboard](log/EXP-2026-08-09-crossboard-ranking.md) |
+| 08-12 | *(diagnosis)* per-board label census | why did the 2×2 fail? | 🔍 **opener-bearing root fraction** (49-55% family vs 73-76% old) predicts 1-push; roots are 95-98% labeled everywhere | [crossboard](log/EXP-2026-08-09-crossboard-ranking.md) |
+| 08-12 | **{0, 0.5, 1} ladder** [USER] | opener-setup gap (0.1) was smaller than the hinge margin (0.2) | ✅ positive, corpus-dependent — +5.9 1-push on family0 with V5 held | [crossboard](log/EXP-2026-08-09-crossboard-ranking.md) |
+| 08-12 | **HY / HY5** — hybrid corpus (old roots + family children) | supply both ingredients instead of trading them | ✅✅ strongly positive — 1p **42.1**, @900 **96.3**, V5 0.690 held | [crossboard](log/EXP-2026-08-09-crossboard-ranking.md) |
+| 08-12 | **HY5U** — unreachable cells as exact zeros (regression only, w=0.1) [USER] | deploy never scores unreachable pushes; teach the geometry for free | ✅✅ **largest single gain of the campaign** — wins every column; @5 31.1→**39.5** closed the early-curve gap | [crossboard](log/EXP-2026-08-09-crossboard-ranking.md) |
+| 08-12 | *(method)* common-episode aggregation | family-era and BNG-era evals scored **different episode lists** | 🔧 fix — cross-campaign numbers shift 1-7 pts; use `aquaman_agg_common.py` for any cross-era claim | [crossboard](log/EXP-2026-08-09-crossboard-ranking.md) |
+
+**Failed ideas, kept so they are not retried blind:** unanchored family softmax · hinge without an anchor (RPM) · 2% regression brake (RPB) · absolute plates on dead cells · margins sized in raw units instead of σ · root rebalancing as a 1-push fix · exhaustive relabeling bought at the cost of corpus size · ladder + rebalance stacking · push-depth-aware pose head · Fourier depth identity.
+
+**Standing meta-lesson:** offline V5 has anti-predicted canonical deploy five times (most starkly: HY5U has the worst V5 of any hybrid arm and the best deploy of any model here). V5 is a burial diagnostic; canonical deploy is the only arbiter.
 
 ---
 
