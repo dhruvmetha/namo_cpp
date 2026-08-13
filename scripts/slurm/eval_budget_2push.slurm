@@ -31,7 +31,9 @@ SIM_BUDGET=${SIM_BUDGET:-900}
 N2SH=${N2SH:-250}
 PRIOR=${PRIOR:-model}
 SEED_BASE=${SEED_BASE:-7000}
-RAW=${RAW:-1}
+# NOTE: raw scores are already the DEFAULT in eval_bestfirst.py (--sigmoid restores the legacy
+# squashed scale). There is deliberately no knob here: both arms of this campaign must run on the
+# same scale, and for PRIOR=uniform the scale is irrelevant anyway (no forward pass happens).
 
 # SLURM copies this script out of the repo, so never derive the checkout from BASH_SOURCE.
 REPO=${NAMO_REPO:-${SLURM_SUBMIT_DIR:?no NAMO_REPO and no SLURM_SUBMIT_DIR}}
@@ -53,11 +55,8 @@ S=$((ID * N2 / N2SH)); EN=$(((ID + 1) * N2 / N2SH))
 echo "EVAL start $(date) host=$(hostname) ID=$ID episodes[$S,$EN) budget=$SIM_BUDGET prior=$PRIOR seed=$SEED_BASE"
 [ "$S" -ge "$EN" ] && { echo "empty shard, nothing to do"; exit 0; }
 
-EXTRA=()
-[ "$RAW" = "1" ] && EXTRA+=(--raw)
-
 "$PY" scripts/sandbox/eval_bestfirst.py --ckpt "$CKPT" --hmax 2 --sim-budget "$SIM_BUDGET" \
   --prior "$PRIOR" --agg mean5 --combine q --discount off --seed-base "$SEED_BASE" \
-  --start "$S" --end "$EN" "${EXTRA[@]}" \
+  --start "$S" --end "$EN" \
   --out "$OUT/2push/shard_${ID}.json" --leaf-out "$OUT/2push/shard_${ID}.jsonl"
 echo "EVAL done $(date) ID=$ID"
