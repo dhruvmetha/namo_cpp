@@ -392,16 +392,18 @@ Gates `gate_dose.json`, `gate_aj2u.json`; panels `auc_dose_aj2u.json`, `auc_aj2u
 
 `HY5U` × 3 seeds vs uniform random × 3 seeds (7000/8000/9000), 2push, 1012 episodes each, **both arms re-run fresh through the same script** (`scripts/slurm/eval_budget_2push.slurm`) so key, raw score scale, agg/combine/discount and seeds are identical — the 2026-08-02 random baseline used a different key and the legacy sigmoid scale and must NOT be reused at a new budget. Driver `scripts/rl_loop/run_budget4k_waves.sh`, 250 shards/arm (~4 episodes each), waves under Amarel's 500-job cap. Aggregate `gate_b4k.json`, raw `eval_b4k/{HY5U_s*,rand_s*}/2push/`, plot `plots/hy5u_vs_random/success_vs_sims_2push_4000.png`.
 
-| tier | n | model @900 | model @2000 | model @4000 | random @900 | random @2000 | random @4000 | avg calls model | avg calls random | ratio |
-|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
-| easy | 1140 | 99.9 | 100.0 | **100.0** | 100.0 | 100.0 | 100.0 | 7.5 | 24.4 | 3.3× |
-| medium | 1440 | 99.7 | 100.0 | **100.0** | 97.4 | 99.4 | 99.9 | 23.0 | 148.8 | 6.5× |
-| hard | 354 | 97.5 | 98.9 | **100.0** | 66.7 | 85.9 | 97.2 | 122.6 | 880.9 | **7.2×** |
+| tier | n | model @900 | model @4000 | random @900 | random @4000 | median calls (model vs random) | mean calls (model vs random) |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| easy | 1140 | 99.9 | **100.0** | 100.0 | 100.0 | 2 vs 12 (**6.0×**) | 7.5 vs 24.4 (3.2×) |
+| medium | 1440 | 99.7 | **100.0** | 97.4 | 99.9 | 3 vs 51 (**17.0×**) | 22.3 vs 143.5 (6.4×) |
+| hard | 354 | 97.5 | **100.0** | 66.7 | 97.2 | 12 vs 470 (**39.1×**) | 120.2 vs 790.2 (6.6×) |
+
+**Call ratios above are PAIRED** — computed per (episode, seed) on the pairs BOTH arms solved (1140 / 1438 / 344 pairs). ⚠ An earlier version of this section quoted 3.3×/6.5×/**7.2×** from `avg_sims_all`, which charges every UNSOLVED episode the full 4000-call ceiling; since random leaves ~3% of hard episodes unsolved and the model leaves none, that statistic partly measured random's failures rather than its slowness, and it inflates automatically with any budget increase. Corrected on the user's challenge, 2026-08-13. The mean/median split is itself informative: on hard the model's median is 12 calls but its mean is 120 — a heavy tail of a few expensive episodes — whereas random is uniformly slow (470 median, 790 mean).
 
 **Readings [numbers, no verdicts]:**
-1. **At a large budget the SOLVE RATES converge — the ranker's value is entirely efficiency.** Hard tier: model 100% vs random 97.2% at 4000 calls, a 2.8-point gap, versus a 30.8-point gap at 900. This is the expected consequence of the simulator being a perfect verifier: enough random tries eventually find the answer. Any headline framed as "we solve more problems" collapses at large budget; the honest framing is **7.2× fewer simulator calls on hard, 6.5× on medium, 3.3× on easy**.
+1. **At a large budget the SOLVE RATES converge — the ranker's value is entirely efficiency.** Hard tier: model 100% vs random 97.2% at 4000 calls, a 2.8-point gap, versus a 30.8-point gap at 900. This is the expected consequence of the simulator being a perfect verifier: enough random tries eventually find the answer. Any headline framed as "we solve more problems" collapses at large budget; the honest framing is **6.6× fewer calls on hard in the mean, and 39× at the median** (paired; 17× medium, 6× easy).
 2. **The model reaches 100% on hard 2push** — first time any arm has cleared the tier outright, and it needs 4000 calls to do it (97.5 at 900), so the tail is real but reachable.
-3. **Random's hard-tier average is 880.9 calls of a 4000 ceiling**, i.e. most of its hard episodes are burning most of the budget; the model averages 122.6.
+3. **Random's hard-tier average is 790 calls (paired) of a 4000 ceiling**; the model averages 120 with a median of 12. Per-episode paired scatter shows the ranker is cheaper on **87% / 90% / 93%** of easy / medium / hard problems individually — the win is per-problem, not an averaging artifact.
 4. Method note: the previous 900-budget curves compared against a random baseline collected under different settings. This campaign supersedes those for any random comparison at any budget.
 
 ## Arc narrative — every decision, its reason, and what it concluded (2026-08-11 → 08-12) [USER: record everything in detail]
