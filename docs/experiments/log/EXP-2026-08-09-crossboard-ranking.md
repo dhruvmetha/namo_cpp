@@ -544,6 +544,29 @@ Wall-clock seconds, budget 4000, paired on episodes both arms solved. This is th
 
 **Definitions that were conflated earlier (all four appear in the literature; state which one you mean):** (a) ratio of medians 20.2×; (b) median of pooled pair ratios 9.8×; (c) per-instance median then across instances **10.9× — canonical here**; (d) mean of pair ratios 47.5× — never quote this, one lucky episode contributes 400×.
 
+### Session artifacts: shared copies + figures + tooling (2026-08-14)
+
+**Shared read-only copies** (for tdn39; ACL `r-x` recursive + default, write denied):
+
+| what | path | contents |
+|---|---|---|
+| test set | `/common/users/shared/robot_learning/dm1487/namo/RO_testset` | `labels/` (7 answer-key JSONs, both horizons), `gt_h5/testset_gt_v3.h5` (md5 `22bc6e0df29250ebd900efd129cdf026`), `scenes/` (18,270 XMLs), `README.md` |
+| models | `/common/users/shared/robot_learning/dm1487/namo/ranking/models` | `HY5U_s{1,2,3}/` whole folders (ckpts + `train.log`) + `HY5U_README.md` (recipe, numbers, the three traps) |
+
+⚠ The grant covers the WHOLE `ranking/` tree, which also contains a pre-existing `models/archive/` holding the BNG baselines and the deployed `d20_plus_setup_only_splitloss` checkpoint — broader than the HY5U share that was requested. Scope it out if that was unintended.
+
+⚠ **The raw pkls behind the canonical test set are GONE.** Only v1-era 2push pkls survive (`datasets/namo_testset_v1/pkls_2push_v2/`, 1.3 GB); the `collect_v2` / `collect_1push_v2` / v3-topup directories the eval registry names exist on NEITHER box, and **no script in the repo builds `testset_gt_v3.h5`** (grepped; only `hardness_v2.py` touches those paths, and it consumes). The GT H5 is documented in prose (commit `a28c7c7`) but is not reproducible from what is checked in. Liability worth fixing before the test set ever needs rebuilding.
+
+**Figures** (all from the per-instance statistic unless noted):
+- `plots/hy5u_vs_random/success_vs_sims_{1push,2push}.png` — success vs simulator calls, random + top 4, common episode set.
+- `plots/hy5u_vs_random/success_vs_sims_2push_4000.png` — the deep-budget version; annotations use the PAIRED ratios.
+- `plots/walltime4k/success_vs_time_{1push_hmax2,2push}.png` — success vs wall-clock seconds, seed bands.
+- `plots/paper_options/{A_speedup_vs_percentile,B_paired_scatter,C_box}.png` + `axis_log_vs_linear.png` — publication candidates. **Recommended main figure: the paired per-episode scatter (B)** — it shows the win is per-problem (cheaper on 87/90/93% of easy/medium/hard) rather than an averaging artifact, and honestly displays the instances where random wins.
+- `plots/percentile_options/{A_speedup_vs_percentile,B_speedup_histogram,C_box}.png` — the per-instance distribution views; A makes the arc (peak mid-distribution) visible and shows easy-1push sitting below 1× until ~p78.
+
+**Tooling added this session** (all committed):
+`scripts/rl_loop/aquaman_agg_common.py` (common-episode aggregation — REQUIRED for any cross-era claim) · `scripts/pipeline/build_hybrid_h5.py` · `scripts/pipeline/pool_family_h5.py` · `scripts/slurm/eval_budget_2push.slurm` (arbitrary budget) · `scripts/slurm/eval_walltime.slurm` (timed protocol, both legs) · `scripts/rl_loop/run_budget4k_waves.sh` (wave driver; its two silent-failure bugs — a helper clobbering the caller's loop index, and an unnoticed QOS-cap rejection — are fixed and commented in place) · `scripts/experiments/plot_success_vs_sims.py`.
+
 ## Arc narrative — every decision, its reason, and what it concluded (2026-08-11 → 08-12) [USER: record everything in detail]
 
 This section is the reasoning trail for the isolation 2×2 → hybrid arc, written so the choices are reconstructible without the chat.
