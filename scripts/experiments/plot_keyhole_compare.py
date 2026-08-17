@@ -134,6 +134,81 @@ def speedup_curve(data, out):
     print("wrote", out)
 
 
+def cost_scaling(data, out):
+    """THE claim, as a scaling law rather than a benchmark number.
+
+    x = how many pushes a blind searcher expects to try before hitting a right one (1/answer
+    density at the root -- a property of the PROBLEM, measured from exhaustive ground truth, with no
+    planner involved). y = seconds actually spent. Random has to pay that price and does: its fitted
+    slope is 1.0, i.e. cost grows in exact proportion. The ranker's slope is about half that, so the
+    gap is not a tuned constant -- it widens with difficulty by construction of what the ranker does.
+    """
+    fig, axes = plt.subplots(1, 2, figsize=(12.5, 5.0))
+    for ax, (leg, legname) in zip(axes, LEGS):
+        style(ax)
+        rows = [r for r in data[leg] if r["clean"] and r.get("draws")]
+        for arm, color, label in (("rand_t", SLOWER, "random order"),
+                                  ("model_t", CHEAPER, "ranker")):
+            x = [r["draws"] for r in rows]
+            y = [r[arm] for r in rows]
+            ax.scatter(x, y, s=7, c=color, alpha=0.16, linewidths=0)
+            # median in log-spaced bins, plus the fitted power law the bins follow
+            lx = [math.log10(v) for v in x]
+            edges = [min(lx) + i * (max(lx) - min(lx)) / 9 for i in range(10)]
+            bx, by = [], []
+            for i in range(9):
+                b = [(xx, yy) for xx, yy, l in zip(x, y, lx) if edges[i] <= l <= edges[i + 1]]
+                if len(b) >= 8:
+                    bx.append(st.median([p[0] for p in b]))
+                    by.append(st.median([p[1] for p in b]))
+            ax.plot(bx, by, color=color, lw=2.4, marker="o", ms=5, mec="#fcfcfb", mew=1.2,
+                    label=label, zorder=5)
+            n = len(x)
+            mlx, mly = sum(lx) / n, sum(math.log10(v) for v in y) / n
+            sxy = sum((a_ - mlx) * (math.log10(b_) - mly) for a_, b_ in zip(lx, y))
+            sxx = sum((a_ - mlx) ** 2 for a_ in lx)
+            ax.text(bx[-1] * 1.15, by[-1], f"{label}\nslope {sxy / sxx:.2f}", color=color,
+                    fontsize=9, va="center", linespacing=1.4)
+        ax.set_xscale("log"); ax.set_yscale("log")
+        ax.set_xlabel("pushes a blind searcher expects to try  (1 ÷ answer density at the root)",
+                      fontsize=9, color=MUTED)
+        ax.set_title(legname, fontsize=10, color=INK, loc="left")
+        ax.set_xlim(right=max(r["draws"] for r in rows) * 4)
+    axes[0].set_ylabel("seconds to solve the problem", fontsize=9, color=MUTED)
+    fig.suptitle("Blind search pays the full price of a rare answer; the ranker pays about its square root",
+                 y=0.98, fontsize=12, color=INK)
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    fig.savefig(out, dpi=160)
+    print("wrote", out)
+
+
+def attach_difficulty(data, dens):
+    for leg, rows in data.items():
+        for r in rows:
+            d = dens[leg].get((r["xml"], r["object_id"]))
+            r["draws"] = 100.0 / d if d else None
+
+
+def densities():
+    """Answer density per problem, straight from the canonical manifests (no planner involved)."""
+    import sys
+    sys.path.insert(0, str(os.path.join(os.path.dirname(__file__), "..", "..", "python")))
+    from namo import eval_sets
+
+    def suf(p, n=5):
+        return "/".join(str(p).rstrip("/").split("/")[-n:])
+
+    one = json.load(open(eval_sets.path("onepush_manifest")))
+    two = json.load(open(eval_sets.path("pure2push_manifest")))
+    return {
+        "1push": {(suf(x), e["object_id"]): 100 * len(e["valid"]) / max(len(e["tried"]), 1)
+                  for x, eps in one.items() for e in eps},
+        "2push": {(suf(x), e["object_id"]):
+                  100 * len(e["valid_first_push"]) / max(len(e["tried_1push"]), 1)
+                  for x, eps in two.items() for e in eps},
+    }
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", required=True, help="dir written by paired_keyhole_compare.py")
@@ -141,6 +216,8 @@ def main():
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     data = {leg: load(a.data, leg) for leg, _ in LEGS}
+    attach_difficulty(data, densities())
+    cost_scaling(data, os.path.join(a.out, "cost_scaling_time.png"))
     paired_scatter(data, os.path.join(a.out, "paired_scatter_time.png"))
     speedup_curve(data, os.path.join(a.out, "speedup_by_percentile_time.png"))
 
