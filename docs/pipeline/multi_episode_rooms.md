@@ -58,6 +58,14 @@ Train and test reference the **same physical rooms under incompatible path schem
 
 Related gotcha: the canonical 1-push eval key is **`v3_test_episodes.json`** (per-xml LIST of episodes WITH `object_center`, the thing `eval_scorer.py --episodes` consumes). `v3_test_validsets.json` is a simpler 1-per-xml form with NO `object_center` — **not** the eval key; don't confuse them.
 
+## Failure mode #5: basename joins on the multi-hop pools
+
+The multi-hop Full-NAMO scene pools (`multihop_aug9_hy5u/`) have only **800 unique basenames across 2,535 scenes**, because generation writes `set{1,2}/benchmark_{1..5}/run_XXXX/env_XXXX_pair_YYY.xml` and `run_XXXX` repeats across templates. A join keyed on basename therefore collides massively and silently.
+
+Measured 2026-08-17: the same join scored **0/9 matches on basename and 9/9 on `realpath`**. Left unnoticed it would have mislabeled ~68% of the corpus — every scene would inherit some other scene's difficulty tier.
+
+**Always join these pools on `os.path.realpath`.** This is the same family as failure mode #4 (name-based reasoning about rooms), but it bites joins rather than disjointness checks, and it bites within a single pool rather than across train/test.
+
 ## Note on script locations
 
 `build_episode_validsets.py` and the scorer-data builders (`build_scorer_dataset.py`, `add_contact_px.py`) are now **committed under `scripts/pipeline/`** (promoted from sandbox 2026-06-08); the scorer dataset is registered at `config/datasets/v3_scorer_e4.yaml` with lineage in `docs/pipeline/scorer_dataset.md`. `eval_grounding.py` still lives under `scripts/sandbox/` (gitignored) — promote next. This doc is the durable record of the *rules*; the training-side fix is in the committed `sage_learning` repo (`src/data/se2_data_cropped.py`).

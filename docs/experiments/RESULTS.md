@@ -416,3 +416,33 @@ Card: [EXP-2026-08-17-two-hop-planner-fix-multiseed](log/EXP-2026-08-17-two-hop-
 **The local opener is not quitting without searching** — the prior hypothesis, rejected for two thirds of the cases. Only the 133 `no_reachable_objects` scenes are the near-zero-call case; the other ~313 per arm burn real simulation, with 172 events spending 100+ calls and a group median of 32 total scene calls. **Those 133 scenes are the identical XMLs in all four arms** (intersection = union = 133), so they are seed- and ranker-independent: a generation defect, unsolvable by construction, not a search failure.
 
 **⚠ No easy/medium/hard split.** These composed multi-hop scenes have no registered difficulty labels, and the canonical bins (`eval_common.py:35`, hard < 0.05 / med < 0.30 / easy ≥ 0.30) are defined on a matched *local* episode's solve rate, which a two-hop scene does not have. Labeling by random-trial solve rate is sequenced deliberately after the generation fixes: a difficulty axis built on a pool that is 90% unsolved and 7% junk would describe the defects, not the environments.
+
+## 2026-08-17 — Keyhole-1 difficulty across the 2/3/4-hop pools: multi-hop first boundaries are 4.4× more hard-heavy than the canonical corpus
+
+Card: [EXP-2026-08-17-two-hop-planner-fix-multiseed](log/EXP-2026-08-17-two-hop-planner-fix-multiseed.md). Every multi-hop scene's **first** keyhole labeled on the canonical scale — `bin_of(solve_rate_1push)`, hard < 0.05 / med < 0.30 / easy ≥ 0.30 (`eval_common.py:35`) — from an exhaustive depth-2 sweep, `scripts/pipeline/label_keyhole1_difficulty.py`. Unit is the local episode `(object, target region)`, not the scene.
+
+| pool | scenes labeled | easy | med | hard |
+|---|---|---:|---:|---:|
+| 2-hop | 2,338 / 2,374 | 390 (16.3%) | 373 (15.6%) | **1,625 (68.0%)** |
+| 3-hop | 2,040 / 2,090 | 373 (18.2%) | 343 (16.8%) | **1,328 (65.0%)** |
+| 4-hop | 1,642 / 1,720 | 315 (19.1%) | 268 (16.3%) | **1,062 (64.6%)** |
+
+**The distribution is inverted relative to the canonical corpus.** `namo_testset_v1` on the identical scale is 15.4% hard / 31.8% med / 52.7% easy; these first boundaries are 68/65/65% hard — **4.4× more hard-heavy**. The number barely moves with hop count, so this is a property of *first-boundary openings in these generated pools*, not of multi-hop depth. Anyone reaching for a harder evaluation distribution than testset_v1 should start here.
+
+**⚠ The hard tier is dominated by keyholes that cannot be opened at all within 2 pushes** — read it carefully before sampling.
+
+| pool | hard | hard & 1push | hard & 2push | hard & dead>2 | **hard-but-solvable** |
+|---|---:|---:|---:|---:|---:|
+| 2-hop | 1,625 | 65 | 433 | 1,127 | **498** |
+| 3-hop | 1,328 | 99 | 394 | 835 | **493** |
+| 4-hop | 1,062 | 92 | 363 | 607 | **455** |
+
+Sampling uniformly from "hard" draws **~69% dead scenes**. The usable hard pool is ~500 per hop count, gated on `any_1push_solvable` / `any_2push_solvable`, never on `tier` alone.
+
+**Not a timeout artifact.** Only 11 of 2,376 keyhole-1 episodes hit `neighbour_timed_out` (0.46%), and `depth2_censored` is 0 everywhere; the per-neighbour timeout only breaks between *objects* (`region_opening.py:1531`), never inside one object's sweep, so an episode that exists has a complete depth-1 sweep. **"Dead within 2 pushes" is a lower bound** — only 52.5% of zero-1-push episodes had every depth-1 cell expanded to depth 2 — but the easy/med/hard split depends only on the depth-1 sweep and is unaffected.
+
+**Cost, and a calibration lesson.** 1,064.5 cpu-hours and 15.2M simulated pushes across the three pools (2-hop 348.5, 3-hop 409.1, 4-hop 306.9). Per scene, 2-hop: mean 529 s / 2,246 sims, median 270 s, p99 3,556 s, **max 6,101 s**. Two pilot calibrations (11 and 16 scenes) both projected ~197 cpu-hours — **1.8× low, entirely because of the tail**: medians agreed well (333 s sampled vs 270 s true) and neither small sample contained a p99 scene. An early read taken off the scenes that finished *first* was worse still (216 s mean), which is pure survivorship. **Do not calibrate this pipeline on under ~20 scenes, and never on the ones that finish first.**
+
+⚠ **Join these pools on `realpath`, never basename** — 800 unique basenames across 2,535 scenes; a basename join measured 0/9 matches where realpath gives 9/9, silently mislabeling ~68% of the corpus. Recorded as failure mode #5 in [multi_episode_rooms.md](../pipeline/multi_episode_rooms.md).
+
+**These are FIRST-keyhole labels only.** The planner opens only boundary 0 from the initial state (`_explore_from_state` sweeps `adjacency[robot_label]`), so labeling keyhole 2+ requires materializing the post-push state — separate work, in flight.
