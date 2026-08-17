@@ -67,7 +67,13 @@ HY5U solved 232 both before and after the fix, and `comm -3` on the solved-XML l
 
 The four surviving invariant rows are all `same_region_but_goal_unreachable`, never `already_accessible`.
 
-`goal_region_invalid` is **seed-dependent** (41/41/34/36), which it should not be for a static scene property — the goal is either in free space or it is not. Flagged, not explained. Related: the generator's validator checks robot region, goal region, and hop count, but never `goal_in_free_space` ([generate_envs.py](../../../../mujoco_env_creator/generate_envs.py) `_runtime_validate_adjacency`), while the evaluator does enforce it ([full_namo_planner.py:287](../../../python/namo/planners/full_namo/full_namo_planner.py)).
+`goal_region_invalid` is **seed-dependent** (41/41/34/36), which ruled out a static scene property from the start — a goal is either in free space or it is not.
+
+**Resolved by the static probe (2026-08-17, same night).** `goal_in_free_space` is **true for all 2,535 scenes**; not one is statically bad. These are *post-push* failures: every one of the 41 has `simulation_budget_used_total > 0`, and because [full_namo_planner.py:292](../../../python/namo/planners/full_namo/full_namo_planner.py) returns on `goal_region_invalid` without recording an iteration trace, a trace of length N means the failure fired at iteration N+1 — the histogram is `{1:12, 2:23, 3:5, 5:1}`, so every one fired at iteration ≥ 2, after at least one executed push. Mechanism: a push drops an object onto the goal point and the next snapshot finds no free goal region. That fully explains the seed dependence, since different rankers push different objects to different places.
+
+Consequence: **these 41 are not generation junk and must not be filtered out.** A candidate static proxy (`goal_clearance_m`, goal to nearest movable footprint) does not separate them — median 0.103 m against 0.112 m for the pool. There is no static filter for this class.
+
+Separately and still true: the generator's validator checks robot region, goal region, and hop count but never `goal_in_free_space` ([generate_envs.py](../../../../mujoco_env_creator/generate_envs.py) `_runtime_validate_adjacency`). That is a real gap worth closing, but it is **not** the cause of these 41.
 
 ### `region_path_exhausted` splits three ways
 
@@ -134,7 +140,11 @@ Solve counts at a total-scene-call cutoff:
 
 HY5U orders a verified full-NAMO solution much earlier than uniform random, consistently across three seeds, and the ordering advantage is largest at tight budgets (94 vs 6–26 solves within two total calls).
 
-The 9.17% complete-scene rate is not a ranker ceiling, and this run now says what it actually is. Of HY5U's 2,299 unsolved scenes: about 174 are generation junk (133 unreachable-blocker, 41 bad goal), about 321 are the greedy commit dead-ending with no backtracking, and 1,466 are genuine local budget exhaustion.
+The 9.17% complete-scene rate is not a ranker ceiling, and this run now says what it actually is. Of HY5U's 2,299 unsolved scenes: **159 are generation junk** (no reachable blocker at the first boundary), about 321 are the greedy commit dead-ending with no backtracking, and 1,466 are genuine local budget exhaustion. The 41 `goal_region_invalid` scenes are **not** junk — see above, they are post-push goal occlusion and stay in the pool.
+
+**Static probe confirmation** (`scripts/pipeline/probe_static_topology.py`, one region snapshot plus `get_reachable_objects` per XML, zero simulated pushes, 4 seconds wall for all 2,535 scenes on 32 cores). It recovers the unreachable-blocker class from static geometry alone: **133 of 133**, with recall 156/156 against every scene any arm ever reported `no_reachable_objects` at iteration 1, and a 0.6% false-positive rate. It independently reproduces the 4 hop-count mismatches that the eval's own `path_length_mismatch_count` reports. The flag must gate on **boundary 0** — the only boundary the planner ever opens — since `no_reachable_blocker_any` fires on 2,517 of 2,535 scenes, the second boundary being unreachable at t=0 essentially by construction.
+
+**Surviving pool: 2,374 scenes** (dropped 161 — 159 no reachable blocker, 4 hop mismatch, 2 no path, overlapping).
 
 No easy/medium/hard split is reported. These complete multi-hop scenes still have no registered difficulty labels, and the project's canonical bins ([eval_common.py:35](../../../scripts/eval_common.py), hard < 0.05, med < 0.30, easy ≥ 0.30) are defined on the matched local episode's solve rate, which a composed two-hop scene does not have. Labeling them by random-trial solve rate is the agreed next step, deliberately sequenced **after** the generation defects are fixed, since a difficulty axis built on a pool that is 90% unsolved and 7% junk would describe the defects rather than the environments.
 
@@ -156,6 +166,6 @@ Amarel root `/scratch/dm1487/multihop_aug9_hy5u/scale_20260817_planfix/`; the or
 ## Next
 
 1. **Top-level backtracking over committed keyholes.** 321 scenes per arm currently dead-end after a verified commit. This is the largest single recoverable class and the only one that is an algorithm change rather than a data fix.
-2. **Fix the generator.** Add the missing `goal_in_free_space` check, and diagnose why 133 scenes have no reachable boundary object. Explain the seed-dependent `goal_region_invalid` count (41/41/34/36) before trusting either number.
-3. **Static per-scene probe** — one region snapshot plus `get_reachable_objects`, zero simulated pushes — recording goal free-space, hop count, per-boundary blocking objects, and which of those are reachable at t=0. Cheap, and it is the input to both the generation fix and structural difficulty strata.
+2. **Fix the generator.** Diagnose why 159 scenes have no reachable blocker at boundary 0 — that is the one confirmed generation defect. Adding the missing `goal_in_free_space` check is still worth doing for future pools, but it would not have caught any scene here.
+3. ~~Static per-scene probe~~ — **DONE**, see above. `scripts/pipeline/probe_static_topology.py`, surviving list at `static_probe/surviving_xmls.txt`.
 4. **Then** difficulty labeling by random-trial solve rate, 30 seeds at budget 900, on the cleaned pool. Thirty seeds is the minimum that resolves the 0.05 bin edge.
