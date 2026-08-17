@@ -430,3 +430,40 @@ td.no { color: var(--dead); }
 .zone-queue .timeline-label { margin: 8px 0 0; padding-top: 8px; border-top: 1px solid var(--border);
   font-size: 12px; color: #555; white-space: normal; }  /* was nowrap in the timeline row; it must wrap here */
 .timeline-row .step-btn { flex: 0 0 auto; }
+
+/* ---------------------------------------------------------------------------
+   Scene gallery (scenes.html): one episode at a time, arrowed through a filtered
+   category. Reuses the region/wall/movable palette above; only the contact-dot
+   meaning differs (ground truth about the ROOT, no model, no search).
+   --------------------------------------------------------------------------- */
+.gallery-body { padding: 1rem 1.25rem 2rem; }
+.gallery-topbar .controls { gap: 1rem; margin-bottom: 0.4rem; align-items: end; }
+.controls label.checkbox { flex-direction: row; align-items: center; gap: 0.3rem; }
+.gallery-topbar button { font: inherit; padding: 3px 10px; border: 1px solid var(--border);
+  border-radius: 3px; background: var(--bg); color: var(--fg); cursor: pointer; }
+.gallery-topbar button:hover { background: var(--border); }
+.nav-group { display: inline-flex; align-items: center; gap: 0.4rem; }
+.position { min-width: 6.5em; text-align: center; font-size: 0.9rem; }
+.star-btn.starred { background: #fff3cd; border-color: #e0a800; }
+
+.gallery-main { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr);
+  gap: 1rem; align-items: start; }
+@media (max-width: 900px) { .gallery-main { grid-template-columns: 1fr; } }
+.gallery-side h2 { margin: 0 0 0.6rem; font-size: 1rem; }
+.meta-table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+.meta-table th { text-align: left; font-weight: 500; color: #555; padding: 3px 8px 3px 0;
+  white-space: nowrap; vertical-align: top; }
+.meta-table td { padding: 3px 0; word-break: break-word; }
+.green-list { margin-top: 0.7rem; font-size: 0.8rem; line-height: 1.5; }
+.green-label { color: #555; }
+.gallery-side kbd { border: 1px solid var(--border); border-radius: 3px; padding: 0 3px;
+  font-family: ui-monospace, monospace; font-size: 0.9em; }
+
+/* Green = this push (at some depth) is the right one; grey = tried and it is not; faint = that edge
+   is not even reachable from the robot's region, so the search never considers it. */
+.contact-pt.dot-green { fill: var(--opener); stroke: #1b5e20; stroke-width: 0.0012; }
+.contact-pt.dot-tried { fill: #b0bec5; stroke: #78909c; stroke-width: 0.0008; }
+.contact-pt.dot-untried { fill: none; stroke: #cfd8dc; stroke-width: 0.0008; }
+.legend-swatch.dot-green { background: var(--opener); border-radius: 50%; }
+.legend-swatch.dot-tried { background: #b0bec5; border-radius: 50%; }
+.legend-swatch.dot-untried { background: #eceff1; border: 1px solid #cfd8dc; border-radius: 50%; }
