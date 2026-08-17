@@ -6,7 +6,7 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body class="gallery-body">
-<header class="gallery-topbar">
+<header class="gallery-bar">
   <div class="controls">
     <label>Horizon
       <select id="horizon-select">
@@ -24,46 +24,46 @@
     </label>
     <label>Order
       <select id="sort-select">
-        <option value="density-asc">hardest first (density &uarr;)</option>
-        <option value="density-desc">easiest first (density &darr;)</option>
+        <option value="density-asc">hardest first</option>
+        <option value="density-desc">easiest first</option>
         <option value="scene">scene name</option>
       </select>
     </label>
     <label>Scene
       <input type="search" id="text-filter" placeholder="scene or object">
     </label>
-    <label class="checkbox">
-      <input type="checkbox" id="starred-only"> starred only
-    </label>
+    <label class="checkbox"><input type="checkbox" id="starred-only"> starred only</label>
     <span class="nav-group">
       <button type="button" id="prev-btn" title="Left arrow">&larr;</button>
       <span id="position" class="position mono">0 / 0</span>
       <button type="button" id="next-btn" title="Right arrow">&rarr;</button>
     </span>
-    <button type="button" id="star-btn" class="star-btn" title="Star this episode (S)">&#9734; star</button>
-    <button type="button" id="copy-btn" title="Copy the starred shortlist as JSON">copy shortlist (<span id="star-count">0</span>)</button>
   </div>
   <div id="summary" class="summary">loading scenes.json&hellip;</div>
 </header>
 
-<main class="gallery-main">
-  <section class="zone zone-scene">
+<main class="two-col">
+  <section class="scene-col">
     <svg id="scene-svg" class="scene-svg" preserveAspectRatio="xMidYMid meet"></svg>
     <p class="zone-note" id="scene-legend"></p>
   </section>
 
-  <section class="zone gallery-side">
+  <aside class="facts-col">
     <h2 id="card-title">&mdash;</h2>
     <table class="meta-table" id="meta-table"></table>
     <div class="green-list" id="green-list"></div>
+    <div class="facts-actions">
+      <button type="button" id="star-btn" class="star-btn" title="Star this episode (S)">&#9734; star</button>
+      <button type="button" id="copy-btn">copy shortlist (<span id="star-count">0</span>)</button>
+    </div>
     <p class="zone-note">
-      Arrow keys step through the filtered list, <kbd>S</kbd> stars the current episode.
-      Contact dots: <span class="legend-swatch dot-green"></span>&nbsp;a push that works,
+      <kbd>&larr;</kbd> <kbd>&rarr;</kbd> step through the filter, <kbd>S</kbd> stars.
+      Dots: <span class="legend-swatch dot-green"></span>&nbsp;a push that works,
       <span class="legend-swatch dot-tried"></span>&nbsp;tried and does not,
       <span class="legend-swatch dot-untried"></span>&nbsp;edge never reachable.
     </p>
     <p class="zone-note mono" id="xml-path"></p>
-  </section>
+  </aside>
 </main>
 
 <script src="scene_render.js"></script>

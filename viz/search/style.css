@@ -432,32 +432,40 @@ td.no { color: var(--dead); }
 .timeline-row .step-btn { flex: 0 0 auto; }
 
 /* ---------------------------------------------------------------------------
-   Scene gallery (scenes.html): one episode at a time, arrowed through a filtered
-   category. Reuses the region/wall/movable palette above; only the contact-dot
-   meaning differs (ground truth about the ROOT, no model, no search).
+   Scene gallery (scenes.html): a filter bar over two columns -- the scene on the
+   left, everything true about it on the right. Reuses the region/wall/movable
+   palette above; only the contact-dot meaning differs (ground truth about the
+   ROOT state, no model, no search).
    --------------------------------------------------------------------------- */
-.gallery-body { padding: 1rem 1.25rem 2rem; }
-.gallery-topbar .controls { gap: 1rem; margin-bottom: 0.4rem; align-items: end; }
-.controls label.checkbox { flex-direction: row; align-items: center; gap: 0.3rem; }
-.gallery-topbar button { font: inherit; padding: 3px 10px; border: 1px solid var(--border);
-  border-radius: 3px; background: var(--bg); color: var(--fg); cursor: pointer; }
-.gallery-topbar button:hover { background: var(--border); }
-.nav-group { display: inline-flex; align-items: center; gap: 0.4rem; }
+.gallery-body { padding: 1rem 1.5rem 2rem; }
+.gallery-bar { border-bottom: 1px solid var(--border); padding-bottom: 0.7rem;
+  margin-bottom: 1.1rem; }
+.gallery-bar .controls { gap: 1.1rem; margin-bottom: 0.45rem; align-items: end; }
+.controls label.checkbox { flex-direction: row; align-items: center; gap: 0.3rem;
+  align-self: end; padding-bottom: 3px; }
+.gallery-bar button, .facts-actions button { font: inherit; padding: 3px 10px;
+  border: 1px solid var(--border); border-radius: 3px; background: var(--bg);
+  color: var(--fg); cursor: pointer; }
+.gallery-bar button:hover, .facts-actions button:hover { background: var(--border); }
+.nav-group { display: inline-flex; align-items: center; gap: 0.4rem; align-self: end; }
 .position { min-width: 6.5em; text-align: center; font-size: 0.9rem; }
-.star-btn.starred { background: #fff3cd; border-color: #e0a800; }
 
-.gallery-main { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr);
-  gap: 1rem; align-items: start; }
-@media (max-width: 900px) { .gallery-main { grid-template-columns: 1fr; } }
-.gallery-side h2 { margin: 0 0 0.6rem; font-size: 1rem; }
+.two-col { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(270px, 1fr);
+  gap: 1.75rem; align-items: start; }
+@media (max-width: 860px) { .two-col { grid-template-columns: 1fr; } }
+.scene-col .scene-svg { aspect-ratio: auto; height: min(74vh, 780px); }
+.facts-col h2 { margin: 0 0 0.7rem; font-size: 1rem; line-height: 1.35; }
 .meta-table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
 .meta-table th { text-align: left; font-weight: 500; color: #555; padding: 3px 8px 3px 0;
   white-space: nowrap; vertical-align: top; }
 .meta-table td { padding: 3px 0; word-break: break-word; }
-.green-list { margin-top: 0.7rem; font-size: 0.8rem; line-height: 1.5; }
+.green-list { margin-top: 0.75rem; font-size: 0.8rem; line-height: 1.5; }
 .green-label { color: #555; }
-.gallery-side kbd { border: 1px solid var(--border); border-radius: 3px; padding: 0 3px;
+.facts-actions { display: flex; gap: 0.5rem; margin: 1rem 0 0.25rem; }
+.star-btn.starred { background: #fff3cd; border-color: #e0a800; }
+.facts-col kbd { border: 1px solid var(--border); border-radius: 3px; padding: 0 3px;
   font-family: ui-monospace, monospace; font-size: 0.9em; }
+.facts-col .zone-note { margin-top: 0.8rem; }
 
 /* Green = this push (at some depth) is the right one; grey = tried and it is not; faint = that edge
    is not even reachable from the robot's region, so the search never considers it. */
