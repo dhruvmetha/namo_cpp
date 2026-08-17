@@ -23,7 +23,8 @@ const positionEl = document.getElementById("position");
 const summary = document.getElementById("summary");
 const starCount = document.getElementById("star-count");
 
-const FILTERS = [horizonSelect, tierSelect, sortSelect, textFilter, starredOnly];
+const famBoxes = [...document.querySelectorAll("input[data-family]")];
+const FILTERS = [horizonSelect, tierSelect, sortSelect, textFilter, starredOnly, ...famBoxes];
 
 let index = null;
 let timing = null;       // per-problem seconds from the timed campaign; absent = the page hides them
@@ -36,6 +37,7 @@ function saveState() {
   localStorage.setItem(STORE_KEY, JSON.stringify({
     horizon: horizonSelect.value, tier: tierSelect.value, sort: sortSelect.value,
     text: textFilter.value, starredOnly: starredOnly.checked,
+    families: famBoxes.filter((b) => b.checked).map((b) => b.dataset.family),
     file: rows[i] ? rows[i].file : null,
   }));
 }
@@ -69,6 +71,10 @@ function init() {
     if (!sortSelect.value) sortSelect.value = "density-asc";   // saved an option this build dropped
     textFilter.value = saved.text || "";
     starredOnly.checked = !!saved.starredOnly;
+    // Never restore "no batch selected" -- that reads as an empty gallery, not as a filter.
+    if (saved.families && saved.families.length) {
+      famBoxes.forEach((b) => { b.checked = saved.families.includes(b.dataset.family); });
+    }
     wantFile = saved.file;
   }
 
@@ -89,10 +95,12 @@ function init() {
 
 function applyFilters(wantFile) {
   const q = textFilter.value.trim().toLowerCase();
+  const fams = new Set(famBoxes.filter((b) => b.checked).map((b) => b.dataset.family));
   rows = index.cards.filter((r) => {
     if (r.horizon !== horizonSelect.value) return false;
     if (tierSelect.value !== "all" && r.tier !== tierSelect.value) return false;
     if (starredOnly.checked && !stars[r.file]) return false;
+    if (!fams.has(r.family)) return false;
     if (q && !(r.scene.toLowerCase().includes(q) || r.object_id.toLowerCase().includes(q))) return false;
     return true;
   });
@@ -237,8 +245,8 @@ function render(card) {
     kv.push(["speed-up", t.up >= 1
       ? `<span class="speedup" style="background:${greenFor(t.up)};color:${t.up >= 8 ? "#fff" : "inherit"}">` +
         `${t.up.toFixed(1)}× — ${t.saved_pct.toFixed(0)}% less time</span>`
-      : `<span class="speedup slower">${t.up.toFixed(2)}× — ` +
-        `${(-t.saved_pct).toFixed(0)}% MORE time than random</span>`]);
+      : `<span class="speedup slower" style="background:${redFor(t.up)};color:${t.up <= 0.125 ? "#fff" : "var(--dead)"}">` +
+        `${t.up.toFixed(2)}× — ${(-t.saved_pct).toFixed(0)}% MORE time than random</span>`]);
     if (t.censored) {
       kv.push(["note", `budget exhausted on some seeds (ranker solved ${t.model_solved}/3, ` +
         `random ${t.rand_solved}/3) — these seconds are a lower bound`]);
@@ -262,6 +270,12 @@ function greenFor(up) {
   const f = Math.min(1, Math.max(0, Math.log10(up) / Math.log10(50)));
   const a = (0.10 + 0.80 * f).toFixed(2);
   return `rgba(27, 94, 32, ${a})`;
+}
+
+// Mirror of greenFor for the losing side: 1x barely tinted, 1/50x and worse is the full step.
+function redFor(up) {
+  const f = Math.min(1, Math.max(0, Math.log10(1 / up) / Math.log10(50)));
+  return `rgba(198, 40, 40, ${(0.10 + 0.80 * f).toFixed(2)})`;
 }
 
 function rowsSceneName(meta) {

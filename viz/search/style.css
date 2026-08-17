@@ -441,6 +441,8 @@ td.no { color: var(--dead); }
 .gallery-bar { border-bottom: 1px solid var(--border); padding-bottom: 0.7rem;
   margin-bottom: 1.1rem; }
 .gallery-bar .controls { gap: 1.1rem; margin-bottom: 0.45rem; align-items: end; }
+.control-cap { display: block; font-size: 0.8rem; color: #444; margin-bottom: 0.2rem; }
+.checkrow { display: inline-flex; gap: 0.75rem; }
 .controls label.checkbox { flex-direction: row; align-items: center; gap: 0.3rem;
   align-self: end; padding-bottom: 3px; }
 .gallery-bar button, .facts-actions button { font: inherit; padding: 3px 10px;
@@ -465,7 +467,7 @@ td.no { color: var(--dead); }
 .meta-table td { padding: 3px 0; word-break: break-word; }
 .meta-table .speedup { display: inline-block; padding: 1px 7px; border-radius: 3px;
   font-weight: 600; }
-.meta-table .speedup.slower { color: var(--dead); background: #fdecea; }
+.meta-table .speedup.slower { color: var(--dead); }
 .meta-table .dim { color: #777; }
 
 .green-list { margin-top: 0.75rem; font-size: 0.8rem; line-height: 1.5; }

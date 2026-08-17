@@ -157,6 +157,16 @@ def build(out_dir, shard, nshards):
     print(f"shard {shard}: DONE {len(mine)} rooms, {n} cards in {(time.time()-t0)/60:.1f} min")
 
 
+def scene_family(xml):
+    """The generator batch a room came from -- the path segment after `test/` (feb_car, aug9_car).
+
+    Two batches of rooms were generated months apart and they are NOT interchangeable: the gallery
+    filters on this so a scene's look can be traced to the batch that produced it.
+    """
+    parts = str(xml).split("/")
+    return parts[parts.index("test") + 1] if "test" in parts[:-1] else "unknown"
+
+
 def build_index(out_dir):
     """scenes.json = the small file the gallery page loads up front; cards are fetched lazily."""
     cards_dir = os.path.join(out_dir, "cards")
@@ -166,6 +176,7 @@ def build_index(out_dir):
             continue
         meta = json.load(open(os.path.join(cards_dir, fn)))["meta"]
         rows.append({"file": fn, "scene": os.path.basename(meta["xml"]).replace(".xml", ""),
+                     "family": scene_family(meta["xml"]),
                      **{k: meta[k] for k in ("horizon", "object_id", "tier", "density_pct",
                                              "n_green", "n_tried", "region")}})
     # Hardest first inside a tier: that is the order you want to arrow through when hunting figures.
@@ -173,6 +184,7 @@ def build_index(out_dir):
                              r["density_pct"], r["scene"]))
     counts = {h: dict(Counter(r["tier"] for r in rows if r["horizon"] == h))
               for h in ("1push", "2push")}
+    print("  families:", dict(Counter(r["family"] for r in rows)))
     json.dump({"schema_version": SCHEMA_VERSION, "counts": counts, "cards": rows},
               open(os.path.join(out_dir, "scenes.json"), "w"))
     print(f"scenes.json: {len(rows)} cards  {counts}")
