@@ -34,6 +34,10 @@ def _write_jsonl(path: Path, rows: Iterable[Dict[str, Any]]) -> None:
 
 
 def aggregate(eval_root: Path, output_dir: Path) -> Dict[str, Any]:
+    shard_summaries = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in sorted(eval_root.glob("shard_*/summary.json"))
+    ]
     solved_by_xml = {
         row["xml_path"]: row
         for row in _read_jsonl(eval_root.glob("shard_*/solved.jsonl"))
@@ -59,7 +63,14 @@ def aggregate(eval_root: Path, output_dir: Path) -> Dict[str, Any]:
     }
 
     summary = {
-        "completed_shards": len(list(eval_root.glob("shard_*/summary.json"))),
+        "completed_shards": len(shard_summaries),
+        "input_count": sum(row["input_env_count"] for row in shard_summaries),
+        "selected_exact_hop_count": sum(row["selected_env_count"] for row in shard_summaries),
+        "path_length_mismatch_count": sum(
+            row["input_env_count"] - row["selected_env_count"] - row["selection_error_count"]
+            for row in shard_summaries
+        ),
+        "selection_error_count": sum(row["selection_error_count"] for row in shard_summaries),
         "evaluated_count": len(all_rows),
         "solved_count": len(solved),
         "unsolved_count": len(unsolved),
