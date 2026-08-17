@@ -450,7 +450,9 @@ td.no { color: var(--dead); }
 .nav-group { display: inline-flex; align-items: center; gap: 0.4rem; align-self: end; }
 .position { min-width: 6.5em; text-align: center; font-size: 0.9rem; }
 
-.two-col { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(270px, 1fr);
+/* Facts first at 30%, the scene at 70% -- the numbers are what gets read, the picture is what gets
+   looked at, and a left-hand text column keeps a fixed measure while the drawing takes the rest. */
+.two-col { display: grid; grid-template-columns: minmax(260px, 30%) minmax(0, 70%);
   gap: 1.75rem; align-items: start; }
 @media (max-width: 860px) { .two-col { grid-template-columns: 1fr; } }
 .scene-col .scene-svg { aspect-ratio: auto; height: min(74vh, 780px); }

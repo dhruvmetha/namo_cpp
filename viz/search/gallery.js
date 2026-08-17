@@ -66,6 +66,7 @@ function init() {
     horizonSelect.value = saved.horizon || "1push";
     tierSelect.value = saved.tier || "all";
     sortSelect.value = saved.sort || "density-asc";
+    if (!sortSelect.value) sortSelect.value = "density-asc";   // saved an option this build dropped
     textFilter.value = saved.text || "";
     starredOnly.checked = !!saved.starredOnly;
     wantFile = saved.file;
@@ -97,10 +98,7 @@ function applyFilters(wantFile) {
   });
 
   const mode = sortSelect.value;
-  const up = (r) => (timing && timing[r.file] ? timing[r.file].up : -Infinity);
   rows.sort((a, b) => {
-    if (mode === "speedup-desc") return up(b) - up(a);
-    if (mode === "speedup-asc") return up(a) - up(b);
     if (mode === "scene") return a.scene.localeCompare(b.scene) || a.object_id.localeCompare(b.object_id);
     const t = TIER_ORDER[a.tier] - TIER_ORDER[b.tier];
     if (t) return t;

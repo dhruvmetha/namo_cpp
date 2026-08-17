@@ -26,8 +26,6 @@
       <select id="sort-select">
         <option value="density-asc">hardest first</option>
         <option value="density-desc">easiest first</option>
-        <option value="speedup-desc">biggest speed-up</option>
-        <option value="speedup-asc">smallest speed-up</option>
         <option value="scene">scene name</option>
       </select>
     </label>
@@ -45,11 +43,6 @@
 </header>
 
 <main class="two-col">
-  <section class="scene-col">
-    <svg id="scene-svg" class="scene-svg" preserveAspectRatio="xMidYMid meet"></svg>
-    <p class="zone-note" id="scene-legend"></p>
-  </section>
-
   <aside class="facts-col">
     <h2 id="card-title">&mdash;</h2>
     <table class="meta-table" id="meta-table"></table>
@@ -66,6 +59,11 @@
     </p>
     <p class="zone-note mono" id="xml-path"></p>
   </aside>
+
+  <section class="scene-col">
+    <svg id="scene-svg" class="scene-svg" preserveAspectRatio="xMidYMid meet"></svg>
+    <p class="zone-note" id="scene-legend"></p>
+  </section>
 </main>
 
 <script src="scene_render.js"></script>
