@@ -26,6 +26,7 @@ const starCount = document.getElementById("star-count");
 const FILTERS = [horizonSelect, tierSelect, sortSelect, textFilter, starredOnly];
 
 let index = null;
+let timing = null;       // per-problem seconds from the timed campaign; absent = the page hides them
 let rows = [];          // the current filtered + sorted list
 let i = 0;              // cursor into rows
 let stars = {};         // file -> the index row, so a shortlist survives a rebuild of the cards
@@ -44,10 +45,16 @@ function saveStars() {
   starCount.textContent = Object.keys(stars).length;
 }
 
-fetch("scenes.json", NOCACHE)
-  .then((r) => r.json())
-  .then((m) => { index = m; init(); })
-  .catch((err) => { summary.textContent = "Failed to load scenes.json: " + err; });
+// timing.json is optional: a gallery built without build_scene_timing.py still works, it just has
+// no seconds to show or sort by.
+Promise.all([
+  fetch("scenes.json", NOCACHE).then((r) => r.json()),
+  fetch("timing.json", NOCACHE).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+]).then(([m, t]) => {
+  index = m;
+  timing = t && t.cards ? t.cards : null;
+  init();
+}).catch((err) => { summary.textContent = "Failed to load scenes.json: " + err; });
 
 function init() {
   stars = JSON.parse(localStorage.getItem(STAR_KEY) || "{}");
@@ -90,7 +97,10 @@ function applyFilters(wantFile) {
   });
 
   const mode = sortSelect.value;
+  const up = (r) => (timing && timing[r.file] ? timing[r.file].up : -Infinity);
   rows.sort((a, b) => {
+    if (mode === "speedup-desc") return up(b) - up(a);
+    if (mode === "speedup-asc") return up(a) - up(b);
     if (mode === "scene") return a.scene.localeCompare(b.scene) || a.object_id.localeCompare(b.object_id);
     const t = TIER_ORDER[a.tier] - TIER_ORDER[b.tier];
     if (t) return t;
@@ -107,8 +117,14 @@ function applyFilters(wantFile) {
   const byTier = Object.keys(counts)
     .map((t) => `${t} ${rows.filter((r) => r.tier === t).length}`)
     .join(" · ");
+  // Median speed-up over exactly the rows on screen, so the filter bar and the number agree.
+  let tail = "";
+  if (timing) {
+    const ups = rows.map((r) => timing[r.file] && timing[r.file].up).filter((v) => v).sort((a, b) => a - b);
+    if (ups.length) tail = ` · median speed-up ${ups[ups.length >> 1].toFixed(1)}×`;
+  }
   summary.textContent = `${rows.length} episodes in this filter · ${byTier} · ` +
-    `${Object.keys(stars).length} starred overall`;
+    `${Object.keys(stars).length} starred overall` + tail;
 
   show();
 }
@@ -145,6 +161,7 @@ function show() {
   fetchCard(row).then((card) => {
     // A slow fetch must not paint over a newer selection.
     if (rows[i] !== row) return;
+    card.file_key = row.file;
     render(card);
     saveState();
     fetchCard(rows[(i + 1) % rows.length]);   // prefetch so arrowing stays instant
@@ -203,6 +220,20 @@ function render(card) {
     ["random draws to hit", meta.n_green ? (meta.n_tried / meta.n_green).toFixed(1) : "n/a"],
   ];
   if (meta.horizon === "2push") kv.push(["1push solve rate", meta.solve_rate_1push.toFixed(3)]);
+
+  const t = timing && timing[card.file_key];
+  if (t) {
+    const pm = (v) => `${v[0].toFixed(2)} ± ${v[1].toFixed(2)} s`;
+    kv.push(["random search", pm(t.rand) + `  (${t.rand_sims[0].toFixed(0)} sims)`]);
+    kv.push(["HY5U ranker", pm(t.model) + `  (${t.model_sims[0].toFixed(0)} sims)`]);
+    kv.push(["speed-up", t.up >= 1
+      ? `${t.up.toFixed(1)}× — ${t.saved_pct.toFixed(0)}% less time`
+      : `${t.up.toFixed(2)}× — ${(-t.saved_pct).toFixed(0)}% MORE time than random`]);
+    if (t.censored) {
+      kv.push(["note", `budget exhausted on some seeds (ranker solved ${t.model_solved}/3, ` +
+        `random ${t.rand_solved}/3) — these seconds are a lower bound`]);
+    }
+  }
   document.getElementById("meta-table").innerHTML = kv
     .map(([k, v]) => `<tr><th>${k}</th><td class="mono">${v}</td></tr>`).join("");
 
