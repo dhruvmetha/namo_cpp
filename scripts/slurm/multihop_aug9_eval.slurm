@@ -44,6 +44,10 @@ CONFIG="$NAMO_REPO/config/namo_config_complete_skill15_car_1x.yaml"
 shard_out="$OUT/shard_$(printf '%04d' "$task_id")"
 mkdir -p "$shard_out" "$NAMO_REPO/logs"
 sed -n "$((start + 1)),${end}p" "$MANIFEST" > "$shard_out/input.txt"
+audit_args=()
+if [ "${AUDIT_NEXT_KEYHOLE_REACHABILITY:-0}" = "1" ]; then
+  audit_args+=(--audit-next-keyhole-reachability)
+fi
 
 echo "EVAL start $(date) host=$(hostname) task=$task_id range=[$start,$end) total=$total prior=$PRIOR seed=$SEARCH_SEED hop=$PATH_LENGTH"
 "$PY" -m namo.solvability_runner \
@@ -63,6 +67,7 @@ echo "EVAL start $(date) host=$(hostname) task=$task_id range=[$start,$end) tota
   --best-first-prior "$PRIOR" \
   --scorer-ckpt "$CKPT" \
   --ml-device cpu \
+  "${audit_args[@]}" \
   --workers "$SLURM_CPUS_PER_TASK" \
   --output-dir "$shard_out"
 echo "EVAL done $(date) task=$task_id"

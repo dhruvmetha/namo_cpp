@@ -59,6 +59,7 @@ class SolveTask:
     ml_device: str = "cpu"
     full_namo_max_iterations: Optional[int] = None
     max_push_steps: Optional[int] = None
+    audit_next_keyhole_reachability: bool = False
 
 
 def _load_namo_config(config_path: str) -> Dict[str, Any]:
@@ -135,6 +136,7 @@ def build_full_namo_planner_config(task: SolveTask) -> PlannerConfig:
         "best_first_agg": "mean5",
         "best_first_combine": "q",
         "best_first_raw": True,
+        "full_namo_audit_next_keyhole_reachability": task.audit_next_keyhole_reachability,
         "region_selection_strategy": task.region_selection_strategy,
         "ml_device": task.ml_device,
     }
@@ -276,6 +278,7 @@ def _build_task(
     ml_device: str,
     full_namo_max_iterations: Optional[int],
     max_push_steps: Optional[int],
+    audit_next_keyhole_reachability: bool,
 ) -> SolveTask:
     return SolveTask(
         xml_path=analysis.xml_path,
@@ -301,6 +304,7 @@ def _build_task(
         ml_device=ml_device,
         full_namo_max_iterations=full_namo_max_iterations,
         max_push_steps=max_push_steps,
+        audit_next_keyhole_reachability=audit_next_keyhole_reachability,
     )
 
 
@@ -351,6 +355,7 @@ def run_exact_n_solvability(
     ml_device: str = "cpu",
     workers: int = 1,
     full_namo_max_iterations: Optional[int] = None,
+    audit_next_keyhole_reachability: bool = False,
     limit: Optional[int] = None,
 ) -> Dict[str, Any]:
     config_path = _resolve_config_path(repo_root, config_file)
@@ -393,6 +398,7 @@ def run_exact_n_solvability(
         "ml_device": ml_device,
         "workers": int(workers),
         "full_namo_max_iterations": full_namo_max_iterations,
+        "audit_next_keyhole_reachability": bool(audit_next_keyhole_reachability),
         "max_push_steps": effective_max_push_steps,
     }
     _write_json(output_root / "run_config.json", run_config)
@@ -449,6 +455,7 @@ def run_exact_n_solvability(
             ml_device=ml_device,
             full_namo_max_iterations=full_namo_max_iterations,
             max_push_steps=effective_max_push_steps,
+            audit_next_keyhole_reachability=audit_next_keyhole_reachability,
         )
         for analysis in selected_analyses
     ]
@@ -619,6 +626,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Optional outer Full NAMO iteration cap; omitted by default",
     )
     parser.add_argument(
+        "--audit-next-keyhole-reachability",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "For every committed opening with another keyhole ahead, compare that next "
+            "keyhole's middle-region contact set before the opening with its reachable "
+            "contact set afterward"
+        ),
+    )
+    parser.add_argument(
         "--limit",
         type=int,
         default=None,
@@ -663,6 +680,7 @@ def cli_main(argv: Optional[Sequence[str]] = None) -> int:
         ml_device=args.ml_device,
         workers=args.workers,
         full_namo_max_iterations=args.full_namo_max_iterations,
+        audit_next_keyhole_reachability=args.audit_next_keyhole_reachability,
         limit=args.limit,
     )
     return 0

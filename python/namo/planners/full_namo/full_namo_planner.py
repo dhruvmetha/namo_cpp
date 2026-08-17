@@ -7,6 +7,7 @@ This planner solves the full NAMO problem (reaching a specific robot goal) by:
 4. Recomputing after each successful opening until the robot goal is reachable
 """
 
+import math
 import time
 from collections import deque
 from dataclasses import dataclass, field, replace
@@ -95,6 +96,9 @@ class FullNAMOPlanner(BasePlanner):
         if self.budget_scope == "keyhole" and self.keyhole_budget_limit is None:
             raise ValueError("Keyhole budget scope requires full_namo_keyhole_simulation_budget")
         self._keyhole_budget_usage: List[Dict[str, Any]] = []
+        self.audit_next_keyhole_reachability = bool(
+            algo_params.get("full_namo_audit_next_keyhole_reachability", False)
+        )
         super().__init__(env, config)
 
     def _setup_constraints(self):
@@ -357,6 +361,13 @@ class FullNAMOPlanner(BasePlanner):
                 )
 
             target = path[1]
+            next_keyhole_profile = None
+            if self.audit_next_keyhole_reachability and len(path) >= 3:
+                next_keyhole_profile = self._profile_next_keyhole_before_open(
+                    snapshot_data=snapshot,
+                    path=path,
+                    robot_goal=robot_goal,
+                )
             opener = self._prepare_region_opener_for_keyhole()
             result = opener.search(robot_goal, target_neighbor=target)
             self._record_keyhole_budget(iteration, target, result)
@@ -429,7 +440,8 @@ class FullNAMOPlanner(BasePlanner):
                     )
 
                 self.env.set_full_state(resulting_state)
-                if self._compute_region_snapshot() is None:
+                post_open_snapshot = self._compute_region_snapshot()
+                if post_open_snapshot is None:
                     self._record_iteration_trace({**context, "outcome": "post_open_snapshot_failed"})
                     return self._failure_result(
                         "Failed to recompute region snapshot after successful opening",
@@ -456,7 +468,16 @@ class FullNAMOPlanner(BasePlanner):
                     # Physical state changed, so previously exhausted boundaries may now be
                     # openable. A zero-push opening changes nothing, so keep the blacklist.
                     blocked_boundaries = set()
-                self._record_iteration_trace({**context, "outcome": "opened_target"})
+                independence_audit = None
+                if next_keyhole_profile is not None:
+                    independence_audit = self._audit_next_keyhole_after_open(
+                        profile=next_keyhole_profile,
+                        post_snapshot=post_open_snapshot,
+                    )
+                trace = {**context, "outcome": "opened_target"}
+                if independence_audit is not None:
+                    trace["next_keyhole_reachability"] = independence_audit
+                self._record_iteration_trace(trace)
                 self._debug(f"Opened {target}")
                 iteration += 1
                 continue
@@ -583,6 +604,167 @@ class FullNAMOPlanner(BasePlanner):
         except Exception as e:
             self._debug(f"Error computing region snapshot: {e}")
             return None
+
+    @staticmethod
+    def _boundary_objects_for_snapshot(
+        snapshot_data: Dict[str, Any], source: str, target: str
+    ) -> Tuple[List[str], Optional[str]]:
+        edge_objects = snapshot_data["edge_objects"]
+        forward = edge_objects.get(source, {}).get(target)
+        reverse = edge_objects.get(target, {}).get(source)
+        if forward is not None and reverse is not None and set(forward) != set(reverse):
+            return [], "boundary_object_map_inconsistent"
+        return sorted(set(forward if forward is not None else reverse or [])), None
+
+    @staticmethod
+    def _pose_for_object(observation: Dict[str, Any], object_id: str) -> Optional[List[float]]:
+        pose = observation.get(f"{object_id}_pose")
+        if pose is None:
+            return None
+        return [float(pose[0]), float(pose[1]), float(pose[2])]
+
+    def _profile_next_keyhole_before_open(
+        self,
+        *,
+        snapshot_data: Dict[str, Any],
+        path: List[str],
+        robot_goal: Tuple[float, float, float],
+    ) -> Dict[str, Any]:
+        """Measure keyhole k+1 from inside its source region without touching the live search env."""
+        source_region, target_region = path[1], path[2]
+        objects, boundary_error = self._boundary_objects_for_snapshot(
+            snapshot_data, source_region, target_region
+        )
+        profile: Dict[str, Any] = {
+            "status": "ok",
+            "source_region": source_region,
+            "target_region": target_region,
+            "path_hops_before": len(path) - 1,
+            "objects_before": objects,
+        }
+        if boundary_error is not None:
+            profile.update(status=boundary_error, objects={})
+            return profile
+        if not objects:
+            profile.update(status="no_next_boundary_objects", objects={})
+            return profile
+
+        bundle = snapshot_data.get("region_goals", {}).get(source_region)
+        goals = list(bundle.goals) if bundle is not None else []
+        if not goals:
+            profile.update(status="no_middle_region_seed", objects={})
+            return profile
+
+        shadow = namo_rl.RLEnvironment(
+            self.env.get_xml_path(), self.env.get_config_path(), False
+        )
+        shadow.set_full_state(self.env.get_full_state())
+        shadow.set_robot_goal(robot_goal[0], robot_goal[1], robot_goal[2])
+        observation = shadow.get_observation()
+        seed = goals[0]
+        shadow.set_robot_pose(float(seed.x), float(seed.y), float(seed.theta))
+        profile["middle_region_seed"] = [float(seed.x), float(seed.y), float(seed.theta)]
+        profile["objects"] = {
+            object_id: {
+                "pose_before": self._pose_for_object(observation, object_id),
+                "reachable_edges_before": sorted(
+                    int(edge) for edge in shadow.get_reachable_edges(object_id)
+                ),
+            }
+            for object_id in objects
+        }
+        return profile
+
+    def _audit_next_keyhole_after_open(
+        self,
+        *,
+        profile: Dict[str, Any],
+        post_snapshot: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Compare the exact next-keyhole contact set before and after a committed opening."""
+        audit: Dict[str, Any] = {
+            "status": profile.get("status"),
+            "path_hops_before": profile.get("path_hops_before"),
+            "objects_before": list(profile.get("objects_before") or []),
+            "preserved": False,
+        }
+        if profile.get("status") != "ok":
+            return audit
+
+        robot_region = self._get_robot_region_label(post_snapshot)
+        goal_region = post_snapshot.get("goal_label")
+        post_path = None
+        if robot_region and goal_region:
+            post_path = self._find_region_path_avoiding_edges(
+                snapshot_data=post_snapshot,
+                start_label=robot_region,
+                goal_label=goal_region,
+                failed_edges=set(),
+            )
+        audit["path_after"] = list(post_path) if post_path is not None else None
+        audit["path_hops_after"] = len(post_path) - 1 if post_path else None
+        audit["hop_reduced_by_one"] = bool(
+            post_path
+            and len(post_path) - 1 == int(profile["path_hops_before"]) - 1
+        )
+
+        objects_after: List[str] = []
+        boundary_error = None
+        if post_path and len(post_path) >= 2:
+            objects_after, boundary_error = self._boundary_objects_for_snapshot(
+                post_snapshot, post_path[0], post_path[1]
+            )
+        audit["objects_after"] = objects_after
+        audit["object_identity_unchanged"] = (
+            boundary_error is None and objects_after == audit["objects_before"]
+        )
+        if boundary_error is not None:
+            audit["status"] = boundary_error
+
+        observation = self.env.get_observation()
+        object_rows: Dict[str, Any] = {}
+        all_edges_same = True
+        all_poses_same = True
+        for object_id, before in profile["objects"].items():
+            before_edges = set(int(edge) for edge in before["reachable_edges_before"])
+            after_edges = set(int(edge) for edge in self.env.get_reachable_edges(object_id))
+            pose_before = before.get("pose_before")
+            pose_after = self._pose_for_object(observation, object_id)
+            dxy_mm = None
+            dtheta_deg = None
+            pose_unchanged = False
+            if pose_before is not None and pose_after is not None:
+                dxy_mm = 1000.0 * math.hypot(
+                    pose_after[0] - pose_before[0], pose_after[1] - pose_before[1]
+                )
+                dtheta = abs(
+                    (pose_after[2] - pose_before[2] + math.pi) % (2.0 * math.pi) - math.pi
+                )
+                dtheta_deg = math.degrees(dtheta)
+                pose_unchanged = dxy_mm <= 0.1 and dtheta_deg <= 0.1
+            edges_same = before_edges == after_edges
+            all_edges_same = all_edges_same and edges_same
+            all_poses_same = all_poses_same and pose_unchanged
+            object_rows[object_id] = {
+                "reachable_edges_before": sorted(before_edges),
+                "reachable_edges_after": sorted(after_edges),
+                "lost_edges": sorted(before_edges - after_edges),
+                "gained_edges": sorted(after_edges - before_edges),
+                "exact_edge_set_unchanged": edges_same,
+                "pose_dxy_mm": round(dxy_mm, 4) if dxy_mm is not None else None,
+                "pose_dtheta_deg": round(dtheta_deg, 4) if dtheta_deg is not None else None,
+                "pose_unchanged": pose_unchanged,
+            }
+        audit["objects"] = object_rows
+        audit["exact_edge_sets_unchanged"] = all_edges_same
+        audit["object_poses_unchanged"] = all_poses_same
+        audit["preserved"] = bool(
+            audit["hop_reduced_by_one"]
+            and audit["object_identity_unchanged"]
+            and all_edges_same
+            and all_poses_same
+        )
+        return audit
     def _get_robot_region_label(self, snapshot_data: Dict[str, Any]) -> Optional[str]:
         robot_label = snapshot_data.get("robot_label")
         if robot_label:

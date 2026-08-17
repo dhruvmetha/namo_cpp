@@ -33,6 +33,14 @@ def _write_jsonl(path: Path, rows: Iterable[Dict[str, Any]]) -> None:
             stream.write(json.dumps(row, sort_keys=True) + "\n")
 
 
+def _next_keyhole_audit(row: Dict[str, Any]) -> Dict[str, Any] | None:
+    for trace in row.get("iteration_trace") or []:
+        audit = trace.get("next_keyhole_reachability")
+        if isinstance(audit, dict):
+            return audit
+    return None
+
+
 def aggregate(eval_root: Path, output_dir: Path) -> Dict[str, Any]:
     shard_summaries = [
         json.loads(path.read_text(encoding="utf-8"))
@@ -50,6 +58,9 @@ def aggregate(eval_root: Path, output_dir: Path) -> Dict[str, Any]:
     solved = [solved_by_xml[key] for key in sorted(solved_by_xml)]
     unsolved = [unsolved_by_xml[key] for key in sorted(unsolved_by_xml)]
     all_rows = solved + unsolved
+    audited = [(row, _next_keyhole_audit(row)) for row in solved]
+    audited = [(row, audit) for row, audit in audited if audit is not None]
+    preserved = [row for row, audit in audited if audit.get("preserved")]
 
     selected_by_template = Counter(_template_key(row["xml_path"]) for row in all_rows)
     solved_by_template = Counter(_template_key(row["xml_path"]) for row in solved)
@@ -80,13 +91,36 @@ def aggregate(eval_root: Path, output_dir: Path) -> Dict[str, Any]:
             for row in unsolved
         ).items())),
         "by_template": template_rows,
+        "next_keyhole_reachability": {
+            "audited_solved_count": len(audited),
+            "missing_audit_count": len(solved) - len(audited),
+            "preserved_count": len(preserved),
+            "preserved_rate": len(preserved) / len(audited) if audited else 0.0,
+            "exact_edge_sets_unchanged_count": sum(
+                bool(audit.get("exact_edge_sets_unchanged")) for _, audit in audited
+            ),
+            "object_identity_unchanged_count": sum(
+                bool(audit.get("object_identity_unchanged")) for _, audit in audited
+            ),
+            "object_poses_unchanged_count": sum(
+                bool(audit.get("object_poses_unchanged")) for _, audit in audited
+            ),
+            "hop_reduced_by_one_count": sum(
+                bool(audit.get("hop_reduced_by_one")) for _, audit in audited
+            ),
+        },
     }
 
     output_dir.mkdir(parents=True, exist_ok=True)
     _write_jsonl(output_dir / "solved.jsonl", solved)
     _write_jsonl(output_dir / "unsolved.jsonl", unsolved)
+    _write_jsonl(output_dir / "solved_next_keyhole_preserved.jsonl", preserved)
     (output_dir / "solved_xmls.txt").write_text(
         "".join(f"{row['xml_path']}\n" for row in solved),
+        encoding="utf-8",
+    )
+    (output_dir / "solved_next_keyhole_preserved_xmls.txt").write_text(
+        "".join(f"{row['xml_path']}\n" for row in preserved),
         encoding="utf-8",
     )
     (output_dir / "summary.json").write_text(

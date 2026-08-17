@@ -66,6 +66,7 @@ def test_build_full_namo_planner_config_forwards_nested_region_settings(monkeypa
         ml_device="cpu",
         full_namo_max_iterations=None,
         max_push_steps=15,
+        audit_next_keyhole_reachability=True,
     )
     config = build_full_namo_planner_config(task)
     planner = FullNAMOPlanner(FakeEnv(), config)
@@ -90,6 +91,7 @@ def test_build_full_namo_planner_config_forwards_nested_region_settings(monkeypa
     assert config.algorithm_params["region_frontier_beam_width"] == 11
     assert config.algorithm_params["region_success_min_reachable"] == 3
     assert config.algorithm_params["max_push_steps"] == 15
+    assert config.algorithm_params["full_namo_audit_next_keyhole_reachability"] is True
 
 
 def test_keyhole_budget_constructs_fresh_local_opener(monkeypatch):
