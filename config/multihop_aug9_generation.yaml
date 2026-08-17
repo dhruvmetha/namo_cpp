@@ -1,0 +1,3 @@
+# Exact-hop generation retry cap for aug9 car pilot/scale runs.
+# Failed requested layouts produce no XML and are replaced by later seed batches.
+max_layout_tries: 100
