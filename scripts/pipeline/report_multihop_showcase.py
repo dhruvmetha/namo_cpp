@@ -29,11 +29,21 @@ def _canon(path: str) -> str:
 
 
 def _load_candidates(path: Path) -> Dict[str, Dict[str, Any]]:
+    """Load per-scene keyhole-1 labels.
+
+    Accepts either `kh1_showcase_candidates.jsonl` (which carries `showcase_horizon`) or the
+    full `kh1_scenes.jsonl` (which does not). When the field is absent it is derived the same
+    way the showcase list defines it: a scene is `1push` when some single push opens keyhole 1,
+    otherwise `2push`.
+    """
     rows = {}
     for line in path.read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            row = json.loads(line)
-            rows[_canon(row["xml_path"])] = row
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        if "showcase_horizon" not in row:
+            row["showcase_horizon"] = "1push" if row.get("any_1push_solvable") else "2push"
+        rows[_canon(row["xml_path"])] = row
     return rows
 
 
@@ -142,6 +152,14 @@ def _markdown(result: Dict[str, Any], arm_order: List[str]) -> str:
                 f"| {name} | {block['solved']} | {100.0 * block['solve_rate']:.2f}% | {cells} | {block['median_calls_when_solved']} |"
             )
         lines.append("")
+        if label == "all":
+            kinds = sorted({kind for block in blocks.values() for kind in block["failure_kinds"]})
+            if kinds:
+                lines += ["| arm | " + " | ".join(kinds) + " |", "|---|" + "---:|" * len(kinds)]
+                for name in arm_order:
+                    counts = blocks[name]["failure_kinds"]
+                    lines.append(f"| {name} | " + " | ".join(str(counts.get(kind, 0)) for kind in kinds) + " |")
+                lines.append("")
     return "\n".join(lines) + "\n"
 
 
