@@ -423,7 +423,7 @@ Card: [EXP-2026-08-17-two-hop-planner-fix-multiseed](log/EXP-2026-08-17-two-hop-
 
 | pool | scenes labeled | easy | med | hard |
 |---|---|---:|---:|---:|
-| 2-hop | 2,338 / 2,374 | 390 (16.3%) | 373 (15.6%) | **1,625 (68.0%)** |
+| 2-hop | 2,340 / 2,374 (collection 100%) | 390 (16.3%) | 373 (15.6%) | **1,627 (68.1%)** |
 | 3-hop | 2,040 / 2,090 | 373 (18.2%) | 343 (16.8%) | **1,328 (65.0%)** |
 | 4-hop | 1,642 / 1,720 | 315 (19.1%) | 268 (16.3%) | **1,062 (64.6%)** |
 
@@ -433,7 +433,7 @@ Card: [EXP-2026-08-17-two-hop-planner-fix-multiseed](log/EXP-2026-08-17-two-hop-
 
 | pool | hard | hard & 1push | hard & 2push | hard & dead>2 | **hard-but-solvable** |
 |---|---:|---:|---:|---:|---:|
-| 2-hop | 1,625 | 65 | 433 | 1,127 | **498** |
+| 2-hop | 1,627 | 65 | 435 | 1,127 | **495** |
 | 3-hop | 1,328 | 99 | 394 | 835 | **493** |
 | 4-hop | 1,062 | 92 | 363 | 607 | **455** |
 
@@ -441,7 +441,7 @@ Sampling uniformly from "hard" draws **~69% dead scenes**. The usable hard pool 
 
 **Not a timeout artifact.** Only 11 of 2,376 keyhole-1 episodes hit `neighbour_timed_out` (0.46%), and `depth2_censored` is 0 everywhere; the per-neighbour timeout only breaks between *objects* (`region_opening.py:1531`), never inside one object's sweep, so an episode that exists has a complete depth-1 sweep. **"Dead within 2 pushes" is a lower bound** — only 52.5% of zero-1-push episodes had every depth-1 cell expanded to depth 2 — but the easy/med/hard split depends only on the depth-1 sweep and is unaffected.
 
-**Cost, and a calibration lesson.** 1,064.5 cpu-hours and 15.2M simulated pushes across the three pools (2-hop 348.5, 3-hop 409.1, 4-hop 306.9). Per scene, 2-hop: mean 529 s / 2,246 sims, median 270 s, p99 3,556 s, **max 6,101 s**. Two pilot calibrations (11 and 16 scenes) both projected ~197 cpu-hours — **1.8× low, entirely because of the tail**: medians agreed well (333 s sampled vs 270 s true) and neither small sample contained a p99 scene. An early read taken off the scenes that finished *first* was worse still (216 s mean), which is pure survivorship. **Do not calibrate this pipeline on under ~20 scenes, and never on the ones that finish first.**
+**Cost, and a calibration lesson.** ~1,070 cpu-hours and 15.2M simulated pushes across the three pools (2-hop **353.2** at full coverage, 3-hop 409.1, 4-hop 306.9). Per scene, 2-hop: mean 535.6 s / 2,246 sims, median 270.6 s, p90 1,375.5 s, p99 3,670.2 s, **max 9,442 s — one scene ran 2.6 hours**. Two pilot calibrations (11 and 16 scenes) both projected ~197 cpu-hours — **1.8× low, entirely because of the tail**: medians agreed all along (333 s sampled vs 270.6 s true), but the true max is **12× the sampled max** and no 11-to-16-scene sample can contain it. An early read taken off the scenes that finished *first* was worse still (216 s mean), which is pure survivorship. **Do not calibrate this pipeline on under ~20 scenes, never on the ones that finish first, and budget ~2× any median-derived figure.**
 
 ⚠ **Join these pools on `realpath`, never basename** — 800 unique basenames across 2,535 scenes; a basename join measured 0/9 matches where realpath gives 9/9, silently mislabeling ~68% of the corpus. Recorded as failure mode #5 in [multi_episode_rooms.md](../pipeline/multi_episode_rooms.md).
 
