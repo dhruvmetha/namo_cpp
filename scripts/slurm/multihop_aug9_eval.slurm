@@ -1,9 +1,10 @@
 #!/bin/bash
-# Sharded HY5U Full-NAMO evaluation for generated exact-two-hop XMLs.
+# Sharded HY5U or uniform-random Full-NAMO evaluation for exact-two-hop XMLs.
 # Every keyhole gets a fresh 300-simulation budget; hmax remains two pushes.
 #
 # Example:
-#   MANIFEST=/scratch/.../xmls.txt OUT=/scratch/.../eval N_SHARDS=20 CKPT=/cache/.../HY5U_s2.ckpt \
+#   MANIFEST=/scratch/.../xmls.txt OUT=/scratch/.../eval N_SHARDS=20 PRIOR=model \
+#     CKPT=/cache/.../HY5U_s2.ckpt \
 #     sbatch --array=0-19 scripts/slurm/multihop_aug9_eval.slurm
 #SBATCH --job-name=mh2_eval
 #SBATCH --partition=main-redhat
@@ -17,6 +18,8 @@ set -euo pipefail
 : "${OUT:?set OUT to the sharded evaluation output root}"
 : "${N_SHARDS:?set N_SHARDS to the submitted array length}"
 : "${CKPT:?set CKPT to the HY5U checkpoint}"
+PRIOR=${PRIOR:-model}
+SEARCH_SEED=${SEARCH_SEED:-42}
 
 NAMO_REPO=${NAMO_REPO:-${SLURM_SUBMIT_DIR:?no NAMO_REPO and no SLURM_SUBMIT_DIR}}
 task_id=${SLURM_ARRAY_TASK_ID:-0}
@@ -39,7 +42,7 @@ shard_out="$OUT/shard_$(printf '%04d' "$task_id")"
 mkdir -p "$shard_out" "$NAMO_REPO/logs"
 sed -n "$((start + 1)),${end}p" "$MANIFEST" > "$shard_out/input.txt"
 
-echo "EVAL start $(date) host=$(hostname) task=$task_id range=[$start,$end) total=$total"
+echo "EVAL start $(date) host=$(hostname) task=$task_id range=[$start,$end) total=$total prior=$PRIOR seed=$SEARCH_SEED"
 "$PY" -m namo.solvability_runner \
   --manifest "$shard_out/input.txt" \
   --path-length 2 \
@@ -50,11 +53,11 @@ echo "EVAL start $(date) host=$(hostname) task=$task_id range=[$start,$end) tota
   --primitive-prefix 1x_car_d5_ \
   --region-success-min-reachable 20 \
   --goals-per-region 100 \
-  --seed 42 \
+  --seed "$SEARCH_SEED" \
   --simulation-budget 300 \
   --simulation-budget-scope keyhole \
   --local-search best_first \
-  --best-first-prior model \
+  --best-first-prior "$PRIOR" \
   --scorer-ckpt "$CKPT" \
   --ml-device cpu \
   --workers "$SLURM_CPUS_PER_TASK" \
