@@ -49,7 +49,6 @@ class FullNAMOPlanner(BasePlanner):
     """Full NAMO planner using region opening as a local sub-problem solver."""
 
     _INVARIANT_TARGET_FAILURES = {
-        "already_accessible",
         "boundary_object_map_inconsistent",
         "missing_robot_region",
         "no_attempt_results",
@@ -234,6 +233,7 @@ class FullNAMOPlanner(BasePlanner):
         self._aggregated_primitives = 0
         self._iteration_trace = []
         self._keyhole_budget_usage = []
+        zero_push_opened: Set[Tuple[str, str]] = set()
 
         self.env.set_robot_goal(robot_goal[0], robot_goal[1], robot_goal[2])
 
@@ -400,6 +400,22 @@ class FullNAMOPlanner(BasePlanner):
                 )
 
             if result.success:
+                # A zero-push opening means the opener already counted the target region
+                # reachable while the region graph still called the boundary blocked. The
+                # scene is fine, but nothing moved, so the next iteration would rebuild an
+                # identical snapshot. Allow it once, then treat a repeat as a genuine
+                # graph/opener mismatch and fall back to the blocked-boundary reroute.
+                zero_push = not result.action_sequence
+                if zero_push:
+                    zero_push_key = self._boundary_key(robot_region, target)
+                    if zero_push_key in zero_push_opened:
+                        blocked_boundaries.add(zero_push_key)
+                        self.stats.boundary_exhaustions += 1
+                        self._record_iteration_trace({**context, "outcome": "already_accessible_repeat"})
+                        iteration += 1
+                        continue
+                    zero_push_opened.add(zero_push_key)
+
                 resulting_state = self._get_resulting_state_from_result(result)
                 if resulting_state is None:
                     self._record_iteration_trace(
@@ -436,7 +452,10 @@ class FullNAMOPlanner(BasePlanner):
                         resulting_state=resulting_state,
                     )
                 )
-                blocked_boundaries = set()
+                if not zero_push:
+                    # Physical state changed, so previously exhausted boundaries may now be
+                    # openable. A zero-push opening changes nothing, so keep the blacklist.
+                    blocked_boundaries = set()
                 self._record_iteration_trace({**context, "outcome": "opened_target"})
                 self._debug(f"Opened {target}")
                 iteration += 1

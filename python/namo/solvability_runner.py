@@ -180,6 +180,13 @@ def solve_environment_task(task: SolveTask) -> Dict[str, Any]:
             )
             if key in budget_stats
         }
+        # Per-iteration trace: the only record of whether a run committed a keyhole before
+        # failing, which the terminal failure_kind alone cannot distinguish.
+        trace_fields = (
+            {"iteration_trace": budget_stats["iteration_trace"]}
+            if "iteration_trace" in budget_stats
+            else {}
+        )
 
         if result.success:
             action_sequence = list(result.action_sequence or [])
@@ -191,6 +198,7 @@ def solve_environment_task(task: SolveTask) -> Dict[str, Any]:
                     "solution_length": len(action_sequence),
                     "solution": [serialize_action(action) for action in action_sequence],
                     **budget_fields,
+                    **trace_fields,
                 },
             }
 
@@ -210,6 +218,7 @@ def solve_environment_task(task: SolveTask) -> Dict[str, Any]:
                 "failure_subkind": (result.algorithm_stats or {}).get("failure_subkind"),
                 "error_message": result.error_message or None,
                 **budget_fields,
+                **trace_fields,
             },
         }
     except Exception as exc:

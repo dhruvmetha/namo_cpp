@@ -173,3 +173,102 @@ def test_full_namo_propagates_simulation_budget_exhaustion(monkeypatch):
     assert result.success is False
     assert result.algorithm_stats["failure_kind"] == "simulation_budget_exhausted"
     assert result.algorithm_stats["failure_context"]["chosen_target_region"] == "a"
+
+
+class _AlreadyAccessibleOpener:
+    """Opener that reports the target region as already reachable, using zero pushes."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def reset(self):
+        pass
+
+    def search(self, robot_goal, target_neighbor=None):
+        self.calls += 1
+        attempt = types.SimpleNamespace(success=True, resulting_state="baseline")
+        return PlannerResult(
+            success=True,
+            solution_found=True,
+            action_sequence=[],
+            algorithm_stats={
+                "attempt_results": [attempt],
+                "target_summary": {
+                    "target_neighbor": target_neighbor,
+                    "local_robot_label": "robot",
+                    "local_neighbors": [target_neighbor],
+                    "target_is_immediate_neighbor": True,
+                    "failure_reason": "already_accessible",
+                    "attempt_count": 0,
+                    "detail_reasons": ["already_accessible"],
+                    "boundary_exhausted": False,
+                },
+                "rejection_breakdown": {},
+                "total_primitives_attempted": 0,
+                "simulation_budget_limit": 300,
+                "simulation_budget_used": 0,
+                "simulation_budget_remaining": 300,
+            },
+        )
+
+
+def _patch_planner_with_opener(monkeypatch, planner_env, opener, adjacency):
+    monkeypatch.setattr(
+        FullNAMOPlanner, "_initialize_algorithm", lambda self: setattr(self, "region_opener", opener)
+    )
+    planner = FullNAMOPlanner(planner_env, PlannerConfig())
+    monkeypatch.setattr(
+        planner,
+        "_compute_region_snapshot",
+        lambda: {
+            "adjacency": adjacency,
+            "robot_label": "robot",
+            "goal_label": "goal",
+            "goal_in_free_space": True,
+        },
+    )
+    return planner
+
+
+def test_already_accessible_is_a_zero_push_opening_not_an_invariant_failure(monkeypatch):
+    """A target region the opener already counts reachable must not abort the whole scene."""
+    env = FakeEnv()
+    # Pre-loop check, then the iteration-top check, then reachable after the zero-push open.
+    reachable = iter([False, False, True])
+    monkeypatch.setattr(FakeEnv, "is_robot_goal_reachable", lambda self: next(reachable))
+
+    planner = _patch_planner_with_opener(
+        monkeypatch,
+        env,
+        _AlreadyAccessibleOpener(),
+        {"robot": {"a"}, "a": {"robot", "goal"}, "goal": {"a"}},
+    )
+
+    result = planner.search((0.0, 0.0, 0.0))
+
+    assert result.success is True
+    assert (result.algorithm_stats or {}).get("failure_subkind") != "already_accessible"
+    outcomes = [entry["outcome"] for entry in result.algorithm_stats["iteration_trace"]]
+    assert "opened_target" in outcomes
+
+
+def test_repeated_already_accessible_blacklists_instead_of_looping(monkeypatch):
+    """Zero-push openings change nothing, so a repeat must reroute rather than spin forever."""
+    env = FakeEnv()
+    opener = _AlreadyAccessibleOpener()
+
+    planner = _patch_planner_with_opener(
+        monkeypatch,
+        env,
+        opener,
+        {"robot": {"a"}, "a": {"robot", "goal"}, "goal": {"a"}},
+    )
+
+    result = planner.search((0.0, 0.0, 0.0))
+
+    assert result.success is False
+    assert result.algorithm_stats["failure_kind"] == "region_path_exhausted"
+    outcomes = [entry["outcome"] for entry in result.algorithm_stats["iteration_trace"]]
+    assert outcomes.count("opened_target") == 1
+    assert "already_accessible_repeat" in outcomes
+    assert opener.calls == 2
