@@ -189,7 +189,7 @@ function edgeMap(card) {
 function render(card) {
   const svg = document.getElementById("scene-svg");
   const meta = card.meta;
-  setSceneViewBox(svg, card.scene);
+  setSceneViewBox(svg, card.scene, true);
   const parts = sceneLayers(card.scene, null, card.regions, meta.object_id);
 
   const em = edgeMap(card);

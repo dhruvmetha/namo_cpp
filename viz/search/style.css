@@ -455,7 +455,9 @@ td.no { color: var(--dead); }
 .two-col { display: grid; grid-template-columns: minmax(260px, 30%) minmax(0, 70%);
   gap: 1.75rem; align-items: start; }
 @media (max-width: 860px) { .two-col { grid-template-columns: 1fr; } }
-.scene-col .scene-svg { aspect-ratio: auto; height: min(74vh, 780px); }
+/* The element's size comes from the room's own proportions (scene_render.setSceneViewBox with
+   fit=true), so there is nothing to letterbox. */
+.scene-col .scene-svg { aspect-ratio: auto; display: block; margin-inline: auto; }
 .facts-col h2 { margin: 0 0 0.7rem; font-size: 1rem; line-height: 1.35; }
 .meta-table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
 .meta-table th { text-align: left; font-weight: 500; color: #555; padding: 3px 8px 3px 0;

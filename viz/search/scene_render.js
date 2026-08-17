@@ -57,9 +57,20 @@ function regionLayer(regions) {
 // points and rectangle edges aligned. (Screen "up" ends up meaning +y is drawn toward larger SVG y,
 // i.e. lower on screen -- a mirrored-but-internally-consistent convention, harmless for a
 // diagnostic tool with no photo to match against.)
-function setSceneViewBox(svg, scene) {
+// `fit` (gallery only) also sizes the ELEMENT to the room's proportions. Without it a portrait room
+// in a landscape box is letterboxed by preserveAspectRatio, which reads as a broken layout rather
+// than as a tall room. The replay page keeps its fixed square box, where the geometry changes as the
+// search moves objects and a resizing panel would be worse.
+function setSceneViewBox(svg, scene, fit) {
   const [xmin, xmax, ymin, ymax] = scene.bounds;
-  svg.setAttribute("viewBox", `${xmin} ${ymin} ${xmax - xmin} ${ymax - ymin}`);
+  const w = xmax - xmin, h = ymax - ymin;
+  svg.setAttribute("viewBox", `${xmin} ${ymin} ${w} ${h}`);
+  if (fit) {
+    svg.style.aspectRatio = `${w} / ${h}`;
+    svg.style.height = "min(82vh, 900px)";
+    svg.style.width = "auto";
+    svg.style.maxWidth = "100%";
+  }
 }
 
 // Everything except the contact points: region tint, walls, goal marker, movable boxes, robot.
