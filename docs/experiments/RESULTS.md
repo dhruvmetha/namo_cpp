@@ -393,3 +393,24 @@ The first measured success-vs-time result. Same deployed setup-only ranker (`d20
 ![Share of episodes closed in one push versus two, by arm, tier, and horizon.](plots/walltime_hmax2/plan_depth_share.png)
 
 **Measurement integrity.** The timed search IS the canonical search: `solve_scene` was instrumented in place (`t_wall`/`t_sim`/`t_score`/`n_score`) and the pre-existing `scripts/sandbox/time_bestfirst.py` fork was retired — it kept a private copy of the loop that predated `dedupe_noop` and `prune_jam_depth`, so it had been timing a different, slower search. Determinism cross-check against the registered `deploy-nodiscount-hmax2-v1` control: **1,321/1,322 1push episodes (99.92%) and 999/1,012 2push episodes (98.72%)** reproduce sims and solved exactly; the differences are the documented ~0.3 mm warmstart jitter, amplified at depth 2 where one flip changes the branch. Node-pooling validity: arms ran on separate (pinned, exclusive) nodes rather than per-episode interleaved, so seconds/sim was checked across the three random seeds at matched shard index — arm-level standard error ≈ ±3%, far below the effects above, and node assignment overlaps between arms. Per-episode interleaving remains the strictly cleaner design and is the standing limitation of this campaign. Raw rows `$NAMO_SCRATCH/eval/walltime_hmax2/v1/{model,random_s{7000,8000,9000}}_{1push,2push}/`.
+
+## 2026-08-17 — Exact-two-hop Full NAMO: planner fix, failure taxonomy, three-seed random baseline
+
+Card: [EXP-2026-08-17-two-hop-planner-fix-multiseed](log/EXP-2026-08-17-two-hop-planner-fix-multiseed.md). Population: the same 2,531 exact-two-hop car scenes as the archived pilot. Protocol unchanged (`hmax=2`, 300 sims per keyhole reset independently, `1x_car_d5_`, raw `q`, discount off). Only the planner fix and the random seed vary.
+
+| arm | solved / 2531 | rate |
+|---|---:|---:|
+| HY5U | **232** | 9.17% |
+| random s42 | 193 | 7.63% |
+| random s43 | 184 | 7.27% |
+| random s44 | 201 | 7.94% |
+
+**WIN, now on three seeds.** Random's band is 184–201 (mean 192.7); HY5U's 232 sits well outside it. Paired McNemar exact p = 9.78e-6 / 3.75e-8 / 8.78e-4 against s42/s43/s44. On jointly solved scenes HY5U's median is **3 total simulator calls against random's 8–13**, and that median of 3 is identical across all three seeds. The ordering advantage is largest at tight budgets: within two total calls HY5U solves 94 scenes against random's 6–26. This closes the archived card's single-seed caveat.
+
+**The `already_accessible` bug was real and fixing it recovered nothing.** `already_accessible` sat in `_INVARIANT_TARGET_FAILURES` while the opener returned `success=True` for it, so the planner aborted 48 HY5U and 65 random scenes on a non-error. After the fix (`cfa23cf`) `planner_invariant_violation` drops 48 → 0, the repeat-then-blacklist guard fires on 48–65 scenes per arm with no scene looping — and the solve count is **still exactly 232**, with `comm -3` on the solved-XML lists returning zero differing lines. The solved sets are bit-identical; those scenes were genuinely unsolvable and merely moved to other failure buckets. Report bug fixes by what they change, not by how many scenes they touch.
+
+**What the 9.17% actually is.** Of HY5U's 2,299 unsolved scenes: **1,466** genuine local budget exhaustion, **321** where a verified keyhole was committed and the scene then dead-ended with no top-level backtracking, **174** generation junk (133 with no reachable boundary object, 41 with the goal outside free space), and the remainder never opening anything for other reasons. The 750-scene `region_path_exhausted` block from the archived card splits roughly 40/60 between "committed then dead-ended" and "never opened anything" — answerable only because the runner now persists `iteration_trace`, which it previously discarded.
+
+**The local opener is not quitting without searching** — the prior hypothesis, rejected for two thirds of the cases. Only the 133 `no_reachable_objects` scenes are the near-zero-call case; the other ~313 per arm burn real simulation, with 172 events spending 100+ calls and a group median of 32 total scene calls. **Those 133 scenes are the identical XMLs in all four arms** (intersection = union = 133), so they are seed- and ranker-independent: a generation defect, unsolvable by construction, not a search failure.
+
+**⚠ No easy/medium/hard split.** These composed multi-hop scenes have no registered difficulty labels, and the canonical bins (`eval_common.py:35`, hard < 0.05 / med < 0.30 / easy ≥ 0.30) are defined on a matched *local* episode's solve rate, which a two-hop scene does not have. Labeling by random-trial solve rate is sequenced deliberately after the generation fixes: a difficulty axis built on a pool that is 90% unsolved and 7% junk would describe the defects, not the environments.
