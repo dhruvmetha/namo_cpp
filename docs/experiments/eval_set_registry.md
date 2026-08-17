@@ -249,3 +249,23 @@ The manifest↔GT alignment is the TRUTH below (not a file — the derived align
 
 ## Training H5s (NOT eval sets)
 Logged in the [model registry](horizon_q_model_registry.md). Disk-cleanup candidates flagged there, not here: `beast2_all.h5` (3.3 GB, v0 lineage-only), `round2_raw.h5` (4.08 GB, raw intermediate, no refs) — user decision, retained pending.
+
+## Multi-hop Full-NAMO scene pools (2026-08-17) — NOT local-episode eval sets
+
+These are **complete multi-hop scenes**, not `(xml, object, goal region)` local episodes, so they do not resolve through `config/eval_sets.yaml` and are not interchangeable with anything above. The unit is one `(XML, XML goal)` scene whose initial shortest region path crosses exactly N boundaries. Built to support difficulty labeling of the **successive keyhole problems** [USER 2026-08-17].
+
+Every pool was generated from the ten `mujoco_env_creator/templates/aug9_car_v3` templates via [multihop_aug9_generate.slurm](../../scripts/slurm/multihop_aug9_generate.slurm) with `EXACT_HOP=N`, then cleaned by [probe_static_topology.py](../../scripts/pipeline/probe_static_topology.py) (one region snapshot plus `get_reachable_objects` per XML, zero simulated pushes).
+
+| pool | raw | **clean** | dropped | survivor list (Amarel `/scratch/dm1487/multihop_aug9_hy5u/`) |
+|---|---:|---:|---:|---|
+| 2-hop | 2,535 | **2,374** | 161 (6.3%) | `scale_20260817_0000/static_probe/surviving_xmls.txt` |
+| 3-hop | 2,136 | **2,090** | 46 (2.2%) | `gen_hop3/static_probe/surviving_xmls.txt` |
+| 4-hop | 1,742 | **1,720** | 22 (1.3%) | `hop4_static_probe/surviving_xmls.txt` |
+
+The 2-hop pool is the one evaluated in [EXP-2026-08-17-two-hop-planner-fix-multiseed](log/EXP-2026-08-17-two-hop-planner-fix-multiseed.md); 3-hop and 4-hop were generated 2026-08-17 and have no evaluation yet. The 4-hop XMLs live under **two** roots (`gen_hop4/` and `gen_hop4b/`) because generation ran in two waves — always use the survivor list's absolute paths, never a single-directory glob.
+
+**Drop rule**: a scene is dropped for `no_reachable_blocker` on **boundary 0**, `hop_mismatch`, or `no_path`. Boundary 0 is the only boundary the planner ever opens, which is why the gate is there and not on the whole path — `no_reachable_blocker_any` fires on essentially every scene, since later boundaries sit behind the first and are unreachable at t=0 by construction. Junk rate falls with hop count (6.3% → 2.2% → 1.3%).
+
+⚠ **Do NOT drop `goal_region_invalid` scenes.** `goal_in_free_space` is true for every scene in all three pools. Those failures are post-push (a push drops an object onto the goal point), not a static defect — see the card.
+
+⚠ **These pools have no difficulty labels yet.** The canonical bins (`eval_common.bin_of`) are defined on a *local* episode's `solve_rate`, which a composed multi-hop scene does not have. Labeling is per keyhole, and keyhole 2+ requires materializing the post-push state because `region_opening.py`'s `_explore_from_state` only ever sweeps boundaries adjacent to the robot's region.
