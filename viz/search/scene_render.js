@@ -67,7 +67,8 @@ function setSceneViewBox(svg, scene, fit) {
   svg.setAttribute("viewBox", `${xmin} ${ymin} ${w} ${h}`);
   if (fit) {
     svg.style.aspectRatio = `${w} / ${h}`;
-    svg.style.height = "min(82vh, 900px)";
+    // leave room for the filter bar so the whole room is visible without scrolling
+    svg.style.height = "min(calc(100vh - 190px), 900px)";
     svg.style.width = "auto";
     svg.style.maxWidth = "100%";
   }
