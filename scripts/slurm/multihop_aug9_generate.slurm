@@ -20,6 +20,9 @@ NAMO_REPO=${NAMO_REPO:-${SLURM_SUBMIT_DIR:?no NAMO_REPO and no SLURM_SUBMIT_DIR}
 ENV_CREATOR_REPO=${ENV_CREATOR_REPO:-$(dirname "$NAMO_REPO")/mujoco_env_creator}
 NUM_ENVS=${NUM_ENVS:-10}
 SEED_BASE=${SEED_BASE:-650000000}
+# Initial shortest region-path length to filter for. Defaults to 2 so every prior
+# two-hop invocation reproduces exactly; set to 3 or 4 for the deeper pools.
+EXACT_HOP=${EXACT_HOP:-2}
 
 templates=(
   set1/benchmark_1.xml
@@ -66,7 +69,7 @@ echo "GEN start $(date) host=$(hostname) task=$task_id template=$template_rel ba
   --clearance-radius 0.0 \
   --min-goal-distance 0.0 \
   --no-require-adjacent \
-  --exact-hop 2 \
+  --exact-hop "$EXACT_HOP" \
   --samples-per-pair 1 \
   --min-region-area 0.02
 echo "GEN done $(date) task=$task_id"
