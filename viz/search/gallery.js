@@ -229,12 +229,16 @@ function render(card) {
 
   const t = timing && timing[card.file_key];
   if (t) {
-    const pm = (v) => `${v[0].toFixed(2)} ± ${v[1].toFixed(2)} s`;
-    kv.push(["random search", pm(t.rand) + `  (${t.rand_sims[0].toFixed(0)} sims)`]);
-    kv.push(["HY5U ranker", pm(t.model) + `  (${t.model_sims[0].toFixed(0)} sims)`]);
+    // Bold the seconds, plain the sims: the time is the number being compared, the call count is
+    // context for it.
+    const pm = (v) => `<b>${v[0].toFixed(2)} ± ${v[1].toFixed(2)} s</b>`;
+    kv.push(["random search", pm(t.rand) + `  <span class="dim">(${t.rand_sims[0].toFixed(0)} sims)</span>`]);
+    kv.push(["HY5U ranker", pm(t.model) + `  <span class="dim">(${t.model_sims[0].toFixed(0)} sims)</span>`]);
     kv.push(["speed-up", t.up >= 1
-      ? `${t.up.toFixed(1)}× — ${t.saved_pct.toFixed(0)}% less time`
-      : `${t.up.toFixed(2)}× — ${(-t.saved_pct).toFixed(0)}% MORE time than random`]);
+      ? `<span class="speedup" style="background:${greenFor(t.up)};color:${t.up >= 8 ? "#fff" : "inherit"}">` +
+        `${t.up.toFixed(1)}× — ${t.saved_pct.toFixed(0)}% less time</span>`
+      : `<span class="speedup slower">${t.up.toFixed(2)}× — ` +
+        `${(-t.saved_pct).toFixed(0)}% MORE time than random</span>`]);
     if (t.censored) {
       kv.push(["note", `budget exhausted on some seeds (ranker solved ${t.model_solved}/3, ` +
         `random ${t.rand_solved}/3) — these seconds are a lower bound`]);
@@ -249,6 +253,15 @@ function render(card) {
     : `<span class="green-label">no ${green} recorded at the root</span>`;
 
   document.getElementById("xml-path").textContent = meta.xml;
+}
+
+// Deeper green the bigger the win. Log-scaled: 1x is barely tinted, 50x and up is the full step,
+// because speed-ups span three orders of magnitude and a linear ramp would paint everything under
+// 10x the same near-white.
+function greenFor(up) {
+  const f = Math.min(1, Math.max(0, Math.log10(up) / Math.log10(50)));
+  const a = (0.10 + 0.80 * f).toFixed(2);
+  return `rgba(27, 94, 32, ${a})`;
 }
 
 function rowsSceneName(meta) {

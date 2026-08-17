@@ -463,6 +463,11 @@ td.no { color: var(--dead); }
 .meta-table th { text-align: left; font-weight: 500; color: #555; padding: 3px 8px 3px 0;
   white-space: nowrap; vertical-align: top; }
 .meta-table td { padding: 3px 0; word-break: break-word; }
+.meta-table .speedup { display: inline-block; padding: 1px 7px; border-radius: 3px;
+  font-weight: 600; }
+.meta-table .speedup.slower { color: var(--dead); background: #fdecea; }
+.meta-table .dim { color: #777; }
+
 .green-list { margin-top: 0.75rem; font-size: 0.8rem; line-height: 1.5; }
 .green-label { color: #555; }
 .facts-actions { display: flex; gap: 0.5rem; margin: 1rem 0 0.25rem; }
