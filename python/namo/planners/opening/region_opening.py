@@ -3104,6 +3104,15 @@ class RegionOpeningPlanner(BasePlanner):
             if self.exhaustive_mode and current_chain_depth < self.max_chain_depth:
                 _rs = self.env.get_full_state()
                 _resulting_state = {'qpos': list(_rs.qpos), 'qvel': list(_rs.qvel)}
+            # Raw counts for the opening bar, so the threshold can be re-swept OFFLINE.
+            # 'success' below bakes in the CURRENT bar (region_min_reachable_fraction, default 0.2).
+            # Recovering "would this push have opened at fraction f?" needs all three numbers:
+            #   min_needed(f) = max(1, ceil(f * n_sampled))
+            #   success(f)    = (reachable_after >= min_needed) and not (reachable_before >= min_needed)
+            # reachable_after alone is not enough — without n_sampled the denominator is unknown
+            # (configs have sampled 10, 50 and 100 points over this project's history), and without
+            # reachable_before the closed->open transition can't be reconstructed.
+            total_region_goals = len(region_goals[neighbour_label].goals) if neighbour_label in region_goals else 0
             trial_log.append({
                 'edge_idx': edge_idx,
                 'depth': depth,
@@ -3113,6 +3122,8 @@ class RegionOpeningPlanner(BasePlanner):
                 'stuck': stuck_detected,
                 'collision': collision_detected,
                 'reachable_after': reachable_count_after,
+                'reachable_before': reachable_count_before,
+                'n_sampled': total_region_goals,
                 'chain_depth': current_chain_depth,
                 'parent_edge': getattr(_parent_goal, "edge_idx", None) if _parent_goal is not None else None,
                 'parent_depth': getattr(_parent_goal, "depth", None) if _parent_goal is not None else None,
@@ -3123,7 +3134,6 @@ class RegionOpeningPlanner(BasePlanner):
                 'rank': candidate_idx - 1,
             })
 
-            total_region_goals = len(region_goals[neighbour_label].goals) if neighbour_label in region_goals else 0
             if is_accessible_after and not is_accessible_before:
                 # Successful opening — but only count if there was no sim-side
                 # failure (otherwise this push was already bucketed by _sim_outcome).
