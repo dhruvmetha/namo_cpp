@@ -98,7 +98,15 @@ function applyFilters(wantFile) {
   });
 
   const mode = sortSelect.value;
+  // A problem with no timing row sorts to the END in BOTH directions -- "smallest speed-up" must
+  // surface the ranker's real losses, not a pile of episodes we simply have no seconds for.
+  const up = (r) => (timing && timing[r.file] && timing[r.file].up) || null;
   rows.sort((a, b) => {
+    if (mode === "speedup-desc" || mode === "speedup-asc") {
+      const ua = up(a), ub = up(b);
+      if (ua === null || ub === null) return (ua === null) - (ub === null);
+      return mode === "speedup-desc" ? ub - ua : ua - ub;
+    }
     if (mode === "scene") return a.scene.localeCompare(b.scene) || a.object_id.localeCompare(b.object_id);
     const t = TIER_ORDER[a.tier] - TIER_ORDER[b.tier];
     if (t) return t;
