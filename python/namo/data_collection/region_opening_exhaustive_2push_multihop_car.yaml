@@ -26,8 +26,6 @@ max_goals_per_object: 5
 max_terminal_checks: 50000
 search_timeout: 1800.0            # depth-2 grid is ~60x the depth-1 grid
 region_timeout_per_neighbour_sec: 600.0
-goals_per_region: 100             # matches the eval protocol's keyhole goal test
-region_min_reachable_fraction: 0.2
 
 points_per_face: 15
 region_allow_collisions: true

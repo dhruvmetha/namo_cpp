@@ -28,8 +28,6 @@ max_depth: 5
 max_goals_per_object: 5
 max_terminal_checks: 5000
 search_timeout: 1200.0
-goals_per_region: 50
-region_min_reachable_fraction: 0.2
 
 # Region opening parameters
 points_per_face: 15

@@ -27,8 +27,6 @@ search_timeout: 600.0
 # FINITE on purpose: a pathological scene must not hog a worker. Anything it truncates is reported as
 # censored, never as a proven miss — the one invariant this whole collection exists to protect.
 region_timeout_per_neighbour_sec: 1800.0
-goals_per_region: 50
-region_min_reachable_fraction: 0.2
 
 # Region opening parameters
 points_per_face: 15

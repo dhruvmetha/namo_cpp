@@ -312,12 +312,10 @@ class RegionOpeningPlanner(BasePlanner):
             "region_early_exit_on_first_success", False
         )
 
-        # Minimum number of sampled region-goal points that must be reachable
-        # for a region to count as "opened" (success). Paired with
-        # goals_per_region (how many points are sampled): e.g. 100 sampled / 20
-        # reachable is a stricter "meaningfully open" bar than the legacy
-        # 10 sampled / >=1. Default 1 preserves the historical criterion so
-        # other callers (data collection, eval) are unaffected.
+        # Absolute fallback bar: minimum number of sampled region-goal points that must be
+        # reachable for a region to count as "opened". Only consulted when
+        # region_min_reachable_fraction is explicitly set to 0.0 — the fractional bar below
+        # is the default, so this legacy ">=1 point" path is now opt-in rather than implicit.
         self._success_min_reachable = int(
             algo_params.get("region_success_min_reachable", 1)
         )
@@ -327,13 +325,16 @@ class RegionOpeningPlanner(BasePlanner):
                 f"{self._success_min_reachable}. Must be at least 1"
             )
 
-        # Fractional success bar (OPT-IN): a region counts as "opened" only when at least
-        # ``fraction × (#sampled goal points in that region)`` are reachable — a stricter,
-        # area-aware criterion than the absolute count above (rejects flake openings where a
-        # sliver of the goal disc becomes reachable). 0.0 (default) = disabled → fall back to
-        # the absolute ``region_success_min_reachable`` count (backward-compatible).
+        # Fractional success bar — THE CANONICAL OPENING CRITERION. A region counts as "opened"
+        # only when at least ``fraction × (#sampled goal points in that region)`` are reachable:
+        # an area-aware bar that rejects flake openings where only a sliver of the goal region
+        # becomes reachable. Default 0.2, paired with goals_per_region=100, gives the canonical
+        # ">=20 of 100 s0-sampled goal points" rule that scripts/sandbox/eval_m3.goal_open_pts
+        # grades against. Keep these two defaults in sync with that evaluator: a config that
+        # omits the key must land on the canonical bar, never on a looser accidental one.
+        # Set explicitly to 0.0 to fall back to the absolute region_success_min_reachable count.
         self._min_reachable_fraction = float(
-            algo_params.get("region_min_reachable_fraction", 0.0)
+            algo_params.get("region_min_reachable_fraction", 0.2)
         )
         if not (0.0 <= self._min_reachable_fraction <= 1.0):
             raise ValueError(

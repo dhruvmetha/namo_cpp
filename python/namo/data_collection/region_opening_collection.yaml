@@ -14,7 +14,6 @@ max_depth: 5
 max_goals_per_object: 5
 max_terminal_checks: 5000
 search_timeout: 300.0
-goals_per_region: 10  # Number of robot goal samples per region for validation
 
 # Region opening specific parameters
 points_per_face: 15           # 3 or 15 - must match config_file (skill3 or skill15)

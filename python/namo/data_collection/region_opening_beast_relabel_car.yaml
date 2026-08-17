@@ -27,8 +27,6 @@ search_timeout: 600.0
 # sweeps while still catching true pathologies — raise, don't remove (the guard exists for the
 # 2026-07-17 unbounded-worker-hog incident).
 region_timeout_per_neighbour_sec: 480.0
-goals_per_region: 50
-region_min_reachable_fraction: 0.2
 
 # Region opening parameters
 points_per_face: 15

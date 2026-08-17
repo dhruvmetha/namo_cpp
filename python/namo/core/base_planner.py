@@ -48,7 +48,7 @@ class PlannerConfig:
     max_goals_per_object: int = 5
     max_terminal_checks: Optional[int] = 5000  # Cap on expensive terminal checks (default 5000)
     max_search_time_seconds: Optional[float] = 300.0  # 5 minute timeout per search (default)
-    goals_per_region: int = 5  # Number of robot goal samples per region for validation
+    goals_per_region: int = 100  # Robot goal samples per region; 100 = the canonical opening bar
     
     # Randomization
     random_seed: Optional[int] = None

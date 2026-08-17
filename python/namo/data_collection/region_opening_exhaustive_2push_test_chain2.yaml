@@ -12,7 +12,6 @@ max_depth: 5
 max_goals_per_object: 5
 max_terminal_checks: 50000
 search_timeout: 1800.0   # 30 min per instance — 2-push grid is ~60x larger
-goals_per_region: 10
 
 points_per_face: 15
 region_allow_collisions: true

@@ -35,7 +35,6 @@ max_depth: 5
 max_goals_per_object: 5
 max_terminal_checks: 5000
 search_timeout: 600.0  # 10 minutes for full NAMO (may need multiple region openings)
-goals_per_region: 10   # Number of robot goal samples per region for validation
 
 # Points per face configuration (must match config_file)
 points_per_face: 15

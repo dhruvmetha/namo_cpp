@@ -11,12 +11,10 @@ max_depth: 5
 max_goals_per_object: 5
 max_terminal_checks: 5000
 search_timeout: 600.0
-goals_per_region: 50
 # Fraction of goal-region samples that must be reachable for a push to count
 # as "opening". Lowered from 0.5 -> 0.2 in line with origin/main commit 9653e29
 # ("rejected partial openings that only cleared a corner of the goal region").
 # Bumps phase-1 yield without changing what the planner physically tries.
-region_min_reachable_fraction: 0.2
 
 # Region opening parameters — greedy: stop at first solution per neighbor.
 points_per_face: 15

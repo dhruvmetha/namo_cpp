@@ -22,8 +22,6 @@ search_timeout: 600.0
 # bounds the depth-2 exhaustive-on-miss cost so a pathological rich scene can't hog a worker. 480s (already
 # committed for round-2); unfinished setups are MASKED, never mislabelled.
 region_timeout_per_neighbour_sec: 480.0
-goals_per_region: 50
-region_min_reachable_fraction: 0.2
 
 # Region opening parameters
 points_per_face: 15
