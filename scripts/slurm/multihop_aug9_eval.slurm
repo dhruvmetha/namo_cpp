@@ -54,7 +54,7 @@ echo "EVAL start $(date) host=$(hostname) task=$task_id range=[$start,$end) tota
   --region-success-min-reachable 20 \
   --goals-per-region 100 \
   --seed "$SEARCH_SEED" \
-  --simulation-budget "${SIM_BUDGET:-300}" \
+  --simulation-budget "${SIM_BUDGET:-900}" \
   --simulation-budget-scope keyhole \
   --local-search best_first \
   --best-first-prior "$PRIOR" \
