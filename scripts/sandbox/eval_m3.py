@@ -53,11 +53,11 @@ def goal_open_pts(env, pts, frac=0.2):
 
 
 def rank_first_pushes_h2(planner, env, robot_goal, xml, s0, h, restrict_obj=None, score=True, raw=False,
-                          return_grid=False):
+                          return_grid=False, region_samples=None):
     """Rank reachable (obj, edge, depth) first pushes by Q(s0, ., h). ZERO sims.
     Returns [(obj, Goal, value)] sorted desc. restrict_obj (per-episode invariant): if set, consider ONLY
-    that object — the search must push the LABELED blocking object, so it's the true k-push problem on it
-    (not 'open the path via any object'). Mirrors BeamPlanner._candidates' reachability pooling at budget h.
+    that object (or those objects, when given a collection) — the search must push a boundary blocker,
+    not an unrelated reachable object. Mirrors BeamPlanner._candidates' reachability pooling at budget h.
     score=False: skip the model forward pass entirely, return q=0.0 for every candidate (the RANDOM baseline
     must not touch the model — same candidate SET, no scores; caller assigns random priority).
     return_grid (default False, opt-in — existing callers' return shape is unaffected): also return the last
@@ -66,7 +66,8 @@ def rank_first_pushes_h2(planner, env, robot_goal, xml, s0, h, restrict_obj=None
     env.set_full_state(s0)
     reach_objs = list(env.get_reachable_objects())          # warms wavefront
     if restrict_obj is not None:
-        reach_objs = [o for o in reach_objs if o == restrict_obj]   # ONLY the labeled object
+        allowed = {restrict_obj} if isinstance(restrict_obj, str) else set(restrict_obj)
+        reach_objs = [o for o in reach_objs if o in allowed]       # ONLY the boundary object(s)
     redges = {o: set(env.get_reachable_edges(o)) for o in reach_objs}
     pool = []
     grid = None
@@ -74,7 +75,9 @@ def rank_first_pushes_h2(planner, env, robot_goal, xml, s0, h, restrict_obj=None
         if not redges[obj]:
             continue
         if score:
-            P = planner.scorer.score_state(env, obj, robot_goal, xml, h=h, raw=raw)   # (60,5) at budget h
+            P = planner.scorer.score_state(
+                env, obj, robot_goal, xml, region_samples=region_samples, h=h, raw=raw
+            )   # (60,5) at budget h
             env.set_full_state(s0)                                            # score_state may move state
             ndepth = P.shape[1]
             if return_grid:

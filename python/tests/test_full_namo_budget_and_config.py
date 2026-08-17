@@ -11,6 +11,7 @@ if "namo_rl" not in sys.modules:
 from namo.core import PlannerConfig, PlannerResult
 from namo.planners.full_namo.full_namo_planner import FullNAMOPlanner
 from namo.planners.opening.region_opening import RegionOpeningPlanner
+from namo.planners.utils import PushAttemptBudget
 from namo.solvability_runner import SolveTask, build_full_namo_planner_config
 
 
@@ -59,6 +60,10 @@ def test_build_full_namo_planner_config_forwards_nested_region_settings(monkeypa
         seed=42,
         use_cpp_snapshot=True,
         simulation_budget=100000,
+        simulation_budget_scope="keyhole",
+        region_selection_strategy="ml_first",
+        scorer_ckpt="hy5u.ckpt",
+        ml_device="cpu",
         full_namo_max_iterations=None,
         max_push_steps=15,
     )
@@ -72,11 +77,46 @@ def test_build_full_namo_planner_config_forwards_nested_region_settings(monkeypa
     assert planner.region_opener.terminate_on_collision is False
     assert planner.region_opener.push_budget.limit == 100000
     assert planner.region_opener.push_budget is config.algorithm_params["push_budget"]
+    assert planner.budget_scope == "keyhole"
+    assert planner.keyhole_budget_limit == 100000
+    assert planner.local_search == "region_bfs"
+    assert config.algorithm_params["best_first_prior"] == "model"
+    assert config.algorithm_params["best_first_hmax"] == 2
+    assert config.algorithm_params["region_selection_strategy"] == "ml_first"
+    assert config.algorithm_params["scorer_ckpt"] == "hy5u.ckpt"
+    assert config.algorithm_params["ml_device"] == "cpu"
     assert config.algorithm_params["primitive_prefix"] == "car_"
     assert config.algorithm_params["rollout_samples_per_state"] == 7
     assert config.algorithm_params["region_frontier_beam_width"] == 11
     assert config.algorithm_params["region_success_min_reachable"] == 3
     assert config.algorithm_params["max_push_steps"] == 15
+
+
+def test_keyhole_budget_constructs_fresh_local_opener(monkeypatch):
+    monkeypatch.setattr(RegionOpeningPlanner, "_setup_constraints", lambda self: None)
+    monkeypatch.setattr(
+        RegionOpeningPlanner,
+        "_initialize_algorithm",
+        lambda self: setattr(self, "goal_strategy", object()),
+    )
+    budget = PushAttemptBudget(limit=100)
+    config = PlannerConfig(
+        algorithm_params={
+            "push_budget": budget,
+            "full_namo_budget_scope": "keyhole",
+            "full_namo_keyhole_simulation_budget": 100,
+        }
+    )
+    planner = FullNAMOPlanner(FakeEnv(), config)
+
+    first = planner._prepare_region_opener_for_keyhole()
+    first.push_budget.consume_or_raise()
+    second = planner._prepare_region_opener_for_keyhole()
+
+    assert first is not second
+    assert first.push_budget.used == 1
+    assert second.push_budget.limit == 100
+    assert second.push_budget.used == 0
 
 
 def test_full_namo_propagates_simulation_budget_exhaustion(monkeypatch):

@@ -33,7 +33,7 @@ import numpy as np
 
 from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]; SAGE = os.environ.get("SAGE_REPO", "")
-for _p in (f"{REPO}/build_python", f"{REPO}/python", SAGE, f"{REPO}/scripts/sandbox"):
+for _p in (f"{REPO}/build_python", f"{REPO}/python", SAGE, f"{REPO}/scripts", f"{REPO}/scripts/sandbox"):
     if _p and _p not in sys.path:
         sys.path.insert(0, _p)
 

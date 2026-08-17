@@ -51,6 +51,12 @@ class SolveTask:
     seed: int
     use_cpp_snapshot: bool
     simulation_budget: int
+    simulation_budget_scope: str = "full_problem"
+    local_search: str = "region_bfs"
+    best_first_prior: str = "model"
+    region_selection_strategy: str = "ml_first"
+    scorer_ckpt: Optional[str] = None
+    ml_device: str = "cpu"
     full_namo_max_iterations: Optional[int] = None
     max_push_steps: Optional[int] = None
 
@@ -121,7 +127,19 @@ def build_full_namo_planner_config(task: SolveTask) -> PlannerConfig:
         "shuffle_seed": task.seed,
         "ml_seed": task.seed,
         "push_budget": push_budget,
+        "full_namo_budget_scope": task.simulation_budget_scope,
+        "full_namo_keyhole_simulation_budget": task.simulation_budget,
+        "full_namo_local_search": task.local_search,
+        "best_first_prior": task.best_first_prior,
+        "best_first_hmax": task.region_max_chain_depth,
+        "best_first_agg": "mean5",
+        "best_first_combine": "q",
+        "best_first_raw": True,
+        "region_selection_strategy": task.region_selection_strategy,
+        "ml_device": task.ml_device,
     }
+    if task.scorer_ckpt is not None:
+        algorithm_params["scorer_ckpt"] = task.scorer_ckpt
     if task.rollout_samples_per_state is not None:
         algorithm_params["rollout_samples_per_state"] = int(task.rollout_samples_per_state)
     if task.region_frontier_beam_width is not None:
@@ -154,6 +172,11 @@ def solve_environment_task(task: SolveTask) -> Dict[str, Any]:
                 "simulation_budget_limit",
                 "simulation_budget_used",
                 "simulation_budget_remaining",
+                "simulation_budget_scope",
+                "simulation_budget_limit_per_keyhole",
+                "simulation_budget_used_total",
+                "simulation_budget_used_by_keyhole",
+                "simulation_budget_keyholes_attempted",
             )
             if key in budget_stats
         }
@@ -236,6 +259,12 @@ def _build_task(
     seed: int,
     use_cpp_snapshot: bool,
     simulation_budget: int,
+    simulation_budget_scope: str,
+    local_search: str,
+    best_first_prior: str,
+    region_selection_strategy: str,
+    scorer_ckpt: Optional[str],
+    ml_device: str,
     full_namo_max_iterations: Optional[int],
     max_push_steps: Optional[int],
 ) -> SolveTask:
@@ -255,6 +284,12 @@ def _build_task(
         seed=seed,
         use_cpp_snapshot=use_cpp_snapshot,
         simulation_budget=simulation_budget,
+        simulation_budget_scope=simulation_budget_scope,
+        local_search=local_search,
+        best_first_prior=best_first_prior,
+        region_selection_strategy=region_selection_strategy,
+        scorer_ckpt=scorer_ckpt,
+        ml_device=ml_device,
         full_namo_max_iterations=full_namo_max_iterations,
         max_push_steps=max_push_steps,
     )
@@ -299,6 +334,12 @@ def run_exact_n_solvability(
     seed: int = DEFAULT_SEED,
     use_cpp_snapshot: bool = True,
     simulation_budget: int = DEFAULT_SIMULATION_BUDGET,
+    simulation_budget_scope: str = "full_problem",
+    local_search: str = "region_bfs",
+    best_first_prior: str = "model",
+    region_selection_strategy: str = "ml_first",
+    scorer_ckpt: Optional[str] = None,
+    ml_device: str = "cpu",
     workers: int = 1,
     full_namo_max_iterations: Optional[int] = None,
     limit: Optional[int] = None,
@@ -335,6 +376,12 @@ def run_exact_n_solvability(
         "seed": int(seed),
         "use_cpp_snapshot": bool(use_cpp_snapshot),
         "simulation_budget": int(simulation_budget),
+        "simulation_budget_scope": simulation_budget_scope,
+        "local_search": local_search,
+        "best_first_prior": best_first_prior,
+        "region_selection_strategy": region_selection_strategy,
+        "scorer_ckpt": scorer_ckpt,
+        "ml_device": ml_device,
         "workers": int(workers),
         "full_namo_max_iterations": full_namo_max_iterations,
         "max_push_steps": effective_max_push_steps,
@@ -385,6 +432,12 @@ def run_exact_n_solvability(
             seed=seed,
             use_cpp_snapshot=use_cpp_snapshot,
             simulation_budget=simulation_budget,
+            simulation_budget_scope=simulation_budget_scope,
+            local_search=local_search,
+            best_first_prior=best_first_prior,
+            region_selection_strategy=region_selection_strategy,
+            scorer_ckpt=scorer_ckpt,
+            ml_device=ml_device,
             full_namo_max_iterations=full_namo_max_iterations,
             max_push_steps=effective_max_push_steps,
         )
@@ -424,7 +477,7 @@ def run_exact_n_solvability(
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run exact-n Full NAMO solvability evaluation with a per-environment push budget."
+        description="Run exact-n Full NAMO solvability evaluation with a full-problem or per-keyhole push budget."
     )
     parser.add_argument("--xml-dir", type=str, help="Directory containing XML environments")
     parser.add_argument("--manifest", type=str, help="Manifest listing XML environments")
@@ -500,7 +553,43 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--simulation-budget",
         type=int,
         default=DEFAULT_SIMULATION_BUDGET,
-        help=f"Max total env.step(...) calls per environment solve (default: {DEFAULT_SIMULATION_BUDGET})",
+        help=f"Max env.step(...) calls for the selected budget scope (default: {DEFAULT_SIMULATION_BUDGET})",
+    )
+    parser.add_argument(
+        "--simulation-budget-scope",
+        choices=("full_problem", "keyhole"),
+        default="full_problem",
+        help="Reset the simulation budget for every targeted boundary when set to keyhole",
+    )
+    parser.add_argument(
+        "--local-search",
+        choices=("region_bfs", "best_first"),
+        default="region_bfs",
+        help="Local keyhole search loop; best_first reuses scripts/sandbox/eval_bestfirst.py",
+    )
+    parser.add_argument(
+        "--best-first-prior",
+        choices=("model", "uniform"),
+        default="model",
+        help="Priority source for --local-search best_first",
+    )
+    parser.add_argument(
+        "--region-selection-strategy",
+        choices=("ml_first", "cost_first"),
+        default="ml_first",
+        help="How the local opener orders frontier states (default: ml_first)",
+    )
+    parser.add_argument(
+        "--scorer-ckpt",
+        type=str,
+        default=None,
+        help="Checkpoint used by model-ranked best-first search or --goal-strategy scorer",
+    )
+    parser.add_argument(
+        "--ml-device",
+        type=str,
+        default="cpu",
+        help="Device for scorer inference (default: cpu)",
     )
     parser.add_argument(
         "--workers",
@@ -557,6 +646,12 @@ def cli_main(argv: Optional[Sequence[str]] = None) -> int:
         seed=args.seed,
         use_cpp_snapshot=args.use_cpp_snapshot,
         simulation_budget=args.simulation_budget,
+        simulation_budget_scope=args.simulation_budget_scope,
+        local_search=args.local_search,
+        best_first_prior=args.best_first_prior,
+        region_selection_strategy=args.region_selection_strategy,
+        scorer_ckpt=args.scorer_ckpt,
+        ml_device=args.ml_device,
         workers=args.workers,
         full_namo_max_iterations=args.full_namo_max_iterations,
         limit=args.limit,

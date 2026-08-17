@@ -9,14 +9,16 @@ This planner solves the full NAMO problem (reaching a specific robot goal) by:
 
 import time
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import namo_rl
 
 from namo.core import BasePlanner, PlannerConfig, PlannerResult
 from namo.planners.connectivity_snapshot import find_robot_label
+from namo.planners.opening.best_first_region_opening import BestFirstRegionOpeningPlanner
 from namo.planners.opening.region_opening import RegionOpeningPlanner
+from namo.planners.utils import PushAttemptBudget
 
 
 @dataclass
@@ -72,12 +74,28 @@ class FullNAMOPlanner(BasePlanner):
         self.region_goal_radius_m = float(region_goal_radius) if region_goal_radius is not None else None
         self._config = config
         self._env = env
-        self.region_opener: Optional[RegionOpeningPlanner] = None
+        self.local_search = str(algo_params.get("full_namo_local_search", "region_bfs"))
+        if self.local_search not in {"region_bfs", "best_first"}:
+            raise ValueError("full_namo_local_search must be 'region_bfs' or 'best_first'")
+        self.region_opener: Optional[Any] = None
         self.stats = FullNAMOStats()
         self._aggregated_rejections: Dict[str, int] = {}
         self._aggregated_primitives: int = 0
         self._iteration_trace: List[Dict[str, Any]] = []
         self.push_budget = algo_params.get("push_budget")
+        self.budget_scope = str(algo_params.get("full_namo_budget_scope", "full_problem"))
+        if self.budget_scope not in {"full_problem", "keyhole"}:
+            raise ValueError(
+                f"Invalid full_namo_budget_scope: {self.budget_scope}. "
+                "Must be 'full_problem' or 'keyhole'."
+            )
+        raw_keyhole_limit = algo_params.get("full_namo_keyhole_simulation_budget")
+        if raw_keyhole_limit is None and self.push_budget is not None:
+            raw_keyhole_limit = self.push_budget.limit
+        self.keyhole_budget_limit = None if raw_keyhole_limit is None else int(raw_keyhole_limit)
+        if self.budget_scope == "keyhole" and self.keyhole_budget_limit is None:
+            raise ValueError("Keyhole budget scope requires full_namo_keyhole_simulation_budget")
+        self._keyhole_budget_usage: List[Dict[str, Any]] = []
         super().__init__(env, config)
 
     def _setup_constraints(self):
@@ -86,7 +104,12 @@ class FullNAMOPlanner(BasePlanner):
 
     def _initialize_algorithm(self):
         """Initialize algorithm-specific components."""
-        self.region_opener = RegionOpeningPlanner(self._env, self._config)
+        self.region_opener = self._make_region_opener(self._config)
+
+    def _make_region_opener(self, config: PlannerConfig):
+        if self.local_search == "best_first":
+            return BestFirstRegionOpeningPlanner(self._env, config)
+        return RegionOpeningPlanner(self._env, config)
 
     @property
     def algorithm_name(self) -> str:
@@ -101,6 +124,7 @@ class FullNAMOPlanner(BasePlanner):
         self._aggregated_rejections = {}
         self._aggregated_primitives = 0
         self._iteration_trace = []
+        self._keyhole_budget_usage = []
         if self.region_opener:
             self.region_opener.reset()
 
@@ -108,14 +132,53 @@ class FullNAMOPlanner(BasePlanner):
         if getattr(self.config, "verbose", False):
             print(message)
 
-    def _current_budget_stats(self) -> Dict[str, int]:
+    def _current_budget_stats(self) -> Dict[str, Any]:
+        if self.budget_scope == "keyhole":
+            used_by_keyhole = [int(row["used"]) for row in self._keyhole_budget_usage]
+            return {
+                "simulation_budget_scope": "keyhole",
+                "simulation_budget_limit_per_keyhole": int(self.keyhole_budget_limit),
+                "simulation_budget_used_total": int(sum(used_by_keyhole)),
+                "simulation_budget_used_by_keyhole": used_by_keyhole,
+                "simulation_budget_keyholes_attempted": len(used_by_keyhole),
+            }
         if self.push_budget is None:
             return {}
         return {
+            "simulation_budget_scope": "full_problem",
             "simulation_budget_limit": int(self.push_budget.limit),
             "simulation_budget_used": int(self.push_budget.used),
             "simulation_budget_remaining": int(self.push_budget.remaining),
         }
+
+    def _prepare_region_opener_for_keyhole(self):
+        if self.budget_scope != "keyhole":
+            return self.region_opener
+
+        local_budget = PushAttemptBudget(limit=self.keyhole_budget_limit)
+        local_params = dict(self._config.algorithm_params or {})
+        local_params["push_budget"] = local_budget
+        local_config = replace(self._config, algorithm_params=local_params)
+        self.region_opener = self._make_region_opener(local_config)
+        return self.region_opener
+
+    def _record_keyhole_budget(self, iteration: int, target: str, result: PlannerResult):
+        if self.budget_scope != "keyhole":
+            return
+        used = self._as_int((result.algorithm_stats or {}).get("simulation_budget_used"))
+        if used is None:
+            used = int(self.region_opener.push_budget.used)
+        self._keyhole_budget_usage.append(
+            {
+                "iteration": int(iteration),
+                "target_region": target,
+                "limit": int(self.keyhole_budget_limit),
+                "used": int(used),
+            }
+        )
+        self.stats.total_attempted_pushes = int(
+            sum(row["used"] for row in self._keyhole_budget_usage)
+        )
 
     @staticmethod
     def _as_int(value: Any) -> Optional[int]:
@@ -170,6 +233,7 @@ class FullNAMOPlanner(BasePlanner):
         self._aggregated_rejections = {}
         self._aggregated_primitives = 0
         self._iteration_trace = []
+        self._keyhole_budget_usage = []
 
         self.env.set_robot_goal(robot_goal[0], robot_goal[1], robot_goal[2])
 
@@ -293,10 +357,13 @@ class FullNAMOPlanner(BasePlanner):
                 )
 
             target = path[1]
-            result = self.region_opener.search(robot_goal, target_neighbor=target)
-            self.stats.total_attempted_pushes += self._extract_attempted_pushes_from_region_result(result)
+            opener = self._prepare_region_opener_for_keyhole()
+            result = opener.search(robot_goal, target_neighbor=target)
+            self._record_keyhole_budget(iteration, target, result)
+            if self.budget_scope == "full_problem":
+                self.stats.total_attempted_pushes += self._extract_attempted_pushes_from_region_result(result)
             budget_used = self._as_int((result.algorithm_stats or {}).get("simulation_budget_used"))
-            if budget_used is not None:
+            if self.budget_scope == "full_problem" and budget_used is not None:
                 self.stats.total_attempted_pushes = max(self.stats.total_attempted_pushes, budget_used)
             self._aggregate_region_result(result)
             target_summary = self._get_target_summary(result)

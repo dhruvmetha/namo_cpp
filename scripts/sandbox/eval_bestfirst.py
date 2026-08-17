@@ -41,17 +41,20 @@ from viz.trace_schema import build_trace, episode_filename, make_board, make_pop
 PURE2PUSH = str(MANIFESTS / "test_pure2_fromkey.txt")
 
 
-def candidates(planner, env, goal, xml, state, h, prior, agg, rng, restrict_obj=None, raw=True, want_grid=False):
+def candidates(planner, env, goal, xml, state, h, prior, agg, rng, restrict_obj=None, raw=True,
+               want_grid=False, region_samples=None):
     """Reachable pushes from `state` (restricted to restrict_obj = the labeled object) with a priority-base
     value + the state value V. model: q = Q(state,a,h); V = agg of top Q (mean5 robust, or max). uniform: random q, V=0.
     want_grid (viz only, default False = no extra cost): also return the model's (60,5) score grid for `state`,
     reusing the forward pass rank_first_pushes_h2 already made — None when prior=uniform or the pool is empty."""
     if want_grid:
         pool, grid = rank_first_pushes_h2(planner, env, goal, xml, state, h, restrict_obj=restrict_obj,
-                                          score=(prior != "uniform"), raw=raw, return_grid=True)
+                                          score=(prior != "uniform"), raw=raw, return_grid=True,
+                                          region_samples=region_samples)
     else:
         pool = rank_first_pushes_h2(planner, env, goal, xml, state, h, restrict_obj=restrict_obj,
-                                    score=(prior != "uniform"), raw=raw)      # uniform: skip the model forward pass
+                                    score=(prior != "uniform"), raw=raw,
+                                    region_samples=region_samples)  # uniform: skip the model forward pass
         grid = None
     if not pool:
         return [], 0.0, None
@@ -110,7 +113,8 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
                 discount="off", gamma=0.65, tau=1.0, g_table=None, eps=1e-3,
                 w0_mode="one", free_strike_q=2.0, child_patience=1, dedupe_noop=True,
                 prune_jam_depth=True, trace_out=None, capture=None, timing=None,
-                stop_on_open=True, win_bar=5, max_wins=64):
+                stop_on_open=True, win_bar=5, max_wins=64, region_samples=None,
+                solution_out=None):
     """Greedy best-first ON THE LABELED OBJECT (restrict_obj). Returns (solved, sims, plan_len|None, boards, end).
     boards = per-board lifetime records; end in {solved, budget, exhausted}. w(b) via --discount (off=static).
     timing (dict, optional): filled with t_score/t_sim/t_wall/n_score for the wall-clock protocol. Always
@@ -163,7 +167,7 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
 
     _t = time.perf_counter()
     pool, V0, grid0 = candidates(planner, env, goal, xml, s0, hmax, prior, agg, rng, restrict_obj=restrict_obj,
-                                 raw=raw, want_grid=tracing)
+                                 raw=raw, want_grid=tracing, region_samples=region_samples)
     tm["t_score"] += time.perf_counter() - _t; tm["n_score"] += 1
     root = new_board(0, len(pool), pool_rows=(trace_rows(pool) if tracing else None), grid=grid0, state=s0)
     for (obj, g, q) in pool:                              # roots: ndone=0
@@ -213,6 +217,9 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
         board["tries"].append((len(board["tries"]) + 1, float(it["q"]), opened))   # (within-board try#, q, opened)
         if opened:
             tm["t_wall"] = time.perf_counter() - _t_wall0
+            if solution_out is not None:
+                solution_out["plan"] = list(it["plan"])
+                solution_out["state"] = env.get_full_state()
             if stop_on_open:
                 return True, sims, len(it["plan"]), boards, "solved"
             # multi-solution collection mode (round-3 doctrine): record the win, keep mining unless
@@ -235,7 +242,8 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
             h = hmax - ndone
             _t = time.perf_counter()
             pool2, V, grid2 = candidates(planner, env, goal, xml, s_new, h, prior, agg, rng,
-                                         restrict_obj=restrict_obj, raw=raw, want_grid=tracing)
+                                         restrict_obj=restrict_obj, raw=raw, want_grid=tracing,
+                                         region_samples=region_samples)
             tm["t_score"] += time.perf_counter() - _t; tm["n_score"] += 1
             child = new_board(ndone, len(pool2),
                               w0=(V if w0_mode == "v" else 1.0),
