@@ -32,6 +32,9 @@ let rows = [];          // the current filtered + sorted list
 let i = 0;              // cursor into rows
 let stars = {};         // file -> the index row, so a shortlist survives a rebuild of the cards
 const cardCache = new Map();
+const replayCache = new Map();
+let replay = null;    // the current episode's solution, or null when none was built
+let step = 0;         // 0 = start state, 1..n = after that push
 
 function saveState() {
   localStorage.setItem(STORE_KEY, JSON.stringify({
@@ -79,14 +82,20 @@ function init() {
   }
 
   FILTERS.forEach((el) => el.addEventListener("input", () => applyFilters(null)));
-  prevBtn.addEventListener("click", () => step(-1));
-  nextBtn.addEventListener("click", () => step(1));
+  prevBtn.addEventListener("click", () => stepEpisode(-1));
+  nextBtn.addEventListener("click", () => stepEpisode(1));
   starBtn.addEventListener("click", toggleStar);
   copyBtn.addEventListener("click", copyShortlist);
   document.addEventListener("keydown", (ev) => {
     if (ev.target.tagName === "INPUT" || ev.target.tagName === "SELECT") return;
-    if (ev.key === "ArrowLeft") { step(-1); ev.preventDefault(); }
-    else if (ev.key === "ArrowRight") { step(1); ev.preventDefault(); }
+    if (ev.key === "ArrowLeft") { stepEpisode(-1); ev.preventDefault(); }
+    else if (ev.key === "ArrowRight") { stepEpisode(1); ev.preventDefault(); }
+    else if (ev.key === "ArrowUp" || ev.key === "ArrowDown") {
+      const n = replay ? replay.steps.length : 0;
+      step = Math.min(n, Math.max(0, step + (ev.key === "ArrowDown" ? 1 : -1)));
+      fetchCard(rows[i]).then((c) => { c.file_key = rows[i].file; render(c); });
+      ev.preventDefault();
+    }
     else if (ev.key === "s" || ev.key === "S") { toggleStar(); ev.preventDefault(); }
   });
 
@@ -143,10 +152,26 @@ function applyFilters(wantFile) {
   show();
 }
 
-function step(d) {
+function stepEpisode(d) {
   if (!rows.length) return;
   i = (i + d + rows.length) % rows.length;
   show();
+}
+
+// The ground-truth solution for this episode: the answer the test set already knows, simulated and
+// snapshotted after each push (scripts/viz/build_scene_replay.py). Missing for a few episodes, and
+// the page just shows the start state then.
+function fetchReplay(row) {
+  if (!row) return Promise.resolve(null);
+  if (replayCache.has(row.file)) return Promise.resolve(replayCache.get(row.file));
+  return fetch("replay/" + row.file, NOCACHE)
+    .then((r) => (r.ok ? r.json() : null))
+    .catch(() => null)
+    .then((v) => {
+      if (replayCache.size > 40) replayCache.delete(replayCache.keys().next().value);
+      replayCache.set(row.file, v);
+      return v;
+    });
 }
 
 function fetchCard(row) {
@@ -172,13 +197,16 @@ function show() {
     saveState();
     return;
   }
-  fetchCard(row).then((card) => {
+  step = 0;
+  Promise.all([fetchCard(row), fetchReplay(row)]).then(([card, rep]) => {
     // A slow fetch must not paint over a newer selection.
     if (rows[i] !== row) return;
     card.file_key = row.file;
+    replay = rep;
     render(card);
     saveState();
     fetchCard(rows[(i + 1) % rows.length]);   // prefetch so arrowing stays instant
+    fetchReplay(rows[(i + 1) % rows.length]);
   });
 }
 
@@ -198,10 +226,14 @@ function render(card) {
   const svg = document.getElementById("scene-svg");
   const meta = card.meta;
   setSceneViewBox(svg, card.scene, true);
-  const parts = sceneLayers(card.scene, null, card.regions, meta.object_id);
+  const at = step > 0 && replay ? replay.steps[step - 1] : null;
+  const parts = sceneLayers(card.scene, at ? at.geom : null,
+                            at ? at.regions : card.regions, meta.object_id);
 
-  const em = edgeMap(card);
-  card.contacts.forEach((pt, edge) => {
+  // Truth dots belong to the START state: they say which of the pushes available THERE are right.
+  // After a push the board is different, so showing them again would assert something untrue.
+  const em = at ? new Map() : edgeMap(card);
+  (at ? [] : card.contacts).forEach((pt, edge) => {
     const e = em.get(edge);
     const cls = !e ? "dot-untried" : (e.green.length ? "dot-green" : "dot-tried");
     const r = e && e.green.length ? 0.0055 : 0.0035;
@@ -261,6 +293,30 @@ function render(card) {
     : `<span class="green-label">no ${green} recorded at the root</span>`;
 
   document.getElementById("xml-path").textContent = meta.xml;
+  renderSteps(card);
+}
+
+// start | after push 1 | after push 2 -- the solution the test set already knows, not the ranker's
+// own path (that lives in the search traces).
+function renderSteps(card) {
+  const box = document.getElementById("steps");
+  if (!replay || !replay.steps.length) {
+    box.innerHTML = '<span class="steps-none">no solution replay built for this episode</span>';
+    return;
+  }
+  const labels = ["start", ...replay.steps.map((s, k) => `after push ${k + 1}`)];
+  box.innerHTML = '<span class="steps-cap">solution</span>' + labels.map((l, k) =>
+    `<button type="button" class="step-pill${k === step ? " on" : ""}" data-step="${k}">${l}</button>`
+  ).join("") + (step > 0
+    ? `<div class="step-note">push on edge ${replay.steps[step - 1].edge} at depth ` +
+      `${replay.steps[step - 1].depth} — ` +
+      (replay.steps[step - 1].opened ? "the goal is now reachable" : "no opening yet; this is the setup") +
+      `</div>`
+    : `<div class="step-note">the state every number above describes</div>`);
+  box.querySelectorAll(".step-pill").forEach((b) => b.addEventListener("click", () => {
+    step = +b.dataset.step;
+    fetchCard(rows[i]).then((c) => { c.file_key = rows[i].file; render(c); });
+  }));
 }
 
 // Deeper green the bigger the win. Log-scaled: 1x is barely tinted, 50x and up is the full step,

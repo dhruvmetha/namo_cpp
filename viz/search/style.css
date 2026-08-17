@@ -486,3 +486,13 @@ td.no { color: var(--dead); }
 .legend-swatch.dot-green { background: var(--opener); border-radius: 50%; }
 .legend-swatch.dot-tried { background: #b0bec5; border-radius: 50%; }
 .legend-swatch.dot-untried { background: #eceff1; border: 1px solid #cfd8dc; border-radius: 50%; }
+
+/* Solution stepper: start | after push 1 | after push 2. */
+.steps { margin-top: 0.9rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+.steps-cap { font-size: 0.8rem; color: #555; margin-right: 0.15rem; }
+.steps-none { font-size: 0.8rem; color: #888; }
+.step-pill { font: inherit; font-size: 0.82rem; padding: 2px 9px; border: 1px solid var(--border);
+  border-radius: 999px; background: var(--bg); color: var(--fg); cursor: pointer; }
+.step-pill:hover { background: var(--border); }
+.step-pill.on { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.step-note { flex-basis: 100%; font-size: 0.78rem; color: #666; margin-top: 0.15rem; }
