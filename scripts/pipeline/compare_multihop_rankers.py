@@ -39,7 +39,25 @@ def _mcnemar_exact(model_only: int, random_only: int) -> float:
     return min(1.0, 2.0 * tail)
 
 
-def compare(model_root: Path, random_root: Path) -> Dict[str, Any]:
+def _budget_per_keyhole(*arms: Dict[str, Dict[str, Any]]) -> Any:
+    """Read the per-keyhole budget off the rows themselves.
+
+    It used to be hardcoded to 300, which silently mislabels any run launched with a
+    different SIM_BUDGET. Returns a sorted list if the arms disagree, so a mismatch is
+    visible in the output instead of being averaged away.
+    """
+    limits = {
+        item["row"]["simulation_budget_limit_per_keyhole"]
+        for arm in arms
+        for item in arm.values()
+        if "simulation_budget_limit_per_keyhole" in item["row"]
+    }
+    if not limits:
+        return None
+    return limits.pop() if len(limits) == 1 else sorted(limits)
+
+
+def compare(model_root: Path, random_root: Path, random_seed: Any = None) -> Dict[str, Any]:
     model = _load_arm(model_root)
     random = _load_arm(random_root)
     if set(model) != set(random):
@@ -91,8 +109,8 @@ def compare(model_root: Path, random_root: Path) -> Dict[str, Any]:
         "protocol": {
             "initial_path_length": 2,
             "hmax_per_keyhole": 2,
-            "simulation_budget_per_keyhole": 300,
-            "random_seed": 42,
+            "simulation_budget_per_keyhole": _budget_per_keyhole(model, random),
+            "random_seed": random_seed,
         },
         "headline": {
             "hy5u_solved": len(both) + len(model_only),
@@ -163,8 +181,15 @@ def main() -> int:
     parser.add_argument("--hy5u", type=Path, required=True)
     parser.add_argument("--random", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--random-seed",
+        type=int,
+        default=None,
+        help="Seed of the random arm, recorded in the output metadata. Omit to record null "
+             "rather than a wrong value — the seed is not recoverable from the aggregates.",
+    )
     args = parser.parse_args()
-    result = compare(args.hy5u, args.random)
+    result = compare(args.hy5u, args.random, random_seed=args.random_seed)
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / "comparison.json").write_text(
         json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
