@@ -140,6 +140,27 @@ def _durable_state(state: Any) -> Optional[Dict[str, List[float]]]:
     return {"qpos": [float(v) for v in state.qpos], "qvel": [float(v) for v in state.qvel]}
 
 
+@dataclass
+class BoundarySelection:
+    """Which boundary to open next, and the points that define it.
+
+    Returned without solving anything. The points are sampled once here so the
+    caller can freeze them: re-sampling on a later call would grade against a
+    different target, because a push re-partitions free space.
+    """
+
+    found: bool = False
+    # Valid only for the snapshot this was computed from -- labels are ordinal.
+    # Pass blocking_objects, not this, to identify the boundary later.
+    target_label: str = ""
+    target_points: List[Tuple[float, float]] = field(default_factory=list)
+    blocking_objects: List[str] = field(default_factory=list)
+    region_path: List[str] = field(default_factory=list)
+    goal_already_reachable: bool = False
+    failure_reason: str = ""
+    error_message: str = ""
+
+
 class NAMOPlanningService:
     """Construct NAMO environments and invoke registered planners from XML."""
 
@@ -316,6 +337,102 @@ class NAMOPlanningService:
                 "compute_time_ms": (time.perf_counter() - start_time) * 1000.0,
                 "error_message": f"Reachability failed for {xml_path}: {exc}",
             }
+
+    def select_boundary_from_xml(
+        self,
+        xml_path: str,
+        robot_goal: Tuple[float, float, float],
+        *,
+        blocked_boundaries: Optional[Sequence[Tuple[str, str]]] = None,
+        starting_robot_pose: Optional[Tuple[float, float, float]] = None,
+        goals_per_region: Optional[int] = None,
+        region_snapshot_seed: int = 42,
+    ) -> BoundarySelection:
+        """Choose the next region boundary to open, without solving it.
+
+        Applies exactly the rule FullNAMOPlanner uses -- shortest region path to
+        the goal region, then its first hop -- via the shared `find_region_path`,
+        so an external executor driving the loop one push at a time makes the
+        same choice the in-process planner would.
+
+        The caller freezes the returned points and passes them to
+        solve_boundary_from_xml on every subsequent call, so the success bar
+        stops moving when the scene does. `blocked_boundaries` lets a caller
+        exclude boundaries it has already exhausted.
+        """
+        try:
+            from namo.planners import get_region_snapshot
+            from namo.planners.full_namo.full_namo_planner import (
+                boundary_key,
+                find_region_path,
+            )
+
+            env = self._create_environment(xml_path, starting_robot_pose)
+            env.set_robot_goal(*robot_goal)
+            if env.is_robot_goal_reachable():
+                return BoundarySelection(goal_already_reachable=True)
+
+            config_kwargs: Dict[str, Any] = {}
+            if goals_per_region is not None:
+                config_kwargs["goals_per_region"] = goals_per_region
+            resolved_goals_per_region = PlannerConfig(**config_kwargs).goals_per_region
+
+            # local_info_only=False: the path to the goal region needs the whole
+            # graph, not just the robot's immediate neighbours.
+            snapshot = get_region_snapshot(
+                env,
+                goals_per_region=resolved_goals_per_region,
+                local_info_only=False,
+                seed=int(region_snapshot_seed),
+                use_xml_goal=True,
+            )
+            robot_label = snapshot.get("robot_label")
+            goal_label = snapshot.get("goal_label")
+            if not robot_label or not goal_label:
+                return BoundarySelection(failure_reason="missing_region_labels")
+
+            blocked = {boundary_key(a, b) for a, b in (blocked_boundaries or ())}
+            path = find_region_path(
+                snapshot.get("adjacency", {}), robot_label, goal_label, blocked
+            )
+            if path is None:
+                return BoundarySelection(failure_reason="region_path_exhausted")
+            if len(path) < 2:
+                # Robot and goal share a region yet the goal is unreachable --
+                # a graph/reachability disagreement, not something to open.
+                return BoundarySelection(
+                    failure_reason="same_region_but_goal_unreachable",
+                    region_path=list(path),
+                )
+
+            target = path[1]
+            bundle = (snapshot.get("region_goals") or {}).get(target)
+            points = [
+                (float(g.x), float(g.y)) for g in (bundle.goals if bundle else [])
+            ]
+            if not points:
+                return BoundarySelection(
+                    failure_reason="target_region_has_no_sampled_points",
+                    target_label=target,
+                    region_path=list(path),
+                )
+
+            return BoundarySelection(
+                found=True,
+                target_label=target,
+                target_points=points,
+                blocking_objects=sorted(
+                    _boundary_object_set(
+                        snapshot.get("edge_objects", {}), robot_label, target
+                    )
+                ),
+                region_path=list(path),
+            )
+        except Exception as exc:  # noqa: BLE001 - facade boundary
+            return BoundarySelection(
+                failure_reason="exception",
+                error_message=f"Boundary selection failed for {xml_path}: {exc}",
+            )
 
     def solve_boundary_from_xml(
         self,

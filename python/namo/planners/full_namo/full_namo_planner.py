@@ -22,6 +22,54 @@ from namo.planners.opening.region_opening import RegionOpeningPlanner
 from namo.planners.utils import PushAttemptBudget
 
 
+def boundary_key(a: str, b: str) -> Tuple[str, str]:
+    """Order-independent identity for the boundary between two regions."""
+    if not isinstance(a, str) or not isinstance(b, str):
+        raise TypeError(
+            f"Boundary endpoints must be strings, got {type(a).__name__}, {type(b).__name__}"
+        )
+    if a == b:
+        raise ValueError("Boundary endpoints must be distinct")
+    return tuple(sorted((a, b)))
+
+
+def find_region_path(
+    adjacency: Dict[str, Set[str]],
+    start_label: str,
+    goal_label: str,
+    failed_edges: Optional[Set[Tuple[str, str]]] = None,
+) -> Optional[List[str]]:
+    """Shortest region path avoiding blocked boundaries, or None.
+
+    Module-level because the rule for choosing which boundary to open next --
+    path[1] of this BFS -- must be identical for the planner and for any
+    external caller that pins a boundary. Neighbours are iterated in sorted
+    order so the choice is deterministic.
+    """
+    blocked = failed_edges or set()
+    if start_label not in adjacency:
+        return None
+    if start_label == goal_label:
+        return [start_label]
+
+    queue = deque([(start_label, [start_label])])
+    visited: Set[str] = {start_label}
+
+    while queue:
+        current, path = queue.popleft()
+        for neighbor in sorted(adjacency.get(current, set())):
+            if boundary_key(current, neighbor) in blocked:
+                continue
+            if neighbor == goal_label:
+                return path + [neighbor]
+            if neighbor in visited:
+                continue
+            visited.add(neighbor)
+            queue.append((neighbor, path + [neighbor]))
+
+    return None
+
+
 @dataclass
 class FullNAMOStats:
     """Statistics for full NAMO planning."""
@@ -846,11 +894,7 @@ class FullNAMOPlanner(BasePlanner):
         return sorted(blocked_boundaries)
 
     def _boundary_key(self, a: str, b: str) -> Tuple[str, str]:
-        if not isinstance(a, str) or not isinstance(b, str):
-            raise TypeError(f"Boundary endpoints must be strings, got {type(a).__name__}, {type(b).__name__}")
-        if a == b:
-            raise ValueError("Boundary endpoints must be distinct")
-        return tuple(sorted((a, b)))
+        return boundary_key(a, b)
 
     def _validate_region_path(
         self,
@@ -889,31 +933,10 @@ class FullNAMOPlanner(BasePlanner):
         failed_edges: Optional[Set[Tuple[str, str]]] = None,
     ) -> Optional[List[str]]:
         adjacency = snapshot_data["adjacency"]
-        blocked = failed_edges or set()
-
         if start_label not in adjacency:
             self._debug(f"Start label {start_label} not in adjacency graph")
             return None
-        if start_label == goal_label:
-            return [start_label]
-
-        queue = deque([(start_label, [start_label])])
-        visited: Set[str] = {start_label}
-
-        while queue:
-            current, path = queue.popleft()
-            for neighbor in sorted(adjacency.get(current, set())):
-                edge = self._boundary_key(current, neighbor)
-                if edge in blocked:
-                    continue
-                if neighbor == goal_label:
-                    return path + [neighbor]
-                if neighbor in visited:
-                    continue
-                visited.add(neighbor)
-                queue.append((neighbor, path + [neighbor]))
-
-        return None
+        return find_region_path(adjacency, start_label, goal_label, failed_edges)
 
 
 from namo.core import PlannerFactory

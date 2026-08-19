@@ -2,6 +2,7 @@
 
 from .planning_service import (
     BoundaryOpeningResult,
+    BoundarySelection,
     NAMOAction,
     NAMOPlanResult,
     NAMOPlanningService,
@@ -12,4 +13,5 @@ __all__ = [
     "NAMOPlanResult",
     "NAMOPlanningService",
     "BoundaryOpeningResult",
+    "BoundarySelection",
 ]
