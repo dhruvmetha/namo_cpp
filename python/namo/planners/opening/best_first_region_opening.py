@@ -7,7 +7,7 @@ import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 import namo_rl
 import numpy as np
@@ -38,6 +38,41 @@ def _eval_best_first_symbols():
     from eval_bestfirst import make_action, solve_scene
 
     return make_action, solve_scene
+
+
+
+class _BlacklistedEdgeFilter:
+    """Hides blacklisted (object, edge) pairs from candidate enumeration.
+
+    eval_bestfirst reaches every candidate through ``planner.prim.generate_goals``,
+    so dropping goals here keeps a push the caller has already seen fail out of
+    the pool entirely: never scored, never simulated, never charged to the
+    budget. region_bfs gets the same effect by seeding its per-node
+    ``edge_min_stuck_depth`` map; this is the equivalent for a search whose
+    enumeration lives in shared evaluation code that must not be modified.
+
+    Blacklist format matches region_bfs: ``{object_id: {edge_idx, ...}}`` in
+    simulator naming, skipping those edges at every depth.
+    """
+
+    def __init__(self, inner: Any, blacklist: Dict[str, Set[int]]):
+        self._inner = inner
+        self._blacklist = blacklist
+
+    def generate_goals(self, object_id, state, env, max_goals=0):
+        goals_per_edge = self._inner.generate_goals(
+            object_id, state, env, max_goals=max_goals
+        )
+        banned = self._blacklist.get(str(object_id))
+        if not banned:
+            return goals_per_edge
+        return [
+            [goal for goal in edge_goals if int(goal.edge_idx) not in banned]
+            for edge_goals in goals_per_edge
+        ]
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
 
 
 class BestFirstRegionOpeningPlanner:
@@ -100,6 +135,20 @@ class BestFirstRegionOpeningPlanner:
             scorer = _get_scorer(
                 str(ckpt), params.get("namo_config_path"), params.get("ml_device", "cpu")
             )
+        # Edges the caller has already seen fail -- on the real robot, pushes that
+        # were attempted and did not move the object. region_bfs honours this key;
+        # ignoring it here meant the search happily re-proposed a push the robot
+        # had just physically failed, and the replan loop could cycle on it.
+        external_blacklist = params.get("external_edge_blacklist", None) or {}
+        self.external_edge_blacklist: Dict[str, Set[int]] = {
+            str(obj): {int(edge) for edge in edges}
+            for obj, edges in external_blacklist.items()
+        }
+        if self.external_edge_blacklist:
+            prim = _BlacklistedEdgeFilter(prim, self.external_edge_blacklist)
+            if config.verbose:
+                print(f"\U0001f6ab External edge blacklist: {dict(self.external_edge_blacklist)}")
+
         self._search_planner = SimpleNamespace(prim=prim, scorer=scorer)
 
     def reset(self):
