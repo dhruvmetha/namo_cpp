@@ -136,28 +136,6 @@ class RandomSamplingPlanner(BasePlanner):
             return GoalProximityStrategy()
         elif strategy_name == "farthest_first":
             return FarthestFirstStrategy()
-        elif strategy_name == "ml":
-            # Import ML strategy
-            from namo.strategies.ml_strategies import MLObjectSelectionStrategy
-            
-            # Get ML parameters from config
-            ml_object_model_path = self.config.algorithm_params.get('ml_object_model_path')
-            ml_samples = self.config.algorithm_params.get('ml_samples', 32)
-            ml_device = self.config.algorithm_params.get('ml_device', 'cuda')
-            xml_file = self.config.algorithm_params.get('xml_file', '')
-            preloaded_model = self.config.algorithm_params.get('preloaded_object_model')
-            
-            if not ml_object_model_path and not preloaded_model:
-                raise ValueError("ML object strategy requires ml_object_model_path or preloaded_object_model")
-            
-            return MLObjectSelectionStrategy(
-                object_model_path=ml_object_model_path or "",
-                samples=ml_samples,
-                device=ml_device,
-                xml_path=xml_file,
-                verbose=self.config.verbose,
-                preloaded_model=preloaded_model
-            )
         else:
             raise ValueError(f"Unknown object selection strategy: {strategy_name}")
     

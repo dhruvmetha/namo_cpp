@@ -58,7 +58,7 @@ def get_available_algorithms() -> List[str]:
 
 def get_available_object_strategies() -> List[str]:
     """Get list of available object selection strategies."""
-    return ["no_heuristic", "nearest_first", "goal_proximity", "farthest_first", "ml"]
+    return ["no_heuristic", "nearest_first", "goal_proximity", "farthest_first"]
 
 
 def get_available_goal_strategies() -> List[str]:

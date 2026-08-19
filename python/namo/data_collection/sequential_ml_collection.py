@@ -104,25 +104,9 @@ def preload_ml_models(config: ModularCollectionConfig) -> Tuple[Optional[Any], O
             print(f"   GPU name: {torch.cuda.get_device_name(actual_device)}")
 
     # Check if ML is used
-    use_ml_object = algo_params.get("object_selection_strategy") == "ml"
     use_ml_goal = (algo_params.get("goal_strategy") in [
         "ml", "ml_primitive"
     ] or algo_params.get("goal_selection_strategy") == "ml")
-
-    if use_ml_object:
-        model_path = algo_params.get("ml_object_model_path")
-        if model_path:
-            try:
-                try:
-                    from sage_learning.object_inference_model import ObjectInferenceModel
-                except Exception:
-                    from ktamp_learning.object_inference_model import ObjectInferenceModel
-                print(f"🔮 Loading ObjectInferenceModel from {model_path}")
-                object_model = ObjectInferenceModel(model_path=model_path, device=device)
-                print(f"✅ Object model loaded successfully")
-            except Exception as e:
-                print(f"❌ Failed to load object model: {e}")
-                traceback.print_exc()
 
     if use_ml_goal:
         model_path = algo_params.get("ml_goal_model_path") or algo_params.get("ml_goal_model")
