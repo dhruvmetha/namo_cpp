@@ -106,8 +106,7 @@ def preload_ml_models(config: ModularCollectionConfig) -> Tuple[Optional[Any], O
     # Check if ML is used
     use_ml_object = algo_params.get("object_selection_strategy") == "ml"
     use_ml_goal = (algo_params.get("goal_strategy") in [
-        "ml", "ml_primitive",
-        "ml_async", "ml_primitive_async"
+        "ml", "ml_primitive"
     ] or algo_params.get("goal_selection_strategy") == "ml")
 
     if use_ml_object:

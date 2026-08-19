@@ -99,7 +99,7 @@ def test_search_bfs_propagates_budget_exhaustion_instead_of_swallowing(monkeypat
 
     try:
         planner._search_bfs(
-            goals_or_async=[[Goal(x=0.0, y=0.0, theta=0.0, score=1.0, edge_idx=0, depth=0)]],
+            goals_per_edge=[[Goal(x=0.0, y=0.0, theta=0.0, score=1.0, edge_idx=0, depth=0)]],
             reachable_edge_indices={0},
             baseline_state={"name": "baseline"},
             neighbour_label="goal",

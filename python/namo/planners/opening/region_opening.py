@@ -28,8 +28,6 @@ from namo.strategies import (
     RandomRolloutGoalStrategy,
     Goal,
     MLPrimitiveGoalStrategy,
-    MLPrimitiveAsyncStrategy,
-    AsyncGoalResult,
     GeometricTransportStrategy,
     ScorerGoalStrategy,
 )
@@ -43,7 +41,6 @@ from namo.planners.utils import PushBudgetExceeded
 VALID_GOAL_STRATEGIES = frozenset({
     "primitive",
     "ml", "ml_primitive",
-    "ml_async", "ml_primitive_async",
     "scorer", "f_scorer",
     "geometric", "geometric_transport",
     "random_rollout", "random",
@@ -650,30 +647,6 @@ class RegionOpeningPlanner(BasePlanner):
                 namo_config_path=algo_params.get("namo_config_path"),
             )
             self._debug("▶ Using ML-aligned primitive goal strategy")
-        elif strategy_name and strategy_name.lower() in {"ml_async", "ml_primitive_async"}:
-            ml_path = algo_params.get("ml_goal_model_path")
-            if not ml_path:
-                raise ValueError("ML async goal sampler requires 'ml_goal_model_path'")
-
-            self.goal_strategy = MLPrimitiveAsyncStrategy(
-                goal_model_path=ml_path,
-                primitive_data_dir=primitive_data_dir,
-                samples=algo_params.get("ml_samples", 32),
-                device=algo_params.get("ml_device", "cuda"),
-                match_position_tolerance=algo_params.get("ml_match_position_tolerance", 0.1),
-                match_angle_tolerance=algo_params.get("ml_match_angle_tolerance", 0.1),
-                angle_weight=algo_params.get("ml_match_angle_weight", 0.5),
-                verbose=self.config.verbose,
-                min_goals_threshold=algo_params.get("ml_min_goals", 1),
-                xml_path=algo_params.get("xml_file"),
-                preloaded_model=algo_params.get("preloaded_goal_model"),
-                k_nearest=algo_params.get("ml_k_nearest", 1),
-                max_workers=algo_params.get("ml_async_workers", 1),
-                seed=algo_params.get("ml_seed"),
-                sampler_method=algo_params.get("ml_sampler_method"),
-                num_steps=algo_params.get("ml_num_steps"),
-            )
-            self._debug("▶ Using async ML with primitive pre-execution goal strategy")
         elif strategy_name and strategy_name.lower() in {"scorer", "f_scorer"}:
             # Champion 1-push F-scorer ranks candidate pushes by P(opens neighbour region).
             # Same primitive enumeration as the default; only goal.score changes -> RO tries
@@ -2609,7 +2582,7 @@ class RegionOpeningPlanner(BasePlanner):
 
     def _search_bfs(
         self,
-        goals_or_async: Union[List[List[Goal]], AsyncGoalResult],
+        goals_per_edge: List[List[Goal]],
         reachable_edge_indices: Set[int],
         baseline_state: namo_rl.RLState,
         neighbour_label: str,
@@ -2628,12 +2601,11 @@ class RegionOpeningPlanner(BasePlanner):
     ) -> Tuple[List[Tuple[Goal, List, List, 'namo_rl.RLState', Optional[Tuple], ChainNode, float]], int, List[ChainNode], bool, Set[str]]:
         """BFS: Try all edges at ALL depths to collect all possible solutions.
 
-        Supports async ML inference: if goals_or_async is an AsyncGoalResult,
         primitives start executing immediately while ML runs in background.
         When ML completes, remaining candidates are re-sorted by ML scores.
 
         Args:
-            goals_or_async: Either List[List[Goal]] (sync) or AsyncGoalResult (async).
+            goals_per_edge: One list of Goal candidates per contact edge.
             collect_frontier: If True, collect valid but unsuccessful states as frontier nodes
             max_solutions_to_collect: If provided, stop searching once this many successful solutions are found.
             stop_at_score_zero: If True, stop trying candidates when score becomes 0 (ML-first phase).
@@ -2651,14 +2623,6 @@ class RegionOpeningPlanner(BasePlanner):
             The chain_node contains the full parent chain for observation reconstruction.
         """
         print = self._debug
-
-        # Handle both sync and async goal results
-        if isinstance(goals_or_async, AsyncGoalResult):
-            async_result = goals_or_async
-            goals_per_edge = async_result.primitive_goals
-        else:
-            async_result = None
-            goals_per_edge = goals_or_async
 
         max_depth = len(goals_per_edge[0]) if goals_per_edge else 10
 
@@ -2681,10 +2645,6 @@ class RegionOpeningPlanner(BasePlanner):
         # Per-primitive trial log for F characterization
         trial_log = []
 
-        # Track async ML merge state
-        ml_merged = False
-        ml_scores: Dict[Tuple[int, int], float] = {}
-        ml_scored_slots: Set[Tuple[int, int]] = set()  # Track which (edge, depth) have ML scores
         any_wall_collision_during_search = False
         movable_collisions_during_search: Set[str] = set()
 
@@ -2720,22 +2680,12 @@ class RegionOpeningPlanner(BasePlanner):
         if self.sample_k > 0 and len(candidates) > self.sample_k:
             candidates = random.sample(candidates, self.sample_k)
 
-        # Initial sort depends on whether we have async ML
-        if async_result is not None and async_result.ml_future is not None:
-            # Async mode: sort by (depth, edge) initially - shortest pushes first while waiting for ML
-            sort_start = time.perf_counter()
-            candidates.sort(key=lambda x: (x[1], x[0]))
-            self._record_primitive_ranking_timing((time.perf_counter() - sort_start) * 1000.0, len(candidates))
-            if self.config.verbose:
-                print(f"      📋 Async mode: {len(candidates)} candidates sorted by depth (ML running in background)")
-        else:
-            # Sync mode:
-            # - ML strategies want score-first ordering (ML goals before primitives).
-            # - GeometricTransportStrategy wants depth-first ordering, then priority within depth.
-            depth_first = isinstance(self.goal_strategy, GeometricTransportStrategy)
-            sort_start = time.perf_counter()
-            _sort_candidates_sync(candidates, depth_first=depth_first)
-            self._record_primitive_ranking_timing((time.perf_counter() - sort_start) * 1000.0, len(candidates))
+        # - ML strategies want score-first ordering (ML goals before primitives).
+        # - GeometricTransportStrategy wants depth-first ordering, then priority within depth.
+        depth_first = isinstance(self.goal_strategy, GeometricTransportStrategy)
+        sort_start = time.perf_counter()
+        _sort_candidates_sync(candidates, depth_first=depth_first)
+        self._record_primitive_ranking_timing((time.perf_counter() - sort_start) * 1000.0, len(candidates))
 
         # Track position for re-sorting remaining candidates
         candidate_idx = 0
@@ -2760,45 +2710,6 @@ class RegionOpeningPlanner(BasePlanner):
                     and candidate_idx >= effective_label_topk):
                 stopped_by_finish_cap = True
                 break
-            # ══════════════════════════════════════════════════════════════════
-            # ASYNC ML POLLING: Check if ML inference is ready (non-blocking)
-            # ══════════════════════════════════════════════════════════════════
-            if async_result is not None and not ml_merged and async_result.poll_ml_ready():
-                ml_scores = async_result.get_ml_scores()
-                ml_merged = True
-                ml_scored_slots = set(ml_scores.keys())  # Track all ML-scored slots
-
-                if self.config.verbose:
-                    print(f"      🎯 ML ready! {len(ml_scores)} slots with votes (after {candidate_idx} primitive pushes)")
-
-                # Update scores for remaining candidates
-                for i in range(candidate_idx, len(candidates)):
-                    edge_idx_i, depth_i, goal_i = candidates[i]
-                    key = (edge_idx_i, depth_i)
-                    if key in ml_scores:
-                        # Update goal with ML score
-                        candidates[i][2] = Goal(
-                            x=goal_i.x,
-                            y=goal_i.y,
-                            theta=goal_i.theta,
-                            score=ml_scores[key]
-                        )
-
-                # Re-sort remaining candidates: score DESC, depth ASC, edge_idx ASC
-                remaining = candidates[candidate_idx:]
-                # ML merge always uses score-first re-sorting, regardless of depth-first
-                # geometric ordering (geometric strategy does not use async ML).
-                sort_start = time.perf_counter()
-                _sort_candidates_sync(remaining, depth_first=False)
-                self._record_primitive_ranking_timing((time.perf_counter() - sort_start) * 1000.0, len(remaining))
-                candidates[candidate_idx:] = remaining
-
-                if self.config.verbose:
-                    # Show top candidates after re-sort
-                    top_5 = candidates[candidate_idx:candidate_idx+5]
-                    top_info = [(c[0], c[1], getattr(c[2], 'score', 0.0)) for c in top_5]
-                    print(f"      📊 Re-sorted remaining {len(remaining)} candidates. Top 5: {top_info}")
-
             # Get current candidate
             edge_idx, depth, goal = candidates[candidate_idx]
             candidate_idx += 1
@@ -2836,14 +2747,9 @@ class RegionOpeningPlanner(BasePlanner):
             # entirely, and bypass for ML-scored slots after ML merges
             is_blacklisted = edge_idx in edge_min_stuck_depth and depth >= edge_min_stuck_depth[edge_idx]
             if is_blacklisted:
-                # During pre-ML phase: disable blacklist entirely if ml_ignore_blacklist is enabled
-                if not ml_merged and self.ml_ignore_blacklist:
+                if self.ml_ignore_blacklist:
                     if self.config.verbose:
-                        print(f"        🔓 Ignoring blacklist during pre-ML phase (edge {edge_idx}, depth {depth+1})")
-                # After ML merge: bypass only for ML-scored slots
-                elif ml_merged and self.ml_ignore_blacklist and (edge_idx, depth) in ml_scored_slots:
-                    if self.config.verbose:
-                        print(f"        🔓 Bypassing blacklist for ML-scored slot (edge {edge_idx}, depth {depth+1})")
+                        print(f"        🔓 Ignoring stuck-edge blacklist (edge {edge_idx}, depth {depth+1})")
                 else:
                     self._rejection_stats["skipped_edge_blacklisted_deeper"] = self._rejection_stats.get("skipped_edge_blacklisted_deeper", 0) + 1
                     continue
@@ -3186,17 +3092,6 @@ class RegionOpeningPlanner(BasePlanner):
                 entry["finish_topk_cap"] = int(self.finish_topk_cap)
                 entry["finish_miss_audit_selected"] = bool(self._current_finish_miss_audit_selected)
                 entry["finish_sweep_censored"] = bool(stopped_by_finish_cap)
-
-        # ══════════════════════════════════════════════════════════════════
-        # CLEANUP: Cancel pending ML inference if not yet merged
-        # ══════════════════════════════════════════════════════════════════
-        if async_result is not None and not ml_merged:
-            cancelled = async_result.cancel_if_pending()
-            if self.config.verbose:
-                if cancelled:
-                    print(f"      🚫 Cancelled pending ML inference (solution found before ML ready)")
-                else:
-                    print(f"      ⏳ ML inference still running (will complete in background)")
 
         # Return all successful results found across all depths
         return all_successful_results, min_depth_found if min_depth_found else 0, frontier_nodes, any_wall_collision_during_search, movable_collisions_during_search, trial_log

@@ -107,7 +107,7 @@ def _goals():
 
 def _run(planner):
     return planner._search_bfs(
-        goals_or_async=_goals(),
+        goals_per_edge=_goals(),
         reachable_edge_indices=set(EDGES),
         baseline_state={"name": "baseline"},
         neighbour_label="goal",
