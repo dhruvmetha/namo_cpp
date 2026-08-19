@@ -33,6 +33,15 @@ from namo.strategies import (
 )
 from namo.planners.utils import PushBudgetExceeded
 
+# THE CANONICAL OPENING CRITERION, shared by every region-opening search.
+# A region counts as "opened" only when at least this fraction of its sampled
+# goal points is reachable. 0.2 paired with goals_per_region=100 is the
+# ">=20 of 100 s0-sampled points" rule that scripts/sandbox/eval_m3.goal_open_pts
+# grades against, and that the model registry's numbers were produced under.
+# Both openers must land here when a config omits the key -- a looser accidental
+# bar makes their results incomparable.
+CANONICAL_MIN_REACHABLE_FRACTION = 0.2
+
 # Every goal_strategy name accepted by RegionOpeningPlanner._initialize_algorithm.
 # Mirrors the branch conditions in that method -- keep the two in sync when a
 # strategy is added or removed. An unrecognised name is a configuration error,
@@ -343,7 +352,9 @@ class RegionOpeningPlanner(BasePlanner):
         # omits the key must land on the canonical bar, never on a looser accidental one.
         # Set explicitly to 0.0 to fall back to the absolute region_success_min_reachable count.
         self._min_reachable_fraction = float(
-            algo_params.get("region_min_reachable_fraction", 0.2)
+            algo_params.get(
+                "region_min_reachable_fraction", CANONICAL_MIN_REACHABLE_FRACTION
+            )
         )
         if not (0.0 <= self._min_reachable_fraction <= 1.0):
             raise ValueError(

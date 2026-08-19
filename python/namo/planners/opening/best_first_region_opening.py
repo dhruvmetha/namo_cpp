@@ -18,7 +18,7 @@ from namo.planners.utils import PushAttemptBudget
 from namo.strategies import PrimitiveGoalStrategy
 from namo.strategies.scorer_goal_strategy import _get_scorer
 
-from .region_opening import AttemptResult
+from .region_opening import AttemptResult, CANONICAL_MIN_REACHABLE_FRACTION
 
 
 _SANDBOX = str(Path(__file__).resolve().parents[4] / "scripts" / "sandbox")
@@ -55,7 +55,17 @@ class BestFirstRegionOpeningPlanner:
         self.goal_radius = params.get("region_goal_radius_m")
         self.goal_radius = float(self.goal_radius) if self.goal_radius is not None else None
         self.min_reachable = int(params.get("region_success_min_reachable", 1))
-        self.min_fraction = float(params.get("region_min_reachable_fraction", 0.0))
+        # Must match region_bfs: an omitted key lands on the canonical bar, so the
+        # two local searches are graded identically. Set explicitly to 0.0 to fall
+        # back to the absolute region_success_min_reachable count.
+        self.min_fraction = float(
+            params.get("region_min_reachable_fraction", CANONICAL_MIN_REACHABLE_FRACTION)
+        )
+        if not (0.0 <= self.min_fraction <= 1.0):
+            raise ValueError(
+                f"Invalid region_min_reachable_fraction: {self.min_fraction}. "
+                "Must be in [0, 1]"
+            )
         self.xml_path = str(params.get("xml_file") or "")
         self.allow_collisions = bool(params.get("region_allow_collisions", True))
 
