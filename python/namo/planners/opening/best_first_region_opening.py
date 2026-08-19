@@ -23,6 +23,14 @@ from .region_opening import AttemptResult, CANONICAL_MIN_REACHABLE_FRACTION
 
 _SANDBOX = str(Path(__file__).resolve().parents[4] / "scripts" / "sandbox")
 
+# Canonical search protocol, from docs/experiments/horizon_q_model_registry.md:
+# every registered best-first evaluation runs hmax=2 with a 900-simulation
+# budget (combine=q, discount off, dedupe+jam on). A config that omits these
+# must land on the evaluated protocol -- a shallower search or a smaller budget
+# produces numbers that cannot be compared to anything in the registry.
+CANONICAL_BEST_FIRST_HMAX = 2
+CANONICAL_KEYHOLE_SIMULATION_BUDGET = 900
+
 
 def _eval_best_first_symbols():
     if _SANDBOX not in sys.path:
@@ -40,12 +48,19 @@ class BestFirstRegionOpeningPlanner:
         self.env = env
         self.config = config
         self.push_budget: PushAttemptBudget = params.get("push_budget") or PushAttemptBudget(
-            int(params.get("full_namo_keyhole_simulation_budget", 100))
+            int(
+                params.get(
+                    "full_namo_keyhole_simulation_budget",
+                    CANONICAL_KEYHOLE_SIMULATION_BUDGET,
+                )
+            )
         )
         self.prior = str(params.get("best_first_prior", "model"))
         if self.prior not in {"model", "uniform"}:
             raise ValueError("best_first_prior must be 'model' or 'uniform'")
-        self.hmax = int(params.get("best_first_hmax", params.get("region_max_chain_depth", 2)))
+        self.hmax = int(params.get("best_first_hmax", CANONICAL_BEST_FIRST_HMAX))
+        if self.hmax < 1:
+            raise ValueError(f"Invalid best_first_hmax: {self.hmax}. Must be at least 1")
         self.agg = str(params.get("best_first_agg", "mean5"))
         self.combine = str(params.get("best_first_combine", "q"))
         self.raw = bool(params.get("best_first_raw", True))
