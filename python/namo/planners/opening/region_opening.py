@@ -37,6 +37,22 @@ from namo.strategies import (
 from namo.planners.opening.ml_driven_search import MLDrivenAsyncSearch
 from namo.planners.utils import PushBudgetExceeded
 
+# Every goal_strategy name accepted by RegionOpeningPlanner._initialize_algorithm.
+# Mirrors the branch conditions in that method -- keep the two in sync when a
+# strategy is added or removed. An unrecognised name is a configuration error,
+# not a silent fallback to "primitive": a stale name would otherwise run a
+# different experiment than the one requested, with nothing in the logs to say so.
+VALID_GOAL_STRATEGIES = frozenset({
+    "primitive",
+    "ml", "ml_primitive",
+    "ml_fallback", "ml_primitive_fallback",
+    "ml_async", "ml_primitive_async",
+    "ml_driven_async",
+    "scorer", "f_scorer",
+    "geometric", "geometric_transport",
+    "random_rollout", "random",
+})
+
 
 def _sort_candidates_sync(
     candidates: List[List[object]],
@@ -771,6 +787,11 @@ class RegionOpeningPlanner(BasePlanner):
                 f"(samples_per_state={algo_params.get('rollout_samples_per_state', None)})"
             )
         else:
+            if strategy_name and strategy_name.lower() not in VALID_GOAL_STRATEGIES:
+                raise ValueError(
+                    f"Unknown goal_strategy {strategy_name!r}. "
+                    f"Valid names: {sorted(VALID_GOAL_STRATEGIES)}"
+                )
             # Use primitive goal strategy for push goals
             self.goal_strategy = PrimitiveGoalStrategy(
                 data_dir=primitive_data_dir,
