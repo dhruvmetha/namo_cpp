@@ -23,7 +23,7 @@ region_ml_ignore_blacklist: false
 region_selection_strategy: cost_first
 
 # Goal strategy for region opening sub-problems
-# Options: primitive | geometric | ml | ml_fallback | ml_async | ml_driven_async
+# Options: primitive | geometric | ml | scorer | random_rollout
 goal_strategy: primitive
 
 # Primitive strategy options (only used when goal_strategy=primitive)

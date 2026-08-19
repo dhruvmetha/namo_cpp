@@ -789,7 +789,8 @@ def main():
 
         # Pass ML params even if goal_strategy is not explicitly set (allows auto-detection)
         if args.ml_goal_model:
-            # Only set goal_strategy to "ml" if not already set (preserve ml_fallback, etc.)
+            # Only set goal_strategy to "ml" if not already set (an explicit
+            # --goal-strategy such as scorer or random_rollout wins).
             if "goal_strategy" not in algorithm_params:
                 algorithm_params["goal_strategy"] = "ml"
             algorithm_params.update({

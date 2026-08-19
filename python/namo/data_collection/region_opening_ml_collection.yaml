@@ -33,7 +33,7 @@ region_chain_link_cost: 11  # Additional cost per chain link beyond first push (
 region_ml_ignore_blacklist: false  # Allow ML-scored primitives to bypass edge blacklist from pre-ML phase
 region_selection_strategy: ml_first  # Frontier priority: "ml_first" (prioritize ML-derived states) or "cost_first" (minimize disruption)
 
-# Goal strategy: primitive | geometric | ml | ml_fallback | ml_async | ml_driven_async
+# Goal strategy: primitive | geometric | ml | scorer | random_rollout
 goal_strategy: ml
 ml_goal_model: /common/users/shared/robot_learning/dm1487/namo/models/img2multi_img/diffusion/single-horizon/crop-size-64-crossattn/2026-01-25/03-11-53
 

@@ -26,7 +26,7 @@ region_chain_link_cost: 11  # Additional cost per chain link beyond first push (
 region_ml_ignore_blacklist: false  # Allow ML-scored primitives to bypass edge blacklist
 region_selection_strategy: cost_first  # Frontier priority: "ml_first" (ML-derived first) or "cost_first" (shallow first)
 
-# Goal strategy: primitive | geometric | ml | ml_fallback | ml_async | ml_driven_async
+# Goal strategy: primitive | geometric | ml | scorer | random_rollout
 goal_strategy: primitive
 
 # Primitive strategy options (only used when goal_strategy=primitive)

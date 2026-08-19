@@ -2106,7 +2106,7 @@ class RegionOpeningPlanner(BasePlanner):
         # Per-node reachable-edge recording (see RegionOpeningStats.reachability_log)
         reachability_log = []
 
-        # Two-phase search for ml_first with ml_fallback:
+        # Two-phase search, gated on selection_strategy == "ml_first":
         # Phase 1: Try ONLY ML goals (score > 0) across ALL depths
         # Phase 2: If Phase 1 fails, try ONLY primitives (score = 0) across ALL depths
         # This ensures ML predictions get global priority before falling back to primitives
