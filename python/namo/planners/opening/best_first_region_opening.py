@@ -18,7 +18,11 @@ from namo.planners.utils import PushAttemptBudget
 from namo.strategies import PrimitiveGoalStrategy
 from namo.strategies.scorer_goal_strategy import _get_scorer
 
-from .region_opening import AttemptResult, CANONICAL_MIN_REACHABLE_FRACTION
+from .region_opening import (
+    AttemptResult,
+    CANONICAL_MIN_REACHABLE_FRACTION,
+    RegionOpeningPlanner,
+)
 
 
 _SANDBOX = str(Path(__file__).resolve().parents[4] / "scripts" / "sandbox")
@@ -116,6 +120,13 @@ class BestFirstRegionOpeningPlanner:
                 f"Invalid region_min_reachable_fraction: {self.min_fraction}. "
                 "Must be in [0, 1]"
             )
+        # Caller-pinned target points, in simulator metres. Same contract as
+        # region_bfs: when supplied, every opening check grades against exactly
+        # these instead of points re-sampled from the current snapshot, so a
+        # boundary survives the re-partitioning a physical push causes.
+        self._pinned_target_points = RegionOpeningPlanner._parse_target_points(
+            params.get("region_target_points")
+        )
         self.xml_path = str(params.get("xml_file") or "")
         self.allow_collisions = bool(params.get("region_allow_collisions", True))
 
@@ -288,10 +299,19 @@ class BestFirstRegionOpeningPlanner:
                     start_time=start_time, sims=0, end="exhausted",
                 )
 
-            bundle = snapshot["region_goals"].get(target_neighbor)
-            region_samples = [
-                (float(g.x), float(g.y), float(g.theta)) for g in (bundle.goals if bundle else [])
-            ]
+            if self._pinned_target_points is not None:
+                # theta is unused by count_reachable_points and by the scorer's
+                # region channel, so a pinned (x, y) is the whole criterion.
+                region_samples = [(x, y, 0.0) for x, y in self._pinned_target_points]
+            else:
+                bundle = snapshot["region_goals"].get(target_neighbor)
+                region_samples = [
+                    (float(g.x), float(g.y), float(g.theta)) for g in (bundle.goals if bundle else [])
+                ]
+            # region_samples feeds BOTH the is_open bar and solve_scene's
+            # region_samples argument, which conditions the ranker's
+            # goal_sample_region channel -- so the model is scored against the
+            # same target the search is graded against.
             xy_samples = [(p[0], p[1]) for p in region_samples]
             before_count, _ = self.env.count_reachable_points(xy_samples) if xy_samples else (0, -1)
             if xy_samples and before_count >= self._minimum_needed(len(xy_samples)):

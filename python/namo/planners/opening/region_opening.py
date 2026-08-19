@@ -362,6 +362,18 @@ class RegionOpeningPlanner(BasePlanner):
                 f"{self._min_reachable_fraction}. Must be in [0, 1]"
             )
 
+        # Caller-pinned target points, in simulator metres. Openings are normally
+        # graded against points re-sampled from the current snapshot, which is
+        # right inside one planning call and wrong across physical pushes: a push
+        # re-partitions free space, so the next call samples different points and
+        # region labels renumber (they are ordinal, not identities). A caller that
+        # must keep working on the same boundary across pushes samples once and
+        # pins the result here, so every later call grades against exactly those
+        # points. Only meaningful together with a pinned target_neighbor.
+        self._pinned_target_points = self._parse_target_points(
+            algo_params.get("region_target_points")
+        )
+
         # Get max recorded solutions per neighbor (subset of found solutions to keep), default: 2
         self.max_recorded_solutions_per_neighbor = algo_params.get(
             "region_max_recorded_solutions_per_neighbor", 2
@@ -3107,6 +3119,16 @@ class RegionOpeningPlanner(BasePlanner):
         # Return all successful results found across all depths
         return all_successful_results, min_depth_found if min_depth_found else 0, frontier_nodes, any_wall_collision_during_search, movable_collisions_during_search, trial_log
 
+    @staticmethod
+    def _parse_target_points(raw) -> Optional[List[Tuple[float, float]]]:
+        """Normalise region_target_points to a list of (x, y) in simulator metres."""
+        if raw is None:
+            return None
+        points = [(float(p[0]), float(p[1])) for p in raw]
+        if not points:
+            raise ValueError("region_target_points must not be empty when supplied")
+        return points
+
     def _validate_opening(
         self,
         neighbour_label: str,
@@ -3134,26 +3156,32 @@ class RegionOpeningPlanner(BasePlanner):
         reachability_calls = 0
         reachability_ms_total = 0.0
         try:
-            # Get region goals for this neighbour
-            if neighbour_label not in region_goals:
-                return False, 0, None, None
+            if self._pinned_target_points is not None:
+                # Pinned: the caller owns the criterion, so ignore whatever this
+                # snapshot happened to sample. theta is not part of the test.
+                all_goals = [(x, y, 0.0) for x, y in self._pinned_target_points]
+                xy_points = list(self._pinned_target_points)
+            else:
+                # Get region goals for this neighbour
+                if neighbour_label not in region_goals:
+                    return False, 0, None, None
 
-            bundle = region_goals[neighbour_label]
-            if not bundle.goals:
-                return False, 0, None, None
+                bundle = region_goals[neighbour_label]
+                if not bundle.goals:
+                    return False, 0, None, None
 
-            # Collect all goal samples for visualization / return value.
-            all_goals = [(g.x, g.y, g.theta) for g in bundle.goals]
+                # Collect all goal samples for visualization / return value.
+                all_goals = [(g.x, g.y, g.theta) for g in bundle.goals]
+                xy_points = [(g.x, g.y) for g in bundle.goals]
 
             # Single C++ call: updates the wavefront once, then performs cheap
             # grid lookups for every (x, y) point. Does NOT mutate the env's
             # robot goal, so the user's task goal is preserved across this call.
-            xy_points = [(g.x, g.y) for g in bundle.goals]
             reachability_start = time.perf_counter()
             reachable_count, first_idx = self.env.count_reachable_points(xy_points)
             reachability_ms_total = (time.perf_counter() - reachability_start) * 1000.0
             reachability_calls = 1
-            goal_checks = len(bundle.goals)
+            goal_checks = len(xy_points)
 
             first_reachable_goal = all_goals[first_idx] if first_idx >= 0 else None
 
@@ -3161,7 +3189,7 @@ class RegionOpeningPlanner(BasePlanner):
             # else the absolute region_success_min_reachable count. Fraction is computed
             # against the points ACTUALLY sampled in this region, floored at 1.
             if self._min_reachable_fraction > 0.0:
-                min_needed = max(1, math.ceil(self._min_reachable_fraction * len(bundle.goals)))
+                min_needed = max(1, math.ceil(self._min_reachable_fraction * len(xy_points)))
             else:
                 min_needed = self._success_min_reachable
 
