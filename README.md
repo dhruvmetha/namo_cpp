@@ -294,7 +294,6 @@ NoHeuristicStrategy()           # Random order (original behavior)
 NearestFirstStrategy()          # Push closest objects to robot first
 GoalProximityStrategy()         # Push objects closest to robot goal first
 FarthestFirstStrategy()         # Push farthest objects first
-MLObjectSelectionStrategy()     # Use ML models to predict best objects
 ```
 
 **Goal Selection Strategies** - Decide where to push selected objects:
@@ -331,7 +330,6 @@ result = planner.search(robot_goal)
 
 - **`NearestFirstStrategy`**: Tries Box A first → may create more obstacles → longer search
 - **`GoalProximityStrategy`**: Tries Box B first → clears goal path directly → faster solution
-- **`MLObjectSelectionStrategy`**: Uses trained models → discovers learned optimal strategies
 
 #### **MCTS Hierarchical Structure**
 
@@ -388,19 +386,14 @@ results = compare_planners(env, robot_goal, configs, num_trials=10)
 #### **ML Integration**
 
 ```python
-# ML strategies integrate trained models
-class MLObjectSelectionStrategy:
-    def select_objects(self, reachable_objects, state, env):
-        # Convert environment to visual input
-        image = env.render_to_image()
+# ML goal strategies integrate trained models
+class MLPrimitiveGoalStrategy:
+    def generate_goals(self, object_id, state, env, max_goals=0):
+        # Ask the trained model where this object should end up
+        predicted_goals = self.goal_model.infer(...)
 
-        # Use trained diffusion model for predictions
-        object_scores = self.ml_model.predict_object_preferences(
-            image, reachable_objects, robot_goal
-        )
-
-        # Return objects ranked by ML predictions
-        return sorted(reachable_objects, key=lambda obj: object_scores[obj], reverse=True)
+        # Keep the motion primitives whose outcome lands near a prediction
+        return self._match_primitives_to_predictions(predicted_goals)
 ```
 
 This modular design enables systematic research: any algorithm can use any strategy combination, allowing researchers to isolate the impact of different decision-making approaches on planning performance.

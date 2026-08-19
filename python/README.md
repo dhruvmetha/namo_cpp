@@ -386,7 +386,7 @@ from namo.planners.full_namo.full_namo_planner import FullNAMOPlanner
 from namo.planners.sampling.random_sampling import RandomSamplingPlanner
 
 # Selection strategies
-from namo.strategies import ObjectSelectionStrategy, MLObjectSelectionStrategy
+from namo.strategies import ObjectSelectionStrategy, MLPrimitiveGoalStrategy
 
 # Data collection
 from namo.data_collection import modular_parallel_collection

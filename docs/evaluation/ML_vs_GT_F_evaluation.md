@@ -84,8 +84,7 @@ End‑to‑end, the planner only uses ML to **order** primitive candidates — i
 1. `modular_parallel_collection.py` parses `--ml-goal-model`, `--ml-samples`, `--ml-match-position-tolerance` (default 0.2 m), `--ml-match-angle-tolerance` (default 0.35 rad), etc., and packs them into `algorithm_params` ([`modular_parallel_collection.py:1246-1283`](../../python/namo/data_collection/modular_parallel_collection.py#L1246)).
 2. `RegionOpeningPlanner` reads those params and constructs goal strategies ([`region_opening.py:455-580`](../../python/namo/planners/opening/region_opening.py#L455)):
    - `goal_strategy="ml"` → ML‑aligned primitives only (model misses → 0 candidates for that object).
-   - `goal_strategy="ml_fallback"` → ML scores + full primitive fallback (score 0).
-   - `goal_strategy="ml_driven_async"` → async ML w/ primitive fallback.
+   - `goal_strategy="scorer"` → learned ranker scores the primitive candidates.
 3. Two‑phase semantics when `region_selection_strategy: ml_first` ([`region_opening.py:1656-1665`](../../python/namo/planners/opening/region_opening.py#L1656)):
    - Phase 1 "ML‑only" tries only score>0 candidates across all depths.
    - Phase 2 "primitives" runs the fallback grid if phase 1 didn't solve.

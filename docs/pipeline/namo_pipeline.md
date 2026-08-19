@@ -235,9 +235,8 @@ All strategies ultimately execute the same discrete primitives; the difference i
 - `primitive` — exhaustive primitive enumeration (with optional edge shuffling).
 - `geometric` — primitive enumeration with geometric transport priority scoring.
 - `ml` (alias `ml_primitive`) — ML-aligned primitives only.
-- `ml_fallback` — ML-first scored slots + full primitive fallback.
-- `ml_async` — same semantics as ml/ml_fallback but ML inference is dispatched on a background thread.
-- `ml_driven_async` — event-driven async search that prioritizes ML results while keeping CPU busy with fallback (see `ML_DRIVEN_ASYNC_ALGORITHM.md`).
+- `scorer` (alias `f_scorer`) — learned ranker orders the primitive candidates.
+- `random_rollout` (alias `random`) — primitive enumeration with random per-state ordering.
 
 ### 7.1 Primitive strategy
 

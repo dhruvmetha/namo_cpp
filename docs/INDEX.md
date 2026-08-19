@@ -112,7 +112,6 @@ The active work now lives in experiment **cards** ([`experiments/log/`](experime
 
 ## docs/algorithms/ — code-tethered reference
 
-- [`ML_DRIVEN_ASYNC_ALGORITHM.md`](algorithms/ML_DRIVEN_ASYNC_ALGORITHM.md) — ML-driven async N-push search spec (GPU/CPU overlap). `[REF]`
 - [`region_opening_primitive.md`](algorithms/region_opening_primitive.md) — region-opening + primitive-goal planner walkthrough. `[REF]`
 - [`push_pruning_and_aborts.md`](algorithms/push_pruning_and_aborts.md) — the 3-layer push prune/abort pipeline. `[REF]`
 - [`REGION_CONNECTIVITY_SNAPSHOT.md`](algorithms/REGION_CONNECTIVITY_SNAPSHOT.md) — C++ region/connectivity snapshot API. `[REF]`

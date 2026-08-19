@@ -62,8 +62,8 @@ These are forwarded via `PlannerConfig.algorithm_params` to the internal `Region
 - `goal_strategy`:
   - `primitive`: purely primitive enumeration.
   - `ml`: ML-aligned primitive slots only.
-  - `ml_fallback`: ML-first with full primitive fallback.
-  - plus other variants (`ml_async`, `ml_driven_async`, etc).
+  - `scorer`: learned ranker orders the primitive candidates.
+  - `geometric`, `random_rollout`: transport-heuristic and random orderings.
 
 If `goal_strategy: primitive`:
 
@@ -113,7 +113,7 @@ region_ml_ignore_blacklist: false
 region_selection_strategy: cost_first
 
 # Goal strategy for region opening sub-problems
-# Options: primitive | geometric | ml | ml_fallback | ml_async | ml_driven_async
+# Options: primitive | geometric | ml | scorer | random_rollout
 goal_strategy: primitive
 
 # Primitive strategy options (only used when goal_strategy=primitive)
