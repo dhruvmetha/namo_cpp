@@ -172,7 +172,9 @@ def test_generator_captures_every_pop_before_the_early_return_on_success():
     """v4 contract on the writer, and the whole point of the change: the post-push state is read for EVERY
     pop -- while the sim still stands in it, and ABOVE the `if opened: return` -- so the winning push of a
     solved episode (which spawns no board, so v3 recorded nothing) is captured too."""
-    src = (REPO_ROOT / "scripts/sandbox/eval_bestfirst.py").read_text()
+    # The search loop moved into the package; eval_bestfirst.py keeps only the
+    # CLI, the capture helpers and the reporting that the sibling tests read.
+    src = (REPO_ROOT / "python/namo/planners/opening/best_first_search.py").read_text()
     loop = src.split("opened = bool(is_open(env))", 1)[1].split("if ndone < hmax:", 1)[0]
     cap = loop.index("pop_geom, pop_regions = capture(s_after)")
     assert cap < loop.index("geom=pop_geom, regions=pop_regions")   # captured before it is written to the pop

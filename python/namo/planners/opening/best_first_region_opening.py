@@ -1,11 +1,9 @@
-"""Region-opening adapter for the canonical eval_bestfirst search loop."""
+"""Region-opening adapter for the canonical best-first search loop."""
 
 from __future__ import annotations
 
 import math
-import sys
 import time
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
@@ -18,14 +16,13 @@ from namo.planners.utils import PushAttemptBudget
 from namo.strategies import PrimitiveGoalStrategy
 from namo.strategies.scorer_goal_strategy import _get_scorer
 
+from .best_first_search import make_action, solve_scene
 from .region_opening import (
     AttemptResult,
     CANONICAL_MIN_REACHABLE_FRACTION,
     RegionOpeningPlanner,
 )
 
-
-_SANDBOX = str(Path(__file__).resolve().parents[4] / "scripts" / "sandbox")
 
 # Canonical search protocol, from docs/experiments/horizon_q_model_registry.md:
 # every registered best-first evaluation runs hmax=2 with a 900-simulation
@@ -34,15 +31,6 @@ _SANDBOX = str(Path(__file__).resolve().parents[4] / "scripts" / "sandbox")
 # produces numbers that cannot be compared to anything in the registry.
 CANONICAL_BEST_FIRST_HMAX = 2
 CANONICAL_KEYHOLE_SIMULATION_BUDGET = 900
-
-
-def _eval_best_first_symbols():
-    if _SANDBOX not in sys.path:
-        sys.path.insert(0, _SANDBOX)
-    from eval_bestfirst import make_action, solve_scene
-
-    return make_action, solve_scene
-
 
 
 class _BlacklistedEdgeFilter:
@@ -349,7 +337,6 @@ class BestFirstRegionOpeningPlanner:
 
             remaining = self.push_budget.remaining
             solution: Dict[str, Any] = {}
-            make_action, solve_scene = _eval_best_first_symbols()
 
             def is_open(env):
                 if not xy_samples:

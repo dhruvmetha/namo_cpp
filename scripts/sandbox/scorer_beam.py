@@ -73,15 +73,7 @@ def make_env(xml):
     return env
 
 
-def make_action(obj, goal):
-    a = namo_rl.Action()
-    a.object_id = obj
-    a.x = float(goal.x)
-    a.y = float(goal.y)
-    a.theta = float(goal.theta)
-    a.edge_idx = int(goal.edge_idx)   # MUST be >= 0
-    a.depth = int(goal.depth)         # MUST be >= 0
-    return a
+from namo.planners.opening.best_first_search import make_action  # noqa: F401 - moved; re-exported for sandbox callers
 
 
 def _spec(obj, g, p):

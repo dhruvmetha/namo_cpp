@@ -1,16 +1,13 @@
-"""What best_first picks today, pinned, because the search lives in a sandbox.
+"""What best_first picks, pinned to exact chains and simulation counts.
 
-BestFirstRegionOpeningPlanner does not contain the search. It inserts
-scripts/sandbox on sys.path at call time and imports solve_scene out of
-eval_bestfirst.py (best_first_region_opening.py:39). Production and the
-evaluation harness therefore run the same function, which makes them agree by
-construction, and test_best_first_protocol_defaults.py already pins the
-parameters to the protocol the registry numbers were measured under.
+These chains were recorded while the search still lived in
+scripts/sandbox/eval_bestfirst.py, reached by inserting that directory on
+sys.path at call time, and they are what proved the move into
+namo.planners.opening.best_first_search changed nothing. They stay as the
+tripwire: fixed scene, fixed seed, exact chain and simulation count.
 
-What neither of those covers is drift. scripts/sandbox is a research area whose
-whole purpose is being edited freely, and an edit to the search loop changes
-what the robot does with nothing failing. These tests are the tripwire: fixed
-scene, fixed seed, exact chain and simulation count.
+test_best_first_protocol_defaults.py pins the search parameters to the protocol
+the registry numbers were measured under. This file pins the answers.
 
 A failure here is not automatically a bug. It means the search now behaves
 differently, and someone has to decide whether that was intended. If it was,
@@ -18,16 +15,13 @@ re-record the values below in the same commit that changed the search, and say
 in the message which numbers moved and why. Silently re-recording them defeats
 the point of the file.
 
-Re-record by running, with NAMO_SCRATCH set:
-
-    PYTHONPATH=build_python:python python -c "..."   # see _solve() below
+Re-record with the _solve() call below, printing the chain and sims.
 
 Uniform prior deliberately, not model. It exercises the same search loop,
 ordering and budget accounting without needing a torch checkpoint, so the
 tripwire runs anywhere the binding does.
 """
 
-import os
 import re
 from pathlib import Path
 
@@ -56,13 +50,8 @@ RECORDED_RUNS = [
 ]
 
 pytestmark = pytest.mark.skipif(
-    not REAL_NAMO_RL
-    or not SEPARATED_SCENE.exists()
-    or not os.environ.get("NAMO_SCRATCH"),
-    reason=(
-        "needs the compiled namo_rl binding, the benchmark scene, and "
-        "NAMO_SCRATCH: eval_bestfirst imports namo.paths, which requires it"
-    ),
+    not REAL_NAMO_RL or not SEPARATED_SCENE.exists(),
+    reason="needs the compiled namo_rl binding and the benchmark scene",
 )
 
 
