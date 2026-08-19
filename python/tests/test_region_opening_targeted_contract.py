@@ -45,9 +45,6 @@ class FakeEnv:
 def make_planner(monkeypatch, env):
     def fake_initialize(self):
         self.goal_strategy = SimpleNamespace()
-        self._use_ml_driven_async = False
-        self._primitive_strategy = None
-        self._ml_async_strategy = None
 
     monkeypatch.setattr(RegionOpeningPlanner, "_initialize_algorithm", fake_initialize)
     return RegionOpeningPlanner(env, PlannerConfig())

@@ -23,7 +23,6 @@ _ML_GOAL_STRATEGIES = frozenset(
         "ml_primitive",
         "ml_async",
         "ml_primitive_async",
-        "ml_driven_async",
     }
 )
 _MOTION_PRIMITIVE_FILENAME_MARKER = "motion_primitives_"

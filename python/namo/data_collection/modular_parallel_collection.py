@@ -1086,7 +1086,7 @@ def main():
                         help="Collect goal-strategy timing breakdown for geometric_transport (adds goal_strategy_profile to PKLs)")
     parser.add_argument("--goal-strategy", type=str, default=None,
                         choices=["primitive", "ml", "ml_primitive",
-                                 "ml_async", "ml_primitive_async", "ml_driven_async",
+                                 "ml_async", "ml_primitive_async",
                                  "geometric", "geometric_transport",
                                  "scorer", "f_scorer",
                                  "random_rollout", "random"],

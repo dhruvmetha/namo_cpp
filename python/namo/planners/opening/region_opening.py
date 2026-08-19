@@ -33,7 +33,6 @@ from namo.strategies import (
     GeometricTransportStrategy,
     ScorerGoalStrategy,
 )
-from namo.planners.opening.ml_driven_search import MLDrivenAsyncSearch
 from namo.planners.utils import PushBudgetExceeded
 
 # Every goal_strategy name accepted by RegionOpeningPlanner._initialize_algorithm.
@@ -45,7 +44,6 @@ VALID_GOAL_STRATEGIES = frozenset({
     "primitive",
     "ml", "ml_primitive",
     "ml_async", "ml_primitive_async",
-    "ml_driven_async",
     "scorer", "f_scorer",
     "geometric", "geometric_transport",
     "random_rollout", "random",
@@ -467,10 +465,6 @@ class RegionOpeningPlanner(BasePlanner):
         self.search_delay = 0.5
         self.step_mode = False
 
-        # ML-driven async search flag (set in _initialize_algorithm)
-        self._use_ml_driven_async = False
-        self._primitive_strategy = None
-        self._ml_async_strategy = None
         self._runtime_timing_stats = self._new_runtime_timing_stats()
 
         # Progress reporter state — prints [Progress] line every progress_interval_sec
@@ -680,40 +674,6 @@ class RegionOpeningPlanner(BasePlanner):
                 num_steps=algo_params.get("ml_num_steps"),
             )
             self._debug("▶ Using async ML with primitive pre-execution goal strategy")
-        elif strategy_name and strategy_name.lower() in {"ml_driven_async"}:
-            # ML-Driven Async: uses MLDrivenAsyncSearch with zero idle time guarantee
-            ml_path = algo_params.get("ml_goal_model_path")
-            if not ml_path:
-                raise ValueError("ML driven async requires 'ml_goal_model_path'")
-
-            # Store strategies for MLDrivenAsyncSearch
-            self._primitive_strategy = PrimitiveGoalStrategy(
-                data_dir=primitive_data_dir,
-                verbose=self.config.verbose,
-                primitive_prefix=algo_params.get("primitive_prefix", ""),
-            )
-            self._ml_async_strategy = MLPrimitiveAsyncStrategy(
-                goal_model_path=ml_path,
-                primitive_data_dir=primitive_data_dir,
-                samples=algo_params.get("ml_samples", 32),
-                device=algo_params.get("ml_device", "cuda"),
-                match_position_tolerance=algo_params.get("ml_match_position_tolerance", 0.1),
-                match_angle_tolerance=algo_params.get("ml_match_angle_tolerance", 0.1),
-                angle_weight=algo_params.get("ml_match_angle_weight", 0.5),
-                verbose=self.config.verbose,
-                min_goals_threshold=algo_params.get("ml_min_goals", 1),
-                xml_path=algo_params.get("xml_file"),
-                preloaded_model=algo_params.get("preloaded_goal_model"),
-                k_nearest=algo_params.get("ml_k_nearest", 1),
-                max_workers=1,  # Always 1 - GPU runs 1 ML inference at a time
-                seed=algo_params.get("ml_seed"),
-                sampler_method=algo_params.get("ml_sampler_method"),
-                num_steps=algo_params.get("ml_num_steps"),
-            )
-            # Set goal_strategy to primitive for compatibility (MLDrivenAsyncSearch handles ML internally)
-            self.goal_strategy = self._primitive_strategy
-            self._use_ml_driven_async = True
-            self._debug("▶ Using ML-driven async search (zero idle time, ML priority)")
         elif strategy_name and strategy_name.lower() in {"scorer", "f_scorer"}:
             # Champion 1-push F-scorer ranks candidate pushes by P(opens neighbour region).
             # Same primitive enumeration as the default; only goal.score changes -> RO tries
@@ -1565,9 +1525,14 @@ class RegionOpeningPlanner(BasePlanner):
             else:
                 max_solutions_for_object = self.max_solutions_per_neighbor
 
-            if self._use_ml_driven_async:
-                # Use ML-driven async search
-                successful_goals, min_depth = self._search_with_ml_driven_async(
+            # Use standard BFS search. With sampled collection (sample_k>0), restart with FRESH
+            # random subsets up to sample_restarts times, ONLY while no chain has been found;
+            # merge trial logs across attempts (union of tried cells = the training loss mask).
+            n_attempts = self.sample_restarts if self.sample_k > 0 else 1
+            object_trial_log = []
+            object_reachability_log = []
+            for _attempt in range(max(1, n_attempts)):
+                successful_goals, min_depth, phase_push_counts, solved_in_phase, search_any_wall_collision, search_unique_movable_collision_count, attempt_trial_log, attempt_reach_log = self._search_with_chaining_bfs(
                     object_id,
                     exploration_state,
                     neighbour_label,
@@ -1575,33 +1540,10 @@ class RegionOpeningPlanner(BasePlanner):
                     max_solutions_to_collect=max_solutions_for_object,
                     push_counter=neighbour_push_counter,
                 )
-                # Async search doesn't have phase tracking or trial log yet
-                phase_push_counts = None
-                solved_in_phase = ""
-                search_any_wall_collision = False
-                search_unique_movable_collision_count = 0
-                object_trial_log = []
-                object_reachability_log = []
-            else:
-                # Use standard BFS search. With sampled collection (sample_k>0), restart with FRESH
-                # random subsets up to sample_restarts times, ONLY while no chain has been found;
-                # merge trial logs across attempts (union of tried cells = the training loss mask).
-                n_attempts = self.sample_restarts if self.sample_k > 0 else 1
-                object_trial_log = []
-                object_reachability_log = []
-                for _attempt in range(max(1, n_attempts)):
-                    successful_goals, min_depth, phase_push_counts, solved_in_phase, search_any_wall_collision, search_unique_movable_collision_count, attempt_trial_log, attempt_reach_log = self._search_with_chaining_bfs(
-                        object_id,
-                        exploration_state,
-                        neighbour_label,
-                        region_goals,
-                        max_solutions_to_collect=max_solutions_for_object,
-                        push_counter=neighbour_push_counter,
-                    )
-                    object_trial_log.extend(attempt_trial_log or [])
-                    object_reachability_log.extend(attempt_reach_log or [])
-                    if successful_goals:
-                        break
+                object_trial_log.extend(attempt_trial_log or [])
+                object_reachability_log.extend(attempt_reach_log or [])
+                if successful_goals:
+                    break
 
             object_depth2_censored = any(
                 bool(entry.get("finish_sweep_censored", False))
@@ -3328,90 +3270,6 @@ class RegionOpeningPlanner(BasePlanner):
                 reachability_calls=reachability_calls,
                 reachability_ms=reachability_ms_total,
             )
-
-    def _search_with_ml_driven_async(
-        self,
-        object_id: str,
-        baseline_state: namo_rl.RLState,
-        neighbour_label: str,
-        region_goals: Dict[str, Any],
-        max_solutions_to_collect: Optional[int] = None,
-        push_counter: Optional[Dict[str, int]] = None,
-    ) -> Tuple[List[Tuple[List[Goal], List, List, 'namo_rl.RLState', Optional[Tuple], Optional[List[Tuple]], List, List, int, Optional[int], float]], int]:
-        """ML-driven async search: zero idle time, ML priority, N-push support.
-
-        Uses MLDrivenAsyncSearch to find openings with:
-        - Immediate fallback execution while ML runs in background
-        - ML results jump the queue when ready
-        - CPU never idles waiting for GPU
-
-        Returns same format as _search_with_chaining_bfs for compatibility.
-        """
-        # Create search instance
-        search = MLDrivenAsyncSearch(
-            env=self.env,
-            primitive_strategy=self._primitive_strategy,
-            ml_strategy=self._ml_async_strategy,
-            max_chain_depth=self.max_chain_depth,
-            max_solutions=max_solutions_to_collect or self.max_solutions_per_neighbor,
-            verbose=self.config.verbose,
-            terminate_on_collision=self.terminate_on_collision,
-        )
-
-        # Create validation function (env param unused - uses self.env internally)
-        def validate_fn(_env):
-            return self._validate_opening(neighbour_label, region_goals)
-
-        # Run search
-        solutions = search.search(
-            object_id=object_id,
-            baseline_state=baseline_state,
-            neighbor_label=neighbour_label,
-            validate_opening_fn=validate_fn,
-        )
-
-        # Update push counter
-        if push_counter is not None:
-            push_counter["count"] += search.total_pushes
-
-        # Convert solutions to expected format
-        # Format: (goal_chain, state_obs, post_state_obs, resulting_state,
-        #          region_goal_used, region_goals_sampled, reachable_before,
-        #          reachable_after, total_cost, skill_calls, success_time,
-        #          any_wall_collision, unique_movable_collision_count)
-        results = []
-        min_depth = None
-
-        for sol in solutions:
-            # Get validation info
-            self.env.set_full_state(sol.resulting_state)
-            is_open, reachable_count, region_goal, all_goals = self._validate_opening(
-                neighbour_label, region_goals
-            )
-
-            # Build result tuple (13 elements to match _search_with_chaining_bfs)
-            result = (
-                sol.chain,                                  # goal_chain
-                sol.state_observations,                     # state_obs
-                sol.post_action_observations,               # post_state_obs
-                sol.resulting_state,                        # resulting_state
-                region_goal,                                # region_goal_used
-                all_goals,                                  # region_goals_sampled
-                [],                                         # reachable_before (not tracked)
-                [],                                         # reachable_after (not tracked)
-                sol.num_pushes,                             # total_cost
-                None,                                       # skill_calls_before_success
-                time.time(),                                # success_timestamp
-                sol.any_wall_collision,                     # any_wall_collision
-                sol.unique_movable_collision_count,         # unique_movable_collision_count
-            )
-            results.append(result)
-
-            if min_depth is None or sol.num_pushes < min_depth:
-                min_depth = sol.num_pushes
-
-        return results, min_depth if min_depth else 0
-
 
 # Register the planner with the factory
 from namo.core import PlannerFactory
