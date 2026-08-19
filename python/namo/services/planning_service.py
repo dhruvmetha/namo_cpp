@@ -133,6 +133,22 @@ def _resolve_boundary_target(
     return None, "target_not_immediate_neighbor"
 
 
+def _reporting_attempt(attempts: Sequence[Any]) -> Optional[Any]:
+    """The attempt that produced the returned plan.
+
+    An opener sweeps every candidate object and records one AttemptResult per
+    object, failures included, then takes its action sequence from the first
+    attempt that succeeded. A boundary solved by the second candidate therefore
+    has a failed attempt at index 0. Reading index 0 hands the caller a
+    ``success=True`` result stamped with the reason the first candidate failed
+    and with no resulting state, so read the successful attempt instead.
+    """
+    for attempt in attempts:
+        if getattr(attempt, "success", False):
+            return attempt
+    return attempts[0] if attempts else None
+
+
 def _durable_state(state: Any) -> Optional[Dict[str, List[float]]]:
     """RLState -> plain lists, the repo's convention for a storable state."""
     if state is None:
@@ -569,9 +585,16 @@ class NAMOPlanningService:
         """Flatten an opener's PlannerResult into the external boundary result."""
         stats = result.algorithm_stats or {}
         attempts = stats.get("attempt_results") or []
-        attempt = attempts[0] if attempts else None
-        failure_reason = getattr(attempt, "failure_reason", "") or ""
         summary = stats.get("target_summary") or {}
+        # The opener aggregates across attempts, so its verdict already accounts
+        # for a sweep that failed on one object and solved on another. The
+        # per-attempt reason is the fallback for openers that build no summary.
+        attempt = _reporting_attempt(attempts)
+        failure_reason = str(
+            summary.get("failure_reason")
+            or getattr(attempt, "failure_reason", "")
+            or ""
+        )
 
         actions = [
             NAMOAction(str(a.object_id), int(a.edge_idx), int(a.depth))

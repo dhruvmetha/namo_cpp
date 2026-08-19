@@ -19,6 +19,7 @@ from namo.services import BoundaryOpeningResult, NAMOPlanningService
 from namo.services.planning_service import (
     _boundary_object_set,
     _durable_state,
+    _reporting_attempt,
     _resolve_boundary_target,
 )
 
@@ -92,8 +93,15 @@ def test_boundary_objects_are_read_in_either_direction():
 
 # --- flattening the opener's result ------------------------------------------
 
-def _planner_result(success, attempt, actions=(), stats_extra=None):
-    stats = {"attempt_results": [attempt] if attempt else []}
+def _attempt(failure_reason, success=False, resulting_state=None):
+    """One AttemptResult as the opener records it, one per candidate object."""
+    return SimpleNamespace(
+        success=success, failure_reason=failure_reason, resulting_state=resulting_state
+    )
+
+
+def _planner_result(success, attempts, actions=(), stats_extra=None):
+    stats = {"attempt_results": [a for a in attempts if a is not None]}
     stats.update(stats_extra or {})
     return SimpleNamespace(
         success=success,
@@ -109,9 +117,9 @@ def _flatten(result):
 
 def test_already_open_is_a_success_with_nothing_to_execute():
     """plan_from_xml reports this as failure because it needs a non-empty plan."""
-    attempt = SimpleNamespace(failure_reason="already_accessible", resulting_state=None)
+    attempt = _attempt("already_accessible")
 
-    flat = _flatten(_planner_result(True, attempt))
+    flat = _flatten(_planner_result(True, [attempt]))
 
     assert flat.success is True
     assert flat.already_open is True
@@ -119,22 +127,22 @@ def test_already_open_is_a_success_with_nothing_to_execute():
 
 
 def test_actions_are_flattened_and_sentinels_dropped():
-    attempt = SimpleNamespace(failure_reason="success", resulting_state=None)
+    attempt = _attempt("success", success=True)
     actions = [
         SimpleNamespace(object_id="box_b", edge_idx=17, depth=1),
         SimpleNamespace(object_id="box_b", edge_idx=-1, depth=0),
     ]
 
-    flat = _flatten(_planner_result(True, attempt, actions))
+    flat = _flatten(_planner_result(True, [attempt], actions))
 
     assert [(a.object_id, a.edge_idx, a.depth) for a in flat.actions] == [("box_b", 17, 1)]
 
 
 def test_boundary_exhausted_is_surfaced():
-    attempt = SimpleNamespace(failure_reason="all_pushes_failed", resulting_state=None)
+    attempt = _attempt("all_pushes_failed")
     stats = {"target_summary": {"boundary_exhausted": True}}
 
-    flat = _flatten(_planner_result(False, attempt, stats_extra=stats))
+    flat = _flatten(_planner_result(False, [attempt], stats_extra=stats))
 
     assert flat.boundary_exhausted is True
     assert flat.failure_reason == "all_pushes_failed"
@@ -142,13 +150,59 @@ def test_boundary_exhausted_is_surfaced():
 
 def test_resulting_state_is_stored_as_plain_lists():
     """RLState is not picklable, so the executor gets qpos/qvel it can persist."""
-    attempt = SimpleNamespace(
-        failure_reason="success", resulting_state=SimpleNamespace(qpos=[1, 2], qvel=[0, 0])
+    attempt = _attempt(
+        "success", success=True, resulting_state=SimpleNamespace(qpos=[1, 2], qvel=[0, 0])
     )
 
-    flat = _flatten(_planner_result(True, attempt))
+    flat = _flatten(_planner_result(True, [attempt]))
 
     assert flat.resulting_state == {"qpos": [1.0, 2.0], "qvel": [0.0, 0.0]}
+
+
+def test_a_sweep_that_failed_then_succeeded_reports_the_successful_attempt():
+    """The opener tries every candidate object and keeps the failures.
+
+    Regression: reading attempt_results[0] returned success=True carrying the
+    first candidate's all_pushes_failed and no resulting state, so an executor
+    logged a solved boundary as a failure and had no state to continue from.
+    """
+    state = SimpleNamespace(qpos=[1, 2], qvel=[0, 0])
+    attempts = [
+        _attempt("all_pushes_failed"),
+        _attempt("no_reachable_objects"),
+        _attempt("success", success=True, resulting_state=state),
+    ]
+    actions = [SimpleNamespace(object_id="box_c", edge_idx=3, depth=0)]
+
+    flat = _flatten(_planner_result(True, attempts, actions))
+
+    assert flat.success is True
+    assert flat.failure_reason == "success"
+    assert flat.already_open is False
+    assert flat.resulting_state == {"qpos": [1.0, 2.0], "qvel": [0.0, 0.0]}
+
+
+def test_the_openers_aggregate_verdict_beats_a_single_attempt():
+    """target_summary already accounts for the whole sweep, so trust it."""
+    attempts = [_attempt("all_pushes_failed"), _attempt("success", success=True)]
+    stats = {"target_summary": {"failure_reason": "success"}}
+
+    flat = _flatten(_planner_result(True, attempts, stats_extra=stats))
+
+    assert flat.failure_reason == "success"
+
+
+def test_every_attempt_failing_still_reports_the_first_reason():
+    attempts = [_attempt("all_pushes_failed"), _attempt("no_reachable_objects")]
+
+    flat = _flatten(_planner_result(False, attempts))
+
+    assert flat.success is False
+    assert flat.failure_reason == "all_pushes_failed"
+
+
+def test_reporting_attempt_of_nothing_is_none():
+    assert _reporting_attempt([]) is None
 
 
 def test_durable_state_of_nothing_is_none():
@@ -156,9 +210,9 @@ def test_durable_state_of_nothing_is_none():
 
 
 def test_graded_points_are_echoed_for_the_run_log():
-    attempt = SimpleNamespace(failure_reason="success", resulting_state=None)
+    attempt = _attempt("success", success=True)
 
-    assert _flatten(_planner_result(True, attempt)).graded_points == POINTS
+    assert _flatten(_planner_result(True, [attempt])).graded_points == POINTS
 
 
 # --- input validation --------------------------------------------------------
