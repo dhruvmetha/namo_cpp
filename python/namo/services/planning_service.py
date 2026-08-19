@@ -146,6 +146,25 @@ def _resolve_boundary_target(
     return None, "target_not_immediate_neighbor"
 
 
+def _stale_boundaries(
+    adjacency: Dict[str, Any], blocked_boundaries: Optional[Sequence[Tuple[str, str]]]
+) -> List[Tuple[str, str]]:
+    """Blocked pairs that name no edge in this snapshot.
+
+    Region labels are ordinal, so a blocklist built before a push can name
+    boundaries that no longer exist. Excluding those is harmless, the routing
+    just proceeds as if they were absent, but a caller that never hears about it
+    cannot tell a working blocklist from one that has gone stale.
+    """
+    from namo.planners.full_namo.full_namo_planner import boundary_key
+
+    stale = set()
+    for a, b in blocked_boundaries or ():
+        if b not in (adjacency.get(a) or ()) and a not in (adjacency.get(b) or ()):
+            stale.add(boundary_key(a, b))
+    return sorted(stale)
+
+
 def _reporting_attempt(attempts: Sequence[Any]) -> Optional[Any]:
     """The attempt that produced the returned plan.
 
@@ -186,6 +205,10 @@ class BoundarySelection:
     blocking_objects: List[str] = field(default_factory=list)
     region_path: List[str] = field(default_factory=list)
     goal_already_reachable: bool = False
+    # Pairs from `blocked_boundaries` that name no edge in this snapshot. A
+    # caller that carried a blocklist across a push sees here which entries
+    # stopped meaning anything, instead of silently routing around nothing.
+    stale_blocked_boundaries: List[Tuple[str, str]] = field(default_factory=list)
     failure_reason: str = ""
     error_message: str = ""
 
@@ -386,8 +409,15 @@ class NAMOPlanningService:
 
         The caller freezes the returned points and passes them to
         solve_boundary_from_xml on every subsequent call, so the success bar
-        stops moving when the scene does. `blocked_boundaries` lets a caller
-        exclude boundaries it has already exhausted.
+        stops moving when the scene does.
+
+        `blocked_boundaries` lets a caller exclude boundaries it has already
+        exhausted, as region-label pairs. Labels are ordinal and renumber
+        whenever a push re-partitions free space, so a blocklist is only valid
+        while the scene has not changed. Build it inside one selection episode
+        and drop it after a push. Entries that name no edge in the current
+        snapshot come back in `stale_blocked_boundaries` instead of quietly
+        excluding a boundary that no longer exists.
         """
         try:
             from namo.planners import get_region_snapshot
@@ -415,23 +445,31 @@ class NAMOPlanningService:
                 seed=int(region_snapshot_seed),
                 use_xml_goal=True,
             )
+            adjacency = snapshot.get("adjacency", {})
+            stale = _stale_boundaries(adjacency, blocked_boundaries)
+
             robot_label = snapshot.get("robot_label")
             goal_label = snapshot.get("goal_label")
             if not robot_label or not goal_label:
-                return BoundarySelection(failure_reason="missing_region_labels")
+                return BoundarySelection(
+                    failure_reason="missing_region_labels",
+                    stale_blocked_boundaries=stale,
+                )
 
             blocked = {boundary_key(a, b) for a, b in (blocked_boundaries or ())}
-            path = find_region_path(
-                snapshot.get("adjacency", {}), robot_label, goal_label, blocked
-            )
+            path = find_region_path(adjacency, robot_label, goal_label, blocked)
             if path is None:
-                return BoundarySelection(failure_reason="region_path_exhausted")
+                return BoundarySelection(
+                    failure_reason="region_path_exhausted",
+                    stale_blocked_boundaries=stale,
+                )
             if len(path) < 2:
                 # Robot and goal share a region yet the goal is unreachable --
                 # a graph/reachability disagreement, not something to open.
                 return BoundarySelection(
                     failure_reason="same_region_but_goal_unreachable",
                     region_path=list(path),
+                    stale_blocked_boundaries=stale,
                 )
 
             target = path[1]
@@ -444,6 +482,7 @@ class NAMOPlanningService:
                     failure_reason="target_region_has_no_sampled_points",
                     target_label=target,
                     region_path=list(path),
+                    stale_blocked_boundaries=stale,
                 )
 
             return BoundarySelection(
@@ -456,6 +495,7 @@ class NAMOPlanningService:
                     )
                 ),
                 region_path=list(path),
+                stale_blocked_boundaries=stale,
             )
         except Exception as exc:  # noqa: BLE001 - facade boundary
             return BoundarySelection(

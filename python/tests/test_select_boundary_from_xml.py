@@ -17,6 +17,7 @@ import pytest
 
 from conftest import REAL_NAMO_RL
 from namo.planners.full_namo.full_namo_planner import boundary_key, find_region_path
+from namo.services.planning_service import _stale_boundaries
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 # The one scene on this box where robot and goal sit in different regions.
@@ -25,6 +26,30 @@ SEPARATED_CONFIG = REPO_ROOT / "config" / "namo_config_complete_skill15.yaml"
 
 ROBOT, MIDDLE, GOAL = "robot", "region_3", "goal"
 LINEAR = {ROBOT: {MIDDLE}, MIDDLE: {ROBOT, GOAL}, GOAL: {MIDDLE}}
+
+
+# --- carrying a blocklist across a push --------------------------------------
+
+def test_a_blocklist_naming_a_live_edge_is_not_stale():
+    assert _stale_boundaries(LINEAR, [(ROBOT, MIDDLE)]) == []
+
+
+def test_an_edge_that_renumbered_away_is_reported_stale():
+    """Labels are ordinal, so a push can leave a blocklist naming nothing."""
+    stale = _stale_boundaries(LINEAR, [(ROBOT, "region_9")])
+
+    assert stale == [boundary_key(ROBOT, "region_9")]
+
+
+def test_staleness_reads_the_edge_in_either_direction():
+    """Adjacency is stored per endpoint; a one-sided entry is still a live edge."""
+    one_sided = {ROBOT: {MIDDLE}, MIDDLE: set()}
+
+    assert _stale_boundaries(one_sided, [(MIDDLE, ROBOT)]) == []
+
+
+def test_no_blocklist_reports_nothing_stale():
+    assert _stale_boundaries(LINEAR, None) == []
 
 
 # --- the shared path rule ----------------------------------------------------
