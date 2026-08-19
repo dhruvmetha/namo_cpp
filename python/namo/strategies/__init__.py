@@ -22,7 +22,6 @@ from .primitive_goal_strategy import (
     MotionPrimitiveLoader,
     Primitive,
     MLPrimitiveGoalStrategy,
-    MLPrimitiveFallbackStrategy,
     MLPrimitiveAsyncStrategy,
     AsyncGoalResult
 )
@@ -46,7 +45,6 @@ __all__ = [
     "MotionPrimitiveLoader",
     "Primitive",
     "MLPrimitiveGoalStrategy",
-    "MLPrimitiveFallbackStrategy",
     "MLPrimitiveAsyncStrategy",
     "AsyncGoalResult"
 ]

@@ -28,7 +28,6 @@ from namo.strategies import (
     RandomRolloutGoalStrategy,
     Goal,
     MLPrimitiveGoalStrategy,
-    MLPrimitiveFallbackStrategy,
     MLPrimitiveAsyncStrategy,
     AsyncGoalResult,
     GeometricTransportStrategy,
@@ -45,7 +44,6 @@ from namo.planners.utils import PushBudgetExceeded
 VALID_GOAL_STRATEGIES = frozenset({
     "primitive",
     "ml", "ml_primitive",
-    "ml_fallback", "ml_primitive_fallback",
     "ml_async", "ml_primitive_async",
     "ml_driven_async",
     "scorer", "f_scorer",
@@ -658,32 +656,6 @@ class RegionOpeningPlanner(BasePlanner):
                 namo_config_path=algo_params.get("namo_config_path"),
             )
             self._debug("▶ Using ML-aligned primitive goal strategy")
-        elif strategy_name and strategy_name.lower() in {"ml_fallback", "ml_primitive_fallback"}:
-            ml_path = algo_params.get("ml_goal_model_path")
-            if not ml_path:
-                raise ValueError("ML fallback goal sampler requires 'ml_goal_model_path'")
-
-            self.goal_strategy = MLPrimitiveFallbackStrategy(
-                goal_model_path=ml_path,
-                primitive_data_dir=primitive_data_dir,
-                samples=algo_params.get("ml_samples", 32),
-                device=algo_params.get("ml_device", "cuda"),
-                match_position_tolerance=algo_params.get("ml_match_position_tolerance", 0.1),
-                match_angle_tolerance=algo_params.get("ml_match_angle_tolerance", 0.1),
-                angle_weight=algo_params.get("ml_match_angle_weight", 0.5),
-                max_matches=algo_params.get("ml_match_max_per_call", 8),
-                verbose=self.config.verbose,
-                min_goals_threshold=algo_params.get("ml_min_goals", 1),
-                xml_path=algo_params.get("xml_file"),
-                preview_mask_count=algo_params.get("preview_ml_goal_masks", 0),
-                preloaded_model=algo_params.get("preloaded_goal_model"),
-                preview_aligned_primitives=algo_params.get("preview_aligned_primitives", False),
-                k_nearest=algo_params.get("ml_k_nearest", 1),
-                seed=algo_params.get("ml_seed"),
-                sampler_method=algo_params.get("ml_sampler_method"),
-                num_steps=algo_params.get("ml_num_steps"),
-            )
-            self._debug("▶ Using ML-first with primitive fallback goal strategy")
         elif strategy_name and strategy_name.lower() in {"ml_async", "ml_primitive_async"}:
             ml_path = algo_params.get("ml_goal_model_path")
             if not ml_path:

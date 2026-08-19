@@ -21,8 +21,6 @@ _ML_GOAL_STRATEGIES = frozenset(
     {
         "ml",
         "ml_primitive",
-        "ml_fallback",
-        "ml_primitive_fallback",
         "ml_async",
         "ml_primitive_async",
         "ml_driven_async",
