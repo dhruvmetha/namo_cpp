@@ -10,7 +10,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 import namo_rl
 
@@ -52,6 +52,92 @@ class NAMOPlanResult:
     search_time_ms: float = 0.0
     error_message: str = ""
     algorithm_stats: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class BoundaryOpeningResult:
+    """Outcome of solving ONE pinned region boundary.
+
+    Distinct from NAMOPlanResult because an external executor needs things that
+    result cannot carry: the state to continue from, why a boundary failed, and
+    the fact that a boundary was *already* open -- which NAMOPlanResult reports
+    as failure, since it derives success from a non-empty action list.
+    """
+
+    success: bool = False
+    # True when the boundary already cleared the bar with zero pushes. Success,
+    # but with nothing to execute.
+    already_open: bool = False
+    actions: List[NAMOAction] = field(default_factory=list)
+    # The label resolved for THIS call. Not durable -- labels renumber whenever
+    # free space changes. Recorded for diagnostics only.
+    resolved_target: str = ""
+    blocking_objects: List[str] = field(default_factory=list)
+    # Echo of the points the opening was graded against, so a run log records
+    # the criterion and not just the verdict.
+    graded_points: List[Tuple[float, float]] = field(default_factory=list)
+    failure_reason: str = ""
+    boundary_exhausted: bool = False
+    # RLState is not picklable; the repo's convention is plain qpos/qvel lists.
+    resulting_state: Optional[Dict[str, List[float]]] = None
+    simulations_used: int = 0
+    simulation_budget_limit: Optional[int] = None
+    search_time_ms: float = 0.0
+    target_summary: Optional[Dict[str, Any]] = None
+    error_message: str = ""
+
+
+def _boundary_object_set(
+    edge_objects: Dict[str, Dict[str, Sequence[str]]], source: str, target: str
+) -> Set[str]:
+    """Objects blocking the source-target boundary, either direction."""
+    forward = edge_objects.get(source, {}).get(target) or []
+    reverse = edge_objects.get(target, {}).get(source) or []
+    return {str(o) for o in forward} | {str(o) for o in reverse}
+
+
+def _resolve_boundary_target(
+    snapshot: Dict[str, Any],
+    blocking_objects: Optional[Sequence[str]],
+    target_hint: Optional[str],
+) -> Tuple[Optional[str], str]:
+    """Find which immediate neighbour is the caller's boundary, in this snapshot.
+
+    A caller cannot persist a region label: labels are ordinal, so they renumber
+    whenever a push re-partitions free space. The durable handle is the set of
+    objects blocking the boundary, so that is tried first; a label hint is only
+    a fallback for the first call, before anything has moved.
+    """
+    robot_label = snapshot.get("robot_label")
+    neighbours = sorted(snapshot.get("adjacency", {}).get(robot_label, ()))
+    if not neighbours:
+        return None, "no_immediate_neighbors"
+
+    if blocking_objects:
+        wanted = {str(o) for o in blocking_objects}
+        best_label, best_overlap = None, 0
+        for neighbour in neighbours:
+            overlap = len(wanted & _boundary_object_set(
+                snapshot.get("edge_objects", {}), robot_label, neighbour
+            ))
+            if overlap > best_overlap:
+                best_label, best_overlap = neighbour, overlap
+        if best_label is not None:
+            return best_label, ""
+
+    if target_hint and target_hint in neighbours:
+        return target_hint, ""
+
+    # The boundary merged away, or the robot is no longer beside it. The caller
+    # must re-choose at the outer level; this is a normal outcome, not an error.
+    return None, "target_not_immediate_neighbor"
+
+
+def _durable_state(state: Any) -> Optional[Dict[str, List[float]]]:
+    """RLState -> plain lists, the repo's convention for a storable state."""
+    if state is None:
+        return None
+    return {"qpos": [float(v) for v in state.qpos], "qvel": [float(v) for v in state.qvel]}
 
 
 class NAMOPlanningService:
@@ -230,6 +316,169 @@ class NAMOPlanningService:
                 "compute_time_ms": (time.perf_counter() - start_time) * 1000.0,
                 "error_message": f"Reachability failed for {xml_path}: {exc}",
             }
+
+    def solve_boundary_from_xml(
+        self,
+        xml_path: str,
+        robot_goal: Tuple[float, float, float],
+        target_points: Sequence[Tuple[float, float]],
+        *,
+        blocking_objects: Optional[Sequence[str]] = None,
+        target_neighbor: Optional[str] = None,
+        local_search: str = "region_bfs",
+        starting_robot_pose: Optional[Tuple[float, float, float]] = None,
+        goals_per_region: Optional[int] = None,
+        **kwargs: Any,
+    ) -> BoundaryOpeningResult:
+        """Open ONE specific region boundary, graded against caller-supplied points.
+
+        ``plan_from_xml`` solves the whole problem: it rebuilds the region graph
+        and chooses its own next boundary every call. An executor that runs one
+        physical push at a time cannot use that, because the choice is remade
+        after every push and a setup push can strand itself against a boundary
+        the next call no longer targets. This method takes the choice as input.
+
+        ``target_points`` are in simulator metres and are the whole success
+        criterion: sample them once, pass the same list every call, and the bar
+        stays fixed no matter how the scene re-partitions. ``blocking_objects``
+        is the durable identity of the boundary; the label is re-resolved per
+        call because labels renumber.
+
+        Returns a typed result rather than raising for the ordinary failures --
+        a boundary that merged away or ran out of pushes is an outcome the
+        caller must handle, not an exception.
+        """
+        start_time = time.perf_counter()
+        points = [(float(px), float(py)) for px, py in target_points]
+        if not points:
+            raise ValueError("target_points must not be empty")
+        if local_search not in ("region_bfs", "best_first"):
+            raise ValueError(
+                f"Unknown local_search {local_search!r}. Valid: region_bfs, best_first"
+            )
+
+        def _elapsed_ms() -> float:
+            return (time.perf_counter() - start_time) * 1000.0
+
+        try:
+            from namo.planners import get_region_snapshot
+
+            env = self._create_environment(xml_path, starting_robot_pose)
+            env.set_robot_goal(*robot_goal)
+
+            config_kwargs: Dict[str, Any] = {"verbose": self._verbose}
+            if goals_per_region is not None:
+                config_kwargs["goals_per_region"] = goals_per_region
+            resolved_goals_per_region = PlannerConfig(**config_kwargs).goals_per_region
+
+            snapshot = get_region_snapshot(
+                env,
+                goals_per_region=resolved_goals_per_region,
+                local_info_only=True,
+                seed=int(kwargs.get("region_snapshot_seed", 42)),
+                use_xml_goal=True,
+            )
+            resolved_target, resolve_error = _resolve_boundary_target(
+                snapshot, blocking_objects, target_neighbor
+            )
+            if resolved_target is None:
+                return BoundaryOpeningResult(
+                    failure_reason=resolve_error,
+                    graded_points=points,
+                    search_time_ms=_elapsed_ms(),
+                )
+
+            boundary = sorted(
+                _boundary_object_set(
+                    snapshot.get("edge_objects", {}),
+                    snapshot.get("robot_label"),
+                    resolved_target,
+                )
+            )
+
+            algorithm_params: Dict[str, Any] = {
+                "primitive_data_dir": self._primitive_data_dir,
+                "xml_file": xml_path,
+                "namo_config_path": self._config_path,
+                "region_target_points": points,
+            }
+            algorithm_params.update(kwargs)
+            if "primitive_prefix" not in algorithm_params:
+                prefix = self._derive_primitive_prefix()
+                if prefix:
+                    algorithm_params["primitive_prefix"] = prefix
+            if "max_push_steps" not in algorithm_params:
+                max_push_steps = self._max_push_steps_from_config()
+                if max_push_steps is not None:
+                    algorithm_params["max_push_steps"] = max_push_steps
+
+            config = PlannerConfig(
+                algorithm_params=algorithm_params, **config_kwargs
+            )
+            # BestFirstRegionOpeningPlanner is not registered with PlannerFactory,
+            # and neither opener is reachable through it with a pinned target, so
+            # construct directly -- as solvability_runner already does.
+            if local_search == "best_first":
+                from namo.planners.opening.best_first_region_opening import (
+                    BestFirstRegionOpeningPlanner,
+                )
+
+                opener = BestFirstRegionOpeningPlanner(env, config)
+            else:
+                from namo.planners.opening.region_opening import RegionOpeningPlanner
+
+                opener = RegionOpeningPlanner(env, config)
+
+            result = opener.search(robot_goal, target_neighbor=resolved_target)
+            return self._boundary_result(
+                result, resolved_target, boundary, points, _elapsed_ms()
+            )
+        except Exception as exc:  # noqa: BLE001 - facade boundary
+            return BoundaryOpeningResult(
+                failure_reason="exception",
+                graded_points=points,
+                error_message=f"Boundary opening failed for {xml_path}: {exc}",
+                search_time_ms=_elapsed_ms(),
+            )
+
+    @staticmethod
+    def _boundary_result(
+        result: PlannerResult,
+        resolved_target: str,
+        blocking_objects: List[str],
+        points: List[Tuple[float, float]],
+        elapsed_ms: float,
+    ) -> BoundaryOpeningResult:
+        """Flatten an opener's PlannerResult into the external boundary result."""
+        stats = result.algorithm_stats or {}
+        attempts = stats.get("attempt_results") or []
+        attempt = attempts[0] if attempts else None
+        failure_reason = getattr(attempt, "failure_reason", "") or ""
+        summary = stats.get("target_summary") or {}
+
+        actions = [
+            NAMOAction(str(a.object_id), int(a.edge_idx), int(a.depth))
+            for a in (result.action_sequence or [])
+            if int(a.edge_idx) >= 0 and int(a.depth) >= 0
+        ]
+        return BoundaryOpeningResult(
+            # Deliberately NOT `and bool(actions)`: a boundary that was already
+            # open is a success with nothing to execute.
+            success=bool(result.success),
+            already_open=failure_reason == "already_accessible",
+            actions=actions,
+            resolved_target=resolved_target,
+            blocking_objects=blocking_objects,
+            graded_points=points,
+            failure_reason=failure_reason,
+            boundary_exhausted=bool(summary.get("boundary_exhausted", False)),
+            resulting_state=_durable_state(getattr(attempt, "resulting_state", None)),
+            simulations_used=int(stats.get("simulation_budget_used") or 0),
+            simulation_budget_limit=stats.get("simulation_budget_limit"),
+            search_time_ms=elapsed_ms,
+            target_summary=summary or None,
+            error_message=result.error_message or "",
+        )
 
     def plan_from_xml(
         self,
