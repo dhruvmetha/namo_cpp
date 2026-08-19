@@ -244,7 +244,7 @@ class NAMOPlanningService:
         frontier_beam_width: int = 10000,
         chain_link_cost: int = 11,
         selection_strategy: str = "cost_first",
-        goals_per_region: int = 10,
+        goals_per_region: Optional[int] = None,
         starting_robot_pose: Optional[Tuple[float, float, float]] = None,
         **kwargs: Any,
     ) -> NAMOPlanResult:
@@ -293,11 +293,17 @@ class NAMOPlanningService:
             if goal_model is not None:
                 algorithm_params["preloaded_goal_model"] = goal_model
 
-            config = PlannerConfig(
-                verbose=self._verbose,
-                goals_per_region=goals_per_region,
-                algorithm_params=algorithm_params,
-            )
+            # Omitting the key defers to PlannerConfig's canonical 100. This
+            # facade used to default it to 10, so a caller that did not set it
+            # was graded at ">=2 of 10 sampled points" rather than the canonical
+            # ">=20 of 100" -- the same fraction over a far noisier sample.
+            config_kwargs: Dict[str, Any] = {
+                "verbose": self._verbose,
+                "algorithm_params": algorithm_params,
+            }
+            if goals_per_region is not None:
+                config_kwargs["goals_per_region"] = goals_per_region
+            config = PlannerConfig(**config_kwargs)
             planner = _create_planner(algorithm, env, config)
             env.set_robot_goal(*robot_goal)
             result = planner.search(robot_goal)

@@ -15,7 +15,10 @@ import math
 
 import pytest
 
+import inspect
+
 from namo.core import PlannerConfig
+from namo.services.planning_service import NAMOPlanningService
 from namo.planners.opening.region_opening import (
     CANONICAL_MIN_REACHABLE_FRACTION,
     RegionOpeningPlanner,
@@ -78,3 +81,20 @@ def test_explicit_zero_still_falls_back_to_the_absolute_count():
 def test_out_of_range_fraction_is_rejected(bad):
     with pytest.raises(ValueError, match="region_min_reachable_fraction"):
         _best_first(region_min_reachable_fraction=bad)
+
+
+def test_service_defers_the_sample_size_to_planner_config():
+    """The bar is a fraction, so the sample size is half of it.
+
+    plan_from_xml used to default goals_per_region to 10 while PlannerConfig
+    uses 100. Combined with the 0.2 fraction that graded a service caller at
+    ">=2 of 10 sampled points" instead of ">=20 of 100" -- the same fraction
+    over a sample small enough to be noise. Omitting the argument now defers to
+    PlannerConfig, so there is one canonical sample size.
+    """
+    default = inspect.signature(NAMOPlanningService.plan_from_xml).parameters[
+        "goals_per_region"
+    ].default
+
+    assert default is None
+    assert PlannerConfig().goals_per_region == CANONICAL_GOALS_PER_REGION
