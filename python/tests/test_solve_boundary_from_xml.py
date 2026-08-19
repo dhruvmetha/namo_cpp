@@ -66,6 +66,36 @@ def test_best_overlap_wins_when_the_boundary_partially_changed():
     assert label == FAR
 
 
+def test_equally_matching_neighbours_are_refused_not_guessed():
+    """Both boundaries carry box_a and nothing else, so the objects name neither."""
+    snapshot = _snapshot(edge_objects={ROBOT: {NEAR: ["box_a"], FAR: ["box_a"]}})
+
+    label, err = _resolve_boundary_target(snapshot, ["box_a"], None)
+
+    assert label is None
+    assert err == "ambiguous_boundary"
+
+
+def test_the_closer_match_wins_over_a_boundary_carrying_extras():
+    """Equal overlap, but FAR is blocked by exactly what the caller pinned."""
+    snapshot = _snapshot(
+        edge_objects={ROBOT: {NEAR: ["box_a", "box_x", "box_y"], FAR: ["box_a"]}}
+    )
+
+    label, err = _resolve_boundary_target(snapshot, ["box_a"], None)
+
+    assert (label, err) == (FAR, "")
+
+
+def test_a_label_hint_does_not_rescue_an_ambiguous_object_set():
+    """The hint is for the first call only; here the caller must re-choose."""
+    snapshot = _snapshot(edge_objects={ROBOT: {NEAR: ["box_a"], FAR: ["box_a"]}})
+
+    label, err = _resolve_boundary_target(snapshot, ["box_a"], target_hint=NEAR)
+
+    assert (label, err) == (None, "ambiguous_boundary")
+
+
 def test_label_hint_is_used_when_no_objects_are_supplied():
     label, err = _resolve_boundary_target(_snapshot(), None, target_hint=NEAR)
 

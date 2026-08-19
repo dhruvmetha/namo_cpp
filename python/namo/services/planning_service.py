@@ -107,6 +107,10 @@ def _resolve_boundary_target(
     whenever a push re-partitions free space. The durable handle is the set of
     objects blocking the boundary, so that is tried first; a label hint is only
     a fallback for the first call, before anything has moved.
+
+    Reports ``ambiguous_boundary`` when two neighbours match the objects equally
+    well, because then the objects do not name one boundary and the caller has
+    to re-choose at the outer level.
     """
     robot_label = snapshot.get("robot_label")
     neighbours = sorted(snapshot.get("adjacency", {}).get(robot_label, ()))
@@ -115,15 +119,24 @@ def _resolve_boundary_target(
 
     if blocking_objects:
         wanted = {str(o) for o in blocking_objects}
-        best_label, best_overlap = None, 0
+        edge_objects = snapshot.get("edge_objects", {})
+        scored = []
         for neighbour in neighbours:
-            overlap = len(wanted & _boundary_object_set(
-                snapshot.get("edge_objects", {}), robot_label, neighbour
-            ))
-            if overlap > best_overlap:
-                best_label, best_overlap = neighbour, overlap
-        if best_label is not None:
-            return best_label, ""
+            boundary = _boundary_object_set(edge_objects, robot_label, neighbour)
+            overlap = len(wanted & boundary)
+            if overlap:
+                # Rank on overlap first, then on how much else the boundary
+                # carries. A neighbour blocked by exactly `wanted` beats one
+                # blocked by `wanted` plus two objects the caller never saw.
+                scored.append(((overlap, -len(boundary ^ wanted)), neighbour))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        if len(scored) > 1 and scored[0][0] == scored[1][0]:
+            # Two neighbours match the caller's objects equally well, so the
+            # object set does not identify one boundary. Taking the first by
+            # label order would be a coin flip that reads as a decision.
+            return None, "ambiguous_boundary"
+        if scored:
+            return scored[0][1], ""
 
     if target_hint and target_hint in neighbours:
         return target_hint, ""
