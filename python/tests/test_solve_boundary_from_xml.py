@@ -19,6 +19,7 @@ from namo.services import BoundaryOpeningResult, NAMOPlanningService
 from namo.services.planning_service import (
     _boundary_object_set,
     _durable_state,
+    _region_search_params,
     _reporting_attempt,
     _resolve_boundary_target,
 )
@@ -243,6 +244,72 @@ def test_graded_points_are_echoed_for_the_run_log():
     attempt = _attempt("success", success=True)
 
     assert _flatten(_planner_result(True, [attempt])).graded_points == POINTS
+
+
+# --- the search options, shared with plan_from_xml ---------------------------
+#
+# solve_boundary_from_xml used to name none of these, so a caller holding a
+# boundary across pushes got whatever the openers default to. region_bfs
+# defaults region_max_chain_depth to 1, at which no setup-then-finish chain
+# exists -- the only reason to hold a boundary. Both entry points now build the
+# region_* keys from one table so they cannot diverge again.
+
+def _search_params(**over):
+    kwargs = dict(
+        goal_strategy="primitive", max_chain_depth=1, max_solutions_per_neighbor=1,
+        allow_collisions=True, frontier_beam_width=10000, chain_link_cost=11,
+        selection_strategy="cost_first",
+    )
+    kwargs.update(over)
+    return _region_search_params(**kwargs)
+
+
+@pytest.mark.parametrize("depth", [1, 2, 3])
+def test_chain_depth_becomes_the_key_the_opener_reads(depth):
+    assert _search_params(max_chain_depth=depth)["region_max_chain_depth"] == depth
+
+
+@pytest.mark.parametrize(
+    "caller_name,region_key,value",
+    [
+        ("allow_collisions", "region_allow_collisions", False),
+        ("frontier_beam_width", "region_frontier_beam_width", 25),
+        ("chain_link_cost", "region_chain_link_cost", 7),
+        ("selection_strategy", "region_selection_strategy", "depth_first"),
+        ("max_solutions_per_neighbor", "region_max_solutions_per_neighbor", 4),
+    ],
+)
+def test_each_option_maps_to_the_key_the_opener_reads(caller_name, region_key, value):
+    assert _search_params(**{caller_name: value})[region_key] == value
+
+
+def test_recorded_solutions_follow_the_solution_cap():
+    """One caller-facing name drives both keys, which used to be set twice."""
+    params = _search_params(max_solutions_per_neighbor=3)
+
+    assert params["region_max_recorded_solutions_per_neighbor"] == 3
+
+
+def test_an_absent_timeout_stays_absent():
+    """The opener has its own default; a None must not overwrite it."""
+    assert "region_timeout_per_neighbour_sec" not in _search_params()
+    assert _search_params(timeout_per_neighbour_sec=2.5)[
+        "region_timeout_per_neighbour_sec"
+    ] == 2.5
+
+
+def test_both_entry_points_name_the_same_options():
+    """The regression: holding a boundary must not search differently."""
+    import inspect
+
+    whole = inspect.signature(NAMOPlanningService.plan_from_xml).parameters
+    held = inspect.signature(NAMOPlanningService.solve_boundary_from_xml).parameters
+    shared = set(inspect.signature(_region_search_params).parameters)
+
+    assert shared <= set(whole)
+    assert shared <= set(held)
+    for name in shared:
+        assert whole[name].default == held[name].default, name
 
 
 # --- input validation --------------------------------------------------------

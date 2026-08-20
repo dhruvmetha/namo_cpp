@@ -146,6 +146,42 @@ def _resolve_boundary_target(
     return None, "target_not_immediate_neighbor"
 
 
+def _region_search_params(
+    *,
+    goal_strategy: str,
+    max_chain_depth: int,
+    max_solutions_per_neighbor: int,
+    allow_collisions: bool,
+    frontier_beam_width: int,
+    chain_link_cost: int,
+    selection_strategy: str,
+    timeout_per_neighbour_sec: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Translate caller-facing option names into the region_* keys openers read.
+
+    One copy, because two drifted. plan_from_xml built this inline and
+    solve_boundary_from_xml built none of it, so a caller holding a boundary
+    across pushes got the openers' own defaults. The one that mattered was
+    region_max_chain_depth, which defaults to 1: a held boundary could never be
+    opened by a setup push followed by a finish push, which is the entire reason
+    to hold it.
+    """
+    params: Dict[str, Any] = {
+        "goal_strategy": goal_strategy,
+        "region_max_chain_depth": max_chain_depth,
+        "region_max_solutions_per_neighbor": max_solutions_per_neighbor,
+        "region_max_recorded_solutions_per_neighbor": max_solutions_per_neighbor,
+        "region_allow_collisions": allow_collisions,
+        "region_frontier_beam_width": frontier_beam_width,
+        "region_chain_link_cost": chain_link_cost,
+        "region_selection_strategy": selection_strategy,
+        "region_ml_ignore_blacklist": False,
+    }
+    if timeout_per_neighbour_sec is not None:
+        params["region_timeout_per_neighbour_sec"] = timeout_per_neighbour_sec
+    return params
+
+
 def _stale_boundaries(
     adjacency: Dict[str, Any], blocked_boundaries: Optional[Sequence[Tuple[str, str]]]
 ) -> List[Tuple[str, str]]:
@@ -514,6 +550,17 @@ class NAMOPlanningService:
         local_search: str = "region_bfs",
         starting_robot_pose: Optional[Tuple[float, float, float]] = None,
         goals_per_region: Optional[int] = None,
+        # Same names and defaults as plan_from_xml. A held boundary is solved by
+        # the same openers under the same protocol, so a caller must not have to
+        # know the region_* keys to reach them.
+        goal_strategy: str = "primitive",
+        max_chain_depth: int = 1,
+        max_solutions_per_neighbor: int = 1,
+        allow_collisions: bool = True,
+        frontier_beam_width: int = 10000,
+        chain_link_cost: int = 11,
+        selection_strategy: str = "cost_first",
+        timeout_per_neighbour_sec: Optional[float] = None,
         **kwargs: Any,
     ) -> BoundaryOpeningResult:
         """Open ONE specific region boundary, graded against caller-supplied points.
@@ -529,6 +576,13 @@ class NAMOPlanningService:
         stays fixed no matter how the scene re-partitions. ``blocking_objects``
         is the durable identity of the boundary; the label is re-resolved per
         call because labels renumber.
+
+        The search options carry the same names and defaults as
+        ``plan_from_xml`` and route through the same mapping, so holding a
+        boundary cannot silently search differently from planning the whole
+        problem. ``max_chain_depth`` is the one that bites: at the openers' own
+        default of 1 no setup-then-finish chain exists, which is the only reason
+        to hold a boundary in the first place.
 
         Returns a typed result rather than raising for the ordinary failures --
         a boundary that merged away or ran out of pushes is an outcome the
@@ -587,6 +641,16 @@ class NAMOPlanningService:
                 "xml_file": xml_path,
                 "namo_config_path": self._config_path,
                 "region_target_points": points,
+                **_region_search_params(
+                    goal_strategy=goal_strategy,
+                    max_chain_depth=max_chain_depth,
+                    max_solutions_per_neighbor=max_solutions_per_neighbor,
+                    allow_collisions=allow_collisions,
+                    frontier_beam_width=frontier_beam_width,
+                    chain_link_cost=chain_link_cost,
+                    selection_strategy=selection_strategy,
+                    timeout_per_neighbour_sec=timeout_per_neighbour_sec,
+                ),
             }
             algorithm_params.update(kwargs)
             if "primitive_prefix" not in algorithm_params:
@@ -597,6 +661,10 @@ class NAMOPlanningService:
                 max_push_steps = self._max_push_steps_from_config()
                 if max_push_steps is not None:
                     algorithm_params["max_push_steps"] = max_push_steps
+
+            goal_model = self._get_or_load_goal_model(goal_strategy, algorithm_params)
+            if goal_model is not None:
+                algorithm_params["preloaded_goal_model"] = goal_model
 
             config = PlannerConfig(
                 algorithm_params=algorithm_params, **config_kwargs
@@ -699,24 +767,19 @@ class NAMOPlanningService:
 
             algorithm_params: Dict[str, Any] = {
                 "primitive_data_dir": self._primitive_data_dir,
-                "goal_strategy": goal_strategy,
                 "xml_file": xml_path,
                 "namo_config_path": self._config_path,
-                "region_max_chain_depth": max_chain_depth,
-                "region_max_solutions_per_neighbor": max_solutions_per_neighbor,
-                "region_max_recorded_solutions_per_neighbor": (
-                    max_solutions_per_neighbor
+                **_region_search_params(
+                    goal_strategy=goal_strategy,
+                    max_chain_depth=max_chain_depth,
+                    max_solutions_per_neighbor=max_solutions_per_neighbor,
+                    allow_collisions=allow_collisions,
+                    frontier_beam_width=frontier_beam_width,
+                    chain_link_cost=chain_link_cost,
+                    selection_strategy=selection_strategy,
+                    timeout_per_neighbour_sec=timeout_per_neighbour_sec,
                 ),
-                "region_allow_collisions": allow_collisions,
-                "region_frontier_beam_width": frontier_beam_width,
-                "region_chain_link_cost": chain_link_cost,
-                "region_selection_strategy": selection_strategy,
-                "region_ml_ignore_blacklist": False,
             }
-            if timeout_per_neighbour_sec is not None:
-                algorithm_params["region_timeout_per_neighbour_sec"] = (
-                    timeout_per_neighbour_sec
-                )
             algorithm_params.update(kwargs)
 
             if "primitive_prefix" not in algorithm_params:
