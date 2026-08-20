@@ -6,8 +6,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
-from viz.trace_schema import (build_trace, episode_filename, make_board, make_pop,  # noqa: E402
-                              rle_decode, rle_encode)
+import ast
+
+from viz.trace_schema import (SCHEMA_VERSION, build_trace, episode_filename,  # noqa: E402
+                              make_board, make_pop, rle_decode, rle_encode)
 
 
 def test_episode_filename_uses_stem_and_object_id():
@@ -97,17 +99,24 @@ def test_pop_carries_the_state_its_push_reached_in_the_board_shape():
     assert set(make_board(0, 0, -1, -1, [], None, 1.0, 0, geom=geom, regions=regions)) >= {"geom", "regions"}
 
 
-def test_pop_keeps_every_pre_v4_field_unchanged():
-    """Purely additive: the v3 key set must survive verbatim, since the page and every analysis script
-    read these by name."""
+def test_pop_keeps_every_earlier_field_unchanged():
+    """Every schema bump has been additive, and the page and analysis scripts read these by name.
+
+    Listing the whole key set is deliberate: a field disappearing has to fail here, and a new one has
+    to be added consciously rather than slipping in. v5 added "fail"; v6 widened it from a reason
+    string to the full cause, which does not change the key set."""
     p = make_pop(7, 3, "o", 12, 1, 0.4, 0.5, 0.2, False)
     assert set(p) == {"t", "board_id", "obj", "edge", "depth", "q", "bp", "w", "se", "opened",
-                      "geom", "regions"}
+                      "geom", "regions", "fail"}
 
 
+# Every knob the queue order depends on. dedupe_noop and prune_jam_depth joined
+# the required set below without joining this fixture, so the contract test was
+# failing on its own inputs rather than on the writer.
 SEARCH_PARAMS = {"hmax": 2, "sim_budget": 30, "prior": "model", "agg": "mean5", "combine": "blend",
                  "discount": "conf", "gamma": 0.65, "tau": 0.15, "eps": 1e-3, "w0_mode": "one",
-                 "free_strike_q": 2.0, "dive_bonus": 0.0, "raw": False, "gtable": None}
+                 "free_strike_q": 2.0, "dive_bonus": 0.0, "raw": False, "gtable": None,
+                 "dedupe_noop": True, "prune_jam_depth": True}
 
 
 def test_build_trace_is_json_serializable_and_versioned():
@@ -121,7 +130,11 @@ def test_build_trace_is_json_serializable_and_versioned():
         pops=[make_pop(1, 0, "o", 5, 0, 0.9, 0.9, 1.0, True)],
         result={"solved": True, "sims": 1, "plan_len": 1, "end": "solved"},
     )
-    assert doc["schema_version"] == 4
+    # Against the module, not a literal. A literal here says nothing about the
+    # writer and goes stale on every bump, which is how this sat at 4 while the
+    # writer moved to 6.
+    assert doc["schema_version"] == SCHEMA_VERSION
+    assert isinstance(doc["schema_version"], int)
     assert doc["result"]["solved"] is True
     json.dumps(doc)
 
@@ -156,16 +169,37 @@ def test_generator_defaults_to_and_records_dedupe_and_jam_pruning():
     assert '"prune_jam_depth": bool(a.prune_jam_depth)' in src
 
 
+def _calls_of(tree, name):
+    return [
+        n for n in ast.walk(tree)
+        if isinstance(n, ast.Call) and getattr(n.func, "id", None) == name
+    ]
+
+
 def test_generator_records_geometry_per_board_and_only_under_trace_out():
     """v3 contract on the writer: boards are built with geom/regions, the capture is created only on
     the --trace-out path (so the flag-off run stays byte-identical), and it restores the sim state
-    before reading, since the scorer moves it."""
+    before reading, since the scorer moves it.
+
+    The trace-out guard is checked by parsing rather than by slicing the source on a marker. The old
+    slice assumed the second `if a.trace_out:` block came after the capture, and broke when the file
+    was reordered, which says nothing about whether the guard still holds."""
     src = (REPO_ROOT / "scripts/sandbox/eval_bestfirst.py").read_text()
     assert 'geom=b["geom"], regions=b["regions"]' in src
     body = src.split("def _make_capture(", 1)[1].split("\ndef main(", 1)[0]
     assert body.count("env.set_full_state(state)") == 2      # restore on entry AND after the snapshot
     assert "rle_encode(rm.tolist())" in body
-    assert "capture = _make_capture(" in src.split("if a.trace_out:", 2)[-1]
+
+    tree = ast.parse(src)
+    guards = [
+        n for n in ast.walk(tree)
+        if isinstance(n, ast.If) and "trace_out" in ast.dump(n.test)
+    ]
+    guarded = {id(c) for g in guards for c in _calls_of(g, "_make_capture")}
+    every = _calls_of(tree, "_make_capture")
+
+    assert every, "the generator no longer builds a capture at all"
+    assert {id(c) for c in every} == guarded
 
 
 def test_generator_captures_every_pop_before_the_early_return_on_success():
