@@ -143,7 +143,9 @@ def _planner_result(success, attempts, actions=(), stats_extra=None):
 
 
 def _flatten(result):
-    return NAMOPlanningService._boundary_result(result, FAR, ["box_b"], POINTS, 1.0)
+    return NAMOPlanningService._boundary_result(
+        result, ROBOT, FAR, ["box_b"], POINTS, 1.0
+    )
 
 
 def test_already_open_is_a_success_with_nothing_to_execute():
@@ -238,6 +240,15 @@ def test_reporting_attempt_of_nothing_is_none():
 
 def test_durable_state_of_nothing_is_none():
     assert _durable_state(None) is None
+
+
+def test_both_ends_of_the_boundary_come_from_this_snapshot():
+    """A caller excluding this boundary must not pair one of these with a label
+    it persisted before the last push: labels get reassigned, so the mix can
+    name a live boundary that is not this one."""
+    flat = _flatten(_planner_result(False, [_attempt("all_pushes_failed")]))
+
+    assert (flat.resolved_source, flat.resolved_target) == (ROBOT, FAR)
 
 
 def test_graded_points_are_echoed_for_the_run_log():

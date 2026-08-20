@@ -69,8 +69,12 @@ class BoundaryOpeningResult:
     # but with nothing to execute.
     already_open: bool = False
     actions: List[NAMOAction] = field(default_factory=list)
-    # The label resolved for THIS call. Not durable -- labels renumber whenever
-    # free space changes. Recorded for diagnostics only.
+    # The labels resolved for THIS call. Not durable -- labels renumber whenever
+    # free space changes. Recorded for diagnostics, and so a caller that wants
+    # to exclude this boundary from its next selection can build the pair out of
+    # two labels from the same snapshot rather than mixing one of these with a
+    # label it persisted before the last push.
+    resolved_source: str = ""
     resolved_target: str = ""
     blocking_objects: List[str] = field(default_factory=list)
     # Echo of the points the opening was graded against, so a run log records
@@ -628,11 +632,10 @@ class NAMOPlanningService:
                     search_time_ms=_elapsed_ms(),
                 )
 
+            robot_label = str(snapshot.get("robot_label") or "")
             boundary = sorted(
                 _boundary_object_set(
-                    snapshot.get("edge_objects", {}),
-                    snapshot.get("robot_label"),
-                    resolved_target,
+                    snapshot.get("edge_objects", {}), robot_label, resolved_target
                 )
             )
 
@@ -685,7 +688,7 @@ class NAMOPlanningService:
 
             result = opener.search(robot_goal, target_neighbor=resolved_target)
             return self._boundary_result(
-                result, resolved_target, boundary, points, _elapsed_ms()
+                result, robot_label, resolved_target, boundary, points, _elapsed_ms()
             )
         except Exception as exc:  # noqa: BLE001 - facade boundary
             return BoundaryOpeningResult(
@@ -698,6 +701,7 @@ class NAMOPlanningService:
     @staticmethod
     def _boundary_result(
         result: PlannerResult,
+        resolved_source: str,
         resolved_target: str,
         blocking_objects: List[str],
         points: List[Tuple[float, float]],
@@ -728,6 +732,7 @@ class NAMOPlanningService:
             success=bool(result.success),
             already_open=failure_reason == "already_accessible",
             actions=actions,
+            resolved_source=resolved_source,
             resolved_target=resolved_target,
             blocking_objects=blocking_objects,
             graded_points=points,
