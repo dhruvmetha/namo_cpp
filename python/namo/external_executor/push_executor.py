@@ -8,7 +8,8 @@ semantics from NAMO's internal controller:
 - Each push_step runs control_steps_per_push=250 micro-steps
 - Each micro-step recomputes push_dir from current object pose
 - Control is scaled by force_scaling=1.0
-- Object contact recorded, never terminating; stuck detection ends a push
+- Object contact recorded, never terminating
+- Stuck ends a push; the pose is kept if the object moved, dropped if not
 
 Key differences from internal NAMO controller:
 - Robot physically navigates to pre-contact position (no teleport)
@@ -30,10 +31,24 @@ from .navigation import WavefrontNavigator, NavigationResult
 from .planner_oracle import ChainLink
 
 
+# Mirrors kMinUsefulPushDisplacementM / kMinUsefulPushYawRad in
+# namo_push_controller.cpp. A push that stopped on stuck detection keeps its
+# result once the object has travelled this far or turned this much; below both
+# it produced nothing and the push failed. Two executors, one rule.
+MIN_USEFUL_PUSH_DISPLACEMENT_M = 0.01
+MIN_USEFUL_PUSH_YAW_RAD = math.radians(5.0)
+
+# Ticks to let physics settle once control stops, matching the C++ controller's
+# post-push settle so a preserved pose is a settled one.
+SETTLE_STEPS = 100
+
+
 class PushTermination(Enum):
     """Reason for push termination."""
     COMPLETED = "completed"
     STUCK = "stuck"
+    # Stuck fired, but the object had already moved enough to be worth keeping.
+    STOPPED_EARLY = "stopped_early"
     MAX_STEPS = "max_steps"
     NAV_FAILED = "nav_failed"
 
@@ -48,6 +63,9 @@ class PushStepResult:
     robot_moved: float   # Distance robot moved
     # Walls and movables the pushed object touched. Telemetry, not failure.
     contacts: List[str] = field(default_factory=list)
+    # The object moved and then jammed. The pose is real and the caller should
+    # replan rather than run the remaining push steps.
+    stopped_early: bool = False
 
 
 @dataclass
@@ -61,6 +79,8 @@ class PushResult:
     object_final_pose: SE2Pose
     robot_final_pose: SE2Pose
     collided_with: Optional[str] = None
+    contacts: List[str] = field(default_factory=list)
+    stopped_early: bool = False
 
 
 @dataclass
@@ -238,11 +258,16 @@ class PushExecutor:
         total_micro_steps = 0
         object_total_moved = 0.0
         
+        contacts: List[str] = []
+
         for step in range(push_steps):
             step_result = self._execute_push_step(object_id)
             total_micro_steps += step_result.steps_taken
             object_total_moved += step_result.object_moved
-            
+            for name in step_result.contacts:
+                if name not in contacts:
+                    contacts.append(name)
+
             if not step_result.success:
                 final_obj_pose = self.executor.get_movable_pose(object_id)
                 return PushResult(
@@ -252,7 +277,24 @@ class PushExecutor:
                     total_micro_steps=total_micro_steps,
                     object_total_moved=object_total_moved,
                     object_final_pose=final_obj_pose,
-                    robot_final_pose=self.executor.get_robot_pose()
+                    robot_final_pose=self.executor.get_robot_pose(),
+                    contacts=contacts,
+                )
+
+            if step_result.stopped_early:
+                # The object moved and jammed. Every later push step was chosen
+                # against a world that no longer exists, so stop here and let
+                # the caller replan from the pose it actually reached.
+                return PushResult(
+                    success=True,
+                    termination=PushTermination.STOPPED_EARLY,
+                    push_steps_completed=step + 1,
+                    total_micro_steps=total_micro_steps,
+                    object_total_moved=object_total_moved,
+                    object_final_pose=self.executor.get_movable_pose(object_id),
+                    robot_final_pose=self.executor.get_robot_pose(),
+                    contacts=contacts,
+                    stopped_early=True,
                 )
         
         final_obj_pose = self.executor.get_movable_pose(object_id)
@@ -264,9 +306,16 @@ class PushExecutor:
             total_micro_steps=total_micro_steps,
             object_total_moved=object_total_moved,
             object_final_pose=final_obj_pose,
-            robot_final_pose=self.executor.get_robot_pose()
+            robot_final_pose=self.executor.get_robot_pose(),
+            contacts=contacts,
         )
     
+    def _settle(self) -> None:
+        """Stop driving and let physics come to rest."""
+        self.executor.set_robot_control(0.0, 0.0)
+        for _ in range(SETTLE_STEPS):
+            self.executor.step()
+
     def _execute_push_step(self, object_id: str) -> PushStepResult:
         """Execute a single push_step (control_steps_per_push micro-steps).
         
@@ -318,11 +367,38 @@ class PushExecutor:
                         stuck_check_count += 1
                         
                         if stuck_check_count >= self.stuck_threshold:
+                            moved = self._pose_distance(initial_obj_pose, new_obj_pose)
+                            turned = abs(
+                                self._angle_diff(initial_obj_pose.theta, new_obj_pose.theta)
+                            )
+                            useful = (
+                                moved >= MIN_USEFUL_PUSH_DISPLACEMENT_M
+                                or turned >= MIN_USEFUL_PUSH_YAW_RAD
+                            )
+                            if useful:
+                                # Keep what the object did. Stop driving, let it
+                                # settle, and report it so the caller replans
+                                # instead of running the rest of the push.
+                                self._settle()
+                                settled_pose = self.executor.get_movable_pose(object_id)
+                                return PushStepResult(
+                                    success=True,
+                                    termination=PushTermination.STOPPED_EARLY,
+                                    steps_taken=step + 1,
+                                    object_moved=self._pose_distance(
+                                        initial_obj_pose, settled_pose
+                                    ),
+                                    robot_moved=self._pose_distance(
+                                        initial_robot_pose, self.executor.get_robot_pose()
+                                    ),
+                                    contacts=contacts,
+                                    stopped_early=True,
+                                )
                             return PushStepResult(
                                 success=False,
                                 termination=PushTermination.STUCK,
                                 steps_taken=step + 1,
-                                object_moved=self._pose_distance(initial_obj_pose, new_obj_pose),
+                                object_moved=moved,
                                 robot_moved=self._pose_distance(initial_robot_pose, robot_pose),
                                 contacts=contacts,
                             )
