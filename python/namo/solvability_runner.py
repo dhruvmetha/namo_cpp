@@ -63,6 +63,7 @@ class SolveTask:
     full_namo_max_iterations: Optional[int] = None
     max_push_steps: Optional[int] = None
     audit_next_keyhole_reachability: bool = False
+    preserve_next_keyhole_access: bool = False
 
 
 def _load_namo_config(config_path: str) -> Dict[str, Any]:
@@ -122,6 +123,7 @@ def build_full_namo_planner_config(task: SolveTask) -> PlannerConfig:
         "best_first_combine": "q",
         "best_first_raw": True,
         "full_namo_audit_next_keyhole_reachability": task.audit_next_keyhole_reachability,
+        "full_namo_preserve_next_keyhole_access": task.preserve_next_keyhole_access,
         "region_selection_strategy": task.region_selection_strategy,
         "ml_device": task.ml_device,
     }
@@ -263,6 +265,7 @@ def _build_task(
     full_namo_max_iterations: Optional[int],
     max_push_steps: Optional[int],
     audit_next_keyhole_reachability: bool,
+    preserve_next_keyhole_access: bool,
 ) -> SolveTask:
     return SolveTask(
         xml_path=analysis.xml_path,
@@ -288,6 +291,7 @@ def _build_task(
         full_namo_max_iterations=full_namo_max_iterations,
         max_push_steps=max_push_steps,
         audit_next_keyhole_reachability=audit_next_keyhole_reachability,
+        preserve_next_keyhole_access=preserve_next_keyhole_access,
     )
 
 
@@ -338,6 +342,7 @@ def run_exact_n_solvability(
     workers: int = 1,
     full_namo_max_iterations: Optional[int] = None,
     audit_next_keyhole_reachability: bool = False,
+    preserve_next_keyhole_access: bool = False,
     limit: Optional[int] = None,
 ) -> Dict[str, Any]:
     config_path = _resolve_config_path(repo_root, config_file)
@@ -378,6 +383,7 @@ def run_exact_n_solvability(
         "workers": int(workers),
         "full_namo_max_iterations": full_namo_max_iterations,
         "audit_next_keyhole_reachability": bool(audit_next_keyhole_reachability),
+        "preserve_next_keyhole_access": bool(preserve_next_keyhole_access),
         "max_push_steps": effective_max_push_steps,
     }
     _write_json(output_root / "run_config.json", run_config)
@@ -434,6 +440,7 @@ def run_exact_n_solvability(
             full_namo_max_iterations=full_namo_max_iterations,
             max_push_steps=effective_max_push_steps,
             audit_next_keyhole_reachability=audit_next_keyhole_reachability,
+            preserve_next_keyhole_access=preserve_next_keyhole_access,
         )
         for analysis in selected_analyses
     ]
@@ -615,6 +622,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--preserve-next-keyhole-access",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Keep searching after a locally open first keyhole unless every contact edge "
+            "that was reachable on the next blocker remains reachable"
+        ),
+    )
+    parser.add_argument(
         "--limit",
         type=int,
         default=None,
@@ -659,6 +675,7 @@ def cli_main(argv: Optional[Sequence[str]] = None) -> int:
         workers=args.workers,
         full_namo_max_iterations=args.full_namo_max_iterations,
         audit_next_keyhole_reachability=args.audit_next_keyhole_reachability,
+        preserve_next_keyhole_access=args.preserve_next_keyhole_access,
         limit=args.limit,
     )
     return 0

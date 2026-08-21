@@ -7,9 +7,7 @@
 #     PATH_LENGTH=3 CKPT=/cache/.../HY5U_s2.ckpt \
 #     sbatch --array=0-19 scripts/slurm/multihop_aug9_eval.slurm
 #SBATCH --job-name=mh2_eval
-#SBATCH --partition=main
 #SBATCH --time=02:00:00
-#SBATCH --cpus-per-task=4
 #SBATCH --mem=24G
 #SBATCH --output=logs/%x_%A_%a.out
 set -euo pipefail
@@ -36,10 +34,15 @@ if [ "$start" -ge "$end" ]; then
 fi
 
 cd "$NAMO_REPO"
-source env.amarel.sh
+if [ -f "$NAMO_REPO/env.ilab.sh" ] && [[ "$NAMO_REPO" == /common/* ]]; then
+  source env.ilab.sh
+else
+  source env.amarel.sh
+fi
 export PYTHONPATH="$NAMO_REPO/build_python:$NAMO_REPO/python"
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
-PY=${NAMO_PYTHON:-python}
+PY=${NAMO_PYTHON:?environment did not define NAMO_PYTHON}
+WORKERS=${WORKERS:-1}
 CONFIG="$NAMO_REPO/config/namo_config_complete_skill15_car_1x.yaml"
 shard_out="$OUT/shard_$(printf '%04d' "$task_id")"
 mkdir -p "$shard_out" "$NAMO_REPO/logs"
@@ -47,6 +50,14 @@ sed -n "$((start + 1)),${end}p" "$MANIFEST" > "$shard_out/input.txt"
 audit_args=()
 if [ "${AUDIT_NEXT_KEYHOLE_REACHABILITY:-0}" = "1" ]; then
   audit_args+=(--audit-next-keyhole-reachability)
+fi
+preserve_args=()
+if [ "${PRESERVE_NEXT_KEYHOLE_ACCESS:-0}" = "1" ]; then
+  preserve_args+=(--preserve-next-keyhole-access)
+fi
+limit_args=()
+if [ -n "${INPUT_LIMIT:-}" ]; then
+  limit_args+=(--limit "$INPUT_LIMIT")
 fi
 
 echo "EVAL start $(date) host=$(hostname) task=$task_id range=[$start,$end) total=$total prior=$PRIOR seed=$SEARCH_SEED hop=$PATH_LENGTH"
@@ -68,6 +79,8 @@ echo "EVAL start $(date) host=$(hostname) task=$task_id range=[$start,$end) tota
   --scorer-ckpt "$CKPT" \
   --ml-device cpu \
   "${audit_args[@]}" \
-  --workers "$SLURM_CPUS_PER_TASK" \
+  "${preserve_args[@]}" \
+  "${limit_args[@]}" \
+  --workers "$WORKERS" \
   --output-dir "$shard_out"
 echo "EVAL done $(date) task=$task_id"

@@ -12,6 +12,8 @@ Neither failed loudly. Both produced results that looked like the evaluated
 search and were not.
 """
 
+from types import SimpleNamespace
+
 import pytest
 
 from namo.core import PlannerConfig
@@ -80,3 +82,73 @@ def test_caller_supplied_budget_object_takes_precedence():
     planner = _planner(push_budget=budget, full_namo_keyhole_simulation_budget=300)
 
     assert planner.push_budget is budget
+
+
+def test_candidate_acceptor_keeps_searching_after_first_local_opening(monkeypatch):
+    class CandidateEnv(_StubEnv):
+        def __init__(self):
+            self.reachable = False
+            self.state = {"name": "baseline"}
+
+        def get_full_state(self):
+            return self.state
+
+        def set_full_state(self, state):
+            self.state = state
+
+        def count_reachable_points(self, points):
+            return (len(points) if self.reachable else 0), -1
+
+    env = CandidateEnv()
+    planner = BestFirstRegionOpeningPlanner(
+        env,
+        PlannerConfig(
+            algorithm_params={
+                "best_first_prior": "uniform",
+                "region_success_min_reachable": 1,
+                "region_min_reachable_fraction": 0.0,
+            }
+        ),
+    )
+    snapshot = {
+        "robot_label": "robot",
+        "region_labels": {},
+        "adjacency": {"robot": {"middle"}},
+        "region_goals": {
+            "middle": SimpleNamespace(goals=[SimpleNamespace(x=1.0, y=2.0, theta=0.0)])
+        },
+        "edge_objects": {"robot": {"middle": ["door"]}},
+    }
+    monkeypatch.setattr("namo.planners.get_region_snapshot", lambda *_args, **_kwargs: snapshot)
+
+    def fake_solve_scene(*_args, is_open, solution_out, **_kwargs):
+        env.reachable = True
+        assert is_open(env) is False
+        assert is_open(env) is True
+        solution_out["plan"] = []
+        solution_out["state"] = {"name": "accepted"}
+        return True, 2, 0, [], "solved"
+
+    monkeypatch.setattr(
+        "namo.planners.opening.best_first_region_opening.solve_scene",
+        fake_solve_scene,
+    )
+    decisions = iter(
+        [
+            (False, {"failure_reasons": ["next_contact_edges_lost"]}),
+            (True, {"failure_reasons": []}),
+        ]
+    )
+
+    result = planner.search(
+        (0.0, 0.0, 0.0),
+        target_neighbor="middle",
+        candidate_acceptor=lambda _env: next(decisions),
+    )
+
+    assert result.success is True
+    stats = result.algorithm_stats["future_interface"]
+    assert stats["checks"] == 2
+    assert stats["rejected"] == 1
+    assert stats["accepted"] == 1
+    assert stats["rejection_reasons"] == {"next_contact_edges_lost": 1}

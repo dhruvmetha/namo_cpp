@@ -67,6 +67,7 @@ def test_build_full_namo_planner_config_forwards_nested_region_settings(monkeypa
         full_namo_max_iterations=None,
         max_push_steps=CANONICAL_NUM_DEPTHS,
         audit_next_keyhole_reachability=True,
+        preserve_next_keyhole_access=False,
     )
     config = build_full_namo_planner_config(task)
     planner = FullNAMOPlanner(FakeEnv(), config)
@@ -91,6 +92,74 @@ def test_build_full_namo_planner_config_forwards_nested_region_settings(monkeypa
     assert config.algorithm_params["region_success_min_reachable"] == 3
     assert config.algorithm_params["max_push_steps"] == CANONICAL_NUM_DEPTHS
     assert config.algorithm_params["full_namo_audit_next_keyhole_reachability"] is True
+    assert config.algorithm_params["full_namo_preserve_next_keyhole_access"] is False
+
+
+class _FutureAccessEnv(FakeEnv):
+    def __init__(self, *, pose, edges, goal_reachable=False):
+        super().__init__()
+        self.pose = pose
+        self.edges = edges
+        self.goal_reachable = goal_reachable
+
+    def is_robot_goal_reachable(self):
+        return self.goal_reachable
+
+    def get_observation(self):
+        return {"blocker_pose": self.pose}
+
+    def get_reachable_edges(self, object_id):
+        assert object_id == "blocker"
+        return self.edges
+
+
+def _future_profile():
+    return {
+        "status": "ok",
+        "objects": {
+            "blocker": {
+                "pose_before": [1.0, 2.0, 0.25],
+                "reachable_edges_before": [0, 2],
+            }
+        },
+    }
+
+
+def _future_checker(monkeypatch, env):
+    monkeypatch.setattr(FullNAMOPlanner, "_initialize_algorithm", lambda self: None)
+    planner = FullNAMOPlanner(env, PlannerConfig())
+    return planner._check_next_keyhole_access_candidate(env=env, profile=_future_profile())
+
+
+def test_next_keyhole_gate_accepts_all_original_edges_and_allows_new_edges(monkeypatch):
+    accepted, detail = _future_checker(
+        monkeypatch,
+        _FutureAccessEnv(pose=[1.0, 2.0, 0.25], edges=[0, 1, 2]),
+    )
+
+    assert accepted is True
+    assert detail["objects"]["blocker"]["gained_edges"] == [1]
+
+
+def test_next_keyhole_gate_rejects_lost_edges_or_moved_blocker(monkeypatch):
+    accepted, detail = _future_checker(
+        monkeypatch,
+        _FutureAccessEnv(pose=[1.001, 2.0, 0.25], edges=[0]),
+    )
+
+    assert accepted is False
+    assert detail["failure_reasons"] == ["next_blocker_moved", "next_contact_edges_lost"]
+    assert detail["objects"]["blocker"]["lost_edges"] == [2]
+
+
+def test_next_keyhole_gate_accepts_direct_goal_reachability(monkeypatch):
+    accepted, detail = _future_checker(
+        monkeypatch,
+        _FutureAccessEnv(pose=[9.0, 9.0, 9.0], edges=[], goal_reachable=True),
+    )
+
+    assert accepted is True
+    assert detail["goal_reachable"] is True
 
 
 def test_keyhole_budget_constructs_fresh_local_opener(monkeypatch):

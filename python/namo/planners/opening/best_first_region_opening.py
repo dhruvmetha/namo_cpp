@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import time
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 import namo_rl
 import numpy as np
@@ -178,9 +178,10 @@ class BestFirstRegionOpeningPlanner:
         failure_reason: str,
         attempt_count: int,
         success: bool,
+        future_interface: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         immediate = target in neighbors
-        return {
+        summary = {
             "target_neighbor": target,
             "local_robot_label": robot_label,
             "local_neighbors": sorted(neighbors),
@@ -191,8 +192,12 @@ class BestFirstRegionOpeningPlanner:
             "boundary_exhausted": immediate and not success and failure_reason in {
                 "all_pushes_failed",
                 "no_reachable_objects",
+                "future_interface_not_preserved",
             },
         }
+        if future_interface is not None:
+            summary["future_interface"] = future_interface
+        return summary
 
     def _result(
         self,
@@ -205,6 +210,7 @@ class BestFirstRegionOpeningPlanner:
         sims: int,
         end: str,
         actions: Optional[List[namo_rl.Action]] = None,
+        future_interface: Optional[Dict[str, Any]] = None,
     ) -> PlannerResult:
         success = bool(attempt.success)
         failure_kind = "simulation_budget_exhausted" if end == "budget" and not success else None
@@ -228,8 +234,11 @@ class BestFirstRegionOpeningPlanner:
                 str(attempt.failure_reason),
                 1,
                 success,
+                future_interface,
             ),
         }
+        if future_interface is not None:
+            stats["future_interface"] = future_interface
         if success:
             stats["all_solutions"] = [{
                 "actions": list(actions or []),
@@ -256,11 +265,43 @@ class BestFirstRegionOpeningPlanner:
         self,
         robot_goal: Tuple[float, float, float],
         target_neighbor: Optional[str] = None,
+        candidate_acceptor: Optional[
+            Callable[[namo_rl.RLEnvironment], Tuple[bool, Dict[str, Any]]]
+        ] = None,
     ) -> PlannerResult:
         if target_neighbor is None:
             raise ValueError("best-first region opening requires target_neighbor")
         start_time = time.time()
         baseline = self.env.get_full_state()
+        future_interface: Optional[Dict[str, Any]] = None
+        if candidate_acceptor is not None:
+            future_interface = {
+                "checks": 0,
+                "accepted": 0,
+                "rejected": 0,
+                "rejection_reasons": {},
+                "accepted_detail": None,
+                "first_rejection": None,
+            }
+
+        def accept_future_interface(env) -> bool:
+            if candidate_acceptor is None:
+                return True
+            accepted, detail = candidate_acceptor(env)
+            future_interface["checks"] += 1
+            if accepted:
+                future_interface["accepted"] += 1
+                future_interface["accepted_detail"] = detail
+                return True
+            future_interface["rejected"] += 1
+            if future_interface["first_rejection"] is None:
+                future_interface["first_rejection"] = detail
+            reasons = list(detail.get("failure_reasons") or ["rejected"])
+            counts = future_interface["rejection_reasons"]
+            for reason in reasons:
+                counts[str(reason)] = int(counts.get(str(reason), 0)) + 1
+            return False
+
         try:
             from namo.planners import get_region_snapshot
 
@@ -303,7 +344,11 @@ class BestFirstRegionOpeningPlanner:
             # same target the search is graded against.
             xy_samples = [(p[0], p[1]) for p in region_samples]
             before_count, _ = self.env.count_reachable_points(xy_samples) if xy_samples else (0, -1)
-            if xy_samples and before_count >= self._minimum_needed(len(xy_samples)):
+            if (
+                xy_samples
+                and before_count >= self._minimum_needed(len(xy_samples))
+                and accept_future_interface(self.env)
+            ):
                 attempt = AttemptResult(
                     True,
                     target_neighbor,
@@ -317,6 +362,7 @@ class BestFirstRegionOpeningPlanner:
                 return self._result(
                     target=target_neighbor, robot_label=robot_label, neighbors=neighbors, attempt=attempt,
                     start_time=start_time, sims=0, end="solved", actions=[],
+                    future_interface=future_interface,
                 )
 
             boundary_objects, boundary_error = self._boundary_objects(
@@ -343,7 +389,9 @@ class BestFirstRegionOpeningPlanner:
                 if not xy_samples:
                     return False
                 count, _ = env.count_reachable_points(xy_samples)
-                return count >= self._minimum_needed(len(xy_samples))
+                if count < self._minimum_needed(len(xy_samples)):
+                    return False
+                return accept_future_interface(env)
 
             solved, sims, plan_len, _boards, end = solve_scene(
                 self._search_planner,
@@ -370,9 +418,12 @@ class BestFirstRegionOpeningPlanner:
 
             plan = list(solution.get("plan", []))
             actions = [make_action(obj, goal) for obj, goal in plan]
-            failure_reason = "success" if solved else (
-                "no_reachable_objects" if sims == 0 else "all_pushes_failed"
-            )
+            if solved:
+                failure_reason = "success"
+            elif future_interface is not None and future_interface["rejected"] > 0:
+                failure_reason = "future_interface_not_preserved"
+            else:
+                failure_reason = "no_reachable_objects" if sims == 0 else "all_pushes_failed"
             attempt = AttemptResult(
                 solved,
                 target_neighbor,
@@ -400,6 +451,7 @@ class BestFirstRegionOpeningPlanner:
                 sims=sims,
                 end=end,
                 actions=actions,
+                future_interface=future_interface,
             )
         finally:
             self.env.set_full_state(baseline)

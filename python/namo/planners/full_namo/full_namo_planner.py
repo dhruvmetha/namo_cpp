@@ -147,6 +147,13 @@ class FullNAMOPlanner(BasePlanner):
         self.audit_next_keyhole_reachability = bool(
             algo_params.get("full_namo_audit_next_keyhole_reachability", False)
         )
+        self.preserve_next_keyhole_access = bool(
+            algo_params.get("full_namo_preserve_next_keyhole_access", False)
+        )
+        if self.preserve_next_keyhole_access and self.local_search != "best_first":
+            raise ValueError(
+                "full_namo_preserve_next_keyhole_access requires full_namo_local_search='best_first'"
+            )
         super().__init__(env, config)
 
     def _setup_constraints(self):
@@ -410,14 +417,45 @@ class FullNAMOPlanner(BasePlanner):
 
             target = path[1]
             next_keyhole_profile = None
-            if self.audit_next_keyhole_reachability and len(path) >= 3:
+            if (
+                self.audit_next_keyhole_reachability or self.preserve_next_keyhole_access
+            ) and len(path) >= 3:
                 next_keyhole_profile = self._profile_next_keyhole_before_open(
                     snapshot_data=snapshot,
                     path=path,
                     robot_goal=robot_goal,
                 )
+            if (
+                self.preserve_next_keyhole_access
+                and next_keyhole_profile is not None
+                and next_keyhole_profile.get("status") != "ok"
+            ):
+                context = {
+                    **base_context,
+                    "chosen_target_region": target,
+                    "next_keyhole_profile": next_keyhole_profile,
+                }
+                self._record_iteration_trace(
+                    {**context, "outcome": "next_keyhole_profile_unavailable"}
+                )
+                return self._invariant_failure(
+                    "next_keyhole_profile_unavailable",
+                    start_time,
+                    actions,
+                    context=context,
+                )
             opener = self._prepare_region_opener_for_keyhole()
-            result = opener.search(robot_goal, target_neighbor=target)
+            if self.preserve_next_keyhole_access and next_keyhole_profile is not None:
+                result = opener.search(
+                    robot_goal,
+                    target_neighbor=target,
+                    candidate_acceptor=lambda candidate_env: self._check_next_keyhole_access_candidate(
+                        env=candidate_env,
+                        profile=next_keyhole_profile,
+                    ),
+                )
+            else:
+                result = opener.search(robot_goal, target_neighbor=target)
             self._record_keyhole_budget(iteration, target, result)
             if self.budget_scope == "full_problem":
                 self.stats.total_attempted_pushes += self._extract_attempted_pushes_from_region_result(result)
@@ -722,6 +760,65 @@ class FullNAMOPlanner(BasePlanner):
             for object_id in objects
         }
         return profile
+
+    def _check_next_keyhole_access_candidate(
+        self,
+        *,
+        env: namo_rl.RLEnvironment,
+        profile: Dict[str, Any],
+    ) -> Tuple[bool, Dict[str, Any]]:
+        """Accept a local opening only if every original next-keyhole action remains available."""
+        if env.is_robot_goal_reachable():
+            return True, {
+                "accepted": True,
+                "goal_reachable": True,
+                "failure_reasons": [],
+                "objects": {},
+            }
+
+        observation = env.get_observation()
+        object_rows: Dict[str, Any] = {}
+        failure_reasons: Set[str] = set()
+        for object_id, before in profile["objects"].items():
+            before_edges = set(int(edge) for edge in before["reachable_edges_before"])
+            after_edges = set(int(edge) for edge in env.get_reachable_edges(object_id))
+            pose_before = before.get("pose_before")
+            pose_after = self._pose_for_object(observation, object_id)
+            dxy_mm = None
+            dtheta_deg = None
+            pose_unchanged = False
+            if pose_before is not None and pose_after is not None:
+                dxy_mm = 1000.0 * math.hypot(
+                    pose_after[0] - pose_before[0], pose_after[1] - pose_before[1]
+                )
+                dtheta = abs(
+                    (pose_after[2] - pose_before[2] + math.pi) % (2.0 * math.pi) - math.pi
+                )
+                dtheta_deg = math.degrees(dtheta)
+                pose_unchanged = dxy_mm <= 0.1 and dtheta_deg <= 0.1
+            lost_edges = before_edges - after_edges
+            if lost_edges:
+                failure_reasons.add("next_contact_edges_lost")
+            if not pose_unchanged:
+                failure_reasons.add("next_blocker_moved")
+            object_rows[object_id] = {
+                "reachable_edges_before": sorted(before_edges),
+                "reachable_edges_after": sorted(after_edges),
+                "lost_edges": sorted(lost_edges),
+                "gained_edges": sorted(after_edges - before_edges),
+                "all_original_edges_reachable": not lost_edges,
+                "pose_dxy_mm": round(dxy_mm, 4) if dxy_mm is not None else None,
+                "pose_dtheta_deg": round(dtheta_deg, 4) if dtheta_deg is not None else None,
+                "pose_unchanged": pose_unchanged,
+            }
+
+        accepted = not failure_reasons
+        return accepted, {
+            "accepted": accepted,
+            "goal_reachable": False,
+            "failure_reasons": sorted(failure_reasons),
+            "objects": object_rows,
+        }
 
     def _audit_next_keyhole_after_open(
         self,
