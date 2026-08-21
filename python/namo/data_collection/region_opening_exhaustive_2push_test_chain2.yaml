@@ -26,7 +26,7 @@ region_exhaustive_mode: true
 goal_strategy: primitive
 
 xml_dir: /common/users/shared/robot_learning/dm1487/namo/mj_env_configs/aug9/medium
-config_file: config/namo_config_complete_skill15.yaml
+config_file: config/namo_config_complete_skill15_car_1x.yaml
 manifest: /tmp/manifest_2push_test_300_xmlonly.txt
 
 verbose: false

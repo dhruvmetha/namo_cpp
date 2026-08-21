@@ -1,7 +1,7 @@
 """Configuration for external executor bridge.
 
 Contains skill15 defaults and naming invariants derived from:
-- config/namo_config_complete_skill15.yaml
+- config/namo_config_complete_skill15_car_1x.yaml
 - src/config/config_manager.cpp
 - src/planning/namo_push_controller.cpp
 """
@@ -9,6 +9,8 @@ Contains skill15 defaults and naming invariants derived from:
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Optional, Tuple
+
+from namo.runtime_profile import require_canonical_runtime_config
 
 
 # MJCF Naming Invariants (from plan document)
@@ -20,7 +22,7 @@ WALL_PREFIX = "wall"
 STATIC_KEYWORDS = ("wall", "static")
 
 
-# skill15 defaults from config/namo_config_complete_skill15.yaml
+# car 1x d5 defaults from config/namo_config_complete_skill15_car_1x.yaml
 SKILL15_DEFAULTS = {
     # Edge/contact mapping
     "points_per_face": 15,           # 4 faces * 15 = 60 total edge_idx values
@@ -115,10 +117,15 @@ class ExecutorConfig:
         self.executor_xml = Path(self.executor_xml)
         self.planner_template_xml = Path(self.planner_template_xml)
         self.config_yaml = Path(self.config_yaml)
+        require_canonical_runtime_config(self.config_yaml)
         self.tmp_planner_dir = Path(self.tmp_planner_dir)
         self.tmp_planner_dir.mkdir(parents=True, exist_ok=True)
 
 
 # Default paths for project
 DEFAULT_PLANNER_TEMPLATE = Path(__file__).parent.parent.parent.parent.parent / "data" / "planner_templates" / "planner_template.xml"
-DEFAULT_CONFIG_YAML = Path(__file__).parent.parent.parent.parent.parent / "config" / "namo_config_complete_skill15.yaml"
+DEFAULT_CONFIG_YAML = (
+    Path(__file__).parent.parent.parent.parent.parent
+    / "config"
+    / "namo_config_complete_skill15_car_1x.yaml"
+)

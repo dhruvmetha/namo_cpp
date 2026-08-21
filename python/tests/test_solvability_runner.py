@@ -1,7 +1,9 @@
 import json
+from pathlib import Path
 
 from namo.environment_selection import RegionPathAnalysis
 from namo.solvability_runner import run_exact_n_solvability
+from namo.runtime_profile import CANONICAL_CONFIG, CANONICAL_PRIMITIVE_PREFIX
 
 
 def test_run_exact_n_solvability_writes_expected_manifests(tmp_path, monkeypatch):
@@ -12,7 +14,7 @@ def test_run_exact_n_solvability_writes_expected_manifests(tmp_path, monkeypatch
         str(tmp_path / "env_d.xml"),
     ]
     config_path = tmp_path / "config.yaml"
-    config_path.write_text("system: {}\nmotion_primitives: {}\n", encoding="utf-8")
+    config_path.write_text(Path(CANONICAL_CONFIG).read_text(encoding="utf-8"), encoding="utf-8")
 
     analyses = {
         xml_paths[0]: RegionPathAnalysis(
@@ -91,7 +93,7 @@ def test_run_exact_n_solvability_writes_expected_manifests(tmp_path, monkeypatch
         path_length=2,
         output_dir=str(tmp_path / "out"),
         config_file=str(config_path),
-        primitive_prefix="manual_",
+        primitive_prefix=CANONICAL_PRIMITIVE_PREFIX,
         workers=1,
     )
 
@@ -118,5 +120,5 @@ def test_run_exact_n_solvability_writes_expected_manifests(tmp_path, monkeypatch
     assert summary_json["solved_count"] == 1
     assert summary_json["selection_error_count"] == 1
     assert summary_json["planner_failure_count"] == 1
-    assert run_config["primitive_prefix"] == "manual_"
+    assert run_config["primitive_prefix"] == CANONICAL_PRIMITIVE_PREFIX
     assert run_config["goal_strategy"] == "random_rollout"

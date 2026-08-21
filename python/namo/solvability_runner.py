@@ -22,18 +22,22 @@ from namo.environment_selection import (
 )
 from namo.planners.full_namo.full_namo_planner import FullNAMOPlanner
 from namo.planners.utils import PushAttemptBudget
+from namo.runtime_profile import (
+    CANONICAL_CONFIG,
+    CANONICAL_NUM_DEPTHS,
+    CANONICAL_PRIMITIVE_PREFIX,
+    require_canonical_primitive_profile,
+    require_canonical_runtime_config,
+)
 
 
-DEFAULT_CONFIG = "config/namo_config_complete_skill15.yaml"
+DEFAULT_CONFIG = CANONICAL_CONFIG
 DEFAULT_GOAL_STRATEGY = "random_rollout"
 DEFAULT_GOALS_PER_REGION = 100
 DEFAULT_REGION_MAX_CHAIN_DEPTH = 2
 DEFAULT_REGION_SUCCESS_MIN_REACHABLE = 1
 DEFAULT_SIMULATION_BUDGET = 100_000
 DEFAULT_SEED = 42
-_MP_FILENAME_MARKER = "motion_primitives_"
-
-
 @dataclass(frozen=True)
 class SolveTask:
     xml_path: str
@@ -67,23 +71,6 @@ def _load_namo_config(config_path: str) -> Dict[str, Any]:
             return yaml.safe_load(handle) or {}
     except Exception:
         return {}
-
-
-def derive_primitive_prefix(config_path: str, primitive_data_dir: str) -> str:
-    """Derive the Python primitive prefix from the NAMO config, if possible."""
-    cfg = _load_namo_config(config_path)
-    mp_file = (cfg.get("system", {}) or {}).get("motion_primitives_file")
-    if not mp_file:
-        return ""
-    stem = os.path.splitext(os.path.basename(str(mp_file)))[0]
-    if not stem.startswith(_MP_FILENAME_MARKER):
-        return ""
-    variant = stem[len(_MP_FILENAME_MARKER):]
-    if not variant:
-        return ""
-    prefix = f"{variant}_"
-    sentinel = os.path.join(primitive_data_dir, f"{prefix}motion_primitives_15_square.dat")
-    return prefix if os.path.exists(sentinel) else ""
 
 
 def derive_max_push_steps(config_path: str) -> Optional[int]:
@@ -334,7 +321,7 @@ def run_exact_n_solvability(
     goal_strategy: str = DEFAULT_GOAL_STRATEGY,
     region_max_chain_depth: int = DEFAULT_REGION_MAX_CHAIN_DEPTH,
     primitive_data_dir: str = "data",
-    primitive_prefix: Optional[str] = None,
+    primitive_prefix: str = CANONICAL_PRIMITIVE_PREFIX,
     rollout_samples_per_state: Optional[int] = None,
     region_frontier_beam_width: Optional[int] = None,
     region_success_min_reachable: int = DEFAULT_REGION_SUCCESS_MIN_REACHABLE,
@@ -354,6 +341,7 @@ def run_exact_n_solvability(
     limit: Optional[int] = None,
 ) -> Dict[str, Any]:
     config_path = _resolve_config_path(repo_root, config_file)
+    require_canonical_runtime_config(config_path)
     primitive_root = Path(primitive_data_dir)
     if not primitive_root.is_absolute():
         primitive_root = repo_root / primitive_data_dir
@@ -361,12 +349,9 @@ def run_exact_n_solvability(
     output_root = Path(output_dir).resolve()
     output_root.mkdir(parents=True, exist_ok=True)
 
-    effective_primitive_prefix = (
-        primitive_prefix
-        if primitive_prefix is not None
-        else derive_primitive_prefix(config_path, primitive_data_dir_resolved)
-    )
     effective_max_push_steps = derive_max_push_steps(config_path)
+    require_canonical_primitive_profile(primitive_prefix, effective_max_push_steps)
+    effective_primitive_prefix = primitive_prefix
 
     run_config = {
         "input_dir": input_dir,
@@ -524,8 +509,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--primitive-prefix",
         type=str,
-        default=None,
-        help="Primitive filename prefix; defaults to a config-derived prefix when available",
+        default=CANONICAL_PRIMITIVE_PREFIX,
+        choices=[CANONICAL_PRIMITIVE_PREFIX],
+        help="Canonical car 1x d5 primitive prefix",
     )
     parser.add_argument(
         "--rollout-samples-per-state",

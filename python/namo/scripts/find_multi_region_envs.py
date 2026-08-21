@@ -61,8 +61,8 @@ def main():
     parser.add_argument(
         "--config",
         type=str,
-        default="config/namo_config_complete_skill15.yaml",
-        help="Path to NAMO config file (default: config/namo_config_complete_skill15.yaml)",
+        default="config/namo_config_complete_skill15_car_1x.yaml",
+        help="Path to the canonical car 1x d5 NAMO config",
     )
     parser.add_argument(
         "--resolution",

@@ -3,6 +3,10 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.skip(
+    reason="point-robot priority fixture retired; needs a car 1x d5 replacement"
+)
+
 
 @pytest.fixture(scope="module")
 def namo_env():

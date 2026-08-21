@@ -1177,9 +1177,7 @@ def main():
                              'WavefrontSnapshotExporter and the robot footprint MUST '
                              'match the C++ runtime — otherwise the visible robot '
                              'region disagrees with the action targets in the data. '
-                             'Default targets the car (matches '
-                             'region_opening_amarel_car.yaml). For point-robot data, '
-                             'pass config/namo_config.yaml.'))
+                             'Fixed to the canonical car 1x d5 runtime profile.'))
     parser.add_argument('--wide-crop-size', type=float, default=1.2,
                         help=('Side length (m) of the WIDE object-centered crop. '
                               'Used for mask-prediction supervision (must contain a '

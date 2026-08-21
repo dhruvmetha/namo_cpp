@@ -23,6 +23,7 @@ import namo_rl
 
 from .goal_selection_strategy import Goal
 from .primitive_goal_strategy import PrimitiveGoalStrategy
+from namo.runtime_profile import CANONICAL_NUM_DEPTHS, CANONICAL_PRIMITIVE_PREFIX
 
 _SANDBOX = str(Path(__file__).resolve().parents[3] / "scripts/sandbox")
 _DEFAULT_CKPT_RELATIVE = Path(
@@ -64,8 +65,10 @@ class ScorerGoalStrategy(PrimitiveGoalStrategy):
 
     def __init__(self, ckpt: Optional[str] = None, namo_config_path: Optional[str] = None,
                  xml_path: Optional[str] = None, device: Optional[str] = None,
-                 data_dir: str = "data", primitive_prefix: str = "", verbose: bool = False,
-                 max_push_steps: Optional[int] = None):
+                 data_dir: str = "data",
+                 primitive_prefix: str = CANONICAL_PRIMITIVE_PREFIX,
+                 verbose: bool = False,
+                 max_push_steps: Optional[int] = CANONICAL_NUM_DEPTHS):
         super().__init__(data_dir=data_dir, verbose=verbose,
                          primitive_prefix=primitive_prefix, max_push_steps=max_push_steps)
         resolved_ckpt = ckpt or _default_checkpoint()

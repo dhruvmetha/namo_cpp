@@ -21,6 +21,11 @@ from abc import ABC
 import namo_rl
 from .goal_selection_strategy import GoalSelectionStrategy, Goal
 from .ml_strategies import MLGoalSelectionStrategy
+from namo.runtime_profile import (
+    CANONICAL_NUM_DEPTHS,
+    CANONICAL_PRIMITIVE_PREFIX,
+    require_canonical_primitive_profile,
+)
 
 
 def _namo_get_ml_artifacts_dir() -> Optional[Path]:
@@ -55,7 +60,7 @@ class Primitive:
     delta_y: float
     delta_theta: float
     edge_idx: int  # 0-59 (4 edges × 15 points)
-    push_steps: int  # 1-10
+    push_steps: int  # 1-5
 
 
 class MotionPrimitiveLoader:
@@ -128,12 +133,13 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
 
     Returns goals in format: List[List[Goal]] where:
     - Outer list (60 items): one per edge point
-    - Inner list (10 items): push steps 1-10 for that edge point
+    - Inner list (5 items): push steps 1-5 for that edge point
     """
 
     def __init__(self, data_dir: str = "data", verbose: bool = False,
                  shuffle_edges: bool = False, seed: int = None,
-                 primitive_prefix: str = "", max_push_steps: Optional[int] = None):
+                 primitive_prefix: str = CANONICAL_PRIMITIVE_PREFIX,
+                 max_push_steps: Optional[int] = CANONICAL_NUM_DEPTHS):
         """Initialize primitive goal strategy.
 
         Args:
@@ -141,19 +147,17 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
             verbose: Enable verbose output
             shuffle_edges: If True, randomize edge ordering (useful for averaging difficulty)
             seed: Random seed for reproducible shuffling (None = random each call)
-            primitive_prefix: Prefix on primitive filename to select per-robot calibration.
-                "" → motion_primitives_15_*.dat (30 cm point-robot, legacy)
-                "car_" → car_motion_primitives_15_*.dat (7 cm diff-drive car)
-            max_push_steps: Optional cap on primitive depth enumeration. When set,
-                primitives with push_steps > max_push_steps are discarded before
-                edge grouping so all downstream strategies share the same cap.
+            primitive_prefix: Must be ``1x_car_d5_``.
+            max_push_steps: Must be 5 when supplied.
         """
         self.data_dir = data_dir
         self.verbose = verbose
         self.shuffle_edges = shuffle_edges
         self.seed = seed
         self.primitive_prefix = primitive_prefix
-        self.max_push_steps = max_push_steps
+        self.max_push_steps = require_canonical_primitive_profile(
+            primitive_prefix, max_push_steps
+        )
         self._rng = random.Random(seed) if seed is not None else None
         self._primitive_cache: Dict[str, List[Primitive]] = {}
         self._primitive_sha256_cache: Dict[str, str] = {}
@@ -192,7 +196,7 @@ class PrimitiveGoalStrategy(GoalSelectionStrategy):
 
         Returns:
             List of 60 goal lists (one per edge point),
-            each containing 10 goals (one per push step 1-10)
+            each containing 5 goals (one per push step 1-5)
         """
         # Save and set state to get object pose
         original_state = env.get_full_state()
@@ -403,7 +407,8 @@ class RandomRolloutGoalStrategy(PrimitiveGoalStrategy):
 
     def __init__(self, data_dir: str = "data", verbose: bool = False,
                  samples_per_state: Optional[int] = None, seed: Optional[int] = None,
-                 primitive_prefix: str = "", max_push_steps: Optional[int] = None):
+                 primitive_prefix: str = CANONICAL_PRIMITIVE_PREFIX,
+                 max_push_steps: Optional[int] = CANONICAL_NUM_DEPTHS):
         super().__init__(
             data_dir=data_dir,
             verbose=verbose,
@@ -484,8 +489,8 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
         preview_aligned_primitives: bool = False,
         k_nearest: int = 1,
         seed: int = None,
-        primitive_prefix: str = "",
-        max_push_steps: Optional[int] = None,
+        primitive_prefix: str = CANONICAL_PRIMITIVE_PREFIX,
+        max_push_steps: Optional[int] = CANONICAL_NUM_DEPTHS,
         namo_config_path: Optional[str] = None,
         sampler_method: Optional[str] = None,
         num_steps: Optional[int] = None,
@@ -507,13 +512,8 @@ class MLPrimitiveGoalStrategy(GoalSelectionStrategy):
             preview_aligned_primitives: If True, save visualization of aligned primitives.
             k_nearest: Number of nearest primitive slots to vote for per ML goal (within tolerance). Default: 1.
             seed: Random seed for diffusion noise (None = random each time).
-            primitive_prefix: Filename prefix selecting the per-robot primitive set
-                (e.g. "1x_car_"). MUST match the robot the diffusion model was
-                trained for, otherwise ML goals (small car-scale moves) cannot
-                align to the slot poses (legacy point-robot pushes are 0.5-6 m).
-                Forwarded to the inner PrimitiveGoalStrategy. Default "" (legacy).
-            max_push_steps: Optional cap on primitive depth enumeration, mirroring
-                the executor's motion_primitives.max_push_steps. Forwarded too.
+            primitive_prefix: Must be ``1x_car_d5_``.
+            max_push_steps: Must be 5 when supplied.
         """
         self.verbose = verbose
         self.max_matches = max_matches

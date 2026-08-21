@@ -13,6 +13,7 @@ from namo.planners.full_namo.full_namo_planner import FullNAMOPlanner
 from namo.planners.opening.region_opening import RegionOpeningPlanner
 from namo.planners.utils import PushAttemptBudget
 from namo.solvability_runner import SolveTask, build_full_namo_planner_config
+from namo.runtime_profile import CANONICAL_NUM_DEPTHS, CANONICAL_PRIMITIVE_PREFIX
 
 
 class FakeEnv:
@@ -51,7 +52,7 @@ def test_build_full_namo_planner_config_forwards_nested_region_settings(monkeypa
         goal_strategy="random_rollout",
         region_max_chain_depth=2,
         primitive_data_dir="data",
-        primitive_prefix="car_",
+        primitive_prefix=CANONICAL_PRIMITIVE_PREFIX,
         rollout_samples_per_state=7,
         region_frontier_beam_width=11,
         region_success_min_reachable=3,
@@ -64,7 +65,7 @@ def test_build_full_namo_planner_config_forwards_nested_region_settings(monkeypa
         scorer_ckpt="hy5u.ckpt",
         ml_device="cpu",
         full_namo_max_iterations=None,
-        max_push_steps=15,
+        max_push_steps=CANONICAL_NUM_DEPTHS,
         audit_next_keyhole_reachability=True,
     )
     config = build_full_namo_planner_config(task)
@@ -84,11 +85,11 @@ def test_build_full_namo_planner_config_forwards_nested_region_settings(monkeypa
     assert config.algorithm_params["region_selection_strategy"] == "ml_first"
     assert config.algorithm_params["scorer_ckpt"] == "hy5u.ckpt"
     assert config.algorithm_params["ml_device"] == "cpu"
-    assert config.algorithm_params["primitive_prefix"] == "car_"
+    assert config.algorithm_params["primitive_prefix"] == CANONICAL_PRIMITIVE_PREFIX
     assert config.algorithm_params["rollout_samples_per_state"] == 7
     assert config.algorithm_params["region_frontier_beam_width"] == 11
     assert config.algorithm_params["region_success_min_reachable"] == 3
-    assert config.algorithm_params["max_push_steps"] == 15
+    assert config.algorithm_params["max_push_steps"] == CANONICAL_NUM_DEPTHS
     assert config.algorithm_params["full_namo_audit_next_keyhole_reachability"] is True
 
 

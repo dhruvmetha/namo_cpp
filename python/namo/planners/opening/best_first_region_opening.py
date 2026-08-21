@@ -15,6 +15,7 @@ from namo.planners.connectivity_snapshot import find_robot_label
 from namo.planners.utils import PushAttemptBudget
 from namo.strategies import PrimitiveGoalStrategy
 from namo.strategies.scorer_goal_strategy import _get_scorer
+from namo.runtime_profile import CANONICAL_NUM_DEPTHS, CANONICAL_PRIMITIVE_PREFIX
 
 from .best_first_search import make_action, solve_scene
 from .region_opening import (
@@ -118,8 +119,10 @@ class BestFirstRegionOpeningPlanner:
         self.xml_path = str(params.get("xml_file") or "")
 
         primitive_data_dir = str(params.get("primitive_data_dir", "data"))
-        primitive_prefix = str(params.get("primitive_prefix", ""))
-        max_push_steps = params.get("max_push_steps")
+        primitive_prefix = str(
+            params.get("primitive_prefix", CANONICAL_PRIMITIVE_PREFIX)
+        )
+        max_push_steps = params.get("max_push_steps", CANONICAL_NUM_DEPTHS)
         prim = PrimitiveGoalStrategy(
             data_dir=primitive_data_dir,
             primitive_prefix=primitive_prefix,

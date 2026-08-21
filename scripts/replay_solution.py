@@ -14,7 +14,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--results-pkl", required=True)
     ap.add_argument("--xml", required=True, help="Original env XML")
-    ap.add_argument("--namo-config", default=str(REPO / "config/namo_config_car.yaml"))
+    ap.add_argument(
+        "--namo-config",
+        default=str(REPO / "config/namo_config_complete_skill15_car_1x.yaml"),
+    )
     ap.add_argument("--qpos-out", required=True)
     ap.add_argument("--chain-length", type=int, default=None,
                     help="Only replay episodes whose action_sequence has this length (default: replay all)")

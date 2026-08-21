@@ -5,7 +5,14 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from pathlib import Path
 from types import SimpleNamespace
+
+from namo.runtime_profile import CANONICAL_CONFIG, CANONICAL_PRIMITIVE_PREFIX
+
+
+def _write_canonical_config(path):
+    path.write_text(Path(CANONICAL_CONFIG).read_text(encoding="utf-8"), encoding="utf-8")
 
 
 def test_service_package_exports_public_contract():
@@ -72,7 +79,7 @@ def test_plan_from_xml_returns_actions_and_statistics(monkeypatch, tmp_path):
     monkeypatch.setattr(module, "_create_planner", create_planner)
 
     config_path = tmp_path / "namo.yaml"
-    config_path.write_text("{}\n", encoding="utf-8")
+    _write_canonical_config(config_path)
     service = NAMOPlanningService(str(config_path), primitive_data_dir=str(tmp_path))
 
     result = service.plan_from_xml(
@@ -80,6 +87,7 @@ def test_plan_from_xml_returns_actions_and_statistics(monkeypatch, tmp_path):
         robot_goal=(1.0, 2.0, 0.5),
         algorithm="full_namo",
         starting_robot_pose=(0.1, 0.2, 0.3),
+        primitive_prefix=CANONICAL_PRIMITIVE_PREFIX,
     )
 
     assert result.success is True
@@ -122,7 +130,7 @@ def test_reachability_teleports_before_warmup(monkeypatch, tmp_path):
     monkeypatch.setattr(module.namo_rl, "RLEnvironment", FakeEnvironment)
 
     config_path = tmp_path / "namo.yaml"
-    config_path.write_text("{}\n", encoding="utf-8")
+    _write_canonical_config(config_path)
     service = NAMOPlanningService(str(config_path))
     result = service.analyze_reachability_from_xml(
         xml_path="scene.xml",
@@ -152,7 +160,7 @@ def test_plan_failure_is_returned_as_contextual_result(monkeypatch, tmp_path):
     monkeypatch.setattr(module.namo_rl, "RLEnvironment", fail_environment)
 
     config_path = tmp_path / "namo.yaml"
-    config_path.write_text("{}\n", encoding="utf-8")
+    _write_canonical_config(config_path)
     service = NAMOPlanningService(str(config_path))
     result = service.plan_from_xml("broken.xml", (1.0, 2.0, 0.0))
 

@@ -70,8 +70,8 @@ def test_sampler_reproduces_existing_fchar_labels_on_one_env():
             "--end-idx", "1",
             "--workers", "1",
             "--output-dir", tmp,
-            "--config-file", "config/namo_config.yaml",   # point robot
-            "--primitive-prefix", "",                       # legacy primitives
+            "--config-file", "config/namo_config_complete_skill15_car_1x.yaml",
+            "--primitive-prefix", "1x_car_d5_",
             "--sampler-max-chain-depth", "1",
         ]
         result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(REPO_ROOT))

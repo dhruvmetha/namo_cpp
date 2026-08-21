@@ -18,7 +18,7 @@ Usage:
     bridge = ExternalExecutorBridge(
         executor_xml="/path/to/env.xml",
         planner_template_xml="/path/to/planner_template.xml",
-        config_yaml="/path/to/namo_config_complete_skill15.yaml"
+        config_yaml="/path/to/namo_config_complete_skill15_car_1x.yaml"
     )
     
     # Run until goal reached or budget exhausted

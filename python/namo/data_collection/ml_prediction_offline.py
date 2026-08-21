@@ -157,7 +157,10 @@ def main() -> int:
     p.add_argument("--ml-model", required=True,
                    help="Hydra output dir containing the diffusion model")
     p.add_argument("--out", required=True, help="Output pkl path")
-    p.add_argument("--config-file", default="config/namo_config_complete_skill15.yaml")
+    p.add_argument(
+        "--config-file",
+        default="config/namo_config_complete_skill15_car_1x.yaml",
+    )
     p.add_argument("--primitive-data-dir", default="data")
     p.add_argument("--samples", type=int, default=32)
     p.add_argument("--seed", type=int, default=42)

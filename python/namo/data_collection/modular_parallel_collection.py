@@ -37,6 +37,12 @@ if namo_viz_path not in sys.path:
 
 from namo.core import BasePlanner, PlannerConfig, PlannerResult, PlannerFactory
 from namo.core.xml_goal_parser import extract_goal_with_fallback
+from namo.runtime_profile import (
+    CANONICAL_CONFIG,
+    CANONICAL_NUM_DEPTHS,
+    CANONICAL_PRIMITIVE_PREFIX,
+    require_canonical_runtime_config,
+)
 
 # Import all available planners (self-register on import)
 from namo.planners.sampling.random_sampling import RandomSamplingPlanner
@@ -138,7 +144,7 @@ class ModularCollectionConfig:
     
     # Data collection
     xml_base_dir: str = "../ml4kp_ktamp/resources/models/custom_walled_envs/aug9"
-    config_file: str = "config/namo_config_complete.yaml"
+    config_file: str = CANONICAL_CONFIG
     output_dir: str = "./modular_data"
     start_idx: int = 0
     end_idx: int = 100
@@ -756,6 +762,7 @@ class ModularParallelCollectionManager:
     """Manager for modular parallel data collection."""
     
     def __init__(self, config: ModularCollectionConfig):
+        require_canonical_runtime_config(config.config_file)
         self.config = config
         self._pool = None  # Track pool for signal handling
         
@@ -1108,11 +1115,10 @@ def main():
                         help="Maximum ML goals to align per sampler call")
     parser.add_argument("--primitive-data-dir", type=str, default="data",
                         help="Directory containing primitive motion databases")
-    parser.add_argument("--primitive-prefix", type=str, default="",
-                        help="Filename prefix for per-robot primitive calibration. "
-                             "'' = motion_primitives_15_*.dat (30cm point-robot, legacy). "
-                             "'car_' = car_motion_primitives_15_*.dat (7cm diff-drive car). "
-                             "MUST match the robot in --config-file/--namo-config.")
+    parser.add_argument("--primitive-prefix", type=str,
+                        default=CANONICAL_PRIMITIVE_PREFIX,
+                        choices=[CANONICAL_PRIMITIVE_PREFIX],
+                        help="Canonical car 1x d5 primitive prefix")
     parser.add_argument("--shuffle-edges", action="store_true",
                         help="Randomize edge ordering in primitive strategy (useful for difficulty analysis)")
     parser.add_argument("--shuffle-seed", type=int, default=None,
@@ -1135,16 +1141,18 @@ def main():
     parser.add_argument("--sampler-region-goal-samples", type=int, default=5,
                         help="K points to sample per neighbor region for goal_sample_region mask "
                              "(stored in env_metadata.per_neighbor_region_goals).")
-    parser.add_argument("--sampler-num-depths", type=int, default=10,
-                        help="Number of push depths per edge (matches motion-primitive resolution).")
+    parser.add_argument("--sampler-num-depths", type=int,
+                        default=CANONICAL_NUM_DEPTHS,
+                        choices=[CANONICAL_NUM_DEPTHS],
+                        help="Number of push depths per edge; fixed at 5")
     parser.add_argument("--seed", type=int, default=None,
                         help="Global RNG seed for deterministic planning (default: NAMO_GLOBAL_SEED env var or 42)")
     parser.add_argument("--xml-dir", type=str,
                         default="../ml4kp_ktamp/resources/models/custom_walled_envs/aug9",
                         help="Base directory for XML environment files")
     parser.add_argument("--config-file", type=str,
-                        default="config/namo_config_complete.yaml",
-                        help="NAMO configuration file")
+                        default=CANONICAL_CONFIG,
+                        help="Canonical car 1x d5 NAMO configuration file")
     parser.add_argument("--verbose", action="store_true",
                         help="Enable verbose algorithm output")
     parser.add_argument("--filter-minimum-length", action="store_true",

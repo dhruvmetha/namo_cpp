@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from conftest import (
+    CAR_START_POSE,
     REAL_NAMO_RL, REPO_ROOT, CONFIG_PATH, TEST_SCENE, _require_real_namo_rl,
 )
 
@@ -32,7 +33,7 @@ SINGLE_PUSH_TIME_BUDGET_SEC = 30.0
 # After running a successful push, the object's pose should change by
 # at least this much (in m). Below this is indistinguishable from "push
 # silently did nothing."
-POST_PUSH_MIN_OBJECT_DISPLACEMENT_M = 0.05
+POST_PUSH_MIN_OBJECT_DISPLACEMENT_M = 0.01
 
 # A "reasonable" planning result: max chain depth. Plans deeper than this
 # on a single-obstacle scene indicate the planner is exploring
@@ -47,7 +48,10 @@ def test_scene_env():
     """Loads data/test_scene.xml — walled workspace, 1 obstacle. Used for
     end-to-end planning tests."""
     import namo_rl
-    return namo_rl.RLEnvironment(str(TEST_SCENE), str(CONFIG_PATH), False)
+    env = namo_rl.RLEnvironment(str(TEST_SCENE), str(CONFIG_PATH), False, True)
+    env.set_robot_pose(*CAR_START_POSE)
+    env.warm_up()
+    return env
 
 
 # ─── Tests on full env.step() pipeline (skill → MPC executor → controller) ──

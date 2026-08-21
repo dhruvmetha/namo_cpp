@@ -54,7 +54,7 @@ preview_aligned_primitives: false  # Save visualization of ML-to-primitive align
 
 # Paths
 xml_dir: /common/home/dm1487/robotics_research/ktamp/ml4kp_ktamp/resources/models/custom_walled_envs/aug9/medium
-config_file: config/namo_config_complete_skill15.yaml
+config_file: config/namo_config_complete_skill15_car_1x.yaml
 # manifest: /common/users/shared/robot_learning/dm1487/namo/manifests/aug9_medium/manifest.txt  # Pre-generated file list for fast loading (use generate_xml_manifest.py)
 manifest: /common/users/shared/robot_learning/dm1487/namo/manifests/aug9_medium/manifest_2push_test_minus_1push_test_filtered_easy_100.txt # Pre-generated file list for fast loading (use generate_xml_manifest.py)
 # manifest: /common/users/shared/robot_learning/dm1487/namo/manifests/aug9_medium/manifest_test.txt # Pre-generated file list for fast loading (use generate_xml_manifest.py)

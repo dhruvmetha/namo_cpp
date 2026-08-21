@@ -32,6 +32,7 @@ from namo.strategies import (
     ScorerGoalStrategy,
 )
 from namo.planners.utils import PushBudgetExceeded
+from namo.runtime_profile import CANONICAL_NUM_DEPTHS, CANONICAL_PRIMITIVE_PREFIX
 
 # THE CANONICAL OPENING CRITERION, shared by every region-opening search.
 # A region counts as "opened" only when at least this fraction of its sampled
@@ -633,7 +634,7 @@ class RegionOpeningPlanner(BasePlanner):
         algo_params = getattr(self, "algorithm_params", {}) or {}
         primitive_data_dir = algo_params.get("primitive_data_dir", "data")
         strategy_name = algo_params.get("goal_strategy")
-        max_push_steps = algo_params.get("max_push_steps", None)
+        max_push_steps = algo_params.get("max_push_steps", CANONICAL_NUM_DEPTHS)
 
         if strategy_name and strategy_name.lower() in {"ml", "ml_primitive"}:
             ml_path = algo_params.get("ml_goal_model_path")
@@ -659,7 +660,9 @@ class RegionOpeningPlanner(BasePlanner):
                 seed=algo_params.get("ml_seed"),
                 sampler_method=algo_params.get("ml_sampler_method"),
                 num_steps=algo_params.get("ml_num_steps"),
-                primitive_prefix=algo_params.get("primitive_prefix", ""),
+                primitive_prefix=algo_params.get(
+                    "primitive_prefix", CANONICAL_PRIMITIVE_PREFIX
+                ),
                 max_push_steps=max_push_steps,
                 namo_config_path=algo_params.get("namo_config_path"),
             )
@@ -673,7 +676,9 @@ class RegionOpeningPlanner(BasePlanner):
                 xml_path=algo_params.get("xml_file"),
                 device=algo_params.get("ml_device", "cuda"),
                 data_dir=primitive_data_dir,
-                primitive_prefix=algo_params.get("primitive_prefix", ""),
+                primitive_prefix=algo_params.get(
+                    "primitive_prefix", CANONICAL_PRIMITIVE_PREFIX
+                ),
                 verbose=self.config.verbose,
                 max_push_steps=max_push_steps,
             )
@@ -701,7 +706,9 @@ class RegionOpeningPlanner(BasePlanner):
                 verbose=self.config.verbose,
                 samples_per_state=algo_params.get("rollout_samples_per_state", None),
                 seed=algo_params.get("shuffle_seed", None),
-                primitive_prefix=algo_params.get("primitive_prefix", ""),
+                primitive_prefix=algo_params.get(
+                    "primitive_prefix", CANONICAL_PRIMITIVE_PREFIX
+                ),
                 max_push_steps=max_push_steps,
             )
             self._debug(
@@ -720,7 +727,9 @@ class RegionOpeningPlanner(BasePlanner):
                 verbose=self.config.verbose,
                 shuffle_edges=algo_params.get("shuffle_edges", False),
                 seed=algo_params.get("shuffle_seed", None),
-                primitive_prefix=algo_params.get("primitive_prefix", ""),
+                primitive_prefix=algo_params.get(
+                    "primitive_prefix", CANONICAL_PRIMITIVE_PREFIX
+                ),
                 max_push_steps=max_push_steps,
             )
 

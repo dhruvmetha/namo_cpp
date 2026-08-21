@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import math
-from pathlib import Path
 
 import pytest
 
-from conftest import CONFIG_PATH, PRIMGEN_SCENE, REAL_NAMO_RL, REPO_ROOT, _require_real_namo_rl
+from conftest import REAL_NAMO_RL, REPO_ROOT, _require_real_namo_rl
 
 _require_real_namo_rl()
 
@@ -81,26 +80,3 @@ def test_car_deferred_warmup_reset_preserves_initialized_baseline(make_action):
         f"post-reset push moved object {displacement_after_reset:.6f} m; "
         f"expected >= {MIN_PUSH_DISPLACEMENT_M:.3f} m. info={info_after!r}"
     )
-
-
-def test_holonomic_reset_still_restores_constructor_baseline(make_action):
-    assert PRIMGEN_SCENE.exists(), f"missing holonomic scene: {PRIMGEN_SCENE}"
-    assert Path(CONFIG_PATH).exists(), f"missing holonomic config: {CONFIG_PATH}"
-    assert REAL_NAMO_RL
-
-    import namo_rl
-
-    env = namo_rl.RLEnvironment(str(PRIMGEN_SCENE), str(CONFIG_PATH), False)
-
-    baseline_state = env.get_full_state()
-    reachable_before = env.get_reachable_edges(OBJECT_ID)
-    assert len(reachable_before) == EXPECTED_EDGE_COUNT
-
-    env.step(make_action(object_id=OBJECT_ID, edge_idx=CAR_PUSH_EDGE, depth=1))
-    env.reset()
-
-    restored_state = env.get_full_state()
-    _assert_same_qpos(restored_state, baseline_state)
-
-    reachable_after = env.get_reachable_edges(OBJECT_ID)
-    assert len(reachable_after) == len(reachable_before)

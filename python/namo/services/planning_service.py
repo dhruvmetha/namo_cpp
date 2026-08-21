@@ -15,6 +15,11 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 import namo_rl
 
 from namo.core import PlannerConfig, PlannerResult
+from namo.runtime_profile import (
+    CANONICAL_NUM_DEPTHS,
+    CANONICAL_PRIMITIVE_PREFIX,
+    require_canonical_runtime_config,
+)
 
 
 _ML_GOAL_STRATEGIES = frozenset(
@@ -23,9 +28,6 @@ _ML_GOAL_STRATEGIES = frozenset(
         "ml_primitive",
     }
 )
-_MOTION_PRIMITIVE_FILENAME_MARKER = "motion_primitives_"
-
-
 def _create_planner(name: str, env: Any, config: PlannerConfig) -> Any:
     """Create a registered planner without importing planner internals eagerly."""
     from namo.core import PlannerFactory
@@ -262,6 +264,7 @@ class NAMOPlanningService:
         enable_viewer: bool = False,
         pause_after_load: bool = False,
     ) -> None:
+        require_canonical_runtime_config(config_path)
         self._config_path = config_path
         self._primitive_data_dir = primitive_data_dir
         self._verbose = verbose
@@ -302,26 +305,13 @@ class NAMOPlanningService:
         return self._parsed_namo_config
 
     def _derive_primitive_prefix(self) -> str:
-        """Derive the Python primitive prefix from the C++ config filename."""
-        config = self._load_namo_config()
-        primitive_file = (config.get("system", {}) or {}).get(
-            "motion_primitives_file"
-        )
-        if not primitive_file:
-            return ""
-
-        stem = Path(str(primitive_file)).stem
-        if not stem.startswith(_MOTION_PRIMITIVE_FILENAME_MARKER):
-            return ""
-        variant = stem[len(_MOTION_PRIMITIVE_FILENAME_MARKER) :]
-        if not variant:
-            return ""
-
-        prefix = f"{variant}_"
+        """Return the one supported action-table prefix."""
         sentinel = Path(self._primitive_data_dir) / (
-            f"{prefix}motion_primitives_15_square.dat"
+            f"{CANONICAL_PRIMITIVE_PREFIX}motion_primitives_15_square.dat"
         )
-        return prefix if sentinel.exists() else ""
+        if not sentinel.exists():
+            raise FileNotFoundError(f"missing canonical primitive table: {sentinel}")
+        return CANONICAL_PRIMITIVE_PREFIX
 
     def _max_push_steps_from_config(self) -> Optional[int]:
         """Return the configured primitive push-step cap when present."""
@@ -331,9 +321,14 @@ class NAMOPlanningService:
         if value is None:
             return None
         try:
-            return int(value)
+            parsed = int(value)
         except (TypeError, ValueError):
             return None
+        if parsed != CANONICAL_NUM_DEPTHS:
+            raise ValueError(
+                f"NAMO supports exactly {CANONICAL_NUM_DEPTHS} push depths, got {parsed}"
+            )
+        return parsed
 
     def _get_or_load_goal_model(
         self,

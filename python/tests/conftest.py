@@ -21,11 +21,12 @@ import pytest
 
 # Repo root = namo_cpp/. Tests are at python/tests/.
 REPO_ROOT = Path(__file__).resolve().parents[2]
-CONFIG_PATH = REPO_ROOT / "config" / "namo_config_complete_skill15.yaml"
+CONFIG_PATH = REPO_ROOT / "config" / "namo_config_complete_skill15_car_1x.yaml"
 
 # Canonical scenes used by multiple integration / e2e tests.
-PRIMGEN_SCENE = REPO_ROOT / "data" / "nominal_primitive_scene_square.xml"
-TEST_SCENE = REPO_ROOT / "data" / "test_scene.xml"
+PRIMGEN_SCENE = REPO_ROOT / "data" / "nominal_primitive_scene_square_1x_car.xml"
+TEST_SCENE = PRIMGEN_SCENE
+CAR_START_POSE = (-0.3333, 0.0, 0.0)
 
 # Detect whether the REAL namo_rl is importable. Used by tests that need
 # physics, primitive generation, or actual planning.
@@ -79,7 +80,10 @@ def primgen_square_env():
     if not REAL_NAMO_RL:
         pytest.skip("requires real namo_rl")
     import namo_rl
-    return namo_rl.RLEnvironment(str(PRIMGEN_SCENE), str(CONFIG_PATH), False)
+    env = namo_rl.RLEnvironment(str(PRIMGEN_SCENE), str(CONFIG_PATH), False, True)
+    env.set_robot_pose(*CAR_START_POSE)
+    env.warm_up()
+    return env
 
 
 @pytest.fixture(params=["square", "wide", "tall"])
@@ -92,14 +96,17 @@ def primgen_env_by_shape(request):
     if not REAL_NAMO_RL:
         pytest.skip("requires real namo_rl")
     import namo_rl
-    scene = REPO_ROOT / "data" / f"nominal_primitive_scene_{request.param}.xml"
-    return request.param, namo_rl.RLEnvironment(str(scene), str(CONFIG_PATH), False)
+    scene = REPO_ROOT / "data" / f"nominal_primitive_scene_{request.param}_1x_car.xml"
+    env = namo_rl.RLEnvironment(str(scene), str(CONFIG_PATH), False, True)
+    env.set_robot_pose(*CAR_START_POSE)
+    env.warm_up()
+    return request.param, env
 
 
 @pytest.fixture
 def push_good_params():
     """Canonical 'good push' fixture: an (object_id, edge_idx, depth) tuple
-    known to produce >50 cm of object motion on the square prim-gen scene
+    known to move the object on the car 1x d5 square scene
     under the current controller. Used by integration / e2e tests."""
     return dict(object_id="obstacle_1_movable", edge_idx=50, depth=2)
 

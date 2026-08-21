@@ -16,7 +16,6 @@ from pathlib import Path
 
 import pytest
 
-from conftest import REAL_NAMO_RL
 from namo.planners.full_namo.full_namo_planner import boundary_key, find_region_path
 from namo.services.planning_service import _stale_boundaries
 
@@ -105,9 +104,8 @@ def test_boundary_key_rejects_nonsense(bad):
 
 # --- the select/solve handshake, against the real binding --------------------
 
-pytestmark_real = pytest.mark.skipif(
-    not REAL_NAMO_RL or not SEPARATED_SCENE.exists(),
-    reason="needs the compiled namo_rl binding and the boundary fixture",
+pytestmark_real = pytest.mark.skip(
+    reason="point-robot boundary fixture retired; needs a car 1x d5 replacement"
 )
 
 

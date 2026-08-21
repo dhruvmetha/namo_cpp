@@ -12,7 +12,9 @@ from matplotlib import colormaps
 import numpy as np
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_NAMO_CONFIG = PROJECT_ROOT / "config" / "namo_config_car.yaml"
+DEFAULT_NAMO_CONFIG = (
+    PROJECT_ROOT / "config" / "namo_config_complete_skill15_car_1x.yaml"
+)
 sys.path.insert(0, str(PROJECT_ROOT / "python"))
 
 import namo_rl  # noqa: E402

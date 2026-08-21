@@ -363,8 +363,8 @@ def main():
 
     # Environment settings
     parser.add_argument("--config-file", type=str,
-                        default="config/namo_config_complete_skill15.yaml",
-                        help="NAMO configuration file (skill15 = 15 points per edge)")
+                        default="config/namo_config_complete_skill15_car_1x.yaml",
+                        help="Canonical car 1x d5 NAMO configuration file")
     parser.add_argument("--robot-goal", type=float, nargs=3, metavar=('X', 'Y', 'THETA'),
                         help="Custom robot goal (x, y, theta). If not provided, extracts from XML")
     

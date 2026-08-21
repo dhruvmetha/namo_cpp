@@ -737,7 +737,11 @@ def main():
     # Other
     parser.add_argument("--primitive-data-dir", type=str, default="data")
     parser.add_argument("--xml-dir", type=str, default="../ml4kp_ktamp/resources/models/custom_walled_envs/aug9")
-    parser.add_argument("--config-file", type=str, default="config/namo_config_complete.yaml")
+    parser.add_argument(
+        "--config-file",
+        type=str,
+        default="config/namo_config_complete_skill15_car_1x.yaml",
+    )
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--filter-minimum-length", action="store_true")
     parser.add_argument("--smooth-solutions", action="store_true")

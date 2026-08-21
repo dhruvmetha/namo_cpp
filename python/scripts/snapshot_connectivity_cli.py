@@ -3,7 +3,7 @@
 Example:
     python -m scripts.snapshot_connectivity_cli \
         --xml /path/to/env.xml \
-        --config python/config/namo_config.yaml
+        --config config/namo_config_complete_skill15_car_1x.yaml
 """
 
 from __future__ import annotations
@@ -87,7 +87,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--config",
-        default="python/config/namo_config.yaml",
+        default="config/namo_config_complete_skill15_car_1x.yaml",
         help="Path to the NAMO configuration YAML (default: %(default)s)",
     )
     parser.add_argument(

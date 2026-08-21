@@ -71,7 +71,7 @@ class PlannerOracle:
         """Initialize oracle.
         
         Args:
-            config_yaml: Path to NAMO config YAML (e.g., namo_config_complete_skill15.yaml)
+            config_yaml: Path to the canonical car 1x d5 NAMO config YAML
             verbose: Enable verbose output
         """
         self.config_yaml = Path(config_yaml)

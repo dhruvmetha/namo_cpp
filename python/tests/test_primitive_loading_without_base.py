@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from conftest import (
-    REAL_NAMO_RL, REPO_ROOT, CONFIG_PATH, _require_real_namo_rl,
+    CAR_START_POSE, REAL_NAMO_RL, REPO_ROOT, CONFIG_PATH, _require_real_namo_rl,
 )
 
 _require_real_namo_rl()
@@ -27,14 +27,14 @@ _require_real_namo_rl()
 # Where the canonical (suffixed) primitive files live after this PR.
 PRIMITIVE_DIR = REPO_ROOT / "data"
 EXPECTED_SUFFIXED_FILES = (
-    "motion_primitives_15_square.dat",
-    "motion_primitives_15_wide.dat",
-    "motion_primitives_15_tall.dat",
+    "1x_car_d5_motion_primitives_15_square.dat",
+    "1x_car_d5_motion_primitives_15_wide.dat",
+    "1x_car_d5_motion_primitives_15_tall.dat",
 )
 
 # The unsuffixed file that used to exist as a byte-duplicate. Must NOT
 # be present after the cleanup PR.
-EXPECTED_DELETED_FILE = "motion_primitives_15.dat"
+EXPECTED_DELETED_FILE = "1x_car_d5_motion_primitives_15.dat"
 
 
 def test_suffixed_primitive_files_present():
@@ -77,21 +77,21 @@ def test_skill_loads_with_unsuffixed_base_missing(monkeypatch):
     # If the cleanup regressed and the skill still requires the base
     # file, this construction throws.
     env = namo_rl.RLEnvironment(
-        str(PRIMITIVE_DIR / "test_scene.xml"),
+        str(PRIMITIVE_DIR / "nominal_primitive_scene_square_1x_car.xml"),
         str(CONFIG_PATH),
         False,
+        True,
     )
+    env.set_robot_pose(*CAR_START_POSE)
+    env.warm_up()
     # If construction succeeded, the planners loaded successfully from
     # the suffixed paths. Sanity-check that the env is functional.
     assert env.get_observation()  # non-empty dict
 
 
 def test_skill_fails_loudly_when_suffixed_files_missing(tmp_path, monkeypatch):
-    """The skill should fail with a clear, actionable error if the
-    suffixed files are missing (e.g. someone forgot to regenerate).
-    No silent fallback to substitute wrong-shape data.
-    """
-    import namo_rl
+    """The runtime profile rejects a config pointing at another table."""
+    from namo.runtime_profile import require_canonical_runtime_config
 
     # Build a copy of the config that points at a non-existent prefix.
     # The skill should fail at construction with a useful message.
@@ -102,23 +102,13 @@ def test_skill_fails_loudly_when_suffixed_files_missing(tmp_path, monkeypatch):
     # Replace the motion_primitives_file line. The prefix doesn't need
     # to exist; what matters is that <prefix>_square.dat etc. don't exist.
     text = text.replace(
-        'motion_primitives_file: "data/motion_primitives_15.dat"',
+        'motion_primitives_file: "data/1x_car_d5_motion_primitives_15.dat"',
         f'motion_primitives_file: "{bad_prefix}"',
     )
     test_config.write_text(text)
 
-    with pytest.raises(Exception) as exc_info:
-        namo_rl.RLEnvironment(
-            str(PRIMITIVE_DIR / "test_scene.xml"),
-            str(test_config),
-            False,
-        )
-
-    error_message = str(exc_info.value).lower()
-    # Must mention what was expected, what's missing, and how to fix it.
-    assert "square" in error_message or "primitives" in error_message, (
-        f"Error message should mention missing primitives, got: {exc_info.value}"
-    )
+    with pytest.raises(ValueError, match="car 1x d5"):
+        require_canonical_runtime_config(test_config)
 
 
 def test_generator_does_not_create_unsuffixed_base(tmp_path):
@@ -132,7 +122,21 @@ def test_generator_does_not_create_unsuffixed_base(tmp_path):
 
     # Run from repo root so config relative paths resolve.
     result = subprocess.run(
-        [str(generator), "--output", str(output_base)],
+        [
+            str(generator),
+            "--config",
+            str(CONFIG_PATH),
+            "--scenes-suffix",
+            "_1x_car",
+            "--single-edge",
+            "0",
+            "--min-push-steps",
+            "5",
+            "--settle-ticks",
+            "1",
+            "--output",
+            str(output_base),
+        ],
         cwd=str(REPO_ROOT),
         capture_output=True,
         text=True,
