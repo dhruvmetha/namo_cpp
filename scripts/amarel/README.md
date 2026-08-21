@@ -6,13 +6,13 @@ Practical guide for requesting CPUs, threads, and GPUs on Rutgers Amarel. Everyt
 
 | You need… | Submit to… | Why |
 |---|---|---|
-| Data collection (multiprocessing.Pool, CPU only) | `main-redhat` | Biggest CPU pool, RHEL 9, new hardware |
-| Quick CPU job, no special hardware | `main` or `main-redhat` | Either works; `-redhat` has more nodes |
-| GPU training (PyTorch / JAX) | `gpu-redhat` + `--gres=gpu:1` | ~90 % of GPU inventory is here |
-| Specific L40S (48 GB VRAM) | `gpu-redhat` + `--constraint=adalovelace` | Newest cards, biggest pool |
-| Specific A100 | `gpu-redhat` + `--constraint=ampere` | ~15 nodes, 2–4 cards each |
+| Data collection (multiprocessing.Pool, CPU only) | `main` | Biggest CPU pool, RHEL 9, new hardware |
+| Quick CPU job, no special hardware | `main` or `main` | Either works; `-redhat` has more nodes |
+| GPU training (PyTorch / JAX) | `gpu` + `--gres=gpu:1` | ~90 % of GPU inventory is here |
+| Specific L40S (48 GB VRAM) | `gpu` + `--constraint=adalovelace` | Newest cards, biggest pool |
+| Specific A100 | `gpu` + `--constraint=ampere` | ~15 nodes, 2–4 cards each |
 | > 256 GB RAM | `mem-redhat` | 512 GB / 1 TB / 2 TB nodes |
-| Camden hardware | `cmain-redhat` / `cgpu-redhat` | Smaller pool, often less queued |
+| Camden hardware | `cmain` / `cgpu` | Smaller pool, often less queued |
 
 **Default rule of thumb: use the `-redhat` variant of whatever partition you want.** Reason explained in §1.5 below.
 
@@ -79,7 +79,7 @@ Result: `$NAMO_REPO/build_python/namo_rl*.so` — every shard loads this same bi
 | Knob | Why |
 |---|---|
 | `NAMO_MARCH=x86-64-v3` | Default `-march=native` bakes in build-node ISA → shards on older CPUs SIGILL. `v3` (Haswell+: AVX2/FMA/BMI2) runs everywhere on Amarel at ~few-% cost vs. native, lost in MuJoCo noise. |
-| Build OS = run OS | el7 build for `--partition=main`, el9 for `--partition=main-redhat`. libstdc++/glibc ABIs don't cross. |
+| Build OS = run OS | el7 build for `--partition=main`, el9 for `--partition=main`. libstdc++/glibc ABIs don't cross. |
 
 The slurm scripts hard-fail if `build_python/namo_rl*.so` is missing, so a stale or absent binding can never silently launch a 30-shard array.
 
@@ -184,16 +184,16 @@ Every workload type exists in two flavours: a plain partition (CentOS 7 image) a
 | Partition | OS | Time | RAM/node | Cores/node | GPUs/node | Notes |
 |---|---|---|---|---|---|---|
 | `main`* | CentOS 7 | 3 d | 256 GB | 64 | none | Default. ~60 nodes. Piscataway. |
-| `main-redhat` | RHEL 9.6 | 3 d | 192–512 GB | 32–64 | none | **The big one.** ~415 nodes, all Intel generations including Emerald Rapids. |
+| `main` | RHEL 9.6 | 3 d | 192–512 GB | 32–64 | none | **The big one.** ~415 nodes, all Intel generations including Emerald Rapids. |
 | `gpu` | CentOS 7 | 3 d | 250 GB | 32 | 4 | Only ~10 nodes. Use only if you need el7 specifically. |
-| `gpu-redhat` | RHEL 9.6 | 3 d | 190 GB–515 GB | 24–64 | 2–4 | **The big GPU pool.** A100, L40S, V100. |
+| `gpu` | RHEL 9.6 | 3 d | 190 GB–515 GB | 24–64 | 2–4 | **The big GPU pool.** A100, L40S, V100. |
 | `mem` | CentOS 7 | 3 d | 2 TB | 64 | none | Single node. |
 | `mem-redhat` | RHEL 9.6 | 3 d | 1–2 TB | 40–64 | none | 12 high-memory nodes. |
 | `nonpre` | CentOS 7 | 3 d | 192 GB | 32 | none | Non-preemptible (16 nodes). |
 | `graphical` | CentOS 7 | 1 d | 256 GB | 64 | none | OnDemand desktops. |
 | `cmain` | CentOS 7 | 3 d | 192–256 GB | 32–64 | none | Camden, small. |
-| `cmain-redhat` | RHEL 9.6 | 3 d | 192–256 GB | 32–64 | none | Camden, RHEL 9. |
-| `cgpu-redhat` | RHEL 9.6 | 3 d | 192 GB–1.5 TB | 40–52 | 2–4 | Camden GPUs (A100, V100). |
+| `cmain` | RHEL 9.6 | 3 d | 192–256 GB | 32–64 | none | Camden, RHEL 9. |
+| `cgpu` | RHEL 9.6 | 3 d | 192 GB–1.5 TB | 40–52 | 2–4 | Camden GPUs (A100, V100). |
 
 \*default partition
 
@@ -202,7 +202,7 @@ Every workload type exists in two flavours: a plain partition (CentOS 7 image) a
 Amarel is in the middle of migrating off CentOS 7 (EOL June 2024). The result is a **two-OS cluster** with hardware split across two parallel partition trees:
 
 - **Plain partitions** (`main`, `gpu`, `mem`, `cmain`) → nodes running **CentOS 7** (kernel `3.10.0-…el7.x86_64`).
-- **`-redhat` partitions** (`main-redhat`, `gpu-redhat`, etc.) → nodes running **RHEL 9.6** (kernel `5.14.0-…el9_6.x86_64`).
+- **`-redhat` partitions** (`main`, `gpu`, etc.) → nodes running **RHEL 9.6** (kernel `5.14.0-…el9_6.x86_64`).
 
 **Why you should default to `-redhat`:**
 1. ~80 % of total cores live on `-redhat` nodes.
@@ -220,7 +220,7 @@ hostname                      # which login node?
 ```
 If you compile native code on a CentOS 7 login node, the binary may not run on RHEL 9 compute nodes (different glibc, different CUDA driver). Three safe paths:
 - **Python + conda env** — conda packages are mostly OS-agnostic. This is what `scripts/amarel/activate.sh` does. Safe on either OS.
-- **Build inside a compute allocation** — `srun --partition=main-redhat …` then build there. Then sbatch into `*-redhat` partitions only.
+- **Build inside a compute allocation** — `srun --partition=main …` then build there. Then sbatch into `*-redhat` partitions only.
 - **Containers** — Apptainer (formerly Singularity) is the cluster standard. Build once, run anywhere.
 
 ### Hardware features (`--constraint=...`)
@@ -233,9 +233,9 @@ CPU generations available — pick if you need a specific ISA:
 - `sapphirerapids`
 - `emeraldrapids` (Clark, newest — preferred for raw throughput)
 
-GPU types (use BOTH `--partition=gpu-redhat` AND `--constraint=<type>`):
+GPU types (use BOTH `--partition=gpu` AND `--constraint=<type>`):
 
-- `volta` — NVIDIA V100, 16 GB. Only 3 nodes × 2 GPUs, on `gpu-redhat`. Older but reliable.
+- `volta` — NVIDIA V100, 16 GB. Only 3 nodes × 2 GPUs, on `gpu`. Older but reliable.
 - `ampere` — NVIDIA A100, 40 or 80 GB. ~15 nodes, 2–4 GPUs each. Best for memory-heavy training.
 - `adalovelace` — NVIDIA L40S, 48 GB VRAM. ~30 nodes, 3–4 GPUs each. **Biggest pool, newest hardware.**
 
@@ -243,9 +243,9 @@ GPU inventory at a glance (live `sinfo` snapshot, May 2026):
 
 | Architecture | Partition | Nodes | GPUs/node | Total GPUs | VRAM |
 |---|---|---|---|---|---|
-| L40S (`adalovelace`) | `gpu-redhat` | ~30 | 3–4 | ~90 | 48 GB |
-| A100 (`ampere`) | `gpu-redhat` | ~15 | 2–4 | ~40 | 40 / 80 GB |
-| V100 (`volta`) | `gpu-redhat` | 3 | 2 | 6 | 16 GB |
+| L40S (`adalovelace`) | `gpu` | ~30 | 3–4 | ~90 | 48 GB |
+| A100 (`ampere`) | `gpu` | ~15 | 2–4 | ~40 | 40 / 80 GB |
+| V100 (`volta`) | `gpu` | 3 | 2 | 6 | 16 GB |
 | L40S (`adalovelace`) | `gpu` (el7) | 6 | 4 | 24 | 48 GB |
 | A100 (`ampere`) | `gpu` (el7) | 4 | 4 | 16 | 40 GB |
 
@@ -332,14 +332,14 @@ Each array task gets its own 32-core allocation; SLURM schedules them independen
 GPU jobs **always** need both flags:
 
 ```bash
-#SBATCH --partition=gpu-redhat       # almost always what you want; not plain "gpu"
+#SBATCH --partition=gpu       # almost always what you want; not plain "gpu"
 #SBATCH --gres=gpu:1
 ```
 
 `--gres=gpu:1` = "any 1 GPU." To target a specific architecture:
 
 ```bash
-#SBATCH --partition=gpu-redhat
+#SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
 #SBATCH --constraint=adalovelace     # L40S, biggest pool
 # or constraint=ampere|adalovelace   # either A100 or L40S — schedules faster
@@ -356,13 +356,13 @@ Run these on a login node (they're cheap, read-only):
 
 ```bash
 # Per-partition node state — idle (all GPUs free) / mix (some free) / alloc (full)
-sinfo -p gpu-redhat -o "%20N %10t %25f %15G"
+sinfo -p gpu -o "%20N %10t %25f %15G"
 
 # Just the nodes that have slots open
-sinfo -p gpu,gpu-redhat -t idle,mix -o "%N %t %G %f"
+sinfo -p gpu -t idle,mix -o "%N %t %G %f"
 
 # Who's hogging what
-squeue -p gpu-redhat -o "%.10i %.8u %.8T %.10M %.6D %R %b"
+squeue -p gpu -o "%.10i %.8u %.8T %.10M %.6D %R %b"
 
 # How many GPUs are actually free on a specific node
 scontrol show node gpuk006 | grep -E "Gres|AllocTRES|State"
@@ -375,7 +375,7 @@ Reading the output: `mix` means some GPUs on the node are still free — your si
 ```bash
 #!/bin/bash
 #SBATCH --job-name=ml-train
-#SBATCH --partition=gpu-redhat
+#SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
 #SBATCH --constraint=ampere|adalovelace   # either A100 or L40S — schedules sooner
 #SBATCH --nodes=1 --ntasks=1
@@ -401,7 +401,7 @@ python train.py --config configs/default.yaml
 
 Multi-GPU on a single node (DDP / `torchrun`):
 ```bash
-#SBATCH --partition=gpu-redhat
+#SBATCH --partition=gpu
 #SBATCH --gres=gpu:2                      # 2 GPUs on same node
 #SBATCH --constraint=adalovelace
 #SBATCH --cpus-per-task=16
@@ -434,15 +434,15 @@ Edit the sbatch directives:
 ```
 Throughput scales roughly linearly with workers — `region_opening` physics steps are independent across workers, no shared global state.
 
-### Switching to RHEL 9 (`--partition=main-redhat`)
+### Switching to RHEL 9 (`--partition=main`)
 
 Two things:
-1. Rebuild `$NAMO_REPO/build_python/` on a `main-redhat` srun — el7 and el9 libstdc++/glibc ABIs are incompatible.
-2. Change one line in the sbatch script: `#SBATCH --partition=main-redhat`.
+1. Rebuild `$NAMO_REPO/build_python/` on a `main` srun — el7 and el9 libstdc++/glibc ABIs are incompatible.
+2. Change one line in the sbatch script: `#SBATCH --partition=main`.
 
 Verify the binding loads on the target partition:
 ```bash
-srun --partition=main-redhat --pty bash -c \
+srun --partition=main --pty bash -c \
     "source $NAMO_REPO/scripts/amarel/activate.sh && \
      python -c 'import namo_rl; print(namo_rl.__file__)'"
 ```
@@ -451,7 +451,7 @@ srun --partition=main-redhat --pty bash -c \
 
 The diffusion model wants CUDA. Switch partition + add gres; CPU count can stay modest since the heavy lifting moves to the GPU.
 ```bash
-#SBATCH --partition=gpu-redhat
+#SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
 #SBATCH --constraint=ampere|adalovelace
 #SBATCH --cpus-per-task=8
@@ -508,7 +508,7 @@ scancel -u dm1487
 
 # Real-time interactive shell on a compute node
 unset SLURM_JOB_ID
-srun --partition=main-redhat --cpus-per-task=4 --mem=8G --time=2:00:00 --pty bash
+srun --partition=main --cpus-per-task=4 --mem=8G --time=2:00:00 --pty bash
 
 # Attach to a *running* job (debug from another shell)
 srun --jobid=<id> --overlap bash -c 'ps -ef --forest -u $USER'
@@ -524,7 +524,7 @@ sinfo -s
 sinfo -o "%P %D %c %m %G %f" | sort -u
 
 # Which GPUs have slots free *right now*
-sinfo -p gpu,gpu-redhat -t idle,mix -o "%N %t %G %f"
+sinfo -p gpu -t idle,mix -o "%N %t %G %f"
 
 # What OS is this login/compute node on?
 cat /etc/os-release | grep PRETTY_NAME      # CentOS 7  vs  Red Hat 9.x

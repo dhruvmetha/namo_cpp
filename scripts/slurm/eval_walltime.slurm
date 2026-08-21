@@ -20,7 +20,7 @@
 # BOTH legs are pinned to the SAME constraint here so every arm of this campaign shares one CPU
 # generation; never compare a 1push time against a 2push time regardless.
 #SBATCH --job-name=walltime
-#SBATCH --partition=main-redhat
+#SBATCH --partition=main
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --time=10:00:00

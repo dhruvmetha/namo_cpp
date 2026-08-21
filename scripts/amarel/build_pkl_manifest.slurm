@@ -14,7 +14,7 @@
 #     sbatch scripts/amarel/build_pkl_manifest.slurm
 #
 #SBATCH --job-name=build-pkl-manifest
-#SBATCH --partition=main-redhat
+#SBATCH --partition=main
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=8G
 #SBATCH --time=00:20:00

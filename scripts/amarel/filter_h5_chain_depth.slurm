@@ -12,7 +12,7 @@
 # Default settings below are tuned for the current batch750 minimal H5.
 
 #SBATCH --job-name=namo-h5-filter
-#SBATCH --partition=main-redhat
+#SBATCH --partition=main
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=64G
 #SBATCH --time=24:00:00

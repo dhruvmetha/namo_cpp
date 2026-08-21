@@ -2,7 +2,7 @@
 # Build the targeted fill H5 and append only requested episode trees to the base GT.
 # Required env: ALIGNMENT, COLLECT_DIR, BASE_H5, WORK_DIR, OUT_H5.
 #SBATCH --job-name=build2p-gt
-#SBATCH --partition=main-redhat
+#SBATCH --partition=main
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=2

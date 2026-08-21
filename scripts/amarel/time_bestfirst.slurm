@@ -2,7 +2,7 @@
 # Best-first SEARCH wall-clock timing on ONE node (same machine), CPU, single-threaded.
 # Env: OUT (jsonl path). Opt: NPER (episodes/tier, default 50), BUDGET (sims/scene, default 30).
 #SBATCH --job-name=bftimebench
-#SBATCH --partition=main,main-redhat
+#SBATCH --partition=main,main
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --time=03:00:00

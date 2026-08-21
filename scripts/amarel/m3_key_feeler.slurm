@@ -7,7 +7,7 @@
 #
 # Required env at submit:  CKPTS (semicolon-separated ckpts; --array=0-(n-1)), OUT_DIR
 #SBATCH --job-name=m3-feeler
-#SBATCH --partition=gpu,gpu-redhat
+#SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=48G

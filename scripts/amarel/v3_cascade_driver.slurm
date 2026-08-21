@@ -16,7 +16,7 @@
 # (run `corpus.py <id> paths` to see it).
 #
 #SBATCH --job-name=cascade-driver
-#SBATCH --partition=main-redhat
+#SBATCH --partition=main
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
 #SBATCH --time=48:00:00

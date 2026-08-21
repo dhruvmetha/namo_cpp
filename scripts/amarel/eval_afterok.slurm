@@ -5,7 +5,7 @@
 # Pure SLURM => survives session restarts. Submit one per pending seed via launch_seed_evals.sh.
 #   env: RUN_DIR (e.g. qfull_v3_v4hq_s2), LABEL (e.g. Hz_v3_s2); opt MINEP(8)
 #SBATCH --job-name=evalchain
-#SBATCH --partition=main,main-redhat
+#SBATCH --partition=main,main
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=2G
 #SBATCH --time=00:15:00

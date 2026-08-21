@@ -8,7 +8,7 @@
 #       sbatch shell ("python: command not found"). We resolve the interpreter explicitly (PY).
 #   (2) CS ulimit -u=2000 + OpenBLAS defaulting to 64 threads/proc -> >1 train/node blows the
 #       thread limit ("pthread_create failed"). Pin all BLAS/OMP pools to 1.
-#   (3) --time: NEVER omit (CS main-redhat DEFAULT is 2 MINUTES -> instant kill) and NEVER use
+#   (3) --time: NEVER omit (CS main DEFAULT is 2 MINUTES -> instant kill) and NEVER use
 #       partition MAX on a busy GPU queue (a 3-day request can't backfill -> may never start).
 #       Rule: ~2-3x the EXPECTED runtime. See memory: feedback_no_slurm_time_limits.
 #   (4) CS `unlimited` partition REJECTS --cpus-per-task -> omit it there (Amarel allows it).
@@ -18,7 +18,7 @@
 # Usage (CS, one model):   H5=/path/x.h5 OUT=/path/outdir sbatch scripts/slurm/train.slurm
 # Usage (gamma-sweep):     add `--array=0-3`; task->gamma via GAMMAS below (load-remap, one H5).
 #   e.g.  H5=... OUT=/path/models sbatch --array=0-3 --gres=gpu:a100:1 scripts/slurm/train.slurm
-# Amarel deltas: `--partition=gpu-redhat`; `--cpus-per-task=8` is allowed; NAMO_PYTHON is already
+# Amarel deltas: `--partition=gpu`; `--cpus-per-task=8` is allowed; NAMO_PYTHON is already
 #   an absolute path there so (1) is a no-op; `source env.amarel.sh` instead of env.ilab.sh.
 # Tunables via env: EPOCHS(12) BATCH(256) WORKERS(8) LR(3e-4) SEED(1) PATIENCE(0) RANK_LAMBDA(0.1) LOWER_RANK_LAMBDA(0.05) RANK_TEMP(0.15)
 # Optional action grounding: NAMO_ACTION_MOTION=1 enables plain crop-relative (dx,dy,dtheta) late

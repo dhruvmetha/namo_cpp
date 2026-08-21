@@ -10,7 +10,7 @@
 # Optional:
 #   BC_EXTRA_ARGS extra args to batch_collection (e.g., "--local-only --filter-overlaps")
 #   BC_WORKERS    workers per shard (default $SLURM_CPUS_PER_TASK)
-#SBATCH --partition=main-redhat
+#SBATCH --partition=main
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=64G
 #SBATCH --time=02:00:00

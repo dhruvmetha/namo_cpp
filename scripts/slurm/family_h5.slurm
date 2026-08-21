@@ -2,7 +2,7 @@
 # FAMILY corpus H5 render array [EXP-2026-08-09]: build_rung2_h5.py --family-select over the base
 # shards. Per-shard H5s land in $OUT; pooling happens after. ~200 shards x ~1-1.5h.
 #SBATCH --job-name=family_h5
-#SBATCH --partition=main-redhat
+#SBATCH --partition=main
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
 #SBATCH --time=4:00:00

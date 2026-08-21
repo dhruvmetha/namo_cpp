@@ -108,5 +108,5 @@ If it prints `reactive_argmax@2` without a path/import error, the box is good. (
 ## 8. Porting the Claude skills + machine cards
 Two kinds of skill, ported differently:
 - **Project skills** (`.claude/skills/`, repo knowledge) — **committed** (`.gitignore` un-ignores `.claude/skills/`), so they **travel with `git clone`** (e.g. `namo-data-pipeline`). Put any new *shared* skill here.
-- **User skills** (`~/.claude/skills/`, home dir) — do **NOT** travel; they're per-machine. `amarel-gpu` is Amarel-specific (leans on `~/bin/{getgpu,gpufree,gpueta}` + the `gpu,gpu-redhat` partitions) → **don't copy it to ilab.** The **machine cards** carry each box's compute guidance; write an `ilab-gpu` user skill once ilab's scheduler is known.
+- **User skills** (`~/.claude/skills/`, home dir) — do **NOT** travel; they're per-machine. `amarel-gpu` is Amarel-specific (leans on `~/bin/{getgpu,gpufree,gpueta}` + the `gpu` partitions) → **don't copy it to ilab.** The **machine cards** carry each box's compute guidance; write an `ilab-gpu` user skill once ilab's scheduler is known.
 - **Machine cards** (`CLAUDE.<machine>.md`) — committed, so they travel. The main `CLAUDE.md` detects the box and routes to the right card. `CLAUDE.local.md` (gitignored, auto-loaded) is for uncommitted per-checkout overrides.

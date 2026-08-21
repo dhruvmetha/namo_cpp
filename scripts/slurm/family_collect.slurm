@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================================
-# FAMILY corpus collection template (Amarel main-redhat). One array task = one manifest slice.
+# FAMILY corpus collection template (Amarel main). One array task = one manifest slice.
 # All three campaign passes use THIS file, differing only in CONFIG + MANIFEST + slice size:
 #   BASE:       CONFIG=region_opening_family_car.yaml  (capped-12, censored-honest)
 #   AUDIT:      CONFIG=region_opening_tree_car.yaml    MANIFEST=<random 2% slice>
@@ -16,7 +16,7 @@
 # Tunables: XMLS_PER_TASK(350) WORKERS(12)
 # ============================================================================================
 #SBATCH --job-name=family_collect
-#SBATCH --partition=main-redhat
+#SBATCH --partition=main
 #SBATCH --cpus-per-task=14
 #SBATCH --mem=24G
 #SBATCH --time=3:00:00

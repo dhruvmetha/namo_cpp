@@ -26,7 +26,7 @@
 # - Explicitly pins region_max_chain_depth=2 (max 2 pushes per hop)
 #
 #SBATCH --job-name=namo-full-solv
-#SBATCH --partition=main-redhat
+#SBATCH --partition=main
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=128G
 #SBATCH --time=24:00:00

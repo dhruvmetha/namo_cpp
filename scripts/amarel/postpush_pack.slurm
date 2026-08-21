@@ -3,7 +3,7 @@
 # Required env: LIST_DIR (dir of part_XX.txt lists), OUT_DIR. Each task packs $LIST_DIR/part_${TASK}.txt
 #   -> $OUT_DIR/shard_${TASK}.h5 . Join these into the v2 training mix data_dir (';'-separated).
 #SBATCH --job-name=pp_pack
-#SBATCH --partition=main,main-redhat
+#SBATCH --partition=main,main
 #SBATCH --array=0-3
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=16G

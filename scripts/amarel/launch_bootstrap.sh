@@ -32,7 +32,7 @@ else OV="+data.budget_h=false +model.head_mode=$HEAD"; fi                     # 
 TAG="qboot_${VSUMMARY}"; [ "$HEAD" = "hl_gauss" ] || TAG="qrank_${VSUMMARY}"
 echo "=== STAGE 1 head=$HEAD: ${TAG}, $((NEX+2)) H5s, array $ARRAY ==="
 cd "$SAGE"
-J=$(sbatch --parsable --array="$ARRAY" --time="$WALL" --partition="${PART:-gpu-redhat}" \
+J=$(sbatch --parsable --array="$ARRAY" --time="$WALL" --partition="${PART:-gpu}" \
   --export="ALL,RUN_PREFIX=${TAG},DATA_DIR=$DATA_DIR,EXTRA_OVERRIDES=$OV" \
   scripts/train_h5_sampling.slurm)
 echo "${TAG}_LAUNCHED job=$J  (anchor v2/v3/v4 untouched; new run-prefix)"

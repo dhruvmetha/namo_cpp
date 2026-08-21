@@ -14,7 +14,7 @@
 #   MANIFEST=$HOME_DIR/manifests/twopush_scenes.txt NUM_SHARDS=16 sbatch testset_2push_collect.slurm
 #
 #SBATCH --job-name=ts-2push
-#SBATCH --partition=main-redhat
+#SBATCH --partition=main
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32

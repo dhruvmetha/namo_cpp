@@ -11,7 +11,7 @@
 # Optional:
 #   MAX_PER_EPISODE  cap post-push s1 per episode (0=all; >0 bounds total volume) [USER tunable]
 #   RP_WORKERS       per-shard parallel render procs (default $SLURM_CPUS_PER_TASK)
-#SBATCH --partition=main,main-redhat
+#SBATCH --partition=main,main
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=64G
 #SBATCH --time=06:00:00

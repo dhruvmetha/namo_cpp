@@ -4,7 +4,7 @@
 # Within a shard, the SELECTED models (default Hz,NoHz,random; set MODELS=NoHz or MODELS=random for a subset)
 # run interleaved per episode. Env: OUT_DIR, SHARD (eps/shard); opt BUDGET,HMAX,KEY,MODELS,RNG_SEED.
 #SBATCH --job-name=bftime_shard
-#SBATCH --partition=main,main-redhat
+#SBATCH --partition=main,main
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --time=03:00:00

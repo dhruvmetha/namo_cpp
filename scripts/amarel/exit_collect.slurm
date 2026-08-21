@@ -4,7 +4,7 @@
 # retrain mix in place of / alongside postpush. CPU (sims dominate; one model fwd/setup).
 # Required env: CKPT (the deployed model = Hz-v2). Optional: KEY, TOPK_SETUPS(2), OUT_DIR, SHARD(102), NSCENES(5076).
 #SBATCH --job-name=exit_collect
-#SBATCH --partition=main,main-redhat
+#SBATCH --partition=main,main
 #SBATCH --array=0-49
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=12G

@@ -7,7 +7,7 @@
 # Picker scripts that glob the phase mask dirs naturally see only clean NPZs.
 #
 #SBATCH --job-name=v3-filter-overlaps
-#SBATCH --partition=main-redhat
+#SBATCH --partition=main
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=32G
 #SBATCH --time=00:30:00

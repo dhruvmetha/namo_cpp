@@ -2,7 +2,7 @@
 # Wall-clock timing benchmark on ONE node (same machine for all models), CPU, single-threaded.
 # Env: OUT (jsonl path). Opt: NPER (episodes per tier, default 100).
 #SBATCH --job-name=timebench
-#SBATCH --partition=main,main-redhat
+#SBATCH --partition=main,main
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --time=03:00:00

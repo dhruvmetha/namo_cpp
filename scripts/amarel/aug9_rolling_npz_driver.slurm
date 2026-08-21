@@ -7,7 +7,7 @@
 # Run with no SLURM dependency — starts firing NPZ jobs immediately.
 #
 #SBATCH --job-name=v3-aug9-rolling-npz
-#SBATCH --partition=main-redhat
+#SBATCH --partition=main
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=8G
 #SBATCH --time=08:00:00

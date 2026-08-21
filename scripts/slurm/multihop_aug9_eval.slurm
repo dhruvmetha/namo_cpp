@@ -7,7 +7,7 @@
 #     PATH_LENGTH=3 CKPT=/cache/.../HY5U_s2.ckpt \
 #     sbatch --array=0-19 scripts/slurm/multihop_aug9_eval.slurm
 #SBATCH --job-name=mh2_eval
-#SBATCH --partition=main-redhat
+#SBATCH --partition=main
 #SBATCH --time=02:00:00
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=24G

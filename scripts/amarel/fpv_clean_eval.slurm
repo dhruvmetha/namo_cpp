@@ -7,7 +7,7 @@
 # testset_gt.h5 via scripts/eval_auc.py instead. Reuses scripts/sandbox/diag_leaf_s1.py (no fork).
 # Pinned settings: collisions-allowed + target-region-goal.
 #SBATCH --job-name=fpv-clean
-#SBATCH --partition=main-redhat
+#SBATCH --partition=main
 #SBATCH --array=0-39
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=12G

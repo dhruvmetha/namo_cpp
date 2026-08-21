@@ -19,7 +19,7 @@ Measure the per-unit wall time from the smoke and multiply. Report a range, lean
 If the run's job is to answer a yes/no question ("does model X beat baseline Y?"), run a small pilot first (a few-thousand scenes / one config / fewer epochs) to get the signal cheap, THEN scale only if it pays. Don't run a 6-hour full pipeline to get a first look. (Full scale is for rounds where you've already decided to invest.)
 
 **4. Size the SLURM job right.**
-- `--time` = ~2-3× the calibrated estimate. NEVER omit (CS main-redhat default is **2 minutes** → instant kill) and NEVER partition-MAX on a busy GPU queue (a 3-day request can't backfill → may never start). See memory `feedback_no_slurm_time_limits`.
+- `--time` = ~2-3× the calibrated estimate. NEVER omit (CS main default is **2 minutes** → instant kill) and NEVER partition-MAX on a busy GPU queue (a 3-day request can't backfill → may never start). See memory `feedback_no_slurm_time_limits`.
 - Pin thread pools: `export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1` (CS `ulimit -u=2000`; OpenBLAS spawns 64 thr/proc). For collection, cv2 also needs an in-code `cv2.setNumThreads(1)`.
 - CS `unlimited` partition REJECTS `--cpus-per-task` (omit it); Amarel allows it.
 - Resolve the interpreter explicitly on CS (`env.ilab.sh` does NOT conda-activate → bare `python` is absent in sbatch).

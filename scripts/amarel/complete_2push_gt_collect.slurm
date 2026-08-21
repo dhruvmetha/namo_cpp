@@ -2,7 +2,7 @@
 # Exhaustively collect one focused pure-2push episode per array task.
 # Required env: MANIFEST, OUT_DIR, CONFIG_YAML, CKPT. Optional: SHARD(1), WORKERS(1).
 #SBATCH --job-name=fill2p-gt
-#SBATCH --partition=main-redhat
+#SBATCH --partition=main
 #SBATCH --array=0-36
 #SBATCH --nodes=1
 #SBATCH --ntasks=1

@@ -15,7 +15,7 @@
 #     sbatch scripts/amarel/build_xml_manifest.slurm
 #
 #SBATCH --job-name=build-manifest
-#SBATCH --partition=main-redhat
+#SBATCH --partition=main
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=16G
 #SBATCH --time=00:30:00

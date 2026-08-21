@@ -3,7 +3,7 @@
 # (render is ~1.8s/ep due to the wavefront rebuild -> a single task blows the wall; shards write incrementally + safe).
 # Env: VSUMMARY(density|depth), OUT_DIR. Opt: SHARD(260). Each task writes OUT_DIR/shard_<id>.h5.
 #SBATCH --job-name=bootbuild
-#SBATCH --partition=main,main-redhat
+#SBATCH --partition=main,main
 #SBATCH --array=0-19
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=12G

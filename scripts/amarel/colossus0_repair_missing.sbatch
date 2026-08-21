@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=c0repair
 #SBATCH --account=general
-#SBATCH --partition=main-redhat
+#SBATCH --partition=main
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1

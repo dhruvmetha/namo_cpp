@@ -7,7 +7,7 @@
 # Example scale (10 seed batches/template, 10 requested layouts/task):
 #   OUT=/scratch/... NUM_ENVS=10 sbatch --array=0-99 scripts/slurm/multihop_aug9_generate.slurm
 #SBATCH --job-name=mh2_gen
-#SBATCH --partition=main-redhat
+#SBATCH --partition=main
 #SBATCH --time=01:00:00
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G

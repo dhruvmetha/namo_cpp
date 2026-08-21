@@ -18,7 +18,7 @@
 # At budget 4000 an unsolved episode is ~15 min, so 4 episodes per task worst-cases at ~62 min.
 # Amarel's `main` QOS caps submitted jobs at 500 — submit in waves.
 #SBATCH --job-name=eval_budget
-#SBATCH --partition=main-redhat
+#SBATCH --partition=main
 #SBATCH --time=06:00:00
 #SBATCH --mem=16G
 #SBATCH --cpus-per-task=1

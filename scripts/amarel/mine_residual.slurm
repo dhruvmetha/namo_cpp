@@ -6,7 +6,7 @@
 #
 # Excludes goal_region_not_in_snapshot (fundamentally unsolvable, waste of compute).
 #
-#SBATCH --partition=main-redhat
+#SBATCH --partition=main
 #SBATCH --cpus-per-task=64
 #SBATCH --mem=64G
 #SBATCH --time=00:10:00

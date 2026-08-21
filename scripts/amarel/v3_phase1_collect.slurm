@@ -7,7 +7,7 @@
 # Pattern B (uniform random over valid solutions per attempt).
 #
 #SBATCH --job-name=v3-p1
-#SBATCH --partition=main-redhat
+#SBATCH --partition=main
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32

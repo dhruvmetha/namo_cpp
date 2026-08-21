@@ -9,7 +9,7 @@
 #                (default: $NAMO_H5/car_v1_aug9_all.h5)
 #
 #SBATCH --job-name=namo-h5-build
-#SBATCH --partition=main-redhat
+#SBATCH --partition=main
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32G
 #SBATCH --time=04:00:00

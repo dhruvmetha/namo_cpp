@@ -4,7 +4,7 @@
 # for EXACT aggregation. Required env: CKPT, OUT_DIR. Optional: KEY, SHARD(25), FIXED(--fixed-setup).
 #   CKPT=... OUT_DIR="$NAMO_SCRATCH/eval/fsep_full_v3" sbatch scripts/amarel/finish_sep.slurm
 #SBATCH --job-name=fsep
-#SBATCH --partition=main,main-redhat
+#SBATCH --partition=main,main
 #SBATCH --array=0-39
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=12G

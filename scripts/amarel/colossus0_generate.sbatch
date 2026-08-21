@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=c0gen
 #SBATCH --account=general
-#SBATCH --partition=main-redhat
+#SBATCH --partition=main
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --time=03:00:00

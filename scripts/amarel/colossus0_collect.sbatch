@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=c0collect
 #SBATCH --account=general
-#SBATCH --partition=main-redhat
+#SBATCH --partition=main
 #SBATCH --exclude=halk[0001-0159]
 #SBATCH --nodes=1
 #SBATCH --ntasks=1

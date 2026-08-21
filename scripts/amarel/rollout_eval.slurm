@@ -5,7 +5,7 @@
 #
 # Required env at submit:  CKPT, MANIFEST, OUT_DIR ; optional BUDGET (2), TOPK (10), SHARD (25)
 #SBATCH --job-name=rollout
-#SBATCH --partition=main,main-redhat
+#SBATCH --partition=main,main
 #SBATCH --array=0-39
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=12G

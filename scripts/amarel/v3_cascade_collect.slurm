@@ -12,7 +12,7 @@
 # d5 primitives + 1x car config, target-goal-region, pattern B (record 1 random).
 #
 #SBATCH --job-name=v3-casc
-#SBATCH --partition=main-redhat
+#SBATCH --partition=main
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32

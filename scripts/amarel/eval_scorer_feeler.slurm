@@ -7,7 +7,7 @@
 #   CKPTS    semicolon-separated ckpt paths (one eval each)
 #   OUT_DIR  where per-ckpt JSON lands
 #SBATCH --job-name=eval-feeler
-#SBATCH --partition=gpu,gpu-redhat
+#SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=48G

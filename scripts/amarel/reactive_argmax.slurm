@@ -1,7 +1,7 @@
 #!/bin/bash
 # PURE reactive (argmax setup@H2 -> argmax finish@H1), sharded by xml-index. Env: CKPT, OUT_DIR. Opt: SHARD(80).
 #SBATCH --job-name=reactarg
-#SBATCH --partition=main,main-redhat
+#SBATCH --partition=main,main
 #SBATCH --array=0-12
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=12G

@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=c0final
 #SBATCH --account=general
-#SBATCH --partition=main-redhat
+#SBATCH --partition=main
 #SBATCH --cpus-per-task=64
 #SBATCH --mem=128G
 #SBATCH --time=03:00:00

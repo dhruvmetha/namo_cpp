@@ -7,7 +7,7 @@
 # Collection fan-out for one RL-loop generation: one array task = one episode shard -> one pkl.
 # Forward-only rollouts are CPU-bound; arm A (uniform pi0) needs no model. Real collection runs
 # where the TRAIN xmls live (Amarel /scratch after a git sync) -> submit to a CPU partition there
-# (main-redhat). On the CS estate submit to `unlimited` (one shard per node; see compute-resources).
+# (main). On the CS estate submit to `unlimited` (one shard per node; see compute-resources).
 #
 # Submit:
 #   NSHARDS=64 CONFIG=<gen_dir>/config.json OUTDIR=<gen_dir>/collect BUFFER=<run>/buffer.pkl \

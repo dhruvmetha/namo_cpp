@@ -3,7 +3,7 @@
 # interactive alloc (which gets reclaimed + piggybacks the user's session). Required env: SCRIPT. Optional: ARGS.
 #   SCRIPT=scripts/sandbox/check_h2_finish.py ARGS="--n 70" sbatch --job-name=h2probe scripts/amarel/cpu_probe.slurm
 #SBATCH --job-name=cpu_probe
-#SBATCH --partition=main,main-redhat
+#SBATCH --partition=main,main
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=12G
 #SBATCH --time=00:40:00

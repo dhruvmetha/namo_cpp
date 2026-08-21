@@ -2,7 +2,7 @@
 # Bit-compare gate for the render speedup. MODE=capture (render N ref crops, save) or compare (vs ref).
 # For capture: revert the render to ORIGINAL first. For compare: restore to the fast render first.
 #SBATCH --job-name=render_equiv
-#SBATCH --partition=main,main-redhat
+#SBATCH --partition=main,main
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=2
 #SBATCH --time=00:45:00

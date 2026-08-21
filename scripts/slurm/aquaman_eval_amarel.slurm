@@ -16,7 +16,7 @@
 #
 # SAGE MUST MATCH THE CKPT (round-1 incident: 204 tasks died on an unknown action_motion_dim).
 #SBATCH --job-name=aq0_eval
-#SBATCH --partition=main-redhat
+#SBATCH --partition=main
 #SBATCH --time=03:00:00
 #SBATCH --mem=16G
 #SBATCH --cpus-per-task=1

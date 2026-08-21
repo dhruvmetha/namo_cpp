@@ -7,7 +7,7 @@
 #   TEMPLATE_REL=set1/benchmark_5.xml START_SEED=640000000 NUM_ENVS=1 EVAL_LIMIT=1
 #   NAMO_REPO=/path/to/namo ENV_CREATOR_REPO=/path/to/mujoco_env_creator
 #SBATCH --job-name=mh2_smoke
-#SBATCH --partition=main-redhat
+#SBATCH --partition=main
 #SBATCH --time=00:45:00
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=16G

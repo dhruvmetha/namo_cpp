@@ -3,7 +3,7 @@
 # Required env: CKPT, OUT_DIR ; optional KEY, MANIFEST override, HMAX(2), SIM_BUDGET(30), PRIOR(model),
 # AGG(mean5), COMBINE(blend), DISCOUNT(off), TAU(1), GAMMA(.65), RAW(0), SEED_BASE(7000), SHARD(13).
 #SBATCH --job-name=bestfirst
-#SBATCH --partition=main-redhat
+#SBATCH --partition=main
 #SBATCH --array=0-39
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=12G

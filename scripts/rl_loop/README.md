@@ -36,7 +36,7 @@ Real collection runs where the TRAIN xmls live (Amarel `/scratch` after a git sy
 
 ```
 NSHARDS=64 CONFIG=<run>/genN/config.json OUTDIR=<run>/genN/collect BUFFER=<run>/buffer.pkl \
-  ENV_FILE=env.amarel.sh sbatch --array=0-63 --partition=main-redhat scripts/rl_loop/collect.slurm
+  ENV_FILE=env.amarel.sh sbatch --array=0-63 --partition=main scripts/rl_loop/collect.slurm
 
 python scripts/rl_loop/run_generation.py --arm A --generation N \
   --pool-key ... --split-file ... --out-root <run> --pre-collected-dir <run>/genN/collect --expected-shards $NSHARDS
