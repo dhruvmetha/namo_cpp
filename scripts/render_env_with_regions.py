@@ -1,13 +1,7 @@
-"""Render an env XML with its wavefront region map side-by-side.
-
-Left panel: env (walls, obstacles, robot, goal).
-Right panel: region map (each connected free region in a different color)
-            + adjacency edges between regions.
-"""
+"""Render an environment, its wavefront regions, and its C++ region graph."""
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
@@ -17,12 +11,13 @@ from matplotlib.transforms import Affine2D
 from matplotlib import colormaps
 import numpy as np
 
-sys.path.insert(0, "/common/home/dm1487/robotics_research/ktamp/namo/build_python_mjxrl_" + os.uname().nodename.split('.')[0])
-sys.path.insert(0, "/common/home/dm1487/robotics_research/ktamp/namo/python")
-sys.path.insert(0, "/common/home/dm1487/robotics_research/ktamp/mujoco_env_creator")
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_NAMO_CONFIG = PROJECT_ROOT / "config" / "namo_config_car.yaml"
+sys.path.insert(0, str(PROJECT_ROOT / "python"))
 
 import namo_rl  # noqa: E402
-from wavefront_snapshot import WavefrontSnapshotExporter  # noqa: E402
+from namo.planners import get_region_snapshot  # noqa: E402
+from namo.visualization.wavefront_snapshot import WavefrontSnapshotExporter  # noqa: E402
 
 # Reuse the parsing helpers from the existing template renderer.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -31,7 +26,7 @@ from render_template_images import (  # noqa: E402
 )
 
 
-def render_one(xml_path: Path, out_path: Path, namo_config: str,
+def render_one(xml_path: Path, out_path: Path, namo_config: Path,
                resolution: float = 0.01):
     walls = parse_walls(xml_path)
     robot = parse_robot_pose(xml_path)
@@ -39,27 +34,41 @@ def render_one(xml_path: Path, out_path: Path, namo_config: str,
     goal = parse_goal(xml_path)
     xmin, xmax, ymin, ymax = bounds_from_walls(walls)
 
-    # Build wavefront snapshot via namo_rl. Pass robot_size from the namo config so the
-    # wavefront uses the authoritative car footprint (5.2 cm half) instead of the env's
-    # first-geom guess (1.75 cm chassis box).
-    import yaml as _yaml
-    with open(namo_config) as _f:
-        _cfg = _yaml.safe_load(_f) or {}
-    _rs = (_cfg.get("planning") or {}).get("robot_size") or [0.04, 0.04]
-    env = namo_rl.RLEnvironment(str(xml_path), namo_config, visualize=False)
-    exporter = WavefrontSnapshotExporter(
-        env, resolution=resolution,
-        robot_half_extent_override=(float(_rs[0]), float(_rs[1])),
-    )
+    # The Python exporter provides the per-cell raster needed for the middle panel.
+    # It reads robot size and inflation margin from the same config as C++.
+    env = namo_rl.RLEnvironment(str(xml_path), str(namo_config), visualize=False)
+    exporter = WavefrontSnapshotExporter(env, resolution=resolution)
     rng = np.random.default_rng(0)
-    snapshot = exporter.build_snapshot(
-        xml_path=str(xml_path), config_path=namo_config,
-        goal_radius=0.05, goals_per_region=0, rng=rng,
+    raster_snapshot = exporter.build_snapshot(
+        xml_path=str(xml_path),
+        config_path=str(namo_config),
+        goal_radius=None,
+        goals_per_region=0,
+        rng=rng,
     )
-    region_map = snapshot.region_map        # 2D array, cell -> region id (int)
-    region_labels = snapshot.region_labels  # {int_id: 'region_X'}
-    adjacency = snapshot.adjacency          # {label_str: set(label_str)}
-    edge_objects = snapshot.edge_objects    # {label_str: {label_str: set(obstacle_name)}}
+    region_map = raster_snapshot.region_map
+    raster_region_labels = raster_snapshot.region_labels
+
+    # Planning uses the C++ snapshot. Use it as the source of truth for the graph rather
+    # than drawing the Python exporter's independently reconstructed connectivity.
+    graph_snapshot = get_region_snapshot(
+        env,
+        goals_per_region=0,
+        goal_radius=None,
+        local_info_only=False,
+        use_cpp_unified=True,
+        use_xml_goal=True,
+    )
+    region_labels = graph_snapshot["region_labels"]
+    adjacency = graph_snapshot["adjacency"]
+    edge_objects = graph_snapshot["edge_objects"]
+    robot_label = graph_snapshot["robot_label"]
+    goal_label = graph_snapshot["goal_label"]
+
+    raster_label_names = set(raster_region_labels.values())
+    cpp_label_names = set(region_labels.values())
+    if raster_label_names != cpp_label_names or raster_snapshot.adjacency != adjacency:
+        print("  [WARN] Python raster connectivity differs from the C++ planning snapshot")
 
     fig, axes = plt.subplots(1, 3, figsize=(20, 7))
 
@@ -135,7 +144,7 @@ def render_one(xml_path: Path, out_path: Path, namo_config: str,
     # Sanity check: every positive value in region_map should appear in region_labels.
     # (Value 0 = occupied cells, never visited by bfs; this is not a mismatch.)
     rmap_positive = sorted([l for l in unique_labels if l > 0])
-    rlbl_keys = sorted(int(k) for k in region_labels.keys())
+    rlbl_keys = sorted(int(k) for k in raster_region_labels.keys())
     only_in_map = [l for l in rmap_positive if l not in rlbl_keys]
     only_in_lbl = [l for l in rlbl_keys if l not in rmap_positive]
     if only_in_map or only_in_lbl:
@@ -166,7 +175,7 @@ def render_one(xml_path: Path, out_path: Path, namo_config: str,
         return (int(h[0:2], 16) / 255, int(h[2:4], 16) / 255, int(h[4:6], 16) / 255)
     palette = [hex_to_rgb(c) for c in OTHER_PALETTE]
 
-    labeled_ids = {int(k) for k in region_labels.keys()}
+    labeled_ids = {int(k) for k in raster_region_labels.keys()}
     label_to_color = {}
     color_idx = 0
     for lbl in unique_labels:
@@ -202,22 +211,14 @@ def render_one(xml_path: Path, out_path: Path, namo_config: str,
 
     import networkx as nx
 
-    # region_labels is {int_id: 'region_X'}; adjacency is {'region_X': {'region_Y', ...}}.
-    # Invert region_labels for label→id lookup.
-    label_to_id = {label: int_id for int_id, label in region_labels.items()}
-
     G = nx.Graph()
-    for int_id in region_labels.keys():
-        G.add_node(int(int_id))
-    for lbl_str, neighbors in adjacency.items():
-        l1 = label_to_id.get(lbl_str)
-        if l1 is None:
-            continue
-        for n_str in neighbors:
-            l2 = label_to_id.get(n_str)
-            if l2 is None or l1 == l2:
+    for label in region_labels.values():
+        G.add_node(label)
+    for label, neighbors in adjacency.items():
+        for neighbor in neighbors:
+            if label == neighbor:
                 continue
-            G.add_edge(int(l1), int(l2))
+            G.add_edge(label, neighbor)
 
     # robot_region_id / goal_region_id were computed before the middle panel.
 
@@ -234,12 +235,12 @@ def render_one(xml_path: Path, out_path: Path, namo_config: str,
         edge_colors = []
         node_sizes = []
         for n in G.nodes():
-            if n == robot_region_id:
+            if n == robot_label:
                 node_colors.append("#FF4136"); edge_colors.append("#7A1009"); node_sizes.append(900)
-            elif n == goal_region_id:
+            elif n == goal_label:
                 node_colors.append("#2ECC40"); edge_colors.append("#0E5C18"); node_sizes.append(900)
             else:
-                node_colors.append(label_to_color.get(n, (0.85, 0.85, 0.85)))
+                node_colors.append("#AEC7E8")
                 edge_colors.append("#222"); node_sizes.append(600)
 
         nx.draw_networkx_edges(G, pos, ax=ax, edge_color="#333", width=1.5, alpha=0.7)
@@ -256,12 +257,8 @@ def render_one(xml_path: Path, out_path: Path, namo_config: str,
 
         edge_labels = {}
         for u, v in G.edges():
-            ulabel = region_labels.get(u)
-            vlabel = region_labels.get(v)
-            if ulabel is None or vlabel is None:
-                continue
-            objs = (edge_objects.get(ulabel, {}).get(vlabel, set())
-                    | edge_objects.get(vlabel, {}).get(ulabel, set()))
+            objs = (edge_objects.get(u, {}).get(v, set())
+                    | edge_objects.get(v, {}).get(u, set()))
             if objs:
                 edge_labels[(u, v)] = ", ".join(sorted(short_obstacle(o) for o in objs))
         if edge_labels:
@@ -275,10 +272,10 @@ def render_one(xml_path: Path, out_path: Path, namo_config: str,
     legend_handles = [
         plt.Line2D([0], [0], marker="o", color="w", markerfacecolor="#FF4136",
                    markeredgecolor="#7A1009", markersize=12,
-                   label=f"robot region ({robot_region_id})" if robot_region_id is not None else "robot region (?)"),
+                   label=f"robot region ({robot_label or '?'})"),
         plt.Line2D([0], [0], marker="o", color="w", markerfacecolor="#2ECC40",
                    markeredgecolor="#0E5C18", markersize=12,
-                   label=f"goal region ({goal_region_id})" if goal_region_id is not None else "goal region (?)"),
+                   label=f"goal region ({goal_label or '?'})"),
     ]
     ax.legend(handles=legend_handles, loc="upper right", fontsize=8, framealpha=0.9)
 
@@ -298,10 +295,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("xmls", nargs="+", help="Env XML(s) to render")
     ap.add_argument("--namo-config",
-                    default="/common/home/dm1487/robotics_research/ktamp/namo/config/namo_config_car.yaml")
+                    type=Path,
+                    default=DEFAULT_NAMO_CONFIG)
     ap.add_argument("--out-dir", default="env_region_images")
     ap.add_argument("--resolution", type=float, default=0.01)
     args = ap.parse_args()
+
+    namo_config = args.namo_config.resolve()
+    if not namo_config.is_file():
+        ap.error(f"NAMO config does not exist: {namo_config}")
 
     out_dir = Path(args.out_dir)
     for xml in args.xmls:
@@ -309,7 +311,7 @@ def main():
         out_path = out_dir / (xml.stem + "_regions.png")
         print(f"Rendering {xml.name} -> {out_path}")
         try:
-            render_one(xml, out_path, args.namo_config, args.resolution)
+            render_one(xml, out_path, namo_config, args.resolution)
         except Exception as e:
             print(f"  Failed: {e}")
 
