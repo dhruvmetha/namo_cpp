@@ -37,6 +37,9 @@ _require_real_namo_rl()
 # ─── Named constants ────────────────────────────────────────────────────
 
 FIXTURE = REPO_ROOT / "python" / "tests" / "data" / "stuck_after_motion_fixture.xml"
+# Long bars on pivot posts: one with room to swing, one without. Same push on
+# both, so the only thing that differs is how far the bar can turn.
+ROTATION_FIXTURE = REPO_ROOT / "python" / "tests" / "data" / "rotation_jam_fixture.xml"
 # Sphere robot at 1x, which is what the fixture models.
 CONFIG = REPO_ROOT / "config" / "namo_config_complete_skill15_1x.yaml"
 
@@ -64,6 +67,20 @@ SAME_RESTING_PLACE_TOLERANCE_M = 0.005
 # Matches kMinUsefulPushDisplacementM in namo_push_controller.cpp, the bar the
 # C++ uses to decide whether a stuck push produced anything worth keeping.
 MIN_USEFUL_PUSH_DISPLACEMENT_M = 0.01
+# Matches kMinUsefulPushYawRad, the other half of that decision.
+MIN_USEFUL_PUSH_YAW_DEG = 5.0
+
+# Both bars in the rotation fixture, pushed at the same place. The bar with 4 mm
+# of pivot clearance swings; the one with 0.05 mm cannot.
+SWINGS = "obstacle_1_movable"
+CANNOT_SWING = "obstacle_2_movable"
+ROTATION_EDGE = 28
+ROTATION_DEPTH = 9
+# Measured 2026-08-21: 15.2 degrees of yaw and 0.49 cm of travel. The travel is
+# what matters as much as the yaw, since it sits under
+# MIN_USEFUL_PUSH_DISPLACEMENT_M and so cannot be what saved the push.
+EXPECTED_SWING_YAW_DEG = 15.2
+SWING_YAW_TOLERANCE_DEG = 2.0
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────
@@ -82,6 +99,35 @@ def _fixture_env():
 def _object_xy(env, object_id):
     pose = env.get_observation()[f"{object_id}_pose"]
     return pose[0], pose[1]
+
+
+def _object_yaw(env, object_id):
+    return env.get_observation()[f"{object_id}_pose"][2]
+
+
+def _wrapped_yaw_delta_deg(a, b):
+    """Same folding the controller uses, so the test reads the same number."""
+    delta = abs(b - a)
+    while delta > math.pi:
+        delta = 2.0 * math.pi - delta
+    return math.degrees(delta)
+
+
+def _rotation_env():
+    import namo_rl
+
+    assert ROTATION_FIXTURE.is_file(), f"missing fixture scene: {ROTATION_FIXTURE}"
+    env = namo_rl.RLEnvironment(str(ROTATION_FIXTURE), str(CONFIG), False)
+    env.reset()
+    return env
+
+
+def _push_and_measure_yaw(env, object_id, edge_idx, depth):
+    """Run one push, return (displacement, yaw change in degrees, info)."""
+    yaw_before = _object_yaw(env, object_id)
+    displacement, info = _push(env, object_id, edge_idx, depth)
+    yaw_after = _object_yaw(env, object_id)
+    return displacement, _wrapped_yaw_delta_deg(yaw_before, yaw_after), info
 
 
 def _push(env, object_id, edge_idx, depth):
@@ -184,3 +230,49 @@ def test_the_robot_hitting_something_still_fails_regardless_of_motion():
     # The still object is flush against block_b; the robot never reaches it.
     assert info.get("collision_object", "") == ""
     assert displacement < MIN_USEFUL_PUSH_DISPLACEMENT_M
+
+
+# ─── The same rule, decided by rotation rather than travel ──────────────
+
+
+def test_a_push_that_only_turned_the_object_is_kept():
+    """Travel under the bar, yaw over it, and the result survives.
+
+    A long object pivoting in a doorway can open a boundary while its centre
+    goes almost nowhere. Judging that push on displacement alone throws the
+    opening away, which is what this pins.
+    """
+    env = _rotation_env()
+
+    displacement, yaw_deg, info = _push_and_measure_yaw(
+        env, SWINGS, ROTATION_EDGE, ROTATION_DEPTH
+    )
+
+    assert info["stopped_early"] == "true", f"info={info}"
+    assert displacement < MIN_USEFUL_PUSH_DISPLACEMENT_M, (
+        f"travelled {displacement * CM_PER_M:.2f} cm, which is over the "
+        f"translation bar, so this case no longer isolates the yaw rule"
+    )
+    assert yaw_deg > MIN_USEFUL_PUSH_YAW_DEG
+    assert yaw_deg == pytest.approx(
+        EXPECTED_SWING_YAW_DEG, abs=SWING_YAW_TOLERANCE_DEG
+    )
+    assert not info.get("failure_reason")
+
+
+def test_the_same_push_on_a_bar_that_cannot_turn_is_rolled_back():
+    """Identical push and depth; only the pivot clearance differs.
+
+    Holding everything else fixed is what makes this a test of where the bar
+    sits rather than of two unrelated scenes.
+    """
+    env = _rotation_env()
+
+    displacement, yaw_deg, info = _push_and_measure_yaw(
+        env, CANNOT_SWING, ROTATION_EDGE, ROTATION_DEPTH
+    )
+
+    assert info["stopped_early"] == "false", f"info={info}"
+    assert info.get("stuck") == "true"
+    assert displacement < MIN_USEFUL_PUSH_DISPLACEMENT_M
+    assert yaw_deg < MIN_USEFUL_PUSH_YAW_DEG
