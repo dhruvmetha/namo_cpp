@@ -38,13 +38,16 @@ CFG=python/namo/data_collection/region_opening_exhaustive_2push_multihop_car.yam
 # zero episodes and still exited 0 at "100% success". Fail loudly instead.
 python -c "import sys,yaml; c=yaml.safe_load(open(sys.argv[1])); assert c.get('region_exhaustive_mode') is True; assert c.get('region_max_chain_depth')==2; print('config OK', len(c),'keys')" "$CFG"
 
-# The .so must be the one built from this tree, or the run measures the old physics again.
+# The .so must carry THIS C++ tree, or the run measures the old physics again. Compare the
+# recorded include/ and src/ tree hashes, not the commit sha -- the same rule check_box_sync.sh
+# uses, and the reason a slurm-only commit does not invalidate a good binding.
 python -c "
 import pathlib, subprocess
 # splitlines, not split: values carry spaces (python=Python 3.11.14).
 info = dict(l.split('=', 1) for l in pathlib.Path('build_python/BUILD_INFO').read_text().splitlines() if '=' in l)
-head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
-assert info['git_sha'] == head, 'stale .so: built from %s, HEAD is %s' % (info['git_sha'], head)
+tree = lambda d: subprocess.check_output(['git', 'rev-parse', 'HEAD:' + d], text=True).strip()
+assert info['cpp_tree'] == tree('include'), 'stale .so: include/ moved since the build'
+assert info['src_tree'] == tree('src'), 'stale .so: src/ moved since the build'
 assert info['dirty_cpp'] == '0', 'C++ tree was dirty at build time'
 print('binding OK', info['git_sha'][:8], info['built_at'])
 "
