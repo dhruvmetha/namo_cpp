@@ -1,10 +1,9 @@
 """What best_first picks, pinned to exact chains and simulation counts.
 
-These chains were recorded while the search still lived in
-scripts/sandbox/eval_bestfirst.py, reached by inserting that directory on
-sys.path at call time, and they are what proved the move into
-namo.planners.opening.best_first_search changed nothing. They stay as the
-tripwire: fixed scene, fixed seed, exact chain and simulation count.
+These chains were first recorded while the search still lived in
+scripts/sandbox/eval_bestfirst.py, then re-recorded on the canonical car 1x d5
+profile after the point robot was retired. They stay as the tripwire: fixed
+scene, fixed seed, exact chain and simulation count.
 
 test_best_first_protocol_defaults.py pins the search parameters to the protocol
 the registry numbers were measured under. This file pins the answers.
@@ -28,36 +27,32 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-# The one scene on this box where robot and goal sit in different regions.
-SEPARATED_SCENE = REPO_ROOT / "data" / "benchmark_env.xml"
-SEPARATED_CONFIG = REPO_ROOT / "config" / "namo_config_complete_skill15.yaml"
+# Self-contained copy of one canonical v3 pure-2push car episode. Keeping the
+# car model inline makes the contract independent of external test-set data and
+# checkout paths.
+SEPARATED_SCENE = (
+    REPO_ROOT / "python" / "tests" / "data" / "best_first_car_1x_d5_fixture.xml"
+)
+SEPARATED_CONFIG = REPO_ROOT / "config" / "namo_config_complete_skill15_car_1x.yaml"
 
 # The boundary select_boundary_from_xml chooses on this scene, pinned because
 # the search is only comparable across runs when its inputs are identical.
 EXPECTED_TARGET_LABEL = "goal"
-EXPECTED_BLOCKERS = ["obstacle_9_movable"]
+EXPECTED_BLOCKERS = ["obstacle_1_movable"]
 EXPECTED_SAMPLE_COUNT = 100
 
-# (seed, simulations, chain) recorded 2026-08-19 against build_python at 42de63c.
+# (seed, simulations, chain) re-recorded 2026-08-21 against fixed physics at
+# fb7484b, using the car 1x d5 profile and the v3 pure-2push episode copied into
+# best_first_car_1x_d5_fixture.xml. The retired point fixture recorded 3, 7,
+# and 2 simulations for seeds 42, 7, and 1234. Those numbers are not comparable
+# because the robot, scene, boundary object, and motion tables all changed.
 # Different seeds must give different work, otherwise the seed is not reaching
 # the search and a "deterministic" pass would mean nothing.
-#
-# Seed 1234 re-recorded 2026-08-20, in the commit that made a push keep its
-# motion when the object jams instead of rolling back. It moved from a two-push
-# chain at 8 simulations, ((10, 0), (24, 4)), to a single push at 2, (58, 4):
-# push 58 wedges the object and that now counts as progress, so the search stops
-# there rather than searching on for a chain that ends clear. Seeds 42 and 7 are
-# untouched, chain and simulation count both, because neither of their pushes
-# ends against anything.
 RECORDED_RUNS = [
-    (42, 3, (("obstacle_9_movable", 2, 0), ("obstacle_9_movable", 52, 1))),
-    (7, 7, (("obstacle_9_movable", 40, 0), ("obstacle_9_movable", 54, 0))),
-    (1234, 2, (("obstacle_9_movable", 58, 4),)),
+    (42, 38, (("obstacle_1_movable", 48, 2), ("obstacle_1_movable", 44, 4))),
+    (7, 45, (("obstacle_1_movable", 48, 3), ("obstacle_1_movable", 44, 3))),
+    (1234, 22, (("obstacle_1_movable", 50, 3), ("obstacle_1_movable", 44, 4))),
 ]
-
-pytestmark = pytest.mark.skip(
-    reason="recorded against the retired point-robot fixture; needs a car 1x d5 re-recording",
-)
 
 
 def _scene_goal():
