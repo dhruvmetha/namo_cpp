@@ -25,6 +25,15 @@ constexpr double kPushPathExtendDistanceM = 0.50;
 // Recalibrate against real-robot measurements for sim-real parity.
 constexpr double kCarWheelMaxSpeedMs = 1.0;
 
+// A push that stops on stuck detection keeps its result once the object has
+// travelled at least this far from where the push started; below it the push is
+// treated as never having happened and the caller restores the pre-push state.
+// 1 cm is the same bar test_primitive_generation_integration.py uses for "the
+// push ran", so C++ and the tests agree on what counts as motion. It also sits
+// well above the stuck detector's own per-check threshold (min_position_change_,
+// 1 mm over stuck_check_stride_ ticks), so settling jitter cannot reach it.
+constexpr double kMinUsefulPushDisplacementM = 0.01;
+
 }  // namespace
 
 namespace namo {
@@ -375,11 +384,25 @@ void NAMOPushController::log_push_control(
               << std::endl;
 }
 
+void NAMOPushController::settle_after_push(bool use_diff_drive_tracking, int settle_steps) {
+    if (use_diff_drive_tracking) {
+        env_.apply_wheel_control(0.0, 0.0);
+    } else {
+        env_.apply_robot_control(0.0, 0.0);
+    }
+    for (int i = 0; i < settle_steps; ++i) {
+        env_.step_simulation();
+        env_.get_mujoco_wrapper()->notify_physics_step();
+        dump_qpos(env_, /*phase=*/3);
+    }
+}
+
 bool NAMOPushController::execute_push_primitive(const std::string& object_name,
                                                int edge_idx,
                                                int push_steps) {
     // Reset controller-level stuck counter at the start of every primitive execution
     last_stuck_counter_ = 0;
+    last_push_stopped_early_ = false;
 
     // Reset collision tracking for this push
     clear_collision_tracking();
@@ -542,6 +565,9 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
 
         // 5) Continuous push for push_steps × control_steps_per_push_ sim ticks
         const int total_sim_steps = push_steps * control_steps_per_push_;
+        // By value: get_object_state hands back a pointer into live simulator
+        // state, so anything read through obj_state0 moves with the object.
+        const std::array<double, 3> push_start_pos = obj_state0->position;
         std::array<double, 3> prev_pos_sample = obj_state0->position;
         std::array<double, 4> prev_quat_sample = obj_state0->quaternion;
         const auto robot_bodies = env_.get_robot_adapter()->get_collision_body_names();
@@ -593,14 +619,9 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
                 auto obj_now = env_.get_object_state(object_name);
                 if (!obj_now) return false;
 
-                bool abort = update_stuck_counter_and_check_abort(
-                    prev_pos_sample, prev_quat_sample,
-                    obj_now->position, obj_now->quaternion,
-                    t / control_steps_per_push_, t % control_steps_per_push_);
-                if (abort) return false;
-                prev_pos_sample = obj_now->position;
-                prev_quat_sample = obj_now->quaternion;
-
+                // Collisions are scanned BEFORE the stuck decision. A push that
+                // stops because the object wedged against a wall reports that
+                // wall, and a robot collision still wins over any motion.
                 for (size_t i = 0; i < num_static; i++) {
                     const auto& s = static_objects[i];
                     for (const auto& rb : robot_bodies) {
@@ -633,20 +654,32 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
                         movable_collisions_during_push_.insert(mv.name);
                     }
                 }
+
+                const bool stuck = update_stuck_counter_and_check_abort(
+                    prev_pos_sample, prev_quat_sample,
+                    obj_now->position, obj_now->quaternion,
+                    t / control_steps_per_push_, t % control_steps_per_push_);
+                if (stuck) {
+                    // Motion the object has already made is a real result. Keep
+                    // it, settle, and let the caller replan from where things
+                    // actually ended up. Only a push that never moved anything
+                    // is worth throwing away.
+                    const double dx = obj_now->position[0] - push_start_pos[0];
+                    const double dy = obj_now->position[1] - push_start_pos[1];
+                    if (std::sqrt(dx * dx + dy * dy) < kMinUsefulPushDisplacementM) {
+                        return false;
+                    }
+                    last_push_stopped_early_ = true;
+                    settle_after_push(use_diff_drive_tracking, kSettleSteps);
+                    return true;
+                }
+                prev_pos_sample = obj_now->position;
+                prev_quat_sample = obj_now->quaternion;
             }
         }
 
         // 6) Stop wheels and post-push settle
-        if (use_diff_drive_tracking) {
-            env_.apply_wheel_control(0.0, 0.0);
-        } else {
-            env_.apply_robot_control(0.0, 0.0);
-        }
-        for (int i = 0; i < kSettleSteps; ++i) {
-            env_.step_simulation();
-            env_.get_mujoco_wrapper()->notify_physics_step();
-            dump_qpos(env_, /*phase=*/3);
-        }
+        settle_after_push(use_diff_drive_tracking, kSettleSteps);
 
         return true;
     }

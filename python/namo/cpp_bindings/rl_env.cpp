@@ -318,6 +318,9 @@ RLEnvironment::StepResult RLEnvironment::step(const Action& action) {
     if (auto it = result.outputs.find("robot_goal_reached"); it != result.outputs.end()) {
         rl_result.info["robot_goal_reached"] = get_or_warn_bool("robot_goal_reached", it->second) ? "true" : "false";
     }
+    if (auto it = result.outputs.find("stopped_early"); it != result.outputs.end()) {
+        rl_result.info["stopped_early"] = get_or_warn_bool("stopped_early", it->second) ? "true" : "false";
+    }
     if (auto it = result.outputs.find("collision_object"); it != result.outputs.end()) {
         rl_result.info["collision_object"] = get_or_warn_string("collision_object", it->second);
     }

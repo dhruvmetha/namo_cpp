@@ -117,6 +117,7 @@ private:
     bool check_robot_trajectory_collision_ = true;  // Robot-body collisions during push trajectory
     int stuck_ctrl_iterations_threshold_ = 3;   // controller-level stuck threshold (checks)
     int last_stuck_counter_ = 0;             // last observed stuck counter (for diagnostics)
+    bool last_push_stopped_early_ = false;   // push stopped on stuck AFTER useful motion
     int stuck_check_stride_ = 20;            // check every N control steps
     double min_position_change_ = 0.001;     // meters
     double min_angle_change_ = 0.05;         // radians
@@ -216,6 +217,12 @@ public:
     /**
      * @brief Update push state based on current object position
      */
+    /**
+     * @brief Stop the wheels and let physics settle. One copy, shared by the
+     * normal end of a push and the early stop after useful motion.
+     */
+    void settle_after_push(bool use_diff_drive_tracking, int settle_steps);
+
     void update_push_state(PushState& state,
                           const std::array<double, 3>& obj_pos,
                           const std::array<double, 3>& obj_size,
@@ -286,6 +293,13 @@ public:
      * @brief Get last observed controller stuck counter (for diagnostics/propagation)
      */
     int get_last_stuck_counter() const { return last_stuck_counter_; }
+
+    /**
+     * @brief True when the last push stopped early on stuck detection but had
+     * already moved the object at least kMinUsefulPushDisplacementM. The push
+     * succeeded; the caller should replan rather than run the rest of a chain.
+     */
+    bool get_last_push_stopped_early() const { return last_push_stopped_early_; }
 
     /**
      * @brief Get controller-level stuck threshold

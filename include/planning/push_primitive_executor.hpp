@@ -25,7 +25,13 @@ struct ExecutionResult {
     bool wall_collision_during_push;                      // Did object hit any wall during push?
     std::vector<std::string> movable_collisions_during_push;  // Unique movable objects hit during push
 
-    ExecutionResult() : success(false), robot_goal_reached(false), steps_executed(0), wall_collision_during_push(false) {}
+    // A step stopped on stuck detection after moving the object at least
+    // kMinUsefulPushDisplacementM. The motion is kept and the plan stops here,
+    // so the caller replans from the pose the object actually reached instead of
+    // running the rest of a chain the world no longer matches.
+    bool stopped_early;
+
+    ExecutionResult() : success(false), robot_goal_reached(false), steps_executed(0), wall_collision_during_push(false), stopped_early(false) {}
 };
 
 /**

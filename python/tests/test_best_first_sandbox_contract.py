@@ -43,10 +43,18 @@ EXPECTED_SAMPLE_COUNT = 100
 # (seed, simulations, chain) recorded 2026-08-19 against build_python at 42de63c.
 # Different seeds must give different work, otherwise the seed is not reaching
 # the search and a "deterministic" pass would mean nothing.
+#
+# Seed 1234 re-recorded 2026-08-20, in the commit that made a push keep its
+# motion when the object jams instead of rolling back. It moved from a two-push
+# chain at 8 simulations, ((10, 0), (24, 4)), to a single push at 2, (58, 4):
+# push 58 wedges the object and that now counts as progress, so the search stops
+# there rather than searching on for a chain that ends clear. Seeds 42 and 7 are
+# untouched, chain and simulation count both, because neither of their pushes
+# ends against anything.
 RECORDED_RUNS = [
     (42, 3, (("obstacle_9_movable", 2, 0), ("obstacle_9_movable", 52, 1))),
     (7, 7, (("obstacle_9_movable", 40, 0), ("obstacle_9_movable", 54, 0))),
-    (1234, 8, (("obstacle_9_movable", 10, 0), ("obstacle_9_movable", 24, 4))),
+    (1234, 2, (("obstacle_9_movable", 58, 4),)),
 ]
 
 pytestmark = pytest.mark.skipif(

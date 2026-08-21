@@ -115,6 +115,14 @@ ExecutionResult PushPrimitiveExecutor::execute_plan(
         }
 
         result.steps_executed = i + 1;
+
+        if (controller_.get_last_push_stopped_early()) {
+            // The object moved and then jammed. Keep the state, drop the rest of
+            // the chain: every later step was planned against a world that no
+            // longer exists.
+            result.stopped_early = true;
+            break;
+        }
     }
     
     // Check final state

@@ -180,6 +180,10 @@ SkillResult NAMOPushSkill::execute(const std::map<std::string, SkillParameterVal
     // Report robot-goal reachability after the push.
     result.outputs["robot_goal_reached"] = (has_robot_goal_ && executor_->is_robot_goal_reachable());
 
+    // The push moved the object and then jammed. It succeeded and the pose is
+    // real; the caller should replan rather than trust a longer plan.
+    result.outputs["stopped_early"] = step_result.stopped_early;
+
     if (!step_result.success) {
         result.failure_reason = step_result.failure_reason;
         // Copy collision info if present
