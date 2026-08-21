@@ -34,6 +34,21 @@ constexpr double kCarWheelMaxSpeedMs = 1.0;
 // 1 mm over stuck_check_stride_ ticks), so settling jitter cannot reach it.
 constexpr double kMinUsefulPushDisplacementM = 0.01;
 
+// The same push is also worth keeping when the object barely moved but turned.
+// A long object pivoting in a doorway can open the boundary while its centre
+// travels almost nowhere, so translation alone would throw that away. 5 degrees
+// is well past the stuck detector's own min_angle_change_ (0.05 rad, about 2.9
+// degrees), so an object the detector calls still cannot reach this.
+constexpr double kMinUsefulPushYawRad = 5.0 * M_PI / 180.0;
+
+// Wrapped |yaw(b) - yaw(a)|, folded into [0, pi]. One copy: the stuck detector
+// and the useful-motion test have to agree on what a rotation of X means.
+double wrapped_yaw_delta(const std::array<double, 4>& a, const std::array<double, 4>& b) {
+    double dtheta = std::abs(namo::utils::quaternion_to_yaw(b) - namo::utils::quaternion_to_yaw(a));
+    while (dtheta > M_PI) dtheta = 2.0 * M_PI - dtheta;
+    return dtheta;
+}
+
 }  // namespace
 
 namespace namo {
@@ -267,16 +282,7 @@ bool NAMOPushController::update_stuck_counter_and_check_abort(const std::array<d
     double dy = curr_pos[1] - prev_pos[1];
     double dist = std::sqrt(dx * dx + dy * dy);
 
-    double yaw_prev = std::atan2(
-        2.0 * (prev_quat[0] * prev_quat[3] + prev_quat[1] * prev_quat[2]),
-        1.0 - 2.0 * (prev_quat[2] * prev_quat[2] + prev_quat[3] * prev_quat[3])
-    );
-    double yaw_curr = std::atan2(
-        2.0 * (curr_quat[0] * curr_quat[3] + curr_quat[1] * curr_quat[2]),
-        1.0 - 2.0 * (curr_quat[2] * curr_quat[2] + curr_quat[3] * curr_quat[3])
-    );
-    double dtheta = std::abs(yaw_curr - yaw_prev);
-    while (dtheta > M_PI) dtheta = 2.0 * M_PI - dtheta;
+    const double dtheta = wrapped_yaw_delta(prev_quat, curr_quat);
 
     bool is_stuck_now = (dist < min_position_change_) && (dtheta < min_angle_change_);
     if (is_stuck_now) {
@@ -568,6 +574,7 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
         // By value: get_object_state hands back a pointer into live simulator
         // state, so anything read through obj_state0 moves with the object.
         const std::array<double, 3> push_start_pos = obj_state0->position;
+        const std::array<double, 4> push_start_quat = obj_state0->quaternion;
         std::array<double, 3> prev_pos_sample = obj_state0->position;
         std::array<double, 4> prev_quat_sample = obj_state0->quaternion;
         const auto robot_bodies = env_.get_robot_adapter()->get_collision_body_names();
@@ -666,7 +673,12 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
                     // is worth throwing away.
                     const double dx = obj_now->position[0] - push_start_pos[0];
                     const double dy = obj_now->position[1] - push_start_pos[1];
-                    if (std::sqrt(dx * dx + dy * dy) < kMinUsefulPushDisplacementM) {
+                    const bool translated =
+                        std::sqrt(dx * dx + dy * dy) >= kMinUsefulPushDisplacementM;
+                    const bool turned =
+                        wrapped_yaw_delta(push_start_quat, obj_now->quaternion) >=
+                        kMinUsefulPushYawRad;
+                    if (!translated && !turned) {
                         return false;
                     }
                     last_push_stopped_early_ = true;
