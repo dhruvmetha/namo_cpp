@@ -51,13 +51,6 @@ def yaw_to_quat(yaw: float) -> Tuple[float, float, float, float]:
     return (math.cos(half), 0.0, 0.0, math.sin(half))
 
 
-def _uses_radians(root: ET.Element) -> bool:
-    compiler = root.find("compiler")
-    if compiler is None:
-        return False
-    return compiler.get("angle", "degree").lower() == "radian"
-
-
 def _keep_z(elem: ET.Element, default_z: float) -> float:
     parts = (elem.get("pos") or "").split()
     return float(parts[2]) if len(parts) >= 3 else default_z
@@ -142,7 +135,6 @@ def write_state_xml(
     worldbody = root.find("worldbody")
     if worldbody is None:
         raise ValueError(f"{template_xml}: no <worldbody>")
-    to_template_angle = (lambda r: r) if _uses_radians(root) else math.degrees
 
     # ---- movable objects: pose lives on the geom inside a pose-less body ----
     for name in movable_names_from_observation(observation):
@@ -164,13 +156,16 @@ def write_state_xml(
             raise ValueError(f"{template_xml}: body '{name}' has no geom named '{name}'")
 
         geom.set("pos", f"{float(pose[0]):.17g} {float(pose[1]):.17g} {_keep_z(geom, 0.05):.17g}")
-        # Objects are boxes resting on the floor: roll/pitch are template constants, only yaw moves.
-        euler_parts = (geom.get("euler") or "0 0 0").split()
-        roll = float(euler_parts[0]) if len(euler_parts) >= 1 else 0.0
-        pitch = float(euler_parts[1]) if len(euler_parts) >= 2 else 0.0
-        if "quat" in geom.attrib:
-            del geom.attrib["quat"]
-        geom.set("euler", f"{roll:.17g} {pitch:.17g} {to_template_angle(float(pose[2])):.17g}")
+        # Objects are boxes resting on the floor, so only yaw moves and roll/pitch
+        # get flattened, which this module documents as deliberate. Written as a
+        # quaternion for the same reason the robot is: MuJoCo quats are always
+        # w x y z whatever <compiler angle=...> says, and euler is not. A car
+        # scene inherits angle="radian" through its <include> of little_car.xml
+        # while declaring no compiler tag itself, so a writer reading only the
+        # parent file assumed degrees and emitted -179.99 for -3.1414 rad. MuJoCo
+        # then read that as radians: -179.99 + 29*2pi = +2.2216, a 53 degree error
+        # present before any physics ran.
+        _set_yaw_quat(geom, float(pose[2]))
 
     # ---- robot: pose lives on the body (free-jointed), and its YAW is the piece nothing wrote ----
     robot_pose = observation.get("robot" + POSE_SUFFIX)
