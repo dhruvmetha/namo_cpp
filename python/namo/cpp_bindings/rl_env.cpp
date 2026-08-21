@@ -180,21 +180,24 @@ std::vector<std::array<double, 2>> build_goal_cells(
         return goal_cells;
     }
 
-    const int radius_cells = std::max(0, static_cast<int>(std::ceil(goal_radius / resolution)));
+    const int radius_cells = std::max(0, static_cast<int>(std::ceil(goal_radius / resolution)) + 1);
     for (int dx = -radius_cells; dx <= radius_cells; ++dx) {
         for (int dy = -radius_cells; dy <= radius_cells; ++dy) {
-            const double dist_sq = static_cast<double>(dx * dx + dy * dy) * resolution * resolution;
-            if (dist_sq > goal_radius * goal_radius) {
-                continue;
-            }
             const int gx = center_x + dx;
             const int gy = center_y + dy;
             if (!grid.is_valid_grid_coord(gx, gy)) {
                 continue;
             }
+            const double cell_x = grid.grid_to_world_x(gx) + 0.5 * resolution;
+            const double cell_y = grid.grid_to_world_y(gy) + 0.5 * resolution;
+            const double goal_dx = cell_x - goal_xy[0];
+            const double goal_dy = cell_y - goal_xy[1];
+            if (goal_dx * goal_dx + goal_dy * goal_dy > goal_radius * goal_radius + 1e-12) {
+                continue;
+            }
             goal_cells.push_back({
-                grid.grid_to_world_x(gx) + 0.5 * resolution,
-                grid.grid_to_world_y(gy) + 0.5 * resolution,
+                cell_x,
+                cell_y,
             });
         }
     }

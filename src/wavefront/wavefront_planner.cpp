@@ -279,21 +279,40 @@ std::tuple<
 
 bool WavefrontPlanner::is_goal_reachable(const std::array<double, 2>& goal_pos, 
                                                    double goal_size) const {
-    // Calculate grid bounds for goal region
+    // Check cell centres inside the circular goal region. The goal tolerance is
+    // a radius, so using an axis-aligned square would make diagonal tolerance
+    // sqrt(2) times larger than cardinal tolerance.
     int min_x = std::max(0, world_to_grid_x(goal_pos[0] - goal_size));
     int max_x = std::min(grid_width_ - 1, world_to_grid_x(goal_pos[0] + goal_size));
     int min_y = std::max(0, world_to_grid_y(goal_pos[1] - goal_size));
     int max_y = std::min(grid_height_ - 1, world_to_grid_y(goal_pos[1] + goal_size));
-    
-    // Check if any cell in goal region is reachable (value = 1)
+
+    const double radius_sq = goal_size * goal_size;
+    bool has_goal_cell = false;
     for (int x = min_x; x <= max_x; x++) {
         for (int y = min_y; y <= max_y; y++) {
+            const double cell_x = grid_to_world_x(x) + 0.5 * resolution_;
+            const double cell_y = grid_to_world_y(y) + 0.5 * resolution_;
+            const double dx = cell_x - goal_pos[0];
+            const double dy = cell_y - goal_pos[1];
+            if (dx * dx + dy * dy > radius_sq + 1e-12) {
+                continue;
+            }
+            has_goal_cell = true;
             if (reachability_grid_[x][y] == 1) {
                 return true;
             }
         }
     }
-    
+
+    // A sub-cell radius may contain no cell centre. Preserve the useful point-goal
+    // behavior by checking the cell that contains the goal.
+    if (!has_goal_cell) {
+        const int goal_x = world_to_grid_x(goal_pos[0]);
+        const int goal_y = world_to_grid_y(goal_pos[1]);
+        return is_valid_grid_coord(goal_x, goal_y) && reachability_grid_[goal_x][goal_y] == 1;
+    }
+
     return false;
 }
 

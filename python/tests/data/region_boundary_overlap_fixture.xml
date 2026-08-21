@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<mujoco model="region_boundary_overlap_fixture">
+  <option cone="elliptic" integrator="RK4" timestep="0.01"/>
+  <default>
+    <geom density="1"/>
+  </default>
+  <worldbody>
+    <geom name="floor" type="plane" size="0 0 0.05" friction="0.5 0.005 0.001" condim="4"/>
+    <body name="walls">
+      <geom name="wall_1" type="box" pos="-1 0 0.3" size="0.05 1 0.3"/>
+      <geom name="wall_2" type="box" pos="1 0 0.3" size="0.05 1 0.3"/>
+      <geom name="wall_3" type="box" pos="0 -1 0.3" size="1 0.05 0.3"/>
+      <geom name="wall_4" type="box" pos="0 1 0.3" size="1 0.05 0.3"/>
+      <geom name="divider_bottom" type="box" pos="0 -0.54 0.3" size="0.05 0.46 0.3"/>
+      <geom name="divider_top" type="box" pos="0 0.54 0.3" size="0.05 0.46 0.3"/>
+    </body>
+    <body name="robot">
+      <joint name="joint_x" type="slide" axis="1 0 0"/>
+      <joint name="joint_y" type="slide" axis="0 1 0"/>
+      <geom name="robot" type="sphere" pos="-0.55 0 0.035" size="0.035" mass="5" friction="1 0.005 0.0001" condim="4"/>
+    </body>
+    <body name="obstacle_1_movable">
+      <joint type="free"/>
+      <geom name="obstacle_1_movable" type="box" pos="0 0 0.05" size="0.06 0.06 0.05" mass="0.1" friction="0 0.005 0.001" condim="4" rgba="1 1 0 1"/>
+    </body>
+    <site name="goal" type="sphere" pos="0.55 0 0" size="0.1" rgba="0 1 0 0.5"/>
+  </worldbody>
+  <actuator>
+    <velocity name="actuator_x" joint="joint_x" kv="50" ctrlrange="-0.5 0.5" forcerange="-20 20"/>
+    <velocity name="actuator_y" joint="joint_y" kv="50" ctrlrange="-0.5 0.5" forcerange="-20 20"/>
+  </actuator>
+</mujoco>

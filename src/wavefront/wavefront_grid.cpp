@@ -39,6 +39,7 @@ WavefrontGrid::WavefrontGrid(NAMOEnvironment& env,
     uninflated_grid_.resize(grid_width_, std::vector<int>(grid_height_, 0));
     static_grid_.resize(grid_width_, std::vector<int>(grid_height_, 0));
     dynamic_grid_.resize(grid_width_, std::vector<int>(grid_height_, 0));
+    occupancy_count_grid_.resize(grid_width_, std::vector<int>(grid_height_, 0));
     
     // Build initial occupancy grids (uninflated + inflated)
     rebuild_grids(env);
@@ -56,81 +57,61 @@ WavefrontGrid::WavefrontGrid(NAMOEnvironment& env,
 
 void WavefrontGrid::rebuild_grids(NAMOEnvironment& env) {
     auto start_time = std::chrono::high_resolution_clock::now();
-    
+
     const auto& static_objects = env.get_static_objects();
     const auto& movable_objects = env.get_movable_objects();
-    const size_t num_static = env.get_num_static();
-    const size_t num_movable = env.get_num_movable();
     const double inflate_r = compute_wavefront_inflation_radius_m(robot_size_, tier1_inflation_margin_);
 
-    for (int x = 0; x < grid_width_; x++) {
-        for (int y = 0; y < grid_height_; y++) {
-            double world_x = grid_to_world_x(x);
-            double world_y = grid_to_world_y(y);
+    for (int x = 0; x < grid_width_; ++x) {
+        std::fill(uninflated_grid_[x].begin(), uninflated_grid_[x].end(), 0);
+        std::fill(static_grid_[x].begin(), static_grid_[x].end(), 0);
+        std::fill(occupancy_count_grid_[x].begin(), occupancy_count_grid_[x].end(), 0);
+    }
 
-            bool occupied_uninflated = false;
-            bool occupied_inflated = false;
-
-            // Check static objects
-            for (size_t i = 0; i < num_static; i++) {
-                const auto& obj = static_objects[i];
-
-                ObjectState static_state;
-                static_state.position = obj.position;
-                static_state.quaternion = obj.quaternion;
-
-                if (!occupied_uninflated &&
-                    is_point_in_rotated_rectangle(world_x, world_y, static_state, obj)) {
-                    occupied_uninflated = true;
-                }
-
-                if (!occupied_inflated) {
-                    ObjectInfo inflated_obj = obj;
-                    inflated_obj.size[0] += inflate_r;
-                    inflated_obj.size[1] += inflate_r;
-
-                    if (is_point_in_rotated_rectangle(world_x, world_y, static_state, inflated_obj)) {
-                        occupied_inflated = true;
-                    }
-                }
-
-                if (occupied_uninflated && occupied_inflated) {
-                    break;
+    auto add_object = [&](const ObjectInfo& obj, const ObjectState& state) {
+        {
+            const GridFootprint footprint = calculate_rotated_footprint(obj, state);
+            for (size_t i = 0; i < footprint.num_cells; ++i) {
+                const auto [x, y] = footprint.cells[i];
+                if (is_valid_grid_coord(x, y)) {
+                    uninflated_grid_[x][y] = -1;
                 }
             }
+        }
 
-            // Check movable objects (using their current state)
-            if (!occupied_uninflated || !occupied_inflated) {
-                for (size_t i = 0; i < num_movable; i++) {
-                    const auto& obj = movable_objects[i];
-                    const ObjectState* obj_state = env.get_object_state(obj.name);
-                    if (!obj_state) {
-                        continue;
-                    }
-
-                    if (!occupied_uninflated &&
-                        is_point_in_rotated_rectangle(world_x, world_y, *obj_state, obj)) {
-                        occupied_uninflated = true;
-                    }
-
-                    if (!occupied_inflated) {
-                        ObjectInfo inflated_obj = obj;
-                        inflated_obj.size[0] += inflate_r;
-                        inflated_obj.size[1] += inflate_r;
-
-                        if (is_point_in_rotated_rectangle(world_x, world_y, *obj_state, inflated_obj)) {
-                            occupied_inflated = true;
-                        }
-                    }
-
-                    if (occupied_uninflated && occupied_inflated) {
-                        break;
-                    }
+        ObjectInfo inflated_obj = obj;
+        inflated_obj.size[0] += inflate_r;
+        inflated_obj.size[1] += inflate_r;
+        {
+            const GridFootprint footprint = calculate_rotated_footprint(inflated_obj, state);
+            for (size_t i = 0; i < footprint.num_cells; ++i) {
+                const auto [x, y] = footprint.cells[i];
+                if (is_valid_grid_coord(x, y)) {
+                    ++occupancy_count_grid_[x][y];
                 }
             }
+        }
+    };
 
-            uninflated_grid_[x][y] = occupied_uninflated ? -1 : 0;
-            static_grid_[x][y] = occupied_inflated ? -1 : 0;
+    for (size_t i = 0; i < env.get_num_static(); ++i) {
+        const auto& obj = static_objects[i];
+        ObjectState state;
+        state.position = obj.position;
+        state.quaternion = obj.quaternion;
+        add_object(obj, state);
+    }
+
+    for (size_t i = 0; i < env.get_num_movable(); ++i) {
+        const auto& obj = movable_objects[i];
+        const ObjectState* state = env.get_object_state(obj.name);
+        if (state) {
+            add_object(obj, *state);
+        }
+    }
+
+    for (int x = 0; x < grid_width_; ++x) {
+        for (int y = 0; y < grid_height_; ++y) {
+            static_grid_[x][y] = occupancy_count_grid_[x][y] > 0 ? -1 : 0;
         }
     }
 
@@ -205,8 +186,8 @@ GridFootprint WavefrontGrid::calculate_rotated_footprint(const ObjectInfo& obj,
     // Test each cell in bounding box
     for (int x = grid_min_x; x <= grid_max_x; x++) {
         for (int y = grid_min_y; y <= grid_max_y; y++) {
-            double world_x = grid_to_world_x(x);
-            double world_y = grid_to_world_y(y);
+            const double world_x = grid_to_world_x(x) + 0.5 * resolution_;
+            const double world_y = grid_to_world_y(y) + 0.5 * resolution_;
             
             if (is_point_in_rotated_rectangle(world_x, world_y, state, obj)) {
                 footprint.add_cell(x, y);
@@ -660,7 +641,9 @@ WavefrontGrid::build_region_connectivity_graph(NAMOEnvironment& env) {
         for (size_t i = 0; i < footprint.num_cells; i++) {
             int x = footprint.cells[i].first;
             int y = footprint.cells[i].second;
-            if (is_valid_grid_coord(x, y) && dynamic_grid_[x][y] == -1) {
+            if (is_valid_grid_coord(x, y) &&
+                dynamic_grid_[x][y] == -1 &&
+                occupancy_count_grid_[x][y] == 1) {
                 dynamic_grid_[x][y] = 0;  // Mark as free
                 removed_cells.push_back({x, y});
             }

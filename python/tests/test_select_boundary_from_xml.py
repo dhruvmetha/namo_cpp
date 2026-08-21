@@ -11,6 +11,7 @@ is next.
 """
 
 import re
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
@@ -20,9 +21,10 @@ from namo.planners.full_namo.full_namo_planner import boundary_key, find_region_
 from namo.services.planning_service import _stale_boundaries
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-# The one scene on this box where robot and goal sit in different regions.
-SEPARATED_SCENE = REPO_ROOT / "data" / "benchmark_env.xml"
-SEPARATED_CONFIG = REPO_ROOT / "config" / "namo_config_complete_skill15.yaml"
+# A one-boundary scene whose movable blocker overlaps the divider walls' inflated
+# footprints. The overlap is intentional: removing the blocker must retain wall-owned cells.
+SEPARATED_SCENE = REPO_ROOT / "python" / "tests" / "data" / "region_boundary_overlap_fixture.xml"
+SEPARATED_CONFIG = REPO_ROOT / "config" / "namo_config_complete_skill15_1x.yaml"
 
 ROBOT, MIDDLE, GOAL = "robot", "region_3", "goal"
 LINEAR = {ROBOT: {MIDDLE}, MIDDLE: {ROBOT, GOAL}, GOAL: {MIDDLE}}
@@ -105,7 +107,7 @@ def test_boundary_key_rejects_nonsense(bad):
 
 pytestmark_real = pytest.mark.skipif(
     not REAL_NAMO_RL or not SEPARATED_SCENE.exists(),
-    reason="needs the compiled namo_rl binding and the benchmark scene",
+    reason="needs the compiled namo_rl binding and the boundary fixture",
 )
 
 
@@ -115,6 +117,30 @@ def _scene_goal():
     )
     x, y = (float(v) for v in match.group(1).split()[:2])
     return (x, y, 0.0)
+
+
+def _scene_robot():
+    root = ET.parse(SEPARATED_SCENE).getroot()
+    robot_geom = root.find(".//body[@name='robot']/geom[@name='robot']")
+    x, y = (float(v) for v in robot_geom.attrib["pos"].split()[:2])
+    return (x, y, 0.0)
+
+
+def _fully_overlapped_scene(tmp_path):
+    tree = ET.parse(SEPARATED_SCENE)
+    root = tree.getroot()
+    divider_bottom = root.find(".//geom[@name='divider_bottom']")
+    divider_top = root.find(".//geom[@name='divider_top']")
+    divider_bottom.set("pos", "0 -0.46 0.3")
+    divider_bottom.set("size", "0.05 0.54 0.3")
+    divider_top.set("pos", "0 0.46 0.3")
+    divider_top.set("size", "0.05 0.54 0.3")
+    movable = root.find(".//geom[@name='obstacle_1_movable']")
+    movable.set("contype", "0")
+    movable.set("conaffinity", "0")
+    path = tmp_path / "fully_overlapped_boundary.xml"
+    tree.write(path)
+    return path
 
 
 @pytestmark_real
@@ -154,7 +180,7 @@ def test_a_reachable_goal_needs_no_boundary():
         config_path=str(SEPARATED_CONFIG), primitive_data_dir=str(REPO_ROOT / "data")
     )
 
-    selection = service.select_boundary_from_xml(str(SEPARATED_SCENE), (0.0, 0.0, 0.0))
+    selection = service.select_boundary_from_xml(str(SEPARATED_SCENE), _scene_robot())
 
     assert selection.goal_already_reachable
     assert not selection.found
@@ -178,3 +204,19 @@ def test_blocking_the_only_boundary_exhausts_the_path():
 
     assert not blocked.found
     assert blocked.failure_reason == "region_path_exhausted"
+
+
+@pytestmark_real
+def test_removing_a_movable_does_not_erase_an_overlapping_wall(tmp_path):
+    from namo.services import NAMOPlanningService
+
+    service = NAMOPlanningService(
+        config_path=str(SEPARATED_CONFIG), primitive_data_dir=str(REPO_ROOT / "data")
+    )
+
+    selection = service.select_boundary_from_xml(
+        str(_fully_overlapped_scene(tmp_path)), _scene_goal()
+    )
+
+    assert not selection.found
+    assert selection.failure_reason == "region_path_exhausted"

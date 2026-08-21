@@ -548,6 +548,7 @@ class WavefrontSnapshotExporter:
 
         adjacency, edge_objects = self._build_connectivity(
             grids["dynamic"].copy(),
+            grids["occupancy_count"],
             region_map,
             region_labels,
             movable_instances,
@@ -614,6 +615,7 @@ class WavefrontSnapshotExporter:
         uninflated = np.full(shape, 0, dtype=np.int16)
         static_grid = np.full(shape, 0, dtype=np.int16)
         dynamic_grid = np.full(shape, 0, dtype=np.int16)
+        occupancy_count = np.full(shape, 0, dtype=np.int16)
 
         inflate_r = self._inflation_radius_m()
 
@@ -622,18 +624,19 @@ class WavefrontSnapshotExporter:
             self._rasterise_object(instance, instance.half_extent, uninflated)
             inflated_extent = (instance.half_extent[0] + inflate_r, instance.half_extent[1] + inflate_r)
             self._rasterise_object(instance, inflated_extent, static_grid)
-            self._rasterise_object(instance, inflated_extent, dynamic_grid)
+            self._rasterise_object(instance, inflated_extent, dynamic_grid, occupancy_count)
 
         # Rasterise movable objects
         for instance in movable_objects:
             self._rasterise_object(instance, instance.half_extent, uninflated)
             inflated_extent = (instance.half_extent[0] + inflate_r, instance.half_extent[1] + inflate_r)
-            self._rasterise_object(instance, inflated_extent, dynamic_grid)
+            self._rasterise_object(instance, inflated_extent, dynamic_grid, occupancy_count)
 
         return {
             "uninflated": uninflated,
             "static": static_grid,
             "dynamic": dynamic_grid,
+            "occupancy_count": occupancy_count,
         }
 
     # ------------------------------------------------------------------
@@ -695,6 +698,7 @@ class WavefrontSnapshotExporter:
         instance: ObjectInstance,
         half_extent: Tuple[float, float],
         grid: GridArray,
+        occupancy_count: Optional[GridArray] = None,
     ) -> None:
         half_w, half_h = half_extent
         if half_w <= 0 or half_h <= 0:
@@ -725,6 +729,8 @@ class WavefrontSnapshotExporter:
 
                 if abs(local_x) <= half_w and abs(local_y) <= half_h:
                     grid[gx, gy] = -1
+                    if occupancy_count is not None:
+                        occupancy_count[gx, gy] += 1
 
     # ------------------------------------------------------------------
     # Region computation
@@ -875,6 +881,7 @@ class WavefrontSnapshotExporter:
     def _build_connectivity(
         self,
         dynamic_grid: GridArray,
+        occupancy_count: GridArray,
         region_map: GridArray,
         region_labels: Dict[int, str],
         movable_objects: Sequence[ObjectInstance],
@@ -903,7 +910,7 @@ class WavefrontSnapshotExporter:
 
             removed_cells: List[Tuple[int, int]] = []
             for cell in footprint:
-                if dynamic_grid[cell] == -1:
+                if dynamic_grid[cell] == -1 and occupancy_count[cell] == 1:
                     dynamic_grid[cell] = 0
                     removed_cells.append(cell)
 
@@ -1118,10 +1125,10 @@ class WavefrontSnapshotExporter:
 
         cells: List[Tuple[int, int]] = []
         for gx in range(min_x, max_x + 1):
-            world_x = self._grid_to_world_x(gx)
+            world_x = self._grid_to_world_x(gx) + 0.5 * self.resolution
             dx = world_x - center_x
             for gy in range(min_y, max_y + 1):
-                world_y = self._grid_to_world_y(gy)
+                world_y = self._grid_to_world_y(gy) + 0.5 * self.resolution
                 dy = world_y - center_y
                 local_x = dx * cos_a + dy * sin_a
                 local_y = -dx * sin_a + dy * cos_a
@@ -1191,16 +1198,25 @@ class WavefrontSnapshotExporter:
         if goal_pose is None:
             return set()
 
-        cx = self._clamp_grid_x(self._world_to_grid_x(goal_pose[0]))
-        cy = self._clamp_grid_y(self._world_to_grid_y(goal_pose[1]))
-        radius_cells = max(1, int(math.ceil(radius / self.resolution)))
+        cx = self._world_to_grid_x(goal_pose[0])
+        cy = self._world_to_grid_y(goal_pose[1])
+        if not self._valid_coord(cx, cy):
+            return set()
+        radius_cells = max(0, int(math.ceil(radius / self.resolution)) + 1)
 
         cells: Set[Tuple[int, int]] = set()
         for dx in range(-radius_cells, radius_cells + 1):
             for dy in range(-radius_cells, radius_cells + 1):
                 gx, gy = cx + dx, cy + dy
-                if self._valid_coord(gx, gy):
+                if not self._valid_coord(gx, gy):
+                    continue
+                cell_x = self._grid_to_world_x(gx) + 0.5 * self.resolution
+                cell_y = self._grid_to_world_y(gy) + 0.5 * self.resolution
+                if math.hypot(cell_x - goal_pose[0], cell_y - goal_pose[1]) <= radius + 1e-12:
                     cells.add((gx, gy))
+
+        if not cells:
+            cells.add((cx, cy))
         return cells
 
     # ------------------------------------------------------------------

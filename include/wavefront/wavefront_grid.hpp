@@ -162,6 +162,7 @@ private:
     std::vector<std::vector<int>> static_grid_;        // Static obstacles with inflation
     mutable std::vector<std::vector<int>> dynamic_grid_;  // All obstacles (static + movable) with inflation
                                                           // Mutable to allow fixing discretization artifacts
+    std::vector<std::vector<int>> occupancy_count_grid_;  // Number of inflated objects occupying each cell
     
     // Core initialization and update methods
     void rebuild_grids(NAMOEnvironment& env);
