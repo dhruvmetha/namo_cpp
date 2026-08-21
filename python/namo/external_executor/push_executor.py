@@ -8,7 +8,7 @@ semantics from NAMO's internal controller:
 - Each push_step runs control_steps_per_push=250 micro-steps
 - Each micro-step recomputes push_dir from current object pose
 - Control is scaled by force_scaling=1.0
-- Collision termination and stuck detection per skill15 thresholds
+- Object contact recorded, never terminating; stuck detection ends a push
 
 Key differences from internal NAMO controller:
 - Robot physically navigates to pre-contact position (no teleport)
@@ -17,7 +17,7 @@ Key differences from internal NAMO controller:
 """
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Deque, List, Optional, Tuple
 
@@ -46,6 +46,8 @@ class PushStepResult:
     steps_taken: int
     object_moved: float  # Distance object moved
     robot_moved: float   # Distance robot moved
+    # Walls and movables the pushed object touched. Telemetry, not failure.
+    contacts: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -281,6 +283,8 @@ class PushExecutor:
         initial_robot_pose = self.executor.get_robot_pose()
         initial_obj_pose = self.executor.get_movable_pose(object_id)
         
+        contacts: List[str] = []
+
         for step in range(self.control_steps_per_push):
             # Get current poses
             robot_pose = self.executor.get_robot_pose()
@@ -300,6 +304,11 @@ class PushExecutor:
             # Stuck check (every stuck_check_stride steps)
             if (step + 1) % self.stuck_check_stride == 0:
                 new_obj_pose = self.executor.get_movable_pose(object_id)
+                # Record contact before deciding anything, so a push that stops
+                # because the object wedged still names what it wedged against.
+                for name in self.executor.contacts_with_object(object_id):
+                    if name not in contacts:
+                        contacts.append(name)
                 
                 if prev_obj_pose is not None:
                     pos_change = self._pose_distance(prev_obj_pose, new_obj_pose)
@@ -314,7 +323,8 @@ class PushExecutor:
                                 termination=PushTermination.STUCK,
                                 steps_taken=step + 1,
                                 object_moved=self._pose_distance(initial_obj_pose, new_obj_pose),
-                                robot_moved=self._pose_distance(initial_robot_pose, robot_pose)
+                                robot_moved=self._pose_distance(initial_robot_pose, robot_pose),
+                                contacts=contacts,
                             )
                     else:
                         stuck_check_count = 0
@@ -330,7 +340,8 @@ class PushExecutor:
             termination=PushTermination.COMPLETED,
             steps_taken=self.control_steps_per_push,
             object_moved=self._pose_distance(initial_obj_pose, final_obj_pose),
-            robot_moved=self._pose_distance(initial_robot_pose, final_robot_pose)
+            robot_moved=self._pose_distance(initial_robot_pose, final_robot_pose),
+            contacts=contacts,
         )
     
     def _pose_distance(self, p1: SE2Pose, p2: SE2Pose) -> float:

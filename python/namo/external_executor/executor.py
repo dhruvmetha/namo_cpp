@@ -348,6 +348,23 @@ class MuJoCoExecutor:
                 return name
         return None
     
+    def contacts_with_object(self, object_name: str) -> List[str]:
+        """Names of movables and walls the object is currently touching.
+
+        Reported, never fatal: object-object and object-wall contact is a normal
+        part of a push. Mirrors what the C++ controller accumulates into
+        wall_collision_during_push_ / movable_collisions_during_push_.
+        """
+        touching = []
+        for name in self._movable_body_ids:
+            if name == object_name:
+                continue
+            if self.check_collision(object_name, name):
+                touching.append(name)
+        if self.check_collision(object_name, "walls"):
+            touching.append("walls")
+        return touching
+
     @staticmethod
     def _quat_to_yaw(quat: np.ndarray) -> float:
         """Convert quaternion to yaw angle.
