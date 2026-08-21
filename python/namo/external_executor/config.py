@@ -32,7 +32,6 @@ SKILL15_DEFAULTS = {
     "force_scaling": 1.0,            # control force multiplier
     
     # Collision/termination
-    "check_object_collision": True,   # terminate if pushed object hits another
     
     # Controller stuck detection
     "stuck_check_stride": 30,         # steps between checks
@@ -70,7 +69,6 @@ class ExecutorConfig:
         points_per_face: Edge points per object face
         control_steps_per_push: Micro-steps per push_step
         force_scaling: Force multiplier
-        check_object_collision: Whether to check for collisions during push
         stuck_check_stride: Steps between stuck checks
         controller_stuck_threshold: Stuck checks before abort
         controller_min_position_change: Min position delta for stuck check
@@ -92,7 +90,6 @@ class ExecutorConfig:
     points_per_face: int = SKILL15_DEFAULTS["points_per_face"]
     control_steps_per_push: int = SKILL15_DEFAULTS["control_steps_per_push"]
     force_scaling: float = SKILL15_DEFAULTS["force_scaling"]
-    check_object_collision: bool = SKILL15_DEFAULTS["check_object_collision"]
     stuck_check_stride: int = SKILL15_DEFAULTS["stuck_check_stride"]
     controller_stuck_threshold: int = SKILL15_DEFAULTS["controller_stuck_threshold"]
     controller_min_position_change: float = SKILL15_DEFAULTS["controller_min_position_change"]

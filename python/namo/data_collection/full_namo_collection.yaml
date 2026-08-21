@@ -13,7 +13,6 @@ episodes_per_env: 1
 full_namo_max_iterations: 20  # Max region openings before giving up
 
 # Region opening sub-solver parameters (inherited by internal RegionOpeningPlanner)
-region_allow_collisions: true
 region_max_chain_depth: 2     # 1=single push, 2=two pushes, 3=three pushes per region opening
 region_max_solutions_per_neighbor: 1
 region_frontier_beam_width: 10000

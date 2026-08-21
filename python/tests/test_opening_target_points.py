@@ -48,8 +48,6 @@ class _CountingEnv:
     def set_full_state(self, _state):
         return None
 
-    def set_collision_checking(self, _enabled):
-        return None
 
 
 def _bundle(n, x0=0.0):
@@ -185,8 +183,6 @@ def test_best_first_shares_the_same_pinning_contract():
         def set_full_state(self, _s):
             return None
 
-        def set_collision_checking(self, _e):
-            return None
 
     planner = BestFirstRegionOpeningPlanner(
         _StubEnv(),

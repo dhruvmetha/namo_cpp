@@ -540,25 +540,12 @@ void RLEnvironment::clear_robot_goal() {
     }
 }
 
-void RLEnvironment::set_collision_checking(bool enable) {
-    if (config_) {
-        config_->set_collision_checking(enable);
-    }
-    // Propagate to the skill's controller
-    if (skill_) {
-        skill_->set_collision_checking(enable);
-    }
-}
-
 void RLEnvironment::set_robot_trajectory_collision_checking(bool enable) {
     if (skill_) {
         skill_->set_robot_trajectory_collision_checking(enable);
     }
 }
 
-bool RLEnvironment::get_collision_checking() const {
-    return config_ ? config_->skill().check_object_collision : true;
-}
 
 // Video recording interface
 void RLEnvironment::start_recording(int width, int height, int capture_frequency, size_t max_frames) {

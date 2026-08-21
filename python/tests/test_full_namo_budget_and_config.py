@@ -50,7 +50,6 @@ def test_build_full_namo_planner_config_forwards_nested_region_settings(monkeypa
         config_path="config.yaml",
         goal_strategy="random_rollout",
         region_max_chain_depth=2,
-        region_allow_collisions=True,
         primitive_data_dir="data",
         primitive_prefix="car_",
         rollout_samples_per_state=7,
@@ -75,7 +74,6 @@ def test_build_full_namo_planner_config_forwards_nested_region_settings(monkeypa
     assert planner.use_cpp_unified_wavefront is True
     assert planner.region_snapshot_seed == 42
     assert planner.region_opener.max_chain_depth == 2
-    assert planner.region_opener.terminate_on_collision is False
     assert planner.region_opener.push_budget.limit == 100000
     assert planner.region_opener.push_budget is config.algorithm_params["push_budget"]
     assert planner.budget_scope == "keyhole"

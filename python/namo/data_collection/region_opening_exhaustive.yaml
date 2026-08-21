@@ -16,7 +16,6 @@ search_timeout: 600.0  # Longer timeout since we evaluate all primitives
 
 # Region opening parameters — exhaustive mode
 points_per_face: 15
-region_allow_collisions: true
 region_max_chain_depth: 1              # 1-push only for initial characterization
 region_max_solutions_per_neighbor: 9999  # Don't cap solutions
 region_max_recorded_solutions_per_neighbor: 9999

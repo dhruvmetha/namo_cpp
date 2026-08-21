@@ -28,7 +28,6 @@ search_timeout: 1800.0            # depth-2 grid is ~60x the depth-1 grid
 region_timeout_per_neighbour_sec: 600.0
 
 points_per_face: 15
-region_allow_collisions: true
 region_max_chain_depth: 2
 region_max_solutions_per_neighbor: 9999
 region_max_recorded_solutions_per_neighbor: 9999

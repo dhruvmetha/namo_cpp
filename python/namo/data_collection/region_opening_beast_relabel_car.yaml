@@ -30,7 +30,6 @@ region_timeout_per_neighbour_sec: 480.0
 
 # Region opening parameters
 points_per_face: 15
-region_allow_collisions: true
 region_max_chain_depth: 2
 # Match the WORKING rung1_exhaustive labeler (these were EXIT-era rung2 leftovers): a huge beam =
 # effectively no pruning but a valid int (null caused the beam to not be passed -> wrong default);

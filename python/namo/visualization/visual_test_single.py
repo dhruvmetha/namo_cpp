@@ -352,8 +352,6 @@ def main():
                         help="Search timeout in seconds (default: 60.0)")
     parser.add_argument("--goals-per-region", type=int, default=5,
                         help="Number of robot goal samples per region for validation (default: 5)")
-    parser.add_argument("--region-allow-collisions", action=argparse.BooleanOptionalAction, default=True,
-                        help="Allow object collisions during region opening pushes (default: True). Use --no-region-allow-collisions for strict mode (any object collision aborts the push). Robot-collisions always abort regardless.")
     parser.add_argument("--region-max-chain-depth", type=int, default=1,
                         help="Maximum chain depth for region opening: 1=single push, 2=2-push chains, 3=3-push chains (default: 1)")
     parser.add_argument("--region-max-solutions-per-neighbor", type=int, default=10,
@@ -531,7 +529,6 @@ def main():
             'ml_match_angle_tolerance': args.ml_match_angle_tolerance,
             'ml_match_angle_weight': args.ml_match_angle_weight,
             'ml_k_nearest': args.ml_k_nearest,
-            'region_allow_collisions': args.region_allow_collisions,
             'region_max_chain_depth': args.region_max_chain_depth,
             'region_max_solutions_per_neighbor': args.region_max_solutions_per_neighbor,
             'region_frontier_beam_width': args.region_frontier_beam_width,
@@ -657,10 +654,6 @@ def main():
                     solution_env.set_goal_site_visible(False)
                 except Exception:
                     pass
-
-            # Apply collision checking settings (must match planning settings)
-            if args.region_allow_collisions:
-                solution_env.set_collision_checking(False)
 
             # Apply camera distance for visualization (only if explicitly set)
             # Uses default azimuth=0, elevation=-90 (top-down view) from mujoco_wrapper

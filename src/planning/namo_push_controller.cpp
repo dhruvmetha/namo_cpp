@@ -611,13 +611,10 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
                             return false;
                         }
                     }
+                    // The pushed object touching a wall is a normal outcome, not
+                    // a failed push. Record it and keep going.
                     if (env_.bodies_in_collision(object_name, s.body_name)) {
                         wall_collision_during_push_ = true;
-                        if (check_object_collision_) {
-                            last_failure_reason_ = "Object collision during push with static object: " + s.body_name;
-                            last_collision_object_ = s.body_name;
-                            return false;
-                        }
                     }
                 }
                 for (size_t i = 0; i < num_movable; i++) {
@@ -631,13 +628,9 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
                             return false;
                         }
                     }
+                    // Likewise for the pushed object nudging another movable.
                     if (env_.bodies_in_collision(object_name, mv.body_name)) {
                         movable_collisions_during_push_.insert(mv.name);
-                        if (check_object_collision_) {
-                            last_failure_reason_ = "Object collision during push with movable object: " + mv.body_name;
-                            last_collision_object_ = mv.body_name;
-                            return false;
-                        }
                     }
                 }
             }

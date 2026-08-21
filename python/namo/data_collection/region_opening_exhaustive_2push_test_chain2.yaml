@@ -14,7 +14,6 @@ max_terminal_checks: 50000
 search_timeout: 1800.0   # 30 min per instance — 2-push grid is ~60x larger
 
 points_per_face: 15
-region_allow_collisions: true
 region_max_chain_depth: 2
 region_max_solutions_per_neighbor: 9999
 region_max_recorded_solutions_per_neighbor: 9999

@@ -114,7 +114,6 @@ private:
     bool dynamic_direction_ = true;
     std::array<double, 3> robot_size_;
     double push_offset_margin_ = 0.02;  // Additional offset beyond robot radius for spawn points
-    bool check_object_collision_ = true;
     bool check_robot_trajectory_collision_ = true;  // Robot-body collisions during push trajectory
     int stuck_ctrl_iterations_threshold_ = 3;   // controller-level stuck threshold (checks)
     int last_stuck_counter_ = 0;             // last observed stuck counter (for diagnostics)
@@ -131,7 +130,8 @@ private:
     std::string last_failure_reason_;
     std::string last_collision_object_;
 
-    // Collision accumulation during push (tracked even when check_object_collision_ = false)
+    // Collision accumulation during push. Object-object and object-wall
+    // contacts are reported here and never abort the push.
     bool wall_collision_during_push_ = false;
     std::unordered_set<std::string> movable_collisions_during_push_;
 
@@ -236,13 +236,6 @@ public:
      * @brief Get object that caused collision (if any)
      */
     const std::string& get_last_collision_object() const { return last_collision_object_; }
-
-    /**
-     * @brief Set collision checking mode for pushed-object trajectory
-     */
-    void set_collision_checking(bool enabled) {
-        check_object_collision_ = enabled;
-    }
 
     /**
      * @brief Set whether robot-body collisions during push trajectory abort the push.

@@ -24,7 +24,6 @@ search_timeout: 300.0
 
 # Region opening parameters
 points_per_face: 15           # 3 or 15 - must match config_file (skill3 or skill15)
-region_allow_collisions: true
 region_max_chain_depth: 2
 region_max_solutions_per_neighbor: 1
 region_frontier_beam_width: 10000

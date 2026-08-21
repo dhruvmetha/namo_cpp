@@ -27,7 +27,6 @@ skill:
   # Session: chassis_calibration/20260523_002800_pp_session/sim/search_result.json
   push_tracker_max_speed: 0.05357
   goal_tolerance: 0.03            # Tighter tolerance for small robot
-  check_object_collision: false     # Disabled — region_opening sets this dynamically
   check_robot_trajectory_collision: false  # Disabled — diff-drive body arcs during push; grazing aborts every approach
   stuck_check_stride: 80           # Car needs time to cross gap to object
   controller_stuck_threshold: 5    # More lenient — car pushes intermittently

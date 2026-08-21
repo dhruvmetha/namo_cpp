@@ -53,8 +53,6 @@ class RecordingEnv:
     def get_reachable_objects(self):
         return []
 
-    def set_collision_checking(self, _enabled):
-        return None
 
     def step(self, action):
         self.pushes.append((action.object_id, action.edge_idx, action.depth))

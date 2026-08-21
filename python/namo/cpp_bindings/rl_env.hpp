@@ -134,9 +134,7 @@ public:
 	    void set_goal_site_visible(bool visible);
 
     // Collision checking control (for region opening planner)
-    void set_collision_checking(bool enable);
     void set_robot_trajectory_collision_checking(bool enable);
-    bool get_collision_checking() const;
 
     // Video recording interface
     void start_recording(int width = 640, int height = 480,

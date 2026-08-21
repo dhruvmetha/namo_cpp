@@ -268,7 +268,7 @@ def test_graded_points_are_echoed_for_the_run_log():
 def _search_params(**over):
     kwargs = dict(
         goal_strategy="primitive", max_chain_depth=1, max_solutions_per_neighbor=1,
-        allow_collisions=True, frontier_beam_width=10000, chain_link_cost=11,
+        frontier_beam_width=10000, chain_link_cost=11,
         selection_strategy="cost_first",
     )
     kwargs.update(over)
@@ -283,7 +283,6 @@ def test_chain_depth_becomes_the_key_the_opener_reads(depth):
 @pytest.mark.parametrize(
     "caller_name,region_key,value",
     [
-        ("allow_collisions", "region_allow_collisions", False),
         ("frontier_beam_width", "region_frontier_beam_width", 25),
         ("chain_link_cost", "region_chain_link_cost", 7),
         ("selection_strategy", "region_selection_strategy", "depth_first"),

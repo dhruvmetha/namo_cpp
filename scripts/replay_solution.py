@@ -37,7 +37,6 @@ def main():
 
     env = namo_rl.RLEnvironment(args.xml, args.namo_config, visualize=False)
     env.reset()
-    env.set_collision_checking(False)
 
     matched_so_far = -1
     for ep_i, ep in enumerate(episodes):

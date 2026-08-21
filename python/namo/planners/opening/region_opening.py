@@ -240,12 +240,6 @@ class RegionOpeningPlanner(BasePlanner):
         self.algorithm_params = algo_params
         self.push_budget = algo_params.get("push_budget")
 
-        # Get collision termination flag from config.algorithm_params
-        # region_allow_collisions=True means ALLOW collisions (don't terminate)
-        # We invert it: terminate_on_collision=True means TERMINATE on collision
-        allow_collisions = algo_params.get("region_allow_collisions", False)
-        self.terminate_on_collision = not allow_collisions
-
         # Get max chain depth from config.algorithm_params (default: 1, no chaining)
         self.max_chain_depth = algo_params.get("region_max_chain_depth", 1)
         if self.max_chain_depth < 1 or self.max_chain_depth > 10:
@@ -975,10 +969,6 @@ class RegionOpeningPlanner(BasePlanner):
 
         # Reset rejection tally for this search
         self._rejection_stats = {}
-
-        # Configure collision checking based on region_allow_collisions setting
-        collision_checking_enabled = self.terminate_on_collision
-        self.env.set_collision_checking(collision_checking_enabled)
 
         # Save baseline state
         baseline = self.env.get_full_state()
@@ -2929,8 +2919,10 @@ class RegionOpeningPlanner(BasePlanner):
                 print(f"        🔍 AFTER push edge {edge_idx} depth {depth+1}: is_accessible={is_accessible_after}, reachable={reachable_count_after}")
 
             # Detect error conditions (but don't skip goal check - already done above)
+            # Object-object and object-wall contact never fails a push, so a
+            # reported collision_object here is the robot's own.
             collision_detected = False
-            if self.terminate_on_collision and "collision_object" in step_result.info:
+            if "collision_object" in step_result.info:
                 if self.config.verbose:
                     print(f"        ⚠️  COLLISION detected: {step_result.info.get('collision_object', 'unknown')}")
                 collision_detected = True

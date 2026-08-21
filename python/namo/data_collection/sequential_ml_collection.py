@@ -710,8 +710,6 @@ def main():
                         help="Number of robot goal samples per region for validation (default: 5)")
     
     # Region opening params
-    parser.add_argument("--region-allow-collisions", action=argparse.BooleanOptionalAction, default=True,
-                        help="Allow object collisions during region opening pushes (default: True). Use --no-region-allow-collisions for strict mode.")
     parser.add_argument("--region-max-chain-depth", type=int, default=1)
     parser.add_argument("--region-max-solutions-per-neighbor", type=int, default=10)
     parser.add_argument("--region-max-recorded-solutions-per-neighbor", type=int, default=2)
@@ -773,7 +771,6 @@ def main():
     if args.algorithm == "region_opening":
         algorithm_params["primitive_data_dir"] = args.primitive_data_dir
         algorithm_params.update({
-            "region_allow_collisions": args.region_allow_collisions,
             "region_max_chain_depth": args.region_max_chain_depth,
             "region_max_solutions_per_neighbor": args.region_max_solutions_per_neighbor,
             "region_max_recorded_solutions_per_neighbor": args.region_max_recorded_solutions_per_neighbor,

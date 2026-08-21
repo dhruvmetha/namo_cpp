@@ -27,8 +27,6 @@ class _BudgetEnv:
     def get_full_state(self):
         return self.state
 
-    def set_collision_checking(self, _enabled):
-        return None
 
 
 def _make_planner(monkeypatch, env, *, budget_limit):

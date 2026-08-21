@@ -83,7 +83,6 @@ skill:
 
   # Execution parameters
   goal_tolerance: 0.02             # 2 cm goal reaching tolerance (was 0.1 at 6×)
-  check_object_collision: true     # Terminate push on object-object collision
   check_robot_trajectory_collision: false  # Terminate push if robot body hits walls during push
   stuck_check_stride: 30           # Control steps between stuck checks (count, unscaled)
   controller_stuck_threshold: 3    # Checks before aborting due to stuck (count, unscaled)

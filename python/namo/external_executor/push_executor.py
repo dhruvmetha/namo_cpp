@@ -34,7 +34,6 @@ class PushTermination(Enum):
     """Reason for push termination."""
     COMPLETED = "completed"
     STUCK = "stuck"
-    COLLISION = "collision"
     MAX_STEPS = "max_steps"
     NAV_FAILED = "nav_failed"
 
@@ -104,7 +103,6 @@ class PushExecutor:
         # Push parameters from skill15
         self.control_steps_per_push = config.control_steps_per_push
         self.force_scaling = config.force_scaling
-        self.check_object_collision = config.check_object_collision
         
         # Stuck detection parameters
         self.stuck_check_stride = config.stuck_check_stride
@@ -298,18 +296,6 @@ class PushExecutor:
             
             # Step simulation
             self.executor.step()
-            
-            # Check collision (if enabled)
-            if self.check_object_collision:
-                collided = self.executor.check_object_collision_with_others(object_id)
-                if collided:
-                    return PushStepResult(
-                        success=False,
-                        termination=PushTermination.COLLISION,
-                        steps_taken=step + 1,
-                        object_moved=self._pose_distance(initial_obj_pose, obj_pose),
-                        robot_moved=self._pose_distance(initial_robot_pose, robot_pose)
-                    )
             
             # Stuck check (every stuck_check_stride steps)
             if (step + 1) % self.stuck_check_stride == 0:

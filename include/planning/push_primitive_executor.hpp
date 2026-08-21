@@ -85,12 +85,10 @@ public:
      * @param control_steps_per_push Control steps per push
      * @param push_velocity Velocity-command magnitude (m/s) for the push actuator
      * @param points_per_face Number of edge points per object face
-     * @param check_object_collision Enable object collision checking during push
      */
     PushPrimitiveExecutor(NAMOEnvironment& env, double resolution, const std::vector<double>& robot_size,
                 double wavefront_tier1_inflation_margin,
                 int max_push_steps, int control_steps_per_push, double push_velocity, int points_per_face = 3,
-                bool check_object_collision = true,
                 bool dynamic_direction = true);
 
     /**
@@ -117,13 +115,6 @@ public:
      * @brief Clear robot goal (disable early termination)
      */
     void clear_robot_goal() { has_robot_goal_ = false; }
-
-    /**
-     * @brief Set collision checking mode for push controller
-     */
-    void set_collision_checking(bool enabled) {
-        controller_.set_collision_checking(enabled);
-    }
 
     /**
      * @brief Set robot-trajectory collision checking on the underlying controller

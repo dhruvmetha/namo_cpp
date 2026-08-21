@@ -93,7 +93,6 @@ public:
 
         // Skill execution
         double goal_tolerance = 0.1;             // meters
-        bool check_object_collision = true;      // Check pushed object collisions during execution
         bool check_robot_trajectory_collision = true;  // Abort push if robot body collides with walls/other objects during push trajectory (set false to disable wall-collision rejection)
         // Controller-level stuck detection tuning
         int stuck_check_stride = 20;            // control steps between checks
@@ -208,7 +207,6 @@ public:
     void set_verbose_planning(bool enabled) { planning_.verbose_planning = enabled; }
     void set_max_iterations(int max_iter) { planning_.max_planning_iterations = max_iter; }
     void set_visualization(bool enabled) { system_.enable_visualization = enabled; }
-    void set_collision_checking(bool enabled) { skill_.check_object_collision = enabled; }
 
     // Static factory methods
     static std::unique_ptr<ConfigManager> create_from_file(const std::string& config_file);

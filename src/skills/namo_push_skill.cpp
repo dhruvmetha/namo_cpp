@@ -28,7 +28,6 @@ void NAMOPushSkill::initialize_skill() {
             // Velocity actuators interpret this as m/s command magnitude.
             config_->skill().push_velocity,
             config_->skill().points_per_face,
-            config_->skill().check_object_collision,
             config_->skill().dynamic_direction
         );
 
@@ -375,13 +374,6 @@ void NAMOPushSkill::clear_robot_goal() {
 std::pair<int, int> NAMOPushSkill::count_reachable_points(
     const std::vector<std::array<double, 2>>& points) const {
     return executor_->count_reachable_points(points);
-}
-
-void NAMOPushSkill::set_collision_checking(bool enabled) {
-    // Propagate collision checking setting to the executor's controller
-    if (executor_) {
-        executor_->set_collision_checking(enabled);
-    }
 }
 
 void NAMOPushSkill::set_robot_trajectory_collision_checking(bool enabled) {

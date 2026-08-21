@@ -27,7 +27,6 @@ PushPrimitiveExecutor::PushPrimitiveExecutor(NAMOEnvironment& env)
 PushPrimitiveExecutor::PushPrimitiveExecutor(NAMOEnvironment& env, double resolution, const std::vector<double>& robot_size,
                          double wavefront_tier1_inflation_margin,
                          int max_push_steps, int control_steps_per_push, double push_velocity, int points_per_face,
-                         bool check_object_collision,
                          bool dynamic_direction)
     : env_(env),
       planner_(resolution, env_, robot_size, wavefront_tier1_inflation_margin),
@@ -36,9 +35,6 @@ PushPrimitiveExecutor::PushPrimitiveExecutor(NAMOEnvironment& env, double resolu
 
     // Set default parameters
     set_parameters();
-
-    // Configure collision checking
-    controller_.set_collision_checking(check_object_collision);
 }
 
 void PushPrimitiveExecutor::set_parameters(int max_mpc_steps, 

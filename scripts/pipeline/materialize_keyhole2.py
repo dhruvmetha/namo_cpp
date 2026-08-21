@@ -32,9 +32,8 @@ No replay. Every candidate's post-push state comes from the sweep itself — `re
 depth-1 trial-log entries, or `AttemptResult.resulting_state` for chains — so no push is ever
 re-executed and the known replay divergence on collision pushes cannot occur.
 
-Collision checking. The sweep config sets `region_allow_collisions: true`, so the planner calls
-`env.set_collision_checking(False)` for the whole sweep. This script never steps the sim outside the
-planner, so it inherits that setting rather than re-deriving it.
+Collision checking. Object-object and object-wall contact never aborts a push, so there is nothing
+to configure. This script never steps the sim outside the planner anyway.
 
 Verification, per scene, recorded in the output row — nothing is assumed:
   * SE(2) round trip: reload the emitted XML in a fresh env and compare every movable AND the robot to
@@ -74,7 +73,7 @@ from namo.rl_loop.build_train_h5 import _rlstate  # noqa: E402  (qpos/qvel lists
 # modular_parallel_collection.main()'s algorithm_params dict for the keys this sweep uses; anything not
 # listed keeps the planner's own default.
 _ALGO_KEYS = (
-    "region_allow_collisions", "region_max_chain_depth", "region_max_solutions_per_neighbor",
+    "region_max_chain_depth", "region_max_solutions_per_neighbor",
     "region_max_recorded_solutions_per_neighbor", "region_chain_link_cost",
     "region_min_reachable_fraction", "region_frontier_beam_width", "region_ml_ignore_blacklist",
     "region_selection_strategy", "region_exhaustive_mode", "region_label_mode", "region_sample_k",

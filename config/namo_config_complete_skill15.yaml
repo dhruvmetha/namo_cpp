@@ -78,7 +78,6 @@ skill:
 
   # Execution parameters
   goal_tolerance: 0.1              # Goal reaching tolerance (meters)
-  check_object_collision: true     # Terminate push if pushed object collides with non-robot objects
   check_robot_trajectory_collision: false  # Terminate push if robot body hits walls/objects during push trajectory. Set false to allow such pushes (e.g., when planning aggressively or debugging)
   # Controller-level stuck detection (push controller)
   stuck_check_stride: 30           # Control steps between stuck checks

@@ -116,7 +116,6 @@ class BestFirstRegionOpeningPlanner:
             params.get("region_target_points")
         )
         self.xml_path = str(params.get("xml_file") or "")
-        self.allow_collisions = bool(params.get("region_allow_collisions", True))
 
         primitive_data_dir = str(params.get("primitive_data_dir", "data"))
         primitive_prefix = str(params.get("primitive_prefix", ""))
@@ -259,7 +258,6 @@ class BestFirstRegionOpeningPlanner:
             raise ValueError("best-first region opening requires target_neighbor")
         start_time = time.time()
         baseline = self.env.get_full_state()
-        self.env.set_collision_checking(not self.allow_collisions)
         try:
             from namo.planners import get_region_snapshot
 

@@ -348,28 +348,6 @@ class MuJoCoExecutor:
                 return name
         return None
     
-    def check_object_collision_with_others(self, object_name: str) -> Optional[str]:
-        """Check if an object collides with other movables or walls.
-        
-        Args:
-            object_name: Object to check
-            
-        Returns:
-            Name of colliding object/wall, or None if no collision
-        """
-        # Check against other movables
-        for name in self._movable_body_ids:
-            if name == object_name:
-                continue
-            if self.check_collision(object_name, name):
-                return name
-        
-        # Check against walls (approximation: check wall body)
-        if self.check_collision(object_name, "walls"):
-            return "walls"
-        
-        return None
-    
     @staticmethod
     def _quat_to_yaw(quat: np.ndarray) -> float:
         """Convert quaternion to yaw angle.

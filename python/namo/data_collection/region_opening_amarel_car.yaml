@@ -18,7 +18,6 @@ search_timeout: 600.0
 
 # Region opening parameters — greedy: stop at first solution per neighbor.
 points_per_face: 15
-region_allow_collisions: true
 region_max_chain_depth: 2
 region_max_solutions_per_neighbor: 1
 region_max_recorded_solutions_per_neighbor: 1

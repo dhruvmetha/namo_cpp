@@ -41,7 +41,6 @@ class SolveTask:
     config_path: str
     goal_strategy: str
     region_max_chain_depth: int
-    region_allow_collisions: bool
     primitive_data_dir: str
     primitive_prefix: str
     rollout_samples_per_state: Optional[int]
@@ -120,7 +119,6 @@ def build_full_namo_planner_config(task: SolveTask) -> PlannerConfig:
         "xml_file": task.xml_path,
         "namo_config_path": task.config_path,
         "region_max_chain_depth": task.region_max_chain_depth,
-        "region_allow_collisions": task.region_allow_collisions,
         "region_success_min_reachable": task.region_success_min_reachable,
         "region_use_cpp_unified_wavefront": task.use_cpp_snapshot,
         "full_namo_use_cpp_unified_wavefront": task.use_cpp_snapshot,
@@ -260,7 +258,6 @@ def _build_task(
     config_path: str,
     goal_strategy: str,
     region_max_chain_depth: int,
-    region_allow_collisions: bool,
     primitive_data_dir: str,
     primitive_prefix: str,
     rollout_samples_per_state: Optional[int],
@@ -286,7 +283,6 @@ def _build_task(
         config_path=config_path,
         goal_strategy=goal_strategy,
         region_max_chain_depth=region_max_chain_depth,
-        region_allow_collisions=region_allow_collisions,
         primitive_data_dir=primitive_data_dir,
         primitive_prefix=primitive_prefix,
         rollout_samples_per_state=rollout_samples_per_state,
@@ -337,7 +333,6 @@ def run_exact_n_solvability(
     config_file: str = DEFAULT_CONFIG,
     goal_strategy: str = DEFAULT_GOAL_STRATEGY,
     region_max_chain_depth: int = DEFAULT_REGION_MAX_CHAIN_DEPTH,
-    region_allow_collisions: bool = True,
     primitive_data_dir: str = "data",
     primitive_prefix: Optional[str] = None,
     rollout_samples_per_state: Optional[int] = None,
@@ -380,7 +375,6 @@ def run_exact_n_solvability(
         "config_file": config_path,
         "goal_strategy": goal_strategy,
         "region_max_chain_depth": int(region_max_chain_depth),
-        "region_allow_collisions": bool(region_allow_collisions),
         "primitive_data_dir": primitive_data_dir_resolved,
         "primitive_prefix": effective_primitive_prefix,
         "rollout_samples_per_state": rollout_samples_per_state,
@@ -437,7 +431,6 @@ def run_exact_n_solvability(
             config_path=config_path,
             goal_strategy=goal_strategy,
             region_max_chain_depth=region_max_chain_depth,
-            region_allow_collisions=region_allow_collisions,
             primitive_data_dir=primitive_data_dir_resolved,
             primitive_prefix=effective_primitive_prefix,
             rollout_samples_per_state=rollout_samples_per_state,
@@ -662,7 +655,6 @@ def cli_main(argv: Optional[Sequence[str]] = None) -> int:
         config_file=args.config_file,
         goal_strategy=args.goal_strategy,
         region_max_chain_depth=args.region_max_chain_depth,
-        region_allow_collisions=args.region_allow_collisions,
         primitive_data_dir=args.primitive_data_dir,
         primitive_prefix=args.primitive_prefix,
         rollout_samples_per_state=args.rollout_samples_per_state,

@@ -140,8 +140,6 @@ PYBIND11_MODULE(namo_rl, m) {
         .def("clear_robot_goal", &namo::RLEnvironment::clear_robot_goal, "Clear the skill's robot goal and hide the visualization marker.")
         .def("set_goal_site_visible", &namo::RLEnvironment::set_goal_site_visible, py::arg("visible"),
              "Show/hide the XML `<site name='goal'>` marker when present (visualization only).")
-        .def("set_collision_checking", &namo::RLEnvironment::set_collision_checking, py::arg("enable"), "Enable or disable pushed-object collision checking during push execution.")
-        .def("get_collision_checking", &namo::RLEnvironment::get_collision_checking, "Get current collision checking state.")
         .def("set_robot_trajectory_collision_checking", &namo::RLEnvironment::set_robot_trajectory_collision_checking, py::arg("enable"), "Enable or disable robot-body collision checking during push trajectory.")
         .def("evaluate_primitive_priorities", &namo::RLEnvironment::evaluate_primitive_priorities,
              py::arg("object_name"), py::arg("target_poses"), py::arg("robot_goal"),

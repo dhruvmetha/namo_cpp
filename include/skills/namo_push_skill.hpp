@@ -100,9 +100,8 @@ public:
     std::map<std::string, double> get_last_priority_profile() const;
 
     /**
-     * @brief Runtime configuration for collision checking
+     * @brief Runtime configuration for robot-body collision checking
      */
-    void set_collision_checking(bool enabled);
     void set_robot_trajectory_collision_checking(bool enabled);
 
 private:

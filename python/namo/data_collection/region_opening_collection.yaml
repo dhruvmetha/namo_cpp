@@ -17,7 +17,6 @@ search_timeout: 300.0
 
 # Region opening specific parameters
 points_per_face: 15           # 3 or 15 - must match config_file (skill3 or skill15)
-region_allow_collisions: true
 region_max_chain_depth: 2    # 1=single push, 2=two pushes, 3=three pushes
 region_max_solutions_per_neighbor: 1
 region_frontier_beam_width: 10000  # null or 0 = unbounded; positive integer caps frontier per depth

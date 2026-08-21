@@ -155,9 +155,6 @@ void ConfigManager::load_skill_config() {
     if (loader_->has_key("skill.goal_tolerance")) {
         skill_.goal_tolerance = loader_->get_double("skill.goal_tolerance");
     }
-    if (loader_->has_key("skill.check_object_collision")) {
-        skill_.check_object_collision = loader_->get_bool("skill.check_object_collision");
-    }
     if (loader_->has_key("skill.check_robot_trajectory_collision")) {
         skill_.check_robot_trajectory_collision = loader_->get_bool("skill.check_robot_trajectory_collision");
     }

@@ -1063,8 +1063,6 @@ def main():
                         help="Number of robot goal samples per region for validation (default: 100)")
 
     # Region opening planner arguments (only those used by RegionOpeningPlanner)
-    parser.add_argument("--region-allow-collisions", action=argparse.BooleanOptionalAction, default=True,
-                        help="Allow object collisions during region opening pushes (default: True). Use --no-region-allow-collisions for strict mode where any object collision aborts the push (intended for evaluation, not data collection). Robot-collisions always abort regardless.")
     parser.add_argument("--region-max-chain-depth", type=int, default=1,
                         help="Maximum chain depth for region opening: 1=single push, 2=2-push chains, 3=3-push chains (default: 1)")
     parser.add_argument("--region-max-solutions-per-neighbor", type=int, default=10,
@@ -1207,7 +1205,6 @@ def main():
     if args.algorithm == "region_opening":
         algorithm_params["primitive_data_dir"] = args.primitive_data_dir
         algorithm_params.update({
-            "region_allow_collisions": args.region_allow_collisions,
             "region_max_chain_depth": args.region_max_chain_depth,
             "region_max_solutions_per_neighbor": args.region_max_solutions_per_neighbor,
             "region_chain_link_cost": args.region_chain_link_cost,

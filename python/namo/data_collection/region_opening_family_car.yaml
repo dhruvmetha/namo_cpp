@@ -30,7 +30,6 @@ region_timeout_per_neighbour_sec: 1800.0
 
 # Region opening parameters
 points_per_face: 15
-region_allow_collisions: true
 region_max_chain_depth: 2
 region_max_solutions_per_neighbor: 1
 region_max_recorded_solutions_per_neighbor: 1

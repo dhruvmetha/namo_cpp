@@ -37,8 +37,6 @@ class _StubEnv:
     def set_full_state(self, _state):
         return None
 
-    def set_collision_checking(self, _enabled):
-        return None
 
 
 def _best_first(**params):

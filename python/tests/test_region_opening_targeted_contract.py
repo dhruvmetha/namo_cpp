@@ -18,16 +18,12 @@ from namo.planners.opening.region_opening import AttemptResult, RegionOpeningPla
 class FakeEnv:
     def __init__(self):
         self.state = {"name": "baseline", "values": [0]}
-        self.collision_checking_calls = []
 
     def get_full_state(self):
         return copy.deepcopy(self.state)
 
     def set_full_state(self, state):
         self.state = copy.deepcopy(state)
-
-    def set_collision_checking(self, enabled):
-        self.collision_checking_calls.append(enabled)
 
     def get_xml_path(self):
         return "dummy.xml"
