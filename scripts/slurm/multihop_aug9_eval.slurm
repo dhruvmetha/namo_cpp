@@ -41,6 +41,7 @@ else
 fi
 export PYTHONPATH="$NAMO_REPO/build_python:$NAMO_REPO/python"
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+export VECLIB_MAXIMUM_THREADS=1 OPENCV_FOR_THREADS_NUM=1
 PY=${NAMO_PYTHON:?environment did not define NAMO_PYTHON}
 WORKERS=${WORKERS:-1}
 CONFIG="$NAMO_REPO/config/namo_config_complete_skill15_car_1x.yaml"
