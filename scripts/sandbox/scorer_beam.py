@@ -56,20 +56,9 @@ MANIFEST_1PUSH = str(MANIFESTS / "test_1push_solvable_combined.txt")
 MANIFEST_2PUSH = str(MANIFESTS / "test_2push_solvable_combined.txt")
 
 
-# Default OFF matches the v3 TRAINING distribution: modular_parallel_collection's
-# --region-allow-collisions defaults True (object collisions allowed during a push; robot-traj
-# collisions always abort). The scorer learned solvability under THAT rule, and the
-# 1push/2push_solvable manifests were defined under it. `--collisions on` = STRICT mode (any
-# object collision aborts the push) = real-robot-faithful: the honest deployable number, since a
-# real robot can't push an object THROUGH another. The off->on gap = the "push-through tax".
-COLLISIONS_OFF = True
-
-
 def make_env(xml):
     env = namo_rl.RLEnvironment(str(resolve(xml)), CFG, False)  # resolve(): remap legacy data paths onto this box
     env.reset()
-    if COLLISIONS_OFF:
-        env.set_collision_checking(False)
     return env
 
 
@@ -343,16 +332,11 @@ def main():
     ap.add_argument("--eval", action="store_true")
     ap.add_argument("--n", type=int, default=40, help="scenes per manifest in --eval")
     ap.add_argument("--val-n", type=int, default=5)
-    ap.add_argument("--collisions", choices=["off", "on"], default="off",
-                    help="off=match training (object collisions allowed); on=strict/real-robot-faithful")
     ap.add_argument("--only", choices=["both", "1push", "2push"], default="both",
                     help="which manifest(s) to eval")
     ap.add_argument("--manifest", default=None, help="override: eval ONLY this manifest path")
     a = ap.parse_args()
 
-    global COLLISIONS_OFF
-    COLLISIONS_OFF = (a.collisions == "off")
-    print(f"collisions={'OFF (training-match)' if COLLISIONS_OFF else 'ON (strict/real-robot)'}")
     fdepths = tuple(int(x) for x in a.first_depths.split(","))
     planner = BeamPlanner(ckpt=a.ckpt, k1=a.k1, k2=a.k2, n1=a.n1, max_first=a.max_first,
                           first_depths=fdepths)
