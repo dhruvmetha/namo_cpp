@@ -41,8 +41,9 @@ python -c "import sys,yaml; c=yaml.safe_load(open(sys.argv[1])); assert c.get('r
 # The .so must be the one built from this tree, or the run measures the old physics again.
 python -c "
 import pathlib, subprocess
-info = dict(l.split('=',1) for l in pathlib.Path('build_python/BUILD_INFO').read_text().split())
-head = subprocess.check_output(['git','rev-parse','HEAD'], text=True).strip()
+# splitlines, not split: values carry spaces (python=Python 3.11.14).
+info = dict(l.split('=', 1) for l in pathlib.Path('build_python/BUILD_INFO').read_text().splitlines() if '=' in l)
+head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
 assert info['git_sha'] == head, 'stale .so: built from %s, HEAD is %s' % (info['git_sha'], head)
 assert info['dirty_cpp'] == '0', 'C++ tree was dirty at build time'
 print('binding OK', info['git_sha'][:8], info['built_at'])
