@@ -36,32 +36,35 @@ _require_real_namo_rl()
 
 # ─── Named constants ────────────────────────────────────────────────────
 
-FIXTURE = REPO_ROOT / "python" / "tests" / "data" / "stuck_after_motion_fixture.xml"
+FIXTURE = REPO_ROOT / "python" / "tests" / "data" / "stuck_after_motion_car_fixture.xml"
 # Long bars on pivot posts: one with room to swing, one without. Same push on
 # both, so the only thing that differs is how far the bar can turn.
-ROTATION_FIXTURE = REPO_ROOT / "python" / "tests" / "data" / "rotation_jam_fixture.xml"
-# Sphere robot at 1x, which is what the fixture models.
-CONFIG = REPO_ROOT / "config" / "namo_config_complete_skill15_1x.yaml"
+ROTATION_FIXTURE = REPO_ROOT / "python" / "tests" / "data" / "rotation_jam_car_fixture.xml"
+# Car 1x d5, the only supported runtime profile. These fixtures were rebuilt on
+# the car after the point robot was retired: the sphere is two slide joints that
+# stop when you stop commanding them, while the car coasts on its casters, so a
+# push behaves differently and sphere-measured constants do not transfer.
+CONFIG = REPO_ROOT / "config" / "namo_config_complete_skill15_car_1x.yaml"
 
 MOVER = "obstacle_1_movable"
 STILL = "obstacle_2_movable"
 
-# Bottom face of the mover, centre sample: pushes straight at block_a with no
-# yaw to speak of. Even indices are the opposite face.
-MOVER_EDGE = 15
-# push_steps = depth + 1. At depth 7 the push runs out of steps just as the
-# object reaches the wall and ends normally. At depth 9 it keeps pushing after
-# the jam, so the stuck detector is what ends it. That pair is the whole test.
-DEPTH_ENDS_NORMALLY = 7
-DEPTH_ENDS_ON_STUCK = 9
+# Bottom face of the mover: pushes straight at block_a. push_steps = depth + 1,
+# and d5 caps depth at 4, so the pair below is the widest the profile allows.
+MOVER_EDGE = 23
+# At depth 3 the push reaches the wall just as it runs out of steps and ends
+# normally. At depth 4 it keeps pushing after the jam, so the stuck detector ends
+# it. Both park the object in the same place; that pair is the whole test.
+DEPTH_ENDS_NORMALLY = 3
+DEPTH_ENDS_ON_STUCK = 4
 
 STILL_EDGE = 1
-STILL_DEPTH = 3
+STILL_DEPTH = 1
 
-# Measured 2026-08-20: both depths park the object 19.0 cm from where it
-# started, because both stop at the same wall. Tolerance covers settle jitter
+# Measured 2026-08-21 on the car: both depths park the object 11.02 cm from
+# where it started, because both stop at the same wall. Tolerance covers settle jitter
 # between the two runs, not a difference in outcome.
-EXPECTED_MOVER_DISPLACEMENT_M = 0.19
+EXPECTED_MOVER_DISPLACEMENT_M = 0.1102
 SAME_RESTING_PLACE_TOLERANCE_M = 0.005
 
 # Matches kMinUsefulPushDisplacementM in namo_push_controller.cpp, the bar the
@@ -70,16 +73,16 @@ MIN_USEFUL_PUSH_DISPLACEMENT_M = 0.01
 # Matches kMinUsefulPushYawRad, the other half of that decision.
 MIN_USEFUL_PUSH_YAW_DEG = 5.0
 
-# Both bars in the rotation fixture, pushed at the same place. The bar with 4 mm
-# of pivot clearance swings; the one with 0.05 mm cannot.
+# Both bars in the rotation fixture, pushed at the same edge and depth. The bar
+# with 4 mm of pivot clearance swings; the one with 0.05 mm cannot.
 SWINGS = "obstacle_1_movable"
 CANNOT_SWING = "obstacle_2_movable"
-ROTATION_EDGE = 28
-ROTATION_DEPTH = 9
-# Measured 2026-08-21: 15.2 degrees of yaw and 0.49 cm of travel. The travel is
+ROTATION_EDGE = 5
+ROTATION_DEPTH = 3
+# Measured 2026-08-21 on the car: 15.6 degrees of yaw and 0.10 cm of travel. The travel is
 # what matters as much as the yaw, since it sits under
 # MIN_USEFUL_PUSH_DISPLACEMENT_M and so cannot be what saved the push.
-EXPECTED_SWING_YAW_DEG = 15.2
+EXPECTED_SWING_YAW_DEG = 15.6
 SWING_YAW_TOLERANCE_DEG = 2.0
 
 
