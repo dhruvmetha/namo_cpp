@@ -2,7 +2,7 @@
 type: experiment
 status: live
 created: 2026-08-19
-commit:
+commit: 4f0c1e6
 metric:
 tags: [experiment, multihop, full_namo]
 ---
