@@ -32,25 +32,33 @@ noncanonical_files:
 # Report the three runs as ONE baseline: mean +/- sample SD across seeds; never headline one seed.
 baselines:
   random_search_hmax2:
-    # STALE: these three runs were executed on the testset_v1 POPULATION. v2 is a partly different
-    # set of region-opening instances (108 rooms resolved a different blocking object), so these
-    # numbers are NOT a valid floor for v2 results. Re-run before quoting any v2-vs-random claim.
-    status: STALE_v1_population
-    population_episodes: {1push: 1322, 2push: 1012}   # v1; v3 is 1328/992
+    status: COMPLETE_v3_population
+    population_episodes: {1push: 1328, 2push: 992}
     ranker: uniform_random
     seeds: [7000, 8000, 9000]
     report: mean_plus_sample_sd
     artifacts:
-      7000: eval/postprune_hmax2/final35/agg_random_s7000.json
-      8000: eval/postprune_hmax2/final35/agg_random_s8000.json
-      9000: eval/postprune_hmax2/final35/agg_random_s9000.json
+      7000: eval/fixed_physics_v3_20260821/full/random_s7000/aggregate.json
+      8000: eval/fixed_physics_v3_20260821/full/random_s8000/aggregate.json
+      9000: eval/fixed_physics_v3_20260821/full/random_s9000/aggregate.json
     search:
-      hmax: 2
-      sim_budget: 900
+      agg: mean5
+      child_patience: 1
       combine: q
-      confidence_discount_tau: 0.15
       dedupe_noop: true
+      discount: "off"
+      dive_bonus: 0.0
+      eps: 0.001
+      free_strike_q: 2.0
+      gamma: 0.65
+      gtable: null
+      hmax: 2
+      prior: uniform
       prune_jam_depth: true
+      raw: true
+      sim_budget: 900
+      tau: 1.0
+      w0_mode: one
 
 # loader self-test assertions (namo.eval_sets validates against these)
 expected_counts:

@@ -2,7 +2,7 @@
 status: hub
 tags:
   - results
-updated: 2026-08-12
+updated: 2026-08-21
 ---
 # Results — DAgger curriculum training framework
 
@@ -50,10 +50,33 @@ The scannable cross-campaign index: **what we changed, why, and whether it helpe
 | 08-13 | **deep budget: 4000 simulator calls** (model ×3 vs random ×3, both re-run under identical settings) | does the model just solve MORE, or solve FASTER? | 📊 **efficiency, not capability** — at 4000 calls hard-tier solve rates converge (model 100.0 vs random 97.2, vs a 30-point gap at 900); the durable claim is **6.6× fewer calls on hard (mean) / 39× (median), paired on episodes both solved** — an earlier 7.2× was inflated by charging unsolved episodes the full ceiling | [crossboard](log/EXP-2026-08-09-crossboard-ranking.md) |
 | 08-13 | **wall-clock campaign at 4000 calls** (model ×3 vs random ×3, exclusive single-generation nodes) | does the simulator-call advantage survive in SECONDS? | ⏱ **mostly, on 2push** — hard 2push 10.9× on the MEDIAN INSTANCE (per-RO-instance speed-up, the canonical statistic; slower on 5.9% of instances); hard 1push 3.71×; easy 1push a tie (1.03×). Scoring overhead is minor (3.7% on hard 2push); the real leak is that the model's calls cost 1.25-1.5× more each, so **call-count flatters the model** | [crossboard](log/EXP-2026-08-09-crossboard-ranking.md) |
 | 08-13 | *(validity)* train/test leakage audit | HY5U's numbers needed a held-out guarantee | ✅ **clean** — 0 of 978 two-push test rooms and 0 of 1012 test episodes appear in hybrid training (full-path match; 5-component suffix matching gives a false 62% and must not be used for leak checks) | [crossboard](log/EXP-2026-08-09-crossboard-ranking.md) |
+| 08-21 | **fixed-physics v3 canonical evaluation** — HY5U ×3 vs random ×3 | replace every stale v1 comparison with a complete-population v3 baseline | ✅✅ HY5U wins the tight search regime on every tier; hard 2push @5 **35.9 vs 2.0**, @900 **87.6 vs 62.2** | registry: `hy5u-nodiscount-hmax2-v3` / `random-nodiscount-hmax2-v3` |
 
 **Failed ideas, kept so they are not retried blind:** unanchored family softmax · hinge without an anchor (RPM) · 2% regression brake (RPB) · absolute plates on dead cells · margins sized in raw units instead of σ · root rebalancing as a 1-push fix · exhaustive relabeling bought at the cost of corpus size · ladder + rebalance stacking · push-depth-aware pose head · Fourier depth identity.
 
 **Standing meta-lesson:** offline V5 has anti-predicted canonical deploy five times (most starkly: HY5U has the worst V5 of any hybrid arm and the best deploy of any model here). V5 is a burial diagnostic; canonical deploy is the only arbiter.
+
+---
+
+## 2026-08-21 — Fixed-physics v3: HY5U versus random, complete canonical population
+
+HY5U seeds 1-3 and uniform-random seeds 7000/8000/9000 were re-run on the complete fixed-physics v3 population: 1,328 one-push and 992 genuine two-push episodes per seed. The matched search protocol was `hmax=2`, budget 900, `agg=mean5`, raw `q`, discount off, no-op deduplication on, and jam-depth pruning on. Values are the mean ± sample SD across three seeds; `s2s` is average simulator calls among solved episodes. These jobs were not a pinned-hardware timing campaign, so their recorded wall times are not a canonical comparison.
+
+| 1push tier | n | solve@1 HY5U / random | solve@5 HY5U / random | solve@30 HY5U / random | solve@900 HY5U / random | s2s HY5U / random |
+|---|---:|---:|---:|---:|---:|---:|
+| easy | 681 | 97.1±0.5 / 61.1±4.6 | 98.9±0.1 / 96.3±0.8 | 99.1±0.1 / 99.1±0.1 | 99.1±0.0 / 99.1±0.0 | 1.1±0.1 / 1.8±0.1 |
+| medium | 442 | 79.8±0.3 / 14.1±1.7 | 95.3±0.4 / 66.7±1.4 | 97.9±0.5 / 94.3±0.8 | 98.5±0.1 / 98.6±0.0 | 2.4±0.6 / 8.9±1.7 |
+| hard | 205 | 40.2±1.2 / 2.9±0.8 | 82.0±1.8 / 31.4±2.4 | 91.9±0.8 / 70.9±2.5 | 95.6±0.0 / 94.6±0.0 | 6.1±1.1 / 32.5±1.4 |
+| all | 1328 | 82.5±0.4 / 36.5±2.8 | 95.1±0.5 / 76.5±0.5 | 97.6±0.2 / 93.1±0.2 | 98.3±0.1 / 98.3±0.0 | 2.3±0.4 / 8.7±0.3 |
+
+| 2push tier | n | solve@2 HY5U / random | solve@5 HY5U / random | solve@30 HY5U / random | solve@900 HY5U / random | s2s HY5U / random |
+|---|---:|---:|---:|---:|---:|---:|
+| easy | 387 | 61.4±1.6 / 6.8±0.4 | 80.6±1.6 / 22.8±3.6 | 92.6±0.9 / 72.3±0.3 | 96.4±0.0 / 95.8±0.2 | 9.3±2.0 / 29.1±0.9 |
+| medium | 487 | 40.2±1.7 / 1.4±1.1 | 59.3±0.6 / 7.2±1.7 | 79.9±1.0 / 34.0±1.0 | 91.8±0.2 / 88.8±0.5 | 19.4±0.2 / 121.9±3.7 |
+| hard | 118 | 21.2±2.9 / 0.3±0.5 | 35.9±2.1 / 2.0±1.3 | 57.6±2.3 / 10.4±2.6 | 87.6±1.8 / 62.2±3.4 | 72.6±0.9 / 278.6±27.6 |
+| all | 992 | 46.2±0.8 / 3.4±0.7 | 64.8±0.8 / 12.7±2.0 | 82.2±0.8 / 46.2±0.6 | 93.0±0.2 / 88.4±0.6 | 21.3±1.1 / 95.8±3.5 |
+
+**WIN.** HY5U gives the search the right order precisely where verifier calls are scarce: the all-tier gap is +42.9 points at two calls and +52.1 at five on genuine two-push episodes. The hard tail does not disappear at budget 900: HY5U still leads random by 25.4 points while taking about one quarter as many simulator calls among solved episodes. One-push eventually saturates for both arms, but HY5U reaches the opening far earlier. Raw rows and all six per-seed aggregates are registered under `$NAMO_SCRATCH/eval/fixed_physics_v3_20260821/full/`.
 
 ---
 

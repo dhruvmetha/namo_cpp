@@ -9,12 +9,12 @@ All paths under `/common/users/dm1487/scratch_namo/`.
 **All eval code resolves test-set paths from `config/eval_sets.yaml` via `namo.eval_sets`.** This doc is the human-readable truth; the yaml is the machine truth (one file, both must agree). Change the test set = edit the yaml only; every reader follows.
 - Python: `from namo import eval_sets` → `eval_sets.PURE2PUSH` / `.ONEPUSH` / `.DIVISIONS` / `.TWOPUSH_SOURCE` / `.TWOPUSH_GT_H5` (resolved absolute Paths, box-portable via `namo.paths`). The historical sampled tiers and dead-bank H5 live under `noncanonical_files`, not the canonical registry surface.
 - Shell/slurm: `python -m namo.eval_sets pure2push_manifest` prints the resolved path; `--list` prints all names.
-- Guard: `python/tests/test_eval_sets.py` asserts every path resolves to an existing file with the expected counts (1322 / 1012 / GT tiers 385·488·137 + 2 unknown / 2341 / 68,393), and verifies all three canonical random artifacts use the registered search. Run it before trusting a config edit.
+- Guard: `python/tests/test_eval_sets.py` asserts every path resolves to an existing file with the expected v3 counts (1328 / 992 / GT tiers 387·487·118 / 2541 / 104,420), and verifies registered baseline metadata against its declared population. Run it before trusting a config edit.
 - Migrated: **all** committed eval entrypoints (incl. `eval_bestfirst.py` / `time_bestfirst.py`) + agg scripts + slurm launchers. No committed eval code hardcodes a `namo_testset_v1/labels` path any more.
 
 ## SUPERSEDED — testset_v1 manifests (historical)
 
-**⛔ v1 is NO LONGER canonical (switched to v2 on 2026-08-09).** Every arm number in the model registry was produced on THIS population and is **not comparable to any v2 result** — v2 is a partly different set of instances, not a re-bin. Keep this section to interpret existing results and to reproduce them exactly.
+**⛔ v1 is NO LONGER canonical (v3 is live).** Historical v1 arm numbers are **not comparable to v3 results** — v3 is a partly different set of instances, not a re-bin. Keep this section to interpret existing results and to reproduce them exactly.
 
 The former canonical eval distribution. Answer keys (which episodes + difficulty), verified by live sim at eval time.
 
@@ -59,11 +59,11 @@ Only **3** episodes are dropped from the 2push manifest (exhaustive GT has zero 
 
 Tiers were recomputed through the **same v1-gated code path** (`hardness_v2.py`, `onepush_tiers_v2.py`, version-parameterized): the v1 gate reproduces the registered tiers exactly — 981/981 two-push, 1322/1322 one-push — before any v3 number is emitted. Against v1 the tiers move 11/1016 (1.1%) on 2push and 44/1322 (3.3%) on 1push, all threshold-adjacent.
 
-**Still true, and it invalidates cross-version comparison:** every registered arm number and the registered random baseline were produced on the v1 population. They must be re-evaluated before being quoted against a v3 number.
+**Cross-version comparison remains invalid.** HY5U and uniform random now have matched three-seed v3 references in the model registry (`hy5u-nodiscount-hmax2-v3` and `random-nodiscount-hmax2-v3`); every historical v1 number still requires a fresh v3 evaluation before comparison.
 
 ## SUPERSEDED — testset_v2 (re-swept on fixed physics, canonical 2026-08-09 only)
 
-`config/eval_sets.yaml` points here. Nothing under `namo_testset_v1/` was deleted — it is retained for reproducing existing results.
+`config/eval_sets.yaml` no longer points here. Nothing under `namo_testset_v1/` or `namo_testset_v2/` was deleted — both are retained for reproducing existing results.
 
 **⛔ v2 IS A DIFFERENT POPULATION, NOT A RE-BIN.** In 108 rooms the re-sweep swept a **different blocking object** than v1 (63 of them have exactly one episode in each version, on different objects; v2 surfaced 84 objects those rooms never had in v1).
 
@@ -84,9 +84,9 @@ Both sweeps find the **identical 1250 candidates** — geometry is deterministic
 
 **Consequence — state this whenever the test set is described.** The set is exhaustive *within* each recorded `(object, region)` instance (that part is trustworthy, and the GT tiers built on it are exact), but it is **NOT exhaustive over blocking objects per scene** in either version. ~11% of legitimate region-opening instances are missing, selected against by how expensive they are to simulate — i.e. biased toward the hard end. Fixing it is a targeted re-sweep of the 116 truncated neighbours with a raised cap, not a full rebuild.
 
-Consequence for results: **every registered arm number predates this switch and must be re-evaluated before it can be quoted against a v2 number.**
+Historical consequence at the v2 switch: every then-registered arm number predated v2 and could not be quoted against it. v3 now supersedes both populations; only explicitly registered v3 evaluations may be compared on the current population.
 
-### Canonical v2 views (what the yaml resolves to)
+### Historical v2 views (what the yaml resolved to on 2026-08-09)
 
 | name | file | episodes | tiers (easy/med/hard) |
 |---|---|---|---|
@@ -99,7 +99,7 @@ Consequence for results: **every registered arm number predates this switch and 
 
 The 2push manifest is the 961-episode source minus **3 zero-GT-setup** and **9 no-GT-root** episodes — the same two GT-derived rules that were hand-listed as v1 exclusions, now applied programmatically at build time. v1's remaining exclusions were EMPIRICAL (every ranker exhausted the queue without realizing the GT answer); they cannot transfer to a different population, so `search_eval_exclusions` is deliberately empty until re-derived from a v2 re-eval.
 
-**The registered random-search baseline is STALE** — it was run on the v1 population and is marked `status: STALE_v1_population` in the yaml with its own `population_episodes`. `test_eval_sets.py` enforces that a STALE baseline matches its declared population and does NOT silently pass as the current floor. Re-run it before quoting any v2-vs-random claim.
+At the v2 switch, the random-search baseline was still a stale v1 artifact. That gap is closed for the current v3 population: `config/eval_sets.yaml` now points to the three complete v3 random aggregates, and `test_eval_sets.py` enforces their exact search config and 1328/992 population before they can serve as the floor.
 
 **Why it exists:** the 2026-07-21 exhaustive sweep ran on physics that leaked `ctrl`/`qacc_warmstart` across `set_full_state` restores, fixed by `5daaed5`. Tiers are thresholds on success density, so a changed outcome can move an episode's tier. The whole test set was re-swept exhaustively on fixed bindings (Amarel, namo `ef70ae9`, `feat/horizon-q-redesign`, bindings rebuilt after `5daaed5`; same `ref_fullexhaust.yaml` config as July).
 

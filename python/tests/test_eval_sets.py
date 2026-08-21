@@ -76,39 +76,41 @@ def test_gt_h5_node_count():
 
 def test_canonical_random_baseline_is_three_seed_hmax2():
     baseline = E.RANDOM_SEARCH_BASELINE
+    assert baseline["status"] == "COMPLETE_v3_population"
+    assert baseline["population_episodes"] == {
+        "1push": E.EXPECTED["onepush_manifest_episodes"],
+        "2push": E.EXPECTED["pure2push_manifest_episodes"],
+    }
     assert baseline["ranker"] == "uniform_random"
     assert baseline["seeds"] == [7000, 8000, 9000]
     assert baseline["report"] == "mean_plus_sample_sd"
-    assert baseline["search"] == {
-        "hmax": 2,
-        "sim_budget": 900,
+    expected_search = {
+        "agg": "mean5",
+        "child_patience": 1,
         "combine": "q",
-        "confidence_discount_tau": 0.15,
         "dedupe_noop": True,
+        "discount": "off",
+        "dive_bonus": 0.0,
+        "eps": 0.001,
+        "free_strike_q": 2.0,
+        "gamma": 0.65,
+        "gtable": None,
+        "hmax": 2,
+        "prior": "uniform",
         "prune_jam_depth": True,
+        "raw": True,
+        "sim_budget": 900,
+        "tau": 1.0,
+        "w0_mode": "one",
     }
+    assert baseline["search"] == expected_search
     for seed, artifact in E.baseline_paths("random_search_hmax2").items():
         assert artifact.exists(), f"random seed {seed} artifact is missing: {artifact}"
         result = json.load(open(artifact))
-        assert result["search"]["prior"] == "uniform"
-        assert result["search"]["hmax"] == 2
-        assert result["search"]["sim_budget"] == 900
-        assert result["search"]["dedupe_noop"] is True
-        assert result["search"]["prune_jam_depth"] is True
-
-        # A baseline is only a valid floor for the CURRENT canonical population. A baseline carried
-        # over from an earlier test set must declare `status: STALE_<...>` and its own population, so
-        # the mismatch is explicit here instead of silently under-reporting the random floor.
-        if baseline.get("status", "").startswith("STALE"):
-            pop = baseline["population_episodes"]
-            assert result["1push"]["all"]["n"] == pop["1push"]
-            assert result["2push"]["all"]["n"] == pop["2push"]
-            assert pop["1push"] != E.EXPECTED["onepush_manifest_episodes"], \
-                "baseline marked STALE but already matches the current population — drop the marker"
-        else:
-            assert result["1push"]["all"]["n"] == E.EXPECTED["onepush_manifest_episodes"]
-            assert result["2push"]["all"]["n"] == E.EXPECTED["pure2push_manifest_episodes"]
-            assert result["2push"]["hard"]["n"] == E.EXPECTED["divisions"]["hard"]
+        assert result["search"] == expected_search
+        assert result["1push"]["all"]["n"] == E.EXPECTED["onepush_manifest_episodes"]
+        assert result["2push"]["all"]["n"] == E.EXPECTED["pure2push_manifest_episodes"]
+        assert result["2push"]["hard"]["n"] == E.EXPECTED["divisions"]["hard"]
 
 
 def test_unknown_name_raises():
