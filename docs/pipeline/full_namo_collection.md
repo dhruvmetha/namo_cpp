@@ -48,7 +48,6 @@ At a high level (`FullNAMOPlanner`):
 
 These are forwarded via `PlannerConfig.algorithm_params` to the internal `RegionOpeningPlanner`:
 
-- `region_allow_collisions`: if `true`, do not terminate on collisions during pushing.
 - `region_max_chain_depth`: maximum number of pushes allowed per region opening attempt (e.g., 2 allows 2-push chains).
 - `region_max_solutions_per_neighbor`: per-object cap on number of solutions to collect.
 - `region_frontier_beam_width`: beam cap on frontier states per chain depth (`null`/`0` means unbounded).
@@ -103,7 +102,6 @@ episodes_per_env: 1
 full_namo_max_iterations: 20  # Max region openings before giving up
 
 # Region opening sub-solver parameters (inherited by internal RegionOpeningPlanner)
-region_allow_collisions: true
 region_max_chain_depth: 2     # 1=single push, 2=two pushes, 3=three pushes per region opening
 region_max_solutions_per_neighbor: 1
 region_frontier_beam_width: 10000

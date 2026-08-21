@@ -31,7 +31,6 @@ def run(xml: str, config: str, qpos_out: str, path_out: str | None,
 
     env = namo_rl.RLEnvironment(xml, config, False)
     env.reset()
-    env.set_collision_checking(False)  # let pushes complete even if mild contact
 
     print(f"Loaded env: {xml}")
     print(f"Reachable objects (initial): {env.get_reachable_objects()}")

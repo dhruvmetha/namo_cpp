@@ -58,7 +58,6 @@ max_terminal_checks: 5000
 search_timeout: 300.0
 
 # Region opening specific parameters (IMPORTANT!)
-region_allow_collisions: false        # false = only physically valid pushes
 region_max_chain_depth: 2             # 1=single push, 2=two pushes, 3=three pushes
 region_max_solutions_per_neighbor: 5  # Max solutions to FIND per neighbor
 region_frontier_beam_width: null      # null = complete search, 200 = beam search

@@ -117,7 +117,6 @@ These get converted into `ModularEpisodeResult` objects by the collection script
 | Parameter | Value | Meaning |
 |---|---|---|
 | `region_max_chain_depth` | 2 | Try 1-push, then 2-push chains |
-| `region_allow_collisions` | true | Don't terminate push on collision with other objects |
 | `region_frontier_beam_width` | 10000 | Cap 2nd-push frontier to 10K states |
 | `region_max_solutions_per_neighbor` | 1 | Find 1 solution per (neighbor, object) |
 | `region_max_recorded_solutions_per_neighbor` | 1 | Save 1 solution per (neighbor, object) |
