@@ -75,11 +75,25 @@ def _set_yaw_quat(elem: ET.Element, yaw: float) -> None:
     elem.set("quat", f"{w:.17g} {x:.17g} {y:.17g} {z:.17g}")
 
 
-def _find_robot_body(worldbody: ET.Element) -> ET.Element:
+def _find_robot_body_or_none(worldbody: ET.Element):
+    """The robot body, or None when the scene does not declare one itself.
+
+    Car scenes captured from the real arena pull the car in with
+    `<include file=".../little_car.xml"/>`, so the body exists at load time but
+    not in the file this writer edits. Those callers set the pose after loading
+    instead; see `robot_pose_set_by_caller`.
+    """
     for name in ROBOT_BODY_NAMES:
         body = worldbody.find(f"./body[@name='{name}']")
         if body is not None:
             return body
+    return None
+
+
+def _find_robot_body(worldbody: ET.Element) -> ET.Element:
+    body = _find_robot_body_or_none(worldbody)
+    if body is not None:
+        return body
     raise ValueError(
         f"no robot body found under worldbody; looked for {ROBOT_BODY_NAMES}, "
         f"saw {[b.get('name') for b in worldbody.findall('./body')]}"
@@ -99,6 +113,7 @@ def write_state_xml(
     template_xml: str,
     out_xml: str,
     goal_override: Optional[Tuple[float, float, float]] = None,
+    robot_pose_set_by_caller: bool = False,
 ) -> str:
     """Emit `out_xml`: the `template_xml` scene with every movable and the robot at `observation`.
 
@@ -108,6 +123,11 @@ def write_state_xml(
         out_xml: destination path; parent directories are created.
         goal_override: optional (x, y, z) for the goal site. Left untouched when None, which is
             what keyhole materialization wants — the task goal does not move when an object does.
+        robot_pose_set_by_caller: allow a scene whose robot arrives through an `<include>`, where
+            this writer cannot reach the body. The emitted scene keeps the include's spawn pose and
+            the caller is responsible for calling `set_robot_pose` (or passing
+            `starting_robot_pose`) after loading it. Off by default: silently emitting a scene whose
+            robot sits somewhere else is exactly the divergence this module exists to prevent.
 
     Returns:
         `out_xml`.
@@ -156,16 +176,21 @@ def write_state_xml(
     robot_pose = observation.get("robot" + POSE_SUFFIX)
     if robot_pose is None:
         raise ValueError("observation has no 'robot_pose'")
-    robot_body = _find_robot_body(worldbody)
-    robot_geom = robot_body.find("./geom[@name='robot']")
-    if robot_geom is not None and "pos" in robot_geom.attrib and robot_body.get("pos") is None:
-        # point-robot layout: a single geom named 'robot' holds the position, body has none
-        robot_geom.set("pos", f"{float(robot_pose[0]):.17g} {float(robot_pose[1]):.17g} {_keep_z(robot_geom, 0.15):.17g}")
-        _set_yaw_quat(robot_geom, float(robot_pose[2]))
-    else:
-        # car layout: <body name="car" pos="..."><freejoint/> ... </body>
-        robot_body.set("pos", f"{float(robot_pose[0]):.17g} {float(robot_pose[1]):.17g} {_keep_z(robot_body, 0.01):.17g}")
-        _set_yaw_quat(robot_body, float(robot_pose[2]))
+    robot_body = _find_robot_body_or_none(worldbody)
+    if robot_body is None and not robot_pose_set_by_caller:
+        _find_robot_body(worldbody)  # raises, listing what the scene actually has
+    # When the include owns the car there is nothing here to write, and the goal
+    # site below still needs handling, so only the robot is skipped.
+    if robot_body is not None:
+        robot_geom = robot_body.find("./geom[@name='robot']")
+        if robot_geom is not None and "pos" in robot_geom.attrib and robot_body.get("pos") is None:
+            # point-robot layout: a single geom named 'robot' holds the position, body has none
+            robot_geom.set("pos", f"{float(robot_pose[0]):.17g} {float(robot_pose[1]):.17g} {_keep_z(robot_geom, 0.15):.17g}")
+            _set_yaw_quat(robot_geom, float(robot_pose[2]))
+        else:
+            # car layout: <body name="car" pos="..."><freejoint/> ... </body>
+            robot_body.set("pos", f"{float(robot_pose[0]):.17g} {float(robot_pose[1]):.17g} {_keep_z(robot_body, 0.01):.17g}")
+            _set_yaw_quat(robot_body, float(robot_pose[2]))
 
     if goal_override is not None:
         site = worldbody.find(f".//site[@name='{GOAL_SITE_NAME}']")
