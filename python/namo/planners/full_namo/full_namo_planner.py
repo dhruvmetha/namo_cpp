@@ -445,17 +445,19 @@ class FullNAMOPlanner(BasePlanner):
                     context=context,
                 )
             opener = self._prepare_region_opener_for_keyhole()
+            opener_kwargs: Dict[str, Any] = {}
+            if self.local_search == "best_first" and len(path) == 2:
+                opener_kwargs["opening_predicate"] = (
+                    lambda candidate_env: candidate_env.is_robot_goal_reachable()
+                )
             if self.preserve_next_keyhole_access and next_keyhole_profile is not None:
-                result = opener.search(
-                    robot_goal,
-                    target_neighbor=target,
-                    candidate_acceptor=lambda candidate_env: self._check_next_keyhole_access_candidate(
+                opener_kwargs["candidate_acceptor"] = (
+                    lambda candidate_env: self._check_next_keyhole_access_candidate(
                         env=candidate_env,
                         profile=next_keyhole_profile,
-                    ),
+                    )
                 )
-            else:
-                result = opener.search(robot_goal, target_neighbor=target)
+            result = opener.search(robot_goal, target_neighbor=target, **opener_kwargs)
             self._record_keyhole_budget(iteration, target, result)
             if self.budget_scope == "full_problem":
                 self.stats.total_attempted_pushes += self._extract_attempted_pushes_from_region_result(result)

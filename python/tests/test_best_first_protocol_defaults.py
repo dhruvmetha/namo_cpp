@@ -152,3 +152,56 @@ def test_candidate_acceptor_keeps_searching_after_first_local_opening(monkeypatc
     assert stats["rejected"] == 1
     assert stats["accepted"] == 1
     assert stats["rejection_reasons"] == {"next_contact_edges_lost": 1}
+
+
+def test_opening_predicate_replaces_region_fraction_as_terminal_bar(monkeypatch):
+    class CandidateEnv(_StubEnv):
+        def __init__(self):
+            self.state = {"name": "baseline"}
+
+        def get_full_state(self):
+            return self.state
+
+        def set_full_state(self, state):
+            self.state = state
+
+        def count_reachable_points(self, points):
+            return len(points), -1
+
+    env = CandidateEnv()
+    planner = BestFirstRegionOpeningPlanner(
+        env,
+        PlannerConfig(algorithm_params={"best_first_prior": "uniform"}),
+    )
+    snapshot = {
+        "robot_label": "robot",
+        "region_labels": {},
+        "adjacency": {"robot": {"goal"}},
+        "region_goals": {
+            "goal": SimpleNamespace(goals=[SimpleNamespace(x=1.0, y=2.0, theta=0.0)])
+        },
+        "edge_objects": {"robot": {"goal": ["door"]}},
+    }
+    monkeypatch.setattr("namo.planners.get_region_snapshot", lambda *_args, **_kwargs: snapshot)
+    checks = iter([False, False, True])
+
+    def fake_solve_scene(*_args, is_open, solution_out, **_kwargs):
+        assert is_open(env) is False
+        assert is_open(env) is True
+        solution_out["plan"] = []
+        solution_out["state"] = {"name": "goal_reached"}
+        return True, 2, 0, [], "solved"
+
+    monkeypatch.setattr(
+        "namo.planners.opening.best_first_region_opening.solve_scene",
+        fake_solve_scene,
+    )
+
+    result = planner.search(
+        (0.0, 0.0, 0.0),
+        target_neighbor="goal",
+        opening_predicate=lambda _env: next(checks),
+    )
+
+    assert result.success is True
+    assert result.algorithm_stats["simulation_budget_used"] == 2

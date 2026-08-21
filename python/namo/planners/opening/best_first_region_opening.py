@@ -268,6 +268,7 @@ class BestFirstRegionOpeningPlanner:
         candidate_acceptor: Optional[
             Callable[[namo_rl.RLEnvironment], Tuple[bool, Dict[str, Any]]]
         ] = None,
+        opening_predicate: Optional[Callable[[namo_rl.RLEnvironment], bool]] = None,
     ) -> PlannerResult:
         if target_neighbor is None:
             raise ValueError("best-first region opening requires target_neighbor")
@@ -344,9 +345,13 @@ class BestFirstRegionOpeningPlanner:
             # same target the search is graded against.
             xy_samples = [(p[0], p[1]) for p in region_samples]
             before_count, _ = self.env.count_reachable_points(xy_samples) if xy_samples else (0, -1)
+            initially_open = (
+                bool(opening_predicate(self.env))
+                if opening_predicate is not None
+                else bool(xy_samples and before_count >= self._minimum_needed(len(xy_samples)))
+            )
             if (
-                xy_samples
-                and before_count >= self._minimum_needed(len(xy_samples))
+                initially_open
                 and accept_future_interface(self.env)
             ):
                 attempt = AttemptResult(
@@ -386,11 +391,15 @@ class BestFirstRegionOpeningPlanner:
             solution: Dict[str, Any] = {}
 
             def is_open(env):
-                if not xy_samples:
-                    return False
-                count, _ = env.count_reachable_points(xy_samples)
-                if count < self._minimum_needed(len(xy_samples)):
-                    return False
+                if opening_predicate is not None:
+                    if not opening_predicate(env):
+                        return False
+                else:
+                    if not xy_samples:
+                        return False
+                    count, _ = env.count_reachable_points(xy_samples)
+                    if count < self._minimum_needed(len(xy_samples)):
+                        return False
                 return accept_future_interface(env)
 
             solved, sims, plan_len, _boards, end = solve_scene(
