@@ -62,6 +62,7 @@ def main():
                 skip += 1; continue
             n += 1
             opened_at = 0
+            n_push = 0                                                         # pushes SIMULATED = sims spent
             s_cur = s0
             for pidx in range(1, K + 1):
                 if pidx > 1:  # re-rank at the LIVE state; finishes query H=1
@@ -69,7 +70,7 @@ def main():
                     if not pool:
                         break  # candidate pool empty -> stop early
                 _o, g, _q = pool[0] if a.prior == "q" else rng.choice(pool)    # ARGMAX or RANDOM push
-                env.set_full_state(s_cur); env.step(make_action(obj, g))
+                env.set_full_state(s_cur); env.step(make_action(obj, g)); n_push += 1
                 if goal_open_pts(env, gp):
                     opened_at = pidx; break                                    # region opened -> stop
                 s_cur = env.get_full_state()
@@ -78,7 +79,8 @@ def main():
             if opened_at:
                 opened[opened_at] += 1
                 t_solved += dt
-            r_leaf = {"xml": xml, "object_id": obj, "region": reg, "opened_at": opened_at, "t_ep": round(dt, 4)}
+            r_leaf = {"xml": xml, "object_id": obj, "region": reg, "opened_at": opened_at,
+                      "n_push": n_push, "t_ep": round(dt, 4)}
             for k in range(1, max(K, 2) + 1):                                  # open1,open2 always present (old aggregator) + open3..openK
                 r_leaf[f"open{k}"] = int(0 < opened_at <= k)
             leaf.append(r_leaf)
