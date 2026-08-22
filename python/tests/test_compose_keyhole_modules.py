@@ -203,3 +203,23 @@ def test_diagnostic_point_counts_do_not_gate_valid_goal_progression(monkeypatch)
     assert result["status"] == "solved"
     assert result["target_point_thresholds"] == [20, 20]
     assert result["target_point_trace"] == [[0, 0], [0, 0], [0, 0]]
+
+
+@pytest.mark.parametrize(
+    ("defect", "reason"),
+    [
+        ({"goal_in_free_space": False}, "goal_not_in_free_space"),
+        ({"no_path": True}, "no_component_path"),
+        ({"hop_mismatch": True}, "wrong_hop_count"),
+        ({"no_reachable_blocker": True}, "k1_not_reachable"),
+        ({"no_pushable_blocker": True}, "k1_no_push_edges"),
+    ],
+)
+def test_static_acceptance_reports_specific_defect(defect, reason):
+    row = {
+        "goal_in_free_space": True,
+        "boundaries": [{"objects": [K1]}, {"objects": [K2]}],
+        **defect,
+    }
+
+    assert composer.static_acceptance(row, 2) == (False, reason)

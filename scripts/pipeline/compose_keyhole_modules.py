@@ -40,7 +40,7 @@ from namo.paths import resolve  # noqa: E402
 from namo.planners import get_region_snapshot  # noqa: E402
 from namo.planners.opening.region_opening import CANONICAL_MIN_REACHABLE_FRACTION  # noqa: E402
 from namo.runtime_profile import CANONICAL_NUM_DEPTHS  # noqa: E402
-from probe_static_topology import is_junk, probe_one, shortest_region_path  # noqa: E402
+from probe_static_topology import probe_one, shortest_region_path  # noqa: E402
 from verify_geom_disjoint import geom_sig  # noqa: E402
 
 
@@ -172,8 +172,20 @@ def _intended_blockers(hops: int) -> list[str]:
 
 
 def static_acceptance(row: dict, hops: int) -> tuple[bool, str]:
-    if is_junk(row):
-        return False, "static_junk"
+    if row.get("error"):
+        return False, "static_error"
+    if row.get("goal_in_free_space") is False:
+        return False, "goal_not_in_free_space"
+    if row.get("no_path"):
+        return False, "no_component_path"
+    if row.get("hop_mismatch"):
+        return False, "wrong_hop_count"
+    if row.get("no_blocking_objects"):
+        return False, "k1_boundary_has_no_blocker"
+    if row.get("no_reachable_blocker"):
+        return False, "k1_not_reachable"
+    if row.get("no_pushable_blocker"):
+        return False, "k1_no_push_edges"
     boundaries = row.get("boundaries") or []
     if len(boundaries) != hops:
         return False, "wrong_boundary_count"
@@ -752,12 +764,24 @@ def main() -> int:
     accepted = 0
     rejections: Counter[str] = Counter()
     accepted_geometry: set[str] = set()
+    used_donor_episodes: set[tuple[str, str, str]] = set()
+    donor_reuse_slots = 0
+    sequences = list(
+        donor_sequences(args.horizons, args.tiers, args.template, args.min_separation, args.seed)
+    )
     with tempfile.TemporaryDirectory(prefix="keyhole_modules_") as temp_dir:
-        for donors in donor_sequences(
-            args.horizons, args.tiers, args.template, args.min_separation, args.seed
-        ):
+        while sequences:
             if attempts >= args.max_attempts or accepted >= args.limit:
                 break
+            preferred = next(
+                (
+                    index
+                    for index, sequence in enumerate(sequences)
+                    if all(donor.episode_key not in used_donor_episodes for donor in sequence)
+                ),
+                0,
+            )
+            donors = sequences.pop(preferred)
             attempts += 1
             temp_xml = Path(temp_dir) / f"candidate_{attempts:05d}.xml"
             compose_xml(donors, temp_xml)
@@ -804,6 +828,10 @@ def main() -> int:
             }
             rows.append(row)
             accepted_geometry.add(full_geometry)
+            donor_reuse_slots += sum(
+                donor.episode_key in used_donor_episodes for donor in donors
+            )
+            used_donor_episodes.update(donor.episode_key for donor in donors)
             accepted += 1
 
     manifest = args.out_dir / "manifest.jsonl"
@@ -816,6 +844,9 @@ def main() -> int:
         "template": args.template,
         "min_separation": args.min_separation,
         "replay_donor_actions": bool(args.replay_donor_actions),
+        "unique_donor_episodes": len(used_donor_episodes),
+        "accepted_donor_slots": accepted * len(args.horizons),
+        "reused_donor_slots": donor_reuse_slots,
         "rejections": dict(sorted(rejections.items())),
     }
     (args.out_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
