@@ -2,7 +2,7 @@
 type: experiment
 status: live
 created: 2026-08-22
-commit: pending
+commit: fd1743f
 metric: complete-scene solve rate and simulator calls for learned versus random ranking on verified two-keyhole scenes
 tags: [experiment, full-namo, multihop, composition, easy, random-baseline]
 ---
