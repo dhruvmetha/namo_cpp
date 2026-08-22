@@ -22,9 +22,21 @@ _(Codex)_ Target-box smoke `60751008_9` ran on Amarel `main` at commit `de75c14`
 
 _(Codex)_ Calibration: a direct five-scene extrapolation is 195 s per task; allow roughly 3–8 minutes because templates and ordered tier pairs can have different static and replay yields. The pilot requests 15 minutes per task, 4.6× the direct extrapolation, and only 40 single-CPU tasks, within the ≤200-CPU background policy. Production remains gated on this pilot's measured yield and tail.
 
+_(Codex)_ The 0.30 m pilot was Amarel array `60751013`, 40/40 tasks completed with exit code 0 in at most 3:33, and all 40 summary artifacts landed under `$NAMO_SCRATCH/eval/keyhole_modules_scale_pilot_20260822/`. The complete aggregate is `aggregate.json`; results were also pulled to the matching CS `$NAMO_SCRATCH` path. Because the forward replay is the authoritative interference test, run one otherwise identical 0.20 m pilot before production to measure whether the conservative center-distance gate is discarding valid scenes.
+
 ## Result
 
-Pending.
+### Pilot at 0.30 m minimum blocker-center separation
+
+| ordered donor tiers | attempted pairs | exact static two-hop | replay accepted | accepted / attempted | accepted / static |
+|---|---:|---:|---:|---:|---:|
+| medium-medium | 268 | 18 | 7 | 2.61% | 38.89% |
+| medium-hard | 200 | 10 | 6 | 3.00% | 60.00% |
+| hard-medium | 182 | 9 | 8 | 4.40% | 88.89% |
+| hard-hard | 167 | 11 | 8 | 4.79% | 72.73% |
+| **all** | **817** | **48** | **29** | **3.55%** | **60.42%** |
+
+_(Codex)_ All 29 accepted scenes came from `set2/benchmark_3` (9) and `set2/benchmark_5` (20); the other eight templates yielded zero. The dominant loss is static geometry: 769/817 candidates never formed the intended exact ordered two-hop chain. Once that topology existed, donor-action continuation survived in 29/48 cases. There were zero duplicate ordered donor sequences in the accepted manifests.
 
 ## Verdict
 
