@@ -64,9 +64,11 @@ import json
 import math
 import os
 import random
-from collections import deque
-
 import numpy as np
+from scipy import ndimage
+
+#: full 3x3 = 8-connectivity, the C++ wavefront's neighbourhood
+_S8 = np.ones((3, 3), dtype=int)
 
 # ---------------------------------------------------------------------------
 # Real inventory. All lengths in METRES. See module docstring for provenance.
@@ -173,33 +175,16 @@ def _blocked_mask(rects, inflate):
     return blocked
 
 
-#: 8-connected, MATCHING `WavefrontPlanner::DIRECTIONS` (wavefront_planner.hpp:247). This must not be
-#: 4-connected "because diagonal leaks through a corner pinch are a rasterisation artefact". The
-#: planner takes those diagonal steps, so a 4-connected gate calls scenes blocked that the planner
-#: walks straight through: on the first 60-scene pilot it disagreed with the C++ probe on 29 of them.
-NEIGHBOURS = ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1))
-
-
 def _connected(blocked, start, goal):
-    """8-connected flood fill from `start` cell to `goal` cell over free space."""
-    nx, ny = blocked.shape
-    si, sj = start
-    gi, gj = goal
-    if blocked[si, sj] or blocked[gi, gj]:
-        return False
-    seen = np.zeros_like(blocked)
-    seen[si, sj] = True
-    q = deque([(si, sj)])
-    while q:
-        i, j = q.popleft()
-        if (i, j) == (gi, gj):
-            return True
-        for di, dj in NEIGHBOURS:
-            a, b = i + di, j + dj
-            if 0 <= a < nx and 0 <= b < ny and not seen[a, b] and not blocked[a, b]:
-                seen[a, b] = True
-                q.append((a, b))
-    return False
+    """8-connected free-space connectivity, MATCHING `WavefrontPlanner::DIRECTIONS`.
+
+    `ndimage.label` with a full 3x3 structure is the same 8-neighbourhood as the C++ BFS, and it
+    runs in C. The generator calls this tens of thousands of times per scene once `open_frac` is on,
+    so a python deque here dominates the whole runtime.
+    """
+    lab, _ = ndimage.label(~blocked, structure=_S8)
+    a, b = lab[start], lab[goal]
+    return bool(a) and a == b
 
 
 def _cell(p):
@@ -231,61 +216,158 @@ def gate(statics, blocker, start, goal, margin_r):
     return True, "ok"
 
 
+def open_frac(statics, blocker, start, goal, margin_r, span=0.08, n=9, nrot=4):
+    """Fraction of feasible DISPLACED blocker poses that open the corridor. A physics-free proxy
+    for how many of the 60x5 pushes will solve the scene, so difficulty can be targeted before
+    spending any simulator time.
+
+    Validated against 51 exhaustively-labelled pilot scenes: Spearman 0.758 against the true
+    `solve_rate_1push`, with tier means easy 0.244, med 0.054, unsolvable 0.024. It is a STEERING
+    signal, not a label. The bands only bias what gets generated; the exhaustive collection still
+    decides every scene's actual tier.
+    """
+    si, gi = _cell(start), _cell(goal)
+    feasible = opened = 0
+    for dx in np.linspace(-span, span, n):
+        for dy in np.linspace(-span, span, n):
+            for k in range(nrot):
+                cand = Rect(blocker.cx + dx, blocker.cy + dy, blocker.hx, blocker.hy,
+                            blocker.yaw + k * math.pi / nrot, blocker.name, blocker.kind)
+                m = _blocked_mask(statics + [cand], margin_r)
+                if m[si] or m[gi]:
+                    continue
+                feasible += 1
+                opened += _connected(m, si, gi)
+    return opened / feasible if feasible else 0.0
+
+
 # ---------------------------------------------------------------------------
 # Sampling
 # ---------------------------------------------------------------------------
-def sample_scene(rng, movable_names, max_bricks, margin_r, tries=400):
-    """One divider of bricks across the arena, one blocker narrowing the leftover gap.
+def _brick(cx, cy, yaw_deg, idx):
+    return Rect(cx, cy, BRICK_HALF[0], BRICK_HALF[1], math.radians(yaw_deg),
+                f"wall_inner_{idx}", "brick")
 
-    The arena is 49 cm wide and a brick is 19.5 cm, so two collinear bricks leave 9.8 cm and the
-    scene is dead before any block is placed. The generator therefore samples the bricks with
-    independent y offsets and yaw, which is how the hardware side's one working scene is built:
-    the robot weaves around the wall rather than passing through a slot in it.
+
+def _x_span(yaw_deg):
+    """How much of the arena's 49 cm width a brick eats at this yaw."""
+    c, s = abs(math.cos(math.radians(yaw_deg))), abs(math.sin(math.radians(yaw_deg)))
+    return 2 * (BRICK_HALF[0] * c + BRICK_HALF[1] * s)
+
+
+def _layout(rng, name, n_bricks):
+    """Return (statics, y_div, passage_x) or None. `passage_x` is where the blocker belongs.
+
+    The arena is 49.0 cm wide and a brick is 19.5 cm, so the layouts differ mainly in how much of
+    that width they eat and where they leave the hole. Two bricks flush to both side walls leave
+    exactly 10.0 cm, which clears the corrected 8.0 cm corridor with 2 cm to spare: passable, tight,
+    and the regime where few pushes solve. Under the old wrong 10.9 cm rule every such scene was
+    unsolvable and got thrown away, which is most of why the first pool came out 59% easy.
     """
+    y = rng.uniform(0.30, 0.48)
+    st = []
+    if name == "side_gap":
+        # one brick flush to a side wall; the rest of the width is the passage
+        left = rng.random() < 0.5
+        yaw = rng.uniform(-12, 12)
+        half = _x_span(yaw) / 2
+        cx = half if left else ARENA_W - half
+        st.append(_brick(cx, y, yaw, 1))
+        passage_x = rng.uniform(half * 2 + 0.05, ARENA_W - 0.05) if left else rng.uniform(0.05, ARENA_W - half * 2 - 0.05)
+
+    elif name == "center_door":
+        # bricks in from both side walls, doorway in the middle; yaw sets the width
+        yl, yr = rng.uniform(-25, 25), rng.uniform(-25, 25)
+        hl, hr = _x_span(yl) / 2, _x_span(yr) / 2
+        inset_l = rng.uniform(0.0, 0.03)
+        inset_r = rng.uniform(0.0, 0.03)
+        st.append(_brick(hl + inset_l, y + rng.uniform(-0.02, 0.02), yl, 1))
+        st.append(_brick(ARENA_W - hr - inset_r, y + rng.uniform(-0.02, 0.02), yr, 2))
+        lo, hi = 2 * hl + inset_l, ARENA_W - 2 * hr - inset_r
+        if hi - lo < 0.06:
+            return None
+        passage_x = (lo + hi) / 2
+
+    elif name == "stagger":
+        # bricks at different y so the robot weaves round rather than through
+        n = max(2, min(n_bricks, 3))
+        xs = sorted(rng.uniform(0.10, ARENA_W - 0.10) for _ in range(n))
+        for k, cx in enumerate(xs):
+            st.append(_brick(cx, y + rng.uniform(-0.07, 0.07), rng.uniform(-55, 55), k + 1))
+        passage_x = rng.uniform(0.08, ARENA_W - 0.08)
+
+    elif name == "pocket":
+        # a divider plus a perpendicular stub, so the blocker sits in a recess and most of its
+        # contact faces are unreachable. This is the layout that should starve the push grid.
+        yaw = rng.uniform(-12, 12)
+        half = _x_span(yaw) / 2
+        left = rng.random() < 0.5
+        cx = half if left else ARENA_W - half
+        st.append(_brick(cx, y, yaw, 1))
+        passage_x = (2 * half + 0.06) if left else (ARENA_W - 2 * half - 0.06)
+        stub_x = passage_x + rng.uniform(0.05, 0.10) * (1 if left else -1)
+        st.append(_brick(stub_x, y + rng.uniform(0.06, 0.13), rng.uniform(70, 110), 2))
+        if n_bricks >= 4 and rng.random() < 0.6:
+            st.append(_brick(stub_x, y - rng.uniform(0.06, 0.13), rng.uniform(70, 110), 3))
+    else:
+        return None
+
+    if len(st) > n_bricks:
+        return None
+    for a in range(len(st)):
+        if not inside_arena(st[a]):
+            return None
+        for b in range(a + 1, len(st)):
+            if overlaps(st[a], st[b], 0.004):
+                return None
+    return st, y, min(max(passage_x, 0.03), ARENA_W - 0.03)
+
+
+LAYOUTS = ("side_gap", "center_door", "stagger", "pocket")
+
+
+def sample_scene(rng, movable_names, max_bricks, margin_r, band, layouts, tries=600):
+    """Sample one scene, gate it geometrically, then keep it only if `open_frac` lands in `band`.
+
+    `band` is a (lo, hi) window on the physics-free difficulty proxy. Steering here is what makes
+    100 hard scenes affordable: in the unsteered pilot, hard came in at 1 of 51, so filling that
+    tier blind would have meant exhaustively labelling several thousand scenes.
+    """
+    lo, hi = band
     for _ in range(tries):
-        n_bricks = rng.randint(1, max_bricks)
-        y_div = rng.uniform(0.28, 0.50)
-        statics = []
-        ok = True
-        for k in range(n_bricks):
-            for _try in range(40):
-                cx = rng.uniform(BRICK_HALF[0], ARENA_W - BRICK_HALF[0])
-                cy = y_div + rng.uniform(-0.05, 0.05)
-                yaw = math.radians(rng.uniform(-30.0, 30.0) if rng.random() < 0.75
-                                   else rng.uniform(60.0, 120.0))
-                r = Rect(cx, cy, BRICK_HALF[0], BRICK_HALF[1], yaw, f"wall_inner_{k+1}", "brick")
-                if inside_arena(r) and not any(overlaps(r, o, 0.004) for o in statics):
-                    statics.append(r)
-                    break
-            else:
-                ok = False
-                break
-        if not ok:
+        got = _layout(rng, layouts[rng.randrange(len(layouts))], max_bricks)
+        if got is None:
             continue
+        statics, y_div, passage_x = got
 
         name = movable_names[rng.randrange(len(movable_names))]
-        hx, hy, hz = MOVABLES[name]
+        hx, hy, _hz = MOVABLES[name]
         blocker = None
-        for _try in range(60):
-            bx = rng.uniform(max(hx, hy), ARENA_W - max(hx, hy))
-            by = y_div + rng.uniform(-0.06, 0.06)
-            byaw = math.radians(rng.uniform(0.0, 180.0))
-            cand = Rect(bx, by, hx, hy, byaw, "obstacle_0_movable", name)
+        for _try in range(50):
+            bx = passage_x + rng.uniform(-0.05, 0.05)
+            by = y_div + rng.uniform(-0.05, 0.05)
+            cand = Rect(min(max(bx, max(hx, hy)), ARENA_W - max(hx, hy)), by, hx, hy,
+                        math.radians(rng.uniform(0.0, 180.0)), "obstacle_0_movable", name)
             if inside_arena(cand) and not any(overlaps(cand, o, 0.004) for o in statics):
                 blocker = cand
                 break
         if blocker is None:
             continue
 
-        start = (rng.uniform(0.08, ARENA_W - 0.08), rng.uniform(0.08, y_div - 0.12))
-        goal = (rng.uniform(0.08, ARENA_W - 0.08), rng.uniform(y_div + 0.14, ARENA_H - 0.08))
+        start = (rng.uniform(0.06, ARENA_W - 0.06), rng.uniform(0.06, y_div - 0.11))
+        goal = (rng.uniform(0.06, ARENA_W - 0.06), rng.uniform(y_div + 0.13, ARENA_H - 0.06))
         if goal[1] <= start[1]:
             continue
 
         passed, reason = gate(statics, blocker, start, goal, margin_r)
-        if passed:
-            return {"statics": statics, "blocker": blocker, "blocker_name": name,
-                    "start": start, "goal": goal, "y_div": y_div}, reason
+        if not passed:
+            continue
+
+        of = open_frac(statics, blocker, start, goal, margin_r)
+        if not (lo <= of <= hi):
+            continue
+        return {"statics": statics, "blocker": blocker, "blocker_name": name,
+                "start": start, "goal": goal, "y_div": y_div, "open_frac": of}, "ok"
     return None, "exhausted"
 
 
@@ -400,6 +482,8 @@ def to_build_sheet(scene, scene_id):
         "robot_start_cm": [cm(scene["start"][0]), cm(scene["start"][1])],
         "goal_cm": [cm(scene["goal"][0]), cm(scene["goal"][1])],
         "run_namo_goal_flag": f"--goal {cm(scene['goal'][0]):.0f} {cm(scene['goal'][1]):.0f}",
+        "n_bricks": len(scene["statics"]),
+        "open_frac": round(scene["open_frac"], 4),
     }
 
 
@@ -409,8 +493,15 @@ def main():
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--num", type=int, default=500, help="scenes to emit")
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--max-bricks", type=int, default=3,
-                    help="3 bricks confirmed on the table; a 4th is declared but unsighted")
+    ap.add_argument("--max-bricks", type=int, default=4,
+                    help="bricks the build sheet may call for. 3 are confirmed on the table and a "
+                         "4th is declared; the user can add more, and the pocket/center_door "
+                         "layouts need them to make anything hard")
+    ap.add_argument("--open-frac", default="0,1",
+                    help="lo,hi window on the physics-free difficulty proxy. Roughly: easy 0.15+, "
+                         "med 0.02-0.12, hard 0.005-0.04. Below ~0.01 scenes tip to unsolvable")
+    ap.add_argument("--layouts", default=",".join(LAYOUTS),
+                    help=f"comma-separated wall layouts; all: {','.join(LAYOUTS)}")
     ap.add_argument("--movables", default=",".join(ON_TABLE),
                     help=f"comma-separated; all known: {','.join(MOVABLES)}")
     ap.add_argument("--margin-cm", type=float, default=10.0,
@@ -422,6 +513,11 @@ def main():
     unknown = [m for m in movable_names if m not in MOVABLES]
     if unknown:
         ap.error(f"unknown movables: {unknown}")
+    lo, hi = (float(v) for v in args.open_frac.split(","))
+    layouts = [l.strip() for l in args.layouts.split(",") if l.strip()]
+    bad = [l for l in layouts if l not in LAYOUTS]
+    if bad:
+        ap.error(f"unknown layouts: {bad}")
     margin_r = args.margin_cm / 200.0 + TIER1_MARGIN
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -430,7 +526,8 @@ def main():
     attempts = 0
     while len(manifest) < args.num and attempts < args.num * 60:
         attempts += 1
-        scene, reason = sample_scene(rng, movable_names, args.max_bricks, margin_r)
+        scene, reason = sample_scene(rng, movable_names, args.max_bricks, margin_r,
+                                     (lo, hi), layouts)
         if scene is None:
             rejects[reason] = rejects.get(reason, 0) + 1
             continue
@@ -450,7 +547,12 @@ def main():
 
     print(f"emitted {len(manifest)} scenes in {attempts} attempts -> {args.out_dir}")
     print(f"inventory: <={args.max_bricks} bricks, movables={movable_names}, "
-          f"margin>={args.margin_cm} cm")
+          f"margin>={args.margin_cm} cm, open_frac in [{lo},{hi}], layouts={layouts}")
+    if sheets:
+        ofs = sorted(s["open_frac"] for s in sheets)
+        print(f"open_frac: min={ofs[0]:.3f} med={ofs[len(ofs)//2]:.3f} max={ofs[-1]:.3f}")
+        import collections as _c
+        print("bricks used:", dict(sorted(_c.Counter(s["n_bricks"] for s in sheets).items())))
     if rejects:
         print("rejects:", dict(sorted(rejects.items(), key=lambda kv: -kv[1])))
 
