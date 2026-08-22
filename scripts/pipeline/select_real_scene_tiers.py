@@ -30,7 +30,10 @@ import json
 import os
 import sys
 
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# this file lives at <repo>/scripts/pipeline/, so THREE dirnames reach the root.
+# Two lands in scripts/, which made every remote `cd $REPO && source env.ilab.sh`
+# fail at the && and produce a silent no-op launch with an empty collect.log.
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(REPO, "scripts"))
 from eval_common import bin_of  # noqa: E402
 

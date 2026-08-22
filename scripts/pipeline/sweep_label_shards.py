@@ -24,7 +24,10 @@ import re
 import subprocess
 import time
 
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# this file lives at <repo>/scripts/pipeline/, so THREE dirnames reach the root.
+# Two lands in scripts/, which made every remote `cd $REPO && source env.ilab.sh`
+# fail at the && and produce a silent no-op launch with an empty collect.log.
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CONFIG = "python/namo/data_collection/region_opening_exhaustive_2push_multihop_car.yaml"
 PKL_IDX = re.compile(r"_env_(\d+)_results\.pkl$")
 
@@ -70,16 +73,29 @@ def done_indices(shard):
 
 
 def launch(host, workers, shard, n, timeout_s):
+    """Start one shard on `host`, detached, and confirm it actually started.
+
+    The backgrounding has to sit INSIDE a subshell, after the setup chain has run in the
+    foreground. Writing it as `cd X && source Y && nohup python ... &` looks equivalent and is not:
+    `&` binds looser than `&&`, so the WHOLE chain becomes one background job and ssh tears the
+    session down before it reaches nohup. That failed silently for hours, every round reporting a
+    launch, `$!` coming back as 0, and not one line appended to collect.log. `setsid` then keeps the
+    child off the session's process group so the teardown cannot reach it either.
+    """
+    inner = ("nohup python -m namo.data_collection.modular_parallel_collection "
+             f"--config-yaml {CONFIG} --manifest {shard}/manifest.txt "
+             f"--output-dir {shard}/pkls --start-idx 0 --end-idx {n} --workers {workers} "
+             f"--search-timeout {timeout_s} >> {shard}/collect.log 2>&1 < /dev/null &")
     cmd = (f"cd {REPO} && source env.ilab.sh >/dev/null 2>&1 && "
            "export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 "
            "NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 && "
-           f"PYTHONPATH=\"{REPO}/build_python:{REPO}/python\" nohup python -m "
-           "namo.data_collection.modular_parallel_collection "
-           f"--config-yaml {CONFIG} --manifest {shard}/manifest.txt "
-           f"--output-dir {shard}/pkls --start-idx 0 --end-idx {n} --workers {workers} "
-           f"--search-timeout {timeout_s} >> {shard}/collect.log 2>&1 < /dev/null & "
-           "echo LAUNCHED $!")
-    return sh(host, cmd)
+           f"PYTHONPATH=\"{REPO}/build_python:{REPO}/python\" setsid bash -c '{inner}' ; "
+           "sleep 3 ; pgrep -u dm1487 -fc modular_parallel_collection")
+    out = sh(host, cmd, timeout=90)
+    live = int(out) if out.strip().isdigit() else 0
+    if live == 0:
+        print(f"  !! {host}: launch produced no processes, see {shard}/collect.log", flush=True)
+    return live
 
 
 def main():
@@ -161,8 +177,8 @@ def main():
                 # a fresh manifest of only the gaps, so index 0..n-1 maps to real work again
                 with open(os.path.join(shard, "manifest.txt"), "w") as f:
                     f.write("\n".join(slice_) + "\n")
-                launch(host, w, shard, len(slice_), args.search_timeout)
-                print(f"  {host}: {len(slice_)} scenes, {w} workers", flush=True)
+                live = launch(host, w, shard, len(slice_), args.search_timeout)
+                print(f"  {host}: {len(slice_)} scenes, {w} workers, {live} procs up", flush=True)
                 off += take
         time.sleep(args.interval)
 
