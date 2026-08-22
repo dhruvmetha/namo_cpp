@@ -35,7 +35,9 @@ import sys
 # fail at the && and produce a silent no-op launch with an empty collect.log.
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(REPO, "scripts"))
+sys.path.insert(0, os.path.join(REPO, "scripts", "pipeline"))
 from eval_common import bin_of  # noqa: E402
+from gen_real_buildable_scenes import MOVABLES  # noqa: E402
 
 
 def load_sheets(pools):
@@ -113,9 +115,21 @@ def normalize(sheet):
         if have is not None and abs((have - want + 90.0) % 180.0 - 90.0) > 0.15:
             raise ValueError(f"{sheet['scene_id']}: {what} stores bearing {have} but (size_cm={sz}, "
                              f"yaw={item['yaw_deg']}) gives {want}. One of them is wrong.")
+        # Height must never come out blank. Older sheets predate the field, and a blank cell reads
+        # as zero to whatever parses the CSV next, which is the same assume-a-default failure that
+        # produced the brick-angle bugs. Bricks are 10.0; a block's height is knowable from its name.
+        h = item.get("height_cm")
+        if h is None:
+            if what.startswith("brick"):
+                h = 10.0
+            else:
+                obj = item.get("object")
+                if obj not in MOVABLES:
+                    raise ValueError(f"{sheet['scene_id']}: blocker '{obj}' has no height and is "
+                                     f"not in MOVABLES; refusing to emit a blank height")
+                h = round(MOVABLES[obj][2] * 200, 1)
         return dict(item, long_axis_bearing_deg=want,
-                    long_cm=max(sz), short_cm=min(sz),
-                    height_cm=item.get("height_cm", 10.0 if what.startswith("brick") else None))
+                    long_cm=max(sz), short_cm=min(sz), height_cm=h)
 
     sheet["bricks"] = [fix(b, f"brick {i}") for i, b in enumerate(sheet["bricks"])]
     sheet["blocker"] = fix(sheet["blocker"], "blocker")
