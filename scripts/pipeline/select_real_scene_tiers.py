@@ -145,17 +145,28 @@ def normalize(sheet):
 
 
 def _checksum_stable(sheet, moved_max=1):
-    """Would a peer validator refuse this scene as a rasterisation tie?
+    """Drop scenes whose CHECKSUM is grid-sensitive. This is a transcription guard, not a label one.
 
-    The contact checksum is grid-dependent. Holding inflation fixed and recomputing at 2 mm instead
-    of 5 mm, 293 of 600 delivered scenes shift by at least one contact, though 230 of those move
-    exactly one. A scene sitting further off the boundary than that has a reachable/cut-off split
-    inside rasterisation noise, so its tier label is noise-sensitive by definition and the hardware
-    side refuses it. Cheaper to drop it here than to ship it and have it bounce.
+    ⚠ THE ORIGINAL JUSTIFICATION FOR THIS FILTER WAS WRONG AND IS RECORDED HERE SO NOBODY REVIVES IT.
+    It claimed to drop scenes whose tier label is noise-sensitive. Measured, it does not: comparing
+    my reachable count against the simulator's own `tried_1push` denominator, the scenes this drops
+    have median error 0.066 against 0.061 for the scenes it keeps, across 1200 scenes. No meaningful
+    difference. Tier labels come from the exhaustive push enumeration in the simulator and never
+    touch this numpy grid at all, so grid sensitivity cannot make a label unreliable.
 
-    `moved_max=1` keeps the single-contact cases, which are common and benign, and drops the rest.
-    Counts moved, NOT L1: the three counts sum to 60, so every disagreement is a reallocation and
-    L1 double-counts it.
+    What it does do is keep the contact checksum from disagreeing across two implementations that
+    rasterise differently, which is worth something because a bounced scene costs a round trip. That
+    is a weaker reason than the one first given, and it costs 195 of 2839 scenes, about 7% of the
+    pool. Keep it only while the pool has room to spare.
+
+    Related history: the hardware side and I once traced a disagreement to a resolution tie and both
+    of us were wrong. Their fill was 4-connected while the deployed planner
+    (`wavefront_planner.cpp:563`, `for (int dir = 0; dir < 8; dir++)`) and this file are 8-connected.
+    A finer grid hid the bug by widening the diagonal gap, so a resolution sweep produced a plausible
+    story for something connectivity actually caused. Check connectivity before resolution.
+
+    Counts moved, NOT L1: the three counts sum to 60, so every disagreement is a reallocation and L1
+    double-counts it.
     """
     st, blk, start = _geom(sheet)
     base_res = G.GRID_RES
