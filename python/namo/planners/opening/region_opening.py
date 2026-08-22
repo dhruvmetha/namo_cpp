@@ -986,9 +986,7 @@ class RegionOpeningPlanner(BasePlanner):
                 self._debug(f"\n{'='*60}")
                 target_info = f" (target: {target_neighbor})" if target_neighbor else ""
                 self._debug(f"Region Opening Planner - Single-Level Exploration{target_info}")
-                self._debug(
-                    f"Max chain depth: {self.max_chain_depth} | Collision checking: {'ON' if collision_checking_enabled else 'OFF'}"
-                )
+                self._debug(f"Max chain depth: {self.max_chain_depth}")
                 self._debug(f"{'='*60}\n")
 
             # Explore from initial state only (Level 0)
