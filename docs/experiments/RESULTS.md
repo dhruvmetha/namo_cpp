@@ -482,3 +482,15 @@ Card: [EXP-2026-08-19-multihop-contact-point-success](log/EXP-2026-08-19-multiho
 **REJECT the strict gate.** It made committed solutions more independent—strict K2-interface preservation among solved scenes rose from 121/159 (76.1%) to 133/157 (84.7%)—but lost two end-to-end solves and more than doubled mean simulator cost. Paired outcomes were both 149, gate-only 8, control-only 10 and neither 27 (McNemar exact p=0.815). The search continuation works: on 24 scenes it rejected at least one destructive K1 and later found an acceptable alternative, producing eight solves the control missed. The failure is the acceptance bar: on nine of ten control-only scenes, control solved in 2–10 calls while the gate rejected every locally open K1 and burned all 900 calls. Preserve the existence of a viable K2 continuation, not every old K2 contact edge and an unchanged blocker pose.
 
 **Scope caveat:** This is a paired mechanism test on a pre-physics-fix selected cohort, so the relative A/B is valid but the absolute solve rate is not a current-population estimate. These composed exact-two-hop scenes have no registered easy/medium/hard labels; the detailed card reports template splits instead of inventing canonical tiers.
+
+## 2026-08-22 — Fixed-template keyhole modules preserve the future in a two-hop smoke test
+
+Card: [EXP-2026-08-22-fixed-template-keyhole-modules](archive/EXP-2026-08-22-fixed-template-keyhole-modules.md). Canonical v3 donor episodes from one fixed Aug9 wall template were stripped to their blocking objects and replayed under the canonical pinned-component opening rule.
+
+| case | donor horizon and tier | static candidates | accepted solution calls | pinned-component trace |
+|---|---|---:|---:|---|
+| single keyhole | 1push medium | 1 | 1 | `[0] → [67]` |
+| exact two-hop | 1push medium + 1push medium | 13 | 2 | `[0,0] → [96,0] → [96,100]` |
+| single keyhole | pure-2push medium | 1 | 2 | `[0] → [0] → [100]` |
+
+**FEASIBLE; scale the yield measurement next.** The two-hop blockers were 0.3545 m apart. K1 opened the middle component to 96/100 reachable points while leaving the final component at 0/100, then K2 raised the final component to 100/100. This is the desired future-preservation behavior: successful continuation, without requiring K2 to retain every pre-K1 contact edge or an unchanged pose. The genuine two-push control stayed closed after its setup and opened only after its finish. This is a three-case mechanism test, not an acceptance-rate estimate; medium-hard, hard-medium, and hard-hard remain unmeasured.
