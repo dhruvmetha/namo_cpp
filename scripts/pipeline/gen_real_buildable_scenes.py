@@ -244,7 +244,17 @@ def n_reachable_contacts(statics, blocker, start):
 
     This is the SEARCH DENOMINATOR, and it decides the tier more than anything else does. Measured
     against 981 exhaustively-labelled scenes it tracks the simulator's `tried_1push` at Spearman
-    0.961, for no physics at all.
+    0.961, for no physics at all. Note the scales differ: `tried_1push` counts (edge, depth) PAIRS,
+    so it runs about 5x this count over the 5 push depths. Spearman is rank-based, so the agreement
+    statement survives that, but do not compare the two numbers directly.
+
+    ⚠ THAT 0.961 IS PARTLY CIRCULAR AND PROVES LESS THAN IT LOOKS. `tried_1push` is itself geometric,
+    decided by the same wavefront rule this function reimplements, so the correlation shows the
+    reimplementation is faithful, NOT that either matches the real robot. A shared wrong assumption
+    stays invisible to it: the max(hx,hy)-vs-diagonal radius bug would have held a high Spearman
+    while shifting every count. For STEERING that is fine, because the tier is defined as valid over
+    the planner's own `tried`, so predicting the planner is the entire job. For TRANSFER to hardware
+    it is not fine, and only driving the real robot at a contact sim calls reachable settles it.
 
     The direction is the opposite of the obvious guess. Wedging a block into a brick pocket does not
     make a scene HARD, it makes it UNSOLVABLE: those scenes average 10.1 reachable contacts, and
