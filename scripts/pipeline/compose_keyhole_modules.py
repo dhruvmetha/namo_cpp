@@ -346,6 +346,11 @@ def main() -> int:
     parser.add_argument("--min-separation", type=float, default=0.30)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
+        "--allow-shortfall",
+        action="store_true",
+        help="Return success after exhausting candidates even when fewer than --limit are accepted.",
+    )
+    parser.add_argument(
         "--replay-donor-actions",
         action="store_true",
         help="Require a forward solve using known donor openers; enumerate the second push for 2push donors.",
@@ -413,7 +418,7 @@ def main() -> int:
     }
     (args.out_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(summary, indent=2))
-    return 0 if accepted == args.limit else 2
+    return 0 if args.allow_shortfall or accepted == args.limit else 2
 
 
 if __name__ == "__main__":
