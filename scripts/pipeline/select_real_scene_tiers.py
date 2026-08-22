@@ -38,8 +38,10 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, os.path.join(REPO, "scripts"))
 sys.path.insert(0, os.path.join(REPO, "scripts", "pipeline"))
 from eval_common import bin_of  # noqa: E402
+import gen_real_buildable_scenes as G  # noqa: E402
 from gen_real_buildable_scenes import (MOVABLES, BRICK_HALF, Rect,  # noqa: E402
-                                       start_is_placeable)
+                                       contact_breakdown,
+                                       start_is_placeable, ROBOT_START_BEARING_DEG)
 
 
 def load_sheets(pools):
@@ -103,6 +105,10 @@ def normalize(sheet):
         raise ValueError(f"{sheet['scene_id']}: unrecognised angle_convention, refusing to guess "
                          f"what its yaw means:\n  {conv}")
     sheet["angle_convention"] = ANGLE_CONVENTION
+    # Every scene was simulated with the car at this heading; older sheets simply never said it, so
+    # a person handed only a position could place the car facing anywhere and build a different
+    # initial state from the one that was labelled.
+    sheet.setdefault("robot_start_bearing_deg", ROBOT_START_BEARING_DEG)
 
     def fix(item, what):
         sz = item.get("size_cm")
@@ -138,7 +144,32 @@ def normalize(sheet):
     return sheet
 
 
-def _placeable(sheet):
+def _checksum_stable(sheet, moved_max=1):
+    """Would a peer validator refuse this scene as a rasterisation tie?
+
+    The contact checksum is grid-dependent. Holding inflation fixed and recomputing at 2 mm instead
+    of 5 mm, 293 of 600 delivered scenes shift by at least one contact, though 230 of those move
+    exactly one. A scene sitting further off the boundary than that has a reachable/cut-off split
+    inside rasterisation noise, so its tier label is noise-sensitive by definition and the hardware
+    side refuses it. Cheaper to drop it here than to ship it and have it bounce.
+
+    `moved_max=1` keeps the single-contact cases, which are common and benign, and drops the rest.
+    Counts moved, NOT L1: the three counts sum to 60, so every disagreement is a reallocation and
+    L1 double-counts it.
+    """
+    st, blk, start = _geom(sheet)
+    base_res = G.GRID_RES
+    try:
+        G.GRID_RES = base_res
+        a = contact_breakdown(st, blk, start)
+        G.GRID_RES = 0.002
+        b = contact_breakdown(st, blk, start)
+    finally:
+        G.GRID_RES = base_res
+    return sum(abs(x - y) for x, y in zip(a, b)) // 2 <= moved_max
+
+
+def _geom(sheet):
     st = [Rect(b["center_cm"][0] / 100, b["center_cm"][1] / 100,
                b["size_cm"][0] / 200, b["size_cm"][1] / 200,
                math.radians(b["yaw_deg"]), b["marker_hint"], "brick")
@@ -147,8 +178,11 @@ def _placeable(sheet):
     hx, hy, _h = MOVABLES[bl["object"]]
     blk = Rect(bl["center_cm"][0] / 100, bl["center_cm"][1] / 100, hx, hy,
                math.radians(bl["yaw_deg"]), "blocker", "mov")
-    return start_is_placeable(st, blk,
-                              (sheet["robot_start_cm"][0] / 100, sheet["robot_start_cm"][1] / 100))
+    return st, blk, (sheet["robot_start_cm"][0] / 100, sheet["robot_start_cm"][1] / 100)
+
+
+def _placeable(sheet):
+    return start_is_placeable(*_geom(sheet))
 
 
 def spread(items, n):
@@ -182,7 +216,7 @@ def main():
     sheets = load_sheets(args.pools)
 
     by_tier = collections.defaultdict(list)
-    missing = unplaceable = 0
+    missing = unplaceable = unstable = 0
     for xml, eps in key.items():
         sh = sheets.get(os.path.realpath(xml))
         if sh is None:
@@ -197,6 +231,9 @@ def main():
         if not _placeable(sh):
             unplaceable += 1
             continue
+        if not _checksum_stable(sh):
+            unstable += 1
+            continue
         ep = eps[0]
         tier, rate = tier_of(ep, args.axis)
         by_tier[tier].append({"xml": xml, "sheet": sh, "rate": rate,
@@ -205,7 +242,7 @@ def main():
                               "n_valid_first": len(ep["valid_first_push"])})
 
     print(f"key={len(key)} scenes, sheets matched={len(key) - missing}, unmatched={missing}, "
-          f"dropped_unplaceable_start={unplaceable}")
+          f"dropped_unplaceable_start={unplaceable}, dropped_checksum_tie={unstable}")
     print("available per tier:", {t: len(v) for t, v in sorted(by_tier.items())})
 
     os.makedirs(args.out, exist_ok=True)

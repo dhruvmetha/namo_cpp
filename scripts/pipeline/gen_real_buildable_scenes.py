@@ -104,6 +104,15 @@ INFLATE_R = WAVEFRONT_ROBOT_R + TIER1_MARGIN          # 0.040 m -> 8.0 cm corrid
 #: questions and the same max-vs-diagonal distinction that has bitten this pipeline twice already.
 ROBOT_CIRCUMSCRIBED_R = math.hypot(ROBOT_HALF_X, ROBOT_HALF_Y)
 
+#: The car's heading at t=0, in every generated scene. `CAR_BODY` writes `<body name="car" pos=...>`
+#: with no euler or quat, so MuJoCo uses identity and the car faces +X. Every label in this pipeline
+#: was measured with the car at this heading. The build sheet has to SAY so: a person handed only a
+#: start position places the car whichever way it happens to be pointing, which is a different
+#: initial state from the one that was simulated. It is also why placement is checked against the
+#: circumscribed disc rather than the real 7x7 footprint, since a sheet silent about heading has to
+#: hold for every yaw. Stating the heading is what makes the tighter check legitimate.
+ROBOT_START_BEARING_DEG = 0.0
+
 GRID_RES = 0.005                          # 5 mm rasterisation for the reachability gate
 
 
@@ -661,6 +670,7 @@ def to_build_sheet(scene, scene_id):
                     "height_cm": round(hz * 200, 1),
                     "size_cm": [round(hx * 200, 1), round(hy * 200, 1)]},
         "robot_start_cm": [cm(scene["start"][0]), cm(scene["start"][1])],
+        "robot_start_bearing_deg": ROBOT_START_BEARING_DEG,
         "goal_cm": [cm(scene["goal"][0]), cm(scene["goal"][1])],
         "run_namo_goal_flag": f"--goal {cm(scene['goal'][0]):.0f} {cm(scene['goal'][1]):.0f}",
         "n_bricks": len(scene["statics"]),

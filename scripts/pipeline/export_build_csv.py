@@ -33,7 +33,8 @@ from gen_real_buildable_scenes import Rect, contact_breakdown  # noqa: E402
 
 COLUMNS = ["build_id", "tier", "axis", "item", "marker_hint", "centre_x_cm", "centre_y_cm",
            "long_axis_bearing_deg", "long_cm", "short_cm", "height_cm", "n_bricks",
-           "robot_start_x_cm", "robot_start_y_cm", "goal_x_cm", "goal_y_cm",
+           "robot_start_x_cm", "robot_start_y_cm", "robot_start_bearing_deg",
+           "goal_x_cm", "goal_y_cm",
            "solve_rate", "tried", "valid_1push", "valid_first_push",
            "n_contacts_reachable", "n_contacts_cutoff", "n_contacts_collision",
            "angle_convention", "tag_convention"]
@@ -63,6 +64,7 @@ def rows_for(sheet):
         "n_bricks": sheet["n_bricks"],
         "robot_start_x_cm": sheet["robot_start_cm"][0],
         "robot_start_y_cm": sheet["robot_start_cm"][1],
+        "robot_start_bearing_deg": sheet["robot_start_bearing_deg"],
         "goal_x_cm": sheet["goal_cm"][0], "goal_y_cm": sheet["goal_cm"][1],
         "solve_rate": sheet["solve_rate"], "tried": sheet["n_tried"],
         "valid_1push": sheet["n_valid_1push"], "valid_first_push": sheet["n_valid_first_push"],
