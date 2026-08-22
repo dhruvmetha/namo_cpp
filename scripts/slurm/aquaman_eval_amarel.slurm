@@ -60,6 +60,13 @@ if command -v git >/dev/null 2>&1 && [ -d "$REPO/.git" ]; then
 fi
 N1SH=${N1SH:-40}
 N2SH=${N2SH:-32}
+# Protocol knobs, defaulted to the registered canonical values -- an existing caller that sets none
+# of them reproduces its old run byte-identically. Overridden only to answer a different question,
+# e.g. HMAX=10 SIM_BUDGET=10 for a depth-matched comparison against a policy rollout.
+HMAX=${HMAX:-2}
+SIM_BUDGET=${SIM_BUDGET:-900}
+PRIOR=${PRIOR:-model}
+SEED_BASE=${SEED_BASE:-7000}
 cd "$REPO" || { echo "FATAL: REPO=$REPO is not a directory"; exit 1; }
 # NOT silenced: a failure here used to be invisible. env.amarel.sh is chatty on success, so the
 # noise is the price of ever seeing the failure again.
@@ -79,16 +86,16 @@ if [ "$ID" -lt "$N1SH" ]; then
   N1=$("$PY" -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$KEY")
   S=$((ID * N1 / N1SH)); EN=$(((ID + 1) * N1 / N1SH))
   mkdir -p "$OUT/1push_hmax2"
-  "$PY" scripts/sandbox/eval_bestfirst.py --ckpt "$CKPT" --key "$KEY" --hmax 2 --sim-budget 900 \
-    --prior model --agg mean5 --combine q --discount off --start "$S" --end "$EN" \
+  "$PY" scripts/sandbox/eval_bestfirst.py --ckpt "$CKPT" --key "$KEY" --hmax "$HMAX" --sim-budget "$SIM_BUDGET" \
+    --prior "$PRIOR" --seed-base "$SEED_BASE" --agg mean5 --combine q --discount off --start "$S" --end "$EN" \
     --out "$OUT/1push_hmax2/shard_${ID}.json" --leaf-out "$OUT/1push_hmax2/shard_${ID}.jsonl"
 else
   I=$((ID - N1SH))
   N2=$($PY -c 'import json; from namo import eval_sets; print(len(json.load(open(eval_sets.PURE2PUSH))))')
   S=$((I * N2 / N2SH)); EN=$(((I + 1) * N2 / N2SH))
   mkdir -p "$OUT/2push"
-  "$PY" scripts/sandbox/eval_bestfirst.py --ckpt "$CKPT" --hmax 2 --sim-budget 900 \
-    --prior model --agg mean5 --combine q --discount off --start "$S" --end "$EN" \
+  "$PY" scripts/sandbox/eval_bestfirst.py --ckpt "$CKPT" --hmax "$HMAX" --sim-budget "$SIM_BUDGET" \
+    --prior "$PRIOR" --seed-base "$SEED_BASE" --agg mean5 --combine q --discount off --start "$S" --end "$EN" \
     --out "$OUT/2push/shard_${I}.json" --leaf-out "$OUT/2push/shard_${I}.jsonl"
 fi
 echo "AQ0 EVAL done $(date) ID=$ID"
