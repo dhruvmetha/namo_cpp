@@ -547,7 +547,11 @@ def to_build_sheet(scene, scene_id):
     return {
         "scene_id": scene_id,
         "arena_cm": [ARENA_W * 100, ARENA_H * 100],
-        "bricks": [{"marker_hint": f"wall_{9 + i}", "center_cm": [cm(r.cx), cm(r.cy)],
+        # numbering starts at wall_10, NOT wall_9. wall_9 is the legacy bar: its ArUco tag is
+        # glued on 90 deg rotated from wall_10/wall_11 and its objects.yaml entry carries swapped
+        # width/depth as the compensation, so it is excluded from generated scenes entirely. It
+        # also measures 19.0 long against 19.5 for the others.
+        "bricks": [{"marker_hint": f"wall_{10 + i}", "center_cm": [cm(r.cx), cm(r.cy)],
                     "yaw_deg": deg(r.yaw), "size_cm": [19.5, 5.5]}
                    for i, r in enumerate(scene["statics"])],
         "blocker": {"object": scene["blocker_name"],

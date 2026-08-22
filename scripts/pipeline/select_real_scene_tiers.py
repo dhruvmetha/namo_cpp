@@ -118,6 +118,14 @@ def main():
         rows = []
         for i, it in enumerate(picked):
             sheet = dict(it["sheet"])
+            # Renumber bars from wall_10 and never emit wall_9. Older pools were written with a
+            # generator that started at 9, and wall_9 is the legacy bar whose tag is mounted 90 deg
+            # off with a compensating width/depth swap in objects.yaml. It is also 19.0 long, not
+            # 19.5. Handing a build sheet that names it invites a wrongly-oriented brick.
+            sheet["bricks"] = [dict(b, marker_hint=f"wall_{10 + k}")
+                               for k, b in enumerate(sheet["bricks"])]
+            sheet["tag_convention"] = ("every bar uses the wall_10/wall_11 ArUco mounting; "
+                                       "wall_9 is excluded (tag rotated 90 deg, 19.0 cm not 19.5)")
             sheet.update(tier=tier, axis=args.axis, solve_rate=round(it["rate"], 4),
                          n_tried=it["n_tried"], n_valid_1push=it["n_valid_1push"],
                          n_valid_first_push=it["n_valid_first"], xml=it["xml"],
