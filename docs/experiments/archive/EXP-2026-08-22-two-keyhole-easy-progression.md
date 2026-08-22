@@ -1,9 +1,9 @@
 ---
 type: experiment
-status: live
+status: done
 created: 2026-08-22
 commit: fd1743f
-metric: complete-scene solve rate and simulator calls for learned versus random ranking on verified two-keyhole scenes
+metric: "GATE FAIL: 12 verified easy-easy scenes across two templates, below the 100-scene evaluation minimum; diagnostic smoke HY5U 10/10 versus random seed 7000 6/10"
 tags: [experiment, full-namo, multihop, composition, easy, random-baseline]
 ---
 # Verified two-keyhole progression
@@ -114,8 +114,26 @@ The verified easy-easy ceiling under the frozen v0 rules is therefore 12 scenes 
 
 ## Result
 
-Pending.
+The goal-centric composer is implemented and covered by 15 focused tests, all passing. Revalidation accepted the preserved five scenes 5/5, and every accepted chain followed complete-scene XML-goal reachability `[false, false, true]`. The deterministic renders show the robot, goal, K1, K2, component map, and component graph for visual inspection.
+
+The bounded `set2/benchmark_5` census exhausted all 62 eligible easy-easy donor pairs and accepted 10, below the planned 50-scene pilot size. The oracle replay accepted the frozen ten 10/10. On this diagnostic easy+easy, local-1push+1push cohort, HY5U control and strict next-keyhole preservation both solved 10/10 with identical plans; uniform random seed 7000 solved 6/10. HY5U versus random solved 7 versus 3 scenes by two total simulator calls and 10 versus 6 by five calls. On the six jointly solved scenes, HY5U was faster/tied/slower on 3/3/0 with median total cost 2.0 versus 2.5 calls. The four random failures all accepted a locally successful K1 push that did not reduce the complete-scene path or preserve the next-blocker identity, then ended in `region_path_exhausted`.
+
+The fixed-template expansion accepted only two more scenes from `set2/benchmark_3`. Every other finite easy-easy pool was exhausted without an acceptance, and the donor-rich `set2/benchmark_4` bounded pilot accepted 0/100. The final verified v0 population is therefore 12 scenes across two templates, ten from `set2/benchmark_5` and two from `set2/benchmark_3`.
+
+| Planned gate | Evidence | Outcome |
+|---|---:|---|
+| Goal-centric validator | 15/15 tests pass | Pass |
+| Existing-scene replay and visual audit | 5/5 accepted and rendered | Pass |
+| Bounded primary-template pilot | 10/62 accepted; target 50 | Shortfall |
+| Oracle and Full NAMO protocol smoke | oracle 10/10; HY5U 10/10; random 6/10 | Pass as smoke only |
+| Multi-template evaluation population | 12 scenes across two templates; minimum 100 | Fail |
+| Three-seed easy-easy evaluation | not launched | Correctly withheld |
+| Ordered medium/hard progression | not launched | Correctly withheld |
+
+The smoke is not a benchmark result: it has ten scenes from one template, one learned checkpoint, one random seed, and donor reuse. No result was promoted to `RESULTS.md` or the evaluated-artifact registry, and no difficulty tuple was admitted.
 
 ## Verdict
 
-Pending.
+**Reject fixed-template donor composition as the v0 benchmark-generation method.** It can construct and verify genuine two-keyhole chains, and the Full NAMO protocol can solve them with the same local raw-Q ranker at each keyhole, but the available template geometry does not produce the minimum evaluation population under the approved rules.
+
+Stop this progression at the Phase 6 geometry gate. Do not claim an easy-easy learned-versus-random verdict from the ten-scene smoke, do not run the three-seed evaluation, and do not begin medium or hard tuples. Reaching the next gate requires a separately approved construction change, such as rigid cross-template placement or explicit room-interface stitching; both were deferred from v0 and are not silently introduced here.
