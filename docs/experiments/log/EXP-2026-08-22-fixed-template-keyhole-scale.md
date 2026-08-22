@@ -18,7 +18,9 @@ _(Codex)_ Run a target-box smoke, then a 40-task Amarel CPU array covering all t
 
 ## Run
 
-Pending target-box smoke and calibration.
+_(Codex)_ Target-box smoke `60751008_9` ran on Amarel `main` at commit `de75c14`, task MM × `set2/benchmark_5`, with `LIMIT=1`, `MAX_ATTEMPTS=100`, and the production script. It completed successfully in 39 s, wrote the accepted XML plus `manifest.jsonl` and `summary.json`, and accepted 1 scene after 6 candidates; the other 5 were rejected statically. Artifacts: `$NAMO_SCRATCH/eval/keyhole_modules_scale_smoke_20260822/`.
+
+_(Codex)_ Calibration: a direct five-scene extrapolation is 195 s per task; allow roughly 3–8 minutes because templates and ordered tier pairs can have different static and replay yields. The pilot requests 15 minutes per task, 4.6× the direct extrapolation, and only 40 single-CPU tasks, within the ≤200-CPU background policy. Production remains gated on this pilot's measured yield and tail.
 
 ## Result
 
