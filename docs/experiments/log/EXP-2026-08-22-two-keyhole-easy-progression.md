@@ -90,6 +90,10 @@ Every accepted trace had complete-scene goal reachability `[false, false, true]`
 
 The five scenes use eight unique donor episodes across ten donor slots. This is retained as provenance for the old control set; the bounded 50-scene collector will prefer donor-disjoint accepted scenes before freezing its evaluation manifest.
 
+The Phase 3 census found 14 easy donor episodes and only 62 ordered candidate pairs after excluding same-XML pairs and blocker centers closer than 0.30 m, so this fixed-template pool cannot plausibly supply 50 accepted scenes. The required bounded run will therefore exhaust those 62 pairs, report the shortfall, and stop without loosening the geometry or progression gates.
+
+The exact production script passed a one-scene target-box smoke on rlab7 at commit `7404e85`: one scene was accepted after five candidates in three seconds and complete XML, manifest, and summary artifacts landed under `$NAMO_SCRATCH/eval/two_keyhole_progression_20260822/pilot_smoke_direct/`. Scaling the measured candidate rate to all 62 pairs gives roughly 40 seconds under similar rejection mix; the one-hour SLURM limit is deliberately pessimistic, and the full bounded census remains small enough to run directly as one pinned process on rlab7.
+
 ## Result
 
 Pending.
