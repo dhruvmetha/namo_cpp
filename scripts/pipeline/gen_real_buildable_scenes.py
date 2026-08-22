@@ -262,6 +262,17 @@ def n_reachable_contacts(statics, blocker, start):
     easy band. Hard scenes are the ones where the block is wide open (mean 25.6 contacts) and almost
     none of the many available pushes clear the corridor. Conditioning on >= 24 contacts with 2
     bricks yields 17.6% hard on the hmax=2 axis against a 3.7% base rate.
+
+    ⛔ THIS IS A TIER PREDICTOR, NOT A PLANNER BLACKLIST. Do not feed it to
+    `external_edge_blacklist`. That map seeds `{edge_idx: 0}` and the test is
+    `depth >= edge_min_stuck_depth[edge_idx]` (region_opening.py:2210-2216), so depth 0 means SKIP
+    AT EVERY DEPTH. Region membership is a t=0 property and a first push changes it, so banning on
+    it deletes whole solution classes: on one real two-object scene every one of an object's 60
+    contacts was in collision or cut off at t=0, and banning them all would erase every chain of
+    the form "push the other object clear, then push this one". Collision-freedom survives a first
+    push and is the right test for an all-depths ban. Region membership is the right test HERE,
+    where nothing happens after t=0 by construction. Scenes from this generator carry exactly one
+    movable and so cannot show that failure, which is why the warning has to be written down.
     """
     m = _blocked_mask(statics + [blocker], INFLATE_R)
     si = _cell(start)

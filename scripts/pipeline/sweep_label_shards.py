@@ -63,8 +63,9 @@ def launch(host, workers, shard, n, timeout_s):
            "namo.data_collection.modular_parallel_collection "
            f"--config-yaml {CONFIG} --manifest {shard}/manifest.txt "
            f"--output-dir {shard}/pkls --start-idx 0 --end-idx {n} --workers {workers} "
-           f"--search-timeout {timeout_s} >> {shard}/collect.log 2>&1 < /dev/null &")
-    sh(host, cmd)
+           f"--search-timeout {timeout_s} >> {shard}/collect.log 2>&1 < /dev/null & "
+           "echo LAUNCHED $!")
+    return sh(host, cmd)
 
 
 def main():
