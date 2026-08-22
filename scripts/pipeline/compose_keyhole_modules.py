@@ -265,7 +265,7 @@ def replay_donor_chain(xml_path: str, config: str, donors: Sequence[Donor]) -> d
     def search(hop: int, state, actions: list[list[list[int]]]) -> list[list[list[int]]] | None:
         nonlocal attempts
         if hop == len(donors):
-            return actions if env.is_robot_goal_reachable() else None
+            return actions if state_matches(hop) else None
         donor = donors[hop]
         if donor.horizon == "1push":
             return advance(hop, state, actions, donor.valid_root)
