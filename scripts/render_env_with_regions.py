@@ -83,23 +83,30 @@ def render_one(xml_path: Path, out_path: Path, namo_config: Path,
         ax.add_patch(patches.Rectangle((cx - hx, cy - hy), 2 * hx, 2 * hy,
                                         fill=True, facecolor="#666",
                                         edgecolor="black", linewidth=0.5))
-    for cx, cy, hx, hy, yaw_deg in obstacles:
+    keyhole_colors = ["#F59E0B", "#7C3AED"]
+    for index, (cx, cy, hx, hy, yaw_deg) in enumerate(obstacles):
         rect = patches.Rectangle((-hx, -hy), 2 * hx, 2 * hy,
-                                 fill=True, facecolor="gold", edgecolor="black",
+                                 fill=True, facecolor=keyhole_colors[index % len(keyhole_colors)], edgecolor="black",
                                  linewidth=0.5, alpha=0.85)
         rect.set_transform(Affine2D().rotate_deg(yaw_deg).translate(cx, cy) + ax.transData)
         ax.add_patch(rect)
+        ax.text(cx, cy, f"K{index + 1}", ha="center", va="center", color="white",
+                fontsize=9, fontweight="bold", zorder=5)
     if goal is not None:
         ax.add_patch(plt.Circle((goal[0], goal[1]), goal[2],
                                 fill=True, facecolor="red", edgecolor="darkred",
                                 alpha=0.5, linewidth=1.5, linestyle="--"))
+        ax.annotate("Goal", (goal[0], goal[1]), xytext=(5, 7), textcoords="offset points",
+                    color="darkred", fontsize=9, fontweight="bold")
     if robot is not None:
         ax.plot(robot[0], robot[1], "o", color="green", markersize=10)
+        ax.annotate("Robot", robot, xytext=(5, 7), textcoords="offset points",
+                    color="darkgreen", fontsize=9, fontweight="bold")
     ax.set_xlim(xmin - 0.1, xmax + 0.1)
     ax.set_ylim(ymin - 0.1, ymax + 0.1)
     ax.set_aspect("equal")
     ax.grid(alpha=0.3)
-    ax.set_title("Environment")
+    ax.set_title("Environment: Robot → K1 → K2 → Goal")
 
     # ===== Compute robot/goal regions first (so we can color them in both panels) =====
     rm = np.asarray(region_map)
@@ -201,6 +208,18 @@ def render_one(xml_path: Path, out_path: Path, namo_config: Path,
     ax.imshow(rgb_xy.transpose(1, 0, 2), origin="lower",
               extent=[xmin, xmax, ymin, ymax], aspect="equal",
               interpolation="nearest")
+    if robot is not None:
+        ax.plot(robot[0], robot[1], "o", color="white", markeredgecolor="darkgreen", markersize=8)
+        ax.annotate("Robot", robot, xytext=(5, 5), textcoords="offset points",
+                    color="darkgreen", fontsize=8, fontweight="bold")
+    if goal is not None:
+        ax.plot(goal[0], goal[1], "*", color="white", markeredgecolor="darkred", markersize=11)
+        ax.annotate("Goal", (goal[0], goal[1]), xytext=(5, 5), textcoords="offset points",
+                    color="darkred", fontsize=8, fontweight="bold")
+    for index, (cx, cy, _hx, _hy, _yaw_deg) in enumerate(obstacles):
+        ax.text(cx, cy, f"K{index + 1}", ha="center", va="center", color="black",
+                fontsize=8, fontweight="bold",
+                bbox=dict(boxstyle="round,pad=0.15", facecolor="white", alpha=0.8, linewidth=0.5))
 
     n_regions = sum(1 for lbl in unique_labels if lbl > 0)
     ax.set_xlim(xmin - 0.1, xmax + 0.1)
@@ -255,7 +274,7 @@ def render_one(xml_path: Path, out_path: Path, namo_config: Path,
         import re as _re
         def short_obstacle(name: str) -> str:
             m = _re.search(r"obstacle_(\d+)", name)
-            return f"o{m.group(1)}" if m else name
+            return f"K{int(m.group(1)) + 1}" if m else name
 
         edge_labels = {}
         for u, v in G.edges():

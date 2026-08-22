@@ -84,7 +84,11 @@ Individually two-push keyholes, longer chains, cross-template stitching, alterna
 
 ## Run
 
-Pending.
+At commit `c31939e`, the goal-centric validator was replayed on ilab3 against the preserved five-scene control manifest and wrote fresh artifacts to `$NAMO_SCRATCH/eval/two_keyhole_progression_20260822/revalidated_five/`; it accepted 5/5 scenes with zero rejection and left the source artifacts untouched.
+
+Every accepted trace had complete-scene goal reachability `[false, false, true]`, K2 had no reachable edge initially and 11–15 reachable edges after K1, and the five geometry identities were unique. The pinned component diagnostics were `[97–100, 0–1]` after K1 and `[97–100, 74–94]` after K2, confirming that the K2 component count is useful trace evidence but must not stand in for complete-scene goal reachability.
+
+The five scenes use eight unique donor episodes across ten donor slots. This is retained as provenance for the old control set; the bounded 50-scene collector will prefer donor-disjoint accepted scenes before freezing its evaluation manifest.
 
 ## Result
 
