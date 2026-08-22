@@ -61,6 +61,42 @@ def tier_of(ep, axis):
     return bin_of(rate), rate
 
 
+def _bearing(size_cm, yaw_deg):
+    """World bearing of the LONG side, CCW from +X, in [0,180).
+
+    `size_cm` is [X extent, Y extent] in the item's own local frame, and which of those is the long
+    one DIFFERS BY ITEM TYPE: a brick is 19.5 x 5.5 so its long side is local X, while every block
+    is taller than wide (obj_1 is 7.0 x 15.0) so its long side is local Y. A raw yaw therefore means
+    a different physical orientation on different rows of the same sheet, and a human placing both
+    from it would set every block a quarter turn wrong. The hardware repo has the opposite
+    convention again, its objects.yaml puts a brick's long side on local Y, so nothing is portable
+    except the world bearing.
+    """
+    return round((yaw_deg + (0.0 if size_cm[0] >= size_cm[1] else 90.0)) % 180.0, 1)
+
+
+def normalize(sheet):
+    """Backfill long_axis_bearing_deg onto sheets written before the generator emitted it."""
+    conv = ("long_axis_bearing_deg = bearing of the item's LONG side in world, counter-clockwise "
+            "from +X, in [0,180). Place by this, not by yaw. yaw_deg is the MuJoCo local-frame "
+            "rotation and its meaning differs between bricks (long side on local X) and blocks "
+            "(long side on local Y).")
+    sheet.setdefault("angle_convention", conv)
+    bricks = []
+    for b in sheet["bricks"]:
+        sz = b.get("size_cm", [19.5, 5.5])
+        bricks.append(dict(b, long_axis_bearing_deg=b.get("long_axis_bearing_deg",
+                                                          _bearing(sz, b["yaw_deg"])),
+                           long_cm=max(sz), short_cm=min(sz), height_cm=10.0))
+    sheet["bricks"] = bricks
+    bl = dict(sheet["blocker"])
+    sz = bl["size_cm"]
+    bl.setdefault("long_axis_bearing_deg", _bearing(sz, bl["yaw_deg"]))
+    bl["long_cm"], bl["short_cm"] = max(sz), min(sz)
+    sheet["blocker"] = bl
+    return sheet
+
+
 def spread(items, n):
     """Round-robin over (layout-ish shape, blocker, brick count) so a tier is not all one design."""
     buckets = collections.defaultdict(list)
@@ -117,7 +153,7 @@ def main():
         summary[tier] = len(picked)
         rows = []
         for i, it in enumerate(picked):
-            sheet = dict(it["sheet"])
+            sheet = normalize(dict(it["sheet"]))
             # Renumber bars from wall_10 and never emit wall_9. Older pools were written with a
             # generator that started at 9, and wall_9 is the legacy bar whose tag is mounted 90 deg
             # off with a compensating width/depth swap in objects.yaml. It is also 19.0 long, not

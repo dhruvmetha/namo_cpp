@@ -540,25 +540,53 @@ def to_xml(scene):
     return "\n".join(lines)
 
 
+def long_axis_bearing_deg(hx, hy, yaw_rad):
+    """World bearing of the item's LONG axis, CCW from +X, in [0, 180).
+
+    The ONE number a human needs to place a bar or a block, and the only one that is unambiguous
+    without also knowing whose local frame you meant. Three separate 90-degree errors turned up in
+    one day from writing an angle down without naming its frame: wall_9's tag is mounted a quarter
+    turn off from wall_10/wall_11, this generator numbered every scene's first brick as wall_9, and
+    the hardware repo's objects.yaml puts a brick's long side on local Y while this generator's XML
+    puts it on local X.
+
+    That last one bites INSIDE this file too: BRICK_HALF is (9.75, 2.75) so a brick's long axis is
+    local X, while every entry in MOVABLES is taller than it is wide, so a block's long axis is
+    local Y. A raw `yaw` therefore means different things on different rows of the same sheet.
+    """
+    bearing = math.degrees(yaw_rad) + (0.0 if hx >= hy else 90.0)
+    return round(bearing % 180.0, 1)
+
+
 def to_build_sheet(scene, scene_id):
     """Human-readable placement, centres in cm from the bottom-left interior corner."""
     cm = lambda v: round(v * 100.0, 1)
-    deg = lambda v: round(math.degrees(v) % 180.0, 1)
+    hx, hy, hz = MOVABLES[scene["blocker_name"]]
+    b = scene["blocker"]
     return {
         "scene_id": scene_id,
         "arena_cm": [ARENA_W * 100, ARENA_H * 100],
-        # numbering starts at wall_10, NOT wall_9. wall_9 is the legacy bar: its ArUco tag is
-        # glued on 90 deg rotated from wall_10/wall_11 and its objects.yaml entry carries swapped
-        # width/depth as the compensation, so it is excluded from generated scenes entirely. It
-        # also measures 19.0 long against 19.5 for the others.
-        "bricks": [{"marker_hint": f"wall_{10 + i}", "center_cm": [cm(r.cx), cm(r.cy)],
-                    "yaw_deg": deg(r.yaw), "size_cm": [19.5, 5.5]}
+        "angle_convention": ("long_axis_bearing_deg = bearing of the item's LONG side in world, "
+                             "counter-clockwise from +X, in [0,180). Place by this, not by yaw. "
+                             "yaw_deg is the MuJoCo local-frame rotation and its meaning differs "
+                             "between bricks (long side on local X) and blocks (long side on "
+                             "local Y)."),
+        "tag_convention": ("every bar uses the wall_10/wall_11 ArUco mounting; wall_9 is excluded "
+                           "(its tag is rotated 90 deg and it measures 19.0 cm, not 19.5)"),
+        "bricks": [{"marker_hint": f"wall_{10 + i}",
+                    "center_cm": [cm(r.cx), cm(r.cy)],
+                    "long_axis_bearing_deg": long_axis_bearing_deg(r.hx, r.hy, r.yaw),
+                    "yaw_deg": round(math.degrees(r.yaw) % 180.0, 1),
+                    "long_cm": 19.5, "short_cm": 5.5, "height_cm": 10.0}
                    for i, r in enumerate(scene["statics"])],
         "blocker": {"object": scene["blocker_name"],
-                    "center_cm": [cm(scene["blocker"].cx), cm(scene["blocker"].cy)],
-                    "yaw_deg": deg(scene["blocker"].yaw),
-                    "size_cm": [round(MOVABLES[scene["blocker_name"]][0] * 200, 1),
-                                round(MOVABLES[scene["blocker_name"]][1] * 200, 1)]},
+                    "center_cm": [cm(b.cx), cm(b.cy)],
+                    "long_axis_bearing_deg": long_axis_bearing_deg(b.hx, b.hy, b.yaw),
+                    "yaw_deg": round(math.degrees(b.yaw) % 180.0, 1),
+                    "long_cm": round(max(hx, hy) * 200, 1),
+                    "short_cm": round(min(hx, hy) * 200, 1),
+                    "height_cm": round(hz * 200, 1),
+                    "size_cm": [round(hx * 200, 1), round(hy * 200, 1)]},
         "robot_start_cm": [cm(scene["start"][0]), cm(scene["start"][1])],
         "goal_cm": [cm(scene["goal"][0]), cm(scene["goal"][1])],
         "run_namo_goal_flag": f"--goal {cm(scene['goal'][0]):.0f} {cm(scene['goal'][1]):.0f}",
