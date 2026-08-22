@@ -2,7 +2,7 @@
 type: experiment
 status: live
 created: 2026-08-22
-commit:
+commit: 8bae26f
 metric: pending
 tags: [experiment, multihop, data, easy]
 ---
