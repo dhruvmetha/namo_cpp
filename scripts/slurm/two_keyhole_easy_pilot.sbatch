@@ -21,16 +21,23 @@ source env.ilab.sh
 LIMIT=${LIMIT:-50}
 MAX_ATTEMPTS=${MAX_ATTEMPTS:-500}
 SEED=${SEED:-220822}
+TEMPLATE=${TEMPLATE:-set2/benchmark_5}
+MIN_SEPARATION=${MIN_SEPARATION:-0.30}
+allow_shortfall=()
+if [ "${ALLOW_SHORTFALL:-0}" = "1" ]; then
+  allow_shortfall+=(--allow-shortfall)
+fi
 
 SECONDS=0
 "$NAMO_PYTHON" scripts/pipeline/compose_keyhole_modules.py \
   --horizons 1push 1push \
   --tiers easy easy \
-  --template set2/benchmark_5 \
+  --template "$TEMPLATE" \
   --out-dir "$OUT_DIR" \
   --limit "$LIMIT" \
   --max-attempts "$MAX_ATTEMPTS" \
-  --min-separation 0.30 \
+  --min-separation "$MIN_SEPARATION" \
   --seed "$SEED" \
-  --replay-donor-actions
+  --replay-donor-actions \
+  "${allow_shortfall[@]}"
 echo "elapsed_seconds=$SECONDS output=$OUT_DIR"

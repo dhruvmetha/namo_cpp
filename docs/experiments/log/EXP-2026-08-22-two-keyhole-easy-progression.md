@@ -98,6 +98,14 @@ The bounded rlab7 census at commit `0adc0b7` exhausted all 62 eligible pairs in 
 
 This ten-scene artifact is a protocol-smoke cohort, not the planned 50-scene evaluation set. Sampling on `set2/benchmark_5` is stopped and its gates remain unchanged; the next Full NAMO step can validate the protocol on these ten, but a benchmark verdict requires additional productive templates to fill the geometry shortfall.
 
+The frozen ten-scene cohort passed a second oracle replay 10/10 on rlab7 at commit `71aacf5`, then all three one-scene Full NAMO calibrations solved in exactly two simulator calls. The ten-scene smoke used HY5U seed 1 epoch 11, ordinary control and strict `preserve_next_keyhole_access`, uniform seed 7000, best-first hmax 2, raw-q ordering, the canonical 20-of-100 local opening bar, 300 simulator calls per keyhole, and ten workers on rlab7. Raw and aggregate artifacts are under `$NAMO_SCRATCH/eval/two_keyhole_progression_20260822/full_namo_smoke10/`.
+
+HY5U control and gated planning both solved 10/10 with identical solutions and per-scene costs: seven scenes used `[1, 1]` calls and three used `[2, 1]`, for a median of two total calls. Every K1 audit preserved the exact original K2 edge set and reduced the path by one hop, so the strict gate rejected nothing and changed nothing.
+
+Uniform seed 7000 solved 6/10, with three solves by two calls and all six solves within three. The four failures used only 2–4 total calls: each accepted a locally open K1 result whose audit did not reduce the path and did not preserve the next-blocker identity, after which Full NAMO ended in `region_path_exhausted`. At total-call cutoffs 2 and 5, HY5U solved 7 and 10 versus random's 3 and 6; on the six jointly solved scenes HY5U was faster/tied/slower on 3/3/0 with median cost 2.0 versus 2.5.
+
+This smoke validates the protocol and gives a specific baseline failure mode, but ten scenes from one template are too small and donor-reused for a research verdict. Because the fixed-template shortfall is geometric rather than a dynamic-validation failure, the next step moves the planned bounded template compatibility pilots forward: `set2/benchmark_3`, `set2/benchmark_2`, then `set1/benchmark_5`, with no change to acceptance gates. A learned-versus-random evaluation remains deferred until those pilots can produce a frozen multi-template population.
+
 ## Result
 
 Pending.
