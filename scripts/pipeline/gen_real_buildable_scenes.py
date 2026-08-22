@@ -288,6 +288,44 @@ def n_reachable_contacts(statics, blocker, start):
     return k
 
 
+def contact_breakdown(statics, blocker, start):
+    """(reachable, cut_off, in_collision) over the blocker's 60 contact poses at t=0. Sums to 60.
+
+    Shipped on every build sheet as a CHECKSUM, because the one error class geometric validation
+    cannot catch is a scene that is perfectly buildable and simply not the scene the labels describe.
+    Rotate a brick 90 degrees and it still sits inside the workspace, still overlaps nothing, still
+    matches n_bricks. Nothing about it looks wrong. That is why this error has bitten this pipeline
+    five times.
+
+    These three numbers move sharply under exactly those faults. The hardware side measured it on
+    easy_000: as specced 18/15/27, with wall_10 rotated 90 degrees 48/0/12. A wrong centre, a wrong
+    bearing, a swapped bar or a mistyped dimension all shift them too.
+
+    Recomputable from the CSV alone, since (centre, long_axis_bearing, long_cm, short_cm) fixes the
+    world footprint. Only the COUNTS are comparable across implementations, not contact indices: a
+    consumer that builds the rect with its long side on local X samples the same four physical faces
+    as this one, which puts its long side on local Y for blocks, so the point SET matches while the
+    numbering does not. Both sides independently produced 16/16/28 on rb_00003 with poses agreeing
+    to 0.07 cm, so the counts are a real cross-check and not a shared assumption.
+    """
+    m = _blocked_mask(statics + [blocker], INFLATE_R)
+    si = _cell(start)
+    if m[si]:
+        return 0, 0, len(contact_points(blocker))
+    lab, _ = ndimage.label(~m, structure=_S8)
+    home, (nx, ny) = lab[si], m.shape
+    reach = cut = coll = 0
+    for p in contact_points(blocker):
+        i, j = _cell(p)
+        if not (0 <= i < nx and 0 <= j < ny) or m[i, j]:
+            coll += 1
+        elif lab[i, j] == home:
+            reach += 1
+        else:
+            cut += 1
+    return reach, cut, coll
+
+
 def open_frac(statics, blocker, start, goal, margin_r, span=0.08, n=9, nrot=4):
     """Fraction of feasible DISPLACED blocker poses that open the corridor. A physics-free proxy
     for how many of the 60x5 pushes will solve the scene, so difficulty can be targeted before

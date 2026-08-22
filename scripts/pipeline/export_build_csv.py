@@ -23,17 +23,42 @@ Rows sort by build_id then item, bricks before blocks.
 import argparse
 import csv
 import json
+import math
 import os
+import sys
+
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(REPO, "scripts", "pipeline"))
+from gen_real_buildable_scenes import Rect, contact_breakdown  # noqa: E402
 
 COLUMNS = ["build_id", "tier", "axis", "item", "marker_hint", "centre_x_cm", "centre_y_cm",
            "long_axis_bearing_deg", "long_cm", "short_cm", "height_cm", "n_bricks",
            "robot_start_x_cm", "robot_start_y_cm", "goal_x_cm", "goal_y_cm",
            "solve_rate", "tried", "valid_1push", "valid_first_push",
+           "n_contacts_reachable", "n_contacts_cutoff", "n_contacts_collision",
            "angle_convention", "tag_convention"]
 
 
+def _rect(item, name, kind):
+    """Rebuild the world footprint from the sheet. size_cm is [X extent, Y extent] in the item's own
+    local frame and yaw_deg rotates that frame, so the two together fix the footprint."""
+    sz = item["size_cm"]
+    return Rect(item["center_cm"][0] / 100.0, item["center_cm"][1] / 100.0,
+                sz[0] / 200.0, sz[1] / 200.0, math.radians(item["yaw_deg"]), name, kind)
+
+
+def checksum(sheet):
+    """(reachable, cutoff, collision) on the blocker at t=0. See contact_breakdown for why."""
+    statics = [_rect(b, b["marker_hint"], "brick") for b in sheet["bricks"]]
+    blocker = _rect(sheet["blocker"], "obstacle_0_movable", "mov")
+    start = (sheet["robot_start_cm"][0] / 100.0, sheet["robot_start_cm"][1] / 100.0)
+    return contact_breakdown(statics, blocker, start)
+
+
 def rows_for(sheet):
+    reach, cut, coll = checksum(sheet)
     common = {
+        "n_contacts_reachable": reach, "n_contacts_cutoff": cut, "n_contacts_collision": coll,
         "build_id": sheet["build_id"], "tier": sheet["tier"], "axis": sheet["axis"],
         "n_bricks": sheet["n_bricks"],
         "robot_start_x_cm": sheet["robot_start_cm"][0],
