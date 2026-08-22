@@ -37,6 +37,7 @@ import namo_rl  # noqa: E402
 from namo import eval_sets  # noqa: E402
 from namo.paths import resolve  # noqa: E402
 from namo.planners import get_region_snapshot  # noqa: E402
+from namo.planners.opening.region_opening import CANONICAL_MIN_REACHABLE_FRACTION  # noqa: E402
 from namo.runtime_profile import CANONICAL_NUM_DEPTHS  # noqa: E402
 from probe_static_topology import is_junk, probe_one, shortest_region_path  # noqa: E402
 
@@ -214,16 +215,36 @@ def replay_donor_chain(xml_path: str, config: str, donors: Sequence[Donor]) -> d
     env = namo_rl.RLEnvironment(xml_path, config, False)
     initial = env.get_full_state()
     attempts = 0
+    snapshot = get_region_snapshot(
+        env,
+        goals_per_region=100,
+        local_info_only=False,
+        seed=42,
+        use_cpp_unified=True,
+        use_xml_goal=True,
+    )
+    path = shortest_region_path(
+        snapshot["adjacency"],
+        snapshot.get("robot_label") or "",
+        snapshot.get("goal_label") or "",
+    )
+    if path is None or len(path) - 1 != len(donors):
+        return {"status": "initial_hop_mismatch", "attempts": 0, "actions": None}
+    target_points = [
+        [(goal.x, goal.y) for goal in snapshot["region_goals"][label].goals]
+        for label in path[1:]
+    ]
+    thresholds = [
+        max(1, math.ceil(CANONICAL_MIN_REACHABLE_FRACTION * len(points)))
+        for points in target_points
+    ]
 
     def state_matches(start_hop: int) -> bool:
-        remaining = len(donors) - start_hop
-        if remaining == 0:
-            return env.is_robot_goal_reachable()
-        path, boundaries = _current_path(env)
-        if path is None or len(path) - 1 != remaining:
-            return False
-        expected = [[f"obstacle_{index}_movable"] for index in range(start_hop, len(donors))]
-        return boundaries == expected
+        counts = [env.count_reachable_points(points)[0] for points in target_points]
+        return all(
+            count >= threshold if index < start_hop else count < threshold
+            for index, (count, threshold) in enumerate(zip(counts, thresholds))
+        )
 
     def advance(
         hop: int, state, prefix: list[list[list[int]]], candidates: Iterable[tuple[int, int]]
@@ -277,10 +298,13 @@ def replay_donor_chain(xml_path: str, config: str, donors: Sequence[Donor]) -> d
         return None
 
     solution = search(0, initial, [])
+    final_counts = [env.count_reachable_points(points)[0] for points in target_points]
     return {
         "status": "solved" if solution is not None else "no_donor_action_chain",
         "attempts": attempts,
         "actions": solution,
+        "target_point_counts": final_counts,
+        "target_point_thresholds": thresholds,
     }
 
 
