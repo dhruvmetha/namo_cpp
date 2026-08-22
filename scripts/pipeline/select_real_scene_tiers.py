@@ -27,6 +27,7 @@ import argparse
 import collections
 import glob
 import json
+import math
 import os
 import sys
 
@@ -37,7 +38,8 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, os.path.join(REPO, "scripts"))
 sys.path.insert(0, os.path.join(REPO, "scripts", "pipeline"))
 from eval_common import bin_of  # noqa: E402
-from gen_real_buildable_scenes import MOVABLES  # noqa: E402
+from gen_real_buildable_scenes import (MOVABLES, BRICK_HALF, Rect,  # noqa: E402
+                                       start_is_placeable)
 
 
 def load_sheets(pools):
@@ -136,6 +138,19 @@ def normalize(sheet):
     return sheet
 
 
+def _placeable(sheet):
+    st = [Rect(b["center_cm"][0] / 100, b["center_cm"][1] / 100,
+               b["size_cm"][0] / 200, b["size_cm"][1] / 200,
+               math.radians(b["yaw_deg"]), b["marker_hint"], "brick")
+          for b in sheet["bricks"]]
+    bl = sheet["blocker"]
+    hx, hy, _h = MOVABLES[bl["object"]]
+    blk = Rect(bl["center_cm"][0] / 100, bl["center_cm"][1] / 100, hx, hy,
+               math.radians(bl["yaw_deg"]), "blocker", "mov")
+    return start_is_placeable(st, blk,
+                              (sheet["robot_start_cm"][0] / 100, sheet["robot_start_cm"][1] / 100))
+
+
 def spread(items, n):
     """Round-robin over (layout-ish shape, blocker, brick count) so a tier is not all one design."""
     buckets = collections.defaultdict(list)
@@ -167,7 +182,7 @@ def main():
     sheets = load_sheets(args.pools)
 
     by_tier = collections.defaultdict(list)
-    missing = 0
+    missing = unplaceable = 0
     for xml, eps in key.items():
         sh = sheets.get(os.path.realpath(xml))
         if sh is None:
@@ -175,6 +190,13 @@ def main():
             continue
         # one episode per scene by construction (single hop, single blocker); if the collection
         # ever finds more, take the one on the goal boundary, which is the first recorded
+        # A scene whose start the car cannot physically occupy wastes a build slot at the table.
+        # The wavefront calls the start free because it inflates by max(hx,hy)=3.5, modelling the
+        # robot as a disc; the physical 7x7 square's corners reach 4.95. 10 of the first 600
+        # delivered scenes were unbuildable for exactly this reason.
+        if not _placeable(sh):
+            unplaceable += 1
+            continue
         ep = eps[0]
         tier, rate = tier_of(ep, args.axis)
         by_tier[tier].append({"xml": xml, "sheet": sh, "rate": rate,
@@ -182,7 +204,8 @@ def main():
                               "n_valid_1push": len(ep["valid_1push"]),
                               "n_valid_first": len(ep["valid_first_push"])})
 
-    print(f"key={len(key)} scenes, sheets matched={len(key) - missing}, unmatched={missing}")
+    print(f"key={len(key)} scenes, sheets matched={len(key) - missing}, unmatched={missing}, "
+          f"dropped_unplaceable_start={unplaceable}")
     print("available per tier:", {t: len(v) for t, v in sorted(by_tier.items())})
 
     os.makedirs(args.out, exist_ok=True)

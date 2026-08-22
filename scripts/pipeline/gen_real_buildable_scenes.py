@@ -96,6 +96,14 @@ TIER1_MARGIN = 0.005                      # config/wavefront_inflation.yaml tier
 WAVEFRONT_ROBOT_R = max(ROBOT_HALF_X, ROBOT_HALF_Y)
 INFLATE_R = WAVEFRONT_ROBOT_R + TIER1_MARGIN          # 0.040 m -> 8.0 cm corridors
 
+#: The car's CORNER reach. The wavefront inflates by max(hx, hy), which models the robot as a 3.5 cm
+#: disc, and that is the planner's business. But a person places a physical 7x7 SQUARE, whose corners
+#: reach hypot(3.5, 3.5) = 4.95 cm, so a start pose that clears the planner by 4.10 cm can still
+#: intersect a block and be impossible to set down. That happened on 10 of the first 600 delivered
+#: scenes. Placement is checked against this radius, planning against INFLATE_R; they are different
+#: questions and the same max-vs-diagonal distinction that has bitten this pipeline twice already.
+ROBOT_CIRCUMSCRIBED_R = math.hypot(ROBOT_HALF_X, ROBOT_HALF_Y)
+
 GRID_RES = 0.005                          # 5 mm rasterisation for the reachability gate
 
 
@@ -191,8 +199,26 @@ def _cell(p):
     return (int(p[0] / GRID_RES), int(p[1] / GRID_RES))
 
 
+def start_is_placeable(statics, blocker, start):
+    """Can a human actually set the 7x7 car down here, at any yaw?
+
+    Distinct from "is the start cell free in the wavefront grid". See ROBOT_CIRCUMSCRIBED_R.
+    """
+    return all(_surface_gap(start, r) >= ROBOT_CIRCUMSCRIBED_R for r in statics + [blocker])
+
+
+def _surface_gap(pt, r):
+    """Distance from a point to a rotated rectangle's surface, 0 if inside."""
+    c, s = math.cos(r.yaw), math.sin(r.yaw)
+    dx, dy = pt[0] - r.cx, pt[1] - r.cy
+    lx, ly = abs(c * dx + s * dy), abs(-s * dx + c * dy)
+    return math.hypot(max(lx - r.hx, 0.0), max(ly - r.hy, 0.0))
+
+
 def gate(statics, blocker, start, goal, margin_r):
     """Return (passed, reason). See module docstring for the three conditions."""
+    if not start_is_placeable(statics, blocker, start):
+        return False, "start_not_placeable"
     with_block = _blocked_mask(statics + [blocker], INFLATE_R)
     si, sj = _cell(start)
     gi, gj = _cell(goal)
