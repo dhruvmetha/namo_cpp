@@ -469,3 +469,16 @@ Sampling uniformly from "hard" draws **~69% dead scenes**. The usable hard pool 
 ⚠ **Join these pools on `realpath`, never basename** — 800 unique basenames across 2,535 scenes; a basename join measured 0/9 matches where realpath gives 9/9, silently mislabeling ~68% of the corpus. Recorded as failure mode #5 in [multi_episode_rooms.md](../pipeline/multi_episode_rooms.md).
 
 **These are FIRST-keyhole labels only.** The planner opens only boundary 0 from the initial state (`_explore_from_state` sweeps `adjacency[robot_label]`), so labeling keyhole 2+ requires materializing the post-push state — separate work, in flight.
+
+## 2026-08-21 — Exact K2-interface preservation is too strict for two-hop composition
+
+Card: [EXP-2026-08-19-multihop-contact-point-success](log/EXP-2026-08-19-multihop-contact-point-success.md). Paired current-physics control/gated evaluation on 197 scenes selected as successful before the physics fix; 194 still formed an exact two-hop path and were evaluated. Both arms used HY5U, best-first `hmax=2`, and 900 simulator calls per keyhole on `rlab7`.
+
+| arm | solved / 194 | rate | solve within 10 calls | mean calls |
+|---|---:|---:|---:|---:|
+| control | **159** | **81.96%** | **145** | **47.0** |
+| strict K2-interface gate | 157 | 80.93% | 131 | 101.5 |
+
+**REJECT the strict gate.** It made committed solutions more independent—strict K2-interface preservation among solved scenes rose from 121/159 (76.1%) to 133/157 (84.7%)—but lost two end-to-end solves and more than doubled mean simulator cost. Paired outcomes were both 149, gate-only 8, control-only 10 and neither 27 (McNemar exact p=0.815). The search continuation works: on 24 scenes it rejected at least one destructive K1 and later found an acceptable alternative, producing eight solves the control missed. The failure is the acceptance bar: on nine of ten control-only scenes, control solved in 2–10 calls while the gate rejected every locally open K1 and burned all 900 calls. Preserve the existence of a viable K2 continuation, not every old K2 contact edge and an unchanged blocker pose.
+
+**Scope caveat:** This is a paired mechanism test on a pre-physics-fix selected cohort, so the relative A/B is valid but the absolute solve rate is not a current-population estimate. These composed exact-two-hop scenes have no registered easy/medium/hard labels; the detailed card reports template splits instead of inventing canonical tiers.

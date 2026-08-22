@@ -1,9 +1,9 @@
 ---
 type: experiment
-status: live
+status: done
 created: 2026-08-19
-commit: 8c96a8c
-metric:
+commit: 7193a93
+metric: "REJECT: strict future-interface gate solved 157/194 versus control 159/194 and more than doubled mean simulator cost (101.5 versus 47.0 calls)"
 tags: [experiment, multihop, full_namo]
 ---
 # Multi-hop: per-hop success = next blocker's contact points reachable
@@ -33,11 +33,35 @@ _(Claude, auto)_ **Full corrected queue 2026-08-21:** Code commit `8c96a8c`, exp
 
 _(Claude, auto)_ **Cancellation correction:** The 197-scene cohort was selected for successful two-keyhole execution before the physics fix. Recomputing a current two-hop graph does not re-establish current-physics solvability, so this population would confound future-interface preservation with physics-induced loss of solutions. Arrays `223319` and `223320` were cancelled after only 10 control and 7 gated shards had completed; partial outputs are retained as non-comparative diagnostics and must not be aggregated as an experiment result.
 
+_(Claude, auto)_ **User-directed paired legacy-cohort completion:** The user correctly noted that the pre-fix provenance does not invalidate a same-population A/B under current physics, provided the result is framed as a legacy selected cohort rather than a current-solver success-rate estimate. After capping OpenCV and numerical-library thread pools in commit `7193a93`, a clean thread-cap smoke completed as job `223537`, and the missing shards completed on `rlab7` as control array `223572` and gated array `223574`. Both arms have 197/197 summaries, all final jobs exited zero, and the log scan found no OpenCV thread errors, tracebacks, OOMs or timeouts. Three scenes no longer formed an exact two-hop path under current physics, leaving 194 paired evaluated scenes. Raw outputs are `$NAMO_SCRATCH/eval/multihop_future_interface_20260821/full197/{control,gate}/shard_*/`; aggregates are the sibling `{control_aggregate,gate_aggregate}/` directories.
+
 ## Result + Verdict
-_(Claude, auto from run output)_ **Pilot-only read, no experiment verdict:** The five-scene population was accidentally template-order biased—four `set1/benchmark_1`, one `set1/benchmark_3`. These complete-scene templates have no registered easy/medium/hard labels and were historically near-zero-solvability strata (HY5U 1/12 and 0/146 respectively), so the 0/5 result cannot estimate general performance. The mechanism result is still valid: destructive K1 composition is real; exact preservation of every K2 contact plus pose is too strict; and contact accessibility alone is not sufficient for a viable K2 push. The next paired pilot must sample the 197 formerly solved exact-two-keyhole scenes, stratified across `set1/benchmark_4`, `set2/benchmark_3` and `set2/benchmark_5`, after revalidating them under current physics.
+_(Claude, auto from run output)_ **REJECT the strict all-contact invariant.** On the 194 current exact-two-hop scenes, control solved 159/194 (81.96%) and the gate solved 157/194 (80.93%), a -1.03 point delta. Paired outcomes were both 149, gate-only 8, control-only 10 and neither 27 (McNemar exact p=0.815). The gate improved strict audited K2-interface preservation among solved scenes from 121/159 (76.1%) to 133/157 (84.7%), but preservation did not translate into more complete solutions.
+
+| template | n | control solved | gated solved | delta |
+|---|---:|---:|---:|---:|
+| `set1/benchmark_1` | 1 | 0 | 0 | 0 |
+| `set1/benchmark_4` | 23 | 15 | 16 | +1 |
+| `set2/benchmark_3` | 28 | 17 | 17 | 0 |
+| `set2/benchmark_5` | 142 | 127 | 124 | -3 |
+| **all** | **194** | **159** | **157** | **-2** |
+
+_(Claude, auto)_ **The gate is overconstrained, not merely under-budgeted.** It checked 9,238 locally open K1 candidates and rejected 9,065: 9,048 lost at least one original K2 contact edge and 6,072 moved a K2 blocker beyond tolerance. It encountered at least one rejection on 38 scenes, eventually found an acceptable alternative on 24, and found none on 14. Nine of the ten control-only scenes were cheap control solves using 2–10 calls, while the gate rejected every locally open K1 candidate and exhausted all 900 K1 calls; the tenth accepted a gated K1 but later exhausted the remaining route. Thus the implementation does let K1 search continue and can recover alternatives—the eight gate-only solves are direct evidence—but requiring every original K2 edge plus an unchanged K2 pose rules out useful compositions.
+
+| cost/result | control | gated |
+|---|---:|---:|
+| solved within 10 total simulator calls | 145 | 131 |
+| median calls over all 194 scenes | 2 | 3 |
+| mean calls over all 194 scenes | 47.0 | 101.5 |
+| total calls | 9,114 | 19,697 |
+| failure: goal region invalid | 4 | 1 |
+| failure: region path exhausted | 26 | 20 |
+| failure: simulation budget exhausted | 5 | 16 |
+
+_(Claude, auto)_ **Interpretation:** The user's component-level invariant is still the right abstraction—after C1+C2 merge, retain a usable continuation from old C2 to K2—but exact preservation of the complete old action set is stronger than that invariant. The next test should preserve existence of a viable K2 continuation, such as at least one reachable K2 contact/action family or a cheap K2 feasibility probe, instead of all old contact indices. This cohort has only the composed exact-two-hop horizon and no registered easy/medium/hard labels, so no canonical difficulty×horizon table exists; the template split above is reported rather than inventing tiers. Because the 197 were selected before the physics fix, the paired A/B is valid while the absolute 81–82% solve rate is not a current-population estimate.
 
 ## Next
-—
+Replace exact all-edge preservation with a weaker existential K2-continuation gate, then rerun the same paired cohort before building a fresh current-physics population.
 
 ## Discussion
 **[Claude 2026-08-17]** Assessment from the chat session, recorded here. Idea sound with one fix: the bar should be ≥1 (or ≥K) contact points, not all. What it fixes: the current 20% sampled-points bar is isotropic ("how much area opened"), while the chain needs anisotropic, task-directed opening ("did we open the path to the thing we push next") — exactly the commit-dead-end failure bucket. Risks flagged: (a) necessary-not-sufficient — a reachable contact point doesn't guarantee a successful push exists from it, so dead-ends shrink but don't vanish; (b) brittle corridors — the minimal condition can accept a squeeze-through that the next hop's push re-blocks; consider combining with a weak area floor; (c) a stricter accept test can burn more per-hop budget rejecting old-condition successes — net sims is empirical; (d) new success condition = new protocol — numbers not comparable to registered runs, and keyhole-1 difficulty tiers shift; register separately.
