@@ -16,15 +16,20 @@ MuJoCo half-extents are therefore (depth/2, width/2, height/2). Getting this bac
 the hardware side did it twice in one day. `real_test_envs/1push/1hop/env1` pins it: obj_1 appears
 there as size="0.035 0.075 0.02", which is exactly (7.0/2, 15.0/2, 4.0/2) cm.
 
-Geometry gate, applied before any physics runs. The wavefront inflates every obstacle by the
-rotation-safe robot radius plus the tier-1 margin (`include/wavefront/goal_tolerance_utils.hpp:34`,
-hypot(3.5,3.5) + 0.5 = 5.45 cm), so a corridor needs 10.9 cm of clear width. A scene is kept only if
+Geometry gate, applied before any physics runs. The wavefront inflates every obstacle by
+`compute_wavefront_inflation_radius_m` (`include/wavefront/goal_tolerance_utils.hpp:34`) = 4.0 cm,
+so a corridor needs 8.0 cm of clear width. READ THAT FUNCTION BEFORE CHANGING THIS NUMBER: it calls
+`compute_rotation_safe_robot_radius_m`, whose name says diagonal but whose body returns
+max(hx, hy) = 3.5 cm, the diagonal having been dropped because 4.95 cm "crowded out push
+approaches". Believing the name gives 5.45 cm inflation and a 10.9 cm corridor rule, which rejects
+buildable scenes: on the first pilot it disagreed with the C++ probe on 29 of 60, and the measured
+disconnect threshold across that pilot was 4.04-4.25 cm, not 5.45. A scene is kept only if
   (a) with the blocker present, the goal is UNREACHABLE from the robot start
   (b) with the blocker deleted, the goal IS reachable
-  (c) (b) still holds at `--margin-cm` of clearance instead of 10.9
+  (c) (b) still holds at `--margin-cm` of clearance instead of 8.0
 (a)+(b) are the counterfactual certificate `probe_static_topology.py` documents. (c) exists because
-10.9 cm is a threshold and ArUco pose noise is a few mm, so a scene built exactly at the threshold
-is a coin flip on hardware rather than an experiment.
+8.0 cm is a hard threshold and ArUco pose noise is a few mm, so a scene built at the threshold is a
+coin flip on hardware rather than an experiment.
 
 This gate is NECESSARY, NOT SUFFICIENT: it proves the blocker is what separates the two regions, not
 that any push can move it clear. Only the simulator decides that. SINGLE HOP is what this generator
@@ -82,10 +87,12 @@ MOVABLES = {
 }
 ON_TABLE = ("obj_1", "obj_4")
 
-ROBOT_HALF = 0.035                        # 7 x 7 cm chassis
+ROBOT_HALF_X = 0.035                      # 7 x 7 cm chassis, so hx == hy
+ROBOT_HALF_Y = 0.035
 TIER1_MARGIN = 0.005                      # config/wavefront_inflation.yaml tier1
-ROTATION_SAFE_R = math.hypot(ROBOT_HALF, ROBOT_HALF)
-INFLATE_R = ROTATION_SAFE_R + TIER1_MARGIN            # 0.0545 m -> 10.9 cm corridors
+#: max(hx, hy), NOT hypot. See the docstring and goal_tolerance_utils.hpp:12.
+WAVEFRONT_ROBOT_R = max(ROBOT_HALF_X, ROBOT_HALF_Y)
+INFLATE_R = WAVEFRONT_ROBOT_R + TIER1_MARGIN          # 0.040 m -> 8.0 cm corridors
 
 GRID_RES = 0.005                          # 5 mm rasterisation for the reachability gate
 
@@ -166,8 +173,15 @@ def _blocked_mask(rects, inflate):
     return blocked
 
 
+#: 8-connected, MATCHING `WavefrontPlanner::DIRECTIONS` (wavefront_planner.hpp:247). This must not be
+#: 4-connected "because diagonal leaks through a corner pinch are a rasterisation artefact". The
+#: planner takes those diagonal steps, so a 4-connected gate calls scenes blocked that the planner
+#: walks straight through: on the first 60-scene pilot it disagreed with the C++ probe on 29 of them.
+NEIGHBOURS = ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1))
+
+
 def _connected(blocked, start, goal):
-    """4-connected flood fill from `start` cell to `goal` cell over free space."""
+    """8-connected flood fill from `start` cell to `goal` cell over free space."""
     nx, ny = blocked.shape
     si, sj = start
     gi, gj = goal
@@ -180,7 +194,7 @@ def _connected(blocked, start, goal):
         i, j = q.popleft()
         if (i, j) == (gi, gj):
             return True
-        for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        for di, dj in NEIGHBOURS:
             a, b = i + di, j + dj
             if 0 <= a < nx and 0 <= b < ny and not seen[a, b] and not blocked[a, b]:
                 seen[a, b] = True
@@ -399,8 +413,8 @@ def main():
                     help="3 bricks confirmed on the table; a 4th is declared but unsighted")
     ap.add_argument("--movables", default=",".join(ON_TABLE),
                     help=f"comma-separated; all known: {','.join(MOVABLES)}")
-    ap.add_argument("--margin-cm", type=float, default=13.0,
-                    help="post-push corridor width the scene must still admit. 10.9 is the hard "
+    ap.add_argument("--margin-cm", type=float, default=10.0,
+                    help="post-push corridor width the scene must still admit. 8.0 is the hard "
                          "threshold; ArUco noise is a few mm, so build with headroom")
     args = ap.parse_args()
 
