@@ -216,6 +216,57 @@ def gate(statics, blocker, start, goal, margin_r):
     return True, "ok"
 
 
+#: push standoff, mirroring namo_push_controller.cpp:162-163 = max(hx,hy) + push_offset_margin.
+#: The margin is `planning.wavefront_edge_offset_margin` = 0.01 in the car config.
+PUSH_STANDOFF = WAVEFRONT_ROBOT_R + 0.010
+POINTS_PER_FACE = 15
+
+
+def contact_points(blk):
+    """The 60 push contact poses, mirroring namo_push_controller.cpp:176-189 exactly.
+
+    15 per face. Top and bottom sample along the object's local x at y = +-(hy + standoff); left and
+    right sample along local y at x = +-(hx + standoff). Then rotate into world by the object yaw.
+    """
+    pts = []
+    for u in np.linspace(-blk.hx, blk.hx, POINTS_PER_FACE):
+        pts.append((u, blk.hy + PUSH_STANDOFF))
+        pts.append((u, -blk.hy - PUSH_STANDOFF))
+    for v in np.linspace(-blk.hy, blk.hy, POINTS_PER_FACE):
+        pts.append((blk.hx + PUSH_STANDOFF, v))
+        pts.append((-blk.hx - PUSH_STANDOFF, v))
+    c, s = math.cos(blk.yaw), math.sin(blk.yaw)
+    return [(blk.cx + c * px - s * py, blk.cy + s * px + c * py) for px, py in pts]
+
+
+def n_reachable_contacts(statics, blocker, start):
+    """How many of the 60 contact poses sit in the robot's own free region at t=0.
+
+    This is the SEARCH DENOMINATOR, and it decides the tier more than anything else does. Measured
+    against 981 exhaustively-labelled scenes it tracks the simulator's `tried_1push` at Spearman
+    0.961, for no physics at all.
+
+    The direction is the opposite of the obvious guess. Wedging a block into a brick pocket does not
+    make a scene HARD, it makes it UNSOLVABLE: those scenes average 10.1 reachable contacts, and
+    with a denominator that small any push that works at all pushes the solve rate straight into the
+    easy band. Hard scenes are the ones where the block is wide open (mean 25.6 contacts) and almost
+    none of the many available pushes clear the corridor. Conditioning on >= 24 contacts with 2
+    bricks yields 17.6% hard on the hmax=2 axis against a 3.7% base rate.
+    """
+    m = _blocked_mask(statics + [blocker], INFLATE_R)
+    si = _cell(start)
+    if m[si]:
+        return 0
+    lab, _ = ndimage.label(~m, structure=_S8)
+    home, (nx, ny) = lab[si], m.shape
+    k = 0
+    for p in contact_points(blocker):
+        i, j = _cell(p)
+        if 0 <= i < nx and 0 <= j < ny and lab[i, j] == home:
+            k += 1
+    return k
+
+
 def open_frac(statics, blocker, start, goal, margin_r, span=0.08, n=9, nrot=4):
     """Fraction of feasible DISPLACED blocker poses that open the corridor. A physics-free proxy
     for how many of the 60x5 pushes will solve the scene, so difficulty can be targeted before
@@ -326,7 +377,8 @@ def _layout(rng, name, n_bricks):
 LAYOUTS = ("side_gap", "center_door", "stagger", "pocket")
 
 
-def sample_scene(rng, movable_names, max_bricks, margin_r, band, layouts, tries=600):
+def sample_scene(rng, movable_names, max_bricks, margin_r, band, layouts, contacts=(0, 60),
+                 tries=600):
     """Sample one scene, gate it geometrically, then keep it only if `open_frac` lands in `band`.
 
     `band` is a (lo, hi) window on the physics-free difficulty proxy. Steering here is what makes
@@ -363,11 +415,14 @@ def sample_scene(rng, movable_names, max_bricks, margin_r, band, layouts, tries=
         if not passed:
             continue
 
+        nc = n_reachable_contacts(statics, blocker, start)
+        if not (contacts[0] <= nc <= contacts[1]):
+            continue
         of = open_frac(statics, blocker, start, goal, margin_r)
         if not (lo <= of <= hi):
             continue
-        return {"statics": statics, "blocker": blocker, "blocker_name": name,
-                "start": start, "goal": goal, "y_div": y_div, "open_frac": of}, "ok"
+        return {"statics": statics, "blocker": blocker, "blocker_name": name, "start": start,
+                "goal": goal, "y_div": y_div, "open_frac": of, "n_contacts": nc}, "ok"
     return None, "exhausted"
 
 
@@ -484,6 +539,7 @@ def to_build_sheet(scene, scene_id):
         "run_namo_goal_flag": f"--goal {cm(scene['goal'][0]):.0f} {cm(scene['goal'][1]):.0f}",
         "n_bricks": len(scene["statics"]),
         "open_frac": round(scene["open_frac"], 4),
+        "n_contacts": scene["n_contacts"],
     }
 
 
@@ -500,6 +556,10 @@ def main():
     ap.add_argument("--open-frac", default="0,1",
                     help="lo,hi window on the physics-free difficulty proxy. Roughly: easy 0.15+, "
                          "med 0.02-0.12, hard 0.005-0.04. Below ~0.01 scenes tip to unsolvable")
+    ap.add_argument("--contacts", default="0,60",
+                    help="lo,hi on reachable contact count, the strongest tier signal there is. "
+                         "hmax=2 hard wants >=24 with 2 bricks (17.6%% hard vs 3.7%% base); <12 "
+                         "means the block is wedged and the scene tends to be UNSOLVABLE, not hard")
     ap.add_argument("--layouts", default=",".join(LAYOUTS),
                     help=f"comma-separated wall layouts; all: {','.join(LAYOUTS)}")
     ap.add_argument("--movables", default=",".join(ON_TABLE),
@@ -514,6 +574,7 @@ def main():
     if unknown:
         ap.error(f"unknown movables: {unknown}")
     lo, hi = (float(v) for v in args.open_frac.split(","))
+    clo, chi = (int(v) for v in args.contacts.split(","))
     layouts = [l.strip() for l in args.layouts.split(",") if l.strip()]
     bad = [l for l in layouts if l not in LAYOUTS]
     if bad:
@@ -527,7 +588,7 @@ def main():
     while len(manifest) < args.num and attempts < args.num * 60:
         attempts += 1
         scene, reason = sample_scene(rng, movable_names, args.max_bricks, margin_r,
-                                     (lo, hi), layouts)
+                                     (lo, hi), layouts, (clo, chi))
         if scene is None:
             rejects[reason] = rejects.get(reason, 0) + 1
             continue
@@ -551,6 +612,8 @@ def main():
     if sheets:
         ofs = sorted(s["open_frac"] for s in sheets)
         print(f"open_frac: min={ofs[0]:.3f} med={ofs[len(ofs)//2]:.3f} max={ofs[-1]:.3f}")
+        ncs = sorted(s["n_contacts"] for s in sheets)
+        print(f"contacts:  min={ncs[0]} med={ncs[len(ncs)//2]} max={ncs[-1]}")
         import collections as _c
         print("bricks used:", dict(sorted(_c.Counter(s["n_bricks"] for s in sheets).items())))
     if rejects:
