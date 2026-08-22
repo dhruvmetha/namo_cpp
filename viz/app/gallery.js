@@ -6,8 +6,14 @@
 // scripts/viz/build_scene_cards.py.
 
 const NOCACHE = { cache: "no-store" };
-const STORE_KEY = "namo-viz-gallery-state";
-const STAR_KEY = "namo-viz-gallery-stars";
+// The page code lives once under viz/app/; every dataset (viz/scenes/, viz/real_scenes/, ...) is a
+// sibling folder of data only. ?data=<path relative to viz/app/> says which one this load is for --
+// e.g. "../scenes/" (see viz/app/datasets.json, the manifest a new dataset needs one line in).
+const DATA_BASE = new URLSearchParams(window.location.search).get("data") || "";
+// Scoped by dataset: two galleries sharing one page still share one browser origin, so an
+// unscoped key would mix one dataset's saved filters and starred shortlist into the other's.
+const STORE_KEY = "namo-viz-gallery-state:" + DATA_BASE;
+const STAR_KEY = "namo-viz-gallery-stars:" + DATA_BASE;
 const TIER_ORDER = { hard: 0, medium: 1, easy: 2 };
 
 const horizonSelect = document.getElementById("horizon-select");
@@ -23,8 +29,10 @@ const positionEl = document.getElementById("position");
 const summary = document.getElementById("summary");
 const starCount = document.getElementById("star-count");
 
-const famBoxes = [...document.querySelectorAll("input[data-family]")];
-const FILTERS = [horizonSelect, tierSelect, sortSelect, textFilter, starredOnly, ...famBoxes];
+const famControl = document.getElementById("fam-control");
+const famRow = document.getElementById("fam-row");
+let famBoxes = [];      // built in init() from the families this dataset actually contains
+const FILTERS = [horizonSelect, tierSelect, sortSelect, textFilter, starredOnly];
 
 let index = null;
 let timing = null;       // per-problem seconds from the timed campaign; absent = the page hides them
@@ -52,16 +60,42 @@ function saveStars() {
 
 // timing.json is optional: a gallery built without build_scene_timing.py still works, it just has
 // no seconds to show or sort by.
-Promise.all([
-  fetch("scenes.json", NOCACHE).then((r) => r.json()),
-  fetch("timing.json", NOCACHE).then((r) => (r.ok ? r.json() : null)).catch(() => null),
-]).then(([m, t]) => {
-  index = m;
-  timing = t && t.cards ? t.cards : null;
-  init();
-}).catch((err) => { summary.textContent = "Failed to load scenes.json: " + err; });
+if (!DATA_BASE) {
+  summary.textContent = "Missing ?data=<path to a dataset folder, relative to viz/app/> in the URL.";
+} else {
+  Promise.all([
+    fetch(DATA_BASE + "scenes.json", NOCACHE).then((r) => r.json()),
+    fetch(DATA_BASE + "timing.json", NOCACHE).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+  ]).then(([m, t]) => {
+    index = m;
+    timing = t && t.cards ? t.cards : null;
+    init();
+  }).catch((err) => { summary.textContent = "Failed to load scenes.json: " + err; });
+}
+
+// One shared page serves several datasets, so the room batches cannot be baked into the markup:
+// the car_envs pools are feb_car/aug9_car, the real-table set is real_table. Read them off the
+// index instead, and skip the control entirely when there is only one batch to choose.
+function buildFamilyBoxes() {
+  const fams = [...new Set(index.cards.map((r) => r.family))].sort();
+  famRow.textContent = "";
+  famBoxes = fams.map((f) => {
+    const label = document.createElement("label");
+    label.className = "checkbox";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.dataset.family = f;
+    box.checked = true;
+    box.addEventListener("input", () => applyFilters(null));
+    label.append(box, " " + f);
+    famRow.append(label);
+    return box;
+  });
+  famControl.hidden = fams.length < 2;
+}
 
 function init() {
+  buildFamilyBoxes();
   stars = JSON.parse(localStorage.getItem(STAR_KEY) || "{}");
   starCount.textContent = Object.keys(stars).length;
 
@@ -75,7 +109,9 @@ function init() {
     textFilter.value = saved.text || "";
     starredOnly.checked = !!saved.starredOnly;
     // Never restore "no batch selected" -- that reads as an empty gallery, not as a filter.
-    if (saved.families && saved.families.length) {
+    // Also skip the restore when none of the saved batches exist in this dataset any more --
+    // unchecking every box reads as an empty gallery, not as a filter.
+    if (saved.families && famBoxes.some((b) => saved.families.includes(b.dataset.family))) {
       famBoxes.forEach((b) => { b.checked = saved.families.includes(b.dataset.family); });
     }
     wantFile = saved.file;
@@ -164,7 +200,7 @@ function stepEpisode(d) {
 function fetchReplay(row) {
   if (!row) return Promise.resolve(null);
   if (replayCache.has(row.file)) return Promise.resolve(replayCache.get(row.file));
-  return fetch("replay/" + row.file, NOCACHE)
+  return fetch(DATA_BASE + "replay/" + row.file, NOCACHE)
     .then((r) => (r.ok ? r.json() : null))
     .catch(() => null)
     .then((v) => {
@@ -177,7 +213,7 @@ function fetchReplay(row) {
 function fetchCard(row) {
   if (!row) return Promise.resolve(null);
   if (cardCache.has(row.file)) return Promise.resolve(cardCache.get(row.file));
-  return fetch("cards/" + row.file, NOCACHE).then((r) => r.json()).then((c) => {
+  return fetch(DATA_BASE + "cards/" + row.file, NOCACHE).then((r) => r.json()).then((c) => {
     if (cardCache.size > 60) cardCache.delete(cardCache.keys().next().value);
     cardCache.set(row.file, c);
     return c;

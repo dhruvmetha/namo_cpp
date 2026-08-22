@@ -71,6 +71,11 @@ function qs(name) {
   return new URLSearchParams(window.location.search).get(name);
 }
 
+// The page code lives once under viz/app/; every dataset (viz/search/, viz/scenes/, ...) is a sibling
+// folder of data only. ?data=<path relative to viz/app/> says which one this load is for -- e.g.
+// "../search/" (see viz/app/datasets.json, the manifest a new dataset needs one line in).
+const DATA_BASE = qs("data") || "";
+
 function sp() {
   return state.trace.meta.search || SEARCH_DEFAULTS;
 }
@@ -676,10 +681,10 @@ async function init() {
   try {
     // no-store on every fetch: these files are REGENERATED in place at the same paths, so a cached copy
     // silently shows a stale search -- e.g. the index reporting 5 sims while the episode view shows 11.
-    manifest = await (await fetch("manifest.json", NOCACHE)).json();
+    manifest = await (await fetch(DATA_BASE + "manifest.json", NOCACHE)).json();
     row = manifest.index[arm].find((r) => r.key === key);
-    trace = await (await fetch(`trace/${model}/${strategy}/${key}.json`, NOCACHE)).json();
-    gt = row.has_gt ? await (await fetch(`gt/${key}.json`, NOCACHE)).json() : null;
+    trace = await (await fetch(`${DATA_BASE}trace/${model}/${strategy}/${key}.json`, NOCACHE)).json();
+    gt = row.has_gt ? await (await fetch(`${DATA_BASE}gt/${key}.json`, NOCACHE)).json() : null;
   } catch (err) {
     header.textContent = `Failed to load episode data: ${err}`;
     return;
@@ -711,7 +716,8 @@ async function init() {
 
   const sceneName = trace.meta.xml.split("/").pop();
   header.innerHTML =
-    `<a href="index.html">&larr; index</a>` +
+    `<a href="index.html">&larr; NAMO viz</a> &middot; ` +
+    `<a href="search.html?data=${encodeURIComponent(DATA_BASE)}">&larr; index</a>` +
     `<span class="mono">${sceneName}</span> &middot; <span class="mono">${trace.meta.object_id}</span>` +
     ` &middot; tier ${row.tier}` +
     ` &middot; ${trace.meta.model}/${trace.meta.strategy}` +

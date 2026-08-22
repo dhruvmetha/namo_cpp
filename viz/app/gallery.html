@@ -7,6 +7,7 @@
 </head>
 <body class="gallery-body">
 <header class="gallery-bar">
+  <p class="crumb"><a href="index.html">&larr; NAMO viz</a></p>
   <div class="controls">
     <label>Horizon
       <select id="horizon-select">
@@ -34,12 +35,11 @@
     <label>Scene
       <input type="search" id="text-filter" placeholder="scene or object">
     </label>
-    <span class="control">
+    <span class="control" id="fam-control" hidden>
       <span class="control-cap">Room batch</span>
-      <span class="checkrow">
-        <label class="checkbox"><input type="checkbox" id="fam-feb_car" data-family="feb_car" checked> feb_car</label>
-        <label class="checkbox"><input type="checkbox" id="fam-aug9_car" data-family="aug9_car" checked> aug9_car</label>
-      </span>
+      <!-- filled from the families present in this dataset's scenes.json, so a new dataset needs no
+           edit here; hidden when the dataset has only one batch. -->
+      <span class="checkrow" id="fam-row"></span>
     </span>
     <label class="checkbox"><input type="checkbox" id="starred-only"> starred only</label>
     <span class="nav-group">

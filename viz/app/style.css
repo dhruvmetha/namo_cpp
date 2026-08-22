@@ -1,5 +1,5 @@
-/* Shared palette for viz/search: opener/setup/dead/masked-or-unknown badges.
-   Used by index.html and (Task 8) episode.html — keep these four rules stable. */
+/* Shared palette for every viz/app page: opener/setup/dead/masked-or-unknown badges.
+   Used by search.html and episode.html — keep these four rules stable. */
 :root {
   --opener: #2e7d32;
   --dead: #c62828;
@@ -496,3 +496,21 @@ td.no { color: var(--dead); }
 .step-pill:hover { background: var(--border); }
 .step-pill.on { background: var(--fg); color: var(--bg); border-color: var(--fg); }
 .step-note { flex-basis: 100%; font-size: 0.78rem; color: #666; margin-top: 0.15rem; }
+
+/* Landing page: one card per dataset (viz/app/datasets.json). Plain bordered boxes, no shadows or
+   colour beyond what the rest of the page already uses -- this is a lab tool, not a product. */
+.landing-body main { max-width: 900px; }
+.dataset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.9rem; margin-top: 1rem; }
+.dataset-card { display: block; border: 1px solid var(--border); border-radius: 4px;
+  padding: 0.8rem 1rem; color: inherit; text-decoration: none; background: var(--bg); }
+.dataset-card:hover { background: var(--row-hover); border-color: #999; }
+.dataset-card h2 { margin: 0 0 0.35rem; font-size: 1rem; }
+.dataset-desc { margin: 0 0 0.6rem; font-size: 0.85rem; color: #555; }
+.dataset-count { margin: 0; font-size: 0.8rem; color: #333; }
+.dataset-card.is-disabled { color: #999; cursor: default; }
+.landing-note { margin-top: 1.5rem; max-width: 640px; }
+
+/* Breadcrumb back to the landing page, top of every tool page. */
+.crumb { margin: 0 0 0.5rem; font-size: 0.8rem; }
+.crumb a { color: #555; }

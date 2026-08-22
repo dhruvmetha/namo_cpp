@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NAMO search viz — episode index</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <p class="crumb"><a href="index.html">&larr; NAMO viz</a></p>
+  <h1>Episode index</h1>
+  <p class="sub">Where does the model's ranking fail? Worst episodes (highest rank of best green) sort to the top by default.</p>
+  <div class="controls">
+    <label>Model
+      <select id="model-select"></select>
+    </label>
+    <label>Strategy
+      <select id="strategy-select"></select>
+    </label>
+    <label>Tier
+      <select id="tiergt-select" title="Difficulty from exhaustive GT setup density: hard &lt;5%, medium 5-30%, easy &gt;=30%. The plain Tier column comes from the manifest's incomplete setup count.">
+        <option value="all">all</option>
+        <option value="easy">easy</option>
+        <option value="medium">medium</option>
+        <option value="hard">hard</option>
+      </select>
+    </label>
+    <label>Solved
+      <select id="solved-select">
+        <option value="all">all</option>
+        <option value="yes">solved</option>
+        <option value="no">unsolved</option>
+      </select>
+    </label>
+    <label>Top-1 truth
+      <select id="top1-select">
+        <option value="all">all</option>
+        <option value="opener">opener</option>
+        <option value="setup">setup</option>
+        <option value="dead">dead</option>
+      </select>
+    </label>
+    <label>Rank(best green)
+      <select id="rank-select">
+        <option value="all">all</option>
+        <option value="1">exactly 1</option>
+        <option value="2-5">2&ndash;5</option>
+        <option value="6-20">6&ndash;20</option>
+        <option value="20+">&gt; 20</option>
+      </select>
+    </label>
+    <label>Sims
+      <span class="range">
+        <input type="number" id="sims-min" min="0" placeholder="min">
+        <input type="number" id="sims-max" min="0" placeholder="max">
+      </span>
+    </label>
+    <label>Search
+      <input type="search" id="text-filter" placeholder="scene or object">
+    </label>
+    <button type="button" id="reset-btn" title="Clear every filter and forget the saved state">Reset</button>
+  </div>
+  <div id="summary" class="summary">loading manifest.json&hellip;</div>
+</header>
+<main>
+<table id="episode-table">
+  <thead>
+    <tr>
+      <th data-col="xml">Scene</th>
+      <th data-col="object_id">Object</th>
+      <th data-col="tier_gt" title="Difficulty from exhaustive GT setup density: hard &lt;5%, medium 5-30%, easy &gt;=30%.">Tier</th>
+      <th data-col="solved">Solved</th>
+      <th data-col="sims" class="num">Sims</th>
+      <th data-col="rank_best_green" class="num">Rank(best green)</th>
+      <th data-col="setup_hardness_pct" class="num" title="GT setups at the root / reachable pushes at the root. Higher = more of the pushes work = easier.">Setup %</th>
+      <th data-col="finish_hardness_mean" class="num" title="Per true setup: GT openers on that finish board / reachable pushes there. Mean across the episode's setups.">Finish % (mean)</th>
+      <th data-col="finish_hardness_sd" class="num" title="Standard deviation of the per-setup finish percentages, in percentage points. 0 when the episode has a single setup.">Finish sd</th>
+      <th data-col="top1">Top-1 truth</th>
+    </tr>
+  </thead>
+  <tbody id="episode-tbody"></tbody>
+</table>
+</main>
+<script>
+"use strict";
+
+// The page code lives once under viz/app/; every dataset (viz/search/, ...) is a sibling folder of
+// data only. ?data=<path relative to viz/app/> says which one this load is for -- e.g. "../search/"
+// (see viz/app/datasets.json, the manifest a new dataset needs one line in).
+const DATA_BASE = new URLSearchParams(window.location.search).get("data") || "";
+
+let manifest = null;
+let sortCol = "rank_best_green";
+let sortDir = "desc"; // spec default: worst (rank_best_green descending, nulls at the worst end) first
+
+const modelSelect = document.getElementById("model-select");
+const strategySelect = document.getElementById("strategy-select");
+const tierGtSelect = document.getElementById("tiergt-select");
+const solvedSelect = document.getElementById("solved-select");
+const top1Select = document.getElementById("top1-select");
+const rankSelect = document.getElementById("rank-select");
+const simsMin = document.getElementById("sims-min");
+const simsMax = document.getElementById("sims-max");
+const textFilter = document.getElementById("text-filter");
+const resetBtn = document.getElementById("reset-btn");
+const tbody = document.getElementById("episode-tbody");
+const summary = document.getElementById("summary");
+
+// Filter + sort state persists across reloads. localStorage rather than cookies: same effect for the
+// user, no size ceiling, and nothing rides along on every request to a plain static file server.
+// Scoped by dataset: two search datasets sharing one page still share one browser origin, so an
+// unscoped key would mix one dataset's saved filters into another's.
+const STORE_KEY = "namo-viz-index-state:" + DATA_BASE;
+const FILTERS = [
+  [tierGtSelect, "all"], [solvedSelect, "all"], [top1Select, "all"],
+  [rankSelect, "all"], [simsMin, ""], [simsMax, ""], [textFilter, ""],
+];
+
+function saveState() {
+  const f = {};
+  FILTERS.forEach(([el]) => { f[el.id] = el.value; });
+  localStorage.setItem(STORE_KEY, JSON.stringify({
+    model: modelSelect.value, strategy: strategySelect.value, sortCol, sortDir, filters: f,
+  }));
+}
+
+// A saved arm goes stale every time the traces are regenerated, so anything that is no longer an
+// option falls back to the default rather than rendering an empty table that looks like data loss.
+function restoreState() {
+  const raw = localStorage.getItem(STORE_KEY);
+  if (!raw) return;
+  const s = JSON.parse(raw);
+  const has = (sel, v) => [...sel.options].some((o) => o.value === v);
+  if (s.model && has(modelSelect, s.model)) modelSelect.value = s.model;
+  populateStrategies();
+  if (s.strategy && has(strategySelect, s.strategy)) strategySelect.value = s.strategy;
+  if (s.sortCol) sortCol = s.sortCol;
+  if (s.sortDir) sortDir = s.sortDir;
+  FILTERS.forEach(([el, dflt]) => {
+    const v = s.filters && s.filters[el.id];
+    el.value = v !== undefined && (el.tagName !== "SELECT" || has(el, v)) ? v : dflt;
+  });
+}
+
+if (!DATA_BASE) {
+  summary.textContent = "Missing ?data=<path to a dataset folder, relative to viz/app/> in the URL.";
+} else {
+  fetch(DATA_BASE + "manifest.json", { cache: "no-store" })
+    .then((r) => r.json())
+    .then((m) => {
+      manifest = m;
+      init();
+    })
+    .catch((err) => {
+      summary.textContent = "Failed to load manifest.json: " + err;
+    });
+}
+
+function init() {
+  const models = [...new Set(manifest.arms.map((a) => a.model))].sort();
+  models.forEach((m) => modelSelect.add(new Option(m, m)));
+  modelSelect.value = models[0];
+  populateStrategies();
+  restoreState();
+
+  modelSelect.addEventListener("change", () => {
+    populateStrategies();
+    render();
+  });
+  strategySelect.addEventListener("change", render);
+  FILTERS.forEach(([el]) => el.addEventListener("input", render));
+
+  resetBtn.addEventListener("click", () => {
+    localStorage.removeItem(STORE_KEY);
+    FILTERS.forEach(([el, dflt]) => { el.value = dflt; });
+    modelSelect.value = models[0];
+    populateStrategies();
+    sortCol = "rank_best_green";
+    sortDir = "desc";
+    render();
+  });
+
+  document.querySelectorAll("th[data-col]").forEach((th) => {
+    th.addEventListener("click", () => {
+      const col = th.dataset.col;
+      if (sortCol === col) {
+        sortDir = sortDir === "asc" ? "desc" : "asc";
+      } else {
+        sortCol = col;
+        sortDir = "asc";
+      }
+      render();
+    });
+  });
+
+  render();
+}
+
+function populateStrategies() {
+  const model = modelSelect.value;
+  const strategies = [...new Set(
+    manifest.arms.filter((a) => a.model === model).map((a) => a.strategy)
+  )].sort();
+  const prev = strategySelect.value;
+  strategySelect.innerHTML = "";
+  strategies.forEach((s) => strategySelect.add(new Option(s, s)));
+  strategySelect.value = strategies.includes(prev) ? prev : strategies[0];
+}
+
+// null when the episode has no GT rows to compute it from; show a dash rather than "null"
+function pct(v) {
+  return v === null || v === undefined ? "-" : v.toFixed(1);
+}
+
+function sceneName(xml) {
+  return xml.split("/").pop();
+}
+
+// Numeric/string key per column for the comparator below. rank_best_green
+// nulls become +Infinity so they always land at the "worst" end regardless
+// of sort direction (spec requirement).
+function sortValue(row, col) {
+  if (col === "rank_best_green") {
+    return row.rank_best_green === null ? Infinity : row.rank_best_green;
+  }
+  if (col === "xml") {
+    return sceneName(row.xml);
+  }
+  if (col === "setup_hardness_pct" || col === "finish_hardness_mean" || col === "finish_hardness_sd") {
+    return row[col] === null || row[col] === undefined ? Infinity : row[col];
+  }
+  if (col === "solved") {
+    return row[col] ? 1 : 0;
+  }
+  return row[col];
+}
+
+// Every filter narrows: a row survives only if it passes all of them.
+function matches(r) {
+  // A null rank means either no GT (37 episodes) or GT's root green set is empty (21). The headline
+  // metric is undefined for both, so they never appear in this table.
+  if (r.rank_best_green === null) return false;
+  if (tierGtSelect.value !== "all" && r.tier_gt !== tierGtSelect.value) return false;
+  if (solvedSelect.value !== "all" && r.solved !== (solvedSelect.value === "yes")) return false;
+  if (top1Select.value !== "all" && r.top1 !== top1Select.value) return false;
+
+  const k = rankSelect.value;
+  if (k !== "all") {
+    const g = r.rank_best_green;
+    if (k === "1" && g !== 1) return false;
+    if (k === "2-5" && !(g >= 2 && g <= 5)) return false;
+    if (k === "6-20" && !(g >= 6 && g <= 20)) return false;
+    if (k === "20+" && !(g > 20)) return false;
+  }
+
+  if (simsMin.value !== "" && r.sims < Number(simsMin.value)) return false;
+  if (simsMax.value !== "" && r.sims > Number(simsMax.value)) return false;
+
+  const q = textFilter.value.trim().toLowerCase();
+  if (q && !(sceneName(r.xml).toLowerCase().includes(q) || r.object_id.toLowerCase().includes(q))) {
+    return false;
+  }
+  return true;
+}
+
+function render() {
+  const model = modelSelect.value;
+  const strategy = strategySelect.value;
+  const arm = model + "|" + strategy;
+
+  const all = manifest.index[arm];
+  const rows = all.filter(matches);
+
+  rows.sort((a, b) => {
+    const va = sortValue(a, sortCol);
+    const vb = sortValue(b, sortCol);
+    const cmp = typeof va === "string" ? va.localeCompare(vb) : va - vb;
+    return sortDir === "asc" ? cmp : -cmp;
+  });
+
+  tbody.innerHTML = "";
+  rows.forEach((row) => {
+    const href =
+      "episode.html?arm=" + encodeURIComponent(arm) + "&key=" + encodeURIComponent(row.key) +
+      "&data=" + encodeURIComponent(DATA_BASE);
+    const tr = document.createElement("tr");
+    tr.className = "row-link";
+    tr.innerHTML =
+      '<td><a href="' + href + '" title="' + row.xml + '">' + sceneName(row.xml) + "</a></td>" +
+      '<td class="mono">' + row.object_id + "</td>" +
+      "<td>" + (row.tier_gt || "-") + "</td>" +
+      '<td class="' + (row.solved ? "yes" : "no") + '">' + (row.solved ? "yes" : "no") + "</td>" +
+      '<td class="mono num">' + row.sims + "</td>" +
+      '<td class="mono num' + (row.rank_best_green === null ? " rank-none" : "") + '">' +
+        (row.rank_best_green === null ? "none" : row.rank_best_green) + "</td>" +
+      '<td class="mono num">' + pct(row.setup_hardness_pct) + "</td>" +
+      '<td class="mono num">' + pct(row.finish_hardness_mean) + "</td>" +
+      '<td class="mono num">' + pct(row.finish_hardness_sd) + "</td>" +
+      '<td><span class="badge badge-' + row.top1 + '">' + row.top1 + "</span></td>" +
+      "";
+    tr.addEventListener("click", (ev) => {
+      if (ev.target.tagName !== "A") window.location.href = href;
+    });
+    tbody.appendChild(tr);
+  });
+
+  const solvedCount = rows.filter((r) => r.solved).length;
+  const hidden = all.length - rows.length;
+  summary.textContent =
+    rows.length + " episodes shown · " + solvedCount + " solved" +
+    (hidden ? " · " + hidden + " hidden (filters, or no GT rank)" : "");
+
+  updateSortIndicators();
+  saveState();
+}
+
+function updateSortIndicators() {
+  document.querySelectorAll("th[data-col]").forEach((th) => {
+    th.classList.remove("sort-asc", "sort-desc");
+    if (th.dataset.col === sortCol) {
+      th.classList.add(sortDir === "asc" ? "sort-asc" : "sort-desc");
+    }
+  });
+}
+</script>
+</body>
+</html>
