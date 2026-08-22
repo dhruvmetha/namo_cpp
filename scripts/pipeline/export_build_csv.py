@@ -18,6 +18,17 @@ Column choices that are not obvious:
 
 Rows sort by build_id then item, bricks before blocks.
 
+⚠ WHAT `solve_rate` DOES AND DOES NOT PREDICT. It says WHICH pushes open a region. It says nothing
+about HOW FAR anything moves, and no displacement should be read out of it. The asymmetry is in the
+physics constants: the PUSHER is calibrated against hardware, `push_tracker_max_speed: 0.05357` from
+a binary search against a real chassis (real median cruise 5.125 cm/s +- 0.010, sim 5.123; see the
+comment at namo_config_complete_skill15_car_1x.yaml:92). The PUSHEE is invented. Block mass is 0.1 kg
+because a constant says so and nothing has ever been weighed, and the friction constants trace to
+other XML files rather than to any measurement: the hardware repo's OBJECT_FRICTION comment records
+that it was changed because two SIMULATORS disagreed, and STATIC_FRICTION is simply MuJoCo's default,
+reached by matching a file that never set the attribute. Ordering survives all that, since it turns
+mostly on geometry and contact point. Distance does not.
+
   python scripts/pipeline/export_build_csv.py --sel-dir <deliver_hmax2> --out-dir <csv dir>
 """
 import argparse
@@ -35,7 +46,7 @@ COLUMNS = ["build_id", "tier", "axis", "item", "marker_hint", "centre_x_cm", "ce
            "long_axis_bearing_deg", "long_cm", "short_cm", "height_cm", "n_bricks",
            "robot_start_x_cm", "robot_start_y_cm", "robot_start_bearing_deg",
            "goal_x_cm", "goal_y_cm",
-           "solve_rate", "tried", "valid_1push", "valid_first_push",
+           "solve_rate", "tried", "push_kind", "valid_1push", "valid_first_push",
            "n_contacts_reachable", "n_contacts_cutoff", "n_contacts_collision",
            "angle_convention", "tag_convention"]
 
@@ -67,6 +78,11 @@ def rows_for(sheet):
         "robot_start_bearing_deg": sheet["robot_start_bearing_deg"],
         "goal_x_cm": sheet["goal_cm"][0], "goal_y_cm": sheet["goal_cm"][1],
         "solve_rate": sheet["solve_rate"], "tried": sheet["n_tried"],
+        # Stated, not left for the reader to infer from two counts. On the hmax=2 axis 57 of 100
+        # hard scenes have NO single push that opens the region: their only solutions are 2-chains,
+        # where the first push is a setup that leaves the region shut. Someone watching the robot
+        # push a block and seeing nothing open will call that a failure when it is the correct move.
+        "push_kind": "one_push" if sheet["n_valid_1push"] else "needs_2_chain",
         "valid_1push": sheet["n_valid_1push"], "valid_first_push": sheet["n_valid_first_push"],
         "angle_convention": sheet["angle_convention"], "tag_convention": sheet["tag_convention"],
     }
