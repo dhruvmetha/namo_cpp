@@ -505,3 +505,13 @@ Card: [EXP-2026-08-22-fixed-template-keyhole-scale](archive/EXP-2026-08-22-fixed
 | 0.20 m | 1,158 | 90 | 31 | 2.68% | 34.44% |
 
 **REJECT random-pair production and the 0.20 m relaxation.** At 0.30 m, 94.1% of sampled pairs failed to form the intended ordered two-hop topology; all 29 successes came from only two of ten templates. Lowering the distance admitted many more statically plausible pairs but only two more accepted scenes, tripled replay failures from 19 to 59, and lengthened the slowest task from 3:33 to 6:11. The generator must choose the three-room endpoint layout and doorway slots first, then insert easy K1/K2 modules; sampling blockers first makes the desired topology accidental.
+
+## 2026-08-22 — Easy one-push modules produce clean room-like two-hop scenes
+
+Card: [EXP-2026-08-22-easy-room-stitch](archive/EXP-2026-08-22-easy-room-stitch.md). Two canonical easy one-push modules were composed on the productive `set2/benchmark_5` room template with the robot and goal in opposite endpoint components.
+
+| candidates examined | exact room chains | forward replay solved | representative trace |
+|---:|---:|---:|---|
+| 26 | 5 | **5/5** | `[0,0] → [100,0] → [100,80]` |
+
+**ACCEPT the easy-room recipe.** Every scene had the exact C++ region path `robot → middle room → goal`; after K1, only the middle component opened, and K2 then opened the goal component. The simplest case is therefore easy to realize once the endpoint rooms and doorway order are right. The generator should treat each donor as a directed room-to-room module and join K1's exit room to K2's entry room, instead of sampling blocker pairs first and discovering the topology afterward.
