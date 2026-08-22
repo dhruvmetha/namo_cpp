@@ -297,6 +297,15 @@ def open_frac(statics, blocker, start, goal, margin_r, span=0.08, n=9, nrot=4):
     `solve_rate_1push`, with tier means easy 0.244, med 0.054, unsolvable 0.024. It is a STEERING
     signal, not a label. The bands only bias what gets generated; the exhaustive collection still
     decides every scene's actual tier.
+
+    ⛔ DO NOT DROP THIS FILTER WHEN STEERING ON CONTACT COUNT. It looks marginally useless on the
+    hmax=2 axis (median 0.03 for easy, med and hard alike across 981 scenes) and it is not: it is
+    doing the work CONDITIONALLY. A pool generated with `--contacts 24,60 --max-bricks 2` but
+    `--open-frac 0,1` returned 1 hard scene in 768, against 6.0% and 3.9% in two pools that had no
+    contact filter at all but did have an open_frac band. Median open_frac was 0.503 in the wide
+    pool against 0.027 in the banded ones. The 17.6%-hard figure that motivated the contact rule was
+    measured INSIDE an already open_frac-filtered population, so it was a conditional rate read as a
+    marginal one. Steer on both together or neither.
     """
     si, gi = _cell(start), _cell(goal)
     feasible = opened = 0
