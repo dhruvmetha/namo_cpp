@@ -75,25 +75,47 @@ def _bearing(size_cm, yaw_deg):
     return round((yaw_deg + (0.0 if size_cm[0] >= size_cm[1] else 90.0)) % 180.0, 1)
 
 
+ANGLE_CONVENTION = ("long_axis_bearing_deg = bearing of the item's LONG side in world, "
+                    "counter-clockwise from +X, in [0,180). Place by this, not by yaw. yaw_deg is "
+                    "the MuJoCo local-frame rotation and its meaning differs between bricks (long "
+                    "side on local X) and blocks (long side on local Y).")
+
+
 def normalize(sheet):
-    """Backfill long_axis_bearing_deg onto sheets written before the generator emitted it."""
-    conv = ("long_axis_bearing_deg = bearing of the item's LONG side in world, counter-clockwise "
-            "from +X, in [0,180). Place by this, not by yaw. yaw_deg is the MuJoCo local-frame "
-            "rotation and its meaning differs between bricks (long side on local X) and blocks "
-            "(long side on local Y).")
-    sheet.setdefault("angle_convention", conv)
-    bricks = []
-    for b in sheet["bricks"]:
-        sz = b.get("size_cm", [19.5, 5.5])
-        bricks.append(dict(b, long_axis_bearing_deg=b.get("long_axis_bearing_deg",
-                                                          _bearing(sz, b["yaw_deg"])),
-                           long_cm=max(sz), short_cm=min(sz), height_cm=10.0))
-    sheet["bricks"] = bricks
-    bl = dict(sheet["blocker"])
-    sz = bl["size_cm"]
-    bl.setdefault("long_axis_bearing_deg", _bearing(sz, bl["yaw_deg"]))
-    bl["long_cm"], bl["short_cm"] = max(sz), min(sz)
-    sheet["blocker"] = bl
+    """Backfill long_axis_bearing_deg onto older sheets, and REFUSE rather than guess.
+
+    Every one of the four 90-degree errors this pipeline hit came from a consumer assuming a
+    default for something the producer never stated. So this raises on a missing dimension instead
+    of defaulting to a brick's 19.5 x 5.5, and raises on a stored bearing that disagrees with the
+    one recomputed from (size_cm, yaw_deg) instead of trusting whichever it found first. A loud
+    failure here costs a rerun; a quiet one costs a physical bar placed a quarter turn wrong and a
+    hardware result nobody can trace.
+    """
+    conv = sheet.get("angle_convention")
+    if conv is not None and conv != ANGLE_CONVENTION:
+        raise ValueError(f"{sheet['scene_id']}: unrecognised angle_convention, refusing to guess "
+                         f"what its yaw means:\n  {conv}")
+    sheet["angle_convention"] = ANGLE_CONVENTION
+
+    def fix(item, what):
+        sz = item.get("size_cm")
+        if sz is None:
+            lo, sh_ = item.get("long_cm"), item.get("short_cm")
+            if lo is None or sh_ is None:
+                raise ValueError(f"{sheet['scene_id']}: {what} has neither size_cm nor "
+                                 f"long_cm/short_cm; cannot tell which local axis is long")
+            sz = [sh_, lo]
+        want = _bearing(sz, item["yaw_deg"])
+        have = item.get("long_axis_bearing_deg")
+        if have is not None and abs((have - want + 90.0) % 180.0 - 90.0) > 0.15:
+            raise ValueError(f"{sheet['scene_id']}: {what} stores bearing {have} but (size_cm={sz}, "
+                             f"yaw={item['yaw_deg']}) gives {want}. One of them is wrong.")
+        return dict(item, long_axis_bearing_deg=want,
+                    long_cm=max(sz), short_cm=min(sz),
+                    height_cm=item.get("height_cm", 10.0 if what.startswith("brick") else None))
+
+    sheet["bricks"] = [fix(b, f"brick {i}") for i, b in enumerate(sheet["bricks"])]
+    sheet["blocker"] = fix(sheet["blocker"], "blocker")
     return sheet
 
 
