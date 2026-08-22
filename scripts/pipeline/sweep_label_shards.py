@@ -109,6 +109,9 @@ def main():
     args = ap.parse_args()
 
     all_scenes = [l.strip() for l in open(args.manifest) if l.strip()]
+    # Unique per PROCESS. done/<host>_r0 from one run and from a restart are the same path, and the
+    # archive move would overwrite the first run's results with the second's.
+    globals()["RUN_TAG"] = str(os.getpid())
     boxes = [(b.split(":")[0], int(b.split(":")[1])) for b in args.boxes]
     total_w = sum(w for _h, w in boxes)
 
@@ -129,6 +132,11 @@ def main():
                 continue
             scenes = [l.strip() for l in open(mf) if l.strip()]
             completed.update(scenes[i] for i in done_indices(shard) if i < len(scenes))
+        # Index bookkeeping DRIFTS: rewriting a shard's manifest changes what index i means, and a
+        # pkl archived under the old manifest still counts toward the new one. Left alone it
+        # over-counted 2737 against 1957 actually labelled, which would have ended the run with
+        # 1348 scenes never simulated. Rebuild from the answer key with
+        # `build_2push_validset.py --pkls-root <root>`; its keys are real xml paths and cannot drift.
         with open(done_file, "w") as f:
             f.write("\n".join(sorted(completed)) + "\n")
 
@@ -169,7 +177,7 @@ def main():
                 # rewritten one restarts at 0, but they stay under --root so the answer key still
                 # sees them. build_2push_validset.py keys on realpath(xml) read from inside each
                 # pkl, not on the filename, so same-named files in sibling dirs are fine.
-                archive = os.path.join(args.root, "done", f"{host}_r{rnd}")
+                archive = os.path.join(args.root, "done", f"{host}_{RUN_TAG}_r{rnd}")
                 os.makedirs(archive, exist_ok=True)
                 subprocess.run(
                     f"find {shard}/pkls -name '*.pkl' -exec mv -t {archive} {{}} + 2>/dev/null",
