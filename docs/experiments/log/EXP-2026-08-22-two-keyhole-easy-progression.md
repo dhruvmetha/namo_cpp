@@ -106,6 +106,12 @@ Uniform seed 7000 solved 6/10, with three solves by two calls and all six solves
 
 This smoke validates the protocol and gives a specific baseline failure mode, but ten scenes from one template are too small and donor-reused for a research verdict. Because the fixed-template shortfall is geometric rather than a dynamic-validation failure, the next step moves the planned bounded template compatibility pilots forward: `set2/benchmark_3`, `set2/benchmark_2`, then `set1/benchmark_5`, with no change to acceptance gates. A learned-versus-random evaluation remains deferred until those pilots can produce a frozen multi-template population.
 
+The bounded expansion found only two additional scenes. `set2/benchmark_3` exhausted all 16 eligible easy-easy pairs in 118 seconds and accepted 2 with four distinct donor episodes; its rejections were 12 `wrong_hop_count`, one `k1_did_not_expose_k2`, and one `final_goal_unreachable`. `set2/benchmark_2` has zero registered easy donors and `set1/benchmark_5` has only one, so neither has a legal two-donor pair.
+
+A complete donor census showed three other finite easy-easy pools, which were exhausted without acceptance: `set1/benchmark_4` accepted 0/34 with 33 wrong-hop and one invalid-goal rejection, `set1/benchmark_1` accepted 0/18 with no component path, and `set2/benchmark_1` accepted 0/14 with no component path. The donor-rich `set2/benchmark_4` received the promised bounded compatibility pilot and accepted 0/100: 96 wrong-hop and four invalid-goal rejections. In those 100 static probes, 79 placed robot and goal in the same component, 17 formed one boundary jointly blocked by both objects, and four had no path; none formed serial K1 then K2.
+
+The verified easy-easy ceiling under the frozen v0 rules is therefore 12 scenes across two templates: ten from `set2/benchmark_5` and two from `set2/benchmark_3`. The combined deterministic montage is `$NAMO_SCRATCH/eval/two_keyhole_progression_20260822/all_12_verified_scenes.png`. This does not meet the minimum 100-scene multi-template evaluation gate, so no benchmark manifest is frozen, no three-seed evaluation is launched, and no medium or hard tuple is admitted.
+
 ## Result
 
 Pending.

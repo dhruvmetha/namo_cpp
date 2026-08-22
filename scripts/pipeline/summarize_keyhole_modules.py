@@ -9,7 +9,18 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 
-STATIC_REJECTIONS = {"static_junk", "wrong_boundary_count", "wrong_blocker_order"}
+STATIC_REJECTIONS = {
+    "static_junk",
+    "static_error",
+    "goal_not_in_free_space",
+    "no_component_path",
+    "wrong_hop_count",
+    "k1_boundary_has_no_blocker",
+    "k1_not_reachable",
+    "k1_no_push_edges",
+    "wrong_boundary_count",
+    "wrong_blocker_order",
+}
 
 
 def _rate(numerator: int, denominator: int) -> float | None:
@@ -24,13 +35,14 @@ def _aggregate(rows: list[dict]) -> dict:
         rejections.update(row.get("rejections", {}))
     static_rejected = sum(rejections[key] for key in STATIC_REJECTIONS)
     static_passed = attempted - static_rejected
-    replay_failed = rejections["no_donor_action_chain"]
+    post_static_rejected = static_passed - accepted
     return {
         "tasks": len(rows),
         "attempted": attempted,
         "static_passed": static_passed,
         "static_pass_rate": _rate(static_passed, attempted),
-        "replay_failed": replay_failed,
+        "post_static_rejected": post_static_rejected,
+        "replay_failed": post_static_rejected,
         "accepted": accepted,
         "accepted_per_attempt": _rate(accepted, attempted),
         "accepted_per_static_pass": _rate(accepted, static_passed),

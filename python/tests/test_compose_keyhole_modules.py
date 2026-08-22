@@ -10,6 +10,7 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "scripts" / "pipeline"))
 
 import compose_keyhole_modules as composer  # noqa: E402
+import summarize_keyhole_modules as summarizer  # noqa: E402
 
 
 K1 = "obstacle_0_movable"
@@ -223,3 +224,19 @@ def test_static_acceptance_reports_specific_defect(defect, reason):
     }
 
     assert composer.static_acceptance(row, 2) == (False, reason)
+
+
+def test_scale_summary_separates_static_and_post_static_rejections():
+    result = summarizer._aggregate(
+        [
+            {
+                "attempted": 10,
+                "accepted": 2,
+                "rejections": {"wrong_hop_count": 7, "final_goal_unreachable": 1},
+            }
+        ]
+    )
+
+    assert result["static_passed"] == 3
+    assert result["post_static_rejected"] == 1
+    assert result["accepted"] == 2
