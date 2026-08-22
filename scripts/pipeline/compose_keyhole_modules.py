@@ -704,6 +704,9 @@ def revalidate_manifest(source: Path, output_dir: Path, config: str) -> dict:
         "".join(json.dumps(row, sort_keys=True) + "\n" for row in accepted_rows),
         encoding="utf-8",
     )
+    (output_dir / "xmls.txt").write_text(
+        "".join(row["xml_path"] + "\n" for row in accepted_rows), encoding="utf-8"
+    )
     (output_dir / "rejected.jsonl").write_text(
         "".join(json.dumps(row, sort_keys=True) + "\n" for row in rejected_rows),
         encoding="utf-8",
@@ -836,6 +839,9 @@ def main() -> int:
 
     manifest = args.out_dir / "manifest.jsonl"
     manifest.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in rows), encoding="utf-8")
+    (args.out_dir / "xmls.txt").write_text(
+        "".join(row["xml_path"] + "\n" for row in rows), encoding="utf-8"
+    )
     summary = {
         "attempted": attempts,
         "accepted": accepted,

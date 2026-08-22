@@ -94,6 +94,10 @@ The Phase 3 census found 14 easy donor episodes and only 62 ordered candidate pa
 
 The exact production script passed a one-scene target-box smoke on rlab7 at commit `7404e85`: one scene was accepted after five candidates in three seconds and complete XML, manifest, and summary artifacts landed under `$NAMO_SCRATCH/eval/two_keyhole_progression_20260822/pilot_smoke_direct/`. Scaling the measured candidate rate to all 62 pairs gives roughly 40 seconds under similar rejection mix; the one-hour SLURM limit is deliberately pessimistic, and the full bounded census remains small enough to run directly as one pinned process on rlab7.
 
+The bounded rlab7 census at commit `0adc0b7` exhausted all 62 eligible pairs in 22 seconds and accepted 10, so it triggered the planned shortfall gate rather than reaching 50. All 52 rejections were `wrong_hop_count`; all ten exact-two-hop candidates passed the complete goal-centric replay. The accepted set has ten unique geometry identities, nine unique donor episodes across twenty slots, six three-component graphs, four graphs with one side component, goal-reachability traces `[false, false, true]` on 10/10, and 11–15 reachable K2 edges after K1. Full panels and an all-scene montage are under `$NAMO_SCRATCH/eval/two_keyhole_progression_20260822/easy_easy_bounded50/renders/`.
+
+This ten-scene artifact is a protocol-smoke cohort, not the planned 50-scene evaluation set. Sampling on `set2/benchmark_5` is stopped and its gates remain unchanged; the next Full NAMO step can validate the protocol on these ten, but a benchmark verdict requires additional productive templates to fill the geometry shortfall.
+
 ## Result
 
 Pending.
