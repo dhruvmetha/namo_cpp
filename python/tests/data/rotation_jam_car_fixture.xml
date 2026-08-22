@@ -1,0 +1,67 @@
+<?xml version="1.0"?>
+<mujoco model="rotation_jam_car_fixture">
+  <!-- Car version. Long bars held between pivot posts so they can turn but barely
+       shift. obstacle_1_movable has 4 mm of clearance either side; obstacle_2_movable
+       has 0.05 mm and cannot turn. Pushing one end swings the first bar until it binds,
+       which is the case a translation-only rule throws away. -->
+  <option timestep="0.002" integrator="implicitfast" cone="elliptic" iterations="100" gravity="0 0 -9.81"/>
+  <default>
+    <geom density="1"/>
+  </default>
+  <worldbody>
+    <light dir="0 0 -1" directional="true" pos="0 0 1.5"/>
+    <geom condim="4" friction="0.5 0.005 0.001" name="floor" size="0 0 0.05" type="plane"/>
+    <body name="walls">
+      <geom name="wall_1" condim="4" type="box" pos="-0.01 0.39 0.08" size="0.01 0.40 0.08" rgba="0.8 0.8 0.8 1"/>
+      <geom name="wall_2" condim="4" type="box" pos="0.50 0.39 0.08" size="0.01 0.40 0.08" rgba="0.8 0.8 0.8 1"/>
+      <geom name="wall_3" condim="4" type="box" pos="0.245 -0.01 0.08" size="0.245 0.01 0.08" rgba="0.8 0.8 0.8 1"/>
+      <geom name="wall_4" condim="4" type="box" pos="0.245 0.79 0.08" size="0.245 0.01 0.08" rgba="0.8 0.8 0.8 1"/>
+      <geom name="pivot_a_top" condim="4" type="box" pos="0.15 0.499 0.08" size="0.012 0.02 0.08" rgba="0.8 0.8 0.8 1"/>
+      <geom name="pivot_a_bottom" condim="4" type="box" pos="0.15 0.381 0.08" size="0.012 0.02 0.08" rgba="0.8 0.8 0.8 1"/>
+      <geom name="pivot_b_top" condim="4" type="box" pos="0.40 0.29505 0.08" size="0.012 0.02 0.08" rgba="0.8 0.8 0.8 1"/>
+      <geom name="pivot_b_bottom" condim="4" type="box" pos="0.40 0.18495 0.08" size="0.012 0.02 0.08" rgba="0.8 0.8 0.8 1"/>
+    </body>
+    <body name="car" pos="0.25 0.10 0.010000">
+      <freejoint name="car_freejoint" />
+      <inertial pos="0.000000 0 0.037500" mass="0.350000" diaginertia="0.000266 0.000266 0.000286" />
+      <geom name="front_chassis_collision" type="box" pos="0.017500 0 0.037500" size="0.017500 0.035000 0.032500" rgba="0.3 0.3 0.7 1" />
+      <geom name="rear_chassis_collision" type="box" pos="-0.017500 0 0.037500" size="0.017500 0.035000 0.032500" rgba="0.25 0.25 0.6 1" />
+      <geom name="front_marker" type="box" pos="0.034000 0 0.050500" size="0.002000 0.015000 0.010000" rgba="1.0 0.2 0.2 1" contype="0" conaffinity="0" />
+      <body name="rear_support_body" pos="-0.030000 0.000000 0.002500">
+        <joint name="rear_caster_joint" type="ball" damping="0.0001" />
+        <inertial pos="0 0 0" mass="0.025000" diaginertia="0.000001 0.000001 0.000001" />
+        <geom name="rear_support" type="sphere" pos="0 0 0" size="0.002500" friction="0.000000 0.000000 0.000000" rgba="0.7 0.1 0.1 1" />
+      </body>
+      <body name="front_support_body" pos="0.030000 0.000000 0.002500">
+        <joint name="front_caster_joint" type="ball" damping="0.0001" />
+        <inertial pos="0 0 0" mass="0.025000" diaginertia="0.000001 0.000001 0.000001" />
+        <geom name="front_support" type="sphere" pos="0 0 0" size="0.002500" friction="0.000000 0.000000 0.000000" rgba="0.1 0.7 0.1 1" />
+      </body>
+      <body name="left_wheel" pos="0.000000 0.037500 0.015000">
+        <inertial pos="0 0 0" mass="0.050000" diaginertia="0.000003 0.000006 0.000003" />
+        <joint name="left_wheel_joint" type="hinge" axis="0 1 0" damping="0.01" armature="0.0001" />
+        <geom name="left_wheel_collision" type="cylinder" size="0.015000 0.000500" euler="90 0 0" rgba="0.1 0.1 0.1 1" />
+      </body>
+      <body name="right_wheel" pos="0.000000 -0.037500 0.015000">
+        <inertial pos="0 0 0" mass="0.050000" diaginertia="0.000003 0.000006 0.000003" />
+        <joint name="right_wheel_joint" type="hinge" axis="0 1 0" damping="0.01" armature="0.0001" />
+        <geom name="right_wheel_collision" type="cylinder" size="0.015000 0.000500" euler="90 0 0" rgba="0.1 0.1 0.1 1" />
+      </body>
+    </body>
+    <body name="obstacle_1_movable">
+      <geom name="obstacle_1_movable" condim="4" type="box" pos="0.15 0.44 0.05" size="0.12 0.035 0.05" euler="0 0 0"
+            friction="1 0.005 0.0001" rgba="1 1 0 1" mass="0.1"/>
+      <joint type="free"/>
+    </body>
+    <body name="obstacle_2_movable">
+      <geom name="obstacle_2_movable" condim="4" type="box" pos="0.40 0.24 0.05" size="0.12 0.035 0.05" euler="0 0 0"
+            friction="1 0.005 0.0001" rgba="1 1 0 1" mass="0.1"/>
+      <joint type="free"/>
+    </body>
+    <site name="goal" type="sphere" pos="0.25 0.70 0.0" size="0.02" rgba="1 0 0 0.5"/>
+  </worldbody>
+  <actuator>
+    <velocity name="left_wheel_drive" joint="left_wheel_joint" ctrlrange="-25.000000 25.000000" kv="0.750000" forcerange="-0.500000 0.500000" />
+    <velocity name="right_wheel_drive" joint="right_wheel_joint" ctrlrange="-25.000000 25.000000" kv="0.750000" forcerange="-0.500000 0.500000" />
+  </actuator>
+</mujoco>
