@@ -39,7 +39,21 @@ def sh(host, cmd, timeout=60):
         return ""
 
 
-def busy(host):
+def busy(host, shard):
+    """Live processes alone do NOT mean a box is working. Reclaim it if its shard is finished.
+
+    The collection hangs after writing its last pkl: the parent stays in sleep and all 48 workers
+    sit as ZN zombies it never reaps. So `pgrep` keeps returning ~49 on a box with nothing left to
+    do, the box reads as busy forever, and the supervisor never refills it. Two boxes sat idle-but-
+    busy this way while 1644 scenes waited. Plain SIGTERM does not shift the parent either, hence
+    the -9.
+    """
+    mf = os.path.join(shard, "manifest.txt")
+    if os.path.exists(mf):
+        want = sum(1 for l in open(mf) if l.strip())
+        if want and len(done_indices(shard)) >= want:
+            sh(host, "pkill -9 -u dm1487 -f modular_parallel_collection")
+            return False
     out = sh(host, "pgrep -u dm1487 -fc modular_parallel_collection")
     return out.isdigit() and int(out) > 0
 
@@ -106,7 +120,7 @@ def main():
         # and handing them to an idle box duplicates the work rather than finishing sooner.
         idle_hosts, in_flight = [], set()
         for host, w in boxes:
-            if busy(host):
+            if busy(host, os.path.join(args.root, host)):
                 mf = os.path.join(args.root, host, "manifest.txt")
                 if os.path.exists(mf):
                     in_flight.update(l.strip() for l in open(mf) if l.strip())
