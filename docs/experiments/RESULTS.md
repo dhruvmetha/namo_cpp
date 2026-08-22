@@ -494,3 +494,14 @@ Card: [EXP-2026-08-22-fixed-template-keyhole-modules](archive/EXP-2026-08-22-fix
 | single keyhole | pure-2push medium | 1 | 2 | `[0] → [0] → [100]` |
 
 **FEASIBLE; scale the yield measurement next.** The two-hop blockers were 0.3545 m apart. K1 opened the middle component to 96/100 reachable points while leaving the final component at 0/100, then K2 raised the final component to 100/100. This is the desired future-preservation behavior: successful continuation, without requiring K2 to retain every pre-K1 contact edge or an unchanged pose. The genuine two-push control stayed closed after its setup and opened only after its finish. This is a three-case mechanism test, not an acceptance-rate estimate; medium-hard, hard-medium, and hard-hard remain unmeasured.
+
+## 2026-08-22 — Random fixed-template stitching is geometry-limited; closer blockers make replay worse
+
+Card: [EXP-2026-08-22-fixed-template-keyhole-scale](archive/EXP-2026-08-22-fixed-template-keyhole-scale.md). Two 40-task Amarel pilots crossed ten fixed templates with ordered MM/MH/HM/HH donor pairs, first at 0.30 m and then 0.20 m minimum blocker-center separation.
+
+| separation | attempted pairs | exact static two-hop | replay accepted | accepted / attempted | accepted / static |
+|---|---:|---:|---:|---:|---:|
+| 0.30 m | 817 | 48 | 29 | 3.55% | 60.42% |
+| 0.20 m | 1,158 | 90 | 31 | 2.68% | 34.44% |
+
+**REJECT random-pair production and the 0.20 m relaxation.** At 0.30 m, 94.1% of sampled pairs failed to form the intended ordered two-hop topology; all 29 successes came from only two of ten templates. Lowering the distance admitted many more statically plausible pairs but only two more accepted scenes, tripled replay failures from 19 to 59, and lengthened the slowest task from 3:33 to 6:11. The generator must choose the three-room endpoint layout and doorway slots first, then insert easy K1/K2 modules; sampling blockers first makes the desired topology accidental.
