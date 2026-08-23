@@ -1113,8 +1113,10 @@ def donor_sequences(
     seed: int,
     *,
     enforce_min_separation: bool = True,
+    pools: Sequence[Sequence[Donor]] | None = None,
 ) -> Iterable[tuple[Donor, ...]]:
-    pools = [load_donors(horizon, tier, template) for horizon, tier in zip(horizons, tiers)]
+    if pools is None:
+        pools = [load_donors(horizon, tier, template) for horizon, tier in zip(horizons, tiers)]
     if any(not pool for pool in pools):
         return []
     candidates = []
@@ -1272,6 +1274,34 @@ def main() -> int:
     accepted_geometry: set[str] = set()
     used_donor_episodes: set[tuple[str, str, str]] = set()
     donor_reuse_slots = 0
+    module_pools = []
+    filtered_pools = None
+    if args.composition_mode == "room_stitch":
+        filtered_pools = []
+        for role, horizon, tier in zip(("exit", "entry"), args.horizons, args.tiers):
+            raw_pool = load_donors(horizon, tier, args.template)
+            eligible = []
+            failures: Counter[str] = Counter()
+            for donor in raw_pool:
+                try:
+                    _module_interface(donor, role, args.config, args.portal_width)
+                except CompositionRejected as error:
+                    failures[str(error)] += 1
+                    continue
+                eligible.append(donor)
+            filtered_pools.append(eligible)
+            module_pools.append(
+                {
+                    "role": role,
+                    "tier": tier,
+                    "total": len(raw_pool),
+                    "eligible": len(eligible),
+                    "rejections": dict(sorted(failures.items())),
+                    "eligible_templates": dict(
+                        sorted(Counter(donor.template for donor in eligible).items())
+                    ),
+                }
+            )
     sequences = list(
         donor_sequences(
             args.horizons,
@@ -1280,6 +1310,7 @@ def main() -> int:
             args.min_separation,
             args.seed,
             enforce_min_separation=args.composition_mode == "fixed_template",
+            pools=filtered_pools,
         )
     )
 
@@ -1386,6 +1417,7 @@ def main() -> int:
         "connector_length_m": (
             args.connector_length if args.composition_mode == "room_stitch" else None
         ),
+        "module_pools": module_pools,
         "replay_donor_actions": bool(args.replay_donor_actions),
         "unique_donor_episodes": len(used_donor_episodes),
         "accepted_donor_slots": accepted * len(args.horizons),
