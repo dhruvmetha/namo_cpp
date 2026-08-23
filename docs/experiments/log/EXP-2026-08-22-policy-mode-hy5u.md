@@ -61,7 +61,18 @@ Sizing came from a smoke (jobs 60754561/2, one middle shard per leg per arm): 81
 
 **Two things had to be fixed before the numbers meant anything.**
 
-*The policy locked up.* Replaying 20 failed easy-two-push episodes with per-step logging: 2.2 distinct pushes across 10 steps, 8.75 of 10 pushes moving the object under 5 mm, and 45% of episodes picking the identical push all ten times. Hard one-push was worse, 1.95 distinct and 50%. The mechanism is a hard cycle. A jammed push leaves the state untouched, so re-ranking that identical state returns the identical argmax, forever. The random arm never stalls (6.4 distinct, 0% single-push), which is why it overtook HY5U on easy two-push at ten pushes in the unguarded run. Random is not ranking better, it just cannot get stuck. The search has `dedupe_noop` and `prune_jam_depth` for exactly this; policy mode had no equivalent. Ported as a per-state ban list, cleared when the object actually moves, which is the search opening a fresh child board. Effect on the identical episodes: unchanged through push 3, then hard two-push at ten calls 42.7 → 62.7 and hard one-push 75.8 → 89.4.
+*The policy locked up.* Replaying 20 failed easy-two-push episodes with per-step logging: 2.2 distinct pushes across 10 steps, 8.75 of 10 pushes moving the object under 5 mm, and 45% of episodes picking the identical push all ten times. Hard one-push was worse, 1.95 distinct and 50%. The mechanism is a hard cycle. A jammed push leaves the state untouched, so re-ranking that identical state returns the identical argmax, forever. The random arm never stalls (6.4 distinct, 0% single-push), which is why it overtook HY5U on easy two-push at ten pushes in the unguarded run. Random is not ranking better, it just cannot get stuck. The search has `dedupe_noop` and `prune_jam_depth` for exactly this; policy mode had no equivalent. Ported as a per-state ban list, cleared when the object actually moves, which is the search opening a fresh child board. Both flags default on for BOTH priors, so the random arm gets the identical treatment.
+
+The guard's payoff is 4x to 20x larger for the argmax than for random, which is the lock-up mechanism confirmed from a second direction: only a deterministic policy can cycle, and random already escapes by accident. Gain at ten calls, same episodes:
+
+| leg | tier | HY5U | random |
+|---|---|---:|---:|
+| 2push | all | +16.9 | +1.4 |
+| 2push | hard | +19.9 | +4.6 |
+| 1push | all | +4.2 | +0.2 |
+| 1push | hard | +13.6 | +2.4 |
+
+It also removes an artifact: unguarded, random beat HY5U on easy two-push at ten calls (77.0 vs 74.4). Guarded, it is 78.7 vs 89.2. That reversal was HY5U being stuck, not random ranking well.
 
 *The depth caps did not match.* The registered search runs `hmax=2` and cannot emit a plan longer than two pushes at any budget, while the policy runs to ten. So policy open@k against the registered solve@k is only like-for-like at k≤2. The `hmax=10 sim_budget=10` legs fix that, and they cost less than the registered run because every episode stops by ten calls.
 
