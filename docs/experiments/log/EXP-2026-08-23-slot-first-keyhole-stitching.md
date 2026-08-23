@@ -2,7 +2,7 @@
 type: experiment
 status: live
 created: 2026-08-23
-commit: ec0ad58
+commit: 5016b8f
 metric: verified complete-scene yield by ordered K1+K2 difficulty tuple under room-interface stitching
 tags: [experiment, full-namo, multihop, composition, room-stitch, medium, hard]
 ---
@@ -67,6 +67,10 @@ The ordered medium/hard pilot ran four commands concurrently on ilab3, each targ
 Amarel scale preflight uses the dedicated clone `/cache/home/dm1487/projects/namo/namo_slot_stitch` at commit `12c2959`, with the existing Amarel-native binding linked read-only. Smoke job `60768327` failed before simulation because its relative `source env.amarel.sh` did not resolve inside the SLURM wrapper. The corrected absolute-path smoke job `60768328` completed on `main` in 36 seconds, used 88 MB RSS, and accepted 1/1 medium+medium scene with the expected 50-exit/51-entry eligible donor pools.
 
 The scaled candidate build targets 50 verified scenes separately for medium+medium, medium+hard, hard+medium, and hard+hard, with a maximum of 300 pair attempts per tuple. Run four independent one-CPU `main` jobs, pin all numerical thread pools to one, request 4 GB and 30 minutes per job, and monitor accepted manifest counts. This 200-scene output is a candidate population; donor reuse, template balance, geometry uniqueness, oracle traces, and renders must be audited before anything is frozen for Full NAMO evaluation.
+
+Amarel jobs `60768329..60768332` completed without scheduler or simulator failure. Medium+medium reached 50/176 in 10m46s with 43 unique donor episodes across 100 slots; hard+medium reached 50/266 in 3m06s with 51 unique donors; hard+hard reached 50/179 in 2m14s with 22 unique donors. Their reused donor-slot counts are 57, 49, and 78 respectively. Medium+hard exhausted its 300-pair cap at 16 accepted in 17m21s, using 32 distinct donor episodes with zero reuse; its rejection counts were 93 final-goal failures, 79 K1 exposure failures, 79 K2 push failures, 24 no-path scenes, and 9 K1 push failures.
+
+The medium+hard runtime tail came from exhaustively proving incompatible pairs by enumerating recorded donor actions. This proof is unnecessary for sampled generation: accepted scenes need an exact witnessed chain, while rejected pairs do not need exhaustive ground truth. Across all 166 scaled accepted scenes, replay attempts ranged from 2 to 16; medium+hard successes ranged from 2 to 4. Commit `5016b8f` adds an optional per-pair replay cap, leaves revalidation unlimited by default, records `replay_attempt_cap` as a sampling rejection, and adds a focused test. A 50-attempt cap retains more than three times the largest successful trace observed so far while bounding pathological rejects. Run a fresh target-box smoke before a capped medium+hard supplement.
 
 ## Result
 
