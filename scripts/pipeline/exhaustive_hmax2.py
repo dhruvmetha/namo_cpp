@@ -79,9 +79,16 @@ def push(env, obj, edge, depth):
 
 
 def blocked(res):
+    """Did this push fail outright, by the planner's rule at region_opening.py:2931?
+
+    ONLY the robot's own body collision (`collision_object`) or a jam counts. Object-to-wall and
+    object-to-object contact never fail a push -- the planner says so in a comment right there, and
+    a trial-log entry can carry wall_collision=True alongside success=True. Counting those as
+    blocked marked 30974 of 50205 cells unexpandable, lost most of the setups, and made 116 scenes
+    look like they had regressed to unsolvable.
+    """
     info = res.info if hasattr(res, "info") else {}
-    return (info.get("wall_collision") == "true" or info.get("stuck") == "true"
-            or bool(info.get("movable_collisions")))
+    return "collision_object" in info or info.get("stuck") == "true"
 
 
 def sweep_scene(xml, obj):
