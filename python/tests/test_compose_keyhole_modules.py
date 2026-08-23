@@ -343,8 +343,17 @@ def test_room_stitch_preserves_two_modules_and_uses_second_goal(tmp_path, monkey
     assert [body.get("name") for body in worldbody.findall("body")].count("car") == 1
     assert composer._movable_body(root, K1) is not None
     assert composer._movable_body(root, K2) is not None
+    assert worldbody.find("body[@name='module_1_walls']") is not None
     assert worldbody.find("body[@name='module_2_walls']") is not None
     assert worldbody.find("body[@name='connector_walls']") is not None
+    global_walls = worldbody.find("body[@name='global_boundary_walls']")
+    assert global_walls is not None
+    assert [geom.get("name") for geom in global_walls.findall("geom")] == [
+        "wall_1",
+        "wall_2",
+        "wall_3",
+        "wall_4",
+    ]
     assert composer._numbers(composer._goal_site(root).get("pos"))[:2] == pytest.approx([2.9, 0.0])
     assert metadata["mode"] == "room_stitch"
     assert [module["source_template"] for module in metadata["modules"]] == [

@@ -408,9 +408,13 @@ def _module_interface(
             use_cpp_unified=True,
             use_xml_goal=True,
         )
-        target_label = graph.get("goal_label") if role == "exit" else graph.get("robot_label")
-        if not target_label:
+        robot_label = graph.get("robot_label")
+        goal_label = graph.get("goal_label")
+        if not robot_label or not goal_label:
             raise CompositionRejected(f"module_{role}_region_missing")
+        if robot_label == goal_label:
+            raise CompositionRejected("module_not_keyhole_after_stripping")
+        target_label = goal_label if role == "exit" else robot_label
 
         exporter = WavefrontSnapshotExporter(env, resolution=0.01)
         raster = exporter.build_snapshot(
@@ -518,6 +522,59 @@ def _add_connector_walls(
     _worldbody(root).append(wall_body)
 
 
+def _geom_xy_bounds(geom: ET.Element) -> tuple[float, float, float, float]:
+    pos = _numbers(geom.get("pos"))
+    size = _numbers(geom.get("size"))
+    euler = _numbers(geom.get("euler"))
+    yaw = math.radians(euler[2] if len(euler) == 3 else 0.0)
+    half_x = abs(math.cos(yaw)) * size[0] + abs(math.sin(yaw)) * size[1]
+    half_y = abs(math.sin(yaw)) * size[0] + abs(math.cos(yaw)) * size[1]
+    return pos[0] - half_x, pos[0] + half_x, pos[1] - half_y, pos[1] + half_y
+
+
+def _add_global_boundary_walls(root: ET.Element) -> None:
+    wall_geoms = [
+        geom
+        for body in _worldbody(root).findall("body")
+        if "wall" in (body.get("name") or "")
+        for geom in body.findall("geom")
+        if geom.get("type") == "box"
+    ]
+    if not wall_geoms:
+        raise CompositionRejected("assembled_scene_has_no_walls")
+    bounds = [_geom_xy_bounds(geom) for geom in wall_geoms]
+    xmin = min(bound[0] for bound in bounds)
+    xmax = max(bound[1] for bound in bounds)
+    ymin = min(bound[2] for bound in bounds)
+    ymax = max(bound[3] for bound in bounds)
+    half_thickness = 0.01
+    half_width = 0.5 * (xmax - xmin) + half_thickness
+    half_height = 0.5 * (ymax - ymin) + half_thickness
+    center_x = 0.5 * (xmin + xmax)
+    center_y = 0.5 * (ymin + ymax)
+    wall_body = ET.Element("body", {"name": "global_boundary_walls"})
+    specs = (
+        ("wall_1", (xmin - half_thickness, center_y, 0.08), (half_thickness, half_height, 0.08)),
+        ("wall_2", (xmax + half_thickness, center_y, 0.08), (half_thickness, half_height, 0.08)),
+        ("wall_3", (center_x, ymin - half_thickness, 0.08), (half_width, half_thickness, 0.08)),
+        ("wall_4", (center_x, ymax + half_thickness, 0.08), (half_width, half_thickness, 0.08)),
+    )
+    for name, pos, size in specs:
+        geom = ET.SubElement(
+            wall_body,
+            "geom",
+            {
+                "name": name,
+                "condim": "4",
+                "type": "box",
+                "rgba": "0.8 0.8 0.8 1",
+            },
+        )
+        _set_numbers(geom, "pos", pos)
+        _set_numbers(geom, "size", size)
+    _worldbody(root).append(wall_body)
+
+
 def compose_room_stitch_xml(
     donors: Sequence[Donor],
     output: Path,
@@ -566,6 +623,7 @@ def compose_room_stitch_xml(
         second_transform,
         transform_robot=False,
     )
+    _prefix_wall_names(roots[0], "module_1_")
     second_wall_body = _prefix_wall_names(roots[1], "module_2_")
 
     output_root = roots[0]
@@ -574,6 +632,7 @@ def compose_room_stitch_xml(
     output_worldbody.append(copy.deepcopy(_movable_body(roots[1], "obstacle_1_movable")))
     _goal_site(output_root).set("pos", _goal_site(roots[1]).get("pos") or "0 0 0")
     _add_connector_walls(output_root, first_portal, second_portal, portal_width)
+    _add_global_boundary_walls(output_root)
     output_root.set("model", "stitched_two_keyhole_environment")
 
     output.parent.mkdir(parents=True, exist_ok=True)
