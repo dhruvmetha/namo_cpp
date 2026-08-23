@@ -72,6 +72,8 @@ Amarel jobs `60768329..60768332` completed without scheduler or simulator failur
 
 The medium+hard runtime tail came from exhaustively proving incompatible pairs by enumerating recorded donor actions. This proof is unnecessary for sampled generation: accepted scenes need an exact witnessed chain, while rejected pairs do not need exhaustive ground truth. Across all 166 scaled accepted scenes, replay attempts ranged from 2 to 16; medium+hard successes ranged from 2 to 4. Commit `5016b8f` adds an optional per-pair replay cap, leaves revalidation unlimited by default, records `replay_attempt_cap` as a sampling rejection, and adds a focused test. A 50-attempt cap retains more than three times the largest successful trace observed so far while bounding pathological rejects. Run a fresh target-box smoke before a capped medium+hard supplement.
 
+The capped target-box smoke `60768972` completed on Amarel `main` in 33 seconds, used 139 MB RSS, and accepted 1/1 medium+hard scene with one replay attempt and zero rejection. Launch one supplemental medium+hard build with a 50-action per-pair cap, a 50-scene target, and a 1,400-pair ceiling so it may traverse the complete eligible pair pool if necessary. Keep it separate from the uncapped 16-scene output; deduplicate and audit across both only after completion.
+
 ## Result
 
 Pending.
