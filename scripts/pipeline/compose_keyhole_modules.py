@@ -1269,6 +1269,11 @@ def main() -> int:
     parser.add_argument("--connector-length", type=float, default=0.20)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
+        "--allow-donor-reuse-early",
+        action="store_true",
+        help="Use shuffled pair order directly instead of exhausting unused donor episodes first.",
+    )
+    parser.add_argument(
         "--allow-shortfall",
         action="store_true",
         help="Return success after exhausting candidates even when fewer than --limit are accepted.",
@@ -1361,14 +1366,16 @@ def main() -> int:
         while sequences:
             if attempts >= args.max_attempts or accepted >= args.limit:
                 break
-            preferred = next(
-                (
-                    index
-                    for index, sequence in enumerate(sequences)
-                    if all(donor.episode_key not in used_donor_episodes for donor in sequence)
-                ),
-                0,
-            )
+            preferred = 0
+            if not args.allow_donor_reuse_early:
+                preferred = next(
+                    (
+                        index
+                        for index, sequence in enumerate(sequences)
+                        if all(donor.episode_key not in used_donor_episodes for donor in sequence)
+                    ),
+                    0,
+                )
             donors = sequences.pop(preferred)
             attempts += 1
             temp_xml = Path(temp_dir) / f"candidate_{attempts:05d}.xml"
@@ -1456,6 +1463,7 @@ def main() -> int:
         "module_pools": module_pools,
         "replay_donor_actions": bool(args.replay_donor_actions),
         "max_replay_attempts_per_pair": args.max_replay_attempts_per_pair,
+        "allow_donor_reuse_early": bool(args.allow_donor_reuse_early),
         "unique_donor_episodes": len(used_donor_episodes),
         "accepted_donor_slots": accepted * len(args.horizons),
         "reused_donor_slots": donor_reuse_slots,
