@@ -78,6 +78,8 @@ The cap-50 supplement `60769078` reached 16 accepted scenes but then spent sever
 
 Both supplemental arms reached the same 17-scene frontier before entering another expensive action. The common cause is candidate ordering rather than an acceptance gate: after each success, the generator preferentially selects pairs in which both donor episodes have never appeared in an accepted slot, so the medium+hard tail is forced through the remaining unproductive donor class before it may reuse productive donors in new geometries. Commit `056df88` adds an explicit `--allow-donor-reuse-early` sampling option. It preserves same-XML exclusion, geometry deduplication, exact static topology, and exact `[false, false, true]` replay validation; only pair order changes. Smoke this option on Amarel with the ten-replay cap, then run a separate supplemental arm and report donor reuse rather than concealing it.
 
+Amarel smoke job `60769338` passed at commit `e70b2c6`: it accepted 1/1 medium+hard pair with the ten-replay cap and early donor reuse enabled, with no construction, topology, or replay rejection. Launch a separate 50-scene candidate build with seed 1402, a 1,400-pair ceiling, and the same ten-replay cap. Treat it as a supplement to the original sixteen exact scenes, deduplicate by full geometry identity, and audit provenance and exact traces before selecting a 50-scene medium+hard candidate population.
+
 ## Result
 
 Pending.
