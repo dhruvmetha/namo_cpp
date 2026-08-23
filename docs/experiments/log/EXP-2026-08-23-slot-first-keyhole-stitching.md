@@ -2,7 +2,7 @@
 type: experiment
 status: live
 created: 2026-08-23
-commit: 2300283
+commit: ec0ad58
 metric: verified complete-scene yield by ordered K1+K2 difficulty tuple under room-interface stitching
 tags: [experiment, full-namo, multihop, composition, room-stitch, medium, hard]
 ---
@@ -53,6 +53,10 @@ Implementation commit `a8be9c1` added the room-interface stitcher and two struct
 The first easy+easy calibration at `b35b5bd` attempted ten donor pairs and accepted zero because every assembled scene failed during `RLEnvironment` initialization with `vector::_M_fill_insert`. Code inspection traced this to the backend's exact workspace convention: it interprets geoms named `wall_1`, `wall_2`, `wall_3`, and `wall_4` as unrotated left, right, bottom, and top boundaries. Rotating donor rooms without renaming those geoms inverted the inferred wavefront dimensions.
 
 The same diagnostic exposed donors whose robot and XML-goal regions merge after unrelated movables are stripped; those are not standalone one-blocker modules and cannot supply a directed stitch under this experiment's no-other-movable scope. Commit `2300283` prefixes both modules' wall names, adds one unrotated global `wall_1..4` enclosure around the assembly, and rejects any isolated donor whose robot and goal labels coincide. The focused suite remains 17/17. A corrected physics calibration has not run yet.
+
+The corrected ten-pair calibration initialized cleanly and rejected 10/10 as `module_not_keyhole_after_stripping`. A complete donor-role census took 51.2 seconds on ilab3. Easy has 26/237 portable K1-exit donors and 25/237 portable K2-entry donors; medium has 50/160 and 51/160; hard has 27/76 and 27/76. The productive portable pools span `set1/benchmark_3`, `set2/benchmark_3`, and `set2/benchmark_5`, with a few easy donors from `set1/benchmark_1` and one medium-entry donor from `set1/benchmark_5`.
+
+Commit `ec0ad58` changes room-stitch sampling to classify each donor once for its directed slot, record exact pool rejection counts and template composition, and form pairs only from eligible pools. Original source-coordinate separation remains disabled only for room stitching because complete modules are relocated rigidly; same-XML donor pairs remain forbidden.
 
 ## Result
 
