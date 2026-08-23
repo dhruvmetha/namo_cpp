@@ -10,11 +10,18 @@ NAMO (Navigation Among Movable Obstacles): C++ physics/planning backend + Python
 
 **Doc map:** everything is indexed in [docs/INDEX.md](docs/INDEX.md); research lives in `docs/experiments/`, read on demand. Keep THIS file lean — durable every-session facts only; anything dated or "currently" belongs in a journal.
 
-## How to talk to me [USER — top priority]
+## Answer from the code, never from recall [USER — top priority]
 
-- **⛔ PLAIN ENGLISH, first try.** Lead with the point in sentence one; define any term the instant you use it (or don't use it); everyday analogy before jargon. If I'd have to re-read a sentence to decode it, it failed. A 10-second answer beats a precise one I need 10 minutes to parse. Every reply.
-- **Short and sharp — walls of text are a failure.** Prefer a 3-line answer + a "want more?" hook. Numbers/code in the answer when load-bearing.
 - **⛔ NEVER HAND-WAVE — for a NEW question, READ THE CODE FIRST** [USER — a day of guessing cost us; stop it]. Answer from the actual code/config/data/job-state, NOT from assumption, recall, or "how it probably works." Skip the code-check ONLY when the fact is EXPLICITLY in memory — and even then re-verify anything that names a file/flag/number (memory is a cache, not truth). No unverified guess as a conclusion; "probably/almost certainly because" (to explain something unchecked) is BANNED — verify, or label it "UNVERIFIED HYPOTHESIS." When numbers look off, check job/file state before inventing a cause.
+
+## Token-efficient Codex delegation
+
+- Main orchestrator: use Sol/high for decisions, synthesis, and final validation.
+- Do not delegate work that one focused search, file read, or command can resolve.
+- Start with at most one read-only `code-scout` (Luna/low) for a narrowly bounded code search; use `code-tracer` (Terra/medium) only when the scout reports unresolved cross-file behavior.
+- Run at most two subagents concurrently, only on independent, non-overlapping, read-heavy scopes; avoid parallel write-heavy work.
+- Give every worker one exact question and an explicit search boundary. The worker stops when answered and returns at most eight bullets with `path:line` evidence, without unrelated summaries or implementation proposals.
+- The main orchestrator validates worker evidence and owns edits and conclusions.
 
 ## Experiments
 
@@ -28,7 +35,7 @@ NAMO (Navigation Among Movable Obstacles): C++ physics/planning backend + Python
 
 - **Per-box first:** detect the box → read its machine card ([CLAUDE.amarel.md](CLAUDE.amarel.md) / [CLAUDE.ilab.md](CLAUDE.ilab.md) — the latter covers the whole CS estate: ilab/rlab/arrakis/westeros) → activate its env (`source env.<machine>.sh`). **The python interpreter, `MJ_PATH`, data roots, and box GPU helpers all come from that env** (`namo.paths`/`$NAMO_*`) — box-specific, so never hardcode them here (guard: `check_no_hardcoded_paths.sh`). Runbook [PORTABILITY.md](docs/PORTABILITY.md); per-checkout tweaks → `CLAUDE.local.md`.
 - **Bindings:** `PYTHONPATH="$PWD/build_python:$PWD/python"` (repo-relative). Rebuild after editing `src/`/`include/`/`cpp_bindings/`: `./build_python_bindings.sh` (needs `MJ_PATH` from the box env).
-- **Compute:** `compute-resources` skill. SLURM policy: submit `gpu,gpu-redhat`; never Camden; never wait >1h.
+- **Compute:** `compute-resources` skill. SLURM policy: submit `gpu`; never Camden; never wait >1h.
 - **Consult gpt-5.5 (2nd-opinion model):** `codex` CLI is on PATH (config default model = `gpt-5.5`). Non-interactive at max reasoning: `codex exec -m gpt-5.5 -c model_reasoning_effort="xhigh" -s read-only --skip-git-repo-check - < prompt.txt`. Pattern [USER]: spawn an Opus subagent to interface — it writes the prompt, runs codex, relays the answer. xhigh takes minutes → long Bash timeout; startup stale-temp-dir warning is benign.
 - **Cross-box physics = IDENTICAL (verified 2026-07-14):** car-push sim is bit-identical across the CS estate (arrakis) and Amarel — a 48-push cross-box replay gave **0.000 mm / 0.000° delta** (tighter than each box's own ~1 mm warmstart jitter), *despite* different `libmujoco` versions (CS **3.2.8** vs Amarel **3.2.7** — the gap is physics-inert for our scenes). The physics is the C++ `libmujoco` linked into the `namo_rl` bindings (`MJ_PATH`), NOT the pip `mujoco`. → **safe to mix Amarel-collected/labeled data with CS eval; no train/eval physics mismatch.** Also verified: model_2 vs rank01 hard@1 delta = +6.8 on BOTH boxes (every @1 solve@k bit-identical).
 
