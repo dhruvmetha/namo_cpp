@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import argparse
+import math
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -24,17 +26,50 @@ from namo.visualization.wavefront_snapshot import WavefrontSnapshotExporter  # n
 # Reuse the parsing helpers from the existing template renderer.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from render_template_images import (  # noqa: E402
-    parse_walls, parse_robot_pose, parse_obstacles, parse_goal, bounds_from_walls,
+    parse_robot_pose, parse_obstacles, parse_goal,
 )
+
+
+def parse_wall_geometries(xml_path: Path):
+    root = ET.parse(xml_path).getroot()
+    walls = []
+    for body in root.iter("body"):
+        if "wall" not in body.get("name", ""):
+            continue
+        for geom in body.findall("geom"):
+            if geom.get("type") != "box":
+                continue
+            pos = [float(value) for value in geom.get("pos", "0 0 0").split()]
+            size = [float(value) for value in geom.get("size", "0 0 0").split()]
+            euler = [float(value) for value in geom.get("euler", "0 0 0").split()]
+            walls.append((pos[0], pos[1], size[0], size[1], euler[2]))
+    return walls
+
+
+def bounds_from_wall_geometries(walls):
+    bounds = []
+    for cx, cy, hx, hy, yaw_deg in walls:
+        yaw = math.radians(yaw_deg)
+        extent_x = abs(math.cos(yaw)) * hx + abs(math.sin(yaw)) * hy
+        extent_y = abs(math.sin(yaw)) * hx + abs(math.cos(yaw)) * hy
+        bounds.append((cx - extent_x, cx + extent_x, cy - extent_y, cy + extent_y))
+    if not bounds:
+        return (-3, 3, -3, 3)
+    return (
+        min(bound[0] for bound in bounds),
+        max(bound[1] for bound in bounds),
+        min(bound[2] for bound in bounds),
+        max(bound[3] for bound in bounds),
+    )
 
 
 def render_one(xml_path: Path, out_path: Path, namo_config: Path,
                resolution: float = 0.01):
-    walls = parse_walls(xml_path)
+    walls = parse_wall_geometries(xml_path)
     robot = parse_robot_pose(xml_path)
     obstacles = parse_obstacles(xml_path)
     goal = parse_goal(xml_path)
-    xmin, xmax, ymin, ymax = bounds_from_walls(walls)
+    xmin, xmax, ymin, ymax = bounds_from_wall_geometries(walls)
 
     # The Python exporter provides the per-cell raster needed for the middle panel.
     # It reads robot size and inflation margin from the same config as C++.
@@ -79,10 +114,18 @@ def render_one(xml_path: Path, out_path: Path, namo_config: Path,
     ax.add_patch(patches.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin,
                                     fill=True, facecolor="#f5f0e1",
                                     edgecolor="black", linewidth=1.5))
-    for cx, cy, hx, hy in walls:
-        ax.add_patch(patches.Rectangle((cx - hx, cy - hy), 2 * hx, 2 * hy,
-                                        fill=True, facecolor="#666",
-                                        edgecolor="black", linewidth=0.5))
+    for cx, cy, hx, hy, yaw_deg in walls:
+        rect = patches.Rectangle(
+            (-hx, -hy),
+            2 * hx,
+            2 * hy,
+            fill=True,
+            facecolor="#666",
+            edgecolor="black",
+            linewidth=0.5,
+        )
+        rect.set_transform(Affine2D().rotate_deg(yaw_deg).translate(cx, cy) + ax.transData)
+        ax.add_patch(rect)
     keyhole_colors = ["#F59E0B", "#7C3AED"]
     for index, (cx, cy, hx, hy, yaw_deg) in enumerate(obstacles):
         rect = patches.Rectangle((-hx, -hy), 2 * hx, 2 * hy,

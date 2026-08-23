@@ -58,6 +58,10 @@ The corrected ten-pair calibration initialized cleanly and rejected 10/10 as `mo
 
 Commit `ec0ad58` changes room-stitch sampling to classify each donor once for its directed slot, record exact pool rejection counts and template composition, and form pairs only from eligible pools. Original source-coordinate separation remains disabled only for room stitching because complete modules are relocated rigidly; same-XML donor pairs remain forbidden.
 
+The eligible-pool easy+easy calibration accepted its target 3 scenes in 8 pair attempts. The three accepted geometries use six distinct donor episodes with zero slot reuse. The five pair-level rejections were three `k1_did_not_expose_k2`, one `final_goal_unreachable`, and one `no_component_path`. Every accepted oracle trace has complete-goal reachability `[false, false, true]`; K2 is unreachable initially, exposes 3–11 reachable edges after K1, and its recorded donor action reaches the final XML goal. Two accepted scenes stitch same-template modules and one stitches `set2/benchmark_5` to `set1/benchmark_3`.
+
+The first render pass verified the wavefront regions and C++ region graphs but exposed that the environment panel's legacy parser ignored prefixed module-wall bodies. The renderer is updated to discover every wall body, apply wall yaw, and compute rotated bounds before the required visual audit.
+
 ## Result
 
 Pending.
