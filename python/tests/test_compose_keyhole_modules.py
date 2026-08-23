@@ -157,13 +157,16 @@ def _snapshot():
     }
 
 
-def _run(monkeypatch, states, *, k1_done=True, k2_done=True):
+def _run(monkeypatch, states, *, k1_done=True, k2_done=True, max_attempts=None):
     env = _FakeEnv(states, k1_done=k1_done, k2_done=k2_done)
     monkeypatch.setattr(composer.namo_rl, "RLEnvironment", lambda *_args: env)
     monkeypatch.setattr(composer, "extract_goal_from_xml", lambda _xml: (1.0, 2.0, 0.0))
     monkeypatch.setattr(composer, "get_region_snapshot", lambda *_args, **_kwargs: _snapshot())
     return composer.replay_two_keyhole_goal_chain(
-        "/composed.xml", "/config.yaml", [_donor(0, 10), _donor(1, 20)]
+        "/composed.xml",
+        "/config.yaml",
+        [_donor(0, 10), _donor(1, 20)],
+        max_attempts=max_attempts,
     )
 
 
@@ -256,6 +259,14 @@ def test_diagnostic_point_counts_do_not_gate_valid_goal_progression(monkeypatch)
     assert result["status"] == "solved"
     assert result["target_point_thresholds"] == [20, 20]
     assert result["target_point_trace"] == [[0, 0], [0, 0], [0, 0]]
+
+
+def test_goal_chain_can_cap_rejection_work_without_weakening_acceptance(monkeypatch):
+    result = _run(monkeypatch, _valid_states(), max_attempts=1)
+
+    assert result["status"] == "no_goal_chain"
+    assert result["failure_reason"] == "replay_attempt_cap"
+    assert result["attempts"] == 1
 
 
 @pytest.mark.parametrize(

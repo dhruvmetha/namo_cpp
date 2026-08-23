@@ -806,7 +806,11 @@ def _failure_example(
 
 
 def replay_two_keyhole_goal_chain(
-    xml_path: str, config: str, donors: Sequence[Donor]
+    xml_path: str,
+    config: str,
+    donors: Sequence[Donor],
+    *,
+    max_attempts: int | None = None,
 ) -> dict:
     """Find known donor actions that expose K2 and then make the XML goal reachable.
 
@@ -893,7 +897,11 @@ def replay_two_keyhole_goal_chain(
     candidate_rejections: Counter[str] = Counter()
     failure_examples: dict[str, dict] = {}
     post_k1_candidates = 0
+    attempt_cap_reached = False
     for k1_edge, k1_depth in donors[0].valid_root:
+        if max_attempts is not None and attempts >= max_attempts:
+            attempt_cap_reached = True
+            break
         env.set_full_state(initial)
         attempts += 1
         k1_result = env.step(_action(object_ids[0], k1_edge, k1_depth))
@@ -917,6 +925,9 @@ def replay_two_keyhole_goal_chain(
         post_k1_full_state = env.get_full_state()
 
         for k2_edge, k2_depth in donors[1].valid_root:
+            if max_attempts is not None and attempts >= max_attempts:
+                attempt_cap_reached = True
+                break
             env.set_full_state(post_k1_full_state)
             attempts += 1
             k2_result = env.step(_action(object_ids[1], k2_edge, k2_depth))
@@ -960,8 +971,12 @@ def replay_two_keyhole_goal_chain(
                 "final_object_poses": post_k2_poses,
                 "candidate_rejections": dict(sorted(candidate_rejections.items())),
             }
+        if attempt_cap_reached:
+            break
 
-    if not donors[0].valid_root:
+    if attempt_cap_reached:
+        failure_reason = "replay_attempt_cap"
+    elif not donors[0].valid_root:
         failure_reason = "k1_no_known_valid_actions"
     elif post_k1_candidates and not donors[1].valid_root:
         failure_reason = "k2_no_known_valid_actions"
@@ -1099,9 +1114,20 @@ def replay_component_chain(xml_path: str, config: str, donors: Sequence[Donor]) 
     }
 
 
-def replay_donor_chain(xml_path: str, config: str, donors: Sequence[Donor]) -> dict:
+def replay_donor_chain(
+    xml_path: str,
+    config: str,
+    donors: Sequence[Donor],
+    *,
+    max_attempts: int | None = None,
+) -> dict:
     if len(donors) == 2 and all(donor.horizon == "1push" for donor in donors):
-        return replay_two_keyhole_goal_chain(xml_path, config, donors)
+        return replay_two_keyhole_goal_chain(
+            xml_path,
+            config,
+            donors,
+            max_attempts=max_attempts,
+        )
     return replay_component_chain(xml_path, config, donors)
 
 
@@ -1252,6 +1278,11 @@ def main() -> int:
         action="store_true",
         help="Require a forward solve using known donor openers; enumerate the second push for 2push donors.",
     )
+    parser.add_argument(
+        "--max-replay-attempts-per-pair",
+        type=int,
+        help="Skip a donor pair after this many action simulations; accepted chains remain exact.",
+    )
     args = parser.parse_args()
     if args.revalidate_manifest is not None:
         summary = revalidate_manifest(args.revalidate_manifest, args.out_dir, args.config)
@@ -1359,7 +1390,12 @@ def main() -> int:
                 continue
             replay = None
             if args.replay_donor_actions:
-                replay = replay_donor_chain(str(output), args.config, donors)
+                replay = replay_donor_chain(
+                    str(output),
+                    args.config,
+                    donors,
+                    max_attempts=args.max_replay_attempts_per_pair,
+                )
                 if replay["status"] != "solved":
                     rejections[replay.get("failure_reason") or replay["status"]] += 1
                     output.unlink()
@@ -1419,6 +1455,7 @@ def main() -> int:
         ),
         "module_pools": module_pools,
         "replay_donor_actions": bool(args.replay_donor_actions),
+        "max_replay_attempts_per_pair": args.max_replay_attempts_per_pair,
         "unique_donor_episodes": len(used_donor_episodes),
         "accepted_donor_slots": accepted * len(args.horizons),
         "reused_donor_slots": donor_reuse_slots,
