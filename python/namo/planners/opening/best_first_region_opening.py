@@ -108,7 +108,15 @@ class BestFirstRegionOpeningPlanner:
         self.agg = str(params.get("best_first_agg", "mean5"))
         self.combine = str(params.get("best_first_combine", "q"))
         self.raw = bool(params.get("best_first_raw", True))
-        self.seed = int(params.get("shuffle_seed", config.random_seed or 42))
+        # `.get` falls back only when the key is absent. Callers pass
+        # shuffle_seed on every call and send None for "pick one yourself",
+        # so the default never fired and int(None) raised. That killed the
+        # first planning attempt of every run; the retry carried a real seed
+        # and worked, which made it look like a flake rather than a bug.
+        raw_seed = params.get("shuffle_seed")
+        if raw_seed is None:
+            raw_seed = config.random_seed or 42
+        self.seed = int(raw_seed)
         self.snapshot_seed = int(params.get("region_snapshot_seed", 42))
         self.use_cpp_snapshot = bool(params.get("region_use_cpp_unified_wavefront", True))
         self.goal_radius = params.get("region_goal_radius_m")
