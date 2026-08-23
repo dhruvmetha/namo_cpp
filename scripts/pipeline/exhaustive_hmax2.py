@@ -137,6 +137,9 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--shard", type=int, default=0)
     ap.add_argument("--nshards", type=int, default=1)
+    ap.add_argument("--pool-root", default=POOL_ROOT,
+                    help="scene pool root; output names are paths relative to it, so they stay "
+                         "unique and stay stable across boxes where the pool sits elsewhere")
     ap.add_argument("--verify", action="store_true",
                     help="stop after one scene and print its depth-1 verdicts for eyeballing")
     args = ap.parse_args()
@@ -154,7 +157,7 @@ def main():
         # NOT basename(dirname(xml)): scene ids restart per pool, so 478 scenes carry only 221
         # distinct rb_000NN names and some collide six ways. Naming output by that would have
         # let 257 scenes overwrite each other and still look like a clean run.
-        name = os.path.relpath(os.path.dirname(s["xml"]), POOL_ROOT).replace(os.sep, "__")
+        name = os.path.relpath(os.path.dirname(s["xml"]), args.pool_root).replace(os.sep, "__")
         with open(os.path.join(args.out, f"{name}.json"), "w") as f:
             json.dump(r, f, separators=(",", ":"))
         done += 1
