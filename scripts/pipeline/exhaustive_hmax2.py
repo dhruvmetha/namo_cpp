@@ -28,6 +28,21 @@ re-samples region points at every node, this samples once at the root and reuses
 before/after are measured against a fixed target instead of a resampled one. `--verify` checks the
 depth-1 verdicts against the existing answer key on the same scenes; run it before trusting a sweep.
 
+Result, Amarel array 60760270, 478 tasks, 2.4M sims, zero failures. Over 50330 first pushes:
+18606 setup, 17815 dead, 8731 blocked, 5178 opener. Scored on the sweep's own cell set, the hmax=2
+tiers move easy 248->350, med 128->71, hard 102->57, and the median solve rate goes 0.311 -> 0.704.
+Compare only on matched cells: this enumerates all five depths per contact (median 115) while the
+sweep stopped where a push jams (median 102), and on raw denominators 21 scenes look harder purely
+from the larger divisor.
+
+Two of 478 scenes still flip the impossible way, solvable to unsolvable, and the cause is not fixable
+in code. `set_full_state` restores qpos and qvel but not the MuJoCo warmstart, so the same push from
+the same restored state reports `collision_object` None on a fresh env and 'walls' after ~100 prior
+pushes, which flips whether it is allowed at all. Exhaustive labelling here carries that noise at
+roughly 2 in 478. Note also that the comment at region_opening.py:2931 claims a reported
+collision_object is always the robot's own body; it reads 'walls' here, so that comment is wrong and
+the planner has the same sensitivity.
+
   python scripts/pipeline/exhaustive_hmax2.py --shard 0 --nshards 64 --out $NAMO_SCRATCH/exh2
 """
 import argparse
