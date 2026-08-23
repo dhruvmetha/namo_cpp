@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""Compose canonical keyhole episodes inside one fixed Aug9 wall template.
+"""Compose canonical keyhole episodes into controlled multi-keyhole scenes.
 
 The unit is an episode ``(xml, object_id, region)``, never an XML.  Each output starts from the
 first donor XML, removes every movable object, then inserts only the selected donor blockers.  The
 first donor supplies the robot pose and the last donor supplies the XML goal.  Static validation
 uses ``probe_static_topology`` and requires the intended blockers to appear in path order.
 
-This is deliberately a pilot composer.  It tests whether blocker-only keyhole modules are portable
-before adding donor context objects or scaling collection.
+``fixed_template`` preserves the original blocker-only pilot.  ``room_stitch`` preserves each
+donor's complete static room and joins two directed one-push modules through controlled portals.
 """
 
 from __future__ import annotations
 
 import argparse
 import copy
+import functools
 import itertools
 import json
 import math
@@ -28,6 +29,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable, Iterator, Sequence
 
+import numpy as np
+
 REPO = Path(__file__).resolve().parents[2]
 for _path in (REPO / "build_python", REPO / "python", Path(__file__).resolve().parent):
     if str(_path) not in sys.path:
@@ -40,6 +43,7 @@ from namo.paths import resolve  # noqa: E402
 from namo.planners import get_region_snapshot  # noqa: E402
 from namo.planners.opening.region_opening import CANONICAL_MIN_REACHABLE_FRACTION  # noqa: E402
 from namo.runtime_profile import CANONICAL_NUM_DEPTHS  # noqa: E402
+from namo.visualization.wavefront_snapshot import WavefrontSnapshotExporter  # noqa: E402
 from probe_static_topology import probe_one, shortest_region_path  # noqa: E402
 from verify_geom_disjoint import geom_sig  # noqa: E402
 
@@ -48,6 +52,12 @@ TEMPLATE_RE = re.compile(r"/aug9_car/(set[12]/benchmark_[1-5])/")
 MOVABLE_RE = re.compile(r"^obstacle_.*_movable$")
 TIERS = ("easy", "medium", "hard")
 HORIZONS = ("1push", "2push")
+COMPOSITION_MODES = ("fixed_template", "room_stitch")
+PORTAL_SIDES = ("east", "north", "south", "west")
+
+
+class CompositionRejected(RuntimeError):
+    pass
 
 
 @dataclass(frozen=True)
@@ -65,6 +75,21 @@ class Donor:
     @property
     def episode_key(self) -> tuple[str, str, str]:
         return (os.path.realpath(self.xml_path), self.object_id, self.region)
+
+
+@dataclass(frozen=True)
+class PortalInterface:
+    side: str
+    center: float
+    target_label: str
+    free_run_m: float
+
+
+@dataclass(frozen=True)
+class RigidTransform:
+    rotation_deg: int
+    tx: float
+    ty: float
 
 
 def _rows(path: Path) -> Iterator[tuple[str, dict]]:
@@ -93,7 +118,7 @@ def load_donors(horizon: str, tier: str, template: str) -> list[Donor]:
     donors: list[Donor] = []
     for xml, row in _rows(_manifest_path(horizon)):
         match = TEMPLATE_RE.search(xml)
-        if match is None or match.group(1) != template:
+        if match is None or (template != "any" and match.group(1) != template):
             continue
         region = row.get("region", "goal")
         key = (xml, row["object_id"], region)
@@ -109,7 +134,7 @@ def load_donors(horizon: str, tier: str, template: str) -> list[Donor]:
                 object_theta=float(row.get("object_theta", 0.0)),
                 tier=tier,
                 horizon=horizon,
-                template=template,
+                template=match.group(1),
                 valid_root=tuple((int(edge), int(depth)) for edge, depth in raw_valid),
             )
         )
@@ -165,6 +190,412 @@ def compose_xml(donors: Sequence[Donor], output: Path) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     ET.indent(tree, space="  ")
     tree.write(output, encoding="utf-8", xml_declaration=True)
+
+
+def _numbers(value: str | None) -> list[float]:
+    return [float(item) for item in (value or "").split()]
+
+
+def _set_numbers(element: ET.Element, key: str, values: Sequence[float]) -> None:
+    element.set(key, " ".join(f"{float(value):.9f}" for value in values))
+
+
+def _wall_body(root: ET.Element) -> ET.Element:
+    body = _worldbody(root).find("body[@name='walls']")
+    if body is None:
+        raise CompositionRejected("module_has_no_wall_body")
+    return body
+
+
+def _wall_geoms(root: ET.Element) -> list[ET.Element]:
+    geoms = [geom for geom in _wall_body(root).findall("geom") if geom.get("type") == "box"]
+    if not geoms:
+        raise CompositionRejected("module_has_no_wall_geometries")
+    return geoms
+
+
+def _wall_bounds(root: ET.Element) -> tuple[float, float, float, float]:
+    boxes = []
+    for geom in _wall_geoms(root):
+        pos = _numbers(geom.get("pos"))
+        size = _numbers(geom.get("size"))
+        boxes.append((pos[0] - size[0], pos[0] + size[0], pos[1] - size[1], pos[1] + size[1]))
+    return (
+        min(box[0] for box in boxes),
+        max(box[1] for box in boxes),
+        min(box[2] for box in boxes),
+        max(box[3] for box in boxes),
+    )
+
+
+def _outer_wall(root: ET.Element, side: str) -> ET.Element:
+    xmin, xmax, ymin, ymax = _wall_bounds(root)
+    ranked = []
+    for geom in _wall_geoms(root):
+        pos = _numbers(geom.get("pos"))
+        size = _numbers(geom.get("size"))
+        if side == "west":
+            error, length = abs((pos[0] - size[0]) - xmin), 2.0 * size[1]
+        elif side == "east":
+            error, length = abs((pos[0] + size[0]) - xmax), 2.0 * size[1]
+        elif side == "south":
+            error, length = abs((pos[1] - size[1]) - ymin), 2.0 * size[0]
+        elif side == "north":
+            error, length = abs((pos[1] + size[1]) - ymax), 2.0 * size[0]
+        else:
+            raise ValueError(f"unknown portal side {side!r}")
+        ranked.append((error, -length, geom))
+    error, _negative_length, wall = min(ranked, key=lambda row: (row[0], row[1], row[2].get("name") or ""))
+    if error > 1e-6:
+        raise CompositionRejected("outer_wall_not_found")
+    return wall
+
+
+def _wall_span(root: ET.Element, side: str) -> tuple[float, float]:
+    wall = _outer_wall(root, side)
+    pos = _numbers(wall.get("pos"))
+    size = _numbers(wall.get("size"))
+    if side in {"west", "east"}:
+        return pos[1] - size[1], pos[1] + size[1]
+    return pos[0] - size[0], pos[0] + size[0]
+
+
+def _portal_point(root: ET.Element, interface: PortalInterface) -> tuple[float, float]:
+    wall = _outer_wall(root, interface.side)
+    pos = _numbers(wall.get("pos"))
+    if interface.side in {"west", "east"}:
+        return pos[0], interface.center
+    return interface.center, pos[1]
+
+
+def _split_outer_wall(root: ET.Element, interface: PortalInterface, width: float) -> None:
+    wall_body = _wall_body(root)
+    wall = _outer_wall(root, interface.side)
+    pos = _numbers(wall.get("pos"))
+    size = _numbers(wall.get("size"))
+    axis = 1 if interface.side in {"west", "east"} else 0
+    lower = pos[axis] - size[axis]
+    upper = pos[axis] + size[axis]
+    gap_lower = interface.center - 0.5 * width
+    gap_upper = interface.center + 0.5 * width
+    if gap_lower <= lower or gap_upper >= upper:
+        raise CompositionRejected("portal_does_not_fit_outer_wall")
+
+    segments = ((lower, gap_lower), (gap_upper, upper))
+    original_name = wall.get("name") or "outer_wall"
+    insertion = list(wall_body).index(wall)
+    wall_body.remove(wall)
+    for index, (start, end) in enumerate(segments):
+        segment = copy.deepcopy(wall)
+        segment_pos = list(pos)
+        segment_size = list(size)
+        segment_pos[axis] = 0.5 * (start + end)
+        segment_size[axis] = 0.5 * (end - start)
+        segment.set("name", f"{original_name}_portal_{index}")
+        _set_numbers(segment, "pos", segment_pos)
+        _set_numbers(segment, "size", segment_size)
+        wall_body.insert(insertion + index, segment)
+
+
+def _side_angle_deg(side: str) -> int:
+    return {"east": 0, "north": 90, "west": 180, "south": 270}[side]
+
+
+def _rotation_between_sides(source: str, target: str) -> int:
+    return (_side_angle_deg(target) - _side_angle_deg(source)) % 360
+
+
+def _rotate_xy(x: float, y: float, rotation_deg: float) -> tuple[float, float]:
+    theta = math.radians(rotation_deg)
+    cosine, sine = math.cos(theta), math.sin(theta)
+    return cosine * x - sine * y, sine * x + cosine * y
+
+
+def _transform_xy(x: float, y: float, transform: RigidTransform) -> tuple[float, float]:
+    rotated_x, rotated_y = _rotate_xy(x, y, transform.rotation_deg)
+    return rotated_x + transform.tx, rotated_y + transform.ty
+
+
+def _add_yaw_deg(element: ET.Element, rotation_deg: float) -> None:
+    euler = _numbers(element.get("euler"))
+    if not euler:
+        euler = [0.0, 0.0, 0.0]
+    if len(euler) != 3:
+        raise CompositionRejected("unsupported_euler_shape")
+    euler[2] += float(rotation_deg)
+    _set_numbers(element, "euler", euler)
+
+
+def _transform_position(element: ET.Element, transform: RigidTransform) -> None:
+    pos = _numbers(element.get("pos"))
+    if len(pos) < 2:
+        raise CompositionRejected("module_element_missing_xy_position")
+    pos[0], pos[1] = _transform_xy(pos[0], pos[1], transform)
+    _set_numbers(element, "pos", pos)
+
+
+def _transform_module(
+    root: ET.Element,
+    blocker_name: str,
+    transform: RigidTransform,
+    *,
+    transform_robot: bool,
+) -> None:
+    for wall in _wall_geoms(root):
+        _transform_position(wall, transform)
+        _add_yaw_deg(wall, transform.rotation_deg)
+
+    blocker = _movable_body(root, blocker_name)
+    blocker_geom = blocker.find(f".//geom[@name='{blocker_name}']")
+    if blocker_geom is None:
+        raise CompositionRejected("module_blocker_geom_missing")
+    _transform_position(blocker_geom, transform)
+    _add_yaw_deg(blocker_geom, transform.rotation_deg)
+
+    if transform_robot:
+        robot = _worldbody(root).find("body[@name='car']")
+        if robot is None:
+            raise CompositionRejected("module_robot_missing")
+        _transform_position(robot, transform)
+        _add_yaw_deg(robot, transform.rotation_deg)
+
+    goal = _goal_site(root)
+    _transform_position(goal, transform)
+
+
+def _module_root(donor: Donor, blocker_name: str) -> ET.Element:
+    root = ET.parse(donor.xml_path).getroot()
+    worldbody = _worldbody(root)
+    for body in list(worldbody.findall("body")):
+        if MOVABLE_RE.match(body.get("name") or ""):
+            worldbody.remove(body)
+    worldbody.append(_renamed_blocker(donor.xml_path, donor.object_id, blocker_name))
+    return root
+
+
+def _contiguous_runs(values: np.ndarray, resolution: float) -> list[tuple[float, float]]:
+    if len(values) == 0:
+        return []
+    ordered = np.unique(np.round(values.astype(float), 6))
+    runs = []
+    start = previous = float(ordered[0])
+    for value in ordered[1:]:
+        value = float(value)
+        if value - previous > 1.5 * resolution:
+            runs.append((start, previous))
+            start = value
+        previous = value
+    runs.append((start, previous))
+    return runs
+
+
+@functools.lru_cache(maxsize=None)
+def _module_interface(
+    donor: Donor,
+    role: str,
+    config: str,
+    portal_width: float,
+) -> PortalInterface:
+    with tempfile.TemporaryDirectory(prefix="keyhole_module_interface_") as temp_dir:
+        single_xml = Path(temp_dir) / "single.xml"
+        compose_xml([donor], single_xml)
+        env = namo_rl.RLEnvironment(str(single_xml), config, False)
+        graph = get_region_snapshot(
+            env,
+            goals_per_region=0,
+            local_info_only=False,
+            seed=42,
+            use_cpp_unified=True,
+            use_xml_goal=True,
+        )
+        target_label = graph.get("goal_label") if role == "exit" else graph.get("robot_label")
+        if not target_label:
+            raise CompositionRejected(f"module_{role}_region_missing")
+
+        exporter = WavefrontSnapshotExporter(env, resolution=0.01)
+        raster = exporter.build_snapshot(
+            xml_path=str(single_xml),
+            config_path=config,
+            goal_radius=None,
+            goals_per_region=0,
+            rng=np.random.default_rng(0),
+        )
+        target_ids = [int(region_id) for region_id, label in raster.region_labels.items() if label == target_label]
+        if not target_ids:
+            raise CompositionRejected(f"module_{role}_raster_region_missing")
+        cells = np.argwhere(np.isin(raster.region_map, target_ids))
+        if len(cells) == 0:
+            raise CompositionRejected(f"module_{role}_raster_region_empty")
+
+        xmin, xmax, ymin, ymax = raster.bounds
+        width, height = raster.region_map.shape
+        world_x = xmin + (cells[:, 0] + 0.5) / width * (xmax - xmin)
+        world_y = ymin + (cells[:, 1] + 0.5) / height * (ymax - ymin)
+        resolution = float(raster.resolution)
+        inflation = max(abs(float(value)) for value in raster.robot_half_extent) + max(
+            0.0, float(raster.tier1_inflation_margin_m)
+        )
+        distances = {
+            "west": world_x - xmin,
+            "east": xmax - world_x,
+            "south": world_y - ymin,
+            "north": ymax - world_y,
+        }
+        orthogonal = {
+            "west": world_y,
+            "east": world_y,
+            "south": world_x,
+            "north": world_x,
+        }
+        single_root = ET.parse(single_xml).getroot()
+        candidates = []
+        for side in PORTAL_SIDES:
+            side_distances = distances[side]
+            minimum = float(side_distances.min())
+            if minimum > 2.0 * inflation + resolution:
+                continue
+            band = orthogonal[side][side_distances <= minimum + 1.5 * resolution]
+            wall_lower, wall_upper = _wall_span(single_root, side)
+            for run_lower, run_upper in _contiguous_runs(band, resolution):
+                physical_lower = run_lower - inflation
+                physical_upper = run_upper + inflation
+                feasible_lower = max(physical_lower + 0.5 * portal_width, wall_lower + 0.5 * portal_width)
+                feasible_upper = min(physical_upper - 0.5 * portal_width, wall_upper - 0.5 * portal_width)
+                if feasible_lower > feasible_upper:
+                    continue
+                raw_center = 0.5 * (run_lower + run_upper)
+                center = min(max(raw_center, feasible_lower), feasible_upper)
+                free_run = run_upper - run_lower + resolution
+                candidates.append((free_run, side, center))
+        if not candidates:
+            raise CompositionRejected(f"module_{role}_has_no_outer_portal")
+        free_run, side, center = min(
+            candidates,
+            key=lambda row: (-row[0], PORTAL_SIDES.index(row[1]), row[2]),
+        )
+        return PortalInterface(
+            side=side,
+            center=round(float(center), 6),
+            target_label=str(target_label),
+            free_run_m=round(float(free_run), 6),
+        )
+
+
+def _prefix_wall_names(root: ET.Element, prefix: str) -> ET.Element:
+    wall_body = _wall_body(root)
+    wall_body.set("name", f"{prefix}walls")
+    for geom in wall_body.findall("geom"):
+        geom.set("name", f"{prefix}{geom.get('name') or 'wall'}")
+    return wall_body
+
+
+def _add_connector_walls(
+    root: ET.Element,
+    left_portal: tuple[float, float],
+    right_portal: tuple[float, float],
+    portal_width: float,
+) -> None:
+    if abs(left_portal[1] - right_portal[1]) > 1e-6 or right_portal[0] <= left_portal[0]:
+        raise CompositionRejected("connector_portals_not_horizontal")
+    half_length = 0.5 * (right_portal[0] - left_portal[0])
+    center_x = 0.5 * (left_portal[0] + right_portal[0])
+    half_thickness = 0.01
+    wall_body = ET.Element("body", {"name": "connector_walls"})
+    for index, sign in enumerate((-1.0, 1.0)):
+        center_y = left_portal[1] + sign * (0.5 * portal_width + half_thickness)
+        geom = ET.SubElement(
+            wall_body,
+            "geom",
+            {
+                "name": f"connector_wall_{index}",
+                "condim": "4",
+                "type": "box",
+                "rgba": "0.8 0.8 0.8 1",
+            },
+        )
+        _set_numbers(geom, "pos", (center_x, center_y, 0.08))
+        _set_numbers(geom, "size", (half_length, half_thickness, 0.08))
+    _worldbody(root).append(wall_body)
+
+
+def compose_room_stitch_xml(
+    donors: Sequence[Donor],
+    output: Path,
+    config: str,
+    *,
+    portal_width: float,
+    connector_length: float,
+) -> dict:
+    if len(donors) != 2 or any(donor.horizon != "1push" for donor in donors):
+        raise ValueError("room stitch requires exactly two 1push donors")
+
+    interfaces = (
+        _module_interface(donors[0], "exit", config, portal_width),
+        _module_interface(donors[1], "entry", config, portal_width),
+    )
+    roots = (
+        _module_root(donors[0], "obstacle_0_movable"),
+        _module_root(donors[1], "obstacle_1_movable"),
+    )
+    for root, interface in zip(roots, interfaces):
+        _split_outer_wall(root, interface, portal_width)
+
+    first_rotation = _rotation_between_sides(interfaces[0].side, "east")
+    second_rotation = _rotation_between_sides(interfaces[1].side, "west")
+    first_transform = RigidTransform(first_rotation, 0.0, 0.0)
+    first_portal_local = _portal_point(roots[0], interfaces[0])
+    second_portal_local = _portal_point(roots[1], interfaces[1])
+    first_portal = _transform_xy(*first_portal_local, first_transform)
+    second_portal_rotated = _rotate_xy(*second_portal_local, second_rotation)
+    second_transform = RigidTransform(
+        second_rotation,
+        first_portal[0] + connector_length - second_portal_rotated[0],
+        first_portal[1] - second_portal_rotated[1],
+    )
+    second_portal = _transform_xy(*second_portal_local, second_transform)
+
+    _transform_module(
+        roots[0],
+        "obstacle_0_movable",
+        first_transform,
+        transform_robot=True,
+    )
+    _transform_module(
+        roots[1],
+        "obstacle_1_movable",
+        second_transform,
+        transform_robot=False,
+    )
+    second_wall_body = _prefix_wall_names(roots[1], "module_2_")
+
+    output_root = roots[0]
+    output_worldbody = _worldbody(output_root)
+    output_worldbody.append(copy.deepcopy(second_wall_body))
+    output_worldbody.append(copy.deepcopy(_movable_body(roots[1], "obstacle_1_movable")))
+    _goal_site(output_root).set("pos", _goal_site(roots[1]).get("pos") or "0 0 0")
+    _add_connector_walls(output_root, first_portal, second_portal, portal_width)
+    output_root.set("model", "stitched_two_keyhole_environment")
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    tree = ET.ElementTree(output_root)
+    ET.indent(tree, space="  ")
+    tree.write(output, encoding="utf-8", xml_declaration=True)
+    return {
+        "mode": "room_stitch",
+        "portal_width_m": float(portal_width),
+        "connector_length_m": float(connector_length),
+        "modules": [
+            {
+                "role": role,
+                "source_template": donor.template,
+                "interface": asdict(interface),
+                "transform": asdict(transform),
+            }
+            for role, donor, interface, transform in zip(
+                ("k1", "k2"), donors, interfaces, (first_transform, second_transform)
+            )
+        ],
+    }
 
 
 def _intended_blockers(hops: int) -> list[str]:
@@ -616,7 +1047,13 @@ def replay_donor_chain(xml_path: str, config: str, donors: Sequence[Donor]) -> d
 
 
 def donor_sequences(
-    horizons: Sequence[str], tiers: Sequence[str], template: str, min_separation: float, seed: int
+    horizons: Sequence[str],
+    tiers: Sequence[str],
+    template: str,
+    min_separation: float,
+    seed: int,
+    *,
+    enforce_min_separation: bool = True,
 ) -> Iterable[tuple[Donor, ...]]:
     pools = [load_donors(horizon, tier, template) for horizon, tier in zip(horizons, tiers)]
     if any(not pool for pool in pools):
@@ -625,7 +1062,7 @@ def donor_sequences(
     for sequence in itertools.product(*pools):
         if len({donor.xml_path for donor in sequence}) != len(sequence):
             continue
-        if any(
+        if enforce_min_separation and any(
             math.dist(left.object_center, right.object_center) < min_separation
             for left, right in itertools.combinations(sequence, 2)
         ):
@@ -730,6 +1167,7 @@ def main() -> int:
     parser.add_argument("--horizons", nargs="+", choices=HORIZONS)
     parser.add_argument("--tiers", nargs="+", choices=TIERS)
     parser.add_argument("--template", default="set2/benchmark_5")
+    parser.add_argument("--composition-mode", choices=COMPOSITION_MODES, default="fixed_template")
     parser.add_argument("--config", default=str(REPO / "config/namo_config_complete_skill15_car_1x.yaml"))
     parser.add_argument("--out-dir", type=Path, required=True)
     parser.add_argument(
@@ -740,6 +1178,8 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=1)
     parser.add_argument("--max-attempts", type=int, default=500)
     parser.add_argument("--min-separation", type=float, default=0.30)
+    parser.add_argument("--portal-width", type=float, default=0.10)
+    parser.add_argument("--connector-length", type=float, default=0.20)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
         "--allow-shortfall",
@@ -760,6 +1200,10 @@ def main() -> int:
         parser.error("--horizons and --tiers are required when composing new scenes")
     if len(args.horizons) != len(args.tiers):
         parser.error("--horizons and --tiers must have the same length")
+    if args.composition_mode == "room_stitch" and (
+        len(args.horizons) != 2 or any(horizon != "1push" for horizon in args.horizons)
+    ):
+        parser.error("--composition-mode room_stitch requires exactly two 1push horizons")
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     rows = []
@@ -770,8 +1214,28 @@ def main() -> int:
     used_donor_episodes: set[tuple[str, str, str]] = set()
     donor_reuse_slots = 0
     sequences = list(
-        donor_sequences(args.horizons, args.tiers, args.template, args.min_separation, args.seed)
+        donor_sequences(
+            args.horizons,
+            args.tiers,
+            args.template,
+            args.min_separation,
+            args.seed,
+            enforce_min_separation=args.composition_mode == "fixed_template",
+        )
     )
+
+    def compose_candidate(donors: Sequence[Donor], path: Path) -> dict:
+        if args.composition_mode == "room_stitch":
+            return compose_room_stitch_xml(
+                donors,
+                path,
+                args.config,
+                portal_width=args.portal_width,
+                connector_length=args.connector_length,
+            )
+        compose_xml(donors, path)
+        return {"mode": "fixed_template"}
+
     with tempfile.TemporaryDirectory(prefix="keyhole_modules_") as temp_dir:
         while sequences:
             if attempts >= args.max_attempts or accepted >= args.limit:
@@ -787,14 +1251,22 @@ def main() -> int:
             donors = sequences.pop(preferred)
             attempts += 1
             temp_xml = Path(temp_dir) / f"candidate_{attempts:05d}.xml"
-            compose_xml(donors, temp_xml)
+            try:
+                composition = compose_candidate(donors, temp_xml)
+            except CompositionRejected as error:
+                rejections[str(error)] += 1
+                continue
             probe = probe_one((str(temp_xml), args.config, len(donors)))
             ok, reason = static_acceptance(probe, len(donors))
             if not ok:
                 rejections[reason] += 1
                 continue
             output = args.out_dir / f"composed_{accepted:04d}.xml"
-            compose_xml(donors, output)
+            try:
+                composition = compose_candidate(donors, output)
+            except CompositionRejected as error:
+                rejections[f"final_{error}"] += 1
+                continue
             replay = None
             if args.replay_donor_actions:
                 replay = replay_donor_chain(str(output), args.config, donors)
@@ -820,6 +1292,7 @@ def main() -> int:
             row = {
                 "xml_path": str(output.resolve()),
                 "template": args.template,
+                "composition": composition,
                 "hops": len(donors),
                 "donors": [_donor_json(donor) for donor in donors],
                 "geometry_identity": {
@@ -848,7 +1321,12 @@ def main() -> int:
         "horizons": args.horizons,
         "tiers": args.tiers,
         "template": args.template,
+        "composition_mode": args.composition_mode,
         "min_separation": args.min_separation,
+        "portal_width_m": args.portal_width if args.composition_mode == "room_stitch" else None,
+        "connector_length_m": (
+            args.connector_length if args.composition_mode == "room_stitch" else None
+        ),
         "replay_donor_actions": bool(args.replay_donor_actions),
         "unique_donor_episodes": len(used_donor_episodes),
         "accepted_donor_slots": accepted * len(args.horizons),

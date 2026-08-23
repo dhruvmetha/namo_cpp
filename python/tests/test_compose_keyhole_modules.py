@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -28,6 +29,57 @@ def _donor(index: int, edge: int) -> composer.Donor:
         horizon="1push",
         template="set2/benchmark_5",
         valid_root=((edge, 0),),
+    )
+
+
+def _write_module(path: Path, object_id: str, *, goal_x: float) -> None:
+    root = ET.Element("mujoco", {"model": object_id})
+    worldbody = ET.SubElement(root, "worldbody")
+    walls = ET.SubElement(worldbody, "body", {"name": "walls"})
+    for name, pos, size in (
+        ("west", (-1.0, 0.0, 0.1), (0.01, 1.0, 0.1)),
+        ("east", (1.0, 0.0, 0.1), (0.01, 1.0, 0.1)),
+        ("south", (0.0, -1.0, 0.1), (1.0, 0.01, 0.1)),
+        ("north", (0.0, 1.0, 0.1), (1.0, 0.01, 0.1)),
+    ):
+        ET.SubElement(
+            walls,
+            "geom",
+            {
+                "name": name,
+                "type": "box",
+                "pos": " ".join(map(str, pos)),
+                "size": " ".join(map(str, size)),
+            },
+        )
+    ET.SubElement(worldbody, "body", {"name": "car", "pos": "-0.6 0 0", "euler": "0 0 0"})
+    blocker = ET.SubElement(worldbody, "body", {"name": object_id})
+    ET.SubElement(
+        blocker,
+        "geom",
+        {
+            "name": object_id,
+            "type": "box",
+            "pos": "0 0 0.05",
+            "size": "0.1 0.1 0.05",
+            "euler": "0 0 0",
+        },
+    )
+    ET.SubElement(worldbody, "site", {"name": "goal", "pos": f"{goal_x} 0 0"})
+    ET.ElementTree(root).write(path, encoding="utf-8", xml_declaration=True)
+
+
+def _xml_donor(path: Path, object_id: str, *, template: str) -> composer.Donor:
+    return composer.Donor(
+        xml_path=str(path),
+        object_id=object_id,
+        region="goal",
+        object_center=(0.0, 0.0),
+        object_theta=0.0,
+        tier="medium",
+        horizon="1push",
+        template=template,
+        valid_root=((0, 0),),
     )
 
 
@@ -224,6 +276,81 @@ def test_static_acceptance_reports_specific_defect(defect, reason):
     }
 
     assert composer.static_acceptance(row, 2) == (False, reason)
+
+
+def test_split_outer_wall_cuts_requested_portal(tmp_path):
+    source = tmp_path / "module.xml"
+    _write_module(source, "source", goal_x=0.6)
+    root = ET.parse(source).getroot()
+
+    composer._split_outer_wall(
+        root,
+        composer.PortalInterface("east", 0.2, "goal", 0.5),
+        width=0.1,
+    )
+
+    segments = [
+        geom
+        for geom in composer._wall_body(root).findall("geom")
+        if (geom.get("name") or "").startswith("east_portal_")
+    ]
+    assert len(segments) == 2
+    bounds = sorted(
+        (
+            composer._numbers(segment.get("pos"))[1]
+            - composer._numbers(segment.get("size"))[1],
+            composer._numbers(segment.get("pos"))[1]
+            + composer._numbers(segment.get("size"))[1],
+        )
+        for segment in segments
+    )
+    assert bounds[0] == pytest.approx((-1.0, 0.15))
+    assert bounds[1] == pytest.approx((0.25, 1.0))
+
+
+def test_room_stitch_preserves_two_modules_and_uses_second_goal(tmp_path, monkeypatch):
+    first = tmp_path / "first.xml"
+    second = tmp_path / "second.xml"
+    output = tmp_path / "stitched.xml"
+    _write_module(first, "source_0", goal_x=0.6)
+    _write_module(second, "source_1", goal_x=0.7)
+    donors = (
+        _xml_donor(first, "source_0", template="set2/benchmark_3"),
+        _xml_donor(second, "source_1", template="set2/benchmark_5"),
+    )
+
+    monkeypatch.setattr(
+        composer,
+        "_module_interface",
+        lambda _donor, role, _config, _width: composer.PortalInterface(
+            "east" if role == "exit" else "west",
+            0.0,
+            role,
+            1.0,
+        ),
+    )
+    metadata = composer.compose_room_stitch_xml(
+        donors,
+        output,
+        "/config.yaml",
+        portal_width=0.1,
+        connector_length=0.2,
+    )
+
+    root = ET.parse(output).getroot()
+    worldbody = composer._worldbody(root)
+    assert root.get("model") == "stitched_two_keyhole_environment"
+    assert [body.get("name") for body in worldbody.findall("body")].count("car") == 1
+    assert composer._movable_body(root, K1) is not None
+    assert composer._movable_body(root, K2) is not None
+    assert worldbody.find("body[@name='module_2_walls']") is not None
+    assert worldbody.find("body[@name='connector_walls']") is not None
+    assert composer._numbers(composer._goal_site(root).get("pos"))[:2] == pytest.approx([2.9, 0.0])
+    assert metadata["mode"] == "room_stitch"
+    assert [module["source_template"] for module in metadata["modules"]] == [
+        "set2/benchmark_3",
+        "set2/benchmark_5",
+    ]
 
 
 def test_scale_summary_separates_static_and_post_static_rejections():
