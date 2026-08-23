@@ -29,7 +29,7 @@ for _p in (f"{REPO}/python", f"{REPO}/scripts", f"{REPO}/scripts/rl_loop"):
 from namo import eval_sets  # noqa: E402
 from agg_testset_reactive import load_divisions  # noqa: E402  - same tier rule, one implementation
 
-KS = (1, 2, 3, 5, 10)
+KS = (1, 2, 3, 5, 10)          # replaced in main() from --cuts
 TIERS = ("easy", "medium", "hard", "all")
 LEGS = {
     "1push": {"dir": "1push_policy", "search_dir": "1push", "tiers": lambda: eval_sets.ONEPUSH},
@@ -86,8 +86,12 @@ def main():
     ap.add_argument("--search-model-arms", default="HY5U_s1,HY5U_s2,HY5U_s3")
     ap.add_argument("--search-random-arms", default="random_s7000,random_s8000,random_s9000")
     ap.add_argument("--out", required=True)
+    ap.add_argument("--cuts", default="1,2,3,5,10",
+                    help="simulator budgets to report. NEVER quote a cut above the run's own depth cap: "
+                         "a K=10 rollout's open@30 is just its open@10 wearing a bigger number.")
     a = ap.parse_args()
-
+    global KS
+    KS = tuple(int(x) for x in a.cuts.split(","))
     os.makedirs(a.out, exist_ok=True)
     report = {"policy_root": a.policy_root, "search_root": a.search_root, "ks": list(KS), "legs": {}}
     lines = []

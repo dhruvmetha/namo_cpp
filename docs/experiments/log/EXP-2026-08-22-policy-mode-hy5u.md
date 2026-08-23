@@ -5,8 +5,8 @@ created: 2026-08-22
 updated: 2026-08-22
 thread: ranker-as-policy
 robot: car
-metric: "policy leads search from 2 to 5 calls, search overtakes by 10 — except hard 2push, where the policy leads the whole way"
-commit: ef1f6d8
+metric: "policy leads search to ~5 calls, then saturates; search converts budget into solves all the way to 30 (2push all 89.7 vs 82.9)"
+commit: a15393c
 tags: [experiment, policy, reactive, hy5u, testset-v3, amarel]
 ---
 
@@ -45,13 +45,15 @@ _(Claude, 2026-08-22)_
 ## Run
 _(Claude, 2026-08-22)_
 
-Three campaigns on Amarel `main`, 192 tasks each (16 shards per leg per arm), all 576 tasks COMPLETED, zero failures.
+Five campaigns on Amarel `main`, 1,056 tasks, all COMPLETED, zero failures.
 
 | campaign | what | output |
 |---|---|---|
 | 60754573-8 | policy, K=10, no jam guard | `eval/policy_v3_20260822/` |
 | 60754805-10 | policy, K=10, jam guard on | `eval/policy_v3_jamguard_20260822/` |
 | 60755003-8 | best-first search, `hmax=10 sim_budget=10` | `eval/search_h10_b10_20260822/` |
+| 60757899-904 | policy, K=30, jam guard on | `eval/policy_v3_k30_20260822/` |
+| 60757905-62 | best-first search, `hmax=30 sim_budget=30` | `eval/search_h30_b30_20260822/` |
 
 Sizing came from a smoke (jobs 60754561/2, one middle shard per leg per arm): 81-85 s per ~10-xml shard, of which ~70 s is torch import plus checkpoint load and only 7-11 s is rollout. A push costs ~0.2 s, so the worst K=10 episode is ~3.5 s and there is no straggler to shard around. Median task in the full run was 133 s.
 
@@ -77,57 +79,59 @@ It also removes an artifact: unguarded, random beat HY5U on easy two-push at ten
 *The depth caps did not match.* The registered search runs `hmax=2` and cannot emit a plan longer than two pushes at any budget, while the policy runs to ten. So policy open@k against the registered solve@k is only like-for-like at k≤2. The `hmax=10 sim_budget=10` legs fix that, and they cost less than the registered run because every episode stops by ten calls.
 
 ## Result + Verdict
-_(Claude, 2026-08-22)_ Numbers on the common set, three seeds, mean ± sample SD. Both methods spend one simulator call per push, so open@k and solve@k sit on one budget axis.
+_(Claude, 2026-08-22)_ Numbers on the common set (1,310 one-push, 973 two-push), three seeds, mean ± sample SD, depth cap 30 on both methods. Both spend one simulator call per push, so open@k and solve@k sit on one budget axis.
 
 **1push (n=1310)**
 
-| tier | n | method | @1 | @2 | @3 | @5 | @10 |
+| tier | n | method | @2 | @3 | @5 | @10 | @30 |
 |---|---:|---|---:|---:|---:|---:|---:|
-| easy | 675 | HY5U policy | 97.9±0.5 | 99.6 | 99.8 | 100.0 | 100.0 |
-| easy | 675 | HY5U search | 97.9±0.5 | 99.3 | 99.6 | 99.8 | 99.9 |
-| medium | 437 | HY5U policy | 80.7±0.3 | 92.7 | 95.0 | 96.7 | 97.5 |
-| medium | 437 | HY5U search | 80.7±0.3 | 91.9 | 94.6 | 96.9 | 98.0 |
-| hard | 198 | HY5U policy | 41.6±1.2 | 74.6 | 82.5 | 87.4 | 89.4 |
-| hard | 198 | HY5U search | 41.6±1.2 | 71.2 | 80.1 | 86.9 | 92.6 |
-| all | 1310 | HY5U policy | 83.7±0.3 | 93.5 | 95.5 | 97.0 | 97.5 |
-| all | 1310 | HY5U search | 83.7±0.3 | 92.6 | 95.0 | 96.8 | 98.2 |
-| all | 1310 | random policy | 38.5±1.5 | 59.4 | 70.4 | 81.8 | 89.2 |
-| all | 1310 | random search | 38.1±1.6 | 57.7 | 68.6 | 80.0 | 89.7 |
+| easy | 675 | HY5U policy | 99.6 | 99.8 | 100.0 | 100.0 | 100.0 |
+| easy | 675 | HY5U search | 99.3 | 99.6 | 99.8 | 99.9 | 100.0 |
+| medium | 437 | HY5U policy | 92.7 | 95.0 | 96.7 | 97.5 | 97.8 |
+| medium | 437 | HY5U search | 91.9 | 94.6 | 96.9 | 98.0 | 99.2 |
+| hard | 198 | HY5U policy | 74.6 | 82.5 | 87.4 | 89.4 | 90.7 |
+| hard | 198 | HY5U search | 71.2 | 80.1 | 86.9 | 92.6 | 96.3 |
+| all | 1310 | HY5U policy | 93.5 | 95.5 | 97.0 | 97.5 | 97.9 |
+| all | 1310 | HY5U search | 92.6 | 95.0 | 96.8 | 98.2 | 99.2 |
+| all | 1310 | random policy | 59.0 | 71.2 | 80.9 | 88.6 | 91.8 |
+| all | 1310 | random search | 57.7 | 68.6 | 80.0 | 89.7 | 95.5 |
+
+(one-push open@1 = solve@1 = 83.7±0.3 for HY5U in both harnesses, per tier 97.9 / 80.7 / 41.6.)
 
 **2push (n=973)**
 
-| tier | n | method | @2 | @3 | @5 | @10 |
-|---|---:|---|---:|---:|---:|---:|
-| easy | 381 | HY5U policy | 66.1±2.1 | 80.1 | 86.8 | 89.2 |
-| easy | 381 | HY5U search | 62.4±1.6 | 76.5 | 85.4 | 90.4 |
-| medium | 475 | HY5U policy | 43.8±1.1 | 62.1 | 71.7 | 77.2 |
-| medium | 475 | HY5U search | 41.2±1.7 | 57.2 | 70.0 | 80.0 |
-| hard | 117 | HY5U policy | 21.9±3.2 | 45.6 | 56.1 | 62.7 |
-| hard | 117 | HY5U search | 21.4±3.0 | 38.2 | 48.4 | 59.8 |
-| all | 973 | HY5U policy | 49.9±0.7 | 67.1 | 75.7 | 80.1 |
-| all | 973 | HY5U search | 47.1±0.8 | 62.5 | 73.4 | 81.6 |
-| all | 973 | random policy | 3.9±0.9 | 12.5 | 32.9 | 60.4 |
-| all | 973 | random search | 3.0±0.7 | 8.8 | 22.6 | 47.0 |
+| tier | n | method | @2 | @3 | @5 | @10 | @30 |
+|---|---:|---|---:|---:|---:|---:|---:|
+| easy | 381 | HY5U policy | 66.1 | 80.1 | 86.8 | 89.2 | 90.2 |
+| easy | 381 | HY5U search | 62.4 | 76.5 | 85.4 | 90.4 | 94.8 |
+| medium | 475 | HY5U policy | 43.8 | 62.1 | 71.7 | 77.2 | 81.0 |
+| medium | 475 | HY5U search | 41.2 | 57.2 | 70.0 | 80.0 | 89.1 |
+| hard | 117 | HY5U policy | 21.9 | 45.6 | 56.1 | 62.7 | 67.0 |
+| hard | 117 | HY5U search | 21.4 | 38.2 | 48.4 | 59.8 | 75.5 |
+| all | 973 | HY5U policy | 49.9 | 67.1 | 75.7 | 80.1 | 82.9 |
+| all | 973 | HY5U search | 47.1 | 62.5 | 73.4 | 81.6 | 89.7 |
+| all | 973 | random policy | 4.1 | 12.0 | 31.6 | 59.4 | 73.6 |
+| all | 973 | random search | 3.0 | 8.8 | 22.6 | 47.0 | 75.3 |
 
-![Success versus simulator calls for the greedy policy and best-first search, HY5U and uniform random, split by difficulty and horizon.](../plots/policy_vs_search/policy_vs_search_success_vs_sims.png)
+![Success versus simulator calls for the greedy policy and best-first search, HY5U and uniform random, split by difficulty and horizon, out to 30 calls.](../plots/policy_vs_search_k30/policy_vs_search_success_vs_sims.png)
 
-_(Regenerate with `scripts/rl_loop/plot_policy_vs_search.py`; per-point means and SDs in `policy_vs_search.json` beside it.)_
+_(Regenerate with `scripts/rl_loop/plot_policy_vs_search.py --kmax 30`; per-point means and SDs in `policy_vs_search.json` beside it. The 10-call version is at `plots/policy_vs_search/`.)_
+
+**Consistency check across the two policy campaigns.** HY5U's K=30 run reproduces its K=10 run exactly at every k≤10 (one-push all 83.7 / 93.5 / 95.5 / 97.0 / 97.5 in both), which is what a deterministic argmax must do: the longer rollout's prefix IS the shorter rollout. The random arms differ by up to a point (one-push @1 37.5 vs 38.5) because a longer episode draws more from the same RNG stream and shifts every later episode's draws. Expected, and it bounds the run-to-run noise on the random lines.
 
 **Verdict [on numbers].**
 
-**The queue buys nothing under about five simulator calls, and the dive buys a little.** At matched depth and budget the greedy policy leads best-first search from k=2 to k=5 on every tier of both horizons, by 2.8 to 4.6 points on two-push all. The search overtakes by k=10 on most tiers (two-push all 81.6 against 80.1). The crossover sits between 5 and 10 calls, which is the shape you would expect: committing to a chain is efficient while calls are scarce, and rollback only earns its cost once there is budget to spend on it.
+**The policy wins the first five calls and then saturates; the search keeps converting budget into solves.** Two-push all-tier, the policy leads by 2.8 at k=2, 4.6 at k=3 and 2.3 at k=5, is passed by k=10 (80.1 vs 81.6), and finishes 6.8 behind at k=30 (82.9 vs 89.7). One-push is the same shape with a smaller gap. The mechanism is not subtle: the policy cannot abandon a chain. Once its pushes have wrecked the state, extra calls are spent in a state no ranking can rescue, while the search can drop the branch and start elsewhere.
 
-**The exception is hard two-push, where the policy leads the whole way** and the search never catches it inside ten calls: 45.6 against 38.2 at three, 56.1 against 48.4 at five, 62.7 against 59.8 at ten. On the tier where openings are rarest, spending every call on depth beats spreading them across siblings.
+**The crossover is where the engineering decision lives.** Under about five calls the queue costs more than it returns, and greedy diving is the better use of a scarce verifier. Past ten, backtracking is worth its overhead. On hard two-push the crossover is later (the policy still leads at k=10, 62.7 vs 59.8) and the search only pulls clear by 30, 75.5 vs 67.0.
 
-**Diving is a two-push phenomenon, not a general one.** Random policy against random search is near-identical on one-push (89.2 vs 89.7 at ten) and a rout on two-push (60.4 vs 47.0 all, 34.5 vs 16.8 hard). A two-push episode needs depth by definition, and a randomly-ordered queue spends most of a ten-call budget at depth 1.
+**Diving is a two-push phenomenon.** Random policy against random search is close on one-push at 30 calls (91.8 vs 95.5, search ahead) and level on two-push (73.6 vs 75.3), but the policy is far ahead in the 3-to-10 range on two-push (12.0 vs 8.8, 31.6 vs 22.6, 59.4 vs 47.0). A two-push episode needs depth, and a randomly-ordered queue spends its early budget at depth 1. Given enough calls the queue catches up.
 
-**hmax=10 over hmax=5 is worth 4.4 points on two-push all** (75.7 → 80.1) and 0.5 on one-push. In the unguarded run the same comparison read 62.7 → 63.3, which was the lock-up, not the horizon.
-
-**The ranker still carries the result.** HY5U policy against random policy at five calls: two-push all 75.7 vs 32.9, hard 56.1 vs 9.4. Removing the search does not remove the need for the ordering.
+**The ranker still carries the result.** HY5U policy against random policy at five calls: two-push all 75.7 vs 31.6, hard 56.1 vs 8.3. Removing the search does not remove the need for the ordering.
 
 ## Next
 
-The policy tops out at what ten calls can reach; the registered `hmax=2` search at budget 900 gets two-push all to 93.0. A fair large-budget comparison would need the search at `hmax=10` with a real budget, which this card did not run.
+The policy's ceiling at 30 calls is 82.9 on two-push all, against the registered `hmax=2` search's 93.0 at budget 900. Whether the policy's ceiling is the state it ruins or simply the depth cap is untested; a K=100 rollout would separate those.
 
 Worth testing: whether the jam guard helps the *search* too. It has `dedupe_noop` per board, but a jammed edge learned on one board is not carried to another.
 

@@ -51,7 +51,7 @@ The scannable cross-campaign index: **what we changed, why, and whether it helpe
 | 08-13 | **wall-clock campaign at 4000 calls** (model ×3 vs random ×3, exclusive single-generation nodes) | does the simulator-call advantage survive in SECONDS? | ⏱ **mostly, on 2push** — hard 2push 10.9× on the MEDIAN INSTANCE (per-RO-instance speed-up, the canonical statistic; slower on 5.9% of instances); hard 1push 3.71×; easy 1push a tie (1.03×). Scoring overhead is minor (3.7% on hard 2push); the real leak is that the model's calls cost 1.25-1.5× more each, so **call-count flatters the model** | [crossboard](log/EXP-2026-08-09-crossboard-ranking.md) |
 | 08-13 | *(validity)* train/test leakage audit | HY5U's numbers needed a held-out guarantee | ✅ **clean** — 0 of 978 two-push test rooms and 0 of 1012 test episodes appear in hybrid training (full-path match; 5-component suffix matching gives a false 62% and must not be used for leak checks) | [crossboard](log/EXP-2026-08-09-crossboard-ranking.md) |
 | 08-21 | **fixed-physics v3 canonical evaluation** — HY5U ×3 vs random ×3 | replace every stale v1 comparison with a complete-population v3 baseline | ✅✅ HY5U wins the tight search regime on every tier; hard 2push @5 **35.9 vs 2.0**, @900 **87.6 vs 62.2** | registry: `hy5u-nodiscount-hmax2-v3` / `random-nodiscount-hmax2-v3` |
-| 08-22 | **HY5U as a policy** — zero search, greedy argmax, K=10 [USER] | what is the ranker worth with the queue switched off | ✅ policy **leads** search from 2 to 5 calls on every tier (2push all @5 **75.7 vs 73.4**), search overtakes by 10; hard 2push the policy leads throughout (**62.7 vs 59.8** @10). Two harness bugs found and fixed | [policy-mode](log/EXP-2026-08-22-policy-mode-hy5u.md) |
+| 08-22 | **HY5U as a policy** — zero search, greedy argmax, out to 30 calls [USER] | what is the ranker worth with the queue switched off | ✅ policy **leads to ~5 calls** (2push all @5 **75.7 vs 73.4**) then **saturates**; search passes at 10 and finishes **89.7 vs 82.9** @30. Crossover is the engineering answer. Two harness bugs found and fixed | [policy-mode](log/EXP-2026-08-22-policy-mode-hy5u.md) |
 
 **Failed ideas, kept so they are not retried blind:** unanchored family softmax · hinge without an anchor (RPM) · 2% regression brake (RPB) · absolute plates on dead cells · margins sized in raw units instead of σ · root rebalancing as a 1-push fix · exhaustive relabeling bought at the cost of corpus size · ladder + rebalance stacking · push-depth-aware pose head · Fourier depth identity.
 
@@ -83,24 +83,26 @@ HY5U seeds 1-3 and uniform-random seeds 7000/8000/9000 were re-run on the comple
 
 ---
 
-## 2026-08-22 — The ranker as a policy: the queue buys nothing under five simulator calls
+## 2026-08-22 — The ranker as a policy: greedy wins the first five calls, then stops
 
-HY5U was run with the search removed: score the live state, take the top push, simulate it for real, repeat up to ten times, no rollback. Against best-first search at matched depth (`hmax=10`) and matched budget (`sim_budget=10`), on the common episode set of 1,310 one-push and 973 two-push, three seeds each.
+HY5U with the search removed: score the live state, take the top push, simulate it for real, repeat, no rollback. Against best-first search at matched depth cap (30) and matched budget, common set of 1,310 one-push and 973 two-push, three seeds each.
 
-| 2push tier | n | @2 policy / search | @3 policy / search | @5 policy / search | @10 policy / search |
-|---|---:|---:|---:|---:|---:|
-| easy | 381 | 66.1 / 62.4 | 80.1 / 76.5 | 86.8 / 85.4 | 89.2 / 90.4 |
-| medium | 475 | 43.8 / 41.2 | 62.1 / 57.2 | 71.7 / 70.0 | 77.2 / 80.0 |
-| hard | 117 | 21.9 / 21.4 | 45.6 / 38.2 | 56.1 / 48.4 | 62.7 / 59.8 |
-| all | 973 | 49.9 / 47.1 | 67.1 / 62.5 | 75.7 / 73.4 | 80.1 / 81.6 |
+| 2push tier | n | @2 policy / search | @3 | @5 | @10 | @30 |
+|---|---:|---:|---:|---:|---:|---:|
+| easy | 381 | 66.1 / 62.4 | 80.1 / 76.5 | 86.8 / 85.4 | 89.2 / 90.4 | 90.2 / 94.8 |
+| medium | 475 | 43.8 / 41.2 | 62.1 / 57.2 | 71.7 / 70.0 | 77.2 / 80.0 | 81.0 / 89.1 |
+| hard | 117 | 21.9 / 21.4 | 45.6 / 38.2 | 56.1 / 48.4 | 62.7 / 59.8 | 67.0 / 75.5 |
+| all | 973 | 49.9 / 47.1 | 67.1 / 62.5 | 75.7 / 73.4 | 80.1 / 81.6 | 82.9 / 89.7 |
 
-**The crossover sits between 5 and 10 calls.** Committing to a chain beats maintaining a queue while calls are scarce; rollback only repays its cost once there is budget to spend on it. On hard two-push the search never catches up inside ten calls. Diving is a two-push effect: random policy and random search are within a point on one-push (89.2 vs 89.7 at ten) and far apart on two-push (60.4 vs 47.0), because a two-push episode needs depth and a randomly-ordered queue spends its budget at depth 1.
+**The crossover between 5 and 10 calls is the engineering result.** Below it the queue costs more than it returns and greedy diving is the better use of a scarce verifier. Above it backtracking earns its overhead, and by 30 calls the search is 6.8 points ahead on two-push all. The policy cannot abandon a chain: once its own pushes have wrecked the state, extra calls buy nothing, while the search drops the branch. On hard two-push the crossover comes later, the policy still leading at ten (62.7 vs 59.8) before the search pulls clear at thirty (75.5 vs 67.0).
 
-**Validity anchor.** One-push policy open@1 equals search solve@1 exactly, 83.7±0.3 all-tier and 97.9 / 80.7 / 41.6 per tier. The two harnesses pick the same first push, which is what makes the rest of the curve comparable.
+**Diving is a two-push effect.** Random policy vs random search is level by 30 calls on both horizons (73.6 vs 75.3 two-push), but far apart in the 3-to-10 range (31.6 vs 22.6 at five, 59.4 vs 47.0 at ten). A two-push episode needs depth and a randomly-ordered queue spends early budget at depth 1. Enough calls and the queue catches up.
 
-**Two harness bugs, both found by looking rather than by the aggregate.** (1) Without a no-op guard the policy locks: on failed episodes it tried 2.2 distinct pushes across 10 steps, with 45% picking one push all ten times, because a jammed push leaves the state unchanged and re-ranking it returns the same argmax. The search's `dedupe_noop` + `prune_jam_depth` had no policy-mode equivalent. Fixing it moved hard two-push @10 from 42.7 to 62.7. (2) The registered search is `hmax=2` and cannot emit a longer plan at any budget, so comparing it to a ten-deep policy past k=2 measures the depth cap. Both fixed before any number above.
+**Validity anchor.** One-push policy open@1 equals search solve@1 exactly, 83.7±0.3 all-tier and 97.9 / 80.7 / 41.6 per tier, so both harnesses pick the same first push. Separately, HY5U's K=30 rollout reproduces its K=10 rollout at every k≤10, which a deterministic argmax must.
 
-**Standing caution:** a plateau in a cost curve is a claim about the method only after you have checked it is not the harness. Here it was the harness, twice.
+**Two harness bugs, both found by reading trajectories rather than the aggregate.** (1) Without a no-op guard the policy locks: on failed episodes it tried 2.2 distinct pushes across 10 steps, 45% picking one push all ten times, because a jammed push leaves the state unchanged and re-ranking it returns the same argmax. Fixing it moved hard two-push @10 from 42.7 to 62.7, and the same guard is worth only +4.6 to random, because only a deterministic policy can cycle. (2) The registered search is `hmax=2` and cannot emit a longer plan at any budget, so comparing it against a deeper policy past k=2 measures the depth cap.
+
+**Standing caution:** a plateau in a cost curve is a claim about the method only after you have ruled out the harness. Here it was the harness, twice.
 
 ## 2026-08-07/08 — Loss anatomy: ordering supervision dominates labels and architecture (cards [EXP-2026-08-02 DC](log/EXP-2026-08-02-bootstrap-value-loop.md), [EXP-2026-08-08 arjuna](log/EXP-2026-08-08-arjuna-hard-labels.md))
 

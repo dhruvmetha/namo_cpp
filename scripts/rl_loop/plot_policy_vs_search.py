@@ -37,7 +37,8 @@ for _p in (f"{REPO}/python", f"{REPO}/scripts", f"{REPO}/scripts/rl_loop"):
 from namo import eval_sets  # noqa: E402
 from agg_testset_reactive import load_divisions  # noqa: E402
 
-KS = list(range(1, 11))
+KS = list(range(1, 31))       # replaced in main() from --kmax
+TICKS = [1, 2, 3, 5, 10, 30]
 TIERS = ("easy", "medium", "hard", "all")
 HORIZONS = ("1push", "2push")
 LEG = {"1push": {"policy": "1push_policy", "search": "1push_hmax2", "tiers": lambda: eval_sets.ONEPUSH},
@@ -93,9 +94,13 @@ def main():
     ap.add_argument("--policy-root", required=True)
     ap.add_argument("--search-root", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--kmax", type=int, default=30, help="largest simulator budget on the x axis")
     ap.add_argument("--model-seeds", default="s1,s2,s3")
     ap.add_argument("--random-seeds", default="s7000,s8000,s9000")
     a = ap.parse_args()
+    global KS, TICKS
+    KS = list(range(1, a.kmax + 1))
+    TICKS = [k for k in (1, 2, 3, 5, 10, 30, 100, 300, 900) if k <= a.kmax]
     os.makedirs(a.out, exist_ok=True)
     roots = {"policy": a.policy_root, "search": a.search_root}
 
@@ -134,8 +139,11 @@ def main():
                 mean, sd = data[(hz, label)][tier]
                 ax.fill_between(KS, mean - sd, mean + sd, color=colour, alpha=0.13, linewidth=0)
                 ax.plot(KS, mean, color=colour, linestyle=dash, linewidth=2.0,
-                        marker="o", markersize=4.5, markeredgecolor="#fcfcfb",
-                        markeredgewidth=0.8, label=label if (r == 0 and c == 0) else None)
+                        label=label if (r == 0 and c == 0) else None)
+                ti = [KS.index(k) for k in TICKS]
+                ax.plot([KS[i] for i in ti], [mean[i] for i in ti], linestyle="none",
+                        marker="o", markersize=5.0, color=colour,
+                        markeredgecolor="#fcfcfb", markeredgewidth=0.9)
             ax.grid(True, color=GRID, linewidth=0.6, alpha=0.9)
             ax.set_axisbelow(True)
             for side in ("top", "right"):
@@ -143,8 +151,11 @@ def main():
             for side in ("left", "bottom"):
                 ax.spines[side].set_color(GRID)
             ax.set_ylim(0, 102)
-            ax.set_xlim(1, 10)
-            ax.set_xticks([1, 2, 3, 5, 10])
+            ax.set_xscale("log")        # the action is at 1-10 calls; linear would squash it
+            ax.set_xlim(1, KS[-1])
+            ax.set_xticks(TICKS)
+            ax.set_xticklabels([str(k) for k in TICKS])
+            ax.minorticks_off()
             ax.tick_params(colors=MUTED, labelsize=9, length=3)
             n = counts[hz][tier]
             ax.set_title(f"{hz}  ·  {tier}  (n={n})", color=INK, fontsize=10.5, pad=8)
@@ -156,7 +167,7 @@ def main():
     handles, labels = axes[0][0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="upper center", ncol=4, frameon=False,
                bbox_to_anchor=(0.5, 1.0), fontsize=10.5, labelcolor=MUTED)
-    fig.suptitle("Greedy policy vs best-first search at equal simulator budget  ·  hmax=10, "
+    fig.suptitle(f"Greedy policy vs best-first search at equal simulator budget  ·  depth cap {KS[-1]}, "
                  "fixed-physics v3, 3 seeds, band = ±1 SD",
                  color=INK, fontsize=12.5, y=1.055)
     fig.tight_layout(rect=(0, 0, 1, 0.985))
@@ -171,7 +182,7 @@ def main():
     for hz in HORIZONS:
         for lab, _k, _p, _c, _d in SERIES:
             m = data[(hz, lab)]["all"][0]
-            print(f"  {hz:6s} {lab:15s} all: " + " ".join(f"@{k}={m[i]:5.1f}" for i, k in enumerate(KS) if k in (1, 2, 3, 5, 10)))
+            print(f"  {hz:6s} {lab:15s} all: " + " ".join(f"@{k}={m[i]:5.1f}" for i, k in enumerate(KS) if k in TICKS))
 
 
 if __name__ == "__main__":
