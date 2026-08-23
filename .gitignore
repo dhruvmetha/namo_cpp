@@ -11,7 +11,10 @@ __pycache__/
 !assets/*.png
 *.txt
 *.html
+!viz/app/*.html
 !viz/search/*.html
+!viz/scenes/*.html
+!viz/real_scenes/*.html
 *.mp4
 *.pdf
 modular_data/

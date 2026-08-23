@@ -71,6 +71,11 @@ function qs(name) {
   return new URLSearchParams(window.location.search).get(name);
 }
 
+// The page code lives once under viz/app/; every dataset (viz/search/, viz/scenes/, ...) is a sibling
+// folder of data only. ?data=<path relative to viz/app/> says which one this load is for -- e.g.
+// "../search/" (see viz/app/datasets.json, the manifest a new dataset needs one line in).
+const DATA_BASE = qs("data") || "";
+
 function sp() {
   return state.trace.meta.search || SEARCH_DEFAULTS;
 }
@@ -321,65 +326,13 @@ function fmtPct(x) {
 // pinned by scripts/viz/trace_schema.py rle_encode -- flat [value, count, ...] over the row-major
 // flatten of the (nx, ny) id grid, runs never crossing a row -- but the walk below splits at row
 // boundaries anyway, so a run that did span rows would still decode to correct rectangles.
-function regionRuns(regions) {
-  const { nx, ny, res, origin, rle } = regions;
-  const runs = [];
-  let ix = 0;
-  let iy = 0;
-  for (let i = 0; i < rle.length && ix < nx; i += 2) {
-    const v = rle[i];
-    let n = rle[i + 1];
-    while (n > 0 && ix < nx) {
-      const take = Math.min(n, ny - iy);
-      if (v !== 0) runs.push({ v, x: origin[0] + ix * res, y: origin[1] + iy * res, h: take * res });
-      iy += take;
-      n -= take;
-      if (iy >= ny) {
-        iy = 0;
-        ix += 1;
-      }
-    }
-  }
-  return runs;
-}
-
-// The problem in one picture: "robot" = where the robot can currently get to, "goal" = the pocket it
-// is trying to reach, and a push succeeds exactly when the two become one region ("robot_goal").
-// Everything else is background free space -- drawn, but deliberately dull.
-function regionClass(label) {
-  if (label === "robot") return "region-robot";
-  if (label === "goal") return "region-goal";
-  if (label === "robot_goal") return "region-merged";
-  return "region-other";
-}
-
-function regionLayer(regions) {
-  if (!regions) return "";
-  const res = regions.res;
-  const cells = regionRuns(regions).map((r) => {
-    const label = regions.labels[String(r.v)] || `region_${r.v}`;
-    // 2% overhang on the width so neighbouring columns of the same region overlap instead of
-    // leaving antialiased hairlines between them (0.1 mm of overdraw at 5 mm cells).
-    return (
-      `<rect class="region-cell ${regionClass(label)}" x="${r.x}" y="${r.y}" ` +
-      `width="${res * 1.02}" height="${r.h}"><title>${label}</title></rect>`
-    );
-  });
-  return `<g class="region-layer">${cells.join("")}</g>`;
-}
+// regionRuns / regionClass / regionLayer / setSceneViewBox / sceneLayers live in scene_render.js,
+// shared with the scene gallery (scenes.html) so both pages draw the same picture.
 
 function renderSceneA() {
   const svg = document.getElementById("scene-svg");
   const scene = state.trace.scene;
-  const [xmin, xmax, ymin, ymax] = scene.bounds;
-  const w = xmax - xmin, h = ymax - ymin;
-  // No Y-flip: contacts arrive as raw world (x,y) already rotated by contact_offsets_world's
-  // standard [cos -sin; sin cos] matrix, and the rect rotate() below uses the same matrix on the
-  // same raw coordinates, so leaving the frame as-is keeps contact points and rectangle edges
-  // aligned. (Screen "up" ends up meaning +y is drawn toward larger SVG y, i.e. lower on screen --
-  // a mirrored-but-internally-consistent convention, harmless for a diagnostic tool with no photo
-  // to match against.)
-  svg.setAttribute("viewBox", `${xmin} ${ymin} ${w} ${h}`);
+  setSceneViewBox(svg, scene);
 
   const view = sceneViewAt(state.t);
   const board = view.board;                       // null = no candidate pool exists at this state
@@ -400,50 +353,9 @@ function renderSceneA() {
   // pop reached); sizes and walls never move, so they stay on the episode-level `scene`. A v2 trace has
   // neither -- fall back to the start state, which is exactly what this page drew before.
   const geom = view.geom || null;
-  const poseOf = (m) => (geom && geom.movable[m.name]) || [m.x, m.y, m.theta];
-  const robotPose = (geom && geom.robot) || scene.robot;
   const contacts = (geom && geom.contacts) || scene.contacts;
 
-  const parts = [];
-  const stroke = 0.0025;
-
-  parts.push(regionLayer(view.regions));    // first = beneath everything else
-
-  for (const s of scene.static) {
-    const theta = 2 * Math.atan2(s.qz, s.qw);
-    const deg = (theta * 180) / Math.PI;
-    parts.push(
-      `<rect x="${-s.hw}" y="${-s.hd}" width="${2 * s.hw}" height="${2 * s.hd}" class="wall-rect" ` +
-        `transform="translate(${s.x},${s.y}) rotate(${deg})"/>`
-    );
-  }
-
-  const [gx, gy] = scene.goal;
-  const gr = 0.02;
-  parts.push(
-    `<g class="goal-marker" transform="translate(${gx},${gy})">` +
-      `<line x1="${-gr}" y1="${-gr}" x2="${gr}" y2="${gr}" stroke-width="${stroke * 2}"/>` +
-      `<line x1="${-gr}" y1="${gr}" x2="${gr}" y2="${-gr}" stroke-width="${stroke * 2}"/>` +
-      `<circle r="${gr * 1.3}" class="goal-ring"/></g>`
-  );
-
-  for (const m of scene.movable) {
-    const [mx, my, mtheta] = poseOf(m);
-    const deg = (mtheta * 180) / Math.PI;
-    const isTarget = m.name === state.trace.meta.object_id;
-    parts.push(
-      `<rect x="${-m.hw}" y="${-m.hd}" width="${2 * m.hw}" height="${2 * m.hd}" ` +
-        `class="${isTarget ? "movable-target" : "movable-other"}" ` +
-        `transform="translate(${mx},${my}) rotate(${deg})"><title>${m.name}</title></rect>`
-    );
-  }
-
-  const [rx, ry, rtheta] = robotPose;
-  const rr = 0.025;
-  parts.push(
-    `<g class="robot-marker" transform="translate(${rx},${ry}) rotate(${(rtheta * 180) / Math.PI})">` +
-      `<circle r="${rr}"/><line x1="0" y1="0" x2="${rr * 1.6}" y2="0" stroke-width="${stroke * 2}"/></g>`
-  );
+  const parts = sceneLayers(scene, geom, view.regions, state.trace.meta.object_id);
 
   const cr = 0.004;
   contacts.forEach((pt, edge) => {
@@ -769,10 +681,10 @@ async function init() {
   try {
     // no-store on every fetch: these files are REGENERATED in place at the same paths, so a cached copy
     // silently shows a stale search -- e.g. the index reporting 5 sims while the episode view shows 11.
-    manifest = await (await fetch("manifest.json", NOCACHE)).json();
+    manifest = await (await fetch(DATA_BASE + "manifest.json", NOCACHE)).json();
     row = manifest.index[arm].find((r) => r.key === key);
-    trace = await (await fetch(`trace/${model}/${strategy}/${key}.json`, NOCACHE)).json();
-    gt = row.has_gt ? await (await fetch(`gt/${key}.json`, NOCACHE)).json() : null;
+    trace = await (await fetch(`${DATA_BASE}trace/${model}/${strategy}/${key}.json`, NOCACHE)).json();
+    gt = row.has_gt ? await (await fetch(`${DATA_BASE}gt/${key}.json`, NOCACHE)).json() : null;
   } catch (err) {
     header.textContent = `Failed to load episode data: ${err}`;
     return;
@@ -804,7 +716,8 @@ async function init() {
 
   const sceneName = trace.meta.xml.split("/").pop();
   header.innerHTML =
-    `<a href="index.html">&larr; index</a>` +
+    `<a href="index.html">&larr; NAMO viz</a> &middot; ` +
+    `<a href="search.html?data=${encodeURIComponent(DATA_BASE)}">&larr; index</a>` +
     `<span class="mono">${sceneName}</span> &middot; <span class="mono">${trace.meta.object_id}</span>` +
     ` &middot; tier ${row.tier}` +
     ` &middot; ${trace.meta.model}/${trace.meta.strategy}` +

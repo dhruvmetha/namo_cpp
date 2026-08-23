@@ -1,0 +1,23 @@
+[
+  {
+    "id": "scenes",
+    "title": "Scene gallery — car_envs pools",
+    "description": "1-push/2-push region-opening episodes for the car_envs v3 pools (feb_car, aug9_car), with per-problem search timing.",
+    "tool": "gallery",
+    "data": "../scenes/"
+  },
+  {
+    "id": "real_scenes",
+    "title": "Scene gallery — real-table scenes",
+    "description": "Region-opening episodes for the real-table scene set.",
+    "tool": "gallery",
+    "data": "../real_scenes/"
+  },
+  {
+    "id": "search",
+    "title": "Episode search index",
+    "description": "Per-episode best-first search replay: priority queue, rank space, ground-truth comparison.",
+    "tool": "search",
+    "data": "../search/"
+  }
+]

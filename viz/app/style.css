@@ -1,5 +1,5 @@
-/* Shared palette for viz/search: opener/setup/dead/masked-or-unknown badges.
-   Used by index.html and (Task 8) episode.html — keep these four rules stable. */
+/* Shared palette for every viz/app page: opener/setup/dead/masked-or-unknown badges.
+   Used by search.html and episode.html — keep these four rules stable. */
 :root {
   --opener: #2e7d32;
   --dead: #c62828;
@@ -430,3 +430,87 @@ td.no { color: var(--dead); }
 .zone-queue .timeline-label { margin: 8px 0 0; padding-top: 8px; border-top: 1px solid var(--border);
   font-size: 12px; color: #555; white-space: normal; }  /* was nowrap in the timeline row; it must wrap here */
 .timeline-row .step-btn { flex: 0 0 auto; }
+
+/* ---------------------------------------------------------------------------
+   Scene gallery (scenes.html): a filter bar over two columns -- the scene on the
+   left, everything true about it on the right. Reuses the region/wall/movable
+   palette above; only the contact-dot meaning differs (ground truth about the
+   ROOT state, no model, no search).
+   --------------------------------------------------------------------------- */
+.gallery-body { padding: 1rem 1.5rem 2rem; }
+.gallery-bar { border-bottom: 1px solid var(--border); padding-bottom: 0.7rem;
+  margin-bottom: 1.1rem; }
+.gallery-bar .controls { gap: 1.1rem; margin-bottom: 0.45rem; align-items: end; }
+.control-cap { display: block; font-size: 0.8rem; color: #444; margin-bottom: 0.2rem; }
+.checkrow { display: inline-flex; gap: 0.75rem; }
+.controls label.checkbox { flex-direction: row; align-items: center; gap: 0.3rem;
+  align-self: end; padding-bottom: 3px; }
+.gallery-bar button, .facts-actions button { font: inherit; padding: 3px 10px;
+  border: 1px solid var(--border); border-radius: 3px; background: var(--bg);
+  color: var(--fg); cursor: pointer; }
+.gallery-bar button:hover, .facts-actions button:hover { background: var(--border); }
+.nav-group { display: inline-flex; align-items: center; gap: 0.4rem; align-self: end; }
+.position { min-width: 6.5em; text-align: center; font-size: 0.9rem; }
+
+/* Facts first at 30%, the scene at 70% -- the numbers are what gets read, the picture is what gets
+   looked at, and a left-hand text column keeps a fixed measure while the drawing takes the rest. */
+.two-col { display: grid; grid-template-columns: minmax(260px, 30%) minmax(0, 70%);
+  gap: 1.75rem; align-items: start; }
+@media (max-width: 860px) { .two-col { grid-template-columns: 1fr; } }
+/* The element's size comes from the room's own proportions (scene_render.setSceneViewBox with
+   fit=true), so there is nothing to letterbox. */
+.scene-col .scene-svg { aspect-ratio: auto; display: block; margin-inline: auto; }
+.facts-col h2 { margin: 0 0 0.7rem; font-size: 1rem; line-height: 1.35; }
+.meta-table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+.meta-table th { text-align: left; font-weight: 500; color: #555; padding: 3px 8px 3px 0;
+  white-space: nowrap; vertical-align: top; }
+.meta-table td { padding: 3px 0; word-break: break-word; }
+.meta-table .speedup { display: inline-block; padding: 1px 7px; border-radius: 3px;
+  font-weight: 600; }
+.meta-table .speedup.slower { color: var(--dead); }
+.meta-table .dim { color: #777; }
+
+.green-list { margin-top: 0.75rem; font-size: 0.8rem; line-height: 1.5; }
+.green-label { color: #555; }
+.facts-actions { display: flex; gap: 0.5rem; margin: 1rem 0 0.25rem; }
+.star-btn.starred { background: #fff3cd; border-color: #e0a800; }
+.facts-col kbd { border: 1px solid var(--border); border-radius: 3px; padding: 0 3px;
+  font-family: ui-monospace, monospace; font-size: 0.9em; }
+.facts-col .zone-note { margin-top: 0.8rem; }
+
+/* Green = this push (at some depth) is the right one; grey = tried and it is not; faint = that edge
+   is not even reachable from the robot's region, so the search never considers it. */
+.contact-pt.dot-green { fill: var(--opener); stroke: #1b5e20; stroke-width: 0.0012; }
+.contact-pt.dot-tried { fill: #b0bec5; stroke: #78909c; stroke-width: 0.0008; }
+.contact-pt.dot-untried { fill: none; stroke: #cfd8dc; stroke-width: 0.0008; }
+.legend-swatch.dot-green { background: var(--opener); border-radius: 50%; }
+.legend-swatch.dot-tried { background: #b0bec5; border-radius: 50%; }
+.legend-swatch.dot-untried { background: #eceff1; border: 1px solid #cfd8dc; border-radius: 50%; }
+
+/* Solution stepper: start | after push 1 | after push 2. */
+.steps { margin-top: 0.9rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+.steps-cap { font-size: 0.8rem; color: #555; margin-right: 0.15rem; }
+.steps-none { font-size: 0.8rem; color: #888; }
+.step-pill { font: inherit; font-size: 0.82rem; padding: 2px 9px; border: 1px solid var(--border);
+  border-radius: 999px; background: var(--bg); color: var(--fg); cursor: pointer; }
+.step-pill:hover { background: var(--border); }
+.step-pill.on { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.step-note { flex-basis: 100%; font-size: 0.78rem; color: #666; margin-top: 0.15rem; }
+
+/* Landing page: one card per dataset (viz/app/datasets.json). Plain bordered boxes, no shadows or
+   colour beyond what the rest of the page already uses -- this is a lab tool, not a product. */
+.landing-body main { max-width: 900px; }
+.dataset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.9rem; margin-top: 1rem; }
+.dataset-card { display: block; border: 1px solid var(--border); border-radius: 4px;
+  padding: 0.8rem 1rem; color: inherit; text-decoration: none; background: var(--bg); }
+.dataset-card:hover { background: var(--row-hover); border-color: #999; }
+.dataset-card h2 { margin: 0 0 0.35rem; font-size: 1rem; }
+.dataset-desc { margin: 0 0 0.6rem; font-size: 0.85rem; color: #555; }
+.dataset-count { margin: 0; font-size: 0.8rem; color: #333; }
+.dataset-card.is-disabled { color: #999; cursor: default; }
+.landing-note { margin-top: 1.5rem; max-width: 640px; }
+
+/* Breadcrumb back to the landing page, top of every tool page. */
+.crumb { margin: 0 0 0.5rem; font-size: 0.8rem; }
+.crumb a { color: #555; }

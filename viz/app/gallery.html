@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NAMO scene gallery — browse episodes by tier</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="gallery-body">
+<header class="gallery-bar">
+  <p class="crumb"><a href="index.html">&larr; NAMO viz</a></p>
+  <div class="controls">
+    <label>Horizon
+      <select id="horizon-select">
+        <option value="1push">1push</option>
+        <option value="2push">2push</option>
+      </select>
+    </label>
+    <label>Tier
+      <select id="tier-select" title="Share of the reachable pushes at the root that are the RIGHT push: hard &lt;5%, medium 5-30%, easy &ge;30%. 1push counts openers, 2push counts working setups.">
+        <option value="all">all</option>
+        <option value="hard">hard</option>
+        <option value="medium">medium</option>
+        <option value="easy">easy</option>
+      </select>
+    </label>
+    <label>Order
+      <select id="sort-select">
+        <option value="density-asc">hardest first</option>
+        <option value="density-desc">easiest first</option>
+        <option value="speedup-desc">biggest speed-up</option>
+        <option value="speedup-asc">smallest speed-up</option>
+        <option value="scene">scene name</option>
+      </select>
+    </label>
+    <label>Scene
+      <input type="search" id="text-filter" placeholder="scene or object">
+    </label>
+    <span class="control" id="fam-control" hidden>
+      <span class="control-cap">Room batch</span>
+      <!-- filled from the families present in this dataset's scenes.json, so a new dataset needs no
+           edit here; hidden when the dataset has only one batch. -->
+      <span class="checkrow" id="fam-row"></span>
+    </span>
+    <label class="checkbox"><input type="checkbox" id="starred-only"> starred only</label>
+    <span class="nav-group">
+      <button type="button" id="prev-btn" title="Left arrow">&larr;</button>
+      <span id="position" class="position mono">0 / 0</span>
+      <button type="button" id="next-btn" title="Right arrow">&rarr;</button>
+    </span>
+  </div>
+  <div id="summary" class="summary">loading scenes.json&hellip;</div>
+</header>
+
+<main class="two-col">
+  <aside class="facts-col">
+    <h2 id="card-title">&mdash;</h2>
+    <table class="meta-table" id="meta-table"></table>
+    <div class="green-list" id="green-list"></div>
+    <div class="steps" id="steps"></div>
+    <div class="facts-actions">
+      <button type="button" id="star-btn" class="star-btn" title="Star this episode (S)">&#9734; star</button>
+      <button type="button" id="copy-btn">copy shortlist (<span id="star-count">0</span>)</button>
+    </div>
+    <p class="zone-note">
+      <kbd>&larr;</kbd> <kbd>&rarr;</kbd> step through the filter, <kbd>&uarr;</kbd> <kbd>&darr;</kbd>
+      walk the solution, <kbd>S</kbd> stars.
+      Dots: <span class="legend-swatch dot-green"></span>&nbsp;a push that works,
+      <span class="legend-swatch dot-tried"></span>&nbsp;tried and does not,
+      <span class="legend-swatch dot-untried"></span>&nbsp;edge never reachable.
+    </p>
+    <p class="zone-note mono" id="xml-path"></p>
+  </aside>
+
+  <section class="scene-col">
+    <svg id="scene-svg" class="scene-svg" preserveAspectRatio="xMidYMid meet"></svg>
+    <p class="zone-note" id="scene-legend"></p>
+  </section>
+</main>
+
+<script src="scene_render.js"></script>
+<script src="gallery.js"></script>
+</body>
+</html>

@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NAMO viz</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="landing-body">
+<header>
+  <h1>NAMO viz</h1>
+  <p class="sub">Tools for looking at region-opening episodes and search traces. Pick a dataset below.</p>
+</header>
+<main>
+  <div id="cards" class="dataset-grid">loading datasets.json&hellip;</div>
+  <p class="zone-note landing-note">
+    To add a dataset: drop its data folder as a sibling of <span class="mono">viz/app/</span> under the
+    server root, then add one entry to <span class="mono">viz/app/datasets.json</span>
+    (<span class="mono">id</span>, <span class="mono">title</span>, <span class="mono">description</span>,
+    <span class="mono">tool</span> &mdash; <span class="mono">"gallery"</span> or
+    <span class="mono">"search"</span> &mdash; and <span class="mono">data</span>, the folder's path
+    relative to <span class="mono">viz/app/</span>). No code changes.
+  </p>
+</main>
+<script>
+"use strict";
+const NOCACHE = { cache: "no-store" };
+const TOOL_PAGE = { gallery: "gallery.html", search: "search.html" };
+
+// Best-effort count per tool kind, read straight from the dataset's own index file. A dataset the
+// page cannot reach (still building, or malformed) shows the card with no count rather than failing
+// the whole landing page.
+async function countFor(ds) {
+  try {
+    if (ds.tool === "gallery") {
+      const r = await fetch(ds.data + "scenes.json", NOCACHE);
+      if (!r.ok) return null;
+      const j = await r.json();
+      const counts = j.counts || {};
+      const byHorizon = Object.entries(counts).map(
+        ([h, tiers]) => `${h} ${Object.values(tiers).reduce((a, b) => a + b, 0)}`
+      );
+      const total = Object.values(counts).reduce(
+        (a, tiers) => a + Object.values(tiers).reduce((x, y) => x + y, 0), 0
+      );
+      return `${total} episodes (${byHorizon.join(", ")})`;
+    }
+    if (ds.tool === "search") {
+      const r = await fetch(ds.data + "manifest.json", NOCACHE);
+      if (!r.ok) return null;
+      const j = await r.json();
+      const nEp = Object.keys(j.episodes || {}).length;
+      const nArms = (j.arms || []).length;
+      return `${nEp} episodes · ${nArms} arms`;
+    }
+  } catch (err) {
+    return null;
+  }
+  return null;
+}
+
+function cardHtml(ds, count) {
+  const page = TOOL_PAGE[ds.tool];
+  const href = page ? `${page}?data=${encodeURIComponent(ds.data)}` : null;
+  const inner =
+    `<h2>${ds.title}</h2>` +
+    `<p class="dataset-desc">${ds.description}</p>` +
+    `<p class="dataset-count mono">${count || (page ? "&hellip;" : "unknown tool: " + ds.tool)}</p>`;
+  return href
+    ? `<a class="dataset-card" href="${href}">${inner}</a>`
+    : `<div class="dataset-card is-disabled">${inner}</div>`;
+}
+
+fetch("datasets.json", NOCACHE)
+  .then((r) => r.json())
+  .then(async (datasets) => {
+    const grid = document.getElementById("cards");
+    grid.innerHTML = datasets.map((ds) => cardHtml(ds, null)).join("");
+    // Counts fetch after the shell paints, so the page never blocks on the slowest dataset.
+    await Promise.all(datasets.map(async (ds, i) => {
+      const count = await countFor(ds);
+      if (count) grid.children[i].querySelector(".dataset-count").innerHTML = count;
+    }));
+  })
+  .catch((err) => {
+    document.getElementById("cards").textContent = "Failed to load datasets.json: " + err;
+  });
+</script>
+</body>
+</html>
