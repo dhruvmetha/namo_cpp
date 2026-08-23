@@ -2,7 +2,7 @@
 type: experiment
 status: live
 created: 2026-08-23
-commit: a8be9c1
+commit: 2300283
 metric: verified complete-scene yield by ordered K1+K2 difficulty tuple under room-interface stitching
 tags: [experiment, full-namo, multihop, composition, room-stitch, medium, hard]
 ---
@@ -48,7 +48,11 @@ No learned-versus-random Full NAMO evaluation is part of this construction pilot
 
 ## Run
 
-Implementation commit `a8be9c1` adds the room-interface stitcher and two structural tests. The complete focused suite passes 17/17 on ilab3. No physics calibration or cluster-scale job has run yet.
+Implementation commit `a8be9c1` added the room-interface stitcher and two structural tests. The complete focused suite passed 17/17 on ilab3.
+
+The first easy+easy calibration at `b35b5bd` attempted ten donor pairs and accepted zero because every assembled scene failed during `RLEnvironment` initialization with `vector::_M_fill_insert`. Code inspection traced this to the backend's exact workspace convention: it interprets geoms named `wall_1`, `wall_2`, `wall_3`, and `wall_4` as unrotated left, right, bottom, and top boundaries. Rotating donor rooms without renaming those geoms inverted the inferred wavefront dimensions.
+
+The same diagnostic exposed donors whose robot and XML-goal regions merge after unrelated movables are stripped; those are not standalone one-blocker modules and cannot supply a directed stitch under this experiment's no-other-movable scope. Commit `2300283` prefixes both modules' wall names, adds one unrotated global `wall_1..4` enclosure around the assembly, and rejects any isolated donor whose robot and goal labels coincide. The focused suite remains 17/17. A corrected physics calibration has not run yet.
 
 ## Result
 
