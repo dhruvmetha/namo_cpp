@@ -62,6 +62,12 @@ The eligible-pool easy+easy calibration accepted its target 3 scenes in 8 pair a
 
 The first render pass verified the wavefront regions and C++ region graphs but exposed that the environment panel's legacy parser ignored prefixed module-wall bodies. The renderer is updated to discover every wall body, apply wall yaw, and compute rotated bounds before the required visual audit.
 
+The ordered medium/hard pilot ran four commands concurrently on ilab3, each targeting five acceptances with a thirty-pair cap. Medium+medium accepted 5/10, medium+hard 5/13, hard+medium 5/8, and hard+hard 5/15. Every tuple used ten unique donor episodes across ten accepted slots with zero reuse. Pair-level failures were dominated by `k1_did_not_expose_k2`, `final_goal_unreachable`, and `no_component_path`; hard+hard also had one `k1_push_failed`, while medium+medium and medium+hard each had one `k2_push_failed`. Two rendered representatives per tuple passed visual inspection: the intact donor rooms, connector, blocker placement, wavefront regions, and C++ graph agree.
+
+Amarel scale preflight uses the dedicated clone `/cache/home/dm1487/projects/namo/namo_slot_stitch` at commit `12c2959`, with the existing Amarel-native binding linked read-only. Smoke job `60768327` failed before simulation because its relative `source env.amarel.sh` did not resolve inside the SLURM wrapper. The corrected absolute-path smoke job `60768328` completed on `main` in 36 seconds, used 88 MB RSS, and accepted 1/1 medium+medium scene with the expected 50-exit/51-entry eligible donor pools.
+
+The scaled candidate build targets 50 verified scenes separately for medium+medium, medium+hard, hard+medium, and hard+hard, with a maximum of 300 pair attempts per tuple. Run four independent one-CPU `main` jobs, pin all numerical thread pools to one, request 4 GB and 30 minutes per job, and monitor accepted manifest counts. This 200-scene output is a candidate population; donor reuse, template balance, geometry uniqueness, oracle traces, and renders must be audited before anything is frozen for Full NAMO evaluation.
+
 ## Result
 
 Pending.
