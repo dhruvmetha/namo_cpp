@@ -51,3 +51,6 @@ papers/**
 !papers/
 !papers/*/
 !papers/*/notes.md
+# highlights.json is PDF annotations made while reading, not a fetched/derived copy --
+# re-include it too, or a git clean -fdx / re-clone loses every highlight silently.
+!papers/*/highlights.json
