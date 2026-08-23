@@ -74,6 +74,8 @@ The medium+hard runtime tail came from exhaustively proving incompatible pairs b
 
 The capped target-box smoke `60768972` completed on Amarel `main` in 33 seconds, used 139 MB RSS, and accepted 1/1 medium+hard scene with one replay attempt and zero rejection. Launch one supplemental medium+hard build with a 50-action per-pair cap, a 50-scene target, and a 1,400-pair ceiling so it may traverse the complete eligible pair pool if necessary. Keep it separate from the uncapped 16-scene output; deduplicate and audit across both only after completion.
 
+The cap-50 supplement `60769078` reached 16 accepted scenes but then spent several minutes inside one capped rejection, showing that fifty physical simulations remains too large for this sampler's tail. Every medium+hard success observed so far used at most four replay attempts, including the cap-50 target-box smoke. Launch a separate cap-10 arm with the same 50-scene target and 1,400-pair ceiling; ten retains a 2.5× margin over the observed successful maximum. Keep the cap-50 job running independently so no accepted artifact is discarded. Compare only verified accepted rows after both jobs stop.
+
 ## Result
 
 Pending.
