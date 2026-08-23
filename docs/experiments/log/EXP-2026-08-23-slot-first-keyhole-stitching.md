@@ -1,8 +1,8 @@
 ---
 type: experiment
-status: live
+status: done
 created: 2026-08-23
-commit: 5016b8f
+commit: c1df3b1
 metric: verified complete-scene yield by ordered K1+K2 difficulty tuple under room-interface stitching
 tags: [experiment, full-namo, multihop, composition, room-stitch, medium, hard]
 ---
@@ -80,10 +80,14 @@ Both supplemental arms reached the same 17-scene frontier before entering anothe
 
 Amarel smoke job `60769338` passed at commit `e70b2c6`: it accepted 1/1 medium+hard pair with the ten-replay cap and early donor reuse enabled, with no construction, topology, or replay rejection. Launch a separate 50-scene candidate build with seed 1402, a 1,400-pair ceiling, and the same ten-replay cap. Treat it as a supplement to the original sixteen exact scenes, deduplicate by full geometry identity, and audit provenance and exact traces before selecting a 50-scene medium+hard candidate population.
 
+All three supplemental medium+hard jobs completed normally. Cap-50 job `60769078` reached 50/449 in 24m46s, cap-10 job `60769332` reached 50/479 in 13m34s, and early-reuse cap-10 job `60769340` reached 50/116 in 2m46s. The early-reuse arm is the selected medium+hard population because it changes no validity condition, reaches the same target with 4.1× fewer pair attempts than the non-early-reuse cap-10 arm, and still spans 41 distinct donor episodes and eight ordered source-template pairs. Its 50 accepted scenes contain 50 distinct full geometries, zero same-XML pairs, zero unsolved replays, zero incorrect blocker orders, and zero reachability traces other than `[false, false, true]`. Four representative renders spanning different source-template pairs passed visual inspection.
+
 ## Result
 
-Pending.
+The selected construction population contains 200 verified scenes: 50 medium+medium, 50 medium+hard, 50 hard+medium, and 50 hard+hard. The four tuples contain respectively 43, 41, 51, and 22 unique donor episodes and span 8, 8, 9, and 8 ordered source-template pairs. Across the complete population there are 200 distinct full geometry identities, 65 distinct donor episodes, zero cross-tuple geometry duplicates, zero same-XML donor pairs, zero unsolved oracle replays, zero incorrect `K1` then `K2` blocker orders, and zero reachability traces other than `[false, false, true]`.
+
+The medium+medium, hard+medium, and hard+hard manifests live under `$NAMO_SCRATCH/eval/slot_first_keyhole_20260823/scale50_v1/`; the selected medium+hard manifest lives under `$NAMO_SCRATCH/eval/slot_first_keyhole_20260823/medium_hard_reuse_cap10_v4/`. These remain candidate construction artifacts rather than a frozen evaluation registry entry.
 
 ## Verdict
 
-Pending completion and audit of the medium+hard supplemental population.
+The slot-first stitching plan is productive for all four priority ordered tuples. Early donor reuse should be the default sampling order for future medium+hard expansion, with donor reuse reported explicitly and full-geometry deduplication plus exact two-hop replay retained as hard gates. The next separate experiment is a Full NAMO ranker-versus-random evaluation on a frozen selection; no training or ranker change is implied by this construction result.
