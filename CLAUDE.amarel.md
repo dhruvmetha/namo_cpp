@@ -5,7 +5,7 @@
 ## Am I on this box?
 - `hostname` → `amarel*` / `*.amarel.rutgers.edu`, **or** the repo path is under `/cache/home/dm1487/...`.
 - After env: `echo $NAMO_SCRATCH` → `/scratch/dm1487`.
-- **Login (2026-07 RHEL9 migration):** `ssh amarel` now → **`amarel-new.hpc.rutgers.edu`** (RHEL9 login, amarel3/4). The old CentOS-7 `amarel.rutgers.edu` (amarel1) is aliased `ssh amarel-old` and is being retired — submitting from it to RHEL9 compute nodes breaks `module` (lmod `posix` error).
+- **Login:** `ssh amarel` → **`amarel-new.hpc.rutgers.edu`** → **amarel3 or amarel4 only**, both RHEL 9.6 (verified 2026-08-21: 8 connections, no other host). Every login DNS name (`amarel.rutgers.edu`, `amarel.hpc.rutgers.edu`, `amarel-new.hpc.rutgers.edu`) resolves to the same two IPs, so `ssh amarel-old` lands in the same place and the old cross-OS `module` breakage (lmod `posix` error) is unreachable. **amarel1 and amarel2 were retired 2026-08-21** — amarel1 answers ssh only to print a "use amarel.hpc.rutgers.edu" notice and hang up, amarel2 times out. Use the `amarel` alias, not the bare hostname (bare `ssh amarel.hpc.rutgers.edu` fails host key verification here).
 
 ## Layout
 - Repos: `/cache/home/dm1487/projects/namo/{namo_cpp, sage_learning}`
