@@ -224,11 +224,19 @@ def _surface_gap(pt, r):
     return math.hypot(max(lx - r.hx, 0.0), max(ly - r.hy, 0.0))
 
 
-def gate(statics, blocker, start, goal, margin_r):
-    """Return (passed, reason). See module docstring for the three conditions."""
-    if not start_is_placeable(statics, blocker, start):
+def gate(statics, blockers, start, goal, margin_r):
+    """Return (passed, reason). See module docstring for the three conditions.
+
+    `blockers` is the list of movables that together separate the two regions -- length 1 for the
+    default single-object scene, length 2 under `--n-movables 2`. The certificate reads ALL of them
+    present (must be unreachable) vs ALL of them removed (must be reachable): with two movables in
+    one doorway, that is the honest generalisation, since it is the domino of BOTH objects moving
+    that is meant to open the goal, not either alone. `start_is_placeable` still runs once per
+    blocker, since the robot must not be able to spawn inside any of them.
+    """
+    if not all(start_is_placeable(statics, blk, start) for blk in blockers):
         return False, "start_not_placeable"
-    with_block = _blocked_mask(statics + [blocker], INFLATE_R)
+    with_block = _blocked_mask(statics + list(blockers), INFLATE_R)
     si, sj = _cell(start)
     gi, gj = _cell(goal)
     nx, ny = with_block.shape
@@ -410,7 +418,12 @@ def _x_span(yaw_deg):
 
 
 def _layout(rng, name, n_bricks):
-    """Return (statics, y_div, passage_x) or None. `passage_x` is where the blocker belongs.
+    """Return (statics, y_lo, y_hi, passage_x) or None. `passage_x` is where the blocker belongs.
+
+    `y_lo`/`y_hi` are the same single divider height for all four layouts here; they only differ
+    under `--bands 2` (see `_layout_bands2`), which is why the caller always unpacks two values
+    instead of one -- so the single-divider and two-band paths share one interface with no branch
+    in `sample_scene` for where the robot start / goal y-bounds come from.
 
     The arena is 49.0 cm wide and a brick is 19.5 cm, so the layouts differ mainly in how much of
     that width they eat and where they leave the hole. Two bricks flush to both side walls leave
@@ -474,33 +487,129 @@ def _layout(rng, name, n_bricks):
         for b in range(a + 1, len(st)):
             if overlaps(st[a], st[b], 0.004):
                 return None
-    return st, y, min(max(passage_x, 0.03), ARENA_W - 0.03)
+    return st, y, y, min(max(passage_x, 0.03), ARENA_W - 0.03)
+
+
+def _layout_bands2(rng, n_bricks):
+    """Two side_gap dividers at two y-levels, gaps on opposite sides, so the corridor bends.
+
+    This is the aug9 car v3 turn primitive: a stub flush to one wall leaving a gap on the far side,
+    repeated at a second y with the gap on the OPPOSITE side. Robot start goes below the lower
+    band, goal above the upper band (see `sample_scene`, which reads `y_lo`/`y_hi` for exactly
+    that). The blocker always occupies the LOWER band's gap; the upper band's gap is left clear,
+    so it only bends the path, it is never itself an obstacle. Each band gets 1 or 2 bricks flush
+    to its own wall -- a second brick end-to-end on the same wall narrows that band's own gap --
+    within the `n_bricks` budget (3..6 total per the real inventory, split across the two bands).
+    """
+    y_lo = rng.uniform(0.20, 0.30)
+    y_hi = y_lo + rng.uniform(0.18, 0.28)
+    if y_hi > 0.58:
+        return None
+    left_lo = rng.random() < 0.5
+    left_hi = not left_lo
+
+    budget_lo = max(1, n_bricks // 2)
+    budget_hi = max(1, n_bricks - budget_lo)
+
+    def band(y, left, idx0, budget):
+        yaw = rng.uniform(-12, 12)
+        span = _x_span(yaw)
+        n = 2 if (budget >= 2 and rng.random() < 0.4) else 1
+        bricks = []
+        for k in range(n):
+            half = span * (k + 0.5)
+            cx = half if left else ARENA_W - half
+            bricks.append(_brick(cx, y + rng.uniform(-0.02, 0.02), yaw, idx0 + k))
+        edge = span * n
+        passage_x = (rng.uniform(edge + 0.05, ARENA_W - 0.05) if left
+                     else rng.uniform(0.05, ARENA_W - edge - 0.05))
+        return bricks, passage_x
+
+    b_lo, px_lo = band(y_lo, left_lo, 1, budget_lo)
+    b_hi, _px_hi = band(y_hi, left_hi, 1 + len(b_lo), budget_hi)
+
+    st = b_lo + b_hi
+    if len(st) > n_bricks:
+        return None
+    for a in range(len(st)):
+        if not inside_arena(st[a]):
+            return None
+        for b in range(a + 1, len(st)):
+            if overlaps(st[a], st[b], 0.004):
+                return None
+    return st, y_lo, y_hi, min(max(px_lo, 0.03), ARENA_W - 0.03)
 
 
 LAYOUTS = ("side_gap", "center_door", "stagger", "pocket")
 
 
+def _place_second_blocker(rng, statics, blocker1, name2, tries=30):
+    """Place a second movable touching one of blocker1's 4 local faces (picked at random), so a
+    push that drives blocker1 toward that face shoves blocker2 too -- the FEATURE 1 domino.
+
+    Uses the rotated box's support function to put the two footprints exactly tangent along the
+    chosen face plus a small gap, then re-checks with the ordinary `overlaps(..., 0.004)`
+    convention like every other placement in this file (that convention wants >=4 mm of true
+    clearance to certify no-overlap, so the gap is sampled comfortably above that).
+    """
+    hx2, hy2, _hz2 = MOVABLES[name2]
+    c1, s1 = math.cos(blocker1.yaw), math.sin(blocker1.yaw)
+    faces = [(1, 0, blocker1.hx), (-1, 0, blocker1.hx), (0, 1, blocker1.hy), (0, -1, blocker1.hy)]
+    rng.shuffle(faces)
+    for lux, luy, edge1 in faces:
+        wx, wy = c1 * lux - s1 * luy, s1 * lux + c1 * luy
+        for _try in range(tries):
+            gap = rng.uniform(0.005, 0.015)
+            yaw2 = math.radians(rng.uniform(0.0, 180.0))
+            c2, s2 = math.cos(yaw2), math.sin(yaw2)
+            support = abs(wx * c2 + wy * s2) * hx2 + abs(-wx * s2 + wy * c2) * hy2
+            dist = edge1 + support + gap
+            cand = Rect(blocker1.cx + wx * dist, blocker1.cy + wy * dist, hx2, hy2, yaw2,
+                        "obstacle_1_movable", name2)
+            if not inside_arena(cand):
+                continue
+            if any(overlaps(cand, o, 0.004) for o in statics):
+                continue
+            if overlaps(cand, blocker1, 0.004):
+                continue
+            return cand
+    return None
+
+
 def sample_scene(rng, movable_names, max_bricks, margin_r, band, layouts, contacts=(0, 60),
-                 tries=600):
+                 tries=600, n_movables=1, bands=1):
     """Sample one scene, gate it geometrically, then keep it only if `open_frac` lands in `band`.
 
     `band` is a (lo, hi) window on the physics-free difficulty proxy. Steering here is what makes
     100 hard scenes affordable: in the unsteered pilot, hard came in at 1 of 51, so filling that
     tier blind would have meant exhaustively labelling several thousand scenes.
+
+    `n_movables` (default 1): with 2, a second movable is placed touching the first, inside the
+    passage (`_place_second_blocker`), so one push on object 0 can shove object 1 too. Both
+    movables count as the removable obstacle set for the geometry gate, and object 1 counts as an
+    extra obstacle (like a static) for the `n_reachable_contacts`/`open_frac` proxies computed on
+    object 0 -- see the FEATURE 1 report for why.
+
+    `bands` (default 1): with 2, the walls are two side_gap dividers at different y, gaps on
+    opposite sides (`_layout_bands2`), so the corridor bends. The blocker always sits in the
+    lower band's gap; the upper band's gap is left clear.
     """
     lo, hi = band
     for _ in range(tries):
-        got = _layout(rng, layouts[rng.randrange(len(layouts))], max_bricks)
+        if bands == 2:
+            got = _layout_bands2(rng, max_bricks)
+        else:
+            got = _layout(rng, layouts[rng.randrange(len(layouts))], max_bricks)
         if got is None:
             continue
-        statics, y_div, passage_x = got
+        statics, y_lo, y_hi, passage_x = got
 
         name = movable_names[rng.randrange(len(movable_names))]
         hx, hy, _hz = MOVABLES[name]
         blocker = None
         for _try in range(50):
             bx = passage_x + rng.uniform(-0.05, 0.05)
-            by = y_div + rng.uniform(-0.05, 0.05)
+            by = y_lo + rng.uniform(-0.05, 0.05)
             cand = Rect(min(max(bx, max(hx, hy)), ARENA_W - max(hx, hy)), by, hx, hy,
                         math.radians(rng.uniform(0.0, 180.0)), "obstacle_0_movable", name)
             if inside_arena(cand) and not any(overlaps(cand, o, 0.004) for o in statics):
@@ -509,23 +618,36 @@ def sample_scene(rng, movable_names, max_bricks, margin_r, band, layouts, contac
         if blocker is None:
             continue
 
-        start = (rng.uniform(0.06, ARENA_W - 0.06), rng.uniform(0.06, y_div - 0.11))
-        goal = (rng.uniform(0.06, ARENA_W - 0.06), rng.uniform(y_div + 0.13, ARENA_H - 0.06))
+        blocker2, name2 = None, None
+        if n_movables >= 2:
+            remaining = [m for m in movable_names if m != name] or [name]
+            name2 = remaining[rng.randrange(len(remaining))]
+            blocker2 = _place_second_blocker(rng, statics, blocker, name2)
+            if blocker2 is None:
+                continue
+
+        start = (rng.uniform(0.06, ARENA_W - 0.06), rng.uniform(0.06, y_lo - 0.11))
+        goal = (rng.uniform(0.06, ARENA_W - 0.06), rng.uniform(y_hi + 0.13, ARENA_H - 0.06))
         if goal[1] <= start[1]:
             continue
 
-        passed, reason = gate(statics, blocker, start, goal, margin_r)
+        blockers = [blocker] + ([blocker2] if blocker2 is not None else [])
+        passed, reason = gate(statics, blockers, start, goal, margin_r)
         if not passed:
             continue
 
-        nc = n_reachable_contacts(statics, blocker, start)
+        extra = [blocker2] if blocker2 is not None else []
+        nc = n_reachable_contacts(statics + extra, blocker, start)
         if not (contacts[0] <= nc <= contacts[1]):
             continue
-        of = open_frac(statics, blocker, start, goal, margin_r)
+        of = open_frac(statics + extra, blocker, start, goal, margin_r)
         if not (lo <= of <= hi):
             continue
-        return {"statics": statics, "blocker": blocker, "blocker_name": name, "start": start,
-                "goal": goal, "y_div": y_div, "open_frac": of, "n_contacts": nc}, "ok"
+
+        blockers_out = [(blocker, name)] + ([(blocker2, name2)] if blocker2 is not None else [])
+        return {"statics": statics, "blocker": blocker, "blocker_name": name,
+                "blockers": blockers_out, "start": start, "goal": goal, "y_div": y_lo,
+                "open_frac": of, "n_contacts": nc}, "ok"
     return None, "exhausted"
 
 
@@ -591,8 +713,6 @@ WALL_GEOM = ('      <geom name="{name}" type="box" condim="4" friction="1.0 0.00
 
 
 def to_xml(scene):
-    hx, hy, hz = MOVABLES[scene["blocker_name"]]
-    b = scene["blocker"]
     lines = [HEADER]
     lines.append(WALL_GEOM.format(name="wall_boundary_left", x=-BORDER_HALF, y=ARENA_H / 2,
                                   z=0.05, yaw=0.0, hx=BORDER_HALF, hy=ARENA_H / 2 + BORDER_HALF,
@@ -609,13 +729,17 @@ def to_xml(scene):
                                       yaw=math.degrees(r.yaw), hx=r.hx, hy=r.hy, hz=BRICK_HALF[2]))
     lines.append("    </body>")
     lines.append(CAR_BODY.format(sx=scene["start"][0], sy=scene["start"][1]))
-    lines.append('    <body name="obstacle_0_movable">')
-    lines.append(f'      <geom name="obstacle_0_movable" condim="4" '
-                 f'pos="{b.cx:.6f} {b.cy:.6f} {hz:.6f}" euler="0 0 {math.degrees(b.yaw):.6f}" '
-                 f'friction="1 0.005 0.0001" rgba="1 1 0 1" '
-                 f'size="{hx:.6f} {hy:.6f} {hz:.6f}" type="box" mass="0.1" />')
-    lines.append('      <joint type="free" />')
-    lines.append("    </body>")
+    blockers = scene.get("blockers") or [(scene["blocker"], scene["blocker_name"])]
+    for i, (b, bname) in enumerate(blockers):
+        hx, hy, hz = MOVABLES[bname]
+        body_name = f"obstacle_{i}_movable"
+        lines.append(f'    <body name="{body_name}">')
+        lines.append(f'      <geom name="{body_name}" condim="4" '
+                     f'pos="{b.cx:.6f} {b.cy:.6f} {hz:.6f}" euler="0 0 {math.degrees(b.yaw):.6f}" '
+                     f'friction="1 0.005 0.0001" rgba="1 1 0 1" '
+                     f'size="{hx:.6f} {hy:.6f} {hz:.6f}" type="box" mass="0.1" />')
+        lines.append('      <joint type="free" />')
+        lines.append("    </body>")
     lines.append(f'    <site name="goal" type="sphere" pos="{scene["goal"][0]:.6f} '
                  f'{scene["goal"][1]:.6f} 0.0" size="0.02" rgba="1 0 0 0.5" />')
     lines.append(FOOTER)
@@ -640,12 +764,31 @@ def long_axis_bearing_deg(hx, hy, yaw_rad):
     return round(bearing % 180.0, 1)
 
 
+def _blocker_row(cm, name, b):
+    hx, hy, hz = MOVABLES[name]
+    return {"object": name,
+            "center_cm": [cm(b.cx), cm(b.cy)],
+            "long_axis_bearing_deg": long_axis_bearing_deg(b.hx, b.hy, b.yaw),
+            "yaw_deg": round(math.degrees(b.yaw) % 180.0, 1),
+            "long_cm": round(max(hx, hy) * 200, 1),
+            "short_cm": round(min(hx, hy) * 200, 1),
+            "height_cm": round(hz * 200, 1),
+            "size_cm": [round(hx * 200, 1), round(hy * 200, 1)]}
+
+
 def to_build_sheet(scene, scene_id):
-    """Human-readable placement, centres in cm from the bottom-left interior corner."""
+    """Human-readable placement, centres in cm from the bottom-left interior corner.
+
+    Under `--n-movables 2` this also carries a `"blockers"` list, one row per movable in the same
+    shape as the single `"blocker"` entry, so the hardware side can place both. That key is added
+    ONLY when there is more than one movable -- the default single-object sheet is untouched, which
+    is what keeps it byte-identical to the pre-feature output (see the HARD REQUIREMENT in the
+    caller's report).
+    """
     cm = lambda v: round(v * 100.0, 1)
     hx, hy, hz = MOVABLES[scene["blocker_name"]]
     b = scene["blocker"]
-    return {
+    sheet = {
         "scene_id": scene_id,
         "arena_cm": [ARENA_W * 100, ARENA_H * 100],
         "angle_convention": ("long_axis_bearing_deg = bearing of the item's LONG side in world, "
@@ -677,6 +820,10 @@ def to_build_sheet(scene, scene_id):
         "open_frac": round(scene["open_frac"], 4),
         "n_contacts": scene["n_contacts"],
     }
+    blockers = scene.get("blockers") or [(b, scene["blocker_name"])]
+    if len(blockers) > 1:
+        sheet["blockers"] = [_blocker_row(cm, nm, obj) for obj, nm in blockers]
+    return sheet
 
 
 def main():
@@ -703,18 +850,30 @@ def main():
     ap.add_argument("--margin-cm", type=float, default=10.0,
                     help="post-push corridor width the scene must still admit. 8.0 is the hard "
                          "threshold; ArUco noise is a few mm, so build with headroom")
+    ap.add_argument("--n-movables", type=int, default=1, choices=(1, 2),
+                    help="1 (default): today's single blocker, unchanged. 2: a second movable is "
+                         "placed touching the first inside the passage, so one push can shove both "
+                         "-- see FEATURE 1 in the implementation report")
+    ap.add_argument("--bands", type=int, default=1, choices=(1, 2),
+                    help="1 (default): today's single wall divider, unchanged. 2: two side_gap "
+                         "dividers at different y with gaps on opposite sides, so the corridor "
+                         "bends (needs --max-bricks >= 2) -- see FEATURE 2 in the report")
     args = ap.parse_args()
 
     movable_names = [m.strip() for m in args.movables.split(",") if m.strip()]
     unknown = [m for m in movable_names if m not in MOVABLES]
     if unknown:
         ap.error(f"unknown movables: {unknown}")
+    if args.n_movables >= 2 and len(movable_names) < 2:
+        ap.error("--n-movables 2 needs at least 2 --movables to draw a distinct second one from")
     lo, hi = (float(v) for v in args.open_frac.split(","))
     clo, chi = (int(v) for v in args.contacts.split(","))
     layouts = [l.strip() for l in args.layouts.split(",") if l.strip()]
     bad = [l for l in layouts if l not in LAYOUTS]
     if bad:
         ap.error(f"unknown layouts: {bad}")
+    if args.bands >= 2 and args.max_bricks < 2:
+        ap.error("--bands 2 needs --max-bricks >= 2 (one brick per band, minimum)")
     margin_r = args.margin_cm / 200.0 + TIER1_MARGIN
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -724,7 +883,8 @@ def main():
     while len(manifest) < args.num and attempts < args.num * 60:
         attempts += 1
         scene, reason = sample_scene(rng, movable_names, args.max_bricks, margin_r,
-                                     (lo, hi), layouts, (clo, chi))
+                                     (lo, hi), layouts, (clo, chi),
+                                     n_movables=args.n_movables, bands=args.bands)
         if scene is None:
             rejects[reason] = rejects.get(reason, 0) + 1
             continue
@@ -744,7 +904,8 @@ def main():
 
     print(f"emitted {len(manifest)} scenes in {attempts} attempts -> {args.out_dir}")
     print(f"inventory: <={args.max_bricks} bricks, movables={movable_names}, "
-          f"margin>={args.margin_cm} cm, open_frac in [{lo},{hi}], layouts={layouts}")
+          f"margin>={args.margin_cm} cm, open_frac in [{lo},{hi}], layouts={layouts}, "
+          f"n_movables={args.n_movables}, bands={args.bands}")
     if sheets:
         ofs = sorted(s["open_frac"] for s in sheets)
         print(f"open_frac: min={ofs[0]:.3f} med={ofs[len(ofs)//2]:.3f} max={ofs[-1]:.3f}")

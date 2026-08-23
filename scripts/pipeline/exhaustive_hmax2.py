@@ -152,16 +152,74 @@ def sweep_scene(xml, obj):
             "goal_open_at_start": bool(before_open), "cells": cells, "n_sims": n_sims}
 
 
+def _objs_of(s):
+    """Accept either shape: {"object_id": "X"} (legacy, single) or {"object_ids": [...]} (FEATURE
+    3, one or more). Both normalise to a list so the caller never branches on which key was used.
+    """
+    if "object_ids" in s:
+        return list(s["object_ids"])
+    return [s["object_id"]]
+
+
+def sweep_scene_depth1(xml, objs):
+    """FEATURE 3: depth-1-only, multi-object. Enumerate every reachable (edge, depth) on EVERY
+    object in `objs` at the root state -- no setup/dead expansion, no second push. `objs` is one
+    name for the legacy single-object case, two (or more) under `--n-movables 2` scenes.
+
+    Each cell is `opener` (opens the goal, and it was not already open), `blocked` (the planner's
+    own collision_object/stuck rule, see `blocked()`), or `no_open` (a clean push that did neither
+    -- depth-2 would have tried a finish on it, this does not). `movable_collisions` is the raw
+    string off `res.info` (empty '' on no contact, comma-joined names on contact, per
+    namo_push_skill.cpp:205) so a caller can measure how often an opener actually involved a
+    domino between two movables, without this script guessing at that itself.
+    """
+    env = namo_rl.RLEnvironment(xml, CFG, False)
+    pts = goal_region_points(env)
+    if not pts:
+        return None
+    bar = max(1, math.ceil(MIN_FRACTION * len(pts)))
+    root = env.get_full_state()
+    before_open = opens(env, pts, bar)
+
+    cells, n_sims = [], 0
+    for obj in objs:
+        for edge in env.get_reachable_edges(obj):
+            for depth in range(N_DEPTHS):
+                env.set_full_state(root)
+                res = push(env, obj, edge, depth)
+                n_sims += 1
+                info = res.info if hasattr(res, "info") else {}
+                mc = info.get("movable_collisions", "")
+                if opens(env, pts, bar) and not before_open:
+                    kind = "opener"
+                elif blocked(res):
+                    kind = "blocked"
+                else:
+                    kind = "no_open"
+                cells.append({"edge": edge, "depth": depth, "kind": kind,
+                              "object_id": obj, "movable_collisions": mc})
+    return {"xml": xml, "object_ids": list(objs), "n_goal_points": len(pts), "bar": bar,
+            "goal_open_at_start": bool(before_open), "cells": cells, "n_sims": n_sims}
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--scenes", required=True, help="json list of {xml, object_id}")
+    ap.add_argument("--scenes", required=True,
+                    help="json list of {xml, object_id} (legacy) or {xml, object_ids} "
+                         "(FEATURE 3, one or more objects); either key is accepted per entry")
     ap.add_argument("--out", required=True)
     ap.add_argument("--shard", type=int, default=0)
     ap.add_argument("--nshards", type=int, default=1)
     ap.add_argument("--pool-root", default=POOL_ROOT,
                     help="scene pool root; output names are paths relative to it, so they stay "
                          "unique and stay stable across boxes where the pool sits elsewhere")
+    ap.add_argument("--depth1-only", action="store_true",
+                    help="FEATURE 3: skip the depth-2 setup/dead machinery entirely and enumerate "
+                         "every reachable (edge, depth) on every object in the scene at the root "
+                         "state; kinds are opener/blocked/no_open. Required for multi-object "
+                         "(object_ids) scenes -- the depth-2 path below is single-object only and "
+                         "is untouched by this flag")
     ap.add_argument("--verify", action="store_true",
                     help="stop after one scene and print its depth-1 verdicts for eyeballing")
     args = ap.parse_args()
@@ -173,7 +231,14 @@ def main():
 
     t0, done, sims = time.time(), 0, 0
     for s in mine:
-        r = sweep_scene(s["xml"], s["object_id"])
+        objs = _objs_of(s)
+        if args.depth1_only:
+            r = sweep_scene_depth1(s["xml"], objs)
+        else:
+            if len(objs) != 1:
+                raise ValueError(f"depth-2 path is single-object only, got {objs} for {s['xml']}; "
+                                 f"pass --depth1-only for multi-object scenes")
+            r = sweep_scene(s["xml"], objs[0])
         if r is None:
             continue
         # NOT basename(dirname(xml)): scene ids restart per pool, so 478 scenes carry only 221
