@@ -76,10 +76,12 @@ The capped target-box smoke `60768972` completed on Amarel `main` in 33 seconds,
 
 The cap-50 supplement `60769078` reached 16 accepted scenes but then spent several minutes inside one capped rejection, showing that fifty physical simulations remains too large for this sampler's tail. Every medium+hard success observed so far used at most four replay attempts, including the cap-50 target-box smoke. Launch a separate cap-10 arm with the same 50-scene target and 1,400-pair ceiling; ten retains a 2.5× margin over the observed successful maximum. Keep the cap-50 job running independently so no accepted artifact is discarded. Compare only verified accepted rows after both jobs stop.
 
+Both supplemental arms reached the same 17-scene frontier before entering another expensive action. The common cause is candidate ordering rather than an acceptance gate: after each success, the generator preferentially selects pairs in which both donor episodes have never appeared in an accepted slot, so the medium+hard tail is forced through the remaining unproductive donor class before it may reuse productive donors in new geometries. Commit `056df88` adds an explicit `--allow-donor-reuse-early` sampling option. It preserves same-XML exclusion, geometry deduplication, exact static topology, and exact `[false, false, true]` replay validation; only pair order changes. Smoke this option on Amarel with the ten-replay cap, then run a separate supplemental arm and report donor reuse rather than concealing it.
+
 ## Result
 
 Pending.
 
 ## Verdict
 
-Pending the easy+easy calibration and the four ordered medium/hard pilots.
+Pending completion and audit of the medium+hard supplemental population.
