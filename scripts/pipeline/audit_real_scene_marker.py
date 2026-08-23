@@ -12,6 +12,14 @@ Which one is right depends on what a hardware run counts as a win:
   push, then the region opens              -> the labels already say this, all 600 stand
   push, then drive to the marked goal      -> only the scenes in this file's `marker_reachable=1`
 
+Filtering to `marker_reachable=1` is not the only way to take the strict reading, and it is the
+worst one. All 178 failing scenes have reachable space inside the goal region after the push, with
+the fraction of the region's sampled points reachable running min 0.20, median 0.89, max 1.00 (the
+0.20 floor is just the sweep's own success bar). Moving each marker onto one of those points
+recovers every scene. `solve_rate` comes from the region criterion, so a moved marker cannot shift
+a scene between tiers either. Re-marking keeps all 600 and costs no re-collection and no re-binning;
+filtering throws away 178 scenes for nothing.
+
 So this writes the strict answer per scene beside the sheets rather than baking it into them. The
 sheets keep the schema the hardware side already validated 600/600 against; joining is on build_id
 plus axis.
