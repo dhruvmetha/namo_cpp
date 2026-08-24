@@ -34,6 +34,10 @@ The first local calibration used only `set2/benchmark_5`, targeted one scene per
 
 All four accepted replays are solved with blocker order `[[K1], [K2]]` and goal reachability `[false, false, true]`. K1 moved K2 by at most numerical noise, `5.6e-17 m`, and K2 moved the already-opened K1 by at most `0.168 mm`, below the `2 mm` independence gate. The rendered physical rooms, wavefront regions, and region graphs agree. Stop here for user visual approval before any scale build.
 
+The user approved the one-host pilot. A one-scene census then tested every template containing both medium and hard donors, with a 100-pair ceiling per ordered tuple and the same ten-replay cap. Only `set2/benchmark_5` produced accepted scenes for all four tuples. The other eight templates produced zero exact chains in their bounded cells; their failures were dominated by `wrong_hop_count`, with smaller replay and progression tails. Do not force template diversity by weakening topology or adding back unrelated movable objects.
+
+The approved target-box smoke and pilot calibrate the productive room at one acceptance per 4–9 pair attempts, with all four one-scene jobs completing together in seven seconds on ilab3. Build 25 candidates per ordered tuple in four parallel single-threaded processes, cap each pair at ten replay simulations, allow up to 1,000 pair attempts, and retain the existing donor-diversity-first ordering. Audit cross-tuple geometry duplicates, provenance, exact replay traces, and mechanical independence before rendering representatives.
+
 ## Result
 
 Pending.
