@@ -373,6 +373,95 @@ def test_room_stitch_preserves_two_modules_and_uses_second_goal(tmp_path, monkey
     ]
 
 
+def test_same_template_keeps_one_host_room_and_transplants_only_blockers(tmp_path, monkeypatch):
+    first = tmp_path / "first.xml"
+    second = tmp_path / "second.xml"
+    output = tmp_path / "composed.xml"
+    _write_module(first, "source_0", goal_x=0.6)
+    _write_module(second, "source_1", goal_x=0.7)
+    donors = (
+        _xml_donor(first, "source_0", template="set2/benchmark_5"),
+        _xml_donor(second, "source_1", template="set2/benchmark_5"),
+    )
+    monkeypatch.setattr(composer, "geom_sig", lambda _path: ("full", "shared_walls"))
+
+    metadata = composer.compose_same_template_xml(donors, output)
+
+    root = ET.parse(output).getroot()
+    worldbody = composer._worldbody(root)
+    assert len([body for body in worldbody.findall("body") if body.get("name") == "walls"]) == 1
+    assert worldbody.find("body[@name='connector_walls']") is None
+    assert worldbody.find("body[@name='global_boundary_walls']") is None
+    assert composer._movable_body(root, K1) is not None
+    assert composer._movable_body(root, K2) is not None
+    assert composer._numbers(composer._goal_site(root).get("pos"))[:2] == pytest.approx([0.7, 0.0])
+    assert metadata == {
+        "mode": "same_template",
+        "template": "set2/benchmark_5",
+        "wall_signature": "shared_walls",
+        "host_xml": str(first.resolve()),
+        "transplanted": "blockers_only",
+    }
+
+
+def test_same_template_rejects_different_named_templates(tmp_path):
+    first = tmp_path / "first.xml"
+    second = tmp_path / "second.xml"
+    _write_module(first, "source_0", goal_x=0.6)
+    _write_module(second, "source_1", goal_x=0.7)
+    donors = (
+        _xml_donor(first, "source_0", template="set2/benchmark_3"),
+        _xml_donor(second, "source_1", template="set2/benchmark_5"),
+    )
+
+    with pytest.raises(composer.CompositionRejected, match="donor_template_mismatch"):
+        composer.compose_same_template_xml(donors, tmp_path / "composed.xml")
+
+
+def test_same_template_rejects_wall_signature_mismatch(tmp_path, monkeypatch):
+    first = tmp_path / "first.xml"
+    second = tmp_path / "second.xml"
+    _write_module(first, "source_0", goal_x=0.6)
+    _write_module(second, "source_1", goal_x=0.7)
+    donors = (
+        _xml_donor(first, "source_0", template="set2/benchmark_5"),
+        _xml_donor(second, "source_1", template="set2/benchmark_5"),
+    )
+    monkeypatch.setattr(
+        composer,
+        "geom_sig",
+        lambda path: ("full", "walls_a" if path == str(first) else "walls_b"),
+    )
+
+    with pytest.raises(composer.CompositionRejected, match="donor_wall_signature_mismatch"):
+        composer.compose_same_template_xml(donors, tmp_path / "composed.xml")
+
+
+def test_mechanical_independence_rejects_cross_blocker_motion():
+    stable = {
+        "object_pose_trace": [
+            {K1: [0.0, 0.0, 0.0], K2: [1.0, 0.0, 0.0]},
+            {K1: [0.1, 0.0, 0.0], K2: [1.0, 0.0, 0.0]},
+            {K1: [0.1, 0.0, 0.0], K2: [1.1, 0.0, 0.0]},
+        ]
+    }
+    assert composer.mechanical_independence_failure(stable) is None
+
+    k1_moves_k2 = {"object_pose_trace": [dict(row) for row in stable["object_pose_trace"]]}
+    k1_moves_k2["object_pose_trace"][1] = {
+        **k1_moves_k2["object_pose_trace"][1],
+        K2: [1.01, 0.0, 0.0],
+    }
+    assert composer.mechanical_independence_failure(k1_moves_k2) == "k1_moved_k2"
+
+    k2_moves_k1 = {"object_pose_trace": [dict(row) for row in stable["object_pose_trace"]]}
+    k2_moves_k1["object_pose_trace"][2] = {
+        **k2_moves_k1["object_pose_trace"][2],
+        K1: [0.11, 0.0, 0.0],
+    }
+    assert composer.mechanical_independence_failure(k2_moves_k1) == "k2_moved_k1"
+
+
 def test_scale_summary_separates_static_and_post_static_rejections():
     result = summarizer._aggregate(
         [

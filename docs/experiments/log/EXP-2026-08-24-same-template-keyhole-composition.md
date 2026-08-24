@@ -1,0 +1,39 @@
+---
+type: experiment
+status: live
+created: 2026-08-24
+commit: pending
+metric: verified complete-scene yield by ordered K1+K2 difficulty tuple under one-host same-template composition
+tags: [experiment, full-namo, multihop, composition, same-template, medium, hard]
+---
+# Same-template two-keyhole composition
+
+**Read [docs/problem_and_approach.md](../../problem_and_approach.md) first.** The learned model remains one local raw-Q ranker invoked successively by Full NAMO. This experiment composes complete two-keyhole scenes; it does not redefine a local 2-push episode as a multi-region problem.
+
+## Hypothesis
+
+_(user, from chat)_ Fixed environment templates should let us combine two existing keyhole episodes inside one natural room when their blocker placements do not interfere. The output should retain one template's original walls, not transplant or weld complete donor rooms.
+
+## Correction to the previous pilot
+
+The completed room-stitch pilot copied and joined two complete donor wall layouts. It verified the sequential replay machinery but did not implement the intended same-template transplant. Keep those artifacts only as engineering stress tests. Do not freeze them as the two-keyhole benchmark.
+
+## Plan
+
+Add an explicit `same_template` composition mode. Require both donors to have the same named template and exact wall signature. Keep the first donor's one unchanged wall layout and robot start, remove unrelated movable objects, insert only the two selected blocker bodies at their original template coordinates, and use the second donor's goal.
+
+Treat the unit as `(realpath XML, object_id, goal region)`. Carry difficulty per donor episode. Reject same-XML donor pairs, close blocker placements, incorrect static blocker order, K2 reachability before K1, failure of K1 to expose K2, failure of K2 to reach the final goal, duplicate full geometries, and any replay in which one push mechanically moves the other blocker.
+
+Run tiny one-scene pilots for medium+medium, medium+hard, hard+medium, and hard+hard on productive templates. Render every accepted scene before increasing any target. Scale only after the user accepts the room geometry.
+
+## Run
+
+Pending.
+
+## Result
+
+Pending.
+
+## Verdict
+
+Pending.

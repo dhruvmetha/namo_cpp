@@ -8,6 +8,8 @@ tags: [experiment, full-namo, multihop, composition, room-stitch, medium, hard]
 ---
 # Slot-first two-keyhole stitching
 
+> **Construction correction, 2026-08-24:** this whole-room stitching method is retained only as an engineering stress test. It does not implement the intended one-host same-template transplant and must not be frozen as the two-keyhole benchmark. The corrected experiment is [Same-template two-keyhole composition](EXP-2026-08-24-same-template-keyhole-composition.md).
+
 **Read [docs/problem_and_approach.md](../../problem_and_approach.md) first.** The learned model remains one local raw-Q ranker invoked successively by Full NAMO. This experiment builds complete two-keyhole scenes; it does not introduce a horizon-conditioned model or a state-value aggregate.
 
 ## Hypothesis

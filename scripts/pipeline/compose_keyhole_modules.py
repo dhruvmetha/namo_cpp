@@ -6,8 +6,9 @@ first donor XML, removes every movable object, then inserts only the selected do
 first donor supplies the robot pose and the last donor supplies the XML goal.  Static validation
 uses ``probe_static_topology`` and requires the intended blockers to appear in path order.
 
-``fixed_template`` preserves the original blocker-only pilot.  ``room_stitch`` preserves each
-donor's complete static room and joins two directed one-push modules through controlled portals.
+``fixed_template`` preserves the original blocker-only pilot.  ``same_template`` keeps one exact
+wall layout and transplants only two blockers from episodes of that template.  ``room_stitch`` is
+the retired whole-room stress-test mode that joins complete donor rooms through controlled portals.
 """
 
 from __future__ import annotations
@@ -52,8 +53,10 @@ TEMPLATE_RE = re.compile(r"/aug9_car/(set[12]/benchmark_[1-5])/")
 MOVABLE_RE = re.compile(r"^obstacle_.*_movable$")
 TIERS = ("easy", "medium", "hard")
 HORIZONS = ("1push", "2push")
-COMPOSITION_MODES = ("fixed_template", "room_stitch")
+COMPOSITION_MODES = ("fixed_template", "same_template", "room_stitch")
 PORTAL_SIDES = ("east", "north", "south", "west")
+INDEPENDENT_POSITION_TOLERANCE_M = 0.002
+INDEPENDENT_ANGLE_TOLERANCE_RAD = math.radians(1.0)
 
 
 class CompositionRejected(RuntimeError):
@@ -190,6 +193,27 @@ def compose_xml(donors: Sequence[Donor], output: Path) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     ET.indent(tree, space="  ")
     tree.write(output, encoding="utf-8", xml_declaration=True)
+
+
+def compose_same_template_xml(donors: Sequence[Donor], output: Path) -> dict:
+    if len(donors) != 2 or any(donor.horizon != "1push" for donor in donors):
+        raise ValueError("same-template composition requires exactly two 1push donors")
+    templates = {donor.template for donor in donors}
+    if len(templates) != 1:
+        raise CompositionRejected("donor_template_mismatch")
+    wall_signatures = {geom_sig(donor.xml_path)[1] for donor in donors}
+    if None in wall_signatures:
+        raise CompositionRejected("donor_wall_signature_failed")
+    if len(wall_signatures) != 1:
+        raise CompositionRejected("donor_wall_signature_mismatch")
+    compose_xml(donors, output)
+    return {
+        "mode": "same_template",
+        "template": donors[0].template,
+        "wall_signature": next(iter(wall_signatures)),
+        "host_xml": os.path.realpath(donors[0].xml_path),
+        "transplanted": "blockers_only",
+    }
 
 
 def _numbers(value: str | None) -> list[float]:
@@ -1131,6 +1155,29 @@ def replay_donor_chain(
     return replay_component_chain(xml_path, config, donors)
 
 
+def _pose_changed(before: Sequence[float] | None, after: Sequence[float] | None) -> bool:
+    if before is None or after is None:
+        return True
+    position_delta = math.dist(before[:2], after[:2])
+    angle_delta = abs(math.atan2(math.sin(after[2] - before[2]), math.cos(after[2] - before[2])))
+    return (
+        position_delta > INDEPENDENT_POSITION_TOLERANCE_M
+        or angle_delta > INDEPENDENT_ANGLE_TOLERANCE_RAD
+    )
+
+
+def mechanical_independence_failure(replay: dict) -> str | None:
+    poses = replay.get("object_pose_trace") or []
+    if len(poses) != 3:
+        return "independence_trace_missing"
+    k1, k2 = _intended_blockers(2)
+    if _pose_changed(poses[0].get(k2), poses[1].get(k2)):
+        return "k1_moved_k2"
+    if _pose_changed(poses[1].get(k1), poses[2].get(k1)):
+        return "k2_moved_k1"
+    return None
+
+
 def donor_sequences(
     horizons: Sequence[str],
     tiers: Sequence[str],
@@ -1301,6 +1348,13 @@ def main() -> int:
         len(args.horizons) != 2 or any(horizon != "1push" for horizon in args.horizons)
     ):
         parser.error("--composition-mode room_stitch requires exactly two 1push horizons")
+    if args.composition_mode == "same_template":
+        if len(args.horizons) != 2 or any(horizon != "1push" for horizon in args.horizons):
+            parser.error("--composition-mode same_template requires exactly two 1push horizons")
+        if args.template == "any":
+            parser.error("--composition-mode same_template requires one explicit --template")
+        if not args.replay_donor_actions:
+            parser.error("--composition-mode same_template requires --replay-donor-actions")
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     rows = []
@@ -1345,7 +1399,7 @@ def main() -> int:
             args.template,
             args.min_separation,
             args.seed,
-            enforce_min_separation=args.composition_mode == "fixed_template",
+            enforce_min_separation=args.composition_mode in ("fixed_template", "same_template"),
             pools=filtered_pools,
         )
     )
@@ -1359,6 +1413,8 @@ def main() -> int:
                 portal_width=args.portal_width,
                 connector_length=args.connector_length,
             )
+        if args.composition_mode == "same_template":
+            return compose_same_template_xml(donors, path)
         compose_xml(donors, path)
         return {"mode": "fixed_template"}
 
@@ -1407,6 +1463,12 @@ def main() -> int:
                     rejections[replay.get("failure_reason") or replay["status"]] += 1
                     output.unlink()
                     continue
+                if args.composition_mode == "same_template":
+                    independence_failure = mechanical_independence_failure(replay)
+                    if independence_failure is not None:
+                        rejections[independence_failure] += 1
+                        output.unlink()
+                        continue
             probe = probe_one((str(output), args.config, len(donors)))
             ok, reason = static_acceptance(probe, len(donors))
             if not ok:
