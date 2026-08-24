@@ -1,6 +1,6 @@
 ---
 type: experiment
-status: live
+status: done
 created: 2026-08-24
 commit: 4bd9275
 metric: verified complete-scene yield by ordered K1+K2 difficulty tuple under one-host same-template composition
@@ -38,10 +38,14 @@ The user approved the one-host pilot. A one-scene census then tested every templ
 
 The approved target-box smoke and pilot calibrate the productive room at one acceptance per 4–9 pair attempts, with all four one-scene jobs completing together in seven seconds on ilab3. Build 25 candidates per ordered tuple in four parallel single-threaded processes, cap each pair at ten replay simulations, allow up to 1,000 pair attempts, and retain the existing donor-diversity-first ordering. Audit cross-tuple geometry duplicates, provenance, exact replay traces, and mechanical independence before rendering representatives.
 
+The bounded build exhausted every eligible donor pair before reaching 25 in any tuple. It produced 22 medium+medium scenes from 118 attempts, 16 medium+hard from 101, 18 hard+medium from 101, and 9 hard+hard from 60. These are the natural yields under the current 30 cm separation and ten-replay sampling cap; no geometry was duplicated and no acceptance gate was relaxed to fill quotas.
+
 ## Result
 
-Pending.
+The approved candidate population contains 65 same-template scenes and 65 distinct full geometry identities. It uses 33 unique donor episodes. Every scene has the one original `set2/benchmark_5` wall body, exactly two intended blockers, no connector or additional boundary walls, exact blocker order `[[K1], [K2]]`, solved replay status, and reachability `[false, false, true]`. Across the complete population, K1 moved K2 by at most numerical noise and K2 moved the opened K1 by at most `0.381 mm`, below the `2 mm` independence gate. Two rendered representatives per ordered tuple passed visual inspection.
+
+The combined candidate manifest, XML list, and audit summary live under `$NAMO_SCRATCH/eval/same_template_keyhole_20260824/scale25_b5_v1/`. This is a construction artifact, not yet a frozen evaluation-registry entry.
 
 ## Verdict
 
-Pending.
+Same-template blocker-only composition is the correct construction method and is productive for every ordered medium/hard tuple in `set2/benchmark_5`. The strict current donor pool yields 65 unique scenes. More scenes would require one explicit change to the population definition, such as reducing the 30 cm placement separation, expanding the donor bank, or allowing other movable-object context; do not silently make any of those changes.
