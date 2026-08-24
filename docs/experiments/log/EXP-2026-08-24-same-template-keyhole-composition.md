@@ -30,6 +30,10 @@ Run tiny one-scene pilots for medium+medium, medium+hard, hard+medium, and hard+
 
 Commit `4bd9275` adds the explicit `same_template` mode and focused structural and non-interference tests. The focused suite passes 22/22. A census of the canonical one-push donors confirms that every named `set{1,2}/benchmark_{1..5}` template with donors has exactly one wall signature across all of its episodes, so donor blockers share one coordinate system without any wall transformation.
 
+The first local calibration used only `set2/benchmark_5`, targeted one scene per ordered tuple, capped replay sampling at ten actions per pair, and attempted at most 100 pairs. Medium+medium accepted 1/4, medium+hard 1/9, hard+medium 1/7, and hard+hard 1/4. The four acceptances have four distinct full geometries and one shared wall signature. Every XML contains exactly one original `walls` body and no connector, transformed module wall, or added global boundary.
+
+All four accepted replays are solved with blocker order `[[K1], [K2]]` and goal reachability `[false, false, true]`. K1 moved K2 by at most numerical noise, `5.6e-17 m`, and K2 moved the already-opened K1 by at most `0.168 mm`, below the `2 mm` independence gate. The rendered physical rooms, wavefront regions, and region graphs agree. Stop here for user visual approval before any scale build.
+
 ## Result
 
 Pending.
