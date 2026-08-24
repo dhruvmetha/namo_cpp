@@ -2,7 +2,7 @@
 type: experiment
 status: live
 created: 2026-08-24
-commit: pending
+commit: 4bd9275
 metric: verified complete-scene yield by ordered K1+K2 difficulty tuple under one-host same-template composition
 tags: [experiment, full-namo, multihop, composition, same-template, medium, hard]
 ---
@@ -28,7 +28,7 @@ Run tiny one-scene pilots for medium+medium, medium+hard, hard+medium, and hard+
 
 ## Run
 
-Pending.
+Commit `4bd9275` adds the explicit `same_template` mode and focused structural and non-interference tests. The focused suite passes 22/22. A census of the canonical one-push donors confirms that every named `set{1,2}/benchmark_{1..5}` template with donors has exactly one wall signature across all of its episodes, so donor blockers share one coordinate system without any wall transformation.
 
 ## Result
 
