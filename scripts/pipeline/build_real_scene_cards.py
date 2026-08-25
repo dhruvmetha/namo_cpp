@@ -101,12 +101,12 @@ def region_map(statics, blocker, start, goal):
             "origin": [0.0, 0.0], "rle": rle, "labels": names}
 
 
-def build(axis, sheets_by_key, key, out_dir):
+def build(axis, sheets_by_key, key, out_dir, sheets_dir):
     os.makedirs(os.path.join(out_dir, "cards"), exist_ok=True)
     index, counts = [], Counter()
     for tier in ("easy", "med", "hard"):
         per = defaultdict(lambda: {"bricks": [], "block": None})
-        for r in csv.DictReader(open(os.path.join(SHEETS, axis, f"{tier}.csv"))):
+        for r in csv.DictReader(open(os.path.join(sheets_dir, axis, f"{tier}.csv"))):
             (per[r["build_id"]]["bricks"].append(r) if r["item"] == "brick"
              else per[r["build_id"]].__setitem__("block", r))
         for bid, d in per.items():
@@ -178,10 +178,13 @@ def main():
     ap.add_argument("--pools", nargs="+",
                     default=[os.path.join(os.environ.get("NAMO_SCRATCH", "/tmp"), "real_buildable")])
     ap.add_argument("--axes", nargs="+", default=["hmax2", "1push"])
+    # The shipped 600 live in the repo; a different pool (the full exhaustive set, say) points here
+    # at its own export_build_csv.py output so the delivered sheets are never overwritten.
+    ap.add_argument("--sheets", default=SHEETS, help="dir holding <axis>/<tier>.csv")
     args = ap.parse_args()
 
     key = {os.path.realpath(k): v for k, v in json.load(open(args.key)).items()}
-    sheets_by_key = {}
+    sheets_by_key, collisions = {}, 0
     for pool in args.pools:
         for root, _d, files in os.walk(pool):
             if "build_sheets.json" not in files:
@@ -189,15 +192,19 @@ def main():
             for s in json.load(open(os.path.join(root, "build_sheets.json"))):
                 xml = os.path.join(root, s["scene_id"], "env.xml")
                 if os.path.exists(xml):
-                    sheets_by_key[(round(s["blocker"]["center_cm"][0], 1),
-                                   round(s["blocker"]["center_cm"][1], 1),
-                                   round(s["robot_start_cm"][0], 1),
-                                   round(s["robot_start_cm"][1], 1))] = (s, xml)
-    print(f"{len(sheets_by_key)} sheets indexed, {len(key)} scenes in the key")
+                    k = (round(s["blocker"]["center_cm"][0], 1),
+                         round(s["blocker"]["center_cm"][1], 1),
+                         round(s["robot_start_cm"][0], 1),
+                         round(s["robot_start_cm"][1], 1))
+                    if k in sheets_by_key:
+                        collisions += 1
+                    sheets_by_key[k] = (s, xml)
+    print(f"{len(sheets_by_key)} sheets indexed, {len(key)} scenes in the key, "
+          f"{collisions} rounded-key collisions")
 
     all_index, all_counts = [], Counter()
     for axis in args.axes:
-        idx, cnt = build(axis, sheets_by_key, key, args.out)
+        idx, cnt = build(axis, sheets_by_key, key, args.out, args.sheets)
         all_index += idx
         all_counts.update(cnt)
         print(f"  {axis}: {len(idx)} cards")

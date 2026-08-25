@@ -1,17 +1,24 @@
 [
   {
     "id": "scenes",
-    "title": "Scene gallery — car_envs pools",
+    "title": "Scene gallery \u2014 car_envs pools",
     "description": "1-push/2-push region-opening episodes for the car_envs v3 pools (feb_car, aug9_car), with per-problem search timing.",
     "tool": "gallery",
     "data": "../scenes/"
   },
   {
     "id": "real_scenes",
-    "title": "Scene gallery — real-table scenes",
-    "description": "Region-opening episodes for the real-table scene set.",
+    "title": "Scene gallery \u2014 real-table, shipped 600",
+    "description": "The 600 build sheets delivered to hardware, 100 per tier per horizon. Tiered from the original search sweep. Kept as shipped; the full exhaustive pool is the other card.",
     "tool": "gallery",
     "data": "../real_scenes/"
+  },
+  {
+    "id": "real_scenes_all",
+    "title": "Scene gallery \u2014 real-table, full exhaustive pool",
+    "description": "All 1478 exhaustively labelled real-table scenes, both horizons. Tiers come from pure depth-2 enumeration (every first push ends in a finish or a proven dead end), not from the search sweep, so the solve rates differ from the shipped 600.",
+    "tool": "gallery",
+    "data": "../real_scenes_all/"
   },
   {
     "id": "search",
