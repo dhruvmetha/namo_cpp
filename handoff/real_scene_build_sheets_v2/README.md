@@ -67,11 +67,33 @@ How much of the pool dies, by where that lands:
 | 9.9 cm | 51 | 43 |
 | 11.0 cm | 98 | 71 |
 
-⚠ **THE RISK IS CONCENTRATED IN THE HARD TIER AND THAT IS NOT A COINCIDENCE.** At 9.9 cm, 43 of the 51 casualties are hard and zero are easy. A hard scene is hard precisely because only one narrow escape route exists, so its winning push is the one threading a tight gap and there is no roomier alternative. The tight-corridor risk and the hard tier are the same property seen twice. Losing a third of a tier that already ships short at 93 is a different problem from losing 51 scattered scenes.
+⚠ **THE RISK IS PUSH COUNT, NOT TIER DIFFICULTY.** At 9.9 cm, 43 of the 51 casualties are hard and zero are easy, but the aggregate hides the real number. Per axis:
+
+| threshold over | 1push/hard | hmax2/hard |
+|---|---|---|
+| 8.4 cm | 2 of 100 | 3 of 93 |
+| 9.0 cm | 7 of 100 | 8 of 93 |
+| 9.9 cm | **31 of 100** | 12 of 93 |
+| 11.0 cm | 48 of 100 | 23 of 93 |
+
+The two axes track each other to 9.0 and then split by two and a half. The cause is how many times the block gets moved:
+
+| | solved by | median corridor | p10 | p25 |
+|---|---|---|---|---|
+| 1push/hard | 100 of 100 a single push | 11.37 cm | 9.10 | 9.72 |
+| hmax2/hard | 92 of 93 setup-then-finish | 30.00 cm | 9.33 | 11.03 |
+
+A chain moves the block twice, so it ends up further from the doorway. A single push has to open the region AND clear the way in one motion, so the block stops nearer the gap the robot then drives through. That is the whole effect, and it means the fragility belongs to one-push solutions rather than to any particular scene: a 1push/hard replacement drawn from the pool carries the same 31% exposure. Swapping redraws the risk, it does not reduce it.
+
+The split appears between 9.0 and 9.9 because below 9.0 you cut the extreme tail of both distributions, where they look alike, and above it you cut the bulk of the 1push distribution while the hmax2 bulk sits at the measurement ceiling.
+
+Note also that 43 of 193 is **22%** of the hard tier, not a third. A third is the 11.0 band, at 71 of 193.
 
 `dead_if_threshold_over` gives each scene's band directly. `marker_verdict` is carried alongside because a scene that is both tight AND a marker-fail tells you nothing when it fails: the two causes are indistinguishable at the table, which is what `failure_cause` in trials.csv exists to separate.
 
-**Three scenes have a working push our OWN 8.0 rule calls impassable**: `1push/hard_094` and `1push/hard_098` at 7.97 cm, `hmax2/med_067` at 7.57. Another 26 have a comfortable best route but at least one working push under 8.0. Those are not scene defects, they are planner-choice risks: the run only fails if the search picks that route. Worth knowing when a run fails and the scene looked fine on paper.
+**29 scenes have at least one working push under 8.0 cm**, which is narrower than our own wavefront rule allows. All 29 are planner-choice risks rather than scene defects: every one has a comfortable best route and `no_route=0`, so the run only fails if the search returns that particular push. Worth knowing when a run fails and the scene looked fine on paper.
+
+Do not read those values as 29 independent tight geometries. Thirteen sit at exactly 7.97 cm and six at exactly 7.57, both within one 5 mm grid cell of the 8.0 constant, which is grid quantisation rather than 19 separate near-misses. By axis they are 27 hmax2 and 2 1push, the mirror of the asymmetry above, for the same push-count reason.
 
 ## Known gaps
 
