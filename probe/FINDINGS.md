@@ -6,6 +6,8 @@ Capability probe, 2026-08-26. Nothing here is adopted, and nothing here is a fit
 
 **Yes, but not through any parameter.** Rotation is reachable only by changing the pusher's contact *geometry*. Every constant in the defensible range is provably inert, and I can say why rather than just reporting that a sweep came back empty.
 
+**The sharpest result is a discriminator, not a number.** Hardware rotates *and* translates: 27 deg while still moving the block 3.3 cm per step. Every route I found that produces rotation in sim loses translation. So whatever the real robot is doing, it is not slipping, and that rules out a whole family of explanations at once rather than one parameter at a time.
+
 Torsional friction, the leading suspect, is falsified twice over. Setting the block's torsional coefficient to `0.0001` gives results **bit-identical** to the current `0.005`, and raising it to `0.5` or `5.0` *reduces* rotation instead of increasing it. In the measured yaw-torque budget it carries 0.005 mNm out of about 4 mNm, which is 0.14%. It never mobilises, because the block barely spins against the floor in the first place.
 
 ## What the sim is actually doing
@@ -25,6 +27,20 @@ The push force needed to keep the block moving equals its floor drag, `mu*m*g`. 
 with `d` the moment arm of the contact patch and `c` the block's yaw friction radius. Neither `mu` nor `m` appears. Sweeping them is guaranteed to do nothing, which is exactly what the sweep found.
 
 I verified the invariance on the point-pusher case, where rotation is not suppressed: friction over a 20x range gives -3.06 to -2.84 deg/cm, mass over a 10x range gives -3.21 to -2.84 deg/cm. Flat across both.
+
+⚠ **One parameter is an exception, and I missed it on the first pass.** The invariance argument and the joint sweep both cover the BLOCK's mass. Neither covers the CAR's. The idealised rig has no car in it at all. Swept afterwards, at 3.0 cm offset:
+
+| car chassis mass | block dyaw | coupling | translation |
+|---|---|---|---|
+| 0.07 kg | +8.6 deg | 0.535 | 2.76 cm/step |
+| 0.175 kg | +6.7 deg | 0.298 | 3.09 |
+| **0.35 kg (current)** | **+0.1 deg** | **-0.071** | **4.43** |
+| 0.70 kg | +1.0 deg | -0.015 | 3.49 |
+| 1.75 kg | +0.4 deg | -0.009 | 2.79 |
+
+Lighter car, more rotation, monotone. It tops out at a quarter of the hardware's 2.126 and translation collapses to 2.76 cm/step against the 4.4 we need, so it still fails the two-sided test. But "no parameter matters" was overstated.
+
+**The mechanism here is traction, not reaction torque.** Rotational inertia alone changes nothing: 0.1x and 10x at fixed mass both give about 0.0. A lighter car has less weight on its wheels, less grip, and gets shoved off its line instead of holding it. That is the same mechanism as the earlier floor-friction result, where cutting wheel grip gave +12 deg. Both are rotation-by-slipping, and the discriminator above rules both out as models of the real robot.
 
 Two measured quantities set the outcome:
 
@@ -76,6 +92,24 @@ This is a structural limit, not a calibration error, and it is worth writing dow
 MuJoCo represents two nominally flat faces as a *perfect planar mate* over the full overlap. Real faces are flat to maybe 0.1 mm and touch at a few high spots, so a real interface has far lower angular stiffness and cannot hold a block square. The sim's push therefore carries an angular constraint the hardware does not have, and it is strongest exactly where the label matters most, at corner contacts.
 
 Practical read: solve rates that depend on **which** push opens a region stay trustworthy, since translation is unaffected. Anything that depends on the block's **final heading** after a corner push is systematically wrong, and wrong in one direction, since the sim always under-rotates.
+
+## Which constants are measured, and which are inherited
+
+This probe made one of the sim's unmeasured constants consequential, so it is worth writing down which are which. I checked each one in the file it lives in.
+
+| constant | value | provenance |
+|---|---|---|
+| `push_tracker_max_speed` | 0.05357 | **measured.** Config comment cites an 8-iteration binary search against a real chassis cruise of 5.125 cm/s, session `chassis_calibration/20260523_002800_pp_session` |
+| real push `max_speed` | 0.4 PWM | **measured.** `controller.yaml` records the stiction band it was raised out of and the 34.8%/40% the firmware delivers |
+| `lookahead_ratio` | 1.0 | **tuned,** and identically in both codebases; both carry the "was 0.3, short lookahead amplifies heading noise" note |
+| block mass | 0.1 kg | **never weighed.** Hardcoded in the XMLs and in the hardware side's `xml_generator.py` |
+| **car chassis mass** | **0.35 kg** | **never weighed.** Originates in `test_xml/little-car-modeling-package/assets/mjcf/little_car.xml` with no citation, copied verbatim into `scripts/pipeline/gen_real_buildable_scenes.py:659`. This is the one the sweep above makes load-bearing |
+| block friction | 1 0.005 0.0001 | **not a measurement.** Changed from `0 0.1 0.1` because two simulators disagreed |
+| floor friction | 0.5 0.005 0.001 | **no provenance at all,** and irrelevant to the block anyway, since MuJoCo's max-combine resolves block-on-floor to the block's 1.0 |
+
+Brick mass is sometimes listed alongside these as a third unweighed value. It is not load-bearing: the `walls` body carries no joint, so it is welded to the world and its mass never enters the dynamics.
+
+Weighing the car is cheap and worth doing, but be clear what it buys. If the real robot is nearer 0.175 kg then part of today's null is a wrong constant rather than a structural limit, which is worth a sentence in the characterisation. It is not a reason to change the value. Every label came out of the current constants, and re-running 2.4M sims to recover a quarter of the missing rotation while giving up 1.3 cm/step of translation we currently match is a bad trade even if 0.35 turns out wrong.
 
 ## Reproduction
 
