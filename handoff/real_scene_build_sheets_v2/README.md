@@ -52,6 +52,27 @@ This looks far better than the v1 picture, where 178 of 600 scenes left the mark
 
 ⚠ NINE SCENES ARE CONFOUNDED FOR CORRIDOR CALIBRATION. `1push/hard_020` and `hmax2/hard_018` sit at the 8.36 cm corridor floor and are also marker-fails. A failed run on either tells you nothing about whether the car fits, because it would fail on the marker regardless. 87 scenes are both tight (best corridor under 11 cm) and marker-strict; use those. `1push/hard_099` and `hmax2/hard_054` are at the same 8.36 cm floor with all measured solutions marker-strict, which makes them the cleanest pair to calibrate on.
 
+## corridor_risk.csv, read this before picking scenes to build
+
+98 of the 593 have a best route narrower than 11.0 cm, which is what the generator's own margin test asks for. Whether any of them are actually unbuildable depends on a number nobody has measured: what corridor width the real car clears.
+
+Our wavefront assumes 8.0 cm, from `compute_rotation_safe_robot_radius_m` returning `max(hx, hy)` = 3.5 for a 7x7 car. The hardware side's reading is that a car which has to TURN in a gap needs the circumscribed radius, `hypot(3.5, 3.5)` = 4.95, so about 9.9 cm plus control slop, and that driving straight through without rotating might pass at 8 to 9. Their calibration ladder measures it. Their own prediction is 8.4 to 11.
+
+How much of the pool dies, by where that lands:
+
+| if the real threshold is over | scenes whose BEST route fails | of which are hard-tier |
+|---|---|---|
+| 8.4 cm | 5 | 5 |
+| 9.0 cm | 15 | 15 |
+| 9.9 cm | 51 | 43 |
+| 11.0 cm | 98 | 71 |
+
+⚠ **THE RISK IS CONCENTRATED IN THE HARD TIER AND THAT IS NOT A COINCIDENCE.** At 9.9 cm, 43 of the 51 casualties are hard and zero are easy. A hard scene is hard precisely because only one narrow escape route exists, so its winning push is the one threading a tight gap and there is no roomier alternative. The tight-corridor risk and the hard tier are the same property seen twice. Losing a third of a tier that already ships short at 93 is a different problem from losing 51 scattered scenes.
+
+`dead_if_threshold_over` gives each scene's band directly. `marker_verdict` is carried alongside because a scene that is both tight AND a marker-fail tells you nothing when it fails: the two causes are indistinguishable at the table, which is what `failure_cause` in trials.csv exists to separate.
+
+**Three scenes have a working push our OWN 8.0 rule calls impassable**: `1push/hard_094` and `1push/hard_098` at 7.97 cm, `hmax2/med_067` at 7.57. Another 26 have a comfortable best route but at least one working push under 8.0. Those are not scene defects, they are planner-choice risks: the run only fails if the search picks that route. Worth knowing when a run fails and the scene looked fine on paper.
+
 ## Known gaps
 
 About 1.8% of scenes carry label noise where the simulator disagrees with its own recorded verdict on the same push, same config, same sequence. The cause is unidentified. It is concentrated in two-push chains.
