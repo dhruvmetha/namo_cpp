@@ -15,6 +15,8 @@ const DATA_BASE = new URLSearchParams(window.location.search).get("data") || "";
 const STORE_KEY = "namo-viz-gallery-state:" + DATA_BASE;
 const STAR_KEY = "namo-viz-gallery-stars:" + DATA_BASE;
 const TIER_ORDER = { hard: 0, medium: 1, easy: 2 };
+// Cards carry their own copy of the tier, so the index normalisation below does not reach them.
+const tierName = (t) => (t === "med" ? "medium" : t);
 
 const horizonSelect = document.getElementById("horizon-select");
 const tierSelect = document.getElementById("tier-select");
@@ -68,6 +70,11 @@ if (!DATA_BASE) {
     fetch(DATA_BASE + "timing.json", NOCACHE).then((r) => (r.ok ? r.json() : null)).catch(() => null),
   ]).then(([m, t]) => {
     index = m;
+    // The car_envs pools spell the middle tier "medium", the real-table pools spell it "med", and
+    // everything here keys on the string: TIER_ORDER, the dropdown, the per-tier counter. Left
+    // alone, a real-table gallery reports "medium 0" beside 183 medium episodes and sorts them
+    // to a random spot on an undefined rank. Normalise once, on the way in.
+    index.cards.forEach((r) => { if (r.tier === "med") r.tier = "medium"; });
     timing = t && t.cards ? t.cards : null;
     init();
   }).catch((err) => { summary.textContent = "Failed to load scenes.json: " + err; });
@@ -290,14 +297,14 @@ function render(card) {
     `blocking object this episode is about; a push on it has to merge the first two.`;
 
   document.getElementById("card-title").textContent =
-    `${meta.horizon} · ${meta.tier} · ${rowsSceneName(meta)} · ${meta.object_id}`;
+    `${meta.horizon} · ${tierName(meta.tier)} · ${rowsSceneName(meta)} · ${meta.object_id}`;
 
   const green = meta.horizon === "1push" ? "openers" : "working setups";
   const kv = [
     ["scene", rowsSceneName(meta)],
     ["object", meta.object_id],
     ["goal region", meta.region],
-    ["tier", `${meta.tier} (${meta.density_pct.toFixed(2)}% of pushes work)`],
+    ["tier", `${tierName(meta.tier)} (${meta.density_pct.toFixed(2)}% of pushes work)`],
     [green, `${meta.n_green} of ${meta.n_tried} reachable pushes`],
     ["random draws to hit", meta.n_green ? (meta.n_tried / meta.n_green).toFixed(1) : "n/a"],
   ];
