@@ -66,7 +66,21 @@ Nine of the 593 shipped scenes leave the goal marker unreachable on every measur
 
 They stay. They open the region by the simulator's own rule, so they are genuine solves under the criterion the labels use, and dropping them would take 1push/hard to 96 and hmax2/hard to 88 in the tier that already ships short of 100.
 
+⚠ **THIS IS ABOUT THE 593-SCENE SHIPPED POOL, NOT THE 14-SCENE HARDWARE MATRIX.** CLAUDE relayed it as "they stay in the matrix", which is a different sentence about a different set, and `real_robot` caught it. Verified: all 14 matrix scenes are verdict=strict with retarget 0.0 and there is zero overlap with the nine. No second amendment is needed and the hardware matrix is untouched.
+
+Also corrected: "report as retarget-or-fail" is wrong. Under hardware's success semantics all nine collapse to plain FAIL. Seven have no reachable cell recorded at any distance; the two that do sit beyond the 12.0 cm cap, `1push/hard_036` at 15.0 and `1push/hard_097` at 14.5.
+
 Related and worth reading together: **51 of the 593 have a best corridor under 9.9 cm**, the width hardware calculates a car needs to spin in. If the calibration ladder puts the real threshold up there, those 51 become expected failures too. The `failure_cause` column is what will separate them from marker failures, which is another reason it lands before collection.
+
+**None of that reaches the matrix either.** All 14 matrix scenes have a best corridor of 13.74 or better, 13 of 14 at the 30 cm measurement ceiling. But best corridor is the BEST route, not the only one: `easy_002`'s worst measured route is 9.95 cm, `med_077` and `easy_001` are both 11.2. If the planner picks a poor route on those three the run can still land near the threshold, which is exactly the case `failure_cause=corridor_too_tight` has to separate from `marker_unreachable`.
+
+## Table-time floor, not ceiling [real_robot 2026-08-26]
+
+56 runs is 10 to 11 hours, but **the rebuild dominates, not the trial**: four cells per scene means four rebuilds per scene, since a push disturbs the scene and the protocol rebuilds between arms. Costing this as "56 runs" understates it, which CLAUDE did.
+
+Calendar is not the constraint. 20 days remain and data should land by ~9/8 to leave a week for analysis, so 10 hours over 13 days is under an hour a day. **Per-session reliability is the constraint.** The 3-scene pilot produced two runtime bugs, a battery swap mid-run, a radio blip and a 55 s deadband stall.
+
+So the number to defend is **32**: 8 hard scenes fully crossed, holding both sign tests at n=8. Amendment 1 forbids cutting a single cell, because that breaks the pairing for both tests at once.
 
 ## ⚠ trials.csv has a schema hole, do not patch half of it
 
