@@ -50,13 +50,23 @@ Swapping the car's face for a cylinder produces rotation but fails the centre-co
 
 **Corridor width after the push was never checked by anything.** The generator's margin test only looks at the route with the movable deleted. 98 of 593 scenes have a best route under 11 cm. Hardware's own reading is that a corridor the car can spin in needs 9.9 cm, not the 8.0 our wavefront assumes, so their calibration ladder settles a number that shifts every tier label on both sides if it comes back high.
 
-## Blocked on a decision from USER
+## Trial matrix: CROSSED, 56 runs [USER 2026-08-26]
 
-Crossing execution mode with the existing model-vs-uniform arm makes the matrix 14 x 2 x 2 = **56 hardware runs, not 28**. At ~10 min per trial from pilot pacing that is 9 to 10 hours of table time against 5, with a 2026-09-15 deadline.
+Execution mode crosses with the model-vs-uniform arm: 14 scenes x 2 arms x 2 modes = **56 hardware runs**, ~10 hours of table time against ~5, on a 2026-09-15 deadline.
 
-The bigger cost is the pre-registration. `docs/ICRA_REAL_ROBOT_STUDY.md` states the design was locked before collection on 2026-08-25/26, and the sign test needs at least 8 hard pairs with the cut order already sacrificing easy and medium first. A third crossed factor either doubles the session budget or halves the cells the test depends on.
+Both `real_robot` and CLAUDE recommended NOT crossing, and running reactive as a separate comparison after the primary 28. USER decided otherwise, on the grounds that nobody knows whether planning or reactive handles the sim-real gap better and the table is what settles it. Given that the gap attacks lookahead specifically, that is defensible.
 
-`real_robot` recommends NOT crossing: run reactive as its own separately pre-registered comparison on the hard pairs only, after the 28 are in the bag. The primary claim does not mention reactive, and the uniform ablation is already framed as opportunistic. CLAUDE agrees. Awaiting the call.
+⚠ **THIS REQUIRES A DATED AMENDMENT TO THE PRE-REGISTRATION, WRITTEN BEFORE ANY TRIAL RUNS.** `docs/ICRA_REAL_ROBOT_STUDY.md` states the design was locked before collection. With 0 of 28 matrix rows collected this is an amendment, not a violation, but only if it is recorded now with the date and the fact that no matrix data existed. Written after the first row lands it is something else. `real_robot` owns that doc and is drafting it. No trial runs before it exists.
+
+If the time budget forces a cut, the study doc's cut order sacrifices easy and medium first, and the sign test's 8 hard pairs are the floor. Escalate with numbers rather than letting collection fail partway.
+
+## The 9 marker-fail scenes stay, flagged [USER 2026-08-26]
+
+Nine of the 593 shipped scenes leave the goal marker unreachable on every measured solution, so they will strict-fail or retarget on the table. Five are hmax2/hard, four are 1push/hard, all named in `marker_retarget.csv`.
+
+They stay. They open the region by the simulator's own rule, so they are genuine solves under the criterion the labels use, and dropping them would take 1push/hard to 96 and hmax2/hard to 88 in the tier that already ships short of 100.
+
+Related and worth reading together: **51 of the 593 have a best corridor under 9.9 cm**, the width hardware calculates a car needs to spin in. If the calibration ladder puts the real threshold up there, those 51 become expected failures too. The `failure_cause` column is what will separate them from marker failures, which is another reason it lands before collection.
 
 ## ⚠ trials.csv has a schema hole, do not patch half of it
 
@@ -68,7 +78,7 @@ Worse, which ARM ran is not a column either. It lives inside the free-text `comm
 
 So when mode lands, add `arm`, `exec_mode` and `failure_cause` in ONE pass, each with a fixed vocabulary and each parsed rather than free text. Adding `exec_mode` alone splits the matrix rows across two schemas. Both mode and arm are per-TRIAL, not per-session: the protocol rebuilds between arms and randomises arm order per scene, so a session mixes arms by construction, and the analysis is paired within scene so the grouping key must sit on the row.
 
-USER owns the final header; he fills the file at the table.
+**Decided [USER 2026-08-26]: the header lands BEFORE the first matrix run**, not when reactive is finished. `policy` proposes all three columns in one pass, USER approves, `real_robot` lands it. Only the 4 pilot rows exist so the cost is near zero now and rises the moment collection starts. The arm-in-free-text problem gets fixed in the same pass: with 56 runs across two crossed factors there are now four ways to mislabel a row instead of two.
 
 ## Open questions
 
