@@ -28,6 +28,33 @@ _ML_GOAL_STRATEGIES = frozenset(
         "ml_primitive",
     }
 )
+
+
+# How ``solve_boundary_from_xml`` decides which push to return.
+#
+#   search   expand a priority queue over unsimulated pushes, back up on failure,
+#            return a chain that opened the boundary
+#   policy   score the reachable candidates at this state and return the argmax,
+#            with no lookahead at all
+#
+# Both read one pool through one primitive, so they differ only in lookahead.
+# That is deliberate: a real block pushed off-centre keeps rotating (2.13 to 2.42
+# degrees per cm of travel at corner contacts) where the simulator squares it
+# back up, so after one real push a block can sit 27 degrees off the predicted
+# pose and the second push of a depth-2 plan contacts a face that is not there.
+# Lookahead is exactly what that gap corrupts, and reactive never relies on a
+# predicted state. Which one wins on hardware is unmeasured; both ship, each run
+# records which ran.
+#
+# Named rather than forwarded into algorithm_params. Unknown keys in that bag are
+# dropped in silence, and a trial that quietly ran the wrong arm does not fail --
+# it produces a number that goes in a table.
+BOUNDARY_MODES = ("search", "policy")
+DEFAULT_BOUNDARY_MODE = "search"
+
+# The policy takes the argmax of a ranked pool, and only best_first builds one.
+# region_bfs sweeps every edge and depth in its own order.
+_RANKED_POOL_SEARCH = "best_first"
 def _create_planner(name: str, env: Any, config: PlannerConfig) -> Any:
     """Create a registered planner without importing planner internals eagerly."""
     from namo.core import PlannerFactory
@@ -545,6 +572,7 @@ class NAMOPlanningService:
         blocking_objects: Optional[Sequence[str]] = None,
         target_neighbor: Optional[str] = None,
         local_search: str = "region_bfs",
+        mode: str = DEFAULT_BOUNDARY_MODE,
         starting_robot_pose: Optional[Tuple[float, float, float]] = None,
         goals_per_region: Optional[int] = None,
         # Same names and defaults as plan_from_xml. A held boundary is solved by
@@ -580,9 +608,19 @@ class NAMOPlanningService:
         default of 1 no setup-then-finish chain exists, which is the only reason
         to hold a boundary in the first place.
 
+        ``mode`` picks the decision rule, ``search`` (default) or ``policy``.
+        Everything else is held identical between them -- the boundary, the
+        pinned points, the success bar, the blockers, the budget -- so the two
+        differ only in whether the choice looks ahead. ``policy`` returns the
+        push it chose even when that push did not open the boundary, because a
+        reactive executor runs the argmax and re-observes rather than trusting a
+        predicted state; ``search`` returns a chain only when it opened one.
+
         Returns a typed result rather than raising for the ordinary failures --
         a boundary that merged away or ran out of pushes is an outcome the
-        caller must handle, not an exception.
+        caller must handle, not an exception. The two selections above are not
+        ordinary failures: a mode nobody honours would run the other arm and
+        report a number, so they refuse before anything is built.
         """
         start_time = time.perf_counter()
         points = [(float(px), float(py)) for px, py in target_points]
@@ -591,6 +629,17 @@ class NAMOPlanningService:
         if local_search not in ("region_bfs", "best_first"):
             raise ValueError(
                 f"Unknown local_search {local_search!r}. Valid: region_bfs, best_first"
+            )
+        if mode not in BOUNDARY_MODES:
+            raise ValueError(
+                f"Unknown mode {mode!r}. Valid: {list(BOUNDARY_MODES)}"
+            )
+        if mode == "policy" and local_search != _RANKED_POOL_SEARCH:
+            raise ValueError(
+                f"mode='policy' needs local_search='{_RANKED_POOL_SEARCH}': the policy "
+                f"returns the argmax of a ranked pool and {local_search!r} builds none, "
+                f"it sweeps every edge and depth in its own order. Pass "
+                f"local_search='{_RANKED_POOL_SEARCH}', or use mode='search'."
             )
 
         def _elapsed_ms() -> float:
@@ -647,6 +696,11 @@ class NAMOPlanningService:
                 ),
             }
             algorithm_params.update(kwargs)
+            # After the kwargs update, so the named parameter is the one that
+            # lands. A caller writing decision_rule into the bag directly would
+            # otherwise silently outrank the mode it also passed, and the two
+            # would disagree with no way to tell from the outside which won.
+            algorithm_params["decision_rule"] = mode
             if "primitive_prefix" not in algorithm_params:
                 prefix = self._derive_primitive_prefix()
                 if prefix:

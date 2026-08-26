@@ -17,7 +17,7 @@ from namo.strategies import PrimitiveGoalStrategy
 from namo.strategies.scorer_goal_strategy import _get_scorer
 from namo.runtime_profile import CANONICAL_NUM_DEPTHS, CANONICAL_PRIMITIVE_PREFIX
 
-from .best_first_search import make_action, solve_scene
+from .best_first_search import make_action, run_policy, solve_scene
 from .region_opening import (
     AttemptResult,
     CANONICAL_MIN_REACHABLE_FRACTION,
@@ -32,6 +32,13 @@ from .region_opening import (
 # produces numbers that cannot be compared to anything in the registry.
 CANONICAL_BEST_FIRST_HMAX = 2
 CANONICAL_KEYHOLE_SIMULATION_BUDGET = 900
+
+# Which decision rule reads the ranked pool. "search" pops a priority queue and
+# can back up; "policy" takes the argmax at the live state and cannot. They read
+# the same pool through the same primitive, so the arms differ only in lookahead
+# -- which is the point, since the sim-to-real gap is what corrupts lookahead.
+DECISION_RULES = ("search", "policy")
+DEFAULT_DECISION_RULE = "search"
 
 
 class _BlacklistedEdgeFilter:
@@ -86,6 +93,15 @@ class BestFirstRegionOpeningPlanner:
         self.prior = str(params.get("best_first_prior", "model"))
         if self.prior not in {"model", "uniform"}:
             raise ValueError("best_first_prior must be 'model' or 'uniform'")
+        # Checked here, not just at the service, because this is not the only door
+        # in. An unrecognised rule silently running the search would put a trial in
+        # the wrong arm of a paired comparison, which produces a number rather than
+        # an error and so never gets caught.
+        self.decision_rule = str(params.get("decision_rule", DEFAULT_DECISION_RULE))
+        if self.decision_rule not in DECISION_RULES:
+            raise ValueError(
+                f"Unknown decision_rule {self.decision_rule!r}. Valid: {list(DECISION_RULES)}"
+            )
         self.hmax = int(params.get("best_first_hmax", CANONICAL_BEST_FIRST_HMAX))
         if self.hmax < 1:
             raise ValueError(f"Invalid best_first_hmax: {self.hmax}. Must be at least 1")
@@ -211,8 +227,19 @@ class BestFirstRegionOpeningPlanner:
         end: str,
         actions: Optional[List[namo_rl.Action]] = None,
         future_interface: Optional[Dict[str, Any]] = None,
+        actions_stand_on_failure: bool = False,
     ) -> PlannerResult:
+        """Flatten one attempt into a PlannerResult.
+
+        ``actions_stand_on_failure`` is the reactive arm's whole shape. A search
+        returns a plan whose only meaning is that it opened the boundary, so a
+        failed search returns none. A policy returns the push it chose, and it
+        chose that push knowing the simulator said it would not open anything --
+        the executor runs it and looks again, which is the point of re-deciding
+        from the world. Dropping it would leave reactive mode unable to move.
+        """
         success = bool(attempt.success)
+        carry_actions = success or actions_stand_on_failure
         failure_kind = "simulation_budget_exhausted" if end == "budget" and not success else None
         stats: Dict[str, Any] = {
             "attempt_results": [attempt],
@@ -250,8 +277,8 @@ class BestFirstRegionOpeningPlanner:
         return PlannerResult(
             success=success,
             solution_found=success,
-            action_sequence=list(actions or []) if success else None,
-            solution_depth=len(actions or []) if success else None,
+            action_sequence=list(actions or []) if carry_actions else None,
+            solution_depth=len(actions or []) if carry_actions else None,
             search_time_ms=(time.time() - start_time) * 1000.0,
             error_message=(
                 f"Simulation budget exhausted after {self.push_budget.used}/{self.push_budget.limit} env.step calls"
@@ -402,7 +429,25 @@ class BestFirstRegionOpeningPlanner:
                         return False
                 return accept_future_interface(env)
 
-            solved, sims, plan_len, _boards, end = solve_scene(
+            # Everything above is shared: same boundary, same pinned points, same
+            # is_open bar, same blockers, same budget. Only the rule that reads the
+            # ranked pool changes here, so an A/B between the two arms is an A/B on
+            # lookahead and nothing else.
+            rule_args = dict(
+                restrict_obj=boundary_objects,
+                is_open=is_open,
+                raw=self.raw,
+                dedupe_noop=True,
+                prune_jam_depth=True,
+                region_samples=region_samples,
+                solution_out=solution,
+            )
+            if self.decision_rule == "policy":
+                decide = run_policy
+            else:
+                decide = solve_scene
+                rule_args["discount"] = "off"
+            solved, sims, plan_len, _boards, end = decide(
                 self._search_planner,
                 self.env,
                 robot_goal,
@@ -414,14 +459,7 @@ class BestFirstRegionOpeningPlanner:
                 self.agg,
                 self.combine,
                 np.random.default_rng(self.seed),
-                restrict_obj=boundary_objects,
-                is_open=is_open,
-                raw=self.raw,
-                discount="off",
-                dedupe_noop=True,
-                prune_jam_depth=True,
-                region_samples=region_samples,
-                solution_out=solution,
+                **rule_args,
             )
             self.push_budget.used += int(sims)
 
@@ -461,6 +499,7 @@ class BestFirstRegionOpeningPlanner:
                 end=end,
                 actions=actions,
                 future_interface=future_interface,
+                actions_stand_on_failure=(self.decision_rule == "policy"),
             )
         finally:
             self.env.set_full_state(baseline)
