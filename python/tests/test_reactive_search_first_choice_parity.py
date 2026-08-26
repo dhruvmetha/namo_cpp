@@ -2,7 +2,7 @@
 
 Both decision rules read one pool: ``rank_first_pushes_h2`` over the reachable
 (object, edge, depth) triples at a state, ordered by ``priority(q, V, combine)``.
-The search pushes that pool into a heap and pops the head. The policy takes the
+The search pushes that pool into a heap and pops the head. Reactive takes the
 argmax and stops. At ``combine="q"``, the repo default, those are the same
 element, so from an identical state the two rules must simulate the identical
 push and reach the identical verdict on it.
@@ -15,7 +15,7 @@ disagree about which push is best at a single state, then every difference the
 table shows is confounded by a ranking disagreement nobody measured, and no
 result survives.
 
-The published pair is 1-push policy open@1 = search solve@1 = 83.7 all-tier
+The published pair is 1-push reactive open@1 = search solve@1 = 83.7 all-tier
 (97.9 / 80.7 / 41.6 easy / medium / hard). Those come from two harnesses over
 hundreds of episodes. This file cannot re-measure them in a unit test, and does
 not try. It pins the mechanism those numbers rest on, per scene and exactly:
@@ -44,7 +44,7 @@ One simulator call per rule per case, so this is seconds, not minutes.
 
 To verify:
   cd namo_cpp && source env.ilab.sh
-  python -m pytest python/tests/test_policy_search_first_choice_parity.py -v
+  python -m pytest python/tests/test_reactive_search_first_choice_parity.py -v
 """
 
 from __future__ import annotations
@@ -83,7 +83,7 @@ START_POSE_M = (0.25, 0.10, 0.0)
 # written absolute, so the file is portable; override to point at another.
 _SCRATCH = os.environ.get("NAMO_SCRATCH", "")
 SCORER_CKPT = Path(
-    os.environ.get("NAMO_POLICY_TEST_CKPT", "")
+    os.environ.get("NAMO_REACTIVE_TEST_CKPT", "")
     or (
         Path(_SCRATCH) / "amarel_pull_20260817/cache_aquaman0_ckpts_bfix/HY5U_s2.ckpt"
         if _SCRATCH
@@ -180,11 +180,11 @@ def _run(scene, rule, prior):
     """
     import numpy as np
 
-    from namo.planners.opening.best_first_search import run_policy, solve_scene
+    from namo.planners.opening.best_first_search import run_reactive, solve_scene
 
     planner = scene["planners"][prior]
     env = _RecordingEnv(scene["env"])
-    entry = {"search": solve_scene, "policy": run_policy}[rule]
+    entry = {"search": solve_scene, "reactive": run_reactive}[rule]
 
     solved, sims, _plan_len, _boards, _end = entry(
         planner,
@@ -246,11 +246,11 @@ def _priors():
 def test_both_rules_simulate_the_same_first_push(scene, prior):
     """The anchor. Same state, same pool, so the same push goes to the sim."""
     search = _run(scene, "search", prior)
-    policy = _run(scene, "policy", prior)
+    reactive = _run(scene, "reactive", prior)
 
-    assert policy["action"] == search["action"], (
+    assert reactive["action"] == search["action"], (
         f"first choice diverged under prior={prior}: "
-        f"policy {policy['action']} vs search {search['action']}. "
+        f"reactive {reactive['action']} vs search {search['action']}. "
         "The two arms no longer differ only in lookahead."
     )
 
@@ -259,11 +259,11 @@ def test_both_rules_simulate_the_same_first_push(scene, prior):
 def test_both_rules_reach_the_same_verdict(scene, prior):
     """open@1 and solve@1 have to be counting the same event."""
     search = _run(scene, "search", prior)
-    policy = _run(scene, "policy", prior)
+    reactive = _run(scene, "reactive", prior)
 
-    assert policy["solved"] == search["solved"], (
+    assert reactive["solved"] == search["solved"], (
         f"same push graded differently under prior={prior}: "
-        f"policy solved={policy['solved']} vs search solved={search['solved']}"
+        f"reactive solved={reactive['solved']} vs search solved={search['solved']}"
     )
 
 
@@ -273,4 +273,4 @@ def test_the_agreed_push_is_the_argmax_of_the_pool(scene, prior):
     head = _pool_head(scene, prior)
 
     assert _run(scene, "search", prior)["action"] == head
-    assert _run(scene, "policy", prior)["action"] == head
+    assert _run(scene, "reactive", prior)["action"] == head

@@ -1,6 +1,6 @@
-"""A jammed push must not be re-picked, because the policy cannot escape on its own.
+"""A jammed push must not be re-picked, because reactive cannot escape on its own.
 
-A push that jams leaves the state exactly as it found it. The policy re-ranks
+A push that jams leaves the state exactly as it found it. Reactive re-ranks
 that identical state, gets back the identical pool, and picks the identical
 argmax. Nothing in the loop breaks that cycle: re-deciding from the world is
 the whole idea of the reactive arm, and here the world is not changing.
@@ -22,7 +22,7 @@ nothing".
 Five properties, each with the failure it catches:
 
   no push is simulated twice     the lock-up itself, in its plainest form
-  an empty pool ends the run     the policy burns its whole budget re-picking
+  an empty pool ends the run     reactive burns its whole budget re-picking
                                  from a pool it has exhausted
   a jammed edge prunes deeper    depth 2 on an edge that jammed at depth 0 is
                                  the same trajectory into the same obstruction,
@@ -33,14 +33,14 @@ Five properties, each with the failure it catches:
   a move clears the bans         over-correcting the other way: once the object
                                  moves the board is new, and a push banned at
                                  the old state has to be offered again or the
-                                 policy blinds itself to its best option
+                                 reactive blinds itself to its best option
 
 Runs against a fake environment, so no binding physics, no checkpoint, no
 scene. The guards are control flow and this pins the control flow.
 
 To verify:
   cd namo_cpp && source env.ilab.sh
-  python -m pytest python/tests/test_policy_jam_guards.py -v
+  python -m pytest python/tests/test_reactive_jam_guards.py -v
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ from conftest import _require_real_namo_rl
 # below runs physics.
 _require_real_namo_rl()
 
-from namo.planners.opening.best_first_search import run_policy  # noqa: E402
+from namo.planners.opening.best_first_search import run_reactive  # noqa: E402
 
 
 # ─── Named constants ────────────────────────────────────────────────────
@@ -96,7 +96,7 @@ class _Prim:
 
 
 class _Scorer:
-    """A fixed grid, so the order the policy walks is known in advance.
+    """A fixed grid, so the order reactive walks is known in advance.
 
     Descending by edge then depth: (0,0) first, (2,2) last. Pinning the order
     is what lets the pruning test name which pushes should never be reached.
@@ -140,7 +140,7 @@ class _Env:
     def get_observation(self):
         return {f"{OBJ}_pose": list(self._pose), "robot_pose": [0.0, 0.0, 0.0]}
 
-    # -- what the policy calls --
+    # -- what reactive calls --
     def step(self, action):
         key = (int(action.edge_idx), int(action.depth))
         self.stepped.append(key)
@@ -156,7 +156,7 @@ def _planner():
 
 def _run(env, *, pushes=POOL_SIZE, **kwargs):
     """One reactive run that never opens, so it stops only on a guard or a budget."""
-    return run_policy(
+    return run_reactive(
         _planner(),
         env,
         GOAL_M,
@@ -183,7 +183,7 @@ def test_a_jammed_push_is_never_simulated_twice():
     _run(env)
 
     assert len(env.stepped) == len(set(env.stepped)), (
-        f"the policy re-picked a push that moved nothing: {env.stepped}"
+        f"reactive re-picked a push that moved nothing: {env.stepped}"
     )
 
 
@@ -195,7 +195,7 @@ def test_an_exhausted_pool_ends_the_run():
 
     assert end == "exhausted", f"expected an exhausted pool, got {end!r}"
     assert sims == POOL_SIZE, (
-        f"the pool holds {POOL_SIZE} pushes; the policy spent {sims} simulations"
+        f"the pool holds {POOL_SIZE} pushes; reactive spent {sims} simulations"
     )
 
 
@@ -214,7 +214,7 @@ def test_the_guards_do_not_have_to_be_asked_for():
     """A caller that forgets them would get the measured lock-up, so they are on."""
     import inspect
 
-    defaults = inspect.signature(run_policy).parameters
+    defaults = inspect.signature(run_reactive).parameters
 
     assert defaults["dedupe_noop"].default is True
     assert defaults["prune_jam_depth"].default is True
@@ -224,12 +224,12 @@ def test_a_push_that_moves_the_object_clears_the_bans():
     """A new state is a new board, so the bans from the old one do not carry.
 
     The counterweight to the other four. Bans that outlived the state they were
-    recorded at would hide the policy's best push for the rest of the episode,
+    recorded at would hide reactive's best push for the rest of the episode,
     which is a quieter failure than the lock-up and just as wrong.
     """
     best = (EDGES[0], DEPTHS[0])
     # The best push is a no-op once, then works. If the ban survived the move,
-    # the policy could never come back to it.
+    # reactive could never come back to it.
     env = _Env()
 
     def step(action):
@@ -244,6 +244,6 @@ def test_a_push_that_moves_the_object_clears_the_bans():
     _run(env, pushes=4)
 
     assert env.stepped[2] == best, (
-        f"after the object moved the policy should re-offer its top push {best}, "
+        f"after the object moved reactive should re-offer its top push {best}, "
         f"got {env.stepped}"
     )

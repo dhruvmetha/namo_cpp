@@ -312,7 +312,7 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
     return False, sims, None, boards, end
 
 
-def run_policy(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combine, rng, restrict_obj=None,
+def run_reactive(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combine, rng, restrict_obj=None,
                is_open=lambda e: e.is_robot_goal_reachable(), raw=True, dedupe_noop=True,
                prune_jam_depth=True, timing=None, region_samples=None, solution_out=None):
     """Reactive argmax ON THE LABELED OBJECT: rank the live state, push the top pick, look, repeat.
@@ -323,7 +323,7 @@ def run_policy(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combin
     Deliberately NOT a second implementation of the ranking. The pool comes from candidates(), which is
     rank_first_pushes_h2, and the pick is the max of priority(q, V, combine) -- the exact quantity
     solve_scene's heap is ordered by. At combine="q" the search's first pop IS this argmax, so from one
-    state the two rules simulate the same push. test_policy_search_first_choice_parity.py pins that; it
+    state the two rules simulate the same push. test_reactive_search_first_choice_parity.py pins that; it
     is the check that keeps the reactive and search arms comparable on hardware.
 
     h schedule follows the search: push i ranks at h = hmax - (i-1), so the first push queries the same
@@ -341,7 +341,7 @@ def run_policy(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combin
       - a no-op push consumes one of the hmax attempts, matching the reference harness
         (scripts/sandbox/eval_reactive_argmax.py) the published open@k numbers came from. The search
         instead keeps popping the same board, spending budget but not chain depth.
-      - solution_out is filled whether or not the boundary opened, because the policy returns a DECISION
+      - solution_out is filled whether or not the boundary opened, because reactive returns a DECISION
         and not a solution: the executor runs the argmax and re-observes, so a push that failed to open
         in simulation is still the push it chose. A no-op is excluded from that plan -- the simulator
         already showed it moves nothing, which is what banned it.

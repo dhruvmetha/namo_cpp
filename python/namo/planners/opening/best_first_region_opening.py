@@ -17,7 +17,7 @@ from namo.strategies import PrimitiveGoalStrategy
 from namo.strategies.scorer_goal_strategy import _get_scorer
 from namo.runtime_profile import CANONICAL_NUM_DEPTHS, CANONICAL_PRIMITIVE_PREFIX
 
-from .best_first_search import make_action, run_policy, solve_scene
+from .best_first_search import make_action, run_reactive, solve_scene
 from .region_opening import (
     AttemptResult,
     CANONICAL_MIN_REACHABLE_FRACTION,
@@ -34,10 +34,10 @@ CANONICAL_BEST_FIRST_HMAX = 2
 CANONICAL_KEYHOLE_SIMULATION_BUDGET = 900
 
 # Which decision rule reads the ranked pool. "search" pops a priority queue and
-# can back up; "policy" takes the argmax at the live state and cannot. They read
+# can back up; "reactive" takes the argmax at the live state and cannot. They read
 # the same pool through the same primitive, so the arms differ only in lookahead
 # -- which is the point, since the sim-to-real gap is what corrupts lookahead.
-DECISION_RULES = ("search", "policy")
+DECISION_RULES = ("search", "reactive")
 DEFAULT_DECISION_RULE = "search"
 
 
@@ -233,7 +233,7 @@ class BestFirstRegionOpeningPlanner:
 
         ``actions_stand_on_failure`` is the reactive arm's whole shape. A search
         returns a plan whose only meaning is that it opened the boundary, so a
-        failed search returns none. A policy returns the push it chose, and it
+        failed search returns none. Reactive returns the push it chose, and it
         chose that push knowing the simulator said it would not open anything --
         the executor runs it and looks again, which is the point of re-deciding
         from the world. Dropping it would leave reactive mode unable to move.
@@ -442,8 +442,8 @@ class BestFirstRegionOpeningPlanner:
                 region_samples=region_samples,
                 solution_out=solution,
             )
-            if self.decision_rule == "policy":
-                decide = run_policy
+            if self.decision_rule == "reactive":
+                decide = run_reactive
             else:
                 decide = solve_scene
                 rule_args["discount"] = "off"
@@ -499,7 +499,7 @@ class BestFirstRegionOpeningPlanner:
                 end=end,
                 actions=actions,
                 future_interface=future_interface,
-                actions_stand_on_failure=(self.decision_rule == "policy"),
+                actions_stand_on_failure=(self.decision_rule == "reactive"),
             )
         finally:
             self.env.set_full_state(baseline)

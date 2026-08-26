@@ -34,7 +34,7 @@ _ML_GOAL_STRATEGIES = frozenset(
 #
 #   search   expand a priority queue over unsimulated pushes, back up on failure,
 #            return a chain that opened the boundary
-#   policy   score the reachable candidates at this state and return the argmax,
+#   reactive score the reachable candidates at this state and return the argmax,
 #            with no lookahead at all
 #
 # Both read one pool through one primitive, so they differ only in lookahead.
@@ -49,10 +49,10 @@ _ML_GOAL_STRATEGIES = frozenset(
 # Named rather than forwarded into algorithm_params. Unknown keys in that bag are
 # dropped in silence, and a trial that quietly ran the wrong arm does not fail --
 # it produces a number that goes in a table.
-BOUNDARY_MODES = ("search", "policy")
+BOUNDARY_MODES = ("search", "reactive")
 DEFAULT_BOUNDARY_MODE = "search"
 
-# The policy takes the argmax of a ranked pool, and only best_first builds one.
+# Reactive takes the argmax of a ranked pool, and only best_first builds one.
 # region_bfs sweeps every edge and depth in its own order.
 _RANKED_POOL_SEARCH = "best_first"
 def _create_planner(name: str, env: Any, config: PlannerConfig) -> Any:
@@ -608,10 +608,10 @@ class NAMOPlanningService:
         default of 1 no setup-then-finish chain exists, which is the only reason
         to hold a boundary in the first place.
 
-        ``mode`` picks the decision rule, ``search`` (default) or ``policy``.
+        ``mode`` picks the decision rule, ``search`` (default) or ``reactive``.
         Everything else is held identical between them -- the boundary, the
         pinned points, the success bar, the blockers, the budget -- so the two
-        differ only in whether the choice looks ahead. ``policy`` returns the
+        differ only in whether the choice looks ahead. ``reactive`` returns the
         push it chose even when that push did not open the boundary, because a
         reactive executor runs the argmax and re-observes rather than trusting a
         predicted state; ``search`` returns a chain only when it opened one.
@@ -634,9 +634,9 @@ class NAMOPlanningService:
             raise ValueError(
                 f"Unknown mode {mode!r}. Valid: {list(BOUNDARY_MODES)}"
             )
-        if mode == "policy" and local_search != _RANKED_POOL_SEARCH:
+        if mode == "reactive" and local_search != _RANKED_POOL_SEARCH:
             raise ValueError(
-                f"mode='policy' needs local_search='{_RANKED_POOL_SEARCH}': the policy "
+                f"mode='reactive' needs local_search='{_RANKED_POOL_SEARCH}': reactive "
                 f"returns the argmax of a ranked pool and {local_search!r} builds none, "
                 f"it sweeps every edge and depth in its own order. Pass "
                 f"local_search='{_RANKED_POOL_SEARCH}', or use mode='search'."
