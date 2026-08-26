@@ -32,8 +32,26 @@ Suggested order: build the roomy scenes first so a failure is about the planner,
 
 Two honest caveats on the number. It saturates at a 30 cm search ceiling on about two thirds of scenes, which just means those routes are wide open and it stops distinguishing among them. And it is a uniform-inflation bottleneck on a 2 mm grid, measured from both the original robot start and the robot's post-push pose with the roomier kept, because each anchor alone is biased: the post-push pose reads its own contact clearance, and the original start reads as cut off when the push leaves the robot on the far side.
 
-## Known gaps
+## marker_retarget.csv
 
-The goal MARKER and the goal REGION are not the same target. Success is measured on the region, and on the v1 600, 178 scenes had a labelled push that cleared the region bar while leaving the marker itself unreachable. If a hardware run counts as won only when the robot reaches the marker, those scenes need their markers moved onto reachable points inside the region. `marker_reachable.csv` one directory up records which v1 scenes have the problem; the equivalent has not been computed for v2.
+The simulator's success rule is 20% of the goal REGION's sampled points becoming reachable, which says nothing about the goal MARKER. The hardware executor drives to the marker, and when the marker's cell is wavefront-blocked it retargets to the nearest free reachable cell within 12.0 cm (half the largest movable's long side, plus robot inflation, plus tier1 margin) and logs success-with-retarget. Past 12.0 cm it is a failure. So every scene gets one of three verdicts, measured over up to 8 working solutions and keeping the best:
+
+| | strict | retarget | fail |
+|---|---|---|---|
+| 1push easy | 98 | 2 | 0 |
+| 1push med | 88 | 12 | 0 |
+| 1push hard | 85 | 11 | 4 |
+| hmax2 easy | 99 | 1 | 0 |
+| hmax2 med | 91 | 9 | 0 |
+| hmax2 hard | 81 | 7 | 5 |
+| **total** | **542** | **42** | **9** |
+
+Retarget distances are small where they happen: min 0.5 cm, median 2.0, max 11.0. The nine failures all sit in the hard tiers and seven of them have no reachable cell within 16 cm of the marker at all, so they will strict-fail on the table no matter which solution the search returns.
+
+This looks far better than the v1 picture, where 178 of 600 scenes left the marker unreachable. The difference is what gets measured. The v1 audit checked the single labelled solution; this checks up to 8 and keeps the best, which is the honest question when the robot runs a search and can return any of them.
+
+⚠ NINE SCENES ARE CONFOUNDED FOR CORRIDOR CALIBRATION. `1push/hard_020` and `hmax2/hard_018` sit at the 8.36 cm corridor floor and are also marker-fails. A failed run on either tells you nothing about whether the car fits, because it would fail on the marker regardless. 87 scenes are both tight (best corridor under 11 cm) and marker-strict; use those. `1push/hard_099` and `hmax2/hard_054` are at the same 8.36 cm floor with all measured solutions marker-strict, which makes them the cleanest pair to calibrate on.
+
+## Known gaps
 
 About 1.8% of scenes carry label noise where the simulator disagrees with its own recorded verdict on the same push, same config, same sequence. The cause is unidentified. It is concentrated in two-push chains.
