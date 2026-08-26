@@ -312,6 +312,97 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
     return False, sims, None, boards, end
 
 
+def run_reactive(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combine, rng, restrict_obj=None,
+               is_open=lambda e: e.is_robot_goal_reachable(), raw=True, dedupe_noop=True,
+               prune_jam_depth=True, timing=None, region_samples=None, solution_out=None):
+    """Reactive argmax ON THE LABELED OBJECT: rank the live state, push the top pick, look, repeat.
+    Drop-in sibling of solve_scene -- same leading arguments, same (solved, sims, plan_len, boards, end)
+    return -- so a caller swaps the decision rule and changes nothing else. Zero lookahead: the pool is
+    re-ranked from whatever the world actually is after each push, never from a predicted state.
+
+    Deliberately NOT a second implementation of the ranking. The pool comes from candidates(), which is
+    rank_first_pushes_h2, and the pick is the max of priority(q, V, combine) -- the exact quantity
+    solve_scene's heap is ordered by. At combine="q" the search's first pop IS this argmax, so from one
+    state the two rules simulate the same push. test_reactive_search_first_choice_parity.py pins that; it
+    is the check that keeps the reactive and search arms comparable on hardware.
+
+    h schedule follows the search: push i ranks at h = hmax - (i-1), so the first push queries the same
+    budget solve_scene's root does, and hmax caps the chain the same way.
+
+    JAM GUARDS, on by default and borrowed from the search rather than invented. A push that jams leaves
+    the state untouched, so re-ranking it returns the same argmax forever -- measured at 8.75 no-ops
+    across 10 steps, 45% of failed episodes picking ONE push all ten times. dedupe_noop bans a push that
+    moved nothing; prune_jam_depth drops deeper pushes on an edge already known to jam (push_steps =
+    depth+1 and the controller runs one continuous push, so deeper is the same trajectory into the same
+    obstruction). Both are scoped TO THE CURRENT STATE and cleared the moment the object moves, which is
+    the search opening a fresh child board.
+
+    Two places this differs from solve_scene, both load-bearing:
+      - a no-op push consumes one of the hmax attempts, matching the reference harness
+        (scripts/sandbox/eval_reactive_argmax.py) the published open@k numbers came from. The search
+        instead keeps popping the same board, spending budget but not chain depth.
+      - solution_out is filled whether or not the boundary opened, because reactive returns a DECISION
+        and not a solution: the executor runs the argmax and re-observes, so a push that failed to open
+        in simulation is still the push it chose. A no-op is excluded from that plan -- the simulator
+        already showed it moves nothing, which is what banned it.
+    """
+    tm = timing if timing is not None else {}
+    tm["t_score"] = tm.get("t_score", 0.0); tm["t_sim"] = tm.get("t_sim", 0.0); tm["n_score"] = tm.get("n_score", 0)
+    _t_wall0 = time.perf_counter()
+    sims = 0
+    plan = []
+    s_cur = s0
+    banned = set()          # (edge, depth) already tried AT THIS STATE
+    jam_at = {}             # edge -> shallowest depth known to jam AT THIS STATE
+    end = "budget"
+
+    def _record(state):
+        if solution_out is not None:
+            solution_out["plan"] = list(plan)
+            solution_out["state"] = state
+
+    for ndone in range(hmax):
+        if sims >= sim_budget:
+            end = "budget"; break
+        _t = time.perf_counter()
+        pool, V, _grid = candidates(planner, env, goal, xml, s_cur, hmax - ndone, prior, agg, rng,
+                                    restrict_obj=restrict_obj, raw=raw, region_samples=region_samples)
+        tm["t_score"] += time.perf_counter() - _t; tm["n_score"] += 1
+        live = [(o, g, q) for (o, g, q) in pool
+                if (int(g.edge_idx), int(g.depth)) not in banned
+                and not (prune_jam_depth and jam_at.get(int(g.edge_idx)) is not None
+                         and int(g.depth) >= jam_at[int(g.edge_idx)])]
+        if not live:
+            end = "exhausted"; break
+        # max() keeps the first of equal scores, and the heap breaks ties by insertion order, so the two
+        # rules agree on ties as well as on the argmax.
+        obj, g, _q = max(live, key=lambda c: priority(c[2], V, combine))
+        env.set_full_state(s_cur)
+        obs_before = env.get_observation() if dedupe_noop else None
+        _t = time.perf_counter()
+        step_res = env.step(make_action(obj, g)); sims += 1
+        tm["t_sim"] += time.perf_counter() - _t
+        plan.append((obj, g))
+        if bool(is_open(env)):
+            tm["t_wall"] = time.perf_counter() - _t_wall0
+            _record(env.get_full_state())
+            return True, sims, len(plan), [], "solved"
+        edge, depth = int(g.edge_idx), int(g.depth)
+        if prune_jam_depth and (step_res.info or {}).get("failure_reason"):
+            jd = jam_at.get(edge)
+            if jd is None or depth < jd:
+                jam_at[edge] = depth
+        if dedupe_noop and _unmoved(obs_before, env.get_observation(), obj):
+            banned.add((edge, depth))     # same state, same pool -> never re-offer this push
+            plan.pop()                    # nothing moved, so this is not a push worth executing
+            continue                      # s_cur unchanged; the ban list stands
+        banned.clear(); jam_at.clear()    # the object moved: a new state is a new board
+        s_cur = env.get_full_state()
+    tm["t_wall"] = time.perf_counter() - _t_wall0
+    _record(s_cur)
+    return False, sims, (len(plan) or None), [], end
+
+
 def _finalize_boards(boards, ep):
     """Turn raw board dicts into lifetime JSONL rows: terminal status + winner try for the g(k) fit.
     status: winner (a try opened) | exhausted (all n_candidates tried, none opened) | censored (untried remain)."""

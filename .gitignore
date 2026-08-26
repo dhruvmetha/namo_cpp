@@ -1,6 +1,9 @@
 build/
 debug_wavefront*.txt
 build_python/
+# and as a bare name: a worktree has no build output, so people symlink the main
+# tree's build_python, and a trailing-slash rule does not match a symlink.
+build_python
 build_python_local/
 build_python_mjxrl*/
 .env
