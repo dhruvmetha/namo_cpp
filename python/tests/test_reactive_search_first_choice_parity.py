@@ -95,9 +95,21 @@ SCORER_CKPT = Path(
 # spend and the two rules are being compared on ranking alone.
 ONE_PUSH = 1
 
-# The repo default (best_first_combine). At "q" the heap is ordered by the raw
-# action value, so its head is the pool's argmax.
-COMBINE = "q"
+# Every priority rule the search can be configured with (best_first_combine).
+# The parity does NOT rest on the "q" default, and pinning only "q" would leave a
+# test that passes while production runs something it never exercised. It holds
+# for all three because `candidates()` returns ONE state value V for the whole
+# pool, so priority is monotone in q whatever V is mixed in: "q" is q, "blend" is
+# 0.5q + 0.5V with V shared, "product" is q*V with V >= 0. Ties break by
+# insertion order in the heap and by first-maximal in max(), which agree.
+COMBINES = ("q", "blend", "product")
+
+# The other two literals with no test holding them, on the lines either side of
+# combine (best_first_region_opening.py:108 and :110). Swept for the same reason:
+# "we checked and it does not matter" is worth as much as the parametrisation,
+# and if one of them DID matter that is a second gap.
+AGGS = ("mean5", "max")
+RAWS = (True, False)
 AGG = "mean5"
 SEED = 42
 
@@ -171,7 +183,7 @@ def scene(tmp_path_factory):
     return {"env": env, "xml": str(xml), "state": state, "planners": planners}
 
 
-def _run(scene, rule, prior):
+def _run(scene, rule, prior, combine, agg=AGG, raw=True):
     """Run one decision rule for a single push and report what it did.
 
     Both rules get their own generator seeded identically, because under the
@@ -195,16 +207,17 @@ def _run(scene, rule, prior):
         ONE_PUSH,
         ONE_PUSH,
         prior,
-        AGG,
-        COMBINE,
+        agg,
+        combine,
         np.random.default_rng(SEED),
         is_open=lambda e: e.is_robot_goal_reachable(),
+        raw=raw,
     )
     assert sims == 1, f"{rule} spent {sims} simulations on a one-push budget"
     return {"action": env.stepped[0], "solved": bool(solved)}
 
 
-def _pool_head(scene, prior):
+def _pool_head(scene, prior, combine):
     """The argmax of the pool, computed here rather than taken from either rule."""
     import numpy as np
 
@@ -222,7 +235,7 @@ def _pool_head(scene, prior):
         np.random.default_rng(SEED),
     )
     assert pool, "an empty pool tests nothing"
-    obj, goal, score = max(pool, key=lambda c: priority(c[2], value, COMBINE))
+    obj, goal, score = max(pool, key=lambda c: priority(c[2], value, combine))
     return (str(obj), int(goal.edge_idx), int(goal.depth))
 
 
@@ -242,35 +255,66 @@ def _priors():
 # ─── Tests ──────────────────────────────────────────────────────────────
 
 
+@pytest.mark.parametrize("combine", COMBINES)
 @pytest.mark.parametrize("prior", _priors())
-def test_both_rules_simulate_the_same_first_push(scene, prior):
+def test_both_rules_simulate_the_same_first_push(scene, prior, combine):
     """The anchor. Same state, same pool, so the same push goes to the sim."""
-    search = _run(scene, "search", prior)
-    reactive = _run(scene, "reactive", prior)
+    search = _run(scene, "search", prior, combine)
+    reactive = _run(scene, "reactive", prior, combine)
 
     assert reactive["action"] == search["action"], (
-        f"first choice diverged under prior={prior}: "
+        f"first choice diverged under prior={prior} combine={combine}: "
         f"reactive {reactive['action']} vs search {search['action']}. "
         "The two arms no longer differ only in lookahead."
     )
 
 
+@pytest.mark.parametrize("combine", COMBINES)
 @pytest.mark.parametrize("prior", _priors())
-def test_both_rules_reach_the_same_verdict(scene, prior):
+def test_both_rules_reach_the_same_verdict(scene, prior, combine):
     """open@1 and solve@1 have to be counting the same event."""
-    search = _run(scene, "search", prior)
-    reactive = _run(scene, "reactive", prior)
+    search = _run(scene, "search", prior, combine)
+    reactive = _run(scene, "reactive", prior, combine)
 
     assert reactive["solved"] == search["solved"], (
-        f"same push graded differently under prior={prior}: "
+        f"same push graded differently under prior={prior} combine={combine}: "
         f"reactive solved={reactive['solved']} vs search solved={search['solved']}"
     )
 
 
+@pytest.mark.parametrize("combine", COMBINES)
 @pytest.mark.parametrize("prior", _priors())
-def test_the_agreed_push_is_the_argmax_of_the_pool(scene, prior):
+def test_the_agreed_push_is_the_argmax_of_the_pool(scene, prior, combine):
     """Both agreeing on the wrong push looks exactly like both being right."""
-    head = _pool_head(scene, prior)
+    head = _pool_head(scene, prior, combine)
 
-    assert _run(scene, "search", prior)["action"] == head
-    assert _run(scene, "reactive", prior)["action"] == head
+    assert _run(scene, "search", prior, combine)["action"] == head
+    assert _run(scene, "reactive", prior, combine)["action"] == head
+
+
+@pytest.mark.parametrize("raw", RAWS)
+@pytest.mark.parametrize("agg", AGGS)
+@pytest.mark.parametrize("prior", _priors())
+def test_the_other_unpinned_knobs_cannot_split_the_two_rules(scene, prior, agg, raw):
+    """`best_first_agg` and `best_first_raw` are literals nobody pins either.
+
+    Neither can break the parity, and the reason is the general rule this whole
+    file rests on: both decision rules call `candidates()` with the SAME
+    arguments, so any shared parameter can change WHICH push wins without ever
+    making the two disagree about it.
+
+    Specifically, `agg` only picks how V is computed and V is one scalar for the
+    whole pool, so it cancels out of the ordering. `raw` only changes the scores,
+    and both rules read the same scores from the same call.
+
+    Swept anyway rather than argued, because the argument is exactly the kind
+    that is right until somebody adds a per-candidate term to V.
+    """
+    search = _run(scene, "search", prior, "q", agg=agg, raw=raw)
+    reactive = _run(scene, "reactive", prior, "q", agg=agg, raw=raw)
+
+    assert reactive["action"] == search["action"], (
+        f"agg={agg} raw={raw} split the rules: "
+        f"reactive {reactive['action']} vs search {search['action']}"
+    )
+    assert reactive["solved"] == search["solved"]
