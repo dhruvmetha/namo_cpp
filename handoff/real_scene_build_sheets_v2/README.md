@@ -76,18 +76,24 @@ How much of the pool dies, by where that lands:
 | 9.9 cm | **31 of 100** | 12 of 93 |
 | 11.0 cm | 48 of 100 | 23 of 93 |
 
-The two axes track each other to 9.0 and then split by two and a half. The cause is how many times the block gets moved:
+The two axes track each other to 9.0 and then split by two and a half. **The split is real and measured. Its cause is NOT identifiable from this data.**
 
-| | solved by | median corridor | p10 | p25 |
-|---|---|---|---|---|
-| 1push/hard | 100 of 100 a single push | 11.37 cm | 9.10 | 9.72 |
-| hmax2/hard | 92 of 93 setup-then-finish | 30.00 cm | 9.33 | 11.03 |
+The obvious explanation is push count: a chain moves the block twice so it ends further from the doorway, while a single push must open the region and clear the way in one motion. It is physically sensible and it fits. It is also untestable here, because within the hard tier push count and axis are the same variable: 100 of 100 `1push/hard` are one_push and 92 of 93 `hmax2/hard` are chains, with exactly one crossover scene.
 
-A chain moves the block twice, so it ends up further from the doorway. A single push has to open the region AND clear the way in one motion, so the block stops nearer the gap the robot then drives through. That is the whole effect, and it means the fragility belongs to one-push solutions rather than to any particular scene: a 1push/hard replacement drawn from the pool carries the same 31% exposure. Swapping redraws the risk, it does not reduce it.
+Where it CAN be tested, holding axis and tier fixed, it does not hold:
 
-The split appears between 9.0 and 9.9 because below 9.0 you cut the extreme tail of both distributions, where they look alike, and above it you cut the bulk of the 1push distribution while the hmax2 bulk sits at the measurement ceiling.
+| | n | mean corridor | under 11 cm |
+|---|---|---|---|
+| hmax2/easy one_push | 64 | 26.53 cm | 1 |
+| hmax2/easy needs_2_chain | 36 | 26.93 cm | 3 |
+| hmax2/med one_push | 6 | 17.58 cm | 1 |
+| hmax2/med needs_2_chain | 94 | 25.45 cm | 10 |
 
-Note also that 43 of 193 is **22%** of the hard tier, not a third. A third is the 11.0 band, at 71 of 193.
+The easy comparison is the only one with power, and it shows nothing: means differ by 0.4 cm and the narrow-scene rate runs the wrong way. The med comparison supports the story but rests on 6 scenes.
+
+⚠ **DO NOT USE THE POOLED VERSION.** Across all of hmax2, one_push looks far wider than chains, p25 20.71 against 12.21. That is Simpson's paradox: 64 of the 71 hmax2 one_push scenes are easy, so the group is mostly easy scenes wearing a push-count label.
+
+So the honest statement is that `1push/hard` is more corridor-fragile than `hmax2/hard` by a factor of two and a half, and nobody knows why.Note also that 43 of 193 is **22%** of the hard tier, not a third. A third is the 11.0 band, at 71 of 193.
 
 `dead_if_threshold_over` gives each scene's band directly. `marker_verdict` is carried alongside because a scene that is both tight AND a marker-fail tells you nothing when it fails: the two causes are indistinguishable at the table, which is what `failure_cause` in trials.csv exists to separate.
 
