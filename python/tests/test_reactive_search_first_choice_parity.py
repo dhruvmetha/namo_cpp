@@ -40,6 +40,36 @@ Four properties, each with the failure it catches:
 Deliberately not pinned: which edge wins. That moves with the checkpoint and
 with physics, and the point here is that the two rules move together.
 
+What this file catches, established by breaking it on purpose rather than by
+argument. Reversing reactive's selection from `max` to `min` fails 18 of 26
+cases, so the parity assertions do bite. The 8 that survive a reversed selection
+are worth knowing:
+
+  the six verdict cases       `test_both_rules_reach_the_same_verdict` compares
+                              only solved-vs-solved, and on this scene neither
+                              the best nor the worst push opens the goal, so it
+                              passes while the two rules pick different pushes.
+                              It has teeth only where one choice opens and the
+                              other does not. ⛔ That makes its coverage a
+                              property of SCENE, not of the test: change SCENE
+                              and this case silently gains or loses its ability
+                              to catch anything. Anyone editing the scene list
+                              should re-run the max-to-min sabotage below and
+                              check how many of the 26 still fail
+  uniform + product           `priority(q, V, "product")` is q*V, and the uniform
+                              prior sets V=0.0, so every candidate scores exactly
+                              0. `max` and `min` return the same element and that
+                              cell cannot distinguish any selection rule at all.
+                              It is the multiplicative rule specifically, not
+                              "combine with V=0" generally: `blend` is
+                              0.5q + 0.5V, which at V=0 collapses to q/2 and
+                              preserves the order exactly. Only `product`
+                              annihilates. Measured over one 5-candidate pool:
+                              q gives 5 distinct scores, blend 5, product 1
+
+Neither is a bug to fix. Both are cases where a green result means less than it
+looks, which is worth stating next to the green result.
+
 One simulator call per rule per case, so this is seconds, not minutes.
 
 To verify:
@@ -94,6 +124,24 @@ SCORER_CKPT = Path(
 # hmax=1 is the anchor's regime: one push, so the search has no lookahead to
 # spend and the two rules are being compared on ranking alone.
 ONE_PUSH = 1
+
+# The deploy path always passes these: BestFirstRegionOpeningPlanner builds
+# `region_samples` from the caller's pinned target points and hands them to both
+# rules (best_first_region_opening.py:442). The anchor used to pass nothing, so it
+# exercised an argument shape production never sends. It does now.
+#
+# What that does NOT buy, measured rather than assumed: deliberately sabotaging
+# reactive's `candidates()` call to drop `region_samples` while search keeps them
+# still passes all 26 cases. On this scene the model's top pick and its score are
+# bit-identical either way (edge 12 depth 4, q=0.853474), so there is nothing for
+# the assertion to see. Catching that asymmetry needs a scene where the goal
+# region and the XML goal point diverge enough to move the ranker's region
+# channel, which env1 does not.
+REGION_SAMPLES = [
+    (GOAL_M[0] + dx, GOAL_M[1] + dy, 0.0)
+    for dx in (-0.04, 0.0, 0.04)
+    for dy in (-0.04, 0.0, 0.04)
+]
 
 # Every priority rule the search can be configured with (best_first_combine).
 # The parity does NOT rest on the "q" default, and pinning only "q" would leave a
@@ -212,6 +260,7 @@ def _run(scene, rule, prior, combine, agg=AGG, raw=True):
         np.random.default_rng(SEED),
         is_open=lambda e: e.is_robot_goal_reachable(),
         raw=raw,
+        region_samples=REGION_SAMPLES,
     )
     assert sims == 1, f"{rule} spent {sims} simulations on a one-push budget"
     return {"action": env.stepped[0], "solved": bool(solved)}
@@ -233,6 +282,7 @@ def _pool_head(scene, prior, combine):
         prior,
         AGG,
         np.random.default_rng(SEED),
+        region_samples=REGION_SAMPLES,
     )
     assert pool, "an empty pool tests nothing"
     obj, goal, score = max(pool, key=lambda c: priority(c[2], value, combine))
