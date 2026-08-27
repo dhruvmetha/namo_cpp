@@ -101,6 +101,16 @@ So when mode lands, add `arm`, `exec_mode` and `failure_cause` in ONE pass, each
 - Search or reactive on the table? Genuinely open, which is why both get built.
 - ~1.8% of scenes carry label noise where the simulator disagrees with its own recorded verdict on the same push, same config, same sequence. Cause unidentified, concentrated in 2-push chains.
 
+## Landed 2026-08-26 late
+
+`real_robot` pushed: `origin/real-robot` moved `4ecfac4 -> 3a393a5`, 29 commits. The study brief, the runbook, the three amendments, the corridor note and the nav-failure/goal-retarget runtime work are all public. The pre-registration and the code it constrains are no longer on one disk. Authorisation came from USER typing directly into that session, after it declined two relayed forms; the amendments carry a provenance note recording how each decision arrived.
+
+Our side: reactive rule merged at `e5467c2`, parity-invariance merge at `634e841`. The parity anchor is now a property of one pool read twice (26 cases, deployed ckpt), not of the combine default.
+
+In flight: `policy` rebases the deploy branch onto `3a393a5`; `real_robot` then reviews the rebase resolution as NEW work (the 146-line planner commit is the one nobody else has read) and merges. That merge unblocks the matrix.
+
+Still USER's, none blocking: trials.csv header, tracking `real_trials/` + the `.gitignore` symlink hole on the robot side, the startup refusal, the two-hop test fix.
+
 ## Who owns what
 
 `namo-a1` orchestrates, owns every merge, and is the only session that commits to `feat/horizon-q-redesign`.
