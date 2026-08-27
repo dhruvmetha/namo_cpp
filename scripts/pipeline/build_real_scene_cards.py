@@ -213,6 +213,13 @@ def main():
         all_counts.update(cnt)
         print(f"  {axis}: {len(idx)} cards")
 
+    # An exported shortlist must round-trip through the xml join, per the hardware
+    # side's paste-to-build workflow. Enforce it at build time: every index row
+    # carries an xml that exists, and within a dataset each (file) is unique.
+    missing = [r["file"] for r in all_index if not r.get("xml") or not os.path.exists(r["xml"])]
+    if missing:
+        raise SystemExit(f"{len(missing)} index rows lack a resolvable xml, e.g. {missing[:3]}")
+
     with open(os.path.join(args.out, "scenes.json"), "w") as f:
         json.dump({"schema_version": 1,
                    "counts": {"cards": len(all_index), "by_tier": dict(all_counts)},

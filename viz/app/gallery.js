@@ -14,6 +14,14 @@ const DATA_BASE = new URLSearchParams(window.location.search).get("data") || "";
 // unscoped key would mix one dataset's saved filters and starred shortlist into the other's.
 const STORE_KEY = "namo-viz-gallery-state:" + DATA_BASE;
 const STAR_KEY = "namo-viz-gallery-stars:" + DATA_BASE;
+// Human name of the dataset, exported with every shortlist entry so a mixed or
+// mis-pasted shortlist is detectable downstream (the hardware side refuses
+// car-envs entries by this field rather than by guessing from id shapes).
+const DATASET_NAME = ({
+  "../real_scenes/": "shipped-600",
+  "../real_scenes_all/": "full-exhaustive-pool",
+  "../scenes/": "car-envs",
+})[DATA_BASE] || DATA_BASE;
 const TIER_ORDER = { hard: 0, medium: 1, easy: 2 };
 // Cards carry their own copy of the tier, so the index normalisation below does not reach them.
 const tierName = (t) => (t === "med" ? "medium" : t);
@@ -104,6 +112,12 @@ function buildFamilyBoxes() {
 function init() {
   buildFamilyBoxes();
   stars = JSON.parse(localStorage.getItem(STAR_KEY) || "{}");
+  // Stars persist the index ROW, so a star made before a field existed exports
+  // without it forever. Refresh each saved row from the live index (matched by
+  // file); keep the stale row only if the card vanished from the index.
+  const byFile = Object.fromEntries(index.cards.map((r) => [r.file, r]));
+  for (const f of Object.keys(stars)) if (byFile[f]) stars[f] = byFile[f];
+  saveStars();
   starCount.textContent = Object.keys(stars).length;
 
   const saved = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
@@ -400,7 +414,9 @@ function toggleStar() {
 }
 
 function copyShortlist() {
-  const list = Object.values(stars).sort((a, b) =>
+  const list = Object.values(stars).map((r) => ({
+    ...r, gallery_id: r.scene, dataset: DATASET_NAME,
+  })).sort((a, b) =>
     a.horizon.localeCompare(b.horizon) || TIER_ORDER[a.tier] - TIER_ORDER[b.tier] ||
     a.density_pct - b.density_pct);
   const text = JSON.stringify(list, null, 2);
