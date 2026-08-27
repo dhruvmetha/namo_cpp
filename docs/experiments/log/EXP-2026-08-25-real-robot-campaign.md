@@ -107,7 +107,11 @@ So when mode lands, add `arm`, `exec_mode` and `failure_cause` in ONE pass, each
 
 Our side: reactive rule merged at `e5467c2`, parity-invariance merge at `634e841`. The parity anchor is now a property of one pool read twice (26 cases, deployed ckpt), not of the combine default.
 
-In flight: `policy` rebases the deploy branch onto `3a393a5`; `real_robot` then reviews the rebase resolution as NEW work (the 146-line planner commit is the one nobody else has read) and merges. That merge unblocks the matrix.
+**CHAIN COMPLETE 2026-08-27: reactive mode is on the robot.** `origin/real-robot` at `54908bb`, r2 merged --no-ff after review-as-new-work, 358 passed on the merged tree, namo reconciliation in as `bee94b6`. The runbook's NOT RUNNABLE YET block is replaced with the earned warning that an empty reactive plan is a wiring fault, not a hard scene — three separate defects today shared that exact symptom.
+
+Sharpened seed-bug consequence, verified by `policy` repro + `real_robot` AST: the HELD path has NO retry (`_generate_plan` has the 5-attempt machinery, `_generate_plan_holding_target` has none). Under Amendment 2 both arms run held, so pre-fix ALL 56 runs would have returned empty plans logged as `exception` — a stationary robot reading as hard scenes. The bee94b6 fix was load-bearing for the matrix, not housekeeping. (The pilot ran the UNHELD path with the fix already in-tree, so pilot pacing still stands as measured.)
+
+The matrix is UNBLOCKED. Remaining before it runs: the trials.csv header. Still open, non-blocking: tracking `real_trials/`, the robot-side `.gitignore` symlink hole, the startup refusal, the two-hop test path, recorder dedup after the matrix.
 
 Still USER's, none blocking: trials.csv header, tracking `real_trials/` + the `.gitignore` symlink hole on the robot side, the startup refusal, the two-hop test fix.
 
