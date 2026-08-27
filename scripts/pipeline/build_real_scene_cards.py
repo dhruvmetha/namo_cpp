@@ -160,11 +160,15 @@ def build(axis, sheets_by_key, key, out_dir, sheets_dir):
             fname = f"{axis}__{bid}__{h}.json"
             with open(os.path.join(out_dir, "cards", fname), "w") as f:
                 json.dump(card, f, separators=(",", ":"))
+            # xml rides in the index row so a starred shortlist exports it. Three build-id
+            # namespaces now name overlapping scene sets (v1 sheets, v2 sheets, this gallery's
+            # own selection), and the xml path is the only join that is safe across all of
+            # them. A shortlist without it identifies scenes only within one namespace.
             index.append({"file": fname, "scene": bid, "family": "real_table",
                           "horizon": card["meta"]["horizon"], "object_id": blk.name,
                           "tier": tier, "density_pct": f"{density:.3f}",
                           "n_green": str(len(green)), "n_tried": str(len(tried)),
-                          "region": "goal"})
+                          "region": "goal", "xml": xml})
             counts[f"{axis}/{tier}"] += 1
     return index, counts
 
