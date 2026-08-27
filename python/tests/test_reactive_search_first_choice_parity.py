@@ -50,12 +50,22 @@ are worth knowing:
                               the best nor the worst push opens the goal, so it
                               passes while the two rules pick different pushes.
                               It has teeth only where one choice opens and the
-                              other does not
+                              other does not. ⛔ That makes its coverage a
+                              property of SCENE, not of the test: change SCENE
+                              and this case silently gains or loses its ability
+                              to catch anything. Anyone editing the scene list
+                              should re-run the max-to-min sabotage below and
+                              check how many of the 26 still fail
   uniform + product           `priority(q, V, "product")` is q*V, and the uniform
                               prior sets V=0.0, so every candidate scores exactly
                               0. `max` and `min` return the same element and that
-                              configuration cannot distinguish any selection rule
-                              at all
+                              cell cannot distinguish any selection rule at all.
+                              It is the multiplicative rule specifically, not
+                              "combine with V=0" generally: `blend` is
+                              0.5q + 0.5V, which at V=0 collapses to q/2 and
+                              preserves the order exactly. Only `product`
+                              annihilates. Measured over one 5-candidate pool:
+                              q gives 5 distinct scores, blend 5, product 1
 
 Neither is a bug to fix. Both are cases where a green result means less than it
 looks, which is worth stating next to the green result.
