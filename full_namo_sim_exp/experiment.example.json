@@ -1,0 +1,33 @@
+{
+  "name": "full-namo-final-v1",
+  "population": "$NAMO_MANIFESTS/full_namo_final_v1/population.json",
+  "run_root": "$NAMO_SCRATCH/eval/full_namo_sim_exp/final_v1",
+  "model": {
+    "name": "hy5u",
+    "label": "Sage (Hybrid)",
+    "checkpoint": "$HY5U_CHECKPOINT",
+    "seed": 42
+  },
+  "random_seeds": [7000, 8000, 9000, 10000, 11000],
+  "protocol": {
+    "evaluation_seed": 42,
+    "path_length": 2,
+    "config_file": "../config/namo_config_complete_skill15_car_1x.yaml",
+    "primitive_data_dir": "../data",
+    "primitive_prefix": "1x_car_d5_",
+    "max_push_steps": 5,
+    "simulation_budget_per_keyhole": 900,
+    "region_max_chain_depth": 2,
+    "goals_per_region": 100,
+    "region_success_min_reachable": 20,
+    "n_shards": 120,
+    "slurm_partition": "main-redhat",
+    "hardware_constraint": "icelake"
+  },
+  "analysis": {
+    "bootstrap_replicates": 20000,
+    "bootstrap_seed": 20260826,
+    "simulator_call_cutoffs": [2, 5, 10, 30, 100, 300, 900],
+    "wall_time_cutoffs_seconds": [1, 5, 30, 120, 600]
+  }
+}
