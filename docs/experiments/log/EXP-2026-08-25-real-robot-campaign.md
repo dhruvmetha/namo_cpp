@@ -121,6 +121,10 @@ Still USER's, none blocking: trials.csv header, tracking `real_trials/` + the `.
 
 **Blast radius, traced file by file: zero shipped artifacts affected.** Only `planning_service.py` and `full_namo_planner.py` construct that planner. The exhaustive labels, tiers, marker verdicts, corridor numbers, uniform baselines and the ranker study all run env.step / numpy / BeamPlanner paths that never touch it. Exposed in principle: the DEPLOY path (namo_planner.py:1244 passes shuffle_seed=None as a present key, the exact trigger). **But the pilot was NOT exposed** — `real_robot` checked timestamps rather than accepting my inference: the fix was authored 2026-08-23 00:56, fifty minutes before the first pilot trial, sitting unpushed in the working tree the robot ran from. Zero tracebacks in all four pilot logs; the one retry-looking trial was a `NO SUBGOALS` empty return with NAMO_SCRATCH unset (already logged FAILED_ENV), not a raise. **Pilot pacing is therefore valid as measured and the 10-11h budget for 56 runs stands; do not adjust it.** My "the pilot's flakiness WAS this bug" was an unverified inference and wrong. The neat part: anyone reproducing the pilot from public history before tonight WOULD have hit the bug, since the fix lived on one disk — the exact gap the push closed. The matrix runs on the fixed tip.
 
+## Paste-to-build shipped [2026-08-27]
+
+Star scenes in the gallery, copy, paste the JSON to `real_robot`, their `resolve_shortlist.py` (their 95d8fd9) joins on xml and prints v2 id, tier, marker verdict and corridor numbers, or refuses with a reason. Export carries `xml` + `gallery_id` + `dataset`; stale browser stars refresh on page load; the round-trip is enforced at card-build time (`build_real_scene_cards.py` fails if any index row's xml does not resolve). Resolver never joins on bare id, since three id namespaces name overlapping scenes. Known quirk their tests surfaced: the sheet CSVs are CRLF, so naive readers get `\r` on the last column — noted in the v2 README.
+
 ## Who owns what
 
 `namo-a1` orchestrates, owns every merge, and is the only session that commits to `feat/horizon-q-redesign`.

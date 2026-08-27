@@ -101,6 +101,10 @@ So the honest statement is that `1push/hard` is more corridor-fragile than `hmax
 
 Do not read those values as 29 independent tight geometries. Thirteen sit at exactly 7.97 cm and six at exactly 7.57, both within one 5 mm grid cell of the 8.0 constant, which is grid quantisation rather than 19 separate near-misses. By axis they are 27 hmax2 and 2 1push, the mirror of the asymmetry above, for the same push-count reason.
 
+## File format note
+
+Every CSV in this directory has CRLF line endings, which is Python's `csv` module default. A naive reader that splits on `\n` gets a trailing `\r` on the last column of every row, and the last column is often the join-critical `xml`. Strip whitespace on both sides of any join against these files. Hardware's `resolve_shortlist.py` already does; this note exists for the next reader who has not hit it yet. The endings stay as shipped because hardware validated these exact bytes.
+
 ## Known gaps
 
 About 1.8% of scenes carry label noise where the simulator disagrees with its own recorded verdict on the same push, same config, same sequence. The cause is unidentified. It is concentrated in two-push chains.
