@@ -106,6 +106,11 @@ class BestFirstRegionOpeningPlanner:
         if self.hmax < 1:
             raise ValueError(f"Invalid best_first_hmax: {self.hmax}. Must be at least 1")
         self.agg = str(params.get("best_first_agg", "mean5"))
+        # ⚠ robot_control never sets this key, so the DEPLOY path takes this default.
+        # It must stay "q": under "product" a uniform prior scores every candidate
+        # q*V with V=0.0, i.e. zero, and the study's uniform ablation arm would break
+        # ties by enumeration order instead of measuring a random baseline. The
+        # pre-registered percentile statistic rests on this line.
         self.combine = str(params.get("best_first_combine", "q"))
         self.raw = bool(params.get("best_first_raw", True))
         # `.get` falls back only when the key is absent. Callers pass
