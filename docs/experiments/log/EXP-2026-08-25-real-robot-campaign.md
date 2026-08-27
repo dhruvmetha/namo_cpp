@@ -111,6 +111,12 @@ In flight: `policy` rebases the deploy branch onto `3a393a5`; `real_robot` then 
 
 Still USER's, none blocking: trials.csv header, tracking `real_trials/` + the `.gitignore` symlink hole on the robot side, the startup refusal, the two-hop test fix.
 
+## Seed bug found in reconciliation, shipped artifacts clean [2026-08-26]
+
+`real_robot`'s d6ddb67 reconciliation (the "~30-commit divergence" was actually 1 ahead / 49 behind; nobody had run rev-list and all three sessions repeated the unmeasured number) landed one commit, `bee94b6`: `int(params.get("shuffle_seed", ...))` raised on an explicitly-passed None, killing the FIRST planning attempt of every run through `BestFirstRegionOpeningPlanner`; the retry carried a real seed and worked, so it read as a flake. Unpushed since 2026-08-23.
+
+**Blast radius, traced file by file: zero shipped artifacts affected.** Only `planning_service.py` and `full_namo_planner.py` construct that planner. The exhaustive labels, tiers, marker verdicts, corridor numbers, uniform baselines and the ranker study all run env.step / numpy / BeamPlanner paths that never touch it. Exposed: the DEPLOY path (their executor — the pilot's "flaky first attempt" WAS this bug, so pilot pacing includes one wasted raise-retry per plan) and any planning_service/full_namo run where the recorded seed was the retry's. The matrix runs on the fixed tip.
+
 ## Who owns what
 
 `namo-a1` orchestrates, owns every merge, and is the only session that commits to `feat/horizon-q-redesign`.
