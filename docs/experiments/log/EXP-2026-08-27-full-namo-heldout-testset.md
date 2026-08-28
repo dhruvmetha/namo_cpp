@@ -41,9 +41,9 @@ After freezing, every accepted scene remains in every denominator. A runtime err
 | new seed base | `827000000` |
 | generation shape | array `0-399`, `NUM_ENVS=10`: 4,000 requested layouts, 400 per template |
 | derived start-seed range | `827000000` through `836390000`; each task requests ten consecutive generator seeds |
-| generated root | `/scratch/dm1487/full_namo_heldout_v1/generation` |
-| population root | `/scratch/dm1487/full_namo_heldout_v1/population` |
-| evaluation root | `/scratch/dm1487/full_namo_heldout_v1/evaluation` |
+| generated root | `/scratch/tdn39/full_namo_heldout_v1/generation` |
+| population root | `/scratch/tdn39/full_namo_heldout_v1/population` |
+| evaluation root | `/scratch/tdn39/full_namo_heldout_v1/evaluation` |
 
 The 4,000 request is a generation quota, not a target accepted count. Every generated XML enters the static probe and geometry gate; no template balancing, success balancing, or accepted-count truncation occurs afterward.
 
@@ -56,7 +56,7 @@ Run generation from the launch commit on Amarel's Piscataway `main` partition:
 ```bash
 cd "$NAMO_REPO"
 source env.amarel.sh
-OUT=/scratch/dm1487/full_namo_heldout_v1/generation \
+OUT=/scratch/tdn39/full_namo_heldout_v1/generation \
 NUM_ENVS=10 \
 SEED_BASE=827000000 \
 EXACT_HOP=2 \
@@ -66,7 +66,7 @@ sbatch --array=0-399 scripts/slurm/multihop_aug9_generate.slurm
 After every generation task completes successfully, construct the complete canonical manifest without filtering:
 
 ```bash
-ROOT=/scratch/dm1487/full_namo_heldout_v1
+ROOT=/scratch/tdn39/full_namo_heldout_v1
 mkdir -p "$ROOT/population"
 find "$ROOT/generation" -type f -name '*.xml' -print0 \
   | sort -z \
