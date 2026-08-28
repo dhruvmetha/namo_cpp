@@ -29,6 +29,9 @@ _OBSGEOM = re.compile(r'<geom\s+name="[^"]*movable[^"]*"[^>]*?/?>')
 _POS = re.compile(r'\bpos="([^"]+)"')
 _SIZE = re.compile(r'\bsize="([^"]+)"')
 _EUL = re.compile(r'\beuler="([^"]+)"')
+_MD5 = re.compile(r"[0-9a-f]{32}")
+_SHA256 = re.compile(r"[0-9a-f]{64}")
+SIGNATURE_REFERENCE_SCHEMA = "namo-room-geometry-signatures-v1"
 
 
 def _vec(s):
@@ -100,6 +103,65 @@ def sig_map(xmls, workers=32):
             full2x.setdefault(full, []).append(x)
             walls2full.setdefault(wonly, set()).add(full)
     return n_parse, full2x, walls2full
+
+
+def load_signature_reference(path):
+    """Load and validate one compact training-geometry signature artifact."""
+    path = Path(path).expanduser().resolve()
+    try:
+        value = json.load(path.open(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{path}: invalid signature-reference JSON: {exc.msg}") from exc
+    if not isinstance(value, dict):
+        raise ValueError(f"{path}: signature reference must be a JSON object")
+    if value.get("schema") != SIGNATURE_REFERENCE_SCHEMA:
+        raise ValueError(f"{path}: unsupported signature-reference schema")
+
+    sources = value.get("sources")
+    if not isinstance(sources, list) or not sources:
+        raise ValueError(f"{path}: sources must be a nonempty list")
+    for index, source in enumerate(sources):
+        if not isinstance(source, dict):
+            raise ValueError(f"{path}: sources[{index}] must be an object")
+        if not isinstance(source.get("path"), str) or not source["path"]:
+            raise ValueError(f"{path}: sources[{index}].path must be nonempty")
+        digest = source.get("sha256")
+        if not isinstance(digest, str) or _SHA256.fullmatch(digest) is None:
+            raise ValueError(f"{path}: sources[{index}].sha256 must be lowercase SHA-256")
+
+    counts = value.get("counts")
+    count_names = (
+        "xml_paths",
+        "unique_xml_paths",
+        "unique_room_signatures",
+        "unique_floorplan_signatures",
+    )
+    if not isinstance(counts, dict):
+        raise ValueError(f"{path}: counts must be an object")
+    for name in count_names:
+        count = counts.get(name)
+        if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
+            raise ValueError(f"{path}: counts.{name} must be a positive integer")
+    if counts["xml_paths"] < counts["unique_xml_paths"]:
+        raise ValueError(f"{path}: xml_paths cannot be smaller than unique_xml_paths")
+
+    def validate_signatures(field, count_field):
+        signatures = value.get(field)
+        if not isinstance(signatures, list) or not signatures:
+            raise ValueError(f"{path}: {field} must be a nonempty list")
+        if signatures != sorted(set(signatures)):
+            raise ValueError(f"{path}: {field} must be sorted and unique")
+        if any(not isinstance(item, str) or _MD5.fullmatch(item) is None for item in signatures):
+            raise ValueError(f"{path}: {field} entries must be lowercase MD5 signatures")
+        if counts[count_field] != len(signatures):
+            raise ValueError(
+                f"{path}: counts.{count_field} does not match {field} length"
+            )
+        return set(signatures)
+
+    full = validate_signatures("full_signatures", "unique_room_signatures")
+    walls = validate_signatures("wall_signatures", "unique_floorplan_signatures")
+    return full, walls, value
 
 
 def main():
