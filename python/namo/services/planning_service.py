@@ -55,6 +55,8 @@ DEFAULT_BOUNDARY_MODE = "search"
 # Reactive takes the argmax of a ranked pool, and only best_first builds one.
 # region_bfs sweeps every edge and depth in its own order.
 _RANKED_POOL_SEARCH = "best_first"
+DEFAULT_BEST_FIRST_SCORER_WARMUP_REPEATS = 3
+
 def _create_planner(name: str, env: Any, config: PlannerConfig) -> Any:
     """Create a registered planner without importing planner internals eagerly."""
     from namo.core import PlannerFactory
@@ -423,6 +425,22 @@ class NAMOPlanningService:
     def preload_goal_model(self, goal_strategy: str, **kwargs: Any) -> None:
         """Eagerly load the model needed by an ML goal strategy."""
         self._get_or_load_goal_model(goal_strategy, kwargs)
+
+    def preload_best_first_scorer(
+        self,
+        checkpoint: str,
+        device: str = "cpu",
+        repeats: int = DEFAULT_BEST_FIRST_SCORER_WARMUP_REPEATS,
+    ) -> None:
+        """Load and warm the process-cached scorer used by best-first search."""
+        from namo.strategies.scorer_goal_strategy import _get_scorer
+
+        scorer = _get_scorer(
+            str(checkpoint),
+            self._config_path,
+            str(device),
+        )
+        scorer.warmup(repeats=int(repeats))
 
     def analyze_reachability_from_xml(
         self,
