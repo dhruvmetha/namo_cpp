@@ -182,6 +182,12 @@ def priority(q, V, combine):
     return 0.5 * q + 0.5 * V                           # blend (default): action score tempered by state value
 
 
+def _queue_key(effective_priority, prior, chain_depth, insertion_order):
+    """Min-heap key: score first; geometric ties prefer pushes closer to completing the chain."""
+    depth_tie = -int(chain_depth) if prior == "geometric" else 0
+    return (-float(effective_priority), depth_tie, int(insertion_order))
+
+
 def _update_w_on_fail(board, q_failed, discount, gamma, tau, g_table, gkmax, eps, child_patience=1):
     """A candidate of `board` was simulated and DID NOT open the goal. Always bump k_failed (for the lifetime
     log). Demote w ONLY for child boards (depth>=1) and ONLY when a discount mode is active; root w frozen=1.
@@ -307,7 +313,7 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
     def push(item, bp, board):
         item["bp"] = bp; item["board_id"] = board["board_id"]
         item["se"] = bp * board["w"]
-        heapq.heappush(heap, (-item["se"], next_ctr(), item))
+        heapq.heappush(heap, (*_queue_key(item["se"], prior, item["ndone"], next_ctr()), item))
 
     def trace_rows(cand):                                          # every candidate of a board, popped or not
         return [{"obj": o, "edge": int(g.edge_idx), "depth": int(g.depth), "q": float(q)} for (o, g, q) in cand]
@@ -321,11 +327,13 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
         push({"obj": obj, "g": g, "from": s0, "ndone": 0, "plan": [(obj, g)], "q": q},
              priority(q, V0, combine), root)
     while heap and sims < sim_budget:
-        _negpr, _cc, it = heapq.heappop(heap)
+        _negpr, _depth_tie, _cc, it = heapq.heappop(heap)
         board = boards[it["board_id"]]
         cur = it["bp"] * board["w"]                       # lazy stale-reinsert (w only decreases)
         if cur < it["se"] - 1e-12:
-            it["se"] = cur; heapq.heappush(heap, (-cur, next_ctr(), it)); continue
+            it["se"] = cur
+            heapq.heappush(heap, (*_queue_key(cur, prior, it["ndone"], next_ctr()), it))
+            continue
         _jk = (it["board_id"], int(it["g"].edge_idx))
         _jd = jam_at.get(_jk)
         if prune_jam_depth and _jd is not None and int(it["g"].depth) >= _jd:

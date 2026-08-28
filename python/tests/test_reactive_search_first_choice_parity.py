@@ -391,3 +391,31 @@ def test_the_other_unpinned_knobs_cannot_split_the_two_rules(scene, prior, agg, 
         f"reactive {reactive['action']} vs search {search['action']}"
     )
     assert reactive["solved"] == search["solved"]
+
+
+def test_geometry_ties_prefer_finish_pushes_without_overriding_q():
+    """At hmax=2, equal-q child finishes precede roots; a better root q still wins."""
+    import heapq
+
+    from namo.planners.opening.best_first_search import _queue_key
+
+    heap = []
+    heapq.heappush(heap, (*_queue_key(6.0, "geometric", 0, 0), "root_q6"))
+    heapq.heappush(heap, (*_queue_key(6.0, "geometric", 1, 10), "finish_q6"))
+    heapq.heappush(heap, (*_queue_key(5.0, "geometric", 1, 11), "finish_q5"))
+
+    assert [heapq.heappop(heap)[-1] for _ in range(3)] == [
+        "finish_q6",
+        "root_q6",
+        "finish_q5",
+    ]
+
+
+def test_finish_tie_break_is_geometry_only():
+    """Existing model and uniform queues retain FIFO behavior for exact ties."""
+    from namo.planners.opening.best_first_search import _queue_key
+
+    for prior in ("model", "uniform"):
+        root = _queue_key(1.0, prior, 0, 0)
+        finish = _queue_key(1.0, prior, 1, 10)
+        assert root < finish
