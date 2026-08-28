@@ -11,6 +11,24 @@ crop mismatch. Each output row = one (xml, pushed-object) EPISODE:
   r_mask (60,5)   : 1=reachable/tried, 0=unreachable   (the action mask / candidate set)
   xml, object_center, ratio(F/R)
 Split is held out BY ROOM downstream (never by row). Sanity gates are asserted + printed.
+
+KNOWN UNKNOWN ABOUT THE MASKS THIS JOINS, for whoever retrains or audits this H5.
+This script re-uses masks; it does not render. They came from batch_collection.py, which calls
+sage_learning's generate_all_masks_highres. That function renders its region channels through the
+unified wavefront (WavefrontSnapshotExporter.from_geometry, pure geometry), and on failure prints a
+warning and falls back to a legacy BFS that its own message says "may use wrong robot size".
+
+Nothing in the mask-generation package recorded whether that fallback fired: no unified_ok, no flag,
+no column. So any row rendered under a fallback carries wrong-size region channels and there is NO
+FIELD IN THIS H5 to find those rows by.
+
+Measured 2026-08-28: 0 of 14 currently-renderable captured scenes fall back, so the rate is plausibly
+low. That is a measurement on today's scenes, not on the corpus this H5 was built from, and it is not
+evidence about those rows. Deployment now refuses rather than falling back (namo_cpp 1628d1f); this
+H5 predates that.
+
+Renderer parity itself is NOT in question: training and deployment call the same function, so there
+is no train-deploy skew in the region channels.
 """
 import argparse
 import json
