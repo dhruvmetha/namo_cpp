@@ -200,6 +200,24 @@ def test_greedy_dfs_is_not_capped_by_candidate_hmax(monkeypatch):
     assert result.algorithm_stats["greedy_committed_pushes"] == 3
 
 
+def test_greedy_policy_returns_one_moving_step_before_goal_opens(monkeypatch):
+    env = FakeEnv()
+    opener = FakeOpener([_result("goal", state="state-1", edge=3)])
+    planner = _planner(monkeypatch, env, opener, mode="greedy_policy")
+    monkeypatch.setattr(
+        planner,
+        "_compute_region_snapshot",
+        lambda: _snapshot(["goal"], "goal"),
+    )
+
+    result = planner.search(GOAL)
+
+    assert result.success is True
+    assert [action.edge_idx for action in result.action_sequence] == [3]
+    assert result.algorithm_stats["exec_mode"] == "greedy_policy"
+    assert result.algorithm_stats["policy_outcome"] == "policy_step_ready"
+
+
 def test_reselects_at_same_state_when_a_boundary_has_no_moving_candidate(monkeypatch):
     env = FakeEnv()
     opener = FakeOpener([

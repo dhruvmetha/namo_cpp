@@ -24,7 +24,8 @@ from namo.planners.opening.region_opening import RegionOpeningPlanner
 from namo.planners.utils import PushAttemptBudget
 
 
-FULL_NAMO_EXEC_MODES = ("search", "greedy_dfs")
+FULL_NAMO_EXEC_MODES = ("search", "greedy_dfs", "greedy_policy")
+GREEDY_COMMIT_EXEC_MODES = frozenset({"greedy_dfs", "greedy_policy"})
 DEFAULT_FULL_NAMO_EXEC_MODE = "search"
 
 
@@ -141,9 +142,12 @@ class FullNAMOPlanner(BasePlanner):
                 f"Unknown full_namo_exec_mode {self.exec_mode!r}. "
                 f"Valid: {list(FULL_NAMO_EXEC_MODES)}"
             )
-        if self.exec_mode == "greedy_dfs" and self.local_search != "best_first":
+        if (
+            self.exec_mode in GREEDY_COMMIT_EXEC_MODES
+            and self.local_search != "best_first"
+        ):
             raise ValueError(
-                "full_namo_exec_mode='greedy_dfs' requires "
+                f"full_namo_exec_mode={self.exec_mode!r} requires "
                 "full_namo_local_search='best_first'"
             )
         self.region_opener: Optional[Any] = None
@@ -478,7 +482,7 @@ class FullNAMOPlanner(BasePlanner):
                         profile=next_keyhole_profile,
                     )
                 )
-            if self.exec_mode == "greedy_dfs":
+            if self.exec_mode in GREEDY_COMMIT_EXEC_MODES:
                 result = opener.greedy_commit(
                     robot_goal, target_neighbor=target, **opener_kwargs
                 )
@@ -495,7 +499,7 @@ class FullNAMOPlanner(BasePlanner):
             self._aggregate_region_result(result)
             target_summary = self._get_target_summary(result)
             greedy_commit_stats = (result.algorithm_stats or {}).get("greedy_commit") or {}
-            if self.exec_mode == "greedy_dfs":
+            if self.exec_mode in GREEDY_COMMIT_EXEC_MODES:
                 self.stats.greedy_rejected_simulations += len(
                     greedy_commit_stats.get("rejections") or []
                 )
@@ -531,7 +535,7 @@ class FullNAMOPlanner(BasePlanner):
                     context=context,
                 )
 
-            if self.exec_mode == "greedy_dfs" and result.action_sequence:
+            if self.exec_mode in GREEDY_COMMIT_EXEC_MODES and result.action_sequence:
                 if len(result.action_sequence) != 1:
                     return self._invariant_failure(
                         "greedy_commit_returned_multiple_actions",
@@ -565,20 +569,29 @@ class FullNAMOPlanner(BasePlanner):
                             resulting_state=resulting_state,
                         )
                     )
-                self._record_iteration_trace(
-                    {
-                        **context,
-                        "outcome": (
-                            "greedy_step_opened" if opened else "greedy_step_committed"
-                        ),
-                        "greedy_action": {
-                            "object_id": str(action.object_id),
-                            "edge_idx": int(action.edge_idx),
-                            "depth": int(action.depth),
-                        },
-                        "greedy_commit": dict(greedy_commit_stats),
-                    }
-                )
+                if self.exec_mode == "greedy_policy":
+                    step_outcome = "policy_step_ready"
+                elif opened:
+                    step_outcome = "greedy_step_opened"
+                else:
+                    step_outcome = "greedy_step_committed"
+                self._record_iteration_trace({
+                    **context,
+                    "outcome": step_outcome,
+                    "greedy_action": {
+                        "object_id": str(action.object_id),
+                        "edge_idx": int(action.edge_idx),
+                        "depth": int(action.depth),
+                    },
+                    "greedy_commit": dict(greedy_commit_stats),
+                })
+                if self.exec_mode == "greedy_policy":
+                    return self._success_result(
+                        start_time,
+                        actions,
+                        region_openings,
+                        extra_stats={"policy_outcome": "policy_step_ready"},
+                    )
                 iteration += 1
                 continue
 
@@ -676,7 +689,15 @@ class FullNAMOPlanner(BasePlanner):
         start_time: float,
         actions: List[namo_rl.Action],
         region_openings: List[RegionOpeningResult],
+        *,
+        extra_stats: Optional[Dict[str, Any]] = None,
     ) -> PlannerResult:
+        """Return an executable planner result with JSON-safe summary stats.
+
+        For ``greedy_policy``, executable success means one physical policy
+        step is ready; final goal success remains camera-validated by the
+        robot runtime after subsequent observation and navigation.
+        """
         algorithm_stats = {
             "full_namo_stats": self.stats,
             "iterations": self.stats.iterations,
@@ -694,6 +715,8 @@ class FullNAMOPlanner(BasePlanner):
             "iteration_trace": list(self._iteration_trace),
         }
         algorithm_stats.update(self._current_budget_stats())
+        if extra_stats:
+            algorithm_stats.update(extra_stats)
         return PlannerResult(
             success=True,
             solution_found=True,
