@@ -226,3 +226,26 @@ def test_build_population_refuses_to_freeze_an_empty_population(tmp_path: Path) 
         )
 
     assert not out_dir.exists()
+
+
+def test_cli_requires_at_least_one_training_reference(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit, match="2"):
+        builder.main(
+            [
+                "--manifest",
+                str(tmp_path / "candidates.txt"),
+                "--probe-jsonl",
+                str(tmp_path / "probe.jsonl"),
+                "--name",
+                "population",
+                "--expect-hop",
+                "2",
+                "--out-dir",
+                str(tmp_path / "out"),
+            ]
+        )
+
+    assert "--train-xmls" in capsys.readouterr().err

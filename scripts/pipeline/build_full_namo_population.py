@@ -272,7 +272,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--train-xmls",
         type=Path,
         action="append",
-        default=[],
+        required=True,
         help="registered training H5/TXT/JSON reference; repeat for multiple corpora",
     )
     parser.add_argument("--name", required=True)
