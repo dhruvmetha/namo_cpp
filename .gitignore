@@ -6,6 +6,7 @@ build_python/
 build_python
 build_python_local/
 build_python_mjxrl*/
+.worktrees/
 .env
 .env.local
 __pycache__/
