@@ -218,6 +218,15 @@ public:
         const std::array<double, 2>& robot_goal);
 
     /**
+     * @brief Score virtual primitive endpoints by reachable target-region fraction.
+     */
+    std::vector<double> evaluate_primitive_region_scores(
+        NAMOEnvironment& env,
+        const std::string& object_name,
+        const std::vector<std::array<double, 3>>& target_poses,
+        const std::vector<std::array<double, 2>>& region_samples);
+
+    /**
      * @brief Get timing breakdown for the last evaluate_primitive_priorities() call.
      */
     std::map<std::string, double> get_last_priority_profile() const;

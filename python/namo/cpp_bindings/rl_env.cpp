@@ -734,6 +734,16 @@ std::vector<int> RLEnvironment::evaluate_primitive_priorities(
     return std::vector<int>(target_poses.size(), 3);  // Default to priority 3
 }
 
+std::vector<double> RLEnvironment::evaluate_primitive_region_scores(
+    const std::string& object_name,
+    const std::vector<std::array<double, 3>>& target_poses,
+    const std::vector<std::array<double, 2>>& region_samples) {
+    if (skill_) {
+        return skill_->evaluate_primitive_region_scores(object_name, target_poses, region_samples);
+    }
+    return std::vector<double>(target_poses.size(), 0.0);
+}
+
 std::map<std::string, double> RLEnvironment::get_last_priority_profile() const {
     if (skill_) {
         return skill_->get_last_priority_profile();

@@ -384,6 +384,14 @@ std::vector<int> PushPrimitiveExecutor::evaluate_primitive_priorities(
     return planner_.evaluate_primitive_priorities(env, object_name, target_poses, robot_goal);
 }
 
+std::vector<double> PushPrimitiveExecutor::evaluate_primitive_region_scores(
+    NAMOEnvironment& env,
+    const std::string& object_name,
+    const std::vector<std::array<double, 3>>& target_poses,
+    const std::vector<std::array<double, 2>>& region_samples) {
+    return planner_.evaluate_primitive_region_scores(env, object_name, target_poses, region_samples);
+}
+
 std::map<std::string, double> PushPrimitiveExecutor::get_last_priority_profile() const {
     return planner_.get_last_priority_profile();
 }

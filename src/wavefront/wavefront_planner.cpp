@@ -889,4 +889,187 @@ std::vector<int> WavefrontPlanner::evaluate_primitive_priorities(
     return priorities;
 }
 
+std::vector<double> WavefrontPlanner::evaluate_primitive_region_scores(
+    NAMOEnvironment& env,
+    const std::string& object_name,
+    const std::vector<std::array<double, 3>>& target_poses,
+    const std::vector<std::array<double, 2>>& region_samples) {
+
+    using Clock = std::chrono::steady_clock;
+    auto to_ms = [](const Clock::time_point& a, const Clock::time_point& b) -> double {
+        return std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(b - a).count();
+    };
+
+    std::map<std::string, double> profile;
+    const auto t_total0 = Clock::now();
+    profile["target_poses_count"] = static_cast<double>(target_poses.size());
+    profile["region_samples_count"] = static_cast<double>(region_samples.size());
+
+    std::vector<double> scores(target_poses.size(), 0.0);
+    if (target_poses.empty() || region_samples.empty()) {
+        profile["total_ms"] = to_ms(t_total0, Clock::now());
+        last_priority_profile_ = std::move(profile);
+        return scores;
+    }
+
+    const ObjectState* obj_state = env.get_object_state(object_name);
+    const ObjectState* robot_state = env.get_robot_state();
+    if (!obj_state || !robot_state) {
+        profile["total_ms"] = to_ms(t_total0, Clock::now());
+        last_priority_profile_ = std::move(profile);
+        return scores;
+    }
+
+    std::array<double, 3> object_size = {0.1, 0.1, 0.1};
+    const auto& movable_objects = env.get_movable_objects();
+    for (size_t i = 0; i < env.get_num_movable(); ++i) {
+        if (movable_objects[i].name == object_name) {
+            object_size = movable_objects[i].size;
+            break;
+        }
+    }
+
+    std::vector<std::vector<int>> base_grid;
+    const auto t_grid0 = Clock::now();
+    compute_grid_without_object(env, object_name, base_grid);
+    profile["compute_grid_without_object_ms"] = to_ms(t_grid0, Clock::now());
+
+    const int start_x = world_to_grid_x(robot_state->position[0]);
+    const int start_y = world_to_grid_y(robot_state->position[1]);
+    if (!is_valid_grid_coord(start_x, start_y)) {
+        profile["total_ms"] = to_ms(t_total0, Clock::now());
+        last_priority_profile_ = std::move(profile);
+        return scores;
+    }
+
+    // Precompute the exact tolerance cells used by is_goal_reachable().
+    const double goal_tolerance = compute_goal_tolerance_m(robot_size_, tier1_inflation_margin_);
+    const double radius_sq = goal_tolerance * goal_tolerance;
+    std::vector<std::vector<int>> sample_cells(region_samples.size());
+    const auto t_samples0 = Clock::now();
+    for (size_t i = 0; i < region_samples.size(); ++i) {
+        const auto& sample = region_samples[i];
+        const int min_x = std::max(0, world_to_grid_x(sample[0] - goal_tolerance));
+        const int max_x = std::min(grid_width_ - 1, world_to_grid_x(sample[0] + goal_tolerance));
+        const int min_y = std::max(0, world_to_grid_y(sample[1] - goal_tolerance));
+        const int max_y = std::min(grid_height_ - 1, world_to_grid_y(sample[1] + goal_tolerance));
+        for (int x = min_x; x <= max_x; ++x) {
+            for (int y = min_y; y <= max_y; ++y) {
+                const double cell_x = grid_to_world_x(x) + 0.5 * resolution_;
+                const double cell_y = grid_to_world_y(y) + 0.5 * resolution_;
+                const double dx = cell_x - sample[0];
+                const double dy = cell_y - sample[1];
+                if (dx * dx + dy * dy <= radius_sq + 1e-12) {
+                    sample_cells[i].push_back(x * grid_height_ + y);
+                }
+            }
+        }
+        if (sample_cells[i].empty()) {
+            const int x = world_to_grid_x(sample[0]);
+            const int y = world_to_grid_y(sample[1]);
+            if (is_valid_grid_coord(x, y)) {
+                sample_cells[i].push_back(x * grid_height_ + y);
+            }
+        }
+    }
+    profile["precompute_sample_cells_ms"] = to_ms(t_samples0, Clock::now());
+
+    const int cell_count = grid_width_ * grid_height_;
+    std::vector<int> blocked_epoch(cell_count, 0);
+    std::vector<int> visited_epoch(cell_count, 0);
+    std::vector<int> queue(cell_count);
+    const double inflate_r = compute_wavefront_inflation_radius_m(robot_size_, tier1_inflation_margin_);
+    ObjectInfo inflated_info;
+    inflated_info.size = object_size;
+    inflated_info.size[0] += inflate_r;
+    inflated_info.size[1] += inflate_r;
+
+    double footprint_ms = 0.0;
+    double bfs_ms = 0.0;
+    double sample_check_ms = 0.0;
+    for (size_t i = 0; i < target_poses.size(); ++i) {
+        const int epoch = static_cast<int>(i) + 1;
+        const auto& pose = target_poses[i];
+        ObjectState target_state;
+        target_state.position = {pose[0], pose[1], 0.0};
+        target_state.quaternion = utils::yaw_to_quaternion(pose[2]);
+
+        auto t0 = Clock::now();
+        const GridFootprint footprint = calculate_rotated_footprint(inflated_info, target_state);
+        for (size_t j = 0; j < footprint.num_cells; ++j) {
+            const int x = footprint.cells[j].first;
+            const int y = footprint.cells[j].second;
+            if (is_valid_grid_coord(x, y)) {
+                blocked_epoch[x * grid_height_ + y] = epoch;
+            }
+        }
+        footprint_ms += to_ms(t0, Clock::now());
+
+        auto is_blocked = [&](int x, int y) {
+            return base_grid[x][y] == -1 || blocked_epoch[x * grid_height_ + y] == epoch;
+        };
+        bool is_trapped = true;
+        for (const auto& [dx, dy] : DIRECTIONS) {
+            const int nx = start_x + dx;
+            const int ny = start_y + dy;
+            if (is_valid_grid_coord(nx, ny) && !is_blocked(nx, ny)) {
+                is_trapped = false;
+                break;
+            }
+        }
+        const int clear_radius = is_trapped ? 2 : 0;
+        auto is_cleared = [&](int x, int y) {
+            return std::abs(x - start_x) <= clear_radius && std::abs(y - start_y) <= clear_radius;
+        };
+
+        t0 = Clock::now();
+        int head = 0;
+        int tail = 0;
+        const int start_idx = start_x * grid_height_ + start_y;
+        queue[tail++] = start_idx;
+        visited_epoch[start_idx] = epoch;
+        while (head < tail) {
+            const int idx = queue[head++];
+            const int x = idx / grid_height_;
+            const int y = idx % grid_height_;
+            for (const auto& [dx, dy] : DIRECTIONS) {
+                const int nx = x + dx;
+                const int ny = y + dy;
+                if (!is_valid_grid_coord(nx, ny)) {
+                    continue;
+                }
+                const int nidx = nx * grid_height_ + ny;
+                if (visited_epoch[nidx] == epoch || (!is_cleared(nx, ny) && is_blocked(nx, ny))) {
+                    continue;
+                }
+                visited_epoch[nidx] = epoch;
+                queue[tail++] = nidx;
+            }
+        }
+        bfs_ms += to_ms(t0, Clock::now());
+
+        t0 = Clock::now();
+        int reachable = 0;
+        for (const auto& cells : sample_cells) {
+            bool sample_reachable = false;
+            for (const int idx : cells) {
+                if (visited_epoch[idx] == epoch) {
+                    sample_reachable = true;
+                    break;
+                }
+            }
+            reachable += static_cast<int>(sample_reachable);
+        }
+        scores[i] = static_cast<double>(reachable) / static_cast<double>(region_samples.size());
+        sample_check_ms += to_ms(t0, Clock::now());
+    }
+
+    profile["per_pose_calculate_footprint_ms"] = footprint_ms;
+    profile["per_pose_bfs_ms"] = bfs_ms;
+    profile["per_pose_sample_check_ms"] = sample_check_ms;
+    profile["total_ms"] = to_ms(t_total0, Clock::now());
+    last_priority_profile_ = std::move(profile);
+    return scores;
+}
+
 } // namespace namo

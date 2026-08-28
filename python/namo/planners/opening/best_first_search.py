@@ -142,13 +142,71 @@ def rank_geometric_pushes(planner, env, robot_goal, state, restrict_obj=None, re
         return pool, grid
     return pool
 
+
+def rank_geometric_region_pushes(planner, env, state, region_samples, restrict_obj=None, return_grid=False):
+    """Rank reachable primitive endpoints by virtual target-region reachability."""
+    if not region_samples:
+        raise ValueError("geometric_region requires fixed target-region samples")
+    env.set_full_state(state)
+    reach_objs = list(env.get_reachable_objects())
+    if restrict_obj is not None:
+        allowed = {restrict_obj} if isinstance(restrict_obj, str) else set(restrict_obj)
+        reach_objs = [o for o in reach_objs if o in allowed]
+    redges = {o: set(env.get_reachable_edges(o)) for o in reach_objs}
+    samples_xy = [[float(p[0]), float(p[1])] for p in region_samples]
+    pool = []
+    grid = None
+    for obj in reach_objs:
+        if not redges[obj]:
+            continue
+        goals_per_edge = planner.prim.generate_goals(obj, state, env, max_goals=0)
+        goals = []
+        target_poses = []
+        for edge_goals in goals_per_edge:
+            for g in edge_goals:
+                if g is None:
+                    continue
+                e = int(getattr(g, "edge_idx", -1))
+                if e not in redges[obj]:
+                    continue
+                goals.append(g)
+                target_poses.append([float(g.x), float(g.y), float(g.theta)])
+        if not goals:
+            continue
+        env.set_full_state(state)
+        scores = env.evaluate_primitive_region_scores(obj, target_poses, samples_xy)
+        if return_grid:
+            grid = [[0.0] * 5 for _ in range(60)]
+        for g, q in zip(goals, scores):
+            q = float(q)
+            pool.append((obj, g, q))
+            if grid is not None:
+                e = int(g.edge_idx)
+                d = int(g.depth)
+                if 0 <= e < len(grid) and 0 <= d < len(grid[e]):
+                    grid[e][d] = q
+    pool.sort(key=lambda x: -x[2])
+    if return_grid:
+        return pool, grid
+    return pool
+
 def candidates(planner, env, goal, xml, state, h, prior, agg, rng, restrict_obj=None, raw=True,
                want_grid=False, region_samples=None):
     """Reachable pushes from `state` (restricted to restrict_obj = the labeled object) with a priority-base
     value + the state value V. model: q = ranker score; geometric: q = 7 - geometric priority;
+    geometric_region: q = virtual reachable target-region fraction;
     uniform: random q, V=0. want_grid (viz only, default False): also return the (60,5) score grid for
     `state`, reusing the ranking pass already made. The grid is None for uniform or an empty pool."""
-    if prior == "geometric":
+    if prior == "geometric_region":
+        ranked = rank_geometric_region_pushes(
+            planner, env, state, region_samples, restrict_obj=restrict_obj, return_grid=want_grid
+        )
+        if want_grid:
+            pool, grid = ranked
+        else:
+            pool = ranked
+            grid = None
+    elif prior == "geometric":
         ranked = rank_geometric_pushes(
             planner, env, goal, state, restrict_obj=restrict_obj, return_grid=want_grid
         )
@@ -184,7 +242,7 @@ def priority(q, V, combine):
 
 def _queue_key(effective_priority, prior, chain_depth, insertion_order):
     """Min-heap key: score first; geometric ties prefer pushes closer to completing the chain."""
-    depth_tie = -int(chain_depth) if prior == "geometric" else 0
+    depth_tie = -int(chain_depth) if prior in {"geometric", "geometric_region"} else 0
     return (-float(effective_priority), depth_tie, int(insertion_order))
 
 

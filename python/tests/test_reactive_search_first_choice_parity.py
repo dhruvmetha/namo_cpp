@@ -222,7 +222,7 @@ def scene(tmp_path_factory):
         primitive_prefix=CANONICAL_PRIMITIVE_PREFIX,
     )
     unscored = SimpleNamespace(prim=prim, scorer=None)
-    planners = {"uniform": unscored, "geometric": unscored}
+    planners = {"uniform": unscored, "geometric": unscored, "geometric_region": unscored}
     if SCORER_CKPT.is_file():
         from namo.strategies.scorer_goal_strategy import _get_scorer
 
@@ -325,6 +325,41 @@ def test_geometry_changes_only_the_candidate_scores(scene):
     )
 
 
+def test_region_geometry_changes_only_the_candidate_scores(scene):
+    """Region geometry must rank the same reachable primitive pool."""
+    from namo.planners.opening.best_first_search import (
+        rank_first_pushes_h2,
+        rank_geometric_region_pushes,
+    )
+
+    planner = scene["planners"]["geometric_region"]
+    unscored = rank_first_pushes_h2(
+        planner, scene["env"], GOAL_M, scene["xml"], scene["state"], ONE_PUSH, score=False
+    )
+    geometric = rank_geometric_region_pushes(
+        planner, scene["env"], scene["state"], REGION_SAMPLES
+    )
+
+    def identities(pool):
+        return {(obj, int(goal.edge_idx), int(goal.depth)) for obj, goal, _score in pool}
+
+    assert identities(geometric) == identities(unscored)
+    assert all(0.0 <= score <= 1.0 for _obj, _goal, score in geometric)
+
+
+def test_virtual_region_score_matches_live_wavefront_at_current_pose(scene):
+    """Replacing an object at its unchanged pose must reproduce the live region count."""
+    env = scene["env"]
+    env.set_full_state(scene["state"])
+    obj = list(env.get_reachable_objects())[0]
+    pose = env.get_observation()[f"{obj}_pose"]
+    samples_xy = [[float(p[0]), float(p[1])] for p in REGION_SAMPLES]
+    reachable, _first = env.count_reachable_points(samples_xy)
+    score = env.evaluate_primitive_region_scores(obj, [pose[:3]], samples_xy)[0]
+
+    assert score == pytest.approx(reachable / len(samples_xy))
+
+
 # ─── Tests ──────────────────────────────────────────────────────────────
 
 
@@ -399,16 +434,17 @@ def test_geometry_ties_prefer_finish_pushes_without_overriding_q():
 
     from namo.planners.opening.best_first_search import _queue_key
 
-    heap = []
-    heapq.heappush(heap, (*_queue_key(6.0, "geometric", 0, 0), "root_q6"))
-    heapq.heappush(heap, (*_queue_key(6.0, "geometric", 1, 10), "finish_q6"))
-    heapq.heappush(heap, (*_queue_key(5.0, "geometric", 1, 11), "finish_q5"))
+    for prior in ("geometric", "geometric_region"):
+        heap = []
+        heapq.heappush(heap, (*_queue_key(6.0, prior, 0, 0), "root_q6"))
+        heapq.heappush(heap, (*_queue_key(6.0, prior, 1, 10), "finish_q6"))
+        heapq.heappush(heap, (*_queue_key(5.0, prior, 1, 11), "finish_q5"))
 
-    assert [heapq.heappop(heap)[-1] for _ in range(3)] == [
-        "finish_q6",
-        "root_q6",
-        "finish_q5",
-    ]
+        assert [heapq.heappop(heap)[-1] for _ in range(3)] == [
+            "finish_q6",
+            "root_q6",
+            "finish_q5",
+        ]
 
 
 def test_finish_tie_break_is_geometry_only():

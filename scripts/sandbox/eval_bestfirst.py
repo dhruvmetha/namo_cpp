@@ -118,7 +118,7 @@ def main():
     ap.add_argument("--end", type=int, default=985)
     ap.add_argument("--hmax", type=int, default=2, help="max pushes in the search chain")
     ap.add_argument("--sim-budget", type=int, default=30, help="max sims/scene = the reactive<->search dial")
-    ap.add_argument("--prior", default="model", choices=["model", "uniform", "geometric"])
+    ap.add_argument("--prior", default="model", choices=["model", "uniform", "geometric", "geometric_region"])
     ap.add_argument("--agg", default="mean5", choices=["mean5", "max"], help="state-value aggregate (selection)")
     ap.add_argument("--combine", default="blend", choices=["q", "blend", "product"])
     ap.add_argument("--discount", default="off", choices=["off", "gamma", "fitted", "conf"],
@@ -169,6 +169,8 @@ def main():
                     help="record ordered pools/pops without per-pop geometry (same search order, smaller/faster trace)")
     ap.add_argument("--trace-model", default="", help="model label written into each trace's meta")
     a = ap.parse_args()
+    if a.prior == "geometric_region" and a.success != "region":
+        ap.error("--prior geometric_region requires --success region")
 
     import os as _os
     g_table = None
@@ -266,7 +268,8 @@ def main():
                     discount=a.discount, gamma=a.gamma, tau=a.tau, g_table=g_table, eps=a.eps,
                     w0_mode=a.w0_mode, free_strike_q=a.free_strike_q, child_patience=a.child_patience,
                     dedupe_noop=a.dedupe_noop, prune_jam_depth=a.prune_jam_depth,
-                    trace_out=pops, capture=capture, timing=tm)
+                    trace_out=pops, capture=capture, timing=tm,
+                    region_samples=(gp if a.prior == "geometric_region" else None))
                 n += 1; sims_tot += sims; n_solved += int(solved); sims_solved += sims if solved else 0
                 lf.write(json.dumps({"xml": xml, "object_id": obj, "region": rec.get("region"),
                                      "solved": solved, "sims": sims, "plan_len": plen,

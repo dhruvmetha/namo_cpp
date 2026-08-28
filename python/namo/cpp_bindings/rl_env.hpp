@@ -153,6 +153,10 @@ public:
         const std::string& object_name,
         const std::vector<std::array<double, 3>>& target_poses,
         const std::array<double, 2>& robot_goal);
+    std::vector<double> evaluate_primitive_region_scores(
+        const std::string& object_name,
+        const std::vector<std::array<double, 3>>& target_poses,
+        const std::vector<std::array<double, 2>>& region_samples);
     std::map<std::string, double> get_last_priority_profile() const;
 
     // Action space constraints for MCTS progressive widening

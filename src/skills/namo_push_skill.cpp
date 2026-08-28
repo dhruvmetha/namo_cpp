@@ -394,6 +394,13 @@ std::vector<int> NAMOPushSkill::evaluate_primitive_priorities(
     return executor_->evaluate_primitive_priorities(env_, object_name, target_poses, robot_goal);
 }
 
+std::vector<double> NAMOPushSkill::evaluate_primitive_region_scores(
+    const std::string& object_name,
+    const std::vector<std::array<double, 3>>& target_poses,
+    const std::vector<std::array<double, 2>>& region_samples) {
+    return executor_->evaluate_primitive_region_scores(env_, object_name, target_poses, region_samples);
+}
+
 std::map<std::string, double> NAMOPushSkill::get_last_priority_profile() const {
     if (!executor_) {
         return {};

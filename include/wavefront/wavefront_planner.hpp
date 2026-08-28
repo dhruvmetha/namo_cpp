@@ -189,6 +189,20 @@ public:
         const std::array<double, 2>& robot_goal);
 
     /**
+     * @brief Score virtual primitive endpoints with the canonical region-opening criterion
+     * @param env Environment
+     * @param object_name Object to evaluate
+     * @param target_poses Virtual object poses [x, y, theta]
+     * @param region_samples Fixed target-region samples used by the evaluator
+     * @return Reachable-sample fraction in [0, 1] for each target pose
+     */
+    std::vector<double> evaluate_primitive_region_scores(
+        NAMOEnvironment& env,
+        const std::string& object_name,
+        const std::vector<std::array<double, 3>>& target_poses,
+        const std::vector<std::array<double, 2>>& region_samples);
+
+    /**
      * @brief Get the most recent timing breakdown produced by evaluate_primitive_priorities().
      *
      * Keys are stable strings; values are milliseconds for timing keys and counts encoded as doubles.

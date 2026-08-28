@@ -143,7 +143,10 @@ PYBIND11_MODULE(namo_rl, m) {
         .def("set_robot_trajectory_collision_checking", &namo::RLEnvironment::set_robot_trajectory_collision_checking, py::arg("enable"), "Enable or disable robot-body collision checking during push trajectory.")
         .def("evaluate_primitive_priorities", &namo::RLEnvironment::evaluate_primitive_priorities,
              py::arg("object_name"), py::arg("target_poses"), py::arg("robot_goal"),
-             "Evaluate geometric transport priorities for primitive targets. Returns priorities 1-4 (1=best, 4=worst).")
+             "Evaluate geometric transport priorities for primitive targets. Returns priorities 1-6 (1=best, 6=worst).")
+        .def("evaluate_primitive_region_scores", &namo::RLEnvironment::evaluate_primitive_region_scores,
+             py::arg("object_name"), py::arg("target_poses"), py::arg("region_samples"),
+             "Virtually place the pushed object at each primitive target and return the reachable target-region fraction.")
         .def("get_last_priority_profile", &namo::RLEnvironment::get_last_priority_profile,
              "Get timing breakdown for the most recent evaluate_primitive_priorities() call.")
         .def("get_action_constraints", &namo::RLEnvironment::get_action_constraints, "Get action space constraints for MCTS.")
