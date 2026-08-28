@@ -52,7 +52,7 @@ The scannable cross-campaign index: **what we changed, why, and whether it helpe
 | 08-13 | *(validity)* train/test leakage audit | HY5U's numbers needed a held-out guarantee | ✅ **clean** — 0 of 978 two-push test rooms and 0 of 1012 test episodes appear in hybrid training (full-path match; 5-component suffix matching gives a false 62% and must not be used for leak checks) | [crossboard](log/EXP-2026-08-09-crossboard-ranking.md) |
 | 08-21 | **fixed-physics v3 canonical evaluation** — HY5U ×3 vs random ×3 | replace every stale v1 comparison with a complete-population v3 baseline | ✅✅ HY5U wins the tight search regime on every tier; hard 2push @5 **35.9 vs 2.0**, @900 **87.6 vs 62.2** | registry: `hy5u-nodiscount-hmax2-v3` / `random-nodiscount-hmax2-v3` |
 | 08-22 | **HY5U as a policy** — zero search, greedy argmax, out to 30 calls [USER] | what is the ranker worth with the queue switched off | ✅ policy **leads to ~5 calls** (2push all @5 **75.7 vs 73.4**) then **saturates**; search passes at 10 and finishes **89.7 vs 82.9** @30. Crossover is the engineering answer. Two harness bugs found and fixed | [policy-mode](log/EXP-2026-08-22-policy-mode-hy5u.md) |
-| 08-28 | **geometry-only best-first baseline** — reachable car transport priority, finish-first exact ties | can a proper model-free geometric method beat random ordering? | ❌ **no: worse than random overall** — all-tier solve@5s **82.3 vs 93.1** (1push), **27.7 vs 40.8** (2push); geometry scoring is only 0.4%/0.2% of wall time, so the failure is ordering and extra simulator calls, not heuristic inference cost | registry: `geometric-walltime-4000-v3` |
+| 08-28 | **geometry-only best-first baselines** — legacy single-path proxy, then corrected target-region reachability | can a proper model-free geometric method beat random ordering? | ❌ **stopped at the stratified gate** — corrected solve@30 **70.0 vs random 94.4** (1push), **33.3 vs 34.4** (2push), while HY5U reaches **97.8/83.3**; the earlier 4,000-call run used one XML-goal BFS path internally and is retained only as a legacy proxy | registry: `geometric-walltime-4000-v3` / `geometric-region-smoke-v3` |
 
 **Failed ideas, kept so they are not retried blind:** unanchored family softmax · hinge without an anchor (RPM) · 2% regression brake (RPB) · absolute plates on dead cells · margins sized in raw units instead of σ · root rebalancing as a 1-push fix · exhaustive relabeling bought at the cost of corpus size · ladder + rebalance stacking · push-depth-aware pose head · Fourier depth identity.
 
@@ -82,9 +82,35 @@ HY5U seeds 1-3 and uniform-random seeds 7000/8000/9000 were re-run on the comple
 
 ---
 
-## 2026-08-28 — Geometry-only best-first: cheap heuristic, bad ordering
+## 2026-08-28 — Geometry-only best-first: corrected region score fails the stop gate; legacy single-path run retained
 
-The deterministic geometry baseline used the same reachable car `1×5` push primitives, labeled blocking object, `hmax=2`, budget 4000, raw `q`, discount off, no-op deduplication, jam-depth pruning, fixed-physics v3 populations, and exclusive Cascadelake wall-clock protocol as the registered HY5U/random campaign. C++ transport priority 1–6 was mapped to `q=6–1`; when scores tied, a child-board finish was tried before a root setup. Geometry is one deterministic arm; HY5U and random entries below are three-seed means from the saved matched-hardware campaign. `final` is solve rate by the 4000-call ceiling, `t2s` is average wall time among solved episodes, and `s2s` is average simulator calls among solved episodes.
+> **CORRECTION [USER caught, 2026-08-28]:** the original full-scale tables and figures in the historical subsection below do not evaluate the intended region-opening geometric method. That C++ score removed the blocker, chose one BFS path to the single XML goal, and classified whether each virtual endpoint blocked that path. The outer success verifier was always the canonical fixed target-region 20% check, so the measurements remain valid for that single-path transport proxy, but they must not be cited as the proper geometry-only baseline.
+
+### Corrected target-region reachability score: stratified stop gate
+
+The corrected deterministic score virtually places the pushed object at each reachable primitive endpoint and returns the fraction of the episode's fixed target-region samples reachable from the robot under the same inflated wavefront, circular goal tolerance, eight-connected BFS, and trapped-start recovery used by the verifier. It uses no simulator call, scores both root and real child boards, and prefers a finish push over a setup push only when their scores tie exactly.
+
+The stop gate used fixed-physics v3, `hmax=2`, budget 30, raw `q`, discount off, no-op deduplication and jam-depth pruning, with exactly ten episode tuples `(XML, object, goal region)` per difficulty tier and horizon selected at seed 42. The legacy proxy is deterministic; random and HY5U are means ± sample SD across their three saved seeds. All controls are the exact selected-episode prefixes of registered higher-budget runs, so no control was rerun. Each method cell is `solve@5 / solve@30 / average sims capped at 30 / average sims among solves by 30`.
+
+| 1push tier | n | corrected region | legacy path | random (3 seeds) | HY5U (3 seeds) |
+|---|---:|---:|---:|---:|---:|
+| easy | 10 | 90.0 / 90.0 / 4.7 / 1.9 | 90.0 / 90.0 / 4.6 / 1.8 | 93.3±5.8 / 100.0±0.0 / 2.2±0.8 / 2.2±0.8 | 100.0±0.0 / 100.0±0.0 / 1.0±0.0 / 1.0±0.0 |
+| medium | 10 | 60.0 / 70.0 / 12.3 / 4.7 | 50.0 / 70.0 / 11.5 / 3.6 | 70.0±17.3 / 100.0±0.0 / 5.6±1.5 / 5.6±1.5 | 100.0±0.0 / 100.0±0.0 / 1.4±0.1 / 1.4±0.1 |
+| hard | 10 | 30.0 / 50.0 / 19.2 / 8.4 | 30.0 / 60.0 / 15.4 / 5.7 | 50.0±26.5 / 83.3±20.8 / 12.3±6.9 / 9.3±3.8 | 86.7±5.8 / 93.3±5.8 / 4.5±0.5 / 2.6±1.2 |
+| all | 30 | **60.0 / 70.0 / 12.1 / 4.4** | 56.7 / 73.3 / 10.5 / 3.4 | 71.1±10.7 / 94.4±6.9 / 6.7±2.1 / 5.3±0.5 | **95.6±1.9 / 97.8±1.9 / 2.3±0.2 / 1.7±0.4** |
+
+| 2push tier | n | corrected region | legacy path | random (3 seeds) | HY5U (3 seeds) |
+|---|---:|---:|---:|---:|---:|
+| easy | 10 | 20.0 / 50.0 / 19.3 / 8.6 | 30.0 / 70.0 / 15.9 / 9.9 | 43.3±5.8 / 73.3±15.3 / 13.1±3.2 / 6.9±1.2 | 63.3±5.8 / 83.3±5.8 / 9.5±0.4 / 5.3±2.1 |
+| medium | 10 | 10.0 / 20.0 / 25.2 / 6.0 | 0.0 / 0.0 / 30.0 / — | 0.0±0.0 / 16.7±5.8 / 28.4±1.6 / 21.3±7.4 | 66.7±5.8 / 90.0±0.0 / 7.5±0.9 / 5.0±1.0 |
+| hard | 10 | 10.0 / 30.0 / 24.4 / 11.3 | 10.0 / 30.0 / 23.9 / 9.7 | 0.0±0.0 / 13.3±5.8 / 28.4±0.2 / 16.7±5.5 | 60.0±0.0 / 76.7±5.8 / 11.0±0.4 / 5.2±1.8 |
+| all | 30 | **13.3 / 33.3 / 23.0 / 8.9** | 13.3 / 33.3 / 23.3 / 9.8 | 14.4±1.9 / 34.4±3.8 / 23.3±0.6 / 10.5±1.4 | **63.3±3.3 / 83.3±3.3 / 9.4±0.4 / 5.2±0.9** |
+
+**STOPPED; do not launch a full-scale or timing campaign for this score.** Corrected target-region geometry is worse than random on one-push and statistically level with random on two-push, while HY5U is ahead by 27.8 and 50.0 solve@30 points respectively. The correction moves which two-push episodes solve rather than improving the total: medium rises from 0% to 20% versus the legacy proxy, easy falls from 70% to 50%, and hard stays at 30%. The score itself remains cheap, 1.4% of this iLab smoke's wall time on one-push and 0.5% on two-push, but those wall times are diagnostic only and are not compared with the Amarel controls. Implementation `49829f0`; episode-safe selector `bd7d2a5`; aggregate and raw rows live under `$NAMO_SCRATCH/aquaman/round0/smoke/geometric_region_v1/expanded/`.
+
+### Historical single-path transport proxy: full wall-clock run
+
+The historical deterministic proxy used the same reachable car `1×5` push primitives, labeled blocking object, `hmax=2`, budget 4000, raw `q`, discount off, no-op deduplication, jam-depth pruning, fixed-physics v3 populations, and exclusive Cascadelake wall-clock protocol as the registered HY5U/random campaign. Its C++ single-path transport priority 1–6 was mapped to `q=6–1`; when scores tied, a child-board finish was tried before a root setup. Geometry is one deterministic arm; HY5U and random entries below are three-seed means from the saved matched-hardware campaign. `final` is solve rate by the 4000-call ceiling, `t2s` is average wall time among solved episodes, and `s2s` is average simulator calls among solved episodes.
 
 | 1push tier | n | solve@5s geom / HY5U / random | solve@30s | solve@300s | final | t2s (s) | s2s |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -100,11 +126,11 @@ The deterministic geometry baseline used the same reachable car `1×5` push prim
 | hard | 118 | 11.9 / 48.0 / 9.9 | 23.7 / 74.6 / 27.4 | 57.6 / 95.2 / 78.0 | 83.1 / 98.3 / 95.2 | 246.86 / 39.72 / 179.29 | 923.2 / 124.7 / 737.9 |
 | all | 992 | 27.7 / 79.4 / 40.8 | 50.8 / 93.9 / 75.1 | 79.2 / 99.0 / 96.5 | 90.9 / 99.5 / 99.1 | 113.34 / 9.82 / 40.91 | 393.4 / 28.9 / 161.4 |
 
-![Verified success versus simulator calls for geometry, HY5U, and random, split by fixed difficulty and horizon.](plots/geometric_walltime4k_v3/success_vs_sims_both_horizons.png)
+![Verified success versus simulator calls for the legacy single-path proxy, HY5U, and random, split by fixed difficulty and horizon.](plots/geometric_walltime4k_v3/success_vs_sims_both_horizons.png)
 
-![Verified success versus wall-clock time on exclusive Cascadelake nodes, split by fixed difficulty and horizon.](plots/geometric_walltime4k_v3/success_vs_time_both_horizons.png)
+![Verified success versus wall-clock time for the legacy single-path proxy on exclusive Cascadelake nodes, split by fixed difficulty and horizon.](plots/geometric_walltime4k_v3/success_vs_time_both_horizons.png)
 
-**REJECTED as a useful ranker.** Geometry loses to random on the all-tier anytime curve in both horizons and uses 6.9× more solved-only simulator calls on one-push and 2.4× more on two-push. Hard two-push has one narrow early exception, 11.9% versus random 9.9% at five seconds, but geometry falls behind by 30 seconds and finishes 12.1 points lower. Its own computation is not the bottleneck: `t_score/t_wall` is 0.4% on one-push and 0.2% on two-push. The six coarse priority classes bury good pushes under large wrong classes; finish-first resolves only exact ties and cannot repair a lower-scored opener or setup. Raw rows and the canonical aggregate live under `$NAMO_SCRATCH/aquaman/round0/eval_walltime4k/geometric_finishfirst/`.
+**REJECTED as a single-path transport ranker.** The proxy loses to random on the all-tier anytime curve in both horizons and uses 6.9× more solved-only simulator calls on one-push and 2.4× more on two-push. Hard two-push has one narrow early exception, 11.9% versus random 9.9% at five seconds, but the proxy falls behind by 30 seconds and finishes 12.1 points lower. Its own computation is not the bottleneck: `t_score/t_wall` is 0.4% on one-push and 0.2% on two-push. The six coarse priority classes bury good pushes under large wrong classes; finish-first resolves only exact ties and cannot repair a lower-scored opener or setup. This historical result alone does not support a claim about all geometric heuristics; the corrected region-aware gate above supplies the proper-method evidence and independently fails its scale-up bar. Raw rows and the canonical aggregate live under `$NAMO_SCRATCH/aquaman/round0/eval_walltime4k/geometric_finishfirst/`.
 
 ---
 
