@@ -114,7 +114,7 @@ The model tail is `X/N`; the Random curve pools observed outcomes as `X/(5N)` on
 | item | value |
 |---|---|
 | committed launch SHA | `8abb6a03263af18b2828544ae85fc9303af93f7b` |
-| metadata-stamp SHA | pending |
+| metadata-stamp SHA | `8bce7ee22ea7ab42934911e729c00edda5ef8156` |
 | checkpoint SHA-256 | pending verified Amarel access |
 | training reference SHA-256 | pending verified CS-estate access |
 | seed/output collision audit | pending verified Amarel access |
@@ -134,6 +134,6 @@ The model tail is `X/N`; the Random curve pools observed outcomes as `X/(5N)` on
 - [ ] Checkpoint path and SHA-256 are verified on Amarel.
 - [ ] Complete hybrid training reference and SHA-256 are verified on the CS estate.
 - [ ] Seed interval and all output roots are confirmed unused on Amarel.
-- [ ] Focused builder tests and the complete `full_namo_sim_exp` regression suite pass at the launch SHA.
+- [x] Focused builder tests and the complete `full_namo_sim_exp` regression suite pass at the launch SHA: 45 passed on 2026-08-27.
 - [ ] All generation array tasks complete successfully before probing.
 - [ ] Population audit is reviewed before `full_namo_sim_exp.pipeline validate` freezes the final experiment.
