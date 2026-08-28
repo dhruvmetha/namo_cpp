@@ -17,7 +17,7 @@ from namo.strategies import PrimitiveGoalStrategy
 from namo.strategies.scorer_goal_strategy import _get_scorer
 from namo.runtime_profile import CANONICAL_NUM_DEPTHS, CANONICAL_PRIMITIVE_PREFIX
 
-from .best_first_search import make_action, run_reactive, solve_scene
+from .best_first_search import make_action, run_greedy_commit, run_reactive, solve_scene
 from .region_opening import (
     AttemptResult,
     CANONICAL_MIN_REACHABLE_FRACTION,
@@ -241,6 +241,7 @@ class BestFirstRegionOpeningPlanner:
         actions: Optional[List[namo_rl.Action]] = None,
         future_interface: Optional[Dict[str, Any]] = None,
         actions_stand_on_failure: bool = False,
+        extra_stats: Optional[Dict[str, Any]] = None,
     ) -> PlannerResult:
         """Flatten one attempt into a PlannerResult.
 
@@ -279,6 +280,8 @@ class BestFirstRegionOpeningPlanner:
         }
         if future_interface is not None:
             stats["future_interface"] = future_interface
+        if extra_stats:
+            stats.update(extra_stats)
         if success:
             stats["all_solutions"] = [{
                 "actions": list(actions or []),
@@ -309,6 +312,43 @@ class BestFirstRegionOpeningPlanner:
             Callable[[namo_rl.RLEnvironment], Tuple[bool, Dict[str, Any]]]
         ] = None,
         opening_predicate: Optional[Callable[[namo_rl.RLEnvironment], bool]] = None,
+    ) -> PlannerResult:
+        """Search one boundary and return only a verified opening chain."""
+        return self._run_boundary(
+            robot_goal,
+            target_neighbor=target_neighbor,
+            candidate_acceptor=candidate_acceptor,
+            opening_predicate=opening_predicate,
+            commit_one=False,
+        )
+
+    def greedy_commit(
+        self,
+        robot_goal: Tuple[float, float, float],
+        target_neighbor: Optional[str] = None,
+        candidate_acceptor: Optional[
+            Callable[[namo_rl.RLEnvironment], Tuple[bool, Dict[str, Any]]]
+        ] = None,
+        opening_predicate: Optional[Callable[[namo_rl.RLEnvironment], bool]] = None,
+    ) -> PlannerResult:
+        """Return the first moving arg-max action even if it has not opened yet."""
+        return self._run_boundary(
+            robot_goal,
+            target_neighbor=target_neighbor,
+            candidate_acceptor=candidate_acceptor,
+            opening_predicate=opening_predicate,
+            commit_one=True,
+        )
+
+    def _run_boundary(
+        self,
+        robot_goal: Tuple[float, float, float],
+        target_neighbor: Optional[str] = None,
+        candidate_acceptor: Optional[
+            Callable[[namo_rl.RLEnvironment], Tuple[bool, Dict[str, Any]]]
+        ] = None,
+        opening_predicate: Optional[Callable[[namo_rl.RLEnvironment], bool]] = None,
+        commit_one: bool = False,
     ) -> PlannerResult:
         if target_neighbor is None:
             raise ValueError("best-first region opening requires target_neighbor")
@@ -441,6 +481,82 @@ class BestFirstRegionOpeningPlanner:
                     if count < self._minimum_needed(len(xy_samples)):
                         return False
                 return accept_future_interface(env)
+
+            if commit_one:
+                commit = run_greedy_commit(
+                    self._search_planner,
+                    self.env,
+                    robot_goal,
+                    self.xml_path,
+                    baseline,
+                    self.hmax,
+                    remaining,
+                    self.prior,
+                    self.agg,
+                    self.combine,
+                    np.random.default_rng(self.seed),
+                    restrict_obj=boundary_objects,
+                    is_open=is_open,
+                    raw=self.raw,
+                    dedupe_noop=True,
+                    prune_jam_depth=True,
+                    region_samples=region_samples,
+                )
+                self.push_budget.used += int(commit.simulations_used)
+                actions = [commit.action] if commit.action is not None else []
+                if commit.opened:
+                    failure_reason = "success"
+                elif commit.action is not None:
+                    failure_reason = "greedy_step_committed"
+                elif commit.end == "budget":
+                    failure_reason = "simulation_budget_exhausted"
+                elif commit.simulations_used == 0:
+                    failure_reason = "no_reachable_objects"
+                else:
+                    failure_reason = "all_pushes_failed"
+                attempt = AttemptResult(
+                    commit.opened,
+                    target_neighbor,
+                    chosen_object_id=(str(commit.action.object_id) if commit.action is not None else None),
+                    chosen_goal=(
+                        (
+                            float(commit.action.x),
+                            float(commit.action.y),
+                            float(commit.action.theta),
+                        )
+                        if commit.action is not None
+                        else None
+                    ),
+                    goal_chain=[commit.action] if commit.action is not None else None,
+                    chain_depth=int(commit.action is not None),
+                    region_goals_sampled=region_samples,
+                    actions_executed=actions,
+                    resulting_state=(
+                        commit.resulting_state if commit.action is not None else None
+                    ),
+                    failure_reason=failure_reason,
+                    candidate_objects_count=len(boundary_objects),
+                    pushes_total_for_neighbour=int(commit.simulations_used),
+                    push_exec_count=int(commit.simulations_used),
+                )
+                return self._result(
+                    target=target_neighbor,
+                    robot_label=robot_label,
+                    neighbors=neighbors,
+                    attempt=attempt,
+                    start_time=start_time,
+                    sims=commit.simulations_used,
+                    end=commit.end,
+                    actions=actions,
+                    future_interface=future_interface,
+                    actions_stand_on_failure=commit.action is not None,
+                    extra_stats={
+                        "greedy_commit": {
+                            "end": commit.end,
+                            "rejections": list(commit.rejections),
+                        }
+                    },
+                )
 
             # Everything above is shared: same boundary, same pinned points, same
             # is_open bar, same blockers, same budget. Only the rule that reads the
