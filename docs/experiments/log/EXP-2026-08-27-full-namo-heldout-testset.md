@@ -4,7 +4,7 @@ status: planned
 created: 2026-08-27
 thread: full-namo-heldout
 robot: car
-commit: 8abb6a03263af18b2828544ae85fc9303af93f7b
+commit: 18a1f2ceadc608796dafb50a544f0ad3cf8ddfdd
 metric: held-out Full NAMO success versus total simulator calls and whole-process wall time
 tags: [experiment, full-namo, heldout-testset, exact-two-boundary, hy5u, random-baseline, amarel]
 ---
@@ -128,8 +128,7 @@ The model tail is `X/N`; the Random curve pools observed outcomes as `X/(5N)` on
 
 | item | value |
 |---|---|
-| committed launch SHA | `8abb6a03263af18b2828544ae85fc9303af93f7b` |
-| metadata-stamp SHA | `8bce7ee22ea7ab42934911e729c00edda5ef8156` |
+| committed launch SHA | `18a1f2ceadc608796dafb50a544f0ad3cf8ddfdd` |
 | checkpoint SHA-256 | `3cf348cf7ba247f2cb143376371fc06771665793783d12e3b37bf596e0e5a854` |
 | training reference SHA-256 | pending verified CS-estate access |
 | compact training-geometry SHA-256 | pending owner export and transfer |
