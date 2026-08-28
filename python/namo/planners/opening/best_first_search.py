@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import heapq
 import time
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
 
 import namo_rl
 
@@ -154,6 +156,43 @@ def _unmoved(before, after, obj, tol=1e-6):
         if any(abs(float(a[i]) - float(b[i])) > tol for i in range(3)):
             return False
     return True
+
+
+def _state_local_live_candidates(pool, banned, jam_at, prune_jam_depth):
+    """Return candidates still valid at one unchanged simulator state."""
+    return [
+        (obj, goal, score)
+        for obj, goal, score in pool
+        if (int(goal.edge_idx), int(goal.depth)) not in banned
+        and not (
+            prune_jam_depth
+            and jam_at.get(int(goal.edge_idx)) is not None
+            and int(goal.depth) >= jam_at[int(goal.edge_idx)]
+        )
+    ]
+
+
+def _record_state_local_jam(jam_at, goal, step_result, prune_jam_depth):
+    """Record the shallowest failed depth for one edge at the current state."""
+    if not prune_jam_depth or not (step_result.info or {}).get("failure_reason"):
+        return
+    edge = int(goal.edge_idx)
+    depth = int(goal.depth)
+    previous = jam_at.get(edge)
+    if previous is None or depth < previous:
+        jam_at[edge] = depth
+
+
+@dataclass
+class GreedyCommitResult:
+    """Result of filtering one state until the first moving child is found."""
+
+    action: Optional[namo_rl.Action]
+    resulting_state: Any
+    simulations_used: int
+    opened: bool
+    end: str
+    rejections: List[Dict[str, Any]]
 
 
 def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combine, rng, restrict_obj=None,
@@ -312,6 +351,87 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
     return False, sims, None, boards, end
 
 
+def run_greedy_commit(
+    planner,
+    env,
+    goal,
+    xml,
+    state,
+    h,
+    sim_budget,
+    prior,
+    agg,
+    combine,
+    rng,
+    restrict_obj=None,
+    is_open=lambda e: e.is_robot_goal_reachable(),
+    raw=True,
+    dedupe_noop=True,
+    prune_jam_depth=True,
+    region_samples=None,
+):
+    """Commit the first moving arg-max candidate from one simulator state.
+
+    No-op candidates are blacklisted at the unchanged state and a jam removes
+    the same and deeper continuations on that edge. The first moving child is
+    returned immediately, so this function never explores a sibling state.
+    """
+    pool, value, _grid = candidates(
+        planner,
+        env,
+        goal,
+        xml,
+        state,
+        h,
+        prior,
+        agg,
+        rng,
+        restrict_obj=restrict_obj,
+        raw=raw,
+        region_samples=region_samples,
+    )
+    banned = set()
+    jam_at = {}
+    rejections = []
+    simulations = 0
+
+    while simulations < sim_budget:
+        live = _state_local_live_candidates(pool, banned, jam_at, prune_jam_depth)
+        if not live:
+            return GreedyCommitResult(
+                None, state, simulations, False, "exhausted", rejections
+            )
+        obj, goal_spec, _score = max(
+            live, key=lambda candidate: priority(candidate[2], value, combine)
+        )
+        env.set_full_state(state)
+        before = env.get_observation() if dedupe_noop else None
+        action = make_action(obj, goal_spec)
+        step_result = env.step(action)
+        simulations += 1
+        opened = bool(is_open(env))
+
+        if not dedupe_noop or not _unmoved(before, env.get_observation(), obj):
+            return GreedyCommitResult(
+                action,
+                env.get_full_state(),
+                simulations,
+                opened,
+                "opened" if opened else "committed",
+                rejections,
+            )
+
+        edge = int(goal_spec.edge_idx)
+        depth = int(goal_spec.depth)
+        banned.add((edge, depth))
+        _record_state_local_jam(jam_at, goal_spec, step_result, prune_jam_depth)
+        rejections.append(
+            {"edge_idx": edge, "depth": depth, "reason": "no_state_change"}
+        )
+
+    return GreedyCommitResult(None, state, simulations, False, "budget", rejections)
+
+
 def run_reactive(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combine, rng, restrict_obj=None,
                is_open=lambda e: e.is_robot_goal_reachable(), raw=True, dedupe_noop=True,
                prune_jam_depth=True, timing=None, region_samples=None, solution_out=None):
@@ -368,10 +488,7 @@ def run_reactive(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, comb
         pool, V, _grid = candidates(planner, env, goal, xml, s_cur, hmax - ndone, prior, agg, rng,
                                     restrict_obj=restrict_obj, raw=raw, region_samples=region_samples)
         tm["t_score"] += time.perf_counter() - _t; tm["n_score"] += 1
-        live = [(o, g, q) for (o, g, q) in pool
-                if (int(g.edge_idx), int(g.depth)) not in banned
-                and not (prune_jam_depth and jam_at.get(int(g.edge_idx)) is not None
-                         and int(g.depth) >= jam_at[int(g.edge_idx)])]
+        live = _state_local_live_candidates(pool, banned, jam_at, prune_jam_depth)
         if not live:
             end = "exhausted"; break
         # max() keeps the first of equal scores, and the heap breaks ties by insertion order, so the two
@@ -388,10 +505,7 @@ def run_reactive(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, comb
             _record(env.get_full_state())
             return True, sims, len(plan), [], "solved"
         edge, depth = int(g.edge_idx), int(g.depth)
-        if prune_jam_depth and (step_res.info or {}).get("failure_reason"):
-            jd = jam_at.get(edge)
-            if jd is None or depth < jd:
-                jam_at[edge] = depth
+        _record_state_local_jam(jam_at, g, step_res, prune_jam_depth)
         if dedupe_noop and _unmoved(obs_before, env.get_observation(), obj):
             banned.add((edge, depth))     # same state, same pool -> never re-offer this push
             plan.pop()                    # nothing moved, so this is not a push worth executing
