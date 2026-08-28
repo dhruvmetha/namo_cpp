@@ -437,12 +437,23 @@ def run_greedy_commit(
     dedupe_noop=True,
     prune_jam_depth=True,
     region_samples=None,
+    simulate=True,
 ):
     """Commit the first moving arg-max candidate from one simulator state.
 
     No-op candidates are blacklisted at the unchanged state and a jam removes
     the same and deeper continuations on that edge. The first moving child is
     returned immediately, so this function never explores a sibling state.
+
+    With ``simulate=False`` the simulator gets no say at all: the ranked
+    arg-max is returned untried, zero ``env.step`` calls, state unchanged.
+    That is the pure-policy contract, decided 2026-08-28: the sim-real gap
+    means a push the simulator calls inert may move the real block, so the
+    camera judges pushes, not the simulator. Physically failed pushes are
+    already excluded upstream, per call, through the external edge blacklist
+    the runtime builds from what the robot actually did. greedy_dfs must keep
+    ``simulate=True``: its rollout needs the resulting state to take the next
+    step from, so a simulator-free rollout is not a meaningful object.
     """
     pool, value, _grid = candidates(
         planner,
@@ -462,6 +473,17 @@ def run_greedy_commit(
     jam_at = {}
     rejections = []
     simulations = 0
+
+    if not simulate:
+        live = _state_local_live_candidates(pool, banned, jam_at, prune_jam_depth)
+        if not live:
+            return GreedyCommitResult(None, state, 0, False, "exhausted", [])
+        obj, goal_spec, _score = max(
+            live, key=lambda candidate: priority(candidate[2], value, combine)
+        )
+        return GreedyCommitResult(
+            make_action(obj, goal_spec), state, 0, False, "committed", []
+        )
 
     while simulations < sim_budget:
         live = _state_local_live_candidates(pool, banned, jam_at, prune_jam_depth)

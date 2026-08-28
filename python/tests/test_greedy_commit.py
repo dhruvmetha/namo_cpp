@@ -76,12 +76,12 @@ def _planner():
     return SimpleNamespace(prim=_Prim(), scorer=_Scorer())
 
 
-def _run(env, *, sim_budget=20):
+def _run(env, *, sim_budget=20, simulate=True):
     return run_greedy_commit(
         _planner(), env, GOAL_M, XML, env.get_full_state(),
         h=2, sim_budget=sim_budget, prior="model", agg="mean5", combine="q",
         rng=np.random.default_rng(0), restrict_obj=OBJ,
-        is_open=lambda _env: False,
+        is_open=lambda _env: False, simulate=simulate,
     )
 
 
@@ -134,3 +134,40 @@ def test_counts_rejections_against_the_simulation_budget():
     assert result.action is None
     assert result.simulations_used == 2
     assert result.end == "budget"
+
+
+# ─── The pure-policy contract: simulate=False ───────────────────────────
+#
+# Decided 2026-08-28. The policy arm returns the ranked arg-max untried,
+# because a push the simulator calls inert may move the real block, which is
+# the sim-real gap the arm exists for. The camera judges pushes; the
+# simulator gets no say. The hard_004 formal trial where reactive stood
+# still after two simulated no-ops is the failure this contract prevents.
+
+
+def test_sim_free_commit_returns_the_argmax_untried():
+    env = _Env(moves_on=())  # every push is a sim no-op
+    commit = _run(env, simulate=False)
+    assert commit.action is not None
+    assert (int(commit.action.edge_idx), int(commit.action.depth)) == (0, 0)
+    assert env.stepped == []            # the simulator was never consulted
+    assert commit.simulations_used == 0
+    assert commit.end == "committed"
+
+
+def test_sim_free_commit_ignores_what_simulation_would_have_vetoed():
+    """The same environment under simulate=True returns nothing: every
+    candidate is a sim no-op, the loop bans them all and exhausts. The
+    sim-free path must return the arg-max anyway, since that verdict is
+    exactly the opinion the policy contract removes."""
+    env_sim = _Env(moves_on=())
+    assert _run(env_sim, sim_budget=100).action is None
+    env_free = _Env(moves_on=())
+    assert _run(env_free, simulate=False).action is not None
+
+
+def test_sim_free_commit_leaves_the_state_untouched():
+    env = _Env(moves_on=())
+    before = env.get_full_state()
+    commit = _run(env, simulate=False)
+    assert commit.resulting_state == before

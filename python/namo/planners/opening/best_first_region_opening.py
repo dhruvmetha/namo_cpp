@@ -330,14 +330,21 @@ class BestFirstRegionOpeningPlanner:
             Callable[[namo_rl.RLEnvironment], Tuple[bool, Dict[str, Any]]]
         ] = None,
         opening_predicate: Optional[Callable[[namo_rl.RLEnvironment], bool]] = None,
+        simulate: bool = True,
     ) -> PlannerResult:
-        """Return the first moving arg-max action even if it has not opened yet."""
+        """Return the first moving arg-max action even if it has not opened yet.
+
+        ``simulate=False`` returns the ranked arg-max untried instead: the
+        pure-policy contract, where the camera judges pushes rather than the
+        simulator. See run_greedy_commit.
+        """
         return self._run_boundary(
             robot_goal,
             target_neighbor=target_neighbor,
             candidate_acceptor=candidate_acceptor,
             opening_predicate=opening_predicate,
             commit_one=True,
+            commit_simulate=simulate,
         )
 
     def _run_boundary(
@@ -349,6 +356,7 @@ class BestFirstRegionOpeningPlanner:
         ] = None,
         opening_predicate: Optional[Callable[[namo_rl.RLEnvironment], bool]] = None,
         commit_one: bool = False,
+        commit_simulate: bool = True,
     ) -> PlannerResult:
         if target_neighbor is None:
             raise ValueError("best-first region opening requires target_neighbor")
@@ -501,6 +509,7 @@ class BestFirstRegionOpeningPlanner:
                     dedupe_noop=True,
                     prune_jam_depth=True,
                     region_samples=region_samples,
+                    simulate=commit_simulate,
                 )
                 self.push_budget.used += int(commit.simulations_used)
                 actions = [commit.action] if commit.action is not None else []

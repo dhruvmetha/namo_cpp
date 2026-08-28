@@ -484,7 +484,15 @@ class FullNAMOPlanner(BasePlanner):
                 )
             if self.exec_mode in GREEDY_COMMIT_EXEC_MODES:
                 result = opener.greedy_commit(
-                    robot_goal, target_neighbor=target, **opener_kwargs
+                    robot_goal,
+                    target_neighbor=target,
+                    # The policy mode is simulator-free by contract: the ranked
+                    # arg-max goes to the robot untried and the camera judges
+                    # it, because a push the sim calls inert may move the real
+                    # block. greedy_dfs keeps the simulator; its rollout needs
+                    # the resulting state to take the next step from.
+                    simulate=self.exec_mode != "greedy_policy",
+                    **opener_kwargs,
                 )
             else:
                 result = opener.search(
