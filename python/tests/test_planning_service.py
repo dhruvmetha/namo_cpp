@@ -38,6 +38,38 @@ def test_registered_planners_import_without_dataset_environment():
     assert completed.returncode == 0, completed.stderr
 
 
+def test_preload_best_first_scorer_reuses_search_cache_and_warms(
+    monkeypatch, tmp_path
+):
+    from namo.services import NAMOPlanningService
+    from namo.strategies import scorer_goal_strategy as scorer_module
+
+    events = []
+
+    class FakeScorer:
+        def warmup(self, *, repeats):
+            events.append(("warmup", repeats))
+
+    scorer = FakeScorer()
+
+    def get_scorer(checkpoint, config_path, device):
+        events.append(("get", checkpoint, config_path, device))
+        return scorer
+
+    monkeypatch.setattr(scorer_module, "_get_scorer", get_scorer)
+
+    config_path = tmp_path / "namo.yaml"
+    _write_canonical_config(config_path)
+    service = NAMOPlanningService(str(config_path))
+
+    service.preload_best_first_scorer("ranker.ckpt", device="cuda")
+
+    assert events == [
+        ("get", "ranker.ckpt", str(config_path), "cuda"),
+        ("warmup", 3),
+    ]
+
+
 def test_plan_from_xml_returns_actions_and_statistics(monkeypatch, tmp_path):
     from namo.services import NAMOPlanningService
     from namo.services import planning_service as module

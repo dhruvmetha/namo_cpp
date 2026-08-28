@@ -48,6 +48,9 @@ CHANS = ["static", "movable", "target_object", "robot_region", "goal_sample_regi
 TIGHT = [f"local_tight_{c}" for c in CHANS]
 OUT = 64
 CROP_M = 0.5
+CONTACT_COUNT = 60
+WARMUP_HORIZON = 2
+DEFAULT_WARMUP_REPEATS = 3
 
 DEFAULT_CKPT = str(SCRATCH / "sage_outputs/scorer/e4seed_s1/namo-classifier"
                    "/p2y7ihae/checkpoints/epoch029-val_loss0.2956.ckpt")
@@ -182,6 +185,15 @@ class LiveScorer:
         if raw and is_hl:
             return logits
         return 1.0 / (1.0 + np.exp(-logits))
+
+    def warmup(self, repeats=DEFAULT_WARMUP_REPEATS):
+        """Initialize the configured model/device with synthetic ranker inputs."""
+        ctx = np.zeros((len(CHANS), OUT, OUT), dtype=np.float32)
+        contact_px = np.zeros((CONTACT_COUNT, 2), dtype=np.float32)
+        for _ in range(repeats):
+            self.score_ctx(
+                ctx, contact_px, h=WARMUP_HORIZON, raw=True
+            )
 
     def score_state(self, env, target_object, robot_goal, xml_file, region_samples=None, h=1, raw=False):
         """Return (60,5) P for `target_object` from the LIVE env at its current state.
