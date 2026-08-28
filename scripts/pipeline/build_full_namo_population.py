@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 from probe_static_topology import DROP_RULES
-from verify_geom_disjoint import geom_sig, load_xmls
+from verify_geom_disjoint import geom_sig, load_signature_reference, load_xmls
 
 
 OUTPUT_FILENAMES = (
@@ -103,7 +103,8 @@ def _structural_reasons(row: dict[str, object], expect_hop: int) -> list[str]:
 
 def _training_signatures(
     train_specs: Sequence[Path],
-) -> tuple[set[str], set[str], dict[str, int]]:
+    signature_specs: Sequence[Path],
+) -> tuple[set[str], set[str], dict[str, int], list[dict[str, object]]]:
     """Load all registered training rooms and return full and floorplan signatures."""
     train_paths: list[str] = []
     for spec in train_specs:
@@ -119,14 +120,29 @@ def _training_signatures(
             continue
         full_signatures.add(full)
         wall_signatures.add(walls)
+
+    signature_references: list[dict[str, object]] = []
+    for spec in signature_specs:
+        compact_full, compact_walls, artifact = load_signature_reference(spec)
+        full_signatures.update(compact_full)
+        wall_signatures.update(compact_walls)
+        signature_references.append(
+            {
+                "path": str(spec),
+                "sha256": _sha256(spec),
+                "sources": artifact["sources"],
+            }
+        )
+
     return full_signatures, wall_signatures, {
         "reference_files": len(train_specs),
+        "signature_reference_files": len(signature_specs),
         "xml_paths": len(train_paths),
         "unique_xml_paths": len(unique_paths),
         "unparseable_xml_paths": unparseable,
         "unique_room_signatures": len(full_signatures),
         "unique_floorplan_signatures": len(wall_signatures),
-    }
+    }, signature_references
 
 
 def _assert_outputs_absent(out_dir: Path) -> None:
@@ -158,11 +174,13 @@ def build_population(
     name: str,
     expect_hop: int,
     out_dir: Path,
+    signature_specs: Sequence[Path] = (),
 ) -> dict[str, object]:
     """Validate candidates and write one immutable Full NAMO population and audit."""
     manifest_path = Path(manifest_path).expanduser().resolve()
     probe_jsonl = Path(probe_jsonl).expanduser().resolve()
     train_specs = tuple(Path(path).expanduser().resolve() for path in train_specs)
+    signature_specs = tuple(Path(path).expanduser().resolve() for path in signature_specs)
     out_dir = Path(out_dir).expanduser().resolve()
     if not name.strip():
         raise ValueError("population name must be nonempty")
@@ -181,7 +199,10 @@ def build_population(
             f"{len(probe_set - candidate_set)} extra"
         )
 
-    train_full, train_walls, train_counts = _training_signatures(train_specs)
+    train_full, train_walls, train_counts, signature_references = _training_signatures(
+        train_specs,
+        signature_specs,
+    )
     accepted: list[dict[str, str]] = []
     dropped: list[dict[str, object]] = []
     drop_counts: Counter[str] = Counter()
@@ -237,6 +258,7 @@ def build_population(
             "probe_jsonl": str(probe_jsonl),
             "probe_jsonl_sha256": _sha256(probe_jsonl),
             "training_references": [str(path) for path in train_specs],
+            "training_signature_references": signature_references,
         },
         "counts": {
             "input_scenes": len(candidates),
@@ -272,13 +294,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--train-xmls",
         type=Path,
         action="append",
-        required=True,
+        default=[],
         help="registered training H5/TXT/JSON reference; repeat for multiple corpora",
+    )
+    parser.add_argument(
+        "--train-signatures",
+        type=Path,
+        action="append",
+        default=[],
+        help="compact training-geometry signature JSON; repeat for multiple artifacts",
     )
     parser.add_argument("--name", required=True)
     parser.add_argument("--expect-hop", type=int, required=True)
     parser.add_argument("--out-dir", type=Path, required=True)
     args = parser.parse_args(argv)
+    if not args.train_xmls and not args.train_signatures:
+        parser.error("at least one of --train-xmls or --train-signatures is required")
 
     audit = build_population(
         manifest_path=args.manifest,
@@ -287,6 +318,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         name=args.name,
         expect_hop=args.expect_hop,
         out_dir=args.out_dir,
+        signature_specs=args.train_signatures,
     )
     counts = audit["counts"]
     print(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sys
 from pathlib import Path
 
@@ -13,6 +14,7 @@ SCRIPT_DIR = Path(__file__).resolve().parents[2] / "scripts" / "pipeline"
 sys.path.insert(0, str(SCRIPT_DIR))
 
 import build_full_namo_population as builder  # noqa: E402
+import export_geom_signatures as exporter  # noqa: E402
 from verify_geom_disjoint import geom_sig  # noqa: E402
 
 
@@ -248,4 +250,86 @@ def test_cli_requires_at_least_one_training_reference(
             ]
         )
 
-    assert "--train-xmls" in capsys.readouterr().err
+    error = capsys.readouterr().err
+    assert "at least one of --train-xmls or --train-signatures is required" in error
+
+
+def test_build_population_consumes_a_source_bound_signature_reference(
+    tmp_path: Path,
+) -> None:
+    accepted = write_scene(tmp_path / "accepted.xml", wall_x=1.0, obstacle_x=1.0)
+    leaked = write_scene(tmp_path / "leaked.xml", wall_x=2.0, obstacle_x=2.0)
+    train = write_scene(tmp_path / "train.xml", wall_x=2.0, obstacle_x=2.0)
+    train_manifest = tmp_path / "train.txt"
+    train_manifest.write_text(f"{train}\n", encoding="utf-8")
+    signature_reference = tmp_path / "training_geometry.json"
+    exported = exporter.export_signatures(
+        train_specs=[train_manifest],
+        out_path=signature_reference,
+        workers=1,
+    )
+    manifest, probe = write_inputs(
+        tmp_path,
+        [accepted, leaked],
+        [probe_row(accepted), probe_row(leaked)],
+    )
+    out_dir = tmp_path / "out"
+
+    audit = builder.build_population(
+        manifest_path=manifest,
+        probe_jsonl=probe,
+        train_specs=[],
+        signature_specs=[signature_reference],
+        name="population",
+        expect_hop=2,
+        out_dir=out_dir,
+    )
+
+    population = json.loads((out_dir / "population.json").read_text(encoding="utf-8"))
+    assert population["scenes"] == [
+        {
+            "xml_path": str(accepted.resolve()),
+            "cluster_id": f"floorplan:{geom_sig(accepted)[1]}",
+        }
+    ]
+    assert audit["counts"]["training_scene_leaks"] == 1
+    assert audit["training"]["signature_reference_files"] == 1
+    assert audit["sources"]["training_signature_references"] == [
+        {
+            "path": str(signature_reference.resolve()),
+            "sha256": hashlib.sha256(signature_reference.read_bytes()).hexdigest(),
+            "sources": exported["sources"],
+        }
+    ]
+
+
+def test_build_population_rejects_inconsistent_signature_counts(tmp_path: Path) -> None:
+    scene = write_scene(tmp_path / "scene.xml", wall_x=1.0, obstacle_x=1.0)
+    train_manifest = tmp_path / "train.txt"
+    train_manifest.write_text(f"{scene}\n", encoding="utf-8")
+    signature_reference = tmp_path / "training_geometry.json"
+    artifact = exporter.export_signatures(
+        train_specs=[train_manifest],
+        out_path=signature_reference,
+        workers=1,
+    )
+    artifact["counts"]["unique_room_signatures"] = 2
+    signature_reference.write_text(
+        json.dumps(artifact, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    manifest, probe = write_inputs(tmp_path, [scene], [probe_row(scene)])
+    out_dir = tmp_path / "out"
+
+    with pytest.raises(ValueError, match="unique_room_signatures.*does not match"):
+        builder.build_population(
+            manifest_path=manifest,
+            probe_jsonl=probe,
+            train_specs=[],
+            signature_specs=[signature_reference],
+            name="population",
+            expect_hop=2,
+            out_dir=out_dir,
+        )
+
+    assert not out_dir.exists()
