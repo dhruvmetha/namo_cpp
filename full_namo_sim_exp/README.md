@@ -22,6 +22,22 @@ The experiment runner also bypasses the base exact-path-length selector. `protoc
 
 Copy `experiment.example.json` outside Git, set the frozen population, run root, checkpoint, exact protocol, five Random seeds, pinned SLURM partition/CPU constraint, predeclared reporting cutoffs, and bootstrap seed. One config represents one exact path-length population; use separately frozen configs if multiple hop populations will be reported separately.
 
+## Building the held-out population
+
+Generate the final scenes only after the method and protocol are frozen, using a fresh seed range with `scripts/slurm/multihop_aug9_generate.slurm`. Run `scripts/pipeline/probe_static_topology.py` over every generated XML with the same exact hop count, then build the population from the complete generated manifest, probe JSONL, and every registered training-room reference:
+
+```bash
+"$NAMO_PYTHON" scripts/pipeline/build_full_namo_population.py \
+  --manifest "$GENERATED_MANIFEST" \
+  --probe-jsonl "$STATIC_PROBE_JSONL" \
+  --train-xmls "$FINAL_TRAIN_XML_REFERENCE" \
+  --name full-namo-two-boundary-heldout-v1 \
+  --expect-hop 2 \
+  --out-dir "$NAMO_MANIFESTS/full_namo_two_boundary_heldout_v1"
+```
+
+Repeat `--train-xmls` when the final model's rooms come from multiple registered corpora. The builder requires exact manifest/probe equality, applies only the probe's zero-simulation structural rules, rejects full-room geometry leaks, assigns floorplan cluster IDs, refuses overwrite, and writes `population.json`, `accepted_scenes.txt`, `dropped_scenes.jsonl`, and `population_audit.json`. Review the audit before configuring a run; no result-producing method belongs anywhere in this build step.
+
 ## Pipeline
 
 Activate the target machine environment from the repository root, then export `HY5U_CHECKPOINT` to the exact registered final checkpoint:
