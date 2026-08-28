@@ -31,10 +31,13 @@ After freezing, every accepted scene remains in every denominator. A runtime err
 
 | field | value |
 |---|---|
-| HY5U checkpoint | `/cache/home/dm1487/aquaman0/ckpts_bfix/HY5U_s2.ckpt` |
+| HY5U checkpoint | `/scratch/tdn39/full_namo_heldout_v1/artifacts/HY5U_s2.ckpt` |
+| checkpoint source | `/common/users/shared/robot_learning/dm1487/namo/ranking/models/HY5U_s2/checkpoints/epoch011-val_loss0.3256.ckpt` |
+| checkpoint SHA-256 | `3cf348cf7ba247f2cb143376371fc06771665793783d12e3b37bf596e0e5a854` verified before and after transfer |
 | model choice | HY5U seed 2, the registered best seed of the registered best deployable HY5U arm |
 | complete training reference | `/common/users/dm1487/scratch_namo/aquaman/round0/hybrid_train_v1.h5` |
 | training-reference meaning | 1,302,659 rows: 257,409 old-corpus roots plus 1,045,250 family0 child rows; the H5 `xml` column is the complete HY5U room reference |
+| compact geometry handoff | `/scratch/tdn39/full_namo_heldout_v1/artifacts/HY5U_hybrid_train_v1.geometry.json` after owner-side export and SHA verification |
 | generator | `scripts/slurm/multihop_aug9_generate.slurm`; implementation last changed at `ea660909879fa332671074895f17d7daccf01ef6` |
 | templates | all ten `mujoco_env_creator/templates/aug9_car_v3/{set1,set2}/benchmark_{1..5}.xml` templates |
 | exact-hop gate | `EXACT_HOP=2` |
@@ -85,13 +88,25 @@ Run the zero-push structural probe over the entire manifest:
   --workers 32
 ```
 
-Build the immutable population from the entire manifest, exact probe, and complete HY5U training-room reference. If the H5 is not mounted on Amarel, first export its complete `xml` column on the CS estate into a hashed, immutable manifest and copy that manifest together with all referenced XML geometry needed by the gate; do not replace it with a subset or directory nickname.
+The data-owning CS account exports the complete HY5U training geometry with the committed canonical helper; any unparseable room aborts the export before an artifact is written:
+
+```bash
+"$NAMO_PYTHON" scripts/pipeline/export_geom_signatures.py \
+  --train-xmls /common/users/dm1487/scratch_namo/aquaman/round0/hybrid_train_v1.h5 \
+  --out /common/users/shared/robot_learning/dm1487/namo/ranking/HY5U_hybrid_train_v1.geometry.json \
+  --workers 32
+sha256sum \
+  /common/users/dm1487/scratch_namo/aquaman/round0/hybrid_train_v1.h5 \
+  /common/users/shared/robot_learning/dm1487/namo/ranking/HY5U_hybrid_train_v1.geometry.json
+```
+
+Transfer that exact JSON to `$ROOT/artifacts/`, verify its SHA-256 again, and build the immutable population from the entire candidate manifest, exact probe, and compact complete training-room reference:
 
 ```bash
 "$NAMO_PYTHON" scripts/pipeline/build_full_namo_population.py \
   --manifest "$ROOT/population/generated_scenes.txt" \
   --probe-jsonl "$ROOT/population/static_probe.jsonl" \
-  --train-xmls /common/users/dm1487/scratch_namo/aquaman/round0/hybrid_train_v1.h5 \
+  --train-signatures "$ROOT/artifacts/HY5U_hybrid_train_v1.geometry.json" \
   --name full-namo-two-boundary-heldout-v1 \
   --expect-hop 2 \
   --out-dir "$ROOT/population/frozen"
@@ -115,8 +130,9 @@ The model tail is `X/N`; the Random curve pools observed outcomes as `X/(5N)` on
 |---|---|
 | committed launch SHA | `8abb6a03263af18b2828544ae85fc9303af93f7b` |
 | metadata-stamp SHA | `8bce7ee22ea7ab42934911e729c00edda5ef8156` |
-| checkpoint SHA-256 | pending verified Amarel access |
+| checkpoint SHA-256 | `3cf348cf7ba247f2cb143376371fc06771665793783d12e3b37bf596e0e5a854` |
 | training reference SHA-256 | pending verified CS-estate access |
+| compact training-geometry SHA-256 | pending owner export and transfer |
 | seed/output collision audit | pending verified Amarel access |
 | generation job ID | pending |
 | generated manifest SHA-256 | pending |
@@ -130,10 +146,10 @@ The model tail is `X/N`; the Random curve pools observed outcomes as `X/(5N)` on
 
 - [ ] Repository and sibling scorer checkout are clean on the launch host.
 - [ ] This card is committed and its launch SHA is stamped by a follow-up commit.
-- [ ] Amarel host key is independently verified before updating SSH trust.
-- [ ] Checkpoint path and SHA-256 are verified on Amarel.
+- [x] Amarel host key change is confirmed by the 2026-08 maintenance notice; the presented ED25519 fingerprint matches from both login IPs and two network paths.
+- [x] Checkpoint path and SHA-256 are verified on Amarel.
 - [ ] Complete hybrid training reference and SHA-256 are verified on the CS estate.
 - [ ] Seed interval and all output roots are confirmed unused on Amarel.
-- [x] Focused builder tests and the complete `full_namo_sim_exp` regression suite pass at the launch SHA: 45 passed on 2026-08-27.
+- [x] Focused exporter/builder tests and the complete `full_namo_sim_exp` regression suite pass: 49 passed on 2026-08-27.
 - [ ] All generation array tasks complete successfully before probing.
 - [ ] Population audit is reviewed before `full_namo_sim_exp.pipeline validate` freezes the final experiment.

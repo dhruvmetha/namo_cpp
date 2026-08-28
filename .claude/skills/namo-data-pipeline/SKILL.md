@@ -21,6 +21,7 @@ Search `scripts/` (committed) and `scripts/sandbox/` (gitignored one-offs) for a
 | `build_filtered_train_h5.py` | de-leak a train H5 to a solve_rate band | keep rows by MATCHED episode sr |
 | `emit_informative_manifest.py` | pkls whose episode solve_rate ∈ band | ⚠ selects whole PKL → dilutes; for a FILTERED set, filter per-episode at SOURCE |
 | `build_h5.slurm` / `convert_to_hdf5.py` | NPZ dir → packed H5 | — |
+| `pipeline/export_geom_signatures.py` | private train H5/TXT/JSON → compact, source-bound geometry signature reference | fails closed on any unparseable room; shares no paths, labels, or samples |
 | `pipeline/build_full_namo_population.py` | exact-hop manifest + zero-sim topology probe + train references → frozen Full NAMO population and audit | complete-scene unit; join by realpath; hold out by room geometry; never filter on success |
 | eval scripts + `resolve_robust.sh` | scorer eval, diffusion eval, and the verdict layer | → see **Eval structure** below |
 

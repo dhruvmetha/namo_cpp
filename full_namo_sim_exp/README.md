@@ -24,19 +24,31 @@ Copy `experiment.example.json` outside Git, set the frozen population, run root,
 
 ## Building the held-out population
 
-Generate the final scenes only after the method and protocol are frozen, using a fresh seed range with `scripts/slurm/multihop_aug9_generate.slurm`. Run `scripts/pipeline/probe_static_topology.py` over every generated XML with the same exact hop count, then build the population from the complete generated manifest, probe JSONL, and every registered training-room reference:
+Generate the final scenes only after the method and protocol are frozen, using a fresh seed range with `scripts/slurm/multihop_aug9_generate.slurm`. Run `scripts/pipeline/probe_static_topology.py` over every generated XML with the same exact hop count, then build the population from the complete generated manifest, probe JSONL, and every registered training-room reference.
+
+When the training rooms are private to a different account, export their canonical geometry once on the data-owning machine. The exporter hashes the source reference, fails if any room is unparseable, and emits only sorted full-room and wall signatures plus aggregate counts:
+
+```bash
+"$NAMO_PYTHON" scripts/pipeline/export_geom_signatures.py \
+  --train-xmls "$FINAL_TRAIN_XML_REFERENCE" \
+  --out "$SHARED_TRAIN_GEOMETRY_REFERENCE" \
+  --workers 32
+sha256sum "$FINAL_TRAIN_XML_REFERENCE" "$SHARED_TRAIN_GEOMETRY_REFERENCE"
+```
+
+Build with the transferred signature artifact:
 
 ```bash
 "$NAMO_PYTHON" scripts/pipeline/build_full_namo_population.py \
   --manifest "$GENERATED_MANIFEST" \
   --probe-jsonl "$STATIC_PROBE_JSONL" \
-  --train-xmls "$FINAL_TRAIN_XML_REFERENCE" \
+  --train-signatures "$SHARED_TRAIN_GEOMETRY_REFERENCE" \
   --name full-namo-two-boundary-heldout-v1 \
   --expect-hop 2 \
   --out-dir "$NAMO_MANIFESTS/full_namo_two_boundary_heldout_v1"
 ```
 
-Repeat `--train-xmls` when the final model's rooms come from multiple registered corpora. The builder requires exact manifest/probe equality, applies only the probe's zero-simulation structural rules, rejects full-room geometry leaks, assigns floorplan cluster IDs, refuses overwrite, and writes `population.json`, `accepted_scenes.txt`, `dropped_scenes.jsonl`, and `population_audit.json`. Review the audit before configuring a run; no result-producing method belongs anywhere in this build step.
+Repeat `--train-xmls` for direct private references or `--train-signatures` for compact references; both forms may be combined. The builder requires at least one form, exact manifest/probe equality, applies only the probe's zero-simulation structural rules, rejects full-room geometry leaks, assigns floorplan cluster IDs, refuses overwrite, and writes `population.json`, `accepted_scenes.txt`, `dropped_scenes.jsonl`, and `population_audit.json`. Review the artifact source hash and population audit before configuring a run; no result-producing method belongs anywhere in this build step.
 
 ## Pipeline
 
