@@ -2,7 +2,7 @@
 status: hub
 tags:
   - results
-updated: 2026-08-21
+updated: 2026-08-28
 ---
 # Results — DAgger curriculum training framework
 
@@ -52,6 +52,7 @@ The scannable cross-campaign index: **what we changed, why, and whether it helpe
 | 08-13 | *(validity)* train/test leakage audit | HY5U's numbers needed a held-out guarantee | ✅ **clean** — 0 of 978 two-push test rooms and 0 of 1012 test episodes appear in hybrid training (full-path match; 5-component suffix matching gives a false 62% and must not be used for leak checks) | [crossboard](log/EXP-2026-08-09-crossboard-ranking.md) |
 | 08-21 | **fixed-physics v3 canonical evaluation** — HY5U ×3 vs random ×3 | replace every stale v1 comparison with a complete-population v3 baseline | ✅✅ HY5U wins the tight search regime on every tier; hard 2push @5 **35.9 vs 2.0**, @900 **87.6 vs 62.2** | registry: `hy5u-nodiscount-hmax2-v3` / `random-nodiscount-hmax2-v3` |
 | 08-22 | **HY5U as a policy** — zero search, greedy argmax, out to 30 calls [USER] | what is the ranker worth with the queue switched off | ✅ policy **leads to ~5 calls** (2push all @5 **75.7 vs 73.4**) then **saturates**; search passes at 10 and finishes **89.7 vs 82.9** @30. Crossover is the engineering answer. Two harness bugs found and fixed | [policy-mode](log/EXP-2026-08-22-policy-mode-hy5u.md) |
+| 08-28 | **geometry-only best-first baseline** — reachable car transport priority, finish-first exact ties | can a proper model-free geometric method beat random ordering? | ❌ **no: worse than random overall** — all-tier solve@5s **82.3 vs 93.1** (1push), **27.7 vs 40.8** (2push); geometry scoring is only 0.4%/0.2% of wall time, so the failure is ordering and extra simulator calls, not heuristic inference cost | registry: `geometric-walltime-4000-v3` |
 
 **Failed ideas, kept so they are not retried blind:** unanchored family softmax · hinge without an anchor (RPM) · 2% regression brake (RPB) · absolute plates on dead cells · margins sized in raw units instead of σ · root rebalancing as a 1-push fix · exhaustive relabeling bought at the cost of corpus size · ladder + rebalance stacking · push-depth-aware pose head · Fourier depth identity.
 
@@ -80,6 +81,26 @@ HY5U seeds 1-3 and uniform-random seeds 7000/8000/9000 were re-run on the comple
 **WIN.** HY5U gives the search the right order precisely where verifier calls are scarce: the all-tier gap is +42.9 points at two calls and +52.1 at five on genuine two-push episodes. The hard tail does not disappear at budget 900: HY5U still leads random by 25.4 points while taking about one quarter as many simulator calls among solved episodes. One-push eventually saturates for both arms, but HY5U reaches the opening far earlier. Raw rows and all six per-seed aggregates are registered under `$NAMO_SCRATCH/eval/fixed_physics_v3_20260821/full/`.
 
 ---
+
+## 2026-08-28 — Geometry-only best-first: cheap heuristic, bad ordering
+
+The deterministic geometry baseline used the same reachable car `1×5` push primitives, labeled blocking object, `hmax=2`, budget 4000, raw `q`, discount off, no-op deduplication, jam-depth pruning, fixed-physics v3 populations, and exclusive Cascadelake wall-clock protocol as the registered HY5U/random campaign. C++ transport priority 1–6 was mapped to `q=6–1`; when scores tied, a child-board finish was tried before a root setup. Geometry is one deterministic arm; HY5U and random entries below are three-seed means from the saved matched-hardware campaign. `final` is solve rate by the 4000-call ceiling, `t2s` is average wall time among solved episodes, and `s2s` is average simulator calls among solved episodes.
+
+| 1push tier | n | solve@5s geom / HY5U / random | solve@30s | solve@300s | final | t2s (s) | s2s |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| easy | 681 | 96.0 / 100.0 / 99.9 | 97.7 / 100.0 / 100.0 | 99.0 / 100.0 / 100.0 | 99.1 / 100.0 / 100.0 | 2.52 / 0.49 / 0.49 | 8.1 / 1.0 / 1.8 |
+| medium | 442 | 75.3 / 99.0 / 93.3 | 88.5 / 99.9 / 99.5 | 96.2 / 100.0 / 100.0 | 98.6 / 100.0 / 100.0 | 21.45 / 0.88 / 2.08 | 71.6 / 1.7 / 8.0 |
+| hard | 205 | 51.7 / 94.3 / 70.1 | 67.8 / 99.0 / 94.6 | 88.3 / 100.0 / 99.7 | 94.6 / 100.0 / 100.0 | 65.50 / 2.40 / 9.45 | 254.7 / 5.8 / 38.4 |
+| all | 1328 | 82.3 / 98.8 / 93.1 | 90.0 / 99.8 / 99.0 | 96.4 / 100.0 / 99.9 | 98.3 / 100.0 / 100.0 | 18.21 / 0.91 / 2.40 | 66.0 / 2.0 / 9.5 |
+
+| 2push tier | n | solve@5s geom / HY5U / random | solve@30s | solve@300s | final | t2s (s) | s2s |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| easy | 387 | 41.9 / 91.7 / 63.6 | 69.0 / 99.1 / 95.7 | 90.7 / 99.7 / 99.7 | 96.1 / 99.7 / 99.7 | 58.97 / 2.45 / 7.00 | 197.9 / 7.4 / 25.0 |
+| medium | 487 | 20.3 / 77.3 / 30.2 | 42.9 / 94.5 / 70.2 | 75.4 / 99.3 / 98.3 | 88.7 / 99.6 / 99.5 | 129.87 / 8.55 / 35.88 | 441.7 / 23.0 / 136.6 |
+| hard | 118 | 11.9 / 48.0 / 9.9 | 23.7 / 74.6 / 27.4 | 57.6 / 95.2 / 78.0 | 83.1 / 98.3 / 95.2 | 246.86 / 39.72 / 179.29 | 923.2 / 124.7 / 737.9 |
+| all | 992 | 27.7 / 79.4 / 40.8 | 50.8 / 93.9 / 75.1 | 79.2 / 99.0 / 96.5 | 90.9 / 99.5 / 99.1 | 113.34 / 9.82 / 40.91 | 393.4 / 28.9 / 161.4 |
+
+**REJECTED as a useful ranker.** Geometry loses to random on the all-tier anytime curve in both horizons and uses 6.9× more solved-only simulator calls on one-push and 2.4× more on two-push. Hard two-push has one narrow early exception, 11.9% versus random 9.9% at five seconds, but geometry falls behind by 30 seconds and finishes 12.1 points lower. Its own computation is not the bottleneck: `t_score/t_wall` is 0.4% on one-push and 0.2% on two-push. The six coarse priority classes bury good pushes under large wrong classes; finish-first resolves only exact ties and cannot repair a lower-scored opener or setup. Raw rows and the canonical aggregate live under `$NAMO_SCRATCH/aquaman/round0/eval_walltime4k/geometric_finishfirst/`.
 
 ---
 
