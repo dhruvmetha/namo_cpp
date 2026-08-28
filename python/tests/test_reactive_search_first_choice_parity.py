@@ -221,7 +221,8 @@ def scene(tmp_path_factory):
         data_dir=str(REPO_ROOT / "data"),
         primitive_prefix=CANONICAL_PRIMITIVE_PREFIX,
     )
-    planners = {"uniform": SimpleNamespace(prim=prim, scorer=None)}
+    unscored = SimpleNamespace(prim=prim, scorer=None)
+    planners = {"uniform": unscored, "geometric": unscored}
     if SCORER_CKPT.is_file():
         from namo.strategies.scorer_goal_strategy import _get_scorer
 
@@ -290,7 +291,7 @@ def _pool_head(scene, prior, combine):
 
 
 def _priors():
-    marks = [pytest.param("uniform")]
+    marks = [pytest.param("uniform"), pytest.param("geometric")]
     marks.append(
         pytest.param(
             "model",
@@ -300,6 +301,28 @@ def _priors():
         )
     )
     return marks
+
+
+def test_geometry_changes_only_the_candidate_scores(scene):
+    """Geometry must rank the exact pool that model and random search receive."""
+    from namo.planners.opening.best_first_search import (
+        rank_first_pushes_h2,
+        rank_geometric_pushes,
+    )
+
+    planner = scene["planners"]["geometric"]
+    unscored = rank_first_pushes_h2(
+        planner, scene["env"], GOAL_M, scene["xml"], scene["state"], ONE_PUSH, score=False
+    )
+    geometric = rank_geometric_pushes(planner, scene["env"], GOAL_M, scene["state"])
+
+    def identities(pool):
+        return {(obj, int(goal.edge_idx), int(goal.depth)) for obj, goal, _score in pool}
+
+    assert identities(geometric) == identities(unscored)
+    assert {score for _obj, _goal, score in geometric}.issubset(
+        {1.0, 2.0, 3.0, 4.0, 5.0, 6.0}
+    )
 
 
 # ─── Tests ──────────────────────────────────────────────────────────────

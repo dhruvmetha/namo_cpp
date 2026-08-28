@@ -24,6 +24,7 @@ Baseline: --prior uniform = identical loop, RANDOM order, no value -> proves the
       --sim-budget 900 --prior model --agg mean5 --combine q --discount off --start 0 --end 985 --out <json>
 """
 import sys, os, json, time, argparse, random, heapq
+from types import SimpleNamespace
 from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 SAGE = os.environ.get("SAGE_REPO", "")
@@ -31,11 +32,21 @@ for _p in (f"{REPO}/build_python", f"{REPO}/python", f"{REPO}/scripts", f"{REPO}
            f"{REPO}/scripts/pipeline", SAGE):
     if _p and _p not in sys.path:
         sys.path.insert(0, _p)
-from scorer_beam import BeamPlanner, make_env, make_action, read_manifest, FALLBACK_GOAL, CFG  # noqa: E402
+from scorer_beam import (  # noqa: E402
+    BeamPlanner,
+    DATA_DIR,
+    PRIM_PREFIX,
+    make_env,
+    make_action,
+    read_manifest,
+    FALLBACK_GOAL,
+    CFG,
+)
 from eval_m3 import rank_first_pushes_h2, sample_goal_points, goal_open_pts  # noqa: E402
 from namo.core.xml_goal_parser import extract_goal_with_fallback  # noqa: E402
 from namo.paths import MANIFESTS, DATASETS, SCRATCH  # noqa: E402
 from namo import eval_sets  # noqa: E402
+from namo.strategies import PrimitiveGoalStrategy  # noqa: E402
 from viz.trace_schema import build_trace, episode_filename, make_board, make_pop, rle_encode  # noqa: E402
 
 PURE2PUSH = str(MANIFESTS / "test_pure2_fromkey.txt")
@@ -100,14 +111,14 @@ def _make_capture(env, exporter, xml, obj, hw, hd, mov_names, offsets_world):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ckpt", required=True)
+    ap.add_argument("--ckpt", default="", help="required only when --prior=model")
     ap.add_argument("--manifest", default="",
                     help="optional scene-list override; default derives sorted scenes directly from --key")
     ap.add_argument("--start", type=int, default=0)
     ap.add_argument("--end", type=int, default=985)
-    ap.add_argument("--hmax", type=int, default=2, help="max pushes (search depth bound; model saw H in {1,2})")
+    ap.add_argument("--hmax", type=int, default=2, help="max pushes in the search chain")
     ap.add_argument("--sim-budget", type=int, default=30, help="max sims/scene = the reactive<->search dial")
-    ap.add_argument("--prior", default="model", choices=["model", "uniform"])
+    ap.add_argument("--prior", default="model", choices=["model", "uniform", "geometric"])
     ap.add_argument("--agg", default="mean5", choices=["mean5", "max"], help="state-value aggregate (selection)")
     ap.add_argument("--combine", default="blend", choices=["q", "blend", "product"])
     ap.add_argument("--discount", default="off", choices=["off", "gamma", "fitted", "conf"],
@@ -181,8 +192,18 @@ def main():
             _os.path.realpath(xml): {(rec.get("object_id"), rec.get("region")) for rec in recs}
             for xml, recs in only_raw.items()
         }
-    planner = BeamPlanner(ckpt=a.ckpt)
-    print(f"device={planner.scorer.device} hmax={a.hmax} sim_budget={a.sim_budget} prior={a.prior} "
+    if a.prior == "model":
+        if not a.ckpt:
+            ap.error("--ckpt is required when --prior=model")
+        planner = BeamPlanner(ckpt=a.ckpt)
+        device = planner.scorer.device
+    else:
+        planner = SimpleNamespace(
+            prim=PrimitiveGoalStrategy(data_dir=DATA_DIR, primitive_prefix=PRIM_PREFIX),
+            scorer=None,
+        )
+        device = "none"
+    print(f"device={device} hmax={a.hmax} sim_budget={a.sim_budget} prior={a.prior} "
           f"agg={a.agg} combine={a.combine} discount={a.discount} tau={a.tau} "
           f"dedupe_noop={a.dedupe_noop} prune_jam_depth={a.prune_jam_depth} "
           f"key={_os.path.basename(a.key)} success={a.success}", flush=True)

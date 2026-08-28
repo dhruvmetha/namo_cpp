@@ -89,13 +89,73 @@ def rank_first_pushes_h2(planner, env, robot_goal, xml, s0, h, restrict_obj=None
         return pool, grid
     return pool
 
+
+def rank_geometric_pushes(planner, env, robot_goal, state, restrict_obj=None, return_grid=False):
+    """Rank the canonical candidate pool with the batched geometry heuristic.
+
+    The candidate generator is the same ``planner.prim`` used by model and
+    uniform search. Only the score source changes: C++ evaluates every
+    reachable endpoint in one batch and returns priority levels 1..6, which we
+    map to scores 6..1 so the existing max-heap tries better geometry first.
+    """
+    env.set_full_state(state)
+    reach_objs = list(env.get_reachable_objects())
+    if restrict_obj is not None:
+        allowed = {restrict_obj} if isinstance(restrict_obj, str) else set(restrict_obj)
+        reach_objs = [o for o in reach_objs if o in allowed]
+    redges = {o: set(env.get_reachable_edges(o)) for o in reach_objs}
+    pool = []
+    grid = None
+    for obj in reach_objs:
+        if not redges[obj]:
+            continue
+        goals_per_edge = planner.prim.generate_goals(obj, state, env, max_goals=0)
+        goals = []
+        target_poses = []
+        for edge_goals in goals_per_edge:
+            for g in edge_goals:
+                if g is None:
+                    continue
+                e = int(getattr(g, "edge_idx", -1))
+                if e not in redges[obj]:
+                    continue
+                goals.append(g)
+                target_poses.append([float(g.x), float(g.y), float(g.theta)])
+        if not goals:
+            continue
+        env.set_full_state(state)
+        priorities = env.evaluate_primitive_priorities(obj, target_poses, robot_goal[:2])
+        if return_grid:
+            grid = [[0.0] * 5 for _ in range(60)]
+        for g, geometric_priority in zip(goals, priorities):
+            q = float(7 - int(geometric_priority))
+            pool.append((obj, g, q))
+            if grid is not None:
+                e = int(g.edge_idx)
+                d = int(g.depth)
+                if 0 <= e < len(grid) and 0 <= d < len(grid[e]):
+                    grid[e][d] = q
+    pool.sort(key=lambda x: -x[2])
+    if return_grid:
+        return pool, grid
+    return pool
+
 def candidates(planner, env, goal, xml, state, h, prior, agg, rng, restrict_obj=None, raw=True,
                want_grid=False, region_samples=None):
     """Reachable pushes from `state` (restricted to restrict_obj = the labeled object) with a priority-base
-    value + the state value V. model: q = Q(state,a,h); V = agg of top Q (mean5 robust, or max). uniform: random q, V=0.
-    want_grid (viz only, default False = no extra cost): also return the model's (60,5) score grid for `state`,
-    reusing the forward pass rank_first_pushes_h2 already made — None when prior=uniform or the pool is empty."""
-    if want_grid:
+    value + the state value V. model: q = ranker score; geometric: q = 7 - geometric priority;
+    uniform: random q, V=0. want_grid (viz only, default False): also return the (60,5) score grid for
+    `state`, reusing the ranking pass already made. The grid is None for uniform or an empty pool."""
+    if prior == "geometric":
+        ranked = rank_geometric_pushes(
+            planner, env, goal, state, restrict_obj=restrict_obj, return_grid=want_grid
+        )
+        if want_grid:
+            pool, grid = ranked
+        else:
+            pool = ranked
+            grid = None
+    elif want_grid:
         pool, grid = rank_first_pushes_h2(planner, env, goal, xml, state, h, restrict_obj=restrict_obj,
                                           score=(prior != "uniform"), raw=raw, return_grid=True,
                                           region_samples=region_samples)
