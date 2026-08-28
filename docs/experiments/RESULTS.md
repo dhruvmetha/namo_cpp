@@ -100,6 +100,10 @@ The deterministic geometry baseline used the same reachable car `1×5` push prim
 | hard | 118 | 11.9 / 48.0 / 9.9 | 23.7 / 74.6 / 27.4 | 57.6 / 95.2 / 78.0 | 83.1 / 98.3 / 95.2 | 246.86 / 39.72 / 179.29 | 923.2 / 124.7 / 737.9 |
 | all | 992 | 27.7 / 79.4 / 40.8 | 50.8 / 93.9 / 75.1 | 79.2 / 99.0 / 96.5 | 90.9 / 99.5 / 99.1 | 113.34 / 9.82 / 40.91 | 393.4 / 28.9 / 161.4 |
 
+![Verified success versus simulator calls for geometry, HY5U, and random, split by fixed difficulty and horizon.](plots/geometric_walltime4k_v3/success_vs_sims_both_horizons.png)
+
+![Verified success versus wall-clock time on exclusive Cascadelake nodes, split by fixed difficulty and horizon.](plots/geometric_walltime4k_v3/success_vs_time_both_horizons.png)
+
 **REJECTED as a useful ranker.** Geometry loses to random on the all-tier anytime curve in both horizons and uses 6.9× more solved-only simulator calls on one-push and 2.4× more on two-push. Hard two-push has one narrow early exception, 11.9% versus random 9.9% at five seconds, but geometry falls behind by 30 seconds and finishes 12.1 points lower. Its own computation is not the bottleneck: `t_score/t_wall` is 0.4% on one-push and 0.2% on two-push. The six coarse priority classes bury good pushes under large wrong classes; finish-first resolves only exact ties and cannot repair a lower-scored opener or setup. Raw rows and the canonical aggregate live under `$NAMO_SCRATCH/aquaman/round0/eval_walltime4k/geometric_finishfirst/`.
 
 ---
