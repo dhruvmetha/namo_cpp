@@ -4,7 +4,7 @@ status: planned
 created: 2026-08-27
 thread: full-namo-heldout
 robot: car
-commit: pending-launch-stamp
+commit: 8abb6a03263af18b2828544ae85fc9303af93f7b
 metric: held-out Full NAMO success versus total simulator calls and whole-process wall time
 tags: [experiment, full-namo, heldout-testset, exact-two-boundary, hy5u, random-baseline, amarel]
 ---
@@ -113,7 +113,7 @@ The model tail is `X/N`; the Random curve pools observed outcomes as `X/(5N)` on
 
 | item | value |
 |---|---|
-| committed launch SHA | pending |
+| committed launch SHA | `8abb6a03263af18b2828544ae85fc9303af93f7b` |
 | metadata-stamp SHA | pending |
 | checkpoint SHA-256 | pending verified Amarel access |
 | training reference SHA-256 | pending verified CS-estate access |
@@ -137,4 +137,3 @@ The model tail is `X/N`; the Random curve pools observed outcomes as `X/(5N)` on
 - [ ] Focused builder tests and the complete `full_namo_sim_exp` regression suite pass at the launch SHA.
 - [ ] All generation array tasks complete successfully before probing.
 - [ ] Population audit is reviewed before `full_namo_sim_exp.pipeline validate` freezes the final experiment.
-
