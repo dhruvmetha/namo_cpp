@@ -20,17 +20,49 @@ The commission was to remove MuJoCo from the greedy-policy decision loop, shadow
 
 **Both wavefronts read the same constants from the same file.** The runtime hardcodes `namo_config_complete_skill15_car_1x.yaml`, which declares `robot_size: [0.035, 0.035]`, and both sides add the 0.005 tier1 margin, so both inflate 4.0 cm. The 0.052 in `namo_config_car.yaml` belongs to a file the runtime never loads. `robot_inflation: 0.0083` is annotated in the config itself as "Dead config, read by no code path".
 
-**The gate is failing on one scene, unexplained.** On `1push/2hop/env1`, unperturbed, `get_region_snapshot(use_cpp_unified=True)` reports 2 regions and the pure Python exporter reports 3. Both agree the goal is unreachable and both name `obstacle_1_movable` as the blocker. In the Python grid, `robot` and `region_3` have zero contacts, 4-connected and diagonal, and the exporter already uses all eight offsets, so this is not a connectivity-choice artifact. Nothing beyond that is established, and the cause is open.
+**The gate fails at exactly one robot pose on one scene.** The stacks were first reported to disagree 2-versus-3 on `1push/2hop/env1`. That reading is real but incomplete: the answer depends on where the robot is, and neither report stated the pose.
+
+```
+        robot pose                    C++ regions   Python
+         XML spawn   3 [goal, region_3, robot]        3
+       (0.25, 0.10)   2 [goal, robot]                  3   <- the only mismatch
+       (0.10, 0.10)   2 [goal, robot]                  2
+       (0.40, 0.10)   2 [goal, robot]                  2
+       (0.25, 0.45)   2 [region_3, robot_goal]         2
+       (0.40, 0.70)   2 [region_3, robot_goal]         2
+```
+
+Both partitions move with the robot pose. Five of six poses agree. The one that does not is (0.25, 0.10), which is the pose the repo's own integration tests standardise on, chosen because the XML spawn leaves the car wedged with nothing reachable.
+
+At that pose `obstacle_1_movable` sits at (0.25, 0.202) with half-extent 0.075, putting its lower edge at y = 0.127, so the robot at y = 0.10 is 2.7 cm below it and inside the 4.0 cm inflation. Both stacks then report a 9-cell robot region, which is a 3x3 clearing, and `real_robot` measured the two 3x3 patches overlapping in a single cell. Two clearings of the same size landing one cell apart points at a world-to-cell conversion differing by one. That is the live hypothesis, not a measurement.
+
+`get_environment_bounds` is dynamic with the robot: at spawn it returned xmin = robot_x - 0.0375, and moving the robot moved it. So the lattice origin follows the pose, which composes with everything above, and any harness fetching bounds at a different moment than the snapshot compares shifted grids.
+
+In the Python grid, `robot` and `region_3` have zero contacts at 4-connected and diagonal, and the exporter already uses all eight offsets, so this is not a connectivity-choice artifact. The cause is open.
+
+## What each accessor actually means
+
+The single most reusable thing here. Every one of these looked like the thing the comparison needed, and each answers a different question. All source-read.
+
+`count_reachable_points(points)` is **not** occupancy and **not** robot feasibility. `push_primitive_executor.cpp:229-253` calls `is_goal_reachable(point, goal_tolerance)` with the tolerance set to the 4.0 cm inflation radius, so a point counts as reachable when ANY robot-reachable cell lies within 4 cm of it. It is a tolerance-dilated query about the reachable set. That single fact explains the wall test below and voided analyses on both sides.
+
+`get_region_snapshot` returns `region_labels` as `{region_id: role}`, two or three entries like `{1: 'robot', 2: 'goal'}`. It is not a cell map, and it carries no grid at all.
+
+`sample_region_goals` / `region_goals` returns true interior cell centres, verified at `wavefront_grid.cpp:840-880`: it takes the region's own cell set, shuffles, and emits `grid_to_world + 0.5 * resolution`. No tolerance padding, so a correspondence probe built on it is sound. **But it only samples regions the adjacency BFS reaches from the robot.** On `1push/2hop/env1` at the XML spawn, 3 regions exist and exactly one bundle comes back, because the robot's region is isolated there. Regions disconnected from the robot are invisible to it, which are the ones a partition comparison most wants.
+
+`get_environment_bounds` moves with the robot, as above.
+
+`region_map`, on the Python side only, is indexed `[x, y]` and is the one true per-cell partition available anywhere.
 
 ## Dissolved, and the instrument failure that produced each
 
-Three findings were reported and then withdrawn. Each was caught by a check rather than by a test passing, and each is written out because the next person will reach for the same instrument.
+Five findings were reported and then withdrawn, three mine and two `real_robot`'s. Each was caught by a check rather than by a test passing, and each is written out because the next person will reach for the same instrument.
 
 **`region_labels` is not a cell map.** The first comparator grouped cells by `region_labels` and compared the resulting point sets. That field is `{region_id: role}`, two entries, like `{1: 'robot', 2: 'goal'}`. So the "point sets" were singletons of region ids, and comparing them was comparing labels, the one thing the brief said never to compare. The mandatory sabotage run caught it: with an object moved 5 cm the comparator still called 15 scenes identical. Without the sabotage the report would have read "the two wavefronts agree on 15 of 16 scenes" and meant nothing.
 
 **The lattice was transposed.** `region_map` is indexed `[x, y]`, not `[row, col]`. The grid is 106x163 and the x span is exactly 106 cells. Every cell-to-world conversion was transposed, so every point handed to the simulator was a different place than the cell read from the map. It produced a table showing C++ unable to reach any cell of the region the robot stands in. Caught because the robot at (0.25, 0.10) mapped to cell (24, 54) while the Python robot region sat at (54, 24), an exact transpose. The corrected table is total containment: C++ reaches 9 of 9 robot cells, 1985 of 1985 region_3 cells, and 0 of 4402 goal cells.
 
-**`count_reachable_points` does not apply robot inflation, and this is the one to remember.** Two lines prove it. `wall_3`'s surface is at y = 0.0, and a robot with a 3.5 cm half-extent cannot centre closer than 3.5 cm to it:
+**`count_reachable_points` answers a dilated question, and this is the one to remember.** Two lines prove it. `wall_3`'s surface is at y = 0.0, and a robot with a 3.5 cm half-extent cannot centre closer than 3.5 cm to it:
 
 ```
 0.5 cm above the wall surface: reachable=True
@@ -39,7 +71,11 @@ Three findings were reported and then withdrawn. Each was caught by a check rath
 3.0 cm                       : reachable=True
 ```
 
-That accessor reports whether a point lies in the reachable free area, not whether the robot's centre can occupy it. It invalidated a full analysis: 2369 cells that Python blocked and C++ "reached", with a thickness histogram running to 12 cells and an attribution spread across six objects. All of it was the inflation shell. Median distance from those cells to the nearest obstacle surface was 2.0 cm, and only 35 of 2369 lay beyond the shared 4.0 cm inflation. Python was blocking them correctly and an uninflated accessor was reporting them reachable. Two different questions, compared as though they were one.
+At the time this was read as "the accessor does not inflate". The true semantics are worse and are given above: it dilates by 4 cm, so it reports reachability of a neighbourhood rather than of a point. `real_robot` retracted a 27x27 window comparison to the same cause, a third question compared against two others. That analysis invalidated a full one of mine: 2369 cells that Python blocked and C++ "reached", with a thickness histogram running to 12 cells and an attribution spread across six objects. All of it was the inflation shell. Median distance from those cells to the nearest obstacle surface was 2.0 cm, and only 35 of 2369 lay beyond the shared 4.0 cm inflation. Python was blocking them correctly and an uninflated accessor was reporting them reachable. Two different questions, compared as though they were one.
+
+**A comparison reported without its input.** The 2-versus-3 gate failure went into this document with no robot pose recorded. Two sessions then spent a round trip suspecting stale worktrees, stale bindings and differing scene copies, when the answer was that we had run different poses and neither had said so. Checked and ruled out first: 122 commits since the binding was built, none touching `src/`, `include/` or `cpp_bindings/`; scene file md5 identical across both checkouts; and both call shapes giving the same answer on the same build. The pose table above is now the record.
+
+**A clean story from two data points.** After two poses the reading was "Python's partition is pose-independent, C++'s is not". Four more poses killed it: both move. It was one report away from being filed as a semantic difference between the stacks.
 
 ## Blocked
 
