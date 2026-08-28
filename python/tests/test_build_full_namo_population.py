@@ -204,3 +204,25 @@ def test_build_population_refuses_to_overwrite_frozen_outputs(tmp_path: Path) ->
             expect_hop=2,
             out_dir=out_dir,
         )
+
+
+def test_build_population_refuses_to_freeze_an_empty_population(tmp_path: Path) -> None:
+    scene = write_scene(tmp_path / "scene.xml", wall_x=1.0, obstacle_x=1.0)
+    manifest, probe = write_inputs(
+        tmp_path,
+        [scene],
+        [probe_row(scene, no_reachable_blocker=True)],
+    )
+    out_dir = tmp_path / "out"
+
+    with pytest.raises(ValueError, match="structural and leakage checks removed every candidate"):
+        builder.build_population(
+            manifest_path=manifest,
+            probe_jsonl=probe,
+            train_specs=[],
+            name="population",
+            expect_hop=2,
+            out_dir=out_dir,
+        )
+
+    assert not out_dir.exists()
