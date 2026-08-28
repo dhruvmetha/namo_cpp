@@ -143,6 +143,22 @@ class LiveScorer:
         with contextlib.redirect_stdout(buf):
             res = self.viz.generate_all_masks_highres(ep, tight_crop_size_meters=self.crop_m, fast_scorer=True)
         self.last_fell_back = "falling back to legacy BFS" in buf.getvalue()
+        if self.last_fell_back:
+            # The visualizer's own fallback text says the legacy BFS "may use
+            # wrong robot size". Scoring against wrong-size region masks is a
+            # silent corruption of every model-prior decision, and until
+            # 2026-08-28 this fired invisibly: the warning went into `buf`,
+            # which was discarded, and no caller ever read the flag. Refuse
+            # instead. The exception propagates to the planning call, which
+            # records a planning failure the runtime already handles safely;
+            # a loud dead stop beats a quiet wrong answer. The captured
+            # output rides along so the wavefront's actual error is not lost
+            # a second time.
+            raise RuntimeError(
+                "unified wavefront failed during ranker render; refusing to "
+                "score on the legacy-BFS fallback (wrong robot size). "
+                f"Captured render output:\n{buf.getvalue().strip()}"
+            )
         if res is None or res.get("local_tight") is None:
             raise RuntimeError("renderer returned None (missing target/region_goals_sampled)")
         lt = res["local_tight"]
