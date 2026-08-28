@@ -14,7 +14,7 @@
 # seconds. Budget 900 to stay comparable with the registered walltime-nodiscount-hmax2-v1 rows.
 #
 # Usage (one array per arm):
-#   CKPT=<ckpt> OUT=<dir> PRIOR=model|uniform SEED_BASE=7000 NSH=20 PUSH=2 \
+#   CKPT=<ckpt> OUT=<dir> PRIOR=model|uniform|geometric SEED_BASE=7000 NSH=20 PUSH=2 \
 #     sbatch --array=0-19 --constraint=icelake scripts/slurm/eval_walltime.slurm
 # PUSH=1 evaluates the 1-push population (still hmax=2 search) into $OUT/1push_hmax2/.
 # BOTH legs are pinned to the SAME constraint here so every arm of this campaign shares one CPU
@@ -27,11 +27,12 @@
 #SBATCH --output=logs/%x_%A_%a.out
 set -euo pipefail
 
-: "${CKPT:?set CKPT=<checkpoint (loaded even when PRIOR=uniform)>}"
 : "${OUT:?set OUT=<output root>}"
 SIM_BUDGET=${SIM_BUDGET:-900}
 NSH=${NSH:-10}
 PRIOR=${PRIOR:-model}
+CKPT=${CKPT:-}
+[ "$PRIOR" != "model" ] || : "${CKPT:?set CKPT=<checkpoint> when PRIOR=model}"
 SEED_BASE=${SEED_BASE:-7000}
 PUSH=${PUSH:-2}
 
