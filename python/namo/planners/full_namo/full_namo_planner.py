@@ -18,7 +18,6 @@ import namo_rl
 from namo.core import BasePlanner, PlannerConfig, PlannerResult
 from namo.planners.connectivity_snapshot import find_robot_label
 from namo.planners.opening.best_first_region_opening import (
-    CANONICAL_BEST_FIRST_HMAX,
     BestFirstRegionOpeningPlanner,
 )
 from namo.planners.opening.region_opening import RegionOpeningPlanner
@@ -147,11 +146,6 @@ class FullNAMOPlanner(BasePlanner):
                 "full_namo_exec_mode='greedy_dfs' requires "
                 "full_namo_local_search='best_first'"
             )
-        self.greedy_max_pushes = int(
-            algo_params.get("best_first_hmax", CANONICAL_BEST_FIRST_HMAX)
-        )
-        if self.exec_mode == "greedy_dfs" and self.greedy_max_pushes < 1:
-            raise ValueError("best_first_hmax must be at least 1 for greedy_dfs")
         self.region_opener: Optional[Any] = None
         self.stats = FullNAMOStats()
         self._aggregated_rejections: Dict[str, int] = {}
@@ -358,26 +352,6 @@ class FullNAMOPlanner(BasePlanner):
                     }
                 )
                 return self._success_result(start_time, actions, region_openings)
-
-            if (
-                self.exec_mode == "greedy_dfs"
-                and self.stats.total_pushes >= self.greedy_max_pushes
-            ):
-                context = {
-                    "iteration": iteration,
-                    "committed_pushes": self.stats.total_pushes,
-                    "max_committed_pushes": self.greedy_max_pushes,
-                }
-                self._record_iteration_trace(
-                    {**context, "outcome": "greedy_depth_exhausted"}
-                )
-                return self._failure_result(
-                    "Greedy DFS committed-push depth exhausted before reaching the goal",
-                    start_time,
-                    actions,
-                    failure_kind="greedy_depth_exhausted",
-                    context=context,
-                )
 
             snapshot = self._compute_region_snapshot()
             if snapshot is None:

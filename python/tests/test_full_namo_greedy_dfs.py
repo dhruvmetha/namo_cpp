@@ -183,18 +183,21 @@ def test_rebuilds_the_global_graph_after_each_committed_push(monkeypatch):
     assert result.algorithm_stats["greedy_committed_pushes"] == 2
 
 
-def test_does_not_restore_a_parent_after_a_committed_dead_end(monkeypatch):
+def test_greedy_dfs_is_not_capped_by_candidate_hmax(monkeypatch):
     env = FakeEnv()
-    opener = FakeOpener([_result("goal", state="dead-child", edge=3)])
-    planner = _planner(monkeypatch, env, opener, max_pushes=1)
+    opener = FakeOpener([
+        _result("goal", state="state-1", edge=3),
+        _result("goal", state="state-2", edge=7),
+        _result("goal", state="opened", edge=11, opened=True),
+    ])
+    planner = _planner(monkeypatch, env, opener, max_pushes=2)
     monkeypatch.setattr(planner, "_compute_region_snapshot", lambda: _snapshot(["goal"], "goal"))
 
     result = planner.search(GOAL)
 
-    assert result.success is False
-    assert result.algorithm_stats["failure_kind"] == "greedy_depth_exhausted"
-    assert env.state_history == ["dead-child"]
-    assert env.current_state == "dead-child"
+    assert result.success is True
+    assert [action.edge_idx for action in result.action_sequence] == [3, 7, 11]
+    assert result.algorithm_stats["greedy_committed_pushes"] == 3
 
 
 def test_reselects_at_same_state_when_a_boundary_has_no_moving_candidate(monkeypatch):
