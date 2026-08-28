@@ -60,6 +60,8 @@
     <div class="facts-actions">
       <button type="button" id="star-btn" class="star-btn" title="Star this episode (S)">&#9734; star</button>
       <button type="button" id="copy-btn">copy shortlist (<span id="star-count">0</span>)</button>
+      <!-- only ever filled when the POST of stars.json fails: silence means the list is on disk -->
+      <span id="store-note" class="store-note"></span>
     </div>
     <p class="zone-note">
       <kbd>&larr;</kbd> <kbd>&rarr;</kbd> step through the filter, <kbd>&uarr;</kbd> <kbd>&darr;</kbd>

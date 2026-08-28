@@ -14,6 +14,13 @@ const DATA_BASE = new URLSearchParams(window.location.search).get("data") || "";
 // unscoped key would mix one dataset's saved filters and starred shortlist into the other's.
 const STORE_KEY = "namo-viz-gallery-state:" + DATA_BASE;
 const STAR_KEY = "namo-viz-gallery-stars:" + DATA_BASE;
+// The shortlist itself lives in a file beside the dataset, written by the POST route in
+// scripts/viz/serve.py. localStorage alone is per browser and per port, so a shortlist built over
+// an evening is gone on the next laptop, and no script on the box can read it. The browser copy
+// stays as a cache for when the page is served by something that will not take the write (plain
+// `python -m http.server`), and the page says so on screen when that happens.
+const STARS_URL = DATA_BASE + "stars.json";
+let starsWritable = true;
 // Human name of the dataset, exported with every shortlist entry so a mixed or
 // mis-pasted shortlist is detectable downstream (the hardware side refuses
 // car-envs entries by this field rather than by guessing from id shapes).
@@ -38,6 +45,7 @@ const copyBtn = document.getElementById("copy-btn");
 const positionEl = document.getElementById("position");
 const summary = document.getElementById("summary");
 const starCount = document.getElementById("star-count");
+const storeNote = document.getElementById("store-note");
 
 const famControl = document.getElementById("fam-control");
 const famRow = document.getElementById("fam-row");
@@ -64,8 +72,22 @@ function saveState() {
 }
 
 function saveStars() {
-  localStorage.setItem(STAR_KEY, JSON.stringify(stars));
+  const text = JSON.stringify(stars);
+  localStorage.setItem(STAR_KEY, text);   // cache, so a dead server still shows the list
   starCount.textContent = Object.keys(stars).length;
+  if (!starsWritable) return;
+  fetch(STARS_URL, { method: "POST", body: text })
+    .then((r) => { if (!r.ok) markReadOnly(); })
+    .catch(markReadOnly);
+}
+
+// Say it once, on screen. A star that only reached localStorage looks identical to a saved one, and
+// finding out at handoff time that an evening of starring never left the browser is the whole
+// failure this file-backed list exists to prevent.
+function markReadOnly() {
+  if (!starsWritable) return;
+  starsWritable = false;
+  storeNote.textContent = "browser-only: this server will not write stars.json";
 }
 
 // timing.json is optional: a gallery built without build_scene_timing.py still works, it just has
@@ -76,7 +98,8 @@ if (!DATA_BASE) {
   Promise.all([
     fetch(DATA_BASE + "scenes.json", NOCACHE).then((r) => r.json()),
     fetch(DATA_BASE + "timing.json", NOCACHE).then((r) => (r.ok ? r.json() : null)).catch(() => null),
-  ]).then(([m, t]) => {
+    fetch(STARS_URL, NOCACHE).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+  ]).then(([m, t, savedStars]) => {
     index = m;
     // The car_envs pools spell the middle tier "medium", the real-table pools spell it "med", and
     // everything here keys on the string: TIER_ORDER, the dropdown, the per-tier counter. Left
@@ -84,7 +107,7 @@ if (!DATA_BASE) {
     // to a random spot on an undefined rank. Normalise once, on the way in.
     index.cards.forEach((r) => { if (r.tier === "med") r.tier = "medium"; });
     timing = t && t.cards ? t.cards : null;
-    init();
+    init(savedStars);
   }).catch((err) => { summary.textContent = "Failed to load scenes.json: " + err; });
 }
 
@@ -109,9 +132,12 @@ function buildFamilyBoxes() {
   famControl.hidden = fams.length < 2;
 }
 
-function init() {
+function init(fileStars) {
   buildFamilyBoxes();
-  stars = JSON.parse(localStorage.getItem(STAR_KEY) || "{}");
+  // The file wins whenever it exists: it is the copy every other browser and every handoff script
+  // reads. No file yet means either a fresh dataset or the first load since stars moved to disk, so
+  // adopt whatever this browser is holding -- the saveStars() below writes it up.
+  stars = fileStars || JSON.parse(localStorage.getItem(STAR_KEY) || "{}");
   // Stars persist the index ROW, so a star made before a field existed exports
   // without it forever. Refresh each saved row from the live index (matched by
   // file); keep the stale row only if the card vanished from the index.
@@ -311,11 +337,11 @@ function render(card) {
     `blocking object this episode is about; a push on it has to merge the first two.`;
 
   document.getElementById("card-title").textContent =
-    `${meta.horizon} · ${tierName(meta.tier)} · ${rowsSceneName(meta)} · ${meta.object_id}`;
+    `${meta.horizon} · ${tierName(meta.tier)} · ${galleryId()} · ${meta.object_id}`;
 
   const green = meta.horizon === "1push" ? "openers" : "working setups";
   const kv = [
-    ["scene", rowsSceneName(meta)],
+    ["gallery id", galleryId()],
     ["object", meta.object_id],
     ["goal region", meta.region],
     ["tier", `${tierName(meta.tier)} (${meta.density_pct.toFixed(2)}% of pushes work)`],
@@ -391,8 +417,12 @@ function redFor(up) {
   return `rgba(198, 40, 40, ${(0.10 + 0.80 * f).toFixed(2)})`;
 }
 
-function rowsSceneName(meta) {
-  return meta.xml.split("/").pop().replace(".xml", "");
+// The name the shortlist exports as gallery_id and the hardware build sheets are numbered by
+// (hard_006). It lives on the index row, never in the card. On the real-table datasets it is the
+// only human-readable name there is: every one of those 600 scenes is a file called env.xml, so
+// the old xml-basename title read "env" on all of them.
+function galleryId() {
+  return rows[i] ? rows[i].scene : "";
 }
 
 function updateStarBtn() {

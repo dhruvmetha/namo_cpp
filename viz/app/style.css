@@ -474,6 +474,7 @@ td.no { color: var(--dead); }
 .green-label { color: #555; }
 .facts-actions { display: flex; gap: 0.5rem; margin: 1rem 0 0.25rem; }
 .star-btn.starred { background: #fff3cd; border-color: #e0a800; }
+.store-note { align-self: center; font-size: 0.75rem; color: #c62828; }
 .facts-col kbd { border: 1px solid var(--border); border-radius: 3px; padding: 0 3px;
   font-family: ui-monospace, monospace; font-size: 0.9em; }
 .facts-col .zone-note { margin-top: 0.8rem; }
