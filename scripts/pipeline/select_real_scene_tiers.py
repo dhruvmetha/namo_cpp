@@ -167,33 +167,52 @@ def _checksum_stable(sheet, moved_max=1):
 
     Counts moved, NOT L1: the three counts sum to 60, so every disagreement is a reallocation and L1
     double-counts it.
+
+    Checked once PER MOVABLE, with the other movables folded into the statics, matching
+    `wavefront_planner.cpp:493`, which treats every other movable as a fixed obstacle, and matching
+    what the generator's own contact proxies do. It used to read `sheet["blocker"]` alone, so in a
+    two-movable scene it computed the checksum against geometry the hardware would not be building
+    and never saw the second block at all.
     """
-    st, blk, start = _geom(sheet)
+    st, movs, start = _geom(sheet)
     base_res = G.GRID_RES
     try:
-        G.GRID_RES = base_res
-        a = contact_breakdown(st, blk, start)
-        G.GRID_RES = 0.002
-        b = contact_breakdown(st, blk, start)
+        for i, blk in enumerate(movs):
+            others = [m for j, m in enumerate(movs) if j != i]
+            G.GRID_RES = base_res
+            a = contact_breakdown(st + others, blk, start)
+            G.GRID_RES = 0.002
+            b = contact_breakdown(st + others, blk, start)
+            if sum(abs(x - y) for x, y in zip(a, b)) // 2 > moved_max:
+                return False
     finally:
         G.GRID_RES = base_res
-    return sum(abs(x - y) for x, y in zip(a, b)) // 2 <= moved_max
+    return True
+
+
+def _movable_rect(bl, name):
+    hx, hy, _h = MOVABLES[bl["object"]]
+    return Rect(bl["center_cm"][0] / 100, bl["center_cm"][1] / 100, hx, hy,
+                math.radians(bl["yaw_deg"]), name, "mov")
 
 
 def _geom(sheet):
+    """-> (bricks, [movable rects], robot start). The movable list is length 1 for a single-blocker
+    scene and longer when the sheet carries a `blockers` list, which two-movable pools do.
+    """
     st = [Rect(b["center_cm"][0] / 100, b["center_cm"][1] / 100,
                b["size_cm"][0] / 200, b["size_cm"][1] / 200,
                math.radians(b["yaw_deg"]), b["marker_hint"], "brick")
           for b in sheet["bricks"]]
-    bl = sheet["blocker"]
-    hx, hy, _h = MOVABLES[bl["object"]]
-    blk = Rect(bl["center_cm"][0] / 100, bl["center_cm"][1] / 100, hx, hy,
-               math.radians(bl["yaw_deg"]), "blocker", "mov")
-    return st, blk, (sheet["robot_start_cm"][0] / 100, sheet["robot_start_cm"][1] / 100)
+    rows = sheet.get("blockers") or [sheet["blocker"]]
+    movs = [_movable_rect(b, f"blocker_{i}") for i, b in enumerate(rows)]
+    return st, movs, (sheet["robot_start_cm"][0] / 100, sheet["robot_start_cm"][1] / 100)
 
 
 def _placeable(sheet):
-    return start_is_placeable(*_geom(sheet))
+    """The car must not spawn inside ANY movable, not just the first one."""
+    st, movs, start = _geom(sheet)
+    return all(start_is_placeable(st, m, start) for m in movs)
 
 
 def spread(items, n):
@@ -233,8 +252,6 @@ def main():
         if sh is None:
             missing += 1
             continue
-        # one episode per scene by construction (single hop, single blocker); if the collection
-        # ever finds more, take the one on the goal boundary, which is the first recorded
         # A scene whose start the car cannot physically occupy wastes a build slot at the table.
         # The wavefront calls the start free because it inflates by max(hx,hy)=3.5, modelling the
         # robot as a disc; the physical 7x7 square's corners reach 4.95. 10 of the first 600
@@ -245,12 +262,32 @@ def main():
         if not _checksum_stable(sh):
             unstable += 1
             continue
-        ep = eps[0]
-        tier, rate = tier_of(ep, args.axis)
+        # POOL the episodes, one per pushed object, into one scene-level rate. This used to read
+        # eps[0] on the stated assumption of one episode per scene, which held while every scene had
+        # a single blocker. A two-movable scene has two, and eps[0] silently threw the second away
+        # and tiered the build by whichever object the key happened to list first.
+        #
+        # Pooling rather than picking is what the robot actually faces: the search may push either
+        # object, so the rate that predicts its work is openers over everything reachable, across
+        # both. The per-object split rides along in the row, because difficulty is still per
+        # (pushed object, goal region) and a pooled number must not be the only thing recorded.
+        # The episode index goes on the front of every pair. `tier_of` dedups its numerators as a
+        # set of tuples, so pooling raw [edge, depth] would collapse edge 5 depth 2 on object 0 with
+        # the same pair on object 1 into one entry and understate the rate, while the denominator
+        # counted both.
+        merged = {k: [[i] + list(p) for i, ep in enumerate(eps) for p in ep[k]]
+                  for k in ("tried_1push", "valid_1push", "valid_first_push")}
+        tier, rate = tier_of(merged, args.axis)
         by_tier[tier].append({"xml": xml, "sheet": sh, "rate": rate,
-                              "n_tried": len(ep["tried_1push"]),
-                              "n_valid_1push": len(ep["valid_1push"]),
-                              "n_valid_first": len(ep["valid_first_push"])})
+                              "n_tried": len(merged["tried_1push"]),
+                              "n_valid_1push": len(merged["valid_1push"]),
+                              "n_valid_first": len(merged["valid_first_push"]),
+                              "per_object": [{"object_id": ep["object_id"],
+                                              "rate": tier_of(ep, args.axis)[1],
+                                              "n_tried": len(ep["tried_1push"]),
+                                              "n_valid_1push": len(ep["valid_1push"]),
+                                              "n_valid_first": len(ep["valid_first_push"])}
+                                             for ep in eps]})
 
     print(f"key={len(key)} scenes, sheets matched={len(key) - missing}, unmatched={missing}, "
           f"dropped_unplaceable_start={unplaceable}, dropped_checksum_tie={unstable}")
@@ -270,12 +307,22 @@ def main():
             # 19.5. Handing a build sheet that names it invites a wrongly-oriented brick.
             sheet["bricks"] = [dict(b, marker_hint=f"wall_{10 + k}")
                                for k, b in enumerate(sheet["bricks"])]
-            sheet["tag_convention"] = ("every bar uses the wall_10/wall_11 ArUco mounting; "
-                                       "wall_9 is excluded (tag rotated 90 deg, 19.0 cm not 19.5)")
+            # Name the range this sheet actually emits. The text was pinned at "wall_10/wall_11"
+            # while the line above numbers one tag per brick, so a 4-brick scene handed the
+            # hardware a wall_13 alongside a note saying only wall_10 and wall_11 are ever used.
+            tags = [b["marker_hint"] for b in sheet["bricks"]]
+            sheet["tag_convention"] = (
+                f"bars use the {'/'.join(tags)} ArUco mounting, in that order; "
+                "wall_9 is excluded (tag rotated 90 deg, 19.0 cm not 19.5)")
             sheet.update(tier=tier, axis=args.axis, solve_rate=round(it["rate"], 4),
                          n_tried=it["n_tried"], n_valid_1push=it["n_valid_1push"],
                          n_valid_first_push=it["n_valid_first"], xml=it["xml"],
                          build_id=f"{tier}_{i:03d}")
+            # Only on multi-movable scenes, so single-blocker sheets keep the exact shape the
+            # hardware validator has already passed 593 of 593 on. `solve_rate` above pools the
+            # objects; this is the split it came from.
+            if len(it["per_object"]) > 1:
+                sheet["per_object"] = it["per_object"]
             rows.append(sheet)
         with open(os.path.join(args.out, f"{tier}.json"), "w") as f:
             json.dump(rows, f, indent=2)
