@@ -11,8 +11,25 @@ The sequence replayed is the TEST SET's own answer, not a planner's trace:
 The campaign's per-episode rows record plan_len only, so the ranker's own push sequence is not
 recoverable from them; replaying that needs eval_bestfirst.py --trace-out.
 
-Each step is verified by the simulator: `opened` is env.is_robot_goal_reachable() after the push, so
-a step that failed to do what the label says is visible rather than assumed.
+`--from-exhaustive` reads the plan out of `exhaustive_hmax2.py` output instead, for the two-movable
+pools, which are in no manifest and in no GT H5. Their sweep cells already name the whole chain: an
+opener is one push, and a setup carries `finish = [object, edge, depth]`. Three things differ from
+the canonical path and all three matter.
+
+The finish may land on the OTHER block. That is the entire point of those pools, so each step
+carries its own object id rather than reusing the card's target for both pushes.
+
+`opened` uses the labeller's own test, at least 20% of the goal-region points sampled at the root
+being reachable, NOT `is_robot_goal_reachable()`. The two disagree on 178 of 600 real-table scenes
+(see the `reference-region-opening-success-criterion` memory), and the XML marker is the wrong bar
+for a region-opening episode.
+
+A cold replay reproduces about 96% of 1-push labels and 81% of hard 2-push ones, because
+`set_full_state` drops the MuJoCo solver warmstart. A card with no replay file is usually one of
+those, not a broken label, and the page falls back to the start frame.
+
+Each step is verified by the simulator, so a step that failed to do what the label says is visible
+rather than assumed.
 
     python scripts/viz/build_scene_replay.py --out $NAMO_SCRATCH/viz/scenes [--shard i --nshards n]
 """
@@ -67,6 +84,39 @@ def finish_openers():
     return out
 
 
+def exhaustive_plans(pool_root, remap):
+    """xml -> {(object, edge, depth): plan}, where a plan is [(obj, edge, depth), ...].
+
+    Straight off the sweep files, so no manifest and no GT H5 is involved. An opener is a one-step
+    plan; a setup carries the finish that worked, which may be on the other block.
+    """
+    rules = [tuple(x.split("=", 1)) for x in (remap or [])]
+    out = defaultdict(dict)
+    seen = set()
+    for d in sorted(glob.glob(os.path.join(pool_root, "*_exh2_pull"))) + \
+            sorted(glob.glob(os.path.join(pool_root, "*", "exh2"))):
+        for f in glob.glob(os.path.join(d, "*.json")):
+            try:
+                rec = json.load(open(f))
+            except Exception:
+                continue
+            xml = rec.get("xml", "")
+            for a_, b_ in rules:
+                if xml.startswith(a_):
+                    xml = b_ + xml[len(a_):]
+            if not xml or xml in seen or not rec.get("cells"):
+                continue
+            seen.add(xml)
+            for c in rec["cells"]:
+                key = (c.get("object_id"), c["edge"], c["depth"])
+                if c["kind"] == "opener":
+                    out[xml][key] = [(c["object_id"], c["edge"], c["depth"])]
+                elif c["kind"] == "setup" and c.get("finish"):
+                    o2, e2, d2 = c["finish"]
+                    out[xml][key] = [(c["object_id"], c["edge"], c["depth"]), (o2, e2, d2)]
+    return out
+
+
 def snapshot(env, exporter, xml, target, offsets_world, mov_names, cfg):
     """Geometry + region decomposition at the env's CURRENT state, in the card's shapes."""
     obs = env.get_observation()
@@ -87,6 +137,25 @@ def snapshot(env, exporter, xml, target, offsets_world, mov_names, cfg):
     return geom, regions
 
 
+def region_bar(env):
+    """(points, bar) for the labeller's success test at the env's CURRENT state, or (None, 0).
+
+    Shares `exhaustive_hmax2`'s own helpers so the replay grades a step by the same rule that
+    produced the label. `is_robot_goal_reachable()` asks a different question, the XML marker rather
+    than the region, and the two disagree on 178 of 600 real-table scenes.
+    """
+    from exhaustive_hmax2 import MIN_FRACTION, goal_region_points
+    import math
+    pts = goal_region_points(env)
+    return (pts, max(1, math.ceil(MIN_FRACTION * len(pts)))) if pts else (None, 0)
+
+
+def is_open(env, pts, bar):
+    if pts is None:
+        return bool(env.is_robot_goal_reachable())
+    return bool(env.count_reachable_points(pts)[0] >= bar)
+
+
 def push(env, prim, make_action, obj, edge, depth):
     """Apply the primitive push (obj, edge, depth). False if that goal does not exist here."""
     state = env.get_full_state()
@@ -105,6 +174,11 @@ def main():
     ap.add_argument("--nshards", type=int, default=1)
     ap.add_argument("--tiers", default="", help="comma list, e.g. medium,hard -- easy is the bulk "
                                                 "of the population and the least interesting")
+    ap.add_argument("--from-exhaustive", metavar="POOL_ROOT",
+                    help="read plans from exhaustive_hmax2.py output under this pool root instead "
+                         "of the manifests plus GT H5, for the two-movable pools")
+    ap.add_argument("--remap", nargs="*", metavar="FROM=TO", default=[],
+                    help="rewrite an xml path prefix recorded by a sweep run on another box")
     a = ap.parse_args()
 
     from add_contact_px import contact_offsets_world
@@ -122,7 +196,8 @@ def main():
         card = json.load(open(os.path.join(a.out, "cards", row["file"])))
         by_xml[card["meta"]["xml"]].append((row, card))
 
-    fin = finish_openers()
+    exh = exhaustive_plans(a.from_exhaustive, a.remap) if a.from_exhaustive else None
+    fin = {} if exh else finish_openers()
     prim = PrimitiveGoalStrategy(data_dir=DATA_DIR, primitive_prefix=PRIM_PREFIX)
     outdir = os.path.join(a.out, "replay")
     os.makedirs(outdir, exist_ok=True)
@@ -142,12 +217,18 @@ def main():
             # exhaustive GT, or its primitive goal may not exist at this state, and the episode still
             # has a perfectly good solution through one of the others.
             plans = []
-            if row["horizon"] == "2push":
+            if exh is not None:
+                # The sweep already knows the whole chain for each green, finish object included.
+                for g in green:
+                    plan = exh.get(xml, {}).get((target, g[0], g[1]))
+                    if plan and (len(plan) == 2) == (row["horizon"] == "2push"):
+                        plans.append(plan)
+            elif row["horizon"] == "2push":
                 for s0 in green:
                     for f0 in fin.get((suf(xml), target, s0[0], s0[1]), []):
-                        plans.append([s0, f0])
+                        plans.append([(target,) + tuple(s0), (target,) + tuple(f0)])
             else:
-                plans = [[g] for g in green]
+                plans = [[(target, g[0], g[1])] for g in green]
             if not plans:
                 n_skip += 1
                 continue
@@ -159,18 +240,21 @@ def main():
                 env = make_env(xml)
                 env.set_robot_goal(*goal)
                 env.get_reachable_objects()
+                # Sample the goal-region points ONCE, at the root, exactly as the sweep did. Taking
+                # them after a push would move the target the steps are graded against.
+                pts, bar = region_bar(env) if exh is not None else (None, 0)
                 mov = [k for k, v in env.get_object_info().items()
                        if k != "robot" and "pos_x" not in v]
                 steps, failed = [], False
-                for step_i, (edge, depth) in enumerate(plan):
-                    if not push(env, prim, make_action, target, edge, depth):
+                for step_i, (pobj, edge, depth) in enumerate(plan):
+                    if not push(env, prim, make_action, pobj, edge, depth):
                         failed = True
                         break
                     geom, regions = snapshot(env, WavefrontSnapshotExporter(env), xml, target,
                                              contact_offsets_world, mov, CFG)
                     steps.append({"i": step_i + 1, "edge": edge, "depth": depth,
-                                  "geom": geom, "regions": regions,
-                                  "opened": bool(env.is_robot_goal_reachable())})
+                                  "object_id": pobj, "geom": geom, "regions": regions,
+                                  "opened": is_open(env, pts, bar)})
                 # Keep the first plan that runs AND ends open -- a replay whose last frame is still
                 # blocked would show the reader a non-solution.
                 if not failed and steps and steps[-1]["opened"]:
@@ -180,7 +264,10 @@ def main():
                 n_skip += 1
                 continue
             json.dump({"schema_version": SCHEMA_VERSION, "key": row["file"],
-                       "source": "ground-truth solution (manifest opener / setup + exhaustive-GT finish)",
+                       "source": ("exhaustive sweep chain (opener, or setup plus the finish that "
+                                  "worked, which may be on the other block)" if exh is not None
+                                  else "ground-truth solution (manifest opener / setup + "
+                                       "exhaustive-GT finish)"),
                        "steps": steps},
                       open(os.path.join(outdir, row["file"]), "w"))
             n_ok += 1
