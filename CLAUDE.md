@@ -30,6 +30,7 @@ NAMO (Navigation Among Movable Obstacles): C++ physics/planning backend + Python
 - **Orchestration (parallel experiments):** one experiment = one forked subagent; **file-partition** — disjoint files per agent, agents NEVER commit (orchestrator owns commits), never fork two agents writing the same files. Tier: `scout` for recon/mechanical, `experiment-runner` (opus/xhigh) for reasoning. Full mechanics (worktrees, merge-back, status→DASHBOARD, tiering) → [ORCHESTRATION.md](docs/experiments/ORCHESTRATION.md).
 - **Reporting splits [USER]:** ALWAYS by difficulty (easy/med/hard) AND horizon (1push/2push), never aggregate-only. Conventions (regime framing, depth) + binning → [WORKFLOW.md](docs/experiments/WORKFLOW.md).
 - **Timing [USER]:** NEVER put wall-times from different boxes on one axis — sims are the only cross-box substrate; wall-time compares only on identical HW. Protocol → [WORKFLOW.md](docs/experiments/WORKFLOW.md).
+- **Long runs [USER]:** ALWAYS launch long-running work through SLURM or a background process instead of blocking the foreground session, then monitor reliable job/artifact signals at a task-appropriate cadence of 5, 10, or 15 minutes.
 
 ## Environment & build
 
