@@ -7,10 +7,13 @@ anything that will execute the push sequence from a clean start, the hardware bu
 ⛔ A miss here is NOT proof of a bad label. `set_full_state` restores qpos and qvel but not the
 MuJoCo solver warmstart, so the same push from the same restored state behaves differently
 depending on how many pushes ran before it, and the sweep produced its labels with hundreds of
-pushes of history in the solver. Measured 2026-08-29 on the 26 hard/2push two-movable scenes: 21
-reproduce cold, 5 do not, and replaying one of those 5 with the sweep's prior enumeration in front
-of it opened the region at 97 of 100 points against a bar of 20 where the cold replay read 0. So
-read the output as a FLOOR on how many labels are real.
+pushes of history in the solver. Replaying one miss with the sweep's prior enumeration in front of
+it opened the region at 97 of 100 points against a bar of 20, where the cold replay read 0. So read
+the output as a FLOOR on how many labels are real.
+
+Measured 2026-08-29 on the two-movable pools, and the miss rate tracks how many restores a label
+leans on: hard/1push 68 of 71 reproduce (one push, one restore), hard/2push 25 of 31 (setup, restore
+to the middle state, finish).
 
 Ruled out before settling on that, so nobody repeats them: run-to-run non-determinism (two identical
 runs give identical results), a stale wavefront (`get_reachable_objects()` before counting moves
@@ -59,12 +62,19 @@ def main():
 
     rows = json.load(open(a.manifest))["cells"][a.cell]
     sweeps = sweep_index(a.pool_root)
+    # Replay what the cell actually qualified on. A 1push cell earned its place with an OPENER that
+    # touched the other block, so replaying its setup pairs instead would grade a different claim.
+    one_push = a.cell.endswith("_1push")
     ok = miss = nocontact = skipped = 0
     for r in rows:
         rec = sweeps.get(r["xml"])
-        cand = [c for c in (rec or {}).get("cells", [])
-                if c["kind"] == "setup" and c.get("finish")
-                and (c.get("movable_collisions") or c.get("finish_movable_collisions"))]
+        cells = (rec or {}).get("cells", [])
+        if one_push:
+            cand = [c for c in cells if c["kind"] == "opener" and c.get("movable_collisions")]
+        else:
+            cand = [c for c in cells
+                    if c["kind"] == "setup" and c.get("finish")
+                    and (c.get("movable_collisions") or c.get("finish_movable_collisions"))]
         if not cand:
             skipped += 1
             continue
@@ -79,13 +89,19 @@ def main():
         env.set_full_state(root)
         r1 = push(env, c["object_id"], c["edge"], c["depth"])
         mid_open = opens(env, pts, bar)
-        mid = env.get_full_state()
-        o2, e2, d2 = c["finish"]
-        env.set_full_state(mid)
-        r2 = push(env, o2, e2, d2)
-        got = env.count_reachable_points(pts)[0]
         i1 = r1.info if hasattr(r1, "info") else {}
-        i2 = r2.info if hasattr(r2, "info") else {}
+        i2 = {}
+        if one_push:
+            # The opener IS the whole claim: one push, region open, blocks touching. There is no
+            # intermediate state to be closed at, so mid_open is forced False for the test below.
+            got, mid_open = env.count_reachable_points(pts)[0], False
+        else:
+            mid = env.get_full_state()
+            o2, e2, d2 = c["finish"]
+            env.set_full_state(mid)
+            r2 = push(env, o2, e2, d2)
+            got = env.count_reachable_points(pts)[0]
+            i2 = r2.info if hasattr(r2, "info") else {}
         touched = bool(i1.get("movable_collisions") or i2.get("movable_collisions"))
         if got >= bar and not mid_open and touched:
             ok += 1
