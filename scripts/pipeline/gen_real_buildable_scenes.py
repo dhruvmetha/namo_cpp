@@ -662,14 +662,19 @@ def sample_scene(rng, movable_names, max_bricks, margin_r, band, layouts, contac
     opposite sides (`_layout_bands2`), so the corridor bends. The blocker always sits in the
     lower band's gap; the upper band's gap is left clear.
 
-    `min_bricks` (default 1, no floor): reject a layout with fewer bricks than this. Brick count is
-    the strongest predictor of a HARD scene that this generator has, and it is not the one the
-    `--open-frac` band claims to be. Measured over 480 exhaustively labelled two-movable scenes:
-    2 bricks give a median solve rate of 0.623 and 15% hard, while 3 bricks give 0.040 and 51% hard.
-    The median 3-brick scene is BELOW the 0.05 hard cut on its own. Over the same 480, `--open-frac`
-    separates almost nothing (20% hard at its tightest band against 0% at its loosest), and
-    `--contacts` runs the WRONG WAY from what its own help text says: 0-20 contacts gave 19-23% hard
-    while 28-36 gave 0%, so steering hard by asking for >=24 contacts makes hard scenes rarer.
+    `min_bricks` (default 1, no floor): reject a layout with fewer bricks than this.
+
+    ⛔ RETRACTED, and left here because the retraction is the useful part. This flag was added on a
+    measurement that brick count predicts HARD scenes: over 480 labelled scenes, 3 bricks read 51%
+    hard against 15% at 2. It did not survive a bigger sample. Over 929 scenes the hard rate by
+    brick count is 10/248 at one brick, 16/523 at two, 4/158 at three, which is 4%, 3%, 3%. Flat.
+    The original figure came from 35 three-brick scenes that fell out of pools steered for other
+    things, and it was noise. The flag still does what it says; it just does not buy hard scenes.
+
+    Nothing else steers hard either. `--open-frac` separates almost nothing, and `--contacts` runs
+    the WRONG WAY from its own help text: 0-20 contacts gave 19-23% hard while 28-36 gave 0%. The
+    base rate for hard in two-movable scenes is about 3%, so the way to get hard scenes is to label
+    a lot and keep what the simulator calls hard. There is no shortcut in this generator.
 
     `n_solo_openers` (default None, no steering): keep only scenes where exactly this many of the
     movables open the goal when deleted ALONE, per `solo_opens`. Steering is needed because the
@@ -950,10 +955,10 @@ def main():
                          "placed touching the first inside the passage, so one push can shove both "
                          "-- see FEATURE 1 in the implementation report")
     ap.add_argument("--min-bricks", type=int, default=1,
-                    help="reject layouts with fewer bricks than this. THE lever for hard scenes: "
-                         "3 bricks measured 51%% hard against 2 bricks at 15%%, over 480 labelled "
-                         "two-movable scenes. Needs --layouts without side_gap, which only ever "
-                         "places one")
+                    help="reject layouts with fewer bricks than this. Does NOT buy hard scenes: "
+                         "over 929 labelled scenes the hard rate is ~3%% at every brick count. An "
+                         "earlier 51%% figure was noise off 35 scenes, see the docstring. Needs "
+                         "--layouts without side_gap, which only ever places one")
     ap.add_argument("--n-solo-openers", type=int, default=None, choices=(0, 1, 2),
                     help="keep only scenes where exactly N of the movables open the goal when "
                          "deleted on their own. 1 is a target object plus a neighbour it can "
