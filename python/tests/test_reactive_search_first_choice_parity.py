@@ -222,7 +222,12 @@ def scene(tmp_path_factory):
         primitive_prefix=CANONICAL_PRIMITIVE_PREFIX,
     )
     unscored = SimpleNamespace(prim=prim, scorer=None)
-    planners = {"uniform": unscored, "geometric": unscored, "geometric_region": unscored}
+    planners = {
+        "uniform": unscored,
+        "geometric": unscored,
+        "geometric_transport": unscored,
+        "geometric_region": unscored,
+    }
     if SCORER_CKPT.is_file():
         from namo.strategies.scorer_goal_strategy import _get_scorer
 
@@ -303,18 +308,20 @@ def _priors():
     return marks
 
 
-def test_geometry_changes_only_the_candidate_scores(scene):
-    """Geometry must rank the exact pool that model and random search receive."""
+def test_legacy_transport_geometry_changes_only_the_candidate_scores(scene):
+    """The legacy transport proxy must rank the exact canonical candidate pool."""
     from namo.planners.opening.best_first_search import (
         rank_first_pushes_h2,
-        rank_geometric_pushes,
+        rank_geometric_transport_pushes,
     )
 
-    planner = scene["planners"]["geometric"]
+    planner = scene["planners"]["geometric_transport"]
     unscored = rank_first_pushes_h2(
         planner, scene["env"], GOAL_M, scene["xml"], scene["state"], ONE_PUSH, score=False
     )
-    geometric = rank_geometric_pushes(planner, scene["env"], GOAL_M, scene["state"])
+    geometric = rank_geometric_transport_pushes(
+        planner, scene["env"], GOAL_M, scene["state"]
+    )
 
     def identities(pool):
         return {(obj, int(goal.edge_idx), int(goal.depth)) for obj, goal, _score in pool}
@@ -325,18 +332,18 @@ def test_geometry_changes_only_the_candidate_scores(scene):
     )
 
 
-def test_region_geometry_changes_only_the_candidate_scores(scene):
-    """Region geometry must rank the same reachable primitive pool."""
+def test_geometry_changes_only_the_candidate_scores(scene):
+    """Corrected geometry must rank the same reachable primitive pool."""
     from namo.planners.opening.best_first_search import (
         rank_first_pushes_h2,
-        rank_geometric_region_pushes,
+        rank_geometric_pushes,
     )
 
-    planner = scene["planners"]["geometric_region"]
+    planner = scene["planners"]["geometric"]
     unscored = rank_first_pushes_h2(
         planner, scene["env"], GOAL_M, scene["xml"], scene["state"], ONE_PUSH, score=False
     )
-    geometric = rank_geometric_region_pushes(
+    geometric = rank_geometric_pushes(
         planner, scene["env"], scene["state"], REGION_SAMPLES
     )
 
@@ -434,7 +441,7 @@ def test_geometry_ties_prefer_finish_pushes_without_overriding_q():
 
     from namo.planners.opening.best_first_search import _queue_key
 
-    for prior in ("geometric", "geometric_region"):
+    for prior in ("geometric", "geometric_region", "geometric_transport"):
         heap = []
         heapq.heappush(heap, (*_queue_key(6.0, prior, 0, 0), "root_q6"))
         heapq.heappush(heap, (*_queue_key(6.0, prior, 1, 10), "finish_q6"))

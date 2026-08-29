@@ -92,8 +92,8 @@ def rank_first_pushes_h2(planner, env, robot_goal, xml, s0, h, restrict_obj=None
     return pool
 
 
-def rank_geometric_pushes(planner, env, robot_goal, state, restrict_obj=None, return_grid=False):
-    """Rank the canonical candidate pool with the batched geometry heuristic.
+def rank_geometric_transport_pushes(planner, env, robot_goal, state, restrict_obj=None, return_grid=False):
+    """Rank the canonical candidate pool with the legacy single-path transport proxy.
 
     The candidate generator is the same ``planner.prim`` used by model and
     uniform search. Only the score source changes: C++ evaluates every
@@ -143,10 +143,10 @@ def rank_geometric_pushes(planner, env, robot_goal, state, restrict_obj=None, re
     return pool
 
 
-def rank_geometric_region_pushes(planner, env, state, region_samples, restrict_obj=None, return_grid=False):
+def rank_geometric_pushes(planner, env, state, region_samples, restrict_obj=None, return_grid=False):
     """Rank reachable primitive endpoints by virtual target-region reachability."""
     if not region_samples:
-        raise ValueError("geometric_region requires fixed target-region samples")
+        raise ValueError("geometric requires fixed target-region samples")
     env.set_full_state(state)
     reach_objs = list(env.get_reachable_objects())
     if restrict_obj is not None:
@@ -193,12 +193,12 @@ def rank_geometric_region_pushes(planner, env, state, region_samples, restrict_o
 def candidates(planner, env, goal, xml, state, h, prior, agg, rng, restrict_obj=None, raw=True,
                want_grid=False, region_samples=None):
     """Reachable pushes from `state` (restricted to restrict_obj = the labeled object) with a priority-base
-    value + the state value V. model: q = ranker score; geometric: q = 7 - geometric priority;
-    geometric_region: q = virtual reachable target-region fraction;
+    value + the state value V. model: q = ranker score; geometric: q = virtual reachable
+    target-region fraction; geometric_transport: q = 7 - legacy single-path priority;
     uniform: random q, V=0. want_grid (viz only, default False): also return the (60,5) score grid for
     `state`, reusing the ranking pass already made. The grid is None for uniform or an empty pool."""
-    if prior == "geometric_region":
-        ranked = rank_geometric_region_pushes(
+    if prior in {"geometric", "geometric_region"}:
+        ranked = rank_geometric_pushes(
             planner, env, state, region_samples, restrict_obj=restrict_obj, return_grid=want_grid
         )
         if want_grid:
@@ -206,8 +206,8 @@ def candidates(planner, env, goal, xml, state, h, prior, agg, rng, restrict_obj=
         else:
             pool = ranked
             grid = None
-    elif prior == "geometric":
-        ranked = rank_geometric_pushes(
+    elif prior == "geometric_transport":
+        ranked = rank_geometric_transport_pushes(
             planner, env, goal, state, restrict_obj=restrict_obj, return_grid=want_grid
         )
         if want_grid:
@@ -242,7 +242,8 @@ def priority(q, V, combine):
 
 def _queue_key(effective_priority, prior, chain_depth, insertion_order):
     """Min-heap key: score first; geometric ties prefer pushes closer to completing the chain."""
-    depth_tie = -int(chain_depth) if prior in {"geometric", "geometric_region"} else 0
+    geometric_priors = {"geometric", "geometric_region", "geometric_transport"}
+    depth_tie = -int(chain_depth) if prior in geometric_priors else 0
     return (-float(effective_priority), depth_tie, int(insertion_order))
 
 

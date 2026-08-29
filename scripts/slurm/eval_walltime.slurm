@@ -16,6 +16,8 @@
 # Usage (one array per arm):
 #   CKPT=<ckpt> OUT=<dir> PRIOR=model|uniform|geometric SEED_BASE=7000 NSH=20 PUSH=2 \
 #     sbatch --array=0-19 --constraint=icelake scripts/slurm/eval_walltime.slurm
+# `geometric` is the corrected target-region score. The rejected single-path proxy is available only
+# as `geometric_transport` for historical reproduction.
 # PUSH=1 evaluates the 1-push population (still hmax=2 search) into $OUT/1push_hmax2/.
 # BOTH legs are pinned to the SAME constraint here so every arm of this campaign shares one CPU
 # generation; never compare a 1push time against a 2push time regardless.
