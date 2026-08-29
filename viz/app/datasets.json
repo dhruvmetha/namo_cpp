@@ -21,6 +21,13 @@
     "data": "../real_scenes_all/"
   },
   {
+    "id": "real_2mov",
+    "title": "Scene gallery \u2014 real-table, two movable blocks",
+    "description": "1462 exhaustively labelled two-movable doorways, filtered to the ones that earn their keep: a push that opens the region AND actually shoves the second block. Difficulty is per horizon, so 1push is scored on openers over enumerated pushes and 2push on openers plus setups, both against the usual 5%/30% cuts. Cards carry n_green_contact and contact_pct.",
+    "tool": "gallery",
+    "data": "../real_2mov/"
+  },
+  {
     "id": "search",
     "title": "Episode search index",
     "description": "Per-episode best-first search replay: priority queue, rank space, ground-truth comparison.",

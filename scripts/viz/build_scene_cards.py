@@ -93,7 +93,7 @@ def episodes_2push():
     return out
 
 
-def episodes_exhaustive(sweep_dirs, remap=None):
+def episodes_exhaustive(sweep_dirs, remap=None, horizon_tier=False, contact_only=False):
     """(xml -> [episode dict]) straight from `exhaustive_hmax2.py` output, for the two-movable pools.
 
     The canonical sources above read the eval-set manifests, which only cover the single-movable
@@ -110,6 +110,13 @@ def episodes_exhaustive(sweep_dirs, remap=None):
     green counts as contact if the push itself collided, or, for a setup, if the finish that worked
     did. The finish half is only present in sweeps run after commit ebc7f63; older files record the
     setup push alone and will read low here rather than wrong.
+
+    Two opt-in flags exist so the multi-movable tab shows the same set the grid counter reports,
+    and both default off so the two shipped galleries keep the numbers they were built with.
+    `horizon_tier` scores the 2push tier on openers PLUS setups, since a push that opens outright
+    also solves within a two-push horizon, which is what `count_qualifying_grid.py` counts and what
+    hmax=2 means at eval. Leaving it off scores 2push on setups alone. `contact_only` drops
+    episodes whose greens never touch another movable, which is the whole reason these pools exist.
     """
     # A sweep stores the paths of the box it RAN on, so a run labelled on Amarel points at
     # /scratch/... which does not exist here. Same prefix rewrite exh_to_key.py takes, same spelling.
@@ -135,6 +142,7 @@ def episodes_exhaustive(sweep_dirs, remap=None):
             eps = []
             for obj, cs in per_obj.items():
                 tried = [[c["edge"], c["depth"]] for c in cs]
+                n_open = sum(1 for c in cs if c["kind"] == "opener")
                 for horizon, kind in (("1push", "opener"), ("2push", "setup")):
                     hits = [c for c in cs if c["kind"] == kind]
                     if not hits:
@@ -142,7 +150,10 @@ def episodes_exhaustive(sweep_dirs, remap=None):
                     touched = sum(1 for c in hits
                                   if c.get("movable_collisions")
                                   or c.get("finish_movable_collisions"))
-                    density = 100.0 * len(hits) / len(tried) if tried else 0.0
+                    if contact_only and not touched:
+                        continue
+                    scoring = len(hits) + (n_open if horizon_tier and kind == "setup" else 0)
+                    density = 100.0 * scoring / len(tried) if tried else 0.0
                     eps.append({
                         "horizon": horizon, "object_id": obj, "region": "goal",
                         "green": [[c["edge"], c["depth"]] for c in hits], "tried": tried,
@@ -186,7 +197,8 @@ def capture_room(xml, make_env, extract_goal, fallback_goal, exporter_cls, cfg):
     return scene, regions
 
 
-def build(out_dir, shard, nshards, sweep_dirs=None, remap=None):
+def build(out_dir, shard, nshards, sweep_dirs=None, remap=None,
+          horizon_tier=False, contact_only=False):
     from add_contact_px import contact_offsets_world
     from namo.visualization.wavefront_snapshot import WavefrontSnapshotExporter
     from namo.core.xml_goal_parser import extract_goal_with_fallback
@@ -195,7 +207,7 @@ def build(out_dir, shard, nshards, sweep_dirs=None, remap=None):
     # `sweep_dirs` swaps the label source wholesale rather than adding to it. The two-movable pools
     # are not in the eval-set manifests at all, so mixing the two would just mean reading manifests
     # that cannot match a single one of these rooms.
-    sources = ((episodes_exhaustive(sweep_dirs, remap),) if sweep_dirs
+    sources = ((episodes_exhaustive(sweep_dirs, remap, horizon_tier, contact_only),) if sweep_dirs
                else (episodes_1push(), episodes_2push()))
     by_xml = {}
     for src in sources:
@@ -231,6 +243,31 @@ def build(out_dir, shard, nshards, sweep_dirs=None, remap=None):
     print(f"shard {shard}: DONE {len(mine)} rooms, {n} cards in {(time.time()-t0)/60:.1f} min")
 
 
+def scene_name(meta):
+    """The name shown on the card and used to tell one scene from another in the gallery.
+
+    Three sources, in order, because the datasets disagree about where the name lives:
+
+    A curated shortlist id (`easy_000`, `hard_006`) wins when the card has one. Those are the
+    numbers the hardware build sheets use, and `meta["key"]` is where they survive. The index used
+    to take the xml basename instead, which silently renamed all 600 shipped cards to "env" on any
+    rebuild, since every real-table room is a directory holding a file called `env.xml`. Generated
+    keys are `<base>__<object>__<hash>` and are told apart by the `__`.
+
+    Failing that the xml basename, and failing THAT, for any room whose file is `env.xml`, the
+    directory holding it plus the pool above. Room ids restart per pool, so `rb_00091` on its own
+    appears in several.
+    """
+    key = meta.get("key") or ""
+    if key and "__" not in key:
+        return key
+    parts = str(meta["xml"]).split("/")
+    base = parts[-1].replace(".xml", "")
+    if base != "env" or len(parts) < 4:
+        return base
+    return "/".join(parts[-4:-1])
+
+
 def scene_family(xml):
     """The generator batch a room came from -- the path segment after `test/` (feb_car, aug9_car).
 
@@ -256,10 +293,16 @@ def build_index(out_dir):
         if not fn.endswith(".json"):
             continue
         meta = json.load(open(os.path.join(cards_dir, fn)))["meta"]
-        rows.append({"file": fn, "scene": os.path.basename(meta["xml"]).replace(".xml", ""),
+        # The contact pair rides along when the card has it. It is the reason the two-movable
+        # pools exist, so the gallery needs it to filter on, and the check at the bottom of this
+        # function reads it. Copying only the canonical keys left that check testing a key that was
+        # never in `rows`, so it silently never fired and every two-movable build printed the
+        # eval-set warning it was written to suppress.
+        rows.append({"file": fn, "scene": scene_name(meta),
                      "family": scene_family(meta["xml"]),
                      **{k: meta[k] for k in ("horizon", "object_id", "tier", "density_pct",
-                                             "n_green", "n_tried", "region")}})
+                                             "n_green", "n_tried", "region")},
+                     **{k: meta[k] for k in ("n_green_contact", "contact_pct") if k in meta}})
     # Hardest first inside a tier: that is the order you want to arrow through when hunting figures.
     rows.sort(key=lambda r: (r["horizon"], {"hard": 0, "medium": 1, "easy": 2}[r["tier"]],
                              r["density_pct"], r["scene"]))
@@ -295,11 +338,17 @@ def main():
     ap.add_argument("--remap", nargs="*", metavar="FROM=TO", default=[],
                     help="rewrite an xml path prefix recorded by the sweep, for pools labelled on "
                          "another box")
+    ap.add_argument("--horizon-tier", action="store_true",
+                    help="score the 2push tier on openers plus setups, matching "
+                         "count_qualifying_grid.py and hmax=2, instead of setups alone")
+    ap.add_argument("--contact-only", action="store_true",
+                    help="keep only episodes whose greens actually touch another movable")
     a = ap.parse_args()
     if a.index_only:
         build_index(a.out)
     else:
-        build(a.out, a.shard, a.nshards, a.from_exhaustive, a.remap)
+        build(a.out, a.shard, a.nshards, a.from_exhaustive, a.remap,
+              a.horizon_tier, a.contact_only)
 
 
 if __name__ == "__main__":

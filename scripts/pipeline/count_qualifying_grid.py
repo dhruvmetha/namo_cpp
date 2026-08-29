@@ -29,10 +29,6 @@ def main(dirs):
     rows, seen = [], set()
     for d in dirs:
         for f in glob.glob(os.path.join(d, "*.json")):
-            key = os.path.basename(d).replace("_exh2_pull", "") + "/" + os.path.basename(f)
-            if key in seen:
-                continue
-            seen.add(key)
             try:
                 rec = json.load(open(f))
             except Exception:
@@ -40,6 +36,13 @@ def main(dirs):
             cells = rec.get("cells") or []
             if not cells:
                 continue
+            # Dedupe on the SCENE, not on the sweep filename. Two pull dirs can hold two copies of
+            # one Amarel run under different names, which is how v4_exh2_pull and v4_snap_exh2_pull
+            # double-counted 88 scenes and inflated every cell of the grid.
+            key = rec["xml"]
+            if key in seen:
+                continue
+            seen.add(key)
             n_op = sum(1 for c in cells if c["kind"] == "opener")
             n_su = sum(1 for c in cells if c["kind"] == "setup")
             t1 = tier(n_op / len(cells))
@@ -54,7 +57,8 @@ def main(dirs):
             if any(c["kind"] == "setup" and (c.get("movable_collisions") or c.get("finish_movable_collisions"))
                    for c in cells):
                 grid[(t2, "2push")].add(key)
-            rows.append((key, t1, t2, round(n_op / len(cells), 4),
+            rows.append((os.path.relpath(key, "/common/users/dm1487/scratch_namo"),
+                         t1, t2, round(n_op / len(cells), 4),
                          round((n_op + n_su) / len(cells), 4), n_op, n_su, len(cells),
                          rec.get("xml", "")))
     print(f"scenes with cells: {tot['scenes']}")
