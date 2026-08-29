@@ -2,7 +2,7 @@
 type: experiment
 status: active
 created: 2026-08-09
-updated: 2026-08-12
+updated: 2026-08-29
 metric: "TBD — gate: XB/RP must lift V5 ≥0.60 (from 0.543) with F2 ≥0.87 on the offline panel; canonical eval only for survivors."
 tags:
   - experiment
@@ -430,6 +430,14 @@ Gates `gate_dose.json`, `gate_aj2u.json`; panels `auc_dose_aj2u.json`, `auc_aj2u
 Where sort order DOES still matter, untested: child boards are capped at 12 tried finishes (`region_finish_topk_cap: 12`) and collection scores with `goal_strategy: scorer`, so the collecting model's preference decides which finishes are ever labeled — a possible model-bias feedback loop into the next corpus.
 
 ## WALL-CLOCK campaign at budget 4000 (complete 2026-08-13) [USER: "do the time evaluation", "4000 only"]
+
+### Warm-start timing correction (planned 2026-08-29)
+
+The canonical evaluator loaded HY5U once per shard but did not run a forward pass before the first episode. Because `solve_scene` starts `t_wall` before root ranking, the first episode of every shard paid PyTorch's cold-forward initialization inside both `t_score` and `t_wall`; checkpoint loading itself was already outside the timer. Across the saved three-seed campaign, the first one-push episode's median `t_score/n_score` was 0.332 s versus 0.122 s for the second episode, so the effect is measurable rather than hypothetical.
+
+The corrected protocol runs three synthetic `(5,64,64)` context / `(60,2)` action forward passes immediately after checkpoint load and before any episode timer. Every real render, candidate-ranking pass, neural forward, simulator call, and search operation remains inside `t_wall`. Raw rows record `search.model_warmup_repeats=3`, and the SLURM log records the evaluated git commit.
+
+Plan: smoke one real episode end-to-end on an exclusive Cascadelake node, then rerun HY5U seeds 1–3 on both canonical fixed-physics-v3 horizons at `hmax=2`, budget 4000, raw `q`, discount off, no-op deduplication and jam-depth pruning, 20 shards per arm. Reuse the saved random and geometry arms because neither executes the model path; retime one small random anchor on the same nodes to verify that the new Cascadelake allocation pools with the prior campaign. Aggregate, plots, and the registry update follow only after all six HY5U arrays pass count and protocol checks.
 
 Protocol `scripts/slurm/eval_walltime.slurm`: every task takes a WHOLE node (`--exclusive`) of ONE fixed CPU generation, single-threaded, model scoring on CPU; timing accumulated inside `eval_bestfirst.solve_scene` so the timed search IS the canonical search. 12 arms (HY5U ×3 seeds, uniform random ×3 seeds, both legs), 20 shards each, budget 4000. Raw `eval_walltime4k/`, plots `plots/walltime4k/success_vs_time_{1push_hmax2,2push}.png`.
 

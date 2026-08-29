@@ -11,7 +11,9 @@
 #
 # Per-episode rows carry t_wall / t_sim / t_score / n_score, so the model's scoring overhead is
 # separable from simulator time — the number that decides whether a sim-count win survives in
-# seconds. Budget 900 to stay comparable with the registered walltime-nodiscount-hmax2-v1 rows.
+# seconds. A model prior runs three synthetic forwards immediately after load and before the first
+# episode timer; every real render, forward, and simulator call stays inside t_wall. Budget 900 to
+# stay comparable with the registered walltime-nodiscount-hmax2-v1 rows.
 #
 # Usage (one array per arm):
 #   CKPT=<ckpt> OUT=<dir> PRIOR=model|uniform|geometric SEED_BASE=7000 NSH=20 PUSH=2 \
@@ -37,6 +39,7 @@ CKPT=${CKPT:-}
 [ "$PRIOR" != "model" ] || : "${CKPT:?set CKPT=<checkpoint> when PRIOR=model}"
 SEED_BASE=${SEED_BASE:-7000}
 PUSH=${PUSH:-2}
+MODEL_WARMUP_REPEATS=${MODEL_WARMUP_REPEATS:-3}
 
 REPO=${NAMO_REPO:-${SLURM_SUBMIT_DIR:?no NAMO_REPO and no SLURM_SUBMIT_DIR}}
 SAGE=${SAGE_REPO:?set SAGE_REPO -- must match the code the ckpt was trained with}
@@ -64,11 +67,12 @@ else
 fi
 mkdir -p logs "$OUT/$LEG"
 S=$((ID * NEP / NSH)); EN=$(((ID + 1) * NEP / NSH))
-echo "WALLTIME start $(date) host=$(hostname) cpu=$(lscpu | grep 'Model name' | head -1 | cut -d: -f2 | xargs) leg=$LEG ID=$ID episodes[$S,$EN) prior=$PRIOR seed=$SEED_BASE budget=$SIM_BUDGET"
+echo "WALLTIME start $(date) host=$(hostname) cpu=$(lscpu | grep 'Model name' | head -1 | cut -d: -f2 | xargs) leg=$LEG ID=$ID episodes[$S,$EN) prior=$PRIOR seed=$SEED_BASE budget=$SIM_BUDGET model_warmup_repeats=$MODEL_WARMUP_REPEATS commit=$(git rev-parse HEAD)"
 [ "$S" -ge "$EN" ] && { echo "empty shard"; exit 0; }
 
 "$PY" scripts/sandbox/eval_bestfirst.py --ckpt "$CKPT" --hmax 2 --sim-budget "$SIM_BUDGET" \
   --prior "$PRIOR" --agg mean5 --combine q --discount off --seed-base "$SEED_BASE" \
+  --model-warmup-repeats "$MODEL_WARMUP_REPEATS" \
   "${KEYARG[@]}" --start "$S" --end "$EN" \
   --out "$OUT/$LEG/shard_${ID}.json" --leaf-out "$OUT/$LEG/shard_${ID}.jsonl"
 echo "WALLTIME done $(date) ID=$ID"

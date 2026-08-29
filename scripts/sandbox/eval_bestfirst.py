@@ -50,6 +50,7 @@ from namo.strategies import PrimitiveGoalStrategy  # noqa: E402
 from viz.trace_schema import build_trace, episode_filename, make_board, make_pop, rle_encode  # noqa: E402
 
 PURE2PUSH = str(MANIFESTS / "test_pure2_fromkey.txt")
+DEFAULT_MODEL_WARMUP_REPEATS = 3
 
 
 # The search itself now lives in the package. This script keeps its CLI, its
@@ -64,6 +65,19 @@ from namo.planners.opening.best_first_search import (  # noqa: E402
     priority,
     solve_scene,
 )
+
+
+def _make_planner(prior, ckpt, warmup_repeats):
+    """Build the search shell and warm a model prior before any episode timer starts."""
+    if prior == "model":
+        planner = BeamPlanner(ckpt=ckpt)
+        planner.scorer.warmup(repeats=warmup_repeats)
+        return planner, planner.scorer.device, warmup_repeats
+    planner = SimpleNamespace(
+        prim=PrimitiveGoalStrategy(data_dir=DATA_DIR, primitive_prefix=PRIM_PREFIX),
+        scorer=None,
+    )
+    return planner, "none", 0
 
 
 def _scene_dict(env, goal):
@@ -161,6 +175,12 @@ def main():
     ap.add_argument("--success", default="region", choices=["region", "point"])
     ap.add_argument("--out", default=str(SCRATCH / "eval/bestfirst.json"))
     ap.add_argument("--leaf-out", default=str(SCRATCH / "eval/bestfirst.jsonl"))
+    ap.add_argument(
+        "--model-warmup-repeats",
+        type=int,
+        default=DEFAULT_MODEL_WARMUP_REPEATS,
+        help="untimed synthetic forward passes immediately after loading a model prior",
+    )
     ap.add_argument("--lifetime-out", default="", help="per-board lifetime JSONL (one row per board).")
     ap.add_argument("--no-dedupe-noop", dest="dedupe_noop", action="store_false",
                     help="ADOPTED 2026-07-27: a push that moves nothing reaches the state it started from, "
@@ -180,6 +200,8 @@ def main():
     a = ap.parse_args()
     if a.prior in {"geometric", "geometric_region"} and a.success != "region":
         ap.error(f"--prior {a.prior} requires --success region")
+    if a.model_warmup_repeats < 0:
+        ap.error("--model-warmup-repeats must be nonnegative")
 
     import os as _os
     g_table = None
@@ -203,19 +225,15 @@ def main():
             _os.path.realpath(xml): {(rec.get("object_id"), rec.get("region")) for rec in recs}
             for xml, recs in only_raw.items()
         }
-    if a.prior == "model":
-        if not a.ckpt:
-            ap.error("--ckpt is required when --prior=model")
-        planner = BeamPlanner(ckpt=a.ckpt)
-        device = planner.scorer.device
-    else:
-        planner = SimpleNamespace(
-            prim=PrimitiveGoalStrategy(data_dir=DATA_DIR, primitive_prefix=PRIM_PREFIX),
-            scorer=None,
-        )
-        device = "none"
+    if a.prior == "model" and not a.ckpt:
+        ap.error("--ckpt is required when --prior=model")
+    planner, device, applied_warmup_repeats = _make_planner(
+        a.prior, a.ckpt, a.model_warmup_repeats
+    )
+    search_params["model_warmup_repeats"] = applied_warmup_repeats
     print(f"device={device} hmax={a.hmax} sim_budget={a.sim_budget} prior={a.prior} "
           f"agg={a.agg} combine={a.combine} discount={a.discount} tau={a.tau} "
+          f"model_warmup_repeats={applied_warmup_repeats} "
           f"dedupe_noop={a.dedupe_noop} prune_jam_depth={a.prune_jam_depth} "
           f"key={_os.path.basename(a.key)} success={a.success}", flush=True)
     xmls_all = read_manifest(a.manifest, None) if a.manifest else sorted(key)
