@@ -279,9 +279,15 @@ def main():
                     steps.append({"i": step_i + 1, "edge": edge, "depth": depth,
                                   "object_id": pobj, "geom": geom, "regions": regions,
                                   "opened": is_open(env, pts, bar)})
-                # Keep the first plan that runs AND ends open -- a replay whose last frame is still
-                # blocked would show the reader a non-solution.
-                if not failed and steps and steps[-1]["opened"]:
+                # Keep the first plan that runs, ends open, AND is still shut at every step before
+                # the last. Checking only the last step let 19 two-push cards through whose FIRST
+                # push already opened the region, so the page said "the goal is now reachable" under
+                # "after push 1" on a card whose whole reason for being in the 2push set is that one
+                # push is not enough. These scenes sit on the corridor connectivity threshold, where
+                # a 0.2 mm difference in where the block lands flips the region between 0 and 97
+                # reachable points, so another plan on the same card often reads correctly.
+                if not failed and steps and steps[-1]["opened"] \
+                        and not any(st["opened"] for st in steps[:-1]):
                     break
                 steps = []
             if not steps:

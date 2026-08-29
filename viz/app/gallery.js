@@ -379,6 +379,16 @@ function render(card) {
   renderSteps(card);
 }
 
+// Name the object a step pushed whenever it is not the card's own target. On the two-movable
+// pools the finish lands on the OTHER block in 628 of 1296 two-push chains, and the note used to
+// read "push on edge 15 at depth 2" for all of them, so you watched the neighbour move while the
+// caption described an edge index on an object it never named.
+function stepWho(st, card) {
+  const who = st.object_id;
+  if (!who || who === card.meta.object_id) return "push on ";
+  return `push on <b>${who}</b>, the other block, `;
+}
+
 // start | after push 1 | after push 2 -- the solution the test set already knows, not the ranker's
 // own path (that lives in the search traces).
 function renderSteps(card) {
@@ -391,9 +401,9 @@ function renderSteps(card) {
   box.innerHTML = '<span class="steps-cap">solution</span>' + labels.map((l, k) =>
     `<button type="button" class="step-pill${k === step ? " on" : ""}" data-step="${k}">${l}</button>`
   ).join("") + (step > 0
-    ? `<div class="step-note">push on edge ${replay.steps[step - 1].edge} at depth ` +
-      `${replay.steps[step - 1].depth} — ` +
-      (replay.steps[step - 1].opened ? "the goal is now reachable" : "no opening yet; this is the setup") +
+    ? `<div class="step-note">${stepWho(replay.steps[step - 1], card)}edge ` +
+      `${replay.steps[step - 1].edge} at depth ${replay.steps[step - 1].depth}, ` +
+      (replay.steps[step - 1].opened ? "the goal is now reachable" : "no opening yet, this is the setup") +
       `</div>`
     : `<div class="step-note">the state every number above describes</div>`);
   box.querySelectorAll(".step-pill").forEach((b) => b.addEventListener("click", () => {
