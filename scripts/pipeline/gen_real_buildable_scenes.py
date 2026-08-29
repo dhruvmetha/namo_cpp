@@ -264,9 +264,16 @@ def solo_opens(statics, blockers, start, goal):
 
     `gate` only certifies all-present-blocked against all-removed-open, which leaves three very
     different scenes passing under one label. [True, False] means object 0 is the blocker proper
-    and object 1 is a neighbour it can collide with. [False, False] is the domino, where neither
-    object alone is enough and the chain has to move both. [True, True] means either one alone
-    does it.
+    and object 1 is a neighbour it can collide with. [False, False] is the domino, where clearing
+    either object on its own leaves the goal shut and both have to end up out of the way.
+    [True, True] means either one alone does it.
+
+    ⛔ [False, False] DOES NOT MEAN THE SCENE NEEDS TWO PUSHES, and reading it that way was wrong
+    once already. Both objects must move; ONE push can move both, by driving the first into the
+    second. Measured on the first 22 labelled domino scenes, 19 had a single-push opener, and 90.4%
+    of those openers reported block-on-block contact, the highest of any flavor. That is the point
+    of these scenes rather than a defect in them. Push count comes from the simulator, never from
+    this flag.
 
     They are different problems and the ranker sees them differently, so record which is which
     rather than sorting a mixed pool later. Pure geometry on the same inflated grid the gate uses,
@@ -896,7 +903,8 @@ def to_build_sheet(scene, scene_id):
     if len(blockers) > 1:
         sheet["blockers"] = [_blocker_row(cm, nm, obj) for obj, nm in blockers]
         # Which movables the wavefront needs gone, one flag per entry of "blockers". See
-        # `solo_opens`: all False is the domino where the chain has to move both.
+        # `solo_opens`: all False is the domino, where both objects have to end up clear. That
+        # is not the same as needing two pushes; one push can move both.
         sheet["solo_opens"] = scene["solo_opens"]
     return sheet
 
@@ -932,7 +940,8 @@ def main():
     ap.add_argument("--n-solo-openers", type=int, default=None, choices=(0, 1, 2),
                     help="keep only scenes where exactly N of the movables open the goal when "
                          "deleted on their own. 1 is a target object plus a neighbour it can "
-                         "collide with; 0 is the domino where the chain has to move both; 2 is "
+                         "collide with; 0 is the domino, where both must end up clear, which one "
+                         "push can still do by driving the first into the second; 2 is "
                          "either one alone. Unsteered they come out 48/1/71 per 120 scenes, so the "
                          "domino needs this filter to be affordable. Requires --n-movables 2")
     ap.add_argument("--bands", type=int, default=1, choices=(1, 2),
