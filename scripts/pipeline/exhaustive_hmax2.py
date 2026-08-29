@@ -164,20 +164,27 @@ def sweep_scene(xml, objs):
                 # one opens or all fail.
                 mid = env.get_full_state()
                 finish_edges = [(o2, e2) for o2 in objs for e2 in env.get_reachable_edges(o2)]
-                tried, hit = 0, None
+                tried, hit, hit_mc = 0, None, ""
                 for o2, e2 in finish_edges:
                     for d2 in range(N_DEPTHS):
                         env.set_full_state(mid)
-                        push(env, o2, e2, d2)
+                        fres = push(env, o2, e2, d2)
                         tried += 1
                         n_sims += 1
                         if opens(env, pts, bar):
                             hit = [o2, e2, d2]
+                            finfo = fres.info if hasattr(fres, "info") else {}
+                            hit_mc = finfo.get("movable_collisions", "")
                             break
                     if hit:
                         break
+                # Contacts for the finish that WORKED, so a two-push chain reports interaction at
+                # both ends instead of only its setup. Free: the push already ran and its result was
+                # being discarded. Deliberately not recorded for the finishes that failed, which
+                # would mean up to `n_finish_tried` strings per cell, 180 in one measured scene.
                 cells.append({**base, "kind": "setup" if hit else "dead",
                               "n_finish_tried": tried, "finish": hit,
+                              "finish_movable_collisions": hit_mc,
                               "n_finish_reachable": len(finish_edges)})
     out = {"xml": xml, "object_ids": list(objs), "n_goal_points": len(pts), "bar": bar,
            "goal_open_at_start": bool(before_open), "cells": cells, "n_sims": n_sims}
