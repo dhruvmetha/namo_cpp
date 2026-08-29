@@ -28,6 +28,14 @@ A cold replay reproduces about 96% of 1-push labels and 81% of hard 2-push ones,
 `set_full_state` drops the MuJoCo solver warmstart. A card with no replay file is usually one of
 those, not a broken label, and the page falls back to the start frame.
 
+⛔ Do NOT try to recover those by warming the solver first. Measured on four of the holdouts, the
+outcome is not monotone in warm-up length: `b3_b/rb_00085` opens at 97 of 100 points after exactly
+25 throwaway pushes and stays shut at 0, 10, 50, 100 and 200; `zig_solo0/rb_00013` opens only at 50;
+two others never open at any count. The label depends on the precise solver bookkeeping at that cell
+during the sweep, which is not reconstructible from outside, so a warm-up that "works" is a
+coincidence at one magic number rather than a fix. Leaving the card on its start frame is the honest
+output.
+
 Each step is verified by the simulator, so a step that failed to do what the label says is visible
 rather than assumed.
 
@@ -179,6 +187,9 @@ def main():
                          "of the manifests plus GT H5, for the two-movable pools")
     ap.add_argument("--remap", nargs="*", metavar="FROM=TO", default=[],
                     help="rewrite an xml path prefix recorded by a sweep run on another box")
+    ap.add_argument("--max-attempts", type=int, default=8,
+                    help="plans to try per card before giving up; they are ordered to hit distinct "
+                         "first-push edges first, so raising this buys real variety")
     a = ap.parse_args()
 
     from add_contact_px import contact_offsets_world
@@ -235,8 +246,21 @@ def main():
 
             if os.path.exists(os.path.join(outdir, row["file"])):
                 continue
+            # Spread the attempts over distinct FIRST-PUSH EDGES before taking the head. The sweep
+            # emits cells in (edge, depth) order, so the first eight plans are usually one edge at
+            # five depths, and where they share a finish they all fail or all pass together.
+            # dense_solo1/rb_00146 has 60 setups that every one route through the same finish, and
+            # sampling the first eight tested one cluster eight times and left the card blank.
+            byedge = defaultdict(list)
+            for pl in plans:
+                byedge[pl[0][1]].append(pl)
+            spread, edges = [], sorted(byedge)
+            while any(byedge[e] for e in edges):
+                for e in edges:
+                    if byedge[e]:
+                        spread.append(byedge[e].pop(0))
             steps = []
-            for plan in plans[:8]:          # a few attempts, not the whole cross product
+            for plan in spread[:a.max_attempts]:
                 env = make_env(xml)
                 env.set_robot_goal(*goal)
                 env.get_reachable_objects()
