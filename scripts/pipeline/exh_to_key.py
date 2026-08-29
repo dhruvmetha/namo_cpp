@@ -56,17 +56,26 @@ def main():
             if xml in key:
                 dup += 1
                 continue
-            by, finish = collections.defaultdict(list), {}
+            # One episode PER PUSHED OBJECT, which is the pipeline's unit of work. A single-movable
+            # scene yields the one episode it always did; a two-movable doorway yields two, and
+            # they are separate episodes rather than one merged list because difficulty, contacts
+            # and solve rate are all per (pushed object, goal region).
+            per_obj = collections.defaultdict(lambda: (collections.defaultdict(list), {}))
             for c in s["cells"]:
+                # Old single-object sweeps wrote the object only at scene level.
+                obj = c.get("object_id", s.get("object_id"))
+                by, finish = per_obj[obj]
                 by[c["kind"]].append([c["edge"], c["depth"]])
                 tally[c["kind"]] += 1
                 # The finish the sweep actually found for this setup. Nothing in the key schema
                 # carries it, but a replay of a 2-push scene needs it: these scenes were never run
                 # through the search collection, so there is no trial log to look a finish up in.
+                # Two-movable sweeps write [obj, edge, depth] since the finish may be on the other
+                # object; single-object sweeps wrote [edge, depth].
                 if c["kind"] == "setup":
                     finish[f'{c["edge"]},{c["depth"]}'] = c["finish"]
             key[xml] = [{
-                "object_id": s["object_id"],
+                "object_id": obj,
                 "region": "goal",
                 "tried_1push": [p for v in by.values() for p in v],
                 "valid_1push": by["opener"],
@@ -77,7 +86,7 @@ def main():
                 "finish_for_setup": finish,
                 "n_dead": len(by["dead"]),
                 "n_blocked": len(by["blocked"]),
-            }]
+            } for obj, (by, finish) in per_obj.items()]
 
     with open(args.out, "w") as f:
         json.dump(key, f, separators=(",", ":"))

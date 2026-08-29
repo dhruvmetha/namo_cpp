@@ -10,12 +10,16 @@ ends. Roughly 162k second pushes were never simulated.
 Rather than patch those holes and stay dependent on the search's bookkeeping, this recomputes depth 2
 from scratch with no search, no frontier, no beam, no budget. Pure enumeration:
 
-  for every reachable (edge, depth) at the start state:
+  for every reachable (object, edge, depth) at the start state:
       execute it
       if it opens the goal region      -> opener, recorded, no expansion needed
       if it collides or jams           -> recorded, not expandable
-      otherwise                        -> try EVERY reachable (edge, depth) from the resulting state
-                                          until one opens, or all of them fail
+      otherwise                        -> try EVERY reachable (object, edge, depth) from the
+                                          resulting state until one opens, or all of them fail
+
+Both loops range over every movable in the doorway. That is one object for the scenes this was
+written for and two for a `--n-movables 2` pool, where the finish may land on a different object
+than the setup did.
 
 So each first push lands in exactly one of: opener, blocked (collision/jam), setup (some finish
 opens), or dead (every finish tried and none opened). `n_finish_tried` is written for every setup and
@@ -106,8 +110,31 @@ def blocked(res):
     return "collision_object" in info or info.get("stuck") == "true"
 
 
-def sweep_scene(xml, obj):
-    """-> dict for one scene, or None if it has no goal region to open."""
+def sweep_scene(xml, objs):
+    """-> dict for one scene, or None if it has no goal region to open.
+
+    `objs` is the list of movables in the doorway: one name for the single-object scenes this
+    started as, two under a `--n-movables 2` pool. BOTH loops range over all of them. The first
+    push may land on any object, and so may the finish, because with two blocks touching in one
+    doorway the natural chain is "shove the neighbour clear, then drive the blocker through", and
+    restricting the finish to the object the setup moved would score that chain as a dead end.
+
+    Cost scales as the square of the object count, since first and finish candidate sets both grow:
+    the single-object sweep averaged ~1.6k sims per scene, so budget ~4x that at two objects.
+
+    Schema note. Every cell carries `object_id`, and `finish` is `[obj, edge, depth]`, because with
+    two objects `(edge, depth)` alone no longer names a push. Single-object output keeps a
+    scene-level `object_id` alongside the new `object_ids` so the existing 1478-scene sweep and its
+    readers stay valid; `exh_to_key.py` reads both shapes.
+
+    ⛔ `finish[0]` UNDERCOUNTS CROSS-OBJECT CHAINS. The finish loop stops at the first push that
+    opens, and it walks the objects in list order, so every candidate on `objs[0]` is tried before
+    any on `objs[1]`. Where both a same-object and a cross-object finish exist, the same-object one
+    always wins the race. That is the right trade for the label this writes, which is setup versus
+    dead end, and both answers are correct either way. It is the wrong number to quote for "how
+    often does the chain switch objects" -- measuring that needs every finish tried, which is the
+    full cross product this deliberately avoids.
+    """
     env = namo_rl.RLEnvironment(xml, CFG, False)
     pts = goal_region_points(env)
     if not pts:
@@ -117,39 +144,46 @@ def sweep_scene(xml, obj):
     before_open = opens(env, pts, bar)
 
     cells, n_sims = [], 0
-    for edge in env.get_reachable_edges(obj):
-        for depth in range(N_DEPTHS):
-            env.set_full_state(root)
-            res = push(env, obj, edge, depth)
-            n_sims += 1
-            if opens(env, pts, bar) and not before_open:
-                cells.append({"edge": edge, "depth": depth, "kind": "opener"})
-                continue
-            if blocked(res):
-                cells.append({"edge": edge, "depth": depth, "kind": "blocked"})
-                continue
+    for obj in objs:
+        for edge in env.get_reachable_edges(obj):
+            for depth in range(N_DEPTHS):
+                env.set_full_state(root)
+                res = push(env, obj, edge, depth)
+                n_sims += 1
+                info = res.info if hasattr(res, "info") else {}
+                base = {"edge": edge, "depth": depth, "object_id": obj,
+                        "movable_collisions": info.get("movable_collisions", "")}
+                if opens(env, pts, bar) and not before_open:
+                    cells.append({**base, "kind": "opener"})
+                    continue
+                if blocked(res):
+                    cells.append({**base, "kind": "blocked"})
+                    continue
 
-            # A clean push that did not open. Try every second push until one opens or all fail.
-            mid = env.get_full_state()
-            finish_edges = env.get_reachable_edges(obj)
-            tried, hit = 0, None
-            for e2 in finish_edges:
-                for d2 in range(N_DEPTHS):
-                    env.set_full_state(mid)
-                    push(env, obj, e2, d2)
-                    tried += 1
-                    n_sims += 1
-                    if opens(env, pts, bar):
-                        hit = [e2, d2]
+                # A clean push that did not open. Try every second push, on either object, until
+                # one opens or all fail.
+                mid = env.get_full_state()
+                finish_edges = [(o2, e2) for o2 in objs for e2 in env.get_reachable_edges(o2)]
+                tried, hit = 0, None
+                for o2, e2 in finish_edges:
+                    for d2 in range(N_DEPTHS):
+                        env.set_full_state(mid)
+                        push(env, o2, e2, d2)
+                        tried += 1
+                        n_sims += 1
+                        if opens(env, pts, bar):
+                            hit = [o2, e2, d2]
+                            break
+                    if hit:
                         break
-                if hit:
-                    break
-            cells.append({"edge": edge, "depth": depth,
-                          "kind": "setup" if hit else "dead",
-                          "n_finish_tried": tried, "finish": hit,
-                          "n_finish_reachable": len(finish_edges)})
-    return {"xml": xml, "object_id": obj, "n_goal_points": len(pts), "bar": bar,
-            "goal_open_at_start": bool(before_open), "cells": cells, "n_sims": n_sims}
+                cells.append({**base, "kind": "setup" if hit else "dead",
+                              "n_finish_tried": tried, "finish": hit,
+                              "n_finish_reachable": len(finish_edges)})
+    out = {"xml": xml, "object_ids": list(objs), "n_goal_points": len(pts), "bar": bar,
+           "goal_open_at_start": bool(before_open), "cells": cells, "n_sims": n_sims}
+    if len(objs) == 1:
+        out["object_id"] = objs[0]
+    return out
 
 
 def _objs_of(s):
@@ -215,11 +249,11 @@ def main():
                     help="scene pool root; output names are paths relative to it, so they stay "
                          "unique and stay stable across boxes where the pool sits elsewhere")
     ap.add_argument("--depth1-only", action="store_true",
-                    help="FEATURE 3: skip the depth-2 setup/dead machinery entirely and enumerate "
-                         "every reachable (edge, depth) on every object in the scene at the root "
-                         "state; kinds are opener/blocked/no_open. Required for multi-object "
-                         "(object_ids) scenes -- the depth-2 path below is single-object only and "
-                         "is untouched by this flag")
+                    help="skip the depth-2 setup/dead machinery entirely and enumerate every "
+                         "reachable (edge, depth) on every object in the scene at the root state; "
+                         "kinds are opener/blocked/no_open. The cheap pass: depth 2 over two "
+                         "movables costs roughly 4x a single-object sweep, so use this when only "
+                         "the 1-push answer is wanted")
     ap.add_argument("--verify", action="store_true",
                     help="stop after one scene and print its depth-1 verdicts for eyeballing")
     args = ap.parse_args()
@@ -235,10 +269,7 @@ def main():
         if args.depth1_only:
             r = sweep_scene_depth1(s["xml"], objs)
         else:
-            if len(objs) != 1:
-                raise ValueError(f"depth-2 path is single-object only, got {objs} for {s['xml']}; "
-                                 f"pass --depth1-only for multi-object scenes")
-            r = sweep_scene(s["xml"], objs[0])
+            r = sweep_scene(s["xml"], objs)
         if r is None:
             continue
         # NOT basename(dirname(xml)): scene ids restart per pool, so 478 scenes carry only 221

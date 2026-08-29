@@ -259,6 +259,30 @@ def gate(statics, blockers, start, goal, margin_r):
     return True, "ok"
 
 
+def solo_opens(statics, blockers, start, goal):
+    """Per blocker: would deleting THAT ONE alone open the goal? Returns a list of bools.
+
+    `gate` only certifies all-present-blocked against all-removed-open, which leaves three very
+    different scenes passing under one label. [True, False] means object 0 is the blocker proper
+    and object 1 is a neighbour it can collide with. [False, False] is the domino, where neither
+    object alone is enough and the chain has to move both. [True, True] means either one alone
+    does it.
+
+    They are different problems and the ranker sees them differently, so record which is which
+    rather than sorting a mixed pool later. Pure geometry on the same inflated grid the gate uses,
+    so it costs nothing and adds no simulation. It answers what the WAVEFRONT can route through,
+    not whether any push can actually shift the object; only the simulator decides that.
+    """
+    si, sj = _cell(start)
+    gi, gj = _cell(goal)
+    out = []
+    for i in range(len(blockers)):
+        rest = [b for j, b in enumerate(blockers) if j != i]
+        m = _blocked_mask(statics + rest, INFLATE_R)
+        out.append(bool(not m[si, sj] and not m[gi, gj] and _connected(m, (si, sj), (gi, gj))))
+    return out
+
+
 #: push standoff, mirroring namo_push_controller.cpp:162-163 = max(hx,hy) + push_offset_margin.
 #: The margin is `planning.wavefront_edge_offset_margin` = 0.01 in the car config.
 PUSH_STANDOFF = WAVEFRONT_ROBOT_R + 0.010
@@ -577,7 +601,7 @@ def _place_second_blocker(rng, statics, blocker1, name2, tries=30):
 
 
 def sample_scene(rng, movable_names, max_bricks, margin_r, band, layouts, contacts=(0, 60),
-                 tries=600, n_movables=1, bands=1):
+                 tries=600, n_movables=1, bands=1, n_solo_openers=None):
     """Sample one scene, gate it geometrically, then keep it only if `open_frac` lands in `band`.
 
     `band` is a (lo, hi) window on the physics-free difficulty proxy. Steering here is what makes
@@ -593,6 +617,13 @@ def sample_scene(rng, movable_names, max_bricks, margin_r, band, layouts, contac
     `bands` (default 1): with 2, the walls are two side_gap dividers at different y, gaps on
     opposite sides (`_layout_bands2`), so the corridor bends. The blocker always sits in the
     lower band's gap; the upper band's gap is left clear.
+
+    `n_solo_openers` (default None, no steering): keep only scenes where exactly this many of the
+    movables open the goal when deleted ALONE, per `solo_opens`. Steering is needed because the
+    flavors do not arise at anything like equal rates. Measured over 120 unsteered two-movable
+    scenes at seed 11: 71 have both objects solo-opening, 48 have exactly one, and 1 is the domino
+    where neither alone is enough. Asking for dominoes without this filter means throwing away
+    about 119 scenes for every one kept.
     """
     lo, hi = band
     for _ in range(tries):
@@ -636,6 +667,10 @@ def sample_scene(rng, movable_names, max_bricks, margin_r, band, layouts, contac
         if not passed:
             continue
 
+        solo = solo_opens(statics, blockers, start, goal)
+        if n_solo_openers is not None and sum(solo) != n_solo_openers:
+            continue
+
         extra = [blocker2] if blocker2 is not None else []
         nc = n_reachable_contacts(statics + extra, blocker, start)
         if not (contacts[0] <= nc <= contacts[1]):
@@ -647,7 +682,7 @@ def sample_scene(rng, movable_names, max_bricks, margin_r, band, layouts, contac
         blockers_out = [(blocker, name)] + ([(blocker2, name2)] if blocker2 is not None else [])
         return {"statics": statics, "blocker": blocker, "blocker_name": name,
                 "blockers": blockers_out, "start": start, "goal": goal, "y_div": y_lo,
-                "open_frac": of, "n_contacts": nc}, "ok"
+                "open_frac": of, "n_contacts": nc, "solo_opens": solo}, "ok"
     return None, "exhausted"
 
 
@@ -823,6 +858,9 @@ def to_build_sheet(scene, scene_id):
     blockers = scene.get("blockers") or [(b, scene["blocker_name"])]
     if len(blockers) > 1:
         sheet["blockers"] = [_blocker_row(cm, nm, obj) for obj, nm in blockers]
+        # Which movables the wavefront needs gone, one flag per entry of "blockers". See
+        # `solo_opens`: all False is the domino where the chain has to move both.
+        sheet["solo_opens"] = scene["solo_opens"]
     return sheet
 
 
@@ -854,6 +892,12 @@ def main():
                     help="1 (default): today's single blocker, unchanged. 2: a second movable is "
                          "placed touching the first inside the passage, so one push can shove both "
                          "-- see FEATURE 1 in the implementation report")
+    ap.add_argument("--n-solo-openers", type=int, default=None, choices=(0, 1, 2),
+                    help="keep only scenes where exactly N of the movables open the goal when "
+                         "deleted on their own. 1 is a target object plus a neighbour it can "
+                         "collide with; 0 is the domino where the chain has to move both; 2 is "
+                         "either one alone. Unsteered they come out 48/1/71 per 120 scenes, so the "
+                         "domino needs this filter to be affordable. Requires --n-movables 2")
     ap.add_argument("--bands", type=int, default=1, choices=(1, 2),
                     help="1 (default): today's single wall divider, unchanged. 2: two side_gap "
                          "dividers at different y with gaps on opposite sides, so the corridor "
@@ -884,7 +928,8 @@ def main():
         attempts += 1
         scene, reason = sample_scene(rng, movable_names, args.max_bricks, margin_r,
                                      (lo, hi), layouts, (clo, chi),
-                                     n_movables=args.n_movables, bands=args.bands)
+                                     n_movables=args.n_movables, bands=args.bands,
+                                     n_solo_openers=args.n_solo_openers)
         if scene is None:
             rejects[reason] = rejects.get(reason, 0) + 1
             continue
