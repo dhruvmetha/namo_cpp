@@ -24,11 +24,12 @@ recomputed.
     python scripts/viz/build_scene_cards.py --out ... --index-only                    # scenes.json
 """
 import argparse
+import glob
 import json
 import os
 import sys
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -92,6 +93,74 @@ def episodes_2push():
     return out
 
 
+def episodes_exhaustive(sweep_dirs, remap=None):
+    """(xml -> [episode dict]) straight from `exhaustive_hmax2.py` output, for the two-movable pools.
+
+    The canonical sources above read the eval-set manifests, which only cover the single-movable
+    pools. These scenes never went through that pipeline, so their labels come from the sweep files
+    themselves. Same episode shape, so `build` and the gallery need no special case.
+
+    Unit is (xml, pushed object), which for a two-movable doorway means TWO episodes per scene, one
+    per block. Greens keep the meaning they have everywhere else: an opener at 1push, a working
+    setup at 2push, each over that object's own reachable pushes.
+
+    Also carries the thing these pools exist to show. `n_green_contact` counts greens whose push
+    actually touched another movable, and `contact_pct` is that as a share of greens, so the gallery
+    can tell a scene where the blocks interact from one where they merely sit near each other. A
+    green counts as contact if the push itself collided, or, for a setup, if the finish that worked
+    did. The finish half is only present in sweeps run after commit ebc7f63; older files record the
+    setup push alone and will read low here rather than wrong.
+    """
+    # A sweep stores the paths of the box it RAN on, so a run labelled on Amarel points at
+    # /scratch/... which does not exist here. Same prefix rewrite exh_to_key.py takes, same spelling.
+    rules = [tuple(x.split("=", 1)) for x in (remap or [])]
+    out = {}
+    missing = 0
+    for d in sweep_dirs:
+        for p in sorted(glob.glob(os.path.join(d, "*.json"))):
+            r = json.load(open(p))
+            cells = r.get("cells") or []
+            if not cells:
+                continue
+            xml = r["xml"]
+            for a, b in rules:
+                if xml.startswith(a):
+                    xml = b + xml[len(a):]
+            if not os.path.exists(xml):
+                missing += 1
+                continue
+            per_obj = defaultdict(list)
+            for c in cells:
+                per_obj[c.get("object_id", r.get("object_id"))].append(c)
+            eps = []
+            for obj, cs in per_obj.items():
+                tried = [[c["edge"], c["depth"]] for c in cs]
+                for horizon, kind in (("1push", "opener"), ("2push", "setup")):
+                    hits = [c for c in cs if c["kind"] == kind]
+                    if not hits:
+                        continue
+                    touched = sum(1 for c in hits
+                                  if c.get("movable_collisions")
+                                  or c.get("finish_movable_collisions"))
+                    density = 100.0 * len(hits) / len(tried) if tried else 0.0
+                    eps.append({
+                        "horizon": horizon, "object_id": obj, "region": "goal",
+                        "green": [[c["edge"], c["depth"]] for c in hits], "tried": tried,
+                        "density_pct": round(density, 3), "tier": tier_of(density),
+                        "n_green": len(hits), "n_tried": len(tried),
+                        "n_green_contact": touched,
+                        "contact_pct": round(100.0 * touched / len(hits), 1),
+                        "solve_rate": round(len(hits) / len(tried), 4) if tried else 0.0,
+                    })
+            if eps:
+                out.setdefault(xml, []).extend(eps)
+    if missing:
+        print(f"  {missing} sweep file(s) skipped: xml not found on this box (check --remap)")
+    print(f"  exhaustive source: {len(out)} rooms, "
+          f"{sum(len(v) for v in out.values())} episodes")
+    return out
+
+
 def capture_room(xml, make_env, extract_goal, fallback_goal, exporter_cls, cfg):
     """(scene, regions) at the room's START state -- shared by every episode of that room."""
     env = make_env(xml)
@@ -117,14 +186,19 @@ def capture_room(xml, make_env, extract_goal, fallback_goal, exporter_cls, cfg):
     return scene, regions
 
 
-def build(out_dir, shard, nshards):
+def build(out_dir, shard, nshards, sweep_dirs=None, remap=None):
     from add_contact_px import contact_offsets_world
     from namo.visualization.wavefront_snapshot import WavefrontSnapshotExporter
     from namo.core.xml_goal_parser import extract_goal_with_fallback
     from scorer_beam import CFG, FALLBACK_GOAL, make_env
 
+    # `sweep_dirs` swaps the label source wholesale rather than adding to it. The two-movable pools
+    # are not in the eval-set manifests at all, so mixing the two would just mean reading manifests
+    # that cannot match a single one of these rooms.
+    sources = ((episodes_exhaustive(sweep_dirs, remap),) if sweep_dirs
+               else (episodes_1push(), episodes_2push()))
     by_xml = {}
-    for src in (episodes_1push(), episodes_2push()):
+    for src in sources:
         for xml, eps in src.items():
             by_xml.setdefault(xml, []).extend(eps)
 
@@ -164,7 +238,14 @@ def scene_family(xml):
     filters on this so a scene's look can be traced to the batch that produced it.
     """
     parts = str(xml).split("/")
-    return parts[parts.index("test") + 1] if "test" in parts[:-1] else "unknown"
+    if "test" in parts[:-1]:
+        return parts[parts.index("test") + 1]
+    # Two-movable pools are laid out <pool>/<variant>/rb_NNNNN/env.xml, where the variant names the
+    # generator settings (hard_zig, dense_solo1, ...). That IS the batch distinction for them, so
+    # the gallery filter keeps working without a second concept.
+    if len(parts) >= 3 and parts[-2].startswith("rb_"):
+        return parts[-3]
+    return "unknown"
 
 
 def build_index(out_dir):
@@ -188,6 +269,13 @@ def build_index(out_dir):
     json.dump({"schema_version": SCHEMA_VERSION, "counts": counts, "cards": rows},
               open(os.path.join(out_dir, "scenes.json"), "w"))
     print(f"scenes.json: {len(rows)} cards  {counts}")
+    # The expected-count check only means something for the canonical pools; a two-movable gallery
+    # has no eval-set entry to be compared against, and warning on every build would train the eye
+    # to skip the line that matters.
+    if any(r.get("n_green_contact") is not None for r in rows):
+        touch = [r for r in rows if r.get("n_green_contact")]
+        print(f"  greens with movable contact: {len(touch)}/{len(rows)} cards")
+        return
     for h, exp in (("1push", eval_sets.EXPECTED.get("onepush_divisions")),
                    ("2push", eval_sets.EXPECTED.get("divisions"))):
         if exp and counts[h] != exp:
@@ -200,11 +288,18 @@ def main():
     ap.add_argument("--shard", type=int, default=0)
     ap.add_argument("--nshards", type=int, default=1)
     ap.add_argument("--index-only", action="store_true", help="rebuild scenes.json from cards/")
+    ap.add_argument("--from-exhaustive", nargs="+", metavar="DIR",
+                    help="read labels from exhaustive_hmax2.py output dirs instead of the eval-set "
+                         "manifests. This is how the two-movable pools get a gallery: they were "
+                         "never in those manifests.")
+    ap.add_argument("--remap", nargs="*", metavar="FROM=TO", default=[],
+                    help="rewrite an xml path prefix recorded by the sweep, for pools labelled on "
+                         "another box")
     a = ap.parse_args()
     if a.index_only:
         build_index(a.out)
     else:
-        build(a.out, a.shard, a.nshards)
+        build(a.out, a.shard, a.nshards, a.from_exhaustive, a.remap)
 
 
 if __name__ == "__main__":
