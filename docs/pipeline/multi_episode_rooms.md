@@ -69,3 +69,7 @@ Measured 2026-08-17: the same join scored **0/9 matches on basename and 9/9 on `
 ## Note on script locations
 
 `build_episode_validsets.py` and the scorer-data builders (`build_scorer_dataset.py`, `add_contact_px.py`) are now **committed under `scripts/pipeline/`** (promoted from sandbox 2026-06-08); the scorer dataset is registered at `config/datasets/v3_scorer_e4.yaml` with lineage in `docs/pipeline/scorer_dataset.md`. `eval_grounding.py` still lives under `scripts/sandbox/` (gitignored) — promote next. This doc is the durable record of the *rules*; the training-side fix is in the committed `sage_learning` repo (`src/data/se2_data_cropped.py`).
+
+## Failure mode #6: empty fixed target-region samples silently change the population
+
+The v3 search manifests contain 1,328 one-push and 992 two-push episodes, but `eval_m3.sample_goal_points` returns an empty target for 18 and 19 episodes respectively. A model or random ranker still emits those rows as guaranteed failures because the verifier can never fire, while the corrected geometric ranker raises before search because it has no target to score. A cross-method comparison must therefore intersect exact episode keys and use the 1,310/973 nonempty-target population until the sampler is fixed and all arms are rerun; never compare one arm's 1,310/973 denominator against another arm's nominal 1,328/992 denominator.

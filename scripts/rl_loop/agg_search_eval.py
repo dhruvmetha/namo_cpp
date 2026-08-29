@@ -12,8 +12,8 @@ from namo.paths import resolve
 from namo import eval_sets
 from eval_common import bin_of
 
-ONEPUSH_CUTS = (1, 2, 5, 10, 30, 100, 300, 900)
-TWOPUSH_CUTS = (1, 2, 5, 10, 30, 100, 300, 900)
+ONEPUSH_CUTS = (1, 2, 5, 10, 30, 100, 300, 900, 4000)
+TWOPUSH_CUTS = (1, 2, 5, 10, 30, 100, 300, 900, 4000)
 # Wall-clock budgets in SECONDS, for the success-vs-time axis. Only emitted when every row carries
 # t_wall (runs from the instrumented search); pre-instrumentation artifacts aggregate exactly as before.
 # Times are comparable ONLY within one pinned-hardware campaign -- never pool across boxes.
@@ -162,7 +162,8 @@ def load_tiered_rows(onepush_dir, twopush_dir, onepush_key, divisions_path, expe
         if division is None:
             continue
         onepush_rows.append(
-            {"division": _normalize_tier(division), "solved": bool(row["solved"]), "sims": _row_sims(row),
+            {"episode": (key[0], key[1], row.get("region")),
+             "division": _normalize_tier(division), "solved": bool(row["solved"]), "sims": _row_sims(row),
              "timing": _row_timing(row)}
         )
 
@@ -174,13 +175,14 @@ def load_tiered_rows(onepush_dir, twopush_dir, onepush_key, divisions_path, expe
         if division is None:
             continue
         twopush_rows.append(
-            {"division": _normalize_tier(division), "solved": bool(row["solved"]), "sims": _row_sims(row),
+            {"episode": key, "division": _normalize_tier(division),
+             "solved": bool(row["solved"]), "sims": _row_sims(row),
              "timing": _row_timing(row)}
         )
 
-    if len(onepush_rows) != expect_onepush:
+    if expect_onepush is not None and len(onepush_rows) != expect_onepush:
         raise RuntimeError(f"matched 1push rows {len(onepush_rows)} != expected {expect_onepush}")
-    if len(twopush_rows) != expect_twopush:
+    if expect_twopush is not None and len(twopush_rows) != expect_twopush:
         raise RuntimeError(f"matched 2push rows {len(twopush_rows)} != expected {expect_twopush}")
 
     onepush_config = _search_config(onepush)
@@ -201,10 +203,11 @@ def load_twopush_rows(twopush_dir, divisions_path, expect_twopush):
     for row, key in zip(twopush, keys):
         division = divisions.get(key)
         if division is not None:
-            rows.append({"division": _normalize_tier(division), "solved": bool(row["solved"]),
+            rows.append({"episode": key, "division": _normalize_tier(division),
+                         "solved": bool(row["solved"]),
                          "timing": _row_timing(row),
                          "sims": _row_sims(row)})
-    if len(rows) != expect_twopush:
+    if expect_twopush is not None and len(rows) != expect_twopush:
         raise RuntimeError(f"matched 2push rows {len(rows)} != expected {expect_twopush}")
     return rows, _search_config(twopush)
 
@@ -220,10 +223,11 @@ def load_onepush_rows(onepush_dir, onepush_key, expect_onepush):
     for row, key in zip(onepush, keys):
         division = divisions.get(key)
         if division is not None:
-            rows.append({"division": _normalize_tier(division), "solved": bool(row["solved"]),
+            rows.append({"episode": (key[0], key[1], row.get("region")),
+                         "division": _normalize_tier(division), "solved": bool(row["solved"]),
                          "timing": _row_timing(row),
                          "sims": _row_sims(row)})
-    if len(rows) != expect_onepush:
+    if expect_onepush is not None and len(rows) != expect_onepush:
         raise RuntimeError(f"matched 1push rows {len(rows)} != expected {expect_onepush}")
     return rows, _search_config(onepush)
 

@@ -11,7 +11,7 @@ from matplotlib.ticker import FixedFormatter, FixedLocator, NullLocator
 import numpy as np
 
 from namo import eval_sets
-from agg_search_eval import load_tiered_rows
+from agg_search_eval import ONEPUSH_CUTS, TWOPUSH_CUTS, _summarize, load_tiered_rows
 
 
 HORIZONS = ("1push", "2push")
@@ -83,14 +83,73 @@ def _same_config(left, right):
 
 
 def _load_arm(onepush_dir, twopush_dir, args):
+    expect_onepush = None if args.common_episode_set else args.expect_1push
+    expect_twopush = None if args.common_episode_set else args.expect_2push
     return load_tiered_rows(
         onepush_dir,
         twopush_dir,
         args.onepush_key,
         args.divisions,
-        args.expect_1push,
-        args.expect_2push,
+        expect_onepush,
+        expect_twopush,
     )
+
+
+def _restrict_to_common_episodes(arms):
+    """Score every arm on the exact episode intersection, separately by horizon."""
+    common = {}
+    for horizon in HORIZONS:
+        episode_sets = [{row["episode"] for row in arm[horizon]} for arm in arms]
+        common[horizon] = set.intersection(*episode_sets)
+        for arm in arms:
+            arm[horizon] = [row for row in arm[horizon] if row["episode"] in common[horizon]]
+    return common
+
+
+def _aggregate_series(item):
+    result = {"seed_count": len(item["arms"])}
+    for horizon, cuts in (("1push", ONEPUSH_CUTS), ("2push", TWOPUSH_CUTS)):
+        seed_reports = [_summarize(arm[horizon], cuts) for arm in item["arms"]]
+        result[horizon] = {}
+        for tier in (*TIERS, "all"):
+            reports = [report[tier] for report in seed_reports]
+            ns = {report["n"] for report in reports}
+            if len(ns) != 1:
+                raise RuntimeError(f"episode count differs within {item['label']} {horizon}/{tier}: {ns}")
+            summary = {"n": ns.pop()}
+            for metric in reports[0]:
+                if metric == "n":
+                    continue
+                values = [report[metric] for report in reports]
+                if any(value is None for value in values):
+                    summary[metric] = None
+                    continue
+                summary[metric] = {
+                    "mean": round(float(np.mean(values)), 3),
+                    "sd": round(float(np.std(values, ddof=1)), 3) if len(values) > 1 else 0.0,
+                }
+            result[horizon][tier] = summary
+    return result
+
+
+def _write_aggregate_json(path, series, common, args, reference_config):
+    shared_search = dict(reference_config)
+    shared_search.pop("prior")
+    payload = {
+        "population": "common episode intersection" if args.common_episode_set else "per-arm population",
+        "common_episodes": {horizon: len(common[horizon]) for horizon in HORIZONS} if common else None,
+        "excluded_from_canonical": {
+            "1push": args.expect_1push - len(common["1push"]),
+            "2push": args.expect_2push - len(common["2push"]),
+        } if common else None,
+        "hardware": args.hardware_label,
+        "shared_search": shared_search,
+        "series": {item["key"]: {"label": item["label"], **_aggregate_series(item)} for item in series},
+    }
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2) + "\n")
+    print(f"saved {path}")
 
 
 def _curve_stats(arms, horizon, tier, metric, grid):
@@ -248,6 +307,9 @@ def main():
     parser.add_argument("--out-dir", required=True)
     parser.add_argument("--hardware-label", default="1 core, pinned icelake")
     parser.add_argument("--curve-json", help="optional compact curve data for an interactive plot")
+    parser.add_argument("--aggregate-json", help="optional fixed-budget tables for every plotted series")
+    parser.add_argument("--common-episode-set", action="store_true",
+                        help="restrict every seed and method to the exact episode intersection")
     parser.add_argument("--x-axis", default="sims", choices=["sims", "time", "both"],
                         help="cost axis: simulator calls (default, works on any artifact), wall-clock "
                              "seconds (needs instrumented rows), or both")
@@ -295,11 +357,16 @@ def main():
          "color": COLORS["random"], "linewidth": 2.2, "linestyle": "--"}
     )
 
+    all_arms = [arm for item in series for arm in item["arms"]]
+    common = _restrict_to_common_episodes(all_arms) if args.common_episode_set else None
+    if common:
+        print("common episode set: " + ", ".join(
+            f"{horizon}={len(common[horizon])}" for horizon in HORIZONS))
+
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     _style()
     metrics = ("sims", "time") if args.x_axis == "both" else (args.x_axis,)
-    all_arms = [arm for item in series for arm in item["arms"]]
     grids = {}
     for metric in metrics:
         # One grid shared by every arm and panel of a metric, so curves are directly comparable.
@@ -312,6 +379,8 @@ def main():
         if set(grids) != {"sims", "time"}:
             raise RuntimeError("--curve-json requires --x-axis both")
         _write_curve_json(args.curve_json, series, grids, sim_budget, args.hardware_label)
+    if args.aggregate_json:
+        _write_aggregate_json(args.aggregate_json, series, common, args, reference_config)
 
 
 if __name__ == "__main__":

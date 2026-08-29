@@ -57,6 +57,8 @@ The union was built at **pkl level, preferring the complete re-sweep**: 165 topu
 
 Only **3** episodes are dropped from the 2push manifest (exhaustive GT has zero genuine setups) and **zero** for a missing GT root — v2 lost 9 to that. `search_eval_exclusions` stays empty: v1's remaining entries were empirical per-episode records that cannot transfer, and must be re-derived from a v3 re-eval.
 
+**Region-verifier coverage gotcha, found 2026-08-29:** `eval_m3.sample_goal_points` returns no fixed target-region samples for 18 of the 1,328 one-push episodes and 19 of the 992 two-push episodes. Model and random search rows historically keep these as guaranteed failures because `goal_open_pts` cannot accept an empty target; the corrected geometric ranker rejects them before search because it has no region to score. The geometry/HY5U/random wall-clock comparison therefore uses the exact common nonempty-target set, 1,310 one-push and 973 two-push episodes. Do not claim that all 1,328/992 rows received a meaningful region verifier until the sampler is fixed and every arm is rerun.
+
 Tiers were recomputed through the **same v1-gated code path** (`hardness_v2.py`, `onepush_tiers_v2.py`, version-parameterized): the v1 gate reproduces the registered tiers exactly — 981/981 two-push, 1322/1322 one-push — before any v3 number is emitted. Against v1 the tiers move 11/1016 (1.1%) on 2push and 44/1322 (3.3%) on 1push, all threshold-adjacent.
 
 **Cross-version comparison remains invalid.** HY5U and uniform random now have matched three-seed v3 references in the model registry (`hy5u-nodiscount-hmax2-v3` and `random-nodiscount-hmax2-v3`); every historical v1 number still requires a fresh v3 evaluation before comparison.
