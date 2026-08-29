@@ -8,12 +8,17 @@
 # Sizing, measured not guessed: one two-movable scene at depth 2 ran 1254 sims in 269s on arrakis,
 # and a single-movable scene ran 169 sims in 21s, so both land near 5-8 sims/sec single-threaded.
 #
-# Cost is wildly uneven across scene flavors, so size for the worst one. A domino scene (no movable
-# opens the goal on its own) can have NO depth-1 opener at all: if deleting an object outright
-# leaves the goal unreachable, then pushing it anywhere does too. Every clean first push therefore
-# expands over the full finish set instead of short-circuiting on an opener, which is the most
-# expensive shape this script can be handed. 100 tasks over 300 scenes is 3 scenes each, and --time
-# is set far above the median because that tail is long.
+# Cost is uneven across scene flavors, so size for the worst one. Measured, not reasoned: the first
+# 130 scenes averaged 1884-2140 sims each whichever flavor they came from. 100 tasks over 300 scenes
+# is 3 scenes each, and --time is set far above the median because the tail is long.
+#
+# ⛔ A "domino" scene, where no movable opens the goal when deleted on its own, is NOT push-proof at
+# depth 1, and predicting otherwise was wrong. The argument was that deleting an object is strictly
+# more favourable than pushing it, so if deleting leaves the goal shut, pushing must too. It ignores
+# the whole point of these scenes: a push on one block MOVES THE OTHER. Deleting object 0 leaves
+# object 1 where it was, while pushing object 0 drives object 1 out of the way as well. Measured, 19
+# of the first 22 domino scenes had a single-push opener, and 90.4% of those openers reported
+# block-on-block contact, the highest rate of any flavor.
 #SBATCH --job-name=exh2
 #SBATCH --partition=unlimited
 #SBATCH --array=0-99
