@@ -457,6 +457,10 @@ def _layout(rng, name, n_bricks):
     """
     y = rng.uniform(0.30, 0.48)
     st = []
+    # The band the layout occupies vertically. Every layout but `stagger` sits on one divider line,
+    # so both ends are that line; `stagger` spreads its bricks and overwrites these with the real
+    # extent, so the caller keeps the robot start below the whole field and the goal above it.
+    band_lo = band_hi = y
     if name == "side_gap":
         # one brick flush to a side wall; the rest of the width is the passage
         left = rng.random() < 0.5
@@ -480,11 +484,44 @@ def _layout(rng, name, n_bricks):
         passage_x = (lo + hi) / 2
 
     elif name == "stagger":
-        # bricks at different y so the robot weaves round rather than through
-        n = max(2, min(n_bricks, 3))
-        xs = sorted(rng.uniform(0.10, ARENA_W - 0.10) for _ in range(n))
-        for k, cx in enumerate(xs):
-            st.append(_brick(cx, y + rng.uniform(-0.07, 0.07), rng.uniform(-55, 55), k + 1))
+        # bricks at different y so the robot weaves round rather than through.
+        #
+        # This used to cap at 3 no matter what `--max-bricks` said, which made the flag inert above
+        # 3: asking for 6 and asking for 8 both returned the same {2: 18, 3: 2} over 20 scenes.
+        # The cap is drawn per scene rather than pinned at the budget so a pool keeps a spread of
+        # densities instead of every scene looking like the same crowded field. Staggering in y is
+        # what makes extra bricks affordable here: they do not all narrow one corridor line, which
+        # is the wall that stops `center_door` and the two-band layout from taking more than 2 --
+        # 49.0 cm of arena minus two 19.5 cm bricks leaves 10.0, already at the margin test.
+        # The y spread has to grow with n or the extra bricks just overlap each other and the whole
+        # sample is thrown away. At the old fixed +-0.07 m, four 19.5 cm bricks never once survived
+        # the overlap check over 30 scenes; the band is now +-0.045 m per brick, so a denser field
+        # gets proportionally more room to lay them out in.
+        # Bricks go down ONE AT A TIME, each with its own retries, and the layout keeps whatever
+        # fits. Drawing all n positions iid and throwing the whole sample away on any overlap is
+        # what capped this at 3 bricks no matter how the budget or the spread was set: probing
+        # `_layout(..., 8)` 4000 times, 3670 died on brick-brick overlap before the gate ever ran,
+        # and the survivors were the small-n draws. Placing sequentially turns all-or-nothing into
+        # best-effort, so a crowded field degrades to a slightly less crowded one.
+        #
+        # The y spread also has to grow with n, or the extra bricks have nowhere to go but on top
+        # of each other.
+        n = rng.randint(2, max(2, n_bricks))
+        spread = min(0.045 * n, 0.16)
+        for k in range(n):
+            for _try in range(40):
+                cand = _brick(rng.uniform(0.08, ARENA_W - 0.08),
+                              y + rng.uniform(-spread, spread), rng.uniform(-55, 55), len(st) + 1)
+                if inside_arena(cand) and not any(overlaps(cand, o, 0.004) for o in st):
+                    st.append(cand)
+                    break
+        if len(st) < 2:
+            return None
+        # Report the field's TRUE vertical extent, not the nominal centre line. The robot start goes
+        # below `band_lo` and the goal above `band_hi`, and declaring a single y let both be placed
+        # inside a field that actually reaches +-spread, where the gate then rejected them. Widening
+        # the spread without this makes that worse, not better.
+        band_lo, band_hi = min(b.cy for b in st), max(b.cy for b in st)
         passage_x = rng.uniform(0.08, ARENA_W - 0.08)
 
     elif name == "pocket":
@@ -511,7 +548,7 @@ def _layout(rng, name, n_bricks):
         for b in range(a + 1, len(st)):
             if overlaps(st[a], st[b], 0.004):
                 return None
-    return st, y, y, min(max(passage_x, 0.03), ARENA_W - 0.03)
+    return st, band_lo, band_hi, min(max(passage_x, 0.03), ARENA_W - 0.03)
 
 
 def _layout_bands2(rng, n_bricks):
