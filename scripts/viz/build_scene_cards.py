@@ -162,6 +162,10 @@ def episodes_exhaustive(sweep_dirs, remap=None, horizon_tier=False, contact_only
                         "n_green_contact": touched,
                         "contact_pct": round(100.0 * touched / len(hits), 1),
                         "solve_rate": round(len(hits) / len(tried), 4) if tried else 0.0,
+                        # The gallery prints this on any card whose horizon is "2push", so a card
+                        # without it threw inside render() and killed the whole draw before the
+                        # step pills were built. That is why this tab showed no "after push 2".
+                        "solve_rate_1push": round(n_open / len(tried), 4) if tried else 0.0,
                     })
             if eps:
                 out.setdefault(xml, []).extend(eps)

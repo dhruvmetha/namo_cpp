@@ -348,7 +348,12 @@ function render(card) {
     [green, `${meta.n_green} of ${meta.n_tried} reachable pushes`],
     ["random draws to hit", meta.n_green ? (meta.n_tried / meta.n_green).toFixed(1) : "n/a"],
   ];
-  if (meta.horizon === "2push") kv.push(["1push solve rate", meta.solve_rate_1push.toFixed(3)]);
+  // Guarded: this used to be an unconditional .toFixed on a field the two-movable cards did not
+  // carry, and the TypeError aborted render() before renderSteps() ran, so those cards silently
+  // lost their step pills. One missing meta field must not take the whole card down.
+  if (meta.horizon === "2push" && typeof meta.solve_rate_1push === "number") {
+    kv.push(["1push solve rate", meta.solve_rate_1push.toFixed(3)]);
+  }
 
   const t = timing && timing[card.file_key];
   if (t) {
