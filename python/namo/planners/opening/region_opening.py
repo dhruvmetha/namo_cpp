@@ -72,7 +72,40 @@ def _sort_candidates_sync(
         candidates.sort(key=lambda x: (-float(getattr(x[2], "score", 0.0)), x[1], x[0]))
 
 
+def classify_sim_outcome(info):
+    """(exclusive outcome bucket or None, benign_wall_touch) for one executed push.
+
+    `wall_collision` is set at TWO sites in namo_push_controller.cpp and they mean opposite things.
+    Line 636 is a ROBOT body hitting a static object: it writes last_failure_reason_ and returns
+    false, so the push did not happen. Line 645 is the PUSHED OBJECT touching a static object,
+    which its own comment calls "a normal outcome, not a failed push", and it does not return.
+
+    Bucketing both as one collision made the counter unreadable, and set an outcome on a perfectly
+    good push so it never reached the opened / did-not-open decision. The hardware side hit this on
+    a real run: 100 of 132 attempts read as wall collisions with no way to tell how many were a
+    block brushing a wall on its way to a working push. Only the fatal path writes a failure_reason,
+    so the info dict already carries the discriminator.
+
+    A None outcome means the caller decides between push_opened_region and push_did_not_open_region.
+    The second return value OVERLAPS those buckets and is not part of the one-bucket-per-push
+    partition, so summing every stat key exceeds executed_in_sim by exactly its count.
+    """
+    ftype = str(info.get("failure_type", ""))
+    if ftype == "4":
+        return "edge_unreachable", False
+    if info.get("stuck") == "true" or ftype == "3":
+        return "controller_stuck", False
+    if info.get("wall_collision") == "true" or ftype == "2":
+        if info.get("failure_reason"):
+            return "robot_collided_with_wall", False
+        return None, True
+    if ftype and ftype != "0":
+        return f"failure_type_{ftype}", False
+    return None, False
+
+
 @dataclass
+
 class ChainNode:
     """Node in the skill chaining search tree."""
     state: namo_rl.RLState  # Environment state after this push
@@ -2902,16 +2935,10 @@ class RegionOpeningPlanner(BasePlanner):
             # push_did_not_open_region for pushes with no sim-side failure.
             self._rejection_stats["executed_in_sim"] = self._rejection_stats.get("executed_in_sim", 0) + 1
             _info = step_result.info or {}
-            _ftype = str(_info.get("failure_type", ""))
-            _sim_outcome: Optional[str] = None
-            if _ftype == "4":
-                _sim_outcome = "edge_unreachable"
-            elif _info.get("stuck") == "true" or _ftype == "3":
-                _sim_outcome = "controller_stuck"
-            elif _info.get("wall_collision") == "true" or _ftype == "2":
-                _sim_outcome = "push_collided_with_wall"
-            elif _ftype and _ftype != "0":
-                _sim_outcome = f"failure_type_{_ftype}"
+            _sim_outcome, _benign_touch = classify_sim_outcome(_info)
+            if _benign_touch:
+                self._rejection_stats["pushed_object_touched_wall"] = (
+                    self._rejection_stats.get("pushed_object_touched_wall", 0) + 1)
             if _sim_outcome is not None:
                 self._rejection_stats[_sim_outcome] = self._rejection_stats.get(_sim_outcome, 0) + 1
 
