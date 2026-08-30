@@ -32,6 +32,14 @@
 set -euo pipefail
 cd /cache/home/dm1487/projects/namo/namo_cpp
 source env.amarel.sh
+
+# ⛔ Pin every math library to one thread. Without this each worker spawns its own pool for the
+# scorer's forward passes: measured 974% CPU across THREE workers, one of them alone at 680%. With
+# --workers 16 on 16 allocated cores that is 100+ threads fighting over 16, and the arm crawls with
+# no error and no crash. The random arm is unaffected because uniform prior never calls the model,
+# which is exactly why the first attempt looked like the model arm had hung.
+# Every other eval script in scripts/slurm/ already does this; this one did not, which was my miss.
+export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1
 PY=/scratch/dm1487/envs/namo/bin/python
 MAN=/scratch/dm1487/real_buildable_2mov/hy5u_1hop_manifest.txt
 OUT=/scratch/dm1487/eval/two_movable_1hop_20260830
