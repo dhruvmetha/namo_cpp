@@ -284,28 +284,34 @@ def _unmoved(before, after, obj, tol=1e-6):
 
 
 def _state_local_live_candidates(pool, banned, jam_at, prune_jam_depth):
-    """Return candidates still valid at one unchanged simulator state."""
+    """Return candidates still valid at one unchanged simulator state.
+
+    Keyed by (object, edge). Edge indices are per-object and both movables in a doorway number theirs
+    over the same range, so keying on the bare edge lets a jam on one block cancel an untried push on
+    the other. Measured on the two-movable pool: 988 of 1548 scenes have the two blocks sharing an
+    edge number, and in 732 of those a SOLVING push sits on a shared number.
+    """
     return [
         (obj, goal, score)
         for obj, goal, score in pool
-        if (int(goal.edge_idx), int(goal.depth)) not in banned
+        if (obj, int(goal.edge_idx), int(goal.depth)) not in banned
         and not (
             prune_jam_depth
-            and jam_at.get(int(goal.edge_idx)) is not None
-            and int(goal.depth) >= jam_at[int(goal.edge_idx)]
+            and jam_at.get((obj, int(goal.edge_idx))) is not None
+            and int(goal.depth) >= jam_at[(obj, int(goal.edge_idx))]
         )
     ]
 
 
-def _record_state_local_jam(jam_at, goal, step_result, prune_jam_depth):
-    """Record the shallowest failed depth for one edge at the current state."""
+def _record_state_local_jam(jam_at, obj, goal, step_result, prune_jam_depth):
+    """Record the shallowest failed depth for one (object, edge) at the current state."""
     if not prune_jam_depth or not (step_result.info or {}).get("failure_reason"):
         return
-    edge = int(goal.edge_idx)
+    key = (obj, int(goal.edge_idx))
     depth = int(goal.depth)
-    previous = jam_at.get(edge)
+    previous = jam_at.get(key)
     if previous is None or depth < previous:
-        jam_at[edge] = depth
+        jam_at[key] = depth
 
 
 @dataclass
@@ -341,7 +347,7 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
     success, so a solved episode's winning push -- which creates no board at all -- is recorded too; the child
     board spawned by a failed pop reuses that same capture rather than paying for the identical state twice."""
     gkmax = (max(g_table) if g_table else 0)
-    # (board, edge) -> shallowest depth known to jam there. push_steps = depth+1 and the controller runs
+    # (board, object, edge) -> shallowest depth known to jam there. push_steps = depth+1 and the controller runs
     # ONE continuous push, so depth k+1 is depth k's trajectory continued: if the robot jams partway
     # through k it hits the same obstruction at the same tick for every deeper k'. Verified on a full
     # arm: 1214 of 1215 such pairs held (the one exception is the sim's known ~0.3mm warmstart jitter).
@@ -393,7 +399,10 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
             it["se"] = cur
             heapq.heappush(heap, (*_queue_key(cur, prior, it["ndone"], next_ctr()), it))
             continue
-        _jk = (it["board_id"], int(it["g"].edge_idx))
+        # (board, OBJECT, edge). The object is load-bearing: the pruning argument below is that a
+        # deeper push retraces the shallower one's trajectory, which holds for one object on one edge
+        # and says nothing about a different block that happens to share an edge number.
+        _jk = (it["board_id"], it["obj"], int(it["g"].edge_idx))
         _jd = jam_at.get(_jk)
         if prune_jam_depth and _jd is not None and int(it["g"].depth) >= _jd:
             continue                                      # same trajectory, already known to jam -- no sim
@@ -572,8 +581,8 @@ def run_greedy_commit(
 
         edge = int(goal_spec.edge_idx)
         depth = int(goal_spec.depth)
-        banned.add((edge, depth))
-        _record_state_local_jam(jam_at, goal_spec, step_result, prune_jam_depth)
+        banned.add((obj, edge, depth))
+        _record_state_local_jam(jam_at, obj, goal_spec, step_result, prune_jam_depth)
         rejections.append(
             {"edge_idx": edge, "depth": depth, "reason": "no_state_change"}
         )
@@ -621,7 +630,10 @@ def run_reactive(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, comb
     sims = 0
     plan = []
     s_cur = s0
-    banned = set()          # (edge, depth) already tried AT THIS STATE
+    banned = set()          # (object, edge, depth) already tried AT THIS STATE. The object is part of
+                            # the key for the same reason it is part of the jam key: edge numbers are
+                            # per-object and two blocks in one doorway reuse the same range, so
+                            # keying on (edge, depth) alone bans the other block's untried push.
     jam_at = {}             # edge -> shallowest depth known to jam AT THIS STATE
     end = "budget"
 
@@ -654,9 +666,9 @@ def run_reactive(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, comb
             _record(env.get_full_state())
             return True, sims, len(plan), [], "solved"
         edge, depth = int(g.edge_idx), int(g.depth)
-        _record_state_local_jam(jam_at, g, step_res, prune_jam_depth)
+        _record_state_local_jam(jam_at, obj, g, step_res, prune_jam_depth)
         if dedupe_noop and _unmoved(obs_before, env.get_observation(), obj):
-            banned.add((edge, depth))     # same state, same pool -> never re-offer this push
+            banned.add((obj, edge, depth))   # same state, same pool -> never re-offer THIS object's push
             plan.pop()                    # nothing moved, so this is not a push worth executing
             continue                      # s_cur unchanged; the ban list stands
         banned.clear(); jam_at.clear()    # the object moved: a new state is a new board
