@@ -394,6 +394,20 @@ function stepWho(st, card) {
   return `push on <b>${who}</b>, the other block, `;
 }
 
+// "opened" is the labeller's bar: at least 20% of the poses sampled in the goal region became
+// reachable. Merging the two regions is a stricter thing, and on this pool the two part company
+// often -- 223 of 1805 solved replays (12% overall, 31% of hard 2push) clear the bar with the goal
+// still standing as its own region. Both count as solved [USER, 2026-08-30]. The page said "the
+// goal is now reachable" either way, so a card whose tint plainly showed two regions read as a
+// broken render. Both lines below describe a solve; they differ in how the robot gets there.
+function outcomeText(st) {
+  const labs = (st.regions && st.regions.labels) || {};
+  const split = Object.keys(labs).some((k) => labs[k] === "goal");
+  return split
+    ? "the goal is now reachable, through a gap -- the regions stay separate"
+    : "the goal is now reachable, and the two regions have merged";
+}
+
 // start | after push 1 | after push 2 -- the solution the test set already knows, not the ranker's
 // own path (that lives in the search traces).
 function renderSteps(card) {
@@ -403,13 +417,12 @@ function renderSteps(card) {
     return;
   }
   const labels = ["start", ...replay.steps.map((s, k) => `after push ${k + 1}`)];
+  const st = step > 0 ? replay.steps[step - 1] : null;
   box.innerHTML = '<span class="steps-cap">solution</span>' + labels.map((l, k) =>
     `<button type="button" class="step-pill${k === step ? " on" : ""}" data-step="${k}">${l}</button>`
-  ).join("") + (step > 0
-    ? `<div class="step-note">${stepWho(replay.steps[step - 1], card)}edge ` +
-      `${replay.steps[step - 1].edge} at depth ${replay.steps[step - 1].depth}, ` +
-      (replay.steps[step - 1].opened ? "the goal is now reachable" : "no opening yet, this is the setup") +
-      `</div>`
+  ).join("") + (st
+    ? `<div class="step-note">${stepWho(st, card)}edge ${st.edge} at depth ${st.depth}, ` +
+      (st.opened ? outcomeText(st) : "no opening yet, this is the setup") + `</div>`
     : `<div class="step-note">the state every number above describes</div>`);
   box.querySelectorAll(".step-pill").forEach((b) => b.addEventListener("click", () => {
     step = +b.dataset.step;

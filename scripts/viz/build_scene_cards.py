@@ -123,11 +123,20 @@ def episodes_exhaustive(sweep_dirs, remap=None, horizon_tier=False, contact_only
     rules = [tuple(x.split("=", 1)) for x in (remap or [])]
     out = {}
     missing = 0
+    n_already_open = 0
     for d in sweep_dirs:
         for p in sorted(glob.glob(os.path.join(d, "*.json"))):
             r = json.load(open(p))
             cells = r.get("cells") or []
             if not cells:
+                continue
+            # A scene whose goal region is already reachable at the root has no region-opening
+            # problem in it. The sweep still enumerates pushes and calls the ones with a finish
+            # "setups", so 18 such scenes reached the gallery as 2push cards -- and every plan on
+            # them is rejected at replay time for opening on push 1, which is why all 18 were the
+            # cards showing "no solution replay built". v1/solo0/rb_00071 is the one Dhruv spotted.
+            if r.get("goal_open_at_start"):
+                n_already_open += 1
                 continue
             xml = r["xml"]
             for a, b in rules:
@@ -171,6 +180,8 @@ def episodes_exhaustive(sweep_dirs, remap=None, horizon_tier=False, contact_only
                 out.setdefault(xml, []).extend(eps)
     if missing:
         print(f"  {missing} sweep file(s) skipped: xml not found on this box (check --remap)")
+    if n_already_open:
+        print(f"  {n_already_open} scene(s) skipped: goal region already open at the root")
     print(f"  exhaustive source: {len(out)} rooms, "
           f"{sum(len(v) for v in out.values())} episodes")
     return out
