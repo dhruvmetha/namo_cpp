@@ -8,6 +8,8 @@
 #include <chrono>
 #include <queue>
 #include <random>
+#include <array>
+#include <cstdlib>
 
 namespace namo {
 
@@ -40,6 +42,7 @@ WavefrontGrid::WavefrontGrid(NAMOEnvironment& env,
     static_grid_.resize(grid_width_, std::vector<int>(grid_height_, 0));
     dynamic_grid_.resize(grid_width_, std::vector<int>(grid_height_, 0));
     occupancy_count_grid_.resize(grid_width_, std::vector<int>(grid_height_, 0));
+    static_count_grid_.resize(grid_width_, std::vector<int>(grid_height_, 0));
     
     // Build initial occupancy grids (uninflated + inflated)
     rebuild_grids(env);
@@ -66,9 +69,13 @@ void WavefrontGrid::rebuild_grids(NAMOEnvironment& env) {
         std::fill(uninflated_grid_[x].begin(), uninflated_grid_[x].end(), 0);
         std::fill(static_grid_[x].begin(), static_grid_[x].end(), 0);
         std::fill(occupancy_count_grid_[x].begin(), occupancy_count_grid_[x].end(), 0);
+        std::fill(static_count_grid_[x].begin(), static_count_grid_[x].end(), 0);
     }
 
-    auto add_object = [&](const ObjectInfo& obj, const ObjectState& state) {
+    // `is_static` comes from the caller's loop rather than ObjectInfo::is_static: the two loops below
+    // are already authoritative about which list an object came from, and that needs no trust in a
+    // field being populated.
+    auto add_object = [&](const ObjectInfo& obj, const ObjectState& state, bool is_static) {
         {
             const GridFootprint footprint = calculate_rotated_footprint(obj, state);
             for (size_t i = 0; i < footprint.num_cells; ++i) {
@@ -88,6 +95,9 @@ void WavefrontGrid::rebuild_grids(NAMOEnvironment& env) {
                 const auto [x, y] = footprint.cells[i];
                 if (is_valid_grid_coord(x, y)) {
                     ++occupancy_count_grid_[x][y];
+                    if (is_static) {
+                        ++static_count_grid_[x][y];
+                    }
                 }
             }
         }
@@ -98,14 +108,14 @@ void WavefrontGrid::rebuild_grids(NAMOEnvironment& env) {
         ObjectState state;
         state.position = obj.position;
         state.quaternion = obj.quaternion;
-        add_object(obj, state);
+        add_object(obj, state, true);
     }
 
     for (size_t i = 0; i < env.get_num_movable(); ++i) {
         const auto& obj = movable_objects[i];
         const ObjectState* state = env.get_object_state(obj.name);
         if (state) {
-            add_object(obj, *state);
+            add_object(obj, *state, false);
         }
     }
 
@@ -601,6 +611,7 @@ WavefrontGrid::build_region_connectivity_graph(NAMOEnvironment& env) {
     // Initialize adjacency list
     std::unordered_map<std::string, std::unordered_set<std::string>> adjacency_list;
     adjacency_object_map_.clear();
+    multi_object_edges_.clear();
     for (const auto& [region_id, label] : region_labels) {
         adjacency_list[label] = std::unordered_set<std::string>();
         adjacency_object_map_[label] = std::unordered_map<std::string, std::unordered_set<std::string>>();
@@ -608,7 +619,85 @@ WavefrontGrid::build_region_connectivity_graph(NAMOEnvironment& env) {
     
     // Get movable objects
     const auto& movable_objects = env.get_movable_objects();
-    
+
+    // === MOVABLE-BLOB PASS, PHASE A: label connected clumps of movable-only cells ===
+    //
+    // The per-object loop below asks "would removing THIS ONE object join two regions". A doorway
+    // held shut by two touching blocks answers no for each block alone, so it records nothing and the
+    // regions read as unconnected. Measured on the real-table two-movable pool: adjacency came back
+    // {'robot': {}, 'goal': {}} on 67 of 300 scenes, which then sampled zero goal poses and got
+    // silently dropped by the labeller.
+    //
+    // This pass floods clumps of cells blocked only by movables and treats each clump as one plug.
+    // It runs BEFORE the per-object loop because that loop temporarily mutates dynamic_grid_.
+    //
+    // ⛔ The passable test reads dynamic_grid_, NOT the occupancy counts. find_connected_components
+    // force-clears cells around the robot without touching either count, so a count-based test would
+    // call those free cells blocked and swallow them into a blob.
+    const bool blob_pass_enabled = std::getenv("NAMO_DISABLE_MOVABLE_BLOB_EDGES") == nullptr;
+    std::vector<std::vector<int>> blob_id(grid_width_, std::vector<int>(grid_height_, -1));
+    std::vector<std::unordered_set<int>> blob_regions;
+    std::vector<std::unordered_set<std::string>> blob_objects;
+
+    // 8-connected, matching every other flood in this file. A 4-connected version would split clumps
+    // that touch only at a corner, and then disagree with the per-object pass on the same geometry.
+    const std::array<std::pair<int, int>, 8> blob_dirs = {{
+        {0, 1}, {0, -1}, {1, 0}, {-1, 0},
+        {1, 1}, {1, -1}, {-1, 1}, {-1, -1}
+    }};
+
+    auto is_movable_only = [&](int x, int y) {
+        return dynamic_grid_[x][y] == -1 && static_count_grid_[x][y] == 0;
+    };
+
+    if (blob_pass_enabled) {
+        // x-major scan so blob ids are deterministic across runs and boxes.
+        for (int sx = 0; sx < grid_width_; ++sx) {
+            for (int sy = 0; sy < grid_height_; ++sy) {
+                if (blob_id[sx][sy] != -1 || !is_movable_only(sx, sy)) {
+                    continue;
+                }
+                const int b = static_cast<int>(blob_regions.size());
+                blob_regions.emplace_back();
+                blob_objects.emplace_back();
+                blob_id[sx][sy] = b;
+
+                std::queue<std::pair<int, int>> q;
+                q.push({sx, sy});
+                while (!q.empty()) {
+                    auto [x, y] = q.front();
+                    q.pop();
+                    for (const auto& [dx, dy] : blob_dirs) {
+                        const int nx = x + dx;
+                        const int ny = y + dy;
+                        if (!is_valid_grid_coord(nx, ny)) {
+                            continue;
+                        }
+                        if (dynamic_grid_[nx][ny] != -1) {
+                            // Free cell: record which region it belongs to and stop. Same
+                            // record-but-do-not-enter rule the per-object flood uses. region_grid_ is
+                            // 0 both for obstacles and for free cells of border-touching regions,
+                            // which are deliberately left unlabeled, so > 0 skips those on purpose.
+                            const int rid = region_grid_[nx][ny];
+                            if (rid > 0) {
+                                blob_regions[b].insert(rid);
+                            }
+                            continue;
+                        }
+                        if (static_count_grid_[nx][ny] > 0) {
+                            continue;   // static wall: the plug ends here
+                        }
+                        if (blob_id[nx][ny] == -1) {
+                            blob_id[nx][ny] = b;
+                            q.push({nx, ny});
+                        }
+                    }
+                }
+            }
+        }
+        wg_dbg() << "Movable-blob pass: " << blob_regions.size() << " blob(s)" << std::endl;
+    }
+
     // Process each movable object
     for (size_t obj_idx = 0; obj_idx < env.get_num_movable(); obj_idx++) {
         const auto& obj = movable_objects[obj_idx];
@@ -633,6 +722,20 @@ WavefrontGrid::build_region_connectivity_graph(NAMOEnvironment& env) {
         if (footprint.num_cells == 0) {
             wg_dbg() << "  Object has no footprint - skipping" << std::endl;
             continue;
+        }
+
+        // Blob attribution rides on the footprint STEP 1 just computed, which is the same
+        // rasterization rebuild_grids used to fill the counts, so every movable-only cell is claimed
+        // by at least one object. Done here rather than in Phase A because Phase A works off the grid
+        // and has no object identity.
+        if (blob_pass_enabled) {
+            for (size_t i = 0; i < footprint.num_cells; i++) {
+                const int fx = footprint.cells[i].first;
+                const int fy = footprint.cells[i].second;
+                if (is_valid_grid_coord(fx, fy) && blob_id[fx][fy] >= 0) {
+                    blob_objects[blob_id[fx][fy]].insert(obj.name);
+                }
+            }
         }
         
         // === STEP 2: Temporarily remove object from grid ===
@@ -751,7 +854,84 @@ WavefrontGrid::build_region_connectivity_graph(NAMOEnvironment& env) {
             dynamic_grid_[cell.first][cell.second] = -1;  // Mark as obstacle again
         }
     }
-    
+
+    // === MOVABLE-BLOB PASS, PHASE B: write edges for clumps of two or more objects ===
+    //
+    // Only multi-object blobs write here. A single-object blob is already the per-object loop's job,
+    // and letting this pass touch those would change single-movable scenes, which is exactly the
+    // regression we need to be able to rule out. That restriction is also what lets us leave the
+    // per-object loop's split-footprint bug alone, documented in
+    // docs/known_limitations_region_graph.md #1.
+    //
+    // The per-object result as it stands right now, before this pass adds anything. A blob member
+    // appearing here for a pair means that object ALONE opens that boundary, so the blob is not a
+    // required group and must not be recorded as one. Without this check a block that merely touches
+    // the opener's inflated footprint, off to one side and needed by nobody, produced exactly the
+    // same output as a door neither block opens alone, which defeats the point of the marker.
+    const auto per_object_edges = adjacency_object_map_;
+    if (blob_pass_enabled) {
+        for (size_t b = 0; b < blob_regions.size(); ++b) {
+            if (blob_objects[b].size() < 2 || blob_regions[b].size() < 2) {
+                continue;
+            }
+            std::vector<std::string> connected_labels;
+            for (int region_id : blob_regions[b]) {
+                auto label_it = region_labels.find(region_id);
+                if (label_it != region_labels.end()) {
+                    connected_labels.push_back(label_it->second);
+                }
+            }
+            if (connected_labels.size() < 2) {
+                continue;
+            }
+            // The whole clump is the plug, so every object in it is a candidate on every pair.
+            std::vector<std::string> objs(blob_objects[b].begin(), blob_objects[b].end());
+            std::sort(objs.begin(), objs.end());
+            for (size_t i = 0; i < connected_labels.size(); i++) {
+                for (size_t j = i + 1; j < connected_labels.size(); j++) {
+                    const std::string& label1 = connected_labels[i];
+                    const std::string& label2 = connected_labels[j];
+
+                    // Did the per-object pass already open this SAME region pair, with any object at
+                    // all? Checking only members of this blob is not enough. Two regions can share
+                    // more than one doorway: object C opens one on its own while blob {A,B} plugs
+                    // another. Suppressing on blob members only would mark that pair as needing a
+                    // group when C alone opens it, and the marker is per pair, so it would be false.
+                    // Looking up one direction is sound because the per-object writer always records
+                    // both.
+                    bool opened_by_one_object = false;
+                    auto pe = per_object_edges.find(label1);
+                    if (pe != per_object_edges.end()) {
+                        auto pair_it = pe->second.find(label2);
+                        opened_by_one_object = (pair_it != pe->second.end() && !pair_it->second.empty());
+                    }
+
+                    if (opened_by_one_object) {
+                        // Leave the pair entirely alone. Naming the blob's other members here looked
+                        // defensible (a wider candidate set, verified downstream anyway) and is not:
+                        // a blob spans every doorway its objects touch, so on a chained scene it puts
+                        // the far block's name on a door it is nowhere near. Measured on the 300-scene
+                        // pool, writing names here changed 109 more scenes than leaving them out, all
+                        // of it that kind of smearing. The per-object pass already listed the right
+                        // candidates for a boundary one object opens.
+                        continue;
+                    }
+
+                    adjacency_list[label1].insert(label2);
+                    adjacency_list[label2].insert(label1);
+                    for (const auto& name : objs) {
+                        adjacency_object_map_[label1][label2].insert(name);
+                        adjacency_object_map_[label2][label1].insert(name);
+                    }
+                    multi_object_edges_[label1].insert(label2);
+                    multi_object_edges_[label2].insert(label1);
+                }
+            }
+            wg_dbg() << "  Blob " << b << " (" << objs.size() << " objects) connects "
+                      << connected_labels.size() << " regions" << std::endl;
+        }
+    }
+
     // Print summary
     wg_dbg() << "\nRegion Connectivity Graph Summary:" << std::endl;
     for (const auto& [region_label, neighbors] : adjacency_list) {

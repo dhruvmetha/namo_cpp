@@ -39,6 +39,7 @@ The active work now lives in experiment **cards** ([`experiments/log/`](experime
 - [`horizon_q_overview.md`](horizon_q_overview.md) — deeper map + **historical** Horizon-Q record (budget-conditioning framing superseded by `problem_and_approach.md`). `[HUB]`
 - [`cluster_resources.md`](cluster_resources.md) — Amarel SLURM partition/GPU guidance (append-only dated log). `[LIVE]`
 - [`planner_contract_drifts.md`](planner_contract_drifts.md) — confirmed config-key drift in the legacy collection path. `[REF]`
+- [`known_limitations_region_graph.md`](known_limitations_region_graph.md) — what is knowingly wrong in the region adjacency graph and why we left it. Read before trusting an edge or a missing edge. `[LIVE]`
 
 ## docs/experiments/ — the active research ledger
 

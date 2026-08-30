@@ -119,6 +119,7 @@ std::string find_goal_label(const std::unordered_map<int, std::string>& region_l
 void restrict_to_local_regions(
     std::unordered_map<std::string, std::unordered_set<std::string>>& adjacency,
     std::unordered_map<std::string, std::unordered_map<std::string, std::unordered_set<std::string>>>& edge_objects,
+    std::unordered_map<std::string, std::unordered_set<std::string>>& multi_object_edges,
     std::unordered_map<int, std::string>& region_labels,
     const std::string& robot_label) {
     if (robot_label.empty()) {
@@ -158,6 +159,18 @@ void restrict_to_local_regions(
         }
     }
     edge_objects = std::move(filtered_edge_objects);
+
+    // Filter the needs-a-group marker on the same rule, or it keeps naming regions that adjacency and
+    // edge_objects no longer mention and readers see a marker for an edge that is not in the snapshot.
+    std::unordered_map<std::string, std::unordered_set<std::string>> filtered_multi;
+    const auto robot_multi_it = multi_object_edges.find(robot_label);
+    for (const auto& neighbour : neighbours) {
+        if (robot_multi_it != multi_object_edges.end() && robot_multi_it->second.count(neighbour)) {
+            filtered_multi[robot_label].insert(neighbour);
+            filtered_multi[neighbour].insert(robot_label);
+        }
+    }
+    multi_object_edges = std::move(filtered_multi);
 
     std::unordered_map<int, std::string> filtered_labels;
     for (const auto& [region_id, label] : region_labels) {
@@ -698,6 +711,7 @@ RLEnvironment::RegionSnapshot RLEnvironment::get_region_snapshot(
     grid.find_connected_components(robot_xy, goal_cells);
 
     snapshot.adjacency = grid.build_region_connectivity_graph(*env_);
+    snapshot.multi_object_edges = grid.get_multi_object_edges();
     snapshot.edge_objects = grid.get_region_edge_objects();
     snapshot.region_labels = grid.get_region_labels();
 
@@ -716,6 +730,7 @@ RLEnvironment::RegionSnapshot RLEnvironment::get_region_snapshot(
         restrict_to_local_regions(
             snapshot.adjacency,
             snapshot.edge_objects,
+            snapshot.multi_object_edges,
             snapshot.region_labels,
             snapshot.robot_label
         );

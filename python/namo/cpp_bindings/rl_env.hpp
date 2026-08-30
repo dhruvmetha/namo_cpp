@@ -39,6 +39,9 @@ public:
     struct RegionSnapshot {
         std::unordered_map<std::string, std::unordered_set<std::string>> adjacency;
         std::unordered_map<std::string, std::unordered_map<std::string, std::unordered_set<std::string>>> edge_objects;
+        // Boundaries that no single object opens, so the whole plug named in edge_objects is needed.
+        // Absent from here means the per-object test found a single object that suffices.
+        std::unordered_map<std::string, std::unordered_set<std::string>> multi_object_edges;
         std::unordered_map<int, std::string> region_labels;
         std::unordered_map<std::string, RegionGoalBundle> region_goals;
         std::string robot_label;

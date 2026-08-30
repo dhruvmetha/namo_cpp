@@ -44,6 +44,7 @@ struct RegionGoalBundle {
     std::unordered_set<std::string> blocking_objects;
 };
 
+
 /**
  * @brief Grid discretization utility for spatial planning
  * 
@@ -142,8 +143,28 @@ public:
     std::unordered_map<std::string, std::unordered_set<std::string>> 
     build_region_connectivity_graph(NAMOEnvironment& env);
 
+    /**
+     * Movable objects that plug the boundary between two regions. An entry written by the per-object
+     * pass carries the stronger guarantee that the object ALONE joins the regions. An entry written
+     * by the movable-blob pass means the named objects form the plug together, and clearing some
+     * subset of them joins the regions. Both are candidate sets that the simulator then verifies;
+     * neither is a proof that any particular push succeeds.
+     *
+     * To tell the two apart, read get_multi_object_edges().
+     */
     const std::unordered_map<std::string, std::unordered_map<std::string, std::unordered_set<std::string>>>&
     get_region_edge_objects() const { return adjacency_object_map_; }
+
+    /**
+     * Region pairs that no single object opens on its own, so the whole plug named in
+     * get_region_edge_objects() is needed. This is the one-object versus needs-a-group distinction, and it
+     * is a bit per edge rather than a list, because for such an edge get_region_edge_objects() already
+     * names exactly the objects that form the plug.
+     *
+     * An edge absent from here was written by the per-object pass, so some single object suffices.
+     */
+    const std::unordered_map<std::string, std::unordered_set<std::string>>&
+    get_multi_object_edges() const { return multi_object_edges_; }
 
     std::unordered_map<std::string, RegionGoalBundle> sample_region_goals(int goals_per_region) const;
     std::unordered_map<std::string, RegionGoalBundle> sample_region_goals(int goals_per_region, uint32_t seed) const;
@@ -159,10 +180,23 @@ private:
     
     // Grid storage
     std::vector<std::vector<int>> uninflated_grid_;    // Original obstacles without inflation (for visualization)
-    std::vector<std::vector<int>> static_grid_;        // Static obstacles with inflation
+    std::vector<std::vector<int>> static_grid_;        // MISNOMER: holds ALL obstacles (static AND
+                                                      // movable) with inflation, built from the total
+                                                      // occupancy count and then copied to dynamic_grid_.
+                                                      // The name is load-bearing in call sites; do not
+                                                      // "fix" it by changing what it stores.
     mutable std::vector<std::vector<int>> dynamic_grid_;  // All obstacles (static + movable) with inflation
                                                           // Mutable to allow fixing discretization artifacts
-    std::vector<std::vector<int>> occupancy_count_grid_;  // Number of inflated objects occupying each cell
+    std::vector<std::vector<int>> occupancy_count_grid_;  // Number of inflated objects occupying each cell,
+                                                         // statics AND movables together
+    std::vector<std::vector<int>> static_count_grid_;     // Number of inflated STATIC objects per cell.
+                                                         // Exists so "blocked only by movables" is askable:
+                                                         // dynamic_grid_ == -1 && static_count_grid_ == 0.
+                                                         // ⛔ Do NOT substitute occupancy_count_grid_ > 0 for
+                                                         // the dynamic_grid_ test. find_connected_components
+                                                         // force-clears cells around the robot without
+                                                         // touching either count, so counts alone would call
+                                                         // those cells blocked when they are free.
     
     // Core initialization and update methods
     void rebuild_grids(NAMOEnvironment& env);
@@ -185,6 +219,7 @@ private:
     mutable std::vector<std::vector<int>> region_grid_;  // Maps each cell to its region ID
     mutable bool regions_valid_ = false;
     mutable std::unordered_map<std::string, std::unordered_map<std::string, std::unordered_set<std::string>>> adjacency_object_map_;
+    mutable std::unordered_map<std::string, std::unordered_set<std::string>> multi_object_edges_;
 };
 
 } // namespace namo

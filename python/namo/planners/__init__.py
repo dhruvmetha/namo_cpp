@@ -73,9 +73,16 @@ def get_region_snapshot(
 			str(region): _clone_goal_bundle(bundle)
 			for region, bundle in dict(raw.get("region_goals", {})).items()
 		}
+		# Boundaries no single object opens. This wrapper rebuilds the dict key by key, so a new
+		# binding field is invisible here until it is named, which is how it went missing once.
+		multi_object_edges = {
+			str(region): set(neighbors)
+			for region, neighbors in dict(raw.get("multi_object_edges", {})).items()
+		}
 		return {
 			"adjacency": adjacency,
 			"edge_objects": edge_objects,
+			"multi_object_edges": multi_object_edges,
 			"region_labels": region_labels,
 			"region_goals": region_goals,
 			"robot_label": str(raw.get("robot_label", "")),

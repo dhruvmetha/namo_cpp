@@ -220,6 +220,7 @@ PYBIND11_MODULE(namo_rl, m) {
                 py::dict out;
                 out["adjacency"] = snapshot.adjacency;
                 out["edge_objects"] = snapshot.edge_objects;
+                out["multi_object_edges"] = snapshot.multi_object_edges;
                 out["region_labels"] = snapshot.region_labels;
                 out["region_goals"] = snapshot.region_goals;
                 out["robot_label"] = snapshot.robot_label;
