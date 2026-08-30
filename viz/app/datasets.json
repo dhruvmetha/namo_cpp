@@ -23,7 +23,7 @@
   {
     "id": "real_2mov",
     "title": "Scene gallery \u2014 real-table, two movable blocks",
-    "description": "2216 exhaustively labelled two-movable doorways, filtered to the ones that earn their keep: a push that opens the region AND actually shoves the second block. Difficulty is per horizon, so 1push is scored on openers over enumerated pushes and 2push on openers plus setups, both against the usual 5%/30% cuts. Cards carry n_green_contact and contact_pct. Scenes whose goal region is already reachable at the root are excluded. A step-through says whether the solve merged the two regions or reached the goal through a gap; both count as solved.",
+    "description": "2220 exhaustively labelled two-movable doorways, filtered to the ones that earn their keep: a push that opens the region AND actually shoves the second block. Difficulty is per horizon, so 1push is scored on openers over enumerated pushes and 2push on openers plus setups, both against the usual 5%/30% cuts. Cards carry n_green_contact and contact_pct. Scenes whose goal region is already reachable at the root are excluded. A step-through says whether the solve merged the two regions or reached the goal through a gap; both count as solved.",
     "tool": "gallery",
     "data": "../real_2mov/"
   },
