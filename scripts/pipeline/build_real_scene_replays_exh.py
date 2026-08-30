@@ -119,7 +119,13 @@ def one(args):
         act.object_id = obj
         act.x, act.y, act.theta = float(cur[0]), float(cur[1]), float(cur[2])
         act.edge_idx, act.depth = int(edge), int(depth)
-        env.step(act)
+        # A push whose edge is unreachable from where the robot stands comes back with
+        # failure_reason set and leaves the board untouched, so the frame snapshotted next is the
+        # START state wearing an "after push N" caption. That shipped 76 bad two-push replays out of
+        # the two-movable gallery before build_scene_replay.py grew the same guard. It fires zero
+        # times on this single-movable pool today; it is here so it cannot start firing silently.
+        if env.step(act).info.get("failure_reason"):
+            return fname, "push_refused"
         if i == 0:
             mid = env.get_full_state()
         px, py, pth = (round(float(v), 6) for v in env.get_observation()[f"{obj}_pose"])

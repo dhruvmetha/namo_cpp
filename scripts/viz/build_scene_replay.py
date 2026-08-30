@@ -165,13 +165,23 @@ def is_open(env, pts, bar):
 
 
 def push(env, prim, make_action, obj, edge, depth):
-    """Apply the primitive push (obj, edge, depth). False if that goal does not exist here."""
+    """Apply the primitive push (obj, edge, depth). False if that goal does not exist here, or if
+    the skill refused to run it.
+
+    Checking only that the goal EXISTS is not enough. A push whose edge is unreachable from where
+    the robot stands comes back `failure_reason="Requested edge N not reachable"` and leaves the
+    board bit-identical, so the frame snapshotted after it is the START state wearing an "after
+    push 1" label. That hit 76 of 1278 two-push replays: the setup no-opped, the finish then ran
+    from the untouched root and opened, and the card showed two frames with one push visible.
+    These are cold-replay casualties -- the sweep reached that edge from the pose its own earlier
+    pushes had produced, and a clean start does not reproduce it -- so the plan is simply wrong
+    here and the caller should try the next one."""
     state = env.get_full_state()
     for edge_goals in prim.generate_goals(obj, state, env, max_goals=0):
         for g in edge_goals:
             if g is not None and int(g.edge_idx) == edge and int(g.depth) == depth:
-                env.step(make_action(obj, g))
-                return True
+                res = env.step(make_action(obj, g))
+                return not res.info.get("failure_reason")
     return False
 
 
