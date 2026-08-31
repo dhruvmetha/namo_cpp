@@ -39,9 +39,9 @@ After training, evaluate all three seeds on both registered fixed-physics-v3 hor
 
 ## Run
 
-The CS `unlimited` queue projected starts between September 14 and September 21 for every accessible GPU type, so the run uses free direct GPUs on westeros over the same shared filesystem. Three one-epoch target-box smokes started at 2026-08-31 02:58 EDT on GPUs 1/2/3 from commit `32feea2`; each staged the real H5 to `/dev/shm`, loaded 1,302,659 rows with the same 1,172,394/130,265 room-grouped train/validation split, built 234,307 episode families, and entered GPU training.
+An initial direct-westeros smoke was stopped after seven minutes, before an epoch or checkpoint completed, when the user clarified that long training must be scheduler-owned through SLURM and `srun`. Its partial logs remain under the CS `$NAMO_SCRATCH/aquaman/round0/ablations_20260831/smoke/`; no result from that attempt is usable.
 
-Smoke outputs are under `$NAMO_SCRATCH/aquaman/round0/ablations_20260831/smoke/`. The background supervisor is `scripts/rl_loop/run_hy5u_ablations_cs.sh`, westeros PID 994972, with log `$NAMO_SCRATCH/aquaman/round0/ablations_20260831/supervisor.log`. It requires `TRAIN DONE` from all three smokes before launching the nine full jobs, and aborts on a traceback, an early trainer exit, or a two-hour smoke timeout. Full outputs will land under `$NAMO_SCRATCH/aquaman/round0/ablations_20260831/models/`.
+The exact 4,227,636,488-byte H5 was transferred to Amarel at `$NAMO_SCRATCH/aquaman/round0/hybrid_train_v1.h5`, and the Amarel checkout was fast-forwarded to commit `6e39b56`. Target-box smoke array `61089794_[0-2]` was submitted to account `general`, partition `gpu`, with one GPU, eight CPUs, 48 GB RAM, and a two-hour limit per task; the allocated training command runs under `srun`. All three tasks initially predicted a 2026-08-31 03:56 EDT start. Outputs land under the Amarel `$NAMO_SCRATCH/aquaman/round0/ablations_20260831/smoke_amarel/`. The full nine-job array will be sized and submitted only after these real one-epoch smokes pass and provide a measured runtime.
 
 ## Result
 
