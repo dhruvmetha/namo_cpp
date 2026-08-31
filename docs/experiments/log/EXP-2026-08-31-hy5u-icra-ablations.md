@@ -3,7 +3,7 @@ type: experiment
 status: live
 created: 2026-08-31
 updated: 2026-08-31
-commit: pending
+commit: 0312528
 metric: "Canonical fixed-physics-v3 success-vs-simulator-calls, split by easy/medium/hard and 1push/2push; three seeds per new arm."
 tags:
   - experiment
