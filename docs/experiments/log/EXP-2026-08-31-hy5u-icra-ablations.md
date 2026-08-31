@@ -39,7 +39,9 @@ After training, evaluate all three seeds on both registered fixed-physics-v3 hor
 
 ## Run
 
-Pending.
+The CS `unlimited` queue projected starts between September 14 and September 21 for every accessible GPU type, so the run uses free direct GPUs on westeros over the same shared filesystem. Three one-epoch target-box smokes started at 2026-08-31 02:58 EDT on GPUs 1/2/3 from commit `32feea2`; each staged the real H5 to `/dev/shm`, loaded 1,302,659 rows with the same 1,172,394/130,265 room-grouped train/validation split, built 234,307 episode families, and entered GPU training.
+
+Smoke outputs are under `$NAMO_SCRATCH/aquaman/round0/ablations_20260831/smoke/`. The background supervisor is `scripts/rl_loop/run_hy5u_ablations_cs.sh`, westeros PID 994972, with log `$NAMO_SCRATCH/aquaman/round0/ablations_20260831/supervisor.log`. It requires `TRAIN DONE` from all three smokes before launching the nine full jobs, and aborts on a traceback, an early trainer exit, or a two-hour smoke timeout. Full outputs will land under `$NAMO_SCRATCH/aquaman/round0/ablations_20260831/models/`.
 
 ## Result
 
