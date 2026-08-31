@@ -236,7 +236,15 @@ class FullNAMOPlanner(BasePlanner):
                 "simulation_budget_keyholes_attempted": len(used_by_keyhole),
             }
         if self.push_budget is None:
-            return {}
+            # No counters to report, but the scope is still known and still
+            # decides what a result means. This is the shape robot_control
+            # produces, since it forwards a per-keyhole limit and never a
+            # budget object, so returning {} left the one configuration that
+            # runs on hardware as the only one whose budget rule went
+            # unrecorded. The constant is named CANONICAL_KEYHOLE_SIMULATION_
+            # BUDGET and this default is not per keyhole, so a reader with no
+            # scope in the record will assume the wrong one.
+            return {"simulation_budget_scope": self.budget_scope}
         return {
             "simulation_budget_scope": "full_problem",
             "simulation_budget_limit": int(self.push_budget.limit),
