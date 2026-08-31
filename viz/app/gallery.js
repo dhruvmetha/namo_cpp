@@ -355,6 +355,16 @@ function render(card) {
     kv.push(["1push solve rate", meta.solve_rate_1push.toFixed(3)]);
   }
 
+  // A doorway no single block opens. Measured over the 2220-card pool with best-first at budget
+  // 900: the 240 rooms with no way around one of these exhaust the budget 13.8% of the time,
+  // against 2.9% for the 136 that have an alternative route. Same shape of scene either way, so
+  // the flag is the thing that predicts the failure and belongs on the card.
+  if (meta.door_needs_both_blocks) {
+    kv.push(["doorway", meta.has_route_around
+      ? "needs BOTH blocks, but another route to the goal exists"
+      : "needs BOTH blocks, and there is no way around it"]);
+  }
+
   const t = timing && timing[card.file_key];
   if (t) {
     // Bold the seconds, plain the sims: the time is the number being compared, the call count is
