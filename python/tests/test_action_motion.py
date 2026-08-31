@@ -174,6 +174,20 @@ def test_training_builder_enables_depth_local_attention_only_by_flag(monkeypatch
     assert not hasattr(prior, "action_depth_attn")
 
 
+def test_training_builder_disables_inter_contact_attention_only_by_flag(monkeypatch):
+    from namo.rl_loop.train_gen import _make_network
+
+    monkeypatch.setenv("NAMO_EDGE_SELF_ATTN", "0")
+    independent = _make_network(value_bins=51)
+    assert all(not block.self_attn for block in independent.edge_blocks)
+    assert all(not hasattr(block, "slf") for block in independent.edge_blocks)
+
+    monkeypatch.setenv("NAMO_EDGE_SELF_ATTN", "1")
+    full = _make_network(value_bins=51)
+    assert all(block.self_attn for block in full.edge_blocks)
+    assert all(hasattr(block, "slf") for block in full.edge_blocks)
+
+
 def test_eval_loader_detects_depth_local_attention(tmp_path):
     from eval_auc import load_network
     from eval_scorer import load_scorer

@@ -169,6 +169,8 @@ def _build_net_like_eval_scorer(ck, num_depths):
         kw.update(pos_fourier=True, fourier_L=pin // 4)
     if "network.edge_embed.weight" in sd:
         kw["use_edge_embed"] = True
+    if "network.edge_blocks.0.slf.in_proj_weight" not in sd:
+        kw["edge_self_attn"] = False
     if "network.action_motion_proj.0.weight" in sd:
         from namo.rl_loop.action_motion import action_motion_feature_dim
         motion_proj_in = sd["network.action_motion_proj.0.weight"].shape[1]
