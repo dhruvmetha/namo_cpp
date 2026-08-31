@@ -220,16 +220,16 @@ def test_the_guards_do_not_have_to_be_asked_for():
     assert defaults["prune_jam_depth"].default is True
 
 
-def test_a_push_that_moves_the_object_clears_the_bans():
-    """A new state is a new board, so the bans from the old one do not carry.
+def test_a_push_that_moves_the_object_ends_the_call():
+    """One decision per call: the first mover is returned, not chained past.
 
-    The counterweight to the other four. Bans that outlived the state they were
-    recorded at would hide reactive's best push for the rest of the episode,
-    which is a quieter failure than the lock-up and just as wrong.
+    Redefined 2026-08-31 with the policy arm: the rollout happens on the
+    table, so a push that moves in sim IS the decision and the call ends.
+    Ban lifetime is preserved by construction -- bans are call-local and a
+    call is one state -- so the next call (a fresh observation) re-offers
+    everything, including a push banned last call.
     """
     best = (EDGES[0], DEPTHS[0])
-    # The best push is a no-op once, then works. If the ban survived the move,
-    # reactive could never come back to it.
     env = _Env()
 
     def step(action):
@@ -241,9 +241,32 @@ def test_a_push_that_moves_the_object_clears_the_bans():
         return SimpleNamespace(info={})
 
     env.step = step
-    _run(env, pushes=4)
+    solved, sims, plan_len, _boards, end = _run(env, pushes=4)
 
-    assert env.stepped[2] == best, (
-        f"after the object moved reactive should re-offer its top push {best}, "
-        f"got {env.stepped}"
+    assert end == "decided", f"a mover is the decision, got {end!r}"
+    assert sims == 2 and plan_len == 1, (sims, plan_len)
+
+    # A fresh call is a fresh state: the previously banned best push is
+    # offered first again.
+    env.stepped.clear()
+    _run(env, pushes=4)
+    assert env.stepped[0] == best, (
+        f"a new call must re-offer the top push {best}, got {env.stepped}"
     )
+
+
+def test_two_sim_noops_do_not_end_the_run():
+    """The hmax2/hard_004 failure, 2026-08-31: hmax=2 on hardware, the top
+    two ranked pushes jammed in sim, and the old code returned an empty plan
+    at 2 sims with the robot never moving. Failed probes must walk the
+    ranking, not spend the push allowance."""
+    third = (EDGES[1], DEPTHS[0])
+    env = _Env(moves_on={third})
+
+    solved, sims, plan_len, _boards, end = _run(env, pushes=2)
+
+    # Probes (0,0), (0,1) jam -- (0,2) is pruned by the jam-depth guard --
+    # then (1,0) moves and is the decision.
+    assert end == "decided", f"expected a decision, got {end!r} after {env.stepped}"
+    assert plan_len == 1
+    assert env.stepped[-1] == third, env.stepped
