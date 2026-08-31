@@ -300,12 +300,25 @@ def scene_family(xml):
     return "unknown"
 
 
-def build_index(out_dir):
-    """scenes.json = the small file the gallery page loads up front; cards are fetched lazily."""
+def build_index(out_dir, require_replay=False):
+    """scenes.json = the small file the gallery page loads up front; cards are fetched lazily.
+
+    `require_replay` drops any card with no step-through built. Those are the cold-replay
+    casualties: the sweep found the solution from a state its own earlier pushes had produced, and
+    a clean start does not reproduce it, so no plan we try replays. The card is not wrong, it just
+    has nothing to animate, and it renders as "no solution replay built for this episode". Dhruv
+    hit those repeatedly while browsing and asked for them gone, so the gallery lists only cards
+    that can show their own solution. Run the replay pass BEFORE the index when using this.
+    """
     cards_dir = os.path.join(out_dir, "cards")
+    replay_dir = os.path.join(out_dir, "replay")
     rows = []
+    n_no_replay = 0
     for fn in sorted(os.listdir(cards_dir)):
         if not fn.endswith(".json"):
+            continue
+        if require_replay and not os.path.exists(os.path.join(replay_dir, fn)):
+            n_no_replay += 1
             continue
         meta = json.load(open(os.path.join(cards_dir, fn)))["meta"]
         # The contact pair rides along when the card has it. It is the reason the two-movable
@@ -327,6 +340,8 @@ def build_index(out_dir):
     json.dump({"schema_version": SCHEMA_VERSION, "counts": counts, "cards": rows},
               open(os.path.join(out_dir, "scenes.json"), "w"))
     print(f"scenes.json: {len(rows)} cards  {counts}")
+    if n_no_replay:
+        print(f"  {n_no_replay} card(s) left out: no step-through built (cold-replay casualties)")
     # The expected-count check only means something for the canonical pools; a two-movable gallery
     # has no eval-set entry to be compared against, and warning on every build would train the eye
     # to skip the line that matters.
@@ -346,6 +361,9 @@ def main():
     ap.add_argument("--shard", type=int, default=0)
     ap.add_argument("--nshards", type=int, default=1)
     ap.add_argument("--index-only", action="store_true", help="rebuild scenes.json from cards/")
+    ap.add_argument("--require-replay", action="store_true",
+                    help="leave out cards with no step-through built; they render as an empty "
+                         "solution panel and are the cold-replay casualties")
     ap.add_argument("--from-exhaustive", nargs="+", metavar="DIR",
                     help="read labels from exhaustive_hmax2.py output dirs instead of the eval-set "
                          "manifests. This is how the two-movable pools get a gallery: they were "
@@ -360,7 +378,7 @@ def main():
                     help="keep only episodes whose greens actually touch another movable")
     a = ap.parse_args()
     if a.index_only:
-        build_index(a.out)
+        build_index(a.out, a.require_replay)
     else:
         build(a.out, a.shard, a.nshards, a.from_exhaustive, a.remap,
               a.horizon_tier, a.contact_only)
