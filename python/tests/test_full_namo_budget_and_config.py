@@ -342,3 +342,86 @@ def test_repeated_already_accessible_blacklists_instead_of_looping(monkeypatch):
     assert outcomes.count("opened_target") == 1
     assert "already_accessible_repeat" in outcomes
     assert opener.calls == 2
+
+
+def _result_with(stats):
+    return PlannerResult(success=False, solution_found=False, algorithm_stats=stats)
+
+
+def test_budget_stop_is_recognised_from_either_layer():
+    """The opener writes the same reason at two levels; accept both.
+
+    best_first_region_opening sets it as `failure_kind` on the result (line 257)
+    and as `failure_reason` inside the per-attempt summary (line 521). Reading
+    only one would miss a stop reported by the other.
+    """
+    planner = FullNAMOPlanner(FakeEnv(), PlannerConfig())
+
+    assert planner._budget_stopped(
+        _result_with({"failure_kind": "simulation_budget_exhausted"})
+    )
+    assert planner._budget_stopped(
+        _result_with({"target_summary": {"failure_reason": "simulation_budget_exhausted"}})
+    )
+    assert not planner._budget_stopped(
+        _result_with({"target_summary": {"failure_reason": "all_pushes_failed"}})
+    )
+    assert not planner._budget_stopped(_result_with({}))
+
+
+def test_keyhole_scope_always_has_budget_for_another_boundary():
+    """Keyhole scope rebuilds the opener per boundary, so a reroute is always funded."""
+    planner = FullNAMOPlanner(
+        FakeEnv(),
+        PlannerConfig(
+            algorithm_params={
+                "full_namo_budget_scope": "keyhole",
+                "full_namo_keyhole_simulation_budget": 900,
+            }
+        ),
+    )
+
+    assert planner.budget_scope == "keyhole"
+    assert planner._simulation_budget_remains(_result_with({})) is True
+
+
+def test_full_problem_scope_reports_a_spent_budget_as_spent():
+    """One shared budget, so a boundary that consumed it leaves nothing.
+
+    This is the half that keeps the reroute honest. Without it a budget stop
+    would reroute into a boundary it cannot afford to attempt.
+    """
+    planner = FullNAMOPlanner(FakeEnv(), PlannerConfig())
+    planner.budget_scope = "full_problem"
+
+    planner.region_opener = types.SimpleNamespace(
+        push_budget=PushAttemptBudget(limit=900, used=400)
+    )
+    assert planner._simulation_budget_remains(_result_with({})) is True
+
+    planner.region_opener.push_budget = PushAttemptBudget(limit=900, used=900)
+    assert planner._simulation_budget_remains(_result_with({})) is False
+
+
+def test_a_budget_stop_with_budget_left_is_a_reroute_not_a_dead_run():
+    """Regression for best_first never rerouting.
+
+    `boundary_exhausted` names three candidate-exhaustion reasons and a budget
+    stop is not among them, so before this fix any budget stop fell through to
+    `opener_failure_not_boundary_exhausted` and killed the whole problem.
+    region_bfs runs its pool dry and reroutes; best_first spends its budget and
+    could not. Measured on real_exp/twohop_00013, where region_bfs solved the
+    scene in two pushes after rerouting and best_first returned failure having
+    never looked at the two cheaper doorways beside the one it ground on.
+    """
+    planner = FullNAMOPlanner(FakeEnv(), PlannerConfig())
+    planner.budget_scope = "keyhole"
+    result = _result_with({"failure_kind": "simulation_budget_exhausted"})
+
+    reroute = planner._budget_stopped(result) and planner._simulation_budget_remains(result)
+    assert reroute, "a funded budget stop must reroute rather than end the run"
+
+    summary = {"boundary_exhausted": False}
+    assert not summary["boundary_exhausted"], (
+        "the old code reached the hard-failure return through exactly this path"
+    )

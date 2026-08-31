@@ -26,6 +26,12 @@ from namo.planners.utils import PushAttemptBudget
 
 FULL_NAMO_EXEC_MODES = ("search", "greedy_dfs", "greedy_policy")
 GREEDY_COMMIT_EXEC_MODES = frozenset({"greedy_dfs", "greedy_policy"})
+
+# The opener's word for "I ran out of simulations", written by
+# best_first_region_opening.py at both the result level (line 257) and the
+# per-attempt summary (line 521). Named here so the outer loop compares against
+# one spelling instead of a literal in three places.
+_BUDGET_STOP_REASON = "simulation_budget_exhausted"
 DEFAULT_FULL_NAMO_EXEC_MODE = "search"
 
 
@@ -88,6 +94,10 @@ class FullNAMOStats:
     total_attempted_pushes: int = 0
     successful_region_steps: int = 0
     boundary_exhaustions: int = 0
+    # Boundaries abandoned because they consumed the simulation budget without
+    # opening. Distinct from boundary_exhaustions, which counts boundaries whose
+    # candidate pool ran dry; a budget stop may still be openable given more.
+    boundary_budget_stops: int = 0
     regions_opened: List[str] = field(default_factory=list)
     greedy_committed_pushes: int = 0
     greedy_rejected_simulations: int = 0
@@ -244,6 +254,45 @@ class FullNAMOPlanner(BasePlanner):
         local_config = replace(self._config, algorithm_params=local_params)
         self.region_opener = self._make_region_opener(local_config)
         return self.region_opener
+
+    @staticmethod
+    def _budget_stopped(result: PlannerResult) -> bool:
+        """True when the opener stopped because it ran out of simulations.
+
+        The opener reports this two ways. `failure_kind` is set from
+        `end == "budget"` (best_first_region_opening.py:257) and the
+        per-attempt `failure_reason` carries the same string, so accept
+        either rather than depending on which layer answered.
+        """
+        stats = result.algorithm_stats or {}
+        if str(stats.get("failure_kind", "")) == _BUDGET_STOP_REASON:
+            return True
+        summary = stats.get("target_summary") or {}
+        return str(summary.get("failure_reason", "")) == _BUDGET_STOP_REASON
+
+    def _simulation_budget_remains(self, result: PlannerResult) -> bool:
+        """Is there budget left to attempt a different boundary with?
+
+        Keyhole scope rebuilds the opener with a fresh allowance per boundary
+        (`_prepare_region_opener_for_keyhole`), so the answer is always yes.
+        Full-problem scope shares one mutable budget across every boundary, so
+        a boundary that consumed it leaves nothing for a reroute.
+
+        The opener reports `simulation_budget_remaining` in its own stats and
+        that is the authority, since it is the thing spending the budget. The
+        live counter is only a fallback for an opener that reports no figure.
+        Assuming budget remains when nothing says so would reroute into a
+        boundary there is nothing left to attempt.
+        """
+        if self.budget_scope == "keyhole":
+            return True
+        reported = (result.algorithm_stats or {}).get("simulation_budget_remaining")
+        if reported is not None:
+            return int(reported) > 0
+        budget = getattr(self.region_opener, "push_budget", None)
+        if budget is None:
+            return False
+        return int(budget.remaining) > 0
 
     def _record_keyhole_budget(self, iteration: int, target: str, result: PlannerResult):
         if self.budget_scope != "keyhole":
@@ -522,8 +571,37 @@ class FullNAMOPlanner(BasePlanner):
                 target_summary=target_summary,
             )
 
-            inner_failure_kind = str((result.algorithm_stats or {}).get("failure_kind") or "")
-            if inner_failure_kind == "simulation_budget_exhausted":
+            # A boundary that ate its simulation budget without opening is a
+            # reason to try another route, not to abandon the problem. This
+            # used to return unconditionally, which meant best_first could
+            # never reroute: it spends its budget where region_bfs runs its
+            # candidate pool dry, and only the dry-pool reasons reach the
+            # `boundary_exhausted` reroute below (best_first_region_opening.py:221).
+            # Measured on real_exp/twohop_00013, a captured scene whose
+            # robot-to-goal doorway needs both movables: region_bfs gave up
+            # after 132 attempts, rerouted through a cheaper doorway, and
+            # solved it in two pushes, while best_first burned all 900 sims on
+            # that one doorway and returned failure without ever looking at the
+            # two beside it.
+            #
+            # Rerouting only helps if there is budget left to reroute WITH.
+            # Keyhole scope rebuilds the opener with a fresh allowance per
+            # boundary, so there always is. Full-problem scope shares one
+            # budget, so a boundary that consumed it leaves nothing and failure
+            # is still the honest answer.
+            if self._budget_stopped(result):
+                if self._simulation_budget_remains(result):
+                    blocked_boundaries.add(self._boundary_key(robot_region, target))
+                    self.stats.boundary_budget_stops += 1
+                    self._record_iteration_trace(
+                        {**context, "outcome": "boundary_budget_exhausted"}
+                    )
+                    self._debug(
+                        f"Budget spent on {target} without opening it; rerouting "
+                        f"with the boundary blocked"
+                    )
+                    iteration += 1
+                    continue
                 self._record_iteration_trace({**context, "outcome": "simulation_budget_exhausted"})
                 return self._failure_result(
                     result.error_message or "Simulation budget exhausted",
@@ -713,6 +791,7 @@ class FullNAMOPlanner(BasePlanner):
             "total_attempted_pushes": self.stats.total_attempted_pushes,
             "successful_region_steps": self.stats.successful_region_steps,
             "boundary_exhaustions": self.stats.boundary_exhaustions,
+            "boundary_budget_stops": self.stats.boundary_budget_stops,
             "regions_opened": list(self.stats.regions_opened),
             "exec_mode": self.exec_mode,
             "greedy_committed_pushes": self.stats.greedy_committed_pushes,
@@ -753,6 +832,7 @@ class FullNAMOPlanner(BasePlanner):
             "total_attempted_pushes": self.stats.total_attempted_pushes,
             "successful_region_steps": self.stats.successful_region_steps,
             "boundary_exhaustions": self.stats.boundary_exhaustions,
+            "boundary_budget_stops": self.stats.boundary_budget_stops,
             "regions_opened": list(self.stats.regions_opened),
             "exec_mode": self.exec_mode,
             "greedy_committed_pushes": self.stats.greedy_committed_pushes,
