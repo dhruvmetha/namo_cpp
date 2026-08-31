@@ -44,7 +44,8 @@ set -uo pipefail
 
 REPO=${NAMO_REPO:-/common/home/dm1487/robotics_research/ktamp/namo}
 SAGE_OVERRIDE=${SAGE_REPO:-}
-cd "$REPO" && source env.ilab.sh >/dev/null 2>&1            # Amarel: source env.amarel.sh
+ENV_SCRIPT=${NAMO_ENV_SCRIPT:-env.ilab.sh}
+cd "$REPO" && source "$ENV_SCRIPT" >/dev/null 2>&1
 if [ -n "$SAGE_OVERRIDE" ]; then export SAGE_REPO="$SAGE_OVERRIDE"; fi
 
 # (1) resolve a WORKING interpreter — env.ilab.sh leaves NAMO_PYTHON="python", absent in sbatch
@@ -92,7 +93,9 @@ mkdir -p "$OUT"; LOG="$OUT/train.log"
 echo "TRAIN start $(date) host=$(hostname) H5=$H5 GAMMA=${NAMO_GAMMA:-none} PY=$PY OUT=$OUT"
 EXTRA=()
 if [ -n "${POSTCHECK_LIMIT:-}" ]; then EXTRA+=(--postcheck-limit "$POSTCHECK_LIMIT"); fi
-"$PY" "${TRAIN_SCRIPT:-scripts/rl_loop/train_q2_rankaux.py}" --h5 "$H5" --out-dir "$OUT" \
+RUNNER=()
+if [ "${NAMO_USE_SRUN:-0}" = "1" ]; then RUNNER=(srun --nodes=1 --ntasks=1); fi
+"${RUNNER[@]}" "$PY" "${TRAIN_SCRIPT:-scripts/rl_loop/train_q2_rankaux.py}" --h5 "$H5" --out-dir "$OUT" \
   --epochs "${EPOCHS:-12}" --batch-size "${BATCH:-256}" --num-workers "${WORKERS:-8}" \
   --lr "${LR:-3e-4}" --seed "${SEED:-1}" --split-seed 0 \
   --patience "${PATIENCE:-0}" "${EXTRA[@]}" > "$LOG" 2>&1 &
