@@ -1,48 +1,29 @@
-"""A jammed push must not be re-picked, because reactive cannot escape on its own.
+"""Reactive is a pure argmax: rank the live state, return the top push, simulate nothing.
 
-A push that jams leaves the state exactly as it found it. Reactive re-ranks
-that identical state, gets back the identical pool, and picks the identical
-argmax. Nothing in the loop breaks that cycle: re-deciding from the world is
-the whole idea of the reactive arm, and here the world is not changing.
+Second redefinition, Dhruv, 2026-08-31. The first form chained pushes
+through simulated states and charged sim no-ops against hmax, which ended
+hardware runs with the robot never moving (hmax2/hard_004, five runs). The
+first fix kept a sim no-op filter in front of dispatch; Dhruv ruled that
+the wrong behavior outright -- a mode defined by distrusting the simulator
+does not let the simulator screen its choices. Jam handling now lives
+entirely on the hardware side: the camera's stuck detection blacklists a
+push that moved nothing, and the blacklist feeds the next call's pool.
 
-Measured on 20 failed easy 2-push episodes without the guards: 2.2 distinct
-pushes across 10 steps, 8.75 no-ops, and 45% of episodes picking one push all
-ten times. In simulation that wastes calls. On the real robot it is the car
-shoving a stuck block over and over until a person stops it, which is why these
-are not optional and not caller-supplied.
+Three properties, each with the failure it catches:
 
-The search never had this problem, so the fix is borrowed from it rather than
-invented. ``dedupe_noop`` drops a push that moved nothing, ``prune_jam_depth``
-drops deeper pushes on an edge already known to jam (push_steps = depth + 1 and
-the controller runs one continuous push, so a deeper push is the same
-trajectory continued into the same obstruction). ``_unmoved`` is imported from
-the search, never re-implemented, so there is one definition of "moved
-nothing".
-
-Five properties, each with the failure it catches:
-
-  no push is simulated twice     the lock-up itself, in its plainest form
-  an empty pool ends the run     reactive burns its whole budget re-picking
-                                 from a pool it has exhausted
-  a jammed edge prunes deeper    depth 2 on an edge that jammed at depth 0 is
-                                 the same trajectory into the same obstruction,
-                                 so simulating it is a call spent to learn
-                                 nothing
-  the guards are on by default   a caller that forgets them gets the measured
-                                 lock-up, so forgetting must not be possible
-  a move clears the bans         over-correcting the other way: once the object
-                                 moves the board is new, and a push banned at
-                                 the old state has to be offered again or the
-                                 reactive blinds itself to its best option
+  reactive never simulates a push   the simulator regaining a veto by any
+                                    path, the bug this file exists to stop
+  the argmax is the decision        one call, one push, end "decided"
+  an empty pool ends the run        no reachable candidate means exhausted,
+                                    not a crash and not a fabricated push
 
 Runs against a fake environment, so no binding physics, no checkpoint, no
-scene. The guards are control flow and this pins the control flow.
+scene.
 
 To verify:
   cd namo_cpp && source env.ilab.sh
   python -m pytest python/tests/test_reactive_jam_guards.py -v
 """
-
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -176,97 +157,38 @@ def _run(env, *, pushes=POOL_SIZE, **kwargs):
 # ─── Tests ──────────────────────────────────────────────────────────────
 
 
-def test_a_jammed_push_is_never_simulated_twice():
-    """The lock-up itself: nine no-ops must be nine different pushes."""
+def test_reactive_never_simulates_a_push():
+    """The whole point of the redefinition: env.step must never be called."""
     env = _Env()
 
-    _run(env)
-
-    assert len(env.stepped) == len(set(env.stepped)), (
-        f"reactive re-picked a push that moved nothing: {env.stepped}"
-    )
-
-
-def test_an_exhausted_pool_ends_the_run():
-    """Every candidate banned means there is nothing left to decide between."""
-    env = _Env()
-
-    _solved, sims, _plan_len, _boards, end = _run(env, pushes=AMPLE_SIMS)
-
-    assert end == "exhausted", f"expected an exhausted pool, got {end!r}"
-    assert sims == POOL_SIZE, (
-        f"the pool holds {POOL_SIZE} pushes; reactive spent {sims} simulations"
-    )
-
-
-def test_a_jammed_edge_prunes_its_deeper_pushes():
-    """Depth 2 on an edge that jammed at depth 0 runs into the same obstruction."""
-    env = _Env(failure_reason="OBJECT_STUCK")
-
-    _run(env, pushes=AMPLE_SIMS)
-
-    assert env.stepped == [(e, 0) for e in EDGES], (
-        f"expected the shallowest push per edge and nothing deeper, got {env.stepped}"
-    )
-
-
-def test_the_guards_do_not_have_to_be_asked_for():
-    """A caller that forgets them would get the measured lock-up, so they are on."""
-    import inspect
-
-    defaults = inspect.signature(run_reactive).parameters
-
-    assert defaults["dedupe_noop"].default is True
-    assert defaults["prune_jam_depth"].default is True
-
-
-def test_a_push_that_moves_the_object_ends_the_call():
-    """One decision per call: the first mover is returned, not chained past.
-
-    Redefined 2026-08-31 with the policy arm: the rollout happens on the
-    table, so a push that moves in sim IS the decision and the call ends.
-    Ban lifetime is preserved by construction -- bans are call-local and a
-    call is one state -- so the next call (a fresh observation) re-offers
-    everything, including a push banned last call.
-    """
-    best = (EDGES[0], DEPTHS[0])
-    env = _Env()
-
-    def step(action):
-        key = (int(action.edge_idx), int(action.depth))
-        env.stepped.append(key)
-        # The second push moves the object, whatever it is.
-        if len(env.stepped) == 2:
-            env._pose[0] += 1.0
-        return SimpleNamespace(info={})
-
-    env.step = step
     solved, sims, plan_len, _boards, end = _run(env, pushes=4)
 
-    assert end == "decided", f"a mover is the decision, got {end!r}"
-    assert sims == 2 and plan_len == 1, (sims, plan_len)
+    assert env.stepped == [], f"reactive stepped the simulator: {env.stepped}"
+    assert sims == 0
 
-    # A fresh call is a fresh state: the previously banned best push is
-    # offered first again.
-    env.stepped.clear()
-    _run(env, pushes=4)
-    assert env.stepped[0] == best, (
-        f"a new call must re-offer the top push {best}, got {env.stepped}"
+
+def test_the_argmax_is_the_decision():
+    """One call, one push: the top-priority candidate comes back, end decided."""
+    env = _Env()
+    out = {}
+
+    solved, sims, plan_len, _boards, end = _run(env, pushes=4, solution_out=out)
+
+    assert end == "decided" and not solved
+    assert plan_len == 1
+    obj, goal = out["plan"][0]
+    assert obj == OBJ
+    assert (int(goal.edge_idx), int(goal.depth)) == (EDGES[0], DEPTHS[0]), (
+        "the decision must be the scorer's argmax"
     )
 
 
-def test_two_sim_noops_do_not_end_the_run():
-    """The hmax2/hard_004 failure, 2026-08-31: hmax=2 on hardware, the top
-    two ranked pushes jammed in sim, and the old code returned an empty plan
-    at 2 sims with the robot never moving. Failed probes must walk the
-    ranking, not spend the push allowance."""
-    third = (EDGES[1], DEPTHS[0])
-    env = _Env(moves_on={third})
+def test_an_empty_pool_ends_the_run():
+    """No reachable candidate is exhausted, not a crash or an invented push."""
+    env = _Env()
+    env.get_reachable_objects = lambda: []
 
-    solved, sims, plan_len, _boards, end = _run(env, pushes=2)
+    solved, sims, plan_len, _boards, end = _run(env, pushes=4)
 
-    # Probes (0,0), (0,1) jam -- (0,2) is pruned by the jam-depth guard --
-    # then (1,0) moves and is the decision.
-    assert end == "decided", f"expected a decision, got {end!r} after {env.stepped}"
-    assert plan_len == 1
-    assert env.stepped[-1] == third, env.stepped
+    assert end == "exhausted" and not solved
+    assert sims == 0

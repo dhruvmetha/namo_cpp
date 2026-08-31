@@ -607,6 +607,13 @@ class BestFirstRegionOpeningPlanner:
                 failure_reason = "success"
             elif future_interface is not None and future_interface["rejected"] > 0:
                 failure_reason = "future_interface_not_preserved"
+            elif self.decision_rule == "reactive" and plan:
+                # Pure argmax runs zero simulations and hands back a push for
+                # the table to judge. sims == 0 with a decision is not "no
+                # reachable objects", and this string must stay OUT of the
+                # boundary_exhausted set so the doorway is not blacklisted
+                # under a push that has not been tried yet.
+                failure_reason = "argmax_decision"
             else:
                 failure_reason = "no_reachable_objects" if sims == 0 else "all_pushes_failed"
             attempt = AttemptResult(

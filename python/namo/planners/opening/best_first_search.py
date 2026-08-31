@@ -593,43 +593,34 @@ def run_greedy_commit(
 def run_reactive(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combine, rng, restrict_obj=None,
                is_open=lambda e: e.is_robot_goal_reachable(), raw=True, dedupe_noop=True,
                prune_jam_depth=True, timing=None, region_samples=None, solution_out=None):
-    """Reactive argmax ON THE LABELED OBJECT: rank the live state, return the first push that moves.
+    """Reactive argmax ON THE LABELED OBJECT: rank the live state, return the argmax. Nothing else.
 
-    One decision per call (Dhruv, 2026-08-31, redefining the policy arm after
-    hard_004): the rollout happens on the table, not in simulation. The
-    executor runs the returned push, re-observes, and calls again from the
-    real state. This function never chains through a predicted state, and
-    hmax does not bound it -- hmax only sets the scorer horizon h, the same h
-    the search's root query uses. sim_budget bounds the no-op probes.
+    Second redefinition, Dhruv, 2026-08-31: the reactive arm pushes NOTHING
+    in simulation. The ranker scores the pool (a network call plus the same
+    wavefront reachability the runtime itself uses -- no push is ever
+    stepped), and the single top-priority candidate is returned as the
+    decision. The table judges it: the camera's stuck detection blacklists a
+    push that moves nothing (min_push_displacement_cm), the blacklist feeds
+    the next call's pool, and the replan cap and wall-clock timeout bound
+    the cost of a dud at roughly one 30 s push. The first redefinition kept
+    a sim no-op filter in front of dispatch; Dhruv ruled that the wrong
+    behavior -- a mode defined by distrusting the simulator does not let the
+    simulator screen its choices.
 
-    Simulation keeps exactly one veto: a push that moves NOTHING in sim is
-    banned at this state and the probe walks to the next-ranked candidate,
-    because the measured alternative is the argmax re-picking one jammed push
-    forever (8.75 no-ops across 10 steps, 45% of failed episodes picking one
-    push all ten times). A push that moves but does not open is returned
-    anyway -- whether it opens is the prediction this mode exists not to
-    trust. The previous form charged each no-op against hmax (=2 on
-    hardware), so two sim no-ops ended a run with the robot never moving
-    (hmax2/hard_004, 2026-08-31, five runs); that is the failure this
-    rewrite removes.
-
-    Bans are call-local, and a call is one state, so a ban can never outlive
-    the state it was recorded at. Same signature and return shape as
-    solve_scene, so a caller swaps the decision rule and changes nothing
-    else; the first choice is still the exact argmax of the shared ranking
-    (test_reactive_search_first_choice_parity pins that). Returns end
-    "decided" when it hands back a moving push, which no consumer reads as
-    budget exhaustion (best_first_region_opening.py:257 keys on "budget").
+    hmax only sets the scorer horizon h, the same h the search's root query
+    uses, so the two rules keep ranking identically
+    (test_reactive_search_first_choice_parity pins the shared first choice).
+    sim_budget, dedupe_noop, prune_jam_depth, and is_open are accepted for
+    signature parity with solve_scene and ignored. Returns end "decided"
+    with a one-push plan, or "exhausted" when the pool is empty (no
+    reachable candidate at this state). sims is always 0: no simulation was
+    used, and the caller's failure classification keys on that together
+    with the plan being non-empty.
     """
     tm = timing if timing is not None else {}
     tm["t_score"] = tm.get("t_score", 0.0); tm["t_sim"] = tm.get("t_sim", 0.0); tm["n_score"] = tm.get("n_score", 0)
     _t_wall0 = time.perf_counter()
-    sims = 0
     plan = []
-    banned = set()          # (object, edge, depth) sim no-ops AT THIS STATE. The object is part of
-                            # the key because edge numbers are per-object and two blocks in one
-                            # doorway reuse the same range.
-    jam_at = {}             # edge -> shallowest depth known to jam AT THIS STATE
 
     def _record(state):
         if solution_out is not None:
@@ -641,35 +632,16 @@ def run_reactive(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, comb
                                 restrict_obj=restrict_obj, raw=raw, region_samples=region_samples)
     tm["t_score"] += time.perf_counter() - _t; tm["n_score"] += 1
 
-    end = "budget"
-    while sims < sim_budget:
-        live = _state_local_live_candidates(pool, banned, jam_at, prune_jam_depth)
-        if not live:
-            end = "exhausted"
-            break
-        obj, g, _q = max(live, key=lambda c: priority(c[2], V, combine))
-        env.set_full_state(s0)
-        obs_before = env.get_observation() if dedupe_noop else None
-        _t = time.perf_counter()
-        step_res = env.step(make_action(obj, g)); sims += 1
-        tm["t_sim"] += time.perf_counter() - _t
-        plan.append((obj, g))
-        if bool(is_open(env)):
-            tm["t_wall"] = time.perf_counter() - _t_wall0
-            _record(env.get_full_state())
-            return True, sims, len(plan), [], "solved"
-        _record_state_local_jam(jam_at, obj, g, step_res, prune_jam_depth)
-        if dedupe_noop and _unmoved(obs_before, env.get_observation(), obj):
-            banned.add((obj, int(g.edge_idx), int(g.depth)))
-            plan.pop()               # nothing moved, so this is not a push worth executing
-            continue                 # same state, next-ranked candidate
-        # The push moves: this is the decision. The table judges the rest.
+    if not pool:
         tm["t_wall"] = time.perf_counter() - _t_wall0
-        _record(env.get_full_state())
-        return False, sims, len(plan), [], "decided"
+        _record(s0)
+        return False, 0, None, [], "exhausted"
+
+    obj, g, _q = max(pool, key=lambda c: priority(c[2], V, combine))
+    plan.append((obj, g))
     tm["t_wall"] = time.perf_counter() - _t_wall0
     _record(s0)
-    return False, sims, (len(plan) or None), [], end
+    return False, 0, len(plan), [], "decided"
 
 
 def _finalize_boards(boards, ep):

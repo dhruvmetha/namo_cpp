@@ -252,6 +252,7 @@ def _run(scene, rule, prior, combine, agg=AGG, raw=True):
     env = _RecordingEnv(scene["env"])
     entry = {"search": solve_scene, "reactive": run_reactive}[rule]
 
+    out = {}
     solved, sims, _plan_len, _boards, _end = entry(
         planner,
         env,
@@ -267,7 +268,15 @@ def _run(scene, rule, prior, combine, agg=AGG, raw=True):
         is_open=lambda e: e.is_robot_goal_reachable(),
         raw=raw,
         region_samples=REGION_SAMPLES,
+        solution_out=out,
     )
+    if rule == "reactive":
+        # Pure argmax: nothing is simulated, the choice is the returned plan.
+        assert sims == 0, f"reactive simulated {sims} pushes; it must simulate none"
+        assert env.stepped == [], f"reactive stepped the simulator: {env.stepped}"
+        obj, goal = out["plan"][0]
+        return {"action": (str(obj), int(goal.edge_idx), int(goal.depth)),
+                "solved": bool(solved)}
     assert sims == 1, f"{rule} spent {sims} simulations on a one-push budget"
     return {"action": env.stepped[0], "solved": bool(solved)}
 
