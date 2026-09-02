@@ -61,6 +61,8 @@ const labelChainControl = document.getElementById("label-chain-control");
 const labelChainSelect = document.getElementById("label-chain-select");
 const modelChainControl = document.getElementById("model-chain-control");
 const modelChainSelect = document.getElementById("model-chain-select");
+const replaySourceSelect = document.getElementById("replay-source-select");
+const replaySourceStatus = document.getElementById("replay-source-status");
 const FILTERS = [horizonSelect, tierSelect, sortSelect, textFilter, starredOnly,
   labelChainSelect, modelChainSelect];
 const EVAL_K = [1, 5, 30];   // solve@k shown in the summary strip
@@ -94,8 +96,21 @@ let i = 0;              // cursor into rows
 let stars = {};         // file -> the index row, so a shortlist survives a rebuild of the cards
 const cardCache = new Map();
 const replayCache = new Map();
-let replay = null;    // the current episode's solution, or null when none was built
+let replay = null;    // the ACTIVE replay driving the step frames -- labelReplay, or one entry of
+                       // modelArms, whichever replaySource currently names
 let step = 0;         // 0 = start state, 1..n = after that push
+
+// Replay-source picker: label (replay/) vs a model arm's own plan (replay_eval/<run>/<arm>/), built
+// by build_scene_replay.py --from-eval. See render() / show() for how `replay` above gets pointed
+// at one or the other.
+const modelReplayCache = new Map();   // row.file -> Promise<[{arm, data}]>, data null = no file
+const FALLBACK_ARMS = ["HY5U_s1", "HY5U_s2", "HY5U_s3", "rand_s7000", "rand_s8000", "rand_s9000"];
+let evalRunDir = null;        // basename of the one replay_eval/<run>/ this dataset has, or null
+let evalRunDirPromise = null; // discovered once per dataset load, never per card
+let labelReplay = null;       // this card's replay/ file, kept separate so switching back to
+                               // "label" needs no refetch
+let modelArms = [];           // [{arm, data}] for the CURRENT card; data null = arm has no file here
+let replaySource = "label";   // "label" or one of modelArms[].arm
 
 function saveState() {
   localStorage.setItem(STORE_KEY, JSON.stringify({
@@ -289,6 +304,14 @@ function init(fileStars) {
     renderEvalSummary();
     applyFilters(rows[i] ? rows[i].file : null);   // eval sort/filter may depend on the new run
   });
+  replaySourceSelect.addEventListener("change", () => {
+    if (!rows[i]) return;   // the picker stays interactive even with no episode on screen
+    replaySource = replaySourceSelect.value;
+    replay = replaySource === "label" ? labelReplay : activeModelReplay();
+    step = 0;
+    updateReplaySourceStatus();
+    fetchCard(rows[i]).then((c) => { c.file_key = rows[i].file; render(c); });
+  });
   prevBtn.addEventListener("click", () => stepEpisode(-1));
   nextBtn.addEventListener("click", () => stepEpisode(1));
   starBtn.addEventListener("click", toggleStar);
@@ -423,6 +446,85 @@ function fetchReplay(row) {
     });
 }
 
+// Which run's --from-eval replays this dataset has, read off the plain directory index
+// scripts/viz/serve.py already serves for any folder with no index.html of its own. One fetch for
+// the whole page load, not one per card -- the per-card work below is arm lookups within this run,
+// never another listing. A dataset with no replay_eval/ folder (404) just leaves the picker at
+// "label" only.
+function discoverEvalRunDir() {
+  if (evalRunDirPromise) return evalRunDirPromise;
+  evalRunDirPromise = fetch(DATA_BASE + "replay_eval/", NOCACHE)
+    .then((r) => (r.ok ? r.text() : null))
+    .then((html) => {
+      if (!html) return null;
+      const dirs = [...html.matchAll(/href="([^"?]+)\/"/g)].map((m) => m[1]);
+      evalRunDir = dirs[0] || null;   // one run in practice; first found wins if ever more than one
+      return evalRunDir;
+    })
+    .catch(() => null);
+  return evalRunDirPromise;
+}
+
+// Arm names worth trying for THIS card: every arm eval.json ever recorded for this room, across
+// every run it covers -- a room this run's eval never touched, or a dataset with no eval.json,
+// falls back to the arm names this feature shipped with.
+function armCandidatesFor(row) {
+  const seen = new Set();
+  const byRun = row && evalData && evalData.rooms[row.scene];
+  if (byRun) {
+    Object.values(byRun).forEach((rec) => {
+      (rec.model || []).forEach((e) => seen.add(e.arm));
+      (rec.random || []).forEach((e) => seen.add(e.arm));
+    });
+  }
+  if (!seen.size) FALLBACK_ARMS.forEach((a) => seen.add(a));
+  return [...seen].sort();
+}
+
+// One fetch per candidate arm for this card's own file -- a 404 says that arm never solved THIS
+// room, which a directory listing of the run cannot tell apart from "arm exists, this room is not
+// in it". Cached per card so arrowing back to a room already visited costs nothing.
+function fetchModelReplays(row) {
+  if (!row) return Promise.resolve([]);
+  if (modelReplayCache.has(row.file)) return modelReplayCache.get(row.file);
+  const p = discoverEvalRunDir().then((runDir) => {
+    if (!runDir) return [];
+    return Promise.all(armCandidatesFor(row).map((arm) =>
+      fetch(`${DATA_BASE}replay_eval/${runDir}/${arm}/${row.file}`, NOCACHE)
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null)
+        .then((data) => ({ arm, data }))
+    ));
+  });
+  if (modelReplayCache.size > 40) modelReplayCache.delete(modelReplayCache.keys().next().value);
+  modelReplayCache.set(row.file, p);
+  return p;
+}
+
+function activeModelReplay() {
+  const found = modelArms.find((a) => a.arm === replaySource);
+  return found ? found.data : null;
+}
+
+// Rebuilds the <select> options (label + every candidate arm, found or not) and the status line
+// next to it. Called once with modelArms still empty (so the picker shows "label" while the probe
+// above is in flight) and again when it resolves.
+function renderReplaySourcePicker() {
+  replaySourceSelect.innerHTML = '<option value="label">label</option>' +
+    modelArms.map((a) => `<option value="${a.arm}">${a.arm}</option>`).join("");
+  replaySourceSelect.value = replaySource;
+  updateReplaySourceStatus();
+}
+
+function updateReplaySourceStatus() {
+  if (replaySource === "label") { replaySourceStatus.textContent = ""; return; }
+  const data = activeModelReplay();
+  if (!data) { replaySourceStatus.textContent = "no replay for this arm"; return; }
+  const outcome = data.reproduced
+    ? "reproduced" : `plan did not reproduce (${data.steps.length} of ${data.plan_len} steps ran)`;
+  replaySourceStatus.textContent = `${outcome} · sims ${data.sims} · plan_len ${data.plan_len}`;
+}
+
 function fetchCard(row) {
   if (!row) return Promise.resolve(null);
   if (cardCache.has(row.file)) return Promise.resolve(cardCache.get(row.file));
@@ -447,15 +549,24 @@ function show() {
     return;
   }
   step = 0;
+  replaySource = "label";   // the label is always the default, even for a card visited before
+  modelArms = [];
   Promise.all([fetchCard(row), fetchReplay(row)]).then(([card, rep]) => {
     // A slow fetch must not paint over a newer selection.
     if (rows[i] !== row) return;
     card.file_key = row.file;
-    replay = rep;
+    labelReplay = rep;
+    replay = labelReplay;
     render(card);
+    renderReplaySourcePicker();
     saveState();
     fetchCard(rows[(i + 1) % rows.length]);   // prefetch so arrowing stays instant
     fetchReplay(rows[(i + 1) % rows.length]);
+  });
+  fetchModelReplays(row).then((arms) => {
+    if (rows[i] !== row) return;   // a slow probe must not paint over a newer selection
+    modelArms = arms;
+    renderReplaySourcePicker();
   });
 }
 

@@ -87,6 +87,17 @@
     <!-- HY5U vs random on this ROOM, one line per eval run; absent when eval.json has no run for it. -->
     <div class="eval-panel" id="eval-panel" hidden></div>
     <div class="green-list" id="green-list"></div>
+    <!-- Which solution drives the step frames below: the label (replay/) or one arm's own plan
+         (replay_eval/<run>/<arm>/), built by scripts/viz/build_scene_replay.py --from-eval. The
+         arm list is per card (scripts/viz/gallery.js:armCandidatesFor), so it can offer an arm
+         that never solved this room -- picking it reports "no replay for this arm" below instead
+         of silently falling back to the label. -->
+    <div class="replay-source-row" id="replay-source-row">
+      <label>Replay source
+        <select id="replay-source-select"><option value="label">label</option></select>
+      </label>
+      <span id="replay-source-status" class="dim mono"></span>
+    </div>
     <div class="steps" id="steps"></div>
     <div class="facts-actions">
       <button type="button" id="star-btn" class="star-btn" title="Star this episode (S)">&#9734; star</button>

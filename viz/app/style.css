@@ -515,6 +515,13 @@ td.no { color: var(--dead); }
 .legend-swatch.dot-tried { background: #b0bec5; border-radius: 50%; }
 .legend-swatch.dot-untried { background: #eceff1; border: 1px solid #cfd8dc; border-radius: 50%; }
 
+/* Replay-source picker: label (replay/) vs one arm's own plan (replay_eval/<run>/<arm>/). Sits
+   right above the solution stepper it drives. */
+.replay-source-row { margin-top: 0.75rem; display: flex; align-items: center; gap: 0.6rem;
+  flex-wrap: wrap; font-size: 0.85rem; }
+.replay-source-row select { font: inherit; }
+#replay-source-status { font-size: 0.78rem; }
+
 /* Solution stepper: start | after push 1 | after push 2. */
 .steps { margin-top: 0.9rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
 .steps-cap { font-size: 0.8rem; color: #555; margin-right: 0.15rem; }
