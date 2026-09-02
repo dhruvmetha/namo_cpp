@@ -61,11 +61,11 @@ const labelChainControl = document.getElementById("label-chain-control");
 const labelChainSelect = document.getElementById("label-chain-select");
 const modelChainControl = document.getElementById("model-chain-control");
 const modelChainSelect = document.getElementById("model-chain-select");
-const replaySourceSelect = document.getElementById("replay-source-select");
-const replaySourceStatus = document.getElementById("replay-source-status");
 const FILTERS = [horizonSelect, tierSelect, sortSelect, textFilter, starredOnly,
   labelChainSelect, modelChainSelect];
-const EVAL_K = [1, 5, 30];   // solve@k shown in the summary strip
+// Simulator-call budgets the summary strip reports a solved share at. Spelled out as
+// "simulator calls" on screen: "@k" needs a legend, and the strip is the first thing read.
+const EVAL_K = [1, 5, 30];
 // One room can be "model solved" (every model arm solved), "model unsolved" (no model arm solved),
 // or "model split" (some seeds did, some did not) -- never more than one of the three at once.
 const MODEL_BUCKETS = [
@@ -100,17 +100,19 @@ let replay = null;    // the ACTIVE replay driving the step frames -- labelRepla
                        // modelArms, whichever replaySource currently names
 let step = 0;         // 0 = start state, 1..n = after that push
 
-// Replay-source picker: label (replay/) vs a model arm's own plan (replay_eval/<run>/<arm>/), built
-// by build_scene_replay.py --from-eval. See render() / show() for how `replay` above gets pointed
-// at one or the other.
-const modelReplayCache = new Map();   // row.file -> Promise<[{arm, data}]>, data null = no file
-const FALLBACK_ARMS = ["HY5U_s1", "HY5U_s2", "HY5U_s3", "rand_s7000", "rand_s8000", "rand_s9000"];
-let evalRunDir = null;        // basename of the one replay_eval/<run>/ this dataset has, or null
-let evalRunDirPromise = null; // discovered once per dataset load, never per card
-let labelReplay = null;       // this card's replay/ file, kept separate so switching back to
+// Replay source: the label (replay/) vs one arm's own plan (replay_eval/<run>/<arm>/), built by
+// build_scene_replay.py --from-eval. The radios in the card's solution panel are the picker; see
+// selectReplaySource() for how `replay` above gets pointed at one or the other.
+const modelReplayCache = new Map();   // "<run>|<file>" -> Promise<[{arm, data}]>, data null = no file
+let evalRunDirs = null;        // every basename under replay_eval/, or [] when there is no folder
+let evalRunDirsPromise = null; // listed once per dataset load, never per card
+let replayIndexPromise = null; // {dir, arms: Map(arm -> Set(card file))} for the selected run
+let replayIndexRun = null;     // which run replayIndexPromise was built for
+let labelReplay = null;        // this card's replay/ file, kept separate so switching back to
                                // "label" needs no refetch
-let modelArms = [];           // [{arm, data}] for the CURRENT card; data null = arm has no file here
-let replaySource = "label";   // "label" or one of modelArms[].arm
+let modelArms = [];            // [{arm, data}] for the CURRENT card; data null = arm has no file here
+let replaysReady = false;      // the probe above has answered, so "no replay built" is now the truth
+let replaySource = "label";    // "label" or one of this run's arm names
 
 function saveState() {
   localStorage.setItem(STORE_KEY, JSON.stringify({
@@ -204,7 +206,8 @@ function buildEvalRunControl() {
     return;
   }
   evalRunSelect.innerHTML = evalData.runs.map((r) => `<option value="${r}">${r}</option>`).join("");
-  evalRun = evalData.runs[0];
+  evalRun = defaultEvalRun();
+  evalRunSelect.value = evalRun;
   evalRunControl.hidden = evalData.runs.length < 2;
   evalFilterControl.hidden = false;
   evalOutcomeRow.innerHTML = "";
@@ -224,6 +227,19 @@ function buildEvalRunControl() {
   modelChainControl.hidden = !evalData.model_chain;
   labelChainSelect.innerHTML = LABEL_CHAIN_OPTIONS.map((o) => `<option value="${o}">${o}</option>`).join("");
   modelChainSelect.innerHTML = MODEL_CHAIN_OPTIONS.map((o) => `<option value="${o}">${o}</option>`).join("");
+}
+
+// Open on the newest run that covers the WHOLE gallery: the widest room count wins, and the later
+// name breaks a tie (run names carry their date). eval.json's own run order is just the order the
+// --run flags were typed, so it cannot be trusted to put the headline run first, and a narrow run
+// (the 375-room doorway ablation) opening by default reads as a shrunken gallery.
+function defaultEvalRun() {
+  const n = (run) => {
+    const agg = (evalData.room_aggregate || {})[run] || [];
+    const overall = agg.find((sc) => sc.scope === "overall");
+    return overall ? overall.n : 0;
+  };
+  return [...evalData.runs].sort((a, b) => n(b) - n(a) || b.localeCompare(a))[0];
 }
 
 // A room's model arms in one of three states for the SELECTED run: every arm solved, none did, or
@@ -304,14 +320,6 @@ function init(fileStars) {
     renderEvalSummary();
     applyFilters(rows[i] ? rows[i].file : null);   // eval sort/filter may depend on the new run
   });
-  replaySourceSelect.addEventListener("change", () => {
-    if (!rows[i]) return;   // the picker stays interactive even with no episode on screen
-    replaySource = replaySourceSelect.value;
-    replay = replaySource === "label" ? labelReplay : activeModelReplay();
-    step = 0;
-    updateReplaySourceStatus();
-    fetchCard(rows[i]).then((c) => { c.file_key = rows[i].file; render(c); });
-  });
   prevBtn.addEventListener("click", () => stepEpisode(-1));
   nextBtn.addEventListener("click", () => stepEpisode(1));
   starBtn.addEventListener("click", toggleStar);
@@ -354,31 +362,54 @@ function applyFilters(wantFile) {
     return true;
   });
 
+  // The ground-truth solution of a 1push card is one push by definition, so this filter separates
+  // nothing there. Grey it out and hold it at "all" rather than leave a live control that cannot
+  // change the result. (The model side stays on: the model is free to spend two pushes where one
+  // would do, and picking those out is the point.)
+  const oneShot = horizonSelect.value === "1push";
+  labelChainSelect.disabled = oneShot;
+  labelChainControl.classList.toggle("control-off", oneShot);
+  if (oneShot) labelChainSelect.value = "all";
+
   if (evalData) {
+    // Every facet is counted over the rows the OTHER two filters leave, so the count beside the
+    // option you have selected is exactly the episode count printed below the bar.
+    const lc = labelChainSelect.value || "all";
+    const mc = modelChainSelect.value || "all";
+    const keepBucket = (r) => matchesModelBucket(evalRoom(r), modelBucket);
+    const keepLabel = (r) => lc === "all" || labelChainOf(r) === lc;
+    const keepModel = (r) => mc === "all" || modelChainOf(r) === mc;
+
+    const forBuckets = preRows.filter((r) => keepLabel(r) && keepModel(r));
     evalOutcomeRow.querySelectorAll(".bucket-btn").forEach((btn) => {
       const key = btn.dataset.bucket;
-      const n = preRows.filter((r) => matchesModelBucket(evalRoom(r), key)).length;
+      const n = forBuckets.filter((r) => matchesModelBucket(evalRoom(r), key)).length;
       btn.textContent = `${MODEL_BUCKETS.find((b) => b.key === key).label} (${n})`;
       btn.classList.toggle("bucket-active", key === modelBucket);
     });
-    [[labelChainSelect, labelChainOf], [modelChainSelect, modelChainOf]].forEach(([sel, of]) => {
+    const fill = (sel, of, pool) => {
       const cur = sel.value;
       Array.from(sel.options).forEach((opt) => {
         const key = opt.value;
-        const n = key === "all" ? preRows.length : preRows.filter((r) => of(r) === key).length;
+        const n = key === "all" ? pool.length : pool.filter((r) => of(r) === key).length;
         opt.textContent = `${key} (${n})`;
       });
       sel.value = cur || "all";
-    });
-    renderChainTally(preRows);
+    };
+    fill(labelChainSelect, labelChainOf, preRows.filter((r) => keepBucket(r) && keepModel(r)));
+    fill(modelChainSelect, modelChainOf, preRows.filter((r) => keepBucket(r) && keepLabel(r)));
   }
 
-  rows = preRows.filter((r) => {
-    if (evalData && !matchesModelBucket(evalRoom(r), modelBucket)) return false;
+  // Every eval-derived filter is guarded on evalData. Without one the two chain selects are never
+  // built, so their .value is "" -- and an unguarded "!== all" test threw out every card, leaving a
+  // dataset with no eval.json attached showing an empty gallery.
+  rows = !evalData ? preRows : preRows.filter((r) => {
+    if (!matchesModelBucket(evalRoom(r), modelBucket)) return false;
     if (labelChainSelect.value !== "all" && labelChainOf(r) !== labelChainSelect.value) return false;
     if (modelChainSelect.value !== "all" && modelChainOf(r) !== modelChainSelect.value) return false;
     return true;
   });
+  if (evalData) renderChainTally(rows);
 
   const mode = sortSelect.value;
   // A problem with no timing/eval row sorts to the END in BOTH directions -- "smallest speed-up"
@@ -416,10 +447,10 @@ function applyFilters(wantFile) {
   let tail = "";
   if (timing) {
     const ups = rows.map((r) => timing[r.file] && timing[r.file].up).filter((v) => v).sort((a, b) => a - b);
-    if (ups.length) tail = ` · median speed-up ${ups[ups.length >> 1].toFixed(1)}×`;
+    if (ups.length) tail = ` · median speed-up ${ups[ups.length >> 1].toFixed(1)}× in seconds`;
   }
-  summary.textContent = `${rows.length} episodes in this filter · ${byTier} · ` +
-    `${Object.keys(stars).length} starred overall` + tail;
+  summary.textContent = `${rows.length} episodes match these filters · ${byTier} · ` +
+    `${Object.keys(stars).length} starred in this gallery` + tail;
 
   show();
 }
@@ -446,58 +477,92 @@ function fetchReplay(row) {
     });
 }
 
-// Which run's --from-eval replays this dataset has, read off the plain directory index
-// scripts/viz/serve.py already serves for any folder with no index.html of its own. One fetch for
-// the whole page load, not one per card -- the per-card work below is arm lookups within this run,
-// never another listing. A dataset with no replay_eval/ folder (404) just leaves the picker at
-// "label" only.
-function discoverEvalRunDir() {
-  if (evalRunDirPromise) return evalRunDirPromise;
-  evalRunDirPromise = fetch(DATA_BASE + "replay_eval/", NOCACHE)
-    .then((r) => (r.ok ? r.text() : null))
-    .then((html) => {
-      if (!html) return null;
-      const dirs = [...html.matchAll(/href="([^"?]+)\/"/g)].map((m) => m[1]);
-      evalRunDir = dirs[0] || null;   // one run in practice; first found wins if ever more than one
-      return evalRunDir;
-    })
-    .catch(() => null);
-  return evalRunDirPromise;
+// Anything under viz/, listed off the plain directory index scripts/viz/serve.py already serves for
+// a folder with no index.html of its own. Returns the hrefs; a subfolder's href ends in "/".
+function listDir(url) {
+  return fetch(url, NOCACHE)
+    .then((r) => (r.ok ? r.text() : ""))
+    .then((html) => [...html.matchAll(/href="([^"?]+)"/g)].map((m) => m[1]))
+    .catch(() => []);
 }
 
-// Arm names worth trying for THIS card: every arm eval.json ever recorded for this room, across
-// every run it covers -- a room this run's eval never touched, or a dataset with no eval.json,
-// falls back to the arm names this feature shipped with.
-function armCandidatesFor(row) {
-  const seen = new Set();
-  const byRun = row && evalData && evalData.rooms[row.scene];
-  if (byRun) {
-    Object.values(byRun).forEach((rec) => {
-      (rec.model || []).forEach((e) => seen.add(e.arm));
-      (rec.random || []).forEach((e) => seen.add(e.arm));
+// Every run folder under replay_eval/. One listing for the whole page load, not one per card. No
+// replay_eval/ folder leaves every card with the label only.
+function discoverEvalRunDirs() {
+  if (evalRunDirsPromise) return evalRunDirsPromise;
+  evalRunDirsPromise = listDir(DATA_BASE + "replay_eval/")
+    .then((hrefs) => {
+      evalRunDirs = hrefs.filter((h) => h.endsWith("/")).map((h) => h.slice(0, -1));
+      return evalRunDirs;
     });
-  }
-  if (!seen.size) FALLBACK_ARMS.forEach((a) => seen.add(a));
-  return [...seen].sort();
+  return evalRunDirsPromise;
 }
 
-// One fetch per candidate arm for this card's own file -- a 404 says that arm never solved THIS
-// room, which a directory listing of the run cannot tell apart from "arm exists, this room is not
-// in it". Cached per card so arrowing back to a room already visited costs nothing.
+// eval.json calls a run by its nickname ("gallery_0902"); the replay folder is named after the eval
+// output directory it was built from ("two_movable_1hop_gallery_20260902"). Fold a YYYYMMDD date to
+// MMDD, drop the punctuation, and look for the nickname inside the folder name. No match means this
+// run has no replays on disk and the card offers the label only, which beats stepping one run's
+// frames under another run's numbers.
+function normalizeRunName(name) {
+  return name.toLowerCase().replace(/20\d{2}(\d{4})/g, "$1").replace(/[^a-z0-9]/g, "");
+}
+
+function replayDirForRun(dirs, run) {
+  if (!dirs || !dirs.length || !run) return null;
+  const want = normalizeRunName(run);
+  return dirs.find((d) => normalizeRunName(d).includes(want)) || null;
+}
+
+// Which replays the SELECTED run actually has: its folder, then one listing per arm folder inside.
+// Read once per run and reused for every card. This used to be a fetch per arm per card whose 404
+// meant "no replay", which cost six failed requests on most of the 2200 cards and filled the
+// console with them; the listing answers the same question for free and before the card is drawn.
+function replayIndexFor(run) {
+  if (replayIndexRun === run && replayIndexPromise) return replayIndexPromise;
+  replayIndexRun = run;
+  replayIndexPromise = discoverEvalRunDirs().then((dirs) => {
+    const dir = replayDirForRun(dirs, run);
+    if (!dir) return { dir: null, arms: new Map() };
+    return listDir(`${DATA_BASE}replay_eval/${dir}/`)
+      .then((hrefs) => Promise.all(hrefs.filter((h) => h.endsWith("/")).map((h) => {
+        const arm = h.slice(0, -1);
+        return listDir(`${DATA_BASE}replay_eval/${dir}/${arm}/`)
+          .then((files) => [arm, new Set(files)]);
+      })))
+      .then((pairs) => ({ dir, arms: new Map(pairs) }));
+  });
+  return replayIndexPromise;
+}
+
+// The arms to show for THIS card: exactly what eval.json recorded for the room under the SELECTED
+// run, model side first. Nothing hardcoded -- a run with other arm names (the doorway ablation's
+// control_model / noreroute_uniform) needs no edit here.
+function armRowsFor(row) {
+  const rec = evalRoom(row);
+  if (!rec) return [];
+  return [...(rec.model || []).map((e) => ({ ...e, side: "model" })),
+          ...(rec.random || []).map((e) => ({ ...e, side: "random" }))];
+}
+
+// Fetch only the replays the index above says are on disk, so nothing here 404s. Keyed by run as
+// well as card: switching runs switches folders.
 function fetchModelReplays(row) {
   if (!row) return Promise.resolve([]);
-  if (modelReplayCache.has(row.file)) return modelReplayCache.get(row.file);
-  const p = discoverEvalRunDir().then((runDir) => {
-    if (!runDir) return [];
-    return Promise.all(armCandidatesFor(row).map((arm) =>
-      fetch(`${DATA_BASE}replay_eval/${runDir}/${arm}/${row.file}`, NOCACHE)
-        .then((r) => (r.ok ? r.json() : null))
+  const key = `${evalRun}|${row.file}`;
+  if (modelReplayCache.has(key)) return modelReplayCache.get(key);
+  const p = replayIndexFor(evalRun).then((ix) => {
+    if (!ix.dir) return [];
+    const have = armRowsFor(row).map((e) => e.arm)
+      .filter((arm) => ix.arms.has(arm) && ix.arms.get(arm).has(row.file));
+    return Promise.all(have.map((arm) =>
+      fetch(`${DATA_BASE}replay_eval/${ix.dir}/${arm}/${row.file}`, NOCACHE)
+        .then((r) => r.json())
         .catch(() => null)
         .then((data) => ({ arm, data }))
     ));
   });
   if (modelReplayCache.size > 40) modelReplayCache.delete(modelReplayCache.keys().next().value);
-  modelReplayCache.set(row.file, p);
+  modelReplayCache.set(key, p);
   return p;
 }
 
@@ -506,23 +571,13 @@ function activeModelReplay() {
   return found ? found.data : null;
 }
 
-// Rebuilds the <select> options (label + every candidate arm, found or not) and the status line
-// next to it. Called once with modelArms still empty (so the picker shows "label" while the probe
-// above is in flight) and again when it resolves.
-function renderReplaySourcePicker() {
-  replaySourceSelect.innerHTML = '<option value="label">label</option>' +
-    modelArms.map((a) => `<option value="${a.arm}">${a.arm}</option>`).join("");
-  replaySourceSelect.value = replaySource;
-  updateReplaySourceStatus();
-}
-
-function updateReplaySourceStatus() {
-  if (replaySource === "label") { replaySourceStatus.textContent = ""; return; }
-  const data = activeModelReplay();
-  if (!data) { replaySourceStatus.textContent = "no replay for this arm"; return; }
-  const outcome = data.reproduced
-    ? "reproduced" : `plan did not reproduce (${data.steps.length} of ${data.plan_len} steps ran)`;
-  replaySourceStatus.textContent = `${outcome} · sims ${data.sims} · plan_len ${data.plan_len}`;
+// Clicking a radio in the solution panel: point the stepper at that solution and redraw from step 0.
+function selectReplaySource(value) {
+  if (!rows[i]) return;
+  replaySource = value;
+  replay = value === "label" ? labelReplay : activeModelReplay();
+  step = 0;
+  fetchCard(rows[i]).then((c) => { c.file_key = rows[i].file; render(c); });
 }
 
 function fetchCard(row) {
@@ -549,8 +604,9 @@ function show() {
     return;
   }
   step = 0;
-  replaySource = "label";   // the label is always the default, even for a card visited before
+  replaySource = "label";   // the ground truth is always the default, even for a card seen before
   modelArms = [];
+  replaysReady = false;
   Promise.all([fetchCard(row), fetchReplay(row)]).then(([card, rep]) => {
     // A slow fetch must not paint over a newer selection.
     if (rows[i] !== row) return;
@@ -558,7 +614,6 @@ function show() {
     labelReplay = rep;
     replay = labelReplay;
     render(card);
-    renderReplaySourcePicker();
     saveState();
     fetchCard(rows[(i + 1) % rows.length]);   // prefetch so arrowing stays instant
     fetchReplay(rows[(i + 1) % rows.length]);
@@ -566,7 +621,8 @@ function show() {
   fetchModelReplays(row).then((arms) => {
     if (rows[i] !== row) return;   // a slow probe must not paint over a newer selection
     modelArms = arms;
-    renderReplaySourcePicker();
+    replaysReady = true;
+    renderEvalPanel(row);          // fills in reproduced / no replay and enables the radios
   });
 }
 
@@ -648,15 +704,15 @@ function render(card) {
     // context for it.
     const pm = (v) => `<b>${v[0].toFixed(2)} ± ${v[1].toFixed(2)} s</b>`;
     kv.push(["random search", pm(t.rand) + `  <span class="dim">(${t.rand_sims[0].toFixed(0)} sims)</span>`]);
-    kv.push(["HY5U ranker", pm(t.model) + `  <span class="dim">(${t.model_sims[0].toFixed(0)} sims)</span>`]);
+    kv.push(["model search", pm(t.model) + `  <span class="dim">(${t.model_sims[0].toFixed(0)} sims)</span>`]);
     kv.push(["speed-up", t.up >= 1
       ? `<span class="speedup" style="background:${greenFor(t.up)};color:${t.up >= 8 ? "#fff" : "inherit"}">` +
-        `${t.up.toFixed(1)}× — ${t.saved_pct.toFixed(0)}% less time</span>`
+        `${t.up.toFixed(1)}×, ${t.saved_pct.toFixed(0)}% less time</span>`
       : `<span class="speedup slower" style="background:${redFor(t.up)};color:${t.up <= 0.125 ? "#fff" : "var(--dead)"}">` +
-        `${t.up.toFixed(2)}× — ${(-t.saved_pct).toFixed(0)}% MORE time than random</span>`]);
+        `${t.up.toFixed(2)}×, ${(-t.saved_pct).toFixed(0)}% MORE time than random</span>`]);
     if (t.censored) {
-      kv.push(["note", `budget exhausted on some seeds (ranker solved ${t.model_solved}/3, ` +
-        `random ${t.rand_solved}/3) — these seconds are a lower bound`]);
+      kv.push(["note", `budget exhausted on some seeds (model solved ${t.model_solved}/3, ` +
+        `random ${t.rand_solved}/3), so these seconds are a lower bound`]);
     }
   }
   document.getElementById("meta-table").innerHTML = kv
@@ -672,51 +728,113 @@ function render(card) {
   renderEvalPanel(rows[i]);
 }
 
-// One line per eval run this room appears in: HY5U vs random, sims to solve, speed-up. A room with
-// a 0% solve rate on one side says so plainly instead of printing a speed-up that does not exist.
+// The card's solution block, and the replay picker in one. First the ground truth, then the selected
+// run's own arms, one row each: what it pushed, how many sims it took, whether the plan replayed.
+// The radio on a row is what points the stepper below at that solution.
 function renderEvalPanel(row) {
-  if (!evalData) { evalPanelEl.hidden = true; return; }
-  const byRun = row && evalData.rooms[row.scene];
-  if (!byRun) {
-    evalPanelEl.hidden = false;
-    evalPanelEl.innerHTML = '<span class="eval-none">no eval run covers this room</span>';
-    return;
+  // No eval attached to the dataset means there is nothing to choose between, and the stepper below
+  // already names the label solution. Keep the simpler galleries as they were.
+  if (!row || !evalData) { evalPanelEl.hidden = true; return; }
+  const parts = ['<div class="sol-cap">Solutions on this room</div>', labelRowHtml()];
+  if (evalData && evalRun) {
+    const rec = evalRoom(row);
+    if (rec) {
+      parts.push(runHeadHtml(evalRun, rec));
+      armRowsFor(row).forEach((e) => parts.push(armRowHtml(e)));
+    } else {
+      parts.push(`<div class="sol-run"><span class="sol-run-name">${evalRun}</span> ` +
+        "did not cover this room</div>");
+    }
+    parts.push(otherRunsHtml(row));
   }
   evalPanelEl.hidden = false;
-  evalPanelEl.innerHTML = evalData.runs.filter((r) => byRun[r])
-    .map((r) => evalRunLine(r, byRun[r])).join("");
+  evalPanelEl.innerHTML = parts.join("");
+  evalPanelEl.querySelectorAll("input[name=replay-source]").forEach((b) =>
+    b.addEventListener("change", () => selectReplaySource(b.value)));
 }
 
-function evalArmText(list, medianSims) {
-  if (!list.length) return "no arms run";
-  const solvedN = list.filter((e) => e.solved).length;
-  if (!solvedN) return `unsolved 0/${list.length}`;
-  return `solved ${solvedN}/${list.length}, median ${medianSims} sims`;
+// One row of the block. The push sequence goes on its own line under the radio, so a four-push chain
+// wraps inside the column instead of running off the edge of it.
+function solRowHtml(o) {
+  const off = o.enabled ? "" : " sol-off";
+  return `<label class="sol-row${off}" title="${o.hint || ""}">` +
+    `<input type="radio" name="replay-source" value="${o.value}"` +
+    `${replaySource === o.value ? " checked" : ""}${o.enabled ? "" : " disabled"}>` +
+    `<span class="sol-side">${o.side}</span><span class="sol-who">${o.name}</span>` +
+    `<span class="sol-facts">${o.facts}</span>` +
+    (o.seq ? `<span class="sol-seq">${o.seq}</span>` : "") + "</label>";
 }
 
-function evalRunLine(run, rec) {
+// The label row is the default and says why: it is the answer the test set already holds, the one
+// every arm is being judged against.
+function labelRowHtml() {
+  const n = labelReplay ? labelReplay.steps.length : 0;
+  return solRowHtml({
+    value: "label", side: "label", name: "ground truth",
+    facts: labelReplay ? `${pushText(n)}, the solution the test set already holds`
+                       : "no replay built for this episode",
+    seq: labelReplay ? pushSeqText(labelReplay.steps.map(
+      (st) => ({ object_id: st.object_id, edge_idx: st.edge, depth: st.depth }))) : "",
+    enabled: !!labelReplay,
+    hint: "The exhaustive sweep's own solution, replayed and snapshotted after each push.",
+  });
+}
+
+function armRowHtml(e) {
+  const found = modelArms.find((a) => a.arm === e.arm);
+  const data = found ? found.data : null;
+  const bits = [e.solved ? `solved in ${simText(e.sims)}` : "unsolved"];
+  if (data) {
+    bits.push(data.reproduced ? "reproduced"
+      : `did not reproduce (${data.steps.length} of ${data.plan_len} pushes ran)`);
+  } else if (!replaysReady) {
+    bits.push("looking for a replay");
+  } else {
+    bits.push("no replay built");
+  }
+  return solRowHtml({
+    value: e.arm, side: e.side, name: e.arm, facts: bits.join(" \u00b7 "),
+    seq: e.pushes && e.pushes.length ? pushSeqText(e.pushes) : "",
+    enabled: !!data,
+    hint: data ? "Step this arm's own plan" : "This arm has no replay file for this room",
+  });
+}
+
+function simText(n) { return n == null ? "an unknown number of sims" : `${n} sim${n === 1 ? "" : "s"}`; }
+function pushText(n) { return `${n} push${n === 1 ? "" : "es"}`; }
+
+// The run's headline for this room: how each side did, then how much cheaper the model was. "2.0x
+// fewer sims" and "2.0x more sims" instead of a bare 0.5x, which reads as a win at a glance.
+function runHeadHtml(run, rec) {
   const up = rec.speedup;
   const badge = up == null ? "" :
-    ` &middot; <span class="speedup${up < 1 ? " slower" : ""}" ` +
+    ` <span class="speedup${up < 1 ? " slower" : ""}" ` +
     `style="background:${up >= 1 ? greenFor(up) : redFor(up)};` +
     `color:${(up >= 1 ? up >= 8 : up <= 0.125) ? "#fff" : "inherit"}">` +
-    `${up.toFixed(up >= 10 ? 0 : 1)}&times;</span>`;
-  return `<div class="eval-line"><span class="eval-run-name">${run}</span> ` +
-    `HY5U ${evalArmText(rec.model, rec.model_median_sims)} <span class="dim">|</span> ` +
-    `random ${evalArmText(rec.random, rec.random_median_sims)}${badge}</div>` +
-    evalModelSeeds(rec.model);
+    (up >= 1 ? `${up.toFixed(up >= 10 ? 0 : 1)}&times; fewer sims`
+             : `${(1 / up).toFixed(1)}&times; more sims`) + "</span>";
+  return `<div class="sol-run"><span class="sol-run-name">${run}</span> ` +
+    `model ${armSideText(rec.model, rec.model_median_sims)}. ` +
+    `random ${armSideText(rec.random, rec.random_median_sims)}.${badge}</div>`;
 }
 
-// One compact line per model seed's own push sequence, straight off its "pushes"
-// (add_eval_overlay.py:load_arm) -- object_id e<edge_idx> d<depth>, arrow-joined, then sims. An
-// unsolved seed just says so; it never carried a solution to show.
-function evalModelSeeds(list) {
-  return list.map((e) => {
-    const m = e.arm.match(/_s(\d+)$/);
-    const label = m ? `s${m[1]}` : e.arm;
-    const body = (e.solved && e.pushes && e.pushes.length)
-      ? `${pushSeqText(e.pushes)}, ${e.sims} sims` : "unsolved";
-    return `<div class="eval-seed">${label}: ${body}</div>`;
+function armSideText(list, medianSims) {
+  if (!list.length) return "had no arms here";
+  const n = list.filter((e) => e.solved).length;
+  const seeds = `${list.length} seed${list.length === 1 ? "" : "s"}`;
+  if (!n) return `solved 0 of ${seeds}`;
+  return `solved ${n} of ${seeds}, median ${simText(medianSims)}`;
+}
+
+// The other runs that also cover this room: one line each, no rows and no radios. Their replays live
+// under a different replay_eval/ folder, and only the selected run's frames are on offer here.
+function otherRunsHtml(row) {
+  const byRun = evalData.rooms[row.scene] || {};
+  return evalData.runs.filter((r) => r !== evalRun && byRun[r]).map((r) => {
+    const rec = byRun[r];
+    return `<div class="sol-other">also ran as <b>${r}</b>: ` +
+      `model ${armSideText(rec.model, rec.model_median_sims)}, ` +
+      `random ${armSideText(rec.random, rec.random_median_sims)}</div>`;
   }).join("");
 }
 
@@ -728,38 +846,43 @@ function pushSeqText(pushes) {
 // evalData.room_aggregate is already room-accurate and pre-split by scripts/viz/add_eval_overlay.py
 // (summarize_rooms): one row per scope ("overall" / "open" / "door"), n = an actual room count, not
 // a card-strata count. No client-side pooling needed any more.
-function fmtSolveRate(group) {
-  if (!group || !group.n) return "no rooms";
+function pctList(group) {
   return EVAL_K.map((k) => {
     const v = group.solve_at[String(k)];
-    return `@${k} ${v == null ? "-" : (v * 100).toFixed(0) + "%"}`;
-  }).join(" &middot; ");
+    return v == null ? "-" : (v * 100).toFixed(0) + "%";
+  }).join(" / ");
 }
 
-// The top-of-page strip: this run's solve@k for model vs random, overall and split by whether the
-// room's only doorway needs both blocks moved, then a room-count tally of model/random outcomes.
-// The chain category tally (#eval-chain-tally, filled by renderChainTally) is card-filtered, so it
-// lives in applyFilters instead -- this placeholder is what it writes into.
+// One sentence per line, and every number carries its unit: the strip is the first thing anybody
+// reads, and "@30 83% (n=1432)" needs the source open to decode.
+function scopeLine(lead, group) {
+  if (!group || !group.n) return "";
+  return `<div>${lead}: model ${pctList(group.model)}, ` +
+    `random ${pctList(group.random)}</div>`;
+}
+
+// The top-of-page strip: how often the selected run solved a room within 1, 5 and 30 simulator
+// calls, model against random, overall and split by whether the room's only doorway needs both
+// blocks moved. Then two count lines: room outcomes across the run, and (from renderChainTally,
+// which runs in applyFilters because it is card-filtered) what the model actually pushed.
 function renderEvalSummary() {
   if (!evalData || !evalRun || !evalData.room_aggregate || !evalData.room_aggregate[evalRun]) {
     evalSummaryEl.hidden = true;
     return;
   }
-  const byScope = Object.fromEntries(evalData.room_aggregate[evalRun].map((s) => [s.scope, s]));
+  const byScope = Object.fromEntries(evalData.room_aggregate[evalRun].map((sc) => [sc.scope, sc]));
+  const ks = EVAL_K.join(" / ");
   evalSummaryEl.hidden = false;
   evalSummaryEl.innerHTML =
-    `<b>${evalRun}</b> solve@k, model vs random &mdash; ` +
-    `all rooms: ${fmtSolveRate(byScope.overall.model)} <span class="dim">vs</span> ` +
-    `${fmtSolveRate(byScope.overall.random)} (n=${byScope.overall.n})<br>` +
-    `has a route around the doorway: ${fmtSolveRate(byScope.open.model)} <span class="dim">vs</span> ` +
-    `${fmtSolveRate(byScope.open.random)} (n=${byScope.open.n}) &nbsp;&nbsp; ` +
-    `needs BOTH blocks moved: ${fmtSolveRate(byScope.door.model)} <span class="dim">vs</span> ` +
-    `${fmtSolveRate(byScope.door.random)} (n=${byScope.door.n})<br>` +
-    renderModelTally() + `<br><span id="eval-chain-tally"></span>`;
+    scopeLine(`Run <b>${evalRun}</b>, all ${byScope.overall.n} rooms, share solved within ` +
+              `${ks} simulator calls`, byScope.overall) +
+    scopeLine(`Of those, the ${byScope.open.n} rooms with a route around the doorway`, byScope.open) +
+    scopeLine(`The ${byScope.door.n} rooms whose doorway needs both blocks moved`, byScope.door) +
+    renderModelTally() + '<div id="eval-chain-tally"></div>';
 }
 
 // Room-count tally for the selected run, over EVERY room it covers (not the current card filters --
-// this is a fact about the run, like the solve@k lines above it).
+// this is a fact about the run, like the solve shares above it).
 function renderModelTally() {
   let solved = 0, unsolved = 0, split = 0, randomSolved = 0;
   Object.values(evalData.rooms).forEach((byRun) => {
@@ -769,19 +892,21 @@ function renderModelTally() {
     if (mb === "solved") solved++; else if (mb === "unsolved") unsolved++; else if (mb === "split") split++;
     if (roomRandomAnySolved(rec)) randomSolved++;
   });
-  return `model solved ${solved} rooms, unsolved ${unsolved}, split ${split}; random solved ${randomSolved}`;
+  return `<div>Across those ${solved + unsolved + split} rooms the model solved ${solved}, ` +
+    `split across seeds on ${split} and left ${unsolved} unsolved; ` +
+    `random solved ${randomSolved} of the same rooms.</div>`;
 }
 
 // Model-chain category tally, over the cards the current filters show (not dataset-wide, unlike
 // renderModelTally above) -- called from applyFilters, which already has that row set.
-function renderChainTally(preRows) {
+function renderChainTally(shown) {
   const el = document.getElementById("eval-chain-tally");
   if (!el) return;
   if (!evalData || !evalData.model_chain || !evalRun) { el.textContent = ""; return; }
   const counts = Object.fromEntries(MODEL_CHAIN_OPTIONS.filter((o) => o !== "all").map((o) => [o, 0]));
-  preRows.forEach((r) => { const v = modelChainOf(r); if (v in counts) counts[v] += 1; });
-  el.textContent = "model chain, vs card object (cards in this filter): " +
-    MODEL_CHAIN_OPTIONS.filter((o) => o !== "all").map((c) => `${c} ${counts[c]}`).join(", ");
+  shown.forEach((r) => { const v = modelChainOf(r); if (v in counts) counts[v] += 1; });
+  el.textContent = `What the model pushed on the ${shown.length} episodes now showing: ` +
+    MODEL_CHAIN_OPTIONS.filter((o) => o !== "all").map((c) => `${c} ${counts[c]}`).join(", ") + ".";
 }
 
 // Name the object a step pushed whenever it is not the card's own target. On the two-movable
@@ -812,13 +937,16 @@ function outcomeText(st) {
 // own path (that lives in the search traces).
 function renderSteps(card) {
   const box = document.getElementById("steps");
+  // Name the source in the caption. The frames look identical whoever produced them, and reading a
+  // model arm's path as the ground truth is the one mistake this stepper can invite.
+  const whose = replaySource === "label" ? "label solution" : `${replaySource} solution`;
   if (!replay || !replay.steps.length) {
-    box.innerHTML = '<span class="steps-none">no solution replay built for this episode</span>';
+    box.innerHTML = `<span class="steps-none">the ${whose} has no replay built for this episode</span>`;
     return;
   }
   const labels = ["start", ...replay.steps.map((s, k) => `after push ${k + 1}`)];
   const st = step > 0 ? replay.steps[step - 1] : null;
-  box.innerHTML = '<span class="steps-cap">solution</span>' + labels.map((l, k) =>
+  box.innerHTML = `<span class="steps-cap">${whose}</span>` + labels.map((l, k) =>
     `<button type="button" class="step-pill${k === step ? " on" : ""}" data-step="${k}">${l}</button>`
   ).join("") + (st
     ? `<div class="step-note">${stepWho(st, card)}edge ${st.edge} at depth ${st.depth}, ` +

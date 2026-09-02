@@ -440,8 +440,16 @@ td.no { color: var(--dead); }
 .gallery-body { padding: 1rem 1.5rem 2rem; }
 .gallery-bar { border-bottom: 1px solid var(--border); padding-bottom: 0.7rem;
   margin-bottom: 1.1rem; }
-.gallery-bar .controls { gap: 1.1rem; margin-bottom: 0.45rem; align-items: end; }
+.gallery-bar .controls { gap: 0.5rem 1.1rem; margin-bottom: 0.5rem; align-items: end; }
+.gallery-bar .control { align-self: end; }
 .control-cap { display: block; font-size: 0.8rem; color: #444; margin-bottom: 0.2rem; }
+/* A filter that cannot separate anything at the selected horizon: held at "all" and greyed, rather
+   than left live and inert. */
+.control-off { opacity: 0.4; }
+/* Paging is not a filter. It sits with the count line it moves through, on its own row, so it stops
+   wrapping into the middle of the control bar. */
+.gallery-nav { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.2rem; }
+.gallery-nav .summary { margin: 0 0 0 0.9rem; }
 .checkrow { display: inline-flex; gap: 0.75rem; flex-wrap: wrap; }
 /* Room-batch checkboxes, collapsed by default -- same checkrow inside, just behind a disclosure so
    a dataset with a dozen generator batches does not push every other control off the first line. */
@@ -459,7 +467,6 @@ td.no { color: var(--dead); }
   border: 1px solid var(--border); border-radius: 3px; background: var(--bg);
   color: var(--fg); cursor: pointer; }
 .gallery-bar button:hover, .facts-actions button:hover { background: var(--border); }
-.nav-group { display: inline-flex; align-items: center; gap: 0.4rem; align-self: end; }
 .position { min-width: 6.5em; text-align: center; font-size: 0.9rem; }
 
 /* Facts first at 30%, the scene at 70% -- the numbers are what gets read, the picture is what gets
@@ -483,19 +490,37 @@ td.no { color: var(--dead); }
 /* eval.json overlay (scripts/viz/add_eval_overlay.py): a room-level HY5U vs random result, so every
    card of a room shows the same numbers. The strip sits in the gallery-bar; the panel sits in the
    facts column, one line per eval run, right below the meta table it reads like a continuation of. */
-.eval-summary { font-size: 0.85rem; color: #333; line-height: 1.6; margin-top: 0.4rem;
+.eval-summary { font-size: 0.85rem; color: #333; line-height: 1.65; margin-top: 0.4rem;
   padding-top: 0.5rem; border-top: 1px solid var(--border); }
 .eval-summary .dim { color: #999; }
-.eval-panel { margin-top: 0.6rem; font-size: 0.82rem; }
-.eval-line { padding: 2px 0; }
-.eval-run-name { font-weight: 600; margin-right: 0.4rem; }
-.eval-line .dim { color: #999; margin: 0 0.2rem; }
-.eval-line .speedup { display: inline-block; padding: 0 6px; border-radius: 3px; font-weight: 600; }
-.eval-line .speedup.slower { color: var(--dead); }
-.eval-none { color: #888; font-size: 0.82rem; }
-/* One compact line per model seed's own push sequence, indented under its eval-line. */
-.eval-seed { font-size: 0.74rem; color: #666; padding: 0 0 2px 0.8rem; font-family: ui-monospace, monospace; }
 
+/* The card's solution block: the ground truth, then the selected run's arms, one row each, with the
+   radio that points the stepper below at that solution. */
+.eval-panel { margin-top: 0.9rem; font-size: 0.82rem; border-top: 1px solid var(--border);
+  padding-top: 0.6rem; }
+.sol-cap { font-size: 0.8rem; color: #555; margin-bottom: 0.3rem; }
+.sol-run { margin: 0.5rem 0 0.15rem; color: #444; line-height: 1.45; }
+.sol-run-name { font-weight: 600; }
+.sol-other { margin-top: 0.4rem; color: #777; font-size: 0.78rem; line-height: 1.45; }
+.sol-run .speedup { display: inline-block; padding: 0 6px; border-radius: 3px; font-weight: 600;
+  white-space: nowrap; }
+.sol-run .speedup.slower { color: var(--dead); }
+/* flex-wrap plus a full-width push sequence: the sequence always starts its own line and wraps
+   inside the column, so a four-push chain cannot run off the edge. */
+.sol-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.4rem;
+  padding: 3px 0; cursor: pointer; }
+.sol-row input { margin: 0; }
+.sol-row:hover { background: #f6f7f9; }
+.sol-row.sol-off { cursor: default; color: #999; }
+.sol-row.sol-off:hover { background: none; }
+.sol-side { display: inline-block; min-width: 4.2em; color: #777; font-size: 0.74rem;
+  text-transform: uppercase; letter-spacing: 0.03em; }
+.sol-who { font-family: ui-monospace, monospace; font-weight: 600; }
+.sol-facts { color: #555; flex: 1 1 9rem; }
+.sol-off .sol-facts, .sol-off .sol-side { color: #aaa; }
+.sol-seq { flex-basis: 100%; margin-left: 1.35rem; font-family: ui-monospace, monospace;
+  font-size: 0.74rem; color: #666; overflow-wrap: anywhere; }
+.sol-off .sol-seq { color: #aaa; }
 
 .green-list { margin-top: 0.75rem; font-size: 0.8rem; line-height: 1.5; }
 .green-label { color: #555; }
@@ -514,13 +539,6 @@ td.no { color: var(--dead); }
 .legend-swatch.dot-green { background: var(--opener); border-radius: 50%; }
 .legend-swatch.dot-tried { background: #b0bec5; border-radius: 50%; }
 .legend-swatch.dot-untried { background: #eceff1; border: 1px solid #cfd8dc; border-radius: 50%; }
-
-/* Replay-source picker: label (replay/) vs one arm's own plan (replay_eval/<run>/<arm>/). Sits
-   right above the solution stepper it drives. */
-.replay-source-row { margin-top: 0.75rem; display: flex; align-items: center; gap: 0.6rem;
-  flex-wrap: wrap; font-size: 0.85rem; }
-.replay-source-row select { font: inherit; }
-#replay-source-status { font-size: 0.78rem; }
 
 /* Solution stepper: start | after push 1 | after push 2. */
 .steps { margin-top: 0.9rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
