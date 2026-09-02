@@ -49,6 +49,8 @@ The retry hardens `scripts/slurm/train.slurm` so every successful job must emit 
 
 The first hardened retry, array `263859` on rlab4, failed closed before accepting any checkpoint and exposed two independent orchestration bugs. The shared training template treated every SLURM array index as an implicit gamma sweep, so task zero changed the requested `NAMO_GAMMA=0.5` to `0.3`; gamma sweeping is now explicit. The batch shell also staged the H5 before entering `srun`, while rlab4's task step could not see that `/dev/shm` path; the ablation launchers now enter `srun` first and perform staging and training inside the same task step. The invalid outputs under `smoke_ilab_v2` are retained for diagnosis and excluded from every result.
 
+Retry `263862` confirmed the requested gamma but showed that rlab4 removes the staged `/dev/shm` file even within one task step; its `/tmp` is the local RAID root and has 286 GB free, so the next pinned-node smoke stages there and calibrates the resulting epoch time rather than assuming RAM-disk speed. This retry also showed that the site's `srun` can report a failed task while the enclosing array task is recorded `COMPLETED`, so both launchers now verify the scorer-load marker and checkpoint again after `srun` returns. Invalid outputs under `smoke_ilab_v3` are retained for diagnosis and excluded.
+
 ## Result
 
 Pending.

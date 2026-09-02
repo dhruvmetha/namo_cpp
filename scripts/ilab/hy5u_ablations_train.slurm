@@ -24,7 +24,7 @@ if [ "$MODE" = "smoke" ]; then
   ARM=${arms[$TASK]}
   SEED=1
   EPOCHS=1
-  OUT=$R0/ablations_20260831/smoke_ilab_v3/${ARM}_s1
+  OUT=$R0/ablations_20260831/smoke_ilab_v4/${ARM}_s1
 else
   [ "$MODE" = "full" ] || { echo "unknown MODE=$MODE" >&2; exit 2; }
   [ "$TASK" -lt 9 ] || { echo "full array must be 0-8" >&2; exit 2; }
@@ -45,10 +45,13 @@ esac
 mkdir -p "$OUT"
 
 echo "ABLATION mode=$MODE arm=$ARM seed=$SEED task=$TASK job=$SLURM_JOB_ID host=$(hostname) commit=$(git rev-parse HEAD)"
-srun --nodes=1 --ntasks=1 env NAMO_REPO="$REPO" NAMO_ENV_SCRIPT=env.ilab.sh \
+STAGE_DIR=${HY5U_STAGE_DIR:-/tmp}
+srun --nodes=1 --ntasks=1 --kill-on-bad-exit=1 env NAMO_REPO="$REPO" NAMO_ENV_SCRIPT=env.ilab.sh \
   H5="$H5" OUT="$OUT" TRAIN_SCRIPT=scripts/rl_loop/train_q2_round2.py \
   EPOCHS="$EPOCHS" BATCH=256 WORKERS=6 SEED="$SEED" POSTCHECK_LIMIT=64 \
   NAMO_GAMMA=0.5 NAMO_UNREACH_W=0.1 NAMO_GROUP_EPISODES=1 \
   EGMM_LAMBDA="$EGMM" RANK_LAMBDA="$RANK" LOWER_RANK_LAMBDA="$LOWER" \
-  NAMO_EDGE_SELF_ATTN="$EDGE" PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+  NAMO_EDGE_SELF_ATTN="$EDGE" NAMO_STAGE_DIR="$STAGE_DIR" PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
   bash scripts/slurm/train.slurm
+grep -q "eval_scorer-load check" "$OUT/train.log" || { echo "missing scorer-load marker after srun" >&2; exit 1; }
+compgen -G "$OUT/checkpoints/*.ckpt" >/dev/null || { echo "missing checkpoint after srun" >&2; exit 1; }
