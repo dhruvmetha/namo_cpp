@@ -8,15 +8,11 @@
 <body class="gallery-body">
 <header class="gallery-bar">
   <p class="crumb"><a href="index.html">&larr; NAMO viz</a></p>
-  <!-- One bar, read left to right: which run, which episodes, how they are ordered. The paging
-       arrows and the count line moved out of it (they are not filters, and wrapped into the middle
-       of the row when they lived here). -->
+  <!-- One bar, one job: which episodes are on screen and in what order. Everything that is not a
+       filter left it -- the paging arrows and the count line (they wrapped into the middle of the
+       row), and the eval-run picker (it sets the context every eval number is read under, so it
+       sits at the head of the summary strip instead). -->
   <div class="controls">
-    <label class="control" id="eval-run-control" hidden>Eval run
-      <!-- filled from eval.json's run names; hidden when eval.json is absent or has one run. Drives
-           the summary strip, the eval sort/filter, and which run's replays the card can step. -->
-      <select id="eval-run-select"></select>
-    </label>
     <label class="control">Horizon
       <select id="horizon-select">
         <option value="1push">1push</option>
@@ -31,31 +27,30 @@
         <option value="easy">easy</option>
       </select>
     </label>
+    <label class="control" id="door-control" hidden
+        title="Whether the room's doorway can be opened by moving one block, and if it needs both, whether the goal can still be reached another way. Read off the room's own card meta (door_needs_both_blocks / has_route_around), so it says nothing about any run and does not change with the run picker.">
+      Doorway
+      <select id="door-select"></select>
+    </label>
     <span class="control" id="eval-filter-control" hidden>
       <span class="control-cap">Outcome in this run</span>
-      <!-- one button per bucket, filled with live counts on every filter pass; "model solved" and
-           "model unsolved" both mean EVERY / NO model arm solved -- a room where some seeds solved
-           and some did not falls in "model split", never in either of those two. -->
+      <!-- one button per bucket, filled with live counts on every filter pass. "model solved" is at
+           least one model arm solving; a room where the seeds disagree lands there too, and says so
+           with a "seeds split" tag on the card rather than in a bucket of its own. -->
       <span class="checkrow" id="eval-outcome-row"></span>
     </span>
-    <label class="control" id="label-chain-control" hidden
-        title="Which objects the ground-truth solution pushes, against this card's own object. Every 1push card is a single push by definition, so this only separates anything at 2push. UNDERCOUNTS &quot;both objects&quot;: the sweep's finish loop stops at the first push that opens and tries objects in list order, so a same-object finish always wins the race over a cross-object one when both exist (exhaustive_hmax2.py). A &quot;both objects&quot; answer is never wrong; a &quot;card object only&quot; answer can be hiding an untried cross-object finish.">
-      Label pushed
-      <select id="label-chain-select"></select>
-    </label>
     <label class="control" id="model-chain-control" hidden
-        title="Which objects this run's model solution pushes, against this card's own object -- not the room's. A room with two cards (two object_ids) can read differently on each. A 1push card counts here too: the model is free to spend two pushes where one would do.">
-      Model pushed
+        title="Which objects this run's model solution pushes, against this card's own object -- not the room's. A room with two cards (two object_ids) can read differently on each. Greyed at 1push, where the label is one push and the split is not worth a control.">
+      Chain
       <select id="model-chain-select"></select>
     </label>
     <label class="control">Order
       <select id="sort-select">
         <option value="density-asc">hardest first</option>
         <option value="density-desc">easiest first</option>
-        <option value="speedup-desc">biggest speed-up (seconds)</option>
-        <option value="speedup-asc">smallest speed-up (seconds)</option>
-        <option value="eval-speedup-desc">biggest speed-up (sims)</option>
-        <option value="eval-speedup-asc">smallest speed-up (sims)</option>
+        <option value="speedup-desc">biggest speed-up</option>
+        <option value="speedup-asc">smallest speed-up</option>
+        <option value="model-sims-asc">fewest model sims</option>
         <option value="scene">scene name</option>
       </select>
     </label>
@@ -78,8 +73,16 @@
     <span id="summary" class="summary">loading scenes.json&hellip;</span>
     <button type="button" id="clear-stars-btn" title="Unstar every card" disabled>clear shortlist</button>
   </div>
-  <!-- eval.json is optional; stays hidden when the dataset has no evaluation attached. -->
-  <div id="eval-summary" class="eval-summary" hidden></div>
+  <!-- eval.json is optional; stays hidden when the dataset has no evaluation attached. The run
+       picker leads the strip: it names the context every number to its right is read under. -->
+  <div id="eval-summary" class="eval-summary" hidden>
+    <label class="eval-run" id="eval-run-control" hidden>run:
+      <!-- filled from eval.json's run names; hidden when eval.json has one run. Drives this strip,
+           the outcome and chain filters, the sims sort, and which run's replays a card can step. -->
+      <select id="eval-run-select"></select>
+    </label>
+    <div id="eval-summary-text"></div>
+  </div>
 </header>
 
 <main class="two-col">

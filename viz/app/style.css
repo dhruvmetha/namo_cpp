@@ -493,8 +493,17 @@ td.no { color: var(--dead); }
    card of a room shows the same numbers. The strip sits in the gallery-bar; the panel sits in the
    facts column, one line per eval run, right below the meta table it reads like a continuation of. */
 .eval-summary { font-size: 0.85rem; color: #333; line-height: 1.65; margin-top: 0.4rem;
-  padding-top: 0.5rem; border-top: 1px solid var(--border); }
+  padding-top: 0.5rem; border-top: 1px solid var(--border);
+  display: flex; align-items: baseline; gap: 1.1rem; }
 .eval-summary .dim { color: #999; }
+#eval-summary-text { flex: 1 1 auto; min-width: 0; }
+/* The run picker is not a filter -- it names the context the whole strip is read under -- so it
+   leads the strip instead of sitting in the filter bar. The display rule below beats the browser's
+   own [hidden] { display: none }, so restate it. */
+.eval-run { display: inline-flex; align-items: baseline; gap: 0.35rem; white-space: nowrap;
+  color: #444; }
+.eval-run[hidden] { display: none; }
+.eval-run select { font: inherit; padding: 1px 3px; }
 
 /* The card's solution block: the ground truth, then the selected run's arms, one row each, with the
    radio that points the stepper below at that solution. */
@@ -507,6 +516,10 @@ td.no { color: var(--dead); }
 .sol-run .speedup { display: inline-block; padding: 0 6px; border-radius: 3px; font-weight: 600;
   white-space: nowrap; }
 .sol-run .speedup.slower { color: var(--dead); }
+/* Seeds that disagreed on this room. Quiet: it qualifies the solved count next to it, it is not a
+   warning. */
+.sol-tag { display: inline-block; padding: 0 5px; border-radius: 3px; background: #eceff1;
+  color: #607d8b; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
 /* flex-wrap plus a full-width push sequence: the sequence always starts its own line and wraps
    inside the column, so a four-push chain cannot run off the edge. */
 .sol-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.4rem;

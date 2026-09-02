@@ -22,6 +22,12 @@ over rooms in the scope -- so a room with three seeds and a room with one seed c
 rooms joined to a gallery card are eligible (see `rooms` above); an eval run can cover rooms this
 gallery has no card for, and those are invisible here, not folded into `n`.
 
+`door`: per gallery room (key = scene), that room's two doorway flags copied off its card meta,
+`door_needs_both_blocks` and `has_route_around`. Every room the gallery has a card for is in here,
+whether or not any run covered it, because the flags are a property of the room and not of a run.
+The gallery's door filter reads this map; the flags live on card meta and nowhere in scenes.json, so
+without this the page would have to fetch all 2180 cards to filter on them.
+
 `chain`: per card file, the label's own chain vocabulary -- see `load_card_chains`.
 
 `model_chain`: per run, per card file, the model's chain vocabulary -- see `card_model_bucket`. Each
@@ -134,10 +140,13 @@ def load_scene_index(out_dir):
     scene_cards = defaultdict(list)
     for row in index["cards"]:
         scene_cards[row["scene"]].append(row)
+    # Both doorway flags, read off the room's first card. They are a room property: all 1432 rooms
+    # of the two-movable pool carry the same pair on every card they have (verified 2026-09-02).
     door = {}
     for scene, rows in scene_cards.items():
         meta = json.load(open(os.path.join(out_dir, "cards", rows[0]["file"])))["meta"]
-        door[scene] = bool(meta.get("door_needs_both_blocks"))
+        door[scene] = {"door_needs_both_blocks": bool(meta.get("door_needs_both_blocks")),
+                       "has_route_around": bool(meta.get("has_route_around"))}
     return index["cards"], scene_cards, door
 
 
@@ -220,6 +229,7 @@ def load_run(run_dir):
 
 def build_run(run_name, run_dir, scene_cards, door):
     arms = load_run(run_dir)
+    both = lambda s: door[s]["door_needs_both_blocks"]
 
     # scene -> arm -> row, joined to the gallery: a room that never got a card is not in this gallery.
     scene_arm = defaultdict(dict)
@@ -259,12 +269,12 @@ def build_run(run_name, run_dir, scene_cards, door):
         {"scope": "overall", "n": len(rooms),
          "model": summarize_rooms(list(rooms.values()), "model"),
          "random": summarize_rooms(list(rooms.values()), "random")},
-        {"scope": "open", "n": sum(1 for s in rooms if not door[s]),
-         "model": summarize_rooms([r for s, r in rooms.items() if not door[s]], "model"),
-         "random": summarize_rooms([r for s, r in rooms.items() if not door[s]], "random")},
-        {"scope": "door", "n": sum(1 for s in rooms if door[s]),
-         "model": summarize_rooms([r for s, r in rooms.items() if door[s]], "model"),
-         "random": summarize_rooms([r for s, r in rooms.items() if door[s]], "random")},
+        {"scope": "open", "n": sum(1 for s in rooms if not both(s)),
+         "model": summarize_rooms([r for s, r in rooms.items() if not both(s)], "model"),
+         "random": summarize_rooms([r for s, r in rooms.items() if not both(s)], "random")},
+        {"scope": "door", "n": sum(1 for s in rooms if both(s)),
+         "model": summarize_rooms([r for s, r in rooms.items() if both(s)], "model"),
+         "random": summarize_rooms([r for s, r in rooms.items() if both(s)], "random")},
     ]
 
     # A room's result counts into every (tier, horizon) its own cards span; door is constant per room.
@@ -276,7 +286,7 @@ def build_run(run_name, run_dir, scene_cards, door):
                 continue
             strata = {(c["tier"], c["horizon"]) for c in cards}
             for tier, horizon in strata:
-                buckets[(door[r["scene"]], tier, horizon)][grp].append(r)
+                buckets[(both(r["scene"]), tier, horizon)][grp].append(r)
 
     aggregate = [
         {"door_needs_both_blocks": d, "tier": tier, "horizon": horizon,
@@ -377,9 +387,9 @@ def main():
               ", ".join(f"{by_cat[c]} {c}" for c in CARD_CATEGORIES + ["seeds disagree", "unsolved"]))
 
     out_path = os.path.join(a.out, "eval.json")
-    json.dump({"schema_version": 3, "runs": list(runs.keys()),
+    json.dump({"schema_version": 4, "runs": list(runs.keys()),
                "rooms": eval_rooms, "aggregate": aggregate, "room_aggregate": room_aggregate,
-               "chain": chain, "model_chain": model_chain}, open(out_path, "w"))
+               "door": door, "chain": chain, "model_chain": model_chain}, open(out_path, "w"))
     print(f"\neval.json: {len(eval_rooms)} rooms across {len(runs)} run(s) -> {out_path}")
 
 

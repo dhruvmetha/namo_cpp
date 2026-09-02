@@ -53,36 +53,56 @@ const famRow = document.getElementById("fam-row");
 const famSummary = document.getElementById("fam-summary");
 let famBoxes = [];      // built in init() from the families this dataset actually contains
 const evalSummaryEl = document.getElementById("eval-summary");
+const evalSummaryText = document.getElementById("eval-summary-text");
 const evalPanelEl = document.getElementById("eval-panel");
 const evalRunControl = document.getElementById("eval-run-control");
 const evalRunSelect = document.getElementById("eval-run-select");
 const evalFilterControl = document.getElementById("eval-filter-control");
 const evalOutcomeRow = document.getElementById("eval-outcome-row");
-const labelChainControl = document.getElementById("label-chain-control");
-const labelChainSelect = document.getElementById("label-chain-select");
+const doorControl = document.getElementById("door-control");
+const doorSelect = document.getElementById("door-select");
 const modelChainControl = document.getElementById("model-chain-control");
 const modelChainSelect = document.getElementById("model-chain-select");
-const FILTERS = [horizonSelect, tierSelect, sortSelect, textFilter, starredOnly,
-  labelChainSelect, modelChainSelect];
+const FILTERS = [horizonSelect, tierSelect, doorSelect, sortSelect, textFilter, starredOnly,
+  modelChainSelect];
 // Simulator-call budgets the summary strip reports a solved share at. Spelled out as
 // "simulator calls" on screen: "@k" needs a legend, and the strip is the first thing read.
 const EVAL_K = [1, 5, 30];
-// One room can be "model solved" (every model arm solved), "model unsolved" (no model arm solved),
-// or "model split" (some seeds did, some did not) -- never more than one of the three at once.
+// Four buckets, and a room lands in exactly one of the first three. A room whose seeds disagree
+// counts as SOLVED here: the model found the room's answer, some seeds just missed it, and a bucket
+// of its own bought a filter click nobody used. The card says "seeds split" instead.
 const MODEL_BUCKETS = [
   { key: "all", label: "all" },
   { key: "solved", label: "model solved" },
-  { key: "split", label: "model split" },
   { key: "unsolved", label: "model unsolved" },
-  { key: "solved-random-unsolved", label: "model solved, random unsolved" },
-  { key: "neither", label: "neither solved" },
+  { key: "solved-random-unsolved", label: "model solved, random not" },
 ];
 let modelBucket = "all";   // selected #eval-outcome-row button
-// Both dropdowns read straight off scripts/viz/add_eval_overlay.py's own vocabulary now (eval.json's
-// "chain" and "model_chain" values), so there is no key/label split left to keep in sync by hand.
+// Room doorway shape, straight off eval.json's per-room "door" map (add_eval_overlay.py writes both
+// card-meta flags there). Nested on purpose: "needs both, no way around" is the subset of "needs
+// both blocks" with no alternative route, and the counts beside the options say so. `d` is null for
+// a room the map has no entry for, and every option but "any" rejects it.
+const DOOR_OPTIONS = [
+  { key: "any", label: "any", match: () => true },
+  { key: "one", label: "one block opens it", match: (d) => !!d && !d.door_needs_both_blocks },
+  { key: "both", label: "needs both blocks", match: (d) => !!d && d.door_needs_both_blocks },
+  { key: "both-shut", label: "needs both, no way around",
+    match: (d) => !!d && d.door_needs_both_blocks && !d.has_route_around },
+];
+// add_eval_overlay.py's own chain vocabulary, kept for the strip tally that prints every category.
 const CARD_CHAIN_CATEGORIES = ["single push", "card object only", "other object only", "both objects"];
-const LABEL_CHAIN_OPTIONS = ["all", ...CARD_CHAIN_CATEGORIES];   // label side never emits "other object only"
-const MODEL_CHAIN_OPTIONS = ["all", ...CARD_CHAIN_CATEGORIES, "seeds disagree", "unsolved"];
+const CHAIN_TALLY_CATEGORIES = [...CARD_CHAIN_CATEGORIES, "seeds disagree", "unsolved"];
+// The filter collapses that vocabulary to the question actually asked of it: did the model's plan
+// stay on this card's own object, or did it have to touch the neighbour. "other object involved" is
+// "other object only" and "both objects" together. "seeds disagree" and "unsolved" get no option --
+// they are not a shape of plan, and a room in either state answers "any" only.
+const CHAIN_FILTERS = [
+  { key: "any", label: "any", match: () => true },
+  { key: "single", label: "single push", match: (v) => v === "single push" },
+  { key: "same", label: "same object", match: (v) => v === "card object only" },
+  { key: "other", label: "other object involved",
+    match: (v) => v === "other object only" || v === "both objects" },
+];
 
 let index = null;
 let timing = null;       // per-problem seconds from the timed campaign; absent = the page hides them
@@ -204,7 +224,7 @@ function renderFamSummary() {
 function buildEvalRunControl() {
   if (!evalData) {
     evalRunControl.hidden = true; evalFilterControl.hidden = true;
-    labelChainControl.hidden = true; modelChainControl.hidden = true;
+    doorControl.hidden = true; modelChainControl.hidden = true;
     return;
   }
   evalRunSelect.innerHTML = evalData.runs.map((r) => `<option value="${r}">${r}</option>`).join("");
@@ -225,10 +245,10 @@ function buildEvalRunControl() {
     });
     evalOutcomeRow.append(btn);
   });
-  labelChainControl.hidden = !evalData.chain;
+  doorControl.hidden = !evalData.door;
   modelChainControl.hidden = !evalData.model_chain;
-  labelChainSelect.innerHTML = LABEL_CHAIN_OPTIONS.map((o) => `<option value="${o}">${o}</option>`).join("");
-  modelChainSelect.innerHTML = MODEL_CHAIN_OPTIONS.map((o) => `<option value="${o}">${o}</option>`).join("");
+  doorSelect.innerHTML = DOOR_OPTIONS.map((o) => `<option value="${o.key}">${o.label}</option>`).join("");
+  modelChainSelect.innerHTML = CHAIN_FILTERS.map((o) => `<option value="${o.key}">${o.label}</option>`).join("");
 }
 
 // Open on the newest run that covers the WHOLE gallery: the widest room count wins, and the later
@@ -259,17 +279,33 @@ function roomRandomAllUnsolved(rec) { return !!rec && rec.random.length > 0 && r
 function matchesModelBucket(rec, key) {
   if (key === "all") return true;
   const mb = roomModelBucket(rec);
-  if (key === "solved") return mb === "solved";
-  if (key === "split") return mb === "split";
+  const solved = mb === "solved" || mb === "split";   // a split room solved, on some seeds
+  if (key === "solved") return solved;
   if (key === "unsolved") return mb === "unsolved";
-  if (key === "solved-random-unsolved") return mb === "solved" && roomRandomAllUnsolved(rec);
-  if (key === "neither") return mb === "unsolved" && roomRandomAllUnsolved(rec);
+  if (key === "solved-random-unsolved") return solved && roomRandomAllUnsolved(rec);
   return true;
+}
+
+// The room's doorway flags, run-independent (add_eval_overlay.py:load_scene_index copies them off
+// the room's card meta). null for a room eval.json has no entry for -- it then answers "any" only.
+function doorOf(row) {
+  return evalData && evalData.door ? (evalData.door[row.scene] || null) : null;
+}
+
+function matchesDoor(row, key) {
+  const opt = DOOR_OPTIONS.find((o) => o.key === key) || DOOR_OPTIONS[0];
+  return opt.match(doorOf(row));
+}
+
+function matchesChain(row, key) {
+  const opt = CHAIN_FILTERS.find((o) => o.key === key) || CHAIN_FILTERS[0];
+  return opt.match(modelChainOf(row));
 }
 
 // eval.json's per-card label chain (scripts/viz/add_eval_overlay.py:load_card_chains): one of
 // CARD_CHAIN_CATEGORIES minus "other object only" (the label solution never skips the card's own
-// object), or null (2push card with no replay).
+// object), or null (2push card with no replay). No filter reads this any more -- it is one line of
+// text on the card, beside the ground-truth row it describes.
 function labelChainOf(row) {
   return evalData && evalData.chain ? (evalData.chain[row.file] || null) : null;
 }
@@ -365,51 +401,52 @@ function applyFilters(wantFile) {
     return true;
   });
 
-  // The ground-truth solution of a 1push card is one push by definition, so this filter separates
-  // nothing there. Grey it out and hold it at "all" rather than leave a live control that cannot
-  // change the result. (The model side stays on: the model is free to spend two pushes where one
-  // would do, and picking those out is the point.)
+  // At 1push the model's plan is a single push on nearly every card and the label's is one by
+  // definition, so this filter has nothing to separate. Grey it out and hold it at "any" rather
+  // than leave a live control that cannot change the result.
   const oneShot = horizonSelect.value === "1push";
-  labelChainSelect.disabled = oneShot;
-  labelChainControl.classList.toggle("control-off", oneShot);
-  if (oneShot) labelChainSelect.value = "all";
+  modelChainSelect.disabled = oneShot;
+  modelChainControl.classList.toggle("control-off", oneShot);
+  if (oneShot) modelChainSelect.value = "any";
 
   if (evalData) {
     // Every facet is counted over the rows the OTHER two filters leave, so the count beside the
     // option you have selected is exactly the episode count printed below the bar.
-    const lc = labelChainSelect.value || "all";
-    const mc = modelChainSelect.value || "all";
+    const doorKey = doorSelect.value || "any";
+    const chainKey = modelChainSelect.value || "any";
+    const keepDoor = (r) => matchesDoor(r, doorKey);
     const keepBucket = (r) => matchesModelBucket(evalRoom(r), modelBucket);
-    const keepLabel = (r) => lc === "all" || labelChainOf(r) === lc;
-    const keepModel = (r) => mc === "all" || modelChainOf(r) === mc;
+    const keepChain = (r) => matchesChain(r, chainKey);
 
-    const forBuckets = preRows.filter((r) => keepLabel(r) && keepModel(r));
+    const forBuckets = preRows.filter((r) => keepDoor(r) && keepChain(r));
     evalOutcomeRow.querySelectorAll(".bucket-btn").forEach((btn) => {
       const key = btn.dataset.bucket;
       const n = forBuckets.filter((r) => matchesModelBucket(evalRoom(r), key)).length;
       btn.textContent = `${MODEL_BUCKETS.find((b) => b.key === key).label} (${n})`;
       btn.classList.toggle("bucket-active", key === modelBucket);
     });
-    const fill = (sel, of, pool) => {
+    // The door options overlap ("needs both, no way around" sits inside "needs both blocks"), so
+    // each one counts its own predicate over the pool rather than partitioning it by a key.
+    const fill = (sel, opts, keep, pool) => {
       const cur = sel.value;
       Array.from(sel.options).forEach((opt) => {
-        const key = opt.value;
-        const n = key === "all" ? pool.length : pool.filter((r) => of(r) === key).length;
-        opt.textContent = `${key} (${n})`;
+        const o = opts.find((x) => x.key === opt.value);
+        opt.textContent = `${o.label} (${pool.filter((r) => keep(r, o.key)).length})`;
       });
-      sel.value = cur || "all";
+      sel.value = cur || opts[0].key;
     };
-    fill(labelChainSelect, labelChainOf, preRows.filter((r) => keepBucket(r) && keepModel(r)));
-    fill(modelChainSelect, modelChainOf, preRows.filter((r) => keepBucket(r) && keepLabel(r)));
+    fill(doorSelect, DOOR_OPTIONS, matchesDoor, preRows.filter((r) => keepBucket(r) && keepChain(r)));
+    fill(modelChainSelect, CHAIN_FILTERS, matchesChain,
+         preRows.filter((r) => keepDoor(r) && keepBucket(r)));
   }
 
-  // Every eval-derived filter is guarded on evalData. Without one the two chain selects are never
-  // built, so their .value is "" -- and an unguarded "!== all" test threw out every card, leaving a
-  // dataset with no eval.json attached showing an empty gallery.
+  // Every eval-derived filter is guarded on evalData. Without one the door and chain selects are
+  // never built, so their .value is "" -- and an unguarded "!== any" test threw out every card,
+  // leaving a dataset with no eval.json attached showing an empty gallery.
   rows = !evalData ? preRows : preRows.filter((r) => {
+    if (!matchesDoor(r, doorSelect.value || "any")) return false;
     if (!matchesModelBucket(evalRoom(r), modelBucket)) return false;
-    if (labelChainSelect.value !== "all" && labelChainOf(r) !== labelChainSelect.value) return false;
-    if (modelChainSelect.value !== "all" && modelChainOf(r) !== modelChainSelect.value) return false;
+    if (!matchesChain(r, modelChainSelect.value || "any")) return false;
     return true;
   });
   if (evalData) renderChainTally(rows);
@@ -418,17 +455,20 @@ function applyFilters(wantFile) {
   // A problem with no timing/eval row sorts to the END in BOTH directions -- "smallest speed-up"
   // must surface the ranker's real losses, not a pile of episodes we simply have no numbers for.
   const up = (r) => (timing && timing[r.file] && timing[r.file].up) || null;
-  const evalUp = (r) => { const rec = evalRoom(r); return rec ? rec.speedup : null; };
+  // Median sims over the selected run's solved model arms. A room the run never solved has none,
+  // and sorts to the end: "fewest model sims" is a leaderboard of the cheap wins, and an unsolved
+  // room is not a cheaper one.
+  const modelSims = (r) => { const rec = evalRoom(r); return rec ? rec.model_median_sims : null; };
   rows.sort((a, b) => {
     if (mode === "speedup-desc" || mode === "speedup-asc") {
       const ua = up(a), ub = up(b);
       if (ua === null || ub === null) return (ua === null) - (ub === null);
       return mode === "speedup-desc" ? ub - ua : ua - ub;
     }
-    if (mode === "eval-speedup-desc" || mode === "eval-speedup-asc") {
-      const ua = evalUp(a), ub = evalUp(b);
-      if (ua === null || ub === null) return (ua === null) - (ub === null);
-      return mode === "eval-speedup-desc" ? ub - ua : ua - ub;
+    if (mode === "model-sims-asc") {
+      const sa = modelSims(a), sb = modelSims(b);
+      if (sa == null || sb == null) return (sa == null) - (sb == null);
+      return sa - sb;
     }
     if (mode === "scene") return a.scene.localeCompare(b.scene) || a.object_id.localeCompare(b.object_id);
     const t = TIER_ORDER[a.tier] - TIER_ORDER[b.tier];
@@ -738,7 +778,7 @@ function renderEvalPanel(row) {
   // No eval attached to the dataset means there is nothing to choose between, and the stepper below
   // already names the label solution. Keep the simpler galleries as they were.
   if (!row || !evalData) { evalPanelEl.hidden = true; return; }
-  const parts = ['<div class="sol-cap">Solutions on this room</div>', labelRowHtml()];
+  const parts = ['<div class="sol-cap">Solutions on this room</div>', labelRowHtml(row)];
   if (evalData && evalRun) {
     const rec = evalRoom(row);
     if (rec) {
@@ -769,13 +809,19 @@ function solRowHtml(o) {
 }
 
 // The label row is the default and says why: it is the answer the test set already holds, the one
-// every arm is being judged against.
-function labelRowHtml() {
+// every arm is being judged against. Its chain category rides along as plain text -- it used to be
+// a dropdown in the filter bar, which is a lot of control for a fact you read once per card. Beware
+// the "card object only" reading: the exhaustive sweep stops at the first finish that opens and
+// walks objects in list order, so it can be hiding an untried cross-object finish (load_card_chains
+// in scripts/viz/add_eval_overlay.py spells this out).
+function labelRowHtml(row) {
   const n = labelReplay ? labelReplay.steps.length : 0;
+  const chain = row ? labelChainOf(row) : null;
   return solRowHtml({
     value: "label", side: "label", name: "ground truth",
-    facts: labelReplay ? `${pushText(n)}, the solution the test set already holds`
-                       : "no replay built for this episode",
+    facts: (labelReplay ? `${pushText(n)}, the solution the test set already holds`
+                        : "no replay built for this episode") +
+           (chain ? ` \u00b7 chain: ${chain}` : ""),
     seq: labelReplay ? pushSeqText(labelReplay.steps.map(
       (st) => ({ object_id: st.object_id, edge_idx: st.edge, depth: st.depth }))) : "",
     enabled: !!labelReplay,
@@ -810,13 +856,16 @@ function pushText(n) { return `${n} push${n === 1 ? "" : "es"}`; }
 // fewer sims" and "2.0x more sims" instead of a bare 0.5x, which reads as a win at a glance.
 function runHeadHtml(run, rec) {
   const up = rec.speedup;
+  // Seeds that disagree used to be a filter bucket of their own. They are a footnote about this one
+  // room, not a class of room worth paging through, so they say so here instead.
+  const tag = roomModelBucket(rec) === "split" ? ' <span class="sol-tag">seeds split</span>' : "";
   const badge = up == null ? "" :
     ` <span class="speedup${up < 1 ? " slower" : ""}" ` +
     `style="background:${up >= 1 ? greenFor(up) : redFor(up)};` +
     `color:${(up >= 1 ? up >= 8 : up <= 0.125) ? "#fff" : "inherit"}">` +
     (up >= 1 ? `${up.toFixed(up >= 10 ? 0 : 1)}&times; fewer sims`
              : `${(1 / up).toFixed(1)}&times; more sims`) + "</span>";
-  return `<div class="sol-run"><span class="sol-run-name">${run}</span> ` +
+  return `<div class="sol-run"><span class="sol-run-name">${run}</span>${tag} ` +
     `model ${armSideText(rec.model, rec.model_median_sims)}. ` +
     `random ${armSideText(rec.random, rec.random_median_sims)}.${badge}</div>`;
 }
@@ -869,14 +918,16 @@ function scopeLine(lead, group) {
 // blocks moved. Then two count lines: room outcomes across the run, and (from renderChainTally,
 // which runs in applyFilters because it is card-filtered) what the model actually pushed.
 function renderEvalSummary() {
+  // The strip holds the run picker, so it stays on screen for any dataset that has an eval at all;
+  // only its text goes away when the selected run has no room_aggregate to describe.
+  evalSummaryEl.hidden = !evalData;
   if (!evalData || !evalRun || !evalData.room_aggregate || !evalData.room_aggregate[evalRun]) {
-    evalSummaryEl.hidden = true;
+    evalSummaryText.innerHTML = "";
     return;
   }
   const byScope = Object.fromEntries(evalData.room_aggregate[evalRun].map((sc) => [sc.scope, sc]));
   const ks = EVAL_K.join(" / ");
-  evalSummaryEl.hidden = false;
-  evalSummaryEl.innerHTML =
+  evalSummaryText.innerHTML =
     scopeLine(`Run <b>${evalRun}</b>, all ${byScope.overall.n} rooms, share solved within ` +
               `${ks} simulator calls`, byScope.overall) +
     scopeLine(`Of those, the ${byScope.open.n} rooms with a route around the doorway`, byScope.open) +
@@ -906,10 +957,10 @@ function renderChainTally(shown) {
   const el = document.getElementById("eval-chain-tally");
   if (!el) return;
   if (!evalData || !evalData.model_chain || !evalRun) { el.textContent = ""; return; }
-  const counts = Object.fromEntries(MODEL_CHAIN_OPTIONS.filter((o) => o !== "all").map((o) => [o, 0]));
+  const counts = Object.fromEntries(CHAIN_TALLY_CATEGORIES.map((o) => [o, 0]));
   shown.forEach((r) => { const v = modelChainOf(r); if (v in counts) counts[v] += 1; });
   el.textContent = `What the model pushed on the ${shown.length} episodes now showing: ` +
-    MODEL_CHAIN_OPTIONS.filter((o) => o !== "all").map((c) => `${c} ${counts[c]}`).join(", ") + ".";
+    CHAIN_TALLY_CATEGORIES.map((c) => `${c} ${counts[c]}`).join(", ") + ".";
 }
 
 // Name the object a step pushed whenever it is not the card's own target. On the two-movable
