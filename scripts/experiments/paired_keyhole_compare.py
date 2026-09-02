@@ -65,9 +65,9 @@ def tier_maps():
     return {"1push": t1, "2push": t2}
 
 
-def load_run(root, arm, leg):
+def load_run(root, campaign, arm, leg):
     out = {}
-    for f in glob.glob(os.path.join(root, CAMPAIGN, arm, LEGS[leg], "shard_*.jsonl")):
+    for f in glob.glob(os.path.join(root, campaign, arm, LEGS[leg], "shard_*.jsonl")):
         for line in open(f):
             r = json.loads(line)
             out[(suf(r["xml"]), r["object_id"], r.get("region"))] = {
@@ -87,9 +87,12 @@ def geomean(v):
     return math.exp(sum(math.log(x) for x in v) / len(v)) if v else None
 
 
-def keyholes(root, leg):
+def keyholes(root, leg, model_campaign, random_campaign, arm_pairs):
     """keyhole -> per-pairing costs + the per-problem speed-up (the canonical statistic's step 2)."""
-    runs = [(load_run(root, m, leg), load_run(root, r, leg)) for m, r in ARM_PAIRS]
+    runs = [
+        (load_run(root, model_campaign, model, leg), load_run(root, random_campaign, random, leg))
+        for model, random in arm_pairs
+    ]
     keys = set(runs[0][0])
     for m, r in runs:
         keys &= set(m) & set(r)
@@ -156,12 +159,21 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
     ap.add_argument("--scratch", default=os.environ.get("NAMO_SCRATCH"))
+    ap.add_argument("--model-campaign", default=CAMPAIGN)
+    ap.add_argument("--random-campaign", default=CAMPAIGN)
+    ap.add_argument("--model-arms", default=",".join(model for model, _random in ARM_PAIRS))
+    ap.add_argument("--random-arms", default=",".join(random for _model, random in ARM_PAIRS))
     a = ap.parse_args()
+    model_arms = a.model_arms.split(",")
+    random_arms = a.random_arms.split(",")
+    if len(model_arms) != len(random_arms):
+        ap.error("--model-arms and --random-arms must have the same length")
+    arm_pairs = list(zip(model_arms, random_arms))
     os.makedirs(a.out, exist_ok=True)
     tm = tier_maps()
     allrows = []
     for leg in LEGS:
-        kh = keyholes(a.scratch, leg)
+        kh = keyholes(a.scratch, leg, a.model_campaign, a.random_campaign, arm_pairs)
         dump_pairs(kh, tm[leg], leg, os.path.join(a.out, f"pairs_{leg}.jsonl"))
         for meas in ("time", "sims"):
             allrows += table(kh, tm[leg], leg, meas)

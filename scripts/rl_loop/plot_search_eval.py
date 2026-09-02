@@ -77,9 +77,20 @@ def _time_grid(arms):
 def _same_config(left, right):
     left = dict(left)
     right = dict(right)
-    left.pop("prior")
-    right.pop("prior")
+    for key in ("prior", "model_warmup_repeats"):
+        left.pop(key, None)
+        right.pop(key, None)
     return left == right
+
+
+def _consistent_warmup_repeats(configs, label):
+    values = {
+        int(config.get("model_warmup_repeats", 0)) if config.get("prior") == "model" else 0
+        for config in configs
+    }
+    if len(values) != 1:
+        raise RuntimeError(f"model warm-up differs within {label}: {sorted(values)}")
+    return values.pop()
 
 
 def _load_arm(onepush_dir, twopush_dir, args):
@@ -135,6 +146,7 @@ def _aggregate_series(item):
 def _write_aggregate_json(path, series, common, args, reference_config):
     shared_search = dict(reference_config)
     shared_search.pop("prior")
+    shared_search.pop("model_warmup_repeats", None)
     payload = {
         "population": "common episode intersection" if args.common_episode_set else "per-arm population",
         "common_episodes": {horizon: len(common[horizon]) for horizon in HORIZONS} if common else None,
@@ -144,7 +156,14 @@ def _write_aggregate_json(path, series, common, args, reference_config):
         } if common else None,
         "hardware": args.hardware_label,
         "shared_search": shared_search,
-        "series": {item["key"]: {"label": item["label"], **_aggregate_series(item)} for item in series},
+        "series": {
+            item["key"]: {
+                "label": item["label"],
+                "model_warmup_repeats": item["model_warmup_repeats"],
+                **_aggregate_series(item),
+            }
+            for item in series
+        },
     }
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -278,6 +297,7 @@ def _write_curve_json(path, series, grids, sim_budget, hardware_label):
                     values[item["key"]] = {
                         "label": item["label"],
                         "color": item["color"],
+                        "model_warmup_repeats": item["model_warmup_repeats"],
                         "mean": np.round(mean, 4).tolist(),
                         "std": np.round(std, 4).tolist(),
                         "seed_count": len(item["arms"]),
@@ -298,8 +318,8 @@ def main():
     parser.add_argument("--comparison-onepush-dir")
     parser.add_argument("--comparison-twopush-dir")
     parser.add_argument("--comparison-label", default="Geometric heuristic")
-    parser.add_argument("--random-onepush-dirs", required=True, nargs=3)
-    parser.add_argument("--random-twopush-dirs", required=True, nargs=3)
+    parser.add_argument("--random-onepush-dirs", nargs=3)
+    parser.add_argument("--random-twopush-dirs", nargs=3)
     parser.add_argument("--onepush-key", default=str(eval_sets.ONEPUSH))
     parser.add_argument("--divisions", default=str(eval_sets.DIVISIONS))
     parser.add_argument("--expect-1push", type=int, default=eval_sets.EXPECTED["onepush_manifest_episodes"])
@@ -318,23 +338,30 @@ def main():
     if len(args.model_onepush_dir) != len(args.model_twopush_dir):
         raise RuntimeError("model 1push/2push seed counts differ")
     model_seeds = []
-    configs = []
+    model_configs = []
     for onepush_dir, twopush_dir in zip(args.model_onepush_dir, args.model_twopush_dir):
         tiered, config = _load_arm(onepush_dir, twopush_dir, args)
         model_seeds.append(tiered)
-        configs.append(config)
+        model_configs.append(config)
     if bool(args.comparison_onepush_dir) != bool(args.comparison_twopush_dir):
         raise RuntimeError("comparison requires both 1push and 2push directories")
+    if bool(args.random_onepush_dirs) != bool(args.random_twopush_dirs):
+        raise RuntimeError("random comparison requires both 1push and 2push directories")
     comparison = []
+    comparison_configs = []
     if args.comparison_onepush_dir:
         tiered, config = _load_arm(args.comparison_onepush_dir, args.comparison_twopush_dir, args)
         comparison.append(tiered)
-        configs.append(config)
+        comparison_configs.append(config)
     random_seeds = []
-    for onepush_dir, twopush_dir in zip(args.random_onepush_dirs, args.random_twopush_dirs):
+    random_configs = []
+    for onepush_dir, twopush_dir in zip(
+        args.random_onepush_dirs or [], args.random_twopush_dirs or []
+    ):
         tiered, config = _load_arm(onepush_dir, twopush_dir, args)
         random_seeds.append(tiered)
-        configs.append(config)
+        random_configs.append(config)
+    configs = model_configs + comparison_configs + random_configs
     reference_config = configs[0]
     if any(not _same_config(reference_config, config) for config in configs[1:]):
         raise RuntimeError("leaf rows do not share one search configuration apart from prior")
@@ -345,17 +372,22 @@ def main():
     sim_budget = int(reference_config["sim_budget"])
     series = [
         {"key": "model", "label": args.model_label, "arms": model_seeds,
-         "color": COLORS["model"], "linewidth": 2.4, "linestyle": "-"},
+         "color": COLORS["model"], "linewidth": 2.4, "linestyle": "-",
+         "model_warmup_repeats": _consistent_warmup_repeats(model_configs, args.model_label)},
     ]
     if comparison:
         series.append(
             {"key": "comparison", "label": args.comparison_label, "arms": comparison,
-             "color": COLORS["comparison"], "linewidth": 2.3, "linestyle": "-"}
+             "color": COLORS["comparison"], "linewidth": 2.3, "linestyle": "-",
+             "model_warmup_repeats": _consistent_warmup_repeats(
+                 comparison_configs, args.comparison_label)}
         )
-    series.append(
-        {"key": "random", "label": "Random", "arms": random_seeds,
-         "color": COLORS["random"], "linewidth": 2.2, "linestyle": "--"}
-    )
+    if random_seeds:
+        series.append(
+            {"key": "random", "label": "Random", "arms": random_seeds,
+             "color": COLORS["random"], "linewidth": 2.2, "linestyle": "--",
+             "model_warmup_repeats": _consistent_warmup_repeats(random_configs, "Random")}
+        )
 
     all_arms = [arm for item in series for arm in item["arms"]]
     common = _restrict_to_common_episodes(all_arms) if args.common_episode_set else None
