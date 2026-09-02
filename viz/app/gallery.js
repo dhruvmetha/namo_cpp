@@ -55,9 +55,38 @@ const evalPanelEl = document.getElementById("eval-panel");
 const evalRunControl = document.getElementById("eval-run-control");
 const evalRunSelect = document.getElementById("eval-run-select");
 const evalFilterControl = document.getElementById("eval-filter-control");
-const evalFilterSelect = document.getElementById("eval-filter-select");
-const FILTERS = [horizonSelect, tierSelect, sortSelect, textFilter, starredOnly, evalFilterSelect];
+const evalOutcomeRow = document.getElementById("eval-outcome-row");
+const labelChainControl = document.getElementById("label-chain-control");
+const labelChainSelect = document.getElementById("label-chain-select");
+const modelChainControl = document.getElementById("model-chain-control");
+const modelChainSelect = document.getElementById("model-chain-select");
+const FILTERS = [horizonSelect, tierSelect, sortSelect, textFilter, starredOnly,
+  labelChainSelect, modelChainSelect];
 const EVAL_K = [1, 5, 30];   // solve@k shown in the summary strip
+// One room can be "model solved" (every model arm solved), "model unsolved" (no model arm solved),
+// or "model split" (some seeds did, some did not) -- never more than one of the three at once.
+const MODEL_BUCKETS = [
+  { key: "all", label: "all" },
+  { key: "solved", label: "model solved" },
+  { key: "split", label: "model split" },
+  { key: "unsolved", label: "model unsolved" },
+  { key: "solved-random-unsolved", label: "model solved, random unsolved" },
+  { key: "neither", label: "neither solved" },
+];
+let modelBucket = "all";   // selected #eval-outcome-row button
+const LABEL_CHAIN_OPTIONS = [
+  { key: "all", label: "all" },
+  { key: "same", label: "same object" },
+  { key: "cross", label: "cross object" },
+  { key: "single", label: "1push (single)" },
+];
+const MODEL_CHAIN_OPTIONS = [
+  { key: "all", label: "all" },
+  { key: "same", label: "same object" },
+  { key: "cross", label: "cross object" },
+  { key: "mixed", label: "seeds disagree" },
+  { key: "unsolved", label: "no model arm solved" },
+];
 
 let index = null;
 let timing = null;       // per-problem seconds from the timed campaign; absent = the page hides them
@@ -150,11 +179,71 @@ function buildFamilyBoxes() {
 // Same shape as buildFamilyBoxes: the run names come from eval.json, never hardcoded, so a later
 // eval (a new campaign added with the same add_eval_overlay.py --run flag) needs no page edit.
 function buildEvalRunControl() {
-  if (!evalData) { evalRunControl.hidden = true; evalFilterControl.hidden = true; return; }
+  if (!evalData) {
+    evalRunControl.hidden = true; evalFilterControl.hidden = true;
+    labelChainControl.hidden = true; modelChainControl.hidden = true;
+    return;
+  }
   evalRunSelect.innerHTML = evalData.runs.map((r) => `<option value="${r}">${r}</option>`).join("");
   evalRun = evalData.runs[0];
   evalRunControl.hidden = evalData.runs.length < 2;
   evalFilterControl.hidden = false;
+  evalOutcomeRow.innerHTML = "";
+  MODEL_BUCKETS.forEach((b) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "bucket-btn";
+    btn.dataset.bucket = b.key;
+    btn.textContent = b.label;
+    btn.addEventListener("click", () => {
+      modelBucket = b.key;
+      applyFilters(rows[i] ? rows[i].file : null);
+    });
+    evalOutcomeRow.append(btn);
+  });
+  labelChainControl.hidden = !evalData.chain;
+  modelChainControl.hidden = !evalData.chain;
+  labelChainSelect.innerHTML = LABEL_CHAIN_OPTIONS.map((o) => `<option value="${o.key}">${o.label}</option>`).join("");
+  modelChainSelect.innerHTML = MODEL_CHAIN_OPTIONS.map((o) => `<option value="${o.key}">${o.label}</option>`).join("");
+}
+
+// A room's model arms in one of three states for the SELECTED run: every arm solved, none did, or
+// some did and some did not ("split"). null when the run has no model arms recorded for this room.
+function roomModelBucket(rec) {
+  if (!rec || !rec.model.length) return null;
+  const solved = rec.model.filter((e) => e.solved).length;
+  if (solved === rec.model.length) return "solved";
+  if (solved === 0) return "unsolved";
+  return "split";
+}
+function roomRandomAnySolved(rec) { return !!rec && rec.random.some((e) => e.solved); }
+function roomRandomAllUnsolved(rec) { return !!rec && rec.random.length > 0 && rec.random.every((e) => !e.solved); }
+
+function matchesModelBucket(rec, key) {
+  if (key === "all") return true;
+  const mb = roomModelBucket(rec);
+  if (key === "solved") return mb === "solved";
+  if (key === "split") return mb === "split";
+  if (key === "unsolved") return mb === "unsolved";
+  if (key === "solved-random-unsolved") return mb === "solved" && roomRandomAllUnsolved(rec);
+  if (key === "neither") return mb === "unsolved" && roomRandomAllUnsolved(rec);
+  return true;
+}
+
+// eval.json's per-card label chain (scripts/viz/add_eval_overlay.py:load_card_chains): "same",
+// "cross", "single" (1push), or null (2push card with no replay).
+function labelChainOf(row) {
+  return evalData && evalData.chain ? (evalData.chain[row.file] || null) : null;
+}
+
+// The selected run's own model-arm chain for this ROOM: "same"/"cross" when every solved model arm
+// agrees, "mixed" when seeds disagree, "unsolved" when no model arm solved (also covers 1push rooms,
+// whose solution is always one push, so never carries a chain).
+function modelChainBucket(rec) {
+  if (!rec) return "unsolved";
+  const chains = rec.model.filter((e) => e.solved && e.chain).map((e) => e.chain);
+  if (!chains.length) return "unsolved";
+  return chains.every((c) => c === chains[0]) ? chains[0] : "mixed";
 }
 
 function init(fileStars) {
@@ -225,21 +314,41 @@ function evalRoom(r) {
 function applyFilters(wantFile) {
   const q = textFilter.value.trim().toLowerCase();
   const fams = new Set(famBoxes.filter((b) => b.checked).map((b) => b.dataset.family));
-  const evalWant = evalFilterSelect.value;
-  rows = index.cards.filter((r) => {
+  // Everything except the eval-outcome bucket and the two chain filters: this is the denominator the
+  // bucket/chain option counts are drawn from, so the numbers next to them agree with what a click
+  // on "all" would show.
+  const preRows = index.cards.filter((r) => {
     if (r.horizon !== horizonSelect.value) return false;
     if (tierSelect.value !== "all" && r.tier !== tierSelect.value) return false;
     if (starredOnly.checked && !stars[r.file]) return false;
     if (!fams.has(r.family)) return false;
     if (q && !(r.scene.toLowerCase().includes(q) || r.object_id.toLowerCase().includes(q))) return false;
-    if (evalWant !== "any") {
-      const rec = evalRoom(r);
-      const mSolved = !!rec && rec.model_solve_rate > 0;
-      const rSolved = !!rec && rec.random_solve_rate > 0;
-      if (evalWant === "model" && !mSolved) return false;
-      if (evalWant === "random" && !rSolved) return false;
-      if (evalWant === "neither" && (mSolved || rSolved)) return false;
-    }
+    return true;
+  });
+
+  if (evalData) {
+    evalOutcomeRow.querySelectorAll(".bucket-btn").forEach((btn) => {
+      const key = btn.dataset.bucket;
+      const n = preRows.filter((r) => matchesModelBucket(evalRoom(r), key)).length;
+      btn.textContent = `${MODEL_BUCKETS.find((b) => b.key === key).label} (${n})`;
+      btn.classList.toggle("bucket-active", key === modelBucket);
+    });
+    [[labelChainSelect, LABEL_CHAIN_OPTIONS, labelChainOf],
+     [modelChainSelect, MODEL_CHAIN_OPTIONS, (r) => modelChainBucket(evalRoom(r))]].forEach(([sel, opts, of]) => {
+      const cur = sel.value;
+      Array.from(sel.options).forEach((opt) => {
+        const key = opt.value;
+        const n = key === "all" ? preRows.length : preRows.filter((r) => of(r) === key).length;
+        opt.textContent = `${opts.find((o) => o.key === key).label} (${n})`;
+      });
+      sel.value = cur || "all";
+    });
+  }
+
+  rows = preRows.filter((r) => {
+    if (evalData && !matchesModelBucket(evalRoom(r), modelBucket)) return false;
+    if (labelChainSelect.value !== "all" && labelChainOf(r) !== labelChainSelect.value) return false;
+    if (modelChainSelect.value !== "all" && modelChainBucket(evalRoom(r)) !== modelChainSelect.value) return false;
     return true;
   });
 
@@ -481,48 +590,54 @@ function evalRunLine(run, rec) {
     `random ${evalArmText(rec.random, rec.random_median_sims)}${badge}</div>`;
 }
 
-// Pool aggregate strata that pass filterFn into one solve@k rate per K in EVAL_K, weighted by each
-// stratum's own n (solve_at is a rate, not a count, so recover the count before summing).
-function poolStrata(strata, group, filterFn) {
-  let n = 0;
-  const solved = Object.fromEntries(EVAL_K.map((k) => [k, 0]));
-  strata.filter(filterFn).forEach((s) => {
-    const g = s[group];
-    n += g.n;
-    EVAL_K.forEach((k) => { solved[k] += Math.round((g.solve_at[String(k)] || 0) * g.n); });
-  });
-  const rate = Object.fromEntries(EVAL_K.map((k) => [k, n ? solved[k] / n : null]));
-  return { n, rate };
-}
-
-function fmtSolveRate(pool) {
-  if (!pool.n) return "no rooms";
-  return EVAL_K.map((k) => `@${k} ${(pool.rate[k] * 100).toFixed(0)}%`).join(" &middot; ");
+// evalData.room_aggregate is already room-accurate and pre-split by scripts/viz/add_eval_overlay.py
+// (summarize_rooms): one row per scope ("overall" / "open" / "door"), n = an actual room count, not
+// a card-strata count. No client-side pooling needed any more.
+function fmtSolveRate(group) {
+  if (!group || !group.n) return "no rooms";
+  return EVAL_K.map((k) => {
+    const v = group.solve_at[String(k)];
+    return `@${k} ${v == null ? "-" : (v * 100).toFixed(0) + "%"}`;
+  }).join(" &middot; ");
 }
 
 // The top-of-page strip: this run's solve@k for model vs random, overall and split by whether the
-// room's only doorway needs both blocks moved -- the split the project tracks as the harder case.
+// room's only doorway needs both blocks moved, then a room-count tally of model/random outcomes and
+// (for 2push rooms the model solved) how often its own solution stayed on one object vs switched.
 function renderEvalSummary() {
-  if (!evalData || !evalRun || !evalData.aggregate[evalRun] || !evalData.aggregate[evalRun].length) {
+  if (!evalData || !evalRun || !evalData.room_aggregate || !evalData.room_aggregate[evalRun]) {
     evalSummaryEl.hidden = true;
     return;
   }
-  const strata = evalData.aggregate[evalRun];
-  const overallM = poolStrata(strata, "model", () => true);
-  const overallR = poolStrata(strata, "random", () => true);
-  const openM = poolStrata(strata, "model", (s) => !s.door_needs_both_blocks);
-  const openR = poolStrata(strata, "random", (s) => !s.door_needs_both_blocks);
-  const doorM = poolStrata(strata, "model", (s) => s.door_needs_both_blocks);
-  const doorR = poolStrata(strata, "random", (s) => s.door_needs_both_blocks);
+  const byScope = Object.fromEntries(evalData.room_aggregate[evalRun].map((s) => [s.scope, s]));
   evalSummaryEl.hidden = false;
   evalSummaryEl.innerHTML =
     `<b>${evalRun}</b> solve@k, model vs random &mdash; ` +
-    `all rooms: ${fmtSolveRate(overallM)} <span class="dim">vs</span> ${fmtSolveRate(overallR)} ` +
-    `(n=${overallM.n})<br>` +
-    `has a route around the doorway: ${fmtSolveRate(openM)} <span class="dim">vs</span> ` +
-    `${fmtSolveRate(openR)} (n=${openM.n}) &nbsp;&nbsp; ` +
-    `needs BOTH blocks moved: ${fmtSolveRate(doorM)} <span class="dim">vs</span> ` +
-    `${fmtSolveRate(doorR)} (n=${doorM.n})`;
+    `all rooms: ${fmtSolveRate(byScope.overall.model)} <span class="dim">vs</span> ` +
+    `${fmtSolveRate(byScope.overall.random)} (n=${byScope.overall.n})<br>` +
+    `has a route around the doorway: ${fmtSolveRate(byScope.open.model)} <span class="dim">vs</span> ` +
+    `${fmtSolveRate(byScope.open.random)} (n=${byScope.open.n}) &nbsp;&nbsp; ` +
+    `needs BOTH blocks moved: ${fmtSolveRate(byScope.door.model)} <span class="dim">vs</span> ` +
+    `${fmtSolveRate(byScope.door.random)} (n=${byScope.door.n})<br>` +
+    renderModelTally();
+}
+
+// Room-count tally for the selected run, over EVERY room it covers (not the current card filters --
+// this is a fact about the run, like the solve@k lines above it).
+function renderModelTally() {
+  let solved = 0, unsolved = 0, split = 0, randomSolved = 0, chainSame = 0, chainCross = 0, chainMixed = 0;
+  Object.values(evalData.rooms).forEach((byRun) => {
+    const rec = byRun[evalRun];
+    if (!rec) return;
+    const mb = roomModelBucket(rec);
+    if (mb === "solved") solved++; else if (mb === "unsolved") unsolved++; else if (mb === "split") split++;
+    if (roomRandomAnySolved(rec)) randomSolved++;
+    const cb = modelChainBucket(rec);
+    if (cb === "same") chainSame++; else if (cb === "cross") chainCross++; else if (cb === "mixed") chainMixed++;
+  });
+  return `model solved ${solved} rooms, unsolved ${unsolved}, split ${split}; random solved ${randomSolved} ` +
+    `<span class="dim">&middot;</span> model's own 2push solution (solved rooms): ` +
+    `same-object ${chainSame}, cross-object ${chainCross}, seeds disagree ${chainMixed}`;
 }
 
 // Name the object a step pushed whenever it is not the card's own target. On the two-movable

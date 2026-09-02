@@ -442,7 +442,11 @@ td.no { color: var(--dead); }
   margin-bottom: 1.1rem; }
 .gallery-bar .controls { gap: 1.1rem; margin-bottom: 0.45rem; align-items: end; }
 .control-cap { display: block; font-size: 0.8rem; color: #444; margin-bottom: 0.2rem; }
-.checkrow { display: inline-flex; gap: 0.75rem; }
+.checkrow { display: inline-flex; gap: 0.75rem; flex-wrap: wrap; }
+/* Model-outcome segmented control: one button per bucket, active one picked out like the star
+   button so it reads as a toggle rather than a one-shot action. */
+.bucket-btn { font-size: 0.78rem; padding: 2px 8px; }
+.bucket-btn.bucket-active { background: #fff3cd; border-color: #e0a800; font-weight: 600; }
 .controls label.checkbox { flex-direction: row; align-items: center; gap: 0.3rem;
   align-self: end; padding-bottom: 3px; }
 .gallery-bar button, .facts-actions button { font: inherit; padding: 3px 10px;

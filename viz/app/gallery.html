@@ -50,13 +50,20 @@
            run at once). -->
       <select id="eval-run-select"></select>
     </span>
-    <label id="eval-filter-control" hidden>Eval outcome
-      <select id="eval-filter-select">
-        <option value="any">any</option>
-        <option value="model">model solved</option>
-        <option value="random">random solved</option>
-        <option value="neither">neither solved</option>
-      </select>
+    <span class="control" id="eval-filter-control" hidden>
+      <span class="control-cap">Model outcome (this run)</span>
+      <!-- one button per bucket, filled with live counts on every filter pass; "model solved" and
+           "model unsolved" both mean EVERY / NO model arm solved -- a room where some seeds solved
+           and some did not falls in "model split", never in either of those two. -->
+      <span class="checkrow" id="eval-outcome-row"></span>
+    </span>
+    <label id="label-chain-control" hidden
+        title="From the sweep's own recorded solution (replay), against the card's own object_id. UNDERCOUNTS cross-object chains: the sweep's finish loop stops at the first push that opens and tries objects in list order, so a same-object finish always wins the race over a cross-object one when both exist (exhaustive_hmax2.py). A &quot;cross&quot; label is never wrong; a &quot;same&quot; label can be hiding an untried cross-object finish.">
+      2push chain (label)
+      <select id="label-chain-select"></select>
+    </label>
+    <label id="model-chain-control" hidden>2push chain (model, this run)
+      <select id="model-chain-select"></select>
     </label>
     <label class="checkbox"><input type="checkbox" id="starred-only"> starred only</label>
     <span class="nav-group">
