@@ -24,7 +24,7 @@ if [ "$MODE" = "smoke" ]; then
   ARM=${arms[$TASK]}
   SEED=1
   EPOCHS=1
-  OUT=$R0/ablations_20260831/smoke_ilab_v2/${ARM}_s1
+  OUT=$R0/ablations_20260831/smoke_ilab_v3/${ARM}_s1
 else
   [ "$MODE" = "full" ] || { echo "unknown MODE=$MODE" >&2; exit 2; }
   [ "$TASK" -lt 9 ] || { echo "full array must be 0-8" >&2; exit 2; }
@@ -45,7 +45,7 @@ esac
 mkdir -p "$OUT"
 
 echo "ABLATION mode=$MODE arm=$ARM seed=$SEED task=$TASK job=$SLURM_JOB_ID host=$(hostname) commit=$(git rev-parse HEAD)"
-env NAMO_REPO="$REPO" NAMO_ENV_SCRIPT=env.ilab.sh NAMO_USE_SRUN=1 \
+srun --nodes=1 --ntasks=1 env NAMO_REPO="$REPO" NAMO_ENV_SCRIPT=env.ilab.sh \
   H5="$H5" OUT="$OUT" TRAIN_SCRIPT=scripts/rl_loop/train_q2_round2.py \
   EPOCHS="$EPOCHS" BATCH=256 WORKERS=6 SEED="$SEED" POSTCHECK_LIMIT=64 \
   NAMO_GAMMA=0.5 NAMO_UNREACH_W=0.1 NAMO_GROUP_EPISODES=1 \

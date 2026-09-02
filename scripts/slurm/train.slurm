@@ -16,8 +16,8 @@
 #       the "[eval_scorer-load check]" marker, then kill the hung process.
 #
 # Usage (CS, one model):   H5=/path/x.h5 OUT=/path/outdir sbatch scripts/slurm/train.slurm
-# Usage (gamma-sweep):     add `--array=0-3`; task->gamma via GAMMAS below (load-remap, one H5).
-#   e.g.  H5=... OUT=/path/models sbatch --array=0-3 --gres=gpu:a100:1 scripts/slurm/train.slurm
+# Usage (gamma-sweep):     set NAMO_GAMMA_SWEEP=1 and add `--array=0-3`; task->gamma via GAMMAS below.
+#   e.g.  H5=... OUT=/path/models NAMO_GAMMA_SWEEP=1 sbatch --array=0-3 --gres=gpu:a100:1 scripts/slurm/train.slurm
 # Amarel deltas: `--partition=gpu`; `--cpus-per-task=8` is allowed; NAMO_PYTHON is already
 #   an absolute path there so (1) is a no-op; `source env.amarel.sh` instead of env.ilab.sh.
 # Tunables via env: EPOCHS(12) BATCH(256) WORKERS(8) LR(3e-4) SEED(1) PATIENCE(0) RANK_LAMBDA(0.1) LOWER_RANK_LAMBDA(0.05) RANK_TEMP(0.15)
@@ -59,8 +59,9 @@ export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_TH
 export TMPDIR=/tmp/namo_${SLURM_JOB_ID}; mkdir -p "$TMPDIR"   # loky DataLoader temp-dir collision fix
 export RANK_LAMBDA=${RANK_LAMBDA:-0.1} LOWER_RANK_LAMBDA=${LOWER_RANK_LAMBDA:-0.05} RANK_TEMP=${RANK_TEMP:-0.15}
 
-# gamma-sweep: array task -> gamma (load-time setup-label remap; all variants train from ONE H5)
-if [ -n "${SLURM_ARRAY_TASK_ID:-}" ]; then
+# Gamma sweeping is explicit because many unrelated launchers also use SLURM arrays.
+if [ "${NAMO_GAMMA_SWEEP:-0}" = "1" ]; then
+  : "${SLURM_ARRAY_TASK_ID:?NAMO_GAMMA_SWEEP=1 requires a four-task SLURM array}"
   GAMMAS=(0.3 0.5 0.7 0.9); G=${GAMMAS[$SLURM_ARRAY_TASK_ID]}
   export NAMO_GAMMA=$G; OUT="$OUT/g${G}"
 fi

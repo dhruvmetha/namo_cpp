@@ -48,7 +48,7 @@ esac
 mkdir -p "$OUT"
 
 echo "ABLATION mode=$MODE arm=$ARM seed=$SEED task=$TASK job=$SLURM_JOB_ID host=$(hostname)"
-env NAMO_REPO="$REPO" NAMO_ENV_SCRIPT=env.amarel.sh NAMO_USE_SRUN=1 \
+srun --nodes=1 --ntasks=1 env NAMO_REPO="$REPO" NAMO_ENV_SCRIPT=env.amarel.sh \
   H5="$H5" OUT="$OUT" TRAIN_SCRIPT=scripts/rl_loop/train_q2_round2.py \
   EPOCHS="$EPOCHS" BATCH=256 WORKERS=6 SEED="$SEED" POSTCHECK_LIMIT=64 \
   NAMO_GAMMA=0.5 NAMO_UNREACH_W=0.1 NAMO_GROUP_EPISODES=1 \

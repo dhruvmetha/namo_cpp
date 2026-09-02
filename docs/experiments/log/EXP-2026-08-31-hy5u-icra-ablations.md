@@ -47,6 +47,8 @@ The actual target-box smokes were iLab SLURM jobs `255921`, `255922`, and `25592
 
 The retry hardens `scripts/slurm/train.slurm` so every successful job must emit the `eval_scorer-load check` marker and at least one checkpoint, then reruns all three one-epoch smokes through `scripts/ilab/hy5u_ablations_train.slurm` on a healthy pinned node. Only a clean three-arm smoke releases the nine full trainings; all work remains scheduler-owned and runs the training command through `srun`.
 
+The first hardened retry, array `263859` on rlab4, failed closed before accepting any checkpoint and exposed two independent orchestration bugs. The shared training template treated every SLURM array index as an implicit gamma sweep, so task zero changed the requested `NAMO_GAMMA=0.5` to `0.3`; gamma sweeping is now explicit. The batch shell also staged the H5 before entering `srun`, while rlab4's task step could not see that `/dev/shm` path; the ablation launchers now enter `srun` first and perform staging and training inside the same task step. The invalid outputs under `smoke_ilab_v2` are retained for diagnosis and excluded from every result.
+
 ## Result
 
 Pending.
