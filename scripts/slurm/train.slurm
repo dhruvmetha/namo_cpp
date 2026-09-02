@@ -118,5 +118,12 @@ done
 if [ "$MARKER_SEEN" -eq 0 ]; then
   wait "$PID"; STATUS=$?
   if [ "$STATUS" -ne 0 ]; then echo "train exited before completion marker status=$STATUS"; exit "$STATUS"; fi
+  if grep -q "eval_scorer-load check" "$LOG" 2>/dev/null; then
+    MARKER_SEEN=1
+  else
+    echo "train process exited without the eval_scorer-load check marker"
+    exit 1
+  fi
 fi
+compgen -G "$OUT/checkpoints/*.ckpt" >/dev/null || { echo "train completed without a checkpoint"; exit 1; }
 echo "TRAIN DONE gamma=${NAMO_GAMMA:-none} $(date)"; ls -lh "$OUT/checkpoints/" 2>/dev/null

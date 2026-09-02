@@ -2,7 +2,7 @@
 type: experiment
 status: live
 created: 2026-08-31
-updated: 2026-08-31
+updated: 2026-09-02
 commit: 0312528
 metric: "Canonical fixed-physics-v3 success-vs-simulator-calls, split by easy/medium/hard and 1push/2push; three seeds per new arm."
 tags:
@@ -43,7 +43,9 @@ An initial direct-westeros smoke was stopped after seven minutes, before an epoc
 
 The exact 4,227,636,488-byte H5 was transferred to Amarel and smoke array `61089794_[0-2]` was queued correctly through SLURM plus `srun`, but it was cancelled before starting once a real iLab allocation probe disproved the long `sbatch --test-only` estimate. The iLab account has low fair-share priority after recent usage (`priority=43`, fair-share component 37/3000), yet five-minute probe `255919` backfilled onto a clean ilab3 RTX 4500 Ada after about 20 seconds and completed successfully under `srun`; the mid-September test-only date was not an operational ETA.
 
-The actual target-box smokes are iLab SLURM jobs `255921`, `255922`, and `255923`, each allocated one RTX 4500 Ada on ilab3, 48 GB RAM, and a two-hour limit. All three entered RUNNING at 2026-08-31 03:13 EDT, staged the real H5 to `/dev/shm`, and launched the training step under `srun`. Outputs land under the CS `$NAMO_SCRATCH/aquaman/round0/ablations_20260831/smoke_ilab/`. The full nine-job fleet will be sized and submitted only after these one-epoch smokes pass and provide a measured runtime.
+The actual target-box smokes were iLab SLURM jobs `255921`, `255922`, and `255923`, each allocated one RTX 4500 Ada on ilab3, 48 GB RAM, and a two-hour limit. No-family and regression-only passed a complete epoch, checkpoint, strict reload, and scorer-load check in 22:38 and 22:39. Independent contacts hit `CUDA error: uncorrectable ECC error encountered` while moving the model to its allocated GPU and produced no checkpoint. SLURM incorrectly recorded that task as `COMPLETED` because the shared wrapper accepted a zero runner status without requiring the scorer-load marker.
+
+The retry hardens `scripts/slurm/train.slurm` so every successful job must emit the `eval_scorer-load check` marker and at least one checkpoint, then reruns all three one-epoch smokes through `scripts/ilab/hy5u_ablations_train.slurm` on a healthy pinned node. Only a clean three-arm smoke releases the nine full trainings; all work remains scheduler-owned and runs the training command through `srun`.
 
 ## Result
 
