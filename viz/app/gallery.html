@@ -37,12 +37,13 @@
     <label>Scene
       <input type="search" id="text-filter" placeholder="scene or object">
     </label>
-    <span class="control" id="fam-control" hidden>
-      <span class="control-cap">Room batch</span>
+    <details class="control batch-details" id="fam-control" hidden>
+      <summary id="fam-summary">batch</summary>
       <!-- filled from the families present in this dataset's scenes.json, so a new dataset needs no
-           edit here; hidden when the dataset has only one batch. -->
+           edit here; hidden when the dataset has only one batch. Closed by default: this is a lot of
+           checkboxes for a control most sessions never touch. -->
       <span class="checkrow" id="fam-row"></span>
-    </span>
+    </details>
     <span class="control" id="eval-run-control" hidden>
       <span class="control-cap">Eval run</span>
       <!-- filled from eval.json's run names; hidden when eval.json is absent or has one run. Drives

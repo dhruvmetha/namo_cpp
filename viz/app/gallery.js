@@ -49,6 +49,7 @@ const storeNote = document.getElementById("store-note");
 
 const famControl = document.getElementById("fam-control");
 const famRow = document.getElementById("fam-row");
+const famSummary = document.getElementById("fam-summary");
 let famBoxes = [];      // built in init() from the families this dataset actually contains
 const evalSummaryEl = document.getElementById("eval-summary");
 const evalPanelEl = document.getElementById("eval-panel");
@@ -174,6 +175,17 @@ function buildFamilyBoxes() {
     return box;
   });
   famControl.hidden = fams.length < 2;
+}
+
+// The <details> stays closed by default (a lot of checkboxes for something most sessions never
+// touch); this is what the closed summary line says. Recomputed in applyFilters, same place every
+// other live count (eval buckets, chain filters) gets refreshed, so it never drifts from the boxes.
+function renderFamSummary() {
+  if (!famBoxes.length) return;
+  const checked = famBoxes.filter((b) => b.checked);
+  famSummary.textContent = checked.length === famBoxes.length
+    ? `batch: all ${famBoxes.length}`
+    : `batch: ${checked.length} of ${famBoxes.length} (${checked.map((b) => b.dataset.family).join(", ") || "none"})`;
 }
 
 // Same shape as buildFamilyBoxes: the run names come from eval.json, never hardcoded, so a later
@@ -312,6 +324,7 @@ function evalRoom(r) {
 }
 
 function applyFilters(wantFile) {
+  renderFamSummary();
   const q = textFilter.value.trim().toLowerCase();
   const fams = new Set(famBoxes.filter((b) => b.checked).map((b) => b.dataset.family));
   // Everything except the eval-outcome bucket and the two chain filters: this is the denominator the
