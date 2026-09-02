@@ -470,6 +470,20 @@ td.no { color: var(--dead); }
 .meta-table .speedup.slower { color: var(--dead); }
 .meta-table .dim { color: #777; }
 
+/* eval.json overlay (scripts/viz/add_eval_overlay.py): a room-level HY5U vs random result, so every
+   card of a room shows the same numbers. The strip sits in the gallery-bar; the panel sits in the
+   facts column, one line per eval run, right below the meta table it reads like a continuation of. */
+.eval-summary { font-size: 0.85rem; color: #333; line-height: 1.6; margin-top: 0.4rem;
+  padding-top: 0.5rem; border-top: 1px solid var(--border); }
+.eval-summary .dim { color: #999; }
+.eval-panel { margin-top: 0.6rem; font-size: 0.82rem; }
+.eval-line { padding: 2px 0; }
+.eval-run-name { font-weight: 600; margin-right: 0.4rem; }
+.eval-line .dim { color: #999; margin: 0 0.2rem; }
+.eval-line .speedup { display: inline-block; padding: 0 6px; border-radius: 3px; font-weight: 600; }
+.eval-line .speedup.slower { color: var(--dead); }
+.eval-none { color: #888; font-size: 0.82rem; }
+
 .green-list { margin-top: 0.75rem; font-size: 0.8rem; line-height: 1.5; }
 .green-label { color: #555; }
 .facts-actions { display: flex; gap: 0.5rem; margin: 1rem 0 0.25rem; }

@@ -50,10 +50,23 @@ const storeNote = document.getElementById("store-note");
 const famControl = document.getElementById("fam-control");
 const famRow = document.getElementById("fam-row");
 let famBoxes = [];      // built in init() from the families this dataset actually contains
-const FILTERS = [horizonSelect, tierSelect, sortSelect, textFilter, starredOnly];
+const evalSummaryEl = document.getElementById("eval-summary");
+const evalPanelEl = document.getElementById("eval-panel");
+const evalRunControl = document.getElementById("eval-run-control");
+const evalRunSelect = document.getElementById("eval-run-select");
+const evalFilterControl = document.getElementById("eval-filter-control");
+const evalFilterSelect = document.getElementById("eval-filter-select");
+const FILTERS = [horizonSelect, tierSelect, sortSelect, textFilter, starredOnly, evalFilterSelect];
+const EVAL_K = [1, 5, 30];   // solve@k shown in the summary strip
 
 let index = null;
 let timing = null;       // per-problem seconds from the timed campaign; absent = the page hides them
+// eval.json: HY5U vs random on this dataset's rooms, built by scripts/viz/add_eval_overlay.py.
+// Keyed by room (scenes.json's "scene" string), not by card file -- a room can carry several cards
+// (one per object/horizon) and the eval ran once per room, so every card of a room shows the same
+// numbers. Absent = the summary strip, the eval sort orders, and the eval filter all no-op.
+let evalData = null;
+let evalRun = null;     // which run drives the strip / sort / filter; the per-card panel shows all
 let rows = [];          // the current filtered + sorted list
 let i = 0;              // cursor into rows
 let stars = {};         // file -> the index row, so a shortlist survives a rebuild of the cards
@@ -98,8 +111,9 @@ if (!DATA_BASE) {
   Promise.all([
     fetch(DATA_BASE + "scenes.json", NOCACHE).then((r) => r.json()),
     fetch(DATA_BASE + "timing.json", NOCACHE).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    fetch(DATA_BASE + "eval.json", NOCACHE).then((r) => (r.ok ? r.json() : null)).catch(() => null),
     fetch(STARS_URL, NOCACHE).then((r) => (r.ok ? r.json() : null)).catch(() => null),
-  ]).then(([m, t, savedStars]) => {
+  ]).then(([m, t, ev, savedStars]) => {
     index = m;
     // The car_envs pools spell the middle tier "medium", the real-table pools spell it "med", and
     // everything here keys on the string: TIER_ORDER, the dropdown, the per-tier counter. Left
@@ -107,6 +121,7 @@ if (!DATA_BASE) {
     // to a random spot on an undefined rank. Normalise once, on the way in.
     index.cards.forEach((r) => { if (r.tier === "med") r.tier = "medium"; });
     timing = t && t.cards ? t.cards : null;
+    evalData = ev && ev.rooms ? ev : null;
     init(savedStars);
   }).catch((err) => { summary.textContent = "Failed to load scenes.json: " + err; });
 }
@@ -132,8 +147,19 @@ function buildFamilyBoxes() {
   famControl.hidden = fams.length < 2;
 }
 
+// Same shape as buildFamilyBoxes: the run names come from eval.json, never hardcoded, so a later
+// eval (a new campaign added with the same add_eval_overlay.py --run flag) needs no page edit.
+function buildEvalRunControl() {
+  if (!evalData) { evalRunControl.hidden = true; evalFilterControl.hidden = true; return; }
+  evalRunSelect.innerHTML = evalData.runs.map((r) => `<option value="${r}">${r}</option>`).join("");
+  evalRun = evalData.runs[0];
+  evalRunControl.hidden = evalData.runs.length < 2;
+  evalFilterControl.hidden = false;
+}
+
 function init(fileStars) {
   buildFamilyBoxes();
+  buildEvalRunControl();
   // The file wins whenever it exists: it is the copy every other browser and every handoff script
   // reads. No file yet means either a fresh dataset or the first load since stars moved to disk, so
   // adopt whatever this browser is holding -- the saveStars() below writes it up.
@@ -165,6 +191,11 @@ function init(fileStars) {
   }
 
   FILTERS.forEach((el) => el.addEventListener("input", () => applyFilters(null)));
+  evalRunSelect.addEventListener("input", () => {
+    evalRun = evalRunSelect.value;
+    renderEvalSummary();
+    applyFilters(rows[i] ? rows[i].file : null);   // eval sort/filter may depend on the new run
+  });
   prevBtn.addEventListener("click", () => stepEpisode(-1));
   nextBtn.addEventListener("click", () => stepEpisode(1));
   starBtn.addEventListener("click", toggleStar);
@@ -182,30 +213,51 @@ function init(fileStars) {
     else if (ev.key === "s" || ev.key === "S") { toggleStar(); ev.preventDefault(); }
   });
 
+  renderEvalSummary();
   applyFilters(wantFile);
+}
+
+// eval.json is keyed by room (scene), not by card file -- every card of a room reads the same entry.
+function evalRoom(r) {
+  return evalData && evalRun && evalData.rooms[r.scene] ? evalData.rooms[r.scene][evalRun] : null;
 }
 
 function applyFilters(wantFile) {
   const q = textFilter.value.trim().toLowerCase();
   const fams = new Set(famBoxes.filter((b) => b.checked).map((b) => b.dataset.family));
+  const evalWant = evalFilterSelect.value;
   rows = index.cards.filter((r) => {
     if (r.horizon !== horizonSelect.value) return false;
     if (tierSelect.value !== "all" && r.tier !== tierSelect.value) return false;
     if (starredOnly.checked && !stars[r.file]) return false;
     if (!fams.has(r.family)) return false;
     if (q && !(r.scene.toLowerCase().includes(q) || r.object_id.toLowerCase().includes(q))) return false;
+    if (evalWant !== "any") {
+      const rec = evalRoom(r);
+      const mSolved = !!rec && rec.model_solve_rate > 0;
+      const rSolved = !!rec && rec.random_solve_rate > 0;
+      if (evalWant === "model" && !mSolved) return false;
+      if (evalWant === "random" && !rSolved) return false;
+      if (evalWant === "neither" && (mSolved || rSolved)) return false;
+    }
     return true;
   });
 
   const mode = sortSelect.value;
-  // A problem with no timing row sorts to the END in BOTH directions -- "smallest speed-up" must
-  // surface the ranker's real losses, not a pile of episodes we simply have no seconds for.
+  // A problem with no timing/eval row sorts to the END in BOTH directions -- "smallest speed-up"
+  // must surface the ranker's real losses, not a pile of episodes we simply have no numbers for.
   const up = (r) => (timing && timing[r.file] && timing[r.file].up) || null;
+  const evalUp = (r) => { const rec = evalRoom(r); return rec ? rec.speedup : null; };
   rows.sort((a, b) => {
     if (mode === "speedup-desc" || mode === "speedup-asc") {
       const ua = up(a), ub = up(b);
       if (ua === null || ub === null) return (ua === null) - (ub === null);
       return mode === "speedup-desc" ? ub - ua : ua - ub;
+    }
+    if (mode === "eval-speedup-desc" || mode === "eval-speedup-asc") {
+      const ua = evalUp(a), ub = evalUp(b);
+      if (ua === null || ub === null) return (ua === null) - (ub === null);
+      return mode === "eval-speedup-desc" ? ub - ua : ua - ub;
     }
     if (mode === "scene") return a.scene.localeCompare(b.scene) || a.object_id.localeCompare(b.object_id);
     const t = TIER_ORDER[a.tier] - TIER_ORDER[b.tier];
@@ -392,6 +444,85 @@ function render(card) {
 
   document.getElementById("xml-path").textContent = meta.xml;
   renderSteps(card);
+  renderEvalPanel(rows[i]);
+}
+
+// One line per eval run this room appears in: HY5U vs random, sims to solve, speed-up. A room with
+// a 0% solve rate on one side says so plainly instead of printing a speed-up that does not exist.
+function renderEvalPanel(row) {
+  if (!evalData) { evalPanelEl.hidden = true; return; }
+  const byRun = row && evalData.rooms[row.scene];
+  if (!byRun) {
+    evalPanelEl.hidden = false;
+    evalPanelEl.innerHTML = '<span class="eval-none">no eval run covers this room</span>';
+    return;
+  }
+  evalPanelEl.hidden = false;
+  evalPanelEl.innerHTML = evalData.runs.filter((r) => byRun[r])
+    .map((r) => evalRunLine(r, byRun[r])).join("");
+}
+
+function evalArmText(list, medianSims) {
+  if (!list.length) return "no arms run";
+  const solvedN = list.filter((e) => e.solved).length;
+  if (!solvedN) return `unsolved 0/${list.length}`;
+  return `solved ${solvedN}/${list.length}, median ${medianSims} sims`;
+}
+
+function evalRunLine(run, rec) {
+  const up = rec.speedup;
+  const badge = up == null ? "" :
+    ` &middot; <span class="speedup${up < 1 ? " slower" : ""}" ` +
+    `style="background:${up >= 1 ? greenFor(up) : redFor(up)};` +
+    `color:${(up >= 1 ? up >= 8 : up <= 0.125) ? "#fff" : "inherit"}">` +
+    `${up.toFixed(up >= 10 ? 0 : 1)}&times;</span>`;
+  return `<div class="eval-line"><span class="eval-run-name">${run}</span> ` +
+    `HY5U ${evalArmText(rec.model, rec.model_median_sims)} <span class="dim">|</span> ` +
+    `random ${evalArmText(rec.random, rec.random_median_sims)}${badge}</div>`;
+}
+
+// Pool aggregate strata that pass filterFn into one solve@k rate per K in EVAL_K, weighted by each
+// stratum's own n (solve_at is a rate, not a count, so recover the count before summing).
+function poolStrata(strata, group, filterFn) {
+  let n = 0;
+  const solved = Object.fromEntries(EVAL_K.map((k) => [k, 0]));
+  strata.filter(filterFn).forEach((s) => {
+    const g = s[group];
+    n += g.n;
+    EVAL_K.forEach((k) => { solved[k] += Math.round((g.solve_at[String(k)] || 0) * g.n); });
+  });
+  const rate = Object.fromEntries(EVAL_K.map((k) => [k, n ? solved[k] / n : null]));
+  return { n, rate };
+}
+
+function fmtSolveRate(pool) {
+  if (!pool.n) return "no rooms";
+  return EVAL_K.map((k) => `@${k} ${(pool.rate[k] * 100).toFixed(0)}%`).join(" &middot; ");
+}
+
+// The top-of-page strip: this run's solve@k for model vs random, overall and split by whether the
+// room's only doorway needs both blocks moved -- the split the project tracks as the harder case.
+function renderEvalSummary() {
+  if (!evalData || !evalRun || !evalData.aggregate[evalRun] || !evalData.aggregate[evalRun].length) {
+    evalSummaryEl.hidden = true;
+    return;
+  }
+  const strata = evalData.aggregate[evalRun];
+  const overallM = poolStrata(strata, "model", () => true);
+  const overallR = poolStrata(strata, "random", () => true);
+  const openM = poolStrata(strata, "model", (s) => !s.door_needs_both_blocks);
+  const openR = poolStrata(strata, "random", (s) => !s.door_needs_both_blocks);
+  const doorM = poolStrata(strata, "model", (s) => s.door_needs_both_blocks);
+  const doorR = poolStrata(strata, "random", (s) => s.door_needs_both_blocks);
+  evalSummaryEl.hidden = false;
+  evalSummaryEl.innerHTML =
+    `<b>${evalRun}</b> solve@k, model vs random &mdash; ` +
+    `all rooms: ${fmtSolveRate(overallM)} <span class="dim">vs</span> ${fmtSolveRate(overallR)} ` +
+    `(n=${overallM.n})<br>` +
+    `has a route around the doorway: ${fmtSolveRate(openM)} <span class="dim">vs</span> ` +
+    `${fmtSolveRate(openR)} (n=${openM.n}) &nbsp;&nbsp; ` +
+    `needs BOTH blocks moved: ${fmtSolveRate(doorM)} <span class="dim">vs</span> ` +
+    `${fmtSolveRate(doorR)} (n=${doorM.n})`;
 }
 
 // Name the object a step pushed whenever it is not the card's own target. On the two-movable

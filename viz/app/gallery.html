@@ -27,8 +27,10 @@
       <select id="sort-select">
         <option value="density-asc">hardest first</option>
         <option value="density-desc">easiest first</option>
-        <option value="speedup-desc">biggest speed-up</option>
-        <option value="speedup-asc">smallest speed-up</option>
+        <option value="speedup-desc">biggest speed-up (timing)</option>
+        <option value="speedup-asc">smallest speed-up (timing)</option>
+        <option value="eval-speedup-desc">biggest speed-up (eval sims)</option>
+        <option value="eval-speedup-asc">smallest speed-up (eval sims)</option>
         <option value="scene">scene name</option>
       </select>
     </label>
@@ -41,6 +43,21 @@
            edit here; hidden when the dataset has only one batch. -->
       <span class="checkrow" id="fam-row"></span>
     </span>
+    <span class="control" id="eval-run-control" hidden>
+      <span class="control-cap">Eval run</span>
+      <!-- filled from eval.json's run names; hidden when eval.json is absent or has one run. Drives
+           the summary strip below and the eval sort/filter, not the per-card panel (that shows every
+           run at once). -->
+      <select id="eval-run-select"></select>
+    </span>
+    <label id="eval-filter-control" hidden>Eval outcome
+      <select id="eval-filter-select">
+        <option value="any">any</option>
+        <option value="model">model solved</option>
+        <option value="random">random solved</option>
+        <option value="neither">neither solved</option>
+      </select>
+    </label>
     <label class="checkbox"><input type="checkbox" id="starred-only"> starred only</label>
     <span class="nav-group">
       <button type="button" id="prev-btn" title="Left arrow">&larr;</button>
@@ -49,12 +66,16 @@
     </span>
   </div>
   <div id="summary" class="summary">loading scenes.json&hellip;</div>
+  <!-- eval.json is optional; stays hidden when the dataset has no evaluation attached. -->
+  <div id="eval-summary" class="eval-summary" hidden></div>
 </header>
 
 <main class="two-col">
   <aside class="facts-col">
     <h2 id="card-title">&mdash;</h2>
     <table class="meta-table" id="meta-table"></table>
+    <!-- HY5U vs random on this ROOM, one line per eval run; absent when eval.json has no run for it. -->
+    <div class="eval-panel" id="eval-panel" hidden></div>
     <div class="green-list" id="green-list"></div>
     <div class="steps" id="steps"></div>
     <div class="facts-actions">
