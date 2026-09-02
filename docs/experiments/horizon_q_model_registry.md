@@ -66,6 +66,16 @@ We store aggregates as JSON, raw per-episode records as JSONL, offline score cac
 
 Every new full canonical evaluation must add or update one row here before its experiment card closes. Reuse a row only after checking the recorded protocol in the raw JSONL `search` field; never infer compatibility from a directory name.
 
+## Real-table two-movable gallery (solvability_runner, NOT comparable to the rows above) — added 2026-09-02
+
+Different harness (`namo.solvability_runner` → `FullNAMOPlanner` → `BestFirstRegionOpeningPlanner`) and a different population (the real-table two-movable gallery, `$NAMO_SCRATCH/viz/real_2mov`), so none of these numbers sit on the same axis as the testset_v3 rows. Protocol per launcher: one hop, hmax=2, budget 900, dedupe+jam on, combine=q, discount off, `--goals-per-region 100 --region-success-min-reachable 20`.
+
+| key | model / baseline | population | outputs | status |
+|---|---|---|---|---|
+| `two-movable-gallery-1hop-20260902` | **HY5U** s1-3 (`aquaman0/ckpts_bfix/HY5U_s*.ckpt`) + uniform s7000/8000/9000 | all 1436 gallery rooms (`real_buildable_2mov/gallery_1hop_manifest*.txt`, meta `gallery_1hop_meta.json`), Amarel array 61178706 at `f728dc5` | `eval/two_movable_1hop_gallery_20260902/<arm>/{summary.json,solved.jsonl,unsolved.jsonl}`; per-card overlay `viz/real_2mov/eval.json` (`scripts/viz/add_eval_overlay.py`); split `scripts/pipeline/report_two_movable_1hop.py --meta gallery_1hop_meta.json` | complete 2026-09-02. 3-seed mean solve@1/@5/@900: one-block doors (1058) HY5U 56.6/79.8/91.1 vs random 18.1/48.9/89.7; needs-both doors (378) 15.6/52.9/89.2 vs 4.5/26.4/86.2; needs-both + no reroute (242) 11.8/50.0/84.8 vs 2.5/22.0/81.0. Median sims 1/3/4 vs 5/14/15 |
+| `two-movable-1hop-20260830` | HY5U s1-3 + uniform ×3 | 227 v1 rooms (`hy5u_1hop_manifest.txt`), Amarel 61084870 | `eval/two_movable_1hop_20260830/` | complete 2026-08-30; superseded by the gallery row for every room it covers |
+| `group-doorway-bestfirst-fb2d8cc` | HY5U s1 + uniform s7000 | 240 no-reroute + 136 control rooms (`viz/real_2mov/_onehop_{noreroute,hasreroute}.txt`), iLab | `eval/group_doorway_bestfirst_fb2d8cc/` (the un-suffixed twin has the same @k, older failure bookkeeping) | complete 2026-08-30; superseded by the gallery row |
+
 ## Canonical offline ranking panel (2026-07-26) — the ONE place AUC/rank numbers come from
 
 Produced by `scripts/eval_auc.py` (2-push, `twopush_gt_h5`) + `eval_scorer.py --live-canonical` (1-push); grid JSONs under `$NAMO_SCRATCH/eval/auc_grid/`. **Any AUC quoted anywhere must name its variant** — grammar, seed bands, and the retired numbers are in [auc_metrics_reconciliation.md](auc_metrics_reconciliation.md). Seed-mean; noise bands ±0.01 (V1/F1), ±0.025 (V5), ±1.1 pt (setup hit@1), ±2.2 pt (1-push hard hit@1).

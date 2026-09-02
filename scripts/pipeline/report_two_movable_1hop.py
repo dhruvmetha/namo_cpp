@@ -44,7 +44,8 @@ def main():
     ap.add_argument("--meta", required=True)
     a = ap.parse_args()
 
-    meta = {r["scene"]: r for r in json.load(open(a.meta))}
+    # The v1 meta carries "scene"; the gallery meta carries only "xml". Same join key either way.
+    meta = {r.get("scene") or "/".join(r["xml"].split("/")[-4:-1]): r for r in json.load(open(a.meta))}
     arms = sorted(d for d in os.listdir(a.run_dir)
                   if os.path.isdir(os.path.join(a.run_dir, d)))
 
