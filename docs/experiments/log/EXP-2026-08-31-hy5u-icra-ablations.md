@@ -51,6 +51,10 @@ The first hardened retry, array `263859` on rlab4, failed closed before acceptin
 
 Retry `263862` confirmed the requested gamma but showed that rlab4 removes the staged `/dev/shm` file even within one task step; its `/tmp` is the local RAID root and has 286 GB free, so the next pinned-node smoke stages there and calibrates the resulting epoch time rather than assuming RAM-disk speed. This retry also showed that the site's `srun` can report a failed task while the enclosing array task is recorded `COMPLETED`, so both launchers now verify the scorer-load marker and checkpoint again after `srun` returns. Invalid outputs under `smoke_ilab_v3` are retained for diagnosis and excluded.
 
+The valid pinned-rlab4 smoke writes to `smoke_ilab_v4`: no-family runs as task `263865_0`, while the still-pending 48 GB regression and independent tasks were replaced before execution by 24 GB tasks `263869_[1-2]` so both can fit after task zero releases its allocation. Full fleet `263871_[0-8]` is queued with the scheduler dependency `afterok:263866:263869`; it cannot start unless all three smoke jobs pass the outer checkpoint and scorer-reload gates.
+
+The existing HY5 seeds are being reused as the no-unreachable arm. Their Amarel checkpoint hashes match the CS originals exactly, one current-code canonical eval smoke passed as job `61192621`, and the six full fixed-physics-v3 horizon arrays are `61192630` through `61192635`. These are simulation-count evaluations only; their unpinned wall times will not be compared with another method.
+
 ## Result
 
 Pending.
