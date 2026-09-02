@@ -46,6 +46,7 @@ const positionEl = document.getElementById("position");
 const summary = document.getElementById("summary");
 const starCount = document.getElementById("star-count");
 const storeNote = document.getElementById("store-note");
+const clearStarsBtn = document.getElementById("clear-stars-btn");
 
 const famControl = document.getElementById("fam-control");
 const famRow = document.getElementById("fam-row");
@@ -127,6 +128,7 @@ function saveStars() {
   const text = JSON.stringify(stars);
   localStorage.setItem(STAR_KEY, text);   // cache, so a dead server still shows the list
   starCount.textContent = Object.keys(stars).length;
+  clearStarsBtn.disabled = Object.keys(stars).length === 0;
   if (!starsWritable) return;
   fetch(STARS_URL, { method: "POST", body: text })
     .then((r) => { if (!r.ok) markReadOnly(); })
@@ -324,6 +326,7 @@ function init(fileStars) {
   nextBtn.addEventListener("click", () => stepEpisode(1));
   starBtn.addEventListener("click", toggleStar);
   copyBtn.addEventListener("click", copyShortlist);
+  clearStarsBtn.addEventListener("click", clearShortlist);
   document.addEventListener("keydown", (ev) => {
     if (ev.target.tagName === "INPUT" || ev.target.tagName === "SELECT") return;
     if (ev.key === "ArrowLeft") { stepEpisode(-1); ev.preventDefault(); }
@@ -997,6 +1000,18 @@ function toggleStar() {
   updateStarBtn();
   // Un-starring while filtered to starred-only must drop the row out of the list immediately.
   if (starredOnly.checked) applyFilters(rows[i] ? rows[i].file : null);
+}
+
+function clearShortlist() {
+  const n = Object.keys(stars).length;
+  if (!n) return;
+  if (!window.confirm(`Clear all ${n} starred cards?`)) return;
+  stars = {};
+  saveStars();     // same file-backed path toggleStar uses, so stars.json empties the same way
+  updateStarBtn();
+  // Re-run the filters even when starred-only is off: the summary line's starred count must catch
+  // up now, not on the next filter change, and starred-only (if checked) must drop every row.
+  applyFilters(rows[i] ? rows[i].file : null);
 }
 
 function copyShortlist() {

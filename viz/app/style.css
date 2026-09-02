@@ -467,6 +467,8 @@ td.no { color: var(--dead); }
   border: 1px solid var(--border); border-radius: 3px; background: var(--bg);
   color: var(--fg); cursor: pointer; }
 .gallery-bar button:hover, .facts-actions button:hover { background: var(--border); }
+.gallery-bar button:disabled, .facts-actions button:disabled { opacity: 0.4; cursor: default;
+  background: var(--bg); }
 .position { min-width: 6.5em; text-align: center; font-size: 0.9rem; }
 
 /* Facts first at 30%, the scene at 70% -- the numbers are what gets read, the picture is what gets
