@@ -493,6 +493,9 @@ td.no { color: var(--dead); }
 .eval-line .speedup { display: inline-block; padding: 0 6px; border-radius: 3px; font-weight: 600; }
 .eval-line .speedup.slower { color: var(--dead); }
 .eval-none { color: #888; font-size: 0.82rem; }
+/* One compact line per model seed's own push sequence, indented under its eval-line. */
+.eval-seed { font-size: 0.74rem; color: #666; padding: 0 0 2px 0.8rem; font-family: ui-monospace, monospace; }
+
 
 .green-list { margin-top: 0.75rem; font-size: 0.8rem; line-height: 1.5; }
 .green-label { color: #555; }

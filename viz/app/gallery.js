@@ -75,19 +75,11 @@ const MODEL_BUCKETS = [
   { key: "neither", label: "neither solved" },
 ];
 let modelBucket = "all";   // selected #eval-outcome-row button
-const LABEL_CHAIN_OPTIONS = [
-  { key: "all", label: "all" },
-  { key: "same", label: "same object" },
-  { key: "cross", label: "cross object" },
-  { key: "single", label: "1push (single)" },
-];
-const MODEL_CHAIN_OPTIONS = [
-  { key: "all", label: "all" },
-  { key: "same", label: "same object" },
-  { key: "cross", label: "cross object" },
-  { key: "mixed", label: "seeds disagree" },
-  { key: "unsolved", label: "no model arm solved" },
-];
+// Both dropdowns read straight off scripts/viz/add_eval_overlay.py's own vocabulary now (eval.json's
+// "chain" and "model_chain" values), so there is no key/label split left to keep in sync by hand.
+const CARD_CHAIN_CATEGORIES = ["single push", "card object only", "other object only", "both objects"];
+const LABEL_CHAIN_OPTIONS = ["all", ...CARD_CHAIN_CATEGORIES];   // label side never emits "other object only"
+const MODEL_CHAIN_OPTIONS = ["all", ...CARD_CHAIN_CATEGORIES, "seeds disagree", "unsolved"];
 
 let index = null;
 let timing = null;       // per-problem seconds from the timed campaign; absent = the page hides them
@@ -214,9 +206,9 @@ function buildEvalRunControl() {
     evalOutcomeRow.append(btn);
   });
   labelChainControl.hidden = !evalData.chain;
-  modelChainControl.hidden = !evalData.chain;
-  labelChainSelect.innerHTML = LABEL_CHAIN_OPTIONS.map((o) => `<option value="${o.key}">${o.label}</option>`).join("");
-  modelChainSelect.innerHTML = MODEL_CHAIN_OPTIONS.map((o) => `<option value="${o.key}">${o.label}</option>`).join("");
+  modelChainControl.hidden = !evalData.model_chain;
+  labelChainSelect.innerHTML = LABEL_CHAIN_OPTIONS.map((o) => `<option value="${o}">${o}</option>`).join("");
+  modelChainSelect.innerHTML = MODEL_CHAIN_OPTIONS.map((o) => `<option value="${o}">${o}</option>`).join("");
 }
 
 // A room's model arms in one of three states for the SELECTED run: every arm solved, none did, or
@@ -242,20 +234,20 @@ function matchesModelBucket(rec, key) {
   return true;
 }
 
-// eval.json's per-card label chain (scripts/viz/add_eval_overlay.py:load_card_chains): "same",
-// "cross", "single" (1push), or null (2push card with no replay).
+// eval.json's per-card label chain (scripts/viz/add_eval_overlay.py:load_card_chains): one of
+// CARD_CHAIN_CATEGORIES minus "other object only" (the label solution never skips the card's own
+// object), or null (2push card with no replay).
 function labelChainOf(row) {
   return evalData && evalData.chain ? (evalData.chain[row.file] || null) : null;
 }
 
-// The selected run's own model-arm chain for this ROOM: "same"/"cross" when every solved model arm
-// agrees, "mixed" when seeds disagree, "unsolved" when no model arm solved (also covers 1push rooms,
-// whose solution is always one push, so never carries a chain).
-function modelChainBucket(rec) {
-  if (!rec) return "unsolved";
-  const chains = rec.model.filter((e) => e.solved && e.chain).map((e) => e.chain);
-  if (!chains.length) return "unsolved";
-  return chains.every((c) => c === chains[0]) ? chains[0] : "mixed";
+// The selected run's own chain for this CARD (scripts/viz/add_eval_overlay.py:card_model_bucket),
+// already classified per card server-side against that card's own object_id -- a room with two
+// cards can read differently on each. "seeds disagree" when solved model arms landed in different
+// categories, "unsolved" when none did (also covers a room this run never touched at all).
+function modelChainOf(row) {
+  return evalData && evalData.model_chain && evalRun && evalData.model_chain[evalRun]
+    ? (evalData.model_chain[evalRun][row.file] || "unsolved") : null;
 }
 
 function init(fileStars) {
@@ -346,22 +338,22 @@ function applyFilters(wantFile) {
       btn.textContent = `${MODEL_BUCKETS.find((b) => b.key === key).label} (${n})`;
       btn.classList.toggle("bucket-active", key === modelBucket);
     });
-    [[labelChainSelect, LABEL_CHAIN_OPTIONS, labelChainOf],
-     [modelChainSelect, MODEL_CHAIN_OPTIONS, (r) => modelChainBucket(evalRoom(r))]].forEach(([sel, opts, of]) => {
+    [[labelChainSelect, labelChainOf], [modelChainSelect, modelChainOf]].forEach(([sel, of]) => {
       const cur = sel.value;
       Array.from(sel.options).forEach((opt) => {
         const key = opt.value;
         const n = key === "all" ? preRows.length : preRows.filter((r) => of(r) === key).length;
-        opt.textContent = `${opts.find((o) => o.key === key).label} (${n})`;
+        opt.textContent = `${key} (${n})`;
       });
       sel.value = cur || "all";
     });
+    renderChainTally(preRows);
   }
 
   rows = preRows.filter((r) => {
     if (evalData && !matchesModelBucket(evalRoom(r), modelBucket)) return false;
     if (labelChainSelect.value !== "all" && labelChainOf(r) !== labelChainSelect.value) return false;
-    if (modelChainSelect.value !== "all" && modelChainBucket(evalRoom(r)) !== modelChainSelect.value) return false;
+    if (modelChainSelect.value !== "all" && modelChainOf(r) !== modelChainSelect.value) return false;
     return true;
   });
 
@@ -600,7 +592,26 @@ function evalRunLine(run, rec) {
     `${up.toFixed(up >= 10 ? 0 : 1)}&times;</span>`;
   return `<div class="eval-line"><span class="eval-run-name">${run}</span> ` +
     `HY5U ${evalArmText(rec.model, rec.model_median_sims)} <span class="dim">|</span> ` +
-    `random ${evalArmText(rec.random, rec.random_median_sims)}${badge}</div>`;
+    `random ${evalArmText(rec.random, rec.random_median_sims)}${badge}</div>` +
+    evalModelSeeds(rec.model);
+}
+
+// One compact line per model seed's own push sequence, straight off its "pushes"
+// (add_eval_overlay.py:load_arm) -- object_id e<edge_idx> d<depth>, arrow-joined, then sims. An
+// unsolved seed just says so; it never carried a solution to show.
+function evalModelSeeds(list) {
+  return list.map((e) => {
+    const m = e.arm.match(/_s(\d+)$/);
+    const label = m ? `s${m[1]}` : e.arm;
+    const body = (e.solved && e.pushes && e.pushes.length)
+      ? `${pushSeqText(e.pushes)}, ${e.sims} sims` : "unsolved";
+    return `<div class="eval-seed">${label}: ${body}</div>`;
+  }).join("");
+}
+
+function pushSeqText(pushes) {
+  return pushes.map((p) => `${(p.object_id || "?").replace(/_movable$/, "")} e${p.edge_idx} d${p.depth}`)
+    .join(" &rarr; ");
 }
 
 // evalData.room_aggregate is already room-accurate and pre-split by scripts/viz/add_eval_overlay.py
@@ -615,8 +626,9 @@ function fmtSolveRate(group) {
 }
 
 // The top-of-page strip: this run's solve@k for model vs random, overall and split by whether the
-// room's only doorway needs both blocks moved, then a room-count tally of model/random outcomes and
-// (for 2push rooms the model solved) how often its own solution stayed on one object vs switched.
+// room's only doorway needs both blocks moved, then a room-count tally of model/random outcomes.
+// The chain category tally (#eval-chain-tally, filled by renderChainTally) is card-filtered, so it
+// lives in applyFilters instead -- this placeholder is what it writes into.
 function renderEvalSummary() {
   if (!evalData || !evalRun || !evalData.room_aggregate || !evalData.room_aggregate[evalRun]) {
     evalSummaryEl.hidden = true;
@@ -632,25 +644,33 @@ function renderEvalSummary() {
     `${fmtSolveRate(byScope.open.random)} (n=${byScope.open.n}) &nbsp;&nbsp; ` +
     `needs BOTH blocks moved: ${fmtSolveRate(byScope.door.model)} <span class="dim">vs</span> ` +
     `${fmtSolveRate(byScope.door.random)} (n=${byScope.door.n})<br>` +
-    renderModelTally();
+    renderModelTally() + `<br><span id="eval-chain-tally"></span>`;
 }
 
 // Room-count tally for the selected run, over EVERY room it covers (not the current card filters --
 // this is a fact about the run, like the solve@k lines above it).
 function renderModelTally() {
-  let solved = 0, unsolved = 0, split = 0, randomSolved = 0, chainSame = 0, chainCross = 0, chainMixed = 0;
+  let solved = 0, unsolved = 0, split = 0, randomSolved = 0;
   Object.values(evalData.rooms).forEach((byRun) => {
     const rec = byRun[evalRun];
     if (!rec) return;
     const mb = roomModelBucket(rec);
     if (mb === "solved") solved++; else if (mb === "unsolved") unsolved++; else if (mb === "split") split++;
     if (roomRandomAnySolved(rec)) randomSolved++;
-    const cb = modelChainBucket(rec);
-    if (cb === "same") chainSame++; else if (cb === "cross") chainCross++; else if (cb === "mixed") chainMixed++;
   });
-  return `model solved ${solved} rooms, unsolved ${unsolved}, split ${split}; random solved ${randomSolved} ` +
-    `<span class="dim">&middot;</span> model's own 2push solution (solved rooms): ` +
-    `same-object ${chainSame}, cross-object ${chainCross}, seeds disagree ${chainMixed}`;
+  return `model solved ${solved} rooms, unsolved ${unsolved}, split ${split}; random solved ${randomSolved}`;
+}
+
+// Model-chain category tally, over the cards the current filters show (not dataset-wide, unlike
+// renderModelTally above) -- called from applyFilters, which already has that row set.
+function renderChainTally(preRows) {
+  const el = document.getElementById("eval-chain-tally");
+  if (!el) return;
+  if (!evalData || !evalData.model_chain || !evalRun) { el.textContent = ""; return; }
+  const counts = Object.fromEntries(MODEL_CHAIN_OPTIONS.filter((o) => o !== "all").map((o) => [o, 0]));
+  preRows.forEach((r) => { const v = modelChainOf(r); if (v in counts) counts[v] += 1; });
+  el.textContent = "model chain, vs card object (cards in this filter): " +
+    MODEL_CHAIN_OPTIONS.filter((o) => o !== "all").map((c) => `${c} ${counts[c]}`).join(", ");
 }
 
 // Name the object a step pushed whenever it is not the card's own target. On the two-movable

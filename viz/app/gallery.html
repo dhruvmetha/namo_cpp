@@ -59,11 +59,13 @@
       <span class="checkrow" id="eval-outcome-row"></span>
     </span>
     <label id="label-chain-control" hidden
-        title="From the sweep's own recorded solution (replay), against the card's own object_id. UNDERCOUNTS cross-object chains: the sweep's finish loop stops at the first push that opens and tries objects in list order, so a same-object finish always wins the race over a cross-object one when both exist (exhaustive_hmax2.py). A &quot;cross&quot; label is never wrong; a &quot;same&quot; label can be hiding an untried cross-object finish.">
-      2push chain (label)
+        title="From the sweep's own recorded solution (replay), against the card's own object_id. UNDERCOUNTS &quot;both objects&quot;: the sweep's finish loop stops at the first push that opens and tries objects in list order, so a same-object finish always wins the race over a cross-object one when both exist (exhaustive_hmax2.py). A &quot;both objects&quot; label is never wrong; a &quot;card object only&quot; label can be hiding an untried cross-object finish.">
+      2push chain (label, vs card object)
       <select id="label-chain-select"></select>
     </label>
-    <label id="model-chain-control" hidden>2push chain (model, this run)
+    <label id="model-chain-control" hidden
+        title="This run's own model solution, read against the card's own object_id -- not the room's. A room with two cards (two object_ids) can read differently on each.">
+      2push chain (model, vs card object)
       <select id="model-chain-select"></select>
     </label>
     <label class="checkbox"><input type="checkbox" id="starred-only"> starred only</label>

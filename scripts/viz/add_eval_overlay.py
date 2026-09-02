@@ -22,10 +22,17 @@ over rooms in the scope -- so a room with three seeds and a room with one seed c
 rooms joined to a gallery card are eligible (see `rooms` above); an eval run can cover rooms this
 gallery has no card for, and those are invisible here, not folded into `n`.
 
-`chain`: per card file, "single" (1push), "same"/"cross" (2push, from the label's own recorded
-solution vs the card's object_id -- see `load_card_chains` for why "same" undercounts), or null (a
-2push card with no replay). Each arm entry under `rooms[scene][run]["model"/"random"]` also carries
-its own "chain" ("same"/"cross"/null), read straight off that arm's executed solution.
+`chain`: per card file, the label's own chain vocabulary -- see `load_card_chains`.
+
+`model_chain`: per run, per card file, the model's chain vocabulary -- see `card_model_bucket`. Each
+arm entry under `rooms[scene][run]["model"/"random"]` carries its raw "pushes" (that arm's executed
+solution, object_id/edge_idx/depth per push, [] when unsolved); `model_chain` is the classification
+of those pushes against ONE card's object_id, which `rooms` itself cannot do since a room can carry
+several cards. Both vocabularies: "single push" (one push, whichever object), "card object only" /
+"other object only" / "both objects" (two or more pushes, read against the card's object_id) --
+`chain` never produces "other object only" (see `load_card_chains`). `model_chain` adds "seeds
+disagree" (the run's solved model arms landed in different categories) and "unsolved" (no model arm
+solved this room).
 
 An arm is a model arm if its directory name starts with HY5U or ends with _model, a random arm if it
 starts with rand_ or ends with _uniform. Anything else is skipped with a note on stdout -- the arm
@@ -77,10 +84,10 @@ def load_arm(arm_dir):
             if not xml:
                 continue
             sol = r.get("solution") or []
-            chain = None if len(sol) < 2 else (
-                "same" if sol[0].get("object_id") == sol[-1].get("object_id") else "cross")
+            pushes = [{"object_id": st.get("object_id"), "edge_idx": st.get("edge_idx"),
+                       "depth": st.get("depth")} for st in sol]
             rows.append({"scene": scene_of(xml), "solved": solved,
-                         "sims": r.get("simulation_budget_used_total"), "chain": chain})
+                         "sims": r.get("simulation_budget_used_total"), "pushes": pushes})
     return rows
 
 
@@ -135,15 +142,17 @@ def load_scene_index(out_dir):
 
 
 def load_card_chains(cards, out_dir):
-    """Per-card label chain, run-independent: "single" (1push), "same" (both steps push the card's
-    own object_id), "cross" (a step lands on the other block), or null (2push card with no replay).
+    """Per-card label chain, run-independent: "single push" (1push), "card object only" (every step
+    pushes the card's own object_id), "both objects" (a step lands on the other block), or null (a
+    2push card with no replay). Same three names the model side uses, minus "other object only" --
+    the label solution never skips the card's own object entirely, so that bucket cannot occur here.
 
-    ⛔ UNDERCOUNTS cross-object chains. This solution comes from the exhaustive sweep
+    ⛔ UNDERCOUNTS "both objects". This solution comes from the exhaustive sweep
     (scripts/pipeline/exhaustive_hmax2.py), whose finish loop stops at the first push that opens and
     walks objects in list order (exhaustive_hmax2.py:129-135) -- a same-object finish always wins the
-    race over a cross-object one when both exist. So a "same" label here can hide an untried cross-
-    object finish; a "cross" label cannot be wrong the other way. Fine for the setup-vs-dead-end call
-    the sweep makes, wrong to read as "how often does the chain switch objects."
+    race over a cross-object one when both exist. So a "card object only" label here can hide an
+    untried cross-object finish; a "both objects" label cannot be wrong the other way. Fine for the
+    setup-vs-dead-end call the sweep makes, wrong to read as "how often does the chain switch objects."
     """
     chains = {}
     for row in cards:
@@ -151,7 +160,7 @@ def load_card_chains(cards, out_dir):
         if f in chains:
             continue
         if row["horizon"] != "2push":
-            chains[f] = "single"
+            chains[f] = "single push"
             continue
         rp = os.path.join(out_dir, "replay", f)
         if not os.path.exists(rp):
@@ -159,10 +168,38 @@ def load_card_chains(cards, out_dir):
             continue
         steps = json.load(open(rp)).get("steps", [])
         if len(steps) < 2:
-            chains[f] = "single"
+            chains[f] = "single push"
             continue
-        chains[f] = "same" if all(s.get("object_id") == row["object_id"] for s in steps) else "cross"
+        chains[f] = ("card object only" if all(s.get("object_id") == row["object_id"] for s in steps)
+                      else "both objects")
     return chains
+
+
+def categorize_pushes(pushes, card_obj):
+    """One solved arm's push sequence, read against ONE card's own object_id (the reference the
+    label side also uses) -- not a room-level classification, since a room's arms can be read against
+    several cards, one per object it has a card for."""
+    if len(pushes) == 1:
+        return "single push"
+    objs = {p["object_id"] for p in pushes}
+    if objs == {card_obj}:
+        return "card object only"
+    if card_obj not in objs:
+        return "other object only"
+    return "both objects"
+
+
+def card_model_bucket(rec, card_obj):
+    """Room `rec` (rooms[scene], or None if the run never touched this room) read against one card's
+    object_id: the shared category if every solved model arm agrees, "seeds disagree" if they split,
+    "unsolved" if none did. A 2push room solved in a single push lands in "single push" here, not
+    "unsolved" -- the old room-level version conflated the two."""
+    if not rec:
+        return "unsolved"
+    cats = [categorize_pushes(e["pushes"], card_obj) for e in rec["model"] if e["solved"] and e["pushes"]]
+    if not cats:
+        return "unsolved"
+    return cats[0] if all(c == cats[0] for c in cats) else "seeds disagree"
 
 
 def load_run(run_dir):
@@ -195,9 +232,10 @@ def build_run(run_name, run_dir, scene_cards, door):
     for scene, by_arm in scene_arm.items():
         model_list, random_list = [], []
         for arm, r in by_arm.items():
-            # chain: "same" (pushed one object twice) or "cross" (finished on the other block),
-            # from this arm's own executed solution; null when unsolved or the run predates it.
-            entry = {"arm": arm, "solved": r["solved"], "sims": r["sims"], "chain": r.get("chain")}
+            # pushes: this arm's own executed solution, [] when unsolved or the run predates it.
+            # Read against a card's own object_id downstream (card_model_bucket) -- classifying it
+            # here would need a card, and one room can carry several.
+            entry = {"arm": arm, "solved": r["solved"], "sims": r["sims"], "pushes": r.get("pushes") or []}
             (model_list if arms[arm][0] == "model" else random_list).append(entry)
         model_list.sort(key=lambda e: e["arm"])
         random_list.sort(key=lambda e: e["arm"])
@@ -258,7 +296,16 @@ def build_run(run_name, run_dir, scene_cards, door):
             for h in {c["horizon"] for c in cards}:
                 by_horizon[h][grp].append(r)
 
-    return rooms, aggregate, room_aggregate, pooled, by_horizon, arms
+    # Per-card model chain, read against each card's own object_id -- fixes the two bugs the
+    # room-level version had: a room with two cards no longer shares one verdict, and a 2push room
+    # solved in one push is "single push", not "unsolved".
+    model_chain = {}
+    for scene, cards in scene_cards.items():
+        rec = rooms.get(scene)
+        for c in cards:
+            model_chain[c["file"]] = card_model_bucket(rec, c["object_id"])
+
+    return rooms, aggregate, room_aggregate, pooled, by_horizon, arms, model_chain
 
 
 def print_table(run_name, rooms, arms, pooled, by_horizon, room_aggregate):
@@ -302,29 +349,37 @@ def main():
 
     all_cards, scene_cards, door = load_scene_index(a.out)
     chain = load_card_chains(all_cards, a.out)
-    n_same = sum(1 for v in chain.values() if v == "same")
-    n_cross = sum(1 for v in chain.values() if v == "cross")
-    n_single = sum(1 for v in chain.values() if v == "single")
+    CARD_CATEGORIES = ["single push", "card object only", "other object only", "both objects"]
+    label_counts = {c: sum(1 for v in chain.values() if v == c) for c in CARD_CATEGORIES}
     n_no_replay = sum(1 for v in chain.values() if v is None)
-    print(f"label chains: {n_same} same-object, {n_cross} cross-object, {n_single} single-push, "
-          f"{n_no_replay} 2push cards with no replay")
+    print("label chains: " + ", ".join(f"{label_counts[c]} {c}" for c in CARD_CATEGORIES) +
+          f", {n_no_replay} 2push cards with no replay")
 
     eval_rooms = defaultdict(dict)
     aggregate = {}
     room_aggregate = {}
+    model_chain = {}
+    two_push_cards = [row["file"] for row in all_cards if row["horizon"] == "2push"]
     for run_name, run_dir in runs.items():
         print(f"reading {run_name} <- {run_dir}")
-        rooms, agg, room_agg, pooled, by_horizon, arms = build_run(run_name, run_dir, scene_cards, door)
+        rooms, agg, room_agg, pooled, by_horizon, arms, run_chain = build_run(
+            run_name, run_dir, scene_cards, door)
         for scene, rec in rooms.items():
             eval_rooms[scene][run_name] = rec
         aggregate[run_name] = agg
         room_aggregate[run_name] = room_agg
+        model_chain[run_name] = run_chain
         print_table(run_name, rooms, arms, pooled, by_horizon, room_agg)
+        by_cat = defaultdict(int)
+        for f in two_push_cards:
+            by_cat[run_chain.get(f, "unsolved")] += 1
+        print("  model chain (2push cards): " +
+              ", ".join(f"{by_cat[c]} {c}" for c in CARD_CATEGORIES + ["seeds disagree", "unsolved"]))
 
     out_path = os.path.join(a.out, "eval.json")
-    json.dump({"schema_version": 2, "runs": list(runs.keys()),
+    json.dump({"schema_version": 3, "runs": list(runs.keys()),
                "rooms": eval_rooms, "aggregate": aggregate, "room_aggregate": room_aggregate,
-               "chain": chain}, open(out_path, "w"))
+               "chain": chain, "model_chain": model_chain}, open(out_path, "w"))
     print(f"\neval.json: {len(eval_rooms)} rooms across {len(runs)} run(s) -> {out_path}")
 
 
