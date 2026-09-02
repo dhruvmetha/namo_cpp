@@ -39,7 +39,17 @@ output.
 Each step is verified by the simulator, so a step that failed to do what the label says is visible
 rather than assumed.
 
+`--from-eval RUN_DIR` replays a MODEL's own plans instead of the label, one file per (run, arm,
+card), so the gallery app can offer a picker: label / HY5U_s1 / HY5U_s2 / ... / rand_s7000 / ...
+The plan comes straight from that arm's `solved.jsonl` (`solution` = ordered pushes), one plan per
+room, so there is nothing to search over: unlike the label paths above, a push that fails is not
+retried against an alternative, it is recorded as a non-reproducing card and the replay stops there.
+Every card of a room gets the same plan, since the eval was never asked which of a room's cards
+(objects, horizons) it was solving for.
+
     python scripts/viz/build_scene_replay.py --out $NAMO_SCRATCH/viz/scenes [--shard i --nshards n]
+    python scripts/viz/build_scene_replay.py --out $NAMO_SCRATCH/viz/real_2mov \\
+        --from-eval $NAMO_SCRATCH/eval/two_movable_1hop_gallery_20260902 [--arms HY5U_s1,rand_s7000]
 """
 import argparse
 import glob
@@ -90,6 +100,15 @@ def finish_openers():
                  int(pe[i]), int(pd[i]))
             out[k] = [(int(e), int(d)) for e, d in wins]
     return out
+
+
+def remap_path(path, remap):
+    """Rewrite an xml path prefix recorded by a run on another box, FROM=TO pairs in order."""
+    for rule in (remap or []):
+        frm, _, to = rule.partition("=")
+        if path.startswith(frm):
+            return to + path[len(frm):]
+    return path
 
 
 def exhaustive_plans(pool_root, remap):
@@ -164,6 +183,127 @@ def is_open(env, pts, bar):
     return bool(env.count_reachable_points(pts)[0] >= bar)
 
 
+def eval_scene_of(xml_path):
+    """Gallery scene key for an eval row's xml_path: the three path parts before the file.
+
+    Matches add_eval_overlay.py's own scene_of() and the "scene" field scenes.json rows carry,
+    regardless of which box or scratch root the eval ran from.
+    """
+    parts = str(xml_path).rstrip("/").split("/")
+    return "/".join(parts[-4:-1])
+
+
+def load_eval_rows(arm_dir):
+    """scene -> {solution, sims, plan_len} for every SOLVED room in one eval arm's solved.jsonl.
+
+    Unsolved rows carry no solution and are dropped here, so the caller writes no replay file for
+    them (an unsolved room gets no file, per the gallery's own convention for a missing plan).
+    """
+    out = {}
+    fn = os.path.join(arm_dir, "solved.jsonl")
+    if not os.path.exists(fn):
+        return out
+    for line in open(fn):
+        line = line.strip()
+        if not line:
+            continue
+        r = json.loads(line)
+        xml = r.get("xml_path")
+        sol = r.get("solution") or []
+        if not xml or not sol:
+            continue
+        out[eval_scene_of(xml)] = {"solution": sol,
+                                    "sims": r.get("simulation_budget_used_total"),
+                                    "plan_len": len(sol)}
+    return out
+
+
+def replay_eval(a, prim, make_env, make_action, extract_goal_with_fallback, FALLBACK_GOAL, CFG,
+                 WavefrontSnapshotExporter, contact_offsets_world):
+    """--from-eval: same push()/snapshot()/is_open() replay rule as the label paths above, but the
+    plan comes from one arm's own solved.jsonl instead of a label, and there is exactly one plan per
+    room rather than several candidates to try -- so a failed push ends the replay on the spot."""
+    index = json.load(open(os.path.join(a.out, "scenes.json")))
+    scene_cards = defaultdict(list)
+    for row in index["cards"]:
+        scene_cards[row["scene"]].append(row)
+
+    run_dir = a.from_eval.rstrip("/")
+    run_name = os.path.basename(run_dir)
+    if a.arms:
+        arm_names = [x for x in a.arms.split(",") if x]
+    else:
+        arm_names = sorted(d for d in os.listdir(run_dir)
+                           if os.path.exists(os.path.join(run_dir, d, "solved.jsonl")))
+
+    # Flatten to (arm, scene, plan) so --shard/--nshards splits work across arms and rooms alike.
+    work = []
+    for arm in arm_names:
+        for scene, prow in load_eval_rows(os.path.join(run_dir, arm)).items():
+            if scene in scene_cards:
+                work.append((arm, scene, prow))
+    work.sort(key=lambda t: (t[0], t[1]))
+    mine = [w for i, w in enumerate(work) if i % a.nshards == a.shard]
+    if a.limit:
+        mine = mine[:a.limit]
+
+    t0, n_ok, n_skip, n_repro, n_fail = time.time(), 0, 0, 0, 0
+    for i, (arm, scene, prow) in enumerate(mine):
+        outdir = os.path.join(a.out, "replay_eval", run_name, arm)
+        os.makedirs(outdir, exist_ok=True)
+        cards = scene_cards[scene]
+        # Every card in a room shares one xml (verified against scenes.json), so the goal and the
+        # arm's plan are read once per room, not once per card. remap_path rewrites a gallery built
+        # on another box's scratch root onto this one -- a no-op when --remap is empty.
+        xml = remap_path(json.load(open(os.path.join(a.out, "cards", cards[0]["file"])))["meta"]["xml"],
+                         a.remap)
+        goal = extract_goal_with_fallback(xml, FALLBACK_GOAL)
+        for row in cards:
+            outpath = os.path.join(outdir, row["file"])
+            if os.path.exists(outpath):
+                n_skip += 1
+                continue
+            card = json.load(open(os.path.join(a.out, "cards", row["file"])))
+            target = card["meta"]["object_id"]
+
+            env = make_env(xml)
+            env.set_robot_goal(*goal)
+            env.get_reachable_objects()
+            # Sample the goal-region points ONCE, at the root, exactly as the exhaustive path does.
+            pts, bar = region_bar(env)
+            mov = [k for k, v in env.get_object_info().items()
+                   if k != "robot" and "pos_x" not in v]
+
+            steps, failed = [], False
+            for step_i, s in enumerate(prow["solution"]):
+                pobj, edge, depth = s["object_id"], int(s["edge_idx"]), int(s["depth"])
+                if not push(env, prim, make_action, pobj, edge, depth):
+                    failed = True
+                    break
+                geom, regions = snapshot(env, WavefrontSnapshotExporter(env), xml, target,
+                                         contact_offsets_world, mov, CFG)
+                steps.append({"i": step_i + 1, "edge": edge, "depth": depth,
+                              "object_id": pobj, "geom": geom, "regions": regions,
+                              "opened": is_open(env, pts, bar)})
+            reproduced = bool(steps) and not failed and steps[-1]["opened"]
+            n_repro += int(reproduced)
+            n_fail += int(not reproduced)
+
+            json.dump({"schema_version": SCHEMA_VERSION, "key": row["file"],
+                       "source": f"eval plan ({run_name}/{arm})",
+                       "steps": steps, "reproduced": reproduced,
+                       "sims": prow["sims"], "plan_len": prow["plan_len"]},
+                      open(outpath, "w"))
+            n_ok += 1
+        if (i + 1) % 200 == 0:
+            r = (i + 1) / (time.time() - t0)
+            print(f"shard {a.shard}: {i+1}/{len(mine)} (arm, room) pairs, {n_ok} files, "
+                  f"{n_repro} reproduced, {n_fail} not, {n_skip} skipped, "
+                  f"eta {(len(mine)-i-1)/r/60:.1f} min", flush=True)
+    print(f"shard {a.shard}: DONE {n_ok} files, {n_repro} reproduced, {n_fail} not, {n_skip} "
+          f"skipped, {(time.time()-t0)/60:.1f} min")
+
+
 def push(env, prim, make_action, obj, edge, depth):
     """Apply the primitive push (obj, edge, depth). False if that goal does not exist here, or if
     the skill refused to run it.
@@ -200,6 +340,15 @@ def main():
     ap.add_argument("--max-attempts", type=int, default=8,
                     help="plans to try per card before giving up; they are ordered to hit distinct "
                          "first-push edges first, so raising this buys real variety")
+    ap.add_argument("--from-eval", metavar="RUN_DIR",
+                    help="replay each arm's own plans out of RUN_DIR/<arm>/solved.jsonl instead of "
+                         "the label; writes replay_eval/<run>/<arm>/<card file>.json")
+    ap.add_argument("--arms", default="",
+                    help="comma list of arm dirs under RUN_DIR to replay (--from-eval only); "
+                         "default is every subdir that has a solved.jsonl")
+    ap.add_argument("--limit", type=int, default=0,
+                    help="stop after this many (arm, room) pairs (--from-eval only); a smoke-test "
+                         "knob, applied after sharding, 0 means no limit")
     a = ap.parse_args()
 
     from add_contact_px import contact_offsets_world
@@ -207,6 +356,13 @@ def main():
     from namo.core.xml_goal_parser import extract_goal_with_fallback
     from namo.strategies import PrimitiveGoalStrategy
     from scorer_beam import CFG, DATA_DIR, FALLBACK_GOAL, PRIM_PREFIX, make_env, make_action
+
+    prim = PrimitiveGoalStrategy(data_dir=DATA_DIR, primitive_prefix=PRIM_PREFIX)
+
+    if a.from_eval:
+        replay_eval(a, prim, make_env, make_action, extract_goal_with_fallback, FALLBACK_GOAL, CFG,
+                    WavefrontSnapshotExporter, contact_offsets_world)
+        return
 
     index = json.load(open(os.path.join(a.out, "scenes.json")))
     want = set(t for t in a.tiers.split(",") if t)
@@ -219,7 +375,6 @@ def main():
 
     exh = exhaustive_plans(a.from_exhaustive, a.remap) if a.from_exhaustive else None
     fin = {} if exh else finish_openers()
-    prim = PrimitiveGoalStrategy(data_dir=DATA_DIR, primitive_prefix=PRIM_PREFIX)
     outdir = os.path.join(a.out, "replay")
     os.makedirs(outdir, exist_ok=True)
 
