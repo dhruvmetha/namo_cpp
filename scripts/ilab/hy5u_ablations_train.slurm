@@ -24,7 +24,7 @@ if [ "$MODE" = "smoke" ]; then
   ARM=${arms[$TASK]}
   SEED=1
   EPOCHS=1
-  OUT=$R0/ablations_20260831/smoke_ilab_v4/${ARM}_s1
+  OUT=$R0/ablations_20260831/smoke_ilab_v5/${ARM}_s1
 else
   [ "$MODE" = "full" ] || { echo "unknown MODE=$MODE" >&2; exit 2; }
   [ "$TASK" -lt 9 ] || { echo "full array must be 0-8" >&2; exit 2; }
