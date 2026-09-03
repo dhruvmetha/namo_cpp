@@ -77,11 +77,14 @@ def load_costs(args):
 
 
 def smooth_log_density(values: list[float], grid_log: np.ndarray, bandwidth: float) -> np.ndarray:
+    """Return a unit-area KDE over log10 cost, conditional on success."""
     log_values = np.log10(np.asarray(values, dtype=np.float64))
     z = (grid_log[:, None] - log_values[None, :]) / bandwidth
     density = np.exp(-0.5 * z * z).mean(axis=1)
     peak = float(density.max())
-    return density / peak if peak > 0 else density
+    density[density < 0.0015 * peak] = 0.0
+    area = float(np.trapezoid(density, grid_log))
+    return density / area
 
 
 def tick_label(value: float, _position: int) -> str:
@@ -94,15 +97,20 @@ def panel(ax, horizon: str, metric: str, data: dict, *, show_method_labels: bool
     grid = 10 ** grid_log
     bandwidth = 0.11 if metric == "sims" else 0.13
     y_by_method = {"Geometric": 2.0, "Random": 1.0, "HY5U": 0.0}
+    ridges = {}
 
     for method in METHODS:
-        y = y_by_method[method]
         observations = list(data["costs"][method][metric].values())
         solved_values = [value for solved, value in observations if solved and value is not None]
         unsolved_pct = 100.0 * (len(observations) - len(solved_values)) / len(observations)
         density = smooth_log_density(solved_values, grid_log, bandwidth)
-        density[density < 0.0015] = 0.0
-        height = 1.12 * density
+        ridges[method] = (density, unsolved_pct)
+
+    height_scale = 1.12 / max(float(density.max()) for density, _ in ridges.values())
+    for method in METHODS:
+        y = y_by_method[method]
+        density, unsolved_pct = ridges[method]
+        height = height_scale * density
         visible = density > 0
         color = COLORS[method]
 
