@@ -26,7 +26,7 @@ from tabulate_region_opening_costs import (  # noqa: E402
 
 
 METHODS = ("Geometric", "Random", "HY5U")
-COLORS = {"HY5U": "#4cc465", "Geometric": "#e59443", "Random": "#909090"}
+COLORS = {"HY5U": "#4cc465", "Geometric": "#d9534f", "Random": "#909090"}
 METRICS = {
     "sims": "Simulator pushes to first success (log scale)",
     "t_wall": "Wall-clock time to first success (s, log scale)",
