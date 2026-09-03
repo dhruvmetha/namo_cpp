@@ -96,7 +96,7 @@ def panel(ax, horizon: str, metric: str, data: dict, *, show_method_labels: bool
     grid_log = np.linspace(math.log10(left), math.log10(right), 700)
     grid = 10 ** grid_log
     bandwidth = 0.11 if metric == "sims" else 0.13
-    y_by_method = {"Geometric": 2.0, "Random": 1.0, "HY5U": 0.0}
+    y_by_method = {"Geometric": 1.36, "Random": 0.68, "HY5U": 0.0}
     ridges = {}
 
     for method in METHODS:
@@ -160,7 +160,7 @@ def panel(ax, horizon: str, metric: str, data: dict, *, show_method_labels: bool
 
     ax.set_xscale("log")
     ax.set_xlim(left, right)
-    ax.set_ylim(-0.16, 3.18)
+    ax.set_ylim(-0.16, 2.55)
     ax.set_yticks([])
     ax.xaxis.set_major_locator(FixedLocator(TICKS[metric]))
     ax.xaxis.set_major_formatter(FuncFormatter(tick_label))
