@@ -25,7 +25,7 @@ from tabulate_region_opening_costs import (  # noqa: E402
 )
 
 
-METHODS = ("Random", "Geometric", "HY5U")
+METHODS = ("Geometric", "Random", "HY5U")
 COLORS = {"HY5U": "#4cc465", "Geometric": "#e59443", "Random": "#909090"}
 METRICS = {
     "sims": "Simulator pushes to first success (log scale)",
@@ -93,7 +93,7 @@ def panel(ax, horizon: str, metric: str, data: dict, *, show_method_labels: bool
     grid_log = np.linspace(math.log10(left), math.log10(right), 700)
     grid = 10 ** grid_log
     bandwidth = 0.11 if metric == "sims" else 0.13
-    y_by_method = {"Random": 2.0, "Geometric": 1.0, "HY5U": 0.0}
+    y_by_method = {"Geometric": 2.0, "Random": 1.0, "HY5U": 0.0}
 
     for method in METHODS:
         y = y_by_method[method]
