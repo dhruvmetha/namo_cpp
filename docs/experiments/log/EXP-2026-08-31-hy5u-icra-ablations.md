@@ -59,7 +59,7 @@ The existing HY5 seeds are being reused as the no-unreachable arm. Their Amarel 
 
 The hardened iLab smoke array `263877_[0-2]` completed all three arms in 45:11, 45:12, and 1:01:23 with finite losses, checkpoints, strict reloads, and scorer-load checks. It used scheduler-owned `srun`, direct NFS reads, and zero DataLoader workers to avoid both the staging-visibility and POSIX-semaphore failures above.
 
-The released full array `263883_[0-8]` then trained all nine models until its eight-hour limit and every task ended in `TIMEOUT`, with no non-timeout training error. The saved exact Lightning states are usable: eight arms reached checkpoint epoch 10, regression seed 2 reached epoch 11, and regression seed 3 reached epoch 8.
+The released full array `263883_[0-8]` then trained all nine models until its eight-hour limit and every task ended in `TIMEOUT`, with no non-timeout training error. The saved exact Lightning states are usable: seven models reached checkpoint epoch 10, regression seed 2 reached epoch 11, and regression seed 3 reached epoch 8.
 
 Continuation uses each production directory's `last.ckpt`, restoring model, optimizer, scheduler, global step, and epoch-loop state rather than restarting training. One no-family continuation first runs in a new untouched smoke directory; the nine production continuations are dependency-gated on that smoke, preserve the original `train.log`, and write job-specific resume logs.
 
