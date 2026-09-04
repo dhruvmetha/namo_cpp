@@ -2,11 +2,13 @@
 """Plot exact fixed-tier success curves from matched best-first leaf rows."""
 import argparse
 import json
+import os
 from pathlib import Path
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 from matplotlib.ticker import FixedFormatter, FixedLocator, NullLocator
 import numpy as np
 
@@ -16,7 +18,7 @@ from agg_search_eval import ONEPUSH_CUTS, TWOPUSH_CUTS, _summarize, load_tiered_
 
 HORIZONS = ("1push", "2push")
 TIERS = ("easy", "medium", "hard")
-SIM_TICKS = (1, 5, 30, 300, 4000, 10000)
+SIM_TICKS = (1, 2, 5, 10, 30, 100, 300, 900, 4000, 10000)
 # Wall-clock plots are valid only within one pinned-hardware campaign. Keep the visible log ticks sparse;
 # the exact table budgets remain in agg_search_eval.TIME_CUTS.
 TIME_TICKS = (0.1, 0.5, 2, 10, 60, 300, 1200)
@@ -198,12 +200,17 @@ def _panel(ax, series, horizon, tier, metric, grid, sim_budget, hardware_label):
                 np.clip(mean - std, 0.0, 100.0),
                 np.clip(mean + std, 0.0, 100.0),
                 color=item["color"],
-                alpha=0.16,
+                alpha=item.get("band_alpha", 0.16),
                 linewidth=0,
             )
-        suffix = f" ({len(item['arms'])} seeds, mean ± SD)" if len(item["arms"]) > 1 else ""
+        suffix = (
+            f" ({len(item['arms'])} seeds, mean ± SD)"
+            if len(item["arms"]) > 1 and item.get("show_seed_count", True)
+            else ""
+        )
         ax.plot(grid, mean, color=item["color"], linewidth=item["linewidth"],
-                linestyle=item["linestyle"], label=item["label"] + suffix)
+                linestyle=item["linestyle"], label=item["label"] + suffix,
+                zorder=item.get("zorder", 2))
     n = expected_n
     ax.set_title(f"{tier.capitalize()}  ·  n={n}")
     ax.set_xscale("log")
@@ -233,17 +240,19 @@ def _single_horizon(series, horizon, out_dir, metric, grid, sim_budget, hardware
     for ax, tier in zip(axes, TIERS):
         _panel(ax, series, horizon, tier, metric, grid, sim_budget, hardware_label)
     handles, labels = axes[0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="lower center", ncol=len(series), bbox_to_anchor=(0.5, -0.02))
+    fig.legend(handles, labels, loc="lower center", ncol=min(3, len(series)),
+               bbox_to_anchor=(0.5, -0.02))
     fig.suptitle(
         f"{horizon}: exact verified-success curve · hmax=2",
         fontsize=14,
         fontweight="semibold",
     )
-    fig.subplots_adjust(left=0.07, right=0.99, top=0.82, bottom=0.25, wspace=0.12)
+    fig.subplots_adjust(left=0.07, right=0.99, top=0.82,
+                        bottom=0.31 if len(series) > 3 else 0.25, wspace=0.12)
     _save(fig, out_dir / f"success_vs_{'sims' if metric == 'sims' else 'time'}_{horizon}")
 
 
-def _combined(series, out_dir, metric, grid, sim_budget, hardware_label):
+def _combined(series, out_dir, metric, grid, sim_budget, hardware_label, figure_title=None):
     fig, axes = plt.subplots(2, 3, figsize=(12.8, 7.3), sharey=True)
     for row, horizon in enumerate(HORIZONS):
         for col, tier in enumerate(TIERS):
@@ -259,16 +268,143 @@ def _combined(series, out_dir, metric, grid, sim_budget, hardware_label):
             fontweight="semibold",
         )
     handles, labels = axes[0, 0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="lower center", ncol=len(series), bbox_to_anchor=(0.5, 0.005))
+    fig.legend(handles, labels, loc="lower center", ncol=min(3, len(series)),
+               bbox_to_anchor=(0.5, 0.005))
     fig.suptitle(
-        "Exact verified region-opening success vs "
-        + ("simulator calls" if metric == "sims" else f"wall-clock time ({hardware_label})")
-        + " · hmax=2",
+        figure_title or (
+            "Exact verified region-opening success vs "
+            + ("simulator calls" if metric == "sims" else f"wall-clock time ({hardware_label})")
+            + " · hmax=2"
+        ),
         fontsize=15,
         fontweight="semibold",
     )
-    fig.subplots_adjust(left=0.09, right=0.99, top=0.90, bottom=0.12, hspace=0.38, wspace=0.12)
+    fig.subplots_adjust(left=0.09, right=0.99, top=0.90,
+                        bottom=0.17 if len(series) > 3 else 0.12,
+                        hspace=0.38, wspace=0.12)
     _save(fig, out_dir / f"success_vs_{'sims' if metric == 'sims' else 'time'}_both_horizons")
+
+
+def _solve_at(rows, tier, budget):
+    selected = rows if tier == "all" else [row for row in rows if row["division"] == tier]
+    if not selected:
+        raise RuntimeError(f"no rows for tier {tier}")
+    return 100.0 * sum(row["solved"] and row["sims"] <= budget for row in selected) / len(selected)
+
+
+def _paired_deltas(reference, comparison, horizon, tier, budget):
+    if len(reference) != len(comparison):
+        raise RuntimeError(
+            f"paired delta requires equal seed counts: {len(reference)} != {len(comparison)}"
+        )
+    return np.asarray([
+        _solve_at(arm[horizon], tier, budget) - _solve_at(ref_arm[horizon], tier, budget)
+        for ref_arm, arm in zip(reference, comparison)
+    ])
+
+
+def _delta_plot(series, reference_key, out_dir):
+    references = [item for item in series if item["key"] == reference_key]
+    if len(references) != 1:
+        raise RuntimeError(f"delta reference {reference_key!r} matched {len(references)} series")
+    reference = references[0]["arms"]
+    comparisons = [item for item in series if item.get("delta", False)]
+    if not comparisons:
+        raise RuntimeError("delta plot requested but no series has delta=true")
+
+    tier_styles = {
+        "easy": ("#0072B2", "Easy"),
+        "medium": ("#009E73", "Medium"),
+        "hard": ("#D55E00", "Hard"),
+        "all": ("#222222", "Overall"),
+    }
+    metrics = (("1push", 1, "One push: solve@1"), ("2push", 5, "Two pushes: solve@5"))
+    fig, axes = plt.subplots(1, 2, figsize=(12.8, 5.1), sharey=True)
+    ybase = np.arange(len(comparisons), dtype=float)
+    offsets = dict(zip(tier_styles, np.linspace(-0.24, 0.24, len(tier_styles))))
+
+    for ax, (horizon, budget, title) in zip(axes, metrics):
+        observed = []
+        for tier, (color, _) in tier_styles.items():
+            for index, item in enumerate(comparisons):
+                deltas = _paired_deltas(reference, item["arms"], horizon, tier, budget)
+                mean = float(deltas.mean())
+                sd = float(deltas.std(ddof=1)) if len(deltas) > 1 else 0.0
+                observed.extend((mean - sd, mean + sd))
+                ax.errorbar(
+                    mean,
+                    ybase[index] + offsets[tier],
+                    xerr=sd,
+                    fmt="o",
+                    color=color,
+                    markersize=5.5,
+                    capsize=2.5,
+                    linewidth=1.25,
+                    zorder=3,
+                )
+        lower = min(min(observed), 0.0)
+        upper = max(max(observed), 0.0)
+        pad = max(1.2, 0.10 * (upper - lower))
+        ax.set_xlim(lower - pad, upper + pad)
+        ax.axvline(0.0, color="#666666", linewidth=1.0, linestyle="--", zorder=1)
+        ax.grid(axis="x", color="#E1E1E1", linewidth=0.7)
+        ax.set_title(title, fontsize=13, fontweight="semibold")
+        ax.set_xlabel("Change from HY5U (percentage points)")
+        ax.set_yticks(ybase)
+        ax.set_yticklabels([item["label"] for item in comparisons])
+        ax.invert_yaxis()
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+    handles = [
+        Line2D([0], [0], marker="o", linestyle="none", color=color, label=label, markersize=6)
+        for color, label in tier_styles.values()
+    ]
+    fig.legend(handles=handles, loc="lower center", ncol=4, bbox_to_anchor=(0.5, 0.005),
+               frameon=False)
+    fig.suptitle("Effect of removing each HY5U component · paired seeds, mean ± SD",
+                 fontsize=15, fontweight="semibold")
+    fig.subplots_adjust(left=0.19, right=0.99, top=0.84, bottom=0.19, wspace=0.16)
+    _save(fig, out_dir / "ablation_effects")
+
+
+def _load_series_spec(path, args):
+    payload = json.load(open(path))
+    series = []
+    configs = []
+    keys = set()
+    for spec in payload["series"]:
+        key = spec["key"]
+        if key in keys:
+            raise RuntimeError(f"duplicate series key {key!r}")
+        keys.add(key)
+        onepush_dirs = [os.path.expandvars(path) for path in spec["onepush_dirs"]]
+        twopush_dirs = [os.path.expandvars(path) for path in spec["twopush_dirs"]]
+        if len(onepush_dirs) != len(twopush_dirs):
+            raise RuntimeError(f"{key} 1push/2push seed counts differ")
+        arms = []
+        arm_configs = []
+        for onepush_dir, twopush_dir in zip(onepush_dirs, twopush_dirs):
+            tiered, config = _load_arm(onepush_dir, twopush_dir, args)
+            arms.append(tiered)
+            arm_configs.append(config)
+        configs.extend(arm_configs)
+        series.append({
+            "key": key,
+            "label": spec["label"],
+            "arms": arms,
+            "color": spec["color"],
+            "linewidth": float(spec.get("linewidth", 2.0)),
+            "linestyle": spec.get("linestyle", "-"),
+            "band_alpha": float(spec.get("band_alpha", 0.10)),
+            "zorder": int(spec.get("zorder", 2)),
+            "show_seed_count": bool(spec.get("show_seed_count", False)),
+            "delta": bool(spec.get("delta", False)),
+            "model_warmup_repeats": _consistent_warmup_repeats(
+                arm_configs, spec["label"]
+            ),
+        })
+    return series, configs
 
 
 def _write_curve_json(path, series, grids, sim_budget, hardware_label):
@@ -312,8 +448,9 @@ def _write_curve_json(path, series, grids, sim_budget, hardware_label):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model-onepush-dir", required=True, nargs="+")
-    parser.add_argument("--model-twopush-dir", required=True, nargs="+")
+    parser.add_argument("--series-spec", help="JSON definition for an arbitrary set of seed groups")
+    parser.add_argument("--model-onepush-dir", nargs="+")
+    parser.add_argument("--model-twopush-dir", nargs="+")
     parser.add_argument("--model-label", default="Learned ranker")
     parser.add_argument("--comparison-onepush-dir")
     parser.add_argument("--comparison-twopush-dir")
@@ -328,6 +465,9 @@ def main():
     parser.add_argument("--hardware-label", default="1 core, pinned icelake")
     parser.add_argument("--curve-json", help="optional compact curve data for an interactive plot")
     parser.add_argument("--aggregate-json", help="optional fixed-budget tables for every plotted series")
+    parser.add_argument("--delta-reference-key",
+                        help="series key used as zero for the paired component-removal plot")
+    parser.add_argument("--figure-title", help="override the combined figure title")
     parser.add_argument("--common-episode-set", action="store_true",
                         help="restrict every seed and method to the exact episode intersection")
     parser.add_argument("--x-axis", default="sims", choices=["sims", "time", "both"],
@@ -335,33 +475,68 @@ def main():
                              "seconds (needs instrumented rows), or both")
     args = parser.parse_args()
 
-    if len(args.model_onepush_dir) != len(args.model_twopush_dir):
-        raise RuntimeError("model 1push/2push seed counts differ")
-    model_seeds = []
-    model_configs = []
-    for onepush_dir, twopush_dir in zip(args.model_onepush_dir, args.model_twopush_dir):
-        tiered, config = _load_arm(onepush_dir, twopush_dir, args)
-        model_seeds.append(tiered)
-        model_configs.append(config)
-    if bool(args.comparison_onepush_dir) != bool(args.comparison_twopush_dir):
-        raise RuntimeError("comparison requires both 1push and 2push directories")
-    if bool(args.random_onepush_dirs) != bool(args.random_twopush_dirs):
-        raise RuntimeError("random comparison requires both 1push and 2push directories")
-    comparison = []
-    comparison_configs = []
-    if args.comparison_onepush_dir:
-        tiered, config = _load_arm(args.comparison_onepush_dir, args.comparison_twopush_dir, args)
-        comparison.append(tiered)
-        comparison_configs.append(config)
-    random_seeds = []
-    random_configs = []
-    for onepush_dir, twopush_dir in zip(
-        args.random_onepush_dirs or [], args.random_twopush_dirs or []
-    ):
-        tiered, config = _load_arm(onepush_dir, twopush_dir, args)
-        random_seeds.append(tiered)
-        random_configs.append(config)
-    configs = model_configs + comparison_configs + random_configs
+    if args.series_spec:
+        legacy_args = (
+            args.model_onepush_dir, args.model_twopush_dir,
+            args.comparison_onepush_dir, args.comparison_twopush_dir,
+            args.random_onepush_dirs, args.random_twopush_dirs,
+        )
+        if any(legacy_args):
+            raise RuntimeError("--series-spec cannot be mixed with the legacy series arguments")
+        series, configs = _load_series_spec(args.series_spec, args)
+    else:
+        if not args.model_onepush_dir or not args.model_twopush_dir:
+            raise RuntimeError("model directories are required unless --series-spec is used")
+        if len(args.model_onepush_dir) != len(args.model_twopush_dir):
+            raise RuntimeError("model 1push/2push seed counts differ")
+        model_seeds = []
+        model_configs = []
+        for onepush_dir, twopush_dir in zip(args.model_onepush_dir, args.model_twopush_dir):
+            tiered, config = _load_arm(onepush_dir, twopush_dir, args)
+            model_seeds.append(tiered)
+            model_configs.append(config)
+        if bool(args.comparison_onepush_dir) != bool(args.comparison_twopush_dir):
+            raise RuntimeError("comparison requires both 1push and 2push directories")
+        if bool(args.random_onepush_dirs) != bool(args.random_twopush_dirs):
+            raise RuntimeError("random comparison requires both 1push and 2push directories")
+        comparison = []
+        comparison_configs = []
+        if args.comparison_onepush_dir:
+            tiered, config = _load_arm(args.comparison_onepush_dir, args.comparison_twopush_dir, args)
+            comparison.append(tiered)
+            comparison_configs.append(config)
+        random_seeds = []
+        random_configs = []
+        for onepush_dir, twopush_dir in zip(
+            args.random_onepush_dirs or [], args.random_twopush_dirs or []
+        ):
+            tiered, config = _load_arm(onepush_dir, twopush_dir, args)
+            random_seeds.append(tiered)
+            random_configs.append(config)
+        configs = model_configs + comparison_configs + random_configs
+        series = [
+            {"key": "model", "label": args.model_label, "arms": model_seeds,
+             "color": COLORS["model"], "linewidth": 2.4, "linestyle": "-",
+             "model_warmup_repeats": _consistent_warmup_repeats(
+                 model_configs, args.model_label)},
+        ]
+        if comparison:
+            series.append(
+                {"key": "comparison", "label": args.comparison_label, "arms": comparison,
+                 "color": COLORS["comparison"], "linewidth": 2.3, "linestyle": "-",
+                 "model_warmup_repeats": _consistent_warmup_repeats(
+                     comparison_configs, args.comparison_label)}
+            )
+        if random_seeds:
+            series.append(
+                {"key": "random", "label": "Random", "arms": random_seeds,
+                 "color": COLORS["random"], "linewidth": 2.2, "linestyle": "--",
+                 "model_warmup_repeats": _consistent_warmup_repeats(
+                     random_configs, "Random")}
+            )
+
+    if not configs:
+        raise RuntimeError("no series loaded")
     reference_config = configs[0]
     if any(not _same_config(reference_config, config) for config in configs[1:]):
         raise RuntimeError("leaf rows do not share one search configuration apart from prior")
@@ -370,25 +545,6 @@ def main():
     if not reference_config.get("dedupe_noop") or not reference_config.get("prune_jam_depth"):
         raise RuntimeError("expected no-op dedupe and jam-depth pruning")
     sim_budget = int(reference_config["sim_budget"])
-    series = [
-        {"key": "model", "label": args.model_label, "arms": model_seeds,
-         "color": COLORS["model"], "linewidth": 2.4, "linestyle": "-",
-         "model_warmup_repeats": _consistent_warmup_repeats(model_configs, args.model_label)},
-    ]
-    if comparison:
-        series.append(
-            {"key": "comparison", "label": args.comparison_label, "arms": comparison,
-             "color": COLORS["comparison"], "linewidth": 2.3, "linestyle": "-",
-             "model_warmup_repeats": _consistent_warmup_repeats(
-                 comparison_configs, args.comparison_label)}
-        )
-    if random_seeds:
-        series.append(
-            {"key": "random", "label": "Random", "arms": random_seeds,
-             "color": COLORS["random"], "linewidth": 2.2, "linestyle": "--",
-             "model_warmup_repeats": _consistent_warmup_repeats(random_configs, "Random")}
-        )
-
     all_arms = [arm for item in series for arm in item["arms"]]
     common = _restrict_to_common_episodes(all_arms) if args.common_episode_set else None
     if common:
@@ -406,7 +562,12 @@ def main():
         grids[metric] = grid
         for horizon in HORIZONS:
             _single_horizon(series, horizon, out_dir, metric, grid, sim_budget, args.hardware_label)
-        _combined(series, out_dir, metric, grid, sim_budget, args.hardware_label)
+        _combined(series, out_dir, metric, grid, sim_budget, args.hardware_label,
+                  args.figure_title)
+    if args.delta_reference_key:
+        if args.x_axis != "sims":
+            raise RuntimeError("paired ablation effects are defined on simulator-call budgets")
+        _delta_plot(series, args.delta_reference_key, out_dir)
     if args.curve_json:
         if set(grids) != {"sims", "time"}:
             raise RuntimeError("--curve-json requires --x-axis both")
