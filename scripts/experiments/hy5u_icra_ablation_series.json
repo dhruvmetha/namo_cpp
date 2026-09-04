@@ -36,6 +36,7 @@
       "linewidth": 2.0,
       "linestyle": ":",
       "delta": true,
+      "delta_order": 1,
       "zorder": 5
     },
     {
@@ -55,6 +56,7 @@
       "linewidth": 2.0,
       "linestyle": "-.",
       "delta": true,
+      "delta_order": 4,
       "zorder": 4
     },
     {
@@ -74,6 +76,7 @@
       "linewidth": 2.0,
       "linestyle": "-.",
       "delta": true,
+      "delta_order": 2,
       "zorder": 3
     },
     {
@@ -93,6 +96,7 @@
       "linewidth": 2.0,
       "linestyle": "--",
       "delta": true,
+      "delta_order": 3,
       "zorder": 3
     },
     {

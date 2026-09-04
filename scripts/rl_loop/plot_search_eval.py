@@ -308,7 +308,10 @@ def _delta_plot(series, reference_key, out_dir):
     if len(references) != 1:
         raise RuntimeError(f"delta reference {reference_key!r} matched {len(references)} series")
     reference = references[0]["arms"]
-    comparisons = [item for item in series if item.get("delta", False)]
+    comparisons = sorted(
+        (item for item in series if item.get("delta", False)),
+        key=lambda item: item.get("delta_order", 0),
+    )
     if not comparisons:
         raise RuntimeError("delta plot requested but no series has delta=true")
 
@@ -352,9 +355,10 @@ def _delta_plot(series, reference_key, out_dir):
         ax.set_xlabel("Change from HY5U (percentage points)")
         ax.set_yticks(ybase)
         ax.set_yticklabels([item["label"] for item in comparisons])
-        ax.invert_yaxis()
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
+
+    axes[0].invert_yaxis()
 
     handles = [
         Line2D([0], [0], marker="o", linestyle="none", color=color, label=label, markersize=6)
@@ -400,6 +404,7 @@ def _load_series_spec(path, args):
             "zorder": int(spec.get("zorder", 2)),
             "show_seed_count": bool(spec.get("show_seed_count", False)),
             "delta": bool(spec.get("delta", False)),
+            "delta_order": int(spec.get("delta_order", 0)),
             "model_warmup_repeats": _consistent_warmup_repeats(
                 arm_configs, spec["label"]
             ),
