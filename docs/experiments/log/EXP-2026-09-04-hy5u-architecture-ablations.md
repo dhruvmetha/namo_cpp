@@ -49,6 +49,8 @@ Background supervisor PID `1655534` started on Arrakis at 14:50 EDT. It writes `
 
 The post-training handoff is precommitted and runs as a separate background supervisor. It waits for all six 12-epoch completion markers, selects the minimum-validation-loss checkpoint from each seed, verifies hashes after transfer to a dedicated Amarel checkout, and submits one target-box smoke per architecture. Each successful smoke releases three 36-task canonical evaluation arrays, followed by strict per-seed aggregation jobs. The evaluation reuses the registered HY5U, Random, and independent-contacts results rather than recomputing them.
 
+Both training smokes passed at 15:08 EDT after 1,116 seconds, and the paired seed-1 full runs started immediately. Post-training handoff supervisor PID `1718951` started on Arrakis at 15:15 EDT using NAMO evaluation commit `61b95a17` and Sage commit `ceff4bf`; it polls at five-minute intervals and will stage the Amarel target-box smokes and dependent full arrays without an interactive session.
+
 ## Result
 
 Pending.
