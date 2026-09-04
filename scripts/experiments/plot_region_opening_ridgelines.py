@@ -31,7 +31,7 @@ COLORS = {"HY5U": "#4cc465", "Geometric": "#d9534f", "Random": "#909090"}
 PANEL_TITLES = {
     "1push": "One push",
     "2push": "Two pushes",
-    "combined": "Overall test set",
+    "combined": "",
 }
 METRICS = {
     "sims": "Simulator pushes to first success (log scale)",

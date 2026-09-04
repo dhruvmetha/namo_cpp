@@ -86,3 +86,13 @@ def test_plot_combined_metric_writes_png_and_pdf(tmp_path):
 
     for suffix in (".png", ".pdf"):
         assert output.with_suffix(suffix).stat().st_size > 0
+
+
+def test_combined_panel_has_no_title():
+    combined = plot.combine_horizons(synthetic_horizon_data())
+    figure, axis = plot.plt.subplots()
+
+    plot.panel(axis, "combined", "sims", combined, show_method_labels=True)
+
+    assert axis.get_title() == ""
+    plot.plt.close(figure)
