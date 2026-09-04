@@ -231,6 +231,8 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--postcheck-limit", type=int, default=0,
                     help="limit each post-training reload/diagnostic split; 0 keeps the full split")
+    ap.add_argument("--resume-from", default=None,
+                    help="Lightning checkpoint to resume, including optimizer and loop state")
     a = ap.parse_args()
 
     pl.seed_everything(a.seed, workers=True)
@@ -252,7 +254,7 @@ def main():
         max_epochs=a.epochs, accelerator="auto", devices=1, precision="16-mixed",
         callbacks=cbs, logger=False, enable_progress_bar=False, num_sanity_val_steps=0,
     )
-    trainer.fit(module, dm)
+    trainer.fit(module, dm, ckpt_path=a.resume_from)
     best = ckpt_cb.best_model_path or os.path.join(ckpt_dir, "last.ckpt")
     print(f"\n[train_q2] best ckpt: {best}", flush=True)
 

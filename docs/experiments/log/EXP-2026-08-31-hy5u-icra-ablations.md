@@ -2,7 +2,7 @@
 type: experiment
 status: live
 created: 2026-08-31
-updated: 2026-09-02
+updated: 2026-09-03
 commit: 0312528
 metric: "Canonical fixed-physics-v3 success-vs-simulator-calls, split by easy/medium/hard and 1push/2push; three seeds per new arm."
 tags:
@@ -56,6 +56,12 @@ Pinned-rlab4 smoke task `263865_0` trained until validation and then failed befo
 The broader iLab retry `263873_[0-2]` falsified the node-specific diagnosis: its no-family task failed on ilab2 after 96 seconds with the same missing-semaphore error even though no direct compute-node SSH session was opened. The two still-running rlab6 tasks and dependency-gated full fleet `263876_[0-8]` were cancelled before producing artifacts. GPU training therefore moved to Amarel at commit `0579f8c4`: smoke array `61192788_[0-2]` is queued on `gpu`, and full fleet `61192789_[0-8]` has an `afterok` dependency on every smoke task. Amarel's test-only estimate was approximately 13 hours, which explains the original iLab choice; after the repeated IPC failures, the longer queue is the lower-risk path.
 
 The existing HY5 seeds are being reused as the no-unreachable arm. Their Amarel checkpoint hashes match the CS originals exactly, one current-code canonical eval smoke passed as job `61192621`, and the six full fixed-physics-v3 horizon arrays are `61192630` through `61192635`. These are simulation-count evaluations only; their unpinned wall times will not be compared with another method.
+
+The hardened iLab smoke array `263877_[0-2]` completed all three arms in 45:11, 45:12, and 1:01:23 with finite losses, checkpoints, strict reloads, and scorer-load checks. It used scheduler-owned `srun`, direct NFS reads, and zero DataLoader workers to avoid both the staging-visibility and POSIX-semaphore failures above.
+
+The released full array `263883_[0-8]` then trained all nine models until its eight-hour limit and every task ended in `TIMEOUT`, with no non-timeout training error. The saved exact Lightning states are usable: eight arms reached checkpoint epoch 10, regression seed 2 reached epoch 11, and regression seed 3 reached epoch 8.
+
+Continuation uses each production directory's `last.ckpt`, restoring model, optimizer, scheduler, global step, and epoch-loop state rather than restarting training. One no-family continuation first runs in a new untouched smoke directory; the nine production continuations are dependency-gated on that smoke, preserve the original `train.log`, and write job-specific resume logs.
 
 ## Result
 

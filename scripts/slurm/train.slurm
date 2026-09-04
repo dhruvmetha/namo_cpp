@@ -89,11 +89,15 @@ if [ "${NAMO_STAGE_SHM:-1}" = "1" ]; then
     rm -f "$SH5" 2>/dev/null; echo "stage-dir copy failed; using NFS path"
   fi
 fi
-mkdir -p "$OUT"; LOG="$OUT/train.log"
+mkdir -p "$OUT"; LOG=${TRAIN_LOG:-$OUT/train.log}
 
-echo "TRAIN start $(date) host=$(hostname) H5=$H5 GAMMA=${NAMO_GAMMA:-none} PY=$PY OUT=$OUT"
+echo "TRAIN start $(date) host=$(hostname) H5=$H5 GAMMA=${NAMO_GAMMA:-none} PY=$PY OUT=$OUT RESUME_FROM=${RESUME_FROM:-none} LOG=$LOG"
 EXTRA=()
 if [ -n "${POSTCHECK_LIMIT:-}" ]; then EXTRA+=(--postcheck-limit "$POSTCHECK_LIMIT"); fi
+if [ -n "${RESUME_FROM:-}" ]; then
+  [ -f "$RESUME_FROM" ] || { echo "missing resume checkpoint: $RESUME_FROM" >&2; exit 1; }
+  EXTRA+=(--resume-from "$RESUME_FROM")
+fi
 RUNNER=()
 if [ "${NAMO_USE_SRUN:-0}" = "1" ]; then RUNNER=(srun --nodes=1 --ntasks=1); fi
 "${RUNNER[@]}" "$PY" "${TRAIN_SCRIPT:-scripts/rl_loop/train_q2_rankaux.py}" --h5 "$H5" --out-dir "$OUT" \
