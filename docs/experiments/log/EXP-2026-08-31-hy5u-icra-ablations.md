@@ -1,8 +1,8 @@
 ---
 type: experiment
-status: live
+status: done
 created: 2026-08-31
-updated: 2026-09-03
+updated: 2026-09-04
 commit: 0312528
 metric: "Canonical fixed-physics-v3 success-vs-simulator-calls, split by easy/medium/hard and 1push/2push; three seeds per new arm."
 tags:
@@ -75,8 +75,30 @@ At commit `1b164795`, the nine selected best-validation checkpoints were checksu
 
 ## Result
 
-Pending.
+All 324 tasks in the nine newly trained-arm arrays completed with exit code `0:0`; the six reused HY5 arrays also completed cleanly. `scripts/rl_loop/agg_search_eval.py` accepted exactly 1,328 one-push and 992 two-push episode rows for every seed, rejected no duplicate population or mixed search configuration, and verified `hmax=2`, no-op deduplication, and jam-depth pruning. Values below are solve rate in percent, mean ± sample SD across three seeds. Wall time is intentionally excluded because these arrays were not pinned to one CPU generation.
+
+| method | change from HY5U | 1push easy@1 | medium@1 | hard@1 | all@1 |
+|---|---|---:|---:|---:|---:|
+| HY5U | full model | 97.1±0.5 | 79.8±0.3 | 40.2±1.2 | 82.5±0.4 |
+| no family | remove episode-family margin loss | 96.7±0.5 | 78.7±1.0 | 41.3±0.8 | 82.2±0.5 |
+| regression only | remove family and per-board ranking losses | 97.6±0.1 | 80.1±0.8 | 32.4±1.0 | 81.7±0.4 |
+| independent contacts | remove inter-contact self-attention | 96.2±1.0 | 76.3±1.2 | 35.4±0.6 | 80.2±0.4 |
+| no unreachable, HY5 | remove unreachable-cell regression supervision | 96.7±0.5 | 78.9±1.1 | 38.5±3.8 | 81.8±0.7 |
+| Random | uniform ordering | 61.1±4.6 | 14.1±1.7 | 2.9±0.8 | 36.5±2.8 |
+
+| method | 2push easy@5 | medium@5 | hard@5 | all@5 | all@900 |
+|---|---:|---:|---:|---:|---:|
+| HY5U | 80.6±1.6 | 59.3±0.6 | 35.9±2.1 | 64.8±0.8 | 93.0±0.2 |
+| no family | 80.5±1.6 | 59.8±1.0 | 36.4±2.2 | 65.1±0.4 | 93.4±0.1 |
+| regression only | 57.8±3.2 | 42.0±1.0 | 24.3±4.4 | 46.1±1.9 | 93.3±0.1 |
+| independent contacts | 76.7±1.2 | 52.8±1.7 | 30.5±3.0 | 59.5±1.1 | 92.8±0.1 |
+| no unreachable, HY5 | 63.4±1.3 | 47.8±1.2 | 25.7±4.4 | 51.2±0.2 | 93.3±0.4 |
+| Random | 22.8±3.6 | 7.2±1.7 | 2.0±1.3 | 12.7±2.0 | 88.4±0.6 |
+
+The full ranking loss is the largest contributor to low-budget efficiency: regression-only loses 18.7 points at two-push@5 overall while matching the 900-call ceiling. Removing unreachable supervision loses 13.6 points, and removing inter-contact self-attention loses 5.3 points. Removing the episode-family margin loss changes two-push@5 by only +0.3 points overall and stays within seed variation on every tier.
+
+The three newly trained-arm aggregates are mirrored on the CS filesystem under `/common/users/dm1487/scratch_namo/eval/hy5u_ablations_20260904/full/`; raw rows remain on Amarel under `/scratch/dm1487/eval/hy5u_ablations_20260904/full/`. Reused HY5 aggregates are under `/common/users/dm1487/scratch_namo/aquaman/round0/eval_icra_ablations_20260902/full/`, with Amarel raw rows under the matching `/scratch/dm1487/aquaman/round0/eval_icra_ablations_20260902/full/` path.
 
 ## Verdict
 
-Pending.
+The regression-only hypothesis is confirmed: direct ranking supervision is necessary for the simulator-call efficiency HY5U is designed to provide. The independent-contacts hypothesis is also confirmed, with a smaller consistent loss. The no-unreachable control confirms that unreachable-cell supervision is a major part of the two-push gain. The no-family hypothesis is rejected: the episode-family margin loss is empirically redundant under the current `hmax=2` search and is not justified by these results.

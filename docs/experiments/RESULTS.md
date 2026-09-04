@@ -2,7 +2,7 @@
 status: hub
 tags:
   - results
-updated: 2026-08-28
+updated: 2026-09-04
 ---
 # Results — DAgger curriculum training framework
 
@@ -53,10 +53,39 @@ The scannable cross-campaign index: **what we changed, why, and whether it helpe
 | 08-21 | **fixed-physics v3 canonical evaluation** — HY5U ×3 vs random ×3 | replace every stale v1 comparison with a complete-population v3 baseline | ✅✅ HY5U wins the tight search regime on every tier; hard 2push @5 **35.9 vs 2.0**, @900 **87.6 vs 62.2** | registry: `hy5u-nodiscount-hmax2-v3` / `random-nodiscount-hmax2-v3` |
 | 08-22 | **HY5U as a policy** — zero search, greedy argmax, out to 30 calls [USER] | what is the ranker worth with the queue switched off | ✅ policy **leads to ~5 calls** (2push all @5 **75.7 vs 73.4**) then **saturates**; search passes at 10 and finishes **89.7 vs 82.9** @30. Crossover is the engineering answer. Two harness bugs found and fixed | [policy-mode](log/EXP-2026-08-22-policy-mode-hy5u.md) |
 | 08-29 | **geometry-only best-first baselines** — legacy single-path proxy, then corrected target-region reachability | can a proper model-free geometric method beat random ordering? | ❌ **full timed run confirms rejection** — geometry briefly beats random at one call (1push **48.2 vs 36.6**) and five calls (2push **15.7 vs 12.6**), but loses by 30 calls (**84.8 vs 95.0**, **36.0 vs 49.7**) and by five seconds (**82.1 vs 93.2**, **30.4 vs 40.7**); HY5U remains far ahead | registry: `geometric-region-walltime-4000-v3` / `geometric-walltime-4000-v3` |
+| 09-04 | **HY5U component ablations** — no unreachable supervision, no family loss, regression only, and independent contacts | identify which parts of the ranker actually reduce simulator calls | **mixed, clean attribution** — regression-only and no-unreachable lose 18.7 and 13.6 points at 2push@5; independent contacts loses 5.3; no-family is neutral | [HY5U ablations](log/EXP-2026-08-31-hy5u-icra-ablations.md) |
 
 **Failed ideas, kept so they are not retried blind:** unanchored family softmax · hinge without an anchor (RPM) · 2% regression brake (RPB) · absolute plates on dead cells · margins sized in raw units instead of σ · root rebalancing as a 1-push fix · exhaustive relabeling bought at the cost of corpus size · ladder + rebalance stacking · push-depth-aware pose head · Fourier depth identity.
 
 **Standing meta-lesson:** offline V5 has anti-predicted canonical deploy five times (most starkly: HY5U has the worst V5 of any hybrid arm and the best deploy of any model here). V5 is a burial diagnostic; canonical deploy is the only arbiter.
+
+---
+
+## 2026-09-04 — HY5U component ablations: ordering losses and unreachable supervision matter; family ranking does not
+
+Three seeds of each ablation were evaluated on the same complete fixed-physics-v3 population as HY5U and Random: 1,328 one-push and 992 genuine two-push episodes per seed. Every arm used `hmax=2`, budget 900, `prior=model`, `agg=mean5`, raw `q`, discount off, no-op deduplication on, and jam-depth pruning on. The strict aggregator accepted the exact population and search configuration for all twelve ablation seeds; all 324 newly launched array tasks completed with exit code `0:0`. These were not pinned-hardware timing runs, so only simulator-call results are compared. Values are solve rate in percent, mean ± sample SD across three seeds.
+
+| method | change from HY5U | 1push easy@1 | medium@1 | hard@1 | all@1 |
+|---|---|---:|---:|---:|---:|
+| HY5U | full model | 97.1±0.5 | 79.8±0.3 | 40.2±1.2 | 82.5±0.4 |
+| no family | remove episode-family margin loss | 96.7±0.5 | 78.7±1.0 | 41.3±0.8 | 82.2±0.5 |
+| regression only | remove family and per-board ranking losses | 97.6±0.1 | 80.1±0.8 | 32.4±1.0 | 81.7±0.4 |
+| independent contacts | remove inter-contact self-attention | 96.2±1.0 | 76.3±1.2 | 35.4±0.6 | 80.2±0.4 |
+| no unreachable, HY5 | remove unreachable-cell regression supervision | 96.7±0.5 | 78.9±1.1 | 38.5±3.8 | 81.8±0.7 |
+| Random | uniform ordering | 61.1±4.6 | 14.1±1.7 | 2.9±0.8 | 36.5±2.8 |
+
+| method | 2push easy@5 | medium@5 | hard@5 | all@5 | all@900 |
+|---|---:|---:|---:|---:|---:|
+| HY5U | 80.6±1.6 | 59.3±0.6 | 35.9±2.1 | 64.8±0.8 | 93.0±0.2 |
+| no family | 80.5±1.6 | 59.8±1.0 | 36.4±2.2 | 65.1±0.4 | 93.4±0.1 |
+| regression only | 57.8±3.2 | 42.0±1.0 | 24.3±4.4 | 46.1±1.9 | 93.3±0.1 |
+| independent contacts | 76.7±1.2 | 52.8±1.7 | 30.5±3.0 | 59.5±1.1 | 92.8±0.1 |
+| no unreachable, HY5 | 63.4±1.3 | 47.8±1.2 | 25.7±4.4 | 51.2±0.2 | 93.3±0.4 |
+| Random | 22.8±3.6 | 7.2±1.7 | 2.0±1.3 | 12.7±2.0 | 88.4±0.6 |
+
+**The ordering losses are the strongest component.** Regression-only loses 18.7 points overall and 11.6 points on hard two-push at five calls, yet its 900-call ceiling matches HY5U. The removed losses therefore improve the order in which search spends simulator calls rather than determining whether a solution exists. Removing unreachable supervision produces the next-largest loss, 13.6 points overall at two-push@5, which confirms that free geometric negatives teach useful ordering. Inter-contact self-attention contributes a smaller but consistent 5.3-point overall gain. The episode-family margin loss does not earn its complexity under this `hmax=2` protocol: removing it changes two-push@5 from 64.8±0.8 to 65.1±0.4 and leaves every tier within seed variation. Every learned arm still beats Random sharply at small budgets.
+
+Per-seed aggregates for the three newly trained arms are under `$NAMO_SCRATCH/eval/hy5u_ablations_20260904/full/`; the reused HY5 no-unreachable aggregates are under `$NAMO_SCRATCH/aquaman/round0/eval_icra_ablations_20260902/full/`. Full run history and checkpoint selection are in [EXP-2026-08-31](log/EXP-2026-08-31-hy5u-icra-ablations.md); canonical artifacts are registered as `hy5u-icra-ablations-hmax2-v3`.
 
 ---
 
