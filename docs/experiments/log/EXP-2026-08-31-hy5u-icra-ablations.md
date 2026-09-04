@@ -63,6 +63,8 @@ The released full array `263883_[0-8]` then trained all nine models until its ei
 
 Continuation uses each production directory's `last.ckpt`, restoring model, optimizer, scheduler, global step, and epoch-loop state rather than restarting training. One no-family continuation first runs in a new untouched smoke directory; the nine production continuations are dependency-gated on that smoke, preserve the original `train.log`, and write job-specific resume logs.
 
+At commit `7797e8f3`, iLab resume smoke `265373_0` was submitted with a two-hour limit, zero DataLoader workers, direct NFS reads, and ilab3/ilab4 excluded. Production continuation array `265374_[0-8]` has a strict `afterok:265373` dependency and a six-hour limit per model; at submission it was held on that dependency and had not touched any production artifact.
+
 ## Result
 
 Pending.
