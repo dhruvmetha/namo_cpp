@@ -45,6 +45,8 @@ Live placement on 2026-09-04 found iLab's two-hour GPU request projected for 202
 
 The run uses NAMO commit `ffe34dda` and Sage commit `ceff4bf`.
 
+Background supervisor PID `1655534` started on Arrakis at 14:50 EDT. It writes `architecture_ablations_20260904/supervisor.log` under the round-0 scratch directory, runs the global and no-local smokes concurrently on GPUs 1 and 2, and releases three paired seed waves only after both completion markers pass.
+
 ## Result
 
 Pending.
