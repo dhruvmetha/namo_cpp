@@ -26,6 +26,7 @@ from tabulate_region_opening_costs import (  # noqa: E402
 
 
 METHODS = ("Geometric", "Random", "HY5U")
+COMBINED_HORIZONS = ("1push", "2push")
 COLORS = {"HY5U": "#4cc465", "Geometric": "#d9534f", "Random": "#909090"}
 METRICS = {
     "sims": "Simulator pushes to first success (log scale)",
@@ -76,6 +77,32 @@ def load_costs(args):
     return result
 
 
+def combine_horizons(data: dict) -> dict:
+    """Pool horizon populations while preserving each episode as one observation."""
+    costs = {
+        method: {metric: {} for metric in METRICS}
+        for method in METHODS
+    }
+    for horizon in COMBINED_HORIZONS:
+        for method in METHODS:
+            for metric in METRICS:
+                costs[method][metric].update({
+                    (horizon, key): observation
+                    for key, observation in data[horizon]["costs"][method][metric].items()
+                })
+    return {"costs": costs}
+
+
+def successful_costs_and_unsolved_percentage(
+    data: dict, method: str, metric: str
+) -> tuple[list[float], float]:
+    """Return successful costs and the unsolved percentage for one ridge."""
+    observations = list(data["costs"][method][metric].values())
+    solved_values = [value for solved, value in observations if solved and value is not None]
+    unsolved_pct = 100.0 * (len(observations) - len(solved_values)) / len(observations)
+    return solved_values, unsolved_pct
+
+
 def smooth_log_density(values: list[float], grid_log: np.ndarray, bandwidth: float) -> np.ndarray:
     """Return a unit-area KDE over log10 cost, conditional on success."""
     log_values = np.log10(np.asarray(values, dtype=np.float64))
@@ -100,9 +127,9 @@ def panel(ax, horizon: str, metric: str, data: dict, *, show_method_labels: bool
     ridges = {}
 
     for method in METHODS:
-        observations = list(data["costs"][method][metric].values())
-        solved_values = [value for solved, value in observations if solved and value is not None]
-        unsolved_pct = 100.0 * (len(observations) - len(solved_values)) / len(observations)
+        solved_values, unsolved_pct = successful_costs_and_unsolved_percentage(
+            data, method, metric
+        )
         density = smooth_log_density(solved_values, grid_log, bandwidth)
         ridges[method] = (density, unsolved_pct)
 
