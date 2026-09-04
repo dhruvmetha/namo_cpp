@@ -1,0 +1,5414 @@
+{
+  "population": "common episode intersection",
+  "common_episodes": {
+    "1push": 1328,
+    "2push": 992
+  },
+  "excluded_from_canonical": {
+    "1push": 0,
+    "2push": 0
+  },
+  "hardware": "1 core, pinned icelake",
+  "shared_search": {
+    "agg": "mean5",
+    "child_patience": 1,
+    "combine": "q",
+    "dedupe_noop": true,
+    "discount": "off",
+    "dive_bonus": 0.0,
+    "eps": 0.001,
+    "free_strike_q": 2.0,
+    "gamma": 0.65,
+    "gtable": null,
+    "hmax": 2,
+    "prune_jam_depth": true,
+    "raw": true,
+    "sim_budget": 900,
+    "tau": 1.0,
+    "w0_mode": "one"
+  },
+  "series": {
+    "hy5u": {
+      "label": "HY5U",
+      "model_warmup_repeats": 0,
+      "seed_count": 3,
+      "1push": {
+        "easy": {
+          "n": 681,
+          "solve@1": {
+            "mean": 97.067,
+            "sd": 0.513
+          },
+          "solve@2": {
+            "mean": 98.4,
+            "sd": 0.173
+          },
+          "solve@5": {
+            "mean": 98.867,
+            "sd": 0.115
+          },
+          "solve@10": {
+            "mean": 99.033,
+            "sd": 0.058
+          },
+          "solve@30": {
+            "mean": 99.067,
+            "sd": 0.058
+          },
+          "solve@100": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "solve@300": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "solve@900": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "solve@4000": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "avg_sims_all": {
+            "mean": 7.533,
+            "sd": 0.058
+          },
+          "avg_sims_to_solve": {
+            "mean": 1.067,
+            "sd": 0.058
+          },
+          "median_sims_to_solve": {
+            "mean": 1.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 59.5,
+            "sd": 14.272
+          },
+          "solve@1s": {
+            "mean": 96.233,
+            "sd": 1.002
+          },
+          "solve@2s": {
+            "mean": 98.7,
+            "sd": 0.173
+          },
+          "solve@5s": {
+            "mean": 99.0,
+            "sd": 0.0
+          },
+          "solve@10s": {
+            "mean": 99.067,
+            "sd": 0.058
+          },
+          "solve@30s": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "solve@60s": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "solve@120s": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "solve@300s": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "avg_wall_all": {
+            "mean": 1.227,
+            "sd": 0.227
+          },
+          "avg_wall_to_solve": {
+            "mean": 0.51,
+            "sd": 0.044
+          },
+          "median_wall_to_solve": {
+            "mean": 0.457,
+            "sd": 0.067
+          },
+          "sim_frac": {
+            "mean": 0.845,
+            "sd": 0.03
+          },
+          "score_frac": {
+            "mean": 0.155,
+            "sd": 0.03
+          },
+          "sec_per_sim": {
+            "mean": 0.138,
+            "sd": 0.031
+          }
+        },
+        "medium": {
+          "n": 442,
+          "solve@1": {
+            "mean": 79.767,
+            "sd": 0.289
+          },
+          "solve@2": {
+            "mean": 90.9,
+            "sd": 0.52
+          },
+          "solve@5": {
+            "mean": 95.3,
+            "sd": 0.361
+          },
+          "solve@10": {
+            "mean": 96.7,
+            "sd": 0.361
+          },
+          "solve@30": {
+            "mean": 97.867,
+            "sd": 0.473
+          },
+          "solve@100": {
+            "mean": 98.267,
+            "sd": 0.115
+          },
+          "solve@300": {
+            "mean": 98.4,
+            "sd": 0.0
+          },
+          "solve@900": {
+            "mean": 98.467,
+            "sd": 0.115
+          },
+          "solve@4000": {
+            "mean": 98.467,
+            "sd": 0.115
+          },
+          "avg_sims_all": {
+            "mean": 14.2,
+            "sd": 0.7
+          },
+          "avg_sims_to_solve": {
+            "mean": 2.433,
+            "sd": 0.586
+          },
+          "median_sims_to_solve": {
+            "mean": 1.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 30.433,
+            "sd": 17.988
+          },
+          "solve@1s": {
+            "mean": 85.433,
+            "sd": 2.458
+          },
+          "solve@2s": {
+            "mean": 94.167,
+            "sd": 1.457
+          },
+          "solve@5s": {
+            "mean": 97.133,
+            "sd": 0.351
+          },
+          "solve@10s": {
+            "mean": 97.9,
+            "sd": 0.361
+          },
+          "solve@30s": {
+            "mean": 98.2,
+            "sd": 0.2
+          },
+          "solve@60s": {
+            "mean": 98.333,
+            "sd": 0.115
+          },
+          "solve@120s": {
+            "mean": 98.4,
+            "sd": 0.0
+          },
+          "solve@300s": {
+            "mean": 98.467,
+            "sd": 0.115
+          },
+          "avg_wall_all": {
+            "mean": 3.543,
+            "sd": 0.658
+          },
+          "avg_wall_to_solve": {
+            "mean": 1.11,
+            "sd": 0.252
+          },
+          "median_wall_to_solve": {
+            "mean": 0.61,
+            "sd": 0.104
+          },
+          "sim_frac": {
+            "mean": 0.933,
+            "sd": 0.01
+          },
+          "score_frac": {
+            "mean": 0.067,
+            "sd": 0.009
+          },
+          "sec_per_sim": {
+            "mean": 0.234,
+            "sd": 0.048
+          }
+        },
+        "hard": {
+          "n": 205,
+          "solve@1": {
+            "mean": 40.167,
+            "sd": 1.155
+          },
+          "solve@2": {
+            "mean": 68.767,
+            "sd": 1.762
+          },
+          "solve@5": {
+            "mean": 81.967,
+            "sd": 1.747
+          },
+          "solve@10": {
+            "mean": 86.8,
+            "sd": 0.5
+          },
+          "solve@30": {
+            "mean": 91.867,
+            "sd": 0.764
+          },
+          "solve@100": {
+            "mean": 95.1,
+            "sd": 0.5
+          },
+          "solve@300": {
+            "mean": 95.433,
+            "sd": 0.289
+          },
+          "solve@900": {
+            "mean": 95.6,
+            "sd": 0.0
+          },
+          "solve@4000": {
+            "mean": 95.6,
+            "sd": 0.0
+          },
+          "avg_sims_all": {
+            "mean": 37.5,
+            "sd": 1.136
+          },
+          "avg_sims_to_solve": {
+            "mean": 6.133,
+            "sd": 1.079
+          },
+          "median_sims_to_solve": {
+            "mean": 2.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 16.1,
+            "sd": 10.633
+          },
+          "solve@1s": {
+            "mean": 55.433,
+            "sd": 4.549
+          },
+          "solve@2s": {
+            "mean": 79.033,
+            "sd": 1.674
+          },
+          "solve@5s": {
+            "mean": 89.433,
+            "sd": 1.002
+          },
+          "solve@10s": {
+            "mean": 92.033,
+            "sd": 0.577
+          },
+          "solve@30s": {
+            "mean": 94.6,
+            "sd": 0.5
+          },
+          "solve@60s": {
+            "mean": 95.267,
+            "sd": 0.289
+          },
+          "solve@120s": {
+            "mean": 95.433,
+            "sd": 0.289
+          },
+          "solve@300s": {
+            "mean": 95.6,
+            "sd": 0.0
+          },
+          "avg_wall_all": {
+            "mean": 10.703,
+            "sd": 2.231
+          },
+          "avg_wall_to_solve": {
+            "mean": 2.44,
+            "sd": 0.55
+          },
+          "median_wall_to_solve": {
+            "mean": 0.857,
+            "sd": 0.093
+          },
+          "sim_frac": {
+            "mean": 0.952,
+            "sd": 0.009
+          },
+          "score_frac": {
+            "mean": 0.047,
+            "sd": 0.009
+          },
+          "sec_per_sim": {
+            "mean": 0.272,
+            "sd": 0.062
+          }
+        },
+        "all": {
+          "n": 1328,
+          "solve@1": {
+            "mean": 82.533,
+            "sd": 0.351
+          },
+          "solve@2": {
+            "mean": 91.367,
+            "sd": 0.404
+          },
+          "solve@5": {
+            "mean": 95.1,
+            "sd": 0.458
+          },
+          "solve@10": {
+            "mean": 96.367,
+            "sd": 0.153
+          },
+          "solve@30": {
+            "mean": 97.567,
+            "sd": 0.153
+          },
+          "solve@100": {
+            "mean": 98.233,
+            "sd": 0.115
+          },
+          "solve@300": {
+            "mean": 98.3,
+            "sd": 0.0
+          },
+          "solve@900": {
+            "mean": 98.333,
+            "sd": 0.058
+          },
+          "solve@4000": {
+            "mean": 98.333,
+            "sd": 0.058
+          },
+          "avg_sims_all": {
+            "mean": 14.367,
+            "sd": 0.208
+          },
+          "avg_sims_to_solve": {
+            "mean": 2.267,
+            "sd": 0.351
+          },
+          "median_sims_to_solve": {
+            "mean": 1.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 43.167,
+            "sd": 14.914
+          },
+          "solve@1s": {
+            "mean": 86.333,
+            "sd": 1.041
+          },
+          "solve@2s": {
+            "mean": 94.167,
+            "sd": 0.681
+          },
+          "solve@5s": {
+            "mean": 96.867,
+            "sd": 0.208
+          },
+          "solve@10s": {
+            "mean": 97.6,
+            "sd": 0.173
+          },
+          "solve@30s": {
+            "mean": 98.1,
+            "sd": 0.1
+          },
+          "solve@60s": {
+            "mean": 98.267,
+            "sd": 0.058
+          },
+          "solve@120s": {
+            "mean": 98.3,
+            "sd": 0.0
+          },
+          "solve@300s": {
+            "mean": 98.333,
+            "sd": 0.058
+          },
+          "avg_wall_all": {
+            "mean": 3.46,
+            "sd": 0.66
+          },
+          "avg_wall_to_solve": {
+            "mean": 1.0,
+            "sd": 0.187
+          },
+          "median_wall_to_solve": {
+            "mean": 0.54,
+            "sd": 0.087
+          },
+          "sim_frac": {
+            "mean": 0.926,
+            "sd": 0.014
+          },
+          "score_frac": {
+            "mean": 0.073,
+            "sd": 0.014
+          },
+          "sec_per_sim": {
+            "mean": 0.224,
+            "sd": 0.048
+          }
+        }
+      },
+      "2push": {
+        "easy": {
+          "n": 387,
+          "solve@1": {
+            "mean": 0.5,
+            "sd": 0.0
+          },
+          "solve@2": {
+            "mean": 61.367,
+            "sd": 1.557
+          },
+          "solve@5": {
+            "mean": 80.633,
+            "sd": 1.55
+          },
+          "solve@10": {
+            "mean": 86.667,
+            "sd": 0.751
+          },
+          "solve@30": {
+            "mean": 92.567,
+            "sd": 0.902
+          },
+          "solve@100": {
+            "mean": 95.333,
+            "sd": 0.252
+          },
+          "solve@300": {
+            "mean": 95.867,
+            "sd": 0.462
+          },
+          "solve@900": {
+            "mean": 96.4,
+            "sd": 0.0
+          },
+          "solve@4000": {
+            "mean": 96.4,
+            "sd": 0.0
+          },
+          "avg_sims_all": {
+            "mean": 36.367,
+            "sd": 1.95
+          },
+          "avg_sims_to_solve": {
+            "mean": 9.333,
+            "sd": 2.001
+          },
+          "median_sims_to_solve": {
+            "mean": 2.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 0.733,
+            "sd": 0.751
+          },
+          "solve@1s": {
+            "mean": 26.767,
+            "sd": 13.279
+          },
+          "solve@2s": {
+            "mean": 73.4,
+            "sd": 4.967
+          },
+          "solve@5s": {
+            "mean": 87.433,
+            "sd": 0.289
+          },
+          "solve@10s": {
+            "mean": 92.6,
+            "sd": 0.529
+          },
+          "solve@30s": {
+            "mean": 94.9,
+            "sd": 0.529
+          },
+          "solve@60s": {
+            "mean": 95.5,
+            "sd": 0.529
+          },
+          "solve@120s": {
+            "mean": 96.067,
+            "sd": 0.289
+          },
+          "solve@300s": {
+            "mean": 96.2,
+            "sd": 0.173
+          },
+          "avg_wall_all": {
+            "mean": 12.527,
+            "sd": 2.763
+          },
+          "avg_wall_to_solve": {
+            "mean": 3.917,
+            "sd": 1.257
+          },
+          "median_wall_to_solve": {
+            "mean": 1.32,
+            "sd": 0.208
+          },
+          "sim_frac": {
+            "mean": 0.96,
+            "sd": 0.008
+          },
+          "score_frac": {
+            "mean": 0.04,
+            "sd": 0.008
+          },
+          "sec_per_sim": {
+            "mean": 0.329,
+            "sd": 0.062
+          }
+        },
+        "medium": {
+          "n": 487,
+          "solve@1": {
+            "mean": 0.333,
+            "sd": 0.115
+          },
+          "solve@2": {
+            "mean": 40.167,
+            "sd": 1.686
+          },
+          "solve@5": {
+            "mean": 59.333,
+            "sd": 0.569
+          },
+          "solve@10": {
+            "mean": 69.333,
+            "sd": 1.815
+          },
+          "solve@30": {
+            "mean": 79.9,
+            "sd": 1.0
+          },
+          "solve@100": {
+            "mean": 87.767,
+            "sd": 0.577
+          },
+          "solve@300": {
+            "mean": 91.0,
+            "sd": 0.2
+          },
+          "solve@900": {
+            "mean": 91.8,
+            "sd": 0.2
+          },
+          "solve@4000": {
+            "mean": 91.8,
+            "sd": 0.2
+          },
+          "avg_sims_all": {
+            "mean": 73.267,
+            "sd": 2.001
+          },
+          "avg_sims_to_solve": {
+            "mean": 19.433,
+            "sd": 0.231
+          },
+          "median_sims_to_solve": {
+            "mean": 3.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 0.6,
+            "sd": 0.872
+          },
+          "solve@1s": {
+            "mean": 18.067,
+            "sd": 8.558
+          },
+          "solve@2s": {
+            "mean": 54.167,
+            "sd": 2.888
+          },
+          "solve@5s": {
+            "mean": 71.1,
+            "sd": 0.557
+          },
+          "solve@10s": {
+            "mean": 77.667,
+            "sd": 0.577
+          },
+          "solve@30s": {
+            "mean": 86.933,
+            "sd": 0.814
+          },
+          "solve@60s": {
+            "mean": 88.967,
+            "sd": 0.902
+          },
+          "solve@120s": {
+            "mean": 91.067,
+            "sd": 0.115
+          },
+          "solve@300s": {
+            "mean": 91.8,
+            "sd": 0.2
+          },
+          "avg_wall_all": {
+            "mean": 21.833,
+            "sd": 2.875
+          },
+          "avg_wall_to_solve": {
+            "mean": 7.643,
+            "sd": 0.652
+          },
+          "median_wall_to_solve": {
+            "mean": 1.587,
+            "sd": 0.146
+          },
+          "sim_frac": {
+            "mean": 0.962,
+            "sd": 0.004
+          },
+          "score_frac": {
+            "mean": 0.038,
+            "sd": 0.005
+          },
+          "sec_per_sim": {
+            "mean": 0.287,
+            "sd": 0.038
+          }
+        },
+        "hard": {
+          "n": 118,
+          "solve@1": {
+            "mean": 0.0,
+            "sd": 0.0
+          },
+          "solve@2": {
+            "mean": 21.2,
+            "sd": 2.944
+          },
+          "solve@5": {
+            "mean": 35.867,
+            "sd": 2.113
+          },
+          "solve@10": {
+            "mean": 42.1,
+            "sd": 1.778
+          },
+          "solve@30": {
+            "mean": 57.633,
+            "sd": 2.268
+          },
+          "solve@100": {
+            "mean": 72.3,
+            "sd": 1.277
+          },
+          "solve@300": {
+            "mean": 79.967,
+            "sd": 3.201
+          },
+          "solve@900": {
+            "mean": 87.567,
+            "sd": 1.762
+          },
+          "solve@4000": {
+            "mean": 87.567,
+            "sd": 1.762
+          },
+          "avg_sims_all": {
+            "mean": 175.433,
+            "sd": 14.174
+          },
+          "avg_sims_to_solve": {
+            "mean": 72.567,
+            "sd": 0.929
+          },
+          "median_sims_to_solve": {
+            "mean": 12.333,
+            "sd": 1.528
+          },
+          "solve@0.5s": {
+            "mean": 0.0,
+            "sd": 0.0
+          },
+          "solve@1s": {
+            "mean": 11.6,
+            "sd": 5.369
+          },
+          "solve@2s": {
+            "mean": 33.067,
+            "sd": 4.25
+          },
+          "solve@5s": {
+            "mean": 43.8,
+            "sd": 3.236
+          },
+          "solve@10s": {
+            "mean": 55.633,
+            "sd": 1.32
+          },
+          "solve@30s": {
+            "mean": 69.767,
+            "sd": 2.113
+          },
+          "solve@60s": {
+            "mean": 77.4,
+            "sd": 1.778
+          },
+          "solve@120s": {
+            "mean": 82.233,
+            "sd": 0.85
+          },
+          "solve@300s": {
+            "mean": 86.733,
+            "sd": 0.981
+          },
+          "avg_wall_all": {
+            "mean": 58.647,
+            "sd": 2.87
+          },
+          "avg_wall_to_solve": {
+            "mean": 26.327,
+            "sd": 4.931
+          },
+          "median_wall_to_solve": {
+            "mean": 4.863,
+            "sd": 1.654
+          },
+          "sim_frac": {
+            "mean": 0.965,
+            "sd": 0.001
+          },
+          "score_frac": {
+            "mean": 0.035,
+            "sd": 0.001
+          },
+          "sec_per_sim": {
+            "mean": 0.324,
+            "sd": 0.035
+          }
+        },
+        "all": {
+          "n": 992,
+          "solve@1": {
+            "mean": 0.367,
+            "sd": 0.058
+          },
+          "solve@2": {
+            "mean": 46.233,
+            "sd": 0.802
+          },
+          "solve@5": {
+            "mean": 64.833,
+            "sd": 0.751
+          },
+          "solve@10": {
+            "mean": 72.867,
+            "sd": 1.365
+          },
+          "solve@30": {
+            "mean": 82.233,
+            "sd": 0.751
+          },
+          "solve@100": {
+            "mean": 88.867,
+            "sd": 0.231
+          },
+          "solve@300": {
+            "mean": 91.533,
+            "sd": 0.208
+          },
+          "solve@900": {
+            "mean": 93.033,
+            "sd": 0.208
+          },
+          "solve@4000": {
+            "mean": 93.033,
+            "sd": 0.208
+          },
+          "avg_sims_all": {
+            "mean": 71.033,
+            "sd": 1.29
+          },
+          "avg_sims_to_solve": {
+            "mean": 21.3,
+            "sd": 1.054
+          },
+          "median_sims_to_solve": {
+            "mean": 2.667,
+            "sd": 0.577
+          },
+          "solve@0.5s": {
+            "mean": 0.567,
+            "sd": 0.723
+          },
+          "solve@1s": {
+            "mean": 20.7,
+            "sd": 10.054
+          },
+          "solve@2s": {
+            "mean": 59.167,
+            "sd": 3.754
+          },
+          "solve@5s": {
+            "mean": 74.233,
+            "sd": 0.493
+          },
+          "solve@10s": {
+            "mean": 80.833,
+            "sd": 0.404
+          },
+          "solve@30s": {
+            "mean": 88.0,
+            "sd": 0.656
+          },
+          "solve@60s": {
+            "mean": 90.133,
+            "sd": 0.503
+          },
+          "solve@120s": {
+            "mean": 91.9,
+            "sd": 0.1
+          },
+          "solve@300s": {
+            "mean": 92.867,
+            "sd": 0.115
+          },
+          "avg_wall_all": {
+            "mean": 22.58,
+            "sd": 2.711
+          },
+          "avg_wall_to_solve": {
+            "mean": 8.233,
+            "sd": 1.397
+          },
+          "median_wall_to_solve": {
+            "mean": 1.497,
+            "sd": 0.188
+          },
+          "sim_frac": {
+            "mean": 0.962,
+            "sd": 0.004
+          },
+          "score_frac": {
+            "mean": 0.037,
+            "sd": 0.003
+          },
+          "sec_per_sim": {
+            "mean": 0.306,
+            "sd": 0.042
+          }
+        }
+      }
+    },
+    "no_family": {
+      "label": "No family ranking",
+      "model_warmup_repeats": 3,
+      "seed_count": 3,
+      "1push": {
+        "easy": {
+          "n": 681,
+          "solve@1": {
+            "mean": 96.733,
+            "sd": 0.503
+          },
+          "solve@2": {
+            "mean": 98.333,
+            "sd": 0.208
+          },
+          "solve@5": {
+            "mean": 98.8,
+            "sd": 0.0
+          },
+          "solve@10": {
+            "mean": 98.933,
+            "sd": 0.115
+          },
+          "solve@30": {
+            "mean": 99.033,
+            "sd": 0.058
+          },
+          "solve@100": {
+            "mean": 99.067,
+            "sd": 0.058
+          },
+          "solve@300": {
+            "mean": 99.067,
+            "sd": 0.058
+          },
+          "solve@900": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "solve@4000": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "avg_sims_all": {
+            "mean": 7.733,
+            "sd": 0.321
+          },
+          "avg_sims_to_solve": {
+            "mean": 1.267,
+            "sd": 0.289
+          },
+          "median_sims_to_solve": {
+            "mean": 1.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 66.767,
+            "sd": 10.863
+          },
+          "solve@1s": {
+            "mean": 75.667,
+            "sd": 2.272
+          },
+          "solve@2s": {
+            "mean": 76.0,
+            "sd": 2.352
+          },
+          "solve@5s": {
+            "mean": 76.067,
+            "sd": 2.454
+          },
+          "solve@10s": {
+            "mean": 76.133,
+            "sd": 2.359
+          },
+          "solve@30s": {
+            "mean": 78.267,
+            "sd": 3.073
+          },
+          "solve@60s": {
+            "mean": 80.7,
+            "sd": 2.778
+          },
+          "solve@120s": {
+            "mean": 84.067,
+            "sd": 1.563
+          },
+          "solve@300s": {
+            "mean": 92.3,
+            "sd": 3.245
+          },
+          "avg_wall_all": {
+            "mean": 57.63,
+            "sd": 8.672
+          },
+          "avg_wall_to_solve": {
+            "mean": 56.897,
+            "sd": 8.463
+          },
+          "median_wall_to_solve": {
+            "mean": 0.383,
+            "sd": 0.068
+          },
+          "sim_frac": {
+            "mean": 0.014,
+            "sd": 0.005
+          },
+          "score_frac": {
+            "mean": 0.986,
+            "sd": 0.005
+          },
+          "sec_per_sim": {
+            "mean": 0.101,
+            "sd": 0.014
+          }
+        },
+        "medium": {
+          "n": 442,
+          "solve@1": {
+            "mean": 78.733,
+            "sd": 0.987
+          },
+          "solve@2": {
+            "mean": 92.167,
+            "sd": 0.709
+          },
+          "solve@5": {
+            "mean": 95.933,
+            "sd": 0.252
+          },
+          "solve@10": {
+            "mean": 96.967,
+            "sd": 0.289
+          },
+          "solve@30": {
+            "mean": 97.867,
+            "sd": 0.289
+          },
+          "solve@100": {
+            "mean": 98.8,
+            "sd": 0.173
+          },
+          "solve@300": {
+            "mean": 98.9,
+            "sd": 0.0
+          },
+          "solve@900": {
+            "mean": 98.9,
+            "sd": 0.0
+          },
+          "solve@4000": {
+            "mean": 98.9,
+            "sd": 0.0
+          },
+          "avg_sims_all": {
+            "mean": 12.167,
+            "sd": 0.208
+          },
+          "avg_sims_to_solve": {
+            "mean": 2.0,
+            "sd": 0.265
+          },
+          "median_sims_to_solve": {
+            "mean": 1.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 46.767,
+            "sd": 12.141
+          },
+          "solve@1s": {
+            "mean": 65.833,
+            "sd": 4.646
+          },
+          "solve@2s": {
+            "mean": 69.5,
+            "sd": 3.859
+          },
+          "solve@5s": {
+            "mean": 70.3,
+            "sd": 3.775
+          },
+          "solve@10s": {
+            "mean": 70.5,
+            "sd": 3.576
+          },
+          "solve@30s": {
+            "mean": 73.3,
+            "sd": 3.799
+          },
+          "solve@60s": {
+            "mean": 76.133,
+            "sd": 3.066
+          },
+          "solve@120s": {
+            "mean": 80.5,
+            "sd": 3.985
+          },
+          "solve@300s": {
+            "mean": 89.167,
+            "sd": 4.319
+          },
+          "avg_wall_all": {
+            "mean": 75.483,
+            "sd": 14.66
+          },
+          "avg_wall_to_solve": {
+            "mean": 74.143,
+            "sd": 15.208
+          },
+          "median_wall_to_solve": {
+            "mean": 0.523,
+            "sd": 0.093
+          },
+          "sim_frac": {
+            "mean": 0.029,
+            "sd": 0.012
+          },
+          "score_frac": {
+            "mean": 0.971,
+            "sd": 0.012
+          },
+          "sec_per_sim": {
+            "mean": 0.167,
+            "sd": 0.033
+          }
+        },
+        "hard": {
+          "n": 205,
+          "solve@1": {
+            "mean": 41.333,
+            "sd": 0.764
+          },
+          "solve@2": {
+            "mean": 70.367,
+            "sd": 0.289
+          },
+          "solve@5": {
+            "mean": 83.767,
+            "sd": 1.704
+          },
+          "solve@10": {
+            "mean": 88.433,
+            "sd": 1.704
+          },
+          "solve@30": {
+            "mean": 92.367,
+            "sd": 0.289
+          },
+          "solve@100": {
+            "mean": 95.1,
+            "sd": 0.0
+          },
+          "solve@300": {
+            "mean": 96.433,
+            "sd": 0.289
+          },
+          "solve@900": {
+            "mean": 96.6,
+            "sd": 0.0
+          },
+          "solve@4000": {
+            "mean": 96.6,
+            "sd": 0.0
+          },
+          "avg_sims_all": {
+            "mean": 32.033,
+            "sd": 0.351
+          },
+          "avg_sims_to_solve": {
+            "mean": 7.067,
+            "sd": 0.321
+          },
+          "median_sims_to_solve": {
+            "mean": 2.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 25.033,
+            "sd": 9.151
+          },
+          "solve@1s": {
+            "mean": 49.9,
+            "sd": 6.855
+          },
+          "solve@2s": {
+            "mean": 61.133,
+            "sd": 3.828
+          },
+          "solve@5s": {
+            "mean": 67.967,
+            "sd": 3.308
+          },
+          "solve@10s": {
+            "mean": 69.467,
+            "sd": 3.653
+          },
+          "solve@30s": {
+            "mean": 72.033,
+            "sd": 3.153
+          },
+          "solve@60s": {
+            "mean": 74.967,
+            "sd": 2.325
+          },
+          "solve@120s": {
+            "mean": 78.533,
+            "sd": 2.73
+          },
+          "solve@300s": {
+            "mean": 85.667,
+            "sd": 5.194
+          },
+          "avg_wall_all": {
+            "mean": 80.933,
+            "sd": 16.478
+          },
+          "avg_wall_to_solve": {
+            "mean": 79.063,
+            "sd": 17.633
+          },
+          "median_wall_to_solve": {
+            "mean": 0.91,
+            "sd": 0.157
+          },
+          "sim_frac": {
+            "mean": 0.068,
+            "sd": 0.022
+          },
+          "score_frac": {
+            "mean": 0.932,
+            "sd": 0.022
+          },
+          "sec_per_sim": {
+            "mean": 0.166,
+            "sd": 0.027
+          }
+        },
+        "all": {
+          "n": 1328,
+          "solve@1": {
+            "mean": 82.2,
+            "sd": 0.52
+          },
+          "solve@2": {
+            "mean": 92.0,
+            "sd": 0.173
+          },
+          "solve@5": {
+            "mean": 95.567,
+            "sd": 0.306
+          },
+          "solve@10": {
+            "mean": 96.667,
+            "sd": 0.404
+          },
+          "solve@30": {
+            "mean": 97.6,
+            "sd": 0.1
+          },
+          "solve@100": {
+            "mean": 98.333,
+            "sd": 0.058
+          },
+          "solve@300": {
+            "mean": 98.6,
+            "sd": 0.0
+          },
+          "solve@900": {
+            "mean": 98.6,
+            "sd": 0.0
+          },
+          "solve@4000": {
+            "mean": 98.6,
+            "sd": 0.0
+          },
+          "avg_sims_all": {
+            "mean": 12.967,
+            "sd": 0.153
+          },
+          "avg_sims_to_solve": {
+            "mean": 2.4,
+            "sd": 0.1
+          },
+          "median_sims_to_solve": {
+            "mean": 1.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 53.633,
+            "sd": 10.941
+          },
+          "solve@1s": {
+            "mean": 68.4,
+            "sd": 3.5
+          },
+          "solve@2s": {
+            "mean": 71.567,
+            "sd": 3.066
+          },
+          "solve@5s": {
+            "mean": 72.9,
+            "sd": 2.951
+          },
+          "solve@10s": {
+            "mean": 73.233,
+            "sd": 2.901
+          },
+          "solve@30s": {
+            "mean": 75.633,
+            "sd": 3.163
+          },
+          "solve@60s": {
+            "mean": 78.267,
+            "sd": 2.57
+          },
+          "solve@120s": {
+            "mean": 82.0,
+            "sd": 2.358
+          },
+          "solve@300s": {
+            "mean": 90.2,
+            "sd": 3.874
+          },
+          "avg_wall_all": {
+            "mean": 67.17,
+            "sd": 11.221
+          },
+          "avg_wall_to_solve": {
+            "mean": 66.0,
+            "sd": 11.512
+          },
+          "median_wall_to_solve": {
+            "mean": 0.463,
+            "sd": 0.085
+          },
+          "sim_frac": {
+            "mean": 0.03,
+            "sd": 0.01
+          },
+          "score_frac": {
+            "mean": 0.97,
+            "sd": 0.01
+          },
+          "sec_per_sim": {
+            "mean": 0.146,
+            "sd": 0.024
+          }
+        }
+      },
+      "2push": {
+        "easy": {
+          "n": 387,
+          "solve@1": {
+            "mean": 0.5,
+            "sd": 0.0
+          },
+          "solve@2": {
+            "mean": 61.567,
+            "sd": 0.902
+          },
+          "solve@5": {
+            "mean": 80.467,
+            "sd": 1.582
+          },
+          "solve@10": {
+            "mean": 87.267,
+            "sd": 0.651
+          },
+          "solve@30": {
+            "mean": 92.5,
+            "sd": 0.5
+          },
+          "solve@100": {
+            "mean": 95.533,
+            "sd": 0.404
+          },
+          "solve@300": {
+            "mean": 96.4,
+            "sd": 0.0
+          },
+          "solve@900": {
+            "mean": 96.7,
+            "sd": 0.173
+          },
+          "solve@4000": {
+            "mean": 96.7,
+            "sd": 0.173
+          },
+          "avg_sims_all": {
+            "mean": 34.7,
+            "sd": 0.755
+          },
+          "avg_sims_to_solve": {
+            "mean": 8.7,
+            "sd": 1.5
+          },
+          "median_sims_to_solve": {
+            "mean": 2.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 3.267,
+            "sd": 0.764
+          },
+          "solve@1s": {
+            "mean": 39.967,
+            "sd": 1.457
+          },
+          "solve@2s": {
+            "mean": 58.233,
+            "sd": 5.143
+          },
+          "solve@5s": {
+            "mean": 64.133,
+            "sd": 6.995
+          },
+          "solve@10s": {
+            "mean": 66.5,
+            "sd": 7.434
+          },
+          "solve@30s": {
+            "mean": 69.267,
+            "sd": 5.974
+          },
+          "solve@60s": {
+            "mean": 71.267,
+            "sd": 4.119
+          },
+          "solve@120s": {
+            "mean": 74.333,
+            "sd": 3.677
+          },
+          "solve@300s": {
+            "mean": 81.4,
+            "sd": 4.371
+          },
+          "avg_wall_all": {
+            "mean": 101.97,
+            "sd": 16.985
+          },
+          "avg_wall_to_solve": {
+            "mean": 97.483,
+            "sd": 17.481
+          },
+          "median_wall_to_solve": {
+            "mean": 1.277,
+            "sd": 0.146
+          },
+          "sim_frac": {
+            "mean": 0.074,
+            "sd": 0.01
+          },
+          "score_frac": {
+            "mean": 0.926,
+            "sd": 0.01
+          },
+          "sec_per_sim": {
+            "mean": 0.216,
+            "sd": 0.007
+          }
+        },
+        "medium": {
+          "n": 487,
+          "solve@1": {
+            "mean": 0.4,
+            "sd": 0.2
+          },
+          "solve@2": {
+            "mean": 42.1,
+            "sd": 0.346
+          },
+          "solve@5": {
+            "mean": 59.833,
+            "sd": 1.002
+          },
+          "solve@10": {
+            "mean": 69.667,
+            "sd": 1.815
+          },
+          "solve@30": {
+            "mean": 80.833,
+            "sd": 0.416
+          },
+          "solve@100": {
+            "mean": 88.7,
+            "sd": 0.917
+          },
+          "solve@300": {
+            "mean": 91.2,
+            "sd": 0.529
+          },
+          "solve@900": {
+            "mean": 92.267,
+            "sd": 0.115
+          },
+          "solve@4000": {
+            "mean": 92.267,
+            "sd": 0.115
+          },
+          "avg_sims_all": {
+            "mean": 71.5,
+            "sd": 2.685
+          },
+          "avg_sims_to_solve": {
+            "mean": 20.4,
+            "sd": 3.985
+          },
+          "median_sims_to_solve": {
+            "mean": 3.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 2.267,
+            "sd": 0.404
+          },
+          "solve@1s": {
+            "mean": 27.867,
+            "sd": 1.582
+          },
+          "solve@2s": {
+            "mean": 41.1,
+            "sd": 5.631
+          },
+          "solve@5s": {
+            "mean": 49.967,
+            "sd": 7.259
+          },
+          "solve@10s": {
+            "mean": 55.533,
+            "sd": 7.286
+          },
+          "solve@30s": {
+            "mean": 60.7,
+            "sd": 7.892
+          },
+          "solve@60s": {
+            "mean": 64.3,
+            "sd": 6.243
+          },
+          "solve@120s": {
+            "mean": 68.567,
+            "sd": 5.95
+          },
+          "solve@300s": {
+            "mean": 74.367,
+            "sd": 4.456
+          },
+          "avg_wall_all": {
+            "mean": 128.74,
+            "sd": 27.119
+          },
+          "avg_wall_to_solve": {
+            "mean": 118.957,
+            "sd": 25.85
+          },
+          "median_wall_to_solve": {
+            "mean": 4.113,
+            "sd": 2.62
+          },
+          "sim_frac": {
+            "mean": 0.112,
+            "sd": 0.031
+          },
+          "score_frac": {
+            "mean": 0.888,
+            "sd": 0.031
+          },
+          "sec_per_sim": {
+            "mean": 0.194,
+            "sd": 0.01
+          }
+        },
+        "hard": {
+          "n": 118,
+          "solve@1": {
+            "mean": 0.0,
+            "sd": 0.0
+          },
+          "solve@2": {
+            "mean": 21.167,
+            "sd": 0.85
+          },
+          "solve@5": {
+            "mean": 36.433,
+            "sd": 2.23
+          },
+          "solve@10": {
+            "mean": 42.933,
+            "sd": 1.762
+          },
+          "solve@30": {
+            "mean": 56.5,
+            "sd": 0.52
+          },
+          "solve@100": {
+            "mean": 68.067,
+            "sd": 1.32
+          },
+          "solve@300": {
+            "mean": 79.667,
+            "sd": 0.85
+          },
+          "solve@900": {
+            "mean": 87.833,
+            "sd": 0.462
+          },
+          "solve@4000": {
+            "mean": 87.833,
+            "sd": 0.462
+          },
+          "avg_sims_all": {
+            "mean": 186.233,
+            "sd": 4.801
+          },
+          "avg_sims_to_solve": {
+            "mean": 87.5,
+            "sd": 7.795
+          },
+          "median_sims_to_solve": {
+            "mean": 11.667,
+            "sd": 2.255
+          },
+          "solve@0.5s": {
+            "mean": 1.1,
+            "sd": 0.52
+          },
+          "solve@1s": {
+            "mean": 16.633,
+            "sd": 2.113
+          },
+          "solve@2s": {
+            "mean": 24.267,
+            "sd": 3.926
+          },
+          "solve@5s": {
+            "mean": 31.667,
+            "sd": 3.406
+          },
+          "solve@10s": {
+            "mean": 39.233,
+            "sd": 5.194
+          },
+          "solve@30s": {
+            "mean": 50.3,
+            "sd": 7.405
+          },
+          "solve@60s": {
+            "mean": 55.367,
+            "sd": 4.368
+          },
+          "solve@120s": {
+            "mean": 62.7,
+            "sd": 3.659
+          },
+          "solve@300s": {
+            "mean": 72.033,
+            "sd": 3.092
+          },
+          "avg_wall_all": {
+            "mean": 146.73,
+            "sd": 21.468
+          },
+          "avg_wall_to_solve": {
+            "mean": 128.647,
+            "sd": 21.503
+          },
+          "median_wall_to_solve": {
+            "mean": 19.117,
+            "sd": 10.297
+          },
+          "sim_frac": {
+            "mean": 0.263,
+            "sd": 0.042
+          },
+          "score_frac": {
+            "mean": 0.737,
+            "sd": 0.042
+          },
+          "sec_per_sim": {
+            "mean": 0.204,
+            "sd": 0.002
+          }
+        },
+        "all": {
+          "n": 992,
+          "solve@1": {
+            "mean": 0.4,
+            "sd": 0.1
+          },
+          "solve@2": {
+            "mean": 47.233,
+            "sd": 0.451
+          },
+          "solve@5": {
+            "mean": 65.067,
+            "sd": 0.416
+          },
+          "solve@10": {
+            "mean": 73.367,
+            "sd": 0.95
+          },
+          "solve@30": {
+            "mean": 82.533,
+            "sd": 0.058
+          },
+          "solve@100": {
+            "mean": 88.9,
+            "sd": 0.7
+          },
+          "solve@300": {
+            "mean": 91.8,
+            "sd": 0.346
+          },
+          "solve@900": {
+            "mean": 93.433,
+            "sd": 0.115
+          },
+          "solve@4000": {
+            "mean": 93.433,
+            "sd": 0.115
+          },
+          "avg_sims_all": {
+            "mean": 70.767,
+            "sd": 2.108
+          },
+          "avg_sims_to_solve": {
+            "mean": 23.167,
+            "sd": 2.957
+          },
+          "median_sims_to_solve": {
+            "mean": 2.167,
+            "sd": 0.289
+          },
+          "solve@0.5s": {
+            "mean": 2.5,
+            "sd": 0.5
+          },
+          "solve@1s": {
+            "mean": 31.233,
+            "sd": 1.55
+          },
+          "solve@2s": {
+            "mean": 45.8,
+            "sd": 5.188
+          },
+          "solve@5s": {
+            "mean": 53.333,
+            "sd": 6.667
+          },
+          "solve@10s": {
+            "mean": 57.833,
+            "sd": 7.073
+          },
+          "solve@30s": {
+            "mean": 62.833,
+            "sd": 7.073
+          },
+          "solve@60s": {
+            "mean": 65.933,
+            "sd": 5.187
+          },
+          "solve@120s": {
+            "mean": 70.133,
+            "sd": 4.752
+          },
+          "solve@300s": {
+            "mean": 76.833,
+            "sd": 4.188
+          },
+          "avg_wall_all": {
+            "mean": 120.433,
+            "sd": 22.381
+          },
+          "avg_wall_to_solve": {
+            "mean": 111.37,
+            "sd": 21.873
+          },
+          "median_wall_to_solve": {
+            "mean": 2.743,
+            "sd": 1.357
+          },
+          "sim_frac": {
+            "mean": 0.122,
+            "sd": 0.026
+          },
+          "score_frac": {
+            "mean": 0.878,
+            "sd": 0.026
+          },
+          "sec_per_sim": {
+            "mean": 0.202,
+            "sd": 0.004
+          }
+        }
+      }
+    },
+    "regression": {
+      "label": "Regression only",
+      "model_warmup_repeats": 3,
+      "seed_count": 3,
+      "1push": {
+        "easy": {
+          "n": 681,
+          "solve@1": {
+            "mean": 97.567,
+            "sd": 0.115
+          },
+          "solve@2": {
+            "mean": 98.467,
+            "sd": 0.058
+          },
+          "solve@5": {
+            "mean": 98.767,
+            "sd": 0.058
+          },
+          "solve@10": {
+            "mean": 99.033,
+            "sd": 0.058
+          },
+          "solve@30": {
+            "mean": 99.067,
+            "sd": 0.058
+          },
+          "solve@100": {
+            "mean": 99.067,
+            "sd": 0.058
+          },
+          "solve@300": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "solve@900": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "solve@4000": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "avg_sims_all": {
+            "mean": 7.567,
+            "sd": 0.115
+          },
+          "avg_sims_to_solve": {
+            "mean": 1.067,
+            "sd": 0.115
+          },
+          "median_sims_to_solve": {
+            "mean": 1.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 79.467,
+            "sd": 6.258
+          },
+          "solve@1s": {
+            "mean": 91.367,
+            "sd": 12.355
+          },
+          "solve@2s": {
+            "mean": 91.567,
+            "sd": 12.442
+          },
+          "solve@5s": {
+            "mean": 91.867,
+            "sd": 12.442
+          },
+          "solve@10s": {
+            "mean": 91.867,
+            "sd": 12.442
+          },
+          "solve@30s": {
+            "mean": 92.267,
+            "sd": 11.749
+          },
+          "solve@60s": {
+            "mean": 92.8,
+            "sd": 10.912
+          },
+          "solve@120s": {
+            "mean": 93.733,
+            "sd": 9.295
+          },
+          "solve@300s": {
+            "mean": 95.867,
+            "sd": 5.6
+          },
+          "avg_wall_all": {
+            "mean": 23.07,
+            "sd": 38.348
+          },
+          "avg_wall_to_solve": {
+            "mean": 22.723,
+            "sd": 38.613
+          },
+          "median_wall_to_solve": {
+            "mean": 0.363,
+            "sd": 0.031
+          },
+          "sim_frac": {
+            "mean": 0.544,
+            "sd": 0.464
+          },
+          "score_frac": {
+            "mean": 0.455,
+            "sd": 0.464
+          },
+          "sec_per_sim": {
+            "mean": 0.092,
+            "sd": 0.015
+          }
+        },
+        "medium": {
+          "n": 442,
+          "solve@1": {
+            "mean": 80.067,
+            "sd": 0.751
+          },
+          "solve@2": {
+            "mean": 87.2,
+            "sd": 1.873
+          },
+          "solve@5": {
+            "mean": 93.433,
+            "sd": 0.252
+          },
+          "solve@10": {
+            "mean": 95.933,
+            "sd": 0.252
+          },
+          "solve@30": {
+            "mean": 97.667,
+            "sd": 0.351
+          },
+          "solve@100": {
+            "mean": 98.267,
+            "sd": 0.231
+          },
+          "solve@300": {
+            "mean": 98.6,
+            "sd": 0.0
+          },
+          "solve@900": {
+            "mean": 98.967,
+            "sd": 0.115
+          },
+          "solve@4000": {
+            "mean": 98.967,
+            "sd": 0.115
+          },
+          "avg_sims_all": {
+            "mean": 13.7,
+            "sd": 0.3
+          },
+          "avg_sims_to_solve": {
+            "mean": 4.2,
+            "sd": 1.249
+          },
+          "median_sims_to_solve": {
+            "mean": 1.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 52.867,
+            "sd": 2.754
+          },
+          "solve@1s": {
+            "mean": 80.1,
+            "sd": 13.701
+          },
+          "solve@2s": {
+            "mean": 84.167,
+            "sd": 14.089
+          },
+          "solve@5s": {
+            "mean": 88.033,
+            "sd": 14.491
+          },
+          "solve@10s": {
+            "mean": 89.2,
+            "sd": 14.986
+          },
+          "solve@30s": {
+            "mean": 90.2,
+            "sd": 14.03
+          },
+          "solve@60s": {
+            "mean": 91.067,
+            "sd": 13.048
+          },
+          "solve@120s": {
+            "mean": 92.3,
+            "sd": 11.173
+          },
+          "solve@300s": {
+            "mean": 95.867,
+            "sd": 5.428
+          },
+          "avg_wall_all": {
+            "mean": 27.173,
+            "sd": 42.58
+          },
+          "avg_wall_to_solve": {
+            "mean": 25.807,
+            "sd": 42.378
+          },
+          "median_wall_to_solve": {
+            "mean": 0.48,
+            "sd": 0.017
+          },
+          "sim_frac": {
+            "mean": 0.603,
+            "sd": 0.498
+          },
+          "score_frac": {
+            "mean": 0.396,
+            "sd": 0.499
+          },
+          "sec_per_sim": {
+            "mean": 0.164,
+            "sd": 0.011
+          }
+        },
+        "hard": {
+          "n": 205,
+          "solve@1": {
+            "mean": 32.367,
+            "sd": 1.041
+          },
+          "solve@2": {
+            "mean": 49.733,
+            "sd": 0.808
+          },
+          "solve@5": {
+            "mean": 68.3,
+            "sd": 1.323
+          },
+          "solve@10": {
+            "mean": 78.833,
+            "sd": 0.764
+          },
+          "solve@30": {
+            "mean": 90.067,
+            "sd": 1.097
+          },
+          "solve@100": {
+            "mean": 94.8,
+            "sd": 1.212
+          },
+          "solve@300": {
+            "mean": 95.767,
+            "sd": 0.577
+          },
+          "solve@900": {
+            "mean": 96.433,
+            "sd": 0.289
+          },
+          "solve@4000": {
+            "mean": 96.433,
+            "sd": 0.289
+          },
+          "avg_sims_all": {
+            "mean": 38.333,
+            "sd": 4.62
+          },
+          "avg_sims_to_solve": {
+            "mean": 12.0,
+            "sd": 2.452
+          },
+          "median_sims_to_solve": {
+            "mean": 2.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 21.633,
+            "sd": 1.55
+          },
+          "solve@1s": {
+            "mean": 45.833,
+            "sd": 6.093
+          },
+          "solve@2s": {
+            "mean": 61.767,
+            "sd": 9.584
+          },
+          "solve@5s": {
+            "mean": 76.6,
+            "sd": 12.683
+          },
+          "solve@10s": {
+            "mean": 82.6,
+            "sd": 13.329
+          },
+          "solve@30s": {
+            "mean": 87.633,
+            "sd": 12.942
+          },
+          "solve@60s": {
+            "mean": 89.267,
+            "sd": 11.836
+          },
+          "solve@120s": {
+            "mean": 90.9,
+            "sd": 9.443
+          },
+          "solve@300s": {
+            "mean": 93.5,
+            "sd": 5.369
+          },
+          "avg_wall_all": {
+            "mean": 31.03,
+            "sd": 40.366
+          },
+          "avg_wall_to_solve": {
+            "mean": 27.55,
+            "sd": 41.336
+          },
+          "median_wall_to_solve": {
+            "mean": 1.227,
+            "sd": 0.422
+          },
+          "sim_frac": {
+            "mean": 0.631,
+            "sd": 0.462
+          },
+          "score_frac": {
+            "mean": 0.369,
+            "sd": 0.462
+          },
+          "sec_per_sim": {
+            "mean": 0.188,
+            "sd": 0.014
+          }
+        },
+        "all": {
+          "n": 1328,
+          "solve@1": {
+            "mean": 81.7,
+            "sd": 0.436
+          },
+          "solve@2": {
+            "mean": 87.2,
+            "sd": 0.608
+          },
+          "solve@5": {
+            "mean": 92.267,
+            "sd": 0.306
+          },
+          "solve@10": {
+            "mean": 94.9,
+            "sd": 0.173
+          },
+          "solve@30": {
+            "mean": 97.233,
+            "sd": 0.153
+          },
+          "solve@100": {
+            "mean": 98.133,
+            "sd": 0.208
+          },
+          "solve@300": {
+            "mean": 98.433,
+            "sd": 0.115
+          },
+          "solve@900": {
+            "mean": 98.633,
+            "sd": 0.058
+          },
+          "solve@4000": {
+            "mean": 98.633,
+            "sd": 0.058
+          },
+          "avg_sims_all": {
+            "mean": 14.333,
+            "sd": 0.777
+          },
+          "avg_sims_to_solve": {
+            "mean": 3.8,
+            "sd": 0.529
+          },
+          "median_sims_to_solve": {
+            "mean": 1.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 61.7,
+            "sd": 4.036
+          },
+          "solve@1s": {
+            "mean": 80.6,
+            "sd": 11.873
+          },
+          "solve@2s": {
+            "mean": 84.5,
+            "sd": 12.558
+          },
+          "solve@5s": {
+            "mean": 88.2,
+            "sd": 13.165
+          },
+          "solve@10s": {
+            "mean": 89.533,
+            "sd": 13.367
+          },
+          "solve@30s": {
+            "mean": 90.867,
+            "sd": 12.702
+          },
+          "solve@60s": {
+            "mean": 91.7,
+            "sd": 11.778
+          },
+          "solve@120s": {
+            "mean": 92.8,
+            "sd": 9.959
+          },
+          "solve@300s": {
+            "mean": 95.5,
+            "sd": 5.456
+          },
+          "avg_wall_all": {
+            "mean": 25.667,
+            "sd": 40.065
+          },
+          "avg_wall_to_solve": {
+            "mean": 24.48,
+            "sd": 40.279
+          },
+          "median_wall_to_solve": {
+            "mean": 0.43,
+            "sd": 0.02
+          },
+          "sim_frac": {
+            "mean": 0.596,
+            "sd": 0.49
+          },
+          "score_frac": {
+            "mean": 0.403,
+            "sd": 0.491
+          },
+          "sec_per_sim": {
+            "mean": 0.155,
+            "sd": 0.01
+          }
+        }
+      },
+      "2push": {
+        "easy": {
+          "n": 387,
+          "solve@1": {
+            "mean": 0.3,
+            "sd": 0.0
+          },
+          "solve@2": {
+            "mean": 37.7,
+            "sd": 3.6
+          },
+          "solve@5": {
+            "mean": 57.833,
+            "sd": 3.19
+          },
+          "solve@10": {
+            "mean": 69.167,
+            "sd": 2.873
+          },
+          "solve@30": {
+            "mean": 84.4,
+            "sd": 1.778
+          },
+          "solve@100": {
+            "mean": 93.533,
+            "sd": 0.751
+          },
+          "solve@300": {
+            "mean": 96.133,
+            "sd": 0.252
+          },
+          "solve@900": {
+            "mean": 96.9,
+            "sd": 0.0
+          },
+          "solve@4000": {
+            "mean": 96.9,
+            "sd": 0.0
+          },
+          "avg_sims_all": {
+            "mean": 41.7,
+            "sd": 1.931
+          },
+          "avg_sims_to_solve": {
+            "mean": 17.4,
+            "sd": 1.931
+          },
+          "median_sims_to_solve": {
+            "mean": 3.667,
+            "sd": 0.577
+          },
+          "solve@0.5s": {
+            "mean": 2.233,
+            "sd": 0.902
+          },
+          "solve@1s": {
+            "mean": 31.933,
+            "sd": 2.344
+          },
+          "solve@2s": {
+            "mean": 56.867,
+            "sd": 3.808
+          },
+          "solve@5s": {
+            "mean": 73.4,
+            "sd": 1.0
+          },
+          "solve@10s": {
+            "mean": 84.3,
+            "sd": 1.153
+          },
+          "solve@30s": {
+            "mean": 93.433,
+            "sd": 1.201
+          },
+          "solve@60s": {
+            "mean": 95.6,
+            "sd": 0.5
+          },
+          "solve@120s": {
+            "mean": 96.533,
+            "sd": 0.404
+          },
+          "solve@300s": {
+            "mean": 96.9,
+            "sd": 0.0
+          },
+          "avg_wall_all": {
+            "mean": 11.167,
+            "sd": 0.534
+          },
+          "avg_wall_to_solve": {
+            "mean": 5.623,
+            "sd": 0.802
+          },
+          "median_wall_to_solve": {
+            "mean": 1.513,
+            "sd": 0.093
+          },
+          "sim_frac": {
+            "mean": 0.909,
+            "sd": 0.01
+          },
+          "score_frac": {
+            "mean": 0.091,
+            "sd": 0.01
+          },
+          "sec_per_sim": {
+            "mean": 0.243,
+            "sd": 0.009
+          }
+        },
+        "medium": {
+          "n": 487,
+          "solve@1": {
+            "mean": 0.267,
+            "sd": 0.231
+          },
+          "solve@2": {
+            "mean": 25.4,
+            "sd": 0.794
+          },
+          "solve@5": {
+            "mean": 42.033,
+            "sd": 1.026
+          },
+          "solve@10": {
+            "mean": 54.633,
+            "sd": 1.457
+          },
+          "solve@30": {
+            "mean": 72.433,
+            "sd": 0.231
+          },
+          "solve@100": {
+            "mean": 84.4,
+            "sd": 0.6
+          },
+          "solve@300": {
+            "mean": 89.567,
+            "sd": 0.945
+          },
+          "solve@900": {
+            "mean": 92.133,
+            "sd": 0.115
+          },
+          "solve@4000": {
+            "mean": 92.133,
+            "sd": 0.115
+          },
+          "avg_sims_all": {
+            "mean": 87.1,
+            "sd": 3.122
+          },
+          "avg_sims_to_solve": {
+            "mean": 35.733,
+            "sd": 4.046
+          },
+          "median_sims_to_solve": {
+            "mean": 7.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 1.6,
+            "sd": 0.346
+          },
+          "solve@1s": {
+            "mean": 23.4,
+            "sd": 0.2
+          },
+          "solve@2s": {
+            "mean": 43.1,
+            "sd": 0.529
+          },
+          "solve@5s": {
+            "mean": 62.2,
+            "sd": 1.4
+          },
+          "solve@10s": {
+            "mean": 73.567,
+            "sd": 1.007
+          },
+          "solve@30s": {
+            "mean": 85.267,
+            "sd": 0.702
+          },
+          "solve@60s": {
+            "mean": 88.833,
+            "sd": 0.808
+          },
+          "solve@120s": {
+            "mean": 91.133,
+            "sd": 0.503
+          },
+          "solve@300s": {
+            "mean": 92.133,
+            "sd": 0.115
+          },
+          "avg_wall_all": {
+            "mean": 20.377,
+            "sd": 1.326
+          },
+          "avg_wall_to_solve": {
+            "mean": 9.88,
+            "sd": 1.144
+          },
+          "median_wall_to_solve": {
+            "mean": 2.313,
+            "sd": 0.09
+          },
+          "sim_frac": {
+            "mean": 0.933,
+            "sd": 0.005
+          },
+          "score_frac": {
+            "mean": 0.066,
+            "sd": 0.004
+          },
+          "sec_per_sim": {
+            "mean": 0.218,
+            "sd": 0.01
+          }
+        },
+        "hard": {
+          "n": 118,
+          "solve@1": {
+            "mean": 0.0,
+            "sd": 0.0
+          },
+          "solve@2": {
+            "mean": 11.3,
+            "sd": 2.722
+          },
+          "solve@5": {
+            "mean": 24.3,
+            "sd": 4.355
+          },
+          "solve@10": {
+            "mean": 28.533,
+            "sd": 3.431
+          },
+          "solve@30": {
+            "mean": 44.933,
+            "sd": 2.55
+          },
+          "solve@100": {
+            "mean": 68.067,
+            "sd": 2.542
+          },
+          "solve@300": {
+            "mean": 79.967,
+            "sd": 1.32
+          },
+          "solve@900": {
+            "mean": 86.7,
+            "sd": 0.52
+          },
+          "solve@4000": {
+            "mean": 86.7,
+            "sd": 0.52
+          },
+          "avg_sims_all": {
+            "mean": 195.133,
+            "sd": 3.523
+          },
+          "avg_sims_to_solve": {
+            "mean": 87.2,
+            "sd": 8.661
+          },
+          "median_sims_to_solve": {
+            "mean": 27.833,
+            "sd": 2.843
+          },
+          "solve@0.5s": {
+            "mean": 0.0,
+            "sd": 0.0
+          },
+          "solve@1s": {
+            "mean": 12.733,
+            "sd": 3.694
+          },
+          "solve@2s": {
+            "mean": 24.0,
+            "sd": 3.439
+          },
+          "solve@5s": {
+            "mean": 35.6,
+            "sd": 3.659
+          },
+          "solve@10s": {
+            "mean": 46.633,
+            "sd": 3.037
+          },
+          "solve@30s": {
+            "mean": 70.067,
+            "sd": 1.963
+          },
+          "solve@60s": {
+            "mean": 77.7,
+            "sd": 2.166
+          },
+          "solve@120s": {
+            "mean": 84.7,
+            "sd": 0.0
+          },
+          "solve@300s": {
+            "mean": 86.4,
+            "sd": 0.0
+          },
+          "avg_wall_all": {
+            "mean": 45.013,
+            "sd": 1.886
+          },
+          "avg_wall_to_solve": {
+            "mean": 21.413,
+            "sd": 3.05
+          },
+          "median_wall_to_solve": {
+            "mean": 8.19,
+            "sd": 1.331
+          },
+          "sim_frac": {
+            "mean": 0.948,
+            "sd": 0.003
+          },
+          "score_frac": {
+            "mean": 0.052,
+            "sd": 0.003
+          },
+          "sec_per_sim": {
+            "mean": 0.219,
+            "sd": 0.006
+          }
+        },
+        "all": {
+          "n": 992,
+          "solve@1": {
+            "mean": 0.233,
+            "sd": 0.115
+          },
+          "solve@2": {
+            "mean": 28.5,
+            "sd": 2.03
+          },
+          "solve@5": {
+            "mean": 46.1,
+            "sd": 1.852
+          },
+          "solve@10": {
+            "mean": 57.2,
+            "sd": 2.152
+          },
+          "solve@30": {
+            "mean": 73.833,
+            "sd": 0.503
+          },
+          "solve@100": {
+            "mean": 86.033,
+            "sd": 0.306
+          },
+          "solve@300": {
+            "mean": 90.967,
+            "sd": 0.493
+          },
+          "solve@900": {
+            "mean": 93.3,
+            "sd": 0.1
+          },
+          "solve@4000": {
+            "mean": 93.3,
+            "sd": 0.1
+          },
+          "avg_sims_all": {
+            "mean": 82.267,
+            "sd": 1.401
+          },
+          "avg_sims_to_solve": {
+            "mean": 34.033,
+            "sd": 2.228
+          },
+          "median_sims_to_solve": {
+            "mean": 5.667,
+            "sd": 0.577
+          },
+          "solve@0.5s": {
+            "mean": 1.667,
+            "sd": 0.513
+          },
+          "solve@1s": {
+            "mean": 25.467,
+            "sd": 1.358
+          },
+          "solve@2s": {
+            "mean": 46.233,
+            "sd": 1.901
+          },
+          "solve@5s": {
+            "mean": 63.4,
+            "sd": 1.4
+          },
+          "solve@10s": {
+            "mean": 74.567,
+            "sd": 0.751
+          },
+          "solve@30s": {
+            "mean": 86.667,
+            "sd": 0.473
+          },
+          "solve@60s": {
+            "mean": 90.133,
+            "sd": 0.451
+          },
+          "solve@120s": {
+            "mean": 92.433,
+            "sd": 0.208
+          },
+          "solve@300s": {
+            "mean": 93.267,
+            "sd": 0.058
+          },
+          "avg_wall_all": {
+            "mean": 19.71,
+            "sd": 0.87
+          },
+          "avg_wall_to_solve": {
+            "mean": 9.43,
+            "sd": 0.641
+          },
+          "median_wall_to_solve": {
+            "mean": 2.087,
+            "sd": 0.184
+          },
+          "sim_frac": {
+            "mean": 0.932,
+            "sd": 0.005
+          },
+          "score_frac": {
+            "mean": 0.068,
+            "sd": 0.006
+          },
+          "sec_per_sim": {
+            "mean": 0.223,
+            "sd": 0.008
+          }
+        }
+      }
+    },
+    "independent": {
+      "label": "Independent contacts",
+      "model_warmup_repeats": 3,
+      "seed_count": 3,
+      "1push": {
+        "easy": {
+          "n": 681,
+          "solve@1": {
+            "mean": 96.2,
+            "sd": 0.954
+          },
+          "solve@2": {
+            "mean": 98.133,
+            "sd": 0.252
+          },
+          "solve@5": {
+            "mean": 98.867,
+            "sd": 0.115
+          },
+          "solve@10": {
+            "mean": 99.0,
+            "sd": 0.0
+          },
+          "solve@30": {
+            "mean": 99.0,
+            "sd": 0.0
+          },
+          "solve@100": {
+            "mean": 99.067,
+            "sd": 0.058
+          },
+          "solve@300": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "solve@900": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "solve@4000": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "avg_sims_all": {
+            "mean": 7.667,
+            "sd": 0.115
+          },
+          "avg_sims_to_solve": {
+            "mean": 1.2,
+            "sd": 0.1
+          },
+          "median_sims_to_solve": {
+            "mean": 1.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 64.667,
+            "sd": 3.911
+          },
+          "solve@1s": {
+            "mean": 93.1,
+            "sd": 4.444
+          },
+          "solve@2s": {
+            "mean": 97.767,
+            "sd": 1.882
+          },
+          "solve@5s": {
+            "mean": 97.9,
+            "sd": 1.905
+          },
+          "solve@10s": {
+            "mean": 97.9,
+            "sd": 1.905
+          },
+          "solve@30s": {
+            "mean": 97.933,
+            "sd": 1.935
+          },
+          "solve@60s": {
+            "mean": 97.967,
+            "sd": 1.963
+          },
+          "solve@120s": {
+            "mean": 98.033,
+            "sd": 1.848
+          },
+          "solve@300s": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "avg_wall_all": {
+            "mean": 3.823,
+            "sd": 4.475
+          },
+          "avg_wall_to_solve": {
+            "mean": 3.163,
+            "sd": 4.57
+          },
+          "median_wall_to_solve": {
+            "mean": 0.407,
+            "sd": 0.015
+          },
+          "sim_frac": {
+            "mean": 0.57,
+            "sd": 0.403
+          },
+          "score_frac": {
+            "mean": 0.429,
+            "sd": 0.404
+          },
+          "sec_per_sim": {
+            "mean": 0.128,
+            "sd": 0.009
+          }
+        },
+        "medium": {
+          "n": 442,
+          "solve@1": {
+            "mean": 76.333,
+            "sd": 1.159
+          },
+          "solve@2": {
+            "mean": 89.367,
+            "sd": 0.777
+          },
+          "solve@5": {
+            "mean": 95.7,
+            "sd": 1.229
+          },
+          "solve@10": {
+            "mean": 97.6,
+            "sd": 0.458
+          },
+          "solve@30": {
+            "mean": 98.4,
+            "sd": 0.2
+          },
+          "solve@100": {
+            "mean": 98.9,
+            "sd": 0.0
+          },
+          "solve@300": {
+            "mean": 98.967,
+            "sd": 0.115
+          },
+          "solve@900": {
+            "mean": 99.033,
+            "sd": 0.115
+          },
+          "solve@4000": {
+            "mean": 99.033,
+            "sd": 0.115
+          },
+          "avg_sims_all": {
+            "mean": 11.4,
+            "sd": 0.954
+          },
+          "avg_sims_to_solve": {
+            "mean": 2.567,
+            "sd": 1.079
+          },
+          "median_sims_to_solve": {
+            "mean": 1.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 37.033,
+            "sd": 0.603
+          },
+          "solve@1s": {
+            "mean": 76.933,
+            "sd": 8.026
+          },
+          "solve@2s": {
+            "mean": 94.267,
+            "sd": 2.386
+          },
+          "solve@5s": {
+            "mean": 96.767,
+            "sd": 2.136
+          },
+          "solve@10s": {
+            "mean": 97.633,
+            "sd": 1.504
+          },
+          "solve@30s": {
+            "mean": 97.8,
+            "sd": 1.652
+          },
+          "solve@60s": {
+            "mean": 97.9,
+            "sd": 1.732
+          },
+          "solve@120s": {
+            "mean": 97.967,
+            "sd": 1.793
+          },
+          "solve@300s": {
+            "mean": 99.033,
+            "sd": 0.115
+          },
+          "avg_wall_all": {
+            "mean": 5.06,
+            "sd": 4.393
+          },
+          "avg_wall_to_solve": {
+            "mean": 3.327,
+            "sd": 4.137
+          },
+          "median_wall_to_solve": {
+            "mean": 0.587,
+            "sd": 0.025
+          },
+          "sim_frac": {
+            "mean": 0.666,
+            "sd": 0.365
+          },
+          "score_frac": {
+            "mean": 0.333,
+            "sd": 0.365
+          },
+          "sec_per_sim": {
+            "mean": 0.202,
+            "sd": 0.006
+          }
+        },
+        "hard": {
+          "n": 205,
+          "solve@1": {
+            "mean": 35.433,
+            "sd": 0.577
+          },
+          "solve@2": {
+            "mean": 66.167,
+            "sd": 0.231
+          },
+          "solve@5": {
+            "mean": 79.167,
+            "sd": 0.289
+          },
+          "solve@10": {
+            "mean": 85.233,
+            "sd": 0.289
+          },
+          "solve@30": {
+            "mean": 90.9,
+            "sd": 0.985
+          },
+          "solve@100": {
+            "mean": 95.767,
+            "sd": 0.764
+          },
+          "solve@300": {
+            "mean": 96.6,
+            "sd": 0.0
+          },
+          "solve@900": {
+            "mean": 96.6,
+            "sd": 0.0
+          },
+          "solve@4000": {
+            "mean": 96.6,
+            "sd": 0.0
+          },
+          "avg_sims_all": {
+            "mean": 32.867,
+            "sd": 0.681
+          },
+          "avg_sims_to_solve": {
+            "mean": 7.833,
+            "sd": 0.723
+          },
+          "median_sims_to_solve": {
+            "mean": 2.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 18.2,
+            "sd": 1.212
+          },
+          "solve@1s": {
+            "mean": 54.467,
+            "sd": 5.021
+          },
+          "solve@2s": {
+            "mean": 76.9,
+            "sd": 2.307
+          },
+          "solve@5s": {
+            "mean": 87.0,
+            "sd": 0.985
+          },
+          "solve@10s": {
+            "mean": 92.067,
+            "sd": 2.026
+          },
+          "solve@30s": {
+            "mean": 94.633,
+            "sd": 1.747
+          },
+          "solve@60s": {
+            "mean": 95.467,
+            "sd": 1.963
+          },
+          "solve@120s": {
+            "mean": 95.633,
+            "sd": 1.674
+          },
+          "solve@300s": {
+            "mean": 96.6,
+            "sd": 0.0
+          },
+          "avg_wall_all": {
+            "mean": 8.587,
+            "sd": 3.212
+          },
+          "avg_wall_to_solve": {
+            "mean": 4.26,
+            "sd": 3.561
+          },
+          "median_wall_to_solve": {
+            "mean": 0.9,
+            "sd": 0.072
+          },
+          "sim_frac": {
+            "mean": 0.783,
+            "sd": 0.247
+          },
+          "score_frac": {
+            "mean": 0.216,
+            "sd": 0.247
+          },
+          "sec_per_sim": {
+            "mean": 0.189,
+            "sd": 0.018
+          }
+        },
+        "all": {
+          "n": 1328,
+          "solve@1": {
+            "mean": 80.167,
+            "sd": 0.404
+          },
+          "solve@2": {
+            "mean": 90.3,
+            "sd": 0.173
+          },
+          "solve@5": {
+            "mean": 94.767,
+            "sd": 0.321
+          },
+          "solve@10": {
+            "mean": 96.4,
+            "sd": 0.173
+          },
+          "solve@30": {
+            "mean": 97.567,
+            "sd": 0.231
+          },
+          "solve@100": {
+            "mean": 98.467,
+            "sd": 0.115
+          },
+          "solve@300": {
+            "mean": 98.633,
+            "sd": 0.058
+          },
+          "solve@900": {
+            "mean": 98.667,
+            "sd": 0.058
+          },
+          "solve@4000": {
+            "mean": 98.667,
+            "sd": 0.058
+          },
+          "avg_sims_all": {
+            "mean": 12.833,
+            "sd": 0.462
+          },
+          "avg_sims_to_solve": {
+            "mean": 2.7,
+            "sd": 0.436
+          },
+          "median_sims_to_solve": {
+            "mean": 1.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 48.3,
+            "sd": 1.916
+          },
+          "solve@1s": {
+            "mean": 81.767,
+            "sd": 5.666
+          },
+          "solve@2s": {
+            "mean": 93.367,
+            "sd": 2.026
+          },
+          "solve@5s": {
+            "mean": 95.833,
+            "sd": 1.762
+          },
+          "solve@10s": {
+            "mean": 96.933,
+            "sd": 1.762
+          },
+          "solve@30s": {
+            "mean": 97.367,
+            "sd": 1.793
+          },
+          "solve@60s": {
+            "mean": 97.533,
+            "sd": 1.848
+          },
+          "solve@120s": {
+            "mean": 97.633,
+            "sd": 1.762
+          },
+          "solve@300s": {
+            "mean": 98.667,
+            "sd": 0.058
+          },
+          "avg_wall_all": {
+            "mean": 4.97,
+            "sd": 4.244
+          },
+          "avg_wall_to_solve": {
+            "mean": 3.387,
+            "sd": 4.273
+          },
+          "median_wall_to_solve": {
+            "mean": 0.507,
+            "sd": 0.015
+          },
+          "sim_frac": {
+            "mean": 0.662,
+            "sd": 0.376
+          },
+          "score_frac": {
+            "mean": 0.337,
+            "sd": 0.376
+          },
+          "sec_per_sim": {
+            "mean": 0.174,
+            "sd": 0.004
+          }
+        }
+      },
+      "2push": {
+        "easy": {
+          "n": 387,
+          "solve@1": {
+            "mean": 0.5,
+            "sd": 0.0
+          },
+          "solve@2": {
+            "mean": 57.3,
+            "sd": 1.664
+          },
+          "solve@5": {
+            "mean": 76.667,
+            "sd": 1.155
+          },
+          "solve@10": {
+            "mean": 83.8,
+            "sd": 1.153
+          },
+          "solve@30": {
+            "mean": 90.333,
+            "sd": 1.201
+          },
+          "solve@100": {
+            "mean": 94.5,
+            "sd": 0.361
+          },
+          "solve@300": {
+            "mean": 96.067,
+            "sd": 0.289
+          },
+          "solve@900": {
+            "mean": 96.6,
+            "sd": 0.0
+          },
+          "solve@4000": {
+            "mean": 96.6,
+            "sd": 0.0
+          },
+          "avg_sims_all": {
+            "mean": 38.167,
+            "sd": 1.419
+          },
+          "avg_sims_to_solve": {
+            "mean": 11.5,
+            "sd": 1.51
+          },
+          "median_sims_to_solve": {
+            "mean": 2.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 1.733,
+            "sd": 0.635
+          },
+          "solve@1s": {
+            "mean": 36.067,
+            "sd": 7.821
+          },
+          "solve@2s": {
+            "mean": 74.533,
+            "sd": 2.122
+          },
+          "solve@5s": {
+            "mean": 87.467,
+            "sd": 0.751
+          },
+          "solve@10s": {
+            "mean": 91.8,
+            "sd": 0.361
+          },
+          "solve@30s": {
+            "mean": 95.167,
+            "sd": 0.513
+          },
+          "solve@60s": {
+            "mean": 96.067,
+            "sd": 0.289
+          },
+          "solve@120s": {
+            "mean": 96.2,
+            "sd": 0.173
+          },
+          "solve@300s": {
+            "mean": 96.467,
+            "sd": 0.115
+          },
+          "avg_wall_all": {
+            "mean": 9.833,
+            "sd": 0.548
+          },
+          "avg_wall_to_solve": {
+            "mean": 3.66,
+            "sd": 0.591
+          },
+          "median_wall_to_solve": {
+            "mean": 1.167,
+            "sd": 0.129
+          },
+          "sim_frac": {
+            "mean": 0.948,
+            "sd": 0.005
+          },
+          "score_frac": {
+            "mean": 0.052,
+            "sd": 0.005
+          },
+          "sec_per_sim": {
+            "mean": 0.244,
+            "sd": 0.011
+          }
+        },
+        "medium": {
+          "n": 487,
+          "solve@1": {
+            "mean": 0.333,
+            "sd": 0.115
+          },
+          "solve@2": {
+            "mean": 34.1,
+            "sd": 1.058
+          },
+          "solve@5": {
+            "mean": 52.767,
+            "sd": 1.68
+          },
+          "solve@10": {
+            "mean": 64.567,
+            "sd": 0.987
+          },
+          "solve@30": {
+            "mean": 76.667,
+            "sd": 1.102
+          },
+          "solve@100": {
+            "mean": 86.167,
+            "sd": 1.258
+          },
+          "solve@300": {
+            "mean": 90.033,
+            "sd": 0.306
+          },
+          "solve@900": {
+            "mean": 91.8,
+            "sd": 0.346
+          },
+          "solve@4000": {
+            "mean": 91.8,
+            "sd": 0.346
+          },
+          "avg_sims_all": {
+            "mean": 80.333,
+            "sd": 2.281
+          },
+          "avg_sims_to_solve": {
+            "mean": 25.233,
+            "sd": 1.401
+          },
+          "median_sims_to_solve": {
+            "mean": 4.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 1.767,
+            "sd": 0.751
+          },
+          "solve@1s": {
+            "mean": 25.6,
+            "sd": 6.051
+          },
+          "solve@2s": {
+            "mean": 53.4,
+            "sd": 3.119
+          },
+          "solve@5s": {
+            "mean": 69.2,
+            "sd": 1.8
+          },
+          "solve@10s": {
+            "mean": 77.633,
+            "sd": 1.274
+          },
+          "solve@30s": {
+            "mean": 86.733,
+            "sd": 0.862
+          },
+          "solve@60s": {
+            "mean": 89.633,
+            "sd": 0.416
+          },
+          "solve@120s": {
+            "mean": 91.333,
+            "sd": 0.231
+          },
+          "solve@300s": {
+            "mean": 91.733,
+            "sd": 0.306
+          },
+          "avg_wall_all": {
+            "mean": 18.49,
+            "sd": 1.008
+          },
+          "avg_wall_to_solve": {
+            "mean": 7.43,
+            "sd": 0.255
+          },
+          "median_wall_to_solve": {
+            "mean": 1.55,
+            "sd": 0.176
+          },
+          "sim_frac": {
+            "mean": 0.954,
+            "sd": 0.004
+          },
+          "score_frac": {
+            "mean": 0.045,
+            "sd": 0.004
+          },
+          "sec_per_sim": {
+            "mean": 0.219,
+            "sd": 0.008
+          }
+        },
+        "hard": {
+          "n": 118,
+          "solve@1": {
+            "mean": 0.0,
+            "sd": 0.0
+          },
+          "solve@2": {
+            "mean": 15.8,
+            "sd": 1.277
+          },
+          "solve@5": {
+            "mean": 30.533,
+            "sd": 3.037
+          },
+          "solve@10": {
+            "mean": 40.1,
+            "sd": 3.989
+          },
+          "solve@30": {
+            "mean": 51.1,
+            "sd": 0.52
+          },
+          "solve@100": {
+            "mean": 70.067,
+            "sd": 0.981
+          },
+          "solve@300": {
+            "mean": 77.7,
+            "sd": 1.778
+          },
+          "solve@900": {
+            "mean": 84.733,
+            "sd": 0.85
+          },
+          "solve@4000": {
+            "mean": 84.733,
+            "sd": 0.85
+          },
+          "avg_sims_all": {
+            "mean": 203.633,
+            "sd": 12.596
+          },
+          "avg_sims_to_solve": {
+            "mean": 78.3,
+            "sd": 9.597
+          },
+          "median_sims_to_solve": {
+            "mean": 11.833,
+            "sd": 3.253
+          },
+          "solve@0.5s": {
+            "mean": 0.8,
+            "sd": 0.0
+          },
+          "solve@1s": {
+            "mean": 15.267,
+            "sd": 4.388
+          },
+          "solve@2s": {
+            "mean": 29.933,
+            "sd": 4.278
+          },
+          "solve@5s": {
+            "mean": 43.8,
+            "sd": 2.722
+          },
+          "solve@10s": {
+            "mean": 53.067,
+            "sd": 2.597
+          },
+          "solve@30s": {
+            "mean": 70.6,
+            "sd": 1.778
+          },
+          "solve@60s": {
+            "mean": 74.867,
+            "sd": 1.32
+          },
+          "solve@120s": {
+            "mean": 81.367,
+            "sd": 0.85
+          },
+          "solve@300s": {
+            "mean": 84.733,
+            "sd": 0.85
+          },
+          "avg_wall_all": {
+            "mean": 49.647,
+            "sd": 2.782
+          },
+          "avg_wall_to_solve": {
+            "mean": 20.64,
+            "sd": 1.851
+          },
+          "median_wall_to_solve": {
+            "mean": 4.253,
+            "sd": 1.376
+          },
+          "sim_frac": {
+            "mean": 0.961,
+            "sd": 0.003
+          },
+          "score_frac": {
+            "mean": 0.039,
+            "sd": 0.003
+          },
+          "sec_per_sim": {
+            "mean": 0.234,
+            "sd": 0.002
+          }
+        },
+        "all": {
+          "n": 992,
+          "solve@1": {
+            "mean": 0.367,
+            "sd": 0.058
+          },
+          "solve@2": {
+            "mean": 40.933,
+            "sd": 0.058
+          },
+          "solve@5": {
+            "mean": 59.467,
+            "sd": 1.05
+          },
+          "solve@10": {
+            "mean": 69.2,
+            "sd": 0.458
+          },
+          "solve@30": {
+            "mean": 78.933,
+            "sd": 0.814
+          },
+          "solve@100": {
+            "mean": 87.5,
+            "sd": 0.854
+          },
+          "solve@300": {
+            "mean": 90.9,
+            "sd": 0.458
+          },
+          "solve@900": {
+            "mean": 92.8,
+            "sd": 0.1
+          },
+          "solve@4000": {
+            "mean": 92.8,
+            "sd": 0.1
+          },
+          "avg_sims_all": {
+            "mean": 78.567,
+            "sd": 2.38
+          },
+          "avg_sims_to_solve": {
+            "mean": 25.433,
+            "sd": 2.084
+          },
+          "median_sims_to_solve": {
+            "mean": 3.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 1.633,
+            "sd": 0.569
+          },
+          "solve@1s": {
+            "mean": 28.467,
+            "sd": 6.521
+          },
+          "solve@2s": {
+            "mean": 58.833,
+            "sd": 2.859
+          },
+          "solve@5s": {
+            "mean": 73.3,
+            "sd": 1.212
+          },
+          "solve@10s": {
+            "mean": 80.2,
+            "sd": 0.656
+          },
+          "solve@30s": {
+            "mean": 88.1,
+            "sd": 0.656
+          },
+          "solve@60s": {
+            "mean": 90.367,
+            "sd": 0.153
+          },
+          "solve@120s": {
+            "mean": 92.0,
+            "sd": 0.1
+          },
+          "solve@300s": {
+            "mean": 92.7,
+            "sd": 0.1
+          },
+          "avg_wall_all": {
+            "mean": 18.823,
+            "sd": 0.635
+          },
+          "avg_wall_to_solve": {
+            "mean": 7.337,
+            "sd": 0.292
+          },
+          "median_wall_to_solve": {
+            "mean": 1.38,
+            "sd": 0.165
+          },
+          "sim_frac": {
+            "mean": 0.955,
+            "sd": 0.003
+          },
+          "score_frac": {
+            "mean": 0.045,
+            "sd": 0.003
+          },
+          "sec_per_sim": {
+            "mean": 0.229,
+            "sd": 0.006
+          }
+        }
+      }
+    },
+    "no_unreachable": {
+      "label": "No unreachable supervision",
+      "model_warmup_repeats": 3,
+      "seed_count": 3,
+      "1push": {
+        "easy": {
+          "n": 681,
+          "solve@1": {
+            "mean": 96.7,
+            "sd": 0.458
+          },
+          "solve@2": {
+            "mean": 98.2,
+            "sd": 0.173
+          },
+          "solve@5": {
+            "mean": 98.767,
+            "sd": 0.252
+          },
+          "solve@10": {
+            "mean": 99.0,
+            "sd": 0.0
+          },
+          "solve@30": {
+            "mean": 99.0,
+            "sd": 0.0
+          },
+          "solve@100": {
+            "mean": 99.067,
+            "sd": 0.058
+          },
+          "solve@300": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "solve@900": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "solve@4000": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "avg_sims_all": {
+            "mean": 7.7,
+            "sd": 0.173
+          },
+          "avg_sims_to_solve": {
+            "mean": 1.2,
+            "sd": 0.173
+          },
+          "median_sims_to_solve": {
+            "mean": 1.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 83.267,
+            "sd": 12.79
+          },
+          "solve@1s": {
+            "mean": 97.833,
+            "sd": 0.651
+          },
+          "solve@2s": {
+            "mean": 98.433,
+            "sd": 0.603
+          },
+          "solve@5s": {
+            "mean": 98.633,
+            "sd": 0.635
+          },
+          "solve@10s": {
+            "mean": 98.733,
+            "sd": 0.462
+          },
+          "solve@30s": {
+            "mean": 99.067,
+            "sd": 0.058
+          },
+          "solve@60s": {
+            "mean": 99.067,
+            "sd": 0.058
+          },
+          "solve@120s": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "solve@300s": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "avg_wall_all": {
+            "mean": 0.88,
+            "sd": 0.044
+          },
+          "avg_wall_to_solve": {
+            "mean": 0.487,
+            "sd": 0.021
+          },
+          "median_wall_to_solve": {
+            "mean": 0.37,
+            "sd": 0.056
+          },
+          "sim_frac": {
+            "mean": 0.781,
+            "sd": 0.063
+          },
+          "score_frac": {
+            "mean": 0.219,
+            "sd": 0.064
+          },
+          "sec_per_sim": {
+            "mean": 0.09,
+            "sd": 0.011
+          }
+        },
+        "medium": {
+          "n": 442,
+          "solve@1": {
+            "mean": 78.867,
+            "sd": 1.102
+          },
+          "solve@2": {
+            "mean": 88.033,
+            "sd": 1.21
+          },
+          "solve@5": {
+            "mean": 94.933,
+            "sd": 0.115
+          },
+          "solve@10": {
+            "mean": 96.667,
+            "sd": 0.231
+          },
+          "solve@30": {
+            "mean": 98.033,
+            "sd": 0.289
+          },
+          "solve@100": {
+            "mean": 98.6,
+            "sd": 0.0
+          },
+          "solve@300": {
+            "mean": 98.7,
+            "sd": 0.173
+          },
+          "solve@900": {
+            "mean": 99.033,
+            "sd": 0.115
+          },
+          "solve@4000": {
+            "mean": 99.033,
+            "sd": 0.115
+          },
+          "avg_sims_all": {
+            "mean": 12.467,
+            "sd": 0.379
+          },
+          "avg_sims_to_solve": {
+            "mean": 3.7,
+            "sd": 0.781
+          },
+          "median_sims_to_solve": {
+            "mean": 1.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 56.933,
+            "sd": 18.483
+          },
+          "solve@1s": {
+            "mean": 88.4,
+            "sd": 1.217
+          },
+          "solve@2s": {
+            "mean": 93.667,
+            "sd": 0.777
+          },
+          "solve@5s": {
+            "mean": 96.533,
+            "sd": 0.603
+          },
+          "solve@10s": {
+            "mean": 97.733,
+            "sd": 0.404
+          },
+          "solve@30s": {
+            "mean": 98.6,
+            "sd": 0.0
+          },
+          "solve@60s": {
+            "mean": 98.6,
+            "sd": 0.0
+          },
+          "solve@120s": {
+            "mean": 98.8,
+            "sd": 0.173
+          },
+          "solve@300s": {
+            "mean": 99.033,
+            "sd": 0.115
+          },
+          "avg_wall_all": {
+            "mean": 2.523,
+            "sd": 0.399
+          },
+          "avg_wall_to_solve": {
+            "mean": 1.24,
+            "sd": 0.072
+          },
+          "median_wall_to_solve": {
+            "mean": 0.483,
+            "sd": 0.068
+          },
+          "sim_frac": {
+            "mean": 0.883,
+            "sd": 0.028
+          },
+          "score_frac": {
+            "mean": 0.116,
+            "sd": 0.027
+          },
+          "sec_per_sim": {
+            "mean": 0.178,
+            "sd": 0.026
+          }
+        },
+        "hard": {
+          "n": 205,
+          "solve@1": {
+            "mean": 38.533,
+            "sd": 3.848
+          },
+          "solve@2": {
+            "mean": 58.233,
+            "sd": 2.511
+          },
+          "solve@5": {
+            "mean": 75.133,
+            "sd": 1.762
+          },
+          "solve@10": {
+            "mean": 83.567,
+            "sd": 0.764
+          },
+          "solve@30": {
+            "mean": 92.367,
+            "sd": 0.577
+          },
+          "solve@100": {
+            "mean": 95.6,
+            "sd": 0.5
+          },
+          "solve@300": {
+            "mean": 96.267,
+            "sd": 0.289
+          },
+          "solve@900": {
+            "mean": 96.6,
+            "sd": 0.0
+          },
+          "solve@4000": {
+            "mean": 96.6,
+            "sd": 0.0
+          },
+          "avg_sims_all": {
+            "mean": 33.333,
+            "sd": 1.234
+          },
+          "avg_sims_to_solve": {
+            "mean": 8.333,
+            "sd": 1.168
+          },
+          "median_sims_to_solve": {
+            "mean": 2.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 31.033,
+            "sd": 8.58
+          },
+          "solve@1s": {
+            "mean": 61.5,
+            "sd": 3.676
+          },
+          "solve@2s": {
+            "mean": 76.1,
+            "sd": 3.027
+          },
+          "solve@5s": {
+            "mean": 85.5,
+            "sd": 2.696
+          },
+          "solve@10s": {
+            "mean": 91.367,
+            "sd": 0.577
+          },
+          "solve@30s": {
+            "mean": 94.933,
+            "sd": 0.289
+          },
+          "solve@60s": {
+            "mean": 96.1,
+            "sd": 0.0
+          },
+          "solve@120s": {
+            "mean": 96.267,
+            "sd": 0.289
+          },
+          "solve@300s": {
+            "mean": 96.6,
+            "sd": 0.0
+          },
+          "avg_wall_all": {
+            "mean": 7.343,
+            "sd": 1.181
+          },
+          "avg_wall_to_solve": {
+            "mean": 3.207,
+            "sd": 0.656
+          },
+          "median_wall_to_solve": {
+            "mean": 0.677,
+            "sd": 0.071
+          },
+          "sim_frac": {
+            "mean": 0.91,
+            "sd": 0.011
+          },
+          "score_frac": {
+            "mean": 0.089,
+            "sd": 0.011
+          },
+          "sec_per_sim": {
+            "mean": 0.201,
+            "sd": 0.035
+          }
+        },
+        "all": {
+          "n": 1328,
+          "solve@1": {
+            "mean": 81.767,
+            "sd": 0.702
+          },
+          "solve@2": {
+            "mean": 88.667,
+            "sd": 0.586
+          },
+          "solve@5": {
+            "mean": 93.867,
+            "sd": 0.379
+          },
+          "solve@10": {
+            "mean": 95.833,
+            "sd": 0.208
+          },
+          "solve@30": {
+            "mean": 97.633,
+            "sd": 0.058
+          },
+          "solve@100": {
+            "mean": 98.367,
+            "sd": 0.115
+          },
+          "solve@300": {
+            "mean": 98.567,
+            "sd": 0.058
+          },
+          "solve@900": {
+            "mean": 98.667,
+            "sd": 0.058
+          },
+          "solve@4000": {
+            "mean": 98.667,
+            "sd": 0.058
+          },
+          "avg_sims_all": {
+            "mean": 13.233,
+            "sd": 0.208
+          },
+          "avg_sims_to_solve": {
+            "mean": 3.1,
+            "sd": 0.4
+          },
+          "median_sims_to_solve": {
+            "mean": 1.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 66.433,
+            "sd": 13.89
+          },
+          "solve@1s": {
+            "mean": 89.1,
+            "sd": 0.9
+          },
+          "solve@2s": {
+            "mean": 93.4,
+            "sd": 0.781
+          },
+          "solve@5s": {
+            "mean": 95.9,
+            "sd": 0.52
+          },
+          "solve@10s": {
+            "mean": 97.267,
+            "sd": 0.306
+          },
+          "solve@30s": {
+            "mean": 98.3,
+            "sd": 0.0
+          },
+          "solve@60s": {
+            "mean": 98.467,
+            "sd": 0.058
+          },
+          "solve@120s": {
+            "mean": 98.567,
+            "sd": 0.058
+          },
+          "solve@300s": {
+            "mean": 98.667,
+            "sd": 0.058
+          },
+          "avg_wall_all": {
+            "mean": 2.423,
+            "sd": 0.323
+          },
+          "avg_wall_to_solve": {
+            "mean": 1.15,
+            "sd": 0.08
+          },
+          "median_wall_to_solve": {
+            "mean": 0.423,
+            "sd": 0.061
+          },
+          "sim_frac": {
+            "mean": 0.876,
+            "sd": 0.028
+          },
+          "score_frac": {
+            "mean": 0.123,
+            "sd": 0.028
+          },
+          "sec_per_sim": {
+            "mean": 0.161,
+            "sd": 0.024
+          }
+        }
+      },
+      "2push": {
+        "easy": {
+          "n": 387,
+          "solve@1": {
+            "mean": 0.433,
+            "sd": 0.115
+          },
+          "solve@2": {
+            "mean": 40.933,
+            "sd": 1.041
+          },
+          "solve@5": {
+            "mean": 63.4,
+            "sd": 1.308
+          },
+          "solve@10": {
+            "mean": 73.567,
+            "sd": 1.258
+          },
+          "solve@30": {
+            "mean": 87.0,
+            "sd": 1.664
+          },
+          "solve@100": {
+            "mean": 94.667,
+            "sd": 0.513
+          },
+          "solve@300": {
+            "mean": 96.3,
+            "sd": 0.173
+          },
+          "solve@900": {
+            "mean": 96.7,
+            "sd": 0.173
+          },
+          "solve@4000": {
+            "mean": 96.7,
+            "sd": 0.173
+          },
+          "avg_sims_all": {
+            "mean": 39.767,
+            "sd": 1.115
+          },
+          "avg_sims_to_solve": {
+            "mean": 13.933,
+            "sd": 0.306
+          },
+          "median_sims_to_solve": {
+            "mean": 3.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 1.733,
+            "sd": 1.986
+          },
+          "solve@1s": {
+            "mean": 32.633,
+            "sd": 9.745
+          },
+          "solve@2s": {
+            "mean": 60.467,
+            "sd": 3.894
+          },
+          "solve@5s": {
+            "mean": 76.833,
+            "sd": 2.845
+          },
+          "solve@10s": {
+            "mean": 85.867,
+            "sd": 2.303
+          },
+          "solve@30s": {
+            "mean": 94.033,
+            "sd": 0.681
+          },
+          "solve@60s": {
+            "mean": 95.767,
+            "sd": 0.416
+          },
+          "solve@120s": {
+            "mean": 96.4,
+            "sd": 0.0
+          },
+          "solve@300s": {
+            "mean": 96.7,
+            "sd": 0.173
+          },
+          "avg_wall_all": {
+            "mean": 11.687,
+            "sd": 1.205
+          },
+          "avg_wall_to_solve": {
+            "mean": 5.153,
+            "sd": 0.706
+          },
+          "median_wall_to_solve": {
+            "mean": 1.337,
+            "sd": 0.193
+          },
+          "sim_frac": {
+            "mean": 0.922,
+            "sd": 0.003
+          },
+          "score_frac": {
+            "mean": 0.077,
+            "sd": 0.003
+          },
+          "sec_per_sim": {
+            "mean": 0.271,
+            "sd": 0.033
+          }
+        },
+        "medium": {
+          "n": 487,
+          "solve@1": {
+            "mean": 0.2,
+            "sd": 0.0
+          },
+          "solve@2": {
+            "mean": 29.167,
+            "sd": 3.083
+          },
+          "solve@5": {
+            "mean": 47.767,
+            "sd": 1.193
+          },
+          "solve@10": {
+            "mean": 58.4,
+            "sd": 1.229
+          },
+          "solve@30": {
+            "mean": 73.967,
+            "sd": 1.102
+          },
+          "solve@100": {
+            "mean": 84.933,
+            "sd": 0.808
+          },
+          "solve@300": {
+            "mean": 90.133,
+            "sd": 0.451
+          },
+          "solve@900": {
+            "mean": 92.133,
+            "sd": 0.306
+          },
+          "solve@4000": {
+            "mean": 92.133,
+            "sd": 0.306
+          },
+          "avg_sims_all": {
+            "mean": 83.6,
+            "sd": 1.277
+          },
+          "avg_sims_to_solve": {
+            "mean": 31.867,
+            "sd": 3.453
+          },
+          "median_sims_to_solve": {
+            "mean": 5.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 1.633,
+            "sd": 1.644
+          },
+          "solve@1s": {
+            "mean": 25.267,
+            "sd": 6.815
+          },
+          "solve@2s": {
+            "mean": 47.3,
+            "sd": 3.158
+          },
+          "solve@5s": {
+            "mean": 63.933,
+            "sd": 0.874
+          },
+          "solve@10s": {
+            "mean": 73.533,
+            "sd": 1.65
+          },
+          "solve@30s": {
+            "mean": 85.233,
+            "sd": 1.563
+          },
+          "solve@60s": {
+            "mean": 88.867,
+            "sd": 1.582
+          },
+          "solve@120s": {
+            "mean": 90.767,
+            "sd": 0.404
+          },
+          "solve@300s": {
+            "mean": 91.933,
+            "sd": 0.115
+          },
+          "avg_wall_all": {
+            "mean": 21.593,
+            "sd": 3.473
+          },
+          "avg_wall_to_solve": {
+            "mean": 10.15,
+            "sd": 2.549
+          },
+          "median_wall_to_solve": {
+            "mean": 1.877,
+            "sd": 0.327
+          },
+          "sim_frac": {
+            "mean": 0.939,
+            "sd": 0.006
+          },
+          "score_frac": {
+            "mean": 0.06,
+            "sd": 0.006
+          },
+          "sec_per_sim": {
+            "mean": 0.243,
+            "sd": 0.041
+          }
+        },
+        "hard": {
+          "n": 118,
+          "solve@1": {
+            "mean": 0.0,
+            "sd": 0.0
+          },
+          "solve@2": {
+            "mean": 11.867,
+            "sd": 1.501
+          },
+          "solve@5": {
+            "mean": 25.7,
+            "sd": 4.355
+          },
+          "solve@10": {
+            "mean": 34.767,
+            "sd": 2.23
+          },
+          "solve@30": {
+            "mean": 48.033,
+            "sd": 3.499
+          },
+          "solve@100": {
+            "mean": 67.2,
+            "sd": 0.52
+          },
+          "solve@300": {
+            "mean": 76.267,
+            "sd": 3.092
+          },
+          "solve@900": {
+            "mean": 87.0,
+            "sd": 2.166
+          },
+          "solve@4000": {
+            "mean": 87.0,
+            "sd": 2.166
+          },
+          "avg_sims_all": {
+            "mean": 205.3,
+            "sd": 18.67
+          },
+          "avg_sims_to_solve": {
+            "mean": 101.533,
+            "sd": 5.755
+          },
+          "median_sims_to_solve": {
+            "mean": 23.0,
+            "sd": 6.083
+          },
+          "solve@0.5s": {
+            "mean": 0.833,
+            "sd": 1.443
+          },
+          "solve@1s": {
+            "mean": 13.267,
+            "sd": 3.539
+          },
+          "solve@2s": {
+            "mean": 27.133,
+            "sd": 3.092
+          },
+          "solve@5s": {
+            "mean": 40.1,
+            "sd": 4.355
+          },
+          "solve@10s": {
+            "mean": 50.3,
+            "sd": 4.657
+          },
+          "solve@30s": {
+            "mean": 68.367,
+            "sd": 1.963
+          },
+          "solve@60s": {
+            "mean": 74.0,
+            "sd": 1.277
+          },
+          "solve@120s": {
+            "mean": 78.8,
+            "sd": 2.944
+          },
+          "solve@300s": {
+            "mean": 87.0,
+            "sd": 2.166
+          },
+          "avg_wall_all": {
+            "mean": 52.62,
+            "sd": 7.002
+          },
+          "avg_wall_to_solve": {
+            "mean": 27.853,
+            "sd": 4.521
+          },
+          "median_wall_to_solve": {
+            "mean": 6.823,
+            "sd": 2.385
+          },
+          "sim_frac": {
+            "mean": 0.955,
+            "sd": 0.002
+          },
+          "score_frac": {
+            "mean": 0.044,
+            "sd": 0.002
+          },
+          "sec_per_sim": {
+            "mean": 0.247,
+            "sd": 0.043
+          }
+        },
+        "all": {
+          "n": 992,
+          "solve@1": {
+            "mean": 0.267,
+            "sd": 0.058
+          },
+          "solve@2": {
+            "mean": 31.7,
+            "sd": 1.473
+          },
+          "solve@5": {
+            "mean": 51.233,
+            "sd": 0.231
+          },
+          "solve@10": {
+            "mean": 61.5,
+            "sd": 0.872
+          },
+          "solve@30": {
+            "mean": 75.967,
+            "sd": 0.551
+          },
+          "solve@100": {
+            "mean": 86.633,
+            "sd": 0.551
+          },
+          "solve@300": {
+            "mean": 90.867,
+            "sd": 0.551
+          },
+          "solve@900": {
+            "mean": 93.267,
+            "sd": 0.404
+          },
+          "solve@4000": {
+            "mean": 93.267,
+            "sd": 0.404
+          },
+          "avg_sims_all": {
+            "mean": 80.967,
+            "sd": 2.577
+          },
+          "avg_sims_to_solve": {
+            "mean": 32.367,
+            "sd": 2.346
+          },
+          "median_sims_to_solve": {
+            "mean": 4.333,
+            "sd": 0.577
+          },
+          "solve@0.5s": {
+            "mean": 1.567,
+            "sd": 1.721
+          },
+          "solve@1s": {
+            "mean": 26.733,
+            "sd": 7.407
+          },
+          "solve@2s": {
+            "mean": 50.033,
+            "sd": 3.092
+          },
+          "solve@5s": {
+            "mean": 66.1,
+            "sd": 1.992
+          },
+          "solve@10s": {
+            "mean": 75.567,
+            "sd": 1.94
+          },
+          "solve@30s": {
+            "mean": 86.667,
+            "sd": 1.079
+          },
+          "solve@60s": {
+            "mean": 89.767,
+            "sd": 0.862
+          },
+          "solve@120s": {
+            "mean": 91.5,
+            "sd": 0.458
+          },
+          "solve@300s": {
+            "mean": 93.167,
+            "sd": 0.321
+          },
+          "avg_wall_all": {
+            "mean": 21.42,
+            "sd": 2.941
+          },
+          "avg_wall_to_solve": {
+            "mean": 10.093,
+            "sd": 2.039
+          },
+          "median_wall_to_solve": {
+            "mean": 1.737,
+            "sd": 0.257
+          },
+          "sim_frac": {
+            "mean": 0.94,
+            "sd": 0.003
+          },
+          "score_frac": {
+            "mean": 0.059,
+            "sd": 0.003
+          },
+          "sec_per_sim": {
+            "mean": 0.249,
+            "sd": 0.04
+          }
+        }
+      }
+    },
+    "random": {
+      "label": "Random",
+      "model_warmup_repeats": 0,
+      "seed_count": 3,
+      "1push": {
+        "easy": {
+          "n": 681,
+          "solve@1": {
+            "mean": 61.067,
+            "sd": 4.646
+          },
+          "solve@2": {
+            "mean": 82.667,
+            "sd": 2.658
+          },
+          "solve@5": {
+            "mean": 96.333,
+            "sd": 0.751
+          },
+          "solve@10": {
+            "mean": 98.433,
+            "sd": 0.252
+          },
+          "solve@30": {
+            "mean": 99.067,
+            "sd": 0.058
+          },
+          "solve@100": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "solve@300": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "solve@900": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "solve@4000": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "avg_sims_all": {
+            "mean": 8.267,
+            "sd": 0.058
+          },
+          "avg_sims_to_solve": {
+            "mean": 1.833,
+            "sd": 0.058
+          },
+          "median_sims_to_solve": {
+            "mean": 1.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 61.667,
+            "sd": 1.358
+          },
+          "solve@1s": {
+            "mean": 91.167,
+            "sd": 1.069
+          },
+          "solve@2s": {
+            "mean": 97.167,
+            "sd": 0.551
+          },
+          "solve@5s": {
+            "mean": 98.933,
+            "sd": 0.208
+          },
+          "solve@10s": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "solve@30s": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "solve@60s": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "solve@120s": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "solve@300s": {
+            "mean": 99.1,
+            "sd": 0.0
+          },
+          "avg_wall_all": {
+            "mean": 1.233,
+            "sd": 0.087
+          },
+          "avg_wall_to_solve": {
+            "mean": 0.527,
+            "sd": 0.015
+          },
+          "median_wall_to_solve": {
+            "mean": 0.41,
+            "sd": 0.017
+          },
+          "sim_frac": {
+            "mean": 0.998,
+            "sd": 0.0
+          },
+          "score_frac": {
+            "mean": 0.002,
+            "sd": 0.001
+          },
+          "sec_per_sim": {
+            "mean": 0.149,
+            "sd": 0.011
+          }
+        },
+        "medium": {
+          "n": 442,
+          "solve@1": {
+            "mean": 14.1,
+            "sd": 1.652
+          },
+          "solve@2": {
+            "mean": 33.133,
+            "sd": 2.854
+          },
+          "solve@5": {
+            "mean": 66.733,
+            "sd": 1.365
+          },
+          "solve@10": {
+            "mean": 83.2,
+            "sd": 0.917
+          },
+          "solve@30": {
+            "mean": 94.267,
+            "sd": 0.757
+          },
+          "solve@100": {
+            "mean": 97.3,
+            "sd": 0.819
+          },
+          "solve@300": {
+            "mean": 98.533,
+            "sd": 0.115
+          },
+          "solve@900": {
+            "mean": 98.6,
+            "sd": 0.0
+          },
+          "solve@4000": {
+            "mean": 98.6,
+            "sd": 0.0
+          },
+          "avg_sims_all": {
+            "mean": 18.933,
+            "sd": 1.629
+          },
+          "avg_sims_to_solve": {
+            "mean": 8.9,
+            "sd": 1.652
+          },
+          "median_sims_to_solve": {
+            "mean": 3.667,
+            "sd": 0.577
+          },
+          "solve@0.5s": {
+            "mean": 15.867,
+            "sd": 0.586
+          },
+          "solve@1s": {
+            "mean": 51.6,
+            "sd": 1.709
+          },
+          "solve@2s": {
+            "mean": 75.033,
+            "sd": 0.907
+          },
+          "solve@5s": {
+            "mean": 90.7,
+            "sd": 0.819
+          },
+          "solve@10s": {
+            "mean": 94.867,
+            "sd": 0.85
+          },
+          "solve@30s": {
+            "mean": 97.5,
+            "sd": 0.7
+          },
+          "solve@60s": {
+            "mean": 98.4,
+            "sd": 0.346
+          },
+          "solve@120s": {
+            "mean": 98.533,
+            "sd": 0.115
+          },
+          "solve@300s": {
+            "mean": 98.6,
+            "sd": 0.0
+          },
+          "avg_wall_all": {
+            "mean": 4.543,
+            "sd": 0.486
+          },
+          "avg_wall_to_solve": {
+            "mean": 2.483,
+            "sd": 0.503
+          },
+          "median_wall_to_solve": {
+            "mean": 0.963,
+            "sd": 0.015
+          },
+          "sim_frac": {
+            "mean": 0.998,
+            "sd": 0.0
+          },
+          "score_frac": {
+            "mean": 0.001,
+            "sd": 0.0
+          },
+          "sec_per_sim": {
+            "mean": 0.24,
+            "sd": 0.006
+          }
+        },
+        "hard": {
+          "n": 205,
+          "solve@1": {
+            "mean": 2.933,
+            "sd": 0.808
+          },
+          "solve@2": {
+            "mean": 11.067,
+            "sd": 3.001
+          },
+          "solve@5": {
+            "mean": 31.367,
+            "sd": 2.376
+          },
+          "solve@10": {
+            "mean": 50.233,
+            "sd": 2.54
+          },
+          "solve@30": {
+            "mean": 70.9,
+            "sd": 2.524
+          },
+          "solve@100": {
+            "mean": 89.1,
+            "sd": 1.836
+          },
+          "solve@300": {
+            "mean": 92.867,
+            "sd": 0.289
+          },
+          "solve@900": {
+            "mean": 94.6,
+            "sd": 0.0
+          },
+          "solve@4000": {
+            "mean": 94.6,
+            "sd": 0.0
+          },
+          "avg_sims_all": {
+            "mean": 71.633,
+            "sd": 1.332
+          },
+          "avg_sims_to_solve": {
+            "mean": 32.533,
+            "sd": 1.415
+          },
+          "median_sims_to_solve": {
+            "mean": 9.333,
+            "sd": 1.041
+          },
+          "solve@0.5s": {
+            "mean": 3.767,
+            "sd": 1.963
+          },
+          "solve@1s": {
+            "mean": 18.867,
+            "sd": 2.802
+          },
+          "solve@2s": {
+            "mean": 40.0,
+            "sd": 2.9
+          },
+          "solve@5s": {
+            "mean": 62.267,
+            "sd": 1.206
+          },
+          "solve@10s": {
+            "mean": 75.267,
+            "sd": 1.607
+          },
+          "solve@30s": {
+            "mean": 88.967,
+            "sd": 0.289
+          },
+          "solve@60s": {
+            "mean": 92.367,
+            "sd": 0.577
+          },
+          "solve@120s": {
+            "mean": 93.833,
+            "sd": 0.231
+          },
+          "solve@300s": {
+            "mean": 94.433,
+            "sd": 0.289
+          },
+          "avg_wall_all": {
+            "mean": 18.013,
+            "sd": 0.531
+          },
+          "avg_wall_to_solve": {
+            "mean": 8.873,
+            "sd": 0.456
+          },
+          "median_wall_to_solve": {
+            "mean": 2.653,
+            "sd": 0.193
+          },
+          "sim_frac": {
+            "mean": 0.998,
+            "sd": 0.0
+          },
+          "score_frac": {
+            "mean": 0.001,
+            "sd": 0.0
+          },
+          "sec_per_sim": {
+            "mean": 0.251,
+            "sd": 0.003
+          }
+        },
+        "all": {
+          "n": 1328,
+          "solve@1": {
+            "mean": 36.467,
+            "sd": 2.843
+          },
+          "solve@2": {
+            "mean": 55.133,
+            "sd": 2.274
+          },
+          "solve@5": {
+            "mean": 76.467,
+            "sd": 0.473
+          },
+          "solve@10": {
+            "mean": 85.933,
+            "sd": 0.503
+          },
+          "solve@30": {
+            "mean": 93.133,
+            "sd": 0.153
+          },
+          "solve@100": {
+            "mean": 96.967,
+            "sd": 0.451
+          },
+          "solve@300": {
+            "mean": 97.967,
+            "sd": 0.058
+          },
+          "solve@900": {
+            "mean": 98.3,
+            "sd": 0.0
+          },
+          "solve@4000": {
+            "mean": 98.3,
+            "sd": 0.0
+          },
+          "avg_sims_all": {
+            "mean": 21.567,
+            "sd": 0.379
+          },
+          "avg_sims_to_solve": {
+            "mean": 8.733,
+            "sd": 0.321
+          },
+          "median_sims_to_solve": {
+            "mean": 2.0,
+            "sd": 0.0
+          },
+          "solve@0.5s": {
+            "mean": 37.467,
+            "sd": 0.404
+          },
+          "solve@1s": {
+            "mean": 66.8,
+            "sd": 0.985
+          },
+          "solve@2s": {
+            "mean": 80.967,
+            "sd": 0.462
+          },
+          "solve@5s": {
+            "mean": 90.533,
+            "sd": 0.153
+          },
+          "solve@10s": {
+            "mean": 94.033,
+            "sd": 0.058
+          },
+          "solve@30s": {
+            "mean": 97.033,
+            "sd": 0.208
+          },
+          "solve@60s": {
+            "mean": 97.833,
+            "sd": 0.153
+          },
+          "solve@120s": {
+            "mean": 98.1,
+            "sd": 0.1
+          },
+          "solve@300s": {
+            "mean": 98.267,
+            "sd": 0.058
+          },
+          "avg_wall_all": {
+            "mean": 4.927,
+            "sd": 0.074
+          },
+          "avg_wall_to_solve": {
+            "mean": 2.423,
+            "sd": 0.115
+          },
+          "median_wall_to_solve": {
+            "mean": 0.64,
+            "sd": 0.01
+          },
+          "sim_frac": {
+            "mean": 0.998,
+            "sd": 0.0
+          },
+          "score_frac": {
+            "mean": 0.001,
+            "sd": 0.0
+          },
+          "sec_per_sim": {
+            "mean": 0.228,
+            "sd": 0.0
+          }
+        }
+      },
+      "2push": {
+        "easy": {
+          "n": 387,
+          "solve@1": {
+            "mean": 0.0,
+            "sd": 0.0
+          },
+          "solve@2": {
+            "mean": 6.8,
+            "sd": 0.361
+          },
+          "solve@5": {
+            "mean": 22.833,
+            "sd": 3.55
+          },
+          "solve@10": {
+            "mean": 42.033,
+            "sd": 0.635
+          },
+          "solve@30": {
+            "mean": 72.267,
+            "sd": 0.289
+          },
+          "solve@100": {
+            "mean": 90.1,
+            "sd": 0.656
+          },
+          "solve@300": {
+            "mean": 94.967,
+            "sd": 0.289
+          },
+          "solve@900": {
+            "mean": 95.8,
+            "sd": 0.173
+          },
+          "solve@4000": {
+            "mean": 95.8,
+            "sd": 0.173
+          },
+          "avg_sims_all": {
+            "mean": 60.767,
+            "sd": 1.305
+          },
+          "avg_sims_to_solve": {
+            "mean": 29.133,
+            "sd": 0.85
+          },
+          "median_sims_to_solve": {
+            "mean": 12.667,
+            "sd": 0.577
+          },
+          "solve@0.5s": {
+            "mean": 1.467,
+            "sd": 0.987
+          },
+          "solve@1s": {
+            "mean": 9.567,
+            "sd": 1.38
+          },
+          "solve@2s": {
+            "mean": 28.7,
+            "sd": 2.095
+          },
+          "solve@5s": {
+            "mean": 57.9,
+            "sd": 0.8
+          },
+          "solve@10s": {
+            "mean": 75.7,
+            "sd": 0.917
+          },
+          "solve@30s": {
+            "mean": 90.2,
+            "sd": 0.8
+          },
+          "solve@60s": {
+            "mean": 94.333,
+            "sd": 0.462
+          },
+          "solve@120s": {
+            "mean": 95.233,
+            "sd": 0.115
+          },
+          "solve@300s": {
+            "mean": 95.8,
+            "sd": 0.173
+          },
+          "avg_wall_all": {
+            "mean": 18.887,
+            "sd": 0.419
+          },
+          "avg_wall_to_solve": {
+            "mean": 8.73,
+            "sd": 0.075
+          },
+          "median_wall_to_solve": {
+            "mean": 3.647,
+            "sd": 0.092
+          },
+          "sim_frac": {
+            "mean": 0.999,
+            "sd": 0.0
+          },
+          "score_frac": {
+            "mean": 0.0,
+            "sd": 0.0
+          },
+          "sec_per_sim": {
+            "mean": 0.311,
+            "sd": 0.004
+          }
+        },
+        "medium": {
+          "n": 487,
+          "solve@1": {
+            "mean": 0.2,
+            "sd": 0.0
+          },
+          "solve@2": {
+            "mean": 1.433,
+            "sd": 1.05
+          },
+          "solve@5": {
+            "mean": 7.233,
+            "sd": 1.686
+          },
+          "solve@10": {
+            "mean": 14.867,
+            "sd": 0.808
+          },
+          "solve@30": {
+            "mean": 34.033,
+            "sd": 1.026
+          },
+          "solve@100": {
+            "mean": 58.6,
+            "sd": 1.277
+          },
+          "solve@300": {
+            "mean": 78.367,
+            "sd": 1.266
+          },
+          "solve@900": {
+            "mean": 88.833,
+            "sd": 0.462
+          },
+          "solve@4000": {
+            "mean": 88.833,
+            "sd": 0.462
+          },
+          "avg_sims_all": {
+            "mean": 190.4,
+            "sd": 6.751
+          },
+          "avg_sims_to_solve": {
+            "mean": 121.9,
+            "sd": 3.704
+          },
+          "median_sims_to_solve": {
+            "mean": 55.167,
+            "sd": 1.607
+          },
+          "solve@0.5s": {
+            "mean": 0.4,
+            "sd": 0.346
+          },
+          "solve@1s": {
+            "mean": 4.1,
+            "sd": 0.346
+          },
+          "solve@2s": {
+            "mean": 11.9,
+            "sd": 0.872
+          },
+          "solve@5s": {
+            "mean": 25.9,
+            "sd": 1.217
+          },
+          "solve@10s": {
+            "mean": 37.6,
+            "sd": 1.058
+          },
+          "solve@30s": {
+            "mean": 60.367,
+            "sd": 1.25
+          },
+          "solve@60s": {
+            "mean": 73.033,
+            "sd": 0.902
+          },
+          "solve@120s": {
+            "mean": 82.9,
+            "sd": 1.082
+          },
+          "solve@300s": {
+            "mean": 88.5,
+            "sd": 0.721
+          },
+          "avg_wall_all": {
+            "mean": 52.633,
+            "sd": 2.244
+          },
+          "avg_wall_to_solve": {
+            "mean": 34.547,
+            "sd": 1.699
+          },
+          "median_wall_to_solve": {
+            "mean": 14.257,
+            "sd": 0.136
+          },
+          "sim_frac": {
+            "mean": 0.999,
+            "sd": 0.0
+          },
+          "score_frac": {
+            "mean": 0.0,
+            "sd": 0.0
+          },
+          "sec_per_sim": {
+            "mean": 0.276,
+            "sd": 0.003
+          }
+        },
+        "hard": {
+          "n": 118,
+          "solve@1": {
+            "mean": 0.0,
+            "sd": 0.0
+          },
+          "solve@2": {
+            "mean": 0.267,
+            "sd": 0.462
+          },
+          "solve@5": {
+            "mean": 1.967,
+            "sd": 1.32
+          },
+          "solve@10": {
+            "mean": 3.367,
+            "sd": 2.23
+          },
+          "solve@30": {
+            "mean": 10.433,
+            "sd": 2.597
+          },
+          "solve@100": {
+            "mean": 19.467,
+            "sd": 2.55
+          },
+          "solve@300": {
+            "mean": 38.967,
+            "sd": 0.85
+          },
+          "solve@900": {
+            "mean": 62.167,
+            "sd": 3.406
+          },
+          "solve@4000": {
+            "mean": 62.167,
+            "sd": 3.406
+          },
+          "avg_sims_all": {
+            "mean": 514.4,
+            "sd": 7.125
+          },
+          "avg_sims_to_solve": {
+            "mean": 278.6,
+            "sd": 27.594
+          },
+          "median_sims_to_solve": {
+            "mean": 214.833,
+            "sd": 42.15
+          },
+          "solve@0.5s": {
+            "mean": 0.0,
+            "sd": 0.0
+          },
+          "solve@1s": {
+            "mean": 1.133,
+            "sd": 0.981
+          },
+          "solve@2s": {
+            "mean": 4.5,
+            "sd": 1.277
+          },
+          "solve@5s": {
+            "mean": 8.167,
+            "sd": 2.597
+          },
+          "solve@10s": {
+            "mean": 13.3,
+            "sd": 1.277
+          },
+          "solve@30s": {
+            "mean": 22.567,
+            "sd": 2.597
+          },
+          "solve@60s": {
+            "mean": 34.467,
+            "sd": 1.721
+          },
+          "solve@120s": {
+            "mean": 45.767,
+            "sd": 3.694
+          },
+          "solve@300s": {
+            "mean": 61.9,
+            "sd": 2.944
+          },
+          "avg_wall_all": {
+            "mean": 131.65,
+            "sd": 1.043
+          },
+          "avg_wall_to_solve": {
+            "mean": 74.063,
+            "sd": 7.754
+          },
+          "median_wall_to_solve": {
+            "mean": 51.833,
+            "sd": 7.605
+          },
+          "sim_frac": {
+            "mean": 0.999,
+            "sd": 0.0
+          },
+          "score_frac": {
+            "mean": 0.0,
+            "sd": 0.0
+          },
+          "sec_per_sim": {
+            "mean": 0.256,
+            "sd": 0.004
+          }
+        },
+        "all": {
+          "n": 992,
+          "solve@1": {
+            "mean": 0.1,
+            "sd": 0.0
+          },
+          "solve@2": {
+            "mean": 3.367,
+            "sd": 0.666
+          },
+          "solve@5": {
+            "mean": 12.7,
+            "sd": 2.007
+          },
+          "solve@10": {
+            "mean": 24.1,
+            "sd": 0.436
+          },
+          "solve@30": {
+            "mean": 46.167,
+            "sd": 0.551
+          },
+          "solve@100": {
+            "mean": 66.2,
+            "sd": 0.693
+          },
+          "solve@300": {
+            "mean": 80.133,
+            "sd": 0.551
+          },
+          "solve@900": {
+            "mean": 88.367,
+            "sd": 0.569
+          },
+          "solve@4000": {
+            "mean": 88.367,
+            "sd": 0.569
+          },
+          "avg_sims_all": {
+            "mean": 178.333,
+            "sd": 2.501
+          },
+          "avg_sims_to_solve": {
+            "mean": 95.833,
+            "sd": 3.467
+          },
+          "median_sims_to_solve": {
+            "mean": 27.667,
+            "sd": 0.577
+          },
+          "solve@0.5s": {
+            "mean": 0.767,
+            "sd": 0.351
+          },
+          "solve@1s": {
+            "mean": 5.867,
+            "sd": 0.709
+          },
+          "solve@2s": {
+            "mean": 17.533,
+            "sd": 0.503
+          },
+          "solve@5s": {
+            "mean": 36.267,
+            "sd": 0.833
+          },
+          "solve@10s": {
+            "mean": 49.567,
+            "sd": 0.473
+          },
+          "solve@30s": {
+            "mean": 67.467,
+            "sd": 0.777
+          },
+          "solve@60s": {
+            "mean": 76.733,
+            "sd": 0.404
+          },
+          "solve@120s": {
+            "mean": 83.333,
+            "sd": 0.666
+          },
+          "solve@300s": {
+            "mean": 88.167,
+            "sd": 0.551
+          },
+          "avg_wall_all": {
+            "mean": 48.87,
+            "sd": 1.132
+          },
+          "avg_wall_to_solve": {
+            "mean": 26.953,
+            "sd": 0.509
+          },
+          "median_wall_to_solve": {
+            "mean": 7.5,
+            "sd": 0.269
+          },
+          "sim_frac": {
+            "mean": 0.999,
+            "sd": 0.0
+          },
+          "score_frac": {
+            "mean": 0.0,
+            "sd": 0.0
+          },
+          "sec_per_sim": {
+            "mean": 0.274,
+            "sd": 0.003
+          }
+        }
+      }
+    }
+  }
+}

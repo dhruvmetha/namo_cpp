@@ -83,9 +83,13 @@ Three seeds of each ablation were evaluated on the same complete fixed-physics-v
 | no unreachable, HY5 | 63.4±1.3 | 47.8±1.2 | 25.7±4.4 | 51.2±0.2 | 93.3±0.4 |
 | Random | 22.8±3.6 | 7.2±1.7 | 2.0±1.3 | 12.7±2.0 | 88.4±0.6 |
 
+![Exact three-seed verified-success curves for HY5U, four component ablations, and Random, split by difficulty and horizon.](plots/hy5u_icra_ablations/success_vs_sims_both_horizons.png)
+
+![Paired-seed change from HY5U when each component is removed, reported at one-push solve@1 and two-push solve@5.](plots/hy5u_icra_ablations/ablation_effects.png)
+
 **The ordering losses are the strongest component.** Regression-only loses 18.7 points overall and 11.6 points on hard two-push at five calls, yet its 900-call ceiling matches HY5U. The removed losses therefore improve the order in which search spends simulator calls rather than determining whether a solution exists. Removing unreachable supervision produces the next-largest loss, 13.6 points overall at two-push@5, which confirms that free geometric negatives teach useful ordering. Inter-contact self-attention contributes a smaller but consistent 5.3-point overall gain. The episode-family margin loss does not earn its complexity under this `hmax=2` protocol: removing it changes two-push@5 from 64.8±0.8 to 65.1±0.4 and leaves every tier within seed variation. Every learned arm still beats Random sharply at small budgets.
 
-Per-seed aggregates for the three newly trained arms are under `$NAMO_SCRATCH/eval/hy5u_ablations_20260904/full/`; the reused HY5 no-unreachable aggregates are under `$NAMO_SCRATCH/aquaman/round0/eval_icra_ablations_20260902/full/`. Full run history and checkpoint selection are in [EXP-2026-08-31](log/EXP-2026-08-31-hy5u-icra-ablations.md); canonical artifacts are registered as `hy5u-icra-ablations-hmax2-v3`.
+Per-seed aggregates for the three newly trained arms are under `$NAMO_SCRATCH/eval/hy5u_ablations_20260904/full/`; the reused HY5 no-unreachable aggregates are under `$NAMO_SCRATCH/aquaman/round0/eval_icra_ablations_20260902/full/`. Plot PDFs, PNGs, and the six-arm common-population aggregate are under `docs/experiments/plots/hy5u_icra_ablations/`. Full run history and checkpoint selection are in [EXP-2026-08-31](log/EXP-2026-08-31-hy5u-icra-ablations.md); canonical artifacts are registered as `hy5u-icra-ablations-hmax2-v3`.
 
 ---
 

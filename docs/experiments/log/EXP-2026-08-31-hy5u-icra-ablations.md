@@ -95,9 +95,13 @@ All 324 tasks in the nine newly trained-arm arrays completed with exit code `0:0
 | no unreachable, HY5 | 63.4±1.3 | 47.8±1.2 | 25.7±4.4 | 51.2±0.2 | 93.3±0.4 |
 | Random | 22.8±3.6 | 7.2±1.7 | 2.0±1.3 | 12.7±2.0 | 88.4±0.6 |
 
+![Exact three-seed verified-success curves for HY5U, four component ablations, and Random, split by difficulty and horizon.](../plots/hy5u_icra_ablations/success_vs_sims_both_horizons.png)
+
+![Paired-seed change from HY5U when each component is removed, reported at one-push solve@1 and two-push solve@5.](../plots/hy5u_icra_ablations/ablation_effects.png)
+
 The full ranking loss is the largest contributor to low-budget efficiency: regression-only loses 18.7 points at two-push@5 overall while matching the 900-call ceiling. Removing unreachable supervision loses 13.6 points, and removing inter-contact self-attention loses 5.3 points. Removing the episode-family margin loss changes two-push@5 by only +0.3 points overall and stays within seed variation on every tier.
 
-The three newly trained-arm aggregates are mirrored on the CS filesystem under `/common/users/dm1487/scratch_namo/eval/hy5u_ablations_20260904/full/`; raw rows remain on Amarel under `/scratch/dm1487/eval/hy5u_ablations_20260904/full/`. Reused HY5 aggregates are under `/common/users/dm1487/scratch_namo/aquaman/round0/eval_icra_ablations_20260902/full/`, with Amarel raw rows under the matching `/scratch/dm1487/aquaman/round0/eval_icra_ablations_20260902/full/` path.
+The three newly trained-arm aggregates are mirrored on the CS filesystem under `/common/users/dm1487/scratch_namo/eval/hy5u_ablations_20260904/full/`; raw rows remain on Amarel under `/scratch/dm1487/eval/hy5u_ablations_20260904/full/`. Reused HY5 aggregates are under `/common/users/dm1487/scratch_namo/aquaman/round0/eval_icra_ablations_20260902/full/`, with Amarel raw rows under the matching `/scratch/dm1487/aquaman/round0/eval_icra_ablations_20260902/full/` path. Reproducible PDFs, PNGs, and the common-population aggregate are under `docs/experiments/plots/hy5u_icra_ablations/`; `scripts/experiments/hy5u_icra_ablation_series.json` is the exact six-arm plot specification.
 
 ## Verdict
 
