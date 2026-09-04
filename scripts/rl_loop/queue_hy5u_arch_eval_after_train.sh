@@ -69,8 +69,8 @@ done
 ssh "$AMAREL_HOST" "mkdir -p '$AMAREL_CKPT_ROOT'"
 rsync -a "$STAGE/" "$AMAREL_HOST:$AMAREL_CKPT_ROOT/"
 
-remote_namo=$(ssh "$AMAREL_HOST" "set -e; cd '$AMAREL_REPO'; git pull --ff-only origin feat/horizon-q-redesign >/dev/null; git rev-parse HEAD")
-remote_sage=$(ssh "$AMAREL_HOST" "set -e; cd '$AMAREL_SAGE'; git pull --ff-only origin feat/horizon-q >/dev/null; git rev-parse HEAD")
+remote_namo=$(ssh "$AMAREL_HOST" "set -e; cd '$AMAREL_REPO'; git fetch origin feat/horizon-q-redesign >/dev/null; git checkout --detach '$EXPECTED_NAMO_SHA' >/dev/null; git rev-parse HEAD")
+remote_sage=$(ssh "$AMAREL_HOST" "set -e; cd '$AMAREL_SAGE'; git fetch origin feat/horizon-q >/dev/null; git checkout --detach '$EXPECTED_SAGE_SHA' >/dev/null; git rev-parse HEAD")
 [ "$remote_namo" = "$EXPECTED_NAMO_SHA" ] || { echo "Amarel NAMO $remote_namo != $EXPECTED_NAMO_SHA" >&2; exit 1; }
 [ "$remote_sage" = "$EXPECTED_SAGE_SHA" ] || { echo "Amarel Sage $remote_sage != $EXPECTED_SAGE_SHA" >&2; exit 1; }
 
