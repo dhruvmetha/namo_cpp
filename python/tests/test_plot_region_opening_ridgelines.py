@@ -76,3 +76,13 @@ def test_combined_unsolved_percentage_uses_pooled_denominator():
 
     assert solved == [1.0, 2.0, 4.0]
     assert unsolved_pct == pytest.approx(25.0)
+
+
+def test_plot_combined_metric_writes_png_and_pdf(tmp_path):
+    combined = plot.combine_horizons(synthetic_horizon_data())
+    output = tmp_path / "region_opening_cost_ridgelines_combined"
+
+    plot.plot_combined_metric("sims", combined, output)
+
+    for suffix in (".png", ".pdf"):
+        assert output.with_suffix(suffix).stat().st_size > 0

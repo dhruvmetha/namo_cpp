@@ -28,6 +28,11 @@ from tabulate_region_opening_costs import (  # noqa: E402
 METHODS = ("Geometric", "Random", "HY5U")
 COMBINED_HORIZONS = ("1push", "2push")
 COLORS = {"HY5U": "#4cc465", "Geometric": "#d9534f", "Random": "#909090"}
+PANEL_TITLES = {
+    "1push": "One push",
+    "2push": "Two pushes",
+    "combined": "Overall test set",
+}
 METRICS = {
     "sims": "Simulator pushes to first success (log scale)",
     "t_wall": "Wall-clock time to first success (s, log scale)",
@@ -198,8 +203,7 @@ def panel(ax, horizon: str, metric: str, data: dict, *, show_method_labels: bool
         ax.spines[spine].set_visible(False)
     ax.spines["bottom"].set_color(AXIS)
     ax.spines["bottom"].set_linewidth(0.8)
-    title = "One push" if horizon == "1push" else "Two pushes"
-    ax.set_title(title, fontsize=10.5, fontweight="bold", color=INK, pad=4)
+    ax.set_title(PANEL_TITLES[horizon], fontsize=10.5, fontweight="bold", color=INK, pad=4)
 
 
 def plot_metric(metric: str, data: dict, output: Path) -> None:
@@ -209,6 +213,21 @@ def plot_metric(metric: str, data: dict, output: Path) -> None:
 
     fig.supxlabel(METRICS[metric], fontsize=9.5, color=INK, y=0.045)
     fig.subplots_adjust(left=0.115, right=0.985, bottom=0.23, top=0.88, wspace=0.18)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    for suffix in (".png", ".pdf"):
+        path = output.with_suffix(suffix)
+        fig.savefig(path, dpi=300 if suffix == ".png" else None, bbox_inches="tight", facecolor="white")
+        print(f"wrote {path}")
+    plt.close(fig)
+
+
+def plot_combined_metric(metric: str, data: dict, output: Path) -> None:
+    """Render one metric over the pooled one-push and two-push population."""
+    fig, ax = plt.subplots(figsize=(4.2, 3.0))
+    panel(ax, "combined", metric, data, show_method_labels=True)
+
+    fig.supxlabel(METRICS[metric], fontsize=9.5, color=INK, y=0.045)
+    fig.subplots_adjust(left=0.19, right=0.985, bottom=0.23, top=0.88)
     output.parent.mkdir(parents=True, exist_ok=True)
     for suffix in (".png", ".pdf"):
         path = output.with_suffix(suffix)
@@ -245,6 +264,13 @@ def main() -> None:
     data = load_costs(args)
     plot_metric("sims", data, args.out)
     plot_metric("t_wall", data, args.out.with_name(args.out.name + "_wall_time"))
+    combined = combine_horizons(data)
+    plot_combined_metric("sims", combined, args.out.with_name(args.out.name + "_combined"))
+    plot_combined_metric(
+        "t_wall",
+        combined,
+        args.out.with_name(args.out.name + "_wall_time_combined"),
+    )
 
 
 if __name__ == "__main__":
