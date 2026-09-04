@@ -2,12 +2,14 @@
 # Aquaman canonical eval on AMAREL (CPU-only). Protocol copied verbatim from the round-0 arm-A/B
 # shard headers so results stay directly comparable:
 #   hmax=2 sim_budget=900 prior=model agg=mean5 combine=q discount=off
-#   w0_mode=one raw=false dedupe_noop=true prune_jam_depth=true
+#   w0_mode=one raw-score scale dedupe_noop=true prune_jam_depth=true
 # Layout: $OUT/{1push_hmax2,2push}/shard_N.json(+.jsonl).
 #
-# SHARDING (N1SH 1push shards, N2SH 2push shards; array size must be N1SH+N2SH):
+# SHARDING (N1SH 1push leaf shards, N2SH 2push leaf shards):
 #   default  N1SH=40 N2SH=32  --array=0-71    <- reproduces every pre-2026-08-08 eval byte-identically
 #   fine     N1SH=128 N2SH=128 --array=0-255  <- ~4x less wall
+#   bundled  WORKERS_PER_TASK=21 N1SH=378 N2SH=378 --array=0-35
+#            <- 756 evaluator processes behind 36 scheduler jobs, with every requested CPU used
 # Why fine helps: wall time is set by the SLOWEST shard, not the average. A 2push shard holding a
 # few hard episodes at the full 900-sim budget (~3.5 min each) strands everyone else. Splitting the
 # same work finer shortens the straggler. FLOOR: one 900-sim episode is ~3.5 min and cannot be
@@ -60,6 +62,10 @@ if command -v git >/dev/null 2>&1 && [ -d "$REPO/.git" ]; then
 fi
 N1SH=${N1SH:-40}
 N2SH=${N2SH:-32}
+WORKERS_PER_TASK=${WORKERS_PER_TASK:-1}
+ONEPUSH_LIMIT=${ONEPUSH_LIMIT:-0}
+TWOPUSH_LIMIT=${TWOPUSH_LIMIT:-0}
+REFUSE_OVERWRITE=${REFUSE_OVERWRITE:-0}
 # Protocol knobs, defaulted to the registered canonical values -- an existing caller that sets none
 # of them reproduces its old run byte-identically. Overridden only to answer a different question,
 # e.g. HMAX=10 SIM_BUDGET=10 for a depth-matched comparison against a policy rollout.
@@ -80,22 +86,72 @@ command -v "$PY" >/dev/null 2>&1 || PY=$(command -v python3)
 ID=$SLURM_ARRAY_TASK_ID
 mkdir -p logs
 
-echo "AQ0 EVAL start $(date) host=$(hostname) CKPT=$CKPT ID=$ID N1SH=$N1SH N2SH=$N2SH"
-if [ "$ID" -lt "$N1SH" ]; then
-  KEY=$("$PY" -m namo.eval_sets onepush_manifest)
-  N1=$("$PY" -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$KEY")
-  S=$((ID * N1 / N1SH)); EN=$(((ID + 1) * N1 / N1SH))
-  mkdir -p "$OUT/1push_hmax2"
-  "$PY" scripts/sandbox/eval_bestfirst.py --ckpt "$CKPT" --key "$KEY" --hmax "$HMAX" --sim-budget "$SIM_BUDGET" \
-    --prior "$PRIOR" --seed-base "$SEED_BASE" --agg mean5 --combine q --discount off --start "$S" --end "$EN" \
-    --out "$OUT/1push_hmax2/shard_${ID}.json" --leaf-out "$OUT/1push_hmax2/shard_${ID}.jsonl"
-else
-  I=$((ID - N1SH))
-  N2=$($PY -c 'import json; from namo import eval_sets; print(len(json.load(open(eval_sets.PURE2PUSH))))')
-  S=$((I * N2 / N2SH)); EN=$(((I + 1) * N2 / N2SH))
-  mkdir -p "$OUT/2push"
-  "$PY" scripts/sandbox/eval_bestfirst.py --ckpt "$CKPT" --hmax "$HMAX" --sim-budget "$SIM_BUDGET" \
-    --prior "$PRIOR" --seed-base "$SEED_BASE" --agg mean5 --combine q --discount off --start "$S" --end "$EN" \
-    --out "$OUT/2push/shard_${I}.json" --leaf-out "$OUT/2push/shard_${I}.jsonl"
+[ "$WORKERS_PER_TASK" -ge 1 ] || { echo "WORKERS_PER_TASK must be positive" >&2; exit 2; }
+KEY=$("$PY" -m namo.eval_sets onepush_manifest)
+N1=$("$PY" -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$KEY")
+N2=$("$PY" -c 'import json; from namo import eval_sets; print(len(json.load(open(eval_sets.PURE2PUSH))))')
+if [ "$ONEPUSH_LIMIT" -gt 0 ] && [ "$ONEPUSH_LIMIT" -lt "$N1" ]; then N1=$ONEPUSH_LIMIT; fi
+if [ "$TWOPUSH_LIMIT" -gt 0 ] && [ "$TWOPUSH_LIMIT" -lt "$N2" ]; then N2=$TWOPUSH_LIMIT; fi
+mkdir -p "$OUT/1push_hmax2" "$OUT/2push"
+
+# A bundled task loads its checkpoint from node-local storage, avoiding up to 21 simultaneous reads
+# of the same 40-50 MB file from the shared filesystem.
+RUN_CKPT=$CKPT
+LOCAL_CKPT=
+if [ "$WORKERS_PER_TASK" -gt 1 ]; then
+  LOCAL_CKPT=/tmp/namo_eval_${SLURM_JOB_ID}.ckpt
+  cp "$CKPT" "$LOCAL_CKPT"
+  RUN_CKPT=$LOCAL_CKPT
+  EVAL_PARENT_PID=$BASHPID
+  cleanup_local_ckpt() {
+    [ "$BASHPID" != "$EVAL_PARENT_PID" ] || rm -f "$LOCAL_CKPT"
+  }
+  trap cleanup_local_ckpt EXIT
 fi
-echo "AQ0 EVAL done $(date) ID=$ID"
+
+run_leaf() {
+  local GID=$1 LEG SH NSH N S EN OUT_JSON OUT_JSONL WORKER_LOG
+  if [ "$GID" -lt "$N1SH" ]; then
+    LEG=1push_hmax2; SH=$GID; NSH=$N1SH; N=$N1
+  else
+    LEG=2push; SH=$((GID - N1SH)); NSH=$N2SH; N=$N2
+  fi
+  S=$((SH * N / NSH)); EN=$(((SH + 1) * N / NSH))
+  [ "$S" -lt "$EN" ] || return 0
+  OUT_JSON=$OUT/$LEG/shard_${SH}.json
+  OUT_JSONL=$OUT/$LEG/shard_${SH}.jsonl
+  WORKER_LOG=$OUT/$LEG/shard_${SH}.log
+  if [ "$REFUSE_OVERWRITE" = 1 ] && { [ -e "$OUT_JSON" ] || [ -e "$OUT_JSONL" ]; }; then
+    echo "refusing to overwrite leaf shard $OUT/$LEG/shard_${SH}" >&2
+    return 1
+  fi
+  if [ "$LEG" = 1push_hmax2 ]; then
+    /usr/bin/time -v "$PY" scripts/sandbox/eval_bestfirst.py --ckpt "$RUN_CKPT" --key "$KEY" \
+      --hmax "$HMAX" --sim-budget "$SIM_BUDGET" --prior "$PRIOR" --seed-base "$SEED_BASE" \
+      --agg mean5 --combine q --discount off --start "$S" --end "$EN" \
+      --out "$OUT_JSON" --leaf-out "$OUT_JSONL" > "$WORKER_LOG" 2>&1
+  else
+    /usr/bin/time -v "$PY" scripts/sandbox/eval_bestfirst.py --ckpt "$RUN_CKPT" \
+      --hmax "$HMAX" --sim-budget "$SIM_BUDGET" --prior "$PRIOR" --seed-base "$SEED_BASE" \
+      --agg mean5 --combine q --discount off --start "$S" --end "$EN" \
+      --out "$OUT_JSON" --leaf-out "$OUT_JSONL" > "$WORKER_LOG" 2>&1
+  fi
+}
+
+FIRST=$((ID * WORKERS_PER_TASK))
+LAST=$((FIRST + WORKERS_PER_TASK))
+TOTAL=$((N1SH + N2SH))
+if [ "$LAST" -gt "$TOTAL" ]; then LAST=$TOTAL; fi
+[ "$FIRST" -lt "$TOTAL" ] || { echo "empty bundle ID=$ID"; exit 0; }
+echo "AQ0 EVAL start $(date) host=$(hostname) CKPT=$CKPT ID=$ID leaves=$FIRST..$((LAST - 1)) N1SH=$N1SH N2SH=$N2SH workers=$WORKERS_PER_TASK"
+pids=()
+for ((GID=FIRST; GID<LAST; GID++)); do
+  run_leaf "$GID" &
+  pids+=("$!")
+done
+failed=0
+for pid in "${pids[@]}"; do
+  if ! wait "$pid"; then failed=1; fi
+done
+[ "$failed" -eq 0 ] || { echo "one or more leaf evaluators failed" >&2; exit 1; }
+echo "AQ0 EVAL done $(date) ID=$ID leaves=$FIRST..$((LAST - 1))"

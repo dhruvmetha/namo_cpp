@@ -65,6 +65,12 @@ Continuation uses each production directory's `last.ckpt`, restoring model, opti
 
 At commit `7797e8f3`, iLab resume smoke `265373_0` was submitted with a two-hour limit, zero DataLoader workers, direct NFS reads, and ilab3/ilab4 excluded. Production continuation array `265374_[0-8]` has a strict `afterok:265373` dependency and a six-hour limit per model; at submission it was held on that dependency and had not touched any production artifact.
 
+Resume smoke `265373_0` completed in 55:23, then all nine tasks in array `265374` completed with exit code `0:0`. Every `last.ckpt` reached epoch 11 and global step 54,948, every seed emitted the strict scorer-load marker, and no resume log contains a traceback. Best validation checkpoints are no-family s1/s2/s3 at epoch 10/11/10, regression s1/s2/s3 at epoch 11/11/11, and independent s1/s2/s3 at epoch 11/10/10.
+
+The canonical search evaluation uses fixed-physics v3, `hmax=2`, simulator budget 900, `prior=model`, `agg=mean5`, `combine=q`, raw scores, discount off, no-op deduplication on, and jam-depth pruning on. It evaluates all three seeds of the three new arms on both horizons and reuses the registered HY5U and three-seed Random artifacts rather than recomputing them. This run makes no wall-clock comparison.
+
+Amarel execution first smoke-tests one seed from each architecture family on both horizons. Each full model uses 378 one-push and 378 two-push leaf shards, bundled as 21 evaluator processes in each of 36 array tasks. Across nine models this exposes 6,804 CPU workers; Amarel's `main` QoS limits concurrent use to the user's 6,720-CPU cap, while 324 evaluation tasks plus the existing 160-task CPU campaign stay below the 500-submitted-job cap.
+
 ## Result
 
 Pending.
