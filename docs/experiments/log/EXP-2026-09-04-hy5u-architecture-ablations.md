@@ -47,6 +47,8 @@ The run uses NAMO commit `ffe34dda` and Sage commit `ceff4bf`.
 
 Background supervisor PID `1655534` started on Arrakis at 14:50 EDT. It writes `architecture_ablations_20260904/supervisor.log` under the round-0 scratch directory, runs the global and no-local smokes concurrently on GPUs 1 and 2, and releases three paired seed waves only after both completion markers pass.
 
+The post-training handoff is precommitted and runs as a separate background supervisor. It waits for all six 12-epoch completion markers, selects the minimum-validation-loss checkpoint from each seed, verifies hashes after transfer to a dedicated Amarel checkout, and submits one target-box smoke per architecture. Each successful smoke releases three 36-task canonical evaluation arrays, followed by strict per-seed aggregation jobs. The evaluation reuses the registered HY5U, Random, and independent-contacts results rather than recomputing them.
+
 ## Result
 
 Pending.
