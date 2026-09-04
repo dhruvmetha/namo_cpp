@@ -31,9 +31,11 @@ def _make_network(value_bins: int) -> EdgeCrossAttn:
     sharp_motion = os.environ.get("NAMO_ACTION_MOTION_SHARP", "0") == "1"
     depth_self_attn = os.environ.get("NAMO_ACTION_DEPTH_SELF_ATTN", "0") == "1"
     edge_self_attn = os.environ.get("NAMO_EDGE_SELF_ATTN", "1") == "1"
+    use_local = os.environ.get("NAMO_USE_LOCAL", "1") == "1"
+    global_readout = os.environ.get("NAMO_GLOBAL_READOUT", "0") == "1"
     net = EdgeCrossAttn(
         img_size=64, patch=4, in_channels=5, dim=192, scene_depth=4, edge_depth=4, heads=6,
-        num_depths=NUM_DEPTHS, num_edges=60, use_local=True,
+        num_depths=NUM_DEPTHS, num_edges=60, use_local=use_local,
         pos_fourier=True, use_edge_embed=True,          # sharp/e4 identity recipe
         edge_self_attn=edge_self_attn,
         budget_cond=False, value_bins=value_bins,       # single ranker (no horizon conditioning)
@@ -41,6 +43,7 @@ def _make_network(value_bins: int) -> EdgeCrossAttn:
         action_motion_fourier=sharp_motion, action_motion_fourier_L=8,
         action_depth_embed=sharp_motion,
         action_depth_self_attn=depth_self_attn,
+        global_readout=global_readout,
     )
     net.action_motion_encoding = encoding
     return net

@@ -156,12 +156,19 @@ def _build_net_like_eval_scorer(ck, num_depths):
     """Replicate eval_scorer.load_scorer's edge_crossattn arch auto-detect (the value_bins branch is
     what we must confirm) so we KNOW the ckpt loads the same way eval_scorer loads it."""
     sd = ck["state_dict"]
-    dim = sd["network.edge_norm.weight"].shape[0]
+    global_readout = "network.global_head.2.weight" in sd
+    dim = sd["network.scene_norm.weight"].shape[0]
     sdep = sum(1 for k in sd if k.startswith("network.scene_blocks.") and k.endswith(".n1.weight"))
     edep = sum(1 for k in sd if k.startswith("network.edge_blocks.") and k.endswith(".n1.weight"))
     patch = 64 // int(round(sd["network.scene_pos"].shape[1] ** 0.5))
     kw = dict(img_size=64, patch=patch, in_channels=5, num_depths=num_depths,
-              dim=dim, scene_depth=sdep, edge_depth=edep, heads=dim // 32)
+              dim=dim, scene_depth=sdep, edge_depth=edep, heads=dim // 32,
+              global_readout=global_readout)
+    if global_readout:
+        global_out = sd["network.global_head.2.weight"].shape[0]
+        value_bins = global_out // (60 * num_depths) if global_out != 60 * num_depths else 0
+        kw["value_bins"] = value_bins
+        return EdgeCrossAttn(**kw), value_bins
     if "network.local_proj.weight" not in sd:
         kw["use_local"] = False
     pin = sd["network.edge_pos.0.weight"].shape[1]

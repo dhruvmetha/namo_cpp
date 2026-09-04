@@ -69,12 +69,25 @@ def load_scorer(ckpt, num_depths, device, network="dit_classifier"):
         from src.model.dit.edge_crossattn import EdgeCrossAttn
         # infer arch from the checkpoint (so any dim/depth variant loads): dim from edge_norm,
         # depths from block counts, heads = dim//32 (our convention: 192->6, 256->8).
-        dim = sd["network.edge_norm.weight"].shape[0]
+        global_readout = "network.global_head.2.weight" in sd
+        dim = sd["network.scene_norm.weight"].shape[0]
         sdep = sum(1 for k in sd if k.startswith("network.scene_blocks.") and k.endswith(".n1.weight"))
         edep = sum(1 for k in sd if k.startswith("network.edge_blocks.") and k.endswith(".n1.weight"))
         patch = 64 // int(round(sd["network.scene_pos"].shape[1] ** 0.5))  # infer patch from #scene tokens
         kw = dict(img_size=64, patch=patch, in_channels=5, num_depths=num_depths,
-                  dim=dim, scene_depth=sdep, edge_depth=edep, heads=dim // 32)
+                  dim=dim, scene_depth=sdep, edge_depth=edep, heads=dim // 32,
+                  global_readout=global_readout)
+        if global_readout:
+            global_out = sd["network.global_head.2.weight"].shape[0]
+            kw["value_bins"] = global_out // (60 * num_depths) if global_out != 60 * num_depths else 0
+            net = EdgeCrossAttn(**kw)
+            net.action_motion_encoding = "none"
+            hp = ck.get("hyper_parameters", {})
+            sig = set(inspect.signature(ClassifierModule.__init__).parameters) - {"self", "network"}
+            model = ClassifierModule(network=net, **{k: v for k, v in hp.items() if k in sig})
+            model.load_state_dict(sd)
+            model.eval().to(device)
+            return model
         if "network.zoom_pos" in sd:   # dual-crop (use_zoom) ckpt — infer zoom arch + turn it on
             zgrid = int(round(sd["network.zoom_pos"].shape[1] ** 0.5))
             zpatch = sd["network.zoom_patch.proj.weight"].shape[-1]

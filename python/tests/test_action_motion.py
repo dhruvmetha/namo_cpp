@@ -188,6 +188,51 @@ def test_training_builder_disables_inter_contact_attention_only_by_flag(monkeypa
     assert all(hasattr(block, "slf") for block in full.edge_blocks)
 
 
+def test_training_builder_architecture_ablation_flags(monkeypatch):
+    from namo.rl_loop.train_gen import _make_network
+
+    monkeypatch.setenv("NAMO_USE_LOCAL", "0")
+    no_local = _make_network(value_bins=51)
+    assert no_local.global_readout is False
+    assert no_local.use_local is False
+    assert not hasattr(no_local, "local_proj")
+
+    monkeypatch.setenv("NAMO_USE_LOCAL", "1")
+    monkeypatch.setenv("NAMO_GLOBAL_READOUT", "1")
+    global_model = _make_network(value_bins=51)
+    assert global_model.global_readout is True
+    assert not hasattr(global_model, "edge_blocks")
+    logits = global_model(torch.randn(2, 5, 64, 64), torch.rand(2, 60, 2) * 63.0)
+    assert logits.shape == (2, 60, 5, 51)
+
+
+def test_eval_loaders_detect_global_readout(tmp_path):
+    from eval_auc import load_network
+    from eval_scorer import load_scorer
+
+    network = EdgeCrossAttn(
+        img_size=64, patch=16, in_channels=5, dim=32, scene_depth=1, edge_depth=0,
+        heads=1, num_depths=5, num_edges=60, value_bins=7, global_readout=True,
+    )
+    module = ClassifierModule(
+        network=network, head_mode="hl_gauss", value_vmin=0.0, value_vmax=1.0,
+        dice_weight=0.0)
+    checkpoint = tmp_path / "global_readout.ckpt"
+    torch.save({
+        "state_dict": module.state_dict(),
+        "hyper_parameters": dict(
+            head_mode="hl_gauss", value_vmin=0.0, value_vmax=1.0, dice_weight=0.0),
+    }, checkpoint)
+
+    loaded = load_scorer(str(checkpoint), 5, "cpu", "edge_crossattn")
+    assert loaded.network.global_readout is True
+    logits = loaded(torch.randn(1, 5, 64, 64), torch.rand(1, 60, 2) * 63.0)
+    assert logits.shape == (1, 60, 5, 7)
+    auc_network, hl = load_network(str(checkpoint), "cpu")
+    assert auc_network.global_readout is True
+    assert hl.num_bins == 7
+
+
 def test_eval_loader_detects_depth_local_attention(tmp_path):
     from eval_auc import load_network
     from eval_scorer import load_scorer

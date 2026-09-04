@@ -70,7 +70,26 @@ def load_network(ckpt, device):
     checkpoint = torch.load(ckpt, map_location=device, weights_only=False)
     state = checkpoint["state_dict"]
     net_state = {k[len("network."):]: v for k, v in state.items() if k.startswith("network.")}
-    dim = state["network.edge_norm.weight"].shape[0]
+    global_readout = "network.global_head.2.weight" in state
+    dim = state["network.scene_norm.weight"].shape[0]
+    if global_readout:
+        global_out = state["network.global_head.2.weight"].shape[0]
+        value_bins = global_out // (60 * 5) if global_out != 60 * 5 else 0
+        kwargs = dict(
+            img_size=64, patch=64 // int(round(state["network.scene_pos"].shape[1] ** 0.5)),
+            in_channels=5, num_depths=5, dim=dim, heads=dim // 32,
+            scene_depth=sum(1 for k in state if k.startswith("network.scene_blocks.") and k.endswith(".n1.weight")),
+            edge_depth=0, global_readout=True, value_bins=value_bins,
+        )
+        net = EdgeCrossAttn(**kwargs)
+        net.action_motion_encoding = "none"
+        net.load_state_dict(net_state)
+        if value_bins == 0:
+            class _Raw:
+                def value(self, x):
+                    return x
+            return net.eval().to(device), _Raw()
+        return net.eval().to(device), HLGauss(num_bins=value_bins)
     pos_in = state["network.edge_pos.0.weight"].shape[1]
     pos_fourier = pos_in != 2
     kwargs = dict(
