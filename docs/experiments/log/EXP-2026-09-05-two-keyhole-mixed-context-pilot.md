@@ -2,7 +2,7 @@
 type: experiment
 status: live
 created: 2026-09-05
-commit: pending
+commit: c42d8f1e
 metric: pending
 tags: [experiment, full-namo, multihop, composition, same-template, interaction, medium, hard]
 ---
