@@ -16,7 +16,7 @@
   {
     "id": "real_scenes_all",
     "title": "Scene gallery \u2014 real-table, full exhaustive pool",
-    "description": "All 1478 exhaustively labelled real-table scenes, both horizons. Tiers come from pure depth-2 enumeration (every first push ends in a finish or a proven dead end), not from the search sweep, so the solve rates differ from the shipped 600.",
+    "description": "Every exhaustively labelled real-table scene, both horizons, ONE movable block each. The two-movable rooms are the other card, and nothing here has a second block to interact with. Tiers come from pure depth-2 enumeration (every first push ends in a finish or a proven dead end), not from the search sweep, so the solve rates differ from the shipped 600. Counts are not written here on purpose; the live line above is read from the index.",
     "tool": "gallery",
     "data": "../real_scenes_all/"
   },

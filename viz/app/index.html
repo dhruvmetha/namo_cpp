@@ -35,13 +35,24 @@ async function countFor(ds) {
       const r = await fetch(ds.data + "scenes.json", NOCACHE);
       if (!r.ok) return null;
       const j = await r.json();
-      const counts = j.counts || {};
-      const byHorizon = Object.entries(counts).map(
-        ([h, tiers]) => `${h} ${Object.values(tiers).reduce((a, b) => a + b, 0)}`
-      );
-      const total = Object.values(counts).reduce(
-        (a, tiers) => a + Object.values(tiers).reduce((x, y) => x + y, 0), 0
-      );
+      // Two index shapes are in the wild and this line has to read both. build_scene_cards.py
+      // writes {horizon: {tier: n}}; the real-table builder writes
+      // {cards: N, by_tier: {"<horizon>/<tier>": n}}. Reading the second as the first treated
+      // `cards` as a horizon whose tiers summed to 0, so real_scenes_all read
+      // "2226 episodes (cards 0, by_tier 2226)" and only got the total right by accident.
+      const raw = j.counts || {};
+      const counts = {};
+      if (raw.by_tier) {
+        for (const [key, n] of Object.entries(raw.by_tier)) {
+          const [h, t] = key.includes("/") ? key.split("/") : ["all", key];
+          (counts[h] = counts[h] || {})[t] = n;
+        }
+      } else {
+        Object.assign(counts, raw);
+      }
+      const sum = (tiers) => Object.values(tiers).reduce((a, b) => a + b, 0);
+      const byHorizon = Object.entries(counts).map(([h, tiers]) => `${h} ${sum(tiers)}`);
+      const total = Object.values(counts).reduce((a, tiers) => a + sum(tiers), 0);
       return `${total} episodes (${byHorizon.join(", ")})`;
     }
     if (ds.tool === "search") {
