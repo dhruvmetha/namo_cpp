@@ -4,6 +4,13 @@
     python scripts/pipeline/make_handoff_bundle.py --pool v3_b2 --out $NAMO_SCRATCH/handoff/v3_b2_all \
         [--shard i --nshards n]
     python scripts/pipeline/make_handoff_bundle.py --rooms rooms.txt --no-cards --out ...
+    python scripts/pipeline/make_handoff_bundle.py --pool v3_b2 --patch-sheets <delivered tree>
+
+`--patch-sheets` adds `doorway` and `episodes` to sheets ALREADY delivered, in place, touching no
+other key. It exists because the robot box re-captures poses off the camera when a scene shifts on
+the table, so rewriting a delivered sheet would throw away a measurement we cannot reproduce. A
+room with no gallery card gets its doorway from a fresh region snapshot and an empty `episodes`
+list with `no_episode_reason`, since not qualifying is a fact about the room worth shipping.
 
 `--rooms` takes one pool-relative scene dir per line (`v2/dense_solo0/rb_00001`) instead of a whole
 pool, so a bundle can carry exactly the gallery rooms and not the pool's non-qualifying rest.
@@ -38,6 +45,41 @@ import shutil
 GEOM = re.compile(r'<geom name="(\w+)"[^>]*pos="([-\d.eE]+) ([-\d.eE]+) ([-\d.eE]+)"'
                   r'[^>]*euler="0 0 ([-\d.eE]+)"[^>]*size="([-\d.eE]+) ([-\d.eE]+) ([-\d.eE]+)"')
 SITE = re.compile(r'<site name="goal"[^>]*pos="([-\d.eE]+) ([-\d.eE]+)')
+
+
+def doorway_of(snap):
+    """The two flags, same definition as scripts/viz/add_group_edge_flag.py:69-70.
+
+    A doorway in `multi_object_edges` is one no SINGLE object opens; `adjacency` minus those pairs
+    is the single-object graph, so a goal unreachable in it has no route avoiding a two-block door.
+    """
+    from viz.add_group_edge_flag import reachable
+    adj = {k: set(v) for k, v in dict(snap.get("adjacency", {})).items()}
+    grp = {k: set(v) for k, v in dict(snap.get("multi_object_edges", {})).items()}
+    rl, gl = snap.get("robot_label"), snap.get("goal_label")
+    if not rl or not gl:
+        return None
+    solo = {k: (v - grp.get(k, set())) for k, v in adj.items()}
+    return {"needs_both_blocks": gl in grp.get(rl, set()),
+            "has_route_around": reachable(solo, rl, gl)}
+
+
+def why_no_episode(sweep):
+    """A room with no gallery card: say which of the reasons it was, from its own sweep record."""
+    if sweep is None:
+        return "no sweep record"
+    rec = json.load(open(sweep))
+    if rec.get("goal_open_at_start"):
+        return "goal region already reachable at the root"
+    cells = rec.get("cells") or []
+    solving = [c for c in cells if c["kind"] in ("opener", "setup")]
+    if not solving:
+        return "no push opens the region within two pushes"
+    if not any(c.get("movable_collisions") or c.get("finish_movable_collisions") for c in solving):
+        return "solves, but no solving push touches the other movable"
+    # Qualifies on the labels and still has no card: its card carried no replay, so the gallery
+    # index dropped it. 42 cards across the pool are in this state.
+    return "qualifies, but its recorded solution did not replay from a clean start"
 
 
 def derived_sheet(xml_path, env, gallery=None):
@@ -78,11 +120,13 @@ def main():
     ap.add_argument("--pool", help="pool directory name, e.g. v3_b2; omit when --rooms is given")
     ap.add_argument("--rooms", help="file of pool-relative scene dirs, one per line")
     ap.add_argument("--no-cards", action="store_true", help="skip gallery_card/gallery_replay")
-    ap.add_argument("--out", required=True)
+    ap.add_argument("--patch-sheets", help="add doorway/episodes to delivered sheets under this tree")
+    ap.add_argument("--out", help="bundle destination; not used by --patch-sheets")
     ap.add_argument("--shard", type=int, default=0)
     ap.add_argument("--nshards", type=int, default=1)
     ap.add_argument("--config", default="config/namo_config_complete_skill15_car_1x.yaml")
     a = ap.parse_args()
+    assert a.out or a.patch_sheets, "--out is required unless --patch-sheets is given"
 
     import namo_rl
     root = os.path.join(os.environ["NAMO_SCRATCH"], "real_buildable_2mov")
@@ -111,6 +155,31 @@ def main():
                                   "tier": meta["tier"], "n_green": meta["n_green"],
                                   "n_tried": meta["n_tried"],
                                   "n_green_contact": meta.get("n_green_contact")})
+
+    if a.patch_sheets:
+        patched = missing_door = 0
+        for xml in sorted(glob.glob(f"{root}/{a.pool}/*/*/env.xml")):
+            rel = os.path.dirname(norm(xml))
+            sheet = os.path.join(a.patch_sheets, rel, "build_sheet_derived.json")
+            if not os.path.exists(sheet):
+                continue
+            g = gallery.get(norm(xml))
+            if g:
+                door, eps, why = g["doorway"], g["episodes"], None
+            else:
+                env = namo_rl.RLEnvironment(xml, a.config, False)
+                env.get_reachable_objects()
+                door = doorway_of(env.get_region_snapshot(100, -1.0, False, 42, True))
+                eps, why = [], why_no_episode(sweeps.get(norm(xml)))
+            d = json.load(open(sheet))
+            d["doorway"], d["episodes"] = door, eps
+            if why:
+                d["no_episode_reason"] = why
+            missing_door += door is None
+            json.dump(d, open(sheet, "w"), indent=1)
+            patched += 1
+        print(f"patched {patched} sheet(s); {missing_door} with no robot/goal label", flush=True)
+        return
 
     if a.rooms:
         want = [l.strip() for l in open(a.rooms) if l.strip()]
