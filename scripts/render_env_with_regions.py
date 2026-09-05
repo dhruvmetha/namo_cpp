@@ -356,6 +356,24 @@ def render_one(xml_path: Path, out_path: Path, namo_config: Path,
     plt.close()
 
 
+def save_montage(image_paths: list[Path], out_path: Path, title: str) -> None:
+    columns = min(5, len(image_paths))
+    rows = math.ceil(len(image_paths) / columns)
+    fig, axes = plt.subplots(rows, columns, figsize=(5 * columns, 3.0 * rows))
+    axes = np.asarray(axes, dtype=object).reshape(-1)
+    for ax, image_path in zip(axes, image_paths):
+        ax.imshow(plt.imread(image_path))
+        ax.set_title(image_path.stem.replace("_regions", ""), fontsize=8)
+        ax.set_axis_off()
+    for ax in axes[len(image_paths):]:
+        ax.set_axis_off()
+    fig.suptitle(title, fontsize=14)
+    fig.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=120)
+    plt.close(fig)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("xmls", nargs="+", help="Env XML(s) to render")
@@ -364,6 +382,8 @@ def main():
                     default=DEFAULT_NAMO_CONFIG)
     ap.add_argument("--out-dir", default="env_region_images")
     ap.add_argument("--resolution", type=float, default=0.01)
+    ap.add_argument("--montage-path", type=Path)
+    ap.add_argument("--montage-title", default="Two-keyhole environments")
     args = ap.parse_args()
 
     namo_config = args.namo_config.resolve()
@@ -371,14 +391,18 @@ def main():
         ap.error(f"NAMO config does not exist: {namo_config}")
 
     out_dir = Path(args.out_dir)
+    rendered = []
     for xml in args.xmls:
         xml = Path(xml)
         out_path = out_dir / (xml.stem + "_regions.png")
         print(f"Rendering {xml.name} -> {out_path}")
         try:
             render_one(xml, out_path, namo_config, args.resolution)
+            rendered.append(out_path)
         except Exception as e:
             print(f"  Failed: {e}")
+    if args.montage_path is not None and rendered:
+        save_montage(rendered, args.montage_path, args.montage_title)
 
 
 if __name__ == "__main__":
