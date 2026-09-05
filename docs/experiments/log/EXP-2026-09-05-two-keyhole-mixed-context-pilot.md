@@ -46,6 +46,8 @@ Fresh validation array `270834` reproduced all 10 MM, 10 MH, and 10 HH scenes, b
 
 HM-only retry `270844_2` replaced that row with `composed_0009.xml`, but the replacement also failed final goal reachability. Rather than iterating one reserve row at a time, the next run revalidates the complete 18-scene HM clean pool under the current code and physics, after which the cohort will draw its seven clean HM rows only from fresh survivors.
 
+Pool-validation job `270850` failed before Python execution because `sbatch --wrap` invoked `dash`, which does not support `pipefail`; it produced no validation artifacts. The retry uses the checked-in Bash launcher `scripts/slurm/keyhole_revalidate_manifest.sbatch`.
+
 ## Result
 
 Pending.
