@@ -24,7 +24,11 @@ Build a forty-scene approval cohort with ten scenes per ordered source-tier pair
 
 ## Run
 
-Pending.
+Commit `c42d8f1e` adds sampled same-template contact augmentation, records per-push movable-collision evidence in the replay trace, and labels the third movable as context in the renderer. The focused composer suite passes 27/27.
+
+The exact production script passed a one-scene smoke on rlab7 as SLURM job `270775_0`. The sampler accepted its first medium+medium candidate, completed the generation command in 6 seconds and the SLURM task in 11 seconds, and wrote the XML, manifest, XML list, and summary under `$NAMO_SCRATCH/eval/keyhole_mixed_context_20260905/smoke_mm/`.
+
+The accepted smoke interaction occurs during K1. The simulator reports `obstacle_2_movable` in `movable_collisions`; the context object translates 64.4 mm while K2 stays fixed to numerical precision; the two donor actions solve with complete-goal reachability `[false, false, true]`.
 
 ## Result
 
