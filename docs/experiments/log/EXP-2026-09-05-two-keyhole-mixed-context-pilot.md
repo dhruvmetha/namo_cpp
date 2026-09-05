@@ -42,6 +42,8 @@ All twelve accepted interactions occur within K2; the current targeted placement
 
 The deterministic cohort selector produced 40 unique full geometries under `$NAMO_SCRATCH/eval/keyhole_mixed_context_20260905/approval40_v3/selected/`: exactly ten scenes in each of MM, MH, HM, and HH, with seven clean scenes and three K2-interaction scenes per cell. Fresh replay validation and rendering remain pending before presentation.
 
+Fresh validation array `270834` reproduced all 10 MM, 10 MH, and 10 HH scenes, but rejected HM clean scene `composed_0007.xml` because its replay did not make the final goal reachable. The failed row is excluded from the approval cohort. The selector now accepts prior `rejected.jsonl` manifests as an exclusion set so the next clean candidate deterministically fills the vacated slot; the focused suite passes 29/29.
+
 ## Result
 
 Pending.

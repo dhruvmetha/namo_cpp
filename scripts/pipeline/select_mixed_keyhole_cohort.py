@@ -51,7 +51,9 @@ def select_pair(
     per_pair: int,
     max_contacts: int,
     geometry_seen: set[str],
+    excluded_geometry: set[str] | None = None,
 ) -> list[dict]:
+    excluded_geometry = excluded_geometry or set()
     for row in clean_rows + contact_rows:
         if _row_tiers(row) != tiers:
             raise RuntimeError(f"row tiers {_row_tiers(row)} do not match expected {tiers}")
@@ -59,7 +61,7 @@ def select_pair(
     selected_clean_sources = set()
     for row in _ordered_contacts(contact_rows):
         identity = row["geometry_identity"]["full"]
-        if identity in geometry_seen:
+        if identity in geometry_seen or identity in excluded_geometry:
             continue
         selected.append(copy.deepcopy(row))
         geometry_seen.add(identity)
@@ -73,7 +75,7 @@ def select_pair(
         if len(selected) == per_pair:
             break
         identity = row["geometry_identity"]["full"]
-        if identity in geometry_seen:
+        if identity in geometry_seen or identity in excluded_geometry:
             continue
         selected.append(copy.deepcopy(row))
         geometry_seen.add(identity)
@@ -97,7 +99,9 @@ def build_cohort(
     *,
     per_pair: int,
     max_contacts: int,
+    excluded_geometry: set[str] | None = None,
 ) -> dict:
+    excluded_geometry = excluded_geometry or set()
     geometry_seen: set[str] = set()
     selected = []
     by_pair = {}
@@ -110,6 +114,7 @@ def build_cohort(
             per_pair=per_pair,
             max_contacts=max_contacts,
             geometry_seen=geometry_seen,
+            excluded_geometry=excluded_geometry,
         )
         selected.extend(rows)
         type_counts = Counter(row["cohort"]["source_type"] for row in rows)
@@ -144,6 +149,7 @@ def build_cohort(
         "contact_root": str(contact_root.resolve()),
         "per_pair": per_pair,
         "max_contacts_per_pair": max_contacts,
+        "excluded_geometry": sorted(excluded_geometry),
         "selected": len(selected),
         "unique_geometry": len(geometry_seen),
         "by_pair": by_pair,
@@ -161,13 +167,26 @@ def main() -> int:
     parser.add_argument("--out-dir", type=Path, required=True)
     parser.add_argument("--per-pair", type=int, default=10)
     parser.add_argument("--max-contacts-per-pair", type=int, default=3)
+    parser.add_argument(
+        "--exclude-rejected-manifest",
+        action="append",
+        type=Path,
+        default=[],
+        help="Skip full geometry identities listed in a prior revalidation rejected.jsonl",
+    )
     args = parser.parse_args()
+    excluded_geometry = {
+        row["geometry_identity"]["full"]
+        for path in args.exclude_rejected_manifest
+        for row in _read_jsonl(path)
+    }
     summary = build_cohort(
         args.clean_root,
         args.contact_root,
         args.out_dir,
         per_pair=args.per_pair,
         max_contacts=args.max_contacts_per_pair,
+        excluded_geometry=excluded_geometry,
     )
     print(json.dumps(summary, indent=2))
     return 0

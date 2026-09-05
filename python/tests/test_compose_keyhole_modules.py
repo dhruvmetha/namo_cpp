@@ -682,3 +682,25 @@ def test_mixed_cohort_prefers_both_contact_hops_then_clean_rows():
         "clean",
     ]
     assert {item["xml_path"] for item in selected[2:]} == {"/clean_2.xml", "/clean_3.xml"}
+
+
+def test_mixed_cohort_skips_revalidation_rejects():
+    def row(name):
+        return {
+            "xml_path": f"/{name}.xml",
+            "donors": [{"tier": "hard"}, {"tier": "medium"}],
+            "composition": {"mode": "same_template"},
+            "geometry_identity": {"full": name},
+        }
+
+    selected = selector.select_pair(
+        [row("rejected"), row("replacement")],
+        [],
+        ("hard", "medium"),
+        per_pair=1,
+        max_contacts=0,
+        geometry_seen=set(),
+        excluded_geometry={"rejected"},
+    )
+
+    assert selected[0]["xml_path"] == "/replacement.xml"
