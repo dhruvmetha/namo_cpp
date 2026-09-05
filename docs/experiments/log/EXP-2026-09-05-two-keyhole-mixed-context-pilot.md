@@ -48,6 +48,8 @@ HM-only retry `270844_2` replaced that row with `composed_0009.xml`, but the rep
 
 Pool-validation job `270850` failed before Python execution because `sbatch --wrap` invoked `dash`, which does not support `pipefail`; it produced no validation artifacts. The retry uses the checked-in Bash launcher `scripts/slurm/keyhole_revalidate_manifest.sbatch`.
 
+Job `270857` freshly replayed all 18 HM clean reserves: 16 solved and exactly `composed_0007.xml` and `composed_0009.xml` failed final goal reachability. Both failed geometries are now excluded, and the rebuilt HM cohort uses `composed_0010.xml` as the seventh clean survivor alongside the same three validated contact scenes.
+
 ## Result
 
 Pending.
