@@ -171,7 +171,11 @@ class WavefrontSnapshotExporter:
     # NOTE: this does NOT change the planner's grid at collection time; it
     # only affects the exported region masks used for training/visualization.
     DEFAULT_RESOLUTION: float = 0.005
-    DEFAULT_TIER1_INFLATION_MARGIN_M: float = 0.005
+    # Fallback tier-1 inflation margin when a snapshot carries no metadata.
+    # Must match tier1.base_inflation_margin_m in config/wavefront_inflation.yaml
+    # (1 mm, the real_2mov study value) and kDefaultWavefrontTier1MarginM in
+    # include/wavefront/goal_tolerance_utils.hpp.
+    DEFAULT_TIER1_INFLATION_MARGIN_M: float = 0.001
     NEIGHBOR_OFFSETS: Tuple[Tuple[int, int], ...] = (
         (-1, -1), (-1, 0), (-1, 1),
         (0, -1),            (0, 1),

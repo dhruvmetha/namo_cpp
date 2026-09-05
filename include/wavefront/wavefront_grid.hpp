@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/types.hpp"
+#include "wavefront/goal_tolerance_utils.hpp"
 #include <vector>
 #include <array>
 #include <unordered_set>
@@ -65,7 +66,7 @@ public:
      */
     WavefrontGrid(NAMOEnvironment& env, 
                   const std::vector<double>& robot_size,
-                  double tier1_inflation_margin = 0.005);
+                  double tier1_inflation_margin = kDefaultWavefrontTier1MarginM);
     
     /**
      * @brief Update dynamic grid with current object positions

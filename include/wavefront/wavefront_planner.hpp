@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/types.hpp"
+#include "wavefront/goal_tolerance_utils.hpp"
 #include <vector>
 #include <queue>
 #include <unordered_map>
@@ -32,7 +33,7 @@ public:
      */
     WavefrontPlanner(double resolution, NAMOEnvironment& env, 
                     const std::vector<double>& robot_size,
-                    double tier1_inflation_margin = 0.005);
+                    double tier1_inflation_margin = kDefaultWavefrontTier1MarginM);
     
     /**
      * @brief Update wavefront by rebuilding from scratch
