@@ -524,6 +524,61 @@ def test_passive_clutter_requires_stable_pose_and_decision_edge_effect():
     )
 
 
+def test_sampled_contact_composition_places_a_third_movable(tmp_path):
+    source = tmp_path / "source.xml"
+    output = tmp_path / "contact.xml"
+    _write_module(source, K1, goal_x=0.6)
+    _append_movable(source, K2, x=0.0, y=0.4)
+    placement = {
+        "target_hop": 1,
+        "target_object_id": K1,
+        "variant": 0,
+        "center": [0.25, -0.1],
+        "half_size": [0.03, 0.04],
+        "theta": 0.5,
+        "gap_m": 0.02,
+        "lateral_offset_m": 0.0,
+        "target_clean_translation_m": 0.1,
+    }
+
+    metadata = composer.compose_sampled_contact_xml(str(source), placement, output)
+
+    root = ET.parse(output).getroot()
+    body = composer._movable_body(root, CLUTTER)
+    geom = body.find("geom")
+    assert composer._numbers(geom.get("pos"))[:2] == pytest.approx([0.25, -0.1])
+    assert composer._numbers(geom.get("size"))[:2] == pytest.approx([0.03, 0.04])
+    assert metadata["mode"] == "same_template_contact"
+    assert metadata["clutter_object_ids"] == [CLUTTER]
+
+
+def test_sampled_contact_requires_reported_collision_and_motion_on_intended_hop():
+    replay = {
+        "object_pose_trace": [
+            {CLUTTER: [0.0, 0.0, 0.0]},
+            {CLUTTER: [0.01, 0.0, 0.0]},
+            {CLUTTER: [0.01, 0.0, 0.0]},
+        ],
+        "action_info_trace": [
+            {"movable_collisions": CLUTTER},
+            {"movable_collisions": ""},
+        ],
+    }
+
+    failure, effect = composer.sampled_contact_effect(replay, CLUTTER, 1)
+    assert failure is None
+    assert effect["motion_hops"] == [1]
+    assert effect["collision_hops"] == [1]
+    assert composer.sampled_contact_effect(replay, CLUTTER, 2)[0] == (
+        "contact_not_reported_on_intended_hop"
+    )
+
+    replay["object_pose_trace"][1][CLUTTER] = [0.001, 0.0, 0.0]
+    assert composer.sampled_contact_effect(replay, CLUTTER, 1)[0] == (
+        "contact_object_not_moved_on_intended_hop"
+    )
+
+
 def test_clean_counterfactual_records_the_two_ranker_decision_points(monkeypatch):
     env = _FakeEnv(_valid_states())
     monkeypatch.setattr(composer.namo_rl, "RLEnvironment", lambda *_args: env)

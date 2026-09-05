@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import copy
 import functools
+import hashlib
 import itertools
 import json
 import math
@@ -64,6 +65,8 @@ COMPOSITION_MODES = (
 PORTAL_SIDES = ("east", "north", "south", "west")
 INDEPENDENT_POSITION_TOLERANCE_M = 0.002
 INDEPENDENT_ANGLE_TOLERANCE_RAD = math.radians(1.0)
+CONTACT_HALF_SIZE_RANGE_M = (0.03, 0.055)
+CONTACT_MIN_TARGET_TRANSLATION_M = 0.015
 
 
 class CompositionRejected(RuntimeError):
@@ -264,6 +267,99 @@ def compose_same_template_clutter_xml(
         "transplanted": "blockers_plus_one_host_clutter",
         "clutter_object_ids": [clutter_object_id],
         "host_clutter_source_id": host_clutter_id,
+    }
+
+
+def _box_half_size(root: ET.Element, object_id: str) -> tuple[float, float, float]:
+    geom = _movable_body(root, object_id).find(".//geom[@type='box']")
+    if geom is None:
+        raise CompositionRejected("contact_target_not_box")
+    size = _numbers(geom.get("size"))
+    return float(size[0]), float(size[1]), float(size[2])
+
+
+def _box_support(half_size: Sequence[float], theta: float, direction: Sequence[float]) -> float:
+    ux = (math.cos(theta), math.sin(theta))
+    uy = (-math.sin(theta), math.cos(theta))
+    return abs(direction[0] * ux[0] + direction[1] * ux[1]) * half_size[0] + abs(
+        direction[0] * uy[0] + direction[1] * uy[1]
+    ) * half_size[1]
+
+
+def sampled_contact_placement(source_row: dict, hop: int, variant: int, seed: int) -> dict:
+    target_id = _intended_blockers(2)[hop]
+    poses = source_row["replay"]["object_pose_trace"]
+    before = poses[hop][target_id]
+    after = poses[hop + 1][target_id]
+    dx = float(after[0]) - float(before[0])
+    dy = float(after[1]) - float(before[1])
+    travel = math.hypot(dx, dy)
+    if travel < CONTACT_MIN_TARGET_TRANSLATION_M:
+        raise CompositionRejected("contact_target_motion_too_small")
+    direction = (dx / travel, dy / travel)
+    perpendicular = (-direction[1], direction[0])
+    identity = source_row.get("geometry_identity", {}).get("full") or source_row["xml_path"]
+    digest = hashlib.sha256(f"{seed}|{identity}|{hop}|{variant}".encode()).digest()
+    rng = random.Random(int.from_bytes(digest[:8], "big"))
+    half_size = (
+        rng.uniform(*CONTACT_HALF_SIZE_RANGE_M),
+        rng.uniform(*CONTACT_HALF_SIZE_RANGE_M),
+    )
+    theta = rng.uniform(-math.pi, math.pi)
+    gap = travel * rng.uniform(0.05, 0.80)
+    lateral = rng.uniform(-0.30, 0.30) * min(half_size)
+    root = ET.parse(source_row["xml_path"]).getroot()
+    target_half_size = _box_half_size(root, target_id)
+    separation = (
+        _box_support(target_half_size, float(before[2]), direction)
+        + _box_support(half_size, theta, direction)
+        + gap
+    )
+    center = (
+        float(before[0]) + direction[0] * separation + perpendicular[0] * lateral,
+        float(before[1]) + direction[1] * separation + perpendicular[1] * lateral,
+    )
+    return {
+        "target_hop": hop + 1,
+        "target_object_id": target_id,
+        "variant": variant,
+        "center": [center[0], center[1]],
+        "half_size": [half_size[0], half_size[1]],
+        "theta": theta,
+        "gap_m": gap,
+        "lateral_offset_m": lateral,
+        "target_clean_translation_m": travel,
+    }
+
+
+def compose_sampled_contact_xml(source_xml: str, placement: dict, output: Path) -> dict:
+    tree = ET.parse(source_xml)
+    root = tree.getroot()
+    target_id = placement["target_object_id"]
+    context_id = _intended_blockers(3)[-1]
+    body = copy.deepcopy(_movable_body(root, target_id))
+    body.set("name", context_id)
+    body.set("pos", "0 0 0")
+    geom = body.find(".//geom[@type='box']")
+    if geom is None:
+        raise CompositionRejected("contact_target_not_box")
+    source_size = _numbers(geom.get("size"))
+    center = placement["center"]
+    half_size = placement["half_size"]
+    _set_numbers(geom, "pos", (center[0], center[1], source_size[2]))
+    _set_numbers(geom, "size", (half_size[0], half_size[1], source_size[2]))
+    _set_numbers(geom, "euler", (0.0, 0.0, math.degrees(placement["theta"])))
+    geom.set("name", context_id)
+    geom.set("rgba", "0 0.7 1 1")
+    _worldbody(root).append(body)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    ET.indent(tree, space="  ")
+    tree.write(output, encoding="utf-8", xml_declaration=True)
+    return {
+        "mode": "same_template_contact",
+        "source_xml": os.path.realpath(source_xml),
+        "clutter_object_ids": [context_id],
+        "contact_placement": placement,
     }
 
 
@@ -871,12 +967,22 @@ def _failure_example(
     states: Sequence[dict],
     point_counts: Sequence[Sequence[int]],
     poses: Sequence[dict],
+    action_infos: Sequence[dict],
 ) -> dict:
     return {
         "actions": actions,
         "reachability_trace": list(states),
         "target_point_trace": [list(counts) for counts in point_counts],
         "object_pose_trace": list(poses),
+        "action_info_trace": list(action_infos),
+    }
+
+
+def _action_info(result) -> dict:
+    info = getattr(result, "info", {})
+    return {
+        key: str(info.get(key, ""))
+        for key in ("movable_collisions", "collision_object", "wall_collision")
     }
 
 
@@ -982,6 +1088,7 @@ def replay_two_keyhole_goal_chain(
         env.set_full_state(initial)
         attempts += 1
         k1_result = env.step(_action(object_ids[0], k1_edge, k1_depth))
+        k1_info = _action_info(k1_result)
         post_k1_state = _intended_reachability_state(env, object_ids)
         post_k1_counts = _target_point_counts(env, target_points)
         post_k1_poses = _intended_object_poses(env, pose_object_ids)
@@ -995,6 +1102,7 @@ def replay_two_keyhole_goal_chain(
                     [initial_state, post_k1_state],
                     [initial_counts, post_k1_counts],
                     [initial_poses, post_k1_poses],
+                    [k1_info],
                 ),
             )
             continue
@@ -1008,6 +1116,7 @@ def replay_two_keyhole_goal_chain(
             env.set_full_state(post_k1_full_state)
             attempts += 1
             k2_result = env.step(_action(object_ids[1], k2_edge, k2_depth))
+            k2_info = _action_info(k2_result)
             post_k2_state = _intended_reachability_state(env, object_ids)
             post_k2_counts = _target_point_counts(env, target_points)
             post_k2_poses = _intended_object_poses(env, pose_object_ids)
@@ -1024,6 +1133,7 @@ def replay_two_keyhole_goal_chain(
                         [initial_state, post_k1_state, post_k2_state],
                         [initial_counts, post_k1_counts, post_k2_counts],
                         [initial_poses, post_k1_poses, post_k2_poses],
+                        [k1_info, k2_info],
                     ),
                 )
                 continue
@@ -1045,6 +1155,7 @@ def replay_two_keyhole_goal_chain(
                     post_k1_poses,
                     post_k2_poses,
                 ],
+                "action_info_trace": [k1_info, k2_info],
                 "final_object_poses": post_k2_poses,
                 "candidate_rejections": dict(sorted(candidate_rejections.items())),
             }
@@ -1297,6 +1408,158 @@ def passive_clutter_edge_effect(
     return None, effect
 
 
+def _movable_collision_names(info: dict) -> set[str]:
+    return {name for name in info.get("movable_collisions", "").split(",") if name}
+
+
+def sampled_contact_effect(
+    replay: dict, clutter_object_id: str, intended_hop: int
+) -> tuple[str | None, dict | None]:
+    poses = replay.get("object_pose_trace") or []
+    infos = replay.get("action_info_trace") or []
+    if len(poses) != 3 or len(infos) != 2:
+        return "contact_trace_missing", None
+    motion_hops = []
+    collision_hops = []
+    for hop in range(2):
+        if _pose_changed(poses[hop].get(clutter_object_id), poses[hop + 1].get(clutter_object_id)):
+            motion_hops.append(hop + 1)
+        if clutter_object_id in _movable_collision_names(infos[hop]):
+            collision_hops.append(hop + 1)
+    effect = {
+        "intended_hop": intended_hop,
+        "motion_hops": motion_hops,
+        "collision_hops": collision_hops,
+        "action_info_trace": infos,
+    }
+    if intended_hop not in collision_hops:
+        return "contact_not_reported_on_intended_hop", effect
+    if intended_hop not in motion_hops:
+        return "contact_object_not_moved_on_intended_hop", effect
+    return None, effect
+
+
+def sampled_contact_initialization_failure(replay: dict, placement: dict) -> str | None:
+    poses = replay.get("object_pose_trace") or []
+    if not poses:
+        return "contact_trace_missing"
+    context_id = _intended_blockers(3)[-1]
+    planned = [*placement["center"], placement["theta"]]
+    if _pose_changed(planned, poses[0].get(context_id)):
+        return "contact_initial_pose_shifted"
+    return None
+
+
+def augment_contact_manifest(
+    source: Path,
+    output_dir: Path,
+    config: str,
+    *,
+    limit: int,
+    max_attempts: int,
+    variants_per_hop: int,
+    seed: int,
+) -> dict:
+    source_rows = [
+        json.loads(line) for line in source.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
+    candidates = [
+        (row, hop, variant)
+        for row in source_rows
+        for hop in range(2)
+        for variant in range(variants_per_hop)
+    ]
+    random.Random(seed).shuffle(candidates)
+    rows = []
+    rejections: Counter[str] = Counter()
+    accepted_geometry: set[str] = set()
+    attempts = 0
+    output_dir.mkdir(parents=True, exist_ok=True)
+    while candidates and attempts < max_attempts and len(rows) < limit:
+        source_row, hop, variant = candidates.pop()
+        attempts += 1
+        try:
+            placement = sampled_contact_placement(source_row, hop, variant, seed)
+        except CompositionRejected as error:
+            rejections[str(error)] += 1
+            continue
+        output = output_dir / f"contact_{len(rows):04d}.xml"
+        composition = compose_sampled_contact_xml(source_row["xml_path"], placement, output)
+        probe = probe_one((str(output), config, 2))
+        ok, reason = static_acceptance(probe, 2)
+        if not ok:
+            rejections[reason] += 1
+            output.unlink()
+            continue
+        donors = tuple(_donor_from_json(row) for row in source_row["donors"])
+        context_id = composition["clutter_object_ids"][0]
+        replay = replay_donor_chain(
+            str(output),
+            config,
+            donors,
+            monitored_object_ids=_intended_blockers(2) + [context_id],
+        )
+        if replay["status"] != "solved":
+            rejections[replay.get("failure_reason") or replay["status"]] += 1
+            output.unlink()
+            continue
+        reason = mechanical_independence_failure(replay)
+        if reason is None:
+            reason = sampled_contact_initialization_failure(replay, placement)
+        interaction_effect = None
+        if reason is None:
+            reason, interaction_effect = sampled_contact_effect(replay, context_id, hop + 1)
+        if reason is not None:
+            rejections[reason] += 1
+            output.unlink()
+            continue
+        composition["interaction_effect"] = interaction_effect
+        full_geometry, wall_geometry = geom_sig(output)
+        if full_geometry is None:
+            rejections["geometry_identity_failed"] += 1
+            output.unlink()
+            continue
+        if full_geometry in accepted_geometry:
+            rejections["duplicate_geometry"] += 1
+            output.unlink()
+            continue
+        rows.append(
+            {
+                "xml_path": str(output.resolve()),
+                "source_manifest": str(source.resolve()),
+                "template": source_row["template"],
+                "composition": composition,
+                "hops": 2,
+                "donors": source_row["donors"],
+                "geometry_identity": {"full": full_geometry, "walls": wall_geometry},
+                "probe": probe,
+                "replay": replay,
+            }
+        )
+        accepted_geometry.add(full_geometry)
+
+    (output_dir / "manifest.jsonl").write_text(
+        "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows), encoding="utf-8"
+    )
+    (output_dir / "xmls.txt").write_text(
+        "".join(row["xml_path"] + "\n" for row in rows), encoding="utf-8"
+    )
+    summary = {
+        "mode": "augment_contact_manifest",
+        "source_manifest": str(source.resolve()),
+        "source_rows": len(source_rows),
+        "candidate_variants": len(source_rows) * 2 * variants_per_hop,
+        "variants_per_hop": variants_per_hop,
+        "attempted": attempts,
+        "accepted": len(rows),
+        "rejections": dict(sorted(rejections.items())),
+    }
+    (output_dir / "summary.json").write_text(
+        json.dumps(summary, indent=2) + "\n", encoding="utf-8"
+    )
+    return summary
+
+
 def donor_sequences(
     horizons: Sequence[str],
     tiers: Sequence[str],
@@ -1372,7 +1635,11 @@ def revalidate_manifest(source: Path, output_dir: Path, config: str) -> dict:
             if replay["status"] != "solved":
                 ok = False
                 reason = replay.get("failure_reason") or replay["status"]
-        if ok and composition_mode in ("same_template", "same_template_clutter"):
+        if ok and composition_mode in (
+            "same_template",
+            "same_template_clutter",
+            "same_template_contact",
+        ):
             reason = mechanical_independence_failure(replay)
             ok = reason is None
         if ok and composition_mode == "same_template_clutter":
@@ -1386,6 +1653,19 @@ def revalidate_manifest(source: Path, output_dir: Path, config: str) -> dict:
                     str(clean_xml), config, replay["actions"]
                 )
             reason, interaction_effect = passive_clutter_edge_effect(replay, counterfactual)
+            ok = reason is None
+            if ok:
+                composition["interaction_effect"] = interaction_effect
+        if ok and composition_mode == "same_template_contact":
+            placement = composition["contact_placement"]
+            reason = sampled_contact_initialization_failure(replay, placement)
+            ok = reason is None
+        if ok and composition_mode == "same_template_contact":
+            reason, interaction_effect = sampled_contact_effect(
+                replay,
+                clutter_object_ids[0],
+                composition["contact_placement"]["target_hop"],
+            )
             ok = reason is None
             if ok:
                 composition["interaction_effect"] = interaction_effect
@@ -1454,6 +1734,12 @@ def main() -> int:
         type=Path,
         help="Revalidate existing composed XMLs and write fresh artifacts without modifying the source.",
     )
+    parser.add_argument(
+        "--augment-contact-manifest",
+        type=Path,
+        help="Add sampled movable-object contact interactions to an accepted same-template manifest.",
+    )
+    parser.add_argument("--contact-variants-per-hop", type=int, default=32)
     parser.add_argument("--limit", type=int, default=1)
     parser.add_argument("--max-attempts", type=int, default=500)
     parser.add_argument("--min-separation", type=float, default=0.30)
@@ -1481,10 +1767,24 @@ def main() -> int:
         help="Skip a donor pair after this many action simulations; accepted chains remain exact.",
     )
     args = parser.parse_args()
+    if args.revalidate_manifest is not None and args.augment_contact_manifest is not None:
+        parser.error("choose only one manifest operation")
     if args.revalidate_manifest is not None:
         summary = revalidate_manifest(args.revalidate_manifest, args.out_dir, args.config)
         print(json.dumps(summary, indent=2))
         return 0 if summary["rejected"] == 0 else 2
+    if args.augment_contact_manifest is not None:
+        summary = augment_contact_manifest(
+            args.augment_contact_manifest,
+            args.out_dir,
+            args.config,
+            limit=args.limit,
+            max_attempts=args.max_attempts,
+            variants_per_hop=args.contact_variants_per_hop,
+            seed=args.seed,
+        )
+        print(json.dumps(summary, indent=2))
+        return 0 if args.allow_shortfall or summary["accepted"] == args.limit else 2
     if not args.horizons or not args.tiers:
         parser.error("--horizons and --tiers are required when composing new scenes")
     if len(args.horizons) != len(args.tiers):

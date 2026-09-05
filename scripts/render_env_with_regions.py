@@ -126,14 +126,15 @@ def render_one(xml_path: Path, out_path: Path, namo_config: Path,
         )
         rect.set_transform(Affine2D().rotate_deg(yaw_deg).translate(cx, cy) + ax.transData)
         ax.add_patch(rect)
-    keyhole_colors = ["#F59E0B", "#7C3AED"]
+    keyhole_colors = ["#F59E0B", "#7C3AED", "#0891B2"]
     for index, (cx, cy, hx, hy, yaw_deg) in enumerate(obstacles):
         rect = patches.Rectangle((-hx, -hy), 2 * hx, 2 * hy,
                                  fill=True, facecolor=keyhole_colors[index % len(keyhole_colors)], edgecolor="black",
                                  linewidth=0.5, alpha=0.85)
         rect.set_transform(Affine2D().rotate_deg(yaw_deg).translate(cx, cy) + ax.transData)
         ax.add_patch(rect)
-        ax.text(cx, cy, f"K{index + 1}", ha="center", va="center", color="white",
+        label = f"K{index + 1}" if index < 2 else "Context"
+        ax.text(cx, cy, label, ha="center", va="center", color="white",
                 fontsize=9, fontweight="bold", zorder=5)
     if goal is not None:
         ax.add_patch(plt.Circle((goal[0], goal[1]), goal[2],
