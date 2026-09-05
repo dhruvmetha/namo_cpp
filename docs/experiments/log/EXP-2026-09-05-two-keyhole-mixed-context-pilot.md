@@ -30,6 +30,8 @@ The exact production script passed a one-scene smoke on rlab7 as SLURM job `2707
 
 The accepted smoke interaction occurs during K1. The simulator reports `obstacle_2_movable` in `movable_collisions`; the context object translates 64.4 mm while K2 stays fixed to numerical precision; the two donor actions solve with complete-goal reachability `[false, false, true]`.
 
+The required render audit rejected that smoke and the first four-cell contact run before cohort selection: the sampled context box crossed the outer wall even though static topology and replay succeeded. None of those contact outputs count. Commit `c81d3d4b` adds an oriented-box geometry gate that requires every padded context corner inside the room and rejects overlap with any wall or either blocker; the focused suite remains 28/28, and the rejected smoke now deterministically reports `contact_outside_room`.
+
 ## Result
 
 Pending.
