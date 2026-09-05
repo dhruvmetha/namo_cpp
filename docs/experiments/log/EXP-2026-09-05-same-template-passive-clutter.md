@@ -2,7 +2,7 @@
 type: experiment
 status: live
 created: 2026-09-05
-commit: pending
+commit: b5510d96
 metric: verified passive-clutter two-keyhole yield by ordered K1+K2 difficulty tuple
 tags: [experiment, full-namo, multihop, composition, same-template, clutter, medium, hard]
 ---
