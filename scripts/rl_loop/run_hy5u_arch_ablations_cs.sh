@@ -12,6 +12,7 @@ BASE=${HY5U_ARCH_BASE:-$R0/architecture_ablations_20260904}
 WORKERS=${WORKERS:-6}
 GPU_LIST=(${GPU_LIST:-1 2})
 arms=(${HY5U_ARCH_ARMS:-HY5U_global HY5U_no_local})
+PARALLEL_SEEDS=${PARALLEL_SEEDS:-0}
 
 config_for() {
   case "$1" in
@@ -64,7 +65,7 @@ run_wave() {
   [ "$failed" -eq 0 ] || exit 1
 }
 
-[ "${#GPU_LIST[@]}" -eq "${#arms[@]}" ] || { echo "GPU_LIST must contain one GPU index per arm" >&2; exit 2; }
+[ "${#GPU_LIST[@]}" -ge "${#arms[@]}" ] || { echo "GPU_LIST must contain at least one GPU index per arm" >&2; exit 2; }
 [ -f "$H5" ] || { echo "missing H5: $H5" >&2; exit 1; }
 mkdir -p "$BASE"
 
@@ -74,8 +75,28 @@ run_wave smoke 1 1
 smoke_seconds=$(($(date +%s) - smoke_start))
 echo "SMOKES PASSED $(date) elapsed_seconds=$smoke_seconds"
 
-for seed in 1 2 3; do
-  run_wave models 12 "$seed"
-done
+if [ "$PARALLEL_SEEDS" = 1 ]; then
+  n_runs=$((${#arms[@]} * 3))
+  [ "${#GPU_LIST[@]}" -eq "$n_runs" ] || { echo "PARALLEL_SEEDS=1 requires one GPU index per arm-seed run" >&2; exit 2; }
+  pids=(); labels=(); gpu_i=0
+  for seed in 1 2 3; do
+    for arm in "${arms[@]}"; do
+      run_one models "$arm" "$seed" "${GPU_LIST[$gpu_i]}" 12 &
+      pids+=("$!"); labels+=("${arm}_s${seed}"); gpu_i=$((gpu_i + 1))
+    done
+  done
+  failed=0
+  for idx in "${!pids[@]}"; do
+    if ! wait "${pids[$idx]}"; then
+      echo "models FAILED ${labels[$idx]}" >&2
+      failed=1
+    fi
+  done
+  [ "$failed" -eq 0 ] || exit 1
+else
+  for seed in 1 2 3; do
+    run_wave models 12 "$seed"
+  done
+fi
 
 echo "FLEET DONE $(date)"
