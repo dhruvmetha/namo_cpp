@@ -101,6 +101,7 @@ def build_cohort(
     geometry_seen: set[str] = set()
     selected = []
     by_pair = {}
+    output_dir.mkdir(parents=True, exist_ok=True)
     for pair, tiers in PAIR_TIERS.items():
         rows = select_pair(
             _read_jsonl(clean_root / pair / "manifest.jsonl"),
@@ -123,8 +124,15 @@ def build_cohort(
             "source_types": dict(sorted(type_counts.items())),
             "interaction_hops": dict(sorted(interaction_hops.items())),
         }
+        pair_dir = output_dir / pair
+        pair_dir.mkdir(parents=True, exist_ok=True)
+        (pair_dir / "manifest.jsonl").write_text(
+            "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows), encoding="utf-8"
+        )
+        (pair_dir / "xmls.txt").write_text(
+            "".join(row["xml_path"] + "\n" for row in rows), encoding="utf-8"
+        )
 
-    output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "manifest.jsonl").write_text(
         "".join(json.dumps(row, sort_keys=True) + "\n" for row in selected), encoding="utf-8"
     )
