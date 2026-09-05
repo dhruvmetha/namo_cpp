@@ -36,6 +36,12 @@ The corrected production smoke ran on rlab7 as job `270790_0` and completed in 1
 
 The first corrected four-cell run exposed an unbounded rejection tail in MM: the new augmentation path did not forward the existing per-pair replay cap, so one rejected placement spent minutes enumerating donor-action combinations. Task `270793_0` was cancelled after 5:07 with two provisional XMLs and no completed manifest; none count. Commit `7c6c3e18` forwards the existing ten-simulation cap. This does not approximate an acceptance because every accepted row still contains a complete exact replay; it only stops exhaustive work on sampled rejects.
 
+The bounded four-cell contact search ran on rlab7 as SLURM array `270810` under tag `approval40_v3` and completed all cells in 11 seconds to 1:46. MM accepted 3 of 167 sampled placements, MH 3 of 23, HM 3 of 169, and HH 3 of 57. Every accepted contact scene passed the geometry gate, exact blocker-order check, complete two-opening replay, intended-hop simulator collision check, context-motion threshold, K1/K2 independence checks, and final goal reachability.
+
+All twelve accepted interactions occur within K2; the current targeted placements produced no surviving K1 contacts after the full geometry and topology gates. This is acceptable for the approval cohort because the requested mix does not impose a K1/K2 interaction quota, but it remains an explicit coverage limitation rather than a hidden balance claim.
+
+The deterministic cohort selector produced 40 unique full geometries under `$NAMO_SCRATCH/eval/keyhole_mixed_context_20260905/approval40_v3/selected/`: exactly ten scenes in each of MM, MH, HM, and HH, with seven clean scenes and three K2-interaction scenes per cell. Fresh replay validation and rendering remain pending before presentation.
+
 ## Result
 
 Pending.
