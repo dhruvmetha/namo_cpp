@@ -51,6 +51,8 @@ The post-training handoff is precommitted and runs as a separate background supe
 
 Both training smokes passed at 15:08 EDT after 1,116 seconds, and the paired seed-1 full runs started immediately. Post-training handoff supervisor PID `1722492` started on Arrakis at 15:16 EDT using NAMO evaluation commit `61b95a17` and Sage commit `ceff4bf`; it polls at five-minute intervals and will stage the Amarel target-box smokes and dependent full arrays without an interactive session.
 
+All six trainings completed at 05:23 EDT on 2026-09-05, reached epoch 11, passed strict reload and scorer-load checks, and selected the epoch-11 checkpoint in every seed. The first Amarel smoke attempt, jobs `61242719` and `61242726`, failed before evaluating an episode because the remote launcher sourced `env.amarel.sh` after receiving the dedicated Sage path and silently replaced it with the older shared checkout; the resulting `EdgeCrossAttn` lacked `global_readout`. All six dependent full arrays and aggregate jobs were cancelled by `afterok`, so this attempt produced no test result and no partial population. The retry captures and restores the committed Sage and bindings paths across environment activation and writes to a fresh evaluation root.
+
 ## Result
 
 Pending.
