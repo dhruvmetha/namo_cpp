@@ -32,6 +32,8 @@ The accepted smoke interaction occurs during K1. The simulator reports `obstacle
 
 The required render audit rejected that smoke and the first four-cell contact run before cohort selection: the sampled context box crossed the outer wall even though static topology and replay succeeded. None of those contact outputs count. Commit `c81d3d4b` adds an oriented-box geometry gate that requires every padded context corner inside the room and rejects overlap with any wall or either blocker; the focused suite remains 28/28, and the rejected smoke now deterministically reports `contact_outside_room`.
 
+The corrected production smoke ran on rlab7 as job `270790_0` and completed in 10 seconds. It accepted one medium+medium K2 interaction after five placements, rejecting two out-of-room placements and two incorrect blocker-order scenes. The accepted object is inside the outer walls with physical clearance, the simulator names it in K2's movable-collision trace, it moves only during K2, and the complete-goal trace is `[false, false, true]`; the room, region-map, and graph render passed visual inspection.
+
 ## Result
 
 Pending.
