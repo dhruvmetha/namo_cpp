@@ -2,8 +2,8 @@
 type: experiment
 status: live
 created: 2026-09-05
-commit: c42d8f1e
-metric: pending
+commit: 342b85c9
+metric: 40/40 fresh-replay accepted; 10 per ordered pair; pending user visual approval
 tags: [experiment, full-namo, multihop, composition, same-template, interaction, medium, hard]
 ---
 # Two-keyhole mixed-context approval pilot
@@ -52,8 +52,10 @@ Job `270857` freshly replayed all 18 HM clean reserves: 16 solved and exactly `c
 
 ## Result
 
-Pending.
+The final approval cohort contains 40 distinct full geometries: 10 MM, 10 MH, 10 HM, and 10 HH, with seven clean and three K2-contact scenes in every cell. Fresh rlab7 revalidation accepted all 40 with exact complete-goal traces `[false, false, true]`; every contact scene also reproduced its K2 collision and context motion evidence. Jobs `270834` and `270869_2` produced the accepted per-cell manifests and four ten-scene montages under `$NAMO_SCRATCH/eval/keyhole_mixed_context_20260905/approval40_v3/`.
+
+The saved environment panels pass visual inspection for wall containment and non-overlap. The HM `contact_0000` renderer reports that its approximate Python raster connectivity differs from the C++ planning snapshot; the displayed graph uses the C++ snapshot, and the C++ planner plus simulator replay accepts the scene, so this is a visualization-side warning rather than a cohort failure.
 
 ## Verdict
 
-Pending.
+Pending user approval of the four montages before scaling from 10 to 50 scenes per ordered pair.
