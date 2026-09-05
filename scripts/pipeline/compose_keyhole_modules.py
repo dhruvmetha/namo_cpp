@@ -7,8 +7,10 @@ first donor supplies the robot pose and the last donor supplies the XML goal.  S
 uses ``probe_static_topology`` and requires the intended blockers to appear in path order.
 
 ``fixed_template`` preserves the original blocker-only pilot.  ``same_template`` keeps one exact
-wall layout and transplants only two blockers from episodes of that template.  ``room_stitch`` is
-the retired whole-room stress-test mode that joins complete donor rooms through controlled portals.
+wall layout and transplants only two blockers from episodes of that template.
+``same_template_clutter`` additionally retains one non-boundary movable object from the host room.
+``room_stitch`` is the retired whole-room stress-test mode that joins complete donor rooms through
+controlled portals.
 """
 
 from __future__ import annotations
@@ -53,7 +55,12 @@ TEMPLATE_RE = re.compile(r"/aug9_car/(set[12]/benchmark_[1-5])/")
 MOVABLE_RE = re.compile(r"^obstacle_.*_movable$")
 TIERS = ("easy", "medium", "hard")
 HORIZONS = ("1push", "2push")
-COMPOSITION_MODES = ("fixed_template", "same_template", "room_stitch")
+COMPOSITION_MODES = (
+    "fixed_template",
+    "same_template",
+    "same_template_clutter",
+    "room_stitch",
+)
 PORTAL_SIDES = ("east", "north", "south", "west")
 INDEPENDENT_POSITION_TOLERANCE_M = 0.002
 INDEPENDENT_ANGLE_TOLERANCE_RAD = math.radians(1.0)
@@ -196,6 +203,12 @@ def compose_xml(donors: Sequence[Donor], output: Path) -> None:
 
 
 def compose_same_template_xml(donors: Sequence[Donor], output: Path) -> dict:
+    metadata = _same_template_metadata(donors)
+    compose_xml(donors, output)
+    return metadata
+
+
+def _same_template_metadata(donors: Sequence[Donor]) -> dict:
     if len(donors) != 2 or any(donor.horizon != "1push" for donor in donors):
         raise ValueError("same-template composition requires exactly two 1push donors")
     templates = {donor.template for donor in donors}
@@ -206,13 +219,51 @@ def compose_same_template_xml(donors: Sequence[Donor], output: Path) -> dict:
         raise CompositionRejected("donor_wall_signature_failed")
     if len(wall_signatures) != 1:
         raise CompositionRejected("donor_wall_signature_mismatch")
-    compose_xml(donors, output)
     return {
         "mode": "same_template",
         "template": donors[0].template,
         "wall_signature": next(iter(wall_signatures)),
         "host_xml": os.path.realpath(donors[0].xml_path),
         "transplanted": "blockers_only",
+    }
+
+
+@functools.lru_cache(maxsize=None)
+def _movable_object_ids(xml_path: str) -> tuple[str, ...]:
+    root = ET.parse(xml_path).getroot()
+    return tuple(
+        body.get("name") or ""
+        for body in _worldbody(root).findall("body")
+        if MOVABLE_RE.match(body.get("name") or "")
+    )
+
+
+def host_clutter_ids(donor: Donor) -> tuple[str, ...]:
+    return tuple(object_id for object_id in _movable_object_ids(donor.xml_path) if object_id != donor.object_id)
+
+
+def compose_same_template_clutter_xml(
+    donors: Sequence[Donor], host_clutter_id: str, output: Path
+) -> dict:
+    metadata = _same_template_metadata(donors)
+    if host_clutter_id not in host_clutter_ids(donors[0]):
+        raise CompositionRejected("host_clutter_not_available")
+
+    compose_xml(donors, output)
+    tree = ET.parse(output)
+    root = tree.getroot()
+    clutter_object_id = _intended_blockers(3)[-1]
+    _worldbody(root).append(
+        _renamed_blocker(donors[0].xml_path, host_clutter_id, clutter_object_id)
+    )
+    ET.indent(tree, space="  ")
+    tree.write(output, encoding="utf-8", xml_declaration=True)
+    return {
+        **metadata,
+        "mode": "same_template_clutter",
+        "transplanted": "blockers_plus_one_host_clutter",
+        "clutter_object_ids": [clutter_object_id],
+        "host_clutter_source_id": host_clutter_id,
     }
 
 
@@ -835,6 +886,7 @@ def replay_two_keyhole_goal_chain(
     donors: Sequence[Donor],
     *,
     max_attempts: int | None = None,
+    monitored_object_ids: Sequence[str] | None = None,
 ) -> dict:
     """Find known donor actions that expose K2 and then make the XML goal reachable.
 
@@ -848,6 +900,7 @@ def replay_two_keyhole_goal_chain(
     env.set_robot_goal(*extract_goal_from_xml(xml_path))
     initial = env.get_full_state()
     object_ids = _intended_blockers(2)
+    pose_object_ids = list(monitored_object_ids or object_ids)
     snapshot = get_region_snapshot(
         env,
         goals_per_region=100,
@@ -903,7 +956,7 @@ def replay_two_keyhole_goal_chain(
     initial_state = _intended_reachability_state(env, object_ids)
     initial_failure = _initial_two_keyhole_failure(initial_state)
     initial_counts = _target_point_counts(env, target_points)
-    initial_poses = _intended_object_poses(env, object_ids)
+    initial_poses = _intended_object_poses(env, pose_object_ids)
     if initial_failure is not None:
         return {
             **base,
@@ -931,7 +984,7 @@ def replay_two_keyhole_goal_chain(
         k1_result = env.step(_action(object_ids[0], k1_edge, k1_depth))
         post_k1_state = _intended_reachability_state(env, object_ids)
         post_k1_counts = _target_point_counts(env, target_points)
-        post_k1_poses = _intended_object_poses(env, object_ids)
+        post_k1_poses = _intended_object_poses(env, pose_object_ids)
         k1_failure = _post_k1_two_keyhole_failure(bool(k1_result.done), post_k1_state)
         if k1_failure is not None:
             candidate_rejections[k1_failure] += 1
@@ -957,7 +1010,7 @@ def replay_two_keyhole_goal_chain(
             k2_result = env.step(_action(object_ids[1], k2_edge, k2_depth))
             post_k2_state = _intended_reachability_state(env, object_ids)
             post_k2_counts = _target_point_counts(env, target_points)
-            post_k2_poses = _intended_object_poses(env, object_ids)
+            post_k2_poses = _intended_object_poses(env, pose_object_ids)
             k2_failure = _post_k2_two_keyhole_failure(bool(k2_result.done), post_k2_state)
             if k2_failure is not None:
                 candidate_rejections[k2_failure] += 1
@@ -1144,6 +1197,7 @@ def replay_donor_chain(
     donors: Sequence[Donor],
     *,
     max_attempts: int | None = None,
+    monitored_object_ids: Sequence[str] | None = None,
 ) -> dict:
     if len(donors) == 2 and all(donor.horizon == "1push" for donor in donors):
         return replay_two_keyhole_goal_chain(
@@ -1151,6 +1205,7 @@ def replay_donor_chain(
             config,
             donors,
             max_attempts=max_attempts,
+            monitored_object_ids=monitored_object_ids,
         )
     return replay_component_chain(xml_path, config, donors)
 
@@ -1176,6 +1231,70 @@ def mechanical_independence_failure(replay: dict) -> str | None:
     if _pose_changed(poses[1].get(k1), poses[2].get(k1)):
         return "k2_moved_k1"
     return None
+
+
+def passive_clutter_motion_failure(replay: dict, clutter_object_ids: Sequence[str]) -> str | None:
+    poses = replay.get("object_pose_trace") or []
+    if len(poses) != 3:
+        return "passive_clutter_trace_missing"
+    for object_id in clutter_object_ids:
+        initial = poses[0].get(object_id)
+        if any(_pose_changed(initial, state.get(object_id)) for state in poses[1:]):
+            return "passive_clutter_moved"
+    return None
+
+
+def clean_counterfactual_decision_edges(
+    xml_path: str,
+    config: str,
+    replay_actions: Sequence[Sequence[Sequence[int]]],
+) -> dict:
+    """Replay the accepted K1 action without clutter and record ranker decision edges."""
+    if len(replay_actions) != 2 or any(len(actions) != 1 for actions in replay_actions):
+        return {"status": "clean_counterfactual_action_shape", "decision_edges": None}
+    k1, k2 = _intended_blockers(2)
+    env = namo_rl.RLEnvironment(xml_path, config, False)
+    env.set_robot_goal(*extract_goal_from_xml(xml_path))
+    initial = _intended_reachability_state(env, (k1, k2))
+    edge, depth = replay_actions[0][0]
+    result = env.step(_action(k1, edge, depth))
+    post_k1 = _intended_reachability_state(env, (k1, k2))
+    if not result.done:
+        return {"status": "clean_counterfactual_k1_failed", "decision_edges": None}
+    if k2 not in post_k1["reachable_objects"]:
+        return {"status": "clean_counterfactual_k1_did_not_expose_k2", "decision_edges": None}
+    return {
+        "status": "ok",
+        "decision_edges": {
+            "k1_t0": initial["reachable_edges"][k1],
+            "k2_t1": post_k1["reachable_edges"][k2],
+        },
+    }
+
+
+def passive_clutter_edge_effect(
+    replay: dict, clean_counterfactual: dict
+) -> tuple[str | None, dict | None]:
+    if clean_counterfactual.get("status") != "ok":
+        return clean_counterfactual.get("status") or "clean_counterfactual_failed", None
+    states = replay.get("reachability_trace") or []
+    if len(states) != 3:
+        return "passive_clutter_reachability_trace_missing", None
+    k1, k2 = _intended_blockers(2)
+    clutter_edges = {
+        "k1_t0": states[0]["reachable_edges"][k1],
+        "k2_t1": states[1]["reachable_edges"][k2],
+    }
+    clean_edges = clean_counterfactual["decision_edges"]
+    changed = [key for key in ("k1_t0", "k2_t1") if clutter_edges[key] != clean_edges[key]]
+    effect = {
+        "changed_decisions": changed,
+        "clean_edges": clean_edges,
+        "clutter_edges": clutter_edges,
+    }
+    if not changed:
+        return "passive_clutter_no_edge_effect", effect
+    return None, effect
 
 
 def donor_sequences(
@@ -1237,14 +1356,39 @@ def revalidate_manifest(source: Path, output_dir: Path, config: str) -> dict:
     for source_row in source_rows:
         xml_path = os.path.realpath(str(resolve(source_row["xml_path"])))
         donors = tuple(_donor_from_json(row) for row in source_row["donors"])
+        composition = copy.deepcopy(source_row.get("composition") or {})
+        composition_mode = composition.get("mode")
+        clutter_object_ids = composition.get("clutter_object_ids", [])
         probe = probe_one((xml_path, config, len(donors)))
         ok, reason = static_acceptance(probe, len(donors))
         replay = None
         if ok:
-            replay = replay_donor_chain(xml_path, config, donors)
+            replay = replay_donor_chain(
+                xml_path,
+                config,
+                donors,
+                monitored_object_ids=_intended_blockers(len(donors)) + clutter_object_ids,
+            )
             if replay["status"] != "solved":
                 ok = False
                 reason = replay.get("failure_reason") or replay["status"]
+        if ok and composition_mode in ("same_template", "same_template_clutter"):
+            reason = mechanical_independence_failure(replay)
+            ok = reason is None
+        if ok and composition_mode == "same_template_clutter":
+            reason = passive_clutter_motion_failure(replay, clutter_object_ids)
+            ok = reason is None
+        if ok and composition_mode == "same_template_clutter":
+            with tempfile.TemporaryDirectory(prefix="keyhole_clean_counterfactual_") as temp_dir:
+                clean_xml = Path(temp_dir) / "clean.xml"
+                compose_same_template_xml(donors, clean_xml)
+                counterfactual = clean_counterfactual_decision_edges(
+                    str(clean_xml), config, replay["actions"]
+                )
+            reason, interaction_effect = passive_clutter_edge_effect(replay, counterfactual)
+            ok = reason is None
+            if ok:
+                composition["interaction_effect"] = interaction_effect
         full_geometry, wall_geometry = geom_sig(xml_path)
         if ok and full_geometry is None:
             ok = False
@@ -1256,6 +1400,7 @@ def revalidate_manifest(source: Path, output_dir: Path, config: str) -> dict:
             "xml_path": xml_path,
             "source_manifest": str(source.resolve()),
             "template": source_row.get("template") or donors[0].template,
+            "composition": composition,
             "hops": len(donors),
             "donors": [_donor_json(donor) for donor in donors],
             "geometry_identity": {"full": full_geometry, "walls": wall_geometry},
@@ -1348,13 +1493,19 @@ def main() -> int:
         len(args.horizons) != 2 or any(horizon != "1push" for horizon in args.horizons)
     ):
         parser.error("--composition-mode room_stitch requires exactly two 1push horizons")
-    if args.composition_mode == "same_template":
+    if args.composition_mode in ("same_template", "same_template_clutter"):
         if len(args.horizons) != 2 or any(horizon != "1push" for horizon in args.horizons):
-            parser.error("--composition-mode same_template requires exactly two 1push horizons")
+            parser.error(
+                f"--composition-mode {args.composition_mode} requires exactly two 1push horizons"
+            )
         if args.template == "any":
-            parser.error("--composition-mode same_template requires one explicit --template")
+            parser.error(
+                f"--composition-mode {args.composition_mode} requires one explicit --template"
+            )
         if not args.replay_donor_actions:
-            parser.error("--composition-mode same_template requires --replay-donor-actions")
+            parser.error(
+                f"--composition-mode {args.composition_mode} requires --replay-donor-actions"
+            )
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     rows = []
@@ -1399,12 +1550,25 @@ def main() -> int:
             args.template,
             args.min_separation,
             args.seed,
-            enforce_min_separation=args.composition_mode in ("fixed_template", "same_template"),
+            enforce_min_separation=args.composition_mode
+            in ("fixed_template", "same_template", "same_template_clutter"),
             pools=filtered_pools,
         )
     )
+    candidates: list[tuple[tuple[Donor, ...], str | None]]
+    if args.composition_mode == "same_template_clutter":
+        candidates = [
+            (sequence, clutter_id)
+            for sequence in sequences
+            for clutter_id in host_clutter_ids(sequence[0])
+        ]
+        random.Random(args.seed).shuffle(candidates)
+    else:
+        candidates = [(sequence, None) for sequence in sequences]
 
-    def compose_candidate(donors: Sequence[Donor], path: Path) -> dict:
+    def compose_candidate(
+        donors: Sequence[Donor], host_clutter_id: str | None, path: Path
+    ) -> dict:
         if args.composition_mode == "room_stitch":
             return compose_room_stitch_xml(
                 donors,
@@ -1415,11 +1579,15 @@ def main() -> int:
             )
         if args.composition_mode == "same_template":
             return compose_same_template_xml(donors, path)
+        if args.composition_mode == "same_template_clutter":
+            if host_clutter_id is None:
+                raise CompositionRejected("host_clutter_not_available")
+            return compose_same_template_clutter_xml(donors, host_clutter_id, path)
         compose_xml(donors, path)
         return {"mode": "fixed_template"}
 
     with tempfile.TemporaryDirectory(prefix="keyhole_modules_") as temp_dir:
-        while sequences:
+        while candidates:
             if attempts >= args.max_attempts or accepted >= args.limit:
                 break
             preferred = 0
@@ -1427,16 +1595,16 @@ def main() -> int:
                 preferred = next(
                     (
                         index
-                        for index, sequence in enumerate(sequences)
+                        for index, (sequence, _clutter_id) in enumerate(candidates)
                         if all(donor.episode_key not in used_donor_episodes for donor in sequence)
                     ),
                     0,
                 )
-            donors = sequences.pop(preferred)
+            donors, host_clutter_id = candidates.pop(preferred)
             attempts += 1
             temp_xml = Path(temp_dir) / f"candidate_{attempts:05d}.xml"
             try:
-                composition = compose_candidate(donors, temp_xml)
+                composition = compose_candidate(donors, host_clutter_id, temp_xml)
             except CompositionRejected as error:
                 rejections[str(error)] += 1
                 continue
@@ -1447,28 +1615,52 @@ def main() -> int:
                 continue
             output = args.out_dir / f"composed_{accepted:04d}.xml"
             try:
-                composition = compose_candidate(donors, output)
+                composition = compose_candidate(donors, host_clutter_id, output)
             except CompositionRejected as error:
                 rejections[f"final_{error}"] += 1
                 continue
             replay = None
             if args.replay_donor_actions:
+                monitored_object_ids = _intended_blockers(2) + composition.get(
+                    "clutter_object_ids", []
+                )
                 replay = replay_donor_chain(
                     str(output),
                     args.config,
                     donors,
                     max_attempts=args.max_replay_attempts_per_pair,
+                    monitored_object_ids=monitored_object_ids,
                 )
                 if replay["status"] != "solved":
                     rejections[replay.get("failure_reason") or replay["status"]] += 1
                     output.unlink()
                     continue
-                if args.composition_mode == "same_template":
+                if args.composition_mode in ("same_template", "same_template_clutter"):
                     independence_failure = mechanical_independence_failure(replay)
                     if independence_failure is not None:
                         rejections[independence_failure] += 1
                         output.unlink()
                         continue
+                if args.composition_mode == "same_template_clutter":
+                    clutter_ids = composition["clutter_object_ids"]
+                    clutter_motion_failure = passive_clutter_motion_failure(replay, clutter_ids)
+                    if clutter_motion_failure is not None:
+                        rejections[clutter_motion_failure] += 1
+                        output.unlink()
+                        continue
+                    clean_xml = Path(temp_dir) / f"clean_counterfactual_{attempts:05d}.xml"
+                    compose_same_template_xml(donors, clean_xml)
+                    clean_counterfactual = clean_counterfactual_decision_edges(
+                        str(clean_xml), args.config, replay["actions"]
+                    )
+                    interaction_failure, interaction_effect = passive_clutter_edge_effect(
+                        replay, clean_counterfactual
+                    )
+                    if interaction_failure is not None:
+                        rejections[interaction_failure] += 1
+                        output.unlink()
+                        continue
+                    composition["interaction_effect"] = interaction_effect
             probe = probe_one((str(output), args.config, len(donors)))
             ok, reason = static_acceptance(probe, len(donors))
             if not ok:
@@ -1517,6 +1709,7 @@ def main() -> int:
         "tiers": args.tiers,
         "template": args.template,
         "composition_mode": args.composition_mode,
+        "candidate_variants": len(candidates) + attempts,
         "min_separation": args.min_separation,
         "portal_width_m": args.portal_width if args.composition_mode == "room_stitch" else None,
         "connector_length_m": (

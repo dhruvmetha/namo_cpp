@@ -16,6 +16,7 @@ import summarize_keyhole_modules as summarizer  # noqa: E402
 
 K1 = "obstacle_0_movable"
 K2 = "obstacle_1_movable"
+CLUTTER = "obstacle_2_movable"
 
 
 def _donor(index: int, edge: int) -> composer.Donor:
@@ -67,6 +68,27 @@ def _write_module(path: Path, object_id: str, *, goal_x: float) -> None:
     )
     ET.SubElement(worldbody, "site", {"name": "goal", "pos": f"{goal_x} 0 0"})
     ET.ElementTree(root).write(path, encoding="utf-8", xml_declaration=True)
+
+
+def _append_movable(path: Path, object_id: str, *, x: float, y: float) -> None:
+    tree = ET.parse(path)
+    body = ET.SubElement(
+        composer._worldbody(tree.getroot()),
+        "body",
+        {"name": object_id},
+    )
+    ET.SubElement(
+        body,
+        "geom",
+        {
+            "name": object_id,
+            "type": "box",
+            "pos": f"{x} {y} 0.05",
+            "size": "0.1 0.1 0.05",
+        },
+    )
+    ET.SubElement(body, "joint", {"type": "free"})
+    tree.write(path, encoding="utf-8", xml_declaration=True)
 
 
 def _xml_donor(path: Path, object_id: str, *, template: str) -> composer.Donor:
@@ -435,6 +457,88 @@ def test_same_template_rejects_wall_signature_mismatch(tmp_path, monkeypatch):
 
     with pytest.raises(composer.CompositionRejected, match="donor_wall_signature_mismatch"):
         composer.compose_same_template_xml(donors, tmp_path / "composed.xml")
+
+
+def test_same_template_clutter_retains_one_renamed_host_object(tmp_path, monkeypatch):
+    first = tmp_path / "first.xml"
+    second = tmp_path / "second.xml"
+    output = tmp_path / "composed.xml"
+    _write_module(first, "obstacle_5_movable", goal_x=0.6)
+    _append_movable(first, "obstacle_6_movable", x=-0.2, y=0.4)
+    _append_movable(first, "obstacle_7_movable", x=0.2, y=0.4)
+    _write_module(second, "obstacle_8_movable", goal_x=0.7)
+    donors = (
+        _xml_donor(first, "obstacle_5_movable", template="set2/benchmark_5"),
+        _xml_donor(second, "obstacle_8_movable", template="set2/benchmark_5"),
+    )
+    monkeypatch.setattr(composer, "geom_sig", lambda _path: ("full", "shared_walls"))
+
+    metadata = composer.compose_same_template_clutter_xml(
+        donors, "obstacle_6_movable", output
+    )
+
+    root = ET.parse(output).getroot()
+    movable_ids = [
+        body.get("name")
+        for body in composer._worldbody(root).findall("body")
+        if composer.MOVABLE_RE.match(body.get("name") or "")
+    ]
+    assert movable_ids == [K1, K2, CLUTTER]
+    assert composer._numbers(composer._movable_body(root, CLUTTER).find("geom").get("pos"))[
+        :2
+    ] == pytest.approx([-0.2, 0.4])
+    assert metadata["mode"] == "same_template_clutter"
+    assert metadata["clutter_object_ids"] == [CLUTTER]
+    assert metadata["host_clutter_source_id"] == "obstacle_6_movable"
+
+
+def test_passive_clutter_requires_stable_pose_and_decision_edge_effect():
+    replay = {
+        "object_pose_trace": [
+            {CLUTTER: [0.0, 0.0, 0.0]},
+            {CLUTTER: [0.001, 0.0, 0.0]},
+            {CLUTTER: [0.0015, 0.0, 0.0]},
+        ],
+        "reachability_trace": [
+            {"reachable_edges": {K1: [0, 1], K2: []}},
+            {"reachable_edges": {K1: [0], K2: [2]}},
+            {"reachable_edges": {K1: [0], K2: [2]}},
+        ],
+    }
+    clean = {"status": "ok", "decision_edges": {"k1_t0": [0, 1, 2], "k2_t1": [2]}}
+
+    assert composer.passive_clutter_motion_failure(replay, [CLUTTER]) is None
+    failure, effect = composer.passive_clutter_edge_effect(replay, clean)
+    assert failure is None
+    assert effect["changed_decisions"] == ["k1_t0"]
+
+    replay["object_pose_trace"][2][CLUTTER] = [0.003, 0.0, 0.0]
+    assert composer.passive_clutter_motion_failure(replay, [CLUTTER]) == "passive_clutter_moved"
+
+    no_effect = {
+        "status": "ok",
+        "decision_edges": {"k1_t0": [0, 1], "k2_t1": [2]},
+    }
+    assert composer.passive_clutter_edge_effect(replay, no_effect)[0] == (
+        "passive_clutter_no_edge_effect"
+    )
+
+
+def test_clean_counterfactual_records_the_two_ranker_decision_points(monkeypatch):
+    env = _FakeEnv(_valid_states())
+    monkeypatch.setattr(composer.namo_rl, "RLEnvironment", lambda *_args: env)
+    monkeypatch.setattr(composer, "extract_goal_from_xml", lambda _xml: (1.0, 2.0, 0.0))
+
+    result = composer.clean_counterfactual_decision_edges(
+        "/clean.xml",
+        "/config.yaml",
+        [[[10, 0]], [[20, 0]]],
+    )
+
+    assert result == {
+        "status": "ok",
+        "decision_edges": {"k1_t0": [10], "k2_t1": [20]},
+    }
 
 
 def test_mechanical_independence_rejects_cross_blocker_motion():
