@@ -2,7 +2,7 @@
 status: hub
 tags:
   - results
-updated: 2026-09-04
+updated: 2026-09-05
 ---
 # Results — DAgger curriculum training framework
 
@@ -54,10 +54,27 @@ The scannable cross-campaign index: **what we changed, why, and whether it helpe
 | 08-22 | **HY5U as a policy** — zero search, greedy argmax, out to 30 calls [USER] | what is the ranker worth with the queue switched off | ✅ policy **leads to ~5 calls** (2push all @5 **75.7 vs 73.4**) then **saturates**; search passes at 10 and finishes **89.7 vs 82.9** @30. Crossover is the engineering answer. Two harness bugs found and fixed | [policy-mode](log/EXP-2026-08-22-policy-mode-hy5u.md) |
 | 08-29 | **geometry-only best-first baselines** — legacy single-path proxy, then corrected target-region reachability | can a proper model-free geometric method beat random ordering? | ❌ **full timed run confirms rejection** — geometry briefly beats random at one call (1push **48.2 vs 36.6**) and five calls (2push **15.7 vs 12.6**), but loses by 30 calls (**84.8 vs 95.0**, **36.0 vs 49.7**) and by five seconds (**82.1 vs 93.2**, **30.4 vs 40.7**); HY5U remains far ahead | registry: `geometric-region-walltime-4000-v3` / `geometric-walltime-4000-v3` |
 | 09-04 | **HY5U component ablations** — no unreachable supervision, no family loss, regression only, and independent contacts | identify which parts of the ranker actually reduce simulator calls | **mixed, clean attribution** — regression-only and no-unreachable lose 18.7 and 13.6 points at 2push@5; independent contacts loses 5.3; no-family is neutral | [HY5U ablations](log/EXP-2026-08-31-hy5u-icra-ablations.md) |
+| 09-05 | **same-template passive clutter** — retain one native host object beside K1+K2 | add controlled interaction context without coupled object motion | ⚠️ feasible but too sparse — 3/998 survive, all with medium K1 and one shared host context; reject as a balanced generator | [passive-clutter pilot](archive/EXP-2026-09-05-same-template-passive-clutter.md) |
 
 **Failed ideas, kept so they are not retried blind:** unanchored family softmax · hinge without an anchor (RPM) · 2% regression brake (RPB) · absolute plates on dead cells · margins sized in raw units instead of σ · root rebalancing as a 1-push fix · exhaustive relabeling bought at the cost of corpus size · ladder + rebalance stacking · push-depth-aware pose head · Fourier depth identity.
 
 **Standing meta-lesson:** offline V5 has anti-predicted canonical deploy five times (most starkly: HY5U has the worst V5 of any hybrid arm and the best deploy of any model here). V5 is a burial diagnostic; canonical deploy is the only arbiter.
+
+---
+
+## 2026-09-05 — Native host clutter can alter contact access, but not at useful balanced yield
+
+One non-boundary movable object from K1's original `set2/benchmark_5` host XML was retained beside each same-template K1+K2 pair. A candidate counted only if it preserved the exact two-boundary order, replayed `[false,false,true]`, left the passive object stationary within 2 mm/1 degree, and changed the reachable contact-edge set at K1 initially or K2 after K1 relative to the corresponding clean scene. Source tiers describe the original local one-push donors; the altered scenes were not relabeled.
+
+| K1 source tier | K2 source tier | variants | exact static two-hop | accepted interaction scenes |
+|---|---|---:|---:|---:|
+| medium | medium | 363 | 30 | 1 |
+| medium | hard | 277 | 17 | 2 |
+| hard | medium | 233 | 22 | 0 |
+| hard | hard | 125 | 7 | 0 |
+| **all** | **all** | **998** | **76** | **3** |
+
+**Feasible, but reject native host retention as the interaction generator.** The three survivors are exact controlled examples: one wall body, three movable bodies, exact K1→K2 progression, passive-object motion below numerical precision, and three distinct full geometries. In each, clutter reduces K1's initial reachable edge count from 25 to 20. However, every survivor shares the same medium K1 host and retained object, and no hard-K1 candidate survives. The dominant failure is topology—745/998 variants produce the wrong hop count—rather than mechanical coupling, which rejects only four. Keep the three scenes as diagnostics beside the clean 65-scene population; a scalable generator must place context by a targeted local edge-occlusion objective while holding the two-boundary graph fixed. Full census and audit: [experiment card](archive/EXP-2026-09-05-same-template-passive-clutter.md).
 
 ---
 
