@@ -34,6 +34,8 @@ The required render audit rejected that smoke and the first four-cell contact ru
 
 The corrected production smoke ran on rlab7 as job `270790_0` and completed in 10 seconds. It accepted one medium+medium K2 interaction after five placements, rejecting two out-of-room placements and two incorrect blocker-order scenes. The accepted object is inside the outer walls with physical clearance, the simulator names it in K2's movable-collision trace, it moves only during K2, and the complete-goal trace is `[false, false, true]`; the room, region-map, and graph render passed visual inspection.
 
+The first corrected four-cell run exposed an unbounded rejection tail in MM: the new augmentation path did not forward the existing per-pair replay cap, so one rejected placement spent minutes enumerating donor-action combinations. Task `270793_0` was cancelled after 5:07 with two provisional XMLs and no completed manifest; none count. Commit `7c6c3e18` forwards the existing ten-simulation cap. This does not approximate an acceptance because every accepted row still contains a complete exact replay; it only stops exhaustive work on sampled rejects.
+
 ## Result
 
 Pending.
