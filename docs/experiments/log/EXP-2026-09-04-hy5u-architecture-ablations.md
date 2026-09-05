@@ -2,7 +2,7 @@
 type: experiment
 status: live
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-09-05
 commit: ffe34dda
 metric: "Canonical fixed-physics-v3 success versus simulator calls, split by easy/medium/hard and 1push/2push; three seeds per architecture control."
 tags:
@@ -54,6 +54,8 @@ Both training smokes passed at 15:08 EDT after 1,116 seconds, and the paired see
 All six trainings completed at 05:23 EDT on 2026-09-05, reached epoch 11, passed strict reload and scorer-load checks, and selected the epoch-11 checkpoint in every seed. The first Amarel smoke attempt, jobs `61242719` and `61242726`, failed before evaluating an episode because the remote launcher sourced `env.amarel.sh` after receiving the dedicated Sage path and silently replaced it with the older shared checkout; the resulting `EdgeCrossAttn` lacked `global_readout`. All six dependent full arrays and aggregate jobs were cancelled by `afterok`, so this attempt produced no test result and no partial population. The retry captures and restores the committed Sage and bindings paths across environment activation and writes to a fresh evaluation root.
 
 The fixed launcher is commit `26f3ced0`. Retry smokes `61247464` and `61247471` started on Amarel at 15:45 EDT and produced real 1-push and 2-push rows with no loader errors. Their dependent full arrays are `61247465`, `61247467`, `61247469`, `61247472`, `61247474`, and `61247476`; per-seed aggregate jobs are `61247466`, `61247468`, `61247470`, `61247473`, `61247475`, and `61247477`. All retry artifacts use the fresh `eval/hy5u_arch_ablations_20260905_retry1` root under Amarel scratch.
+
+All 216 full-evaluation array tasks completed with exit code `0:0` and wrote the exact 1,328 one-push plus 992 two-push rows per seed. Three aggregate jobs completed, while `61247470`, `61247473`, and `61247475` started immediately after their parent arrays and observed only 989–990 of the 992 two-push rows through the shared filesystem. A later direct recount and canonical-key match found all 992 unique rows with zero worker errors in every affected seed, so no simulator work is missing; only those three strict aggregation jobs will be retried against the now-stable files.
 
 ## Result
 
