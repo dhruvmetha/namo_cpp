@@ -3,6 +3,12 @@
 
     python scripts/pipeline/make_handoff_bundle.py --pool v3_b2 --out $NAMO_SCRATCH/handoff/v3_b2_all \
         [--shard i --nshards n]
+    python scripts/pipeline/make_handoff_bundle.py --rooms rooms.txt --no-cards --out ...
+
+`--rooms` takes one pool-relative scene dir per line (`v2/dense_solo0/rb_00001`) instead of a whole
+pool, so a bundle can carry exactly the gallery rooms and not the pool's non-qualifying rest.
+`--no-cards` drops gallery_card/gallery_replay: the robot box reads env.xml and the derived sheet
+and nothing else, and the cards are 3x the bytes of the scenes they describe.
 
 Layout, one directory per scene:
 
@@ -34,7 +40,7 @@ GEOM = re.compile(r'<geom name="(\w+)"[^>]*pos="([-\d.eE]+) ([-\d.eE]+) ([-\d.eE
 SITE = re.compile(r'<site name="goal"[^>]*pos="([-\d.eE]+) ([-\d.eE]+)')
 
 
-def derived_sheet(xml_path, env):
+def derived_sheet(xml_path, env, gallery=None):
     text = open(xml_path).read()
     movable, static = [], []
     for name, x, y, _z, yaw, hx, hy, hz in GEOM.findall(text):
@@ -43,7 +49,7 @@ def derived_sheet(xml_path, env):
         (movable if "movable" in name else static).append(entry)
     goal = SITE.search(text)
     robot = env.get_observation().get("robot_pose")
-    return {
+    sheet = {
         "schema": "derived_from_env_xml",
         "note": "NOT a generator build sheet. This pool ships env.xml and nothing else, so poses "
                 "are read back out of that file. robot_start_m comes from the simulator after "
@@ -55,11 +61,23 @@ def derived_sheet(xml_path, env):
         "movables": movable,
         "statics": static,
     }
+    # Room-level, straight off the gallery card meta (scripts/viz/add_group_edge_flag.py). The
+    # operator needs this BEFORE building: a both-blocks door with no way around is two blocks that
+    # must both move, and it is where search fails 13.8% of the time against 2.9% elsewhere.
+    # `episodes` is a LIST because tier is per (pushed object, horizon), never per room -- a room
+    # can be medium for one block and easy for the other, and a single room-level tier would be a
+    # lie. Same reason the gallery keys cards by object.
+    if gallery:
+        sheet["doorway"] = gallery["doorway"]
+        sheet["episodes"] = gallery["episodes"]
+    return sheet
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--pool", required=True, help="pool directory name, e.g. v3_b2")
+    ap.add_argument("--pool", help="pool directory name, e.g. v3_b2; omit when --rooms is given")
+    ap.add_argument("--rooms", help="file of pool-relative scene dirs, one per line")
+    ap.add_argument("--no-cards", action="store_true", help="skip gallery_card/gallery_replay")
     ap.add_argument("--out", required=True)
     ap.add_argument("--shard", type=int, default=0)
     ap.add_argument("--nshards", type=int, default=1)
@@ -80,13 +98,27 @@ def main():
                 pass
 
     gal = os.path.join(os.environ["NAMO_SCRATCH"], "viz", "real_2mov")
-    cards = {}
+    cards, gallery = {}, {}
     if os.path.exists(f"{gal}/scenes.json"):
         for row in json.load(open(f"{gal}/scenes.json"))["cards"]:
             meta = json.load(open(f"{gal}/cards/{row['file']}"))["meta"]
-            cards.setdefault(norm(meta["xml"]), []).append((row["file"], meta["object_id"]))
+            k = norm(meta["xml"])
+            cards.setdefault(k, []).append((row["file"], meta["object_id"]))
+            g = gallery.setdefault(k, {"doorway": {}, "episodes": []})
+            g["doorway"] = {"needs_both_blocks": bool(meta.get("door_needs_both_blocks")),
+                            "has_route_around": bool(meta.get("has_route_around"))}
+            g["episodes"].append({"object_id": meta["object_id"], "horizon": meta["horizon"],
+                                  "tier": meta["tier"], "n_green": meta["n_green"],
+                                  "n_tried": meta["n_tried"],
+                                  "n_green_contact": meta.get("n_green_contact")})
 
-    scenes = sorted(glob.glob(f"{root}/{a.pool}/*/*/env.xml"))
+    if a.rooms:
+        want = [l.strip() for l in open(a.rooms) if l.strip()]
+        scenes = [f"{root}/{r}/env.xml" for r in want]
+        gone = [s for s in scenes if not os.path.exists(s)]
+        assert not gone, f"{len(gone)} listed scene(s) have no env.xml, first: {gone[0]}"
+    else:
+        scenes = sorted(glob.glob(f"{root}/{a.pool}/*/*/env.xml"))
     made = 0
     for n, xml in enumerate(scenes):
         if n % a.nshards != a.shard:
@@ -98,14 +130,15 @@ def main():
         try:
             env = namo_rl.RLEnvironment(xml, a.config, False)
             env.reset()
-            json.dump(derived_sheet(xml, env), open(f"{dest}/build_sheet_derived.json", "w"), indent=1)
+            json.dump(derived_sheet(xml, env, gallery.get(norm(xml))),
+                      open(f"{dest}/build_sheet_derived.json", "w"), indent=1)
         except Exception as exc:
             json.dump({"schema": "derived_from_env_xml", "error": str(exc)},
                       open(f"{dest}/build_sheet_derived.json", "w"), indent=1)
         k = norm(xml)
         if k in sweeps:
             shutil.copy2(sweeps[k], os.path.join(dest, "sweep_record.json"))
-        for fn, obj in cards.get(k, []):
+        for fn, obj in ([] if a.no_cards else cards.get(k, [])):
             shutil.copy2(f"{gal}/cards/{fn}", f"{dest}/gallery_card__{obj}.json")
             rp = f"{gal}/replay/{fn}"
             if os.path.exists(rp):
