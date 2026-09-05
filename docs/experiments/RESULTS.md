@@ -54,11 +54,40 @@ The scannable cross-campaign index: **what we changed, why, and whether it helpe
 | 08-22 | **HY5U as a policy** — zero search, greedy argmax, out to 30 calls [USER] | what is the ranker worth with the queue switched off | ✅ policy **leads to ~5 calls** (2push all @5 **75.7 vs 73.4**) then **saturates**; search passes at 10 and finishes **89.7 vs 82.9** @30. Crossover is the engineering answer. Two harness bugs found and fixed | [policy-mode](log/EXP-2026-08-22-policy-mode-hy5u.md) |
 | 08-29 | **geometry-only best-first baselines** — legacy single-path proxy, then corrected target-region reachability | can a proper model-free geometric method beat random ordering? | ❌ **full timed run confirms rejection** — geometry briefly beats random at one call (1push **48.2 vs 36.6**) and five calls (2push **15.7 vs 12.6**), but loses by 30 calls (**84.8 vs 95.0**, **36.0 vs 49.7**) and by five seconds (**82.1 vs 93.2**, **30.4 vs 40.7**); HY5U remains far ahead | registry: `geometric-region-walltime-4000-v3` / `geometric-walltime-4000-v3` |
 | 09-04 | **HY5U component ablations** — no unreachable supervision, no family loss, regression only, and independent contacts | identify which parts of the ranker actually reduce simulator calls | **mixed, clean attribution** — regression-only and no-unreachable lose 18.7 and 13.6 points at 2push@5; independent contacts loses 5.3; no-family is neutral | [HY5U ablations](log/EXP-2026-08-31-hy5u-icra-ablations.md) |
+| 09-05 | **HY5U architecture ablations** — global readout, no local contact feature, and independent contacts | identify which candidate-specific computations create the useful ordering | **clean hierarchy** — global readout loses 22.3 points at 2push@5, independent contacts loses 5.4, and removing the sampled local feature loses only 1.2 | [architecture ablations](archive/EXP-2026-09-04-hy5u-architecture-ablations.md) |
 | 09-05 | **same-template passive clutter** — retain one native host object beside K1+K2 | add controlled interaction context without coupled object motion | ⚠️ feasible but too sparse — 3/998 survive, all with medium K1 and one shared host context; reject as a balanced generator | [passive-clutter pilot](archive/EXP-2026-09-05-same-template-passive-clutter.md) |
 
 **Failed ideas, kept so they are not retried blind:** unanchored family softmax · hinge without an anchor (RPM) · 2% regression brake (RPB) · absolute plates on dead cells · margins sized in raw units instead of σ · root rebalancing as a 1-push fix · exhaustive relabeling bought at the cost of corpus size · ladder + rebalance stacking · push-depth-aware pose head · Fourier depth identity.
 
 **Standing meta-lesson:** offline V5 has anti-predicted canonical deploy five times (most starkly: HY5U has the worst V5 of any hybrid arm and the best deploy of any model here). V5 is a burial diagnostic; canonical deploy is the only arbiter.
+
+---
+
+## 2026-09-05 — HY5U architecture ablations: candidate-specific representation is essential
+
+Three seeds of each architecture control were evaluated on the same complete fixed-physics-v3 population as HY5U and Random: 1,328 one-push and 992 genuine two-push episodes per seed. The matched search protocol was `hmax=2`, budget 900, `prior=model`, `agg=mean5`, raw `q`, discount off, no-op deduplication on, and jam-depth pruning on. Values are solve rate in percent, mean ± sample SD across three seeds; wall time is intentionally excluded.
+
+| architecture | change from HY5U | 1push easy@1 | medium@1 | hard@1 | all@1 |
+|---|---|---:|---:|---:|---:|
+| HY5U | full contact-token ranker | 97.1±0.5 | 79.8±0.3 | 40.2±1.2 | 82.5±0.4 |
+| no local feature | remove the scene feature sampled at each contact | 97.2±0.8 | 80.3±0.6 | 38.7±1.8 | 82.5±0.8 |
+| independent contacts | remove inter-contact self-attention | 96.2±1.0 | 76.3±1.2 | 35.4±0.6 | 80.2±0.4 |
+| global readout | replace contact tokens with one global scene readout | 76.5±1.9 | 50.2±0.8 | 14.8±1.6 | 58.3±1.0 |
+| Random | uniform ordering | 61.1±4.6 | 14.1±1.7 | 2.9±0.8 | 36.5±2.8 |
+
+| architecture | 2push easy@5 | medium@5 | hard@5 | all@5 | all@900 |
+|---|---:|---:|---:|---:|---:|
+| HY5U | 80.6±1.6 | 59.3±0.6 | 35.9±2.1 | 64.8±0.8 | 93.0±0.2 |
+| no local feature | 79.5±1.3 | 58.3±0.9 | 33.6±2.1 | 63.6±0.6 | 93.4±0.2 |
+| independent contacts | 76.7±1.2 | 52.8±1.7 | 30.5±3.0 | 59.5±1.1 | 92.8±0.1 |
+| global readout | 57.8±2.3 | 36.6±1.7 | 17.0±1.4 | 42.5±1.8 | 92.4±0.4 |
+| Random | 22.8±3.6 | 7.2±1.7 | 2.0±1.3 | 12.7±2.0 | 88.4±0.6 |
+
+![Exact three-seed verified-success curves for HY5U, three architecture controls, and Random, split by difficulty and horizon.](plots/hy5u_architecture_ablations/success_vs_sims_both_horizons.png)
+
+![Paired-seed architecture changes from HY5U at one-push solve@1 and two-push solve@5.](plots/hy5u_architecture_ablations/ablation_effects.png)
+
+**The useful hierarchy is sharp.** Replacing the contact-token ranker with one global scene readout loses 24.3 points at one-push solve@1 and 22.3 points at two-push solve@5 overall, while nearly recovering the two-push ceiling by 900 calls. Removing inter-contact attention causes a smaller 2.4/5.4-point loss. Removing only the sampled local feature is neutral within seed variation: one-push solve@1 is unchanged and two-push solve@5 falls 1.2 points. HY5U therefore needs candidate-specific scene reasoning, benefits from comparing contacts, and does not measurably depend on the explicit local gather. Full provenance and the aggregation-race audit are in the [experiment card](archive/EXP-2026-09-04-hy5u-architecture-ablations.md); reusable artifacts are registered as `hy5u-architecture-ablations-hmax2-v3`.
 
 ---
 

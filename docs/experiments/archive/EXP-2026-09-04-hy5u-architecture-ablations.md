@@ -1,6 +1,6 @@
 ---
 type: experiment
-status: live
+status: done
 created: 2026-09-04
 updated: 2026-09-05
 commit: ffe34dda
@@ -59,8 +59,34 @@ All 216 full-evaluation array tasks completed with exit code `0:0` and wrote the
 
 ## Result
 
-Pending.
+All 216 full-evaluation array tasks completed with exit code `0:0`. After the three aggregation retries described above, `agg_search_eval.py` accepted exactly 1,328 one-push and 992 two-push episode rows for every seed, rejected no duplicate population or mixed search configuration, and verified `hmax=2`, no-op deduplication, and jam-depth pruning. Values below are solve rate in percent, mean ± sample SD across three seeds. Wall time is excluded because this was not a pinned-hardware timing campaign.
+
+| architecture | change from HY5U | 1push easy@1 | medium@1 | hard@1 | all@1 |
+|---|---|---:|---:|---:|---:|
+| HY5U | full contact-token ranker | 97.1±0.5 | 79.8±0.3 | 40.2±1.2 | 82.5±0.4 |
+| no local feature | remove the scene feature sampled at each contact | 97.2±0.8 | 80.3±0.6 | 38.7±1.8 | 82.5±0.8 |
+| independent contacts | remove inter-contact self-attention | 96.2±1.0 | 76.3±1.2 | 35.4±0.6 | 80.2±0.4 |
+| global readout | replace contact tokens with one global scene readout | 76.5±1.9 | 50.2±0.8 | 14.8±1.6 | 58.3±1.0 |
+| Random | uniform ordering | 61.1±4.6 | 14.1±1.7 | 2.9±0.8 | 36.5±2.8 |
+
+| architecture | 2push easy@5 | medium@5 | hard@5 | all@5 | all@900 |
+|---|---:|---:|---:|---:|---:|
+| HY5U | 80.6±1.6 | 59.3±0.6 | 35.9±2.1 | 64.8±0.8 | 93.0±0.2 |
+| no local feature | 79.5±1.3 | 58.3±0.9 | 33.6±2.1 | 63.6±0.6 | 93.4±0.2 |
+| independent contacts | 76.7±1.2 | 52.8±1.7 | 30.5±3.0 | 59.5±1.1 | 92.8±0.1 |
+| global readout | 57.8±2.3 | 36.6±1.7 | 17.0±1.4 | 42.5±1.8 | 92.4±0.4 |
+| Random | 22.8±3.6 | 7.2±1.7 | 2.0±1.3 | 12.7±2.0 | 88.4±0.6 |
+
+![Exact three-seed verified-success curves for HY5U, three architecture controls, and Random, split by difficulty and horizon.](../plots/hy5u_architecture_ablations/success_vs_sims_both_horizons.png)
+
+![Paired-seed change from HY5U at one-push solve@1 and two-push solve@5.](../plots/hy5u_architecture_ablations/ablation_effects.png)
+
+The global readout loses 24.3 points at one-push solve@1 and 22.3 points at two-push solve@5 overall. Its two-push ceiling nearly recovers by 900 calls, 92.4% versus HY5U's 93.0%, so its main failure is the ordering that the ranker is meant to provide rather than broad loss of solvability. The remaining hard-tier ceiling gap is larger, 82.5% versus 87.6%.
+
+Removing the local sampled scene feature is effectively neutral: one-push solve@1 is unchanged overall and two-push solve@5 falls only 1.2 points, with paired-seed mean ± SD spanning zero. Removing inter-contact self-attention has the clearer intermediate effect, losing 2.4 points at one-push solve@1 and 5.4 points at two-push solve@5 overall.
+
+The six new aggregate JSONs and mirrored raw JSONLs are under `$NAMO_SCRATCH/eval/hy5u_arch_ablations_20260905_retry1/full/`; Amarel retains the complete raw campaign under the matching scratch-relative path. Reproducible PDFs, PNGs, and the five-series aggregate are under `docs/experiments/plots/hy5u_architecture_ablations/`; `scripts/experiments/hy5u_architecture_ablation_series.json` is the exact plot specification.
 
 ## Verdict
 
-Pending.
+The global-readout hypothesis is confirmed strongly: candidate-specific contact tokens and their scene interaction are necessary for HY5U's low-simulation ordering. The no-local hypothesis is confirmed only in its predicted ordering of effect sizes; the measured change is too small and inconsistent to claim that the sampled local feature contributes under this architecture. Inter-contact attention earns its place through a smaller but consistent gain. The architectural attribution is therefore: candidate-specific representation is essential, cross-contact reasoning helps, and the explicit sampled local feature is redundant given contact coordinates, edge identity, and scene cross-attention.

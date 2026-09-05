@@ -1,0 +1,102 @@
+{
+  "series": [
+    {
+      "key": "hy5u",
+      "label": "HY5U",
+      "onepush_dirs": [
+        "$NAMO_SCRATCH/eval/fixed_physics_v3_20260821/full/HY5U_s1/1push_hmax2",
+        "$NAMO_SCRATCH/eval/fixed_physics_v3_20260821/full/HY5U_s2/1push_hmax2",
+        "$NAMO_SCRATCH/eval/fixed_physics_v3_20260821/full/HY5U_s3/1push_hmax2"
+      ],
+      "twopush_dirs": [
+        "$NAMO_SCRATCH/eval/fixed_physics_v3_20260821/full/HY5U_s1/2push",
+        "$NAMO_SCRATCH/eval/fixed_physics_v3_20260821/full/HY5U_s2/2push",
+        "$NAMO_SCRATCH/eval/fixed_physics_v3_20260821/full/HY5U_s3/2push"
+      ],
+      "color": "#0072B2",
+      "linewidth": 2.8,
+      "linestyle": "-",
+      "band_alpha": 0.12,
+      "zorder": 6
+    },
+    {
+      "key": "no_local",
+      "label": "No local contact feature",
+      "onepush_dirs": [
+        "$NAMO_SCRATCH/eval/hy5u_arch_ablations_20260905_retry1/full/HY5U_no_local_s1/1push_hmax2",
+        "$NAMO_SCRATCH/eval/hy5u_arch_ablations_20260905_retry1/full/HY5U_no_local_s2/1push_hmax2",
+        "$NAMO_SCRATCH/eval/hy5u_arch_ablations_20260905_retry1/full/HY5U_no_local_s3/1push_hmax2"
+      ],
+      "twopush_dirs": [
+        "$NAMO_SCRATCH/eval/hy5u_arch_ablations_20260905_retry1/full/HY5U_no_local_s1/2push",
+        "$NAMO_SCRATCH/eval/hy5u_arch_ablations_20260905_retry1/full/HY5U_no_local_s2/2push",
+        "$NAMO_SCRATCH/eval/hy5u_arch_ablations_20260905_retry1/full/HY5U_no_local_s3/2push"
+      ],
+      "color": "#56B4E9",
+      "linewidth": 2.1,
+      "linestyle": ":",
+      "delta": true,
+      "delta_order": 1,
+      "zorder": 5
+    },
+    {
+      "key": "independent",
+      "label": "Independent contacts",
+      "onepush_dirs": [
+        "$NAMO_SCRATCH/eval/hy5u_ablations_20260904/full/HY5U_independent_s1/1push_hmax2",
+        "$NAMO_SCRATCH/eval/hy5u_ablations_20260904/full/HY5U_independent_s2/1push_hmax2",
+        "$NAMO_SCRATCH/eval/hy5u_ablations_20260904/full/HY5U_independent_s3/1push_hmax2"
+      ],
+      "twopush_dirs": [
+        "$NAMO_SCRATCH/eval/hy5u_ablations_20260904/full/HY5U_independent_s1/2push",
+        "$NAMO_SCRATCH/eval/hy5u_ablations_20260904/full/HY5U_independent_s2/2push",
+        "$NAMO_SCRATCH/eval/hy5u_ablations_20260904/full/HY5U_independent_s3/2push"
+      ],
+      "color": "#009E73",
+      "linewidth": 2.1,
+      "linestyle": "-.",
+      "delta": true,
+      "delta_order": 2,
+      "zorder": 4
+    },
+    {
+      "key": "global",
+      "label": "Global scene readout",
+      "onepush_dirs": [
+        "$NAMO_SCRATCH/eval/hy5u_arch_ablations_20260905_retry1/full/HY5U_global_s1/1push_hmax2",
+        "$NAMO_SCRATCH/eval/hy5u_arch_ablations_20260905_retry1/full/HY5U_global_s2/1push_hmax2",
+        "$NAMO_SCRATCH/eval/hy5u_arch_ablations_20260905_retry1/full/HY5U_global_s3/1push_hmax2"
+      ],
+      "twopush_dirs": [
+        "$NAMO_SCRATCH/eval/hy5u_arch_ablations_20260905_retry1/full/HY5U_global_s1/2push",
+        "$NAMO_SCRATCH/eval/hy5u_arch_ablations_20260905_retry1/full/HY5U_global_s2/2push",
+        "$NAMO_SCRATCH/eval/hy5u_arch_ablations_20260905_retry1/full/HY5U_global_s3/2push"
+      ],
+      "color": "#D55E00",
+      "linewidth": 2.1,
+      "linestyle": "--",
+      "delta": true,
+      "delta_order": 3,
+      "zorder": 3
+    },
+    {
+      "key": "random",
+      "label": "Random",
+      "onepush_dirs": [
+        "$NAMO_SCRATCH/eval/fixed_physics_v3_20260821/full/random_s7000/1push_hmax2",
+        "$NAMO_SCRATCH/eval/fixed_physics_v3_20260821/full/random_s8000/1push_hmax2",
+        "$NAMO_SCRATCH/eval/fixed_physics_v3_20260821/full/random_s9000/1push_hmax2"
+      ],
+      "twopush_dirs": [
+        "$NAMO_SCRATCH/eval/fixed_physics_v3_20260821/full/random_s7000/2push",
+        "$NAMO_SCRATCH/eval/fixed_physics_v3_20260821/full/random_s8000/2push",
+        "$NAMO_SCRATCH/eval/fixed_physics_v3_20260821/full/random_s9000/2push"
+      ],
+      "color": "#777777",
+      "linewidth": 1.8,
+      "linestyle": "--",
+      "band_alpha": 0.08,
+      "zorder": 2
+    }
+  ]
+}
