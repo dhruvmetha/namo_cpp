@@ -11,6 +11,7 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "scripts" / "pipeline"))
 
 import compose_keyhole_modules as composer  # noqa: E402
+import select_mixed_keyhole_cohort as selector  # noqa: E402
 import summarize_keyhole_modules as summarizer  # noqa: E402
 
 
@@ -635,3 +636,44 @@ def test_scale_summary_separates_static_and_post_static_rejections():
     assert result["static_passed"] == 3
     assert result["post_static_rejected"] == 1
     assert result["accepted"] == 2
+
+
+def test_mixed_cohort_prefers_both_contact_hops_then_clean_rows():
+    def row(name, mode, hop=None, source=None):
+        composition = {"mode": mode}
+        if hop is not None:
+            composition.update(
+                {
+                    "source_xml": source,
+                    "interaction_effect": {"intended_hop": hop},
+                }
+            )
+        return {
+            "xml_path": f"/{name}.xml",
+            "donors": [{"tier": "medium"}, {"tier": "hard"}],
+            "composition": composition,
+            "geometry_identity": {"full": name},
+        }
+
+    clean = [row(f"clean_{index}", "same_template") for index in range(5)]
+    contacts = [
+        row("contact_k1", "same_template_contact", 1, "/clean_0.xml"),
+        row("contact_k2", "same_template_contact", 2, "/clean_1.xml"),
+    ]
+
+    selected = selector.select_pair(
+        clean,
+        contacts,
+        ("medium", "hard"),
+        per_pair=4,
+        max_contacts=2,
+        geometry_seen=set(),
+    )
+
+    assert [item["cohort"]["source_type"] for item in selected] == [
+        "contact",
+        "contact",
+        "clean",
+        "clean",
+    ]
+    assert {item["xml_path"] for item in selected[2:]} == {"/clean_2.xml", "/clean_3.xml"}
