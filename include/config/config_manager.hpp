@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/parameter_loader.hpp"
+#include "wavefront/goal_tolerance_utils.hpp"
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -35,7 +36,7 @@ public:
         // Robot type: "holonomic" (default point robot) or "diff_drive" (car)
         std::string robot_type = "holonomic";
 
-        double wavefront_tier1_inflation_margin = 0.005;  // meters
+        double wavefront_tier1_inflation_margin = kDefaultWavefrontTier1MarginM;  // meters
         double wavefront_edge_offset_margin = 0.020;      // meters beyond robot radius for edge spawn points
 
         std::vector<double> robot_goal = {0.5455398969960719, -0.8430872280407762};  // [x, y] for goal

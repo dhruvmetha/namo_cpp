@@ -10,6 +10,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
 
+from namo.visualization.wavefront_snapshot import WavefrontSnapshotExporter
+
+# Single source for the no-metadata fallback; see WavefrontSnapshotExporter.
+DEFAULT_TIER1_INFLATION_MARGIN_M = WavefrontSnapshotExporter.DEFAULT_TIER1_INFLATION_MARGIN_M
+
 import matplotlib.pyplot as plt  # type: ignore[import]
 import networkx as nx  # type: ignore[import]
 import numpy as np
@@ -120,7 +125,7 @@ def load_snapshot(directory: Path, prefix: str = "snapshot") -> WavefrontSnapsho
         robot_pose=tuple(metadata.get("robot_pose", [0.0, 0.0, 0.0])),
         goal_pose=tuple(metadata["goal_pose"]) if metadata.get("goal_pose") else None,
         robot_half_extent=tuple(metadata.get("robot_half_extent", [0.2, 0.2])),
-        tier1_inflation_margin_m=float(metadata.get("tier1_inflation_margin_m", 0.005)),
+        tier1_inflation_margin_m=float(metadata.get("tier1_inflation_margin_m", DEFAULT_TIER1_INFLATION_MARGIN_M)),
         movable_objects=metadata.get("movable_objects", []),
         environment_image=environment_image,
         xml_path=str(metadata.get("xml_path")) if metadata.get("xml_path") else None,
@@ -149,7 +154,7 @@ def _snapshot_inflation_radius(data: WavefrontSnapshotData) -> float:
     hy = abs(float(data.robot_half_extent[1]))
     margin = float(data.tier1_inflation_margin_m)
     if margin < 0.0:
-        margin = 0.005
+        margin = DEFAULT_TIER1_INFLATION_MARGIN_M
     radius = math.sqrt(hx * hx + hy * hy)
     if radius <= 0.0:
         radius = 0.15

@@ -7,7 +7,11 @@
 namespace namo {
 
 constexpr double kDefaultWavefrontRobotRadiusM = 0.15;
-constexpr double kDefaultWavefrontTier1MarginM = 0.005;
+// Fallback tier-1 inflation margin when wavefront_inflation.yaml is not
+// found. Must equal tier1.base_inflation_margin_m in config/wavefront_inflation.yaml
+// (1 mm, the real_2mov study value) so a missing sidecar cannot make the
+// C++ grid disagree with the robot_control grid (BUG-001).
+constexpr double kDefaultWavefrontTier1MarginM = 0.001;
 
 inline double compute_rotation_safe_robot_radius_m(const std::vector<double>& robot_size) {
     // Axis-aligned max(hx, hy) — the pre-merge local convention. The function
