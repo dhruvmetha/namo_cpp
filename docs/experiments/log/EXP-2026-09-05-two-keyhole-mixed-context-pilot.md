@@ -44,6 +44,8 @@ The deterministic cohort selector produced 40 unique full geometries under `$NAM
 
 Fresh validation array `270834` reproduced all 10 MM, 10 MH, and 10 HH scenes, but rejected HM clean scene `composed_0007.xml` because its replay did not make the final goal reachable. The failed row is excluded from the approval cohort. The selector now accepts prior `rejected.jsonl` manifests as an exclusion set so the next clean candidate deterministically fills the vacated slot; the focused suite passes 29/29.
 
+HM-only retry `270844_2` replaced that row with `composed_0009.xml`, but the replacement also failed final goal reachability. Rather than iterating one reserve row at a time, the next run revalidates the complete 18-scene HM clean pool under the current code and physics, after which the cohort will draw its seven clean HM rows only from fresh survivors.
+
 ## Result
 
 Pending.
