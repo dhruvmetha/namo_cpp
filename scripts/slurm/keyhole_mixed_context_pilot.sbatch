@@ -24,6 +24,7 @@ SOURCE_ROOT=${SOURCE_ROOT:-$NAMO_SCRATCH/eval/same_template_keyhole_20260824/sca
 LIMIT=${LIMIT:-3}
 MAX_ATTEMPTS=${MAX_ATTEMPTS:-500}
 VARIANTS_PER_HOP=${VARIANTS_PER_HOP:-64}
+MAX_REPLAY_ATTEMPTS_PER_PAIR=${MAX_REPLAY_ATTEMPTS_PER_PAIR:-10}
 SEED_BASE=${SEED_BASE:-90500}
 
 pair_names=(mm mh hm hh)
@@ -36,6 +37,7 @@ SECONDS=0
   --out-dir "$out" \
   --limit "$LIMIT" \
   --max-attempts "$MAX_ATTEMPTS" \
+  --max-replay-attempts-per-pair "$MAX_REPLAY_ATTEMPTS_PER_PAIR" \
   --contact-variants-per-hop "$VARIANTS_PER_HOP" \
   --seed "$((SEED_BASE + SLURM_ARRAY_TASK_ID))" \
   --allow-shortfall

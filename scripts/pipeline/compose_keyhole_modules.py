@@ -1538,6 +1538,7 @@ def augment_contact_manifest(
     *,
     limit: int,
     max_attempts: int,
+    max_replay_attempts_per_pair: int | None,
     variants_per_hop: int,
     seed: int,
 ) -> dict:
@@ -1583,6 +1584,7 @@ def augment_contact_manifest(
             str(output),
             config,
             donors,
+            max_attempts=max_replay_attempts_per_pair,
             monitored_object_ids=_intended_blockers(2) + [context_id],
         )
         if replay["status"] != "solved":
@@ -1636,6 +1638,7 @@ def augment_contact_manifest(
         "source_rows": len(source_rows),
         "candidate_variants": len(source_rows) * 2 * variants_per_hop,
         "variants_per_hop": variants_per_hop,
+        "max_replay_attempts_per_pair": max_replay_attempts_per_pair,
         "attempted": attempts,
         "accepted": len(rows),
         "rejections": dict(sorted(rejections.items())),
@@ -1873,6 +1876,7 @@ def main() -> int:
             args.config,
             limit=args.limit,
             max_attempts=args.max_attempts,
+            max_replay_attempts_per_pair=args.max_replay_attempts_per_pair,
             variants_per_hop=args.contact_variants_per_hop,
             seed=args.seed,
         )
