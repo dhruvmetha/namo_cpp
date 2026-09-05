@@ -191,8 +191,15 @@ def test_training_builder_disables_inter_contact_attention_only_by_flag(monkeypa
 def test_training_builder_architecture_ablation_flags(monkeypatch):
     from namo.rl_loop.train_gen import _make_network
 
+    monkeypatch.setenv("NAMO_USE_EDGE_EMBED", "0")
+    no_edge_id = _make_network(value_bins=51)
+    assert no_edge_id.use_edge_embed is False
+    assert not hasattr(no_edge_id, "edge_embed")
+
+    monkeypatch.setenv("NAMO_USE_EDGE_EMBED", "1")
     monkeypatch.setenv("NAMO_USE_LOCAL", "0")
     no_local = _make_network(value_bins=51)
+    assert no_local.use_edge_embed is True
     assert no_local.global_readout is False
     assert no_local.use_local is False
     assert not hasattr(no_local, "local_proj")
@@ -230,6 +237,34 @@ def test_eval_loaders_detect_global_readout(tmp_path):
     assert logits.shape == (1, 60, 5, 7)
     auc_network, hl = load_network(str(checkpoint), "cpu")
     assert auc_network.global_readout is True
+    assert hl.num_bins == 7
+
+
+def test_eval_loaders_detect_missing_edge_identity(tmp_path):
+    from eval_auc import load_network
+    from eval_scorer import load_scorer
+
+    network = EdgeCrossAttn(
+        img_size=64, patch=16, in_channels=5, dim=32, scene_depth=1, edge_depth=1,
+        heads=1, num_depths=5, num_edges=60, value_bins=7, pos_fourier=True,
+        use_edge_embed=False,
+    )
+    module = ClassifierModule(
+        network=network, head_mode="hl_gauss", value_vmin=0.0, value_vmax=1.0,
+        dice_weight=0.0)
+    checkpoint = tmp_path / "no_edge_identity.ckpt"
+    torch.save({
+        "state_dict": module.state_dict(),
+        "hyper_parameters": dict(
+            head_mode="hl_gauss", value_vmin=0.0, value_vmax=1.0, dice_weight=0.0),
+    }, checkpoint)
+
+    loaded = load_scorer(str(checkpoint), 5, "cpu", "edge_crossattn")
+    assert loaded.network.use_edge_embed is False
+    logits = loaded(torch.randn(1, 5, 64, 64), torch.rand(1, 60, 2) * 63.0)
+    assert logits.shape == (1, 60, 5, 7)
+    auc_network, hl = load_network(str(checkpoint), "cpu")
+    assert auc_network.use_edge_embed is False
     assert hl.num_bins == 7
 
 

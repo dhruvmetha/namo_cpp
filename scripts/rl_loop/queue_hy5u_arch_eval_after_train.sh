@@ -15,6 +15,7 @@ cd "$REPO"
 source env.ilab.sh >/dev/null 2>&1
 
 BASE=${HY5U_ARCH_BASE:-$NAMO_SCRATCH/aquaman/round0/architecture_ablations_20260904}
+ARM_SPEC=${HY5U_ARCH_ARMS:-HY5U_global HY5U_no_local}
 SUPERVISOR_LOG=${SUPERVISOR_LOG:-$BASE/supervisor.log}
 TRAIN_SUPERVISOR_PID=${TRAIN_SUPERVISOR_PID:-1655534}
 POLL_SECONDS=${POLL_SECONDS:-300}
@@ -52,7 +53,7 @@ print(min(matches)[2])
 PY
 }
 
-arms=(HY5U_global HY5U_no_local)
+arms=($ARM_SPEC)
 : > "$STAGE/checkpoints.tsv"
 for arm in "${arms[@]}"; do
   for seed in 1 2 3; do
@@ -80,10 +81,11 @@ remote_hashes=$(ssh "$AMAREL_HOST" "cd '$AMAREL_CKPT_ROOT' && sha256sum ./*.ckpt
 echo "HANDOFF transfer verified $(date) namo=$remote_namo sage=$remote_sage"
 
 launch_log=$LOCAL_EVAL_COPY/launch.log
-ssh "$AMAREL_HOST" "cd '$AMAREL_REPO' && CKPT_ROOT='$AMAREL_CKPT_ROOT' OUT_ROOT='$AMAREL_EVAL_ROOT' SAGE_REPO='$AMAREL_SAGE' NAMO_BINDINGS='$AMAREL_BINDINGS' bash scripts/rl_loop/launch_hy5u_arch_eval_amarel.sh" | tee "$launch_log"
+ssh "$AMAREL_HOST" "cd '$AMAREL_REPO' && HY5U_ARCH_ARMS='$ARM_SPEC' CKPT_ROOT='$AMAREL_CKPT_ROOT' OUT_ROOT='$AMAREL_EVAL_ROOT' SAGE_REPO='$AMAREL_SAGE' NAMO_BINDINGS='$AMAREL_BINDINGS' bash scripts/rl_loop/launch_hy5u_arch_eval_amarel.sh" | tee "$launch_log"
 
 mapfile -t agg_jobs < <(awk '/^AGG_JOB / {for (i=1;i<=NF;i++) if ($i ~ /^job=/) {sub(/^job=/, "", $i); print $i}}' "$launch_log")
-[ "${#agg_jobs[@]}" -eq 6 ] || { echo "expected six aggregate jobs, found ${#agg_jobs[@]}" >&2; exit 1; }
+expected_agg_jobs=$((${#arms[@]} * 3))
+[ "${#agg_jobs[@]}" -eq "$expected_agg_jobs" ] || { echo "expected $expected_agg_jobs aggregate jobs, found ${#agg_jobs[@]}" >&2; exit 1; }
 job_csv=$(IFS=,; echo "${agg_jobs[*]}")
 echo "HANDOFF evaluation queued $(date) aggregate_jobs=$job_csv"
 

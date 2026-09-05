@@ -1,5 +1,5 @@
 #!/bin/bash
-# Smoke and train the two current-HY5U architecture controls on two direct CS GPUs.
+# Smoke and train selected current-HY5U architecture controls on direct CS GPUs.
 set -euo pipefail
 
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -11,12 +11,13 @@ H5=${HY5U_H5:-$R0/hybrid_train_v1.h5}
 BASE=${HY5U_ARCH_BASE:-$R0/architecture_ablations_20260904}
 WORKERS=${WORKERS:-6}
 GPU_LIST=(${GPU_LIST:-1 2})
-arms=(HY5U_global HY5U_no_local)
+arms=(${HY5U_ARCH_ARMS:-HY5U_global HY5U_no_local})
 
 config_for() {
   case "$1" in
-    HY5U_global)   CFG_GLOBAL=1; CFG_LOCAL=1 ;;
-    HY5U_no_local) CFG_GLOBAL=0; CFG_LOCAL=0 ;;
+    HY5U_global)   CFG_GLOBAL=1; CFG_LOCAL=1; CFG_EDGE_EMBED=1 ;;
+    HY5U_no_local) CFG_GLOBAL=0; CFG_LOCAL=0; CFG_EDGE_EMBED=1 ;;
+    HY5U_no_edge)  CFG_GLOBAL=0; CFG_LOCAL=1; CFG_EDGE_EMBED=0 ;;
     *) echo "unknown arm: $1" >&2; return 1 ;;
   esac
 }
@@ -37,6 +38,7 @@ run_one() {
     NAMO_GAMMA=0.5 NAMO_UNREACH_W=0.1 NAMO_GROUP_EPISODES=1 \
     EGMM_LAMBDA=0.1 RANK_LAMBDA=0.1 LOWER_RANK_LAMBDA=0.05 \
     NAMO_EDGE_SELF_ATTN=1 NAMO_GLOBAL_READOUT="$CFG_GLOBAL" NAMO_USE_LOCAL="$CFG_LOCAL" \
+    NAMO_USE_EDGE_EMBED="$CFG_EDGE_EMBED" \
     NAMO_ACTION_MOTION=0 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
     bash "$REPO/scripts/slurm/train.slurm" > "$out/wrapper.log" 2>&1
   grep -q "TRAIN DONE" "$out/wrapper.log"
@@ -62,7 +64,7 @@ run_wave() {
   [ "$failed" -eq 0 ] || exit 1
 }
 
-[ "${#GPU_LIST[@]}" -eq 2 ] || { echo "GPU_LIST must contain exactly two GPU indices" >&2; exit 2; }
+[ "${#GPU_LIST[@]}" -eq "${#arms[@]}" ] || { echo "GPU_LIST must contain one GPU index per arm" >&2; exit 2; }
 [ -f "$H5" ] || { echo "missing H5: $H5" >&2; exit 1; }
 mkdir -p "$BASE"
 

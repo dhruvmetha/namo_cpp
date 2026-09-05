@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run on Amarel after the six selected architecture-ablation checkpoints have been transferred.
+# Run on Amarel after the selected architecture-ablation checkpoints have been transferred.
 set -euo pipefail
 
 : "${CKPT_ROOT:?set CKPT_ROOT to the Amarel checkpoint directory}"
@@ -21,7 +21,7 @@ if [ -e "$OUT_ROOT/jobs.tsv" ]; then
   exit 1
 fi
 
-arms=(HY5U_global HY5U_no_local)
+arms=(${HY5U_ARCH_ARMS:-HY5U_global HY5U_no_local})
 for arm in "${arms[@]}"; do
   for seed in 1 2 3; do
     test -f "$CKPT_ROOT/${arm}_s${seed}.ckpt"
@@ -32,8 +32,12 @@ mkdir -p "$OUT_ROOT/smoke" "$OUT_ROOT/full"
 printf 'kind\tarm\tseed\tjob_id\tdependency\n' > "$OUT_ROOT/jobs.tsv"
 
 for arm in "${arms[@]}"; do
-  short=gl
-  [ "$arm" = HY5U_no_local ] && short=nl
+  case "$arm" in
+    HY5U_global) short=gl ;;
+    HY5U_no_local) short=nl ;;
+    HY5U_no_edge) short=ne ;;
+    *) echo "unknown architecture arm: $arm" >&2; exit 2 ;;
+  esac
   smoke_out="$OUT_ROOT/smoke/${arm}_s1"
   smoke_job=$(sbatch --parsable \
     --job-name="archsm_${short}" --partition=main --array=0-0 \
