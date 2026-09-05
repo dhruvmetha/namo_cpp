@@ -363,6 +363,87 @@ def compose_sampled_contact_xml(source_xml: str, placement: dict, output: Path) 
     }
 
 
+def _box_corners(
+    center: Sequence[float], half_size: Sequence[float], theta: float
+) -> list[tuple[float, float]]:
+    ux = (math.cos(theta), math.sin(theta))
+    uy = (-math.sin(theta), math.cos(theta))
+    return [
+        (
+            center[0] + sx * half_size[0] * ux[0] + sy * half_size[1] * uy[0],
+            center[1] + sx * half_size[0] * ux[1] + sy * half_size[1] * uy[1],
+        )
+        for sx, sy in ((-1, -1), (-1, 1), (1, 1), (1, -1))
+    ]
+
+
+def _rectangles_overlap(
+    left: Sequence[Sequence[float]], right: Sequence[Sequence[float]]
+) -> bool:
+    axes = []
+    for corners in (left, right):
+        for index in (0, 1):
+            edge = (
+                corners[index + 1][0] - corners[index][0],
+                corners[index + 1][1] - corners[index][1],
+            )
+            norm = math.hypot(*edge)
+            axes.append((-edge[1] / norm, edge[0] / norm))
+    for axis in axes:
+        left_projection = [point[0] * axis[0] + point[1] * axis[1] for point in left]
+        right_projection = [point[0] * axis[0] + point[1] * axis[1] for point in right]
+        if max(left_projection) <= min(right_projection) or max(right_projection) <= min(
+            left_projection
+        ):
+            return False
+    return True
+
+
+def _geom_rectangle(geom: ET.Element, padding: float = 0.0) -> list[tuple[float, float]]:
+    pos = _numbers(geom.get("pos"))
+    size = _numbers(geom.get("size"))
+    euler = _numbers(geom.get("euler")) or [0.0, 0.0, 0.0]
+    return _box_corners(
+        pos[:2],
+        (size[0] + padding, size[1] + padding),
+        math.radians(euler[2]),
+    )
+
+
+def sampled_contact_geometry_failure(xml_path: str) -> str | None:
+    root = ET.parse(xml_path).getroot()
+    context_id = _intended_blockers(3)[-1]
+    context_geom = _movable_body(root, context_id).find(".//geom[@type='box']")
+    if context_geom is None:
+        return "contact_target_not_box"
+    context_corners = _geom_rectangle(context_geom, padding=0.001)
+
+    west = _numbers(_outer_wall(root, "west").get("pos"))[0] + _numbers(
+        _outer_wall(root, "west").get("size")
+    )[0]
+    east = _numbers(_outer_wall(root, "east").get("pos"))[0] - _numbers(
+        _outer_wall(root, "east").get("size")
+    )[0]
+    south = _numbers(_outer_wall(root, "south").get("pos"))[1] + _numbers(
+        _outer_wall(root, "south").get("size")
+    )[1]
+    north = _numbers(_outer_wall(root, "north").get("pos"))[1] - _numbers(
+        _outer_wall(root, "north").get("size")
+    )[1]
+    if any(not (west <= x <= east and south <= y <= north) for x, y in context_corners):
+        return "contact_outside_room"
+    if any(_rectangles_overlap(context_corners, _geom_rectangle(geom)) for geom in _wall_geoms(root)):
+        return "contact_overlaps_wall"
+    for body in _worldbody(root).findall("body"):
+        object_id = body.get("name") or ""
+        if not MOVABLE_RE.match(object_id) or object_id == context_id:
+            continue
+        geom = body.find(".//geom[@type='box']")
+        if geom is not None and _rectangles_overlap(context_corners, _geom_rectangle(geom)):
+            return "contact_overlaps_blocker"
+    return None
+
+
 def _numbers(value: str | None) -> list[float]:
     return [float(item) for item in (value or "").split()]
 
@@ -1485,6 +1566,11 @@ def augment_contact_manifest(
             continue
         output = output_dir / f"contact_{len(rows):04d}.xml"
         composition = compose_sampled_contact_xml(source_row["xml_path"], placement, output)
+        reason = sampled_contact_geometry_failure(str(output))
+        if reason is not None:
+            rejections[reason] += 1
+            output.unlink()
+            continue
         probe = probe_one((str(output), config, 2))
         ok, reason = static_acceptance(probe, 2)
         if not ok:
@@ -1622,8 +1708,15 @@ def revalidate_manifest(source: Path, output_dir: Path, config: str) -> dict:
         composition = copy.deepcopy(source_row.get("composition") or {})
         composition_mode = composition.get("mode")
         clutter_object_ids = composition.get("clutter_object_ids", [])
-        probe = probe_one((xml_path, config, len(donors)))
-        ok, reason = static_acceptance(probe, len(donors))
+        reason = (
+            sampled_contact_geometry_failure(xml_path)
+            if composition_mode == "same_template_contact"
+            else None
+        )
+        probe = probe_one((xml_path, config, len(donors))) if reason is None else None
+        ok = reason is None
+        if ok:
+            ok, reason = static_acceptance(probe, len(donors))
         replay = None
         if ok:
             replay = replay_donor_chain(

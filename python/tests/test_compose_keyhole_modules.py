@@ -551,6 +551,11 @@ def test_sampled_contact_composition_places_a_third_movable(tmp_path):
     assert composer._numbers(geom.get("size"))[:2] == pytest.approx([0.03, 0.04])
     assert metadata["mode"] == "same_template_contact"
     assert metadata["clutter_object_ids"] == [CLUTTER]
+    assert composer.sampled_contact_geometry_failure(str(output)) is None
+
+    composer._set_numbers(geom, "pos", (0.97, -0.1, 0.05))
+    ET.ElementTree(root).write(output, encoding="utf-8", xml_declaration=True)
+    assert composer.sampled_contact_geometry_failure(str(output)) == "contact_outside_room"
 
 
 def test_sampled_contact_requires_reported_collision_and_motion_on_intended_hop():
