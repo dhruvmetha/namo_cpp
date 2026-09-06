@@ -13,6 +13,7 @@ WORKERS=${WORKERS:-6}
 GPU_LIST=(${GPU_LIST:-1 2})
 arms=(${HY5U_ARCH_ARMS:-HY5U_global HY5U_no_local})
 PARALLEL_SEEDS=${PARALLEL_SEEDS:-0}
+SKIP_SMOKE=${SKIP_SMOKE:-0}
 
 config_for() {
   case "$1" in
@@ -75,10 +76,17 @@ run_wave() {
 mkdir -p "$BASE"
 
 echo "SUPERVISOR start $(date) host=$(hostname) namo=$(git rev-parse HEAD) sage=$(git -C "$SAGE_REPO" rev-parse HEAD)"
-smoke_start=$(date +%s)
-run_wave smoke 1 1
-smoke_seconds=$(($(date +%s) - smoke_start))
-echo "SMOKES PASSED $(date) elapsed_seconds=$smoke_seconds"
+if [ "$SKIP_SMOKE" = 1 ]; then
+  for arm in "${arms[@]}"; do
+    grep -q '^TRAIN DONE ' "$BASE/smoke/${arm}_s1/wrapper.log"
+  done
+  echo "SMOKES REUSED $(date)"
+else
+  smoke_start=$(date +%s)
+  run_wave smoke 1 1
+  smoke_seconds=$(($(date +%s) - smoke_start))
+  echo "SMOKES PASSED $(date) elapsed_seconds=$smoke_seconds"
+fi
 
 if [ "$PARALLEL_SEEDS" = 1 ]; then
   n_runs=$((${#arms[@]} * 3))
