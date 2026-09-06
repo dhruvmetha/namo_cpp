@@ -2,7 +2,7 @@
 status: hub
 tags:
   - results
-updated: 2026-09-05
+updated: 2026-09-06
 ---
 # Results — DAgger curriculum training framework
 
@@ -56,10 +56,29 @@ The scannable cross-campaign index: **what we changed, why, and whether it helpe
 | 09-04 | **HY5U component ablations** — no unreachable supervision, no family loss, regression only, and independent contacts | identify which parts of the ranker actually reduce simulator calls | **mixed, clean attribution** — regression-only and no-unreachable lose 18.7 and 13.6 points at 2push@5; independent contacts loses 5.3; no-family is neutral | [HY5U ablations](log/EXP-2026-08-31-hy5u-icra-ablations.md) |
 | 09-05 | **HY5U architecture ablations** — global readout, no local contact feature, and independent contacts | identify which candidate-specific computations create the useful ordering | **clean hierarchy** — global readout loses 22.3 points at 2push@5, independent contacts loses 5.4, and removing the sampled local feature loses only 1.2 | [architecture ablations](archive/EXP-2026-09-04-hy5u-architecture-ablations.md) |
 | 09-05 | **same-template passive clutter** — retain one native host object beside K1+K2 | add controlled interaction context without coupled object motion | ⚠️ feasible but too sparse — 3/998 survive, all with medium K1 and one shared host context; reject as a balanced generator | [passive-clutter pilot](archive/EXP-2026-09-05-same-template-passive-clutter.md) |
+| 09-06 | **HY5U on the controlled two-keyhole cohort** — MM/MH/HM/HH, clean + K2 contact | test whether the local ranker composes through two sequential openings | ✅ feasible — **38/40 solved**; both misses expose the outer planner's local-open/global-progress commit mismatch | [HY5U two-keyhole evaluation](archive/EXP-2026-09-06-two-keyhole-hy5u-evaluation.md) |
 
 **Failed ideas, kept so they are not retried blind:** unanchored family softmax · hinge without an anchor (RPM) · 2% regression brake (RPB) · absolute plates on dead cells · margins sized in raw units instead of σ · root rebalancing as a 1-push fix · exhaustive relabeling bought at the cost of corpus size · ladder + rebalance stacking · push-depth-aware pose head · Fourier depth identity.
 
 **Standing meta-lesson:** offline V5 has anti-predicted canonical deploy five times (most starkly: HY5U has the worst V5 of any hybrid arm and the best deploy of any model here). V5 is a burial diagnostic; canonical deploy is the only arbiter.
+
+---
+
+## 2026-09-06 — HY5U solves 38/40 controlled two-keyhole scenes
+
+HY5U seed 2 was run as the local ranker inside ordinary Full NAMO on the frozen 40-scene approval cohort: ten each of MM, MH, HM, and HH, with seven clean and three K2-contact scenes in every cell. The protocol used current physics, `hmax=2` per local keyhole, and a 900-simulator-call budget reset per keyhole. The pair names are ordered source-donor tiers, not new end-to-end difficulty labels; raw rows were joined to the frozen manifest by `realpath`, never basename.
+
+| ordered source pair | clean solved | contact solved | all solved | median calls among solved | maximum calls among solved |
+|---|---:|---:|---:|---:|---:|
+| MM | 7/7 | 3/3 | **10/10** | 3 | 9 |
+| MH | 6/7 | 2/3 | **8/10** | 4 | 9 |
+| HM | 7/7 | 3/3 | **10/10** | 6 | 13 |
+| HH | 7/7 | 3/3 | **10/10** | 7 | 56 |
+| all | **27/28** | **11/12** | **38/40** | **5.5** | **56** |
+
+**FEASIBLE on this controlled cohort.** HY5U solved 95% overall, including all 20 scenes with hard K1. Among solved scenes, 34/38 finished within ten total simulator calls and all 38 within 56. The two known-solvable MH misses each used only one call: HY5U's first-ranked K1 push satisfied the local opening test, but did not advance the global path to K2; the outer planner then repeated `already_accessible`, blacklisted the boundary, and ended with `region_path_exhausted`. This is a Full-NAMO commit/progress mismatch, not budget exhaustion.
+
+The read-only exact K2-interface audit passed in 37/38 solved scenes. One MH contact scene changed the profiled interface yet still reached the final goal in three calls, which is another concrete reason not to restore the rejected strict preservation gate. This experiment has no random arm, so it establishes HY5U's absolute feasibility on the cohort but not its advantage over random ordering. Full protocol, failure traces, hashes, and artifact paths → [experiment card](archive/EXP-2026-09-06-two-keyhole-hy5u-evaluation.md).
 
 ---
 
