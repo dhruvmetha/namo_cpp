@@ -37,6 +37,8 @@ The corrected full training started on Westeros at 2026-09-05 22:59 EDT with see
 
 The Amarel full evaluation launcher was resized before handoff. This canonical population has 997 one-push and 958 two-push episodes per seed, so three seeds expose 5,865 independent serial searches. The launcher now uses one CPU per episode-seed pair, split into 115 array tasks per seed with 17 workers each: 5,865 useful CPUs, the maximum available parallelism below the 6,720-CPU user cap. The earlier 36 tasks by 21 workers per seed would have used only 2,268 CPUs.
 
+The launcher also gates each submission against Amarel's 500-task per-user queue cap. This prevents another live array from causing a partial architecture-evaluation submission; seed arrays enter the queue as slots become available, while already accepted seeds may run concurrently.
+
 ## Result
 
 Pending.
