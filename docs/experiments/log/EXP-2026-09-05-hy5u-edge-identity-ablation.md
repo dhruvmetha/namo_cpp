@@ -3,7 +3,7 @@ type: experiment
 status: live
 created: 2026-09-05
 updated: 2026-09-06
-commit: 7ef3ccb4
+commit: 62790aab
 metric: "Canonical fixed-physics-v3 success versus simulator calls, split by easy/medium/hard and 1push/2push; three seeds."
 tags:
   - experiment
@@ -35,9 +35,19 @@ The measured smoke implies roughly 5.7 hours for 12 epochs if epoch cost remains
 
 The corrected full training started on Westeros at 2026-09-05 22:59 EDT with seeds 1/2/3 running concurrently on GPUs 0/1/2. All three completed epoch 2 without failure by 2026-09-06 00:17 EDT, with best validation losses 0.4085/0.4154/0.4020. A target-box iLab RTX 4500 Ada smoke completed successfully in 29:12, essentially matching rather than beating the 28:36 Westeros smoke, so the in-progress runs stayed on Westeros.
 
-The Amarel full evaluation launcher was resized before handoff. This canonical population has 997 one-push and 958 two-push episodes per seed, so three seeds expose 5,865 independent serial searches. The launcher now uses one CPU per episode-seed pair, split into 115 array tasks per seed with 17 workers each: 5,865 useful CPUs, the maximum available parallelism below the 6,720-CPU user cap. The earlier 36 tasks by 21 workers per seed would have used only 2,268 CPUs.
+The Amarel full evaluation launcher was resized before handoff. The manifests contain 997 one-push and 958 two-push rooms per seed, covering 1,328 and 992 episodes. Three seeds expose 5,865 room workers, each evaluating all object/goal episodes in its room. The launcher now uses one CPU per room-seed pair, split into 115 array tasks per seed with 17 workers each: 5,865 useful CPUs, the maximum available parallelism below the 6,720-CPU user cap. The earlier 36 tasks by 21 workers per seed would have used only 2,268 CPUs.
 
 The launcher also gates each submission against Amarel's 500-task per-user queue cap. This prevents another live array from causing a partial architecture-evaluation submission; seed arrays enter the queue as slots become available, while already accepted seeds may run concurrently.
+
+### Recovery on 2026-09-06
+
+All three Westeros trainings finished successfully by 04:08 EDT and selected epoch 11 (validation losses 0.3355/0.3344/0.3364). The handoff transferred and SHA256-verified all checkpoints, but stopped when seed 2 submission hit `QOSMaxSubmitJobPerUserLimit`. Its queue gate used compressed `squeue` output, counting each pending array as one job; the corrected gate uses `squeue -r` to count individual tasks.
+
+Seed 1 array `61256744` completed all 115 tasks with zero worker errors, but produced only 1,247 one-push and 966 two-push rows. The stable shard summaries report 59 and 25 rooms skipped as already open. This is not a file-visibility race: the handoff advanced NAMO to `84e296c0`, which includes the later change of `config/wavefront_inflation.yaml` from 5 mm to 1 mm. That evaluation cannot be compared to the registered 5 mm HY5U/Random controls. The original outputs remain under `eval/hy5u_arch_no_edge_20260905` as a noncanonical attempt.
+
+Recovery uses an isolated checkout based on the successful architecture evaluation commit `26f3ced0`, with only the current architecture launcher and its corrected task accounting added. It retains the same Sage `ceff4bf`, checkpoints, Amarel bindings, 5 mm configuration, canonical manifests, and search policy as the completed architecture controls. A new target-box smoke gates all three full seeds in fresh `eval/hy5u_arch_no_edge_20260906_recovery` output. The preceding one-room-worker campaign took at most 7:26 per task; allow approximately 10–30 minutes of execution after queueing for the 5 mm recovery, with the existing two-hour task limit. Full strict aggregation must accept 1,328/992 rows per seed before reporting.
+
+Recovery commit `62790aab` was committed before submission. Smoke `61264661` gates seed arrays `61264662`, `61264664`, and `61264666`; aggregate jobs are `61264663`, `61264665`, and `61264667`. The queue regression check reproduced 480 queued tasks and verified that a 115-task submission waits until capacity is available. The live launch counted the three arrays as 115 tasks each and accepted every seed.
 
 ## Result
 
