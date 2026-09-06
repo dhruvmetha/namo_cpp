@@ -2,7 +2,7 @@
 type: experiment
 status: live
 created: 2026-09-06
-commit: 0468af86
+commit: 93d23d6d
 metric: pending
 tags: [experiment, full-namo, multihop, random-baseline, same-template, interaction, medium, hard]
 ---
@@ -33,6 +33,8 @@ The full run will use three independent one-shard jobs on rlab1, one for each se
 The first three full Random jobs, `272361_0`, `272362_0`, and `272363_0`, completed at commit `c77bddd7` with 30/40, 34/40, and 35/40 solves. Inspection before accepting the comparison found that the runner's single `--seed` controlled both uniform push ordering and `region_snapshot_seed`, so those three arms also changed the sampled verifier points away from HY5U's seed 42. Their artifacts remain under `$NAMO_SCRATCH/eval/keyhole_mixed_context_20260905/random40_v1/`, but they are superseded for the paired claim.
 
 The runner now accepts a separate optional `--shuffle-seed`, and the shared SLURM launcher exposes it as `SHUFFLE_SEED`. If omitted, it defaults to `--seed`, so old invocations reproduce unchanged. The corrected arms will use verifier/snapshot seed 42 in every run and vary only the uniform ordering seed across 7000, 8000, and 9000. The runner, Full-NAMO budget/config, strict-BFS, and jam-guard tests pass 22/22 before the corrected smoke.
+
+The corrected one-scene smoke ran as job `272544_0` at commit `93d23d6d`. The request was resized from 24 GiB to 4 GiB after the completed full arms measured about 1.1 GiB maximum RSS, which let it backfill onto rlab7. Its persisted config records verifier seed 42, shuffle seed 7000, and uniform prior. It solved the same MM contact scene in 14 calls split `[10,4]`, exactly reproducing the earlier seed-7000 smoke cost while now holding HY5U's verifier fixed.
 
 ## Result
 
