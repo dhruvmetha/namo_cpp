@@ -56,7 +56,7 @@ The scannable cross-campaign index: **what we changed, why, and whether it helpe
 | 09-04 | **HY5U component ablations** — no unreachable supervision, no family loss, regression only, and independent contacts | identify which parts of the ranker actually reduce simulator calls | **mixed, clean attribution** — regression-only and no-unreachable lose 18.7 and 13.6 points at 2push@5; independent contacts loses 5.3; no-family is neutral | [HY5U ablations](log/EXP-2026-08-31-hy5u-icra-ablations.md) |
 | 09-05 | **HY5U architecture ablations** — global readout, no local contact feature, and independent contacts | identify which candidate-specific computations create the useful ordering | **clean hierarchy** — global readout loses 22.3 points at 2push@5, independent contacts loses 5.4, and removing the sampled local feature loses only 1.2 | [architecture ablations](archive/EXP-2026-09-04-hy5u-architecture-ablations.md) |
 | 09-05 | **same-template passive clutter** — retain one native host object beside K1+K2 | add controlled interaction context without coupled object motion | ⚠️ feasible but too sparse — 3/998 survive, all with medium K1 and one shared host context; reject as a balanced generator | [passive-clutter pilot](archive/EXP-2026-09-05-same-template-passive-clutter.md) |
-| 09-06 | **HY5U on the controlled two-keyhole cohort** — MM/MH/HM/HH, clean + K2 contact | test whether the local ranker composes through two sequential openings | ✅ feasible — **38/40 solved**; both misses expose the outer planner's local-open/global-progress commit mismatch | [HY5U two-keyhole evaluation](archive/EXP-2026-09-06-two-keyhole-hy5u-evaluation.md) |
+| 09-06 | **HY5U versus three-seed Random on controlled two-keyhole scenes** — MM/MH/HM/HH, clean + K2 contact | test whether learned local ordering still reduces complete-scene search | ✅ ordering win with a ceiling exception — by ten calls **34/40 vs 11.7±0.6**; final 38/40 vs 33.0±2.6, but Random wins MH final 10/10 vs 8/10 | [paired random baseline](archive/EXP-2026-09-06-two-keyhole-random-baseline.md) |
 
 **Failed ideas, kept so they are not retried blind:** unanchored family softmax · hinge without an anchor (RPM) · 2% regression brake (RPB) · absolute plates on dead cells · margins sized in raw units instead of σ · root rebalancing as a 1-push fix · exhaustive relabeling bought at the cost of corpus size · ladder + rebalance stacking · push-depth-aware pose head · Fourier depth identity.
 
@@ -64,21 +64,29 @@ The scannable cross-campaign index: **what we changed, why, and whether it helpe
 
 ---
 
-## 2026-09-06 — HY5U solves 38/40 controlled two-keyhole scenes
+## 2026-09-06 — HY5U reaches 34/40 two-keyhole solves by ten calls; Random averages 11.7
 
-HY5U seed 2 was run as the local ranker inside ordinary Full NAMO on the frozen 40-scene approval cohort: ten each of MM, MH, HM, and HH, with seven clean and three K2-contact scenes in every cell. The protocol used current physics, `hmax=2` per local keyhole, and a 900-simulator-call budget reset per keyhole. The pair names are ordered source-donor tiers, not new end-to-end difficulty labels; raw rows were joined to the frozen manifest by `realpath`, never basename.
+HY5U seed 2 and uniform Random ordering seeds 7000, 8000, and 9000 were run inside ordinary Full NAMO on the frozen 40-scene approval cohort: ten each of MM, MH, HM, and HH, with seven clean and three K2-contact scenes per cell. Every arm used current physics, `hmax=2` per local keyhole, 900 simulator calls reset per keyhole, and verifier/snapshot seed 42; only Random's shuffle seed varied. Raw rows were joined to the frozen metadata by `realpath`. The pair names are ordered source-donor tiers, not end-to-end difficulty labels.
 
-| ordered source pair | clean solved | contact solved | all solved | median calls among solved | maximum calls among solved |
-|---|---:|---:|---:|---:|---:|
-| MM | 7/7 | 3/3 | **10/10** | 3 | 9 |
-| MH | 6/7 | 2/3 | **8/10** | 4 | 9 |
-| HM | 7/7 | 3/3 | **10/10** | 6 | 13 |
-| HH | 7/7 | 3/3 | **10/10** | 7 | 56 |
-| all | **27/28** | **11/12** | **38/40** | **5.5** | **56** |
+| total scene-call cutoff | HY5U solved | Random solved, mean ± SD |
+|---:|---:|---:|
+| 2 | **8/40** | 0.0 ± 0.0 |
+| 5 | **19/40** | 5.7 ± 2.3 |
+| 10 | **34/40** | 11.7 ± 0.6 |
+| 30 | **37/40** | 23.7 ± 2.1 |
+| 100 | **38/40** | 32.0 ± 2.6 |
+| final | **38/40** | 33.0 ± 2.6 |
 
-**FEASIBLE on this controlled cohort.** HY5U solved 95% overall, including all 20 scenes with hard K1. Among solved scenes, 34/38 finished within ten total simulator calls and all 38 within 56. The two known-solvable MH misses each used only one call: HY5U's first-ranked K1 push satisfied the local opening test, but did not advance the global path to K2; the outer planner then repeated `already_accessible`, blacklisted the boundary, and ended with `region_path_exhausted`. This is a Full-NAMO commit/progress mismatch, not budget exhaustion.
+| ordered donor pair | HY5U by 10 | Random by 10, mean ± SD | HY5U final | Random final, mean ± SD |
+|---|---:|---:|---:|---:|
+| MM | **10/10** | 3.7 ± 1.5 | **10/10** | 9.0 ± 0.0 |
+| MH | **8/10** | 5.0 ± 0.0 | 8/10 | **10.0 ± 0.0** |
+| HM | **9/10** | 1.0 ± 1.0 | **10/10** | 7.0 ± 2.0 |
+| HH | **7/10** | 2.0 ± 1.0 | **10/10** | 7.0 ± 1.0 |
 
-The read-only exact K2-interface audit passed in 37/38 solved scenes. One MH contact scene changed the profiled interface yet still reached the final goal in three calls, which is another concrete reason not to restore the rejected strict preservation gate. This experiment has no random arm, so it establishes HY5U's absolute feasibility on the cohort but not its advantage over random ordering. Full protocol, failure traces, hashes, and artifact paths → [experiment card](archive/EXP-2026-09-06-two-keyhole-hy5u-evaluation.md).
+**HY5U wins the intended ordering regime, but not every final cell.** It reaches 85% complete-scene success by ten calls against Random's 29.2%, and its final 95% exceeds Random's 82.5±6.6%. On the 93 seed-scene pairs both solve, HY5U's median is 5 calls against Random's 16 and HY5U is faster in 80. The K2-contact subset shows the same effect: 10/12 versus 2.7±2.1 by ten calls, and 11/12 versus 9/12 final.
+
+The exception is MH final coverage. Every Random seed solves all ten MH scenes, including both scenes HY5U misses in 4–34 calls. HY5U's first-ranked K1 action opens the local target in those scenes but does not advance the global path to K2, and Full NAMO has no top-level recovery from that committed choice. Thus the scenes are valid and the ranker is useful, but the complete curve does not dominate Random inside the MH cell. Detailed per-seed comparisons, failure traces, seed-decoupling audit, hashes, and artifact paths → [paired Random card](archive/EXP-2026-09-06-two-keyhole-random-baseline.md); HY5U-only run → [HY5U card](archive/EXP-2026-09-06-two-keyhole-hy5u-evaluation.md).
 
 ---
 
