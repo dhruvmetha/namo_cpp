@@ -24,7 +24,12 @@ config_for() {
 }
 
 run_one() {
-  local phase=$1 arm=$2 seed=$3 gpu=$4 epochs=$5 out=$BASE/$phase/${arm}_s${seed}
+  local phase=$1
+  local arm=$2
+  local seed=$3
+  local gpu=$4
+  local epochs=$5
+  local out=$BASE/$phase/${arm}_s${seed}
   config_for "$arm"
   if [ -e "$out/train.log" ] || [ -d "$out/checkpoints" ]; then
     echo "refusing to overwrite existing run: $out" >&2
