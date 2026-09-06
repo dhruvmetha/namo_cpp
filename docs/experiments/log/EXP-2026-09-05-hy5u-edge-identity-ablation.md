@@ -49,6 +49,8 @@ Recovery uses an isolated checkout based on the successful architecture evaluati
 
 Recovery commit `62790aab` was committed before submission. Smoke `61264661` gates seed arrays `61264662`, `61264664`, and `61264666`; aggregate jobs are `61264663`, `61264665`, and `61264667`. The queue regression check reproduced 480 queued tasks and verified that a 115-task submission waits until capacity is available. The live launch counted the three arrays as 115 tasks each and accepted every seed.
 
+At 17:30 EDT, 119/345 full tasks had completed, 222 were running, and four were terminally preempted by SLURM: seed 2 tasks 70–72 and seed 3 task 46. Their scheduler records had already left `scontrol`, so recovery submits those exact four bundles as new arrays using the same committed evaluator and configuration. Partial files for only those bundles are moved to a separate audit directory before retry; other tasks continue untouched. The observed elapsed time exceeds the original 10–30 minute estimate, so that estimate is withdrawn.
+
 ## Result
 
 Pending.
