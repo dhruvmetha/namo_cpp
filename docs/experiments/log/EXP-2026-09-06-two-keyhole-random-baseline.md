@@ -2,7 +2,7 @@
 type: experiment
 status: live
 created: 2026-09-06
-commit: 8d2ab031
+commit: 0468af86
 metric: pending
 tags: [experiment, full-namo, multihop, random-baseline, same-template, interaction, medium, hard]
 ---
@@ -24,7 +24,11 @@ Smoke one complete scene with random seed 7000 on rlab7 using the production com
 
 ## Run
 
-Pending.
+The one-scene production smoke ran as job `272304_0` at commit `0468af86`. It was initially submitted to rlab7, but remained pending because other jobs had allocated 496 of the node's 499 GiB. Before it started, the request was moved to rlab1, another CS-estate node with the same shared filesystem and verified-identical physics. It completed successfully in six seconds.
+
+The smoke selected exactly MM contact scene `contact_0000.xml`, used `best_first_prior=uniform` with seed 7000, and solved the complete scene in 14 simulator calls split `[10,4]` across K1 and K2. HY5U solved the same scene in two calls split `[1,1]`. The read-only K1 audit reported unchanged K2 object identity, pose, and reachable edge set, with the path reduced from two hops to one. The random arm did not load or score the checkpoint.
+
+The full run will use three independent one-shard jobs on rlab1, one for each seed, with ten workers per job and a two-hour safety limit. The smoke establishes the production path but is too easy to estimate the random tail; the existing 900-call ceiling and two-hour launcher limit remain the conservative bounds.
 
 ## Result
 
