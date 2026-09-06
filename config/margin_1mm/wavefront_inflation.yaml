@@ -1,0 +1,13 @@
+# Tier-1 inflation for the REAL-TABLE pools: real_buildable, real_buildable_2mov, and anything the
+# robot actually executes or searches. All values in metres.
+#
+# Load a main config through THIS directory (the symlinks beside this file point at the real ones)
+# and the C++ picks the margin up from here: ConfigManager::load_wavefront_inflation_config looks
+# next to the primary config first, and std::filesystem::absolute does not follow symlinks, so the
+# parent directory is this one and not config/.
+#
+# 1 mm is what the hardware trials on 2026-09-02/03 ran. It is NOT measured against the car; the
+# robot side's own corridor floor is 8.4-8.8 cm while this rule demands 7.2. Standing decision by
+# Dhruv 2026-09-06, revisit when someone drives the car at narrowing gaps.
+tier1:
+  base_inflation_margin_m: 0.001

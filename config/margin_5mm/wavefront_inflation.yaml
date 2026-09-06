@@ -1,0 +1,11 @@
+# Tier-1 inflation for the SIM TESTSETS: car_envs, namo_testset_v1 and v3, and every model row in
+# docs/experiments/horizon_q_model_registry.md. All values in metres.
+#
+# Load a main config through THIS directory and the C++ takes the margin from here. See the note in
+# ../margin_1mm/wavefront_inflation.yaml for how the lookup works.
+#
+# 5 mm is the value every one of those labels was made at. Re-running an eval at any other margin
+# produces numbers that do not compare to the registry, silently: on the two-movable pool the move
+# to 1 mm turned 204 of 1432 rooms from problems into non-problems. Keep this pinned.
+tier1:
+  base_inflation_margin_m: 0.005

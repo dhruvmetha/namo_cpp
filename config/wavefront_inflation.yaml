@@ -1,6 +1,17 @@
 # Centralized wavefront inflation settings for namo_cpp.
 # All values are in meters.
 #
+# ⛔ THIS FILE IS THE FALLBACK, NOT THE POLICY. The margin decides which scenes are
+# region-opening problems at all: moving it 5 mm -> 1 mm on 2026-09-05 turned 204 of the 1432
+# delivered two-movable rooms and 625 of 1304 one-movable rooms into non-problems, silently.
+# Standing split (Dhruv 2026-09-06):
+#   config/margin_1mm/  real-table pools, real execution and real search        (0.001)
+#   config/margin_5mm/  sim testsets: car_envs, testset_v1/v3, registry rows    (0.005)
+# Each holds symlinks to the main configs plus its own copy of this file. Load a main config
+# THROUGH one of those directories and the C++ takes the margin from there
+# (config_manager.cpp:285 looks next to the primary config first). Anything loaded from
+# config/ directly gets the value below, which is why a bare path is the unsafe one.
+#
 # Tier-1 inflation is the base additive margin applied to robot half-extents
 # during obstacle inflation in wavefront occupancy grids.
 tier1:
