@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run on Amarel after the six selected architecture-ablation checkpoints have been transferred.
+# Run on Amarel after the selected architecture-ablation checkpoints have been transferred.
 set -euo pipefail
 
 : "${CKPT_ROOT:?set CKPT_ROOT to the Amarel checkpoint directory}"
@@ -21,7 +21,61 @@ if [ -e "$OUT_ROOT/jobs.tsv" ]; then
   exit 1
 fi
 
-arms=(HY5U_global HY5U_no_local)
+arms=(${HY5U_ARCH_ARMS:-HY5U_global HY5U_no_local})
+PY=${NAMO_PYTHON:-python}
+AMAREL_CPU_CAP=${AMAREL_CPU_CAP:-6720}
+AMAREL_MAX_SUBMIT_TASKS=${AMAREL_MAX_SUBMIT_TASKS:-500}
+SUBMIT_POLL_SECONDS=${SUBMIT_POLL_SECONDS:-60}
+num_models=$((${#arms[@]} * 3))
+
+# eval_bestfirst slices room keys, then evaluates every object/goal episode in each room.
+# Allocate leaf processes by room count; canonical episode counts are checked by aggregation.
+onepush_key=$("$PY" -m namo.eval_sets onepush_manifest)
+n1=$("$PY" -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$onepush_key")
+n2=$("$PY" -c 'import json; from namo import eval_sets; print(len(json.load(open(eval_sets.PURE2PUSH))))')
+total_rooms=$((n1 + n2))
+total_room_seed_pairs=$((num_models * total_rooms))
+if [ "$total_room_seed_pairs" -le "$AMAREL_CPU_CAP" ]; then
+  if [ -z "${EVAL_WORKERS_PER_TASK:-}" ]; then
+    for candidate in $(seq 21 -1 1); do
+      if [ $((total_rooms % candidate)) -eq 0 ]; then
+        EVAL_WORKERS_PER_TASK=$candidate
+        break
+      fi
+    done
+  fi
+  [ $((total_rooms % EVAL_WORKERS_PER_TASK)) -eq 0 ] || {
+    echo "EVAL_WORKERS_PER_TASK=$EVAL_WORKERS_PER_TASK does not divide $total_rooms rooms" >&2
+    exit 2
+  }
+  n1sh=$n1
+  n2sh=$n2
+  tasks_per_model=$((total_rooms / EVAL_WORKERS_PER_TASK))
+else
+  EVAL_WORKERS_PER_TASK=${EVAL_WORKERS_PER_TASK:-21}
+  tasks_per_model=$((AMAREL_CPU_CAP / (num_models * EVAL_WORKERS_PER_TASK)))
+  [ "$tasks_per_model" -ge 1 ] || { echo "CPU cap is too small for one bundled task per model" >&2; exit 2; }
+  leaves_per_model=$((tasks_per_model * EVAL_WORKERS_PER_TASK))
+  n1sh=$((leaves_per_model * n1 / total_rooms))
+  n2sh=$((leaves_per_model - n1sh))
+fi
+array_last=$((tasks_per_model - 1))
+requested_full_cpus=$((num_models * tasks_per_model * EVAL_WORKERS_PER_TASK))
+echo "FULL_WIDTH_PLAN models=$num_models tasks_per_model=$tasks_per_model workers_per_task=$EVAL_WORKERS_PER_TASK requested_cpus=$requested_full_cpus cap=$AMAREL_CPU_CAP N1SH=$n1sh N2SH=$n2sh rooms=$n1+$n2"
+
+wait_for_submit_slots() {
+  local needed=$1 label=$2 queued
+  while true; do
+    queued=$(squeue -r -h -u "$USER" -o '%i' | wc -l)
+    if [ $((queued + needed)) -le "$AMAREL_MAX_SUBMIT_TASKS" ]; then
+      echo "SUBMIT_SLOTS_READY label=$label queued=$queued needed=$needed cap=$AMAREL_MAX_SUBMIT_TASKS"
+      return 0
+    fi
+    echo "SUBMIT_SLOTS_WAIT label=$label queued=$queued needed=$needed cap=$AMAREL_MAX_SUBMIT_TASKS $(date)"
+    sleep "$SUBMIT_POLL_SECONDS"
+  done
+}
+
 for arm in "${arms[@]}"; do
   for seed in 1 2 3; do
     test -f "$CKPT_ROOT/${arm}_s${seed}.ckpt"
@@ -32,9 +86,14 @@ mkdir -p "$OUT_ROOT/smoke" "$OUT_ROOT/full"
 printf 'kind\tarm\tseed\tjob_id\tdependency\n' > "$OUT_ROOT/jobs.tsv"
 
 for arm in "${arms[@]}"; do
-  short=gl
-  [ "$arm" = HY5U_no_local ] && short=nl
+  case "$arm" in
+    HY5U_global) short=gl ;;
+    HY5U_no_local) short=nl ;;
+    HY5U_no_edge) short=ne ;;
+    *) echo "unknown architecture arm: $arm" >&2; exit 2 ;;
+  esac
   smoke_out="$OUT_ROOT/smoke/${arm}_s1"
+  wait_for_submit_slots 1 "smoke_${arm}"
   smoke_job=$(sbatch --parsable \
     --job-name="archsm_${short}" --partition=main --array=0-0 \
     --cpus-per-task=14 --mem=64G --time=00:30:00 \
@@ -45,14 +104,16 @@ for arm in "${arms[@]}"; do
 
   for seed in 1 2 3; do
     eval_out="$OUT_ROOT/full/${arm}_s${seed}"
+    wait_for_submit_slots "$tasks_per_model" "full_${arm}_s${seed}"
     full_job=$(sbatch --parsable --dependency="afterok:$smoke_job" --kill-on-invalid-dep=yes \
-      --job-name="arch_${short}_s${seed}" --partition=main --array=0-35 \
-      --cpus-per-task=21 --mem=64G --time=02:00:00 \
-      --export="ALL,NAMO_REPO=$REPO,SAGE_REPO=$SAGE,NAMO_BINDINGS=$BIND,CKPT=$CKPT_ROOT/${arm}_s${seed}.ckpt,OUT=$eval_out,N1SH=378,N2SH=378,WORKERS_PER_TASK=21,REFUSE_OVERWRITE=1,HMAX=2,SIM_BUDGET=900,PRIOR=model,SEED_BASE=7000" \
+      --job-name="arch_${short}_s${seed}" --partition=main --array="0-$array_last" \
+      --cpus-per-task="$EVAL_WORKERS_PER_TASK" --mem=64G --time=02:00:00 \
+      --export="ALL,NAMO_REPO=$REPO,SAGE_REPO=$SAGE,NAMO_BINDINGS=$BIND,CKPT=$CKPT_ROOT/${arm}_s${seed}.ckpt,OUT=$eval_out,N1SH=$n1sh,N2SH=$n2sh,WORKERS_PER_TASK=$EVAL_WORKERS_PER_TASK,REFUSE_OVERWRITE=1,HMAX=2,SIM_BUDGET=900,PRIOR=model,SEED_BASE=7000" \
       scripts/slurm/aquaman_eval_amarel.slurm)
     printf 'full\t%s\t%s\t%s\t%s\n' "$arm" "$seed" "$full_job" "$smoke_job" | tee -a "$OUT_ROOT/jobs.tsv"
     echo "FULL_JOB arm=$arm seed=$seed job=$full_job smoke=$smoke_job"
 
+    wait_for_submit_slots 1 "aggregate_${arm}_s${seed}"
     agg_job=$(sbatch --parsable --dependency="afterok:$full_job" --kill-on-invalid-dep=yes \
       --job-name="archa_${short}_s${seed}" --partition=main \
       --cpus-per-task=1 --mem=8G --time=00:20:00 \
