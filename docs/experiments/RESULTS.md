@@ -730,3 +730,26 @@ Card: [EXP-2026-08-22-easy-room-stitch](archive/EXP-2026-08-22-easy-room-stitch.
 | 26 | 5 | **5/5** | `[0,0] → [100,0] → [100,80]` |
 
 **ACCEPT the easy-room recipe.** Every scene had the exact C++ region path `robot → middle room → goal`; after K1, only the middle component opened, and K2 then opened the goal component. The simplest case is therefore easy to realize once the endpoint rooms and doorway order are right. The generator should treat each donor as a directed room-to-room module and join K1's exit room to K2's entry room, instead of sampling blocker pairs first and discovering the topology afterward.
+
+
+## 2026-09-06 — HY5U learned edge identity improves hard-episode ordering
+
+All three seeds passed strict aggregation on exactly 1,328 one-push and 992 two-push episodes at 5 mm clearance, with no duplicate episode keys or mixed search settings. Search uses hmax=2, budget 900, mean5 aggregation, raw q, discount off, no-op deduplication and jam-depth pruning. Tables show solve percentages, mean ± sample SD across three seeds. Only simulator-call comparisons are made.
+
+| model | 1push easy@1 | medium@1 | hard@1 | all@1 |
+|---|---:|---:|---:|---:|
+| HY5U | 97.1±0.5 | 79.8±0.3 | 40.2±1.2 | 82.5±0.4 |
+| No learned edge identity | 96.7±0.6 | 77.6±1.1 | 33.5±2.7 | 80.6±0.6 |
+| Random | 61.1±4.6 | 14.1±1.7 | 2.9±0.8 | 36.5±2.8 |
+
+| model | 2push easy@5 | medium@5 | hard@5 | all@5 |
+|---|---:|---:|---:|---:|
+| HY5U | 80.6±1.6 | 59.3±0.6 | 35.9±2.1 | 64.8±0.8 |
+| No learned edge identity | 79.1±0.9 | 58.0±0.8 | 31.1±1.3 | 63.0±0.8 |
+| Random | 22.8±3.5 | 7.2±1.7 | 2.0±1.3 | 12.7±2.0 |
+
+Learned contact identity helps most on hard episodes. Removing it lowers hard one-push solve@1 from 40.2% to 33.5% (−6.7 points), and hard two-push solve@5 from 35.9% to 31.1% (−4.8 points). Overall losses are 2.0 and 1.8 points, respectively. The two-push solve@900 ceiling is unchanged at approximately 93.1% versus 93.0%, so the effect is ordering efficiency. The no-edge model still substantially beats Random on every tier at these budgets. This supports keeping learned edge identity; this experiment does not isolate whether its gain comes specifically from disambiguating corner contacts.
+
+![Three-seed edge-identity comparison.](plots/hy5u_edge_identity_ablation/success_vs_sims_both_horizons.png)
+
+Full provenance and recovery audit: [experiment card](archive/EXP-2026-09-05-hy5u-edge-identity-ablation.md). Registered as `hy5u-edge-identity-ablation-hmax2-v3`.

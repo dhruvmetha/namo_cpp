@@ -1,6 +1,6 @@
 ---
 type: experiment
-status: live
+status: done
 created: 2026-09-05
 updated: 2026-09-06
 commit: 62790aab
@@ -53,8 +53,26 @@ At 17:30 EDT, 119/345 full tasks had completed, 222 were running, and four were 
 
 ## Result
 
-Pending.
+All three seeds passed strict aggregation on exactly 1,328 one-push and 992 two-push episodes at 5 mm clearance, with no duplicate episode keys or mixed search settings. Search uses hmax=2, budget 900, mean5 aggregation, raw q, discount off, no-op deduplication and jam-depth pruning. Tables show solve percentages, mean ± sample SD across three seeds. Only simulator-call comparisons are made.
+
+| model | 1push easy@1 | medium@1 | hard@1 | all@1 |
+|---|---:|---:|---:|---:|
+| HY5U | 97.1±0.5 | 79.8±0.3 | 40.2±1.2 | 82.5±0.4 |
+| No learned edge identity | 96.7±0.6 | 77.6±1.1 | 33.5±2.7 | 80.6±0.6 |
+| Random | 61.1±4.6 | 14.1±1.7 | 2.9±0.8 | 36.5±2.8 |
+
+| model | 2push easy@5 | medium@5 | hard@5 | all@5 |
+|---|---:|---:|---:|---:|
+| HY5U | 80.6±1.6 | 59.3±0.6 | 35.9±2.1 | 64.8±0.8 |
+| No learned edge identity | 79.1±0.9 | 58.0±0.8 | 31.1±1.3 | 63.0±0.8 |
+| Random | 22.8±3.5 | 7.2±1.7 | 2.0±1.3 | 12.7±2.0 |
+
+Learned contact identity helps most on hard episodes. Removing it lowers hard one-push solve@1 from 40.2% to 33.5% (−6.7 points), and hard two-push solve@5 from 35.9% to 31.1% (−4.8 points). Overall losses are 2.0 and 1.8 points, respectively. The two-push solve@900 ceiling is unchanged at approximately 93.1% versus 93.0%, so the effect is ordering efficiency. The no-edge model still substantially beats Random on every tier at these budgets. This supports keeping learned edge identity; this experiment does not isolate whether its gain comes specifically from disambiguating corner contacts.
+
+![Success versus simulator calls by difficulty and horizon.](../plots/hy5u_edge_identity_ablation/success_vs_sims_both_horizons.png)
+
+All 345 required bundles completed successfully: 341 original tasks and four replacements (`61265859_[70-72]`, `61265860_46`). Partial preempted outputs remain in the remote `preempted_attempts/` directory. Raw rows and per-seed aggregates are mirrored under `$NAMO_SCRATCH/eval/hy5u_arch_no_edge_20260906_recovery/full/HY5U_no_edge_s{1,2,3}/`; `provenance.json` records checkpoint, binary, and configuration hashes. The optional curve JSON export initially stopped the monitor after plot generation because it requires a time axis too; rerunning the existing plotter with the intended simulator-call axis produced the final comparison JSON and all plots.
 
 ## Verdict
 
-Pending.
+Keep learned edge identity. Its measured contribution is smaller overall than the global-readout or ranking-loss effects, but clear on hard one-push episodes and beneficial on hard two-push episodes. Corner-specific attribution remains untested.
