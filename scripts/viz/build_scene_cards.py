@@ -300,6 +300,73 @@ def scene_family(xml):
     return "unknown"
 
 
+def patch_from_relabel(out_dir, relabel_dir, margin):
+    """Rewrite every card's LABEL half from a fresh exhaustive_hmax2 run, keeping its geometry.
+
+    Used when the labels move under a gallery that already exists: the inflation margin changed
+    from 5 mm to 1 mm on 2026-09-05 and every tier, green list and solve rate in this gallery was a
+    5 mm number. Geometry, regions and contact points do not depend on the margin, so re-running the
+    expensive capture would be waste; only `green`, `tried` and the meta counts move.
+
+    A room that has no problem left at the new margin keeps its card and gets `status`, so it stays
+    visible and filterable instead of vanishing from the index. Two ways to have no problem:
+    `goal_open` (the robot already reaches the goal region) and `no_goal_region` (the goal stopped
+    being a separate region at all, so the relabel wrote no record). Their green lists are emptied
+    on purpose: a sweep of an already-open room files every push with a follow-up as a setup, so
+    leaving them would show a dead room as a rich 2-push one.
+
+    ⛔ Step-through replays are NOT rebuilt here. They were recorded against 5 mm solutions and a
+    card whose green list just changed may animate a push that is no longer green.
+    """
+    recs = {}
+    for f in glob.glob(os.path.join(relabel_dir, "*.json")):
+        try:
+            r = json.load(open(f))
+        except Exception:
+            continue
+        recs["/".join(r["xml"].split("/")[-4:])] = r
+    print(f"  relabel source: {len(recs)} rooms")
+
+    n = Counter()
+    for path in sorted(glob.glob(os.path.join(out_dir, "cards", "*.json"))):
+        card = json.load(open(path))
+        m = card["meta"]
+        rec = recs.get("/".join(m["xml"].split("/")[-4:]))
+        m["inflation_margin_m"] = margin
+        m["replay_margin_m"] = 0.005          # what the step-through was recorded at
+        if rec is None or rec.get("goal_open_at_start"):
+            m["status"] = "no_goal_region" if rec is None else "goal_open"
+            card["green"], m["n_green"], m["n_green_contact"] = [], 0, 0
+            m["density_pct"], m["tier"], m["solve_rate"], m["contact_pct"] = 0.0, "dead", 0.0, 0.0
+            n[m["status"]] += 1
+        else:
+            cells = [c for c in rec["cells"] if c["object_id"] == m["object_id"]]
+            if not cells:
+                m["status"] = "object_not_swept"
+                card["green"], m["n_green"] = [], 0
+                n["object_not_swept"] += 1
+            else:
+                kind = "opener" if m["horizon"] == "1push" else "setup"
+                hits = [c for c in cells if c["kind"] == kind]
+                n_open = sum(1 for c in cells if c["kind"] == "opener")
+                scoring = len(hits) + (n_open if kind == "setup" else 0)
+                pct = 100.0 * scoring / len(cells)
+                card["green"] = [[c["edge"], c["depth"]] for c in hits]
+                card["tried"] = [[c["edge"], c["depth"]] for c in cells]
+                touched = sum(1 for c in hits
+                              if c.get("movable_collisions") or c.get("finish_movable_collisions"))
+                m.update({"status": "live" if hits else "no_solution",
+                          "n_green": len(hits), "n_tried": len(cells),
+                          "n_green_contact": touched,
+                          "contact_pct": round(100.0 * touched / len(hits), 1) if hits else 0.0,
+                          "density_pct": round(pct, 3), "tier": tier_of(pct) if hits else "dead",
+                          "solve_rate": round(len(hits) / len(cells), 4),
+                          "solve_rate_1push": round(n_open / len(cells), 4)})
+                n[m["status"]] += 1
+        json.dump(card, open(path, "w"), separators=(",", ":"))
+    print(f"  patched at margin {margin} m: {dict(n)}")
+
+
 def build_index(out_dir, require_replay=False):
     """scenes.json = the small file the gallery page loads up front; cards are fetched lazily.
 
@@ -330,9 +397,14 @@ def build_index(out_dir, require_replay=False):
                      "family": scene_family(meta["xml"]),
                      **{k: meta[k] for k in ("horizon", "object_id", "tier", "density_pct",
                                              "n_green", "n_tried", "region")},
-                     **{k: meta[k] for k in ("n_green_contact", "contact_pct") if k in meta}})
+                     **{k: meta[k] for k in ("n_green_contact", "contact_pct") if k in meta},
+                     **{k: meta[k] for k in ("status", "inflation_margin_m") if k in meta}})
     # Hardest first inside a tier: that is the order you want to arrow through when hunting figures.
-    rows.sort(key=lambda r: (r["horizon"], {"hard": 0, "medium": 1, "easy": 2}[r["tier"]],
+    # "dead" is a card whose room stopped being a region-opening problem at the current margin; it
+    # sorts last so the browsable set stays at the front, and it keeps its row so the gallery can
+    # show and filter it rather than silently dropping 204 rooms out of the index.
+    rows.sort(key=lambda r: (r["horizon"],
+                             {"hard": 0, "medium": 1, "easy": 2, "dead": 3}.get(r["tier"], 3),
                              r["density_pct"], r["scene"]))
     counts = {h: dict(Counter(r["tier"] for r in rows if r["horizon"] == h))
               for h in ("1push", "2push")}
@@ -361,6 +433,10 @@ def main():
     ap.add_argument("--shard", type=int, default=0)
     ap.add_argument("--nshards", type=int, default=1)
     ap.add_argument("--index-only", action="store_true", help="rebuild scenes.json from cards/")
+    ap.add_argument("--patch-from-relabel", help="rewrite card labels from an exhaustive_hmax2 "
+                                                 "output dir, keeping geometry; then --index-only")
+    ap.add_argument("--margin", type=float, help="inflation margin the relabel ran at, stamped on "
+                                                 "every card so a stale number is detectable")
     ap.add_argument("--require-replay", action="store_true",
                     help="leave out cards with no step-through built; they render as an empty "
                          "solution panel and are the cold-replay casualties")
@@ -377,6 +453,11 @@ def main():
     ap.add_argument("--contact-only", action="store_true",
                     help="keep only episodes whose greens actually touch another movable")
     a = ap.parse_args()
+    if a.patch_from_relabel:
+        assert a.margin is not None, "--margin is required: a card without it cannot be interpreted"
+        patch_from_relabel(a.out, a.patch_from_relabel, a.margin)
+        build_index(a.out, a.require_replay)
+        return
     if a.index_only:
         build_index(a.out, a.require_replay)
     else:

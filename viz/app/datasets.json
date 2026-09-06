@@ -23,7 +23,7 @@
   {
     "id": "real_2mov",
     "title": "Scene gallery \u2014 real-table, two movable blocks",
-    "description": "2180 exhaustively labelled two-movable doorways, filtered to the ones that earn their keep: a push that opens the region AND actually shoves the second block. Every card here can step through its own solution; cards whose recorded solution does not replay from a clean start are left out. Difficulty is per horizon, so 1push is scored on openers over enumerated pushes and 2push on openers plus setups, both against the usual 5%/30% cuts. Cards say when the doorway needs both blocks and whether a route around it exists, and a step-through says whether the solve merged the two regions or reached the goal through a gap. Both count as solved.",
+    "description": "Two-movable real-table doorways, filtered to the ones where a solving push also shoves the second block. Labels are computed at the 1 mm inflation margin the robot runs; every card carries inflation_margin_m and a status. A card tiered `dead` is a room that stopped being a region-opening problem at that margin, either because the robot already reaches the goal or because the goal is no longer a separate region; it keeps its card so it can be inspected, and has no greens. Difficulty is per horizon: 1push scores openers over enumerated pushes, 2push scores openers plus setups, both against the 5%/30% cuts. Cards say when the doorway needs both blocks and whether a route around exists. \u26d4 Step-through replays were recorded against the older 5 mm labels and have NOT been rebuilt, so a card's animation may show a push that is no longer green; `replay_margin_m` records this.",
     "tool": "gallery",
     "data": "../real_2mov/"
   },

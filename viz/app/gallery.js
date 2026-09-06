@@ -29,7 +29,9 @@ const DATASET_NAME = ({
   "../real_scenes_all/": "full-exhaustive-pool",
   "../scenes/": "car-envs",
 })[DATA_BASE] || DATA_BASE;
-const TIER_ORDER = { hard: 0, medium: 1, easy: 2 };
+// "dead" is a card whose room stopped being a region-opening problem at the margin its labels
+// were computed at. It keeps its card so you can look at it; it has no greens to show.
+const TIER_ORDER = { hard: 0, medium: 1, easy: 2, dead: 3 };
 // Cards carry their own copy of the tier, so the index normalisation below does not reach them.
 const tierName = (t) => (t === "med" ? "medium" : t);
 
