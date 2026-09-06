@@ -36,6 +36,7 @@ written as gallery_card__<object>.json so nothing silently overwrites, which is 
 that made the two-movable pools confusing in the first place.
 """
 import argparse
+import collections
 import glob
 import json
 import os
@@ -62,6 +63,57 @@ def doorway_of(snap):
     solo = {k: (v - grp.get(k, set())) for k, v in adj.items()}
     return {"needs_both_blocks": gl in grp.get(rl, set()),
             "has_route_around": reachable(solo, rl, gl)}
+
+
+def margin_now():
+    """The tier-1 inflation margin the C++ will actually use, in metres.
+
+    Written into every sheet this script touches. A sheet without it is a sheet whose numbers you
+    cannot interpret: the margin moved from 5 mm to 1 mm on 2026-09-05 and took 204 rooms out of the
+    two-movable pool with it, and nothing on either side of the handoff recorded which value a given
+    label was made at.
+    """
+    import yaml
+    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    for c in (os.path.join(repo, "config", "wavefront_inflation.yaml"),):
+        if os.path.exists(c):
+            return float(yaml.safe_load(open(c))["tier1"]["base_inflation_margin_m"])
+    return None
+
+
+def episodes_from_record(rec):
+    """Per (object, horizon) episodes straight off one exhaustive_hmax2 record.
+
+    Same tier rule as everywhere else: 1push scores openers over that object's enumerated pushes,
+    2push scores openers plus setups, cuts at 5% and 30%.
+
+    ⛔ Returns [] when the goal is already open at the root, and the caller must NOT fall back to
+    the cells. A sweep of an already-open room still files every push that has a follow-up as a
+    "setup", so such a record can show hundreds of setups and read as a rich 2-push room. It is a
+    dead room. rb_00150 with its shifted goal is the worked example: 218 setups, 130 with contact,
+    no problem in it at all.
+    """
+    if rec.get("goal_open_at_start"):
+        return []
+    cells = rec.get("cells") or []
+    per = collections.defaultdict(list)
+    for c in cells:
+        per[c["object_id"]].append(c)
+    out = []
+    for obj, cs in sorted(per.items()):
+        n_op = sum(1 for c in cs if c["kind"] == "opener")
+        n_su = sum(1 for c in cs if c["kind"] == "setup")
+        for horizon, green, scoring in (("1push", n_op, n_op), ("2push", n_su, n_op + n_su)):
+            if not green:
+                continue
+            pct = 100.0 * scoring / len(cs)
+            hits = [c for c in cs if c["kind"] == ("opener" if horizon == "1push" else "setup")]
+            touched = sum(1 for c in hits
+                          if c.get("movable_collisions") or c.get("finish_movable_collisions"))
+            out.append({"object_id": obj, "horizon": horizon,
+                        "tier": "hard" if pct < 5 else ("medium" if pct < 30 else "easy"),
+                        "n_green": green, "n_tried": len(cs), "n_green_contact": touched})
+    return out
 
 
 def why_no_episode(sweep):
@@ -121,6 +173,8 @@ def main():
     ap.add_argument("--rooms", help="file of pool-relative scene dirs, one per line")
     ap.add_argument("--no-cards", action="store_true", help="skip gallery_card/gallery_replay")
     ap.add_argument("--patch-sheets", help="add doorway/episodes to delivered sheets under this tree")
+    ap.add_argument("--from-relabel", help="read episodes from an exhaustive_hmax2 output dir instead "
+                                           "of the gallery cards; use after a relabel at a new margin")
     ap.add_argument("--out", help="bundle destination; not used by --patch-sheets")
     ap.add_argument("--shard", type=int, default=0)
     ap.add_argument("--nshards", type=int, default=1)
@@ -156,12 +210,47 @@ def main():
                                   "n_tried": meta["n_tried"],
                                   "n_green_contact": meta.get("n_green_contact")})
 
+    relabel = {}
+    if a.from_relabel:
+        for f in glob.glob(os.path.join(a.from_relabel, "*.json")):
+            try:
+                r = json.load(open(f))
+            except Exception:
+                continue
+            relabel[norm(r["xml"])] = r
+        print(f"  relabel source: {len(relabel)} rooms", flush=True)
+
     if a.patch_sheets:
         patched = missing_door = 0
+        margin = margin_now()
+        status = collections.Counter()
         for xml in sorted(glob.glob(f"{root}/{a.pool}/*/*/env.xml")):
             rel = os.path.dirname(norm(xml))
             sheet = os.path.join(a.patch_sheets, rel, "build_sheet_derived.json")
             if not os.path.exists(sheet):
+                continue
+            k = norm(xml)
+            if a.from_relabel:
+                rec = relabel.get(k)
+                if rec is None:
+                    eps, why = [], "no goal region to sample at this margin"
+                elif rec.get("goal_open_at_start"):
+                    eps, why = [], "goal region already reachable at the root at this margin"
+                else:
+                    eps, why = episodes_from_record(rec), None
+                status["dead" if why else "live"] += 1
+                env = namo_rl.RLEnvironment(xml, a.config, False)
+                env.get_reachable_objects()
+                door = doorway_of(env.get_region_snapshot(100, -1.0, False, 42, True))
+                d = json.load(open(sheet))
+                d["doorway"], d["episodes"] = door, eps
+                d["inflation_margin_m"] = margin
+                d.pop("no_episode_reason", None)
+                if why:
+                    d["no_episode_reason"] = why
+                missing_door += door is None
+                json.dump(d, open(sheet, "w"), indent=1)
+                patched += 1
                 continue
             g = gallery.get(norm(xml))
             if g:
@@ -178,7 +267,8 @@ def main():
             missing_door += door is None
             json.dump(d, open(sheet, "w"), indent=1)
             patched += 1
-        print(f"patched {patched} sheet(s); {missing_door} with no robot/goal label", flush=True)
+        print(f"patched {patched} sheet(s) at margin {margin} m; "
+              f"{missing_door} with no robot/goal label; {dict(status)}", flush=True)
         return
 
     if a.rooms:
