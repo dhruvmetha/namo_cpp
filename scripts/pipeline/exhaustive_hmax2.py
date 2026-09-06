@@ -70,6 +70,28 @@ N_DEPTHS = 5
 POOL_ROOT = os.path.join(os.environ.get("NAMO_SCRATCH", "/tmp"), "real_buildable")
 
 
+def margin_of(cfg_path):
+    """The tier-1 inflation margin the C++ will use for this config, resolved its way.
+
+    Stamped into every record this script writes. A label without its margin cannot be read: the
+    value moved 5 mm to 1 mm on 2026-09-05 and turned 204 of 1432 delivered two-movable rooms from
+    problems into non-problems, with nothing in the data to say which rule produced it. Same lookup
+    as ConfigManager::load_wavefront_inflation_config (config_manager.cpp:285): beside the primary
+    config first, then the nearest ancestor `config/`.
+    """
+    import yaml
+    here = os.path.dirname(os.path.abspath(cfg_path))
+    cand = [os.path.join(here, "wavefront_inflation.yaml")]
+    cursor = here
+    while cursor and cursor != os.path.dirname(cursor):
+        cand.append(os.path.join(cursor, "config", "wavefront_inflation.yaml"))
+        cursor = os.path.dirname(cursor)
+    for c in cand:
+        if os.path.exists(c):
+            return float(yaml.safe_load(open(c))["tier1"]["base_inflation_margin_m"])
+    return None
+
+
 def goal_region_points(env):
     """The points sampled inside the goal region at this state, or None if there is no goal region.
 
@@ -240,6 +262,7 @@ def sweep_scene_depth1(xml, objs):
                 cells.append({"edge": edge, "depth": depth, "kind": kind,
                               "object_id": obj, "movable_collisions": mc})
     return {"xml": xml, "object_ids": list(objs), "n_goal_points": len(pts), "bar": bar,
+            "tier1_inflation_margin_m": margin_of(CFG),
             "goal_open_at_start": bool(before_open), "cells": cells, "n_sims": n_sims}
 
 

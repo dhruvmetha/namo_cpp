@@ -47,7 +47,13 @@ from namo.paths import SCRATCH, MANIFESTS, resolve  # noqa: E402
 # CHAMPION scorer (task-specified).
 CHAMPION_CKPT = str(SCRATCH / "sage_outputs/scorer/sharp_s1/namo-classifier/"
                     "9yizg6i8/checkpoints/epoch017-val_loss0.2713.ckpt")
-CFG = f"{REPO}/config/namo_config_complete_skill15_car_1x.yaml"
+# The inflation margin travels with the config DIRECTORY (config/margin_1mm, config/margin_5mm),
+# because the C++ reads wavefront_inflation.yaml from beside the primary config. The default
+# below keeps every existing caller on the repo-level config, so nothing changes silently;
+# a launcher that cares sets NAMO_CFG. The testset eval sets it to margin_5mm, since every
+# registry number was produced at 5 mm and re-running at another margin does not compare.
+CFG = os.environ.get("NAMO_CFG",
+                     f"{REPO}/config/namo_config_complete_skill15_car_1x.yaml")
 DATA_DIR = f"{REPO}/data"
 PRIM_PREFIX = "1x_car_d5_"   # car d5 primitives: 60 edges x 5 depths == scorer (60,5)
 FALLBACK_GOAL = (-0.5, 1.3, 0.0)

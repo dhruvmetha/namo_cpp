@@ -19,6 +19,10 @@ source env.ilab.sh >/dev/null 2>&1
 export PYTHONPATH="${NAMO_BINDINGS:-$REPO/build_python}:$REPO/python"
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 OPENCV_NUM_THREADS=1
 export CUDA_VISIBLE_DEVICES=""
+# Pin the margin to the value every registry row was made at. Without this the run picks up
+# whatever config/wavefront_inflation.yaml currently holds, which moved to 1 mm on 2026-09-05
+# and would silently produce numbers that do not compare to anything recorded.
+export NAMO_CFG="$REPO/config/margin_5mm/namo_config_complete_skill15_car_1x.yaml"
 PY=${NAMO_PYTHON:-python}
 KEY=$($PY -m namo.eval_sets "$EVAL_SET")
 N=$($PY -c 'import json, sys; print(len(json.load(open(sys.argv[1]))))' "$KEY")
@@ -28,7 +32,8 @@ S=$((I * N / SHARDS))
 EN=$(((I + 1) * N / SHARDS))
 
 mkdir -p "$OUT"
-echo "HMAX2 start $(date) host=$(hostname) eval_set=$EVAL_SET ckpt=$CKPT shard=$I range=[$S:$EN]"
+MARGIN=$(grep -o "base_inflation_margin_m: *[0-9.]*" "$(dirname "$NAMO_CFG")/wavefront_inflation.yaml" | awk '{print $2}')
+echo "HMAX2 start $(date) host=$(hostname) eval_set=$EVAL_SET ckpt=$CKPT shard=$I range=[$S:$EN] margin=${MARGIN}m"
 "$PY" scripts/sandbox/eval_bestfirst.py --ckpt "$CKPT" --key "$KEY" --hmax 2 --sim-budget 900 \
   --prior model --agg mean5 --combine q --discount off --start "$S" --end "$EN" \
   --out "$OUT/shard_${I}.json" --leaf-out "$OUT/shard_${I}.jsonl"
