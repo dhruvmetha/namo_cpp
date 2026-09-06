@@ -68,6 +68,7 @@ def test_build_full_namo_planner_config_forwards_nested_region_settings(monkeypa
         max_push_steps=CANONICAL_NUM_DEPTHS,
         audit_next_keyhole_reachability=True,
         preserve_next_keyhole_access=False,
+        shuffle_seed=7000,
     )
     config = build_full_namo_planner_config(task)
     planner = FullNAMOPlanner(FakeEnv(), config)
@@ -75,6 +76,7 @@ def test_build_full_namo_planner_config_forwards_nested_region_settings(monkeypa
     assert planner.max_iterations is None
     assert planner.use_cpp_unified_wavefront is True
     assert planner.region_snapshot_seed == 42
+    assert config.algorithm_params["shuffle_seed"] == 7000
     assert planner.region_opener.max_chain_depth == 2
     assert planner.region_opener.push_budget.limit == 100000
     assert planner.region_opener.push_budget is config.algorithm_params["push_budget"]

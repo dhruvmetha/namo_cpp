@@ -94,6 +94,8 @@ def test_run_exact_n_solvability_writes_expected_manifests(tmp_path, monkeypatch
         output_dir=str(tmp_path / "out"),
         config_file=str(config_path),
         primitive_prefix=CANONICAL_PRIMITIVE_PREFIX,
+        seed=42,
+        shuffle_seed=7000,
         workers=1,
     )
 
@@ -122,3 +124,5 @@ def test_run_exact_n_solvability_writes_expected_manifests(tmp_path, monkeypatch
     assert summary_json["planner_failure_count"] == 1
     assert run_config["primitive_prefix"] == CANONICAL_PRIMITIVE_PREFIX
     assert run_config["goal_strategy"] == "random_rollout"
+    assert run_config["seed"] == 42
+    assert run_config["shuffle_seed"] == 7000

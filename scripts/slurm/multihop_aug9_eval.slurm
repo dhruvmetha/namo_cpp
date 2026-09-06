@@ -18,6 +18,7 @@ set -euo pipefail
 : "${CKPT:?set CKPT to the HY5U checkpoint}"
 PRIOR=${PRIOR:-model}
 SEARCH_SEED=${SEARCH_SEED:-42}
+SHUFFLE_SEED=${SHUFFLE_SEED:-$SEARCH_SEED}
 # Exact initial region-path length of the pool being evaluated. Defaults to 2 so every
 # prior two-hop invocation reproduces unchanged; set to 3 or 4 for the deeper pools.
 PATH_LENGTH=${PATH_LENGTH:-2}
@@ -61,7 +62,7 @@ if [ -n "${INPUT_LIMIT:-}" ]; then
   limit_args+=(--limit "$INPUT_LIMIT")
 fi
 
-echo "EVAL start $(date) host=$(hostname) task=$task_id range=[$start,$end) total=$total prior=$PRIOR seed=$SEARCH_SEED hop=$PATH_LENGTH"
+echo "EVAL start $(date) host=$(hostname) task=$task_id range=[$start,$end) total=$total prior=$PRIOR verifier_seed=$SEARCH_SEED shuffle_seed=$SHUFFLE_SEED hop=$PATH_LENGTH"
 "$PY" -m namo.solvability_runner \
   --manifest "$shard_out/input.txt" \
   --path-length "$PATH_LENGTH" \
@@ -73,6 +74,7 @@ echo "EVAL start $(date) host=$(hostname) task=$task_id range=[$start,$end) tota
   --region-success-min-reachable 20 \
   --goals-per-region 100 \
   --seed "$SEARCH_SEED" \
+  --shuffle-seed "$SHUFFLE_SEED" \
   --simulation-budget "${SIM_BUDGET:-900}" \
   --simulation-budget-scope keyhole \
   --local-search best_first \

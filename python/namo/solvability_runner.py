@@ -64,6 +64,7 @@ class SolveTask:
     max_push_steps: Optional[int] = None
     audit_next_keyhole_reachability: bool = False
     preserve_next_keyhole_access: bool = False
+    shuffle_seed: Optional[int] = None
 
 
 def _load_namo_config(config_path: str) -> Dict[str, Any]:
@@ -111,7 +112,7 @@ def build_full_namo_planner_config(task: SolveTask) -> PlannerConfig:
         "region_use_cpp_unified_wavefront": task.use_cpp_snapshot,
         "full_namo_use_cpp_unified_wavefront": task.use_cpp_snapshot,
         "region_snapshot_seed": task.seed,
-        "shuffle_seed": task.seed,
+        "shuffle_seed": task.seed if task.shuffle_seed is None else task.shuffle_seed,
         "ml_seed": task.seed,
         "push_budget": push_budget,
         "full_namo_budget_scope": task.simulation_budget_scope,
@@ -266,6 +267,7 @@ def _build_task(
     max_push_steps: Optional[int],
     audit_next_keyhole_reachability: bool,
     preserve_next_keyhole_access: bool,
+    shuffle_seed: Optional[int],
 ) -> SolveTask:
     return SolveTask(
         xml_path=analysis.xml_path,
@@ -292,6 +294,7 @@ def _build_task(
         max_push_steps=max_push_steps,
         audit_next_keyhole_reachability=audit_next_keyhole_reachability,
         preserve_next_keyhole_access=preserve_next_keyhole_access,
+        shuffle_seed=shuffle_seed,
     )
 
 
@@ -343,6 +346,7 @@ def run_exact_n_solvability(
     full_namo_max_iterations: Optional[int] = None,
     audit_next_keyhole_reachability: bool = False,
     preserve_next_keyhole_access: bool = False,
+    shuffle_seed: Optional[int] = None,
     limit: Optional[int] = None,
 ) -> Dict[str, Any]:
     config_path = _resolve_config_path(repo_root, config_file)
@@ -372,6 +376,7 @@ def run_exact_n_solvability(
         "region_success_min_reachable": int(region_success_min_reachable),
         "goals_per_region": int(goals_per_region),
         "seed": int(seed),
+        "shuffle_seed": int(seed if shuffle_seed is None else shuffle_seed),
         "use_cpp_snapshot": bool(use_cpp_snapshot),
         "simulation_budget": int(simulation_budget),
         "simulation_budget_scope": simulation_budget_scope,
@@ -441,6 +446,7 @@ def run_exact_n_solvability(
             max_push_steps=effective_max_push_steps,
             audit_next_keyhole_reachability=audit_next_keyhole_reachability,
             preserve_next_keyhole_access=preserve_next_keyhole_access,
+            shuffle_seed=shuffle_seed,
         )
         for analysis in selected_analyses
     ]
@@ -545,6 +551,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help=f"Number of sampled goals per region for opening validation (default: {DEFAULT_GOALS_PER_REGION})",
     )
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED, help=f"Random seed (default: {DEFAULT_SEED})")
+    parser.add_argument(
+        "--shuffle-seed",
+        type=int,
+        default=None,
+        help="Optional push-ordering seed; defaults to --seed",
+    )
     parser.add_argument(
         "--use-cpp-snapshot",
         action=argparse.BooleanOptionalAction,
@@ -664,6 +676,7 @@ def cli_main(argv: Optional[Sequence[str]] = None) -> int:
         region_success_min_reachable=args.region_success_min_reachable,
         goals_per_region=args.goals_per_region,
         seed=args.seed,
+        shuffle_seed=args.shuffle_seed,
         use_cpp_snapshot=args.use_cpp_snapshot,
         simulation_budget=args.simulation_budget,
         simulation_budget_scope=args.simulation_budget_scope,
