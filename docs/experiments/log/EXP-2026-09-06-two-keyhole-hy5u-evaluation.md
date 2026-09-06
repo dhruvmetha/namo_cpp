@@ -24,7 +24,9 @@ First run one complete scene on rlab7 with one worker. If checkpoint loading, to
 
 ## Run
 
-Pending smoke.
+The rlab7 one-scene smoke ran as job `272101_0` at commit `e056bbdd` and completed successfully in 2:10. It evaluated MM interaction scene `contact_0000.xml`, loaded the registered HY5U checkpoint, selected the expected exact-two-hop scene, and solved the complete goal in two simulator calls split `[1, 1]` across K1 and K2. The read-only K1 audit reported unchanged K2 object identity and pose, no lost or gained reachable K2 edges, and a path reduction from two hops to one.
+
+The smoke's two simulator calls show that its elapsed time is dominated by process, model, and environment startup. The 40-scene run therefore uses one rlab7 allocation with ten workers, a two-hour safety limit, and the same protocol. A startup-dominated lower estimate is roughly 10 minutes for four worker waves; a pessimistic tail estimate is 45–60 minutes if several scenes consume hundreds of simulations.
 
 ## Result
 
