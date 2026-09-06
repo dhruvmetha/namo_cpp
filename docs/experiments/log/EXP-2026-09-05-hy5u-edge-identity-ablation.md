@@ -2,7 +2,7 @@
 type: experiment
 status: live
 created: 2026-09-05
-updated: 2026-09-05
+updated: 2026-09-06
 commit: 7ef3ccb4
 metric: "Canonical fixed-physics-v3 success versus simulator calls, split by easy/medium/hard and 1push/2push; three seeds."
 tags:
@@ -32,6 +32,10 @@ After training, evaluate all three seeds on the canonical fixed-physics-v3 1-pus
 The target-box smoke ran on Westeros GPU 0 and passed in 1,716 seconds. It completed one full epoch at batch 256, wrote both validation and last checkpoints, passed strict reload and the scorer-load postcheck, and measured peak training allocation within the 11 GB card. The first attempt to release all three full seeds then stopped before starting any model because the new parallel-seed branch called `run_one` without a dynamically scoped `phase`; `set -u` caught the unbound variable before output directories or checkpoints were created. The dependent handoff saw that the training supervisor exited without `FLEET DONE` and correctly submitted nothing to Amarel.
 
 The measured smoke implies roughly 5.7 hours for 12 epochs if epoch cost remains linear; the full seeds run concurrently, so the expected training wall time is 5.5–7.5 hours after restart. The Amarel evaluation remains chained behind training and has its own smoke gate.
+
+The corrected full training started on Westeros at 2026-09-05 22:59 EDT with seeds 1/2/3 running concurrently on GPUs 0/1/2. All three completed epoch 2 without failure by 2026-09-06 00:17 EDT, with best validation losses 0.4085/0.4154/0.4020. A target-box iLab RTX 4500 Ada smoke completed successfully in 29:12, essentially matching rather than beating the 28:36 Westeros smoke, so the in-progress runs stayed on Westeros.
+
+The Amarel full evaluation launcher was resized before handoff. This canonical population has 997 one-push and 958 two-push episodes per seed, so three seeds expose 5,865 independent serial searches. The launcher now uses one CPU per episode-seed pair, split into 115 array tasks per seed with 17 workers each: 5,865 useful CPUs, the maximum available parallelism below the 6,720-CPU user cap. The earlier 36 tasks by 21 workers per seed would have used only 2,268 CPUs.
 
 ## Result
 
