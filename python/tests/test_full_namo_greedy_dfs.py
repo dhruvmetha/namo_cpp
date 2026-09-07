@@ -49,10 +49,14 @@ class FakeEnv:
 
 def _snapshot(targets, goal_label):
     adjacency = {"robot": set(targets)}
+    edge_objects = {"robot": {}}
     for target in targets:
         adjacency[target] = {"robot"}
+        edge_objects["robot"][target] = ["box"]
+        edge_objects[target] = {"robot": ["box"]}
     return {
         "adjacency": adjacency,
+        "edge_objects": edge_objects,
         "robot_label": "robot",
         "goal_label": goal_label,
         "goal_in_free_space": True,
@@ -66,6 +70,11 @@ def _alternate_snapshot():
             "a": {"robot", "goal"},
             "b": {"robot", "goal"},
             "goal": {"a", "b"},
+        },
+        "edge_objects": {
+            "robot": {"a": ["box"], "b": ["box"]},
+            "a": {"robot": ["box"]},
+            "b": {"robot": ["box"]},
         },
         "robot_label": "robot",
         "goal_label": "goal",

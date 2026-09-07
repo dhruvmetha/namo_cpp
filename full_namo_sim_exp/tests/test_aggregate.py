@@ -88,7 +88,7 @@ def test_aggregate_arm_rejects_protocol_mismatch(experiment_path: Path) -> None:
     raw["simulation_budget"] = 300
     path.write_text(json.dumps(raw), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="simulation_budget.*expected 900.*received 300"):
+    with pytest.raises(ValueError, match="simulation_budget.*expected 20000.*received 300"):
         aggregate_arm(experiment, experiment.model)
 
 

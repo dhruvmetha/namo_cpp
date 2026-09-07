@@ -198,7 +198,7 @@ def test_full_namo_propagates_simulation_budget_exhaustion(monkeypatch):
         def reset(self):
             pass
 
-        def search(self, robot_goal, target_neighbor=None):
+        def search(self, robot_goal, target_neighbor=None, **_kwargs):
             return PlannerResult(
                 success=False,
                 solution_found=False,
@@ -234,6 +234,10 @@ def test_full_namo_propagates_simulation_budget_exhaustion(monkeypatch):
         "_compute_region_snapshot",
         lambda: {
             "adjacency": {"robot": {"a"}, "a": {"robot", "goal"}, "goal": {"a"}},
+            "edge_objects": {
+                "robot": {"a": ["box"]},
+                "a": {"robot": ["box"]},
+            },
             "robot_label": "robot",
             "goal_label": "goal",
             "goal_in_free_space": True,
@@ -256,7 +260,7 @@ class _AlreadyAccessibleOpener:
     def reset(self):
         pass
 
-    def search(self, robot_goal, target_neighbor=None):
+    def search(self, robot_goal, target_neighbor=None, **_kwargs):
         self.calls += 1
         attempt = types.SimpleNamespace(success=True, resulting_state="baseline")
         return PlannerResult(
@@ -294,6 +298,13 @@ def _patch_planner_with_opener(monkeypatch, planner_env, opener, adjacency):
         "_compute_region_snapshot",
         lambda: {
             "adjacency": adjacency,
+            "edge_objects": {
+                "robot": {neighbor: ["box"] for neighbor in adjacency.get("robot", set())},
+                **{
+                    neighbor: {"robot": ["box"]}
+                    for neighbor in adjacency.get("robot", set())
+                },
+            },
             "robot_label": "robot",
             "goal_label": "goal",
             "goal_in_free_space": True,
@@ -302,33 +313,10 @@ def _patch_planner_with_opener(monkeypatch, planner_env, opener, adjacency):
     return planner
 
 
-def test_already_accessible_is_a_zero_push_opening_not_an_invariant_failure(monkeypatch):
-    """A target region the opener already counts reachable must not abort the whole scene."""
-    env = FakeEnv()
-    # Pre-loop check, then the iteration-top check, then reachable after the zero-push open.
-    reachable = iter([False, False, True])
-    monkeypatch.setattr(FakeEnv, "is_robot_goal_reachable", lambda self: next(reachable))
-
-    planner = _patch_planner_with_opener(
-        monkeypatch,
-        env,
-        _AlreadyAccessibleOpener(),
-        {"robot": {"a"}, "a": {"robot", "goal"}, "goal": {"a"}},
-    )
-
-    result = planner.search((0.0, 0.0, 0.0))
-
-    assert result.success is True
-    assert (result.algorithm_stats or {}).get("failure_subkind") != "already_accessible"
-    outcomes = [entry["outcome"] for entry in result.algorithm_stats["iteration_trace"]]
-    assert "opened_target" in outcomes
-
-
-def test_repeated_already_accessible_blacklists_instead_of_looping(monkeypatch):
-    """Zero-push openings change nothing, so a repeat must reroute rather than spin forever."""
+def test_full_namo_rejects_a_zero_push_opener_result(monkeypatch):
+    """The global graph selected a blocker, so success must contain a physical push."""
     env = FakeEnv()
     opener = _AlreadyAccessibleOpener()
-
     planner = _patch_planner_with_opener(
         monkeypatch,
         env,
@@ -339,11 +327,12 @@ def test_repeated_already_accessible_blacklists_instead_of_looping(monkeypatch):
     result = planner.search((0.0, 0.0, 0.0))
 
     assert result.success is False
-    assert result.algorithm_stats["failure_kind"] == "region_path_exhausted"
-    outcomes = [entry["outcome"] for entry in result.algorithm_stats["iteration_trace"]]
-    assert outcomes.count("opened_target") == 1
-    assert "already_accessible_repeat" in outcomes
-    assert opener.calls == 2
+    assert result.algorithm_stats["failure_kind"] == "planner_invariant_violation"
+    assert (
+        result.algorithm_stats["failure_subkind"]
+        == "opener_contract_violation_empty_action_sequence"
+    )
+    assert opener.calls == 1
 
 
 def _result_with(stats):

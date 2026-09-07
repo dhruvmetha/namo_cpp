@@ -18,7 +18,12 @@ def test_runner_times_only_complete_full_namo_search(monkeypatch) -> None:
             assert goal == "goal"
             return SimpleNamespace(
                 success=True,
-                algorithm_stats={"simulation_budget_used_total": 7},
+                algorithm_stats={
+                    "simulation_budget_limit": 20000,
+                    "simulation_budget_used": 7,
+                    "simulation_budget_remaining": 19993,
+                    "simulation_budget_scope": "full_problem",
+                },
                 action_sequence=[],
                 error_message=None,
             )

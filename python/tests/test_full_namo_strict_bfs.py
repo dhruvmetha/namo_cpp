@@ -13,7 +13,10 @@ if "namo_rl" not in sys.modules:
     sys.modules["namo_rl"] = namo_rl_stub
 
 from namo.core import PlannerConfig, PlannerResult
-from namo.planners.full_namo.full_namo_planner import FullNAMOPlanner
+from namo.planners.full_namo.full_namo_planner import (
+    FullNAMOPlanner,
+    choose_region_route,
+)
 
 
 class FakeEnv:
@@ -103,8 +106,13 @@ def make_failure_result(target, reason, *, boundary_exhausted, local_neighbors=N
 
 
 def make_snapshot(adjacency, *, goal_label, robot_label="robot", goal_in_free_space=True):
+    edge_objects = {robot_label: {}}
+    for neighbor in adjacency.get(robot_label, set()):
+        edge_objects[robot_label][neighbor] = ["box"]
+        edge_objects.setdefault(neighbor, {})[robot_label] = ["box"]
     return {
         "adjacency": adjacency,
+        "edge_objects": edge_objects,
         "robot_label": robot_label,
         "goal_label": goal_label,
         "goal_in_free_space": goal_in_free_space,
@@ -119,7 +127,7 @@ def test_full_namo_executes_only_first_hop_of_longer_path(monkeypatch):
         def reset(self):
             pass
 
-        def search(self, robot_goal, target_neighbor=None):
+        def search(self, robot_goal, target_neighbor=None, **_kwargs):
             calls.append(target_neighbor)
             return make_success_result(target_neighbor, "opened")
 
@@ -155,7 +163,7 @@ def test_full_namo_region_path_exhausted_after_boundary_exhaustions(monkeypatch)
         def reset(self):
             pass
 
-        def search(self, robot_goal, target_neighbor=None):
+        def search(self, robot_goal, target_neighbor=None, **_kwargs):
             calls.append(target_neighbor)
             return make_failure_result(
                 target_neighbor,
@@ -192,7 +200,7 @@ def test_full_namo_non_exhaustive_failure_does_not_block_boundary(monkeypatch):
         def reset(self):
             pass
 
-        def search(self, robot_goal, target_neighbor=None):
+        def search(self, robot_goal, target_neighbor=None, **_kwargs):
             return make_failure_result(target_neighbor, "timeout", boundary_exhausted=False)
 
     planner = make_planner(monkeypatch, env, FakeOpener())
@@ -220,7 +228,7 @@ def test_full_namo_snapshot_mismatch_is_explicit_invariant(monkeypatch):
         def reset(self):
             pass
 
-        def search(self, robot_goal, target_neighbor=None):
+        def search(self, robot_goal, target_neighbor=None, **_kwargs):
             return make_failure_result(
                 target_neighbor,
                 "target_not_immediate_neighbor",
@@ -256,7 +264,7 @@ def test_full_namo_recomputes_goal_region_each_iteration(monkeypatch):
         def reset(self):
             pass
 
-        def search(self, robot_goal, target_neighbor=None):
+        def search(self, robot_goal, target_neighbor=None, **_kwargs):
             calls.append(target_neighbor)
             if target_neighbor == "a":
                 return make_success_result(target_neighbor, "opened1")
@@ -341,3 +349,233 @@ def test_validate_region_path_rejects_blocked_or_non_adjacent_hops(monkeypatch):
         adjacency=adjacency,
         blocked_boundaries={planner._boundary_key("robot", "a")},
     ) == "path_uses_blocked_boundary"
+
+
+def test_route_attempt_cost_can_defer_a_short_route_to_an_untried_route():
+    snapshot = {
+        "adjacency": {
+            "robot": {"a", "b"},
+            "a": {"robot", "goal"},
+            "b": {"robot", "c"},
+            "c": {"b", "goal"},
+            "goal": {"a", "c"},
+        },
+        "edge_objects": {
+            "robot": {"a": ["box_a"], "b": ["box_b"]},
+            "a": {"robot": ["box_a"]},
+            "b": {"robot": ["box_b"]},
+        },
+    }
+
+    first = choose_region_route(snapshot, "robot", "goal", opening_attempts={})
+    deferred = choose_region_route(
+        snapshot,
+        "robot",
+        "goal",
+        opening_attempts={"box_a": 1},
+    )
+
+    assert first is not None
+    assert (first.object_id, first.hops, first.cost) == ("box_a", 2, 2)
+    assert deferred is not None
+    assert (deferred.object_id, deferred.hops, deferred.cost) == ("box_b", 3, 3)
+
+
+def test_full_namo_exhausts_one_blocker_then_tries_another_on_the_same_boundary(
+    monkeypatch,
+):
+    env = FakeEnv()
+    calls = []
+
+    class FakeOpener:
+        def reset(self):
+            pass
+
+        def search(
+            self,
+            robot_goal,
+            target_neighbor=None,
+            target_object_id=None,
+            require_push=False,
+        ):
+            calls.append((target_neighbor, target_object_id, require_push))
+            if target_object_id == "box_a":
+                return make_failure_result(
+                    target_neighbor,
+                    "all_pushes_failed",
+                    boundary_exhausted=True,
+                )
+            return make_success_result(
+                target_neighbor,
+                "opened",
+                object_id=target_object_id,
+            )
+
+    planner = make_planner(monkeypatch, env, FakeOpener())
+    snapshot = {
+        **make_snapshot(
+            {
+                "robot": {"a"},
+                "a": {"robot", "goal"},
+                "goal": {"a"},
+            },
+            goal_label="goal",
+        ),
+        "edge_objects": {
+            "robot": {"a": ["box_b", "box_a"]},
+            "a": {"robot": ["box_a", "box_b"]},
+        },
+    }
+    monkeypatch.setattr(planner, "_compute_region_snapshot", lambda: snapshot)
+
+    result = planner.search((0.0, 0.0, 0.0))
+
+    assert result.success is True
+    assert calls == [
+        ("a", "box_a", True),
+        ("a", "box_b", True),
+    ]
+    assert result.algorithm_stats["boundary_exhaustions"] == 1
+
+
+def test_unchanged_hop_count_defers_a_tried_short_route_to_an_untried_route(
+    monkeypatch,
+):
+    env = FakeEnv()
+    calls = []
+
+    class FakeOpener:
+        def reset(self):
+            pass
+
+        def search(
+            self,
+            robot_goal,
+            target_neighbor=None,
+            target_object_id=None,
+            require_push=False,
+        ):
+            calls.append((target_neighbor, target_object_id, require_push))
+            state = "changed" if target_object_id == "box_a" else "opened"
+            return make_success_result(
+                target_neighbor,
+                state,
+                object_id=target_object_id,
+            )
+
+    planner = make_planner(monkeypatch, env, FakeOpener())
+    snapshot = {
+        **make_snapshot(
+            {
+                "robot": {"a", "b"},
+                "a": {"robot", "goal"},
+                "b": {"robot", "c"},
+                "c": {"b", "goal"},
+                "goal": {"a", "c"},
+            },
+            goal_label="goal",
+        ),
+        "edge_objects": {
+            "robot": {"a": ["box_a"], "b": ["box_b"]},
+            "a": {"robot": ["box_a"]},
+            "b": {"robot": ["box_b"]},
+        },
+    }
+    monkeypatch.setattr(planner, "_compute_region_snapshot", lambda: snapshot)
+
+    result = planner.search((0.0, 0.0, 0.0))
+
+    assert result.success is True
+    assert calls == [
+        ("a", "box_a", True),
+        ("b", "box_b", True),
+    ]
+    opened = [
+        row
+        for row in result.algorithm_stats["iteration_trace"]
+        if row.get("outcome") == "opened_target"
+    ]
+    assert [(row["route_hops"], row["route_cost"]) for row in opened] == [
+        (2, 2),
+        (3, 3),
+    ]
+
+
+def test_shorter_recomputed_route_resets_attempt_history(monkeypatch):
+    env = FakeEnv()
+
+    class FakeOpener:
+        def reset(self):
+            pass
+
+        def search(
+            self,
+            robot_goal,
+            target_neighbor=None,
+            target_object_id=None,
+            require_push=False,
+        ):
+            next_state = {
+                "box_a": "changed",
+                "box_b": "shorter",
+                "box_c": "opened",
+            }[target_object_id]
+            return make_success_result(
+                target_neighbor,
+                next_state,
+                object_id=target_object_id,
+            )
+
+    planner = make_planner(monkeypatch, env, FakeOpener())
+    long_snapshot = {
+        **make_snapshot(
+            {
+                "robot": {"a", "b"},
+                "a": {"robot", "goal"},
+                "b": {"robot", "c"},
+                "c": {"b", "goal"},
+                "goal": {"a", "c"},
+            },
+            goal_label="goal",
+        ),
+        "edge_objects": {
+            "robot": {"a": ["box_a"], "b": ["box_b"]},
+            "a": {"robot": ["box_a"]},
+            "b": {"robot": ["box_b"]},
+        },
+    }
+    shorter_snapshot = {
+        **make_snapshot(
+            {
+                "robot": {"goal", "a"},
+                "a": {"robot", "goal"},
+                "goal": {"robot", "a"},
+            },
+            goal_label="goal",
+        ),
+        "edge_objects": {
+            "robot": {"goal": ["box_c"], "a": ["box_a"]},
+            "goal": {"robot": ["box_c"]},
+            "a": {"robot": ["box_a"]},
+        },
+    }
+    monkeypatch.setattr(
+        planner,
+        "_compute_region_snapshot",
+        lambda: shorter_snapshot if env.current_state == "shorter" else long_snapshot,
+    )
+
+    result = planner.search((0.0, 0.0, 0.0))
+
+    assert result.success is True
+    opened = [
+        row
+        for row in result.algorithm_stats["iteration_trace"]
+        if row.get("outcome") == "opened_target"
+    ]
+    assert [row["chosen_initial_blocker"] for row in opened] == [
+        "box_a",
+        "box_b",
+        "box_c",
+    ]
+    assert opened[-1]["opening_attempts_by_object"] == {}

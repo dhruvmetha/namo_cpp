@@ -107,6 +107,48 @@ def test_search_restores_baseline_and_preserves_resulting_state(monkeypatch):
     assert result.algorithm_stats["target_summary"]["boundary_exhausted"] is False
 
 
+def test_search_forwards_full_namo_blocker_and_require_push_contract(monkeypatch):
+    env = FakeEnv()
+    planner = make_planner(monkeypatch, env)
+    calls = []
+
+    def fake_explore(
+        self,
+        state,
+        level=0,
+        target_neighbor=None,
+        target_object_id=None,
+        require_push=False,
+    ):
+        calls.append((target_neighbor, target_object_id, require_push))
+        self._last_explore_context = {
+            "local_robot_label": "robot",
+            "local_neighbors": ["a"],
+            "target_neighbor": target_neighbor,
+            "target_is_immediate_neighbor": True,
+        }
+        return [
+            AttemptResult(
+                success=False,
+                neighbour_region_label=target_neighbor,
+                chosen_object_id=target_object_id,
+                failure_reason="all_pushes_failed",
+            )
+        ]
+
+    monkeypatch.setattr(RegionOpeningPlanner, "_explore_from_state", fake_explore)
+
+    result = planner.search(
+        (0.0, 0.0, 0.0),
+        target_neighbor="a",
+        target_object_id="box_b",
+        require_push=True,
+    )
+
+    assert result.success is False
+    assert calls == [("a", "box_b", True)]
+
+
 def test_targeted_non_neighbor_returns_explicit_failure_reason(monkeypatch):
     env = FakeEnv()
     planner = make_planner(monkeypatch, env)

@@ -62,7 +62,7 @@ class Protocol:
     primitive_data_dir: Path
     primitive_prefix: str
     max_push_steps: int
-    simulation_budget_per_keyhole: int
+    simulation_budget_total: int
     region_max_chain_depth: int
     goals_per_region: int
     region_success_min_reachable: int
@@ -261,9 +261,9 @@ def load_experiment(path: Path) -> Experiment:
         max_push_steps=_positive_int(
             protocol_raw.get("max_push_steps"), "protocol.max_push_steps"
         ),
-        simulation_budget_per_keyhole=_positive_int(
-            protocol_raw.get("simulation_budget_per_keyhole"),
-            "protocol.simulation_budget_per_keyhole",
+        simulation_budget_total=_positive_int(
+            protocol_raw.get("simulation_budget_total"),
+            "protocol.simulation_budget_total",
         ),
         region_max_chain_depth=_positive_int(
             protocol_raw.get("region_max_chain_depth"),

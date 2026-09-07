@@ -44,6 +44,8 @@ Print the SLURM launch command, including the campaign's predeclared partition a
 
 Each array task evaluates the same shard sequentially on Sage Hybrid and all five Random seeds. Arm order rotates by shard, workers remain one, and all six measurements occur on the same node without contention. `runner.py` times the complete `FullNAMOPlanner.search` call, which includes every region-opening call and replanning step but excludes environment construction and one-time model loading.
 
+Every arm receives one shared 20,000-simulator-call budget for the complete Full NAMO problem. The budget is not reset at keyhole boundaries, and reaching it is recorded as a censored failure.
+
 `protocol.evaluation_seed` is shared by every arm and fixes snapshot, goal-sampling, and model randomness. The model seed and five `random_seeds` alter only the best-first edge-ordering RNG. This separation is required for paired scene-level comparisons: changing a Random ordering seed must never change the task geometry being evaluated.
 
 After every shard finishes, aggregate, validate, compute statistics, and render the figure:

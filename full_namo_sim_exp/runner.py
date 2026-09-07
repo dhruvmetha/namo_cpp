@@ -193,6 +193,12 @@ def timed_solve_environment_task(task: base.SolveTask) -> dict[str, Any]:
             )
             if key in budget_stats
         }
+        used_total = budget_stats.get(
+            "simulation_budget_used_total",
+            budget_stats.get("simulation_budget_used"),
+        )
+        if used_total is not None:
+            budget_fields["simulation_budget_used_total"] = int(used_total)
         trace_fields = (
             {"iteration_trace": budget_stats["iteration_trace"]}
             if "iteration_trace" in budget_stats

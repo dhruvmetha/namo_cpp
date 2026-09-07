@@ -205,3 +205,66 @@ def test_opening_predicate_replaces_region_fraction_as_terminal_bar(monkeypatch)
 
     assert result.success is True
     assert result.algorithm_stats["simulation_budget_used"] == 2
+
+
+def test_full_namo_handoff_pins_one_blocker_and_skips_only_the_initial_precheck(
+    monkeypatch,
+):
+    class CandidateEnv(_StubEnv):
+        def __init__(self):
+            self.state = {"name": "baseline"}
+            self.reachability_calls = 0
+
+        def get_full_state(self):
+            return self.state
+
+        def set_full_state(self, state):
+            self.state = state
+
+        def count_reachable_points(self, points):
+            self.reachability_calls += 1
+            return len(points), 0
+
+    env = CandidateEnv()
+    planner = BestFirstRegionOpeningPlanner(
+        env,
+        PlannerConfig(algorithm_params={"best_first_prior": "uniform"}),
+    )
+    snapshot = {
+        "robot_label": "robot",
+        "region_labels": {},
+        "adjacency": {"robot": {"middle"}},
+        "region_goals": {
+            "middle": SimpleNamespace(
+                goals=[SimpleNamespace(x=1.0, y=2.0, theta=0.0)]
+            )
+        },
+        "edge_objects": {"robot": {"middle": ["door_a", "door_b"]}},
+    }
+    monkeypatch.setattr("namo.planners.get_region_snapshot", lambda *_args, **_kwargs: snapshot)
+
+    goal = SimpleNamespace(x=0.2, y=0.3, theta=0.0, edge_idx=4, depth=0)
+
+    def fake_solve_scene(*_args, restrict_obj, is_open, solution_out, **_kwargs):
+        assert restrict_obj == ["door_b"]
+        assert env.reachability_calls == 0
+        assert is_open(env) is True
+        solution_out["plan"] = [("door_b", goal)]
+        solution_out["state"] = {"name": "opened"}
+        return True, 1, 1, [], "solved"
+
+    monkeypatch.setattr(
+        "namo.planners.opening.best_first_region_opening.solve_scene",
+        fake_solve_scene,
+    )
+
+    result = planner.search(
+        (0.0, 0.0, 0.0),
+        target_neighbor="middle",
+        target_object_id="door_b",
+        require_push=True,
+    )
+
+    assert result.success is True
+    assert [action.object_id for action in result.action_sequence] == ["door_b"]
+    assert env.reachability_calls == 1

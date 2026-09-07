@@ -46,7 +46,12 @@ def test_runner_commands_interleave_all_six_arms_with_matched_protocol(
     assert commands[0].arm.name == "random_s101"
     assert commands[-1].arm.name == "hy5u"
     assert all("--simulation-budget" in command.argv for command in commands)
-    assert all("900" in command.argv for command in commands)
+    assert {
+        option(command.argv, "--simulation-budget") for command in commands
+    } == {"20000"}
+    assert {
+        option(command.argv, "--simulation-budget-scope") for command in commands
+    } == {"full_problem"}
     assert [command.arm.prior for command in commands].count("uniform") == 5
     assert [command.arm.prior for command in commands].count("model") == 1
     assert {option(command.argv, "--seed") for command in commands} == {"42"}

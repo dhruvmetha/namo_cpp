@@ -2,8 +2,8 @@
 
 This planner solves the full NAMO problem (reaching a specific robot goal) by:
 1. Computing the current region connectivity graph
-2. Finding a shortest path through regions from robot to goal
-3. Opening only the first robot-adjacent boundary on that path
+2. Balancing current route length against prior attempts on each initial blocker
+3. Opening the selected robot-adjacent boundary with the selected blocker
 4. Recomputing after each successful opening until the robot goal is reachable
 """
 
@@ -83,6 +83,125 @@ def find_region_path(
     return None
 
 
+@dataclass(frozen=True)
+class RegionRouteChoice:
+    """One current path paired with the object blocking its first boundary."""
+
+    path: Tuple[str, ...]
+    boundary: Tuple[str, str]
+    target_region: str
+    object_id: str
+    hops: int
+    attempts: int
+
+    @property
+    def cost(self) -> int:
+        """Hop-aware scheduling cost for this current route choice."""
+        return self.hops + self.attempts
+
+
+def _shortest_path_with_first_hop(
+    adjacency: Dict[str, Set[str]],
+    start_label: str,
+    first_hop: str,
+    goal_label: str,
+) -> Optional[Tuple[str, ...]]:
+    """Return the shortest simple path constrained to one first hop."""
+    if first_hop == goal_label:
+        return (start_label, first_hop)
+
+    queue = deque([(first_hop, (start_label, first_hop))])
+    visited = {start_label, first_hop}
+    while queue:
+        current, path = queue.popleft()
+        for neighbor in sorted(adjacency.get(current, set())):
+            if neighbor in visited:
+                continue
+            next_path = path + (neighbor,)
+            if neighbor == goal_label:
+                return next_path
+            visited.add(neighbor)
+            queue.append((neighbor, next_path))
+    return None
+
+
+def enumerate_region_routes(
+    snapshot_data: Dict[str, Any],
+    start_label: str,
+    goal_label: str,
+    *,
+    opening_attempts: Optional[Dict[str, int]] = None,
+    blocked_choices: Optional[Set[Tuple[Tuple[str, str], str]]] = None,
+) -> List[RegionRouteChoice]:
+    """Enumerate current first-boundary choices in scheduling order."""
+    attempts_by_object = opening_attempts or {}
+    blocked = blocked_choices or set()
+    adjacency = snapshot_data["adjacency"]
+    edge_objects = snapshot_data.get("edge_objects", {})
+    choices: List[RegionRouteChoice] = []
+
+    for target_region in sorted(adjacency.get(start_label, set())):
+        path = _shortest_path_with_first_hop(
+            adjacency,
+            start_label,
+            target_region,
+            goal_label,
+        )
+        if path is None:
+            continue
+
+        forward = edge_objects.get(start_label, {}).get(target_region)
+        reverse = edge_objects.get(target_region, {}).get(start_label)
+        if forward is not None and reverse is not None and set(forward) != set(reverse):
+            raise ValueError("boundary_object_map_inconsistent")
+        object_ids = sorted(set(forward if forward is not None else reverse or []))
+        for object_id in object_ids:
+            object_id = str(object_id)
+            current_boundary = boundary_key(start_label, target_region)
+            if (current_boundary, object_id) in blocked:
+                continue
+            choices.append(
+                RegionRouteChoice(
+                    path=path,
+                    boundary=current_boundary,
+                    target_region=target_region,
+                    object_id=object_id,
+                    hops=len(path) - 1,
+                    attempts=max(0, int(attempts_by_object.get(object_id, 0))),
+                )
+            )
+
+    return sorted(
+        choices,
+        key=lambda choice: (
+            choice.cost,
+            choice.attempts,
+            choice.object_id,
+            choice.boundary,
+            choice.path,
+        ),
+    )
+
+
+def choose_region_route(
+    snapshot_data: Dict[str, Any],
+    start_label: str,
+    goal_label: str,
+    *,
+    opening_attempts: Optional[Dict[str, int]] = None,
+    blocked_choices: Optional[Set[Tuple[Tuple[str, str], str]]] = None,
+) -> Optional[RegionRouteChoice]:
+    """Choose the lowest-cost current path and initial blocking object."""
+    choices = enumerate_region_routes(
+        snapshot_data,
+        start_label,
+        goal_label,
+        opening_attempts=opening_attempts,
+        blocked_choices=blocked_choices,
+    )
+    return choices[0] if choices else None
+
+
 @dataclass
 class FullNAMOStats:
     """Statistics for full NAMO planning."""
@@ -121,6 +240,7 @@ class FullNAMOPlanner(BasePlanner):
         "missing_robot_region",
         "no_attempt_results",
         "no_blocking_objects",
+        "target_object_not_on_boundary",
         "target_not_immediate_neighbor",
     }
 
@@ -165,6 +285,7 @@ class FullNAMOPlanner(BasePlanner):
         self._aggregated_rejections: Dict[str, int] = {}
         self._aggregated_primitives: int = 0
         self._iteration_trace: List[Dict[str, Any]] = []
+        self._opening_attempts_by_object: Dict[str, int] = {}
         self.push_budget = algo_params.get("push_budget")
         self.budget_scope = str(algo_params.get("full_namo_budget_scope", "full_problem"))
         if self.budget_scope not in {"full_problem", "keyhole"}:
@@ -210,13 +331,14 @@ class FullNAMOPlanner(BasePlanner):
 
     @property
     def algorithm_version(self) -> str:
-        return "v1.0-hierarchical"
+        return "v1.1-hop-aware"
 
     def reset(self):
         self.stats = FullNAMOStats()
         self._aggregated_rejections = {}
         self._aggregated_primitives = 0
         self._iteration_trace = []
+        self._opening_attempts_by_object = {}
         self._keyhole_budget_usage = []
         if self.region_opener:
             self.region_opener.reset()
@@ -373,8 +495,8 @@ class FullNAMOPlanner(BasePlanner):
         self._aggregated_rejections = {}
         self._aggregated_primitives = 0
         self._iteration_trace = []
+        self._opening_attempts_by_object = {}
         self._keyhole_budget_usage = []
-        zero_push_opened: Set[Tuple[str, str]] = set()
 
         self.env.set_robot_goal(robot_goal[0], robot_goal[1], robot_goal[2])
 
@@ -385,7 +507,9 @@ class FullNAMOPlanner(BasePlanner):
         self._debug(f"{'=' * 60}\n")
         actions: List[namo_rl.Action] = []
         region_openings: List[RegionOpeningResult] = []
-        blocked_boundaries: Set[Tuple[str, str]] = set()
+        blocked_choices: Set[Tuple[Tuple[str, str], str]] = set()
+        pending_attempt: Optional[Tuple[str, int]] = None
+        cached_snapshot: Optional[Dict[str, Any]] = None
 
         if self.env.is_robot_goal_reachable():
             self._record_iteration_trace({"iteration": 0, "outcome": "goal_reachable_immediately"})
@@ -409,12 +533,17 @@ class FullNAMOPlanner(BasePlanner):
                     {
                         "iteration": iteration,
                         "outcome": "goal_reachable",
-                        "blocked_boundaries": self._serialize_blocked_boundaries(blocked_boundaries),
+                        "blocked_boundary_objects": self._serialize_blocked_choices(
+                            blocked_choices
+                        ),
                     }
                 )
                 return self._success_result(start_time, actions, region_openings)
 
-            snapshot = self._compute_region_snapshot()
+            snapshot = cached_snapshot
+            cached_snapshot = None
+            if snapshot is None:
+                snapshot = self._compute_region_snapshot()
             if snapshot is None:
                 return self._failure_result(
                     "Failed to compute region snapshot",
@@ -442,12 +571,63 @@ class FullNAMOPlanner(BasePlanner):
                     failure_kind="robot_region_invalid",
                 )
 
-            path = self._find_region_path_avoiding_edges(
-                snapshot_data=snapshot,
-                start_label=robot_region,
-                goal_label=goal_region,
-                failed_edges=blocked_boundaries,
+            try:
+                all_route_choices = enumerate_region_routes(
+                    snapshot,
+                    robot_region,
+                    goal_region,
+                    opening_attempts=self._opening_attempts_by_object,
+                )
+            except ValueError as exc:
+                return self._invariant_failure(
+                    str(exc),
+                    start_time,
+                    actions,
+                )
+
+            current_min_hops = min(
+                (choice.hops for choice in all_route_choices),
+                default=None,
             )
+            if pending_attempt is not None:
+                attempted_object, previous_min_hops = pending_attempt
+                current_blockers = {choice.object_id for choice in all_route_choices}
+                if current_min_hops is not None and current_min_hops < previous_min_hops:
+                    self._opening_attempts_by_object.clear()
+                else:
+                    self._opening_attempts_by_object = {
+                        object_id: count
+                        for object_id, count in self._opening_attempts_by_object.items()
+                        if object_id in current_blockers
+                    }
+                    if attempted_object in current_blockers:
+                        self._opening_attempts_by_object[attempted_object] = (
+                            self._opening_attempts_by_object.get(attempted_object, 0) + 1
+                        )
+                pending_attempt = None
+
+            try:
+                choice = choose_region_route(
+                    snapshot,
+                    robot_region,
+                    goal_region,
+                    opening_attempts=self._opening_attempts_by_object,
+                    blocked_choices=blocked_choices,
+                )
+            except ValueError as exc:
+                return self._invariant_failure(
+                    str(exc),
+                    start_time,
+                    actions,
+                )
+
+            structural_path = find_region_path(
+                snapshot["adjacency"],
+                robot_region,
+                goal_region,
+            )
+            path = list(choice.path) if choice is not None else structural_path
+            blocked_boundaries = {boundary for boundary, _object_id in blocked_choices}
 
             base_context = self._build_iteration_context(
                 iteration=iteration,
@@ -457,11 +637,38 @@ class FullNAMOPlanner(BasePlanner):
                 path=path,
                 blocked_boundaries=blocked_boundaries,
             )
+            base_context["blocked_boundary_objects"] = self._serialize_blocked_choices(
+                blocked_choices
+            )
 
-            if path is None:
+            if choice is None:
+                if path is not None and len(path) == 1:
+                    context = {
+                        **base_context,
+                        "possible_root_cause": "reachability_model_mismatch",
+                    }
+                    self._record_iteration_trace(
+                        {**context, "outcome": "same_region_but_goal_unreachable"}
+                    )
+                    return self._invariant_failure(
+                        "same_region_but_goal_unreachable",
+                        start_time,
+                        actions,
+                        context=context,
+                    )
+                if path is not None and not all_route_choices and not blocked_choices:
+                    self._record_iteration_trace(
+                        {**base_context, "outcome": "no_blocking_objects"}
+                    )
+                    return self._invariant_failure(
+                        "no_blocking_objects",
+                        start_time,
+                        actions,
+                        context=base_context,
+                    )
                 self._record_iteration_trace({**base_context, "outcome": "region_path_exhausted"})
                 return self._failure_result(
-                    "No admissible region path to goal after blocked-boundary retries",
+                    "No admissible region path to goal after blocker-choice retries",
                     start_time,
                     actions,
                     failure_kind="region_path_exhausted",
@@ -473,7 +680,7 @@ class FullNAMOPlanner(BasePlanner):
                 robot_region=robot_region,
                 goal_region=goal_region,
                 adjacency=snapshot["adjacency"],
-                blocked_boundaries=blocked_boundaries,
+                blocked_boundaries=set(),
             )
             if validation_error is not None:
                 self._record_iteration_trace({**base_context, "outcome": validation_error})
@@ -484,20 +691,19 @@ class FullNAMOPlanner(BasePlanner):
                     context=base_context,
                 )
 
-            if len(path) == 1:
-                context = {
-                    **base_context,
-                    "possible_root_cause": "reachability_model_mismatch",
+            target = choice.target_region
+            target_object_id = choice.object_id
+            base_context.update(
+                {
+                    "chosen_initial_blocker": target_object_id,
+                    "route_hops": choice.hops,
+                    "route_attempts": choice.attempts,
+                    "route_cost": choice.cost,
+                    "opening_attempts_by_object": dict(
+                        sorted(self._opening_attempts_by_object.items())
+                    ),
                 }
-                self._record_iteration_trace({**context, "outcome": "same_region_but_goal_unreachable"})
-                return self._invariant_failure(
-                    "same_region_but_goal_unreachable",
-                    start_time,
-                    actions,
-                    context=context,
-                )
-
-            target = path[1]
+            )
             next_keyhole_profile = None
             if (
                 self.audit_next_keyhole_reachability or self.preserve_next_keyhole_access
@@ -527,7 +733,10 @@ class FullNAMOPlanner(BasePlanner):
                     context=context,
                 )
             opener = self._prepare_region_opener_for_keyhole()
-            opener_kwargs: Dict[str, Any] = {}
+            opener_kwargs: Dict[str, Any] = {
+                "target_object_id": target_object_id,
+                "require_push": True,
+            }
             if self.local_search == "best_first" and len(path) == 2:
                 opener_kwargs["opening_predicate"] = (
                     lambda candidate_env: candidate_env.is_robot_goal_reachable()
@@ -578,6 +787,20 @@ class FullNAMOPlanner(BasePlanner):
                 target_region=target,
                 target_summary=target_summary,
             )
+            context.update(
+                {
+                    "blocked_boundary_objects": self._serialize_blocked_choices(
+                        blocked_choices
+                    ),
+                    "chosen_initial_blocker": target_object_id,
+                    "route_hops": choice.hops,
+                    "route_attempts": choice.attempts,
+                    "route_cost": choice.cost,
+                    "opening_attempts_by_object": dict(
+                        sorted(self._opening_attempts_by_object.items())
+                    ),
+                }
+            )
 
             # A boundary that ate its simulation budget without opening is a
             # reason to try another route, not to abandon the problem. This
@@ -599,7 +822,10 @@ class FullNAMOPlanner(BasePlanner):
             # is still the honest answer.
             if self._budget_stopped(result):
                 if self._simulation_budget_remains(result):
-                    blocked_boundaries.add(self._boundary_key(robot_region, target))
+                    self._opening_attempts_by_object[target_object_id] = (
+                        self._opening_attempts_by_object.get(target_object_id, 0) + 1
+                    )
+                    blocked_choices.add((choice.boundary, target_object_id))
                     self.stats.boundary_budget_stops += 1
                     self._record_iteration_trace(
                         {**context, "outcome": "boundary_budget_exhausted"}
@@ -646,11 +872,20 @@ class FullNAMOPlanner(BasePlanner):
                         context=context,
                     )
                 action = result.action_sequence[0]
+                if str(action.object_id) != target_object_id:
+                    return self._invariant_failure(
+                        "opener_contract_violation_wrong_object",
+                        start_time,
+                        actions,
+                        context=context,
+                    )
                 self.env.set_full_state(resulting_state)
                 actions.append(action)
                 self.stats.total_pushes += 1
                 self.stats.greedy_committed_pushes += 1
-                blocked_boundaries = set()
+                blocked_choices.clear()
+                if current_min_hops is not None:
+                    pending_attempt = (target_object_id, current_min_hops)
                 opened = bool(result.success)
                 if opened:
                     self.stats.successful_region_steps += 1
@@ -690,21 +925,29 @@ class FullNAMOPlanner(BasePlanner):
                 continue
 
             if result.success:
-                # A zero-push opening means the opener already counted the target region
-                # reachable while the region graph still called the boundary blocked. The
-                # scene is fine, but nothing moved, so the next iteration would rebuild an
-                # identical snapshot. Allow it once, then treat a repeat as a genuine
-                # graph/opener mismatch and fall back to the blocked-boundary reroute.
-                zero_push = not result.action_sequence
-                if zero_push:
-                    zero_push_key = self._boundary_key(robot_region, target)
-                    if zero_push_key in zero_push_opened:
-                        blocked_boundaries.add(zero_push_key)
-                        self.stats.boundary_exhaustions += 1
-                        self._record_iteration_trace({**context, "outcome": "already_accessible_repeat"})
-                        iteration += 1
-                        continue
-                    zero_push_opened.add(zero_push_key)
+                if not result.action_sequence:
+                    self._record_iteration_trace(
+                        {
+                            **context,
+                            "outcome": "opener_contract_violation_empty_action_sequence",
+                        }
+                    )
+                    return self._invariant_failure(
+                        "opener_contract_violation_empty_action_sequence",
+                        start_time,
+                        actions,
+                        context=context,
+                    )
+                if any(
+                    str(action.object_id) != target_object_id
+                    for action in result.action_sequence
+                ):
+                    return self._invariant_failure(
+                        "opener_contract_violation_wrong_object",
+                        start_time,
+                        actions,
+                        context=context,
+                    )
 
                 resulting_state = self._get_resulting_state_from_result(result)
                 if resulting_state is None:
@@ -729,24 +972,23 @@ class FullNAMOPlanner(BasePlanner):
                         failure_kind="post_open_snapshot_failed",
                         context=context,
                     )
+                cached_snapshot = post_open_snapshot
 
-                if result.action_sequence:
-                    self.stats.total_pushes += len(result.action_sequence)
-                    actions.extend(result.action_sequence)
+                self.stats.total_pushes += len(result.action_sequence)
+                actions.extend(result.action_sequence)
                 self.stats.successful_region_steps += 1
                 self.stats.regions_opened.append(target)
                 region_openings.append(
                     RegionOpeningResult(
                         target_region=target,
-                        object_id=result.action_sequence[0].object_id if result.action_sequence else "unknown",
-                        actions=list(result.action_sequence) if result.action_sequence else [],
+                        object_id=target_object_id,
+                        actions=list(result.action_sequence),
                         resulting_state=resulting_state,
                     )
                 )
-                if not zero_push:
-                    # Physical state changed, so previously exhausted boundaries may now be
-                    # openable. A zero-push opening changes nothing, so keep the blacklist.
-                    blocked_boundaries = set()
+                blocked_choices.clear()
+                if current_min_hops is not None:
+                    pending_attempt = (target_object_id, current_min_hops)
                 independence_audit = None
                 if next_keyhole_profile is not None:
                     independence_audit = self._audit_next_keyhole_after_open(
@@ -762,10 +1004,15 @@ class FullNAMOPlanner(BasePlanner):
                 continue
 
             if bool(target_summary.get("boundary_exhausted", False)):
-                blocked_boundaries.add(self._boundary_key(robot_region, target))
+                self._opening_attempts_by_object[target_object_id] = (
+                    self._opening_attempts_by_object.get(target_object_id, 0) + 1
+                )
+                blocked_choices.add((choice.boundary, target_object_id))
                 self.stats.boundary_exhaustions += 1
                 self._record_iteration_trace({**context, "outcome": "boundary_exhausted"})
-                self._debug(f"Boundary exhausted for {target}; retrying with blocked boundary")
+                self._debug(
+                    f"Blocker {target_object_id} exhausted for {target}; rerouting"
+                )
                 iteration += 1
                 continue
 
@@ -808,6 +1055,9 @@ class FullNAMOPlanner(BasePlanner):
             "rejection_breakdown": dict(self._aggregated_rejections),
             "total_primitives_attempted": self._aggregated_primitives,
             "iteration_trace": list(self._iteration_trace),
+            "opening_attempts_by_object": dict(
+                sorted(self._opening_attempts_by_object.items())
+            ),
         }
         algorithm_stats.update(self._current_budget_stats())
         if extra_stats:
@@ -848,6 +1098,9 @@ class FullNAMOPlanner(BasePlanner):
             "rejection_breakdown": dict(self._aggregated_rejections),
             "total_primitives_attempted": self._aggregated_primitives,
             "iteration_trace": list(self._iteration_trace),
+            "opening_attempts_by_object": dict(
+                sorted(self._opening_attempts_by_object.items())
+            ),
             "failure_kind": failure_kind,
         }
         if failure_subkind is not None:
@@ -1204,6 +1457,19 @@ class FullNAMOPlanner(BasePlanner):
         blocked_boundaries: Set[Tuple[str, str]],
     ) -> List[Tuple[str, str]]:
         return sorted(blocked_boundaries)
+
+    @staticmethod
+    def _serialize_blocked_choices(
+        blocked_choices: Set[Tuple[Tuple[str, str], str]],
+    ) -> List[Dict[str, Any]]:
+        """Return JSON-safe exact blocker blacklists for one physical state."""
+        return [
+            {
+                "boundary": list(boundary),
+                "object_id": object_id,
+            }
+            for boundary, object_id in sorted(blocked_choices)
+        ]
 
     def _boundary_key(self, a: str, b: str) -> Tuple[str, str]:
         return boundary_key(a, b)

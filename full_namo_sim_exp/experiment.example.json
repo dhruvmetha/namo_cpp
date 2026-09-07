@@ -16,7 +16,7 @@
     "primitive_data_dir": "../data",
     "primitive_prefix": "1x_car_d5_",
     "max_push_steps": 5,
-    "simulation_budget_per_keyhole": 900,
+    "simulation_budget_total": 20000,
     "region_max_chain_depth": 2,
     "goals_per_region": 100,
     "region_success_min_reachable": 20,

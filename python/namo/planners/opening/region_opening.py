@@ -57,6 +57,20 @@ VALID_GOAL_STRATEGIES = frozenset({
 })
 
 
+def select_target_boundary_object(
+    boundary_objects: List[str],
+    target_object_id: Optional[str],
+) -> Tuple[List[str], Optional[str]]:
+    """Restrict a boundary search to one caller-selected blocking object."""
+    normalized = sorted({str(object_id) for object_id in boundary_objects})
+    if target_object_id is None:
+        return normalized, None
+    selected = str(target_object_id)
+    if selected not in normalized:
+        return [], "target_object_not_on_boundary"
+    return [selected], None
+
+
 def _sort_candidates_sync(
     candidates: List[List[object]],
     *,
@@ -985,6 +999,8 @@ class RegionOpeningPlanner(BasePlanner):
         self,
         robot_goal: Tuple[float, float, float],
         target_neighbor: Optional[str] = None,
+        target_object_id: Optional[str] = None,
+        require_push: bool = False,
     ) -> PlannerResult:
         """Execute region opening planner (single-level exploration from initial state only).
 
@@ -996,6 +1012,8 @@ class RegionOpeningPlanner(BasePlanner):
             robot_goal: Target robot position (x, y, theta) - stored but not directly used
             target_neighbor: If set, only attempt to open path to this specific neighbor.
                            If None, attempt to open paths to ALL neighbors (default behavior).
+            target_object_id: If set, only search the selected boundary blocker.
+            require_push: Skip the zero-action initial-accessibility shortcut.
 
         Returns:
             PlannerResult with all attempt results from initial state
@@ -1024,10 +1042,16 @@ class RegionOpeningPlanner(BasePlanner):
 
             # Explore from initial state only (Level 0)
             try:
+                explore_kwargs: Dict[str, Any] = {}
+                if target_object_id is not None:
+                    explore_kwargs["target_object_id"] = target_object_id
+                if require_push:
+                    explore_kwargs["require_push"] = True
                 self.attempt_results = self._explore_from_state(
                     baseline,
                     level=0,
                     target_neighbor=target_neighbor,
+                    **explore_kwargs,
                 )
             except PushBudgetExceeded as exc:
                 total_time = (time.time() - start_time) * 1000
@@ -1127,6 +1151,8 @@ class RegionOpeningPlanner(BasePlanner):
         state: 'namo_rl.RLState',
         level: int = 0,
         target_neighbor: Optional[str] = None,
+        target_object_id: Optional[str] = None,
+        require_push: bool = False,
     ) -> List[AttemptResult]:
         """Explore region openings from a given state.
 
@@ -1141,6 +1167,8 @@ class RegionOpeningPlanner(BasePlanner):
             level: Exploration level (0 = initial state, 1+ = subsequent explorations)
             target_neighbor: If set, only attempt to open path to this specific neighbor.
                            If None, attempt to open paths to ALL neighbors.
+            target_object_id: If set, only search the selected boundary blocker.
+            require_push: Skip the zero-action initial-accessibility shortcut.
 
         Returns:
             List of AttemptResults from exploring this state
@@ -1312,7 +1340,9 @@ class RegionOpeningPlanner(BasePlanner):
                 region_goals,
                 max_solutions=self.max_solutions_per_neighbor,
                 exploration_state=state,
-                exploration_level=level
+                exploration_level=level,
+                target_object_id=target_object_id,
+                require_push=require_push,
             )
 
             # Collect results (simplified - detailed info printed in _attempt_opening_to_neighbour)
@@ -1339,7 +1369,9 @@ class RegionOpeningPlanner(BasePlanner):
         region_goals: Dict[str, Any],
         max_solutions: int = 2,
         exploration_state: Optional['namo_rl.RLState'] = None,
-        exploration_level: int = 0
+        exploration_level: int = 0,
+        target_object_id: Optional[str] = None,
+        require_push: bool = False,
     ) -> List[AttemptResult]:
         """Attempt to open a path to a specific neighbour region.
 
@@ -1352,6 +1384,8 @@ class RegionOpeningPlanner(BasePlanner):
             max_solutions: Maximum number of solutions to find for this neighbour
             exploration_state: State we're exploring from (for visualization context)
             exploration_level: Exploration level (0 = initial, 1+ = subsequent)
+            target_object_id: If set, only search the selected boundary blocker.
+            require_push: Skip the zero-action initial-accessibility shortcut.
 
         Returns:
             List of AttemptResults (one per successful push variation, up to max_solutions)
@@ -1375,11 +1409,31 @@ class RegionOpeningPlanner(BasePlanner):
         except Exception:
             pass
 
-        # Pre-check: Is this neighbor already accessible?
-        is_already_accessible, reachable_count_before, precheck_region_goal, all_region_goals = self._validate_opening(
-            neighbour_label,
-            region_goals
-        )
+        # Full NAMO has already selected a boundary from its authoritative
+        # global graph. In that mode, do not turn sampled local points into a
+        # zero-action success before trying the selected blocker.
+        if require_push:
+            is_already_accessible = False
+            reachable_count_before = None
+            precheck_region_goal = None
+            if self._pinned_target_points is not None:
+                all_region_goals = [
+                    (x, y, 0.0) for x, y in self._pinned_target_points
+                ]
+            else:
+                bundle = region_goals.get(neighbour_label)
+                all_region_goals = (
+                    [(g.x, g.y, g.theta) for g in bundle.goals]
+                    if bundle is not None and bundle.goals
+                    else None
+                )
+        else:
+            (
+                is_already_accessible,
+                reachable_count_before,
+                precheck_region_goal,
+                all_region_goals,
+            ) = self._validate_opening(neighbour_label, region_goals)
 
         if is_already_accessible:
             # Neighbor is already accessible - no need to push anything!
@@ -1419,13 +1473,22 @@ class RegionOpeningPlanner(BasePlanner):
 
         # Get candidate objects blocking the boundary between the robot and neighbour region.
         candidates, boundary_error = self._get_boundary_objects(edge_objects, robot_label, neighbour_label)
+        if boundary_error is None:
+            candidates, boundary_error = select_target_boundary_object(
+                candidates or [],
+                target_object_id,
+            )
         if boundary_error is not None:
             if self.config.verbose:
                 print(f"    ✗ '{neighbour_label}' - {boundary_error}")
             return [AttemptResult(
                 success=False,
                 neighbour_region_label=neighbour_label,
-                error_message="Boundary object map is inconsistent across directions",
+                error_message=(
+                    "Selected object is not on the current boundary"
+                    if boundary_error == "target_object_not_on_boundary"
+                    else "Boundary object map is inconsistent across directions"
+                ),
                 timing_ms=(time.time() - attempt_start) * 1000,
                 failure_reason=boundary_error,
                 candidate_objects_count=0,

@@ -22,6 +22,7 @@ from .region_opening import (
     AttemptResult,
     CANONICAL_MIN_REACHABLE_FRACTION,
     RegionOpeningPlanner,
+    select_target_boundary_object,
 )
 
 
@@ -312,11 +313,15 @@ class BestFirstRegionOpeningPlanner:
             Callable[[namo_rl.RLEnvironment], Tuple[bool, Dict[str, Any]]]
         ] = None,
         opening_predicate: Optional[Callable[[namo_rl.RLEnvironment], bool]] = None,
+        target_object_id: Optional[str] = None,
+        require_push: bool = False,
     ) -> PlannerResult:
         """Search one boundary and return only a verified opening chain."""
         return self._run_boundary(
             robot_goal,
             target_neighbor=target_neighbor,
+            target_object_id=target_object_id,
+            require_push=require_push,
             candidate_acceptor=candidate_acceptor,
             opening_predicate=opening_predicate,
             commit_one=False,
@@ -331,6 +336,8 @@ class BestFirstRegionOpeningPlanner:
         ] = None,
         opening_predicate: Optional[Callable[[namo_rl.RLEnvironment], bool]] = None,
         simulate: bool = True,
+        target_object_id: Optional[str] = None,
+        require_push: bool = False,
     ) -> PlannerResult:
         """Return the first moving arg-max action even if it has not opened yet.
 
@@ -341,6 +348,8 @@ class BestFirstRegionOpeningPlanner:
         return self._run_boundary(
             robot_goal,
             target_neighbor=target_neighbor,
+            target_object_id=target_object_id,
+            require_push=require_push,
             candidate_acceptor=candidate_acceptor,
             opening_predicate=opening_predicate,
             commit_one=True,
@@ -351,6 +360,8 @@ class BestFirstRegionOpeningPlanner:
         self,
         robot_goal: Tuple[float, float, float],
         target_neighbor: Optional[str] = None,
+        target_object_id: Optional[str] = None,
+        require_push: bool = False,
         candidate_acceptor: Optional[
             Callable[[namo_rl.RLEnvironment], Tuple[bool, Dict[str, Any]]]
         ] = None,
@@ -432,12 +443,21 @@ class BestFirstRegionOpeningPlanner:
             # goal_sample_region channel -- so the model is scored against the
             # same target the search is graded against.
             xy_samples = [(p[0], p[1]) for p in region_samples]
-            before_count, _ = self.env.count_reachable_points(xy_samples) if xy_samples else (0, -1)
-            initially_open = (
-                bool(opening_predicate(self.env))
-                if opening_predicate is not None
-                else bool(xy_samples and before_count >= self._minimum_needed(len(xy_samples)))
-            )
+            initially_open = False
+            if not require_push:
+                before_count, _ = (
+                    self.env.count_reachable_points(xy_samples)
+                    if xy_samples
+                    else (0, -1)
+                )
+                initially_open = (
+                    bool(opening_predicate(self.env))
+                    if opening_predicate is not None
+                    else bool(
+                        xy_samples
+                        and before_count >= self._minimum_needed(len(xy_samples))
+                    )
+                )
             if (
                 initially_open
                 and accept_future_interface(self.env)
@@ -461,6 +481,11 @@ class BestFirstRegionOpeningPlanner:
             boundary_objects, boundary_error = self._boundary_objects(
                 snapshot["edge_objects"], robot_label, target_neighbor
             )
+            if boundary_error is None:
+                boundary_objects, boundary_error = select_target_boundary_object(
+                    boundary_objects,
+                    target_object_id,
+                )
             if boundary_error or not boundary_objects:
                 reason = boundary_error or "no_blocking_objects"
                 attempt = AttemptResult(
