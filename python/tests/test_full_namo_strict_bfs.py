@@ -579,3 +579,162 @@ def test_shorter_recomputed_route_resets_attempt_history(monkeypatch):
         "box_c",
     ]
     assert opened[-1]["opening_attempts_by_object"] == {}
+
+
+def _two_blocker_snapshot():
+    """robot -> a -> goal, with box_a and box_b both on the robot/a boundary."""
+    return {
+        **make_snapshot(
+            {
+                "robot": {"a"},
+                "a": {"robot", "goal"},
+                "goal": {"a"},
+            },
+            goal_label="goal",
+        ),
+        "edge_objects": {
+            "robot": {"a": ["box_b", "box_a"]},
+            "a": {"robot": ["box_a", "box_b"]},
+        },
+    }
+
+
+def make_policy_planner(monkeypatch, env, opener):
+    def fake_initialize(self):
+        self.region_opener = opener
+
+    monkeypatch.setattr(FullNAMOPlanner, "_initialize_algorithm", fake_initialize)
+    config = PlannerConfig(
+        algorithm_params={
+            "full_namo_local_search": "best_first",
+            "full_namo_exec_mode": "greedy_policy",
+        }
+    )
+    return FullNAMOPlanner(env, config)
+
+
+def make_greedy_result(target, resulting_state, object_id):
+    """A greedy_commit result: one committed action, boundary not yet open."""
+    result = make_success_result(target, resulting_state, object_id=object_id)
+    result.success = False
+    result.solution_found = False
+    result.action_sequence[0].edge_idx = 7
+    result.action_sequence[0].depth = 0
+    attempt = result.algorithm_stats["attempt_results"][0]
+    attempt.success = False
+    attempt.failure_reason = "greedy_step_committed"
+    attempt.chosen_object_id = object_id
+    summary = result.algorithm_stats["target_summary"]
+    summary["failure_reason"] = "greedy_step_committed"
+    summary["detail_reasons"] = ["greedy_step_committed"]
+    summary["boundary_exhausted"] = False
+    result.algorithm_stats["greedy_commit"] = {"end": "committed", "rejections": []}
+    return result
+
+
+def test_greedy_policy_hands_every_open_blocker_on_the_boundary_to_the_opener(
+    monkeypatch,
+):
+    """The policy returns after one push, so it must rank across both blockers at once."""
+    env = FakeEnv()
+    calls = []
+
+    class FakeOpener:
+        def reset(self):
+            pass
+
+        def greedy_commit(self, robot_goal, target_neighbor=None, target_object_id=None, **_kw):
+            calls.append((target_neighbor, target_object_id))
+            # The arg-max lands on the second blocker; the planner must accept it.
+            return make_greedy_result(target_neighbor, "pushed", object_id="box_b")
+
+    planner = make_policy_planner(monkeypatch, env, FakeOpener())
+    monkeypatch.setattr(planner, "_compute_region_snapshot", _two_blocker_snapshot)
+
+    result = planner.search((0.0, 0.0, 0.0))
+
+    assert result.success is True
+    assert calls == [("a", ("box_a", "box_b"))]
+    assert [str(a.object_id) for a in result.action_sequence] == ["box_b"]
+    trace = result.algorithm_stats["iteration_trace"][-1]
+    assert trace["candidate_blockers"] == ["box_a", "box_b"]
+    assert trace["greedy_action"]["object_id"] == "box_b"
+
+
+def test_search_modes_still_hand_the_opener_one_blocker(monkeypatch):
+    env = FakeEnv()
+    calls = []
+
+    class FakeOpener:
+        def reset(self):
+            pass
+
+        def search(self, robot_goal, target_neighbor=None, target_object_id=None, **_kw):
+            calls.append((target_neighbor, target_object_id))
+            return make_success_result(target_neighbor, "opened", object_id=target_object_id)
+
+    planner = make_planner(monkeypatch, env, FakeOpener())
+    monkeypatch.setattr(planner, "_compute_region_snapshot", _two_blocker_snapshot)
+
+    result = planner.search((0.0, 0.0, 0.0))
+
+    assert result.success is True
+    assert calls == [("a", "box_a")]
+    opened = [
+        entry
+        for entry in result.algorithm_stats["iteration_trace"]
+        if entry.get("outcome") == "opened_target"
+    ]
+    assert [entry["candidate_blockers"] for entry in opened] == [["box_a"]]
+
+
+def test_greedy_policy_exhaustion_blocks_every_candidate_and_reroutes(monkeypatch):
+    """When the pooled candidates are all dead, both blockers count as tried and the
+    planner moves to the next boundary in the same call instead of retrying one of them."""
+    env = FakeEnv()
+    calls = []
+
+    class FakeOpener:
+        def reset(self):
+            pass
+
+        def greedy_commit(self, robot_goal, target_neighbor=None, target_object_id=None, **_kw):
+            calls.append((target_neighbor, target_object_id))
+            if target_neighbor == "a":
+                return make_failure_result(
+                    target_neighbor, "all_pushes_failed", boundary_exhausted=True
+                )
+            return make_greedy_result(target_neighbor, "pushed", object_id="box_c")
+
+    planner = make_policy_planner(monkeypatch, env, FakeOpener())
+    snapshot = {
+        **make_snapshot(
+            {
+                "robot": {"a", "b"},
+                "a": {"robot", "goal"},
+                "b": {"robot", "goal"},
+                "goal": {"a", "b"},
+            },
+            goal_label="goal",
+        ),
+        "edge_objects": {
+            "robot": {"a": ["box_a", "box_b"], "b": ["box_c"]},
+            "a": {"robot": ["box_a", "box_b"]},
+            "b": {"robot": ["box_c"]},
+        },
+    }
+    monkeypatch.setattr(planner, "_compute_region_snapshot", lambda: snapshot)
+
+    result = planner.search((0.0, 0.0, 0.0))
+
+    assert result.success is True
+    assert calls == [("a", ("box_a", "box_b")), ("b", "box_c")]
+    assert result.algorithm_stats["boundary_exhaustions"] == 1
+    exhausted_trace = result.algorithm_stats["iteration_trace"][0]
+    assert exhausted_trace["outcome"] == "boundary_exhausted"
+    assert exhausted_trace["candidate_blockers"] == ["box_a", "box_b"]
+    committed_trace = result.algorithm_stats["iteration_trace"][1]
+    assert committed_trace["opening_attempts_by_object"] == {"box_a": 1, "box_b": 1}
+    assert sorted(
+        entry["object_id"] for entry in committed_trace["blocked_boundary_objects"]
+    ) == ["box_a", "box_b"]

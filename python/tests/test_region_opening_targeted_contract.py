@@ -198,3 +198,27 @@ def test_target_summary_boundary_exhaustion_is_conservative(monkeypatch):
     ]
     not_exhausted = planner._build_target_summary("a")
     assert not_exhausted["boundary_exhausted"] is False
+
+
+def test_select_target_boundary_object_accepts_a_collection_of_blockers():
+    from namo.planners.opening.region_opening import select_target_boundary_object
+
+    boundary = ["box_b", "box_a", "box_c"]
+
+    assert select_target_boundary_object(boundary, None) == (["box_a", "box_b", "box_c"], None)
+    assert select_target_boundary_object(boundary, "box_b") == (["box_b"], None)
+    assert select_target_boundary_object(boundary, ("box_c", "box_a")) == (["box_a", "box_c"], None)
+    assert select_target_boundary_object(boundary, ["box_a", "box_a"]) == (["box_a"], None)
+
+
+def test_select_target_boundary_object_refuses_any_blocker_off_the_boundary():
+    from namo.planners.opening.region_opening import select_target_boundary_object
+
+    boundary = ["box_a", "box_b"]
+
+    assert select_target_boundary_object(boundary, "box_z") == ([], "target_object_not_on_boundary")
+    assert select_target_boundary_object(boundary, ("box_a", "box_z")) == (
+        [],
+        "target_object_not_on_boundary",
+    )
+    assert select_target_boundary_object(boundary, ()) == ([], "target_object_not_on_boundary")
