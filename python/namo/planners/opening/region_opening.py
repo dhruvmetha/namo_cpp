@@ -12,7 +12,7 @@ import os
 import random
 import time
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple, Dict, Any, Set, Union
+from typing import Iterable, List, Optional, Tuple, Dict, Any, Set, Union
 
 import namo_rl
 import numpy as np
@@ -59,16 +59,27 @@ VALID_GOAL_STRATEGIES = frozenset({
 
 def select_target_boundary_object(
     boundary_objects: List[str],
-    target_object_id: Optional[str],
+    target_object_id: Union[None, str, Iterable[str]],
 ) -> Tuple[List[str], Optional[str]]:
-    """Restrict a boundary search to one caller-selected blocking object."""
+    """Restrict a boundary search to the caller-selected blocking object(s).
+
+    ``target_object_id`` is one object id, or a collection of ids that the
+    search treats as a single candidate pool (the greedy policy hands over
+    every blocker on its boundary so the arg-max ranks across them). Every
+    requested id must sit on the boundary, otherwise the whole request is
+    refused with ``target_object_not_on_boundary``.
+    """
     normalized = sorted({str(object_id) for object_id in boundary_objects})
     if target_object_id is None:
         return normalized, None
-    selected = str(target_object_id)
-    if selected not in normalized:
+    if isinstance(target_object_id, str):
+        requested = [target_object_id]
+    else:
+        requested = [str(object_id) for object_id in target_object_id]
+    selected = sorted(set(requested))
+    if not selected or any(object_id not in normalized for object_id in selected):
         return [], "target_object_not_on_boundary"
-    return [selected], None
+    return selected, None
 
 
 def _sort_candidates_sync(

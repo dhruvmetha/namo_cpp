@@ -692,10 +692,24 @@ class FullNAMOPlanner(BasePlanner):
                 )
 
             target = choice.target_region
-            target_object_id = choice.object_id
+            if self.exec_mode == "greedy_policy":
+                # The policy returns after one push, so it never reaches the
+                # loop iteration that would try the next blocker. Hand it every
+                # blocker still open on the chosen boundary and let the scorer's
+                # arg-max rank across them. Search modes keep the one-blocker
+                # schedule: their loop reaches the next blocker inside this call.
+                target_object_ids = tuple(
+                    other.object_id
+                    for other in all_route_choices
+                    if other.boundary == choice.boundary
+                    and (other.boundary, other.object_id) not in blocked_choices
+                )
+            else:
+                target_object_ids = (choice.object_id,)
             base_context.update(
                 {
-                    "chosen_initial_blocker": target_object_id,
+                    "chosen_initial_blocker": choice.object_id,
+                    "candidate_blockers": list(target_object_ids),
                     "route_hops": choice.hops,
                     "route_attempts": choice.attempts,
                     "route_cost": choice.cost,
@@ -734,7 +748,9 @@ class FullNAMOPlanner(BasePlanner):
                 )
             opener = self._prepare_region_opener_for_keyhole()
             opener_kwargs: Dict[str, Any] = {
-                "target_object_id": target_object_id,
+                "target_object_id": (
+                    target_object_ids[0] if len(target_object_ids) == 1 else target_object_ids
+                ),
                 "require_push": True,
             }
             if self.local_search == "best_first" and len(path) == 2:
@@ -792,7 +808,8 @@ class FullNAMOPlanner(BasePlanner):
                     "blocked_boundary_objects": self._serialize_blocked_choices(
                         blocked_choices
                     ),
-                    "chosen_initial_blocker": target_object_id,
+                    "chosen_initial_blocker": choice.object_id,
+                    "candidate_blockers": list(target_object_ids),
                     "route_hops": choice.hops,
                     "route_attempts": choice.attempts,
                     "route_cost": choice.cost,
@@ -822,10 +839,9 @@ class FullNAMOPlanner(BasePlanner):
             # is still the honest answer.
             if self._budget_stopped(result):
                 if self._simulation_budget_remains(result):
-                    self._opening_attempts_by_object[target_object_id] = (
-                        self._opening_attempts_by_object.get(target_object_id, 0) + 1
+                    self._mark_blockers_tried(
+                        choice.boundary, target_object_ids, blocked_choices
                     )
-                    blocked_choices.add((choice.boundary, target_object_id))
                     self.stats.boundary_budget_stops += 1
                     self._record_iteration_trace(
                         {**context, "outcome": "boundary_budget_exhausted"}
@@ -872,7 +888,7 @@ class FullNAMOPlanner(BasePlanner):
                         context=context,
                     )
                 action = result.action_sequence[0]
-                if str(action.object_id) != target_object_id:
+                if str(action.object_id) not in target_object_ids:
                     return self._invariant_failure(
                         "opener_contract_violation_wrong_object",
                         start_time,
@@ -885,7 +901,7 @@ class FullNAMOPlanner(BasePlanner):
                 self.stats.greedy_committed_pushes += 1
                 blocked_choices.clear()
                 if current_min_hops is not None:
-                    pending_attempt = (target_object_id, current_min_hops)
+                    pending_attempt = (str(action.object_id), current_min_hops)
                 opened = bool(result.success)
                 if opened:
                     self.stats.successful_region_steps += 1
@@ -939,7 +955,7 @@ class FullNAMOPlanner(BasePlanner):
                         context=context,
                     )
                 if any(
-                    str(action.object_id) != target_object_id
+                    str(action.object_id) not in target_object_ids
                     for action in result.action_sequence
                 ):
                     return self._invariant_failure(
@@ -948,6 +964,7 @@ class FullNAMOPlanner(BasePlanner):
                         actions,
                         context=context,
                     )
+                pushed_object_id = str(result.action_sequence[0].object_id)
 
                 resulting_state = self._get_resulting_state_from_result(result)
                 if resulting_state is None:
@@ -981,14 +998,14 @@ class FullNAMOPlanner(BasePlanner):
                 region_openings.append(
                     RegionOpeningResult(
                         target_region=target,
-                        object_id=target_object_id,
+                        object_id=pushed_object_id,
                         actions=list(result.action_sequence),
                         resulting_state=resulting_state,
                     )
                 )
                 blocked_choices.clear()
                 if current_min_hops is not None:
-                    pending_attempt = (target_object_id, current_min_hops)
+                    pending_attempt = (pushed_object_id, current_min_hops)
                 independence_audit = None
                 if next_keyhole_profile is not None:
                     independence_audit = self._audit_next_keyhole_after_open(
@@ -1004,14 +1021,13 @@ class FullNAMOPlanner(BasePlanner):
                 continue
 
             if bool(target_summary.get("boundary_exhausted", False)):
-                self._opening_attempts_by_object[target_object_id] = (
-                    self._opening_attempts_by_object.get(target_object_id, 0) + 1
+                self._mark_blockers_tried(
+                    choice.boundary, target_object_ids, blocked_choices
                 )
-                blocked_choices.add((choice.boundary, target_object_id))
                 self.stats.boundary_exhaustions += 1
                 self._record_iteration_trace({**context, "outcome": "boundary_exhausted"})
                 self._debug(
-                    f"Blocker {target_object_id} exhausted for {target}; rerouting"
+                    f"Blockers {', '.join(target_object_ids)} exhausted for {target}; rerouting"
                 )
                 iteration += 1
                 continue
@@ -1024,6 +1040,19 @@ class FullNAMOPlanner(BasePlanner):
                 failure_kind="opener_failure_not_boundary_exhausted",
                 context=context,
             )
+
+    def _mark_blockers_tried(
+        self,
+        boundary: Tuple[str, str],
+        object_ids: Tuple[str, ...],
+        blocked_choices: Set[Tuple[Tuple[str, str], str]],
+    ) -> None:
+        """Count one failed attempt on each blocker and block them for this call."""
+        for object_id in object_ids:
+            self._opening_attempts_by_object[object_id] = (
+                self._opening_attempts_by_object.get(object_id, 0) + 1
+            )
+            blocked_choices.add((boundary, object_id))
 
     def _success_result(
         self,
