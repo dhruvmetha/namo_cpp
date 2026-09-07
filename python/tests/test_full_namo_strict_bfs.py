@@ -381,9 +381,11 @@ def test_route_attempt_cost_can_defer_a_short_route_to_an_untried_route():
     assert (deferred.object_id, deferred.hops, deferred.cost) == ("box_b", 3, 3)
 
 
-def test_full_namo_exhausts_one_blocker_then_tries_another_on_the_same_boundary(
+def test_full_namo_searches_every_blocker_on_the_boundary_in_one_call(
     monkeypatch,
 ):
+    """Two blockers on one boundary reach the opener together, and a chain on
+    the second-named one is accepted without the first being exhausted."""
     env = FakeEnv()
     calls = []
 
@@ -399,16 +401,10 @@ def test_full_namo_exhausts_one_blocker_then_tries_another_on_the_same_boundary(
             require_push=False,
         ):
             calls.append((target_neighbor, target_object_id, require_push))
-            if target_object_id == "box_a":
-                return make_failure_result(
-                    target_neighbor,
-                    "all_pushes_failed",
-                    boundary_exhausted=True,
-                )
             return make_success_result(
                 target_neighbor,
                 "opened",
-                object_id=target_object_id,
+                object_id="box_b",
             )
 
     planner = make_planner(monkeypatch, env, FakeOpener())
@@ -431,11 +427,14 @@ def test_full_namo_exhausts_one_blocker_then_tries_another_on_the_same_boundary(
     result = planner.search((0.0, 0.0, 0.0))
 
     assert result.success is True
-    assert calls == [
-        ("a", "box_a", True),
-        ("a", "box_b", True),
+    assert calls == [("a", ("box_a", "box_b"), True)]
+    assert result.algorithm_stats["boundary_exhaustions"] == 0
+    opened = [
+        row
+        for row in result.algorithm_stats["iteration_trace"]
+        if row.get("outcome") == "opened_target"
     ]
-    assert result.algorithm_stats["boundary_exhaustions"] == 1
+    assert [row["candidate_blockers"] for row in opened] == [["box_a", "box_b"]]
 
 
 def test_unchanged_hop_count_defers_a_tried_short_route_to_an_untried_route(
@@ -661,7 +660,9 @@ def test_greedy_policy_hands_every_open_blocker_on_the_boundary_to_the_opener(
     assert trace["greedy_action"]["object_id"] == "box_b"
 
 
-def test_search_modes_still_hand_the_opener_one_blocker(monkeypatch):
+def test_search_exhaustion_of_the_pooled_blockers_blocks_both_and_reroutes(monkeypatch):
+    """Search-mode twin of the policy exhaustion test: when the simulator finds no
+    chain on either blocker, both count as tried and the next boundary is used."""
     env = FakeEnv()
     calls = []
 
@@ -671,21 +672,42 @@ def test_search_modes_still_hand_the_opener_one_blocker(monkeypatch):
 
         def search(self, robot_goal, target_neighbor=None, target_object_id=None, **_kw):
             calls.append((target_neighbor, target_object_id))
-            return make_success_result(target_neighbor, "opened", object_id=target_object_id)
+            if target_neighbor == "a":
+                return make_failure_result(
+                    target_neighbor, "all_pushes_failed", boundary_exhausted=True
+                )
+            return make_success_result(target_neighbor, "opened", object_id="box_c")
 
     planner = make_planner(monkeypatch, env, FakeOpener())
-    monkeypatch.setattr(planner, "_compute_region_snapshot", _two_blocker_snapshot)
+    snapshot = {
+        **make_snapshot(
+            {
+                "robot": {"a", "b"},
+                "a": {"robot", "goal"},
+                "b": {"robot", "goal"},
+                "goal": {"a", "b"},
+            },
+            goal_label="goal",
+        ),
+        "edge_objects": {
+            "robot": {"a": ["box_a", "box_b"], "b": ["box_c"]},
+            "a": {"robot": ["box_a", "box_b"]},
+            "b": {"robot": ["box_c"]},
+        },
+    }
+    monkeypatch.setattr(planner, "_compute_region_snapshot", lambda: snapshot)
 
     result = planner.search((0.0, 0.0, 0.0))
 
     assert result.success is True
-    assert calls == [("a", "box_a")]
+    assert calls == [("a", ("box_a", "box_b")), ("b", "box_c")]
+    assert result.algorithm_stats["boundary_exhaustions"] == 1
     opened = [
         entry
         for entry in result.algorithm_stats["iteration_trace"]
         if entry.get("outcome") == "opened_target"
     ]
-    assert [entry["candidate_blockers"] for entry in opened] == [["box_a"]]
+    assert opened[-1]["opening_attempts_by_object"] == {"box_a": 1, "box_b": 1}
 
 
 def test_greedy_policy_exhaustion_blocks_every_candidate_and_reroutes(monkeypatch):

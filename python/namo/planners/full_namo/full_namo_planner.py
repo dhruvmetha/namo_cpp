@@ -692,20 +692,18 @@ class FullNAMOPlanner(BasePlanner):
                 )
 
             target = choice.target_region
-            if self.exec_mode == "greedy_policy":
-                # The policy returns after one push, so it never reaches the
-                # loop iteration that would try the next blocker. Hand it every
-                # blocker still open on the chosen boundary and let the scorer's
-                # arg-max rank across them. Search modes keep the one-blocker
-                # schedule: their loop reaches the next blocker inside this call.
-                target_object_ids = tuple(
-                    other.object_id
-                    for other in all_route_choices
-                    if other.boundary == choice.boundary
-                    and (other.boundary, other.object_id) not in blocked_choices
-                )
-            else:
-                target_object_ids = (choice.object_id,)
+            # The route choice picks the boundary; the opener gets every blocker
+            # still open on it and ranks their edges in one pool. Handing over
+            # one blocker at a time made the policy blind to the second block
+            # until the first ran out of edges, and made search commit to any
+            # chain the simulator found on the first-named block without ever
+            # scoring the other. Both arms now see the same candidate set.
+            target_object_ids = tuple(
+                other.object_id
+                for other in all_route_choices
+                if other.boundary == choice.boundary
+                and (other.boundary, other.object_id) not in blocked_choices
+            )
             base_context.update(
                 {
                     "chosen_initial_blocker": choice.object_id,
