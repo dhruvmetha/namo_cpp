@@ -1,5 +1,5 @@
 ---
-status: live
+status: complete
 tags: [experiment, ablation, policy, region-opening]
 ---
 
@@ -29,7 +29,11 @@ The follow-up audit found a second path issue: the Python mask exporter resolved
 
 ## Results
 
-Pending.
+Complete. All 21 new checkpoint arms finished both testsets; the comparison retains all 1,310 one-push and 973 two-push cached-control episodes. Mean ± sample SD across three seeds is reported in `eval/policy_group_ablations_20260907/aggregate.{json,md}` under either box's scratch root. The JSON includes per-seed results, all difficulty tiers, and excluded diagnostic keys. No training was needed and no full HY5U/Random control run was repeated.
+
+Policy-mode findings match the main architecture conclusions: a global-only readout is much worse, while removing local sampled features alone or family ranking changes little overall. Hard episodes expose losses hidden in overall averages: HY5U versus regression-only is 41.6±1.2 versus 33.0±1.1 at one-push open@1, and 21.9±3.2 versus 15.4±3.1 at two-push open@2. Independent contacts and no edge identity also lose on those hard columns. These are policy ablations, not independent competing-method baselines. K=5/10 recovery is not depth-matched to the existing hmax=2 search experiments.
+
+The separate 24-group pilot completed all 288 group/arm/mode tasks. HY5U policy open@2 is 76.4±2.4% versus Random's 18.1±6.4%; search solve@5 is 76.4±2.4% versus 50.0±11.0%; both reach 97.2±2.4% at 900 calls. HY5U finds two committed object-switching policy solutions per seed and 2/3/5 object-switching search solutions. This demonstrates that the fixed-group path executes pushes on different members of the same initial boundary group. It is a small, deliberately structural pilot, not a new canonical benchmark or evidence that every group requires multiple objects. The eight joint-blockage markers are geometric classifications, not minimum-push certificates. `group_aggregate.json` reports all six overlapping source leg/tier strata; those are provenance labels, not difficulty labels for the new grouped task.
 
 ## Corrected launch and census audit
 
@@ -44,3 +48,5 @@ Census recovery `61288700` completed in 11.34 seconds from isolated checkout `na
 Policy array `61288489` completed 65 bundles. All remaining 103 bundles were on `halk` nodes; an in-allocation process check showed their Python children in uninterruptible `cxiWaitEventWait` filesystem waits with 0% CPU before evaluation output. These tasks were cancelled and only their indices (`9-16,72-85,87-167`) were resubmitted as `61288743`, excluding the `halk[0001-0159]` pool. The 65 completed bundles are preserved. The replacement aggregate is `61288864`; group smoke is `61288744`. The recovery uses the same evaluator and physics configuration; only the census/reporting code and placement differ. Both original and recovery controller states are retained under the campaign root for audit.
 
 The environment-only exclusion on that retry did not appear in SLURM's `ExcNodeList`. It completed another 81 bundles, leaving 22 still on `halk`; the completed total reached 146/168. The remaining indices (`10,91-110,150`) were moved to `61288890` with an explicit `--exclude=halk[0001-0159]`, and `scontrol` verified both the exclusion and placement on `hal` nodes. The submission helper now passes `CAMPAIGN_EXCLUDE_NODES` explicitly to every child job (`ea0df67c`). Final policy aggregation is `61288918`, and replacement group smoke is `61288891`. No completed bundle was rerun.
+
+All 168 policy bundles and four group smokes then completed. The group pilot and reducer ran as `61288935`/`61288936`. The first policy reducer `61288918` stopped because every new arm contained four extra episodes in each leg, with zero missing reference episodes. All eight extras are joint-blockage cases recovered by the additive adjacency repair `41ba1532`, which gives formerly disconnected goal regions sampled targets. They are retained in raw outputs but excluded from the precommitted comparison. A one-room no-push audit (`61289284`, 13 seconds) preceded the full 64-worker paired audit `61289289`: toggling that additive pass changed none of the fixed goal-point coordinates in all 1,772 reference-population rooms. The reducer now requires that audit, rejects missing reference episodes, and permits only census-confirmed joint-boundary extras. Final successful reduction is `61289290` at code `22066626`. The 5 mm simulator and renderer settings never change during this topology audit.
