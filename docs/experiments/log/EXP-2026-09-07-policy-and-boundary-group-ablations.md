@@ -30,3 +30,11 @@ The follow-up audit found a second path issue: the Python mask exporter resolved
 ## Results
 
 Pending.
+
+## Corrected launch and census audit
+
+At commit `ef3d8795`, corrected smoke array `61288401` passed all 27 arms and reproduced all 114 sampled cached-control episode outcomes exactly. The slowest smoke took 21.04 seconds. Controller `61288402` submitted full policy array `61288489` (168 bundles, 40 workers each, 15-minute task limit) and dependent aggregate `61288490`. All 168 tasks started, using 6,720 evaluation CPUs. The control full populations are reused, not rerun.
+
+The zero-push full census `61288429` wrote 1,840 records from 1,807 unique rooms with zero room-processing errors, but failed while JSON-sorting its summary: unclassified exclusions had a null dictionary key alongside named boundary kinds. The summary now serializes that category as `unclassified`, with a regression test. The controller correctly stopped on the census failure; policy workers and their dependent aggregation were already submitted and continued independently.
+
+Before any group outcomes were observed, the census showed 639 eligible multi-object groups: 625 alternative-blocker groups and 14 joint-blockage markers. Source-tier-only round-robin would have selected 24 alternatives and no joint-blockage groups. The pilot selection now stratifies by boundary kind as well as source leg/tier, so the pilot covers the structural distinction under investigation. This is a pre-outcome sampling adjustment, not selection by success or simulated cost.

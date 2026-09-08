@@ -450,12 +450,12 @@ def census_room(task):
 
 
 def select_pilot_groups(rows, limit=24):
-    """Deterministic round-robin across source leg/tier strata; no outcome fields participate."""
+    """Round-robin across boundary kind and source leg/tier; no outcomes participate."""
     candidates = sorted((r for r in rows if r.get("eligible")), key=lambda r: r["group_id"])
     by_stratum = defaultdict(list)
     for row in candidates:
         for stratum in row.get("source_strata", []):
-            by_stratum[stratum].append(row["group_id"])
+            by_stratum[(row.get("group_kind") or "unclassified", stratum)].append(row["group_id"])
     selected = []
     while len(selected) < limit:
         progressed = False
@@ -488,7 +488,7 @@ def summarize_census(rows, onepush_manifest, pure2push_manifest, two_push_divisi
         "exclusion_counts": dict(sorted(exclusion_counts.items())),
         "eligible_source_strata_counts": dict(sorted(source_strata.items())),
         "pilot_group_ids": select_pilot_groups(rows),
-        "pilot_selection": "deterministic round-robin over source leg:tier strata; source strata are provenance, not group difficulty; no outcome fields were selected on",
+        "pilot_selection": "deterministic round-robin over boundary kind and source leg:tier strata; source strata are provenance, not group difficulty; no outcome fields were selected on",
     }
 
 

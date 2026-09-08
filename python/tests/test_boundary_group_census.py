@@ -140,6 +140,18 @@ def test_pilot_is_bounded_deterministic_and_source_stratified(census_module):
     assert json.loads(encoded)["group_kind_counts"]["unclassified"] == 3
 
 
+def test_pilot_keeps_rare_joint_boundaries(census_module):
+    rows = [{"group_id": f"bg_{i:02}", "eligible": True,
+             "source_strata": ["1push:easy"], "group_kind": "alternatives"}
+            for i in range(30)]
+    rows.append({"group_id": "bg_rare_joint", "eligible": True,
+                 "source_strata": ["1push:easy"], "group_kind": "joint_blockage"})
+    selected = census_module.select_pilot_groups(rows, limit=24)
+    assert len(selected) == 24
+    assert "bg_rare_joint" in selected
+    assert selected == census_module.select_pilot_groups(list(reversed(rows)), limit=24)
+
+
 def test_census_requires_the_config_sibling_5mm_margin(tmp_path, census_module):
     config = tmp_path / "margin_5mm" / "namo.yaml"
     config.parent.mkdir()
