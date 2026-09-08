@@ -134,6 +134,10 @@ def test_pilot_is_bounded_deterministic_and_source_stratified(census_module):
     assert summary["n_eligible_multi_object_groups"] == 3
     assert summary["pilot_group_ids"] == ["bg_b", "bg_a", "bg_c"]
     assert "source strata are provenance" in summary["pilot_selection"]
+    # Excluded rooms can have no boundary classification. All summary map keys must
+    # remain strings so the production writer can sort them alongside real kinds.
+    encoded = json.dumps(summary, sort_keys=True)
+    assert json.loads(encoded)["group_kind_counts"]["unclassified"] == 3
 
 
 def test_census_requires_the_config_sibling_5mm_margin(tmp_path, census_module):

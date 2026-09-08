@@ -484,7 +484,7 @@ def summarize_census(rows, onepush_manifest, pure2push_manifest, two_push_divisi
         "n_records": len(rows),
         "n_eligible_multi_object_groups": len(eligible),
         "eligible_group_ids": [r["group_id"] for r in sorted(eligible, key=lambda r: r["group_id"])],
-        "group_kind_counts": dict(sorted(Counter(r.get("group_kind") for r in rows).items(), key=lambda x: str(x[0]))),
+        "group_kind_counts": dict(sorted(Counter(r.get("group_kind") or "unclassified" for r in rows).items())),
         "exclusion_counts": dict(sorted(exclusion_counts.items())),
         "eligible_source_strata_counts": dict(sorted(source_strata.items())),
         "pilot_group_ids": select_pilot_groups(rows),
