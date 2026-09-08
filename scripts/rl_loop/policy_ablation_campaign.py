@@ -49,6 +49,9 @@ def verify_config():
     margin = yaml.safe_load(margin_file.read_text())["tier1"]["base_inflation_margin_m"]
     if margin != 0.005:
         raise ValueError(f"This campaign requires 5 mm, got {margin}")
+    from namo.visualization.wavefront_snapshot import WavefrontSnapshotExporter
+    if WavefrontSnapshotExporter._load_tier1_inflation_margin(cfg) != margin:
+        raise ValueError("Ranker renderer and simulator disagree on the clearance margin")
     return {"config": str(cfg), "config_sha256": digest(cfg),
             "margin_m": margin, "margin_sha256": digest(margin_file)}
 
