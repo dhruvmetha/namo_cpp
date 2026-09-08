@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Frozen 5 mm policy ablations: smoke, bundled evaluation, and strict reporting."""
 import argparse
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 import hashlib
 import json
 import os
@@ -187,6 +187,9 @@ def aggregate(root):
     for i in range(count):
         if not (root / "markers" / f"full_{i}.json").exists():
             raise ValueError(f"Missing completed bundle {i}")
+    target_audit = json.loads((root / "target_audit.json").read_text())
+    if target_audit["changed_reference_rooms"]:
+        raise ValueError("Fixed target points changed on the cached-control population")
     report = {"protocol": {"margin_m": 0.005, "max_pushes": 10, "search_lookahead": False}, "legs": {}}
     lines = ["# Policy ablations at 5 mm", "", "Mean ± sample SD across three seeds. Every attempted push is counted. Target object and initial target points stay fixed. No wall-time comparison.", ""]
     for leg in LEGS:
@@ -197,8 +200,15 @@ def aggregate(root):
         for arm in plan["arms"]:
             path = root / "full" if arm["new_full"] else SCRATCH / plan["control_root"]
             rows = read_leaves(path / arm["name"] / f"{leg}_policy")
-            if set(rows) != expected:
+            if not expected.issubset(rows):
                 raise ValueError(f"{leg}/{arm['name']}: expected {len(expected)}, got {len(rows)}; keys differ")
+            extra = set(rows) - expected
+            if extra and not arm["new_full"]:
+                raise ValueError(f"Cached controls disagree on population: {arm['name']}")
+            # Keep the precommitted control population intact. The additive boundary-graph
+            # repair recovers previously empty targets; those are separate diagnostic rows.
+            report.setdefault("excluded_extra_episode_keys", {})[f"{leg}/{arm['name']}"] = sorted(extra)
+            rows = {key: rows[key] for key in expected}
             rates = {}
             for tier in ("easy", "medium", "hard", "all"):
                 selected = [r for k, r in rows.items() if tier == "all" or divisions[k] == tier]
@@ -219,6 +229,39 @@ def aggregate(root):
             lines.append("")
     write_json(root / "aggregate.json", report)
     (root / "aggregate.md").write_text("\n".join(lines) + "\n")
+
+
+def paired_target_points(room):
+    """Zero pushes: compare fixed targets with the additive boundary pass off/on."""
+    from scorer_beam import make_env, FALLBACK_GOAL
+    from eval_m3 import sample_goal_points
+    from namo.core.xml_goal_parser import extract_goal_with_fallback
+    targets = []
+    for enabled in (False, True):
+        if enabled:
+            os.environ.pop("NAMO_DISABLE_MOVABLE_BLOB_EDGES", None)
+        else:
+            os.environ["NAMO_DISABLE_MOVABLE_BLOB_EDGES"] = "1"
+        env = make_env(room)
+        env.set_robot_goal(*extract_goal_with_fallback(room, FALLBACK_GOAL))
+        env.get_reachable_objects()
+        targets.append(sample_goal_points(env))
+    return {"room": room, "same": targets[0] == targets[1],
+            "old_count": len(targets[0]), "new_count": len(targets[1])}
+
+
+def audit_targets(root):
+    verify_config()
+    plan = json.loads((root / "plan.json").read_text())
+    reference_rooms = set()
+    for leg in LEGS:
+        reference_rooms.update(k[0] for k in read_leaves(
+            SCRATCH / plan["control_root"] / "HY5U_s1" / f"{leg}_policy"))
+    with ProcessPoolExecutor(max_workers=int(os.environ.get("SLURM_CPUS_PER_TASK", "1"))) as pool:
+        rows = list(pool.map(paired_target_points, sorted(reference_rooms)))
+    write_json(root / "target_audit.json", {"reference_rooms": len(rows),
+               "changed_reference_rooms": [r for r in rows if not r["same"]],
+               "simulator_pushes": 0})
 
 
 def census(root, smoke=False):
@@ -367,7 +410,7 @@ def monitor(root):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("stage", choices=["prepare", "smoke", "full", "gate", "aggregate", "census-smoke", "census", "group-smoke", "group", "group-aggregate", "monitor"])
+    ap.add_argument("stage", choices=["prepare", "smoke", "full", "gate", "aggregate", "audit-targets", "census-smoke", "census", "group-smoke", "group", "group-aggregate", "monitor"])
     ap.add_argument("--root", type=Path, required=True)
     ap.add_argument("--index", type=int, default=0)
     a = ap.parse_args()
@@ -379,6 +422,8 @@ def main():
         group_task(a.root, a.index, a.stage == "group-smoke")
     elif a.stage == "group-aggregate":
         aggregate_groups(a.root)
+    elif a.stage == "audit-targets":
+        audit_targets(a.root)
     else:
         globals()[a.stage](a.root)
 
