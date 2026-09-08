@@ -83,7 +83,7 @@ def _fmt_push(s):
 
 class BeamPlanner:
     def __init__(self, ckpt=CHAMPION_CKPT, k1=10, k2=10, n1=6, max_first=60, first_depths=(4, 3, 2)):
-        self.scorer = LiveScorer(ckpt=ckpt)
+        self.scorer = LiveScorer(ckpt=ckpt, render_config=CFG)
         self.prim = PrimitiveGoalStrategy(data_dir=DATA_DIR, primitive_prefix=PRIM_PREFIX)
         self.k1 = k1
         self.k2 = k2
