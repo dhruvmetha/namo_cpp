@@ -298,6 +298,8 @@ def submit(root, stage, count=1, cpus=1, minutes=20, dependency=None):
            f"--job-name=pol_{stage}", f"--output={root}/logs/{stage}_%A_%a.out"]
     if dependency:
         cmd += [f"--dependency=afterok:{dependency}"]
+    if os.environ.get("CAMPAIGN_EXCLUDE_NODES"):
+        cmd += ["--exclude", os.environ["CAMPAIGN_EXCLUDE_NODES"]]
     cmd += [str(REPO / "scripts/slurm/policy_ablation_task.slurm")]
     env = dict(os.environ, CAMPAIGN_ROOT=str(root), CAMPAIGN_STAGE=stage, NAMO_REPO=str(REPO))
     job = subprocess.check_output(cmd, env=env, cwd=REPO, text=True).strip().split(";")[0]
