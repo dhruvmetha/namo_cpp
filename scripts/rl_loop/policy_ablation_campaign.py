@@ -190,6 +190,13 @@ def aggregate(root):
     target_audit = json.loads((root / "target_audit.json").read_text())
     if target_audit["changed_reference_rooms"]:
         raise ValueError("Fixed target points changed on the cached-control population")
+    recovered_targets = {leg: set() for leg in LEGS}
+    for line in (root / "census.jsonl").read_text().splitlines():
+        row = json.loads(line)
+        if row["group_kind"] == "joint_blockage":
+            for source in row["source_episodes"]:
+                recovered_targets[source["leg"]].add((str(resolve(source["xml_path"])),
+                                                      source["object_id"], source["region"]))
     report = {"protocol": {"margin_m": 0.005, "max_pushes": 10, "search_lookahead": False}, "legs": {}}
     lines = ["# Policy ablations at 5 mm", "", "Mean ± sample SD across three seeds. Every attempted push is counted. Target object and initial target points stay fixed. No wall-time comparison.", ""]
     for leg in LEGS:
@@ -205,6 +212,8 @@ def aggregate(root):
             extra = set(rows) - expected
             if extra and not arm["new_full"]:
                 raise ValueError(f"Cached controls disagree on population: {arm['name']}")
+            if extra - recovered_targets[leg]:
+                raise ValueError(f"Unexplained extra episodes: {leg}/{arm['name']}")
             # Keep the precommitted control population intact. The additive boundary-graph
             # repair recovers previously empty targets; those are separate diagnostic rows.
             report.setdefault("excluded_extra_episode_keys", {})[f"{leg}/{arm['name']}"] = sorted(extra)
