@@ -250,16 +250,19 @@ def paired_target_points(room):
             "old_count": len(targets[0]), "new_count": len(targets[1])}
 
 
-def audit_targets(root):
+def audit_targets(root, smoke=False):
     verify_config()
     plan = json.loads((root / "plan.json").read_text())
     reference_rooms = set()
     for leg in LEGS:
         reference_rooms.update(k[0] for k in read_leaves(
             SCRATCH / plan["control_root"] / "HY5U_s1" / f"{leg}_policy"))
+    rooms = sorted(reference_rooms)
+    if smoke:
+        rooms = rooms[:1]
     with ProcessPoolExecutor(max_workers=int(os.environ.get("SLURM_CPUS_PER_TASK", "1"))) as pool:
-        rows = list(pool.map(paired_target_points, sorted(reference_rooms)))
-    write_json(root / "target_audit.json", {"reference_rooms": len(rows),
+        rows = list(pool.map(paired_target_points, rooms))
+    write_json(root / ("target_audit_smoke.json" if smoke else "target_audit.json"), {"reference_rooms": len(rows),
                "changed_reference_rooms": [r for r in rows if not r["same"]],
                "simulator_pushes": 0})
 
@@ -410,7 +413,7 @@ def monitor(root):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("stage", choices=["prepare", "smoke", "full", "gate", "aggregate", "audit-targets", "census-smoke", "census", "group-smoke", "group", "group-aggregate", "monitor"])
+    ap.add_argument("stage", choices=["prepare", "smoke", "full", "gate", "aggregate", "audit-targets", "audit-targets-smoke", "census-smoke", "census", "group-smoke", "group", "group-aggregate", "monitor"])
     ap.add_argument("--root", type=Path, required=True)
     ap.add_argument("--index", type=int, default=0)
     a = ap.parse_args()
@@ -422,8 +425,8 @@ def main():
         group_task(a.root, a.index, a.stage == "group-smoke")
     elif a.stage == "group-aggregate":
         aggregate_groups(a.root)
-    elif a.stage == "audit-targets":
-        audit_targets(a.root)
+    elif a.stage in {"audit-targets", "audit-targets-smoke"}:
+        audit_targets(a.root, a.stage.endswith("-smoke"))
     else:
         globals()[a.stage](a.root)
 
