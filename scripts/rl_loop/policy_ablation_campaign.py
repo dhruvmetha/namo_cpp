@@ -304,7 +304,10 @@ def submit(root, stage, count=1, cpus=1, minutes=20, dependency=None):
 def monitor(root):
     """Lightweight detached controller. Poll artifacts every five minutes."""
     state_path = root / "controller_state.json"
-    state = json.loads(state_path.read_text()) if state_path.exists() else {"smoke_job": os.environ["SMOKE_JOB_ID"]}
+    state = json.loads(state_path.read_text()) if state_path.exists() else {
+        "smoke_job": os.environ["SMOKE_JOB_ID"],
+        "census_smoke_job": os.environ.get("CENSUS_SMOKE_JOB_ID"),
+    }
     plan = json.loads((root / "plan.json").read_text())
     while True:
         try:
