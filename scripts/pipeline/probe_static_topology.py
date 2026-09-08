@@ -13,10 +13,10 @@ Per XML it records:
     (`get_reachable_edges`)
   derived flags: no_blocking_objects, no_reachable_blocker, no_pushable_blocker, hop_mismatch
 
-Boundary object lists are COUNTERFACTUAL CERTIFICATES (see mujoco_env_creator/generate_envs.py
-::_runtime_topology): the wavefront removes each listed object independently while every other
-object stays, so a two-name list is an OR boundary — either object alone opens it. That is why
-`no_reachable_blocker` is "ALL of them are unreachable", not "any of them is".
+Boundary object lists name the objects on the boundary. A multi-name list alone does *not* say
+whether either object opens the boundary: `multi_object_edges` is the authoritative marker for a
+boundary that needs the whole multi-object plug. The optional census mode below preserves that
+distinction rather than treating every multi-name boundary as an OR.
 
 Which boundary matters. The deploy planner (full_namo_planner.search) always opens `path[1]` — the
 FIRST hop off the robot region — so only boundary 0 is a *static* defect. Boundaries further along
@@ -32,22 +32,29 @@ disagree about what blocks a boundary.
       --config config/namo_config_complete_skill15_car_1x.yaml --workers 32
 """
 import argparse
+import hashlib
 import json
 import math
 import os
 import sys
 import time
-from collections import deque
+from collections import Counter, defaultdict, deque
 from multiprocessing import Pool
 
+import yaml
+
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-for _p in (os.path.join(REPO, "build_python"), os.path.join(REPO, "python")):
+for _p in (os.path.join(REPO, "build_python"), os.path.join(REPO, "python"),
+           os.path.join(REPO, "scripts")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
 import namo_rl  # noqa: E402
 from namo.core.xml_goal_parser import extract_goal_from_xml  # noqa: E402
+from namo import eval_sets  # noqa: E402
+from namo.paths import resolve as resolve_namo_path  # noqa: E402
 from namo.planners import get_region_snapshot  # noqa: E402
+from eval_common import bin_of  # noqa: E402
 
 
 def _boundary_objects(edge_objects, source, target):
@@ -235,12 +242,318 @@ def summarize(probe_jsonl, out_dir):
         print(f"  wrote {os.path.join(out_dir, name)}  ({len(lst)})")
 
 
+CENSUS_SCHEMA = "boundary_group_census_v1"
+
+
+def load_two_push_divisions(path):
+    """Canonical (realpath, object, region) -> division map; no setup-density re-binning here."""
+    divisions = json.load(open(path))
+    out = {}
+    for xml_path, episodes in divisions.items():
+        room = os.path.realpath(str(resolve_namo_path(xml_path)))
+        for episode in episodes:
+            key = (room, str(episode["object_id"]), episode.get("region"))
+            if key in out:
+                raise ValueError(f"duplicate canonical 2push division key {key}")
+            out[key] = str(episode["division"])
+    return out
+
+
+def load_manifest_sources(onepush_manifest, pure2push_manifest, two_push_divisions=None):
+    """Read source episode identities without ever collapsing sibling episodes by XML."""
+    two_push_divisions = load_two_push_divisions(two_push_divisions or str(eval_sets.DIVISIONS))
+    sources_by_room = defaultdict(list)
+    for leg, path in (("1push", onepush_manifest), ("2push", pure2push_manifest)):
+        manifest = json.load(open(path))
+        if not isinstance(manifest, dict):
+            raise ValueError(f"{leg} manifest must be {{xml: [episodes]}}, got {type(manifest).__name__}")
+        for xml_path, episodes in manifest.items():
+            if not isinstance(episodes, list):
+                raise ValueError(f"{leg} manifest {xml_path!r} has non-list episodes")
+            resolved = os.path.realpath(str(resolve_namo_path(xml_path)))
+            for episode in episodes:
+                if not isinstance(episode, dict) or not episode.get("object_id"):
+                    raise ValueError(f"{leg} manifest {xml_path!r} has episode without object_id")
+                region = episode.get("region")
+                if leg == "1push":
+                    tier = bin_of(float(episode["solve_rate"]))
+                else:
+                    division_key = (resolved, str(episode["object_id"]), region)
+                    if division_key not in two_push_divisions:
+                        raise ValueError(f"2push episode missing canonical division {division_key}")
+                    tier = two_push_divisions[division_key]
+                sources_by_room[resolved].append({
+                    "leg": leg,
+                    "xml_path": str(xml_path),
+                    "room_realpath": resolved,
+                    "object_id": str(episode["object_id"]),
+                    "region": region,
+                    "tier": tier,
+                    "object_center": episode.get("object_center"),
+                })
+    for room in sources_by_room:
+        sources_by_room[room].sort(key=_source_sort_key)
+    return dict(sources_by_room)
+
+
+def _source_sort_key(source):
+    return (source["leg"], source["object_id"], str(source.get("tier")),
+            str(source.get("region")), json.dumps(source.get("object_center")), source["xml_path"])
+
+
+def _group_id(room_realpath, robot_label, goal_label, boundary_objects):
+    key = [room_realpath, robot_label, goal_label, sorted(boundary_objects)]
+    return "bg_" + hashlib.sha256(json.dumps(key, separators=(",", ":")).encode()).hexdigest()[:16]
+
+
+def _stratum(source):
+    """Input provenance, deliberately not a difficulty label for a deduped group."""
+    return f"{source['leg']}:{source.get('tier') or 'unknown'}"
+
+
+def group_kind_from_snapshot(snapshot, robot_label, goal_label, boundary_objects):
+    """Classify from the explicit marker; object count must never imply joint blockage."""
+    assert "multi_object_edges" in snapshot, (
+        "snapshot dropped multi_object_edges; refusing to infer joint blockage from object count"
+    )
+    multi = snapshot["multi_object_edges"]
+    marked_forward = goal_label in multi.get(robot_label, set())
+    marked_reverse = robot_label in multi.get(goal_label, set())
+    if marked_forward != marked_reverse:
+        raise ValueError("multi_object_edges is asymmetric for the robot-goal boundary")
+    if marked_forward:
+        return "joint_blockage"
+    return "singleton" if len(boundary_objects) == 1 else "alternatives"
+
+
+def _json_pose(value):
+    return [round(float(x), 6) for x in value] if value is not None else None
+
+
+def _base_census_record(room, sources, snapshot=None):
+    return {
+        "schema": CENSUS_SCHEMA,
+        "room_realpath": room,
+        "source_episodes": sorted(sources, key=_source_sort_key),
+        "source_strata": sorted({_stratum(s) for s in sources}),
+        "robot_label": (snapshot or {}).get("robot_label") or "",
+        "goal_label": (snapshot or {}).get("goal_label") or "",
+        "boundary_objects": [],
+        "group_kind": None,
+        "target_points": [],
+        "reachable_objects": [],
+        "reachable_edges": {},
+        "pushable_boundary_objects": [],
+        "initial_target_reachable_count": 0,
+        "initial_target_reachable_fraction": None,
+        "eligibility_failures": [],
+        "initial_robot_pose": None,
+        "initial_object_poses": {},
+        "eligible": False,
+        "exclusion_reason": None,
+        "error": None,
+    }
+
+
+def _excluded_record(room, sources, reason, snapshot=None, error=None):
+    row = _base_census_record(room, sources, snapshot)
+    row["group_id"] = "excluded_" + hashlib.sha256(
+        json.dumps([room, reason, [_source_sort_key(s) for s in row["source_episodes"]]],
+                   separators=(",", ":")).encode()).hexdigest()[:16]
+    row["exclusion_reason"] = reason
+    row["error"] = error
+    return row
+
+
+def _target_points(snapshot, goal_label):
+    bundle = snapshot.get("region_goals", {}).get(goal_label)
+    goals = getattr(bundle, "goals", None) if bundle is not None else None
+    return [[float(goal.x), float(goal.y)] for goal in goals or []]
+
+
+def census_room(task):
+    """Census all manifest episodes sharing one resolved room with exactly one static env."""
+    room, sources, config = task
+    try:
+        env = NoStepEnv(namo_rl.RLEnvironment(room, config, False))
+        goal = extract_goal_from_xml(room)
+        # Match the canonical evaluator's root setup before it samples the fixed target region.
+        env.set_robot_goal(*goal)
+        reachable = sorted(env.get_reachable_objects())
+        snapshot = get_region_snapshot(
+            env, goals_per_region=100, local_info_only=False, seed=42,
+            use_cpp_unified=True, use_xml_goal=True,
+        )
+        robot_label = snapshot.get("robot_label") or ""
+        goal_label = snapshot.get("goal_label") or ""
+        if snapshot.get("goal_reachable", False):
+            return [_excluded_record(room, sources, "already_open", snapshot)]
+        if not _target_points(snapshot, goal_label):
+            return [_excluded_record(room, sources, "empty_goal_samples", snapshot)]
+        if not robot_label or not goal_label or goal_label not in snapshot["adjacency"].get(robot_label, set()):
+            return [_excluded_record(room, sources, "not_adjacent", snapshot)]
+        objects, boundary_error = _boundary_objects(snapshot["edge_objects"], robot_label, goal_label)
+        if boundary_error:
+            return [_excluded_record(room, sources, boundary_error, snapshot)]
+        kind = group_kind_from_snapshot(snapshot, robot_label, goal_label, objects)
+        source_on_boundary = [s for s in sources if s["object_id"] in objects]
+        rows = []
+        for source in sources:
+            if source["object_id"] in objects:
+                continue
+            excluded = _excluded_record(room, [source], "source_object_not_on_boundary", snapshot)
+            excluded.update({"boundary_objects": objects, "group_kind": kind,
+                             "target_points": _target_points(snapshot, goal_label)})
+            rows.append(excluded)
+        if not source_on_boundary:
+            return rows
+
+        reachable_edges = {obj: len(env.get_reachable_edges(obj)) for obj in reachable}
+        target_points = _target_points(snapshot, goal_label)
+        target_reachable_count = int(env.count_reachable_points(target_points)[0])
+        target_reachable_fraction = target_reachable_count / len(target_points)
+        pushable_boundary = [obj for obj in objects
+                             if obj in reachable and reachable_edges.get(obj, 0) > 0]
+        observation = env.get_observation()
+        row = _base_census_record(room, source_on_boundary, snapshot)
+        row.update({
+            "group_id": _group_id(room, robot_label, goal_label, objects),
+            "boundary_objects": objects,
+            "group_kind": kind,
+            "target_points": target_points,
+            "reachable_objects": reachable,
+            "reachable_edges": reachable_edges,
+            "pushable_boundary_objects": pushable_boundary,
+            "initial_target_reachable_count": target_reachable_count,
+            "initial_target_reachable_fraction": target_reachable_fraction,
+            "initial_robot_pose": _json_pose(observation.get("robot_pose")),
+            "initial_object_poses": {
+                obj: _json_pose(observation.get(f"{obj}_pose")) for obj in objects
+            },
+        })
+        # The frozen policy-group cohort is multi-object by construction. Singleton rows remain
+        # visible in the census, but cannot quietly leak into a group-policy evaluation.
+        failures = []
+        if len(objects) == 1:
+            failures.append("singleton_boundary")
+        if not pushable_boundary:
+            failures.append("no_reachable_pushable_boundary_object")
+        if target_reachable_fraction >= 0.2:
+            failures.append("initial_target_fraction_at_least_0_2")
+        row["eligibility_failures"] = failures
+        row["eligible"] = not failures
+        row["exclusion_reason"] = failures[0] if failures else None
+        rows.append(row)
+        return rows
+    except Exception as exc:  # malformed room/config must be an auditable exclusion, never a success
+        return [_excluded_record(room, sources, "error", error=f"{type(exc).__name__}: {exc}")]
+
+
+def select_pilot_groups(rows, limit=24):
+    """Deterministic round-robin across source leg/tier strata; no outcome fields participate."""
+    candidates = sorted((r for r in rows if r.get("eligible")), key=lambda r: r["group_id"])
+    by_stratum = defaultdict(list)
+    for row in candidates:
+        for stratum in row.get("source_strata", []):
+            by_stratum[stratum].append(row["group_id"])
+    selected = []
+    while len(selected) < limit:
+        progressed = False
+        for stratum in sorted(by_stratum):
+            while by_stratum[stratum] and by_stratum[stratum][0] in selected:
+                by_stratum[stratum].pop(0)
+            if by_stratum[stratum] and len(selected) < limit:
+                selected.append(by_stratum[stratum].pop(0))
+                progressed = True
+        if not progressed:
+            break
+    return selected
+
+
+def summarize_census(rows, onepush_manifest, pure2push_manifest, two_push_divisions):
+    eligible = [r for r in rows if r.get("eligible")]
+    exclusion_counts = Counter(r.get("exclusion_reason") for r in rows if not r.get("eligible"))
+    source_strata = Counter(
+        stratum for row in eligible for stratum in row.get("source_strata", [])
+    )
+    return {
+        "schema": CENSUS_SCHEMA,
+        "onepush_manifest": os.path.abspath(onepush_manifest),
+        "pure2push_manifest": os.path.abspath(pure2push_manifest),
+        "two_push_divisions": os.path.abspath(two_push_divisions),
+        "n_records": len(rows),
+        "n_eligible_multi_object_groups": len(eligible),
+        "eligible_group_ids": [r["group_id"] for r in sorted(eligible, key=lambda r: r["group_id"])],
+        "group_kind_counts": dict(sorted(Counter(r.get("group_kind") for r in rows).items(), key=lambda x: str(x[0]))),
+        "exclusion_counts": dict(sorted(exclusion_counts.items())),
+        "eligible_source_strata_counts": dict(sorted(source_strata.items())),
+        "pilot_group_ids": select_pilot_groups(rows),
+        "pilot_selection": "deterministic round-robin over source leg:tier strata; source strata are provenance, not group difficulty; no outcome fields were selected on",
+    }
+
+
+def run_group_census(onepush_manifest, pure2push_manifest, out_path, config, start, end, workers,
+                     two_push_divisions):
+    if not config:
+        raise ValueError("--config is required with --episode-manifests")
+    _require_census_margin(config)
+    sources_by_room = load_manifest_sources(onepush_manifest, pure2push_manifest, two_push_divisions)
+    rooms = sorted(sources_by_room)
+    rooms = rooms[start:(end if end is not None else len(rooms))]
+    tasks = [(room, sources_by_room[room], config) for room in rooms]
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    t0 = time.time()
+    rows = []
+    if workers > 1:
+        with Pool(workers) as pool:
+            for room_rows in pool.imap_unordered(census_room, tasks, chunksize=1):
+                rows.extend(room_rows)
+    else:
+        for room_rows in map(census_room, tasks):
+            rows.extend(room_rows)
+    with open(out_path, "w") as f:
+        # Keep the JSONL stable even when static rooms were probed concurrently.
+        for row in sorted(rows, key=lambda r: r["group_id"]):
+            f.write(json.dumps(row, sort_keys=True) + "\n")
+    summary = summarize_census(rows, onepush_manifest, pure2push_manifest, two_push_divisions)
+    summary_path = out_path + ".summary.json"
+    with open(summary_path, "w") as f:
+        json.dump(summary, f, indent=2, sort_keys=True)
+        f.write("\n")
+    pilot_path = out_path + ".pilot.jsonl"
+    chosen = set(summary["pilot_group_ids"])
+    with open(pilot_path, "w") as f:
+        for row in sorted((r for r in rows if r.get("group_id") in chosen), key=lambda r: r["group_id"]):
+            f.write(json.dumps(row, sort_keys=True) + "\n")
+    print(f"done {len(rows)} census records from {len(rooms)} rooms -> {out_path} in {time.time()-t0:.0f}s", flush=True)
+    print(f"summary -> {summary_path}", flush=True)
+    print(f"pilot -> {pilot_path}", flush=True)
+
+
+def _require_census_margin(config):
+    """The 5 mm cohort is config-bound; never silently census it under the later 1 mm geometry."""
+    config_path = os.path.abspath(config)
+    margin_path = os.path.join(os.path.dirname(config_path), "wavefront_inflation.yaml")
+    if not os.path.isfile(margin_path):
+        raise ValueError(f"census config {config_path} has no sibling wavefront_inflation.yaml")
+    margin = yaml.safe_load(open(margin_path)).get("tier1", {}).get("base_inflation_margin_m")
+    if float(margin) != 0.005:
+        raise ValueError(
+            f"census requires 5 mm tier1 margin, got {margin!r} from {margin_path}"
+        )
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--summarize", metavar="PROBE_JSONL",
                     help="skip probing; reduce an existing probe JSONL into the flag census + "
                          "surviving/dropped XML lists (written next to --out)")
     ap.add_argument("--manifest", help="file of XML paths, one per line")
+    ap.add_argument("--episode-manifests", nargs=2, metavar=("ONEPUSH_JSON", "PURE2PUSH_JSON"),
+                    help="run the bounded group census from explicit canonical 1-push and pure-2-push "
+                         "episode manifests; writes --out, --out.summary.json, and --out.pilot.jsonl")
+    ap.add_argument("--two-push-divisions", default=str(eval_sets.DIVISIONS),
+                    help="canonical pure-2-push division JSON; joined by realpath, object, and region")
     ap.add_argument("--out", required=True, help="output JSONL, one row per XML")
     ap.add_argument("--config", help="namo config YAML")
     ap.add_argument("--start", type=int, default=0)
@@ -252,6 +565,16 @@ def main():
     if a.summarize:
         summarize(a.summarize, os.path.dirname(os.path.abspath(a.out)))
         return
+
+    if a.episode_manifests:
+        if a.manifest:
+            ap.error("--manifest and --episode-manifests are mutually exclusive")
+        run_group_census(*a.episode_manifests, a.out, a.config, a.start, a.end, a.workers,
+                         a.two_push_divisions)
+        return
+
+    if not a.manifest:
+        ap.error("--manifest is required unless --summarize or --episode-manifests is used")
 
     xmls = [ln.strip() for ln in open(a.manifest) if ln.strip()]
     xmls = xmls[a.start:(a.end if a.end is not None else len(xmls))]

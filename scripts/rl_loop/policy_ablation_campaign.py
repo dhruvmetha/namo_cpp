@@ -218,14 +218,159 @@ def aggregate(root):
     (root / "aggregate.md").write_text("\n".join(lines) + "\n")
 
 
+def census(root, smoke=False):
+    verify_config()
+    out = root / ("census_smoke.jsonl" if smoke else "census.jsonl")
+    cmd = [sys.executable, str(REPO / "scripts/pipeline/probe_static_topology.py"),
+           "--episode-manifests", str(eval_sets.ONEPUSH), str(eval_sets.PURE2PUSH),
+           "--out", str(out), "--config", os.environ["NAMO_CFG"],
+           "--workers", "1" if smoke else os.environ.get("SLURM_CPUS_PER_TASK", "32")]
+    if smoke:
+        cmd += ["--end", "2"]
+    started = time.perf_counter()
+    subprocess.run(cmd, check=True)
+    summary = json.loads(Path(str(out) + ".summary.json").read_text())
+    if summary["exclusion_counts"].get("error", 0):
+        raise ValueError("Census contains errors; inspect exclusions before selecting a cohort")
+    write_json(root / ("census_smoke_done.json" if smoke else "census_done.json"),
+               {"elapsed_s": time.perf_counter() - started, "summary": summary})
+
+
+def group_task(root, index, smoke=False):
+    verify_config()
+    plan = json.loads((root / "plan.json").read_text())
+    arms = [a for a in plan["arms"] if not a["new_full"]]
+    groups = root / "census.jsonl.pilot.jsonl"
+    n_groups = len(groups.read_text().splitlines())
+    modes = ("policy", "search")
+    if smoke:
+        arm = next(a for a in arms if a["name"] == ("HY5U_s1" if index < 2 else "rand_s7000"))
+        group_idx, mode = 0, modes[index % 2]
+        stage = "group_smoke"
+    else:
+        arm = arms[index // (n_groups * 2)]
+        group_idx, mode = (index % (n_groups * 2)) // 2, modes[index % 2]
+        stage = "groups"
+    result = run_leaf(root, arm, "group", group_idx, group_idx + 1,
+                      group_idx, stage, groups=groups, mode=mode)
+    write_json(root / "markers" / f"{stage}_{index}.json", result)
+
+
+def aggregate_groups(root):
+    plan = json.loads((root / "plan.json").read_text())
+    groups = [json.loads(x) for x in (root / "census.jsonl.pilot.jsonl").read_text().splitlines()]
+    expected = {g["group_id"] for g in groups}
+    results = {}
+    for arm in [a for a in plan["arms"] if not a["new_full"]]:
+        for mode in ("policy", "search"):
+            rows = list(read_leaves(root / "groups" / arm["name"] / f"group_{mode}").values())
+            if {r["object_id"] for r in rows} != expected:
+                raise ValueError(f"Incomplete group pilot {arm['name']}/{mode}")
+            results[f"{arm['name']}/{mode}"] = rows
+    strata = sorted({s for g in groups for s in g["source_strata"]})
+    report = {"n_unique_groups": len(groups), "source_strata_overlap": True,
+              "strata_are_source_labels_not_group_difficulty": True, "per_arm": {}}
+    for name, rows in results.items():
+        split = {}
+        for stratum in ["all", *strata]:
+            selected = [r for r in rows if stratum == "all" or stratum in r["group"]["source_strata"]]
+            mode = name.split("/")[1]
+            cuts = (1, 2) if mode == "policy" else (1, 2, 5, 10, 30, 100, 900)
+            split[stratum] = {"n": len(selected), "success": {str(k): sum(
+                (0 < r["opened_at"] <= k) if mode == "policy" else (r["solved"] and r["sims"] <= k)
+                for r in selected) for k in cuts}, "switching_solutions": sum(
+                    len({a["object_id"] for a in r["actions"]}) > 1
+                    and (r.get("solved", False) if mode == "search" else r["opened_at"] > 0)
+                    for r in selected)}
+        report["per_arm"][name] = split
+    write_json(root / "group_aggregate.json", report)
+
+
+def submit(root, stage, count=1, cpus=1, minutes=20, dependency=None):
+    queued = subprocess.check_output(["squeue", "-r", "-h", "-u", os.environ["USER"], "-o", "%P"], text=True)
+    if sum(x == "main" for x in queued.splitlines()) + count > 490:
+        raise RuntimeError("Amarel submission cap: wait for current tasks to finish")
+    cmd = ["sbatch", "--parsable", f"--array=0-{count-1}", f"--cpus-per-task={cpus}",
+           f"--mem={max(6, cpus * 2)}G", f"--time={minutes}",
+           f"--job-name=pol_{stage}", f"--output={root}/logs/{stage}_%A_%a.out"]
+    if dependency:
+        cmd += [f"--dependency=afterok:{dependency}"]
+    cmd += [str(REPO / "scripts/slurm/policy_ablation_task.slurm")]
+    env = dict(os.environ, CAMPAIGN_ROOT=str(root), CAMPAIGN_STAGE=stage, NAMO_REPO=str(REPO))
+    job = subprocess.check_output(cmd, env=env, cwd=REPO, text=True).strip().split(";")[0]
+    return job
+
+
+def monitor(root):
+    """Lightweight detached controller. Poll artifacts every five minutes."""
+    state_path = root / "controller_state.json"
+    state = json.loads(state_path.read_text()) if state_path.exists() else {"smoke_job": os.environ["SMOKE_JOB_ID"]}
+    plan = json.loads((root / "plan.json").read_text())
+    while True:
+        try:
+            if not state.get("census_smoke_job"):
+                state["census_smoke_job"] = submit(root, "census-smoke", minutes=10)
+                write_json(state_path, state)
+            if not state.get("full_job") and all((root / "markers" / f"smoke_{i}.json").exists() for i in range(len(plan["arms"]))):
+                gate(root)
+                elapsed = json.loads((root / "smoke_gate.json").read_text())["slowest_smoke_s"]
+                count = sum(a["new_full"] for a in plan["arms"]) * plan["bundles_per_arm"]
+                minutes = max(15, min(90, int(elapsed * 3 / 60) + 5))
+                state["full_job"] = submit(root, "full", count, plan["workers_per_bundle"], minutes)
+                write_json(state_path, state)
+                state["aggregate_job"] = submit(root, "aggregate", dependency=state["full_job"])
+                state["calibrated_wall_minutes"] = minutes
+            if not state.get("census_job") and (root / "census_smoke_done.json").exists():
+                state["census_job"] = submit(root, "census", cpus=64, minutes=15)
+            if not state.get("group_smoke_job") and (root / "census_done.json").exists():
+                census_info = json.loads((root / "census_done.json").read_text())
+                n = len(census_info["summary"]["pilot_group_ids"])
+                if n:
+                    state["group_smoke_job"] = submit(root, "group-smoke", 4, 1, 30)
+                else:
+                    state["group_smoke_job"] = "no_eligible_groups"
+                    state["groups_done"] = True
+            if state.get("group_smoke_job") not in (None, "no_eligible_groups") and not state.get("group_job"):
+                if all((root / "markers" / f"group_smoke_{i}.json").exists() for i in range(4)):
+                    n = len((root / "census.jsonl.pilot.jsonl").read_text().splitlines())
+                    state["group_job"] = submit(root, "group", n * 12, 1, 30)
+                    state["group_aggregate_job"] = submit(root, "group-aggregate", dependency=state["group_job"])
+            state["policy_done"] = (root / "aggregate.json").exists()
+            state["groups_done"] = state.get("groups_done", False) or (root / "group_aggregate.json").exists()
+            state["last_checked"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+            write_json(state_path, state)
+            if state["policy_done"] and state["groups_done"]:
+                state["status"] = "complete"
+                write_json(state_path, state)
+                return
+            # Accounting is authoritative for failures, even when a worker died before logging.
+            jobs = [v for k, v in state.items() if k.endswith("_job") and str(v).isdigit()]
+            if jobs:
+                accounting = subprocess.check_output(["sacct", "-nP", "-j", ",".join(jobs), "--format=JobID,State,ExitCode"], text=True)
+                failed = [line for line in accounting.splitlines() if any(s in line for s in ("|FAILED|", "|TIMEOUT|", "|OUT_OF_MEMORY|", "|PREEMPTED|", "|CANCELLED"))]
+                if failed:
+                    raise RuntimeError("Campaign task failures: " + "; ".join(failed[:10]))
+        except Exception as exc:
+            state.update(status="needs_attention", error=str(exc))
+            write_json(state_path, state)
+            raise
+        time.sleep(300)
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("stage", choices=["prepare", "smoke", "full", "gate", "aggregate"])
+    ap.add_argument("stage", choices=["prepare", "smoke", "full", "gate", "aggregate", "census-smoke", "census", "group-smoke", "group", "group-aggregate", "monitor"])
     ap.add_argument("--root", type=Path, required=True)
     ap.add_argument("--index", type=int, default=0)
     a = ap.parse_args()
     if a.stage in {"smoke", "full"}:
         task(a.root, a.stage, a.index)
+    elif a.stage in {"census", "census-smoke"}:
+        census(a.root, a.stage == "census-smoke")
+    elif a.stage in {"group", "group-smoke"}:
+        group_task(a.root, a.index, a.stage == "group-smoke")
+    elif a.stage == "group-aggregate":
+        aggregate_groups(a.root)
     else:
         globals()[a.stage](a.root)
 
