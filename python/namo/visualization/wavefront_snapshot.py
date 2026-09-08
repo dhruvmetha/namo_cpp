@@ -251,7 +251,9 @@ class WavefrontSnapshotExporter:
 
     @classmethod
     def _resolve_wavefront_yaml_path(cls, primary_config_path: Union[str, Path]) -> Optional[Path]:
-        primary_path = Path(primary_config_path).expanduser().resolve()
+        # Match C++ absolute(primary_config_file): the directory the caller
+        # selected owns the margin, including when the primary YAML is a symlink.
+        primary_path = Path(primary_config_path).expanduser().absolute()
 
         direct_candidate = primary_path.parent / "wavefront_inflation.yaml"
         if direct_candidate.exists():

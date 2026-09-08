@@ -115,3 +115,16 @@ def test_removing_the_only_occupant_connects_the_regions():
     assert adjacency == {"robot": {"goal"}, "goal": {"robot"}}
     assert edge_objects["robot"]["goal"] == {"box"}
     assert edge_objects["goal"]["robot"] == {"box"}
+def test_symlink_config_uses_callers_margin_directory(tmp_path):
+    from namo.visualization.wavefront_snapshot import WavefrontSnapshotExporter
+
+    root = tmp_path / "config"
+    selected = root / "margin_5mm"
+    selected.mkdir(parents=True)
+    primary = root / "robot.yaml"
+    primary.write_text("planning: {}\n")
+    (root / "wavefront_inflation.yaml").write_text("tier1:\n  base_inflation_margin_m: 0.001\n")
+    (selected / "wavefront_inflation.yaml").write_text("tier1:\n  base_inflation_margin_m: 0.005\n")
+    link = selected / "robot.yaml"
+    link.symlink_to(primary)
+    assert WavefrontSnapshotExporter._load_tier1_inflation_margin(link) == 0.005

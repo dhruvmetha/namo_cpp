@@ -25,6 +25,8 @@ An isolated checkout preserves unrelated active edits. Jobs run in Amarel `main`
 
 First Amarel smoke array `61288302` completed all 27 checkpoint/control tasks at commit `3f892846`. The control-parity gate rejected HY5U rows while all sampled Random rows matched. Code inspection found that `scorer_beam.make_env` honored `NAMO_CFG=margin_5mm`, but `BeamPlanner` constructed `LiveScorer` without passing that configuration, leaving its mask renderer on the root directory's 1 mm setting. This is a mixed-margin diagnostic only and must not be aggregated. The constructor now passes the same configuration to the scorer renderer and simulator. Repeat the smoke and require parity before production.
 
+The follow-up audit found a second path issue: the Python mask exporter resolved the primary configuration symlink before locating its sidecar, escaping `config/margin_5mm` back to the root directory. C++ preserves the caller-selected directory. Python now matches that behavior, with a regression test where the selected directory is 5 mm and the symlink destination directory is 1 mm. Array `61288360` predates this second correction and is also diagnostic-only. The independent zero-push census smoke is `61288361`.
+
 ## Results
 
 Pending.
