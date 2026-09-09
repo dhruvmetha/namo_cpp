@@ -753,3 +753,12 @@ Learned contact identity helps most on hard episodes. Removing it lowers hard on
 ![Three-seed edge-identity comparison.](plots/hy5u_edge_identity_ablation/success_vs_sims_both_horizons.png)
 
 Full provenance and recovery audit: [experiment card](archive/EXP-2026-09-05-hy5u-edge-identity-ablation.md). Registered as `hy5u-edge-identity-ablation-hmax2-v3`.
+
+## 2026-09-09 — Two-object real-table scenes at 1 mm
+
+| Scene | Horizon and difficulty | Ignore: final distance | Penalise: final distance |
+| --- | --- | --- | --- |
+| twohop_00007 | K1 one-push medium (10/138); K2 one-push hard (2/135) | Failed, 33.52 cm | Failed, 20.41 cm |
+| twohop_00043 | Two-push chain required at each gate along the verified replay; rate tiers unconfirmed (900 s K1 sweep cap) | Failed, 6.15 cm | Failed, 24.39 cm |
+
+Both chains advance 2→1→0 hops at the requested 0.001 m tier-1 margin and pass the 2 mm / 1 degree independence tolerance. All navigation runs used fresh MuJoCo environments and the real execution stack with current controller settings, speed 0.4 and 30 Hz; each ended at the stuck-retry limit. These are physical-trial candidates, not physical verdicts; the old hard→hard / medium→medium directory labels must not be reused as 1 mm labels. [Protocol and detailed artifact root](log/EXP-2026-09-09-real-twoobject-1mm-qualification.md).

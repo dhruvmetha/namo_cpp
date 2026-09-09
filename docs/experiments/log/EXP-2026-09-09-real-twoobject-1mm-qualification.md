@@ -1,5 +1,5 @@
 ---
-status: live
+status: done
 type: experiment
 ---
 # Two-object real-scene qualification at 1 mm
@@ -18,7 +18,7 @@ Output and complete configuration/input hashes: /home/dhruv/projects_dhruv/namo/
 
 ## Result
 
-Pending.
+Completed: both two-object scenes have verified 2→1→0 chains at 1 mm, mechanical independence, and failure of both current-settings navigation arms in simulation. twohop_00007 is medium1→hard1 (10/138 and 2/135 one-push openers). twohop_00043 requires two pushes at each gate on its replayed sequence (zero one-push openers at 111 K1 and 21 K2 trials), but its full rate label is unconfirmed after the 900-second K1 scene timeout. Full tables, witness states, trajectories, and scope limits: /home/dhruv/projects_dhruv/namo/robot_control/real_exp/results/twohop_candidates/twoobject_margin_0p1cm_20260909T181512Z/README.md. The reset checker was switched to twohop_00007; physical trials have not run.
 
 ## Preflight correction
 
