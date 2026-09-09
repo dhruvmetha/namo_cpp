@@ -19,3 +19,7 @@ Output and complete configuration/input hashes: /home/dhruv/projects_dhruv/namo/
 ## Result
 
 Pending.
+
+## Preflight correction
+
+The live Python labeler saves setup states but omits successful terminal states, forcing the audit materializer onto minimum-cost recorded fallbacks. Supersede those preliminary K1 outputs with the existing clean real-inventory-twohop checkout at 339a0dcb, whose exhaustive logs retain every successful terminal state; retain the live compiled binding and pinned 1 mm config. Navigation is repeated in navigation_current_controller/ with the live controller YAML (goal_tolerance_ratio 0.15, rotation_tolerance_deg 4.0). The simulation worktree differs from live navigation source by its clock/config injection and harness support; its path follower and executor are unchanged. The initial navigation/ outputs preserve the prior 0.2 / 2.5-degree settings for traceability.
