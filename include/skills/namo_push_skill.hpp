@@ -60,6 +60,8 @@ public:
     std::vector<std::string> get_reachable_objects() const;
     bool is_object_reachable(const std::string& object_name) const;
     std::vector<int> get_reachable_edges(const std::string& object_name) const;
+    /// Controller-defined push approach positions for region access planning.
+    std::vector<std::array<double, 2>> get_edge_points(const std::string& object_name) const;
     PushPrimitiveExecutor::ReachabilitySnapshot get_reachability_snapshot() const;
 
     /**

@@ -305,6 +305,10 @@ std::vector<int> NAMOPushSkill::get_reachable_edges(const std::string& object_na
     return const_cast<PushPrimitiveExecutor*>(executor_.get())->get_reachable_edges_with_wavefront(object_name);
 }
 
+std::vector<std::array<double, 2>> NAMOPushSkill::get_edge_points(const std::string& object_name) const {
+    return executor_->get_edge_points(object_name);
+}
+
 PushPrimitiveExecutor::ReachabilitySnapshot NAMOPushSkill::get_reachability_snapshot() const {
     if (!executor_) {
         return PushPrimitiveExecutor::ReachabilitySnapshot{};

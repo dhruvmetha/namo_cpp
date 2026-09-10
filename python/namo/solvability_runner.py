@@ -65,6 +65,7 @@ class SolveTask:
     audit_next_keyhole_reachability: bool = False
     preserve_next_keyhole_access: bool = False
     shuffle_seed: Optional[int] = None
+    goal_clearance: bool = False
 
 
 def _load_namo_config(config_path: str) -> Dict[str, Any]:
@@ -118,6 +119,7 @@ def build_full_namo_planner_config(task: SolveTask) -> PlannerConfig:
         "full_namo_budget_scope": task.simulation_budget_scope,
         "full_namo_keyhole_simulation_budget": task.simulation_budget,
         "full_namo_local_search": task.local_search,
+        "full_namo_goal_clearance": task.goal_clearance,
         "best_first_prior": task.best_first_prior,
         "best_first_hmax": task.region_max_chain_depth,
         "best_first_agg": "mean5",
@@ -177,6 +179,15 @@ def solve_environment_task(task: SolveTask) -> Dict[str, Any]:
             if "iteration_trace" in budget_stats
             else {}
         )
+        if task.goal_clearance:
+            state = env.get_full_state()
+            trace_fields.update({
+                "goal_clearance_enabled": True,
+                "committed_actions": [serialize_action(action) for action in (result.action_sequence or [])],
+                "terminal_state": {"qpos": list(state.qpos), "qvel": list(state.qvel)},
+                "goal_diagnostics": budget_stats.get("goal_diagnostics"),
+                "final_goal_reachable": bool(env.is_robot_goal_reachable()),
+            })
 
         if result.success:
             action_sequence = list(result.action_sequence or [])
@@ -268,6 +279,7 @@ def _build_task(
     audit_next_keyhole_reachability: bool,
     preserve_next_keyhole_access: bool,
     shuffle_seed: Optional[int],
+    goal_clearance: bool = False,
 ) -> SolveTask:
     return SolveTask(
         xml_path=analysis.xml_path,
@@ -295,6 +307,7 @@ def _build_task(
         audit_next_keyhole_reachability=audit_next_keyhole_reachability,
         preserve_next_keyhole_access=preserve_next_keyhole_access,
         shuffle_seed=shuffle_seed,
+        goal_clearance=goal_clearance,
     )
 
 
@@ -348,6 +361,7 @@ def run_exact_n_solvability(
     preserve_next_keyhole_access: bool = False,
     shuffle_seed: Optional[int] = None,
     limit: Optional[int] = None,
+    goal_clearance: bool = False,
 ) -> Dict[str, Any]:
     config_path = _resolve_config_path(repo_root, config_file)
     require_canonical_runtime_config(config_path)
@@ -381,6 +395,7 @@ def run_exact_n_solvability(
         "simulation_budget": int(simulation_budget),
         "simulation_budget_scope": simulation_budget_scope,
         "local_search": local_search,
+        "goal_clearance": bool(goal_clearance),
         "best_first_prior": best_first_prior,
         "region_selection_strategy": region_selection_strategy,
         "scorer_ckpt": scorer_ckpt,
@@ -447,6 +462,7 @@ def run_exact_n_solvability(
             audit_next_keyhole_reachability=audit_next_keyhole_reachability,
             preserve_next_keyhole_access=preserve_next_keyhole_access,
             shuffle_seed=shuffle_seed,
+            goal_clearance=goal_clearance,
         )
         for analysis in selected_analyses
     ]
@@ -588,6 +604,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Priority source for --local-search best_first",
     )
     parser.add_argument(
+        "--goal-clearance", action=argparse.BooleanOptionalAction, default=False,
+        help="Enable planner-side occupied-goal clearance and terminal-state diagnostics",
+    )
+    parser.add_argument(
         "--region-selection-strategy",
         choices=("ml_first", "cost_first"),
         default="ml_first",
@@ -681,6 +701,7 @@ def cli_main(argv: Optional[Sequence[str]] = None) -> int:
         simulation_budget=args.simulation_budget,
         simulation_budget_scope=args.simulation_budget_scope,
         local_search=args.local_search,
+        goal_clearance=args.goal_clearance,
         best_first_prior=args.best_first_prior,
         region_selection_strategy=args.region_selection_strategy,
         scorer_ckpt=args.scorer_ckpt,

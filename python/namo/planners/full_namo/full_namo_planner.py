@@ -22,6 +22,7 @@ from namo.planners.opening.best_first_region_opening import (
 )
 from namo.planners.opening.region_opening import RegionOpeningPlanner
 from namo.planners.utils import PushAttemptBudget
+from .goal_clearance import GoalClearanceTarget, clearance_targets, goal_diagnostics
 
 
 FULL_NAMO_EXEC_MODES = ("search", "greedy_dfs", "greedy_policy")
@@ -93,6 +94,13 @@ class RegionRouteChoice:
     object_id: str
     hops: int
     attempts: int
+    clearance_target: Optional[GoalClearanceTarget] = None
+    reaches_goal: bool = True
+
+    @property
+    def graph_hops(self) -> int:
+        """Real graph boundaries, excluding the final clearance task."""
+        return len(self.path) - 1
 
     @property
     def cost(self) -> int:
@@ -262,6 +270,9 @@ class FullNAMOPlanner(BasePlanner):
         self._config = config
         self._env = env
         self.local_search = str(algo_params.get("full_namo_local_search", "region_bfs"))
+        self.goal_clearance = bool(algo_params.get("full_namo_goal_clearance", False))
+        if self.goal_clearance and (self.local_search != "best_first" or not self.use_cpp_unified_wavefront):
+            raise ValueError("goal clearance requires best_first and the unified C++ snapshot")
         if self.local_search not in {"region_bfs", "best_first"}:
             raise ValueError("full_namo_local_search must be 'region_bfs' or 'best_first'")
         self.exec_mode = str(
@@ -324,6 +335,40 @@ class FullNAMOPlanner(BasePlanner):
         if self.local_search == "best_first":
             return BestFirstRegionOpeningPlanner(self._env, config)
         return RegionOpeningPlanner(self._env, config)
+
+    def _route_choices(self, snapshot, robot_region, goal_region, attempts, blocked=None):
+        """Schedule normal routes and reachable goal-clearance/access tasks together."""
+        if not self.goal_clearance:
+            return enumerate_region_routes(snapshot, robot_region, goal_region,
+                                           opening_attempts=attempts, blocked_choices=blocked)
+        info = snapshot["goal_clearance"]
+        destinations = {cell["region"] for cell in info["cells"]
+                        if cell["region"] and not cell["static_blocked"] and not cell["objects"]}
+        choices = []
+        for destination in sorted(destinations):
+            choices.extend(enumerate_region_routes(snapshot, robot_region, destination,
+                                                   opening_attempts=attempts, blocked_choices=blocked))
+        reachable = set(info["reachable_objects"])
+        for target in clearance_targets(snapshot):
+            key = boundary_key(robot_region, target.label)
+            if target.object_id in reachable:
+                if (key, target.object_id) not in (blocked or set()):
+                    choices.append(RegionRouteChoice(
+                        (robot_region,), key, target.label, target.object_id, 1,
+                        attempts.get(target.object_id, 0), target, False))
+            for access in sorted(info["access_regions"].get(target.object_id, [])):
+                if access == robot_region:
+                    continue
+                for choice in enumerate_region_routes(snapshot, robot_region, access,
+                                                      opening_attempts=attempts, blocked_choices=blocked):
+                    choices.append(replace(choice, hops=choice.hops + 1, reaches_goal=False))
+        # Many goal cells share an access route. Search that first boundary once per state.
+        unique = {}
+        for choice in choices:
+            key = (choice.path, choice.object_id, choice.target_region, choice.reaches_goal)
+            unique.setdefault(key, choice)
+        return sorted(unique.values(), key=lambda choice: (
+            choice.cost, choice.attempts, choice.object_id, choice.boundary, choice.path))
 
     @property
     def algorithm_name(self) -> str:
@@ -554,7 +599,7 @@ class FullNAMOPlanner(BasePlanner):
 
             goal_region = snapshot.get("goal_label")
             goal_in_free_space = bool(snapshot.get("goal_in_free_space", False))
-            if not goal_region or not goal_in_free_space:
+            if not self.goal_clearance and (not goal_region or not goal_in_free_space):
                 return self._failure_result(
                     "Goal position is in obstacle or out of bounds",
                     start_time,
@@ -572,11 +617,11 @@ class FullNAMOPlanner(BasePlanner):
                 )
 
             try:
-                all_route_choices = enumerate_region_routes(
+                all_route_choices = self._route_choices(
                     snapshot,
                     robot_region,
                     goal_region,
-                    opening_attempts=self._opening_attempts_by_object,
+                    self._opening_attempts_by_object,
                 )
             except ValueError as exc:
                 return self._invariant_failure(
@@ -586,7 +631,7 @@ class FullNAMOPlanner(BasePlanner):
                 )
 
             current_min_hops = min(
-                (choice.hops for choice in all_route_choices),
+                (choice.graph_hops for choice in all_route_choices),
                 default=None,
             )
             if pending_attempt is not None:
@@ -607,13 +652,14 @@ class FullNAMOPlanner(BasePlanner):
                 pending_attempt = None
 
             try:
-                choice = choose_region_route(
+                route_choices = self._route_choices(
                     snapshot,
                     robot_region,
                     goal_region,
-                    opening_attempts=self._opening_attempts_by_object,
-                    blocked_choices=blocked_choices,
+                    self._opening_attempts_by_object,
+                    blocked_choices,
                 )
+                choice = route_choices[0] if route_choices else None
             except ValueError as exc:
                 return self._invariant_failure(
                     str(exc),
@@ -675,10 +721,10 @@ class FullNAMOPlanner(BasePlanner):
                     context=base_context,
                 )
 
-            validation_error = self._validate_region_path(
+            validation_error = None if choice.clearance_target is not None else self._validate_region_path(
                 path=path,
                 robot_region=robot_region,
-                goal_region=goal_region,
+                goal_region=choice.path[-1],
                 adjacency=snapshot["adjacency"],
                 blocked_boundaries=set(),
             )
@@ -698,12 +744,16 @@ class FullNAMOPlanner(BasePlanner):
             # until the first ran out of edges, and made search commit to any
             # chain the simulator found on the first-named block without ever
             # scoring the other. Both arms now see the same candidate set.
-            target_object_ids = tuple(
-                other.object_id
-                for other in all_route_choices
-                if other.boundary == choice.boundary
-                and (other.boundary, other.object_id) not in blocked_choices
-            )
+            if choice.clearance_target is None:
+                target_object_ids = tuple(
+                    other.object_id
+                    for other in all_route_choices
+                    if other.clearance_target is None
+                    and other.boundary == choice.boundary
+                    and (other.boundary, other.object_id) not in blocked_choices
+                )
+            else:
+                target_object_ids = (choice.object_id,)
             base_context.update(
                 {
                     "chosen_initial_blocker": choice.object_id,
@@ -711,6 +761,7 @@ class FullNAMOPlanner(BasePlanner):
                     "route_hops": choice.hops,
                     "route_attempts": choice.attempts,
                     "route_cost": choice.cost,
+                    "target_kind": "goal_clearance" if choice.clearance_target else "region_opening",
                     "opening_attempts_by_object": dict(
                         sorted(self._opening_attempts_by_object.items())
                     ),
@@ -751,7 +802,11 @@ class FullNAMOPlanner(BasePlanner):
                 ),
                 "require_push": True,
             }
-            if self.local_search == "best_first" and len(path) == 2:
+            if self.goal_clearance:
+                opener_kwargs["accept_robot_goal"] = True
+            if choice.clearance_target is not None:
+                opener_kwargs["clearance_target"] = choice.clearance_target
+            if self.local_search == "best_first" and len(path) == 2 and choice.reaches_goal:
                 opener_kwargs["opening_predicate"] = (
                     lambda candidate_env: candidate_env.is_robot_goal_reachable()
                 )
@@ -811,6 +866,9 @@ class FullNAMOPlanner(BasePlanner):
                     "route_hops": choice.hops,
                     "route_attempts": choice.attempts,
                     "route_cost": choice.cost,
+                    "target_kind": "goal_clearance" if choice.clearance_target else "region_opening",
+                    "goal_witness_xy": (list(choice.clearance_target.witness_xy)
+                                        if choice.clearance_target else None),
                     "opening_attempts_by_object": dict(
                         sorted(self._opening_attempts_by_object.items())
                     ),
@@ -1087,6 +1145,12 @@ class FullNAMOPlanner(BasePlanner):
             ),
         }
         algorithm_stats.update(self._current_budget_stats())
+
+        if self.goal_clearance:
+            snapshot = self._compute_region_snapshot()
+            algorithm_stats["goal_diagnostics"] = (
+                goal_diagnostics(snapshot) if snapshot is not None
+                else {"status": "snapshot_unavailable"})
         if extra_stats:
             algorithm_stats.update(extra_stats)
         return PlannerResult(
@@ -1137,6 +1201,12 @@ class FullNAMOPlanner(BasePlanner):
             algorithm_stats[key] = context
         algorithm_stats.update(self._current_budget_stats())
 
+        if self.goal_clearance:
+            snapshot = self._compute_region_snapshot()
+            algorithm_stats["goal_diagnostics"] = (
+                goal_diagnostics(snapshot) if snapshot is not None
+                else {"status": "snapshot_unavailable"})
+
         return PlannerResult(
             success=False,
             solution_found=False,
@@ -1175,7 +1245,8 @@ class FullNAMOPlanner(BasePlanner):
                 local_info_only=False,
                 seed=self.region_snapshot_seed,
                 use_cpp_unified=self.use_cpp_unified_wavefront,
-                use_xml_goal=True,
+                use_xml_goal=not self.goal_clearance,
+                **({"include_goal_clearance": True} if self.goal_clearance else {}),
             )
             return snapshot
         except Exception as e:

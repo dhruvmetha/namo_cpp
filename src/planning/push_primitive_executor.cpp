@@ -296,6 +296,14 @@ std::vector<int> PushPrimitiveExecutor::get_reachable_edges_with_wavefront(const
     return detailed.edge_indices;
 }
 
+std::vector<std::array<double, 2>> PushPrimitiveExecutor::get_edge_points(const std::string& object_name) {
+    std::array<std::array<double, 2>, NAMOPushController::MAX_EDGE_POINTS> edges;
+    std::array<std::array<double, 2>, NAMOPushController::MAX_EDGE_POINTS> mids;
+    size_t edge_count = 0, mid_count = 0;
+    controller_.generate_edge_points(object_name, edges, mids, edge_count, mid_count);
+    return {edges.begin(), edges.begin() + edge_count};
+}
+
 PushPrimitiveExecutor::ReachableEdgesResult PushPrimitiveExecutor::get_reachable_edges_with_wavefront_detailed(
     const std::string& object_name) {
     ReachableEdgesResult result;

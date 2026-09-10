@@ -431,6 +431,31 @@ std::vector<int> RLEnvironment::get_reachable_edges(const std::string& object_na
     return skill_->get_reachable_edges(object_name);
 }
 
+std::vector<std::array<double, 2>> RLEnvironment::get_edge_points(const std::string& object_name) const {
+    return skill_->get_edge_points(object_name);
+}
+
+bool RLEnvironment::object_occupies_point(
+    const std::string& object_name, const std::array<double, 2>& point) const {
+    const auto* state = env_->get_object_state(object_name);
+    if (!state) throw std::invalid_argument("Unknown goal blocker: " + object_name);
+    const auto bounds = env_->get_environment_bounds();
+    const double resolution = WavefrontGrid::kResolution;
+    const int x = static_cast<int>(std::floor((point[0] - bounds[0]) / resolution));
+    const int y = static_cast<int>(std::floor((point[1] - bounds[2]) / resolution));
+    if (x < 0 || y < 0 || x >= static_cast<int>((bounds[1] - bounds[0]) / resolution)
+        || y >= static_cast<int>((bounds[3] - bounds[2]) / resolution)) return false;
+    const std::array<double, 2> centre = {bounds[0] + (x + 0.5) * resolution,
+                                         bounds[2] + (y + 0.5) * resolution};
+    const double inflation = compute_wavefront_inflation_radius_m(config_->planning().robot_size,
+        config_->planning().wavefront_tier1_inflation_margin);
+    for (size_t i = 0; i < env_->get_num_movable(); ++i) {
+        const auto& object = env_->get_movable_objects()[i];
+        if (object.name == object_name) return WavefrontGrid::object_occupies_cell(object, *state, centre, inflation);
+    }
+    throw std::invalid_argument("Goal blocker is not movable: " + object_name);
+}
+
 RLEnvironment::ReachabilitySummary RLEnvironment::get_reachability_summary(bool analysis_mode) const {
     ReachabilitySummary summary;
     if (!skill_) {
@@ -659,7 +684,8 @@ RLEnvironment::RegionSnapshot RLEnvironment::get_region_snapshot(
     double goal_radius,
     bool local_info_only,
     unsigned int seed,
-    bool use_xml_goal) const {
+    bool use_xml_goal,
+    bool include_goal_clearance) const {
     RegionSnapshot snapshot;
 
     std::vector<double> robot_size = {kDefaultWavefrontRobotRadiusM, kDefaultWavefrontRobotRadiusM};
@@ -721,6 +747,26 @@ RLEnvironment::RegionSnapshot RLEnvironment::get_region_snapshot(
         snapshot.robot_label.find("goal") != std::string::npos;
     snapshot.goal_in_free_space =
         !snapshot.goal_label.empty() || snapshot.goal_reachable;
+
+    if (include_goal_clearance) {
+        // Use the live original goal and its navigation tolerance, not the local region bar.
+        const auto original_goal = env_->get_robot_goal();
+        snapshot.goal_xy = {original_goal[0], original_goal[1]};
+        snapshot.goal_cells = grid.describe_points(*env_, build_goal_cells(
+            grid, snapshot.goal_xy, compute_goal_tolerance_m(robot_size, tier1_margin)));
+        std::unordered_set<std::string> blockers;
+        for (const auto& cell : snapshot.goal_cells) {
+            if (!cell.static_blocked) blockers.insert(cell.objects.begin(), cell.objects.end());
+        }
+        for (const auto& object : blockers) {
+            auto& regions = snapshot.goal_blocker_access_regions[object];
+            for (const auto& cell : grid.describe_points(*env_, get_edge_points(object))) {
+                if (!cell.region.empty()) regions.insert(cell.region);
+            }
+            if (!get_reachable_edges(object).empty()) snapshot.reachable_goal_blockers.push_back(object);
+        }
+        std::sort(snapshot.reachable_goal_blockers.begin(), snapshot.reachable_goal_blockers.end());
+    }
 
     if (goals_per_region > 0) {
         snapshot.region_goals = grid.sample_region_goals(goals_per_region, seed);

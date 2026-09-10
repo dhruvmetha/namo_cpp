@@ -315,9 +315,11 @@ class BestFirstRegionOpeningPlanner:
         opening_predicate: Optional[Callable[[namo_rl.RLEnvironment], bool]] = None,
         target_object_id: Optional[str] = None,
         require_push: bool = False,
+        clearance_target=None,
+        accept_robot_goal: bool = False,
     ) -> PlannerResult:
         """Search one boundary and return only a verified opening chain."""
-        return self._run_boundary(
+        result = self._run_boundary(
             robot_goal,
             target_neighbor=target_neighbor,
             target_object_id=target_object_id,
@@ -325,7 +327,10 @@ class BestFirstRegionOpeningPlanner:
             candidate_acceptor=candidate_acceptor,
             opening_predicate=opening_predicate,
             commit_one=False,
+            clearance_target=clearance_target,
+            accept_robot_goal=accept_robot_goal,
         )
+        return self._annotate_clearance(result, clearance_target)
 
     def greedy_commit(
         self,
@@ -338,6 +343,8 @@ class BestFirstRegionOpeningPlanner:
         simulate: bool = True,
         target_object_id: Optional[str] = None,
         require_push: bool = False,
+        clearance_target=None,
+        accept_robot_goal: bool = False,
     ) -> PlannerResult:
         """Return the first moving arg-max action even if it has not opened yet.
 
@@ -345,7 +352,7 @@ class BestFirstRegionOpeningPlanner:
         pure-policy contract, where the camera judges pushes rather than the
         simulator. See run_greedy_commit.
         """
-        return self._run_boundary(
+        result = self._run_boundary(
             robot_goal,
             target_neighbor=target_neighbor,
             target_object_id=target_object_id,
@@ -354,7 +361,22 @@ class BestFirstRegionOpeningPlanner:
             opening_predicate=opening_predicate,
             commit_one=True,
             commit_simulate=simulate,
+            clearance_target=clearance_target,
+            accept_robot_goal=accept_robot_goal,
         )
+        return self._annotate_clearance(result, clearance_target)
+
+    @staticmethod
+    def _annotate_clearance(result, target):
+        """An explicit clearance task can exhaust without being a graph boundary."""
+        if target is not None:
+            summary = result.algorithm_stats["target_summary"]
+            summary["target_kind"] = "goal_clearance"
+            summary["goal_witness_xy"] = list(target.witness_xy)
+            summary["boundary_exhausted"] = (
+                not result.success and result.algorithm_stats["best_first_end"] == "exhausted"
+                and summary["failure_reason"] in {"all_pushes_failed", "no_reachable_objects"})
+        return result
 
     def _run_boundary(
         self,
@@ -368,11 +390,14 @@ class BestFirstRegionOpeningPlanner:
         opening_predicate: Optional[Callable[[namo_rl.RLEnvironment], bool]] = None,
         commit_one: bool = False,
         commit_simulate: bool = True,
+        clearance_target=None,
+        accept_robot_goal: bool = False,
     ) -> PlannerResult:
         if target_neighbor is None:
             raise ValueError("best-first region opening requires target_neighbor")
         start_time = time.time()
         baseline = self.env.get_full_state()
+        original_scorer = self._search_planner.scorer
         future_interface: Optional[Dict[str, Any]] = None
         if candidate_acceptor is not None:
             future_interface = {
@@ -422,14 +447,23 @@ class BestFirstRegionOpeningPlanner:
                     target=target_neighbor, robot_label=None, neighbors=[], attempt=attempt,
                     start_time=start_time, sims=0, end="exhausted",
                 )
-            if target_neighbor not in neighbors:
+            if clearance_target is None and target_neighbor not in neighbors:
                 attempt = AttemptResult(False, target_neighbor, failure_reason="target_not_immediate_neighbor")
                 return self._result(
                     target=target_neighbor, robot_label=robot_label, neighbors=neighbors, attempt=attempt,
                     start_time=start_time, sims=0, end="exhausted",
                 )
 
-            if self._pinned_target_points is not None:
+            if clearance_target is not None:
+                if target_object_id != clearance_target.object_id:
+                    raise ValueError("Clearance target and selected object disagree")
+                region_samples = clearance_target.samples
+                opening_predicate = clearance_target.is_open
+                require_push = True
+                if original_scorer is not None:
+                    from namo.planners.full_namo.goal_clearance import GoalClearanceScorer
+                    self._search_planner.scorer = GoalClearanceScorer(original_scorer, clearance_target)
+            elif self._pinned_target_points is not None:
                 # theta is unused by count_reachable_points and by the scorer's
                 # region channel, so a pinned (x, y) is the whole criterion.
                 region_samples = [(x, y, 0.0) for x, y in self._pinned_target_points]
@@ -478,9 +512,12 @@ class BestFirstRegionOpeningPlanner:
                     future_interface=future_interface,
                 )
 
-            boundary_objects, boundary_error = self._boundary_objects(
-                snapshot["edge_objects"], robot_label, target_neighbor
-            )
+            if clearance_target is not None:
+                boundary_objects, boundary_error = [clearance_target.object_id], None
+            else:
+                boundary_objects, boundary_error = self._boundary_objects(
+                    snapshot["edge_objects"], robot_label, target_neighbor
+                )
             if boundary_error is None:
                 boundary_objects, boundary_error = select_target_boundary_object(
                     boundary_objects,
@@ -504,6 +541,8 @@ class BestFirstRegionOpeningPlanner:
             solution: Dict[str, Any] = {}
 
             def is_open(env):
+                if accept_robot_goal and env.is_robot_goal_reachable():
+                    return True
                 if opening_predicate is not None:
                     if not opening_predicate(env):
                         return False
@@ -672,4 +711,5 @@ class BestFirstRegionOpeningPlanner:
                 actions_stand_on_failure=(self.decision_rule == "reactive"),
             )
         finally:
+            self._search_planner.scorer = original_scorer
             self.env.set_full_state(baseline)
