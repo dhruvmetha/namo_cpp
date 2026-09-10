@@ -8,7 +8,7 @@
 
 **Tech Stack:** Git, Python, C++/pybind11, MuJoCo, pytest, and the existing NAMO environment/build scripts.
 
-**Status:** Execution authorized on 2026-09-10. Stage A is implemented in the isolated integration worktree; validation outcomes are recorded below. Tooling integration and promotion remain pending.
+**Status:** Execution authorized on 2026-09-10. Stages A and B are implemented and validated in the isolated integration worktree. Promotion and live binding activation remain pending.
 
 ## Engineering Standards
 
@@ -247,17 +247,17 @@ The missing tools are present in the tree at `8bc97d99`, including the Aug9 cert
 | `scripts/pipeline/assemble_keyhole_random5.py`, `scripts/pipeline/freeze_keyhole_random5.py`, `scripts/pipeline/tests/test_freeze_keyhole_random5.py` | Port the mutually dependent result-assembly/freezing tools and their existing tests as a unit |
 | `scripts/pipeline/build_balanced_keyhole_testbed.py` | Historical mixed-context selector: preserve only as an explicitly historical/reproducibility tool, not the new default testbed policy |
 
-- [ ] Inspect exact source files with `git show 8bc97d99:PATH`, using the paths above, and review the feature delta with `git show 15fc8596`. Apply only reviewed source with `apply_patch`; do not replace entire directories.
-- [ ] Check all certifier calls into `compose_keyhole_modules`: `get_region_snapshot`, `shortest_region_path`, `geom_sig`, and `REPO`. Reuse the destination's implementations when compatible. Preserve its later geometry, sampled-contact, and margin fixes.
-- [ ] Keep K2 certification's existing removed-K1 shortcut, with original scene files unchanged. Do not substitute post-K1-state certification or add a new requirement that the first independent opening preserve a predetermined second gate.
-- [ ] Preserve the distinction between independent gate evidence and full-episode success. Do not promote partial/unknown labels to definitive labels, or use witness length alone as proof that one-push options were exhausted. This consolidation is not authorization to relabel historical data.
-- [ ] Preserve five-seed aggregation semantics, including failed runs and the separate unresolved category. Preserve recorded thresholds as protocol-specific configuration; do not replace them with new bins or change a frozen testbed's membership.
-- [ ] Keep historical assumptions visible. The source assembler contains a campaign-specific `535 / 458 / 177` count assertion, and the old balanced selector contains `428`-scene / `280`-discovery-job assumptions. These are not general requirements for the current diverse-template testbed. Label their scope in docstrings/help or retain them as documented historical entrypoints; do not silently wire them into current generation. Generalizing these programs is a separate decision, not a prerequisite for consolidation.
-- [ ] Preserve source provenance and output schemas. New verification outputs go to an unused integration-specific path. Do not invoke packaging or publishing modes on an existing frozen directory.
+- [x] Inspect exact source files with `git show 8bc97d99:PATH`, using the paths above, and review the feature delta with `git show 15fc8596`. Apply only reviewed source with `apply_patch`; do not replace entire directories.
+- [x] Check all certifier calls into `compose_keyhole_modules`: `get_region_snapshot`, `shortest_region_path`, `geom_sig`, and `REPO`. Reuse the destination's implementations when compatible. Preserve its later geometry, sampled-contact, and margin fixes.
+- [x] Keep K2 certification's existing removed-K1 shortcut, with original scene files unchanged. Do not substitute post-K1-state certification or add a new requirement that the first independent opening preserve a predetermined second gate.
+- [x] Preserve the distinction between independent gate evidence and full-episode success. Do not promote partial/unknown labels to definitive labels, or use witness length alone as proof that one-push options were exhausted. This consolidation is not authorization to relabel historical data.
+- [x] Preserve five-seed aggregation semantics, including failed runs and the separate unresolved category. Preserve recorded thresholds as protocol-specific configuration; do not replace them with new bins or change a frozen testbed's membership.
+- [x] Keep historical assumptions visible. The source assembler contains a campaign-specific `535 / 458 / 177` count assertion, and the old balanced selector contains `428`-scene / `280`-discovery-job assumptions. These are not general requirements for the current diverse-template testbed. Label their scope in docstrings/help or retain them as documented historical entrypoints; do not silently wire them into current generation. Generalizing these programs is a separate decision, not a prerequisite for consolidation.
+- [x] Preserve source provenance and output schemas. New verification outputs go to an unused integration-specific path. Do not invoke packaging or publishing modes on an existing frozen directory.
 
 ### Validation and commit
 
-- [ ] Run the existing certifier, composer, and freezing tests:
+- [x] Run the existing certifier, composer, and freezing tests:
 
 ```bash
 "$NAMO_PYTHON" -m pytest -q -rs \
@@ -273,8 +273,8 @@ bash -n scripts/slurm/multihop_aug9_pipeline.sbatch
 
 Expected: tests pass, shell parsing succeeds, and CLI help exits without starting generation, certification, freezing, or a scheduler submission. Existing tests must continue to reject failed/colliding pushes as openers, verify exhaustive one-push trial accounting, preserve K2 removal scope, and keep failed seeds in difficulty calculations.
 
-- [ ] Review the final file list for unrelated runtime changes, old quotas accidentally promoted to defaults, and machine-specific paths. Re-run Stage A's planner regression set if composer/snapshot/runner code changed during this stage.
-- [ ] Commit with subject `feat(pipeline): consolidate independent keyhole certification and testbed tools` and body `Port reviewed tooling from 15fc8596 and the 8bc97d99 source tree. Preserve current composer fixes, independent K2 removal, five-seed failure accounting, and historical campaign provenance. Keep legacy selectors explicitly scoped and leave existing datasets and jobs unchanged.`
+- [x] Review the final file list for unrelated runtime changes, old quotas accidentally promoted to defaults, and machine-specific paths. Re-run Stage A's planner regression set if composer/snapshot/runner code changed during this stage.
+- [x] Commit with subject `feat(pipeline): consolidate independent keyhole certification and testbed tools` and body `Port reviewed tooling from 15fc8596 and the 8bc97d99 source tree. Preserve current composer fixes, independent K2 removal, five-seed failure accounting, and historical campaign provenance. Keep legacy selectors explicitly scoped and leave existing datasets and jobs unchanged.`
 
 ## 5. Final review, promotion, and reproducibility handoff
 
@@ -344,3 +344,16 @@ All build and verification artifacts are isolated at `/home/dhruv/projects_dhruv
 - Saved recovered episode `5e8e1e445ecea6136aac`, geometry `65c97f9654906b9d1db44ae2974073be`, HY5U S2, sampler seed 42, shuffle seed 7000, full-problem cap 20,000: the initial-scene replay reached the goal in **8 calls / 4 committed actions**. Scene, primary config, checkpoint, and all three primitive tables matched the original SHA-256 values. The historical fixed run used 37 calls; this is provenance, not a cross-revision performance claim. The newer destination solved this replay through ordinary openings.
 
 The archived no-fix terminal state of the same episode was restored exactly: goal reachability began false, the trace explicitly exercised a goal-clearance task, and the goal became reachable in **14 simulator calls** (`physics-terminal-replay.json`, exit 0). Original evidence is preserved in `physics-source-record.json`; replay scripts, terminal states, traces, binding hash, and working-diff/source hashes are in the integration output directory. The validated integration binding SHA-256 is `0418c1c0a69618ac60812fd3d23c670a052170ee2bfddd31a8ccb3eed84bdf6c`. No historical record was overwritten.
+
+### Stage B validation and reviewed differences
+
+Runtime commit: 5febbe7684c833d8c3d86f584e573ad57c2963bf. Tooling comes from source tree 8bc97d99e11853ada7af53eb99e3600ea968d100, including independent generated-scene certification commit 15fc85963e8822c791dc84428b46452dfd5bd491.
+
+- Existing freezing regressions failed before the tools were added (2 failures); the certifier tests could not collect because its module was missing. These expected pre-port outcomes are preserved in stage-b-freeze-red.log and stage-b-certifier-red.log.
+- Certifier, unchanged composer, and freezing tests: **47 passed**, no skips (stage-b-tests.log, exit 0).
+- All three Slurm scripts passed bash parsing. Certifier, freezing, assembly, and historical balanced-selector help exited successfully; none launched a pipeline or wrote a dataset (stage-b-cli.exit = 0, saved help outputs).
+- The composer was retained byte-for-byte. Its existing snapshot, geometry, sampled-contact, and margin behavior needs no adaptation for the certifier. Stage B changes no planner, runner, backend, or configuration file, so the Stage A regression set was not needlessly repeated here.
+- Both existing launchers retain their resource, sampling, and budget defaults. Generation retains env.amarel.sh as its default activation and its existing Python fallback; campaign overrides remain optional. The source's unconditional PYTHONHASHSEED=0 default was not ported. The evaluator retains default keyhole budget scope while permitting the source's explicit full-problem override.
+- Historical assembly counts, the 428-scene/280-job selector, and the fixed-template freezing thresholds are explicitly scoped in docstrings/help. No new quotas were wired into generation.
+
+A sequential source/diff review checked additive binding signatures, retained multi-object fields, pooled ordinary-boundary dispatch, clearance-only object selection, actual-pushed-object bookkeeping, scorer restoration, strict final-goal completion, K2 removal scope, complete one-push evidence, and failed-seed accounting. No unrelated snapshot, learned artifact, configuration reset, or historical campaign output is included.
