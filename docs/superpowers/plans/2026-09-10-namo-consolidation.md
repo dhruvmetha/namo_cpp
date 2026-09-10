@@ -8,7 +8,7 @@
 
 **Tech Stack:** Git, Python, C++/pybind11, MuJoCo, pytest, and the existing NAMO environment/build scripts.
 
-**Status:** Execution authorized on 2026-09-10. Stages A and B are implemented and validated in the isolated integration worktree. Promotion and live binding activation remain pending.
+**Status:** Complete on 2026-09-10. Both implementation stages were promoted to the checked-out NAMO branch; its binding was rebuilt and all 108 focused tests passed. Robot-control and historical work were preserved. See the execution record for revisions and validation evidence.
 
 ## Engineering Standards
 
@@ -278,9 +278,9 @@ Expected: tests pass, shell parsing succeeds, and CLI help exits without startin
 
 ## 5. Final review, promotion, and reproducibility handoff
 
-- [ ] Ensure all in-scope source families from preflight have an explicit disposition. If additional user-authored runtime work remains unresolved, list it; do not report that every branch is consolidated.
-- [ ] Confirm that the integration changes only NAMO source, relevant tests, selected tools, and this plan's provenance/validation record. Confirm that `robot_control` is unchanged by this work.
-- [ ] Review the destination-to-integration diff and confirm the two implementation commits contain no snapshot replacement, model artifact, generated result, broad configuration reset, or unrelated deletion.
+- [x] Ensure all in-scope source families from preflight have an explicit disposition. If additional user-authored runtime work remains unresolved, list it; do not report that every branch is consolidated.
+- [x] Confirm that the integration changes only NAMO source, relevant tests, selected tools, and this plan's provenance/validation record. Confirm that `robot_control` is unchanged by this work.
+- [x] Review the destination-to-integration diff and confirm the two implementation commits contain no snapshot replacement, model artifact, generated result, broad configuration reset, or unrelated deletion.
 
 ```bash
 git diff --check feat/horizon-q-redesign..HEAD
@@ -289,8 +289,8 @@ git log --oneline feat/horizon-q-redesign..HEAD
 GIT_OPTIONAL_LOCKS=0 git status --short
 ```
 
-- [ ] Use the user’s explicit instruction to integrate into the checked-out branches as promotion authorization. Recheck the destination branch, its cleanliness, and whether another session is using its runtime. If the destination advanced, first bring those new commits into the integration branch and revalidate the overlap. Do not overwrite or reset the destination, and do not change a live runtime while it is in use.
-- [ ] After approval and a quiet destination checkout, promote with a fast-forward only:
+- [x] Use the user’s explicit instruction to integrate into the checked-out branches as promotion authorization. Recheck the destination branch, its cleanliness, and whether another session is using its runtime. If the destination advanced, first bring those new commits into the integration branch and revalidate the overlap. Do not overwrite or reset the destination, and do not change a live runtime while it is in use.
+- [x] After approval and a quiet destination checkout, promote with a fast-forward only:
 
 ```bash
 git -C /home/dhruv/projects_dhruv/namo/namo_cpp \
@@ -299,8 +299,8 @@ git -C /home/dhruv/projects_dhruv/namo/namo_cpp \
 
 Expected: a fast-forward. If Git refuses, stop and reconcile the changed destination in the integration worktree. Do not substitute an automatic force operation or unrelated-history merge.
 
-- [ ] Before the promoted checkout is used for planning, rebuild its own `build_python` through `env.robotlearning.sh` and `build_python_bindings.sh`, verify `namo_rl.__file__`, and run the focused backend/goal-clearance regression there. A source merge alone does not update the compiled simulator interface. Coordinate this activation with the user; until it is done, report `source integrated; live binding activation pending`.
-- [ ] Record the final commit SHA, source patch SHAs, test outcomes/skips, binding location, and any remaining exceptions in this plan. Preserve all old branches, worktrees, immutable campaign clones, results, and certificates. Copying the validated revision to Amarel, rerunning evaluations, pushing branches, and deleting old worktrees require separate direction.
+- [x] Before the promoted checkout is used for planning, rebuild its own `build_python` through `env.robotlearning.sh` and `build_python_bindings.sh`, verify `namo_rl.__file__`, and run the focused backend/goal-clearance regression there. A source merge alone does not update the compiled simulator interface. Coordinate this activation with the user; until it is done, report `source integrated; live binding activation pending`.
+- [x] Record the final commit SHA, source patch SHAs, test outcomes/skips, binding location, and any remaining exceptions in this plan. Preserve all old branches, worktrees, immutable campaign clones, results, and certificates. Copying the validated revision to Amarel, rerunning evaluations, pushing branches, and deleting old worktrees require separate direction.
 
 ## Completion criteria
 
@@ -357,3 +357,15 @@ Runtime commit: 5febbe7684c833d8c3d86f584e573ad57c2963bf. Tooling comes from sou
 - Historical assembly counts, the 428-scene/280-job selector, and the fixed-template freezing thresholds are explicitly scoped in docstrings/help. No new quotas were wired into generation.
 
 A sequential source/diff review checked additive binding signatures, retained multi-object fields, pooled ordinary-boundary dispatch, clearance-only object selection, actual-pushed-object bookkeeping, scorer restoration, strict final-goal completion, K2 removal scope, complete one-push evidence, and failed-seed accounting. No unrelated snapshot, learned artifact, configuration reset, or historical campaign output is included.
+
+### Promotion and live activation
+
+The checked-out `feat/horizon-q-redesign` branch was fast-forwarded from `f8be9ff402e2ab32be7356155c0e73d1d7ece726` to the final implementation revision **`6a71d2f91d27d728e9d51afa2465ba09a21ab8a9`**, following runtime commit **`5febbe7684c833d8c3d86f584e573ad57c2963bf`**. This final documentation update records verification performed after that promotion; it changes no runtime or tooling source.
+
+The destination rebuilt its own binding through `env.robotlearning.sh` and `build_python_bindings.sh`. Its actual import path is `/home/dhruv/projects_dhruv/namo/namo_cpp/build_python/namo_rl.cpython-312-x86_64-linux-gnu.so`, SHA-256 `0418c1c0a69618ac60812fd3d23c670a052170ee2bfddd31a8ccb3eed84bdf6c`, identical to the isolated validated binding. `BUILD_INFO` records implementation revision `6a71d2f9`, include tree `ef9f4e79c09383e704f04344f3a2d8f193a4f4eb`, source tree `4697fac7e3d392416ca09aa93049f87bf57f4ee6`, and `dirty_cpp=0`.
+
+All eleven focused test files were then run together against the promoted checkout and rebuilt binding: **108 passed, no skips**, including the real ownership-state check, pooled-blocker policy fixture, planner/budget regressions, certification, unchanged composer, and five-seed freezing tests (`activation.log`, exit 0). Live binding activation is complete. Goal clearance remains the explicit opt-in `full_namo_goal_clearance=True` / runner `--goal-clearance`.
+
+Final preservation checks matched robot-control’s branch, commit, and tracked-diff SHA-256 to preflight. The camera process remained alive. The untracked NAMO README retained SHA-256 `0e6637a5837d03f90fce10f4908f817b2cf6a856a99d689ad6d2693114b89985`; no tracked NAMO edits remain outside the committed integration. The historical goal-clearance source branch remains at `d28e09ca0213a29ae6cbb99dc163280b4a986e99`. All old branches, worktrees, frozen sources, certificates, datasets, and results were retained. The named historical/out-of-scope families in the disposition table were not merged wholesale.
+
+Machine-readable final evidence is in `final-activation.json` beside the saved build logs, test results, original replay evidence, and bounded physics outputs. The same completed plan is mirrored to the original local planning document for handoff.
