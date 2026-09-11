@@ -5,6 +5,10 @@
 > fallback and for the journal/reference docs. Without either plugin the blocks show as raw code — on
 > GitHub / in Claude use **[INDEX.md](../INDEX.md)** (plain map) and **[RESULTS.md](RESULTS.md)** (compiled results).
 
+## Pinned todos
+
+- [ ] [HY5U banned-contact input](log/EXP-2026-09-06-hy5u-banned-contact-input.md) — deferred: fine-tune with synthetic contact masks from existing simulation data; compare with external blacklisting alone. No real-robot data or run requested.
+
 ## 🧪 Experiments — the loop (`idea → live → done`)
 Open the board: **[experiments.base](experiments.base)** (grouped by `status`). Primary view for active experiment cards. Compiled results: [RESULTS.md](RESULTS.md).
 

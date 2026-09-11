@@ -1,18 +1,26 @@
 # Complete NAMO configuration: car, 1× real-world scale, five push depths.
 #
-# Identical to namo_config_complete_skill15_1x.yaml (the sphere 1× config)
-# except for:
+# Derived from namo_config_complete_skill15_1x.yaml (the sphere 1× config).
+# Two keys switch the robot:
 #   - planning.robot_type: "diff_drive"        — selects DiffDriveAdapter
 #                                                in C++ (vs HolonomicAdapter).
 #   - system.motion_primitives_file: prefix    — points at the car-flavour
 #                                                primitive db.
 #
 # The car body (7×7 cm chassis, included from
-# test_xml/little-car-modeling-package/assets/mjcf/little_car.xml) has the
-# same physical footprint as the sphere, so every other geometric and
-# velocity parameter stays at the sphere 1× value: robot_size 3.5 cm
-# half-extent, wavefront inflation, push_velocity 0.05 m/s, control_steps_per_push
-# 75 (= 0.75 s wall-clock at timestep 0.01), object friction "0 0.1 0.1".
+# test_xml/little-car-modeling-package/assets/mjcf/little_car.xml) has the same
+# footprint as the sphere, so the geometry carries over unchanged: robot_size
+# 3.5 cm half-extent and wavefront_edge_offset_margin 0.01 m.
+#
+# Push timing and scene physics do NOT carry over.
+#   - The car scenes run at timestep 0.002 with integrator implicitfast; the
+#     sphere scenes use 0.01 and RK4. So control_steps_per_push 550 is 1.1 s of
+#     sim, where the sphere's 75 is 0.75 s.
+#   - The car ignores push_velocity. Its push speed comes from
+#     push_tracker_max_speed 0.05357, binary-searched against the real chassis.
+#   - Movable-object friction in the car scenes is MuJoCo's default
+#     "1 0.005 0.0001". The sphere scenes still carry "0 0.1 0.1", sliding
+#     friction 0, which let the box skate out of contact (e7df838b, 2026-05-22).
 #
 # IMPORTANT: this config references the canonical car 1× d5 primitive table.
 # Regenerate it by running:

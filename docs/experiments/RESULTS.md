@@ -2,7 +2,7 @@
 status: hub
 tags:
   - results
-updated: 2026-09-06
+updated: 2026-09-07
 ---
 # Results — DAgger curriculum training framework
 
@@ -189,6 +189,8 @@ HY5U seeds 1-3 and uniform-random seeds 7000/8000/9000 were re-run on the comple
 ---
 
 ## 2026-08-29 — Geometry-only best-first: full corrected region score confirms rejection; legacy single-path run retained
+
+**Method attribution (audited 2026-09-06):** call the corrected arm a geometry-inspired region-reachability ranker, not a reproduction of Stilman and Kuffner's planner. The result evaluates our virtual-endpoint score plus geometry-specific deeper-first tie-breaking; it does not establish superiority over the published classical method. The [implementation-to-paper audit](../icra27_paper.md#geometry-implementation-to-paper-audit-2026-09-06) records the score, physical approximations, search-policy difference, sources, and legacy CLI naming trap.
 
 > **CORRECTION [USER caught, 2026-08-28]:** the original full-scale tables and figures in the historical subsection below do not evaluate the intended region-opening geometric method. That C++ score removed the blocker, chose one BFS path to the single XML goal, and classified whether each virtual endpoint blocked that path. The outer success verifier was always the canonical fixed target-region 20% check, so the measurements remain valid for that single-path transport proxy, but they must not be cited as the proper geometry-only baseline.
 
@@ -753,3 +755,47 @@ Learned contact identity helps most on hard episodes. Removing it lowers hard on
 ![Three-seed edge-identity comparison.](plots/hy5u_edge_identity_ablation/success_vs_sims_both_horizons.png)
 
 Full provenance and recovery audit: [experiment card](archive/EXP-2026-09-05-hy5u-edge-identity-ablation.md). Registered as `hy5u-edge-identity-ablation-hmax2-v3`.
+
+## 2026-09-07 — Policy ablations and fixed boundary-group pilot, 5 mm only
+
+All seven ablations were evaluated as closed-loop policies, three seeds each, with no lookahead and up to ten attempted pushes. Simulator and ranker masks both use 5 mm clearance, car 1x d5 pushes, reachable candidates, state-local no-op deduplication and object-specific jam-depth pruning. The target object and initial goal samples stay fixed. Percentages below are mean ± sample SD across seeds. The comparison uses exactly the cached-control population: 1push 1,310 episodes (675 easy / 437 medium / 198 hard), 2push 973 (381 / 475 / 117). HY5U and Random full runs were reused after 114 smoke outcomes matched and a no-push topology audit found identical target-point coordinates in all 1,772 reference rooms. New raw arms contain four extra joint-boundary episodes per leg; those extras are recorded separately and do not change the denominator.
+
+| Policy | 1push easy open@1 | Medium | Hard | Overall |
+|---|---:|---:|---:|---:|
+| HY5U | 97.9±0.5 | 80.7±0.3 | 41.6±1.2 | 83.7±0.3 |
+| No unreachable examples | 97.5±0.5 | 79.6±1.2 | 39.4±3.9 | 82.8±0.8 |
+| No family ranking | 97.6±0.5 | 79.3±0.9 | 42.3±0.8 | 83.1±0.5 |
+| Regression only | 98.4±0.1 | 80.8±0.8 | 33.0±1.1 | 82.6±0.4 |
+| Independent contacts | 97.0±1.0 | 77.0±1.0 | 36.5±0.8 | 81.2±0.3 |
+| Global readout | 77.2±1.9 | 50.6±0.9 | 15.3±1.6 | 59.0±1.0 |
+| No local sampled feature | 98.0±0.8 | 81.0±0.6 | 39.6±1.9 | 83.5±0.8 |
+| No learned edge identity | 97.5±0.6 | 78.3±0.9 | 34.5±2.5 | 81.6±0.5 |
+| Random | 63.6±3.4 | 15.9±0.7 | 2.9±1.3 | 38.5±1.5 |
+
+| Policy | 2push easy open@2 | Medium | Hard | Overall |
+|---|---:|---:|---:|---:|
+| HY5U | 66.1±2.1 | 43.8±1.1 | 21.9±3.2 | 49.9±0.7 |
+| No unreachable examples | 61.6±3.3 | 40.8±1.9 | 16.0±2.2 | 46.0±1.6 |
+| No family ranking | 66.0±0.2 | 45.3±1.4 | 22.5±1.3 | 50.7±0.7 |
+| Regression only | 67.6±1.2 | 41.8±0.8 | 15.4±3.1 | 48.7±1.2 |
+| Independent contacts | 63.3±1.7 | 38.2±1.4 | 17.4±1.3 | 45.6±0.4 |
+| Global readout | 48.2±0.8 | 26.5±2.6 | 8.5±2.6 | 32.8±1.8 |
+| No local sampled feature | 66.5±1.1 | 44.1±2.4 | 20.5±0.0 | 50.1±1.0 |
+| No learned edge identity | 65.6±0.3 | 41.5±1.9 | 16.0±2.6 | 47.9±1.2 |
+| Random | 7.7±1.2 | 1.7±0.8 | 0.3±0.5 | 3.9±0.9 |
+
+Global-only readout is substantially worse. Removing the local sampled feature alone or family ranking changes little overall. Regression-only, independent contacts and no edge identity lose most clearly on hard episodes. These remain ablations of HY5U, not independent comparison baselines. Full open@1/@2/@5/@10 tables and per-seed values are in `$NAMO_SCRATCH/eval/policy_group_ablations_20260907/aggregate.{md,json}`. Do not compare K=5/10 policy recovery directly against depth-two search as an isolated policy-versus-search ablation.
+
+The separate group pilot freezes `(room, boundary-object group, target region)` and allows the next push to choose another member of that same initial group. A zero-push census found 639 eligible groups; pre-outcome selection kept 16 alternative-blocker and 8 joint-blockage groups. All 288 group/seed/mode tasks completed. The table reports HY5U/Random means ± SD; strata overlap because multiple source episodes can refer to one group, and the source difficulty/horizon is not a difficulty or minimum-push label for the grouped task.
+
+| Source stratum | Groups | HY5U policy open@2 | Random policy open@2 | HY5U search solve@5 | Random search solve@5 |
+|---|---:|---:|---:|---:|---:|
+| 1push easy | 9 | 100.0±0.0 | 33.3±11.1 | 100.0±0.0 | 74.1±23.1 |
+| 1push medium | 6 | 94.4±9.6 | 11.1±9.6 | 83.3±0.0 | 72.2±19.2 |
+| 1push hard | 5 | 93.3±11.5 | 26.7±23.1 | 100.0±0.0 | 53.3±11.5 |
+| 2push easy | 9 | 70.4±6.4 | 7.4±6.4 | 70.4±6.4 | 40.7±17.0 |
+| 2push medium | 7 | 52.4±8.2 | 4.8±8.2 | 61.9±8.2 | 28.6±14.3 |
+| 2push hard | 2 | 50.0±0.0 | 0.0±0.0 | 50.0±0.0 | 16.7±28.9 |
+| Unique groups overall | 24 | 76.4±2.4 | 18.1±6.4 | 76.4±2.4 | 50.0±11.0 |
+
+Group search uses hmax=2 and budget 900. Both HY5U and Random reach 97.2±2.4% at 900 calls; all eight joint-blockage groups are solved in every search seed. HY5U finds two committed object-switching policy solutions per seed, confirming that this code path actually switches the pushed object within one fixed group. The small pilot supports continuing this extension, but it is not a canonical multi-object benchmark and does not prove that switching objects is necessary for those solutions. Raw action sequences and all source-stratum cut points are under the same campaign root in `groups/` and `group_aggregate.json`. See the [experiment card](log/EXP-2026-09-07-policy-and-boundary-group-ablations.md) for code, bindings, checkpoints, clearance fixes, and Amarel recovery details. No wall-time comparison is reported.
