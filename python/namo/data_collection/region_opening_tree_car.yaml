@@ -60,10 +60,8 @@ region_record_action_motion: true
 # contain an opener end up being the ones we know least about, which is precisely the finish-ranking
 # training signal (finish@1 has slid 56.1 -> 54.8 -> 52.6 -> 50.8 across the label line). Costs ~2x.
 region_finish_exhaustive: true
-# Same-object two-push setup must create a new object pose; do not expand slips/no-ops at depth 2.
+# Match best-first: skip a setup only when both robot and object poses are unchanged.
 region_prune_noop_setups: true
-region_noop_translation_tol: 0.01
-region_noop_yaw_tol: 0.05
 region_sample_k: 0
 region_sample_restarts: 1
 # NO finish cap: every reachable finish is tried, so `finish_sweep_censored` can only be set by the

@@ -5,7 +5,7 @@ import pytest
 import numpy as np
 
 from namo.core.base_planner import PlannerConfig
-from namo.planners.opening.region_opening import RegionOpeningPlanner
+from namo.planners.opening.region_opening import ChainNode, RegionOpeningPlanner
 from namo.strategies.goal_selection_strategy import Goal
 
 
@@ -125,7 +125,11 @@ def test_root_opener_rejection_skips_depth_two_and_replay(monkeypatch):
 
     def _fake_bfs(*_args, **kwargs):
         searched_depths.append(kwargs["current_chain_depth"])
-        success_node = SimpleNamespace(step_cost=1, skill_calls_before_success=1)
+        success_node = ChainNode(
+            state=object(), goal=goal, edge_idx=0, depth=1,
+            parent=kwargs["parent_node"], step_cost=1, skill_calls_before_success=1,
+            pre_observation={}, post_observation={},
+        )
         success = (goal, [{}], [{}], object(), None, [], success_node, time.time())
         trial = {"chain_depth": 1, "edge_idx": 0, "depth": 0, "success": True}
         return [success], 1, [], False, set(), [trial]
@@ -195,13 +199,6 @@ def test_action_motion_record_is_aligned_with_all_live_slots():
     assert np.allclose(record["action_motion"][7, 3], [0.14, 0.06, 0.03 / np.pi])
     assert np.allclose(record["target_object_state"], [1.0, 2.0, 0.25, 0.2, 0.1])
     assert record["action_generator_slot_count"] == 300
-
-
-def test_noop_setup_detection_uses_translation_or_yaw():
-    before = {"obj1_pose": [1.0, 2.0, 0.0]}
-    assert not RegionOpeningPlanner._object_pose_moved(before, {"obj1_pose": [1.005, 2.0, 0.02]}, "obj1", 0.01, 0.05)
-    assert RegionOpeningPlanner._object_pose_moved(before, {"obj1_pose": [1.02, 2.0, 0.02]}, "obj1", 0.01, 0.05)
-    assert RegionOpeningPlanner._object_pose_moved(before, {"obj1_pose": [1.0, 2.0, 0.06]}, "obj1", 0.01, 0.05)
 
 
 def test_explore_stops_after_first_neighbour_success(monkeypatch):

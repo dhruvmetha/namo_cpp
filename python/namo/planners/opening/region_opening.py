@@ -32,6 +32,7 @@ from namo.strategies import (
     ScorerGoalStrategy,
 )
 from namo.planners.utils import PushBudgetExceeded
+from namo.planners.opening.best_first_search import _record_jam_depth, _unmoved
 from namo.runtime_profile import CANONICAL_NUM_DEPTHS, CANONICAL_PRIMITIVE_PREFIX
 
 # THE CANONICAL OPENING CRITERION, shared by every region-opening search.
@@ -143,6 +144,12 @@ class ChainNode:
     # For root node (no action), this remains 0
     step_cost: int = 0
     skill_calls_before_success: int = 0
+    pre_observation: Optional[Dict] = None
+    post_observation: Optional[Dict] = None
+    reachable_before: List[str] = field(default_factory=list)
+    reachable_after: List[str] = field(default_factory=list)
+    wall_collision: bool = False
+    movable_collisions: Set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -260,6 +267,7 @@ class AttemptResult:
     opening_validation_reachability_calls: int = 0
     opening_validation_reachability_ms_total: float = 0.0
     opening_validation_reachability_ms_avg: float = 0.0
+    # Historical serialized fields; reconstruction no longer replays physics.
     chain_observation_replay_calls: int = 0
     chain_observation_replay_ms_total: float = 0.0
     chain_observation_replay_ms_avg: float = 0.0
@@ -340,11 +348,8 @@ class RegionOpeningPlanner(BasePlanner):
         # Colossus artifact contract: persist the live 60x5 primitive motion field at every expanded
         # board. This is opt-in so historical collectors retain their exact output schema.
         self.record_action_motion = bool(algo_params.get("region_record_action_motion", False))
-        # Safe Colossus throughput optimization: a setup that did not move the target object cannot
-        # create a new state for a same-object two-push solution, so do not expand it at depth 2.
-        self.prune_noop_setups = bool(algo_params.get("region_prune_noop_setups", False))
-        self.noop_translation_tol = float(algo_params.get("region_noop_translation_tol", 0.01))
-        self.noop_yaw_tol = float(algo_params.get("region_noop_yaw_tol", 0.05))
+        # Same no-op rule as best-first: both robot and target poses must be unchanged.
+        self.prune_noop_setups = bool(algo_params.get("region_prune_noop_setups", True))
         # label-mode top-k cap on the FINISH sweep (deepest level only): stop after k failed finish
         # candidates instead of exhausting (~60). Misses become honest ceilings, never false labels.
         # Pilot-validated (2026-07-19, n=2.4M): antman-5c k=15 retains 97.7% of successes at ~30% cost.
@@ -614,10 +619,6 @@ class RegionOpeningPlanner(BasePlanner):
         stats["opening_validation_reachability_calls"] += max(0, int(reachability_calls))
         stats["opening_validation_reachability_ms_total"] += max(0.0, float(reachability_ms))
 
-    def _record_chain_observation_replay_timing(self, elapsed_ms: float) -> None:
-        stats = self._runtime_timing_stats
-        stats["chain_observation_replay_calls"] += 1
-        stats["chain_observation_replay_ms_total"] += max(0.0, float(elapsed_ms))
 
     def _get_runtime_timing_summary(self) -> Dict[str, Any]:
         stats = self._runtime_timing_stats
@@ -860,23 +861,6 @@ class RegionOpeningPlanner(BasePlanner):
         key = f"{self.finish_miss_audit_seed}|{xml_file}|{object_id}|{neighbour_label}".encode()
         draw = int.from_bytes(hashlib.sha256(key).digest()[:8], "big") / float(1 << 64)
         return draw < self.finish_miss_audit_fraction
-
-    @staticmethod
-    def _object_pose_moved(
-        before: Dict[str, Any],
-        after: Dict[str, Any],
-        object_id: str,
-        translation_tol: float,
-        yaw_tol: float,
-    ) -> bool:
-        before_pose = before[f"{object_id}_pose"]
-        after_pose = after[f"{object_id}_pose"]
-        yaw_delta = abs(((float(after_pose[2]) - float(before_pose[2]) + math.pi) % (2 * math.pi)) - math.pi)
-        return (
-            abs(float(after_pose[0]) - float(before_pose[0])) > translation_tol
-            or abs(float(after_pose[1]) - float(before_pose[1])) > translation_tol
-            or yaw_delta > yaw_tol
-        )
 
     def _build_action_motion_record(
         self,
@@ -2112,73 +2096,6 @@ class RegionOpeningPlanner(BasePlanner):
                 reachable_edges=sorted(list(all_reachable_edges)) if all_reachable_edges else None,
             )]
 
-    def _collect_chain_observations(
-        self,
-        object_id: str,
-        goal_chain: List[Goal],
-        baseline_state: namo_rl.RLState
-    ) -> Tuple[List, List, List, List, bool, int]:
-        """Execute a goal chain and collect state observations for each push.
-
-        Args:
-            object_id: Object being pushed
-            goal_chain: List of goals to execute in sequence
-            baseline_state: Starting state
-
-        Returns:
-            Tuple of (state_observations, post_action_state_observations,
-                     reachable_before, reachable_after, any_wall_collision,
-                     unique_movable_collision_count)
-        """
-        self.env.set_full_state(baseline_state)
-        state_obs = []
-        post_state_obs = []
-        reachable_before = []
-        reachable_after = []
-
-        # Collision tracking - accumulate across all pushes
-        any_wall_collision = False
-        all_movable_collisions: Set[str] = set()
-
-        for goal in goal_chain:
-            # Capture state and reachable objects before action
-            pre_obs = self.env.get_observation()
-            pre_reachable = self.env.get_reachable_objects()
-            state_obs.append(pre_obs)
-            reachable_before.append(pre_reachable)
-
-            # Execute action — MUST include edge_idx/depth or the C++ skill rejects
-            # the push with "edge_idx and depth must both be >= 0; this skill no
-            # longer supports the MPC search fallback", leaving the object frozen
-            # at baseline. Same fix as the single-push branch at line ~2105.
-            action = namo_rl.Action()
-            action.object_id = object_id
-            action.x = goal.x
-            action.y = goal.y
-            action.theta = goal.theta
-            action.edge_idx = goal.edge_idx
-            action.depth = goal.depth
-            self._consume_push_budget()
-            step_result = self.env.step(action)
-
-            # Extract collision info from step result
-            if step_result.info.get("wall_collision", "false") == "true":
-                any_wall_collision = True
-            movable_str = step_result.info.get("movable_collisions", "")
-            if movable_str:
-                for obj_name in movable_str.split(","):
-                    if obj_name:
-                        all_movable_collisions.add(obj_name)
-
-            # Capture state and reachable objects after action
-            post_obs = self.env.get_observation()
-            post_reachable = self.env.get_reachable_objects()
-            post_state_obs.append(post_obs)
-            reachable_after.append(post_reachable)
-
-        unique_movable_collision_count = len(all_movable_collisions)
-        return state_obs, post_state_obs, reachable_before, reachable_after, any_wall_collision, unique_movable_collision_count
-
     def _search_with_chaining_bfs(
         self,
         object_id: str,
@@ -2451,55 +2368,7 @@ class RegionOpeningPlanner(BasePlanner):
                         if self.stop_after_root_opener and chain_depth == 1:
                             root_opener_found = True
                         for (final_goal, final_state_obs, final_post_state_obs, resulting_state, region_goal_used, all_region_goals, success_node, success_time) in successful_results:
-                            # For multi-push chains, reconstruct full chain with observations
-                            if chain_depth > 1:
-                                goal_chain, state_obs, post_state_obs, reachable_before, reachable_after, total_cost, any_wall_collision, unique_movable_collision_count = self._reconstruct_chain_with_observations(
-                                    success_node, object_id, baseline_state
-                                )
-                            else:
-                                # Single push - use observations captured during search
-                                goal_chain = [final_goal]
-                                state_obs = final_state_obs
-                                post_state_obs = final_post_state_obs
-                                if self.stop_after_root_opener:
-                                    # The successful search push already produced the observations and trial
-                                    # record needed for rejection auditing. Do not replay it: rejection mode
-                                    # stops simulator work at the first verified root opener.
-                                    reachable_before = None
-                                    reachable_after = None
-                                    any_wall_collision = any_wall_collision_during_search
-                                    unique_movable_collision_count = len(movable_collisions_during_search)
-                                else:
-                                    # For single push, we don't have reachable objects captured during BFS
-                                    # So collect them now with collision tracking
-                                    replay_start = time.perf_counter()
-                                    self.env.set_full_state(baseline_state)
-                                    reachable_before = [self.env.get_reachable_objects()]
-                                    # Execute the action to get reachable after and collision info.
-                                    # CRITICAL: include edge_idx + depth so the C++ env re-runs
-                                    # the *same* primitive the search just declared a success.
-                                    # Without these, the env falls back to picking a primitive
-                                    # from (x, y, theta), which routes to a different edge/depth
-                                    # — visible in --viewer as a different last push than what
-                                    # gets recorded in the chain. See chain JSON vs viewer
-                                    # discrepancy reported 2026-05-20.
-                                    action = namo_rl.Action()
-                                    action.object_id = object_id
-                                    action.x = final_goal.x
-                                    action.y = final_goal.y
-                                    action.theta = final_goal.theta
-                                    action.edge_idx = final_goal.edge_idx
-                                    action.depth = final_goal.depth
-                                    self._consume_push_budget()
-                                    step_result = self.env.step(action)
-                                    reachable_after = [self.env.get_reachable_objects()]
-                                    # Extract collision info from step result
-                                    any_wall_collision = step_result.info.get("wall_collision", "false") == "true"
-                                    movable_str = step_result.info.get("movable_collisions", "")
-                                    unique_movable_collision_count = len([s for s in movable_str.split(",") if s]) if movable_str else 0
-                                    self._record_chain_observation_replay_timing((time.perf_counter() - replay_start) * 1000.0)
-                                # For single push, total_cost equals the primitive depth at which success occurred
-                                total_cost = max(1, getattr(success_node, "step_cost", 1))
+                            goal_chain, state_obs, post_state_obs, reachable_before, reachable_after, total_cost, any_wall_collision, unique_movable_collision_count = self._reconstruct_chain_with_observations(success_node)
 
                             skill_calls_before_success = getattr(success_node, "skill_calls_before_success", None)
 
@@ -2621,71 +2490,27 @@ class RegionOpeningPlanner(BasePlanner):
         else:
             return all_chains_across_depths, 0, global_phase_push_counts, solved_in_phase, any_wall_collision_during_search, len(movable_collisions_during_search), all_trial_logs, reachability_log
 
-    def _reconstruct_chain(self, final_node: ChainNode, final_goal: Goal) -> List[Goal]:
-        """Reconstruct the chain of goals from root to final goal."""
-        chain = []
-        node = final_node
-
-        # Walk back to root, collecting goals
-        while node.parent is not None:
-            chain.append(node.goal)
-            node = node.parent
-
-        # Reverse to get root-to-leaf order
-        chain.reverse()
-
-        # Add the final goal
-        chain.append(final_goal)
-
-        return chain
-
     def _reconstruct_chain_with_observations(
-        self,
-        success_node: ChainNode,
-        object_id: str,
-        baseline_state: namo_rl.RLState
+        self, success_node: ChainNode
     ) -> Tuple[List[Goal], List, List, List, List, int, bool, int]:
-        """Reconstruct goal chain and collect observations by re-executing.
-
-        This is only called for multi-push chains (chain_depth > 1).
-
-        Args:
-            success_node: Final ChainNode containing parent chain
-            object_id: Object being pushed
-            baseline_state: Starting state for re-execution
-
-        Returns:
-            Tuple of (goal_chain, state_obs, post_state_obs, reachable_before, reachable_after,
-                     total_cost, any_wall_collision, unique_movable_collision_count)
-        """
-        # Reconstruct goal chain from parent nodes
-        goal_chain = []
+        """Assemble the executed chain from saved nodes without touching the simulator."""
+        nodes = []
         node = success_node
         while node.parent is not None:
-            goal_chain.append(node.goal)
+            nodes.append(node)
             node = node.parent
-        goal_chain.reverse()
-
-        # Re-execute chain to collect observations
-        replay_start = time.perf_counter()
-        state_obs, post_state_obs, reachable_before, reachable_after, any_wall_collision, unique_movable_collision_count = self._collect_chain_observations(
-            object_id, goal_chain, baseline_state
+        nodes.reverse()
+        movable_collisions = set().union(*(node.movable_collisions for node in nodes))
+        return (
+            [node.goal for node in nodes],
+            [node.pre_observation for node in nodes],
+            [node.post_observation for node in nodes],
+            [node.reachable_before for node in nodes],
+            [node.reachable_after for node in nodes],
+            self._compute_chain_cost(success_node),
+            any(node.wall_collision for node in nodes),
+            len(movable_collisions),
         )
-        self._record_chain_observation_replay_timing((time.perf_counter() - replay_start) * 1000.0)
-
-        # Compute cumulative cost along the reconstructed chain
-        total_cost = 0
-        num_pushes = 0
-        node = success_node
-        while node.parent is not None:
-            total_cost += max(0, getattr(node, "step_cost", 0))
-            num_pushes += 1
-            node = node.parent
-        # Add chain link cost for multi-push chains (flat cost, not per-link)
-        if num_pushes > 1:
-            total_cost += self.chain_link_cost
-
-        return goal_chain, state_obs, post_state_obs, reachable_before, reachable_after, total_cost, any_wall_collision, unique_movable_collision_count
 
     def _compute_chain_cost(self, node: ChainNode) -> int:
         """Compute cumulative additive cost from root to the given node.
@@ -2826,6 +2651,9 @@ class RegionOpeningPlanner(BasePlanner):
                 effective_label_topk = self.finish_topk_cap
                 effective_exhaust_on_miss_topk = 0
         stopped_by_finish_cap = False
+
+        self.env.set_full_state(baseline_state)
+        reachable_before_push = list(self.env.get_reachable_objects())
 
         while candidate_idx < len(candidates):
             # label-mode k-cap: at the finish level, stop after label_topk tried candidates (success
@@ -2982,24 +2810,13 @@ class RegionOpeningPlanner(BasePlanner):
                 self._rejection_stats["env_step_exception"] = self._rejection_stats.get("env_step_exception", 0) + 1
                 continue
 
-            wall_collision = step_result.info.get("wall_collision", "false")
-            if isinstance(wall_collision, str):
-                any_wall_collision_during_search = any_wall_collision_during_search or (wall_collision.lower() == "true")
-            else:
-                any_wall_collision_during_search = any_wall_collision_during_search or bool(wall_collision)
-
+            wall_raw = step_result.info.get("wall_collision", "false")
+            wall_collision = wall_raw.lower() == "true" if isinstance(wall_raw, str) else bool(wall_raw)
+            any_wall_collision_during_search |= wall_collision
             movable_raw = step_result.info.get("movable_collisions", "")
-            if isinstance(movable_raw, str):
-                if movable_raw:
-                    for obj_name in movable_raw.split(","):
-                        obj_name = obj_name.strip()
-                        if obj_name:
-                            movable_collisions_during_search.add(obj_name)
-            elif isinstance(movable_raw, (list, tuple, set)):
-                for obj_name in movable_raw:
-                    obj_str = str(obj_name).strip()
-                    if obj_str:
-                        movable_collisions_during_search.add(obj_str)
+            movable_names = movable_raw.split(",") if isinstance(movable_raw, str) else (movable_raw or ())
+            movable_collisions = {str(name).strip() for name in movable_names if str(name).strip()}
+            movable_collisions_during_search.update(movable_collisions)
 
             # Categorize the outcome from step_result.info for diagnostic stats.
             # Each push gets exactly ONE outcome bucket; the final assignment
@@ -3026,30 +2843,11 @@ class RegionOpeningPlanner(BasePlanner):
             if self.config.verbose:
                 print(f"        🔍 AFTER push edge {edge_idx} depth {depth+1}: is_accessible={is_accessible_after}, reachable={reachable_count_after}")
 
-            # Detect error conditions (but don't skip goal check - already done above)
-            # Object-object and object-wall contact never fails a push, so a
-            # reported collision_object here is the robot's own.
-            collision_detected = False
-            if "collision_object" in step_result.info:
-                if self.config.verbose:
-                    print(f"        ⚠️  COLLISION detected: {step_result.info.get('collision_object', 'unknown')}")
-                collision_detected = True
-                # Record this depth as stuck - shallower depths might still work
-                if edge_idx not in edge_min_stuck_depth or depth < edge_min_stuck_depth[edge_idx]:
-                    edge_min_stuck_depth[edge_idx] = depth
-                    if self.config.verbose:
-                        print(f"        📍 Edge {edge_idx} stuck at depth {depth+1}, depths 1-{depth} still valid")
-
-            stuck_detected = False
-            if "stuck" in step_result.info and step_result.info["stuck"] == "true":
-                if self.config.verbose:
-                    print(f"        ⚠️  STUCK condition detected")
-                stuck_detected = True
-                # Record this depth as stuck - shallower depths might still work
-                if edge_idx not in edge_min_stuck_depth or depth < edge_min_stuck_depth[edge_idx]:
-                    edge_min_stuck_depth[edge_idx] = depth
-                    if self.config.verbose:
-                        print(f"        📍 Edge {edge_idx} stuck at depth {depth+1}, depths 1-{depth} still valid")
+            # Failure metadata prunes longer attempts from this parent/contact, not the
+            # reached child. A partial failed push can still be a useful setup.
+            _record_jam_depth(edge_min_stuck_depth, edge_idx, depth, step_result.info)
+            collision_detected = "collision_object" in step_result.info
+            stuck_detected = step_result.info.get("stuck") == "true"
 
             # Log this primitive trial for F characterization.
             # chain_depth + parent_{edge,depth} make the EXHAUSTIVE trial log self-describing:
@@ -3113,22 +2911,28 @@ class RegionOpeningPlanner(BasePlanner):
                 if depth == 0 and goal is not None and self.config.verbose:
                     print(f"        ✗ Failed edge {edge_idx} depth {depth+1}: {reachable_count_before}/{total_region_goals} → {reachable_count_after}/{total_region_goals}")
 
-            # Check if we IMPROVED accessibility (goal condition for opening creation)
-            if is_accessible_after and not is_accessible_before:
-                # Created NEW opening! ✓ (even if stuck/collision - object moved enough)
-                success_timestamp = time.time()
-                resulting_state = self.env.get_full_state()
-
-                # Create a ChainNode for this successful goal (stores observations)
-                success_node = ChainNode(
-                    state=resulting_state,
+            def saved_node():
+                return ChainNode(
+                    state=self.env.get_full_state(),
                     goal=goal,
                     edge_idx=edge_idx,
                     depth=current_chain_depth,
                     parent=parent_node,
-                    collided_edges=set(),
-                    step_cost=depth + 1
+                    step_cost=depth + 1,
+                    pre_observation=pre_state_obs,
+                    post_observation=post_state_obs,
+                    reachable_before=reachable_before_push,
+                    reachable_after=list(self.env.get_reachable_objects()),
+                    wall_collision=wall_collision,
+                    movable_collisions=movable_collisions,
                 )
+
+            # Check if we IMPROVED accessibility (goal condition for opening creation)
+            if is_accessible_after and not is_accessible_before:
+                # Created NEW opening! ✓ (even if stuck/collision - object moved enough)
+                success_timestamp = time.time()
+                success_node = saved_node()
+                resulting_state = success_node.state
                 if skill_call_counter is not None:
                     success_node.skill_calls_before_success = skill_call_counter["count"]
 
@@ -3185,30 +2989,12 @@ class RegionOpeningPlanner(BasePlanner):
                         )
                     break
 
-            elif not (collision_detected or stuck_detected) and collect_frontier:
-                # Valid push but didn't create opening - add to frontier
-                # (Don't add stuck/collision states to frontier - they're already blacklisted)
-                setup_moved = True
-                if self.prune_noop_setups:
-                    setup_moved = self._object_pose_moved(
-                        pre_state_obs,
-                        post_state_obs,
-                        object_id,
-                        self.noop_translation_tol,
-                        self.noop_yaw_tol,
-                    )
-                    trial_log[-1]["frontier_pruned_noop"] = not setup_moved
-                if setup_moved and (remaining_budget is None or (depth + 1) <= remaining_budget):
-                    new_node = ChainNode(
-                        state=self.env.get_full_state(),
-                        goal=goal,
-                        edge_idx=edge_idx,
-                        depth=current_chain_depth,
-                        parent=parent_node,
-                        collided_edges=set(),
-                        step_cost=depth + 1
-                    )
-                    frontier_nodes.append(new_node)
+            elif collect_frontier:
+                unchanged = _unmoved(pre_state_obs, post_state_obs, object_id)
+                trial_log[-1]["frontier_pruned_noop"] = self.prune_noop_setups and unchanged
+                if not trial_log[-1]["frontier_pruned_noop"]:
+                    if remaining_budget is None or (depth + 1) <= remaining_budget:
+                        frontier_nodes.append(saved_node())
 
         if current_chain_depth >= self.max_chain_depth:
             for entry in trial_log:

@@ -303,15 +303,16 @@ def _state_local_live_candidates(pool, banned, jam_at, prune_jam_depth):
     ]
 
 
+def _record_jam_depth(jam_at, key, depth, info):
+    """A failed attempt prunes equal/longer pushes at this parent state and contact."""
+    if info.get("failure_reason"):
+        jam_at[key] = min(jam_at.get(key, depth), depth)
+
+
 def _record_state_local_jam(jam_at, obj, goal, step_result, prune_jam_depth):
     """Record the shallowest failed depth for one (object, edge) at the current state."""
-    if not prune_jam_depth or not (step_result.info or {}).get("failure_reason"):
-        return
-    key = (obj, int(goal.edge_idx))
-    depth = int(goal.depth)
-    previous = jam_at.get(key)
-    if previous is None or depth < previous:
-        jam_at[key] = depth
+    if prune_jam_depth:
+        _record_jam_depth(jam_at, (obj, int(goal.edge_idx)), int(goal.depth), step_result.info or {})
 
 
 @dataclass
@@ -433,10 +434,7 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
                                       int(it["g"].depth), float(it["q"]), float(it["bp"]),
                                       float(board["w"]), opened, geom=pop_geom, regions=pop_regions,
                                       fail=fail))
-        if fail is not None:
-            _d0 = int(it["g"].depth)
-            if _jd is None or _d0 < _jd:
-                jam_at[_jk] = _d0
+        _record_jam_depth(jam_at, _jk, int(it["g"].depth), _i)
         board["tries"].append((len(board["tries"]) + 1, float(it["q"]), opened))   # (within-board try#, q, opened)
         if opened:
             tm["t_wall"] = time.perf_counter() - _t_wall0
