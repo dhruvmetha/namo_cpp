@@ -20,21 +20,24 @@ import pytest
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATA = os.path.join(REPO, "python", "tests", "data")
 CFG = os.path.join(REPO, "config", "namo_config_complete_skill15_car_1x.yaml")
+CONTROL_CFG = os.path.join(REPO, "config", "margin_5mm", "namo_config_complete_skill15_car_1x.yaml")
+# The control predates the 1 mm default. Its config parent selects the margin sidecar.
+ALL_CONTROL_GOALS = 100000
 
 pytest.importorskip("namo_rl")
 import namo_rl  # noqa: E402
 
 
-def _snapshot(xml):
+def _snapshot(xml, config=CFG, goals_per_region=100):
     """Every field the snapshot exposes, poses included.
 
     Counting sampled poses is not enough for a parity check: a regression that moves all 100 goal
     poses somewhere else keeps the count at 100 and slips through. The coordinates are what the
     success bar is measured against, so they are the thing worth pinning.
     """
-    env = namo_rl.RLEnvironment(xml, CFG, False)
+    env = namo_rl.RLEnvironment(xml, config, False)
     env.get_reachable_objects()
-    s = env.get_region_snapshot(100, -1.0, False, 42, True)
+    s = env.get_region_snapshot(goals_per_region, -1.0, False, 42, True)
     return {
         "region_labels": {str(k): v for k, v in dict(s.get("region_labels", {})).items()},
         "adjacency": {a: sorted(b) for a, b in dict(s.get("adjacency", {})).items()},
@@ -48,7 +51,7 @@ def _snapshot(xml):
         "goal_in_free_space": bool(s.get("goal_in_free_space")),
         "region_goals": {
             k: {"blocking_objects": sorted(v.blocking_objects),
-                "goals": [[round(g.x, 9), round(g.y, 9), round(g.theta, 9)] for g in v.goals]}
+                "goals": sorted([round(g.x, 9), round(g.y, 9), round(g.theta, 9)] for g in v.goals)}
             for k, v in dict(s.get("region_goals", {})).items()
         },
     }
@@ -102,23 +105,25 @@ def test_marker_reaches_the_project_python_api():
 def test_single_movable_scene_is_unchanged():
     """Parity gate. If this fails, every existing difficulty label is suspect.
 
-    Semantic parity rather than byte parity: container order is canonicalised and poses are rounded
-    to 9 decimals, which is sub-nanometre against a 5 mm grid. Everything the snapshot exposes is
-    compared, coordinates included.
+    Pin the historical 5 mm margin explicitly and compare every candidate point. A seeded
+    std::shuffle does not pin the same 100-point subset across C++ standard libraries. Sorting the
+    complete population preserves the geometry check without depending on that sampling algorithm.
     """
     golden = json.load(open(os.path.join(DATA, "single_movable_control_golden.json")))
-    assert _snapshot(os.path.join(DATA, "single_movable_control_fixture.xml")) == golden
+    actual = _snapshot(os.path.join(DATA, "single_movable_control_fixture.xml"), CONTROL_CFG, ALL_CONTROL_GOALS)
+    assert all(len(bundle["goals"]) < ALL_CONTROL_GOALS for bundle in actual["region_goals"].values())
+    assert actual == golden
 
 
-def _snapshot_with_switch_off(xml):
+def _snapshot_with_switch_off(xml, config=CFG, goals_per_region=100):
     """Same binary, blob pass disabled, whole snapshot back as JSON."""
     # Load this module by path rather than as a package: python/tests has no __init__.py, and the
     # subprocess must reuse THIS _snapshot so both sides serialise identically.
     script = (
         "import json,importlib.util as u;"
         "sp=u.spec_from_file_location('t', %r); m=u.module_from_spec(sp); sp.loader.exec_module(m);"
-        "print(json.dumps(m._snapshot(%r),sort_keys=True))"
-        % (os.path.abspath(__file__), xml)
+        "print(json.dumps(m._snapshot(%r,%r,%r),sort_keys=True))"
+        % (os.path.abspath(__file__), xml, config, goals_per_region)
     )
     env = dict(os.environ, NAMO_DISABLE_MOVABLE_BLOB_EDGES="1")
     out = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True,
@@ -134,7 +139,7 @@ def test_blob_pass_changes_nothing_on_the_control_scene():
     than from two code paths happening to agree for some other reason.
     """
     xml = os.path.join(DATA, "single_movable_control_fixture.xml")
-    assert _snapshot_with_switch_off(xml) == _snapshot(xml)
+    assert _snapshot_with_switch_off(xml, CONTROL_CFG, ALL_CONTROL_GOALS) == _snapshot(xml, CONTROL_CFG, ALL_CONTROL_GOALS)
 
 
 def test_blob_pass_is_what_creates_the_two_movable_edge():
