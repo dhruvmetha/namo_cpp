@@ -18,6 +18,6 @@ env -u LD_LIBRARY_PATH apptainer build --ignore-fakeroot-command \
     "$CONTAINER_ROOT/dhruv-focal.sif" "$recipes/ubuntu20.def"
 sha256sum "$CONTAINER_ROOT/dhruv-focal.sif" > "$CONTAINER_ROOT/provenance/image.sha256"
 env -u LD_LIBRARY_PATH apptainer exec --cleanenv --containall \
-    --bind "$CONTAINER_ROOT:$CONTAINER_ROOT:rw,$FROZEN_ROOT:$FROZEN_ROOT:ro,$PYTHON_ENV:$PYTHON_ENV:ro,$config:$config:ro" \
+    --bind "$CONTAINER_BINDS,$config:$config:ro" \
     "$CONTAINER_ROOT/dhruv-focal.sif" \
     bash "$recipes/native-build.sh" "$config"

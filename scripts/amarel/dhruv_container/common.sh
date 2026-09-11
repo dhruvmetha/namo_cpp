@@ -10,6 +10,12 @@ export NAMO_PYTHON="$PYTHON_ENV/bin/python"
 export MJ_PATH="$CONTAINER_ROOT/mujoco"
 export NAMO_SCRATCH="$CONTAINER_ROOT/scratch"
 export SAGE_REPO="$FROZEN_ROOT/sage_learning"
+python_source=${PYTHON_ENV_SOURCE:-$PYTHON_ENV}
+CONTAINER_BINDS="$CONTAINER_ROOT:$CONTAINER_ROOT:rw,$FROZEN_ROOT:$FROZEN_ROOT:ro,$python_source:$PYTHON_ENV:ro"
+if [[ "$python_source" != "$PYTHON_ENV" ]]; then
+    # Keep the physical copy read-only too, even when nested inside the output root.
+    CONTAINER_BINDS+=",$python_source:$python_source:ro"
+fi
 export PYTHONPATH="$NAMO_REPO/build_python:$NAMO_REPO/python:$NAMO_REPO/scripts:$NAMO_REPO/scripts/sandbox:$NAMO_REPO/scripts/pipeline:$SAGE_REPO"
 export PYTHONDONTWRITEBYTECODE=1 PYTHONNOUSERSITE=1 PYTHONUNBUFFERED=1
 export NAMO_GLOBAL_SEED=42 CUDA_VISIBLE_DEVICES=""

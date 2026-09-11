@@ -48,6 +48,18 @@ def test_missing_environment_fails_before_build(tmp_path):
     assert "CONTAINER_ROOT" in result.stderr
 
 
+def test_original_python_prefix_binds_frozen_source_readonly(tmp_path):
+    actual, logical = str(tmp_path / "env-original"), "/reference/python-prefix"
+    result = subprocess.run(["bash", "-c", 'source "$1"; printf "%s" "$CONTAINER_BINDS"',
+                             "bash", str(RECIPES / "common.sh")], text=True, capture_output=True,
+                            env={**os.environ, "CONTAINER_ROOT": str(tmp_path / "run"),
+                                 "FROZEN_ROOT": str(tmp_path / "frozen"), "PYTHON_ENV": logical,
+                                 "PYTHON_ENV_SOURCE": actual})
+    assert result.returncode == 0
+    assert f"{actual}:{logical}:ro" in result.stdout
+    assert f"{actual}:{actual}:ro" in result.stdout
+
+
 @pytest.mark.parametrize("existing", ["dhruv-focal.sif", "mujoco", "code/build_python"])
 def test_build_refuses_existing_artifacts(tmp_path, existing):
     root = tmp_path / "run"
