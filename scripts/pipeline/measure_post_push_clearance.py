@@ -96,6 +96,8 @@ _KEY = {}
 
 def _init(key_path):
     global _KEY
+    if key_path is None:          # --at-start reads no solutions, so there is no key to load
+        return
     _KEY = {os.path.realpath(k): v[0] for k, v in json.load(open(key_path)).items()}
 
 
@@ -169,6 +171,47 @@ def clearance(rects, start, targets, exempt=False, dist=None):
         else:
             hi = mid
     return 2 * lo
+
+
+def one_start(args):
+    """The gap at the ROOT state, before anything moves, with every block still in place.
+
+    Different question from the rest of this file. `one()` asks how wide the route is AFTER the
+    push that solves the room. This asks whether the robot could drive to the goal without pushing
+    at all, which is what the hardware side hit on 09-02 and 09-03: the car reached the goal by
+    shoving a block 7.6 cm and 11.2 cm aside while merely navigating. Their measured corridor floor
+    is 8.4-8.8 cm, so a room whose root gap is already at or above that is not a region-opening
+    problem for that car, whatever the labels say.
+
+    ⛔ This treats blocks as immovable, so it CANNOT predict shoving. A room reading 0.0 here is one
+    the car cannot drive through; it may still bulldoze its way in. Predicting that needs block mass
+    and friction, both invented on our side.
+    """
+    fname, card_path = args
+    card = json.load(open(card_path))
+    statics = statics_from_card(card)
+    blocks = [Rect(m["x"], m["y"], m["hw"], m["hd"], m["theta"], m["name"], "mov")
+              for m in card["scene"]["movable"]]
+    start = tuple(card["scene"]["robot"][:2])
+    env = namo_rl.RLEnvironment(card["meta"]["xml"], CFG_PATH, False)
+    bundle = dict(env.get_region_snapshot(GOALS_PER_REGION, -1.0, False, SNAPSHOT_SEED, True)
+                  .get("region_goals", {})).get("goal")
+    if bundle is None:
+        return None
+    targets = _cells([(float(g.x), float(g.y)) for g in bundle.goals])
+    rects = statics + blocks
+    root = clearance(rects, start, targets)
+    # Same measurement with the blocks deleted, which is the gate the generator applied when it
+    # decided the room was buildable. The pair says how much of the room's difficulty is the blocks.
+    free = clearance(statics, start, targets)
+    m = card["meta"]
+    door = {"needs_both_blocks": bool(m.get("door_needs_both_blocks")),
+            "has_route_around": bool(m.get("has_route_around"))}
+    return {"file": fname, "xml": m["xml"], "horizon": m["horizon"], "tier": m["tier"],
+            "n_movables": len(blocks), "root_gap_cm": round(100 * root, 2),
+            "gap_without_blocks_cm": round(100 * free, 2),
+            "needs_both_blocks": door["needs_both_blocks"],
+            "has_route_around": door["has_route_around"]}
 
 
 def solutions_of(card, ep):
@@ -250,23 +293,38 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--gallery", required=True)
-    ap.add_argument("--key", required=True)
+    ap.add_argument("--key", help="answer key; not needed with --at-start, which reads no solutions")
+    ap.add_argument("--at-start", action="store_true",
+                    help="measure the gap at the ROOT state instead of after each solution; one "
+                         "row per ROOM, since the answer does not depend on which episode you ask")
     ap.add_argument("--out", required=True)
     ap.add_argument("--workers", type=int, default=16)
     args = ap.parse_args()
 
     cards = os.path.join(args.gallery, "cards")
     jobs = [(f, os.path.join(cards, f)) for f in sorted(os.listdir(cards)) if f.endswith(".json")]
+    if args.at_start:
+        # One row per room. Every card of a room shares its geometry, so measuring per card would
+        # repeat the same bisection up to four times and hand the reader duplicate rows.
+        first = {}
+        for f, p in jobs:
+            first.setdefault(json.load(open(p))["meta"]["xml"], (f, p))
+        jobs = sorted(first.values())
+        print(f"  {len(jobs)} rooms (deduped from cards)", file=sys.stderr, flush=True)
+    else:
+        assert args.key, "--key is required unless --at-start is given"
 
     t0, rows = time.time(), []
     with Pool(args.workers, initializer=_init, initargs=(args.key,)) as pool:
-        for n, r in enumerate(pool.imap_unordered(one, jobs, chunksize=4), 1):
+        for n, r in enumerate(pool.imap_unordered(one_start if args.at_start else one,
+                                                  jobs, chunksize=4), 1):
             if r:
                 rows.append(r)
             if n % 250 == 0:
                 print(f"  {n}/{len(jobs)}  {time.time()-t0:.0f}s", file=sys.stderr, flush=True)
 
-    rows.sort(key=lambda r: (r["horizon"], r["tier"], r["best_cm"]))
+    rows.sort(key=lambda r: (r["horizon"], r["tier"],
+                             r["root_gap_cm"] if args.at_start else r["best_cm"]))
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     with open(args.out, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
