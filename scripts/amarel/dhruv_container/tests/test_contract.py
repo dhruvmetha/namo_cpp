@@ -21,12 +21,20 @@ def identity_module():
 
 def test_image_pins_reference_toolchain():
     definition = (RECIPES / "ubuntu20.def").read_text()
-    for pin in ("From: ubuntu:20.04", "gcc-9=9.4.0-1ubuntu1~20.04.2",
+    for pin in ("From: ubuntu@sha256:", "gcc-9=9.4.0-1ubuntu1~20.04.2",
                 "g++-9=9.4.0-1ubuntu1~20.04.2", "libc6=2.31-0ubuntu9.18",
                 "libstdc++6=10.5.0-1ubuntu1~20.04", "binutils=2.34-6ubuntu1.11"):
         assert pin in definition
     assert "@sha256:" in definition
     assert "sha256sum -c dhruv-opencv.sha256" in definition
+
+
+def test_clean_source_check_runs_inside_image_not_gitless_compute_host():
+    host = (RECIPES / "build.sh").read_text()
+    native = (RECIPES / "native-build.sh").read_text()
+    assert "git -C" not in host
+    assert 'source_status=$(git -C "$NAMO_REPO" status --porcelain)' in native
+    assert 'test -z "$source_status"' in native
 
 
 def test_missing_environment_fails_before_build(tmp_path):

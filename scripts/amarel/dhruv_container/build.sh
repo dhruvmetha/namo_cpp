@@ -7,7 +7,6 @@ recipes=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 source "$recipes/common.sh"
 refuse_existing "$CONTAINER_ROOT/dhruv-focal.sif" "$MJ_PATH" "$NAMO_REPO/build_python"
 : "${BUILD_JOBS:?set BUILD_JOBS to the SLURM CPU allocation}"
-test -z "$(git -C "$NAMO_REPO" status --porcelain)"
 export APPTAINER_CACHEDIR="$CONTAINER_ROOT/cache"
 export APPTAINER_TMPDIR="$CONTAINER_ROOT/tmp"
 mkdir -p "$APPTAINER_CACHEDIR" "$APPTAINER_TMPDIR" "$CONTAINER_ROOT/provenance" "$CONTAINER_ROOT/results"

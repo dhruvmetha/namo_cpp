@@ -8,6 +8,8 @@ activate_native_runtime
 : "${BUILD_JOBS:?set BUILD_JOBS to the SLURM CPU allocation}"
 export BUILD_JOBS
 refuse_existing "$MJ_PATH" "$NAMO_REPO/build_python" "$CONTAINER_ROOT/native-deps" "$CONTAINER_ROOT/mujoco-deps"
+source_status=$(git -C "$NAMO_REPO" status --porcelain)
+test -z "$source_status"
 test "$(/usr/bin/c++ -dumpfullversion)" = 9.4.0
 test "$(getconf GNU_LIBC_VERSION)" = 'glibc 2.31'
 export CC=/usr/bin/cc CXX=/usr/bin/c++ PYTHON_BIN="$NAMO_PYTHON"
