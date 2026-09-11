@@ -25,6 +25,8 @@ def test_image_pins_reference_toolchain():
                 "g++-9=9.4.0-1ubuntu1~20.04.2", "libc6=2.31-0ubuntu9.18",
                 "libstdc++6=10.5.0-1ubuntu1~20.04", "binutils=2.34-6ubuntu1.11"):
         assert pin in definition
+    assert "@sha256:" in definition
+    assert "sha256sum -c dhruv-opencv.sha256" in definition
 
 
 def test_missing_environment_fails_before_build(tmp_path):
@@ -67,6 +69,23 @@ def test_identity_missing_library_is_a_mismatch():
     module = identity_module()
     assert module.compare({"libraries": {"libm.so": {"sha256": "x"}}},
                           {"libraries": {}}) == ["library:libm.so"]
+
+
+def test_identity_extra_library_is_a_mismatch():
+    module = identity_module()
+    assert module.compare({"libraries": {}},
+                          {"libraries": {"unexpected.so": {"sha256": "x"}}}) == ["library:unexpected.so"]
+
+
+def test_identity_rejects_basename_collisions(tmp_path):
+    module = identity_module()
+    first, second = tmp_path / "a" / "libsame.so", tmp_path / "b" / "libsame.so"
+    first.parent.mkdir()
+    second.parent.mkdir()
+    first.write_bytes(b"a")
+    second.write_bytes(b"b")
+    with pytest.raises(ValueError, match="duplicate loaded library"):
+        module.library_records([first, second])
 
 
 def test_native_build_uses_frozen_target_and_validation_reuses_existing_runner():

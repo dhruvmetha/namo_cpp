@@ -16,10 +16,10 @@ The user approved assembling the matching container after confirming that a rebu
 
 ## Stage 1: Freeze reference and test the build contract
 
-- [ ] Read exact installed package versions, binary/linkage hashes and resolved native flags; verify the clean isolated worktree starts from integration commit 1fa32fd68d7dac75e5401293bb770f5c45eeeb34.
-- [ ] Run the nine existing focused test files from the integration validation command using the unchanged dhruv binding. Expected: 73 tests pass.
-- [ ] Add tests under scripts/amarel/dhruv_container/tests for the pinned Ubuntu definition, required environment variables, existing-output refusal, and source/runtime identity comparisons. First verify the absent recipes fail the contract tests.
-- [ ] Commit this execution plan and tests: `build: specify isolated dhruv-matching container contract`.
+- [x] Read exact installed package versions, binary/linkage hashes and resolved native flags; verify the clean isolated worktree starts from integration commit 1fa32fd68d7dac75e5401293bb770f5c45eeeb34.
+- [x] Run the nine existing focused test files from the integration validation command using the unchanged dhruv binding. Result: 73 tests passed in 25.12 seconds.
+- [x] Add tests under scripts/amarel/dhruv_container/tests for the pinned Ubuntu definition, required environment variables, existing-output refusal, and source/runtime identity comparisons. Verified eight failures before recipes existed; three further red assertions covered review findings before fixes; ten tests now pass.
+- [x] Commit this execution plan and tests: `942a940e build: specify isolated dhruv-matching container contract`.
 
 ## Stage 2: Implement isolated container and native-build recipes
 
@@ -39,3 +39,9 @@ The user approved assembling the matching container after confirming that a rebu
 
 - [ ] Review exact paths, commands, results and provenance. Preserve the old builds and all original results. Record whether the previously divergent pooled-doorway replay now matches and distinguish that result from broader equivalence claims.
 - [ ] Commit verification findings to this plan: `build: record dhruv-container validation evidence`. Leave the worktree intact, clean and unmerged, with no benchmark arrays launched.
+
+## Build review and exact matching boundary
+
+The installed native OpenCV is custom 4.3.0 under /usr/local, while apt OpenCV is 4.2.0. The image therefore includes the captured custom headers, CMake metadata, and shared libraries with an input SHA-256 manifest. GCC9's full native expansion on dhruv is frozen as explicit Skylake feature/cache flags. The evaluator's actual loaded C++ runtime comes from its Conda environment, not the system library shown by standalone ldd; the container uses the same MuJoCo-only LD_LIBRARY_PATH convention so Python resolves its own frozen runtime dependencies.
+
+Independent read-only specification and shell reviews approved bounded execution after adding an immutable Ubuntu amd64 digest, archive checksums, explicit read-only config binding, and symmetric loaded-library/duplicate-name checks. The required native packages and all loaded CPU/evaluation libraries must match the captured reference; the entire workstation apt package universe is not promised identical. Rebuilt NAMO/MuJoCo binary hashes are recorded rather than required byte-equal, with their source/build/header/version/input identities checked by the unchanged alignment validator and their behavior compared through replay/search. The workstation-only libcuda driver is a documented CPU-only exception; CUDA user-space libraries bundled in the Python environment are still compared. Wall times are recorded by the existing runner but excluded from cross-machine conclusions.
