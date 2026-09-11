@@ -381,8 +381,9 @@ def test_route_attempt_cost_can_defer_a_short_route_to_an_untried_route():
     assert (deferred.object_id, deferred.hops, deferred.cost) == ("box_b", 3, 3)
 
 
+@pytest.mark.parametrize("goal_clearance_enabled", [False, True])
 def test_full_namo_searches_every_blocker_on_the_boundary_in_one_call(
-    monkeypatch,
+    monkeypatch, goal_clearance_enabled,
 ):
     """Two blockers on one boundary reach the opener together, and a chain on
     the second-named one is accepted without the first being exhausted."""
@@ -399,6 +400,7 @@ def test_full_namo_searches_every_blocker_on_the_boundary_in_one_call(
             target_neighbor=None,
             target_object_id=None,
             require_push=False,
+            **_kwargs,
         ):
             calls.append((target_neighbor, target_object_id, require_push))
             return make_success_result(
@@ -407,7 +409,19 @@ def test_full_namo_searches_every_blocker_on_the_boundary_in_one_call(
                 object_id="box_b",
             )
 
-    planner = make_planner(monkeypatch, env, FakeOpener())
+    opener = FakeOpener()
+    monkeypatch.setattr(
+        FullNAMOPlanner,
+        "_initialize_algorithm",
+        lambda self: setattr(self, "region_opener", opener),
+    )
+    planner = FullNAMOPlanner(
+        env,
+        PlannerConfig(algorithm_params={
+            "full_namo_local_search": "best_first",
+            "full_namo_goal_clearance": goal_clearance_enabled,
+        }),
+    )
     snapshot = {
         **make_snapshot(
             {
@@ -420,6 +434,19 @@ def test_full_namo_searches_every_blocker_on_the_boundary_in_one_call(
         "edge_objects": {
             "robot": {"a": ["box_b", "box_a"]},
             "a": {"robot": ["box_a", "box_b"]},
+        },
+        "goal_clearance": {
+            "goal_xy": [0.0, 0.0],
+            "resolution": 0.01,
+            "cells": [{
+                "xy": [0.0, 0.0],
+                "grid": [0, 0],
+                "static_blocked": False,
+                "objects": [],
+                "region": "goal",
+            }],
+            "access_regions": {},
+            "reachable_objects": ["box_a", "box_b"],
         },
     }
     monkeypatch.setattr(planner, "_compute_region_snapshot", lambda: snapshot)

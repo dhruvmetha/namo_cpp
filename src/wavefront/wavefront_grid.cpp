@@ -137,6 +137,62 @@ void WavefrontGrid::update_dynamic_grid(NAMOEnvironment& env) {
     rebuild_grids(env);
 }
 
+bool WavefrontGrid::object_occupies_point(
+    const ObjectInfo& object, const ObjectState& state,
+    const std::array<double, 2>& point) const {
+    const int x = world_to_grid_x(point[0]);
+    const int y = world_to_grid_y(point[1]);
+    if (!is_valid_grid_coord(x, y)) return false;
+    const double radius = compute_wavefront_inflation_radius_m(robot_size_, tier1_inflation_margin_);
+    return object_occupies_cell(object, state,
+        {grid_to_world_x(x) + 0.5 * resolution_, grid_to_world_y(y) + 0.5 * resolution_}, radius);
+}
+
+bool WavefrontGrid::object_occupies_cell(const ObjectInfo& object, const ObjectState& state,
+                                       const std::array<double, 2>& centre, double inflation) {
+    ObjectInfo inflated = object;
+    inflated.size[0] += inflation;
+    inflated.size[1] += inflation;
+    return is_point_in_rotated_rectangle(centre[0], centre[1], state, inflated);
+}
+
+std::vector<PointOccupancy> WavefrontGrid::describe_points(
+    NAMOEnvironment& env, const std::vector<std::array<double, 2>>& points) const {
+    std::vector<PointOccupancy> result;
+    result.reserve(points.size());
+    for (const auto& point : points) {
+        PointOccupancy cell;
+        cell.xy = point;
+        const int x = world_to_grid_x(point[0]);
+        const int y = world_to_grid_y(point[1]);
+        cell.grid = {x, y};
+        if (!is_valid_grid_coord(x, y)) {
+            cell.static_blocked = true;
+            result.push_back(std::move(cell));
+            continue;
+        }
+        cell.xy = {grid_to_world_x(x) + 0.5 * resolution_, grid_to_world_y(y) + 0.5 * resolution_};
+        for (size_t i = 0; i < env.get_num_static(); ++i) {
+            const auto& object = env.get_static_objects()[i];
+            ObjectState state;
+            state.position = object.position;
+            state.quaternion = object.quaternion;
+            if (object_occupies_point(object, state, point)) cell.static_blocked = true;
+        }
+        for (size_t i = 0; i < env.get_num_movable(); ++i) {
+            const auto& object = env.get_movable_objects()[i];
+            const auto* state = env.get_object_state(object.name);
+            if (state && object_occupies_point(object, *state, point)) cell.objects.insert(object.name);
+        }
+        if (regions_valid_ && dynamic_grid_[x][y] != -1) {
+            const auto label = cached_region_labels_.find(region_grid_[x][y]);
+            if (label != cached_region_labels_.end()) cell.region = label->second;
+        }
+        result.push_back(std::move(cell));
+    }
+    return result;
+}
+
 GridFootprint WavefrontGrid::calculate_rotated_footprint(const ObjectInfo& obj, 
                                                         const ObjectState& state) {
     GridFootprint footprint;
@@ -208,9 +264,9 @@ GridFootprint WavefrontGrid::calculate_rotated_footprint(const ObjectInfo& obj,
     return footprint;
 }
 
-bool WavefrontGrid::is_point_in_rotated_rectangle(double px, double py, 
-                                                 const ObjectState& state, 
-                                                 const ObjectInfo& obj) const {
+bool WavefrontGrid::is_point_in_rotated_rectangle(double px, double py,
+                                                 const ObjectState& state,
+                                                 const ObjectInfo& obj) {
     // Transform point to object's local coordinate system
     double dx = px - state.position[0];
     double dy = py - state.position[1];

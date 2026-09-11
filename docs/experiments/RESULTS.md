@@ -799,3 +799,12 @@ The separate group pilot freezes `(room, boundary-object group, target region)` 
 | Unique groups overall | 24 | 76.4±2.4 | 18.1±6.4 | 76.4±2.4 | 50.0±11.0 |
 
 Group search uses hmax=2 and budget 900. Both HY5U and Random reach 97.2±2.4% at 900 calls; all eight joint-blockage groups are solved in every search seed. HY5U finds two committed object-switching policy solutions per seed, confirming that this code path actually switches the pushed object within one fixed group. The small pilot supports continuing this extension, but it is not a canonical multi-object benchmark and does not prove that switching objects is necessary for those solutions. Raw action sequences and all source-stratum cut points are under the same campaign root in `groups/` and `group_aggregate.json`. See the [experiment card](log/EXP-2026-09-07-policy-and-boundary-group-ablations.md) for code, bindings, checkpoints, clearance fixes, and Amarel recovery details. No wall-time comparison is reported.
+
+## 2026-09-09 — Two-object real-table scenes at 1 mm
+
+| Scene | Horizon and difficulty | Ignore: final distance | Penalise: final distance |
+| --- | --- | --- | --- |
+| twohop_00007 | K1 one-push medium (10/138); K2 one-push hard (2/135) | Failed, 33.52 cm | Failed, 20.41 cm |
+| twohop_00043 | Two-push chain required at each gate along the verified replay; rate tiers unconfirmed (900 s K1 sweep cap) | Failed, 6.15 cm | Failed, 24.39 cm |
+
+Both chains advance 2→1→0 hops at the requested 0.001 m tier-1 margin and pass the 2 mm / 1 degree independence tolerance. All navigation runs used fresh MuJoCo environments and the real execution stack with current controller settings, speed 0.4 and 30 Hz; each ended at the stuck-retry limit. These are physical-trial candidates, not physical verdicts; the old hard→hard / medium→medium directory labels must not be reused as 1 mm labels. [Protocol and detailed artifact root](log/EXP-2026-09-09-real-twoobject-1mm-qualification.md).

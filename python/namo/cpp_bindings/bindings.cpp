@@ -209,13 +209,15 @@ PYBIND11_MODULE(namo_rl, m) {
                double goal_radius,
                bool local_info_only,
                unsigned int seed,
-               bool use_xml_goal) {
+               bool use_xml_goal,
+               bool include_goal_clearance) {
                 auto snapshot = env.get_region_snapshot(
                     goals_per_region,
                     goal_radius,
                     local_info_only,
                     seed,
-                    use_xml_goal
+                    use_xml_goal,
+                    include_goal_clearance
                 );
                 py::dict out;
                 out["adjacency"] = snapshot.adjacency;
@@ -227,6 +229,25 @@ PYBIND11_MODULE(namo_rl, m) {
                 out["goal_label"] = snapshot.goal_label;
                 out["goal_reachable"] = snapshot.goal_reachable;
                 out["goal_in_free_space"] = snapshot.goal_in_free_space;
+                if (include_goal_clearance) {
+                    py::dict info;
+                    py::list cells;
+                    for (const auto& cell : snapshot.goal_cells) {
+                        py::dict item;
+                        item["xy"] = cell.xy;
+                        item["grid"] = cell.grid;
+                        item["static_blocked"] = cell.static_blocked;
+                        item["objects"] = cell.objects;
+                        item["region"] = cell.region;
+                        cells.append(item);
+                    }
+                    info["cells"] = cells;
+                    info["goal_xy"] = snapshot.goal_xy;
+                    info["resolution"] = namo::WavefrontGrid::kResolution;
+                    info["access_regions"] = snapshot.goal_blocker_access_regions;
+                    info["reachable_objects"] = snapshot.reachable_goal_blockers;
+                    out["goal_clearance"] = info;
+                }
                 return out;
             },
             py::arg("goals_per_region") = 0,
@@ -234,8 +255,12 @@ PYBIND11_MODULE(namo_rl, m) {
             py::arg("local_info_only") = false,
             py::arg("seed") = 42,
             py::arg("use_xml_goal") = true,
+            py::arg("include_goal_clearance") = false,
             "Return one unified C++ wavefront snapshot: region connectivity, sampled goals, "
             "robot/goal labels, and goal reachability flags.")
+       .def("object_occupies_point", &namo::RLEnvironment::object_occupies_point,
+            py::arg("object_name"), py::arg("point"),
+            "Whether a movable's inflated footprint covers the point's grid cell; read-only.")
        .def("get_region_connectivity", &namo::RLEnvironment::get_region_connectivity,
            "Return region adjacency, boundary objects, and region labels from the wavefront grid.")
        .def("sample_region_goals", &namo::RLEnvironment::sample_region_goals,

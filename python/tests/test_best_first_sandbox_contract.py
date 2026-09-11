@@ -33,7 +33,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SEPARATED_SCENE = (
     REPO_ROOT / "python" / "tests" / "data" / "best_first_car_1x_d5_fixture.xml"
 )
-SEPARATED_CONFIG = REPO_ROOT / "config" / "namo_config_complete_skill15_car_1x.yaml"
+# These recorded runs use 5 mm clearance; the bare config now defaults to 1 mm
+# for real-table execution, which changes the reachable candidates and chains.
+SEPARATED_CONFIG = REPO_ROOT / "config" / "margin_5mm" / "namo_config_complete_skill15_car_1x.yaml"
 
 # The boundary select_boundary_from_xml chooses on this scene, pinned because
 # the search is only comparable across runs when its inputs are identical.

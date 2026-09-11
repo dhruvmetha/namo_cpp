@@ -193,6 +193,9 @@ public:
      */
     std::vector<int> get_reachable_edges_with_wavefront(const std::string& object_name);
 
+    /// Actual controller approach positions, including currently unreachable edges.
+    std::vector<std::array<double, 2>> get_edge_points(const std::string& object_name);
+
     /**
      * @brief Update wavefront and get detailed reachable-edge stats for one object.
      */

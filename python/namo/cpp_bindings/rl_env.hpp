@@ -48,6 +48,10 @@ public:
         std::string goal_label;
         bool goal_reachable = false;
         bool goal_in_free_space = false;
+        std::array<double, 2> goal_xy;
+        std::vector<PointOccupancy> goal_cells;
+        std::map<std::string, std::unordered_set<std::string>> goal_blocker_access_regions;
+        std::vector<std::string> reachable_goal_blockers;
     };
 
     struct Action {
@@ -100,6 +104,9 @@ public:
     std::vector<std::string> get_reachable_objects() const;
     bool is_object_reachable(const std::string& object_name) const;
     std::vector<int> get_reachable_edges(const std::string& object_name) const;
+    /// Read-only goal-clearance verification with canonical robot-inflated geometry.
+    bool object_occupies_point(const std::string& object_name,
+                              const std::array<double, 2>& point) const;
     ReachabilitySummary get_reachability_summary(bool analysis_mode = false) const;
 
     // Edge point queries (for visualization)
@@ -183,7 +190,8 @@ public:
         double goal_radius = -1.0,
         bool local_info_only = false,
         unsigned int seed = 42,
-        bool use_xml_goal = true) const;
+        bool use_xml_goal = true,
+        bool include_goal_clearance = false) const;
 
     const std::string& get_xml_path() const { return xml_path_; }
     const std::string& get_config_path() const { return config_path_; }

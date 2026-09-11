@@ -46,6 +46,14 @@ struct RegionGoalBundle {
 };
 
 
+struct PointOccupancy {
+    std::array<double, 2> xy;
+    std::array<int, 2> grid;
+    bool static_blocked = false;
+    std::unordered_set<std::string> objects;
+    std::string region;
+};
+
 /**
  * @brief Grid discretization utility for spatial planning
  * 
@@ -81,6 +89,17 @@ public:
      * @return True if cell is free
      */
     bool is_cell_free(int x, int y) const;
+
+    /// Describe exact inflated cell ownership without removing or moving objects.
+    std::vector<PointOccupancy> describe_points(
+        NAMOEnvironment& env, const std::vector<std::array<double, 2>>& points) const;
+
+    /// Test the same cell-centre rectangle predicate used by grid rasterization.
+    bool object_occupies_point(const ObjectInfo& object, const ObjectState& state,
+                              const std::array<double, 2>& point) const;
+    /// Shared rectangle test for a known cell centre; avoids rebuilding a grid per candidate.
+    static bool object_occupies_cell(const ObjectInfo& object, const ObjectState& state,
+                                    const std::array<double, 2>& centre, double inflation);
 
     // Grid dimension accessors
     int get_grid_width() const { return grid_width_; }
@@ -204,9 +223,9 @@ private:
     
     // Geometric calculation methods
     GridFootprint calculate_rotated_footprint(const ObjectInfo& obj, const ObjectState& state);
-    bool is_point_in_rotated_rectangle(double px, double py, 
-                                      const ObjectState& state, 
-                                      const ObjectInfo& obj) const;
+    static bool is_point_in_rotated_rectangle(double px, double py,
+                                              const ObjectState& state,
+                                              const ObjectInfo& obj);
     
     // Connected components analysis helper methods
     std::pair<int, int> select_random_point(const std::unordered_set<std::pair<int, int>, CoordinateHash>& points) const;

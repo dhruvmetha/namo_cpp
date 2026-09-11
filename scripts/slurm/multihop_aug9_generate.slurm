@@ -14,10 +14,14 @@
 #SBATCH --output=logs/%x_%A_%a.out
 set -euo pipefail
 
+if [[ -n "${CAMPAIGN_ENV:-}" ]]; then
+  source "$CAMPAIGN_ENV"
+fi
+
 : "${OUT:?set OUT to the generation output root}"
 
 NAMO_REPO=${NAMO_REPO:-${SLURM_SUBMIT_DIR:?no NAMO_REPO and no SLURM_SUBMIT_DIR}}
-ENV_CREATOR_REPO=${ENV_CREATOR_REPO:-$(dirname "$NAMO_REPO")/mujoco_env_creator}
+ENV_CREATOR_REPO=${ENV_CREATOR_REPO:-${NAMO_ENV_CREATOR:-$(dirname "$NAMO_REPO")/mujoco_env_creator}}
 NUM_ENVS=${NUM_ENVS:-10}
 SEED_BASE=${SEED_BASE:-650000000}
 # Initial shortest region-path length to filter for. Defaults to 2 so every prior
@@ -45,18 +49,23 @@ start_seed=$((SEED_BASE + template_id * 1000000 + batch_id * 10000))
 run_offset=$((batch_id * NUM_ENVS))
 
 cd "$NAMO_REPO"
-source env.amarel.sh
-export PYTHONPATH="$NAMO_REPO/build_python:$NAMO_REPO/python"
+source "${NAMO_ACTIVATE_SH:-$NAMO_REPO/env.amarel.sh}"
+export PYTHONPATH="${NAMO_BINDINGS_DIR:-$NAMO_REPO/build_python}:$NAMO_REPO/python:${PYTHONPATH:-}"
+export NAMO_PYTHON_PATH="$NAMO_REPO/python"
+if [[ -n "${RUNTIME_HASHES:-}" ]]; then
+  sha256sum --check "$RUNTIME_HASHES"
+fi
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 PY=${NAMO_PYTHON:-python}
-CONFIG="$NAMO_REPO/config/namo_config_complete_skill15_car_1x.yaml"
+CONFIG=${NAMO_CONFIG_FILE:-$NAMO_REPO/config/namo_config_complete_skill15_car_1x.yaml}
+GENERATION_CONFIG=${GENERATION_CONFIG:-$NAMO_REPO/config/multihop_aug9_generation.yaml}
 TEMPLATE_ROOT="$ENV_CREATOR_REPO/templates/aug9_car_v3"
 mkdir -p "$OUT" "$NAMO_REPO/logs"
 
 echo "GEN start $(date) host=$(hostname) task=$task_id template=$template_rel batch=$batch_id seed=$start_seed requested=$NUM_ENVS"
 "$PY" "$ENV_CREATOR_REPO/generate_envs.py" "$TEMPLATE_ROOT/$template_rel" \
   --namo-config "$CONFIG" \
-  --config "$NAMO_REPO/config/multihop_aug9_generation.yaml" \
+  --config "$GENERATION_CONFIG" \
   --num-envs "$NUM_ENVS" \
   --output-dir "$OUT" \
   --num-workers "$SLURM_CPUS_PER_TASK" \
