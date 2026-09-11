@@ -21,6 +21,8 @@ def digest(path):
 
 
 def compare(reference, actual):
+    if reference.get("schema_version") != actual.get("schema_version"):
+        return ["schema_version"]
     mismatches = [key for key in ("compiler", "glibc", "packages", "python")
                   if reference.get(key) != actual.get(key)]
     for name in sorted(reference["libraries"].keys() | actual["libraries"].keys()):

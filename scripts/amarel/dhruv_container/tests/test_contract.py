@@ -87,6 +87,12 @@ def test_identity_extra_library_is_a_mismatch():
                           {"libraries": {"unexpected.so": [{"sha256": "x"}]}}) == ["library:unexpected.so"]
 
 
+def test_identity_schema_mismatch_is_reported_before_reading_library_records():
+    module = identity_module()
+    assert module.compare({"schema_version": 1, "libraries": {"libx.so": {"sha256": "x"}}},
+                          {"schema_version": 2, "libraries": {"libx.so": [{"sha256": "x"}]}}) == ["schema_version"]
+
+
 def test_identity_preserves_distinct_modules_with_same_basename(tmp_path):
     module = identity_module()
     first, second = tmp_path / "a" / "libsame.so", tmp_path / "b" / "libsame.so"
