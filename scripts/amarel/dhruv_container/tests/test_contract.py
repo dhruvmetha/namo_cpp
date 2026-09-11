@@ -27,6 +27,8 @@ def test_image_pins_reference_toolchain():
         assert pin in definition
     assert "@sha256:" in definition
     assert "sha256sum -c dhruv-opencv.sha256" in definition
+    assert "apt-get -o APT::Sandbox::User=root update" in definition
+    assert "apt-get -o APT::Sandbox::User=root install" in definition
 
 
 def test_clean_source_check_runs_inside_image_not_gitless_compute_host():

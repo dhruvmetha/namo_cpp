@@ -12,8 +12,10 @@ From: ubuntu@sha256:c664f8f86ed5a386b0a340d981b8f81714e21a8b9c73f658c4bea56aa179
     export DEBIAN_FRONTEND=noninteractive
     # Amarel has user namespaces but no subordinate UID allocation. Its host
     # fakeroot requires newer glibc, so bootstrap Focal's fakeroot inside here.
-    apt-get update
-    apt-get install -y --no-install-recommends fakeroot
+    # Before fakeroot exists, only namespace uid 0 is mapped. Apt cannot
+    # switch its downloader to the otherwise-unmapped _apt account.
+    apt-get -o APT::Sandbox::User=root update
+    apt-get -o APT::Sandbox::User=root install -y --no-install-recommends fakeroot
     FAKEROOTDONTTRYCHOWN=1 fakeroot bash -ec '
       apt-get install -y --no-install-recommends \
         gcc-9=9.4.0-1ubuntu1~20.04.2 g++-9=9.4.0-1ubuntu1~20.04.2 \
