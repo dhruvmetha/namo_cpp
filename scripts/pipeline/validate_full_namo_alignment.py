@@ -103,11 +103,14 @@ def physics_replay(name, xml, config, actions, initial_state=None):
     env, _goal = make_env(xml, config, initial_state)
     states = [state_and_graph(env)]
     for row in actions:
+        # The canonical search restores a node before each candidate; that clears qvel/warmstart.
+        env.set_full_state(env.get_full_state())
         env.step(deserialize_action(row))
         states.append(state_and_graph(env))
     return dict(name=name, xml_sha256=digest(xml), config_sha256=digest(config),
                 actions=actions, states=states, observed_calls=env.observed_calls,
-                final_goal_reachable=bool(env.is_robot_goal_reachable()))
+                final_goal_reachable=bool(env.is_robot_goal_reachable()),
+                reset_before_each_action=True)
 
 
 def task_for(xml, config, artifacts, prior="uniform", seed=7000):
@@ -180,6 +183,7 @@ def main():
     inputs += sorted((artifacts / "scenes").glob("*.xml"))
     inputs += [artifacts / "fixed-replay-inputs.json", artifacts / "physics-source-record.json",
                artifacts / "saved-consistency-failure.json"]
+    inputs += sorted((artifacts / "historical-config").glob("*.yaml"))
     inputs += sorted(p for p in (artifacts / "sage_learning").rglob("*")
                      if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc")
     for path in (artifacts / "primitives").glob("*.dat"):
@@ -193,17 +197,24 @@ def main():
         input_sha256={str(p.relative_to(artifacts)): digest(p) for p in inputs},
         packages={d.metadata["Name"]: d.version for d in importlib.metadata.distributions()},
         build_info=(repo / "build_python/BUILD_INFO").read_text(),
+        native_linkage=subprocess.check_output(["ldd", namo_rl.__file__], text=True),
         state_restore="NAMO set_full_state restores qpos and zeroes qvel; no historical MuJoCo warmstart is restored.")
     assert not identity["source_status"], identity["source_status"]
     save(out / "identity.json", identity)
     fixed = json.loads((artifacts / "fixed-replay-inputs.json").read_text())
     source = json.loads((artifacts / "physics-source-record.json").read_text())
     failure = json.loads((artifacts / "saved-consistency-failure.json").read_text())["row"]
+    assert digest(artifacts / "scenes/goal_clearance.xml") == source["case"]["xml_sha256"]
+    assert digest(artifacts / "HY5U_s2.ckpt") == source["case"]["checkpoint_sha256"]
+    assert digest(artifacts / "historical-config/namo_config.yaml") == source["case"]["config_sha256"]
+    assert digest(artifacts / "scenes/consistency_failure.xml") == failure["xml_sha256"]
+    for name, expected in source["primitive_hashes"].items():
+        assert digest(artifacts / "primitives" / name) == expected
     saved_goal_state = source["historical_control"]["result"]["row"]["terminal_state"]
     if args.phase == "fixed":
         for case in fixed:
             xml = repo / case["repo_xml"] if "repo_xml" in case else artifacts / case["xml"]
-            cfg = repo / case["repo_config"] if "repo_config" in case else config
+            cfg = artifacts / case["config"] if "config" in case else config
             initial = saved_goal_state if case.get("start") == "goal_terminal" else None
             record = physics_replay(case["name"], xml, cfg, case["actions"], initial)
             save(out / (case["name"] + ".json"), record)
@@ -212,10 +223,12 @@ def main():
                 root, after_a, after_b = record["states"]
                 assert a != b and a in root["reachable_objects"] and b not in root["reachable_objects"]
                 assert root["adjacency"]["robot"] == ["goal"]
+                assert set(root["edge_objects"]["robot"]["goal"]) == {a, b}
+                assert root["multi_object_edges"]["robot"] == ["goal"]
                 assert not root["authoritative_after_snapshot"]
                 assert b in after_a["reachable_objects"] and not after_a["authoritative_after_snapshot"]
                 assert after_b["authoritative_after_snapshot"]
-            if case["name"] in {"pooled_doorway", "goal_scene", "goal_terminal"}:
+            if case["name"] in {"pooled_doorway", "historical_goal_scene", "historical_goal_terminal"}:
                 assert record["final_goal_reachable"], case["name"]
             print(json.dumps(dict(name=case["name"], goal=record["final_goal_reachable"],
                                   calls=record["observed_calls"])), flush=True)
@@ -240,6 +253,9 @@ def main():
         save(out / "saved_consistency_queries.json", dict(orders=orders,
             historical_final_goal_reachable=failure["final_goal_reachable"],
             historical_goal_diagnostics=failure["goal_diagnostics"]))
+        assert all(probe["value"] is False for probes in orders.values() for probe in probes if probe["query"] == "A")
+        assert all(probe["value"] == dict(goal_reachable=True, robot_label="robot_goal", goal_label="robot_goal")
+                   for probes in orders.values() for probe in probes if probe["query"] == "S")
         return
     from namo.strategies.scorer_goal_strategy import _get_scorer
     _get_scorer(str(artifacts / "HY5U_s2.ckpt"), str(config), "cpu").warmup(repeats=3)
