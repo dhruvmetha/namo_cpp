@@ -30,8 +30,9 @@ def compare(reference, actual):
         # CUDA user-space libraries from the frozen Python env still compare.
         if name.startswith(("namo_rl.", "libmujoco.", "libcuda.so.")):
             continue
-        expected = reference["libraries"].get(name, {}).get("sha256")
-        if expected != actual["libraries"].get(name, {}).get("sha256"):
+        expected = sorted(record["sha256"] for record in reference["libraries"].get(name, []))
+        observed = sorted(record["sha256"] for record in actual["libraries"].get(name, []))
+        if expected != observed:
             mismatches.append("library:" + name)
     return mismatches
 
@@ -39,9 +40,9 @@ def compare(reference, actual):
 def library_records(paths):
     records = {}
     for path in sorted(paths):
-        if path.name in records:
-            raise ValueError("duplicate loaded library basename: " + path.name)
-        records[path.name] = dict(path=str(path), sha256=digest(path))
+        # Python extensions in different packages can share a filename.
+        # Preserve all copies and compare a hash multiset, including counts.
+        records.setdefault(path.name, []).append(dict(path=str(path), sha256=digest(path)))
     return records
 
 
@@ -57,7 +58,7 @@ def capture():
              and ".so" in line.split()[-1]}
     libraries = library_records(paths)
     packages = subprocess.check_output(["dpkg-query", "-W", "-f=${Package}=${Version}\n", *PACKAGES], text=True)
-    return dict(compiler=subprocess.check_output(["/usr/bin/c++", "-dumpfullversion"], text=True).strip(),
+    return dict(schema_version=2, compiler=subprocess.check_output(["/usr/bin/c++", "-dumpfullversion"], text=True).strip(),
                 glibc=platform.libc_ver()[1], packages=dict(line.split("=", 1) for line in packages.splitlines()),
                 libraries=libraries, python=platform.python_version(), host=platform.node())
 

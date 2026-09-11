@@ -65,11 +65,11 @@ def test_build_refuses_existing_artifacts(tmp_path, existing):
 def test_identity_comparison_ignores_paths_but_not_versions_or_hashes():
     module = identity_module()
     reference = {"compiler": "9.4.0", "glibc": "2.31", "packages": {"libc6": "pinned"},
-                 "libraries": {"libc-2.31.so": {"path": "/a/libc", "sha256": "abc"}}}
+                 "libraries": {"libc-2.31.so": [{"path": "/a/libc", "sha256": "abc"}]}}
     actual = json.loads(json.dumps(reference))
-    actual["libraries"]["libc-2.31.so"]["path"] = "/b/libc"
+    actual["libraries"]["libc-2.31.so"][0]["path"] = "/b/libc"
     assert module.compare(reference, actual) == []
-    actual["libraries"]["libc-2.31.so"]["sha256"] = "changed"
+    actual["libraries"]["libc-2.31.so"][0]["sha256"] = "changed"
     assert module.compare(reference, actual) == ["library:libc-2.31.so"]
     actual["compiler"] = "14.3.0"
     assert "compiler" in module.compare(reference, actual)
@@ -77,25 +77,28 @@ def test_identity_comparison_ignores_paths_but_not_versions_or_hashes():
 
 def test_identity_missing_library_is_a_mismatch():
     module = identity_module()
-    assert module.compare({"libraries": {"libm.so": {"sha256": "x"}}},
+    assert module.compare({"libraries": {"libm.so": [{"sha256": "x"}]}},
                           {"libraries": {}}) == ["library:libm.so"]
 
 
 def test_identity_extra_library_is_a_mismatch():
     module = identity_module()
     assert module.compare({"libraries": {}},
-                          {"libraries": {"unexpected.so": {"sha256": "x"}}}) == ["library:unexpected.so"]
+                          {"libraries": {"unexpected.so": [{"sha256": "x"}]}}) == ["library:unexpected.so"]
 
 
-def test_identity_rejects_basename_collisions(tmp_path):
+def test_identity_preserves_distinct_modules_with_same_basename(tmp_path):
     module = identity_module()
     first, second = tmp_path / "a" / "libsame.so", tmp_path / "b" / "libsame.so"
     first.parent.mkdir()
     second.parent.mkdir()
     first.write_bytes(b"a")
     second.write_bytes(b"b")
-    with pytest.raises(ValueError, match="duplicate loaded library"):
-        module.library_records([first, second])
+    records = module.library_records([first, second])
+    assert len(records["libsame.so"]) == 2
+    assert {r["sha256"] for r in records["libsame.so"]} == {module.digest(first), module.digest(second)}
+    assert module.compare({"libraries": records}, {"libraries": module.library_records([second, first])}) == []
+    assert module.compare({"libraries": records}, {"libraries": module.library_records([first])}) == ["library:libsame.so"]
 
 
 def test_native_build_uses_frozen_target_and_validation_reuses_existing_runner():

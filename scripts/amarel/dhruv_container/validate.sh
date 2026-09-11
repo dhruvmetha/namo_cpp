@@ -11,7 +11,7 @@ test -f "$CONTAINER_ROOT/provenance/build-ready"
 cd "$NAMO_REPO"
 "$NAMO_PYTHON" -B "$recipes/native_identity.py" \
     --output "$CONTAINER_ROOT/results/native-identity.json" \
-    --reference "$CONTAINER_ROOT/artifacts/dhruv-native-identity.json"
+    --reference "${NATIVE_REFERENCE:-$CONTAINER_ROOT/artifacts/dhruv-native-identity.json}"
 "$NAMO_PYTHON" -B -m pytest -q -rs -p no:cacheprovider \
     python/tests/test_two_movable_doorway_adjacency.py \
     python/tests/test_best_first_sandbox_contract.py \
