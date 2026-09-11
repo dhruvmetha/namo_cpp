@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
@@ -66,6 +67,8 @@ class SolveTask:
     preserve_next_keyhole_access: bool = False
     shuffle_seed: Optional[int] = None
     goal_clearance: bool = False
+    exec_mode: str = "search"
+    record_timing: bool = False
 
 
 def _load_namo_config(config_path: str) -> Dict[str, Any]:
@@ -101,6 +104,9 @@ def serialize_action(action: Any) -> Dict[str, Any]:
 
 
 def build_full_namo_planner_config(task: SolveTask) -> PlannerConfig:
+    """Build the shared planner configuration for a complete simulated task."""
+    if task.exec_mode not in {"search", "greedy_dfs"}:
+        raise ValueError("Simulation evaluation requires search or greedy_dfs, not a real-robot action proposal")
     push_budget = PushAttemptBudget(limit=task.simulation_budget)
     algorithm_params: Dict[str, Any] = {
         "goal_strategy": task.goal_strategy,
@@ -119,6 +125,7 @@ def build_full_namo_planner_config(task: SolveTask) -> PlannerConfig:
         "full_namo_budget_scope": task.simulation_budget_scope,
         "full_namo_keyhole_simulation_budget": task.simulation_budget,
         "full_namo_local_search": task.local_search,
+        "full_namo_exec_mode": task.exec_mode,
         "full_namo_goal_clearance": task.goal_clearance,
         "best_first_prior": task.best_first_prior,
         "best_first_hmax": task.region_max_chain_depth,
@@ -151,11 +158,19 @@ def build_full_namo_planner_config(task: SolveTask) -> PlannerConfig:
 
 
 def solve_environment_task(task: SolveTask) -> Dict[str, Any]:
+    """Run the canonical planner; optional timing excludes setup and serialization."""
     try:
         env = namo_rl.RLEnvironment(task.xml_path, task.config_path, False)
-        planner = FullNAMOPlanner(env, build_full_namo_planner_config(task))
+        config = build_full_namo_planner_config(task)
+        timing = {"t_sim": 0.0, "t_score": 0.0, "n_score": 0}
+        if task.record_timing:
+            config.algorithm_params["full_namo_timing"] = timing
+        planner = FullNAMOPlanner(env, config)
         robot_goal = extract_goal_from_xml(task.xml_path)
+        started = time.perf_counter() if task.record_timing else None
         result = planner.search(robot_goal)
+        if task.record_timing:
+            timing["t_wall"] = time.perf_counter() - started
 
         budget_stats = dict(result.algorithm_stats or {})
         budget_fields = {
@@ -179,6 +194,12 @@ def solve_environment_task(task: SolveTask) -> Dict[str, Any]:
             if "iteration_trace" in budget_stats
             else {}
         )
+        if task.record_timing:
+            calls = int(budget_stats["simulation_budget_used"])
+            trace_fields.update(timing, total_calls=calls, exec_mode=task.exec_mode,
+                solved=bool(result.success), censored=not result.success,
+                calls_until_success=calls if result.success else None,
+                time_until_success=timing["t_wall"] if result.success else None)
         if task.goal_clearance:
             state = env.get_full_state()
             trace_fields.update({

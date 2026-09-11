@@ -83,6 +83,7 @@ class BestFirstRegionOpeningPlanner:
         params = config.algorithm_params or {}
         self.env = env
         self.config = config
+        self.timing = params.get("full_namo_timing")
         self.push_budget: PushAttemptBudget = params.get("push_budget") or PushAttemptBudget(
             int(
                 params.get(
@@ -574,6 +575,7 @@ class BestFirstRegionOpeningPlanner:
                     prune_jam_depth=True,
                     region_samples=region_samples,
                     simulate=commit_simulate,
+                    timing=self.timing,
                 )
                 self.push_budget.used += int(commit.simulations_used)
                 actions = [commit.action] if commit.action is not None else []
@@ -643,6 +645,7 @@ class BestFirstRegionOpeningPlanner:
                 prune_jam_depth=True,
                 region_samples=region_samples,
                 solution_out=solution,
+                timing=self.timing,
             )
             if self.decision_rule == "reactive":
                 decide = run_reactive

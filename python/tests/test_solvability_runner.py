@@ -1,5 +1,8 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 from namo.environment_selection import RegionPathAnalysis
 from namo.solvability_runner import run_exact_n_solvability
@@ -126,3 +129,154 @@ def test_run_exact_n_solvability_writes_expected_manifests(tmp_path, monkeypatch
     assert run_config["goal_strategy"] == "random_rollout"
     assert run_config["seed"] == 42
     assert run_config["shuffle_seed"] == 7000
+
+
+@pytest.mark.parametrize("mode,solved", [("search", True), ("greedy_dfs", False)])
+def test_timed_full_problem_keeps_failed_costs_and_execution_mode(monkeypatch, mode, solved):
+    from namo import solvability_runner as runner
+    from namo.core import PlannerResult
+
+    task = runner.SolveTask(
+        xml_path="scene.xml", path_length_n=2, config_path="config.yaml",
+        goal_strategy="scorer", region_max_chain_depth=2, primitive_data_dir="data",
+        primitive_prefix=CANONICAL_PRIMITIVE_PREFIX, rollout_samples_per_state=None,
+        region_frontier_beam_width=None, region_success_min_reachable=20,
+        goals_per_region=100, seed=42, use_cpp_snapshot=True, simulation_budget=20000,
+        local_search="best_first", best_first_prior="uniform", shuffle_seed=7000,
+        goal_clearance=True, exec_mode=mode, record_timing=True,
+    )
+    env = SimpleNamespace(get_full_state=lambda: SimpleNamespace(qpos=[], qvel=[]),
+                          is_robot_goal_reachable=lambda: solved)
+    monkeypatch.setattr(runner.namo_rl, "RLEnvironment", lambda *_a: env)
+    monkeypatch.setattr(runner, "extract_goal_from_xml", lambda *_a: (0, 0, 0))
+    clock = iter((100.0, 103.0))
+    monkeypatch.setattr(runner.time, "perf_counter", lambda: next(clock))
+
+    class Planner:
+        def __init__(self, _env, config):
+            assert config.algorithm_params["full_namo_exec_mode"] == mode
+            assert config.algorithm_params["full_namo_goal_clearance"] is True
+            self.timing = config.algorithm_params["full_namo_timing"]
+
+        def search(self, _goal):
+            self.timing.update(t_sim=1.25, t_score=0.5, n_score=2)
+            return PlannerResult(success=solved, solution_found=solved, action_sequence=[],
+                algorithm_stats={"simulation_budget_used": 7,
+                                 "failure_kind": None if solved else "region_path_exhausted"})
+
+    monkeypatch.setattr(runner, "FullNAMOPlanner", Planner)
+    result = runner.solve_environment_task(task)
+    assert result["kind"] == ("solved" if solved else "unsolved")
+    row = result["row"]
+    assert (row["total_calls"], row["t_wall"], row["t_sim"], row["t_score"], row["n_score"]) == (7, 3.0, 1.25, 0.5, 2)
+    assert row["calls_until_success"] == (7 if solved else None)
+    assert row["time_until_success"] == (3.0 if solved else None)
+    assert row["censored"] is (not solved)
+    assert row["final_goal_reachable"] is solved
+
+
+def test_greedy_timing_accumulates_without_changing_commits(monkeypatch):
+    from namo.planners.opening import best_first_search as search
+
+    candidate = SimpleNamespace(x=0, y=0, theta=0, edge_idx=1, depth=0)
+    monkeypatch.setattr(search, "candidates", lambda *_a, **_k: ([("box", candidate, 1.0)], 0, None))
+    monkeypatch.setattr(search, "make_action", lambda *_a: candidate)
+    clock = iter((0, 1, 1, 3, 10, 11, 11, 13))
+    monkeypatch.setattr(search.time, "perf_counter", lambda: next(clock))
+    env = SimpleNamespace(set_full_state=lambda _s: None, step=lambda _a: None,
+                          get_full_state=lambda: "moved")
+    timing = {"t_score": 5.0, "t_sim": 7.0, "n_score": 3}
+    for _ in range(2):
+        result = search.run_greedy_commit(None, env, None, "scene.xml", "start",
+            2, 20000, "model", "mean5", "q", None, is_open=lambda _e: True,
+            dedupe_noop=False, timing=timing)
+        assert result.simulations_used == 1 and result.opened
+        assert result.resulting_state == "moved"
+    assert timing == {"t_score": 7.0, "t_sim": 11.0, "n_score": 5}
+
+
+def test_region_openings_share_cumulative_budget_and_timing(monkeypatch):
+    from namo.core import PlannerConfig
+    from namo.planners.opening import best_first_region_opening as opening
+    from namo.planners.utils import PushAttemptBudget
+
+    class Env:
+        def __init__(self):
+            self.state = "baseline"
+
+        def get_full_state(self):
+            return self.state
+
+        def set_full_state(self, state):
+            self.state = state
+
+        def count_reachable_points(self, _points):
+            return 0, -1
+
+    env = Env()
+    timing = {"t_score": 1.0, "t_sim": 2.0, "n_score": 3}
+    budget = PushAttemptBudget(limit=20000)
+    planner = opening.BestFirstRegionOpeningPlanner(
+        env,
+        PlannerConfig(algorithm_params={
+            "best_first_prior": "uniform",
+            "full_namo_timing": timing,
+            "push_budget": budget,
+        }),
+    )
+    goal = SimpleNamespace(x=0.0, y=0.0, theta=0.0, edge_idx=1, depth=0)
+    snapshot = {
+        "robot_label": "robot",
+        "region_labels": {},
+        "adjacency": {"robot": {"a", "b"}},
+        "region_goals": {
+            name: SimpleNamespace(goals=[SimpleNamespace(x=1.0, y=2.0, theta=0.0)])
+            for name in ("a", "b")
+        },
+        "edge_objects": {"robot": {"a": ["door_a"], "b": ["door_b"]}},
+    }
+    monkeypatch.setattr("namo.planners.get_region_snapshot", lambda *_a, **_k: snapshot)
+    remaining_budgets = []
+    timing_ids = []
+    simulations = iter((3, 5))
+
+    def fake_solve_scene(*args, timing, solution_out, **_kwargs):
+        used = next(simulations)
+        remaining_budgets.append(args[6])
+        timing_ids.append(id(timing))
+        timing["t_score"] += 0.25
+        timing["t_sim"] += used / 2
+        timing["n_score"] += 1
+        solution_out.update(plan=[("door", goal)], state=f"state-{used}")
+        return True, used, 1, [], "solved"
+
+    monkeypatch.setattr(opening, "solve_scene", fake_solve_scene)
+    first = planner.search((0.0, 0.0, 0.0), target_neighbor="a")
+    second = planner.search((0.0, 0.0, 0.0), target_neighbor="b")
+
+    assert first.success and second.success
+    assert remaining_budgets == [20000, 19997]
+    assert timing_ids == [id(timing), id(timing)]
+    assert budget.used == 8
+    assert timing == {"t_score": 1.5, "t_sim": 6.0, "n_score": 5}
+
+
+def test_walltime_summary_includes_failures_and_preserves_shard_membership():
+    import importlib.util
+
+    path = Path(__file__).resolve().parents[2] / "scripts/pipeline/eval_full_namo_walltime.py"
+    spec = importlib.util.spec_from_file_location("full_walltime", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    rows = [dict(solved=True, total_calls=4, t_wall=0.5),
+            dict(solved=False, total_calls=2, t_wall=0.2),
+            dict(solved=False, total_calls=20000, t_wall=1000)]
+    summary = module.summarize(rows)
+    assert summary["success_rate"] == 1 / 3
+    assert summary["median_calls_until_success"] is None
+    assert summary["median_time_until_success"] is None
+    assert summary["solve_at_1s"] == 1 / 3
+    assert summary["median_consumed_calls"] == 4
+    scenes = list(range(11))
+    shards = [module.shard_rows(scenes, i, 4) for i in range(4)]
+    assert sorted(item for shard in shards for item in shard) == scenes

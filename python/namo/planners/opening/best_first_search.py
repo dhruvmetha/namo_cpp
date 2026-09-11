@@ -506,6 +506,7 @@ def run_greedy_commit(
     prune_jam_depth=True,
     region_samples=None,
     simulate=True,
+    timing=None,
 ):
     """Commit the first moving arg-max candidate from one simulator state.
 
@@ -522,7 +523,15 @@ def run_greedy_commit(
     the runtime builds from what the robot actually did. greedy_dfs must keep
     ``simulate=True``: its rollout needs the resulting state to take the next
     step from, so a simulator-free rollout is not a meaningful object.
+
+    Optional caller-owned timing accumulates candidate-ranking and env.step
+    seconds across commits, using the same boundaries as solve_scene.
     """
+    tm = timing if timing is not None else {}
+    tm.setdefault("t_score", 0.0)
+    tm.setdefault("t_sim", 0.0)
+    tm.setdefault("n_score", 0)
+    started = time.perf_counter()
     pool, value, _grid = candidates(
         planner,
         env,
@@ -537,6 +546,8 @@ def run_greedy_commit(
         raw=raw,
         region_samples=region_samples,
     )
+    tm["t_score"] += time.perf_counter() - started
+    tm["n_score"] += 1
     banned = set()
     jam_at = {}
     rejections = []
@@ -565,7 +576,9 @@ def run_greedy_commit(
         env.set_full_state(state)
         before = env.get_observation() if dedupe_noop else None
         action = make_action(obj, goal_spec)
+        started = time.perf_counter()
         step_result = env.step(action)
+        tm["t_sim"] += time.perf_counter() - started
         simulations += 1
         opened = bool(is_open(env))
 

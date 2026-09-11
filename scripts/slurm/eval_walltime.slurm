@@ -31,6 +31,23 @@
 #SBATCH --output=logs/%x_%A_%a.out
 set -euo pipefail
 
+# Full-problem campaign: retains this launcher's node isolation; the driver
+# validates exact CPU model and records the complete planner's 20k-call budget.
+# FULL_NAMO_CONFIG=<yaml> CAMPAIGN_ENV=<env> ARM=<arm> sbatch \
+#   --array=0-39 --constraint=icelake --time=08:00:00 scripts/slurm/eval_walltime.slurm
+if [[ -n "${FULL_NAMO_CONFIG:-}" ]]; then
+  source "${CAMPAIGN_ENV:?set CAMPAIGN_ENV}"
+  cd "${NAMO_REPO:?set NAMO_REPO in campaign env}"
+  export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+  export VECLIB_MAXIMUM_THREADS=1 OPENCV_NUM_THREADS=1 OPENCV_FOR_THREADS_NUM=1
+  export CUDA_VISIBLE_DEVICES="" PYTHONUNBUFFERED=1
+  extra=()
+  [[ "${FULL_NAMO_SMOKE:-0}" != 1 ]] || extra+=(--smoke)
+  exec "${NAMO_PYTHON:?set NAMO_PYTHON}" scripts/pipeline/eval_full_namo_walltime.py \
+    --config "$FULL_NAMO_CONFIG" --arm "${ARM:?set ARM}" \
+    --shard "${SLURM_ARRAY_TASK_ID:-0}" "${extra[@]}"
+fi
+
 : "${OUT:?set OUT=<output root>}"
 SIM_BUDGET=${SIM_BUDGET:-900}
 NSH=${NSH:-10}
