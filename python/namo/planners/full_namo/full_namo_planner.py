@@ -1203,6 +1203,9 @@ class FullNAMOPlanner(BasePlanner):
         }
         algorithm_stats.update(self._current_budget_stats())
 
+        if self.planning_horizon == "first_keyhole":
+            algorithm_stats["goal_reachable"] = bool(self.env.is_robot_goal_reachable())
+
         if self.goal_clearance:
             snapshot = self._compute_region_snapshot()
             algorithm_stats["goal_diagnostics"] = (
