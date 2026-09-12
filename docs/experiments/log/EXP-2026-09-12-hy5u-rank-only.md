@@ -54,6 +54,26 @@ Job `297445` staged to `/tmp` instead. ilab2's `/tmp` is a dedicated 98 GB NVMe 
 
 So iLab has nowhere node-local to stage this file, and any worker process depends on storage other people's logins can clear. Job `297453` runs the configuration that completed every arm of EXP-2026-08-31: scheduler-owned `srun`, direct NFS reads, zero DataLoader workers, about 45 minutes per epoch. Both findings are written into `scripts/ilab/hy5u_rankonly_train.slurm` with the job numbers.
 
+Smoke `297453` COMPLETED in 49:39. Epoch 0: train_loss 0.8598, val_loss 0.8309, checkpoint written, two-reload delta 0.000e+00, scorer-load check OK at `value_bins=51`. The reload line reported delta 2.0499 against the monitor, which is the expected consequence of redefining `val_loss` and not a fault. Fleet `297459_[0-2]` released on `afterok` and runs three seeds on ilab2, 16-hour limit, all co-located so they share one page cache over the same H5.
+
+### Watch item H3 fired: the score scale collapsed toward ZERO, not up
+
+The scorer-load probe printed `value range=[0.010,0.010]`, so I measured the epoch-0 checkpoint on 32 real val boards instead of trusting one sample.
+
+| quantity, epoch 0 | value |
+|---|---|
+| global score range over 32 boards | 0.009805 to 0.009806 |
+| per-board spread over tried cells, p10 / median / p90 | 0.000001 / 0.000001 / 0.000001 |
+| score-vs-label correlation within board, median | 0.089 |
+
+The head is a constant near 0.0098 and the whole ordering signal is 1e-6 wide, which at that magnitude is only a few representable float32 steps.
+
+**UNVERIFIED HYPOTHESIS, one epoch only.** Removing the exact-cell regression removed the only term that pushed any cell UP (openers to 1.0, setups to 0.5). The unreachable floor stayed and pushes ~230 of ~300 cells per board toward 0. The ranking terms are scale-free and indifferent to where the scale sits. Down-force with no counterweight. This is the mirror image of round 1's `RP`, which INFLATED its scale (spread 0.45 to 0.67). But `RP` predates `UNREACH_W` entirely, so it had no absolute down-force at all. The asymmetry is new to this arm, and it is the same mechanism RPEA's autopsy described: an absolute anchor on dead cells "pushes live near-twins down equally".
+
+If it holds, the fix is the variant not selected: drop the floor's REGRESSION too, while keeping unreachable cells in the rank lists, where they still serve as known-worse opponents. `loss_mask` carries them at `UNREACH_W` > 0, so `_rank_list_mask` already includes them and their ordering contribution survives without the absolute zero target.
+
+Not called on one epoch — the gradient to separate scores exists even from a collapsed start. Re-measure at epoch 2 or 3. Widening means a slow start and the fleet stands. Still 1e-6 means the arm is degenerate, stop it rather than hold three shared GPUs for nine hours, and launch the corrected variant.
+
 ## Result
 
 Pending.
