@@ -74,6 +74,31 @@ If it holds, the fix is the variant not selected: drop the floor's REGRESSION to
 
 Not called on one epoch. The gradient to separate scores exists even from a collapsed start. Re-measure at epoch 2 or 3. Widening means a slow start and the fleet stands. Still 1e-6 means the arm is degenerate, stop it rather than hold three shared GPUs for nine hours, and launch the corrected variant.
 
+### Verdict on the picked arm: DEGENERATE, fleet stopped at epoch 1
+
+The decision rule above was set before the numbers arrived. It resolved against the arm.
+
+| checkpoint, seed 1 | global score range | per-board spread, median and p90 |
+|---|---|---|
+| epoch 0 | 0.009805 to 0.009806 | 0.000001 |
+| epoch 1, 9,158 steps | 0.009804 to 0.009804 | 0.0000001 |
+
+A second full epoch made the spread ten times SMALLER. No escape, and the direction is wrong.
+
+Three independent lines of evidence agree.
+
+1. Score spread tightening toward zero across epochs, above.
+2. `val_loss` frozen at **0.8309** for two epochs and all three seeds, identical to four decimals. Meanwhile `train_loss` drifted UP, 0.8598 to 0.8834, which is a model wandering without a gradient that bites.
+3. Opener and setup ranking losses bit-identical at **2.8002 / 3.7766** across three seeds whose checkpoint hashes differ. Different weights cannot give identical losses unless the output has stopped reaching the loss. With the scores constant, every competition list sees a uniform softmax and the CE reduces to a function of the batch's list sizes alone.
+
+Seeding was verified, not assumed: the logs show `Seed set to 1/2/3` and the three epoch-0 checkpoints have distinct md5 prefixes `d2acf360`, `0bdd5372`, `4ad93794`.
+
+**Mechanism.** The unreachable floor is an absolute 0 target on ~230 of ~300 cells per board. Removing the exact-cell regression removed the only term pulling any cell UP (openers to 1.0, setups to 0.5). The ranking terms are scale-free and indifferent to where the scale sits. Down-force with no counterweight, so everything sinks to the floor and stops carrying order.
+
+**A collapsed ranker is worse than a bad one.** With constant scores the search's argmax breaks ties by index, so deploy degrades to a FIXED order, not to random. Evaluating these checkpoints would produce a number that measures the candidate enumeration order, not the ranker. There was never a version of this where the collapsed seeds get evaluated and reported as the ablation.
+
+Fleet `297459_[0-2]` cancelled at 09:50 after 1h33m, roughly 4.5 GPU-hours spent. Corrected variant `HY5U_rank_only_nofloor` (`NAMO_RANKONLY_FLOOR=0`) smoking as `297467` on rlab1: it drops the floor's REGRESSION, the last absolute target, while keeping unreachable cells in the rank lists as known-worse opponents, so the free geometric negatives that EXP-2026-08-31 valued at 13.6 points survive.
+
 ## Result
 
-Pending.
+Pending the floor-off variant.
