@@ -49,7 +49,12 @@ fi
 mkdir -p "$OUT"
 
 echo "RANKONLY mode=$MODE arm=$ARM seed=$SEED task=$TASK job=$SLURM_JOB_ID host=$(hostname) commit=$(git rev-parse HEAD) resume_from=${RESUME_FROM:-none} run_log=$RUN_LOG"
-STAGE_DIR=${HY5U_STAGE_DIR:-/dev/shm}
+# /tmp, not /dev/shm: systemd RemoveIPC wipes /dev/shm when the user's last login session on the
+# node closes, and polling the job over ssh to that same node is enough to trigger it. Job 297444
+# died exactly that way, mid-epoch, after a clean "staged H5" line. ilab2's /tmp is a dedicated
+# 98 GB NVMe partition, so staging there is both fast and immune. Check `findmnt /tmp` on any other
+# node before pinning it there; on a node where /tmp is the root RAID array this is ~3.6x slower.
+STAGE_DIR=${HY5U_STAGE_DIR:-/tmp}
 WORKERS=${HY5U_WORKERS:-6}
 srun --nodes=1 --ntasks=1 --kill-on-bad-exit=1 env NAMO_REPO="$REPO" NAMO_ENV_SCRIPT=env.ilab.sh \
   H5="$H5" OUT="$OUT" TRAIN_SCRIPT=scripts/rl_loop/train_q2_rankonly.py \
