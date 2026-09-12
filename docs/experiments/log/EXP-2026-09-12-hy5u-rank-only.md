@@ -99,6 +99,34 @@ Seeding was verified, not assumed: the logs show `Seed set to 1/2/3` and the thr
 
 Fleet `297459_[0-2]` cancelled at 09:50 after 1h33m, roughly 4.5 GPU-hours spent. Corrected variant `HY5U_rank_only_nofloor` (`NAMO_RANKONLY_FLOOR=0`) smoking as `297467` on rlab1: it drops the floor's REGRESSION, the last absolute target, while keeping unreachable cells in the rank lists as known-worse opponents, so the free geometric negatives that EXP-2026-08-31 valued at 13.6 points survive.
 
+### The floor-off variant fixes it, and the training loss is the wrong judge
+
+Smoke `297467` COMPLETED in 52:10, all gates clean, epoch 0 train 0.3853 / val 0.3856.
+
+The eval-path probe settles the collapse through the exact code deploy uses. Same check, same probe, two arms:
+
+| arm | `eval_scorer-load check` value range | per-board spread, median |
+|---|---|---|
+| floor ON, epoch 1 | 0.010 to 0.010 | 0.0000001 |
+| floor OFF, epoch 0 | 0.010 to **0.990** | **0.151** |
+
+**Do not compare the two `val_loss` numbers.** 0.8309 includes the floor term; 0.3856 is pure ranking. They measure different objectives and the apparent drop is meaningless.
+
+Ordering quality over 512 val rows, 95 boards with positives, identical batches:
+
+| arm | weighted rank CE | top choice is a best cell |
+|---|---|---|
+| floor ON, collapsed | **0.4566** | 0.326 |
+| floor OFF, fixed | 0.4732 | **0.411** |
+
+**The two columns disagree, and that is a trap worth naming.** The collapsed model scores a BETTER cross-entropy while picking the right push LESS often. Cross-entropy punishes confident mistakes, and a constant output never makes one, so maximal uncertainty buys a mediocre CE for free. The fixed model commits and pays for its errors. Ranking these arms by the loss they are trained on would have picked the degenerate one.
+
+`top1_is_best` is the metric that matches deploy, because the search pops the argmax. 0.411 versus 0.326 after ONE epoch, where 0.326 is roughly what arbitrary tie-breaking scores. First measurement of the earlier single-batch run was n=13 boards and suggested the opposite; it was noise and is discarded.
+
+Fleet `297468_[0-2]` launched on ilab2, three seeds, 16-hour limit, `NAMO_RANKONLY_FLOOR=0`.
+
+**Open caveat:** one epoch proves the arm trains and that its scale is healthy. It does not prove the arm is competitive with HY5U. Only the canonical evaluation does that.
+
 ## Result
 
-Pending the floor-off variant.
+Pending.
