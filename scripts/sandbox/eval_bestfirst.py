@@ -54,6 +54,7 @@ from namo.planners.search_measurements import (  # noqa: E402
     SearchMeasurements, content_digest, file_digest, measurement_options, run_identity,
     runtime_fingerprints, state_record,
     clock_finish,
+    save_run_row, write_json_artifact, atomic_write, append_jsonl,
 )
 from viz.trace_schema import build_trace, episode_filename, make_board, make_pop, rle_encode  # noqa: E402
 
@@ -163,6 +164,84 @@ def _make_capture(env, exporter, xml, obj, hw, hd, mov_names, offsets_world):
     return capture
 
 
+def _evaluate_pooled_task(a, planner, env, xml, goal, s0, snapshot, initial_observation,
+                          rec, search_params, measurement, g_table, pops, capture):
+    """Evaluate one fixed boundary task and retain technical failures as records."""
+    import namo_rl
+
+    measured = SearchMeasurements(**measurement)
+    common = dict(xml=xml, xml_path=xml, region=rec["target_region"], **rec,
+                  source_manifest=a.key, source_manifest_sha256=file_digest(a.key),
+                  schema_version=measurement["schema_version"], measurement=measurement,
+                  method=a.prior, shuffle_seed=a.seed_base, seed_base=a.seed_base, sampler_seed=42,
+                  search=search_params, call_cap=a.sim_budget, complete=False, solved=False,
+                  final_goal_reachable=None, goal_result_kind="fixed_target_predicate",
+                  total_calls=0, calls_until_success=None, technical_error=False)
+    boards = []
+    try:
+        runtime = runtime_fingerprints(str(CFG), str(DATA_DIR), PRIM_PREFIX, namo_rl.__file__,
+                                       a.ckpt if a.prior == "model" else None)
+        initial = state_record(s0)
+        gp = rec["target_samples"]
+        problem = dict(xml_sha256=file_digest(xml), initial_state=initial,
+                       target_samples=gp if a.success == "region" else list(goal),
+                       target_region=rec["target_region"], boundary_objects=rec["boundary_objects"],
+                       object_scope="boundary_pool")
+        semantic_runtime = {key: value for key, value in runtime.items() if key != "code_commit"}
+        common.update(run_identity(problem, dict(search_params, runtime=semantic_runtime), a.prior,
+                                   runtime["checkpoint_sha256"], {"sampler": 42, "shuffle": a.seed_base}),
+                      runtime_fingerprints=runtime, xml_sha256=problem["xml_sha256"],
+                      initialized_state_digest=content_digest(initial))
+        measured.checkpoint(s0, trigger="initial", snapshot=snapshot, observation=initial_observation)
+        measured.start_clock()
+        measured.begin_attempt(task_kind="boundary", target_region=rec["target_region"],
+                               boundary_objects=rec["boundary_objects"], target_samples=gp,
+                               local_call_cap=a.sim_budget, hmax=a.hmax)
+        solution = {}
+        is_open = ((lambda e: goal_open_pts(e, [point[:2] for point in gp])) if a.success == "region" else
+                   (lambda e: e.is_robot_goal_reachable()))
+        solved, sims, plen, boards, end = solve_scene(
+            planner, env, goal, xml, s0, a.hmax, a.sim_budget, a.prior, a.agg, a.combine,
+            random.Random(a.seed_base), restrict_obj=tuple(rec["boundary_objects"]), is_open=is_open,
+            raw=a.raw, dive_bonus=a.dive_bonus, discount=a.discount, gamma=a.gamma, tau=a.tau,
+            g_table=g_table, eps=a.eps, w0_mode=a.w0_mode, free_strike_q=a.free_strike_q,
+            child_patience=a.child_patience, dedupe_noop=a.dedupe_noop, prune_jam_depth=a.prune_jam_depth,
+            trace_out=pops, capture=capture, timing=measured.local_timer, region_samples=gp,
+            measurements=measured, solution_out=solution)
+        chain = [make_action(obj, push_goal) for obj, push_goal in solution.get("plan", [])]
+        measured.end_attempt(end=end, success=solved, calls=sims, actions=chain)
+        if solved:
+            measured.committed(solution["state"], chain, attempt_id=0, opened=True, task_kind="boundary",
+                               observation=env.get_observation() if measured.statistics is not None else None)
+        clock_finish(measured.timing, "t_wall", measured._clock_origin)
+        # An exhausted search can leave a speculative push in the live environment.
+        # Its committed prefix is still the saved start; do not relabel that rollout as a commit.
+        terminal_state = solution["state"] if solved else s0
+        terminal = state_record(terminal_state)
+        measured.checkpoint(terminal_state, trigger="terminal")
+        measured.event("run_end", solved=solved, calls=sims, local_end=end,
+                       terminal_state_digest=content_digest(terminal))
+        common.update(solved=solved, final_goal_reachable=solved, sims=sims, plan_len=plen,
+                      total_calls=sims, calls_until_success=sims if solved else None, complete=True,
+                      outcome=end, local_end=end, failure_kind=None if solved else end,
+                      failure_subkind=None, censored=not solved, terminal_state_kind="committed",
+                      terminal_state_digest=content_digest(terminal), execution_digest=measured.execution_digest,
+                      attempt_count=measured.attempt_count, commit_count=measured.commit_count,
+                      attempt_digests=measured.attempt_digests)
+        if measured.timing is not None:
+            common.update(measured.timing, local_timing=measured.local_timing,
+                          time_until_success=measured.timing["t_wall"] if solved else None)
+        if measured.statistics is not None:
+            common.update(statistics=measured.statistics, initial_state=initial, terminal_state=terminal)
+    except Exception as exc:
+        if "run_id" not in common:
+            common.update(run_identity({"uninitialized_task": xml, "target": rec}, search_params,
+                                       a.prior, None, {"shuffle": a.seed_base}),
+                          identity_status="initialization_incomplete")
+        common.update(measured.failure_fields(exc))
+    return common, boards
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ckpt", default="", help="required only when --prior=model")
@@ -245,6 +324,11 @@ def main():
         ap.error(f"--prior {a.prior} requires --success region")
     if a.model_warmup_repeats < 0:
         ap.error("--model-warmup-repeats must be nonnegative")
+    if (a.trace_out or a.lifetime_out) and not measurement["record_statistics"]:
+        ap.error("expanded trace/lifetime output requires measurement.record_statistics=true")
+    for target in (a.out, a.leaf_out, a.lifetime_out, a.trace_out):
+        if target and Path(target).exists():
+            raise FileExistsError(f"refusing existing output: {target}")
 
     import os as _os
     g_table = None
@@ -284,8 +368,9 @@ def main():
     xmls_all = read_manifest(a.manifest, None) if a.manifest else sorted(key)
     xmls = xmls_all[a.start:a.end]
     n = n_solved = n_already = n_norec = sims_tot = sims_solved = 0; t0 = time.time()
-    lf = open(a.leaf_out, "w")
-    ltf = open(a.lifetime_out, "w") if a.lifetime_out else None
+    atomic_write(a.leaf_out, b"")
+    ltf = open(a.lifetime_out, "x") if a.lifetime_out else None
+    errors = 0
     if a.trace_out and not a.trace_lite:
         from add_contact_px import contact_offsets_world
         # scipy (via the exporter's connected-components pass) + the exporter itself are imported ONLY
@@ -295,13 +380,16 @@ def main():
         os.makedirs(a.trace_out, exist_ok=True)
     ep_ctr = 0
     for xi, xml in enumerate(xmls):
+        tasks = None
+        task_index = 0
         try:
             xmlrp = _os.path.realpath(xml)
             if only is not None and xmlrp not in only:
                 continue
             recs = key.get(xml) or keyrp.get(_os.path.realpath(xml))
             if not recs:
-                n_norec += 1; continue
+                n_norec += 1
+                raise ValueError("source manifest contains no task record for this XML")
             env = make_env(xml)
             goal = extract_goal_with_fallback(xml, FALLBACK_GOAL)
             env.set_robot_goal(*goal); env.get_reachable_objects()
@@ -309,22 +397,19 @@ def main():
                                            **({"include_region_cells": True} if measurement["record_statistics"] else {}))
             tasks = pooled_boundary_tasks(snapshot, recs)
             s0 = env.get_full_state()
+            initial_observation = env.get_observation() if measurement["record_statistics"] else None
             scene = _scene_dict(env, goal) if a.trace_out and not a.trace_lite else {}
             if a.trace_out and not a.trace_lite:
                 exporter = WavefrontSnapshotExporter(env)      # one per env: static geometry never moves
                 mov_names = [m["name"] for m in scene["movable"]]
-            for rec in tasks:
+            for task_index, rec in enumerate(tasks):
                 if only is not None and not any(
                     (source["object_id"], source["region"]) in only[xmlrp] for source in rec["source_records"]
                 ):
                     continue
-                rng = random.Random(a.seed_base)
                 obj = rec["boundary_objects"][0]  # visualization anchor only, never a search restriction
-                gp = rec["target_samples"]
                 if a.success == "point" and rec["target_region"] != snapshot["goal_label"]:
                     raise ValueError("point success cannot evaluate a non-goal target region")
-                is_open = ((lambda e, p=[point[:2] for point in gp]: goal_open_pts(e, p)) if a.success == "region" else
-                           (lambda e: e.is_robot_goal_reachable()))
                 pops = [] if a.trace_out else None
                 capture = None
                 ep_scene = scene
@@ -336,62 +421,15 @@ def main():
                     ep_scene = dict(scene, contacts=[[float(opose[0] + dx), float(opose[1] + dy)] for dx, dy in off])
                     capture = _make_capture(env, exporter, xml, obj, oi["size_x"], oi["size_y"],
                                             mov_names, contact_offsets_world)
-                measured = SearchMeasurements(**measurement)
-                import namo_rl
-                runtime = runtime_fingerprints(str(CFG), str(DATA_DIR), PRIM_PREFIX, namo_rl.__file__,
-                                               a.ckpt if a.prior == "model" else None)
-                initial_state = state_record(s0)
-                problem = dict(xml_sha256=file_digest(xml), initial_state=initial_state,
-                               target_samples=gp if a.success == "region" else list(goal),
-                               target_region=rec["target_region"],
-                               boundary_objects=rec["boundary_objects"], object_scope="boundary_pool")
-                identity = run_identity(problem, dict(search_params, runtime=runtime), a.prior,
-                                        runtime["checkpoint_sha256"],
-                                        {"sampler": 42, "shuffle": a.seed_base})
-                measured.checkpoint(s0, trigger="initial", snapshot=snapshot,
-                                     observation=env.get_observation() if measured.statistics is not None else None)
-                measured.start_clock()
-                measured.begin_attempt(task_kind="boundary", target_region=rec["target_region"],
-                                       boundary_objects=rec["boundary_objects"], target_samples=gp,
-                                       local_call_cap=a.sim_budget, hmax=a.hmax)
-                solution = {}
-                solved, sims, plen, boards, end = solve_scene(
-                    planner, env, goal, xml, s0, a.hmax, a.sim_budget, a.prior, a.agg, a.combine, rng,
-                    restrict_obj=rec["boundary_objects"], is_open=is_open, raw=a.raw, dive_bonus=a.dive_bonus,
-                    discount=a.discount, gamma=a.gamma, tau=a.tau, g_table=g_table, eps=a.eps,
-                    w0_mode=a.w0_mode, free_strike_q=a.free_strike_q, child_patience=a.child_patience,
-                    dedupe_noop=a.dedupe_noop, prune_jam_depth=a.prune_jam_depth,
-                    trace_out=pops, capture=capture, timing=measured.local_timer,
-                    region_samples=gp, measurements=measured, solution_out=solution)
-                chain = [make_action(object_id, push_goal) for object_id, push_goal in solution.get("plan", [])]
-                measured.end_attempt(end=end, success=solved, calls=sims, actions=chain)
-                if solved:
-                    measured.committed(solution["state"], chain, attempt_id=0, opened=True, task_kind="boundary",
-                                        observation=env.get_observation() if measured.statistics is not None else None)
-                clock_finish(measured.timing, "t_wall", measured._clock_origin)
-                tm = measured.timing
+                row, boards = _evaluate_pooled_task(a, planner, env, xml, goal, s0, snapshot,
+                                                   initial_observation, rec, search_params,
+                                                   measurement, g_table, pops, capture)
+                save_run_row(a.leaf_out, row, statistics_dir=f"{Path(a.leaf_out).name}.statistics")
+                if row.get("technical_error"):
+                    errors += 1
+                    continue
+                solved, sims, plen, end = (row[name] for name in ("solved", "sims", "plan_len", "local_end"))
                 n += 1; sims_tot += sims; n_solved += int(solved); sims_solved += sims if solved else 0
-                terminal = state_record(env.get_full_state())
-                measured.event("run_end", solved=solved, calls=sims, local_end=end,
-                               terminal_state_digest=content_digest(terminal))
-                optional = ({**tm, "time_until_success": tm["t_wall"] if solved else None} if tm is not None else {})
-                if measured.statistics is not None:
-                    optional.update(statistics=measured.statistics, initial_state=initial_state, terminal_state=terminal)
-                lf.write(json.dumps({"xml": xml, "region": rec["target_region"], **rec,
-                                     "source_manifest": a.key, "source_manifest_sha256": file_digest(a.key),
-                                     "solved": solved, "sims": sims, "plan_len": plen,
-                                     "search": search_params, "seed_base": a.seed_base,
-                                     **identity, "schema_version": measurement["schema_version"],
-                                     "measurement": measurement, "runtime_fingerprints": runtime,
-                                     "initialized_state_digest": content_digest(initial_state),
-                                     "terminal_state_digest": content_digest(terminal),
-                                     "execution_digest": measured.execution_digest,
-                                     "attempt_count": measured.attempt_count, "commit_count": measured.commit_count,
-                                     "attempt_digests": measured.attempt_digests,
-                                     **({"local_timing": measured.local_timing} if tm is not None else {}),
-                                     "total_calls": sims, "calls_until_success": sims if solved else None,
-                                     "call_cap": a.sim_budget, "complete": True, "local_end": end,
-                                     **optional}) + "\n")
                 if ltf is not None:
                     ep = {"ep": ep_ctr, "xml": xml, "object_id": obj, "region": rec.get("region"),
                           "solved": solved, "sims": sims, "end": end}
@@ -414,18 +452,30 @@ def main():
                 print(f"  [{xi}/{len(xmls)}] episodes={n} solved={n_solved} avg_sims={sims_tot/max(n,1):.1f} "
                       f"({time.time()-t0:.0f}s)", file=sys.stderr, flush=True)
         except Exception as ex:
-            print(f"  scene {xi} err: {ex}", file=sys.stderr); continue
-    lf.close()
+            if isinstance(ex, OSError):
+                raise  # A failed publication cannot be repaired by writing more to the same disk.
+            pending = tasks[task_index:] if tasks is not None else [{"source_records": keyrp.get(xmlrp, [])}]
+            for rec in pending:
+                failed = dict(xml=xml, xml_path=xml, **rec, method=a.prior, shuffle_seed=a.seed_base,
+                              schema_version=measurement["schema_version"], measurement=measurement,
+                              call_cap=a.sim_budget, identity_status="initialization_incomplete",
+                              **run_identity({"uninitialized_task": xml, "target": rec}, search_params,
+                                             a.prior, None, {"shuffle": a.seed_base}),
+                              **SearchMeasurements().failure_fields(ex))
+                save_run_row(a.leaf_out, failed)
+                errors += 1
+            print(f"  scene {xi} technical error: {ex}", file=sys.stderr, flush=True)
     if ltf is not None:
         ltf.close()
     res = {"ckpt": a.ckpt, **search_params, "seed_base": a.seed_base,
            "key": _os.path.basename(a.key), "n_episodes": n,
-           "n_already_open": n_already, "n_no_record": n_norec,
+           "n_already_open": n_already, "n_no_record": n_norec, "technical_error_count": errors,
            "solve_rate": round(100.0 * n_solved / max(n, 1), 1),
            "avg_sims_all": round(sims_tot / max(n, 1), 2),
            "avg_sims_to_solve": round(sims_solved / max(n_solved, 1), 2)}
-    os.makedirs(os.path.dirname(a.out), exist_ok=True)
-    json.dump(res, open(a.out, "w"))
+    write_json_artifact(a.out, res)
+    if errors == 0:
+        write_json_artifact(f"{a.leaf_out}.complete.json", {"expected_run_count": n, "accounted_run_count": n})
     print(json.dumps(res, indent=1), flush=True)
 
 

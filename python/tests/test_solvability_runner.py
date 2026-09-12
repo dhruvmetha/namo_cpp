@@ -1,4 +1,5 @@
 import json
+import gzip
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -7,6 +8,40 @@ import pytest
 from namo.environment_selection import RegionPathAnalysis
 from namo.solvability_runner import run_exact_n_solvability
 from namo.runtime_profile import CANONICAL_CONFIG, CANONICAL_PRIMITIVE_PREFIX
+
+
+def test_completed_failed_prefix_survives_interrupted_shard(tmp_path, monkeypatch):
+    from namo import solvability_runner as runner
+    from namo.planners.search_measurements import file_digest
+
+    paths = [str(tmp_path / name) for name in ("first.xml", "second.xml")]
+    monkeypatch.setattr(runner, "get_xml_files", lambda **_k: paths)
+    monkeypatch.setattr(runner, "analyze_environment_path_length", lambda path, *_a, **_k:
+                        RegionPathAnalysis(path, 2, "robot", "goal", {}))
+    statistics = {"attempts": [], "decisions": [], "commits": [{"actions": [{"object_id": "box"}]}],
+                  "checkpoints": [{"state_digest": "saved"}], "states": {"saved": {"qpos": [1.0], "qvel": [0.0]}},
+                  "snapshots": []}
+
+    def interrupted(tasks, workers):
+        yield {"kind": "unsolved", "row": {"xml_path": paths[0], "run_id": "first-run", "complete": True,
+               "solved": False, "failure_kind": "region_path_exhausted", "statistics": statistics}}
+        raise RuntimeError("worker lost")
+
+    monkeypatch.setattr(runner, "_iter_solve_results", interrupted)
+    output = tmp_path / "out"
+    kwargs = dict(repo_root=Path.cwd(), input_dir=str(tmp_path), manifest_path=None, path_length=2,
+                  output_dir=str(output), measurement={"record_statistics": True})
+    with pytest.raises(RuntimeError, match="worker lost"):
+        runner.run_exact_n_solvability(**kwargs)
+    row = json.loads((output / "outcomes.jsonl").read_text())
+    assert json.loads((output / "unsolved.jsonl").read_text()) == row
+    assert "statistics" not in row
+    sidecar = output / row["statistics_sidecar"]["path"]
+    assert file_digest(sidecar) == row["statistics_sidecar"]["sha256"]
+    assert json.loads(gzip.decompress(sidecar.read_bytes()))["states"] == statistics["states"]
+    assert not (output / "complete.json").exists()
+    with pytest.raises(FileExistsError):
+        runner.run_exact_n_solvability(**kwargs)
 
 
 def test_run_exact_n_solvability_writes_expected_manifests(tmp_path, monkeypatch):

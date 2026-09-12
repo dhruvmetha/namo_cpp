@@ -8,11 +8,13 @@ from collections.abc import Mapping
 from collections import Counter
 from functools import lru_cache
 import hashlib
+import gzip
 import json
 import os
 from pathlib import Path
 import platform
 import subprocess
+import tempfile
 from time import perf_counter
 
 
@@ -72,7 +74,18 @@ def snapshot_record(snapshot):
     result["region_labels"] = {str(key): value for key, value in snapshot["region_labels"].items()}
     result["region_goals"] = {label: {"samples": [[float(g.x), float(g.y), float(g.theta)] for g in bundle.goals]}
                               for label, bundle in snapshot["region_goals"].items()}
-    return result
+    return json_value(result)
+
+
+def json_value(value):
+    """Normalize native map/set containers to deterministic JSON values."""
+    if isinstance(value, Mapping):
+        return {str(key): json_value(item) for key, item in value.items()}
+    if isinstance(value, (set, frozenset)):
+        return [json_value(item) for item in sorted(value)]
+    if isinstance(value, (tuple, list)):
+        return [json_value(item) for item in value]
+    return value
 
 
 def canonical_json(value):
@@ -89,6 +102,63 @@ def file_digest(path):
     """Hash file contents, never an installation-dependent absolute path."""
     with Path(path).open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def atomic_write(path, data):
+    """Publish one durable artifact atomically, refusing any existing target."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=path.parent, prefix=f".{path.name}.", delete=False) as stream:
+        temporary = Path(stream.name)
+        try:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        except BaseException:
+            temporary.unlink()
+            raise
+    try:
+        os.link(temporary, path)
+    finally:
+        temporary.unlink()
+    directory = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+def write_json_artifact(path, payload):
+    """Write a new JSON artifact after all of its referenced files are ready."""
+    atomic_write(path, (canonical_json(json_value(payload)) + "\n").encode("utf-8"))
+
+
+def append_jsonl(path, row):
+    """Persist one completed result promptly; a partial final line is incomplete."""
+    with Path(path).open("a", encoding="utf-8") as stream:
+        stream.write(canonical_json(json_value(row)) + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
+def save_run_row(path, row, *, statistics_dir="statistics"):
+    """Finalize compressed behavioral evidence before publishing its outcome."""
+    path = Path(path)
+    row = dict(row)
+    statistics = row.pop("statistics", None)
+    if statistics is not None:
+        payload = dict(statistics, run_id=row["run_id"])
+        for key in ("initial_state", "terminal_state", "committed_actions", "iteration_trace", "goal_diagnostics"):
+            if key in row:
+                payload[key] = row.pop(key)
+        content = (canonical_json(json_value(payload)) + "\n").encode("utf-8")
+        data = gzip.compress(content, mtime=0)
+        relative = Path(statistics_dir) / f"{row['run_id']}.json.gz"
+        atomic_write(path.parent / relative, data)
+        row["statistics_sidecar"] = dict(path=str(relative), sha256=hashlib.sha256(data).hexdigest(),
+                                          content_sha256=hashlib.sha256(content).hexdigest())
+    append_jsonl(path, row)
+    return row
 
 
 def state_record(state):
@@ -112,8 +182,12 @@ def runtime_fingerprints(config_path, primitive_dir, primitive_prefix, binding_p
     Absolute paths remain provenance, not semantic identity.
     """
     repo = Path(__file__).resolve().parents[3]
-    sources = {str(p.relative_to(repo)): file_digest(p) for root in ("python/namo", "scripts")
-               for p in sorted((repo / root).rglob("*.py"))}
+    runtime_python = [p for p in (repo / "python/namo").rglob("*.py") if p.name != "access_audit.py"]
+    runtime_python.extend(repo / name for name in (
+        "scripts/sandbox/eval_bestfirst.py", "scripts/sandbox/scorer_beam.py",
+        "scripts/sandbox/eval_m3.py", "scripts/sandbox/live_scorer.py", "scripts/eval_scorer.py",
+        "scripts/pipeline/eval_full_namo_walltime.py"))
+    sources = {str(p.relative_to(repo)): file_digest(p) for p in sorted(runtime_python)}
     git = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True)
     config = Path(config_path)
     sidecar = config.with_name("wavefront_inflation.yaml")
@@ -289,6 +363,26 @@ class SearchMeasurements:
                                           start_offset=self._attempt_started - self._clock_origin,
                                           end_offset=ended - self._clock_origin, **local))
         self.active_attempt = self._attempt_digest = self._active_stats = self.local_timer = None
+
+    def failure_fields(self, exc):
+        """Export available failed-prefix evidence without completing an interrupted attempt."""
+        incomplete = None
+        if self.active_attempt is not None:
+            incomplete = dict(attempt_id=self.active_attempt, sim_call_start=self._attempt_start_calls,
+                              sim_call_end=self.total_sim_calls, digest=self._attempt_digest.hexdigest(),
+                              complete=False, local_end="runner_exception")
+            if self._active_stats is not None:
+                self.append("attempts", dict(self._active_stats, **incomplete))
+        return dict(complete=False, technical_error=True, solved=False, calls_until_success=None,
+                    outcome="technical_error", failure_kind="runner_exception", failure_subkind=None,
+                    error_class=type(exc).__name__, error_message=str(exc), total_calls=self.total_sim_calls,
+                    execution_digest=self.execution_digest, attempt_count=self.attempt_count,
+                    commit_count=self.commit_count, attempt_digests=self.attempt_digests,
+                    incomplete_attempt=incomplete, last_completed_attempt_id=(
+                        self.attempt_digests[-1]["attempt_id"] if self.attempt_digests else None),
+                    last_completed_commit_id=self.commit_count - 1 if self.commit_count else None,
+                    terminal_state_digest=self._state_digest, terminal_state_kind="last_committed",
+                    **({"statistics": self.statistics} if self.statistics is not None else {}))
 
     def checkpoint(self, state, *, trigger, observation=None, snapshot=None, commit_id=None, attempt_id=None):
         """Save a committed decision state once; speculative states are never checkpoints."""

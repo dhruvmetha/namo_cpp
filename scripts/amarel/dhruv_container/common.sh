@@ -7,11 +7,14 @@
 export CONTAINER_ROOT FROZEN_ROOT PYTHON_ENV
 export NAMO_REPO="$CONTAINER_ROOT/code"
 export NAMO_PYTHON="$PYTHON_ENV/bin/python"
-export MJ_PATH="$CONTAINER_ROOT/mujoco"
+export MJ_PATH="${NATIVE_RUNTIME_ROOT:-$CONTAINER_ROOT}/mujoco"
 export NAMO_SCRATCH="$CONTAINER_ROOT/scratch"
 export SAGE_REPO="$FROZEN_ROOT/sage_learning"
 python_source=${PYTHON_ENV_SOURCE:-$PYTHON_ENV}
 CONTAINER_BINDS="$CONTAINER_ROOT:$CONTAINER_ROOT:rw,$FROZEN_ROOT:$FROZEN_ROOT:ro,$python_source:$PYTHON_ENV:ro"
+if [[ -n "${NATIVE_RUNTIME_ROOT:-}" && "$NATIVE_RUNTIME_ROOT" != "$CONTAINER_ROOT" ]]; then
+    CONTAINER_BINDS+=",$NATIVE_RUNTIME_ROOT:$NATIVE_RUNTIME_ROOT:ro"
+fi
 if [[ "$python_source" != "$PYTHON_ENV" ]]; then
     # Keep the physical copy read-only too, even when nested inside the output root.
     CONTAINER_BINDS+=",$python_source:$python_source:ro"

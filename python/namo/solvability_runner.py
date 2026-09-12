@@ -25,6 +25,7 @@ from namo.planners.utils import PushAttemptBudget
 from namo.planners.search_measurements import (
     SearchMeasurements, clock_finish, clock_start, content_digest, file_digest,
     measurement_options, run_identity, runtime_fingerprints, state_record,
+    append_jsonl, save_run_row, write_json_artifact, atomic_write,
 )
 from namo.runtime_profile import (
     CANONICAL_CONFIG,
@@ -174,7 +175,8 @@ def solve_environment_task(task: SolveTask) -> Dict[str, Any]:
                   xml_path=task.xml_path, path_length_n=task.path_length_n, complete=False,
                   exec_mode=task.exec_mode, method=task.best_first_prior,
                   seed=task.seed, shuffle_seed=task.seed if task.shuffle_seed is None else task.shuffle_seed,
-                  call_cap=task.simulation_budget, total_calls=0, solved=False, calls_until_success=None)
+                  call_cap=task.simulation_budget, total_calls=0, solved=False, calls_until_success=None,
+                  final_goal_reachable=None, technical_error=False)
     try:
         env = namo_rl.RLEnvironment(task.xml_path, task.config_path, False)
         config = build_full_namo_planner_config(task)
@@ -192,7 +194,7 @@ def solve_environment_task(task: SolveTask) -> Dict[str, Any]:
         semantic = {key: value for key, value in asdict(task).items() if key not in {
             "xml_path", "path_length_n", "config_path", "primitive_data_dir", "scorer_ckpt",
             "record_statistics", "record_timing", "schema_version"}}
-        semantic["runtime"] = runtime
+        semantic["runtime"] = {key: value for key, value in runtime.items() if key != "code_commit"}
         common.update(run_identity(problem, semantic, task.best_first_prior, runtime["checkpoint_sha256"],
                                    {"sampler": task.seed, "shuffle": common["shuffle_seed"]}),
                       runtime_fingerprints=runtime, xml_sha256=problem["xml_sha256"],
@@ -241,7 +243,9 @@ def solve_environment_task(task: SolveTask) -> Dict[str, Any]:
                       terminal_state_digest=content_digest(terminal), execution_digest=measured.execution_digest,
                       attempt_count=measured.attempt_count, attempt_digests=measured.attempt_digests,
                       commit_count=measured.commit_count, final_goal_reachable=final_goal,
-                      goal_clearance_enabled=task.goal_clearance)
+                      goal_clearance_enabled=task.goal_clearance,
+                      outcome="solved" if result.success else (failure_kind or "planner_failure"),
+                      terminal_state_kind="committed")
         trace_fields.update(common)
         if task.record_timing:
             timing["t_global_other"] = timing["t_wall"] - sum(timing.get(key, 0.0) for key in (
@@ -252,7 +256,8 @@ def solve_environment_task(task: SolveTask) -> Dict[str, Any]:
         if task.record_statistics:
             trace_fields.update({
                 "statistics": measured.statistics,
-                "committed_actions": [serialize_action(action) for action in (result.action_sequence or [])],
+                "committed_actions": [action for commit in measured.statistics["commits"]
+                                      for action in commit["actions"]],
                 "initial_state": initial_state,
                 "terminal_state": terminal,
                 "goal_diagnostics": budget_stats.get("goal_diagnostics"),
@@ -293,31 +298,25 @@ def solve_environment_task(task: SolveTask) -> Dict[str, Any]:
             },
         }
     except Exception as exc:
+        if "run_id" not in common:
+            common.update(run_identity({"uninitialized_task": task.xml_path},
+                                       {"task": {key: value for key, value in asdict(task).items()
+                                                 if key not in {"record_statistics", "record_timing"}}},
+                                       task.best_first_prior, None, {"seed": common["shuffle_seed"]}),
+                          identity_status="initialization_incomplete")
         return {
             "kind": "unsolved",
             "row": {
                 **common,
                 "xml_path": task.xml_path,
                 "path_length_n": task.path_length_n,
-                "outcome": "planner_failure",
-                "failure_kind": "runner_exception",
-                "failure_subkind": None,
-                "error_message": str(exc),
-                "error_class": type(exc).__name__,
-                "technical_error": True,
-                "complete": False,
-                "execution_digest": measured.execution_digest,
-                "attempt_count": measured.attempt_count,
-                "commit_count": measured.commit_count,
-                "total_calls": measured.total_sim_calls,
-                "attempt_digests": measured.attempt_digests,
-                **({"statistics": measured.statistics} if task.record_statistics else {}),
+                **measured.failure_fields(exc),
             },
         }
 
 
 def _write_json(path: Path, payload: Dict[str, Any]):
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    write_json_artifact(path, payload)
 
 
 def _write_jsonl(path: Path, rows: Sequence[Dict[str, Any]]):
@@ -330,7 +329,7 @@ def _write_selected_envs(path: Path, xml_paths: Sequence[str]):
     content = "\n".join(xml_paths)
     if content:
         content += "\n"
-    path.write_text(content, encoding="utf-8")
+    atomic_write(path, content.encode("utf-8"))
 
 
 def _build_task(
@@ -454,7 +453,9 @@ def run_exact_n_solvability(
         primitive_root = repo_root / primitive_data_dir
     primitive_data_dir_resolved = str(primitive_root.resolve())
     output_root = Path(output_dir).resolve()
-    output_root.mkdir(parents=True, exist_ok=True)
+    output_root.mkdir(parents=True, exist_ok=False)
+    for name in ("outcomes.jsonl", "solved.jsonl", "unsolved.jsonl", "repair_requests.jsonl"):
+        atomic_write(output_root / name, b"")
 
     effective_max_push_steps = derive_max_push_steps(config_path)
     require_canonical_primitive_profile(primitive_prefix, effective_max_push_steps)
@@ -504,16 +505,20 @@ def run_exact_n_solvability(
             use_cpp_snapshot=use_cpp_snapshot,
         )
         if analysis.selection_error:
-            unsolved_rows.append(
-                {
+            row = {
                     "xml_path": analysis.xml_path,
                     "path_length_n": analysis.path_length_n,
                     "outcome": "selection_error",
                     "failure_kind": "selection_error",
                     "failure_subkind": None,
                     "error_message": analysis.selection_error,
+                    "technical_error": True,
+                    "complete": False,
                 }
-            )
+            unsolved_rows.append(row)
+            append_jsonl(output_root / "outcomes.jsonl", row)
+            append_jsonl(output_root / "unsolved.jsonl", row)
+            append_jsonl(output_root / "repair_requests.jsonl", row)
             continue
         if analysis.path_length_n == path_length:
             selected_analyses.append(analysis)
@@ -555,15 +560,15 @@ def run_exact_n_solvability(
 
     solved_rows: List[Dict[str, Any]] = []
     for result in _iter_solve_results(tasks, workers):
+        row = save_run_row(output_root / "outcomes.jsonl", result["row"])
         if result["kind"] == "solved":
-            solved_rows.append(result["row"])
+            solved_rows.append(row)
+            append_jsonl(output_root / "solved.jsonl", row)
         else:
-            unsolved_rows.append(result["row"])
-
-    solved_rows.sort(key=lambda row: row["xml_path"])
-    unsolved_rows.sort(key=lambda row: row["xml_path"])
-    _write_jsonl(output_root / "solved.jsonl", solved_rows)
-    _write_jsonl(output_root / "unsolved.jsonl", unsolved_rows)
+            unsolved_rows.append(row)
+            append_jsonl(output_root / "unsolved.jsonl", row)
+        if row.get("technical_error") or row.get("complete") is False:
+            append_jsonl(output_root / "repair_requests.jsonl", row)
 
     summary = {
         "input_env_count": len(xml_files),
@@ -581,6 +586,9 @@ def run_exact_n_solvability(
         ),
     }
     _write_json(output_root / "summary.json", summary)
+    if not any(row.get("complete") is False or row.get("technical_error") for row in solved_rows + unsolved_rows):
+        _write_json(output_root / "complete.json", {"expected_run_count": len(tasks),
+                                                  "accounted_run_count": len(solved_rows) + len(unsolved_rows)})
     return summary
 
 
