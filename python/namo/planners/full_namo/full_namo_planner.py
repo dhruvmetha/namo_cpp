@@ -23,6 +23,7 @@ from namo.planners.opening.best_first_region_opening import (
 from namo.planners.opening.region_opening import RegionOpeningPlanner
 from namo.planners.utils import PushAttemptBudget
 from .goal_clearance import GoalClearanceTarget, clearance_targets, goal_diagnostics
+from .keyhole_target import keyhole_is_open
 
 
 FULL_NAMO_EXEC_MODES = ("search", "greedy_dfs", "greedy_policy")
@@ -278,6 +279,20 @@ class FullNAMOPlanner(BasePlanner):
         self.exec_mode = str(
             algo_params.get("full_namo_exec_mode", DEFAULT_FULL_NAMO_EXEC_MODE)
         )
+        self.planning_horizon = str(algo_params.get("full_namo_planning_horizon", "full_goal"))
+        if self.planning_horizon not in {"full_goal", "first_keyhole"}:
+            raise ValueError("full_namo_planning_horizon must be 'full_goal' or 'first_keyhole'")
+        if self.planning_horizon == "first_keyhole" and (
+            self.local_search != "best_first" or self.exec_mode != "search"
+        ):
+            raise ValueError("first_keyhole planning_horizon requires best_first search")
+        self.active_keyhole = algo_params.get("full_namo_active_keyhole")
+        if self.active_keyhole and self.planning_horizon != "first_keyhole":
+            raise ValueError("full_namo_active_keyhole requires first_keyhole planning_horizon")
+        if self.active_keyhole and self.active_keyhole["kind"] == "region":
+            algo_params = dict(algo_params, region_target_points=self.active_keyhole["target_points"])
+            config = replace(config, algorithm_params=algo_params)
+            self._config = config
         if self.exec_mode not in FULL_NAMO_EXEC_MODES:
             raise ValueError(
                 f"Unknown full_namo_exec_mode {self.exec_mode!r}. "
@@ -339,8 +354,9 @@ class FullNAMOPlanner(BasePlanner):
     def _route_choices(self, snapshot, robot_region, goal_region, attempts, blocked=None):
         """Schedule normal routes and reachable goal-clearance/access tasks together."""
         if not self.goal_clearance:
-            return enumerate_region_routes(snapshot, robot_region, goal_region,
-                                           opening_attempts=attempts, blocked_choices=blocked)
+            return self._routes_for_active_keyhole(enumerate_region_routes(
+                snapshot, robot_region, goal_region,
+                opening_attempts=attempts, blocked_choices=blocked))
         info = snapshot["goal_clearance"]
         destinations = {cell["region"] for cell in info["cells"]
                         if cell["region"] and not cell["static_blocked"] and not cell["objects"]}
@@ -367,8 +383,38 @@ class FullNAMOPlanner(BasePlanner):
         for choice in choices:
             key = (choice.path, choice.object_id, choice.target_region, choice.reaches_goal)
             unique.setdefault(key, choice)
-        return sorted(unique.values(), key=lambda choice: (
-            choice.cost, choice.attempts, choice.object_id, choice.boundary, choice.path))
+        return self._routes_for_active_keyhole(sorted(unique.values(), key=lambda choice: (
+            choice.cost, choice.attempts, choice.object_id, choice.boundary, choice.path)))
+
+    def _routes_for_active_keyhole(self, choices):
+        """Keep continuation on its original blockers despite region renumbering."""
+        if not self.active_keyhole:
+            return choices
+        blockers = set(self.active_keyhole["blocking_objects"])
+        choices = [choice for choice in choices if choice.object_id in blockers]
+        if self.active_keyhole["kind"] == "goal_clearance":
+            witness = tuple(self.active_keyhole["witness_xy"])
+            choices = [choice for choice in choices if choice.clearance_target is not None
+                       and choice.clearance_target.witness_xy == witness]
+        else:
+            choices = [choice for choice in choices if choice.clearance_target is None]
+        return choices
+
+    def _keyhole_target(self, result, choice, blockers):
+        """Freeze the successful opener's actual criterion, not resampled graph cells."""
+        if self.active_keyhole:
+            return dict(self.active_keyhole)
+        target = {"blocking_objects": sorted(set(blockers))}
+        if choice.clearance_target is not None:
+            return dict(target, kind="goal_clearance", witness_xy=list(choice.clearance_target.witness_xy))
+        if len(choice.path) == 2 and choice.reaches_goal:
+            return dict(target, kind="goal")
+        attempt = next(a for a in result.algorithm_stats["attempt_results"] if a.success)
+        points = [[float(p[0]), float(p[1])] for p in attempt.region_goals_sampled]
+        if not points:
+            raise ValueError("A verified first keyhole must report its sampled target points")
+        return dict(target, kind="region", target_points=points,
+                    min_reachable=self.region_opener._minimum_needed(len(points)))
 
     @property
     def algorithm_name(self) -> str:
@@ -817,6 +863,8 @@ class FullNAMOPlanner(BasePlanner):
                         profile=next_keyhole_profile,
                     )
                 )
+            if self.active_keyhole:
+                opener_kwargs["opening_predicate"] = lambda env: keyhole_is_open(env, self.active_keyhole)
             if self.exec_mode in GREEDY_COMMIT_EXEC_MODES:
                 result = opener.greedy_commit(
                     robot_goal,
@@ -1059,6 +1107,13 @@ class FullNAMOPlanner(BasePlanner):
                         resulting_state=resulting_state,
                     )
                 )
+                if self.planning_horizon == "first_keyhole":
+                    self._record_iteration_trace({**context, "outcome": "keyhole_ready"})
+                    return self._success_result(start_time, actions, region_openings, extra_stats={
+                        "plan_outcome": "keyhole_ready",
+                        "goal_reachable": bool(self.env.is_robot_goal_reachable()),
+                        "keyhole_target": self._keyhole_target(result, choice, target_object_ids),
+                    })
                 blocked_choices.clear()
                 if current_min_hops is not None:
                     pending_attempt = (pushed_object_id, current_min_hops)
@@ -1134,6 +1189,8 @@ class FullNAMOPlanner(BasePlanner):
             "boundary_budget_stops": self.stats.boundary_budget_stops,
             "regions_opened": list(self.stats.regions_opened),
             "exec_mode": self.exec_mode,
+            "planning_horizon": self.planning_horizon,
+            "plan_outcome": "goal_reachable" if self.exec_mode == "search" else self.exec_mode,
             "greedy_committed_pushes": self.stats.greedy_committed_pushes,
             "greedy_rejected_simulations": self.stats.greedy_rejected_simulations,
             "region_opening_sequence": region_openings,
