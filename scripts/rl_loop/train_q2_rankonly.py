@@ -164,7 +164,8 @@ if __name__ == "__main__":
     print(f"[rankonly] RANK_LAMBDA={rank.RANK_LAMBDA} LOWER_RANK_LAMBDA={rank.LOWER_RANK_LAMBDA} "
           f"EGMM_LAMBDA={r2.EGMM_LAMBDA} MM_MARGIN={r2.MM_MARGIN} UNREACH_W={r2.UNREACH_W} "
           f"FLOOR={int(RANKONLY_FLOOR)} "
-          f"(val_loss monitor = floor + per-board rank; exact/censored regression ABSENT)", flush=True)
+          f"(val_loss monitor = {'floor + ' if RANKONLY_FLOOR else ''}per-board rank; "
+          f"exact/censored regression ABSENT)", flush=True)
     tq2.build_module = build_module
     tq2.Q2DataModule = r2.GroupedQ2DataModule       # carries the UNREACH_W folding, as in round 2
     tq2.main()
