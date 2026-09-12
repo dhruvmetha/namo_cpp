@@ -210,14 +210,18 @@ PYBIND11_MODULE(namo_rl, m) {
                bool local_info_only,
                unsigned int seed,
                bool use_xml_goal,
-               bool include_goal_clearance) {
+               bool include_goal_clearance,
+               bool include_region_cells,
+               bool record_timing) {
                 auto snapshot = env.get_region_snapshot(
                     goals_per_region,
                     goal_radius,
                     local_info_only,
                     seed,
                     use_xml_goal,
-                    include_goal_clearance
+                    include_goal_clearance,
+                    include_region_cells,
+                    record_timing
                 );
                 py::dict out;
                 out["adjacency"] = snapshot.adjacency;
@@ -229,6 +233,17 @@ PYBIND11_MODULE(namo_rl, m) {
                 out["goal_label"] = snapshot.goal_label;
                 out["goal_reachable"] = snapshot.goal_reachable;
                 out["goal_in_free_space"] = snapshot.goal_in_free_space;
+                if (record_timing) out["snapshot_phases"] = snapshot.snapshot_phases;
+                if (include_region_cells) {
+                    py::dict cells;
+                    cells["width"] = snapshot.grid_width;
+                    cells["height"] = snapshot.grid_height;
+                    cells["resolution"] = snapshot.grid_resolution;
+                    cells["origin"] = snapshot.grid_origin;
+                    cells["coordinate_convention"] = "x_major_index=x*height+y; world=origin+index*resolution";
+                    cells["cells_by_region_id"] = snapshot.cells_by_region_id;
+                    out["region_cells"] = cells;
+                }
                 if (include_goal_clearance) {
                     py::dict info;
                     py::list cells;
@@ -256,6 +271,8 @@ PYBIND11_MODULE(namo_rl, m) {
             py::arg("seed") = 42,
             py::arg("use_xml_goal") = true,
             py::arg("include_goal_clearance") = false,
+            py::arg("include_region_cells") = false,
+            py::arg("record_timing") = false,
             "Return one unified C++ wavefront snapshot: region connectivity, sampled goals, "
             "robot/goal labels, and goal reachability flags.")
        .def("object_occupies_point", &namo::RLEnvironment::object_occupies_point,
