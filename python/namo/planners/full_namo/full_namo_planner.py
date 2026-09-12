@@ -8,7 +8,6 @@ This planner solves the full NAMO problem (reaching a specific robot goal) by:
 """
 
 import math
-import time
 from collections import deque
 from dataclasses import dataclass, field, replace
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -22,6 +21,7 @@ from namo.planners.opening.best_first_region_opening import (
 )
 from namo.planners.opening.region_opening import RegionOpeningPlanner
 from namo.planners.utils import PushAttemptBudget
+from namo.planners.search_measurements import clock_start, clock_finish, elapsed_ms
 from .goal_clearance import GoalClearanceTarget, clearance_targets, goal_diagnostics
 
 
@@ -254,6 +254,10 @@ class FullNAMOPlanner(BasePlanner):
 
     def __init__(self, env: namo_rl.RLEnvironment, config: PlannerConfig):
         algo_params = config.algorithm_params or {}
+        self.measurements = algo_params.get("search_measurements")
+        self.record_statistics = self.measurements is not None and self.measurements.statistics is not None
+        self.timing = self.measurements.timing if self.measurements is not None else algo_params.get("full_namo_timing")
+        self._last_snapshot_id = None
         raw_max_iterations = algo_params.get("full_namo_max_iterations")
         self.max_iterations = None if raw_max_iterations is None else int(raw_max_iterations)
         if self.max_iterations is not None and self.max_iterations < 1:
@@ -295,7 +299,7 @@ class FullNAMOPlanner(BasePlanner):
         self.stats = FullNAMOStats()
         self._aggregated_rejections: Dict[str, int] = {}
         self._aggregated_primitives: int = 0
-        self._iteration_trace: List[Dict[str, Any]] = []
+        self._iteration_trace = [] if self.record_statistics else None
         self._opening_attempts_by_object: Dict[str, int] = {}
         self.push_budget = algo_params.get("push_budget")
         self.budget_scope = str(algo_params.get("full_namo_budget_scope", "full_problem"))
@@ -382,7 +386,7 @@ class FullNAMOPlanner(BasePlanner):
         self.stats = FullNAMOStats()
         self._aggregated_rejections = {}
         self._aggregated_primitives = 0
-        self._iteration_trace = []
+        self._iteration_trace = [] if self.record_statistics else None
         self._opening_attempts_by_object = {}
         self._keyhole_budget_usage = []
         if self.region_opener:
@@ -535,15 +539,18 @@ class FullNAMOPlanner(BasePlanner):
         return int(sum(pushes_by_key.values()))
 
     def search(self, robot_goal: Tuple[float, float, float]) -> PlannerResult:
-        start_time = time.time()
+        start_time = clock_start(self.timing)
         self.stats = FullNAMOStats()
         self._aggregated_rejections = {}
         self._aggregated_primitives = 0
-        self._iteration_trace = []
+        self._iteration_trace = [] if self.record_statistics else None
         self._opening_attempts_by_object = {}
         self._keyhole_budget_usage = []
 
         self.env.set_robot_goal(robot_goal[0], robot_goal[1], robot_goal[2])
+        if self.measurements is not None:
+            self.measurements.checkpoint(self.env.get_full_state(), trigger="initial",
+                                         observation=self.env.get_observation() if self.record_statistics else None)
 
         self._debug(f"\n{'=' * 60}")
         self._debug(
@@ -556,7 +563,7 @@ class FullNAMOPlanner(BasePlanner):
         pending_attempt: Optional[Tuple[str, int]] = None
         cached_snapshot: Optional[Dict[str, Any]] = None
 
-        if self.env.is_robot_goal_reachable():
+        if self._goal_reachable():
             self._record_iteration_trace({"iteration": 0, "outcome": "goal_reachable_immediately"})
             return self._success_result(start_time, actions, region_openings)
 
@@ -573,7 +580,7 @@ class FullNAMOPlanner(BasePlanner):
             self._debug(f"\n--- Iteration {iteration} ---")
 
             self.env.set_robot_goal(robot_goal[0], robot_goal[1], robot_goal[2])
-            if self.env.is_robot_goal_reachable():
+            if self._goal_reachable():
                 self._record_iteration_trace(
                     {
                         "iteration": iteration,
@@ -616,6 +623,9 @@ class FullNAMOPlanner(BasePlanner):
                     failure_kind="robot_region_invalid",
                 )
 
+            route_started = clock_start(self.timing)
+            penalties_before = dict(self._opening_attempts_by_object) if self.record_statistics else None
+            penalty_update = None
             try:
                 all_route_choices = self._route_choices(
                     snapshot,
@@ -639,7 +649,9 @@ class FullNAMOPlanner(BasePlanner):
                 current_blockers = {choice.object_id for choice in all_route_choices}
                 if current_min_hops is not None and current_min_hops < previous_min_hops:
                     self._opening_attempts_by_object.clear()
+                    penalty_update = "shorter_unpenalized_route"
                 else:
+                    penalty_update = "no_hop_improvement_after_commit"
                     self._opening_attempts_by_object = {
                         object_id: count
                         for object_id, count in self._opening_attempts_by_object.items()
@@ -666,6 +678,9 @@ class FullNAMOPlanner(BasePlanner):
                     start_time,
                     actions,
                 )
+            clock_finish(self.timing, "t_route_selection", route_started)
+            self._observe_decision(iteration, choice, all_route_choices, route_choices, blocked_choices,
+                                   current_min_hops, penalties_before, penalty_update)
 
             structural_path = find_region_path(
                 snapshot["adjacency"],
@@ -683,9 +698,8 @@ class FullNAMOPlanner(BasePlanner):
                 path=path,
                 blocked_boundaries=blocked_boundaries,
             )
-            base_context["blocked_boundary_objects"] = self._serialize_blocked_choices(
-                blocked_choices
-            )
+            if self.record_statistics:
+                base_context["blocked_boundary_objects"] = self._serialize_blocked_choices(blocked_choices)
 
             if choice is None:
                 if path is not None and len(path) == 1:
@@ -765,7 +779,7 @@ class FullNAMOPlanner(BasePlanner):
                     "opening_attempts_by_object": dict(
                         sorted(self._opening_attempts_by_object.items())
                     ),
-                }
+                } if self.record_statistics else {}
             )
             next_keyhole_profile = None
             if (
@@ -872,7 +886,7 @@ class FullNAMOPlanner(BasePlanner):
                     "opening_attempts_by_object": dict(
                         sorted(self._opening_attempts_by_object.items())
                     ),
-                }
+                } if self.record_statistics else {}
             )
 
             # A boundary that ate its simulation budget without opening is a
@@ -952,6 +966,7 @@ class FullNAMOPlanner(BasePlanner):
                         context=context,
                     )
                 self.env.set_full_state(resulting_state)
+                self._observe_commit(result, target_object_ids, choice)
                 actions.append(action)
                 self.stats.total_pushes += 1
                 self.stats.greedy_committed_pushes += 1
@@ -1035,6 +1050,7 @@ class FullNAMOPlanner(BasePlanner):
                     )
 
                 self.env.set_full_state(resulting_state)
+                self._observe_commit(result, target_object_ids, choice)
                 post_open_snapshot = self._compute_region_snapshot()
                 if post_open_snapshot is None:
                     self._record_iteration_trace({**context, "outcome": "post_open_snapshot_failed"})
@@ -1139,7 +1155,7 @@ class FullNAMOPlanner(BasePlanner):
             "region_opening_sequence": region_openings,
             "rejection_breakdown": dict(self._aggregated_rejections),
             "total_primitives_attempted": self._aggregated_primitives,
-            "iteration_trace": list(self._iteration_trace),
+            **({"iteration_trace": list(self._iteration_trace)} if self.record_statistics else {}),
             "opening_attempts_by_object": dict(
                 sorted(self._opening_attempts_by_object.items())
             ),
@@ -1158,7 +1174,7 @@ class FullNAMOPlanner(BasePlanner):
             solution_found=True,
             action_sequence=actions,
             solution_depth=len(actions),
-            search_time_ms=(time.time() - start_time) * 1000,
+            search_time_ms=elapsed_ms(self.timing, start_time),
             algorithm_stats=algorithm_stats,
         )
     def _failure_result(
@@ -1171,7 +1187,7 @@ class FullNAMOPlanner(BasePlanner):
         failure_subkind: Optional[str] = None,
         context: Optional[Dict[str, Any]] = None,
     ) -> PlannerResult:
-        total_time = (time.time() - start_time) * 1000
+        total_time = elapsed_ms(self.timing, start_time)
         self._debug(f"FAILURE: {error_message}")
 
         algorithm_stats: Dict[str, Any] = {
@@ -1188,7 +1204,7 @@ class FullNAMOPlanner(BasePlanner):
             "greedy_rejected_simulations": self.stats.greedy_rejected_simulations,
             "rejection_breakdown": dict(self._aggregated_rejections),
             "total_primitives_attempted": self._aggregated_primitives,
-            "iteration_trace": list(self._iteration_trace),
+            **({"iteration_trace": list(self._iteration_trace)} if self.record_statistics else {}),
             "opening_attempts_by_object": dict(
                 sorted(self._opening_attempts_by_object.items())
             ),
@@ -1238,6 +1254,7 @@ class FullNAMOPlanner(BasePlanner):
         try:
             from namo.planners import get_region_snapshot as _get_region_snapshot
 
+            started = clock_start(self.timing)
             snapshot = _get_region_snapshot(
                 self.env,
                 goals_per_region=self.config.goals_per_region,
@@ -1247,11 +1264,73 @@ class FullNAMOPlanner(BasePlanner):
                 use_cpp_unified=self.use_cpp_unified_wavefront,
                 use_xml_goal=not self.goal_clearance,
                 **({"include_goal_clearance": True} if self.goal_clearance else {}),
+                **({"include_region_cells": True} if self.record_statistics else {}),
+                **({"record_timing": True} if self.timing is not None else {}),
             )
+            clock_finish(self.timing, "t_global_snapshot", started)
+            if self.timing is not None:
+                for phase, duration in snapshot.get("snapshot_phases", {}).items():
+                    key = "snapshot_phase_" + phase
+                    self.timing[key] = self.timing.get(key, 0.0) + duration
+            if self.record_statistics:
+                self.measurements.checkpoint(self.env.get_full_state(), trigger="snapshot", snapshot=snapshot,
+                                             observation=self.env.get_observation())
+                self._last_snapshot_id = len(self.measurements.statistics["snapshots"]) - 1
             return snapshot
         except Exception as e:
             self._debug(f"Error computing region snapshot: {e}")
             return None
+
+    def _goal_reachable(self):
+        """Time only the existing top-level goal query."""
+        started = clock_start(self.timing)
+        reachable = self.env.is_robot_goal_reachable()
+        clock_finish(self.timing, "t_global_goal_check", started)
+        return reachable
+
+    @staticmethod
+    def _choice_record(choice):
+        if choice is None:
+            return None
+        return dict(path=list(choice.path), boundary=list(choice.boundary), target_region=choice.target_region,
+                    representative_object=choice.object_id, hops=choice.hops, graph_hops=choice.graph_hops,
+                    penalty=choice.attempts, cost=choice.cost, reaches_goal=choice.reaches_goal,
+                    task_kind="goal_clearance" if choice.clearance_target else "boundary",
+                    goal_witness_xy=list(choice.clearance_target.witness_xy) if choice.clearance_target else None)
+
+    def _observe_decision(self, iteration, choice, all_choices, eligible, blocked, min_hops, penalties_before, update):
+        """Observe the scheduler's existing alternatives, without another route query."""
+        measured = self.measurements
+        if measured is None:
+            return
+        decision_id = measured.decision_count
+        measured.decision_count += 1
+        selected = self._choice_record(choice)
+        measured.event("decision", decision_id=decision_id, selected=selected, calls=measured.total_sim_calls)
+        if self.record_statistics:
+            # all_choices precedes the pending-commit penalty update. Apply the
+            # resolved penalties to its existing alternatives, never replan.
+            before_blacklist = [self._choice_record(item) for item in all_choices]
+            for item in before_blacklist:
+                item["penalty"] = self._opening_attempts_by_object.get(item["representative_object"], 0)
+                item["cost"] = item["hops"] + item["penalty"]
+            measured.append("decisions", dict(decision_id=decision_id, iteration=iteration, attempt_id=None,
+                            snapshot_id=self._last_snapshot_id, scene_version=measured.scene_version,
+                            sim_call=measured.total_sim_calls, selected=selected,
+                            choices_before_blacklist=before_blacklist,
+                            eligible_choices=[self._choice_record(item) for item in eligible],
+                            blocked_choices=self._serialize_blocked_choices(blocked),
+                            minimum_unpenalized_hops=min_hops, penalties_before=penalties_before,
+                            penalties_after=dict(self._opening_attempts_by_object), penalty_update=update))
+
+    def _observe_commit(self, result, offered_objects, choice):
+        """Save the adopted canonical state, including prefixes of later failures."""
+        if self.measurements is not None:
+            self.measurements.committed(self.env.get_full_state(), result.action_sequence,
+                                        attempt_id=result.algorithm_stats.get("measurement_attempt_id"),
+                                        opened=result.success,
+                                        task_kind="goal_clearance" if choice.clearance_target else "boundary",
+                                        observation=self.env.get_observation() if self.record_statistics else None)
 
     @staticmethod
     def _boundary_objects_for_snapshot(
@@ -1533,6 +1612,8 @@ class FullNAMOPlanner(BasePlanner):
         target_region: Optional[str] = None,
         target_summary: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        if not self.record_statistics:
+            return {"chosen_target_region": target_region}
         robot_neighbors = sorted(snapshot_data["adjacency"].get(robot_region, set()))
         return {
             "iteration": iteration,
@@ -1548,7 +1629,12 @@ class FullNAMOPlanner(BasePlanner):
         }
 
     def _record_iteration_trace(self, trace: Dict[str, Any]):
-        self._iteration_trace.append(dict(trace))
+        if self.measurements is not None:
+            self.measurements.event("decision_end", outcome=trace.get("outcome"), calls=self.measurements.total_sim_calls)
+        if self.record_statistics:
+            self._iteration_trace.append(dict(trace))
+            if self.measurements.statistics["decisions"]:
+                self.measurements.statistics["decisions"][-1]["outcome"] = trace.get("outcome")
 
     def _serialize_blocked_boundaries(
         self,

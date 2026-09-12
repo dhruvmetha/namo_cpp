@@ -197,7 +197,8 @@ def solve_environment_task(task: SolveTask) -> Dict[str, Any]:
                                    {"sampler": task.seed, "shuffle": common["shuffle_seed"]}),
                       runtime_fingerprints=runtime, xml_sha256=problem["xml_sha256"],
                       initialized_state_digest=content_digest(initial_state), original_goal=list(robot_goal))
-        started = clock_start(timing)
+        measured.start_clock()
+        started = measured._clock_origin
         result = planner.search(robot_goal)
         clock_finish(timing, "t_wall", started)
 
@@ -225,7 +226,10 @@ def solve_environment_task(task: SolveTask) -> Dict[str, Any]:
         )
         calls = int(budget_stats.get("simulation_budget_used_total",
                                     budget_stats.get("simulation_budget_used", config.algorithm_params["push_budget"].used)))
-        terminal = state_record(env.get_full_state())
+        terminal_state = env.get_full_state()
+        terminal = state_record(terminal_state)
+        measured.checkpoint(terminal_state, trigger="terminal",
+                             observation=env.get_observation() if task.record_statistics else None)
         final_goal = bool(env.is_robot_goal_reachable()) if task.goal_clearance else bool(result.success)
         failure_kind = str(budget_stats.get("failure_kind") or "")
         measured.event("run_end", solved=bool(result.success), final_goal_reachable=final_goal,
@@ -240,6 +244,9 @@ def solve_environment_task(task: SolveTask) -> Dict[str, Any]:
                       goal_clearance_enabled=task.goal_clearance)
         trace_fields.update(common)
         if task.record_timing:
+            timing["t_global_other"] = timing["t_wall"] - sum(timing.get(key, 0.0) for key in (
+                "t_local_search", "t_global_snapshot", "t_global_goal_check", "t_route_selection"))
+            timing["timing_accounting_valid"] = timing["t_global_other"] >= -1e-6
             trace_fields.update(timing, local_timing=measured.local_timing,
                                 time_until_success=timing["t_wall"] if result.success else None)
         if task.record_statistics:
@@ -302,6 +309,9 @@ def solve_environment_task(task: SolveTask) -> Dict[str, Any]:
                 "execution_digest": measured.execution_digest,
                 "attempt_count": measured.attempt_count,
                 "commit_count": measured.commit_count,
+                "total_calls": measured.total_sim_calls,
+                "attempt_digests": measured.attempt_digests,
+                **({"statistics": measured.statistics} if task.record_statistics else {}),
             },
         }
 

@@ -189,8 +189,8 @@ def test_greedy_timing_accumulates_without_changing_commits(monkeypatch):
     candidate = SimpleNamespace(x=0, y=0, theta=0, edge_idx=1, depth=0)
     monkeypatch.setattr(search, "candidates", lambda *_a, **_k: ([("box", candidate, 1.0)], 0, None))
     monkeypatch.setattr(search, "make_action", lambda *_a: candidate)
-    clock = iter((0, 1, 1, 3, 10, 11, 11, 13))
-    monkeypatch.setattr(search.time, "perf_counter", lambda: next(clock))
+    clock = iter((0, 1, 1, 3, 3, 3, 10, 11, 11, 13, 13, 13))
+    monkeypatch.setattr("namo.planners.search_measurements.perf_counter", lambda: next(clock))
     env = SimpleNamespace(set_full_state=lambda _s: None, step=lambda _a: None,
                           get_full_state=lambda: "moved")
     timing = {"t_score": 5.0, "t_sim": 7.0, "n_score": 3}
@@ -200,7 +200,7 @@ def test_greedy_timing_accumulates_without_changing_commits(monkeypatch):
             dedupe_noop=False, timing=timing)
         assert result.simulations_used == 1 and result.opened
         assert result.resulting_state == "moved"
-    assert timing == {"t_score": 7.0, "t_sim": 11.0, "n_score": 5}
+    assert timing == {"t_score": 7.0, "t_sim": 11.0, "n_score": 5, "t_local_verify": 0.0}
 
 
 def test_region_openings_share_cumulative_budget_and_timing(monkeypatch):
@@ -264,9 +264,10 @@ def test_region_openings_share_cumulative_budget_and_timing(monkeypatch):
 
     assert first.success and second.success
     assert remaining_budgets == [20000, 19997]
-    assert timing_ids == [id(timing), id(timing)]
+    assert all(local_id != id(timing) for local_id in timing_ids)
     assert budget.used == 8
-    assert timing == {"t_score": 1.5, "t_sim": 6.0, "n_score": 5}
+    assert {key: timing[key] for key in ("t_score", "t_sim", "n_score")} == {"t_score": 1.5, "t_sim": 6.0, "n_score": 5}
+    assert timing["t_local_search"] >= 0
 
 
 def test_walltime_summary_includes_failures_and_preserves_shard_membership():
@@ -307,7 +308,8 @@ def test_independent_measurement_modes_keep_failed_outcomes(tmp_path, monkeypatc
         goal_clearance=False, record_statistics=statistics, record_timing=timing,
     )
     state = SimpleNamespace(qpos=[0.1, 0.2], qvel=[0.0, 0.0])
-    env = SimpleNamespace(get_full_state=lambda: state, is_robot_goal_reachable=lambda: False)
+    env = SimpleNamespace(get_full_state=lambda: state, is_robot_goal_reachable=lambda: False,
+                          get_observation=lambda: {"robot_pose": [0.1, 0.2, 0.0]})
     monkeypatch.setattr(runner.namo_rl, "RLEnvironment", lambda *_a: env)
     monkeypatch.setattr(runner, "extract_goal_from_xml", lambda *_a: (0.0, 0.0, 0.0))
 

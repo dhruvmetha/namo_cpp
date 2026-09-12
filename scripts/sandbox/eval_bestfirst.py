@@ -53,6 +53,7 @@ from namo.planners.opening.best_first_region_opening import BestFirstRegionOpeni
 from namo.planners.search_measurements import (  # noqa: E402
     SearchMeasurements, content_digest, file_digest, measurement_options, run_identity,
     runtime_fingerprints, state_record,
+    clock_finish,
 )
 from viz.trace_schema import build_trace, episode_filename, make_board, make_pop, rle_encode  # noqa: E402
 
@@ -304,7 +305,8 @@ def main():
             env = make_env(xml)
             goal = extract_goal_with_fallback(xml, FALLBACK_GOAL)
             env.set_robot_goal(*goal); env.get_reachable_objects()
-            snapshot = get_region_snapshot(env, goals_per_region=100, use_xml_goal=True, seed=42)
+            snapshot = get_region_snapshot(env, goals_per_region=100, use_xml_goal=True, seed=42,
+                                           **({"include_region_cells": True} if measurement["record_statistics"] else {}))
             tasks = pooled_boundary_tasks(snapshot, recs)
             s0 = env.get_full_state()
             scene = _scene_dict(env, goal) if a.trace_out and not a.trace_lite else {}
@@ -335,7 +337,6 @@ def main():
                     capture = _make_capture(env, exporter, xml, obj, oi["size_x"], oi["size_y"],
                                             mov_names, contact_offsets_world)
                 measured = SearchMeasurements(**measurement)
-                tm = measured.timing
                 import namo_rl
                 runtime = runtime_fingerprints(str(CFG), str(DATA_DIR), PRIM_PREFIX, namo_rl.__file__,
                                                a.ckpt if a.prior == "model" else None)
@@ -347,14 +348,28 @@ def main():
                 identity = run_identity(problem, dict(search_params, runtime=runtime), a.prior,
                                         runtime["checkpoint_sha256"],
                                         {"sampler": 42, "shuffle": a.seed_base})
+                measured.checkpoint(s0, trigger="initial", snapshot=snapshot,
+                                     observation=env.get_observation() if measured.statistics is not None else None)
+                measured.start_clock()
+                measured.begin_attempt(task_kind="boundary", target_region=rec["target_region"],
+                                       boundary_objects=rec["boundary_objects"], target_samples=gp,
+                                       local_call_cap=a.sim_budget, hmax=a.hmax)
+                solution = {}
                 solved, sims, plen, boards, end = solve_scene(
                     planner, env, goal, xml, s0, a.hmax, a.sim_budget, a.prior, a.agg, a.combine, rng,
                     restrict_obj=rec["boundary_objects"], is_open=is_open, raw=a.raw, dive_bonus=a.dive_bonus,
                     discount=a.discount, gamma=a.gamma, tau=a.tau, g_table=g_table, eps=a.eps,
                     w0_mode=a.w0_mode, free_strike_q=a.free_strike_q, child_patience=a.child_patience,
                     dedupe_noop=a.dedupe_noop, prune_jam_depth=a.prune_jam_depth,
-                    trace_out=pops, capture=capture, timing=tm,
-                    region_samples=gp)
+                    trace_out=pops, capture=capture, timing=measured.local_timer,
+                    region_samples=gp, measurements=measured, solution_out=solution)
+                chain = [make_action(object_id, push_goal) for object_id, push_goal in solution.get("plan", [])]
+                measured.end_attempt(end=end, success=solved, calls=sims, actions=chain)
+                if solved:
+                    measured.committed(solution["state"], chain, attempt_id=0, opened=True, task_kind="boundary",
+                                        observation=env.get_observation() if measured.statistics is not None else None)
+                clock_finish(measured.timing, "t_wall", measured._clock_origin)
+                tm = measured.timing
                 n += 1; sims_tot += sims; n_solved += int(solved); sims_solved += sims if solved else 0
                 terminal = state_record(env.get_full_state())
                 measured.event("run_end", solved=solved, calls=sims, local_end=end,
@@ -371,6 +386,9 @@ def main():
                                      "initialized_state_digest": content_digest(initial_state),
                                      "terminal_state_digest": content_digest(terminal),
                                      "execution_digest": measured.execution_digest,
+                                     "attempt_count": measured.attempt_count, "commit_count": measured.commit_count,
+                                     "attempt_digests": measured.attempt_digests,
+                                     **({"local_timing": measured.local_timing} if tm is not None else {}),
                                      "total_calls": sims, "calls_until_success": sims if solved else None,
                                      "call_cap": a.sim_budget, "complete": True, "local_end": end,
                                      **optional}) + "\n")
