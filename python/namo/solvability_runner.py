@@ -5,9 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
@@ -23,6 +22,10 @@ from namo.environment_selection import (
 )
 from namo.planners.full_namo.full_namo_planner import FullNAMOPlanner
 from namo.planners.utils import PushAttemptBudget
+from namo.planners.search_measurements import (
+    SearchMeasurements, clock_finish, clock_start, content_digest, file_digest,
+    measurement_options, run_identity, runtime_fingerprints, state_record,
+)
 from namo.runtime_profile import (
     CANONICAL_CONFIG,
     CANONICAL_NUM_DEPTHS,
@@ -69,6 +72,12 @@ class SolveTask:
     goal_clearance: bool = False
     exec_mode: str = "search"
     record_timing: bool = False
+    record_statistics: bool = False
+    schema_version: int = 1
+
+    def __post_init__(self):
+        measurement_options(dict(record_statistics=self.record_statistics,
+                                 record_timing=self.record_timing, schema_version=self.schema_version))
 
 
 def _load_namo_config(config_path: str) -> Dict[str, Any]:
@@ -159,18 +168,38 @@ def build_full_namo_planner_config(task: SolveTask) -> PlannerConfig:
 
 def solve_environment_task(task: SolveTask) -> Dict[str, Any]:
     """Run the canonical planner; optional timing excludes setup and serialization."""
+    measured = SearchMeasurements(record_statistics=task.record_statistics,
+                                  record_timing=task.record_timing, schema_version=task.schema_version)
+    common = dict(schema_version=task.schema_version, measurement=measured.options,
+                  xml_path=task.xml_path, path_length_n=task.path_length_n, complete=False,
+                  exec_mode=task.exec_mode, method=task.best_first_prior,
+                  seed=task.seed, shuffle_seed=task.seed if task.shuffle_seed is None else task.shuffle_seed,
+                  call_cap=task.simulation_budget, total_calls=0, solved=False, calls_until_success=None)
     try:
         env = namo_rl.RLEnvironment(task.xml_path, task.config_path, False)
         config = build_full_namo_planner_config(task)
-        timing = {"t_sim": 0.0, "t_score": 0.0, "n_score": 0}
+        timing = measured.timing
+        config.algorithm_params["search_measurements"] = measured
         if task.record_timing:
             config.algorithm_params["full_namo_timing"] = timing
         planner = FullNAMOPlanner(env, config)
         robot_goal = extract_goal_from_xml(task.xml_path)
-        started = time.perf_counter() if task.record_timing else None
+        initial_state = state_record(env.get_full_state())
+        runtime = runtime_fingerprints(task.config_path, task.primitive_data_dir,
+                                       task.primitive_prefix, namo_rl.__file__, task.scorer_ckpt)
+        problem = {"xml_sha256": file_digest(task.xml_path), "initial_state": initial_state,
+                   "original_goal": list(robot_goal), "task_kind": "full_namo"}
+        semantic = {key: value for key, value in asdict(task).items() if key not in {
+            "xml_path", "path_length_n", "config_path", "primitive_data_dir", "scorer_ckpt",
+            "record_statistics", "record_timing", "schema_version"}}
+        semantic["runtime"] = runtime
+        common.update(run_identity(problem, semantic, task.best_first_prior, runtime["checkpoint_sha256"],
+                                   {"sampler": task.seed, "shuffle": common["shuffle_seed"]}),
+                      runtime_fingerprints=runtime, xml_sha256=problem["xml_sha256"],
+                      initialized_state_digest=content_digest(initial_state), original_goal=list(robot_goal))
+        started = clock_start(timing)
         result = planner.search(robot_goal)
-        if task.record_timing:
-            timing["t_wall"] = time.perf_counter() - started
+        clock_finish(timing, "t_wall", started)
 
         budget_stats = dict(result.algorithm_stats or {})
         budget_fields = {
@@ -191,23 +220,35 @@ def solve_environment_task(task: SolveTask) -> Dict[str, Any]:
         # failing, which the terminal failure_kind alone cannot distinguish.
         trace_fields = (
             {"iteration_trace": budget_stats["iteration_trace"]}
-            if "iteration_trace" in budget_stats
+            if task.record_statistics and "iteration_trace" in budget_stats
             else {}
         )
+        calls = int(budget_stats.get("simulation_budget_used_total",
+                                    budget_stats.get("simulation_budget_used", config.algorithm_params["push_budget"].used)))
+        terminal = state_record(env.get_full_state())
+        final_goal = bool(env.is_robot_goal_reachable()) if task.goal_clearance else bool(result.success)
+        failure_kind = str(budget_stats.get("failure_kind") or "")
+        measured.event("run_end", solved=bool(result.success), final_goal_reachable=final_goal,
+                       calls=calls, terminal_state_digest=content_digest(terminal))
+        measured.complete = True
+        common.update(total_calls=calls, solved=bool(result.success), censored=not result.success,
+                      calls_until_success=calls if result.success else None, complete=True,
+                      failure_kind=failure_kind or None, failure_subkind=budget_stats.get("failure_subkind"),
+                      terminal_state_digest=content_digest(terminal), execution_digest=measured.execution_digest,
+                      attempt_count=measured.attempt_count, attempt_digests=measured.attempt_digests,
+                      commit_count=measured.commit_count, final_goal_reachable=final_goal,
+                      goal_clearance_enabled=task.goal_clearance)
+        trace_fields.update(common)
         if task.record_timing:
-            calls = int(budget_stats["simulation_budget_used"])
-            trace_fields.update(timing, total_calls=calls, exec_mode=task.exec_mode,
-                solved=bool(result.success), censored=not result.success,
-                calls_until_success=calls if result.success else None,
-                time_until_success=timing["t_wall"] if result.success else None)
-        if task.goal_clearance:
-            state = env.get_full_state()
+            trace_fields.update(timing, local_timing=measured.local_timing,
+                                time_until_success=timing["t_wall"] if result.success else None)
+        if task.record_statistics:
             trace_fields.update({
-                "goal_clearance_enabled": True,
+                "statistics": measured.statistics,
                 "committed_actions": [serialize_action(action) for action in (result.action_sequence or [])],
-                "terminal_state": {"qpos": list(state.qpos), "qvel": list(state.qvel)},
+                "initial_state": initial_state,
+                "terminal_state": terminal,
                 "goal_diagnostics": budget_stats.get("goal_diagnostics"),
-                "final_goal_reachable": bool(env.is_robot_goal_reachable()),
             })
 
         if result.success:
@@ -233,6 +274,7 @@ def solve_environment_task(task: SolveTask) -> Dict[str, Any]:
         return {
             "kind": "unsolved",
             "row": {
+                **common,
                 "xml_path": task.xml_path,
                 "path_length_n": task.path_length_n,
                 "outcome": outcome,
@@ -247,12 +289,19 @@ def solve_environment_task(task: SolveTask) -> Dict[str, Any]:
         return {
             "kind": "unsolved",
             "row": {
+                **common,
                 "xml_path": task.xml_path,
                 "path_length_n": task.path_length_n,
                 "outcome": "planner_failure",
                 "failure_kind": "runner_exception",
                 "failure_subkind": None,
                 "error_message": str(exc),
+                "error_class": type(exc).__name__,
+                "technical_error": True,
+                "complete": False,
+                "execution_digest": measured.execution_digest,
+                "attempt_count": measured.attempt_count,
+                "commit_count": measured.commit_count,
             },
         }
 
@@ -301,6 +350,7 @@ def _build_task(
     preserve_next_keyhole_access: bool,
     shuffle_seed: Optional[int],
     goal_clearance: bool = False,
+    measurement: Optional[Dict[str, Any]] = None,
 ) -> SolveTask:
     return SolveTask(
         xml_path=analysis.xml_path,
@@ -329,6 +379,7 @@ def _build_task(
         preserve_next_keyhole_access=preserve_next_keyhole_access,
         shuffle_seed=shuffle_seed,
         goal_clearance=goal_clearance,
+        **measurement_options(measurement),
     )
 
 
@@ -383,7 +434,9 @@ def run_exact_n_solvability(
     shuffle_seed: Optional[int] = None,
     limit: Optional[int] = None,
     goal_clearance: bool = False,
+    measurement: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+    measurement = measurement_options(measurement)
     config_path = _resolve_config_path(repo_root, config_file)
     require_canonical_runtime_config(config_path)
     primitive_root = Path(primitive_data_dir)
@@ -398,6 +451,7 @@ def run_exact_n_solvability(
     effective_primitive_prefix = primitive_prefix
 
     run_config = {
+        "measurement": measurement,
         "input_dir": input_dir,
         "manifest": manifest_path,
         "path_length": int(path_length),
@@ -484,6 +538,7 @@ def run_exact_n_solvability(
             preserve_next_keyhole_access=preserve_next_keyhole_access,
             shuffle_seed=shuffle_seed,
             goal_clearance=goal_clearance,
+            measurement=measurement,
         )
         for analysis in selected_analyses
     ]
@@ -525,6 +580,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--xml-dir", type=str, help="Directory containing XML environments")
     parser.add_argument("--manifest", type=str, help="Manifest listing XML environments")
+    parser.add_argument("--measurement-config", help="YAML containing a measurement section")
     parser.add_argument("--path-length", type=int, required=True, help="Exact initial shortest region-path length")
     parser.add_argument(
         "--config-file",
@@ -701,6 +757,9 @@ def cli_main(argv: Optional[Sequence[str]] = None) -> int:
         parser.error("provide only one of --xml-dir or --manifest")
 
     repo_root = Path(__file__).resolve().parents[2]
+    measurement = None
+    if args.measurement_config:
+        measurement = yaml.safe_load(Path(args.measurement_config).read_text())["measurement"]
     run_exact_n_solvability(
         repo_root=repo_root,
         input_dir=args.xml_dir,
@@ -732,6 +791,7 @@ def cli_main(argv: Optional[Sequence[str]] = None) -> int:
         audit_next_keyhole_reachability=args.audit_next_keyhole_reachability,
         preserve_next_keyhole_access=args.preserve_next_keyhole_access,
         limit=args.limit,
+        measurement=measurement,
     )
     return 0
 

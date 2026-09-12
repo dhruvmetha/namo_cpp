@@ -24,6 +24,7 @@ Baseline: --prior uniform = identical loop, RANDOM order, no value -> proves the
       --sim-budget 900 --prior model --agg mean5 --combine q --discount off --start 0 --end 985 --out <json>
 """
 import sys, os, json, time, argparse, random, heapq
+import yaml
 from types import SimpleNamespace
 from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
@@ -47,6 +48,10 @@ from namo.core.xml_goal_parser import extract_goal_with_fallback  # noqa: E402
 from namo.paths import MANIFESTS, DATASETS, SCRATCH  # noqa: E402
 from namo import eval_sets  # noqa: E402
 from namo.strategies import PrimitiveGoalStrategy  # noqa: E402
+from namo.planners.search_measurements import (  # noqa: E402
+    SearchMeasurements, content_digest, file_digest, measurement_options, run_identity,
+    runtime_fingerprints, state_record,
+)
 from viz.trace_schema import build_trace, episode_filename, make_board, make_pop, rle_encode  # noqa: E402
 
 PURE2PUSH = str(MANIFESTS / "test_pure2_fromkey.txt")
@@ -197,7 +202,10 @@ def main():
     ap.add_argument("--trace-lite", action="store_true",
                     help="record ordered pools/pops without per-pop geometry (same search order, smaller/faster trace)")
     ap.add_argument("--trace-model", default="", help="model label written into each trace's meta")
+    ap.add_argument("--measurement-config", help="YAML containing independent measurement options")
     a = ap.parse_args()
+    measurement = measurement_options(
+        yaml.safe_load(Path(a.measurement_config).read_text())["measurement"] if a.measurement_config else None)
     if a.prior in {"geometric", "geometric_region"} and a.success != "region":
         ap.error(f"--prior {a.prior} requires --success region")
     if a.model_warmup_repeats < 0:
@@ -288,7 +296,18 @@ def main():
                     ep_scene = dict(scene, contacts=[[float(opose[0] + dx), float(opose[1] + dy)] for dx, dy in off])
                     capture = _make_capture(env, exporter, xml, obj, oi["size_x"], oi["size_y"],
                                             mov_names, contact_offsets_world)
-                tm = {}
+                measured = SearchMeasurements(**measurement)
+                tm = measured.timing
+                import namo_rl
+                runtime = runtime_fingerprints(str(CFG), str(DATA_DIR), PRIM_PREFIX, namo_rl.__file__,
+                                               a.ckpt if a.prior == "model" else None)
+                initial_state = state_record(s0)
+                problem = dict(xml_sha256=file_digest(xml), initial_state=initial_state,
+                               target_samples=gp if a.success == "region" else list(goal),
+                               boundary_objects=[obj], object_scope="legacy_single_object")
+                identity = run_identity(problem, dict(search_params, runtime=runtime), a.prior,
+                                        runtime["checkpoint_sha256"],
+                                        {"sampler": 42, "shuffle": a.seed_base + xi * 17 + ri})
                 solved, sims, plen, boards, end = solve_scene(
                     planner, env, goal, xml, s0, a.hmax, a.sim_budget, a.prior, a.agg, a.combine, rng,
                     restrict_obj=obj, is_open=is_open, raw=a.raw, dive_bonus=a.dive_bonus,
@@ -298,11 +317,23 @@ def main():
                     trace_out=pops, capture=capture, timing=tm,
                     region_samples=(gp if a.prior in {"geometric", "geometric_region"} else None))
                 n += 1; sims_tot += sims; n_solved += int(solved); sims_solved += sims if solved else 0
+                terminal = state_record(env.get_full_state())
+                measured.event("run_end", solved=solved, calls=sims, local_end=end,
+                               terminal_state_digest=content_digest(terminal))
+                optional = ({**tm, "time_until_success": tm["t_wall"] if solved else None} if tm is not None else {})
+                if measured.statistics is not None:
+                    optional.update(statistics=measured.statistics, initial_state=initial_state, terminal_state=terminal)
                 lf.write(json.dumps({"xml": xml, "object_id": obj, "region": rec.get("region"),
                                      "solved": solved, "sims": sims, "plan_len": plen,
                                      "search": search_params, "seed_base": a.seed_base,
-                                     "t_wall": round(tm["t_wall"], 4), "t_sim": round(tm["t_sim"], 4),
-                                     "t_score": round(tm["t_score"], 4), "n_score": tm["n_score"]}) + "\n")
+                                     **identity, "schema_version": measurement["schema_version"],
+                                     "measurement": measurement, "runtime_fingerprints": runtime,
+                                     "initialized_state_digest": content_digest(initial_state),
+                                     "terminal_state_digest": content_digest(terminal),
+                                     "execution_digest": measured.execution_digest,
+                                     "total_calls": sims, "calls_until_success": sims if solved else None,
+                                     "call_cap": a.sim_budget, "complete": True, "local_end": end,
+                                     **optional}) + "\n")
                 if ltf is not None:
                     ep = {"ep": ep_ctr, "xml": xml, "object_id": obj, "region": rec.get("region"),
                           "solved": solved, "sims": sims, "end": end}

@@ -129,7 +129,11 @@ def run(config, config_path, arm_name, shard, smoke):
     import torch
     from namo.solvability_runner import SolveTask, solve_environment_task
     from namo.strategies.scorer_goal_strategy import _get_scorer
+    from namo.planners.search_measurements import measurement_options
 
+    measurement = measurement_options(config.get("measurement", {"record_timing": True}))
+    if measurement["record_statistics"] or not measurement["record_timing"]:
+        raise ValueError("timed driver requires measurement.record_statistics=false and record_timing=true")
     hardware = preflight(config, config_path)
     torch.set_num_threads(1)
     torch.set_num_interop_threads(1)
@@ -162,7 +166,7 @@ def run(config, config_path, arm_name, shard, smoke):
                 region_success_min_reachable=20, goals_per_region=100, seed=42, use_cpp_snapshot=True,
                 simulation_budget=config["budget"], simulation_budget_scope="full_problem", local_search="best_first",
                 best_first_prior=arm["prior"], scorer_ckpt=arm.get("checkpoint"), ml_device="cpu", max_push_steps=5,
-                shuffle_seed=arm["seed_base"], goal_clearance=True, exec_mode=arm["exec_mode"], record_timing=True)
+                shuffle_seed=arm["seed_base"], goal_clearance=True, exec_mode=arm["exec_mode"], **measurement)
             result = solve_environment_task(task)
             row = dict(result["row"], **metadata, geometry_id=scene["geometry_id"],
                        difficulty=scene["difficulty"], template=scene["template"],

@@ -58,6 +58,8 @@ def test_run_exact_n_solvability_writes_expected_manifests(tmp_path, monkeypatch
     )
 
     def fake_solve(task):
+        assert task.record_statistics is True
+        assert task.record_timing is False
         if task.xml_path.endswith("env_a.xml"):
             return {
                 "kind": "solved",
@@ -100,6 +102,7 @@ def test_run_exact_n_solvability_writes_expected_manifests(tmp_path, monkeypatch
         seed=42,
         shuffle_seed=7000,
         workers=1,
+        measurement={"record_statistics": True, "record_timing": False},
     )
 
     out_dir = tmp_path / "out"
@@ -129,15 +132,19 @@ def test_run_exact_n_solvability_writes_expected_manifests(tmp_path, monkeypatch
     assert run_config["goal_strategy"] == "random_rollout"
     assert run_config["seed"] == 42
     assert run_config["shuffle_seed"] == 7000
+    assert run_config["measurement"] == {"schema_version": 1, "record_statistics": True, "record_timing": False}
 
 
 @pytest.mark.parametrize("mode,solved", [("search", True), ("greedy_dfs", False)])
-def test_timed_full_problem_keeps_failed_costs_and_execution_mode(monkeypatch, mode, solved):
+def test_timed_full_problem_keeps_failed_costs_and_execution_mode(tmp_path, monkeypatch, mode, solved):
     from namo import solvability_runner as runner
     from namo.core import PlannerResult
+    from namo.planners import search_measurements
 
+    scene = tmp_path / "scene.xml"
+    scene.write_text("<mujoco><worldbody/></mujoco>")
     task = runner.SolveTask(
-        xml_path="scene.xml", path_length_n=2, config_path="config.yaml",
+        xml_path=str(scene), path_length_n=2, config_path=CANONICAL_CONFIG,
         goal_strategy="scorer", region_max_chain_depth=2, primitive_data_dir="data",
         primitive_prefix=CANONICAL_PRIMITIVE_PREFIX, rollout_samples_per_state=None,
         region_frontier_beam_width=None, region_success_min_reachable=20,
@@ -150,7 +157,7 @@ def test_timed_full_problem_keeps_failed_costs_and_execution_mode(monkeypatch, m
     monkeypatch.setattr(runner.namo_rl, "RLEnvironment", lambda *_a: env)
     monkeypatch.setattr(runner, "extract_goal_from_xml", lambda *_a: (0, 0, 0))
     clock = iter((100.0, 103.0))
-    monkeypatch.setattr(runner.time, "perf_counter", lambda: next(clock))
+    monkeypatch.setattr(search_measurements, "perf_counter", lambda: next(clock))
 
     class Planner:
         def __init__(self, _env, config):
@@ -166,6 +173,7 @@ def test_timed_full_problem_keeps_failed_costs_and_execution_mode(monkeypatch, m
 
     monkeypatch.setattr(runner, "FullNAMOPlanner", Planner)
     result = runner.solve_environment_task(task)
+    assert result["row"].get("failure_kind") != "runner_exception", result["row"]
     assert result["kind"] == ("solved" if solved else "unsolved")
     row = result["row"]
     assert (row["total_calls"], row["t_wall"], row["t_sim"], row["t_score"], row["n_score"]) == (7, 3.0, 1.25, 0.5, 2)
@@ -280,3 +288,51 @@ def test_walltime_summary_includes_failures_and_preserves_shard_membership():
     scenes = list(range(11))
     shards = [module.shard_rows(scenes, i, 4) for i in range(4)]
     assert sorted(item for shard in shards for item in shard) == scenes
+
+
+@pytest.mark.parametrize("statistics,timing", [(False, False), (False, True), (True, False), (True, True)])
+def test_independent_measurement_modes_keep_failed_outcomes(tmp_path, monkeypatch, statistics, timing):
+    from namo import solvability_runner as runner
+    from namo.core import PlannerResult
+
+    scene = tmp_path / "scene.xml"
+    scene.write_text("<mujoco><worldbody/></mujoco>")
+    task = runner.SolveTask(
+        xml_path=str(scene), path_length_n=2, config_path=CANONICAL_CONFIG,
+        goal_strategy="scorer", region_max_chain_depth=2, primitive_data_dir="data",
+        primitive_prefix=CANONICAL_PRIMITIVE_PREFIX, rollout_samples_per_state=None,
+        region_frontier_beam_width=None, region_success_min_reachable=20,
+        goals_per_region=100, seed=42, use_cpp_snapshot=True, simulation_budget=9000,
+        local_search="best_first", best_first_prior="uniform", shuffle_seed=7000,
+        goal_clearance=False, record_statistics=statistics, record_timing=timing,
+    )
+    state = SimpleNamespace(qpos=[0.1, 0.2], qvel=[0.0, 0.0])
+    env = SimpleNamespace(get_full_state=lambda: state, is_robot_goal_reachable=lambda: False)
+    monkeypatch.setattr(runner.namo_rl, "RLEnvironment", lambda *_a: env)
+    monkeypatch.setattr(runner, "extract_goal_from_xml", lambda *_a: (0.0, 0.0, 0.0))
+
+    class Planner:
+        def __init__(self, _env, config):
+            self.measurement = config.algorithm_params["search_measurements"]
+
+        def search(self, _goal):
+            self.measurement.event("attempt_result", local_end="exhausted", calls=7)
+            self.measurement.append("attempts", {"attempt_id": 0, "local_end": "exhausted"})
+            return PlannerResult(success=False, solution_found=False, action_sequence=[],
+                algorithm_stats={"simulation_budget_used": 7, "failure_kind": "region_path_exhausted",
+                                 "iteration_trace": [{"outcome": "boundary_exhausted"}]})
+
+    monkeypatch.setattr(runner, "FullNAMOPlanner", Planner)
+    row = runner.solve_environment_task(task)["row"]
+    assert row["total_calls"] == 7 and row["solved"] is False
+    assert row["calls_until_success"] is None and row["complete"] is True
+    assert row["failure_kind"] == "region_path_exhausted"
+    assert all(row[key] for key in ("problem_id", "run_id", "semantic_protocol_hash",
+                                   "execution_digest", "terminal_state_digest", "runtime_fingerprints"))
+    assert ("statistics" in row) is statistics
+    assert ("iteration_trace" in row) is statistics
+    assert ("terminal_state" in row) is statistics
+    assert ("t_wall" in row) is timing
+    assert ("time_until_success" in row) is timing
+    if timing:
+        assert row["time_until_success"] is None
