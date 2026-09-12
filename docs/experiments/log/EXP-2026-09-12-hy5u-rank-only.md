@@ -88,7 +88,7 @@ A second full epoch made the spread ten times SMALLER. No escape, and the direct
 Three independent lines of evidence agree.
 
 1. Score spread tightening toward zero across epochs, above.
-2. `val_loss` frozen at **0.8309** for two epochs and all three seeds, identical to four decimals. Meanwhile `train_loss` drifted UP, 0.8598 to 0.8834, which is a model wandering without a gradient that bites.
+2. `val_loss` frozen at **0.8309** for two epochs and all three seeds, identical to four decimals. All three seeds reached epoch 1 before the cancel landed and every one reported that same 0.8309, while `train_loss` drifted UP to 0.8834 / 0.8835 / 0.8838. Six epoch-end validations across three seeds, one number. That is a model wandering without a gradient that bites.
 3. Opener and setup ranking losses bit-identical at **2.8002 / 3.7766** across three seeds whose checkpoint hashes differ. Different weights cannot give identical losses unless the output has stopped reaching the loss. With the scores constant, every competition list sees a uniform softmax and the CE reduces to a function of the batch's list sizes alone.
 
 Seeding was verified, not assumed: the logs show `Seed set to 1/2/3` and the three epoch-0 checkpoints have distinct md5 prefixes `d2acf360`, `0bdd5372`, `4ad93794`.
