@@ -130,3 +130,25 @@ def test_different_seeds_do_different_work(service, selection):
 
     assert len(set(chains.values())) == len(chains)
     assert len({sims for _seed, sims, _chain in RECORDED_RUNS}) == len(RECORDED_RUNS)
+
+
+def test_pooled_tasks_keep_all_blockers_and_distinct_fixed_targets():
+    from eval_bestfirst import pooled_boundary_tasks
+
+    snapshot = {
+        "robot_label": "robot", "goal_label": "goal",
+        "adjacency": {"robot": {"goal", "side"}},
+        "edge_objects": {"robot": {"goal": {"A", "B"}, "side": {"C"}}},
+        "region_goals": {"goal": {"samples": [(1, 2, 0)]}, "side": {"samples": [(3, 4, 0)]}},
+    }
+    records = [{"object_id": obj, "region": region} for obj, region in
+               [("A", "goal"), ("B", "goal"), ("C", "side")]]
+    tasks = pooled_boundary_tasks(snapshot, records)
+    assert len(tasks) == 2
+    assert tasks[0]["boundary_objects"] == ["A", "B"]
+    assert len(tasks[0]["source_records"]) == 2
+    assert tasks[0]["target_samples"] == [[1.0, 2.0, 0.0]]
+    assert tasks[1]["boundary_objects"] == ["C"]
+    assert tasks[0]["certification_status"] == "pending"
+    records.append(dict(records[0], target_points=[[1.1, 2.0]]))
+    assert len(pooled_boundary_tasks(snapshot, records)) == 3

@@ -48,6 +48,8 @@ from namo.core.xml_goal_parser import extract_goal_with_fallback  # noqa: E402
 from namo.paths import MANIFESTS, DATASETS, SCRATCH  # noqa: E402
 from namo import eval_sets  # noqa: E402
 from namo.strategies import PrimitiveGoalStrategy  # noqa: E402
+from namo.planners import get_region_snapshot  # noqa: E402
+from namo.planners.opening.best_first_region_opening import BestFirstRegionOpeningPlanner  # noqa: E402
 from namo.planners.search_measurements import (  # noqa: E402
     SearchMeasurements, content_digest, file_digest, measurement_options, run_identity,
     runtime_fingerprints, state_record,
@@ -56,6 +58,38 @@ from viz.trace_schema import build_trace, episode_filename, make_board, make_pop
 
 PURE2PUSH = str(MANIFESTS / "test_pure2_fromkey.txt")
 DEFAULT_MODEL_WARMUP_REPEATS = 3
+
+
+def pooled_boundary_tasks(snapshot, records):
+    """Resolve fixed one-boundary tasks, retaining every legacy donor reference.
+
+    Reachability is deliberately not used to trim the allowed object pool: a
+    setup push can make another boundary object's primitives reachable.
+    """
+    robot = snapshot["robot_label"]
+    tasks = {}
+    for row_index, record in enumerate(records):
+        target = record.get("region") or snapshot["goal_label"]
+        if target not in snapshot["adjacency"].get(robot, set()):
+            raise ValueError(f"one-keyhole target {target!r} is not adjacent to {robot!r}")
+        pool, error = BestFirstRegionOpeningPlanner._boundary_objects(snapshot["edge_objects"], robot, target)
+        if error or not pool:
+            raise ValueError(error or f"no boundary objects for {target!r}")
+        points = record.get("target_points")
+        if points is None:
+            bundle = snapshot["region_goals"][target]
+            points = (bundle["samples"] if isinstance(bundle, dict) else
+                      [(goal.x, goal.y, goal.theta) for goal in bundle.goals])
+        samples = [[float(p[0]), float(p[1]), float(p[2]) if len(p) > 2 else 0.0] for p in points]
+        if not samples:
+            raise ValueError(f"no fixed target samples for {target!r}")
+        definition = dict(target_region=target, target_samples=samples,
+                          boundary_objects=pool, object_scope="boundary_pool")
+        key = content_digest(definition)
+        task = tasks.setdefault(key, dict(definition, source_records=[], certification_status="pending"))
+        task["source_records"].append(dict(row_index=row_index, record_sha256=content_digest(record),
+                                           object_id=record.get("object_id"), region=record.get("region")))
+    return list(tasks.values())
 
 
 # The search itself now lives in the package. This script keeps its CLI, its
@@ -136,7 +170,7 @@ def main():
     ap.add_argument("--start", type=int, default=0)
     ap.add_argument("--end", type=int, default=985)
     ap.add_argument("--hmax", type=int, default=2, help="max pushes in the search chain")
-    ap.add_argument("--sim-budget", type=int, default=30, help="max sims/scene = the reactive<->search dial")
+    ap.add_argument("--sim-budget", type=int, default=3000, help="shared simulator-call cap for the pooled task")
     ap.add_argument(
         "--prior",
         default="model",
@@ -148,7 +182,7 @@ def main():
         ),
     )
     ap.add_argument("--agg", default="mean5", choices=["mean5", "max"], help="state-value aggregate (selection)")
-    ap.add_argument("--combine", default="blend", choices=["q", "blend", "product"])
+    ap.add_argument("--combine", default="q", choices=["q", "blend", "product"])
     ap.add_argument("--discount", default="off", choices=["off", "gamma", "fitted", "conf"],
                     help="per-board failure demotion. off=static queue (BIT-IDENTICAL baseline).")
     ap.add_argument("--gamma", type=float, default=0.65, help="--discount gamma: w *= gamma per failed sim")
@@ -162,9 +196,9 @@ def main():
     ap.add_argument("--free-strike-q", type=float, default=2.0,
                     help="boards reached via a setup with q >= this get 1 free strike (2.0 = disabled)")
     ap.add_argument("--key", default=str(eval_sets.PURE2PUSH),
-                    help="key: {xml: [ {object_id, region, ...} ]}. Search restricted to object_id per record.")
+                    help="key: {xml: [{object_id, region, ...}]}; resolve the full boundary pool for each fixed target")
     ap.add_argument("--only-key", default="",
-                    help="optional episode subset to evaluate while preserving --key scene/record indices and RNG seeds")
+                    help="optional donor subset; pooled task identity and seeds do not depend on shard indices")
     ap.add_argument("--seed-base", type=int, default=7000,
                     help="RNG base for the uniform baseline; model is deterministic so only matters for --prior uniform.")
     # RAW is the default: the hl_gauss head already emits a value in [0,1], so the extra sigmoid is a
@@ -224,7 +258,9 @@ def main():
                      "eps": a.eps, "w0_mode": a.w0_mode, "free_strike_q": a.free_strike_q,
                      "dive_bonus": a.dive_bonus, "raw": bool(a.raw),
                      "dedupe_noop": bool(a.dedupe_noop), "prune_jam_depth": bool(a.prune_jam_depth),
-                     "gtable": ({str(k): v for k, v in g_table.items()} if g_table else None)}
+                     "gtable": ({str(k): v for k, v in g_table.items()} if g_table else None),
+                     "object_scope": "boundary_pool", "seed_semantics": "explicit_per_problem_v1",
+                     "success_predicate": a.success, "target_fraction": 0.2, "snapshot_seed": 42}
     key = json.load(open(a.key)); keyrp = {_os.path.realpath(k): v for k, v in key.items()}
     only = None
     if a.only_key:
@@ -268,23 +304,25 @@ def main():
             env = make_env(xml)
             goal = extract_goal_with_fallback(xml, FALLBACK_GOAL)
             env.set_robot_goal(*goal); env.get_reachable_objects()
-            if a.success == "region":
-                gp = sample_goal_points(env)
-                is_open = (lambda e, p=gp: goal_open_pts(e, p))
-            else:
-                is_open = (lambda e: e.is_robot_goal_reachable())
-            if is_open(env):
-                n_already += 1; continue
+            snapshot = get_region_snapshot(env, goals_per_region=100, use_xml_goal=True, seed=42)
+            tasks = pooled_boundary_tasks(snapshot, recs)
             s0 = env.get_full_state()
             scene = _scene_dict(env, goal) if a.trace_out and not a.trace_lite else {}
             if a.trace_out and not a.trace_lite:
                 exporter = WavefrontSnapshotExporter(env)      # one per env: static geometry never moves
                 mov_names = [m["name"] for m in scene["movable"]]
-            for ri, rec in enumerate(recs):
-                if only is not None and (rec.get("object_id"), rec.get("region")) not in only[xmlrp]:
+            for rec in tasks:
+                if only is not None and not any(
+                    (source["object_id"], source["region"]) in only[xmlrp] for source in rec["source_records"]
+                ):
                     continue
-                rng = random.Random(a.seed_base + xi * 17 + ri)
-                obj = rec.get("object_id")
+                rng = random.Random(a.seed_base)
+                obj = rec["boundary_objects"][0]  # visualization anchor only, never a search restriction
+                gp = rec["target_samples"]
+                if a.success == "point" and rec["target_region"] != snapshot["goal_label"]:
+                    raise ValueError("point success cannot evaluate a non-goal target region")
+                is_open = ((lambda e, p=[point[:2] for point in gp]: goal_open_pts(e, p)) if a.success == "region" else
+                           (lambda e: e.is_robot_goal_reachable()))
                 pops = [] if a.trace_out else None
                 capture = None
                 ep_scene = scene
@@ -304,18 +342,19 @@ def main():
                 initial_state = state_record(s0)
                 problem = dict(xml_sha256=file_digest(xml), initial_state=initial_state,
                                target_samples=gp if a.success == "region" else list(goal),
-                               boundary_objects=[obj], object_scope="legacy_single_object")
+                               target_region=rec["target_region"],
+                               boundary_objects=rec["boundary_objects"], object_scope="boundary_pool")
                 identity = run_identity(problem, dict(search_params, runtime=runtime), a.prior,
                                         runtime["checkpoint_sha256"],
-                                        {"sampler": 42, "shuffle": a.seed_base + xi * 17 + ri})
+                                        {"sampler": 42, "shuffle": a.seed_base})
                 solved, sims, plen, boards, end = solve_scene(
                     planner, env, goal, xml, s0, a.hmax, a.sim_budget, a.prior, a.agg, a.combine, rng,
-                    restrict_obj=obj, is_open=is_open, raw=a.raw, dive_bonus=a.dive_bonus,
+                    restrict_obj=rec["boundary_objects"], is_open=is_open, raw=a.raw, dive_bonus=a.dive_bonus,
                     discount=a.discount, gamma=a.gamma, tau=a.tau, g_table=g_table, eps=a.eps,
                     w0_mode=a.w0_mode, free_strike_q=a.free_strike_q, child_patience=a.child_patience,
                     dedupe_noop=a.dedupe_noop, prune_jam_depth=a.prune_jam_depth,
                     trace_out=pops, capture=capture, timing=tm,
-                    region_samples=(gp if a.prior in {"geometric", "geometric_region"} else None))
+                    region_samples=gp)
                 n += 1; sims_tot += sims; n_solved += int(solved); sims_solved += sims if solved else 0
                 terminal = state_record(env.get_full_state())
                 measured.event("run_end", solved=solved, calls=sims, local_end=end,
@@ -323,7 +362,8 @@ def main():
                 optional = ({**tm, "time_until_success": tm["t_wall"] if solved else None} if tm is not None else {})
                 if measured.statistics is not None:
                     optional.update(statistics=measured.statistics, initial_state=initial_state, terminal_state=terminal)
-                lf.write(json.dumps({"xml": xml, "object_id": obj, "region": rec.get("region"),
+                lf.write(json.dumps({"xml": xml, "region": rec["target_region"], **rec,
+                                     "source_manifest": a.key, "source_manifest_sha256": file_digest(a.key),
                                      "solved": solved, "sims": sims, "plan_len": plen,
                                      "search": search_params, "seed_base": a.seed_base,
                                      **identity, "schema_version": measurement["schema_version"],
