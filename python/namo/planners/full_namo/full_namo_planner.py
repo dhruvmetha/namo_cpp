@@ -1178,6 +1178,9 @@ class FullNAMOPlanner(BasePlanner):
         For ``greedy_policy``, executable success means one physical policy
         step is ready; final goal success remains camera-validated by the
         robot runtime after subsequent observation and navigation.
+
+        For ``first_keyhole``, it means one verified local opening chain is
+        ready. ``goal_reachable`` separately reports final-goal connectivity.
         """
         algorithm_stats = {
             "full_namo_stats": self.stats,
