@@ -72,7 +72,7 @@ The head is a constant near 0.0098 and the whole ordering signal is 1e-6 wide, w
 
 If it holds, the fix is the variant not selected: drop the floor's REGRESSION too, while keeping unreachable cells in the rank lists, where they still serve as known-worse opponents. `loss_mask` carries them at `UNREACH_W` > 0, so `_rank_list_mask` already includes them and their ordering contribution survives without the absolute zero target.
 
-Not called on one epoch — the gradient to separate scores exists even from a collapsed start. Re-measure at epoch 2 or 3. Widening means a slow start and the fleet stands. Still 1e-6 means the arm is degenerate, stop it rather than hold three shared GPUs for nine hours, and launch the corrected variant.
+Not called on one epoch. The gradient to separate scores exists even from a collapsed start. Re-measure at epoch 2 or 3. Widening means a slow start and the fleet stands. Still 1e-6 means the arm is degenerate, stop it rather than hold three shared GPUs for nine hours, and launch the corrected variant.
 
 ## Result
 
