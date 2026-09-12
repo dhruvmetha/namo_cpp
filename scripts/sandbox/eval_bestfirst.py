@@ -55,6 +55,7 @@ from namo.planners.search_measurements import (  # noqa: E402
     runtime_fingerprints, state_record,
     clock_finish,
     save_run_row, write_json_artifact, atomic_write, append_jsonl,
+    xml_input_coverage,
 )
 from viz.trace_schema import build_trace, episode_filename, make_board, make_pop, rle_encode  # noqa: E402
 
@@ -191,7 +192,9 @@ def _evaluate_pooled_task(a, planner, env, xml, goal, s0, snapshot, initial_obse
         common.update(run_identity(problem, dict(search_params, runtime=semantic_runtime), a.prior,
                                    runtime["checkpoint_sha256"], {"sampler": 42, "shuffle": a.seed_base}),
                       runtime_fingerprints=runtime, xml_sha256=problem["xml_sha256"],
-                      initialized_state_digest=content_digest(initial))
+                      initialized_state_digest=content_digest(initial),
+                      semantic_protocol=dict(search_params, runtime=semantic_runtime),
+                      xml_input_coverage=xml_input_coverage(xml))
         measured.checkpoint(s0, trigger="initial", snapshot=snapshot, observation=initial_observation)
         measured.start_clock()
         measured.begin_attempt(task_kind="boundary", target_region=rec["target_region"],

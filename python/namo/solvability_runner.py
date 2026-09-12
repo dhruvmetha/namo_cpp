@@ -26,6 +26,7 @@ from namo.planners.search_measurements import (
     SearchMeasurements, clock_finish, clock_start, content_digest, file_digest,
     measurement_options, run_identity, runtime_fingerprints, state_record,
     append_jsonl, save_run_row, write_json_artifact, atomic_write,
+    xml_input_coverage,
 )
 from namo.runtime_profile import (
     CANONICAL_CONFIG,
@@ -198,7 +199,8 @@ def solve_environment_task(task: SolveTask) -> Dict[str, Any]:
         common.update(run_identity(problem, semantic, task.best_first_prior, runtime["checkpoint_sha256"],
                                    {"sampler": task.seed, "shuffle": common["shuffle_seed"]}),
                       runtime_fingerprints=runtime, xml_sha256=problem["xml_sha256"],
-                      initialized_state_digest=content_digest(initial_state), original_goal=list(robot_goal))
+                      initialized_state_digest=content_digest(initial_state), original_goal=list(robot_goal),
+                      semantic_protocol=semantic, xml_input_coverage=xml_input_coverage(task.xml_path))
         measured.start_clock()
         started = measured._clock_origin
         result = planner.search(robot_goal)

@@ -15,6 +15,7 @@ from pathlib import Path
 import platform
 import subprocess
 import tempfile
+import xml.etree.ElementTree as ET
 from time import perf_counter
 
 
@@ -164,6 +165,14 @@ def save_run_row(path, row, *, statistics_dir="statistics"):
 def state_record(state):
     """Copy the exact canonical RLState arrays; this is not a MuJoCo tick state."""
     return {"qpos": list(state.qpos), "qvel": list(state.qvel)}
+
+
+def xml_input_coverage(path):
+    """State whether the root XML hash covers the model's external file references."""
+    references = sorted({element.attrib["file"] for element in ET.parse(path).iter()
+                         if "file" in element.attrib})
+    return dict(status="external_references_unhashed" if references else "self_contained",
+                external_files=references)
 
 
 def run_identity(problem, protocol, method, checkpoint_hash, seeds):
