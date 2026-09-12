@@ -2,16 +2,6 @@
 
 Live list of things we know are wrong in the region graph and chose not to fix yet, with the reason and what it would take. Opened 2026-08-29 alongside the multi-object edge change. Delete an entry only when the code is fixed, never because it stopped being convenient.
 
-## 1. The single-object pass can miss a connection when a wall splits an object's footprint
-
-`WavefrontGrid::build_region_connectivity_graph` frees one object's inflated footprint, but only the cells where that object is the sole occupant. A wall crossing the footprint leaves solid cells behind and splits the freed cells into separate patches. The flood then starts at `removed_cells[0]` and explores only that patch, recording free neighbours without ever expanding into them. A patch that would join two regions is never visited if the flood started in a different one.
-
-**Why it stays.** Fixing it changes the answer on single-movable scenes, which destroys the byte-parity check that proves the multi-object pass broke nothing. We wanted that check more than we wanted this fix.
-
-**Cost to fix.** Flood every patch instead of the first, then re-baseline every difficulty label in the project. Do it as its own change with its own gate, never bundled.
-
-**How to detect it in the wild.** A scene where deleting an object visibly opens a route but the graph records no edge for it, with the object's footprint straddling a wall.
-
 ## 2. Multi-object edges can bridge doorways no push sequence can open
 
 A connected clump of touching movables becomes one blob, and a blob is credited with joining every region its boundary touches. A chain of blocks spanning two separate doorways therefore writes an edge between regions that no achievable push actually connects.

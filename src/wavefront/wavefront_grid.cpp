@@ -813,16 +813,13 @@ WavefrontGrid::build_region_connectivity_graph(NAMOEnvironment& env) {
             continue;
         }
         
-        // === STEP 3: Run optimized BFS from one removed cell ===
-        std::pair<int, int> seed_cell = removed_cells[0];  // Pick first removed cell
-        std::unordered_set<int> connected_region_ids;
-        
-        // BFS with optimization: stop expanding at already-free cells
-        std::queue<std::pair<int, int>> bfs_queue;
+        // === STEPS 3-4: Flood each removed patch and connect its boundary regions ===
+        // Walls or overlapping movables can split the removed footprint. Discover every
+        // patch while visiting each removed cell once, and stop at originally-free cells.
+        const std::unordered_set<std::pair<int, int>, CoordinateHash> removed_set(
+            removed_cells.begin(), removed_cells.end());
         std::unordered_set<std::pair<int, int>, CoordinateHash> visited;
-        
-        bfs_queue.push(seed_cell);
-        visited.insert(seed_cell);
+        visited.reserve(removed_cells.size());
         
         // 8-connected neighbors
         const std::array<std::pair<int, int>, 8> directions = {{
@@ -830,79 +827,72 @@ WavefrontGrid::build_region_connectivity_graph(NAMOEnvironment& env) {
             {1, 1}, {1, -1}, {-1, 1}, {-1, -1}       // Diagonal directions
         }};
         
-        while (!bfs_queue.empty()) {
-            auto [x, y] = bfs_queue.front();
-            bfs_queue.pop();
-            
-            // Explore all 8-connected neighbors
-            for (const auto& [dx, dy] : directions) {
-                int nx = x + dx;
-                int ny = y + dy;
-                std::pair<int, int> neighbor = {nx, ny};
-                
-                if (!is_valid_grid_coord(nx, ny) || 
-                    visited.find(neighbor) != visited.end() ||
-                    dynamic_grid_[nx][ny] == -1) {  // Skip obstacles
-                    continue;
-                }
-                
-                visited.insert(neighbor);
-                
-                // Check if this cell was originally free (belongs to existing region)
-                bool was_originally_free = true;
-                for (const auto& removed_cell : removed_cells) {
-                    if (removed_cell.first == nx && removed_cell.second == ny) {
-                        was_originally_free = false;
-                        break;
+        for (const auto& seed_cell : removed_cells) {
+            if (!visited.insert(seed_cell).second) {
+                continue;
+            }
+            std::queue<std::pair<int, int>> bfs_queue;
+            bfs_queue.push(seed_cell);
+            std::unordered_set<int> connected_region_ids;
+
+            while (!bfs_queue.empty()) {
+                auto [x, y] = bfs_queue.front();
+                bfs_queue.pop();
+
+                for (const auto& [dx, dy] : directions) {
+                    int nx = x + dx;
+                    int ny = y + dy;
+                    std::pair<int, int> neighbor = {nx, ny};
+
+                    if (!is_valid_grid_coord(nx, ny) || dynamic_grid_[nx][ny] == -1) {
+                        continue;
+                    }
+
+                    if (removed_set.find(neighbor) == removed_set.end()) {
+                        // Record the free boundary, without expanding through it.
+                        int region_id = region_grid_[nx][ny];
+                        if (region_id > 0) {
+                            connected_region_ids.insert(region_id);
+                        }
+                    } else if (visited.insert(neighbor).second) {
+                        bfs_queue.push(neighbor);
                     }
                 }
-                
-                if (was_originally_free) {
-                    // This cell belongs to an existing region - record it but don't expand further
-                    int region_id = region_grid_[nx][ny];
-                    if (region_id > 0) {
-                        connected_region_ids.insert(region_id);
+            }
+
+            // Connect each patch separately: combining their boundaries would invent
+            // connections across the wall or movable that separates the patches.
+            if (connected_region_ids.size() >= 2) {
+                wg_dbg() << "  Object patch connects " << connected_region_ids.size() << " regions: ";
+
+                std::vector<std::string> connected_labels;
+                for (int region_id : connected_region_ids) {
+                    auto label_it = region_labels.find(region_id);
+                    if (label_it != region_labels.end()) {
+                        connected_labels.push_back(label_it->second);
+                        wg_dbg() << label_it->second << " ";
                     }
-                } else {
-                    // This cell was also blocked by the object - continue exploring
-                    bfs_queue.push(neighbor);
                 }
-            }
-        }
-        
-        // === STEP 4: Create edges if multiple regions connected ===
-        if (connected_region_ids.size() >= 2) {
-            wg_dbg() << "  Object connects " << connected_region_ids.size() << " regions: ";
-            
-            // Convert region IDs to labels and create complete subgraph
-            std::vector<std::string> connected_labels;
-            for (int region_id : connected_region_ids) {
-                auto label_it = region_labels.find(region_id);
-                if (label_it != region_labels.end()) {
-                    connected_labels.push_back(label_it->second);
-                    wg_dbg() << label_it->second << " ";
-                }
-            }
-            wg_dbg() << std::endl;
-            
-            // Add edges between all pairs of connected regions
-            for (size_t i = 0; i < connected_labels.size(); i++) {
-                for (size_t j = i + 1; j < connected_labels.size(); j++) {
-                    const std::string& label1 = connected_labels[i];
-                    const std::string& label2 = connected_labels[j];
+                wg_dbg() << std::endl;
 
-                    adjacency_list[label1].insert(label2);
-                    adjacency_list[label2].insert(label1);
+                for (size_t i = 0; i < connected_labels.size(); i++) {
+                    for (size_t j = i + 1; j < connected_labels.size(); j++) {
+                        const std::string& label1 = connected_labels[i];
+                        const std::string& label2 = connected_labels[j];
 
-                    auto& edge_set_1 = adjacency_object_map_[label1][label2];
-                    edge_set_1.insert(obj.name);
-                    auto& edge_set_2 = adjacency_object_map_[label2][label1];
-                    edge_set_2.insert(obj.name);
+                        adjacency_list[label1].insert(label2);
+                        adjacency_list[label2].insert(label1);
+
+                        auto& edge_set_1 = adjacency_object_map_[label1][label2];
+                        edge_set_1.insert(obj.name);
+                        auto& edge_set_2 = adjacency_object_map_[label2][label1];
+                        edge_set_2.insert(obj.name);
+                    }
                 }
+            } else {
+                wg_dbg() << "  Object patch connects " << connected_region_ids.size()
+                          << " regions - no edges added" << std::endl;
             }
-        } else {
-            wg_dbg() << "  Object connects " << connected_region_ids.size() 
-                      << " regions - no edges added" << std::endl;
         }
         
         // === STEP 5: Restore object to grid ===
@@ -913,11 +903,8 @@ WavefrontGrid::build_region_connectivity_graph(NAMOEnvironment& env) {
 
     // === MOVABLE-BLOB PASS, PHASE B: write edges for clumps of two or more objects ===
     //
-    // Only multi-object blobs write here. A single-object blob is already the per-object loop's job,
-    // and letting this pass touch those would change single-movable scenes, which is exactly the
-    // regression we need to be able to rule out. That restriction is also what lets us leave the
-    // per-object loop's split-footprint bug alone, documented in
-    // docs/known_limitations_region_graph.md #1.
+    // Only multi-object blobs write here. The per-object loop already handles every
+    // disconnected patch of a single-object footprint.
     //
     // The per-object result as it stands right now, before this pass adds anything. A blob member
     // appearing here for a pair means that object ALONE opens that boundary, so the blob is not a
