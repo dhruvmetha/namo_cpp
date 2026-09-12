@@ -90,6 +90,7 @@ for arm in "${arms[@]}"; do
     HY5U_global) short=gl ;;
     HY5U_no_local) short=nl ;;
     HY5U_no_edge) short=ne ;;
+    HY5U_rank_only) short=ro ;;   # EXP-2026-09-12 loss arm; same protocol, so it reuses this launcher
     *) echo "unknown architecture arm: $arm" >&2; exit 2 ;;
   esac
   smoke_out="$OUT_ROOT/smoke/${arm}_s1"
