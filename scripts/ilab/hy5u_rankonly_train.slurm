@@ -49,20 +49,23 @@ fi
 mkdir -p "$OUT"
 
 echo "RANKONLY mode=$MODE arm=$ARM seed=$SEED task=$TASK job=$SLURM_JOB_ID host=$(hostname) commit=$(git rev-parse HEAD) resume_from=${RESUME_FROM:-none} run_log=$RUN_LOG"
-# /tmp, not /dev/shm: systemd RemoveIPC wipes /dev/shm when the user's last login session on the
-# node closes, and polling the job over ssh to that same node is enough to trigger it. Job 297444
-# died exactly that way, mid-epoch, after a clean "staged H5" line. ilab2's /tmp is a dedicated
-# 98 GB NVMe partition, so staging there is both fast and immune. Check `findmnt /tmp` on any other
-# node before pinning it there; on a node where /tmp is the root RAID array this is ~3.6x slower.
-STAGE_DIR=${HY5U_STAGE_DIR:-/tmp}
-WORKERS=${HY5U_WORKERS:-6}
+# iLab has NOWHERE node-local to stage this 4.2 GB H5, so read it straight off NFS.
+# /dev/shm works until systemd RemoveIPC clears it, which happens when the user's last login
+# session on the node ends; an ssh to ilab2 to run squeue was enough to kill job 297444 mid-epoch.
+# /tmp is a 98 GB NVMe partition but carries a 2 GiB per-user quota, so the copy dies at 2 GiB
+# (job 297445, "Disk quota exceeded", silent fallback to NFS).
+#
+# WORKERS=0 for the same reason: spawned DataLoader workers rebuild POSIX semaphores out of
+# /dev/shm, so a wipe kills them too (297445's SemLock._rebuild FileNotFoundError storm). This is
+# the config that completed all three arms of EXP-2026-08-31 on iLab. It costs ~45 min/epoch.
+WORKERS=${HY5U_WORKERS:-0}
 srun --nodes=1 --ntasks=1 --kill-on-bad-exit=1 env NAMO_REPO="$REPO" NAMO_ENV_SCRIPT=env.ilab.sh \
   H5="$H5" OUT="$OUT" TRAIN_SCRIPT=scripts/rl_loop/train_q2_rankonly.py \
   RESUME_FROM="$RESUME_FROM" TRAIN_LOG="$RUN_LOG" \
   EPOCHS="$EPOCHS" BATCH=256 WORKERS="$WORKERS" SEED="$SEED" POSTCHECK_LIMIT=64 \
   NAMO_GAMMA=0.5 NAMO_UNREACH_W=0.1 NAMO_GROUP_EPISODES=1 \
   EGMM_LAMBDA=0.1 RANK_LAMBDA=0.1 LOWER_RANK_LAMBDA=0.05 \
-  NAMO_EDGE_SELF_ATTN=1 NAMO_STAGE_DIR="$STAGE_DIR" PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+  NAMO_EDGE_SELF_ATTN=1 NAMO_STAGE_SHM="${HY5U_STAGE_SHM:-0}" PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
   bash scripts/slurm/train.slurm
 grep -q "eval_scorer-load check" "$RUN_LOG" || { echo "missing scorer-load marker after srun" >&2; exit 1; }
 compgen -G "$OUT/checkpoints/*.ckpt" >/dev/null || { echo "missing checkpoint after srun" >&2; exit 1; }
