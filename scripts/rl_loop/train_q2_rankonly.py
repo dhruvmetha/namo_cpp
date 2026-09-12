@@ -47,6 +47,21 @@ ensure_paths()
 
 import torch  # noqa: E402
 
+# Keep the unreachable floor's REGRESSION, or drop it and let those cells act only as rank
+# opponents? Both variants keep unreachable cells in the rank lists, because the dataset folds them
+# into `loss_mask` at UNREACH_W > 0 and `_rank_list_mask` is that mask.
+#
+# FLOOR=1 (the arm the user picked) measured DEGENERATE at epoch 0, three seeds: score pinned at
+# 0.0098 with a 1e-6 spread, and rank_opener/rank_setup bit-identical at 2.8002/3.7766 across three
+# different checkpoints. Identical losses from different weights means the output stopped
+# influencing the loss. Mechanism: the floor is an absolute 0 target on ~230 of ~300 cells per
+# board, the exact-cell regression that used to pull openers to 1.0 is gone, and the rank terms are
+# scale-free, so nothing opposes the sink.
+#
+# FLOOR=0 removes the last absolute target. The bounded HL-Gauss head still caps the range at
+# [0,1], and round 1's RP arm (no floor at all) sat at spread 0.45-0.67 rather than collapsing.
+RANKONLY_FLOOR = os.environ.get("NAMO_RANKONLY_FLOOR", "1") == "1"
+
 _spec = importlib.util.spec_from_file_location(
     "train_q2_round2", str(REPO / "scripts/rl_loop/train_q2_round2.py"))
 r2 = importlib.util.module_from_spec(_spec)
@@ -94,6 +109,8 @@ class RankOnlyModule(r2.Round2Module):
             self._rank_list_mask = None
             self._rank_ceiling_mask = None
 
+        if not RANKONLY_FLOOR:
+            return loss
         floor = hl.loss(logits, f_labels, _wmask(floor_mask, weight)) * self._floor_scale(
             floor_mask, exact_mask, weight)
         self.log("unreach_floor", floor, on_step=False, on_epoch=True, prog_bar=False)
@@ -121,10 +138,11 @@ class RankOnlyModule(r2.Round2Module):
         _, opener, setup = rank.certain_order_rank_aux_losses(
             val, f_labels, loss_mask, ceiling, self.rank_temp)
         loss = rank.weighted_rank_aux(opener, setup, self.rank_lambda, self.lower_rank_lambda)
-        exact_mask = loss_mask * (1.0 - ceiling)
-        floor_mask = exact_mask * (1.0 - r_mask)
-        loss = loss + hl.loss(logits, f_labels, floor_mask) * self._floor_scale(
-            floor_mask, exact_mask, None)
+        if RANKONLY_FLOOR:
+            exact_mask = loss_mask * (1.0 - ceiling)
+            floor_mask = exact_mask * (1.0 - r_mask)
+            loss = loss + hl.loss(logits, f_labels, floor_mask) * self._floor_scale(
+                floor_mask, exact_mask, None)
         self.val_loss(loss)
         self.log("val_loss", self.val_loss, on_epoch=True, prog_bar=True)
         return loss
@@ -145,6 +163,7 @@ def build_module(base_lr, warmup_steps, decay_steps):
 if __name__ == "__main__":
     print(f"[rankonly] RANK_LAMBDA={rank.RANK_LAMBDA} LOWER_RANK_LAMBDA={rank.LOWER_RANK_LAMBDA} "
           f"EGMM_LAMBDA={r2.EGMM_LAMBDA} MM_MARGIN={r2.MM_MARGIN} UNREACH_W={r2.UNREACH_W} "
+          f"FLOOR={int(RANKONLY_FLOOR)} "
           f"(val_loss monitor = floor + per-board rank; exact/censored regression ABSENT)", flush=True)
     tq2.build_module = build_module
     tq2.Q2DataModule = r2.GroupedQ2DataModule       # carries the UNREACH_W folding, as in round 2

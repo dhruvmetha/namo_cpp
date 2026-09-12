@@ -17,7 +17,7 @@ MODE=${MODE:-smoke}
 R0=${HY5U_R0:-$NAMO_SCRATCH/aquaman/round0}
 H5=${HY5U_H5:-$R0/hybrid_train_v1.h5}
 TASK=${SLURM_ARRAY_TASK_ID:-0}
-ARM=HY5U_rank_only
+ARM=${HY5U_ARM:-HY5U_rank_only}
 RESUME_FROM=
 
 if [ "$MODE" = "smoke" ]; then
@@ -65,6 +65,7 @@ srun --nodes=1 --ntasks=1 --kill-on-bad-exit=1 env NAMO_REPO="$REPO" NAMO_ENV_SC
   EPOCHS="$EPOCHS" BATCH=256 WORKERS="$WORKERS" SEED="$SEED" POSTCHECK_LIMIT=64 \
   NAMO_GAMMA=0.5 NAMO_UNREACH_W=0.1 NAMO_GROUP_EPISODES=1 \
   EGMM_LAMBDA=0.1 RANK_LAMBDA=0.1 LOWER_RANK_LAMBDA=0.05 \
+  NAMO_RANKONLY_FLOOR="${HY5U_FLOOR:-1}" \
   NAMO_EDGE_SELF_ATTN=1 NAMO_STAGE_SHM="${HY5U_STAGE_SHM:-0}" PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
   bash scripts/slurm/train.slurm
 grep -q "eval_scorer-load check" "$RUN_LOG" || { echo "missing scorer-load marker after srun" >&2; exit 1; }
