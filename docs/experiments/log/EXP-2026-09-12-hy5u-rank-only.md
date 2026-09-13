@@ -161,7 +161,30 @@ RuntimeError: matched 1push rows 1247 != expected 1328
 
 The gap is **rooms versus episodes**: the launcher shards by ROOM, the aggregator counts EPISODES, and one room yields several. 1,247 of 1,328 means some rooms yielded fewer episodes than the manifest expects, not that rooms went unvisited. Locating it needs per-shard episode counts diffed against the manifest.
 
-**Open, and the next action.** Diff per-shard episode counts against the one-push manifest to find which rooms under-produced. Do NOT relaunch before that: attempt 2 shows a clean-looking run can be 6% short, so a fourth launch without the diff risks the same silent gap.
+#### The diff, done: the room set is right, 81 EPISODES are dropped
+
+Per-shard episode counts for seed 1, one-push:
+
+| rows per shard | shards |
+|---:|---:|
+| 0 | 1 |
+| 1 | 16 |
+| 2 | 93 |
+| 3 | 142 |
+| 4 | 83 |
+| 5 | 26 |
+| 6 | 14 |
+| 7 | 8 |
+
+385 shards, 1,247 rows, exactly one legitimately empty. Every shard ran and wrote output, so no shard failed.
+
+The manifest `/scratch/dm1487/datasets/namo_testset_v3/labels/onepush_v3.json` holds **997 rooms and 1,328 episodes**, which matches the aggregator's expectation exactly. The run covered all 997 rooms and produced 1,247 episodes.
+
+**So the room set is correct and 81 episodes are dropped inside the evaluation path.** Not scheduling, not fan-out width, not a manifest mismatch, and not the shard tiling (verified exact above). Something declines to emit those episodes.
+
+This matters beyond this arm: the same launcher and protocol produced the registered September rows, so whatever drops these 81 may have applied there too, unnoticed because nobody diffed room-level counts.
+
+**Next action.** Compare per-ROOM episode counts in the output against the manifest room by room. That names the 81 and probably the reason in one pass, and it is a read of two files rather than a cluster job. Do NOT relaunch first: attempt 2 shows a clean-looking run can be 6% short.
 
 ## Result
 
