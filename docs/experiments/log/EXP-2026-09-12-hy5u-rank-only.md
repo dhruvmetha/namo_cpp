@@ -180,11 +180,15 @@ Per-shard episode counts for seed 1, one-push:
 
 The manifest `/scratch/dm1487/datasets/namo_testset_v3/labels/onepush_v3.json` holds **997 rooms and 1,328 episodes**, which matches the aggregator's expectation exactly. The run covered all 997 rooms and produced 1,247 episodes.
 
-**So the room set is correct and 81 episodes are dropped inside the evaluation path.** Not scheduling, not fan-out width, not a manifest mismatch, and not the shard tiling (verified exact above). Something declines to emit those episodes.
+**CORRECTION (per-room diff): the room set is NOT correct.** The run covered **938 of 997 rooms**, not all of them. The earlier claim here came from counting shards rather than distinct rooms in the output, which was the wrong measurement. **59 rooms produced ZERO episodes**, accounting for all 81 missing. Every mismatched room is zero rather than partial, so rooms are skipped whole rather than truncated, and the names span both the `2_seed*` and `benchmark_4` families, so it is not one bad batch of scenes. Not scheduling, not fan-out width, not a manifest mismatch, and not the shard tiling (verified exact above). Something declines to emit those episodes.
 
 This matters beyond this arm: the same launcher and protocol produced the registered September rows, so whatever drops these 81 may have applied there too, unnoticed because nobody diffed room-level counts.
 
-**Next action.** Compare per-ROOM episode counts in the output against the manifest room by room. That names the 81 and probably the reason in one pass, and it is a read of two files rather than a cluster job. Do NOT relaunch first: attempt 2 shows a clean-looking run can be 6% short.
+Known-affected rooms include `2_seed07140/run_0009/env_0009_pair_001.xml` (expected 1, got 0) and `benchmark_4/run_0492/env_0492_pair_001.xml` (expected 2, got 0).
+
+Whole rooms silently yielding nothing, while the shard that owns them exits 0, is the shape of a room that fails to load or trips a precondition and is then passed over without an error. Testable guess, not a conclusion.
+
+**Next action.** Run one named room directly and read what happens. That gives a single reproducible case instead of statistics, and it is a one-room job rather than a campaign. Do NOT relaunch the campaign first.
 
 ## Result
 
