@@ -207,7 +207,44 @@ Also note the 59 `already_open` count EQUALS the 59 zero-episode rooms from the 
 
 **A failed isolation test, recorded so nobody repeats it.** I ran manifest index 4 expecting the named `2_seed07140` room and it solved cleanly in one simulator call, which I briefly read as exonerating that room. It does not: shard 1 emits `benchmark_1` rooms, so the shard slicing walks a different room ordering than the manifest key order. Index 4 in key order is NOT the room the campaign assigned to that slot. Any single-room reproduction must select the room by matching its xml path, never by manifest index.
 
-**Next action.** Identify which 22 episodes are missing after excluding the 59 already-open skips, by matching emitted `xml` plus `object_id` pairs against the manifest's episode list. Only then decide whether the aggregator's 1,328 is wrong for this population or the run genuinely lost 22. Do NOT relaunch the campaign before that.
+#### RETRACTION, then the exact comparison
+
+Two earlier decompositions in this card were wrong and are retracted. I subtracted the 59 `already_open` skips from the 81-episode gap to claim "22 unexplained". The two counts are in different units, ROOMS versus EPISODES, so they were never subtractable. **The gap was always exactly 81.** I also wrote that the run was correct and the aggregator's 1,328 was wrong for this population; that is false, see below.
+
+Episode-level set difference, matching on `(xml, object_id, region)`:
+
+| quantity | value |
+|---|---:|
+| manifest episodes | 1,328 |
+| emitted episodes | 1,247 |
+| missing | 81 |
+| unexpected extras | 0 |
+| missing, split by room | 59 rooms emitting nothing, 0 partial |
+
+Emitted is a strict SUBSET of the manifest, and the loss is strictly room-level: a room emits all its episodes or none.
+
+**Mechanism located in code.** `eval_bestfirst.py:268` tests `is_open(env)` inside the loop over ROOMS, not episodes, and `continue`s past the whole room. One increment of `n_already_open` therefore discards every episode in that room, which is why 59 skips cost 81 episodes.
+
+**But the skip is NOT legitimate here.** Compared against the registered September row `hy5u_ablations_20260904/full/HY5U_regression_s1`:
+
+| run | rooms | episodes |
+|---|---:|---:|
+| September, registered | 997 | 1,328 |
+| this run | 938 | 1,247 |
+
+**September emitted all 59 of the rooms this run skipped. Zero overlap in the skip set.** So 1,328 is reachable and the expectation is right; this run lost those rooms.
+
+**Ruled out, each checked rather than reasoned about:**
+
+1. Shard tiling. `S=SH*N/NSH`, `EN=(SH+1)*N/NSH` tiles exactly, last shard ends at `N`.
+2. Aggregator expectation. September hit 1,328 on the same manifest.
+3. Inflation margin. `base_inflation_margin_m: 0.001` identical in this checkout, `namo_arch_eval_20260904`, `namo_policy_group_20260907_census_fix`, and `namo_cpp`.
+4. Recorded search parameters. `success`, `region_samples`, `open_frac`, `key`, `prior`, `hmax`, `sim_budget`, `seed_base` all identical between the two runs.
+5. Fan-out width. The narrow rerun completed every task and still lost the same 81.
+
+**A provenance gap worth fixing independently.** Nothing recorded in these shard summaries distinguishes a run that emits 1,328 from one that emits 1,247. The artifacts the registry relies on cannot tell these two apart, which is a weakness in the provenance, not just in this run.
+
+**Next action.** Instrument the `is_open` check to log, per room, the reachability result and the inputs it used, then run it over the 59 named rooms. Counting has exhausted what it can show; this needs the check to report its own reasoning. Do NOT relaunch the campaign first.
 
 ## Result
 
