@@ -127,6 +127,42 @@ Fleet `297468_[0-2]` launched on ilab2, three seeds, 16-hour limit, `NAMO_RANKON
 
 **Open caveat:** one epoch proves the arm trains and that its scale is healthy. It does not prove the arm is competitive with HY5U. Only the canonical evaluation does that.
 
+### Training COMPLETE, evaluation BLOCKED on an episode-count shortfall
+
+All three floor-off seeds finished 12 epochs, exit code 0, and cleared the evaluator-load gate at a score range of **0.010 to 0.990** (the degenerate arm read 0.010 to 0.010 on the same probe).
+
+| seed | elapsed | final val | selected checkpoint | sha256 prefix |
+|---|---|---|---|---|
+| 1 | 9:15:06 | 0.3430 | epoch011-val_loss0.3430.ckpt | 367c65e0 |
+| 2 | 9:24:07 | **0.3412** | epoch011-val_loss0.3412.ckpt | 8d106648 |
+| 3 | 9:18:36 | 0.3427 | epoch011-val_loss0.3427.ckpt | 06b77d15 |
+
+Validation fell on **every one of twelve epochs in all three seeds, with no reversal**, so the minimum is the final epoch in each case and selection was unambiguous. The registry's note that these scorers overfit by epoch 3 or 4 did NOT hold for this arm; the curve was still descending at the end, which is a real difference from the regression-based recipe that warning was written for.
+
+**Amarel bindings deliberately NOT rebuilt.** Amarel's `build_python` stamp (`cpp_tree=6fd8768a`, built 2026-08-30) differs from CS (`cpp_tree=ef9f4e79`, built 2026-09-11). The September comparison arms ran on the 2026-08-30 library, so matching it is what makes this row comparable; rebuilding would have silently invalidated the comparison.
+
+#### Evaluation attempt 1: hung at full fan-out
+
+`61483699` smoke passed, then arrays `61483700/703/705` ran 5,865 CPUs over **1,955 leaf shards per seed**. 172 of 345 tasks completed, then output stopped: no new shard for 19 minutes while 173 tasks held 2,941 CPUs with **CPU time frozen across a 45-second window**. A task that started at 19:43 printed its banner and produced nothing for 29 minutes. Cancelled at 20:12; 2,924 shards kept but no seed had a complete population. Cause never identified: compute nodes reject direct ssh, so the stuck processes could not be inspected.
+
+#### Evaluation attempt 2: completed cleanly, then the aggregator refused it
+
+Relaunched as `61487023` at the September shape, **36 tasks x 21 workers x 3 seeds = 2,268 CPUs, 756 leaf shards per seed**. All 108 tasks COMPLETED, zero failures, and exactly the expected **2,268 shards** in ~25 minutes. The narrow width does fix the hang.
+
+But all three aggregation jobs failed in under five seconds:
+
+```
+RuntimeError: matched 1push rows 1247 != expected 1328
+```
+
+**The strict population check did its job.** Tasks exited 0 and produced every expected shard, yet 81 one-push episodes are missing. That is worse than the visible hang, because nothing in job states or shard counts reveals it.
+
+**Sharding is NOT the cause, verified in code.** `aquaman_eval_amarel.slurm` slices with `S=SH*N/NSH`, `EN=(SH+1)*N/NSH`, whose last shard ends at exactly `N`. The tiling is exact, so reducing 997 rooms to 385 shards drops no rooms. This also clears the worry that September's runs on the same capped branch were silently truncated.
+
+The gap is **rooms versus episodes**: the launcher shards by ROOM, the aggregator counts EPISODES, and one room yields several. 1,247 of 1,328 means some rooms yielded fewer episodes than the manifest expects, not that rooms went unvisited. Locating it needs per-shard episode counts diffed against the manifest.
+
+**Open, and the next action.** Diff per-shard episode counts against the one-push manifest to find which rooms under-produced. Do NOT relaunch before that: attempt 2 shows a clean-looking run can be 6% short, so a fourth launch without the diff risks the same silent gap.
+
 ## Result
 
-Pending.
+Training complete and verified. Test-set numbers pending the episode-count diff.
