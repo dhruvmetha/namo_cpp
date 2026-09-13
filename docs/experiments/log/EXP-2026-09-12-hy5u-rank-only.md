@@ -188,7 +188,26 @@ Known-affected rooms include `2_seed07140/run_0009/env_0009_pair_001.xml` (expec
 
 Whole rooms silently yielding nothing, while the shard that owns them exits 0, is the shape of a room that fails to load or trips a precondition and is then passed over without an error. Testable guess, not a conclusion.
 
-**Next action.** Run one named room directly and read what happens. That gives a single reproducible case instead of statistics, and it is a one-room job rather than a campaign. Do NOT relaunch the campaign first.
+#### Shard counters: 59 legitimate skips, 22 still unexplained
+
+Summed across all 385 one-push shard summaries for seed 1:
+
+| quantity | count |
+|---|---:|
+| shard summaries read | 385 |
+| `n_episodes` emitted | 1,247 |
+| rows written | 1,247 |
+| `n_already_open` | 59 |
+| `n_no_record` | 0 |
+| manifest expects | 1,328 |
+
+Emitted plus skipped is **1,306 against 1,328, so 22 episodes remain unaccounted for.** The 59 `already_open` skips are legitimate: the goal region is open before any push, so there is nothing to solve and no row is owed. They explain most of the gap but not all of it.
+
+Also note the 59 `already_open` count EQUALS the 59 zero-episode rooms from the per-room diff. That is either one skipped episode per affected room or a coincidence, and it is NOT verified either way.
+
+**A failed isolation test, recorded so nobody repeats it.** I ran manifest index 4 expecting the named `2_seed07140` room and it solved cleanly in one simulator call, which I briefly read as exonerating that room. It does not: shard 1 emits `benchmark_1` rooms, so the shard slicing walks a different room ordering than the manifest key order. Index 4 in key order is NOT the room the campaign assigned to that slot. Any single-room reproduction must select the room by matching its xml path, never by manifest index.
+
+**Next action.** Identify which 22 episodes are missing after excluding the 59 already-open skips, by matching emitted `xml` plus `object_id` pairs against the manifest's episode list. Only then decide whether the aggregator's 1,328 is wrong for this population or the run genuinely lost 22. Do NOT relaunch the campaign before that.
 
 ## Result
 
