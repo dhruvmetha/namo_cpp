@@ -29,7 +29,9 @@ export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_TH
 CKPTS=${CKPTS:?set CKPTS to the directory holding HY5U_s1.ckpt, HY5U_s2.ckpt and HY5U_s3.ckpt}
 arms=()
 for s in 1 2 3; do arms+=(--arm "HY5U_s${s}:model:7000:${CKPTS}/HY5U_s${s}.ckpt"); done
-for seed in 7000 8000 9000 10000 11000; do arms+=(--arm "random_s${seed}:uniform:${seed}"); done
+# RANDOM_SEEDS="" runs HY5U only; unset keeps all five Random seeds.
+RANDOM_SEEDS=${RANDOM_SEEDS-7000 8000 9000 10000 11000}
+for seed in $RANDOM_SEEDS; do arms+=(--arm "random_s${seed}:uniform:${seed}"); done
 
 "$NAMO_PYTHON" scripts/pipeline/run_full_namo_rerun.py \
   --manifest-dir "$RERUN/input/full_namo" --config "$RERUN/config/namo_config.yaml" \
