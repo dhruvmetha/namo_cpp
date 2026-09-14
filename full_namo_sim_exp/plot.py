@@ -38,6 +38,9 @@ OUTPUT_DPI = 220
 TIME_GRID_SIZE = 400
 Metric = Literal["simulator_calls", "wall_time_seconds"]
 FROZEN_METHODS = ("PAVE", "Random")
+FROZEN_CURVE_WIDTH = 3.4
+SINGLE_COLUMN_CURVE_WIDTH = 2.2
+SINGLE_COLUMN_SIZE = (3.5, 2.35)
 DEFAULT_SMOOTH_ANCHORS = 32
 SMOOTH_GRID_SIZE = 1500
 EARLY_INTEGER_BUDGETS = 10
@@ -302,20 +305,28 @@ def prepare_frozen_curves(results: FrozenResults, metric: Metric, smooth_anchors
             "display_grid": display_grid, "display": display}
 
 
-def create_difficulty_figure(results: FrozenResults, metric: Metric, curves: dict,
-                             difficulty: str | None = None) -> Figure:
-    """Render one metric for a single difficulty, or overlay all three tiers."""
+def set_frozen_style(*, single_column: bool = False) -> None:
+    """Use bold type, with physical font sizes appropriate to each output layout."""
     set_style()
     plt.rcParams.update({"font.size": 11, "axes.labelsize": 11.5, "axes.titlesize": 12,
-                         "axes.titleweight": "normal", "xtick.labelsize": 10,
+                         "font.weight": "bold", "axes.labelweight": "bold",
+                         "axes.titleweight": "bold", "xtick.labelsize": 10,
                          "ytick.labelsize": 10, "pdf.fonttype": 42})
-    fig, ax = plt.subplots(figsize=(4.8, 3.6) if difficulty else (7.2, 5.1))
-    tiers = (difficulty,) if difficulty else FROZEN_DIFFICULTIES
+    if single_column:
+        plt.rcParams.update({"font.size": 8.5, "axes.labelsize": 8.5,
+                             "axes.titlesize": 9, "xtick.labelsize": 7.5,
+                             "ytick.labelsize": 7.5, "axes.linewidth": 0.8})
+
+
+def _draw_frozen_panel(ax, results: FrozenResults, metric: Metric, curves: dict,
+                       tiers: tuple[str, ...], *, overlay: bool = False,
+                       linewidth: float = FROZEN_CURVE_WIDTH) -> None:
+    """Draw unchanged smoothed costs on the shared metric-specific budget domain."""
     for tier in tiers:
         for method in FROZEN_METHODS:
             ax.plot(curves["display_grid"], curves["display"][tier, method],
-                    color=METHOD_COLORS[method], linestyle="-" if difficulty else DIFFICULTY_LINESTYLES[tier],
-                    linewidth=2.4, label=method if difficulty else f"{method} — {tier.capitalize()}",
+                    color=METHOD_COLORS[method], linestyle=DIFFICULTY_LINESTYLES[tier] if overlay else "-",
+                    linewidth=linewidth, label=f"{method} — {tier.capitalize()}" if overlay else method,
                     solid_capstyle="round", dash_capstyle="round",
                     zorder=3 if method == "PAVE" else 2)
     lower, upper = curves["display_grid"][[0, -1]]
@@ -329,25 +340,56 @@ def create_difficulty_figure(results: FrozenResults, metric: Metric, curves: dic
     ax.xaxis.set_minor_locator(NullLocator())
     ax.set_ylim(0, 102)
     ax.set_yticks([0, 20, 40, 60, 80, 100])
+    ax.grid(axis="y", color=GRID_COLOR, linewidth=0.7)
+    ax.set_axisbelow(True)
+
+
+def create_difficulty_figure(results: FrozenResults, metric: Metric, curves: dict,
+                             difficulty: str | None = None) -> Figure:
+    """Render one metric for a single difficulty, or overlay all three tiers."""
+    set_frozen_style()
+    fig, ax = plt.subplots(figsize=(4.8, 3.6) if difficulty else (7.2, 5.1))
+    tiers = (difficulty,) if difficulty else FROZEN_DIFFICULTIES
+    _draw_frozen_panel(ax, results, metric, curves, tiers, overlay=difficulty is None)
     ax.set_ylabel("Success rate (%)" if difficulty else "Environments solved within difficulty (%)")
     ax.set_xlabel("Simulated-push budget" if metric == "simulator_calls" else "Wall-clock planning budget (s)")
     ax.set_title(f"{difficulty.capitalize()} · 100 environments" if difficulty
                  else "Full NAMO · 100 environments per difficulty", pad=12)
-    ax.grid(axis="y", color=GRID_COLOR, linewidth=0.7)
-    ax.set_axisbelow(True)
-    methods = [Line2D([], [], color=METHOD_COLORS[method], linewidth=2.4, label=method) for method in FROZEN_METHODS]
+    methods = [Line2D([], [], color=METHOD_COLORS[method], linewidth=FROZEN_CURVE_WIDTH, label=method) for method in FROZEN_METHODS]
     if difficulty:
         fig.legend(handles=methods, loc="lower center", bbox_to_anchor=(0.5, 0.005),
                    ncol=2, fontsize=10, handlelength=2.5, columnspacing=1.8)
         fig.subplots_adjust(left=0.15, right=0.975, top=0.88, bottom=0.265)
         return fig
-    difficulties = [Line2D([], [], color="#444444", linewidth=2.4, linestyle=DIFFICULTY_LINESTYLES[tier],
+    difficulties = [Line2D([], [], color="#444444", linewidth=FROZEN_CURVE_WIDTH, linestyle=DIFFICULTY_LINESTYLES[tier],
                            label=tier.capitalize()) for tier in FROZEN_DIFFICULTIES]
     fig.legend(handles=methods, title="Method", loc="lower center", bbox_to_anchor=(0.29, 0.005),
                ncol=2, fontsize=10, title_fontsize=10, handlelength=2.5, columnspacing=1.3)
     fig.legend(handles=difficulties, title="Difficulty", loc="lower center", bbox_to_anchor=(0.74, 0.005),
                ncol=3, fontsize=10, title_fontsize=10, handlelength=2.5, columnspacing=1.3)
     fig.subplots_adjust(left=0.13, right=0.975, top=0.91, bottom=0.245)
+    return fig
+
+
+def create_hard_pair_figure(results: FrozenResults, by_metric: dict) -> Figure:
+    """Compose the two Hard curves at single-column size with a shared y-axis."""
+    set_frozen_style(single_column=True)
+    fig, axes = plt.subplots(1, 2, figsize=SINGLE_COLUMN_SIZE, sharey=True)
+    for ax, metric in zip(axes, METRIC_STEMS):
+        _draw_frozen_panel(ax, results, metric, by_metric[metric], ("hard",),
+                           linewidth=SINGLE_COLUMN_CURVE_WIDTH)
+        ax.tick_params(axis="both", length=3, pad=2)
+    axes[0].set_ylabel("Success rate (%)", labelpad=3)
+    axes[0].set_xlabel("(a) Simulator-push\nbudget", labelpad=4)
+    axes[1].set_xlabel("(b) Wall-clock\nbudget (s)", labelpad=4)
+    axes[1].spines["left"].set_visible(False)
+    axes[1].tick_params(axis="y", left=False)
+    count = len(by_metric["simulator_calls"]["costs"]["hard", "PAVE"])
+    fig.suptitle(f"Hard · {count} environments", y=0.99, fontsize=9.5, fontweight="bold")
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.5, 0.005),
+               ncol=2, fontsize=8.5, handlelength=2.5, columnspacing=1.8, handletextpad=0.6)
+    fig.subplots_adjust(left=0.15, right=0.985, top=0.855, bottom=0.37, wspace=0.17)
     return fig
 
 
@@ -360,7 +402,7 @@ def _write_rows(path: Path, fields: tuple[str, ...], rows) -> None:
 
 def render_frozen(results: FrozenResults, out_dir: Path, smooth_anchors: int = DEFAULT_SMOOTH_ANCHORS,
                   dpi: int = PUBLICATION_DPI,
-                  layout: Literal["overlaid", "separate"] = "overlaid") -> tuple[Path, ...]:
+                  layout: Literal["overlaid", "separate", "hard-pair"] = "overlaid") -> tuple[Path, ...]:
     """Write standalone figures, exact/display CSVs, costs and provenance."""
     if smooth_anchors < 3 or dpi <= 0:
         raise ValueError("smooth_anchors must be at least 3 and dpi must be positive")
@@ -368,15 +410,20 @@ def render_frozen(results: FrozenResults, out_dir: Path, smooth_anchors: int = D
     out_dir.mkdir(parents=True, exist_ok=False)
     by_metric = {metric: prepare_frozen_curves(results, metric, smooth_anchors) for metric in METRIC_STEMS}
     outputs = []
-    for metric, curves in by_metric.items():
-        for difficulty in FROZEN_DIFFICULTIES if layout == "separate" else (None,):
-            figure = create_difficulty_figure(results, metric, curves, difficulty)
-            for extension in ("png", "pdf"):
-                path = out_dir / f"{METRIC_STEMS[metric]}_{difficulty or 'by_difficulty'}.{extension}"
-                options = {"dpi": dpi} if extension == "png" else {"metadata": {"CreationDate": None, "ModDate": None}}
-                figure.savefig(path, bbox_inches="tight", facecolor="white", **options)
-                outputs.append(path)
-            plt.close(figure)
+    if layout == "hard-pair":
+        figures = [("success_vs_budget_hard", create_hard_pair_figure(results, by_metric))]
+    else:
+        figures = ((f"{METRIC_STEMS[metric]}_{difficulty or 'by_difficulty'}",
+                    create_difficulty_figure(results, metric, curves, difficulty))
+                   for metric, curves in by_metric.items()
+                   for difficulty in (FROZEN_DIFFICULTIES if layout == "separate" else (None,)))
+    for stem, figure in figures:
+        for extension in ("png", "pdf"):
+            path = out_dir / f"{stem}.{extension}"
+            options = {"dpi": dpi} if extension == "png" else {"metadata": {"CreationDate": None, "ModDate": None}}
+            figure.savefig(path, bbox_inches=None if layout == "hard-pair" else "tight", facecolor="white", **options)
+            outputs.append(path)
+        plt.close(figure)
     for kind in ("exact", "display"):
         _write_rows(out_dir / f"{kind}_curves.csv",
                     ("metric", "method", "difficulty", "budget", "success_rate_pct", "environments"),
@@ -401,7 +448,11 @@ def render_frozen(results: FrozenResults, out_dir: Path, smooth_anchors: int = D
         "population_filter": "Frozen easy/medium/hard labels only; failed runs within each tier remain included.",
         "call_cap": results.call_cap, "methods": FROZEN_METHODS, "method_colors": METHOD_COLORS,
         "layout": layout, "figures": [path.name for path in outputs],
-        "difficulty_linestyles": {tier: "-" for tier in FROZEN_DIFFICULTIES} if layout == "separate" else DIFFICULTY_LINESTYLES,
+        "plotted_difficulties": ["hard"] if layout == "hard-pair" else FROZEN_DIFFICULTIES,
+        "font_weight": "bold",
+        "curve_linewidth_pt": SINGLE_COLUMN_CURVE_WIDTH if layout == "hard-pair" else FROZEN_CURVE_WIDTH,
+        "single_column_size_inches": SINGLE_COLUMN_SIZE if layout == "hard-pair" else None,
+        "difficulty_linestyles": DIFFICULTY_LINESTYLES if layout == "overlaid" else {tier: "-" for tier in FROZEN_DIFFICULTIES},
         "random_seeds": FROZEN_RANDOM_SEEDS,
         "random_definition": "Median per environment across five seeds for each cost metric, with failures infinite; at least three seeds must solve the environment by a budget.",
         "smoothing": "Monotone PCHIP on common log-budget anchors, with integer push anchors and budgets 1 through 10 preserved. Display approximation between anchors; exact numerical rates in exact_curves.csv.",
@@ -426,8 +477,8 @@ def main() -> None:
     parser.add_argument("--out-dir", type=Path, required=True, help="new output directory; existing outputs are not overwritten")
     parser.add_argument("--smooth-anchors", type=int, default=DEFAULT_SMOOTH_ANCHORS)
     parser.add_argument("--dpi", type=int, default=PUBLICATION_DPI)
-    parser.add_argument("--layout", choices=("overlaid", "separate"), default="overlaid",
-                        help="two overlaid figures (default), or six separate difficulty/metric figures")
+    parser.add_argument("--layout", choices=("overlaid", "separate", "hard-pair"), default="overlaid",
+                        help="two overlaid figures (default), six separate figures, or a single-column Hard comparison")
     args = parser.parse_args()
     for path in render_frozen(load_frozen_results(args.snapshot), args.out_dir, args.smooth_anchors, args.dpi, args.layout):
         print(path)
