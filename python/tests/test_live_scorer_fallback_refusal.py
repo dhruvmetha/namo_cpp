@@ -77,3 +77,12 @@ def test_a_clean_render_still_returns(monkeypatch):
     ctx, meta = _render(s)
     assert ctx.shape[0] == len(m.TIGHT)
     assert s.last_fell_back is False
+
+
+@pytest.mark.parametrize("points", [[(1.0, 2.0), (3.0, 4.0)], [(3.0, 4.0), (1.0, 2.0)]])
+def test_render_goal_is_the_callers_fixed_goal_not_a_reselected_sample(points):
+    scorer = _scorer(_Viz(""))
+    goal = (0.2, 0.3, 0.0)
+    episode = scorer._episode_data(_fake_env(), "obj", goal, "fake.xml", points)
+    assert episode["render_goal_override"] == goal
+    assert episode["region_goals_sampled"] == [list(point) for point in points]

@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from namo.visualization.wavefront_snapshot import (
     ObjectInstance,
@@ -128,3 +129,39 @@ def test_symlink_config_uses_callers_margin_directory(tmp_path):
     link = selected / "robot.yaml"
     link.symlink_to(primary)
     assert WavefrontSnapshotExporter._load_tier1_inflation_margin(link) == 0.005
+
+
+@pytest.mark.parametrize("box_y", [0.25, 0.50, 0.75])
+def test_explicit_goal_matches_legacy_snapshot_through_geometry_changes(tmp_path, box_y):
+    """Changing the goal input must not introduce a new region-selection rule."""
+    local_goal = (0.55, 0.75, 0.0)
+    final_goal = (0.90, 0.75, 0.0)
+    xmls = []
+    for name, goal in (("local", local_goal), ("final", final_goal)):
+        xml = tmp_path / f"{name}.xml"
+        xml.write_text(f'<mujoco><worldbody><site name="goal" pos="{goal[0]} {goal[1]} 0"/></worldbody></mujoco>')
+        xmls.append(str(xml))
+    objects = {
+        "robot": {"size_x": 0.01, "size_y": 0.01},
+        "wall_ab": {"pos_x": 0.35, "pos_y": 0.5, "size_x": 0.02, "size_y": 0.5},
+        "wall_bc": {"pos_x": 0.75, "pos_y": 0.5, "size_x": 0.02, "size_y": 0.5},
+        "box": {"size_x": 0.20, "size_y": 0.06},
+    }
+    for info in objects.values():
+        if "pos_x" in info:
+            info.update(quat_w=1.0, quat_x=0.0, quat_y=0.0, quat_z=0.0)
+    observation = {"robot_pose": (0.15, 0.5, 0.0), "box_pose": (0.55, box_y, 0.0)}
+    exporter = WavefrontSnapshotExporter.from_geometry(
+        (0.0, 1.0, 0.0, 1.0), objects, observation, robot_goal=final_goal, resolution=0.01,
+    )
+    legacy = exporter.build_snapshot(xmls[0], "", use_current_state=True)
+    overridden = exporter.build_snapshot(
+        xmls[1], "", use_current_state=True, goal_pose_override=local_goal,
+    )
+    assert overridden.goal_pose == legacy.goal_pose == local_goal
+    assert overridden.region_labels == legacy.region_labels
+    np.testing.assert_array_equal(overridden.region_map, legacy.region_map)
+    np.testing.assert_array_equal(overridden.dynamic_grid, legacy.dynamic_grid)
+    assert tuple(exporter._env.get_robot_goal()) == final_goal
+    # The override is per call, not state that leaks into later snapshots.
+    assert exporter.build_snapshot(xmls[1], "", use_current_state=True).goal_pose == final_goal

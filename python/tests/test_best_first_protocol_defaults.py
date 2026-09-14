@@ -84,6 +84,37 @@ def test_caller_supplied_budget_object_takes_precedence():
     assert planner.push_budget is budget
 
 
+@pytest.mark.parametrize("mode", ["search", "greedy_commit"])
+def test_model_opening_binds_local_goal_before_entering_the_shared_solver(monkeypatch, mode):
+    local_goal = (1.0, 2.0, 0.0)
+    final_goal = (8.0, 9.0, 0.0)
+    planner = _planner()
+    planner.prior = "model"  # Model loading is unrelated to this adapter contract.
+    planner.env.count_reachable_points = lambda points: (0, -1)
+    snapshot = {
+        "robot_label": "robot", "region_labels": {},
+        "adjacency": {"robot": {"middle"}},
+        "region_goals": {"middle": SimpleNamespace(goals=[SimpleNamespace(x=1.0, y=2.0, theta=0.0)])},
+        "edge_objects": {"robot": {"middle": ["door"]}},
+    }
+    monkeypatch.setattr("namo.planners.get_region_snapshot", lambda *_a, **_k: snapshot)
+    seen = []
+
+    def decide(*args, **kwargs):
+        seen.append(args[2])
+        assert args[2] == local_goal
+        assert kwargs["region_samples"] == [local_goal]
+        assert kwargs["is_open"](planner.env) is False
+        if mode == "greedy_commit":
+            return SimpleNamespace(opened=False, action=None, simulations_used=0, end="exhausted", rejections=[])
+        return False, 0, 0, [], "exhausted"
+
+    name = "run_greedy_commit" if mode == "greedy_commit" else "solve_scene"
+    monkeypatch.setattr(f"namo.planners.opening.best_first_region_opening.{name}", decide)
+    getattr(planner, mode)(final_goal, target_neighbor="middle")
+    assert seen == [local_goal]
+
+
 def test_candidate_acceptor_keeps_searching_after_first_local_opening(monkeypatch):
     class CandidateEnv(_StubEnv):
         def __init__(self):

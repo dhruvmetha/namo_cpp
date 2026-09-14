@@ -97,11 +97,13 @@ class LiveScorer:
 
     # -- episode_data assembly from live env -------------------------------------------------------
     def _episode_data(self, env, target_object, robot_goal, xml_file, region_samples=None):
-        """region_samples: optional list of (x,y[,theta]) for the TARGET region whose opening we
-        score (the RO neighbour region). When given, the `goal_sample_region` channel is rendered
-        from THESE points (matching how the scorer was trained — per-adjacency RO openings), and
-        robot_goal is seeded to the first region sample (matches RO's ML-seed convention). When
-        None, falls back to a single point at robot_goal (the legacy final-goal conditioning)."""
+        """Assemble a live episode with the caller's fixed rendering goal.
+
+        region_samples retains the opening task's sample metadata. It does not
+        reselect the rendering goal as pushes occupy or split the target region.
+        Standalone callers supply their XML goal; Full NAMO binds a local goal
+        before entering the same opening search.
+        """
         obs = env.get_observation()
         oi = env.get_object_info()
         tp = obs[f"{target_object}_pose"]
@@ -128,7 +130,8 @@ class LiveScorer:
             "action_sequence": [{"object_id": target_object,
                                  "target": [tp[0], tp[1], tp[2]]}],
             "robot_goal": rg,
-            # goal_sample_region channel is rasterized from these points.
+            # Keep this independent of the sample-derived legacy metadata above.
+            "render_goal_override": tuple(robot_goal) if robot_goal is not None else None,
             "region_goals_sampled": rs,
             "reachable_objects_before_action": reach,
             "xml_file": xml_file,
