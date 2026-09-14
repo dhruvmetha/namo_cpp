@@ -103,8 +103,11 @@ def preflight(config, config_path):
         raise RuntimeError("Wrong simulator binding imported")
     from namo.runtime_profile import require_canonical_runtime_config
     require_canonical_runtime_config(config["namo_config"])
-    if config["budget"] != 20000 or not config["goal_clearance"]:
-        raise RuntimeError("This Full-NAMO campaign requires 20k calls and goal clearance")
+    # The 2026-09-12 frozen400 protocol shares 9000 calls across the whole problem; older campaigns used 20k.
+    budgets = {"historical_20k": 20000, "namo_measurements_v1": 9000}
+    version = config.get("protocol_version", "historical_20k")
+    if version not in budgets or config["budget"] != budgets[version] or not config["goal_clearance"]:
+        raise RuntimeError("Full-NAMO requires the versioned shared call cap and goal clearance")
     return dict(host=socket.gethostname(), cpu_model=cpu, code_commit=commit,
                 slurm_job=os.environ["SLURM_JOB_ID"], slurm_allocation=fields,
                 campaign_sha256=digest(config_path))
@@ -121,6 +124,28 @@ def validate_row(row, budget):
         raise RuntimeError("Invalid timing counters")
     if row["t_sim"] + row["t_score"] > row["t_wall"] + 0.001:
         raise RuntimeError("Component timers exceed full-problem time")
+
+
+def load_untimed_rows(config, arm_name):
+    """The untimed run of the same arm on the same build, keyed by geometry_id, or None when not configured."""
+    folder = (config.get("untimed_references") or {}).get(arm_name)
+    if not folder:
+        return None
+    rows = {}
+    for path in Path(folder).glob("scene_*.json"):
+        row = json.loads(path.read_text())
+        rows[row["scene"]["geometry_id"]] = row
+    return rows
+
+
+def pairing(untimed, row):
+    """Did the timed search take the same number of calls to the same outcome as the untimed run?"""
+    reference = untimed.get(row["geometry_id"])
+    if reference is None:
+        return dict(status="no_untimed_row")
+    same = (reference["solved"], reference["total_calls"]) == (row["solved"], row["total_calls"])
+    return dict(status="matched" if same else "mismatched", untimed_solved=reference["solved"],
+                untimed_total_calls=reference["total_calls"])
 
 
 def run(config, config_path, arm_name, shard, smoke):
@@ -142,6 +167,7 @@ def run(config, config_path, arm_name, shard, smoke):
     if arm["prior"] not in {"uniform", "model"} or arm["exec_mode"] not in {"search", "greedy_dfs"}:
         raise ValueError("Unsupported campaign arm")
     scenes = load_scenes(config)
+    untimed = load_untimed_rows(config, arm_name)
     selected = config["smoke_scenes"][arm_name] if smoke else shard_rows(scenes, shard, config["nshards"])
     out = Path(config["output"]) / ("smoke" if smoke else "raw") / arm_name / f"shard_{shard:04d}"
     out.mkdir(parents=True, exist_ok=False)
@@ -171,13 +197,19 @@ def run(config, config_path, arm_name, shard, smoke):
             row = dict(result["row"], **metadata, geometry_id=scene["geometry_id"],
                        difficulty=scene["difficulty"], template=scene["template"],
                        horizon_pattern=scene["horizon_pattern"], xml_sha256=scene["xml_sha256"], task=asdict(task))
+            if untimed is not None:
+                row["pairing"] = pairing(untimed, row)
             handle.write(json.dumps(row, allow_nan=False) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
             validate_row(row, config["budget"])
             if smoke and (not row["solved"] or ("expected_calls" in scene and row["total_calls"] != scene["expected_calls"])):
                 raise RuntimeError("Smoke did not reproduce the expected end-goal success/call count")
             compact.append({k: row[k] for k in ("solved", "total_calls", "t_wall")})
             print(f"RESULT {arm_name} {row['geometry_id']} solved={row['solved']} calls={row['total_calls']} wall={row['t_wall']:.3f}", flush=True)
     save_json(out / "summary.json", dict(metadata, **summarize(compact), integrity_ok=True))
+    save_json(out / "COMPLETE.json", dict(expected_runs=len(selected), completed_runs=len(compact),
+                                         outcomes_sha256=digest(out / "outcomes.jsonl")))
 
 
 def report(config, config_path):
@@ -188,7 +220,7 @@ def report(config, config_path):
     result = {"campaign": config["campaign"], "cpu_model": config["cpu_model"],
               "campaign_sha256": campaign_sha, "manifest_sha256": config["manifest_sha256"],
               "code_commit": config["code_commit"], "comparability": "within this campaign only",
-              "null_success_median": "censored; simulator-call median is 20000+", "arms": {}}
+              "null_success_median": f"censored; simulator-call median is {config['budget']}+", "arms": {}}
     for name in config["arms"]:
         rows = []
         for shard in range(config["nshards"]):

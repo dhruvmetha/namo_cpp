@@ -326,6 +326,20 @@ def test_walltime_summary_includes_failures_and_preserves_shard_membership():
     assert sorted(item for shard in shards for item in shard) == scenes
 
 
+def test_walltime_pairing_compares_timed_run_with_untimed_run():
+    import importlib.util
+
+    path = Path(__file__).resolve().parents[2] / "scripts/pipeline/eval_full_namo_walltime.py"
+    spec = importlib.util.spec_from_file_location("full_walltime", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    untimed = {"a": dict(solved=True, total_calls=31), "b": dict(solved=False, total_calls=9000)}
+    assert module.pairing(untimed, dict(geometry_id="a", solved=True, total_calls=31))["status"] == "matched"
+    diverged = module.pairing(untimed, dict(geometry_id="b", solved=True, total_calls=4200))
+    assert diverged == dict(status="mismatched", untimed_solved=False, untimed_total_calls=9000)
+    assert module.pairing(untimed, dict(geometry_id="c", solved=True, total_calls=3))["status"] == "no_untimed_row"
+
+
 @pytest.mark.parametrize("statistics,timing", [(False, False), (False, True), (True, False), (True, True)])
 def test_independent_measurement_modes_keep_failed_outcomes(tmp_path, monkeypatch, statistics, timing):
     from namo import solvability_runner as runner
