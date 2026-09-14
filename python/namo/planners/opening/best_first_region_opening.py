@@ -508,10 +508,15 @@ class BestFirstRegionOpeningPlanner:
                 region_samples = [
                     (float(g.x), float(g.y), float(g.theta)) for g in (bundle.goals if bundle else [])
                 ]
-            # region_samples feeds BOTH the is_open bar and solve_scene's
-            # region_samples argument, which conditions the ranker's
-            # goal_sample_region channel -- so the model is scored against the
-            # same target the search is graded against.
+            # Bind the model's local rendering goal once, before speculative
+            # pushes. The shared solver keeps its legacy rendering behavior at
+            # every state; samples still define the unchanged success predicate.
+            # Other priors and goal clearance retain their existing goal input.
+            scoring_goal = (
+                tuple(region_samples[0])
+                if self.prior == "model" and clearance_target is None and region_samples
+                else robot_goal
+            )
             xy_samples = [(p[0], p[1]) for p in region_samples]
             initially_open = False
             if not require_push:
@@ -598,7 +603,7 @@ class BestFirstRegionOpeningPlanner:
                 commit = run_greedy_commit(
                     self._search_planner,
                     self.env,
-                    robot_goal,
+                    scoring_goal,
                     self.xml_path,
                     baseline,
                     self.hmax,
@@ -696,7 +701,7 @@ class BestFirstRegionOpeningPlanner:
             solved, sims, plan_len, _boards, end = decide(
                 self._search_planner,
                 self.env,
-                robot_goal,
+                scoring_goal,
                 self.xml_path,
                 baseline,
                 self.hmax,

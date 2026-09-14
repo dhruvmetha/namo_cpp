@@ -472,6 +472,7 @@ class WavefrontSnapshotExporter:
         rng: Optional[np.random.Generator] = None,
         use_current_state: bool = False,
         verbose: bool = False,
+        goal_pose_override: Optional[Sequence[float]] = None,
     ) -> WavefrontSnapshot:
         """Construct grids, regions, and adjacency information.
 
@@ -479,6 +480,8 @@ class WavefrontSnapshotExporter:
             use_current_state: If True, use current env state instead of resetting.
                               Useful for multi-level exploration where state was set via set_full_state().
             verbose: If True, print detailed logging for debugging connectivity issues.
+            goal_pose_override: Rendering goal for this call only. When omitted,
+                                preserve XML-then-environment goal selection.
         """
 
         if not use_current_state:
@@ -490,9 +493,13 @@ class WavefrontSnapshotExporter:
         observation = self._env.get_observation()
         robot_pose = tuple(observation.get("robot_pose", [0.0, 0.0, 0.0]))  # type: ignore
 
-        # Always use XML goal for consistency across snapshots
-        goal_pose_xml = self._extract_goal_pose_from_xml(xml_path)
-        goal_pose = goal_pose_xml
+        # A local opening can bind its own rendering goal without changing the
+        # scene's navigation goal or the legacy goal-neighborhood calculation.
+        goal_pose = (
+            tuple(float(v) for v in goal_pose_override)
+            if goal_pose_override is not None
+            else self._extract_goal_pose_from_xml(xml_path)
+        )
 
         if goal_pose is None:
             # Fallback to env goal only if XML goal not found
