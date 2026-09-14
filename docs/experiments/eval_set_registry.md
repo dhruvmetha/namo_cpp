@@ -279,3 +279,13 @@ Tri-An's frozen Full NAMO test set: 400 complete scenes, each starting two hops 
 CS copy: `/common/users/shared/robot_learning/dm1487/namo/full_namo_sim/untimed/full_namo_frozen400_icelake_20260912_v1/input/full_namo/` with `manifest.jsonl`, `summary.json`, the scene XMLs, and `provenance/random5-outcomes.jsonl`, which is the Random baseline. An identical copy sits under `$NAMO_SCRATCH/eval/full_namo_rerun_20260914/input/full_namo/`.
 
 ⚠ The Random baseline is the same set of runs that chose the tiers, so Random's per-tier numbers are not an independent sample. Horizon labels were never refreshed (`horizon_pattern: not_refreshed`), so no horizon split exists. `scripts/pipeline/report_full_namo_rerun.py` recomputes all 400 tiers from the Random rows and stops if any disagree. First model evaluation: `hy5u-full-namo-frozen400-goalfix-v1` in the [model registry](horizon_q_model_registry.md).
+
+## One-keyhole frozen600 (Tri-An, frozen 2026-09-12)
+
+Tri-An's frozen one-keyhole test set: 600 problems, each one door between the robot's room and the goal room, margin `canonical_1mm`, manifest sha256 `bb01f360`. 300 need one push and 300 need two, and each horizon has 100 easy, 100 medium and 100 hard problems. Tiers come from an exhaustive certificate per problem, not from Random runs: expected trials E = (N+1)/(S+1), easy E <= 3, medium E <= 15, hard above.
+
+Each problem fixes its target points (100 for 552 problems, 15-99 for small rooms) and its door objects (1 on 400 problems, up to 8). Success is 20% of the target points reachable (`eval_m3.goal_open_pts`).
+
+CS copy: `/common/users/shared/robot_learning/dm1487/namo/full_namo_sim/untimed/one_keyhole_frozen600_20260912_v1/`, with `input/one_keyhole/` and Tri-An's HY5U_s2 search and policy plus Random seeds 7000-11000 under `references-v1/` and `references-identity-repair-v2/`. Runner: `scripts/pipeline/run_one_keyhole_frozen.py`.
+
+⚠ Two known portability traps. On 5 problems (40, 277, 373, 463, 504) Amarel's native build and rlab1 settle the scene to a state that differs from the certificate, so the runner refuses them there; arrakis matches. On 4 problems (37, 46, 77, 348) today's room finder sees different door objects than the frozen task; the runner keeps the frozen objects. First model evaluation: `hy5u-ablations-keyhole600-1mm-v1` in the [model registry](horizon_q_model_registry.md).

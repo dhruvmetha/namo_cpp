@@ -824,3 +824,22 @@ Tri-An's frozen400 Full NAMO set, 100 scenes per tier, 9000 simulator calls per 
 HY5U needs 3 to 6.5 times fewer calls on every tier Random can solve, and no HY5U seed overlaps any Random seed on median calls. Solve rate within the cap moves much less: tied on easy, close on medium, and on hard HY5U's 71.0 sits just above Random's best seed (70; the other four solve 56-60). Random's tier numbers come from the same runs that chose the tiers, so they carry that selection.
 
 The goal fix helped HY5U_s2 (same checkpoint and seed): solved scenes 257 to 264, hard median calls 339.5 to 148, fewer calls on 110 scenes and more on 71 (sign test p = 0.005). No horizon split exists for this set: every scene starts two hops out and the horizon labels were never refreshed. Success-vs-calls curves with seed bands: [plot](plots/full_namo_rerun_20260914/success_vs_sims.png). Seeds, caveats and artifact paths: [experiment card](log/EXP-2026-09-14-full-namo-goal-fix-rerun.md).
+
+## 2026-09-14: HY5U ablations on the frozen one-keyhole 600 at 1 mm
+
+Tri-An's frozen one-keyhole 600 (300 one-push, 300 two-push, 100 per certificate tier each), best-first search, 3000 simulator calls, 3 seeds per model. Percent of runs solved within 1 or 5 calls, worst-to-best seed in brackets.
+
+| Model | 1-push all @1 | 2-push all @5 | 2-push hard @5 | 2-push hard median calls |
+|---|---:|---:|---:|---:|
+| HY5U | 74.4 [71.7-76.0] | 51.7 [50.3-53.3] | 26.3 [24-31] | 16.5 |
+| HY5, no unreachable-cell rule | 73.6 [72.7-74.7] | 43.9 [41.7-46.0] | 22.3 [20-25] | 20.5 |
+| no family data | 75.1 [73.7-77.7] | 54.4 [53.7-55.0] | 27.7 [27-28] | 15 |
+| regression only | 72.6 [71.3-74.3] | 43.9 [43.7-44.3] | 23.3 [22-24] | 25.5 |
+| independent contacts | 71.9 [71.7-72.3] | 49.8 [48.7-50.7] | 23.0 [22-24] | 19.5 |
+| global readout | 59.2 [58.7-60.3] | 43.8 [42.0-45.7] | 18.0 [13-23] | 33 |
+| no local | 74.9 [74.0-76.3] | 55.4 [55.3-55.7] | 28.0 [26-29] | 12 |
+| no edge identity | 73.1 [69.7-75.3] | 54.1 [52.7-56.0] | 27.7 [27-28] | 18 |
+| rank-only, no floor | 59.1 [58.3-60.7] | 45.0 [42.0-47.0] | 16.7 [15-19] | 36.5 |
+| Random, 5 seeds | 23.5 [15.0-28.7] | 11.7 [7.3-18.0] | 1.4 [0-4] | 355 |
+
+Every model solves 98.9-99.7% of runs within 3000 calls, so the ablations differ only in speed. No unreachable-cell rule, regression-only and global readout are clearly worse on two-push problems, and global readout and rank-only without the floor are also clearly worse on one-push problems. No-family, no-local and no-edge-identity match or slightly beat HY5U, so the v3 finding that edge identity helps does not reproduce at 1 mm on this set. Per-tier tables, plots and run details: [experiment card](log/EXP-2026-09-14-keyhole600-ablations.md).
