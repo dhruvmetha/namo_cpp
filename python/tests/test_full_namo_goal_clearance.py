@@ -210,9 +210,10 @@ def test_backend_goal_ownership_is_read_only():
     assert env.get_full_state().qvel == before.qvel
 
 
-def test_failed_runner_retains_committed_actions_and_terminal_state(monkeypatch):
+def test_failed_runner_retains_committed_actions_and_terminal_state(tmp_path, monkeypatch):
     import namo.solvability_runner as runner
     from namo.core import PlannerResult
+    from namo.runtime_profile import CANONICAL_CONFIG, CANONICAL_PRIMITIVE_PREFIX
 
     action = SimpleNamespace(object_id="A", edge_idx=2, depth=0, x=0.0, y=0.1, theta=0.0)
     result = PlannerResult(success=False, solution_found=False, action_sequence=[action], algorithm_stats={
@@ -220,13 +221,31 @@ def test_failed_runner_retains_committed_actions_and_terminal_state(monkeypatch)
         "goal_diagnostics": {"goal_occupied_by_movables": True},
     })
     env = SimpleNamespace(get_full_state=lambda: SimpleNamespace(qpos=[1.0, 2.0], qvel=[0.0]),
-                          is_robot_goal_reachable=lambda: False)
+                          is_robot_goal_reachable=lambda: False,
+                          get_observation=lambda: {"robot_pose": [0.0, 0.0, 0.0]})
     monkeypatch.setattr(runner.namo_rl, "RLEnvironment", lambda *args: env)
-    monkeypatch.setattr(runner, "FullNAMOPlanner", lambda *args: SimpleNamespace(search=lambda goal: result))
+
+    class Planner:
+        def __init__(self, _env, config):
+            self.measurement = config.algorithm_params["search_measurements"]
+
+        def search(self, _goal):
+            # The runner now reads committed actions from the recorder, which the real
+            # planner feeds on every commit; the fake planner has to do the same.
+            self.measurement.committed(env.get_full_state(), [action], attempt_id=None,
+                                       opened=False, task_kind="goal_clearance")
+            return result
+
+    monkeypatch.setattr(runner, "FullNAMOPlanner", Planner)
     monkeypatch.setattr(runner, "extract_goal_from_xml", lambda path: (0.0, 0.0, 0.0))
-    task = runner.SolveTask("scene.xml", 2, "config.yaml", "random_rollout", 2, "data",
-                            "1x_car_d5_", None, None, 20, 100, 42, True, 20000,
-                            local_search="best_first", best_first_prior="uniform", goal_clearance=True)
+    # The runner fingerprints its real inputs before searching, so the scene,
+    # config and primitive tables must exist even though the planner is faked.
+    scene = tmp_path / "scene.xml"
+    scene.write_text("<mujoco><worldbody/></mujoco>")
+    task = runner.SolveTask(str(scene), 2, CANONICAL_CONFIG, "random_rollout", 2, "data",
+                            CANONICAL_PRIMITIVE_PREFIX, None, None, 20, 100, 42, True, 20000,
+                            local_search="best_first", best_first_prior="uniform", goal_clearance=True,
+                            record_statistics=True)
     output = runner.solve_environment_task(task)
     assert output["kind"] == "unsolved"
     row = output["row"]

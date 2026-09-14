@@ -13,10 +13,17 @@ if "namo_rl" not in sys.modules:
     sys.modules["namo_rl"] = namo_rl_stub
 
 from namo.core import PlannerConfig, PlannerResult
+from namo.planners.search_measurements import SearchMeasurements
 from namo.planners.full_namo.full_namo_planner import (
     FullNAMOPlanner,
     choose_region_route,
 )
+
+
+# These tests inspect algorithm_stats['iteration_trace'], which the planner records only
+# when a SearchMeasurements with statistics is passed in.
+def traced(**params):
+    return PlannerConfig(algorithm_params={**params, "search_measurements": SearchMeasurements(record_statistics=True)})
 
 
 class FakeEnv:
@@ -39,17 +46,25 @@ class FakeEnv:
     def get_config_path(self):
         return "dummy.yaml"
 
+    # Statistics recording reads a physical state and an observation; this fake
+    # only tracks a state label, so hand back fixed placeholders.
+    def get_full_state(self):
+        return SimpleNamespace(qpos=[0.0], qvel=[0.0])
+
+    def get_observation(self):
+        return {"robot_pose": [0.0, 0.0, 0.0]}
+
 
 def make_planner(monkeypatch, env, opener):
     def fake_initialize(self):
         self.region_opener = opener
 
     monkeypatch.setattr(FullNAMOPlanner, "_initialize_algorithm", fake_initialize)
-    return FullNAMOPlanner(env, PlannerConfig())
+    return FullNAMOPlanner(env, traced())
 
 
 def make_success_result(target, resulting_state, object_id="box"):
-    action = SimpleNamespace(object_id=object_id, x=0.0, y=0.0, theta=0.0)
+    action = SimpleNamespace(object_id=object_id, edge_idx=0, depth=0, x=0.0, y=0.0, theta=0.0)
     attempt = SimpleNamespace(
         success=True,
         resulting_state=resulting_state,
@@ -417,10 +432,10 @@ def test_full_namo_searches_every_blocker_on_the_boundary_in_one_call(
     )
     planner = FullNAMOPlanner(
         env,
-        PlannerConfig(algorithm_params={
-            "full_namo_local_search": "best_first",
-            "full_namo_goal_clearance": goal_clearance_enabled,
-        }),
+        traced(
+            full_namo_local_search="best_first",
+            full_namo_goal_clearance=goal_clearance_enabled,
+        ),
     )
     snapshot = {
         **make_snapshot(
@@ -630,12 +645,7 @@ def make_policy_planner(monkeypatch, env, opener):
         self.region_opener = opener
 
     monkeypatch.setattr(FullNAMOPlanner, "_initialize_algorithm", fake_initialize)
-    config = PlannerConfig(
-        algorithm_params={
-            "full_namo_local_search": "best_first",
-            "full_namo_exec_mode": "greedy_policy",
-        }
-    )
+    config = traced(full_namo_local_search="best_first", full_namo_exec_mode="greedy_policy")
     return FullNAMOPlanner(env, config)
 
 
