@@ -38,8 +38,8 @@ OUTPUT_DPI = 220
 TIME_GRID_SIZE = 400
 Metric = Literal["simulator_calls", "wall_time_seconds"]
 FROZEN_METHODS = ("PAVE", "Random")
-FROZEN_CURVE_WIDTH = 3.4
-SINGLE_COLUMN_CURVE_WIDTH = 2.2
+FROZEN_CURVE_WIDTH = 2.0
+SINGLE_COLUMN_CURVE_WIDTH = 1.25
 SINGLE_COLUMN_SIZE = (3.5, 2.35)
 LATEX_FONT_PREAMBLE = "\n".join((
     r"\usepackage{amsmath,amssymb,amsfonts}",
