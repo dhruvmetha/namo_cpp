@@ -271,3 +271,11 @@ The 2-hop pool is the one evaluated in [EXP-2026-08-17-two-hop-planner-fix-multi
 ⚠ **Do NOT drop `goal_region_invalid` scenes.** `goal_in_free_space` is true for every scene in all three pools. Those failures are post-push (a push drops an object onto the goal point), not a static defect — see the card.
 
 ⚠ **These pools have no difficulty labels yet.** The canonical bins (`eval_common.bin_of`) are defined on a *local* episode's `solve_rate`, which a composed multi-hop scene does not have. Labeling is per keyhole, and keyhole 2+ requires materializing the post-push state because `region_opening.py`'s `_explore_from_state` only ever sweeps boundaries adjacent to the robot's region.
+
+## Full NAMO frozen400 (Tri-An, frozen 2026-09-12)
+
+Tri-An's frozen Full NAMO test set: 400 complete scenes, each starting two hops from the XML goal, 100 per tier, margin `canonical_1mm`, manifest sha256 `d534b2b6`. Unlike the pools above, it has difficulty tiers. They come from five uniform Random runs per scene (seeds 7000-11000, 9000-call cap, frozen code `25c921b`): failures rank above successes, a median under 30 calls is easy, under 300 medium, otherwise hard if any seed solves, and 0 of 5 solved is unresolved (not proven impossible).
+
+CS copy: `/common/users/shared/robot_learning/dm1487/namo/full_namo_sim/untimed/full_namo_frozen400_icelake_20260912_v1/input/full_namo/` with `manifest.jsonl`, `summary.json`, the scene XMLs, and `provenance/random5-outcomes.jsonl`, which is the Random baseline. An identical copy sits under `$NAMO_SCRATCH/eval/full_namo_rerun_20260914/input/full_namo/`.
+
+⚠ The Random baseline is the same set of runs that chose the tiers, so Random's per-tier numbers are not an independent sample. Horizon labels were never refreshed (`horizon_pattern: not_refreshed`), so no horizon split exists. `scripts/pipeline/report_full_namo_rerun.py` recomputes all 400 tiers from the Random rows and stops if any disagree. First model evaluation: `hy5u-full-namo-frozen400-goalfix-v1` in the [model registry](horizon_q_model_registry.md).

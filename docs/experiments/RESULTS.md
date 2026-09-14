@@ -808,3 +808,19 @@ Group search uses hmax=2 and budget 900. Both HY5U and Random reach 97.2±2.4% a
 | twohop_00043 | Two-push chain required at each gate along the verified replay; rate tiers unconfirmed (900 s K1 sweep cap) | Failed, 6.15 cm | Failed, 24.39 cm |
 
 Both chains advance 2→1→0 hops at the requested 0.001 m tier-1 margin and pass the 2 mm / 1 degree independence tolerance. All navigation runs used fresh MuJoCo environments and the real execution stack with current controller settings, speed 0.4 and 30 Hz; each ended at the stuck-retry limit. These are physical-trial candidates, not physical verdicts; the old hard→hard / medium→medium directory labels must not be reused as 1 mm labels. [Protocol and detailed artifact root](log/EXP-2026-09-09-real-twoobject-1mm-qualification.md).
+
+## 2026-09-14: Full NAMO rerun after the goal-picture fix
+
+Tri-An's frozen400 Full NAMO set, 100 scenes per tier, 9000 simulator calls per scene, 1 mm. HY5U seeds 1-3 in best-first search on the fixed code, against Tri-An's five uniform Random seeds (frozen code `25c921b`). Solved and @30 are percent of runs; median calls count a failed run as infinite.
+
+| Tier | HY5U solved | Random solved | HY5U median calls | Random median calls | HY5U solved @30 | Random solved @30 |
+|---|---:|---:|---:|---:|---:|---:|
+| easy | 94.7 | 94.8 | 3 | 9 | 89.7 | 84.2 |
+| medium | 92.0 | 90.4 | 11 | 71.5 | 74.0 | 24.4 |
+| hard | 71.0 | 60.4 | 245.5 | 1503.5 | 37.3 | 9.0 |
+| unresolved | 2.0 | 0.0 | >9000 | >9000 | 0.3 | 0.0 |
+| all | 64.9 | 61.4 | 28.5 | 256 | 50.3 | 29.4 |
+
+HY5U needs 3 to 6.5 times fewer calls on every tier Random can solve, and no HY5U seed overlaps any Random seed on median calls. Solve rate within the cap moves much less: tied on easy, close on medium, and on hard HY5U's 71.0 sits just above Random's best seed (70; the other four solve 56-60). Random's tier numbers come from the same runs that chose the tiers, so they carry that selection.
+
+The goal fix helped HY5U_s2 (same checkpoint and seed): solved scenes 257 to 264, hard median calls 339.5 to 148, fewer calls on 110 scenes and more on 71 (sign test p = 0.005). No horizon split exists for this set: every scene starts two hops out and the horizon labels were never refreshed. Seeds, caveats and artifact paths: [experiment card](log/EXP-2026-09-14-full-namo-goal-fix-rerun.md).
