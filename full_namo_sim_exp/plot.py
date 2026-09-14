@@ -41,6 +41,13 @@ FROZEN_METHODS = ("PAVE", "Random")
 FROZEN_CURVE_WIDTH = 3.4
 SINGLE_COLUMN_CURVE_WIDTH = 2.2
 SINGLE_COLUMN_SIZE = (3.5, 2.35)
+LATEX_FONT_PREAMBLE = "\n".join((
+    r"\usepackage{amsmath,amssymb,amsfonts}",
+    r"\renewcommand{\rmdefault}{ptm}",
+    r"\renewcommand{\sfdefault}{phv}",
+    r"\renewcommand{\ttdefault}{pcr}",
+    r"\AtBeginDocument{\rmfamily\bfseries\boldmath}",
+))
 DEFAULT_SMOOTH_ANCHORS = 32
 SMOOTH_GRID_SIZE = 1500
 EARLY_INTEGER_BUDGETS = 10
@@ -62,6 +69,7 @@ def set_style() -> None:
         {
             "font.family": "sans-serif",
             "font.sans-serif": ["DejaVu Sans", "Helvetica", "Arial"],
+            "text.usetex": False,
             "font.size": 16,
             "axes.titlesize": 18,
             "axes.titleweight": "bold",
@@ -306,9 +314,14 @@ def prepare_frozen_curves(results: FrozenResults, metric: Metric, smooth_anchors
 
 
 def set_frozen_style(*, single_column: bool = False) -> None:
-    """Use bold type, with physical font sizes appropriate to each output layout."""
+    """Use the paper's LaTeX Times family and real bfseries at final figure size."""
     set_style()
-    plt.rcParams.update({"font.size": 11, "axes.labelsize": 11.5, "axes.titlesize": 12,
+    # The generic serif entry avoids Matplotlib's "Times" alias, which loads
+    # mathptmx and changes the paper's math fonts. Select ptm explicitly in TeX.
+    plt.rcParams.update({"text.usetex": True, "text.latex.preamble": LATEX_FONT_PREAMBLE,
+                         "font.family": "serif", "font.serif": ["serif"],
+                         "font.sans-serif": ["sans-serif"], "font.monospace": ["monospace"],
+                         "font.size": 11, "axes.labelsize": 11.5, "axes.titlesize": 12,
                          "font.weight": "bold", "axes.labelweight": "bold",
                          "axes.titleweight": "bold", "xtick.labelsize": 10,
                          "ytick.labelsize": 10, "pdf.fonttype": 42})
@@ -351,7 +364,7 @@ def create_difficulty_figure(results: FrozenResults, metric: Metric, curves: dic
     fig, ax = plt.subplots(figsize=(4.8, 3.6) if difficulty else (7.2, 5.1))
     tiers = (difficulty,) if difficulty else FROZEN_DIFFICULTIES
     _draw_frozen_panel(ax, results, metric, curves, tiers, overlay=difficulty is None)
-    ax.set_ylabel("Success rate (%)" if difficulty else "Environments solved within difficulty (%)")
+    ax.set_ylabel(r"Success rate (\%)" if difficulty else r"Environments solved within difficulty (\%)")
     ax.set_xlabel("Simulated-push budget" if metric == "simulator_calls" else "Wall-clock planning budget (s)")
     ax.set_title(f"{difficulty.capitalize()} · 100 environments" if difficulty
                  else "Full NAMO · 100 environments per difficulty", pad=12)
@@ -379,7 +392,7 @@ def create_hard_pair_figure(results: FrozenResults, by_metric: dict) -> Figure:
         _draw_frozen_panel(ax, results, metric, by_metric[metric], ("hard",),
                            linewidth=SINGLE_COLUMN_CURVE_WIDTH)
         ax.tick_params(axis="both", length=3, pad=2)
-    axes[0].set_ylabel("Success rate (%)", labelpad=3)
+    axes[0].set_ylabel(r"Success rate (\%)", labelpad=3)
     axes[0].set_xlabel("(a) Simulator-push\nbudget", labelpad=4)
     axes[1].set_xlabel("(b) Wall-clock\nbudget (s)", labelpad=4)
     axes[1].spines["left"].set_visible(False)
@@ -450,6 +463,11 @@ def render_frozen(results: FrozenResults, out_dir: Path, smooth_anchors: int = D
         "layout": layout, "figures": [path.name for path in outputs],
         "plotted_difficulties": ["hard"] if layout == "hard-pair" else FROZEN_DIFFICULTIES,
         "font_weight": "bold",
+        "text_renderer": "LaTeX via Matplotlib text.usetex",
+        "text_font_family": "Times Roman (ptm)",
+        "latex_font_preamble": LATEX_FONT_PREAMBLE,
+        "tex_tools": {tool: subprocess.run([tool, "--version"], capture_output=True, text=True,
+                                           check=True).stdout.splitlines()[0] for tool in ("latex", "dvipng")},
         "curve_linewidth_pt": SINGLE_COLUMN_CURVE_WIDTH if layout == "hard-pair" else FROZEN_CURVE_WIDTH,
         "single_column_size_inches": SINGLE_COLUMN_SIZE if layout == "hard-pair" else None,
         "difficulty_linestyles": DIFFICULTY_LINESTYLES if layout == "overlaid" else {tier: "-" for tier in FROZEN_DIFFICULTIES},

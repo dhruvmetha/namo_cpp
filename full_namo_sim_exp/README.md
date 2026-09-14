@@ -4,7 +4,7 @@
 
 The current paper plots compare **PAVE (HY5U S2 search)** with **Random (median per environment across five uniform seeds)**. Use `--layout separate` to export six independent figures: simulator budget and wall-clock budget for each of easy, medium, and hard. Every figure has only two smooth, solid curves, with difficulty identified in the title. All three simulator axes share the measured campaign cap of 9,000 pushes, and all three time axes share the same range of measured wall-clock planning seconds. Each difficulty has its own denominator of 100 environments, including failures. Policy and Geometric are not plotted in this view.
 
-The shared project palette is in `figure_style.py`: PAVE green `#41C95A`, PAVE Policy blue `#4C78A8`, Random gray `#7A7A7A`, and Geometric red `#D62728`. Reuse `METHOD_COLORS` and `DIFFICULTY_LINESTYLES` in future figures. All frozen-300 plots use bold text, including ticks and legends, and thicker curves (3.4 pt for standalone figures).
+The shared project palette is in `figure_style.py`: PAVE green `#41C95A`, PAVE Policy blue `#4C78A8`, Random gray `#7A7A7A`, and Geometric red `#D62728`. Reuse `METHOD_COLORS` and `DIFFICULTY_LINESTYLES` in future figures. All frozen-300 plots use the manuscript's LaTeX Times family (`ptm`) with genuine `\bfseries` bold text, including ticks and legends, and thicker curves (3.4 pt for standalone figures). All text is rendered through LaTeX, not the native Matplotlib font renderer. Mathematical labels retain the manuscript's standard LaTeX/AMS setup, with `\boldmath` for requested bold math. Do not use Matplotlib's `Times` alias: it automatically loads `mathptmx`, changing the math fonts. `LATEX_FONT_PREAMBLE` instead reproduces the official `ieeeconf` text-family declarations directly without modifying the manuscript or its class.
 
 From the `namo_cpp` repository root on dhruv-linux:
 
@@ -12,7 +12,7 @@ From the `namo_cpp` repository root on dhruv-linux:
 source env.robotlearning.sh
 "$NAMO_PYTHON" -m full_namo_sim_exp.plot \
   --layout separate \
-  --out-dir full_namo_sim_exp/plots/frozen300_separate_bold_20260913 \
+  --out-dir full_namo_sim_exp/plots/frozen300_separate_latex_20260914 \
   --smooth-anchors 32 --dpi 600
 ```
 
@@ -27,13 +27,13 @@ For the single-column Hard comparison, use the following command. It writes `suc
 ```bash
 "$NAMO_PYTHON" -m full_namo_sim_exp.plot \
   --layout hard-pair \
-  --out-dir full_namo_sim_exp/plots/frozen300_hard_pair_bold_20260913 \
+  --out-dir full_namo_sim_exp/plots/frozen300_hard_pair_latex_20260914 \
   --smooth-anchors 32 --dpi 1200
 ```
 
 The previous two-figure view remains available with `--layout overlaid` (the backward-compatible default): each metric has all three difficulties, using easy solid, medium dashed, and hard dotted lines. Its filenames end in `_by_difficulty.{png,pdf}`. All layouts use identical underlying costs and exact/display CSV values; the Hard pair displays only the Hard subset while retaining all 300 environments in its audit CSVs.
 
-The existing `namo312` interpreter already has the required packages. For a fresh plotting-only Python 3.12 environment, install `python -m pip install -r full_namo_sim_exp/requirements-plot.in`; no simulator bindings or model checkpoint are needed. Pins were verified with Python 3.12.13. The original interleaved experiment pipeline below remains available for its original data format.
+The existing `namo312` interpreter already has the required Python packages. For a fresh plotting-only Python 3.12 environment, install `python -m pip install -r full_namo_sim_exp/requirements-plot.in`; no simulator bindings or model checkpoint are needed. Pins were verified with Python 3.12.13. The frozen figures additionally require `latex` and `dvipng` on PATH, Times (`ptm`) fonts, and the LaTeX packages `type1cm`, `type1ec`, `amsmath`, `amssymb`, `amsfonts`, `geometry`, `underscore`, and `textcomp`; these are installed on dhruv-linux. Missing LaTeX dependencies fail the render rather than silently substituting another font. Metadata records the text renderer, font preamble, and TeX tool versions; inspect `pdffonts` on the accompanying PDF to confirm the real Times-bold face and embedding even when using the PNG in the paper. The original interleaved experiment pipeline below remains available for its original data format.
 
 ## Original interleaved experiment pipeline
 
