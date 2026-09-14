@@ -352,7 +352,10 @@ def _draw_frozen_panel(ax, results: FrozenResults, metric: Metric, curves: dict,
     ax.xaxis.set_major_formatter(FixedFormatter([f"{value / 1000:g}k" if value >= 1000 else f"{value:g}" for value in ticks]))
     ax.xaxis.set_minor_locator(NullLocator())
     ax.set_ylim(0, 102)
-    ax.set_yticks([0, 20, 40, 60, 80, 100])
+    # Plain tick text keeps numeric labels in ptm rather than ScalarFormatter's
+    # automatic math mode, which would use Computer Modern math digits.
+    success_ticks = [0, 20, 40, 60, 80, 100]
+    ax.set_yticks(success_ticks, labels=[str(value) for value in success_ticks])
     ax.grid(axis="y", color=GRID_COLOR, linewidth=0.7)
     ax.set_axisbelow(True)
 
