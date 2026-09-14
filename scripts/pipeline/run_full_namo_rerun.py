@@ -37,7 +37,7 @@ def parse_arm(text):
     return dict(name=parts[0], prior=parts[1], seed=int(parts[2]), checkpoint=checkpoint)
 
 
-def run_arm(xml_path, arm, config, primitives, destination, scene):
+def run_arm(xml_path, arm, config, primitives, destination, scene, expect_source_sha256=None):
     from namo.solvability_runner import SolveTask, solve_environment_task
 
     task = SolveTask(
@@ -53,6 +53,13 @@ def run_arm(xml_path, arm, config, primitives, destination, scene):
     started = time.monotonic()
     row = solve_environment_task(task)["row"]
     row.update(arm=arm["name"], scene=scene, host_wall_seconds=round(time.monotonic() - started, 3))
+    # A node that fails to read the shared checkout either raises or hashes a partial source
+    # tree. Keep such a row out of the results so a resubmission redoes it.
+    source = (row.get("runtime_fingerprints") or {}).get("source_sha256")
+    if row.get("technical_error") or (expect_source_sha256 and source != expect_source_sha256):
+        destination.with_suffix(".rejected").write_text(json.dumps(row, sort_keys=True, default=str) + "\n")
+        raise RuntimeError(f"{arm['name']} scene {scene['index']}: technical_error={row.get('technical_error')} "
+                           f"source_sha256={source} expected={expect_source_sha256}")
     temporary = destination.with_suffix(".tmp")
     temporary.write_text(json.dumps(row, sort_keys=True, default=str) + "\n")
     temporary.replace(destination)
@@ -67,6 +74,7 @@ def main():
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--index", required=True, type=int)
     parser.add_argument("--arm", action="append", required=True, type=parse_arm)
+    parser.add_argument("--expect-source-sha256", help="Reject rows whose code fingerprint differs")
     args = parser.parse_args()
 
     rows = [json.loads(line) for line in (args.manifest_dir / "manifest.jsonl").read_text().splitlines() if line]
@@ -87,7 +95,8 @@ def main():
 
     context = multiprocessing.get_context("fork")
     with ProcessPoolExecutor(max_workers=max(1, len(pending)), mp_context=context) as pool:
-        futures = [pool.submit(run_arm, xml_path, arm, args.config, args.primitives, destination, scene)
+        futures = [pool.submit(run_arm, xml_path, arm, args.config, args.primitives, destination, scene,
+                               args.expect_source_sha256)
                    for arm, destination in pending]
         for future in as_completed(futures):
             name, solved, calls, error = future.result()

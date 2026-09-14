@@ -7,7 +7,8 @@
 # exclusive node; 8 runs share this task's node, so allow roughly 3x.
 #
 # Usage (from the repo root on Amarel):
-#   RERUN=$NAMO_SCRATCH/full_namo_rerun_20260914 sbatch --array=0-399 scripts/slurm/full_namo_rerun.slurm
+#   RERUN=$NAMO_SCRATCH/full_namo_rerun_20260914 CKPTS=<dir with HY5U_s{1,2,3}.ckpt> \
+#     [EXPECT_SOURCE_SHA256=<code fingerprint of good rows>] sbatch --array=0-399 scripts/slurm/full_namo_rerun.slurm
 #SBATCH --job-name=fnamo-rerun
 #SBATCH --partition=main
 #SBATCH --nodes=1
@@ -32,4 +33,5 @@ for seed in 7000 8000 9000 10000 11000; do arms+=(--arm "random_s${seed}:uniform
 
 "$NAMO_PYTHON" scripts/pipeline/run_full_namo_rerun.py \
   --manifest-dir "$RERUN/input/full_namo" --config "$RERUN/config/namo_config.yaml" \
-  --primitives data --out "$RERUN/results" --index "${SLURM_ARRAY_TASK_ID:?}" "${arms[@]}"
+  --primitives data --out "$RERUN/results" --index "${SLURM_ARRAY_TASK_ID:?}" \
+  ${EXPECT_SOURCE_SHA256:+--expect-source-sha256 "$EXPECT_SOURCE_SHA256"} "${arms[@]}"
