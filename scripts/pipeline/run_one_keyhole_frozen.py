@@ -5,7 +5,8 @@ Built for the 2026-09-14 ablation rerun on one_keyhole_frozen600_20260912_v1. Th
 setup ports Tri-An's evaluate_frozen_one (archive/dhruv_container_2026-09-11/, v2 in his
 campaign root): each problem's frozen target points and door objects, the identity check
 against the certificate problem_id, and the certificate-v1 restore for the problems his run
-file lists. The search is scripts/sandbox/eval_bestfirst.py with his settings: up to 2
+file lists. One change: it keeps the frozen door objects when today's room finder sees
+different ones, and records both, instead of stopping. The search is scripts/sandbox/eval_bestfirst.py with his settings: up to 2
 pushes, 3000 simulator calls, mean5, raw q, discount off, no-op dedupe and jam pruning on,
 solved when 20% of the target points are reachable. Untimed; statistics on, as in his runs.
 
@@ -87,10 +88,12 @@ def evaluate(problems, row, arm, config, primitives, post_restore):
                    **{k: task[k] for k in ("target_samples", "target_region", "boundary_objects", "object_scope")})
     if content_digest(problem) != row["problem_id"]:
         raise ValueError(f"initialized scene differs from frozen certificate: {row['problem_id']}")
-    current = sandbox.pooled_boundary_tasks(snapshot, [dict(region=task["target_region"],
-                                                            target_points=task["target_samples"])])[0]
-    if current["boundary_objects"] != task["boundary_objects"]:
-        raise ValueError(f"initialized boundary pool changed: {row['problem_id']}")
+    # Tri-An's helper stopped when today's room finder saw different door objects. That happens on
+    # 4 of the 600 frozen problems (37, 46, 77, 348). The frozen task stays the problem definition,
+    # as it is for his tiers and Random runs, so the search uses the frozen objects and the row
+    # records what the current code sees.
+    live_door_objects = sandbox.pooled_boundary_tasks(snapshot, [dict(region=task["target_region"],
+                                                                      target_points=task["target_samples"])])[0]["boundary_objects"]
 
     options = SimpleNamespace(key=str(problems / "manifest.jsonl"), prior=arm["prior"], ckpt=arm["checkpoint"] or "",
         seed_base=arm["seed_base"], hmax=2, sim_budget=3000, agg="mean5", combine="q", raw=True, dive_bonus=0.0,
@@ -108,7 +111,9 @@ def evaluate(problems, row, arm, config, primitives, post_restore):
     result.update(exec_mode="search", population="one_keyhole", horizon=row["horizon"],
                   horizon_pattern=f"{row['horizon']}push", difficulty=row["difficulty"], template=row["template"],
                   geometry_id=row["geometry_id"], certification_problem_id=row["problem_id"],
-                  certification_status="complete", arm=arm["name"], index=row["index"])
+                  certification_status="complete", arm=arm["name"], index=row["index"],
+                  live_door_objects=live_door_objects,
+                  door_objects_match=live_door_objects == task["boundary_objects"])
     return result
 
 
