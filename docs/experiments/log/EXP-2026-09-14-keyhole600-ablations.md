@@ -36,6 +36,8 @@ Array `61591107` at `0d271566`: 480 tasks x 14 CPUs, halk nodes excluded, 08:40-
 
 All 16,200 rows share source fingerprint `22577f4a`, config `a58e885f` and inflation `f8ab35e1`. Report and plots: `scripts/pipeline/report_one_keyhole_frozen.py`.
 
+Shared copy for plotting (2026-09-14): `/common/users/shared/robot_learning/dm1487/namo/ranking/results/ablations_fullnamo_2026-09-14/one_keyhole_600_ablations/`, with every run, Tri-An's baselines, a one-line-per-run `runs.csv` and a README; readable by tdn39. The CS scratch and Amarel copies stay in place.
+
 ## Result
 
 ![Median seed of every model, per horizon and tier](../plots/keyhole600_ablations_20260914/success_vs_calls_all_models.png)

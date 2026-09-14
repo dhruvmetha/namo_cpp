@@ -36,6 +36,8 @@ At 06:26 Claude cancelled 106 tasks to drop Random. 58 of them still had HY5U ru
 
 All 1,200 HY5U rows share source fingerprint `22577f4a`, binding `cc2d2e9e`, Sage scorer source `12c59973`, config `a58e885f` and inflation `f8ab35e1`; checkpoints are `ac43f004` (s1), `3cf348cf` (s2, the file Tri-An used) and `c596b09b` (s3). Zero rows were rejected. The rows record three commits (`d94322c9`, `f6665e66`, `9b1c6e51`). Between them only the runner's row check, the SLURM file and the two repo car configs changed, and this run loaded Tri-An's config copy instead of those, so the search code and inputs are the same for every row.
 
+Shared copy for plotting (2026-09-14): `/common/users/shared/robot_learning/dm1487/namo/ranking/results/ablations_fullnamo_2026-09-14/full_namo_frozen400/`, with every run, Tri-An's baselines, a one-line-per-run `runs.csv` and a README; readable by tdn39. The CS scratch and Amarel copies stay in place.
+
 ## Result
 
 ![Share of runs solved within a simulator-call budget, HY5U 3 seeds vs Random 5 seeds, median with worst-to-best seed band](../plots/full_namo_rerun_20260914/success_vs_sims.png)
