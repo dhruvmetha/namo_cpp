@@ -308,7 +308,7 @@ def create_difficulty_figure(results: FrozenResults, metric: Metric, curves: dic
     plt.rcParams.update({"font.size": 11, "axes.labelsize": 11.5, "axes.titlesize": 12,
                          "axes.titleweight": "normal", "xtick.labelsize": 10,
                          "ytick.labelsize": 10, "pdf.fonttype": 42})
-    fig, ax = plt.subplots(figsize=(7.2, 4.8))
+    fig, ax = plt.subplots(figsize=(7.2, 5.1))
     for difficulty in FROZEN_DIFFICULTIES:
         for method in FROZEN_METHODS:
             ax.plot(curves["display_grid"], curves["display"][difficulty, method],
@@ -335,12 +335,11 @@ def create_difficulty_figure(results: FrozenResults, metric: Metric, curves: dic
     methods = [Line2D([], [], color=METHOD_COLORS[method], linewidth=2.4, label=method) for method in FROZEN_METHODS]
     difficulties = [Line2D([], [], color="#444444", linewidth=2.4, linestyle=DIFFICULTY_LINESTYLES[tier],
                            label=tier.capitalize()) for tier in FROZEN_DIFFICULTIES]
-    method_legend = ax.legend(handles=methods, title="Method", loc="lower right", bbox_to_anchor=(0.99, 0.02),
-                              fontsize=10, title_fontsize=10, handlelength=2.5)
-    ax.add_artist(method_legend)
-    ax.legend(handles=difficulties, title="Difficulty", loc="lower right", bbox_to_anchor=(0.69, 0.02),
-              fontsize=10, title_fontsize=10, handlelength=2.5)
-    fig.subplots_adjust(left=0.13, right=0.975, top=0.91, bottom=0.14)
+    fig.legend(handles=methods, title="Method", loc="lower center", bbox_to_anchor=(0.29, 0.005),
+               ncol=2, fontsize=10, title_fontsize=10, handlelength=2.5, columnspacing=1.3)
+    fig.legend(handles=difficulties, title="Difficulty", loc="lower center", bbox_to_anchor=(0.74, 0.005),
+               ncol=3, fontsize=10, title_fontsize=10, handlelength=2.5, columnspacing=1.3)
+    fig.subplots_adjust(left=0.13, right=0.975, top=0.91, bottom=0.245)
     return fig
 
 
