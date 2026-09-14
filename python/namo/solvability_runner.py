@@ -6,7 +6,7 @@ import argparse
 import json
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
@@ -22,6 +22,12 @@ from namo.environment_selection import (
 )
 from namo.planners.full_namo.full_namo_planner import FullNAMOPlanner
 from namo.planners.utils import PushAttemptBudget
+from namo.planners.search_measurements import (
+    SearchMeasurements, clock_finish, clock_start, content_digest, file_digest,
+    measurement_options, run_identity, runtime_fingerprints, state_record,
+    append_jsonl, save_run_row, write_json_artifact, atomic_write,
+    xml_input_coverage,
+)
 from namo.runtime_profile import (
     CANONICAL_CONFIG,
     CANONICAL_NUM_DEPTHS,
@@ -66,6 +72,14 @@ class SolveTask:
     preserve_next_keyhole_access: bool = False
     shuffle_seed: Optional[int] = None
     goal_clearance: bool = False
+    exec_mode: str = "search"
+    record_timing: bool = False
+    record_statistics: bool = False
+    schema_version: int = 1
+
+    def __post_init__(self):
+        measurement_options(dict(record_statistics=self.record_statistics,
+                                 record_timing=self.record_timing, schema_version=self.schema_version))
 
 
 def _load_namo_config(config_path: str) -> Dict[str, Any]:
@@ -101,6 +115,9 @@ def serialize_action(action: Any) -> Dict[str, Any]:
 
 
 def build_full_namo_planner_config(task: SolveTask) -> PlannerConfig:
+    """Build the shared planner configuration for a complete simulated task."""
+    if task.exec_mode not in {"search", "greedy_dfs"}:
+        raise ValueError("Simulation evaluation requires search or greedy_dfs, not a real-robot action proposal")
     push_budget = PushAttemptBudget(limit=task.simulation_budget)
     algorithm_params: Dict[str, Any] = {
         "goal_strategy": task.goal_strategy,
@@ -119,6 +136,7 @@ def build_full_namo_planner_config(task: SolveTask) -> PlannerConfig:
         "full_namo_budget_scope": task.simulation_budget_scope,
         "full_namo_keyhole_simulation_budget": task.simulation_budget,
         "full_namo_local_search": task.local_search,
+        "full_namo_exec_mode": task.exec_mode,
         "full_namo_goal_clearance": task.goal_clearance,
         "best_first_prior": task.best_first_prior,
         "best_first_hmax": task.region_max_chain_depth,
@@ -151,11 +169,42 @@ def build_full_namo_planner_config(task: SolveTask) -> PlannerConfig:
 
 
 def solve_environment_task(task: SolveTask) -> Dict[str, Any]:
+    """Run the canonical planner; optional timing excludes setup and serialization."""
+    measured = SearchMeasurements(record_statistics=task.record_statistics,
+                                  record_timing=task.record_timing, schema_version=task.schema_version)
+    common = dict(schema_version=task.schema_version, measurement=measured.options,
+                  xml_path=task.xml_path, path_length_n=task.path_length_n, complete=False,
+                  exec_mode=task.exec_mode, method=task.best_first_prior,
+                  seed=task.seed, shuffle_seed=task.seed if task.shuffle_seed is None else task.shuffle_seed,
+                  call_cap=task.simulation_budget, total_calls=0, solved=False, calls_until_success=None,
+                  final_goal_reachable=None, technical_error=False)
     try:
         env = namo_rl.RLEnvironment(task.xml_path, task.config_path, False)
-        planner = FullNAMOPlanner(env, build_full_namo_planner_config(task))
+        config = build_full_namo_planner_config(task)
+        timing = measured.timing
+        config.algorithm_params["search_measurements"] = measured
+        if task.record_timing:
+            config.algorithm_params["full_namo_timing"] = timing
+        planner = FullNAMOPlanner(env, config)
         robot_goal = extract_goal_from_xml(task.xml_path)
+        initial_state = state_record(env.get_full_state())
+        runtime = runtime_fingerprints(task.config_path, task.primitive_data_dir,
+                                       task.primitive_prefix, namo_rl.__file__, task.scorer_ckpt)
+        problem = {"xml_sha256": file_digest(task.xml_path), "initial_state": initial_state,
+                   "original_goal": list(robot_goal), "task_kind": "full_namo"}
+        semantic = {key: value for key, value in asdict(task).items() if key not in {
+            "xml_path", "path_length_n", "config_path", "primitive_data_dir", "scorer_ckpt",
+            "record_statistics", "record_timing", "schema_version"}}
+        semantic["runtime"] = {key: value for key, value in runtime.items() if key != "code_commit"}
+        common.update(run_identity(problem, semantic, task.best_first_prior, runtime["checkpoint_sha256"],
+                                   {"sampler": task.seed, "shuffle": common["shuffle_seed"]}),
+                      runtime_fingerprints=runtime, xml_sha256=problem["xml_sha256"],
+                      initialized_state_digest=content_digest(initial_state), original_goal=list(robot_goal),
+                      semantic_protocol=semantic, xml_input_coverage=xml_input_coverage(task.xml_path))
+        measured.start_clock()
+        started = measured._clock_origin
         result = planner.search(robot_goal)
+        clock_finish(timing, "t_wall", started)
 
         budget_stats = dict(result.algorithm_stats or {})
         budget_fields = {
@@ -176,17 +225,44 @@ def solve_environment_task(task: SolveTask) -> Dict[str, Any]:
         # failing, which the terminal failure_kind alone cannot distinguish.
         trace_fields = (
             {"iteration_trace": budget_stats["iteration_trace"]}
-            if "iteration_trace" in budget_stats
+            if task.record_statistics and "iteration_trace" in budget_stats
             else {}
         )
-        if task.goal_clearance:
-            state = env.get_full_state()
+        calls = int(budget_stats.get("simulation_budget_used_total",
+                                    budget_stats.get("simulation_budget_used", config.algorithm_params["push_budget"].used)))
+        terminal_state = env.get_full_state()
+        terminal = state_record(terminal_state)
+        measured.checkpoint(terminal_state, trigger="terminal",
+                             observation=env.get_observation() if task.record_statistics else None)
+        final_goal = bool(env.is_robot_goal_reachable()) if task.goal_clearance else bool(result.success)
+        failure_kind = str(budget_stats.get("failure_kind") or "")
+        measured.event("run_end", solved=bool(result.success), final_goal_reachable=final_goal,
+                       calls=calls, terminal_state_digest=content_digest(terminal))
+        measured.complete = True
+        common.update(total_calls=calls, solved=bool(result.success), censored=not result.success,
+                      calls_until_success=calls if result.success else None, complete=True,
+                      failure_kind=failure_kind or None, failure_subkind=budget_stats.get("failure_subkind"),
+                      terminal_state_digest=content_digest(terminal), execution_digest=measured.execution_digest,
+                      attempt_count=measured.attempt_count, attempt_digests=measured.attempt_digests,
+                      commit_count=measured.commit_count, final_goal_reachable=final_goal,
+                      goal_clearance_enabled=task.goal_clearance,
+                      outcome="solved" if result.success else (failure_kind or "planner_failure"),
+                      terminal_state_kind="committed")
+        trace_fields.update(common)
+        if task.record_timing:
+            timing["t_global_other"] = timing["t_wall"] - sum(timing.get(key, 0.0) for key in (
+                "t_local_search", "t_global_snapshot", "t_global_goal_check", "t_route_selection"))
+            timing["timing_accounting_valid"] = timing["t_global_other"] >= -1e-6
+            trace_fields.update(timing, local_timing=measured.local_timing,
+                                time_until_success=timing["t_wall"] if result.success else None)
+        if task.record_statistics:
             trace_fields.update({
-                "goal_clearance_enabled": True,
-                "committed_actions": [serialize_action(action) for action in (result.action_sequence or [])],
-                "terminal_state": {"qpos": list(state.qpos), "qvel": list(state.qvel)},
+                "statistics": measured.statistics,
+                "committed_actions": [action for commit in measured.statistics["commits"]
+                                      for action in commit["actions"]],
+                "initial_state": initial_state,
+                "terminal_state": terminal,
                 "goal_diagnostics": budget_stats.get("goal_diagnostics"),
-                "final_goal_reachable": bool(env.is_robot_goal_reachable()),
             })
 
         if result.success:
@@ -212,6 +288,7 @@ def solve_environment_task(task: SolveTask) -> Dict[str, Any]:
         return {
             "kind": "unsolved",
             "row": {
+                **common,
                 "xml_path": task.xml_path,
                 "path_length_n": task.path_length_n,
                 "outcome": outcome,
@@ -223,21 +300,25 @@ def solve_environment_task(task: SolveTask) -> Dict[str, Any]:
             },
         }
     except Exception as exc:
+        if "run_id" not in common:
+            common.update(run_identity({"uninitialized_task": task.xml_path},
+                                       {"task": {key: value for key, value in asdict(task).items()
+                                                 if key not in {"record_statistics", "record_timing"}}},
+                                       task.best_first_prior, None, {"seed": common["shuffle_seed"]}),
+                          identity_status="initialization_incomplete")
         return {
             "kind": "unsolved",
             "row": {
+                **common,
                 "xml_path": task.xml_path,
                 "path_length_n": task.path_length_n,
-                "outcome": "planner_failure",
-                "failure_kind": "runner_exception",
-                "failure_subkind": None,
-                "error_message": str(exc),
+                **measured.failure_fields(exc),
             },
         }
 
 
 def _write_json(path: Path, payload: Dict[str, Any]):
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    write_json_artifact(path, payload)
 
 
 def _write_jsonl(path: Path, rows: Sequence[Dict[str, Any]]):
@@ -250,7 +331,7 @@ def _write_selected_envs(path: Path, xml_paths: Sequence[str]):
     content = "\n".join(xml_paths)
     if content:
         content += "\n"
-    path.write_text(content, encoding="utf-8")
+    atomic_write(path, content.encode("utf-8"))
 
 
 def _build_task(
@@ -280,6 +361,7 @@ def _build_task(
     preserve_next_keyhole_access: bool,
     shuffle_seed: Optional[int],
     goal_clearance: bool = False,
+    measurement: Optional[Dict[str, Any]] = None,
 ) -> SolveTask:
     return SolveTask(
         xml_path=analysis.xml_path,
@@ -308,6 +390,7 @@ def _build_task(
         preserve_next_keyhole_access=preserve_next_keyhole_access,
         shuffle_seed=shuffle_seed,
         goal_clearance=goal_clearance,
+        **measurement_options(measurement),
     )
 
 
@@ -362,7 +445,9 @@ def run_exact_n_solvability(
     shuffle_seed: Optional[int] = None,
     limit: Optional[int] = None,
     goal_clearance: bool = False,
+    measurement: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+    measurement = measurement_options(measurement)
     config_path = _resolve_config_path(repo_root, config_file)
     require_canonical_runtime_config(config_path)
     primitive_root = Path(primitive_data_dir)
@@ -370,13 +455,16 @@ def run_exact_n_solvability(
         primitive_root = repo_root / primitive_data_dir
     primitive_data_dir_resolved = str(primitive_root.resolve())
     output_root = Path(output_dir).resolve()
-    output_root.mkdir(parents=True, exist_ok=True)
+    output_root.mkdir(parents=True, exist_ok=False)
+    for name in ("outcomes.jsonl", "solved.jsonl", "unsolved.jsonl", "repair_requests.jsonl"):
+        atomic_write(output_root / name, b"")
 
     effective_max_push_steps = derive_max_push_steps(config_path)
     require_canonical_primitive_profile(primitive_prefix, effective_max_push_steps)
     effective_primitive_prefix = primitive_prefix
 
     run_config = {
+        "measurement": measurement,
         "input_dir": input_dir,
         "manifest": manifest_path,
         "path_length": int(path_length),
@@ -419,16 +507,20 @@ def run_exact_n_solvability(
             use_cpp_snapshot=use_cpp_snapshot,
         )
         if analysis.selection_error:
-            unsolved_rows.append(
-                {
+            row = {
                     "xml_path": analysis.xml_path,
                     "path_length_n": analysis.path_length_n,
                     "outcome": "selection_error",
                     "failure_kind": "selection_error",
                     "failure_subkind": None,
                     "error_message": analysis.selection_error,
+                    "technical_error": True,
+                    "complete": False,
                 }
-            )
+            unsolved_rows.append(row)
+            append_jsonl(output_root / "outcomes.jsonl", row)
+            append_jsonl(output_root / "unsolved.jsonl", row)
+            append_jsonl(output_root / "repair_requests.jsonl", row)
             continue
         if analysis.path_length_n == path_length:
             selected_analyses.append(analysis)
@@ -463,21 +555,22 @@ def run_exact_n_solvability(
             preserve_next_keyhole_access=preserve_next_keyhole_access,
             shuffle_seed=shuffle_seed,
             goal_clearance=goal_clearance,
+            measurement=measurement,
         )
         for analysis in selected_analyses
     ]
 
     solved_rows: List[Dict[str, Any]] = []
     for result in _iter_solve_results(tasks, workers):
+        row = save_run_row(output_root / "outcomes.jsonl", result["row"])
         if result["kind"] == "solved":
-            solved_rows.append(result["row"])
+            solved_rows.append(row)
+            append_jsonl(output_root / "solved.jsonl", row)
         else:
-            unsolved_rows.append(result["row"])
-
-    solved_rows.sort(key=lambda row: row["xml_path"])
-    unsolved_rows.sort(key=lambda row: row["xml_path"])
-    _write_jsonl(output_root / "solved.jsonl", solved_rows)
-    _write_jsonl(output_root / "unsolved.jsonl", unsolved_rows)
+            unsolved_rows.append(row)
+            append_jsonl(output_root / "unsolved.jsonl", row)
+        if row.get("technical_error") or row.get("complete") is False:
+            append_jsonl(output_root / "repair_requests.jsonl", row)
 
     summary = {
         "input_env_count": len(xml_files),
@@ -495,6 +588,9 @@ def run_exact_n_solvability(
         ),
     }
     _write_json(output_root / "summary.json", summary)
+    if not any(row.get("complete") is False or row.get("technical_error") for row in solved_rows + unsolved_rows):
+        _write_json(output_root / "complete.json", {"expected_run_count": len(tasks),
+                                                  "accounted_run_count": len(solved_rows) + len(unsolved_rows)})
     return summary
 
 
@@ -504,6 +600,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--xml-dir", type=str, help="Directory containing XML environments")
     parser.add_argument("--manifest", type=str, help="Manifest listing XML environments")
+    parser.add_argument("--measurement-config", help="YAML containing a measurement section")
     parser.add_argument("--path-length", type=int, required=True, help="Exact initial shortest region-path length")
     parser.add_argument(
         "--config-file",
@@ -680,6 +777,9 @@ def cli_main(argv: Optional[Sequence[str]] = None) -> int:
         parser.error("provide only one of --xml-dir or --manifest")
 
     repo_root = Path(__file__).resolve().parents[2]
+    measurement = None
+    if args.measurement_config:
+        measurement = yaml.safe_load(Path(args.measurement_config).read_text())["measurement"]
     run_exact_n_solvability(
         repo_root=repo_root,
         input_dir=args.xml_dir,
@@ -711,6 +811,7 @@ def cli_main(argv: Optional[Sequence[str]] = None) -> int:
         audit_next_keyhole_reachability=args.audit_next_keyhole_reachability,
         preserve_next_keyhole_access=args.preserve_next_keyhole_access,
         limit=args.limit,
+        measurement=measurement,
     )
     return 0
 

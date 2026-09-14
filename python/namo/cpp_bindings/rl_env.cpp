@@ -10,6 +10,7 @@
 #include <queue>
 #include <algorithm>
 #include <variant>
+#include <chrono>
 
 namespace namo {
 
@@ -685,8 +686,20 @@ RLEnvironment::RegionSnapshot RLEnvironment::get_region_snapshot(
     bool local_info_only,
     unsigned int seed,
     bool use_xml_goal,
-    bool include_goal_clearance) const {
+    bool include_goal_clearance,
+    bool include_region_cells,
+    bool record_timing) const {
     RegionSnapshot snapshot;
+    using Clock = std::chrono::steady_clock;
+    Clock::time_point phase_started{};
+    if (record_timing) phase_started = Clock::now();
+    auto finish_phase = [&](const char* name) {
+        if (record_timing) {
+            const auto ended = Clock::now();
+            snapshot.snapshot_phases[name] = std::chrono::duration<double>(ended - phase_started).count();
+            phase_started = ended;
+        }
+    };
 
     std::vector<double> robot_size = {kDefaultWavefrontRobotRadiusM, kDefaultWavefrontRobotRadiusM};
     double tier1_margin = kDefaultWavefrontTier1MarginM;
@@ -734,7 +747,8 @@ RLEnvironment::RegionSnapshot RLEnvironment::get_region_snapshot(
     }
     const std::array<double, 2> robot_xy = {robot_state->position[0], robot_state->position[1]};
     const auto goal_cells = build_goal_cells(grid, goal_xy, effective_goal_radius);
-    grid.find_connected_components(robot_xy, goal_cells);
+    const auto components = grid.find_connected_components(robot_xy, goal_cells);
+    finish_phase("grid_components");
 
     snapshot.adjacency = grid.build_region_connectivity_graph(*env_);
     snapshot.multi_object_edges = grid.get_multi_object_edges();
@@ -747,6 +761,7 @@ RLEnvironment::RegionSnapshot RLEnvironment::get_region_snapshot(
         snapshot.robot_label.find("goal") != std::string::npos;
     snapshot.goal_in_free_space =
         !snapshot.goal_label.empty() || snapshot.goal_reachable;
+    finish_phase("connectivity_graph");
 
     if (include_goal_clearance) {
         // Use the live original goal and its navigation tolerance, not the local region bar.
@@ -768,6 +783,7 @@ RLEnvironment::RegionSnapshot RLEnvironment::get_region_snapshot(
         std::sort(snapshot.reachable_goal_blockers.begin(), snapshot.reachable_goal_blockers.end());
     }
 
+    finish_phase("goal_access");
     if (goals_per_region > 0) {
         snapshot.region_goals = grid.sample_region_goals(goals_per_region, seed);
     }
@@ -780,6 +796,20 @@ RLEnvironment::RegionSnapshot RLEnvironment::get_region_snapshot(
             snapshot.region_labels,
             snapshot.robot_label
         );
+    }
+
+    finish_phase("goal_sampling");
+    if (include_region_cells) {
+        snapshot.grid_width = grid.get_grid_width();
+        snapshot.grid_height = grid.get_grid_height();
+        snapshot.grid_resolution = grid.get_resolution();
+        snapshot.grid_origin = {grid.grid_to_world_x(0), grid.grid_to_world_y(0)};
+        for (const auto& [region, cells] : components) {
+            auto& exported = snapshot.cells_by_region_id[region];
+            exported.reserve(cells.size());
+            for (const auto& cell : cells) exported.push_back(cell.first * snapshot.grid_height + cell.second);
+            std::sort(exported.begin(), exported.end());
+        }
     }
 
     return snapshot;

@@ -52,6 +52,12 @@ public:
         std::vector<PointOccupancy> goal_cells;
         std::map<std::string, std::unordered_set<std::string>> goal_blocker_access_regions;
         std::vector<std::string> reachable_goal_blockers;
+        int grid_width = 0;
+        int grid_height = 0;
+        double grid_resolution = 0.0;
+        std::array<double, 2> grid_origin{};
+        std::map<int, std::vector<int>> cells_by_region_id;
+        std::map<std::string, double> snapshot_phases;
     };
 
     struct Action {
@@ -191,7 +197,9 @@ public:
         bool local_info_only = false,
         unsigned int seed = 42,
         bool use_xml_goal = true,
-        bool include_goal_clearance = false) const;
+        bool include_goal_clearance = false,
+        bool include_region_cells = false,
+        bool record_timing = false) const;
 
     const std::string& get_xml_path() const { return xml_path_; }
     const std::string& get_config_path() const { return config_path_; }

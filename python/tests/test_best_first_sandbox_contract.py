@@ -33,8 +33,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SEPARATED_SCENE = (
     REPO_ROOT / "python" / "tests" / "data" / "best_first_car_1x_d5_fixture.xml"
 )
-# These recorded runs use 5 mm clearance; the bare config now defaults to 1 mm
-# for real-table execution, which changes the reachable candidates and chains.
+# These chains were recorded at 5 mm clearance. The bare config defaults to 1 mm for
+# real-table execution, which changes the reachable candidates and chains, so load it
+# through margin_5mm: the parent directory selects the inflation sidecar.
 SEPARATED_CONFIG = REPO_ROOT / "config" / "margin_5mm" / "namo_config_complete_skill15_car_1x.yaml"
 
 # The boundary select_boundary_from_xml chooses on this scene, pinned because
@@ -131,3 +132,25 @@ def test_different_seeds_do_different_work(service, selection):
 
     assert len(set(chains.values())) == len(chains)
     assert len({sims for _seed, sims, _chain in RECORDED_RUNS}) == len(RECORDED_RUNS)
+
+
+def test_pooled_tasks_keep_all_blockers_and_distinct_fixed_targets():
+    from eval_bestfirst import pooled_boundary_tasks
+
+    snapshot = {
+        "robot_label": "robot", "goal_label": "goal",
+        "adjacency": {"robot": {"goal", "side"}},
+        "edge_objects": {"robot": {"goal": {"A", "B"}, "side": {"C"}}},
+        "region_goals": {"goal": {"samples": [(1, 2, 0)]}, "side": {"samples": [(3, 4, 0)]}},
+    }
+    records = [{"object_id": obj, "region": region} for obj, region in
+               [("A", "goal"), ("B", "goal"), ("C", "side")]]
+    tasks = pooled_boundary_tasks(snapshot, records)
+    assert len(tasks) == 2
+    assert tasks[0]["boundary_objects"] == ["A", "B"]
+    assert len(tasks[0]["source_records"]) == 2
+    assert tasks[0]["target_samples"] == [[1.0, 2.0, 0.0]]
+    assert tasks[1]["boundary_objects"] == ["C"]
+    assert tasks[0]["certification_status"] == "pending"
+    records.append(dict(records[0], target_points=[[1.1, 2.0]]))
+    assert len(pooled_boundary_tasks(snapshot, records)) == 3

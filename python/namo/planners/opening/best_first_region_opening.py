@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-import time
 from types import SimpleNamespace
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
@@ -13,6 +12,7 @@ import numpy as np
 from namo.core import PlannerConfig, PlannerResult
 from namo.planners.connectivity_snapshot import find_robot_label
 from namo.planners.utils import PushAttemptBudget
+from namo.planners.search_measurements import clock_start, clock_finish, elapsed_ms
 from namo.strategies import PrimitiveGoalStrategy
 from namo.strategies.scorer_goal_strategy import _get_scorer
 from namo.runtime_profile import CANONICAL_NUM_DEPTHS, CANONICAL_PRIMITIVE_PREFIX
@@ -83,6 +83,9 @@ class BestFirstRegionOpeningPlanner:
         params = config.algorithm_params or {}
         self.env = env
         self.config = config
+        self.timing = params.get("full_namo_timing")
+        self.measurements = params.get("search_measurements")
+        self._attempt_timing = None
         self.push_budget: PushAttemptBudget = params.get("push_budget") or PushAttemptBudget(
             int(
                 params.get(
@@ -296,7 +299,7 @@ class BestFirstRegionOpeningPlanner:
             solution_found=success,
             action_sequence=list(actions or []) if carry_actions else None,
             solution_depth=len(actions or []) if carry_actions else None,
-            search_time_ms=(time.time() - start_time) * 1000.0,
+            search_time_ms=elapsed_ms(self._attempt_timing, start_time),
             error_message=(
                 f"Simulation budget exhausted after {self.push_budget.used}/{self.push_budget.limit} env.step calls"
                 if failure_kind
@@ -378,7 +381,40 @@ class BestFirstRegionOpeningPlanner:
                 and summary["failure_reason"] in {"all_pushes_failed", "no_reachable_objects"})
         return result
 
-    def _run_boundary(
+    def _run_boundary(self, *args, **kwargs):
+        """Observe one invocation, including zero-call exits and the final restore."""
+        measured = self.measurements
+        if measured is not None:
+            measured.begin_attempt(target_region=kwargs.get("target_neighbor"),
+                                   task_kind="goal_clearance" if kwargs.get("clearance_target") else "boundary",
+                                   local_call_cap=int(self.push_budget.remaining), hmax=self.hmax)
+            self._attempt_timing = measured.local_timer
+        else:
+            self._attempt_timing = {"t_score": 0.0, "t_sim": 0.0, "n_score": 0} if self.timing is not None else None
+        started = clock_start(self._attempt_timing)
+        try:
+            result = self._run_boundary_impl(*args, **kwargs)
+            stats = result.algorithm_stats
+            if measured is not None:
+                stats["measurement_attempt_id"] = measured.active_attempt
+                measured.end_attempt(end=stats["best_first_end"], success=result.success,
+                                     calls=stats["total_primitives_attempted"], actions=result.action_sequence or (),
+                                     failure_reason=stats["target_summary"]["failure_reason"])
+            elif self._attempt_timing is not None:
+                clock_finish(self._attempt_timing, "t_local_search", started)
+                for key, value in self._attempt_timing.items():
+                    if key != "t_wall":
+                        self.timing[key] = self.timing.get(key, 0) + value
+            return result
+        except Exception:
+            if measured is not None and measured.active_attempt is not None:
+                measured.end_attempt(end="technical_error", success=False,
+                                     calls=measured.total_sim_calls - measured._attempt_start_calls)
+            raise
+        finally:
+            self._attempt_timing = None
+
+    def _run_boundary_impl(
         self,
         robot_goal: Tuple[float, float, float],
         target_neighbor: Optional[str] = None,
@@ -395,7 +431,7 @@ class BestFirstRegionOpeningPlanner:
     ) -> PlannerResult:
         if target_neighbor is None:
             raise ValueError("best-first region opening requires target_neighbor")
-        start_time = time.time()
+        start_time = clock_start(self._attempt_timing)
         baseline = self.env.get_full_state()
         original_scorer = self._search_planner.scorer
         future_interface: Optional[Dict[str, Any]] = None
@@ -528,6 +564,10 @@ class BestFirstRegionOpeningPlanner:
                     boundary_objects,
                     target_object_id,
                 )
+            if self.measurements is not None:
+                self.measurements.attempt_target(boundary_objects=list(boundary_objects),
+                                                 target_samples=[list(point) for point in region_samples],
+                                                 robot_region=robot_label, target_region=target_neighbor)
             if boundary_error or not boundary_objects:
                 reason = boundary_error or "no_blocking_objects"
                 attempt = AttemptResult(
@@ -579,6 +619,8 @@ class BestFirstRegionOpeningPlanner:
                     prune_jam_depth=True,
                     region_samples=region_samples,
                     simulate=commit_simulate,
+                    timing=self._attempt_timing,
+                    measurements=self.measurements,
                 )
                 self.push_budget.used += int(commit.simulations_used)
                 actions = [commit.action] if commit.action is not None else []
@@ -648,6 +690,8 @@ class BestFirstRegionOpeningPlanner:
                 prune_jam_depth=True,
                 region_samples=region_samples,
                 solution_out=solution,
+                timing=self._attempt_timing,
+                measurements=self.measurements,
             )
             if self.decision_rule == "reactive":
                 decide = run_reactive

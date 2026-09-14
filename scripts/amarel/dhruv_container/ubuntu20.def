@@ -1,0 +1,47 @@
+Bootstrap: docker
+From: ubuntu@sha256:c664f8f86ed5a386b0a340d981b8f81714e21a8b9c73f658c4bea56aa179d54a
+# Official Ubuntu 20.04 amd64 manifest. Apptainer cannot combine tag+digest.
+
+%files
+    dhruv-opencv.tar.gz /opt/dhruv-opencv.tar.gz
+    dhruv-opencv.sha256 /opt/dhruv-opencv.sha256
+
+%post
+    set -eu
+    (cd /opt && sha256sum -c dhruv-opencv.sha256)
+    export DEBIAN_FRONTEND=noninteractive
+    # Amarel has user namespaces but no subordinate UID allocation. Its host
+    # fakeroot requires newer glibc, so bootstrap Focal's fakeroot inside here.
+    # Before fakeroot exists, only namespace uid 0 is mapped. Apt cannot
+    # switch its downloader to the otherwise-unmapped _apt account.
+    apt-get -o APT::Sandbox::User=root update
+    apt-get -o APT::Sandbox::User=root install -y --no-install-recommends fakeroot
+    FAKEROOTDONTTRYCHOWN=1 fakeroot bash -ec '
+      apt-get install -y --no-install-recommends \
+        gcc-9=9.4.0-1ubuntu1~20.04.2 g++-9=9.4.0-1ubuntu1~20.04.2 \
+        libstdc++-9-dev=9.4.0-1ubuntu1~20.04.2 \
+        libc6=2.31-0ubuntu9.18 libc6-dev=2.31-0ubuntu9.18 \
+        libstdc++6=10.5.0-1ubuntu1~20.04 libgcc-s1=10.5.0-1ubuntu1~20.04 \
+        binutils=2.34-6ubuntu1.11 cmake=3.16.3-1ubuntu1.20.04.1 \
+        make=4.2.1-1.2 pkg-config=0.29.1-0ubuntu4 \
+        libyaml-cpp0.6=0.6.2-4ubuntu1 libyaml-cpp-dev=0.6.2-4ubuntu1 \
+        libglfw3=3.3.2-1 libglfw3-dev=3.3.2-1 \
+        libglvnd-dev=1.3.2-1~ubuntu0.20.04.2 \
+        libglib2.0-0=2.64.6-1~ubuntu20.04.9 \
+        libopencv-dev=4.2.0+dfsg-5 git ca-certificates
+    '
+    update-alternatives --install /usr/bin/cc cc /usr/bin/gcc-9 90
+    update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++-9 90
+    tar -xzf /opt/dhruv-opencv.tar.gz -C /usr/local
+    ldconfig
+    dpkg-query -W > /opt/installed-packages.tsv
+
+%test
+    test "$(/usr/bin/c++ -dumpfullversion)" = 9.4.0
+    test "$(getconf GNU_LIBC_VERSION)" = 'glibc 2.31'
+    test -f /usr/local/lib/cmake/opencv4/OpenCVConfig.cmake
+    grep -qiF 'set(OpenCV_VERSION 4.3.0)' /usr/local/lib/cmake/opencv4/OpenCVConfig.cmake
+
+%labels
+    Purpose Dhruv-compatible bounded full-NAMO validation
+    TargetCPU GCC9-resolved-Skylake-not-host-native

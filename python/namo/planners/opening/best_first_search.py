@@ -22,11 +22,11 @@ trace_out.
 from __future__ import annotations
 
 import heapq
-import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 import namo_rl
+from namo.planners.search_measurements import clock_start, clock_finish
 
 
 def _make_pop(*args, **kwargs):
@@ -47,7 +47,7 @@ def make_action(obj, goal):
     return a
 
 def rank_first_pushes_h2(planner, env, robot_goal, xml, s0, h, restrict_obj=None, score=True, raw=False,
-                          return_grid=False, region_samples=None):
+                          return_grid=False, region_samples=None, timing=None):
     """Rank reachable (obj, edge, depth) first pushes by Q(s0, ., h). ZERO sims.
     Returns [(obj, Goal, value)] sorted desc. restrict_obj (per-episode invariant): if set, consider ONLY
     that object (or those objects, when given a collection) — the search must push a boundary blocker,
@@ -69,9 +69,13 @@ def rank_first_pushes_h2(planner, env, robot_goal, xml, s0, h, restrict_obj=None
         if not redges[obj]:
             continue
         if score:
+            model_started = clock_start(timing)
             P = planner.scorer.score_state(
                 env, obj, robot_goal, xml, region_samples=region_samples, h=h, raw=raw
             )   # (60,5) at budget h
+            clock_finish(timing, "t_model_score", model_started)
+            if timing is not None:
+                timing["n_model_score"] = timing.get("n_model_score", 0) + 1
             env.set_full_state(s0)                                            # score_state may move state
             ndepth = P.shape[1]
             if return_grid:
@@ -191,7 +195,7 @@ def rank_geometric_pushes(planner, env, state, region_samples, restrict_obj=None
     return pool
 
 def candidates(planner, env, goal, xml, state, h, prior, agg, rng, restrict_obj=None, raw=True,
-               want_grid=False, region_samples=None):
+               want_grid=False, region_samples=None, timing=None):
     """Reachable pushes from `state` (restricted to restrict_obj = the labeled object) with a priority-base
     value + the state value V. model: q = ranker score; geometric: q = virtual reachable
     target-region fraction; geometric_transport: q = 7 - legacy single-path priority;
@@ -218,11 +222,11 @@ def candidates(planner, env, goal, xml, state, h, prior, agg, rng, restrict_obj=
     elif want_grid:
         pool, grid = rank_first_pushes_h2(planner, env, goal, xml, state, h, restrict_obj=restrict_obj,
                                           score=(prior != "uniform"), raw=raw, return_grid=True,
-                                          region_samples=region_samples)
+                                          region_samples=region_samples, timing=timing)
     else:
         pool = rank_first_pushes_h2(planner, env, goal, xml, state, h, restrict_obj=restrict_obj,
                                     score=(prior != "uniform"), raw=raw,
-                                    region_samples=region_samples)  # uniform: skip the model forward pass
+                                    region_samples=region_samples, timing=timing)  # uniform: skip the model forward pass
         grid = None
     if not pool:
         return [], 0.0, None
@@ -333,12 +337,12 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
                 w0_mode="one", free_strike_q=2.0, child_patience=1, dedupe_noop=True,
                 prune_jam_depth=True, trace_out=None, capture=None, timing=None,
                 stop_on_open=True, win_bar=5, max_wins=64, region_samples=None,
-                solution_out=None):
+                solution_out=None, measurements=None):
     """Greedy best-first ON THE LABELED OBJECT (restrict_obj). Returns (solved, sims, plan_len|None, boards, end).
     boards = per-board lifetime records; end in {solved, budget, exhausted}. w(b) via --discount (off=static).
-    timing (dict, optional): filled with t_score/t_sim/t_wall/n_score for the wall-clock protocol. Always
-    accumulated (perf_counter is ~50 ns against a ~1 s sim) so the TIMED search is literally THE canonical
-    search -- never a fork of it. The retired scripts/sandbox/time_bestfirst.py kept its own copy of this
+    timing (dict, optional): filled with t_score/t_sim/t_wall/n_score for the wall-clock protocol.
+    None disables measurement clocks. The timed search remains the canonical search, not a fork.
+    The retired scripts/sandbox/time_bestfirst.py kept its own copy of this
     loop, which predated dedupe_noop/prune_jam_depth and so silently timed a different, slower search.
     trace_out (list, viz only): every pop is appended as a make_pop row and every board also carries its full
     candidate pool + the model grid. None (default) = not one extra op anywhere.
@@ -354,9 +358,11 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
     # arm: 1214 of 1215 such pairs held (the one exception is the sim's known ~0.3mm warmstart jitter).
     # Pruning upward only -- a SHORTER push may stop before the obstruction, so those stay.
     jam_at = {}
-    tm = timing if timing is not None else {}          # wall-clock accumulators (caller-owned; {} = discarded)
-    tm["t_score"] = tm.get("t_score", 0.0); tm["t_sim"] = tm.get("t_sim", 0.0); tm["n_score"] = tm.get("n_score", 0)
-    _t_wall0 = time.perf_counter()
+    tm = timing
+    if tm is not None:
+        for key in ("t_score", "t_sim", "n_score"):
+            tm.setdefault(key, 0)
+    _t_wall0 = clock_start(tm)
     tracing = trace_out is not None
     heap = []; sims = 0
     boards = []                                                    # index == board_id
@@ -366,13 +372,14 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
         ctr[0] += 1; return ctr[0] - 1
 
     def new_board(depth, npool, w0=1.0, free_strikes=0, parent_edge=-1, parent_depth=-1,
-                  pool_rows=None, grid=None, state=None, geom=None, regions=None):
+                  pool_rows=None, grid=None, state=None, geom=None, regions=None, parent_board_id=None):
         w0 = min(max(w0, eps), 1.0)
         if geom is None and capture is not None:      # already captured by the pop that reached this state?
             geom, regions = capture(state)
         boards.append({"board_id": len(boards), "depth": depth, "n_candidates": npool,
                        "k_failed": 0, "w": w0, "w0": w0, "free_strikes": free_strikes, "tries": [],
                        "parent_edge": parent_edge, "parent_depth": parent_depth,
+                       "parent_board_id": parent_board_id,
                        "pool": pool_rows, "grid": grid, "geom": geom, "regions": regions})
         return boards[-1]
 
@@ -384,11 +391,15 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
     def trace_rows(cand):                                          # every candidate of a board, popped or not
         return [{"obj": o, "edge": int(g.edge_idx), "depth": int(g.depth), "q": float(q)} for (o, g, q) in cand]
 
-    _t = time.perf_counter()
+    _t = clock_start(tm)
     pool, V0, grid0 = candidates(planner, env, goal, xml, s0, hmax, prior, agg, rng, restrict_obj=restrict_obj,
-                                 raw=raw, want_grid=tracing, region_samples=region_samples)
-    tm["t_score"] += time.perf_counter() - _t; tm["n_score"] += 1
+                                 raw=raw, want_grid=tracing, region_samples=region_samples, timing=tm)
+    clock_finish(tm, "t_score", _t)
+    if tm is not None:
+        tm["n_score"] += 1
     root = new_board(0, len(pool), pool_rows=(trace_rows(pool) if tracing else None), grid=grid0, state=s0)
+    if measurements is not None:
+        measurements.board(0, None, 0, pool)
     for (obj, g, q) in pool:                              # roots: ndone=0
         push({"obj": obj, "g": g, "from": s0, "ndone": 0, "plan": [(obj, g)], "q": q},
              priority(q, V0, combine), root)
@@ -409,10 +420,16 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
             continue                                      # same trajectory, already known to jam -- no sim
         env.set_full_state(it["from"])
         obs_before = env.get_observation() if dedupe_noop else None
-        _t = time.perf_counter()
-        step_res = env.step(make_action(it["obj"], it["g"])); sims += 1
-        tm["t_sim"] += time.perf_counter() - _t
+        action = make_action(it["obj"], it["g"])
+        _t = clock_start(tm)
+        step_res = env.step(action); sims += 1
+        clock_finish(tm, "t_sim", _t)
+        _t = clock_start(tm)
         opened = bool(is_open(env))
+        clock_finish(tm, "t_local_verify", _t)
+        if measurements is not None:
+            measurements.simulated(board_id=it["board_id"], parent_board_id=board["parent_board_id"],
+                                   chain_depth=it["ndone"] + 1, action=action, opened=opened, info=step_res.info)
         # WHY the push failed, not just that it did. The skill maps causes into failure_type and
         # collision_object (namo_push_skill.cpp:183-196): a wall collision and a jam against another
         # movable object are completely different situations, and reason alone cannot tell them apart.
@@ -437,7 +454,7 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
         _record_jam_depth(jam_at, _jk, int(it["g"].depth), _i)
         board["tries"].append((len(board["tries"]) + 1, float(it["q"]), opened))   # (within-board try#, q, opened)
         if opened:
-            tm["t_wall"] = time.perf_counter() - _t_wall0
+            clock_finish(tm, "t_wall", _t_wall0)
             if solution_out is not None:
                 solution_out["plan"] = list(it["plan"])
                 solution_out["state"] = env.get_full_state()
@@ -461,24 +478,29 @@ def solve_scene(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combi
         if ndone < hmax:                                  # room for another push -> expand the reached state
             s_new = env.get_full_state() if s_after is None else s_after
             h = hmax - ndone
-            _t = time.perf_counter()
+            _t = clock_start(tm)
             pool2, V, grid2 = candidates(planner, env, goal, xml, s_new, h, prior, agg, rng,
                                          restrict_obj=restrict_obj, raw=raw, want_grid=tracing,
-                                         region_samples=region_samples)
-            tm["t_score"] += time.perf_counter() - _t; tm["n_score"] += 1
+                                         region_samples=region_samples, timing=tm)
+            clock_finish(tm, "t_score", _t)
+            if tm is not None:
+                tm["n_score"] += 1
             child = new_board(ndone, len(pool2),
                               w0=(V if w0_mode == "v" else 1.0),
                               free_strikes=(1 if float(it["q"]) >= free_strike_q else 0),
                               parent_edge=(int(it["g"].edge_idx) if tracing else -1),
                               parent_depth=(int(it["g"].depth) if tracing else -1),
                               pool_rows=(trace_rows(pool2) if tracing else None),
-                              grid=grid2, state=s_new, geom=pop_geom, regions=pop_regions)
+                              grid=grid2, state=s_new, geom=pop_geom, regions=pop_regions,
+                              parent_board_id=it["board_id"])
+            if measurements is not None:
+                measurements.board(child["board_id"], it["board_id"], ndone, pool2)
             for (obj2, g2, q2) in pool2:                  # children: +dive_bonus*ndone bias (kept for parity)
                 push({"obj": obj2, "g": g2, "from": s_new, "ndone": ndone,
                       "plan": it["plan"] + [(obj2, g2)], "q": q2},
                      priority(q2, V, combine) + dive_bonus * ndone, child)
     end = "budget" if sims >= sim_budget else "exhausted"
-    tm["t_wall"] = time.perf_counter() - _t_wall0
+    clock_finish(tm, "t_wall", _t_wall0)
     _wins = boards[0].get("_wins") if boards else None
     if _wins:
         return True, _wins[0][0], _wins[0][1], boards, "solved_mined"
@@ -504,6 +526,8 @@ def run_greedy_commit(
     prune_jam_depth=True,
     region_samples=None,
     simulate=True,
+    timing=None,
+    measurements=None,
 ):
     """Commit the first moving arg-max candidate from one simulator state.
 
@@ -520,7 +544,15 @@ def run_greedy_commit(
     the runtime builds from what the robot actually did. greedy_dfs must keep
     ``simulate=True``: its rollout needs the resulting state to take the next
     step from, so a simulator-free rollout is not a meaningful object.
+
+    Optional caller-owned timing accumulates candidate-ranking and env.step
+    seconds across commits, using the same boundaries as solve_scene.
     """
+    tm = timing
+    if tm is not None:
+        for key in ("t_score", "t_sim", "n_score"):
+            tm.setdefault(key, 0)
+    started = clock_start(tm)
     pool, value, _grid = candidates(
         planner,
         env,
@@ -534,7 +566,13 @@ def run_greedy_commit(
         restrict_obj=restrict_obj,
         raw=raw,
         region_samples=region_samples,
+        timing=tm,
     )
+    clock_finish(tm, "t_score", started)
+    if tm is not None:
+        tm["n_score"] += 1
+    if measurements is not None:
+        measurements.board(0, None, 0, pool)
     banned = set()
     jam_at = {}
     rejections = []
@@ -563,9 +601,16 @@ def run_greedy_commit(
         env.set_full_state(state)
         before = env.get_observation() if dedupe_noop else None
         action = make_action(obj, goal_spec)
+        started = clock_start(tm)
         step_result = env.step(action)
+        clock_finish(tm, "t_sim", started)
         simulations += 1
+        started = clock_start(tm)
         opened = bool(is_open(env))
+        clock_finish(tm, "t_local_verify", started)
+        if measurements is not None:
+            measurements.simulated(board_id=0, parent_board_id=None, chain_depth=1,
+                                   action=action, opened=opened, info=step_result.info)
 
         if not dedupe_noop or not _unmoved(before, env.get_observation(), obj):
             return GreedyCommitResult(
@@ -590,7 +635,7 @@ def run_greedy_commit(
 
 def run_reactive(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, combine, rng, restrict_obj=None,
                is_open=lambda e: e.is_robot_goal_reachable(), raw=True, dedupe_noop=True,
-               prune_jam_depth=True, timing=None, region_samples=None, solution_out=None):
+               prune_jam_depth=True, timing=None, region_samples=None, solution_out=None, measurements=None):
     """Reactive argmax ON THE LABELED OBJECT: rank the live state, return the argmax. Nothing else.
 
     Second redefinition, Dhruv, 2026-08-31: the reactive arm pushes NOTHING
@@ -615,9 +660,11 @@ def run_reactive(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, comb
     used, and the caller's failure classification keys on that together
     with the plan being non-empty.
     """
-    tm = timing if timing is not None else {}
-    tm["t_score"] = tm.get("t_score", 0.0); tm["t_sim"] = tm.get("t_sim", 0.0); tm["n_score"] = tm.get("n_score", 0)
-    _t_wall0 = time.perf_counter()
+    tm = timing
+    if tm is not None:
+        for key in ("t_score", "t_sim", "n_score"):
+            tm.setdefault(key, 0)
+    _t_wall0 = clock_start(tm)
     plan = []
 
     def _record(state):
@@ -625,19 +672,23 @@ def run_reactive(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, comb
             solution_out["plan"] = list(plan)
             solution_out["state"] = state
 
-    _t = time.perf_counter()
+    _t = clock_start(tm)
     pool, V, _grid = candidates(planner, env, goal, xml, s0, hmax, prior, agg, rng,
-                                restrict_obj=restrict_obj, raw=raw, region_samples=region_samples)
-    tm["t_score"] += time.perf_counter() - _t; tm["n_score"] += 1
+                                restrict_obj=restrict_obj, raw=raw, region_samples=region_samples, timing=tm)
+    clock_finish(tm, "t_score", _t)
+    if tm is not None:
+        tm["n_score"] += 1
+    if measurements is not None:
+        measurements.board(0, None, 0, pool)
 
     if not pool:
-        tm["t_wall"] = time.perf_counter() - _t_wall0
+        clock_finish(tm, "t_wall", _t_wall0)
         _record(s0)
         return False, 0, None, [], "exhausted"
 
     obj, g, _q = max(pool, key=lambda c: priority(c[2], V, combine))
     plan.append((obj, g))
-    tm["t_wall"] = time.perf_counter() - _t_wall0
+    clock_finish(tm, "t_wall", _t_wall0)
     _record(s0)
     return False, 0, len(plan), [], "decided"
 

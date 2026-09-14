@@ -36,6 +36,8 @@ def get_region_snapshot(
 	use_cpp_unified: bool = True,
 	use_xml_goal: bool = True,
 	include_goal_clearance: bool = False,
+	include_region_cells: bool = False,
+	record_timing: bool = False,
 ) -> Dict[str, Any]:
 	"""Return unified region/connectivity snapshot for the current environment state.
 
@@ -55,6 +57,8 @@ def get_region_snapshot(
 			int(seed),
 			bool(use_xml_goal),
 			**({"include_goal_clearance": True} if include_goal_clearance else {}),
+			**({"include_region_cells": True} if include_region_cells else {}),
+			**({"record_timing": True} if record_timing else {}),
 		)
 		adjacency = {
 			str(region): set(neighbors)
@@ -82,6 +86,8 @@ def get_region_snapshot(
 			for region, neighbors in dict(raw.get("multi_object_edges", {})).items()
 		}
 		return {
+			**({"region_cells": raw["region_cells"]} if include_region_cells else {}),
+			**({"snapshot_phases": raw["snapshot_phases"]} if record_timing else {}),
 			**({"goal_clearance": raw["goal_clearance"]} if include_goal_clearance else {}),
 			"adjacency": adjacency,
 			"edge_objects": edge_objects,
