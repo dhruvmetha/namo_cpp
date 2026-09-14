@@ -172,7 +172,7 @@ def main():
 
 
 def plot_success_vs_calls(path, hy5u, random, problems):
-    """Share of runs solved within k simulator calls, one panel per tier: mean over seeds ± 1 sample SD."""
+    """Share of runs solved within k simulator calls, one panel per tier: median seed, band from worst to best seed."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -191,9 +191,8 @@ def plot_success_vs_calls(path, hy5u, random, problems):
                     costs[row[seed_key]].append(cost(row))
             curves = np.array([100 * np.searchsorted(np.sort(c), budgets, side="right") / len(c)
                                for c in costs.values()])
-            mean, sd = curves.mean(axis=0), curves.std(axis=0, ddof=1)
-            ax.plot(budgets, mean, lw=2, label=f"{label}, mean ± 1 SD", **style)
-            ax.fill_between(budgets, mean - sd, mean + sd, color=style["color"], alpha=0.2, lw=0)
+            ax.plot(budgets, np.median(curves, axis=0), lw=2, label=label, **style)
+            ax.fill_between(budgets, curves.min(axis=0), curves.max(axis=0), color=style["color"], alpha=0.2, lw=0)
         ax.set_xscale("log")
         ax.set_title(f"{tier.capitalize()} ({len(pids)} scenes)")
         ax.grid(alpha=0.3)
@@ -202,7 +201,8 @@ def plot_success_vs_calls(path, hy5u, random, problems):
     for ax in axes[:, 0]:
         ax.set_ylabel("Runs solved (%)")
     axes[1, 2].axis("off")
-    axes[1, 2].legend(*axes[0, 0].get_legend_handles_labels(), loc="center", frameon=False, fontsize=11)
+    axes[1, 2].legend(*axes[0, 0].get_legend_handles_labels(), loc="center", frameon=False, fontsize=11,
+                      title="line = median seed\nband = worst to best seed", title_fontsize=10)
     fig.suptitle("Full NAMO frozen400: share of runs solved within a simulator-call budget")
     fig.tight_layout()
     path.parent.mkdir(parents=True, exist_ok=True)

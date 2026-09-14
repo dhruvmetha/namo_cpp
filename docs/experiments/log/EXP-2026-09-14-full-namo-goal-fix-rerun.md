@@ -38,9 +38,9 @@ All 1,200 HY5U rows share source fingerprint `22577f4a`, binding `cc2d2e9e`, Sag
 
 ## Result
 
-![Share of runs solved within a simulator-call budget, HY5U 3 seeds vs Random 5 seeds, mean ± 1 SD](../plots/full_namo_rerun_20260914/success_vs_sims.png)
+![Share of runs solved within a simulator-call budget, HY5U 3 seeds vs Random 5 seeds, median with worst-to-best seed band](../plots/full_namo_rerun_20260914/success_vs_sims.png)
 
-Success vs simulator calls: HY5U's band sits above Random's at every budget on hard and overall. On easy, Random catches up near 50 calls and stays about 1-2 points ahead until the cap; on medium the curves meet near 1000 calls. Drawn by `report_full_namo_rerun.py --plot`; bands are ±1 sample SD across seeds.
+Success vs simulator calls, drawn by `report_full_namo_rerun.py --plot`. The line is the median seed at each budget and the band runs from the worst seed to the best, so every seed we ran sits inside it. HY5U's worst seed beats Random's best seed from 2 to 19 calls on easy, 2 to 182 on medium, 4 to 1,030 on hard, and 2 to 668 over all 400 scenes. Past those budgets the bands overlap, and at no budget does Random's worst seed beat HY5U's best.
 
 Solved, percent of runs within 9000 calls. Seed ranges in brackets.
 
