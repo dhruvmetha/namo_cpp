@@ -21,7 +21,7 @@ def test_plot_uses_green_log_axes_and_tail_fractions(experiment_path: Path) -> N
     assert len(figure.axes) == 2
     for axis in figure.axes:
         assert axis.get_xscale() == "log"
-        assert [line.get_color() for line in axis.lines] == ["#009E73", "#999999"]
+        assert [line.get_color() for line in axis.lines] == ["#41C95A", "#7A7A7A"]
         assert [text.get_text() for text in axis.texts] == ["3/4", "10/20"]
         assert len(axis.collections) == 0
     plot.plt.close(figure)

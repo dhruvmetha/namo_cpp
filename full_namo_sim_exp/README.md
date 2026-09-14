@@ -1,5 +1,30 @@
 # Full NAMO simulation experiment
 
+## Reproduce the frozen-300 difficulty figures
+
+The current paper plots compare **PAVE (HY5U S2 search)** with **Random (median per environment across five uniform seeds)**. Each of the two standalone graphs has six smooth curves: easy solid, medium dashed, and hard dotted for both methods. The simulator graph ends at the measured campaign cap of 9,000 pushes; the second graph uses measured wall-clock planning seconds. Each difficulty has its own denominator of 100 environments, including failures. Policy and Geometric are not plotted in this view.
+
+The shared project palette is in `figure_style.py`: PAVE green `#41C95A`, PAVE Policy blue `#4C78A8`, Random gray `#7A7A7A`, and Geometric red `#D62728`. Reuse `METHOD_COLORS` and `DIFFICULTY_LINESTYLES` in future figures.
+
+From the `namo_cpp` repository root on dhruv-linux:
+
+```bash
+source env.robotlearning.sh
+"$NAMO_PYTHON" -m full_namo_sim_exp.plot \
+  --out-dir full_namo_sim_exp/plots/frozen300_by_difficulty_20260913 \
+  --smooth-anchors 32 --dpi 600
+```
+
+Choose a new output directory for each rerun; an existing directory is rejected. `--snapshot /path/to/normalized_outcomes.json` can select another compatible frozen snapshot. The bundled default is `data/frozen400_timed_20260913.json`, SHA-256 `1887e5227715bf92f6d8bc7894d1e2799e69f739b1be2c5f1fbffbe4b0e8078e`, copied from the paper's `figures/data/full_namo_frozen400_timed_20260913/normalized_outcomes.json`. It contains the completed Amarel Icelake campaign `full_namo_frozen400_icelake_20260912_v1`; measurements use Intel Xeon Platinum 8358 CPUs. Rendering these saved measurements on dhruv-linux does not perform or retime any simulations.
+
+`results.load_frozen_results` requires matched problem IDs and XML hashes in every required arm, then selects the existing 100 easy, 100 medium, and 100 hard labels. It excludes exactly the source's 100 frozen unresolved-label tasks; failures within the selected 300 remain included. Random seeds are 7000, 8000, 9000, 10000, and 11000. Failed runs have infinite cost to success, so a Random median is successful by a budget only when at least three of the five seeds solve that environment by that budget. Push and wall-time medians are computed independently before building success curves.
+
+Outputs are `success_vs_simulator_budget_by_difficulty.{png,pdf}` and `success_vs_wall_clock_budget_by_difficulty.{png,pdf}` (600-DPI raster and vector), `exact_curves.csv`, `display_curves.csv`, `per_environment_costs.csv`, and `metadata.json`. Metadata records the source hash, included/excluded geometry IDs, code revision and hashes, package versions, palette, line styles, denominator counts, smoothing anchors, and original measurement provenance. Smooth curves use monotone PCHIP interpolation through exact rates at 32 common log-spaced anchors, supplemented with integer budgets 1–10. Intermediate display values are interpolations; use `exact_curves.csv` for numerical claims.
+
+The existing `namo312` interpreter already has the required packages. For a fresh plotting-only Python 3.12 environment, install `python -m pip install -r full_namo_sim_exp/requirements-plot.in`; no simulator bindings or model checkpoint are needed. Pins were verified with Python 3.12.13. The original interleaved experiment pipeline below remains available for its original data format.
+
+## Original interleaved experiment pipeline
+
 This directory is the complete experiment-local path for the final held-out Full NAMO comparison between the fixed Sage Hybrid ranker and uniform-random search ordering. The core NAMO planner and simulator remain library dependencies; every experiment-specific launcher, timer, validator, aggregator, statistical analysis, and publication plot lives here.
 
 ## What was missing

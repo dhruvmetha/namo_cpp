@@ -1,0 +1,4 @@
+# Plotting-only environment, verified with Python 3.12.13 on dhruv-linux.
+numpy==2.4.4
+matplotlib==3.10.9
+scipy==1.17.1
