@@ -1,0 +1,91 @@
+{
+  "source_card": "/common/home/dm1487/robotics_research/ktamp/namo/docs/experiments/log/EXP-2026-08-09-crossboard-ranking.md",
+  "section": "CANONICAL speed-up statistic (2026-08-13)",
+  "source_type": "recorded rounded per-instance summary, no reaggregation",
+  "rows": [
+    {
+      "population": "1-push",
+      "tier": "easy",
+      "n": 697,
+      "p10": 0.5,
+      "p25": 0.6,
+      "p50": 0.8,
+      "p75": 1.1,
+      "p90": 1.6,
+      "p95": 2.2,
+      "p99": 4.3,
+      "slower_pct": 66.3,
+      "geomean": 0.9
+    },
+    {
+      "population": "1-push",
+      "tier": "medium",
+      "n": 420,
+      "p10": 0.7,
+      "p25": 0.9,
+      "p50": 1.4,
+      "p75": 2.3,
+      "p90": 4.0,
+      "p95": 6.9,
+      "p99": 25.9,
+      "slower_pct": 29.8,
+      "geomean": 1.6
+    },
+    {
+      "population": "1-push",
+      "tier": "hard",
+      "n": 197,
+      "p10": 0.8,
+      "p25": 1.4,
+      "p50": 2.6,
+      "p75": 6.0,
+      "p90": 15.2,
+      "p95": 32.4,
+      "p99": 96.3,
+      "slower_pct": 14.2,
+      "geomean": 3.1
+    },
+    {
+      "population": "2-push",
+      "tier": "easy",
+      "n": 380,
+      "p10": 0.8,
+      "p25": 1.3,
+      "p50": 2.3,
+      "p75": 4.3,
+      "p90": 7.2,
+      "p95": 10.7,
+      "p99": 17.5,
+      "slower_pct": 18.7,
+      "geomean": 2.3
+    },
+    {
+      "population": "2-push",
+      "tier": "medium",
+      "n": 480,
+      "p10": 1.0,
+      "p25": 2.1,
+      "p50": 5.4,
+      "p75": 12.8,
+      "p90": 28.8,
+      "p95": 40.9,
+      "p99": 77.1,
+      "slower_pct": 9.8,
+      "geomean": 5.1
+    },
+    {
+      "population": "2-push",
+      "tier": "hard",
+      "n": 118,
+      "p10": 1.1,
+      "p25": 2.8,
+      "p50": 10.9,
+      "p75": 46.0,
+      "p90": 82.9,
+      "p95": 162.1,
+      "p99": 300.4,
+      "slower_pct": 5.9,
+      "geomean": 11.1
+    }
+  ]
+}

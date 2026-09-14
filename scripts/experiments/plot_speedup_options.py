@@ -6,6 +6,9 @@ overhead panel, the campaign's own t_sim/t_score split. Nothing here is a new me
 point is to see which framing carries the result best before one of them becomes a paper figure.
 
     python scripts/experiments/plot_speedup_options.py --data <keyhole dir> --out <dir> [--leg 2push]
+
+Recorded percentile-table preview (no new measurements):
+    python scripts/experiments/plot_speedup_options.py --summary-card <card.md> --out <dir>
 """
 import argparse
 import glob
@@ -250,6 +253,96 @@ def p_overhead(ax, split):
 
 # ---- data --------------------------------------------------------------------------------
 
+def plot_recorded_intervals(card, out):
+    """Plot recorded per-instance percentiles without reconstructing or re-pairing data."""
+    with open(card) as f:
+        section = f.read().split("### CANONICAL speed-up statistic:", 1)[1]
+    section = section.split("**Readings:**", 1)[0]
+    fields = ["n", "p10", "p25", "p50", "p75", "p90", "p95", "p99", "slower_pct", "geomean"]
+    rows = []
+    for line in section.splitlines():
+        if line.startswith("**TWO-PUSH**"):
+            leg = "2-push"
+        elif line.startswith("**ONE-PUSH**"):
+            leg = "1-push"
+        elif line.startswith(tuple(f"| {tier} |" for tier in TIERS)):
+            cells = [cell.strip().replace("*", "").replace("×", "").replace("%", "")
+                     for cell in line.strip("|").split("|")]
+            row = {"population": leg, "tier": cells[0]}
+            row.update(zip(fields, map(float, cells[1:])))
+            row["n"] = int(row["n"])
+            rows.append(row)
+    rows.sort(key=lambda row: (row["population"], TIERS.index(row["tier"])))
+
+    with plt.rc_context({"font.family": "DejaVu Sans", "font.size": 10,
+                         "svg.fonttype": "none", "text.color": INK}):
+        fig = plt.figure(figsize=(8.6, 4.8), facecolor="white")
+        gs = fig.add_gridspec(1, 2, width_ratios=[5.2, 1.55], left=0.19, right=0.98,
+                              bottom=0.23, top=0.76, wspace=0.07)
+        ax = fig.add_subplot(gs[0, 0])
+        detail = fig.add_subplot(gs[0, 1], sharey=ax)
+        ys = [5.5, 4.5, 3.5, 1.9, 0.9, -0.1]
+        colors = {"1-push": "#326A9F", "2-push": "#A8511B"}
+        ax.set_xscale("log")
+        ax.set_xlim(0.4, 64)
+        ax.set_ylim(-0.7, 6.0)
+        ax.axvspan(0.4, 1, color="#F2F2F2", zorder=0)
+        ax.axvline(1, color="#555555", lw=1, ls=(0, (4, 3)), zorder=1)
+        ax.axhline(2.7, color="#DDDDDD", lw=0.7, zorder=0)
+        ax.set_xticks([0.5, 1, 2, 5, 10, 20, 50])
+        ax.set_xticklabels(["0.5×", "1×", "2×", "5×", "10×", "20×", "50×"])
+        ax.xaxis.set_minor_locator(matplotlib.ticker.NullLocator())
+        ax.grid(axis="x", color="#E5E5E5", lw=0.55)
+        ax.set_axisbelow(True)
+        ax.set_yticks(ys)
+        ax.set_yticklabels([f"{r['population']}  {r['tier'].title()}" for r in rows])
+        ax.tick_params(axis="y", length=0, pad=9)
+        ax.tick_params(axis="x", length=3, color="#999999", pad=5)
+        for spine in ("top", "left", "right"):
+            ax.spines[spine].set_visible(False)
+        ax.spines["bottom"].set_color("#999999")
+        ax.set_xlabel("Wall-clock speedup (Random time / HY5U time)", labelpad=10)
+        detail.set_xlim(0, 1)
+        detail.axis("off")
+        detail.text(0.12, 1.04, "Keyholes", transform=detail.transAxes, ha="center", fontsize=9)
+        detail.text(0.77, 1.04, "HY5U slower", transform=detail.transAxes, ha="center", fontsize=9)
+        for y, row in zip(ys, rows):
+            color = colors[row["population"]]
+            ax.plot([row["p25"], row["p75"]], [y, y], color=color, lw=3.5,
+                    solid_capstyle="round", zorder=3)
+            ax.scatter(row["p50"], y, s=60, color=color, edgecolors="white", linewidths=1, zorder=4)
+            ax.annotate(f"{row['p50']:.1f}×", (row["p50"], y), xytext=(0, 9),
+                        textcoords="offset points", ha="center", va="bottom",
+                        fontsize=10, fontweight="bold", color=color)
+            detail.text(0.12, y, str(row["n"]), ha="center", va="center", fontsize=9.5)
+            detail.text(0.77, y, f"{row['slower_pct']:.1f}%", ha="center", va="center", fontsize=9.5)
+        ax.text(0.01, 1.04, "HY5U slower", transform=ax.transAxes, fontsize=8.5, color=MUTED)
+        ax.text(0.99, 1.04, "HY5U faster", transform=ax.transAxes, fontsize=8.5,
+                color=MUTED, ha="right")
+        fig.text(0.035, 0.95, "Wall-clock speedup per keyhole", fontsize=16, fontweight="bold")
+        fig.text(0.035, 0.89, "Dot: median    Line: 25th–75th percentiles across keyholes",
+                 fontsize=10, color=MUTED)
+        fig.text(0.035, 0.845, "Intervals show variation between keyholes, not confidence intervals.",
+                 fontsize=9, color=MUTED)
+        fig.text(0.035, 0.085,
+                 "Historical v1 · 13 Aug 2026 · Matched Cascadelake CPUs · 4,000-call cap · Search depth ≤ 2",
+                 fontsize=8.2, color=MUTED)
+        fig.text(0.035, 0.045,
+                 "Per keyhole: median speedup across available solved seed pairs. Recorded rounded statistics.",
+                 fontsize=8.2, color=MUTED)
+        stem = os.path.join(out, "keyhole_speedup_v1_intervals")
+        for ext in ("png", "svg"):
+            fig.savefig(f"{stem}.{ext}", dpi=220, facecolor="white")
+            print("wrote", f"{stem}.{ext}")
+        plt.close(fig)
+    with open(f"{stem}.json", "w") as f:
+        json.dump({"source_card": os.path.abspath(card),
+                   "section": "CANONICAL speed-up statistic (2026-08-13)",
+                   "source_type": "recorded rounded per-instance summary, no reaggregation",
+                   "rows": rows}, f, indent=2)
+        f.write("\n")
+
+
 def load_pairs(d, leg):
     return [json.loads(l) for l in open(os.path.join(d, f"pairs_{leg}.jsonl"))]
 
@@ -298,12 +391,17 @@ def timing_split(scratch, leg, tiers):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data", required=True)
+    source = ap.add_mutually_exclusive_group(required=True)
+    source.add_argument("--data")
+    source.add_argument("--summary-card", help="Plot recorded per-instance percentile tables from a card")
     ap.add_argument("--out", required=True)
     ap.add_argument("--leg", default="2push", choices=["1push", "2push"])
     ap.add_argument("--scratch", default=os.environ.get("NAMO_SCRATCH"))
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
+    if a.summary_card:
+        plot_recorded_intervals(a.summary_card, a.out)
+        return
     R = load_pairs(a.data, a.leg)
     attach_draws(R, a.leg)
     tiers = {(r["xml"], r["object_id"]): r["tier"] for r in R}
