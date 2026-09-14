@@ -128,6 +128,7 @@ def main():
     parser.add_argument("--expect-source-sha256", required=True)
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--plot-dir", type=Path)
+    parser.add_argument("--runs-csv", type=Path, help="also write one line per run: every model plus Tri-An's baselines")
     args = parser.parse_args()
 
     problems = {row["problem_id"]: row for row in map(json.loads, (args.problems / "manifest.jsonl").read_text().splitlines())}
@@ -156,6 +157,32 @@ def main():
     print_tables(report)
     if args.plot_dir:
         plot(args.plot_dir, families, problems)
+    if args.runs_csv:
+        lines = [(family, seed, "tri_an_frozen" if family == "Random" else "rerun", row)
+                 for family, runs in families.items() for seed, rows in runs.items() for row in rows.values()]
+        lines += [("HY5U_s2_tri_an", 2, "tri_an_frozen", row) for row in tri_an_s2.values()]
+        write_runs_csv(args.runs_csv, lines, problems)
+
+
+def write_runs_csv(path, lines, problems):
+    """One line per run, sorted by model, seed and problem; the per-run JSONL keeps everything else.
+    binding_sha256 tells builds apart: cc2d2e9e Amarel, fe80fb00 CS (arrakis), 7ff23f27 Tri-An's frozen runs."""
+    import csv
+
+    def problem_of(row):
+        return problems[row.get("certification_problem_id") or row["problem_id"]]
+
+    lines.sort(key=lambda line: (line[0], line[1], problem_of(line[3])["index"]))
+    with path.open("w", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["model", "seed", "source", "problem_index", "horizon", "difficulty", "template", "solved",
+                         "total_calls", "outcome", "door_objects_match", "binding_sha256"])
+        for model, seed, source, row in lines:
+            problem = problem_of(row)
+            writer.writerow([model, seed, source, problem["index"], problem["horizon"], problem["difficulty"],
+                             problem["template"], int(row["solved"]), row["total_calls"], row.get("outcome"),
+                             "" if "door_objects_match" not in row else int(row["door_objects_match"]),
+                             (row.get("runtime_fingerprints") or {}).get("binding_sha256", "")[:8]])
 
 
 def print_tables(report):

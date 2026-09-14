@@ -92,8 +92,11 @@ def main():
     parser.add_argument("--expect-source-sha256", required=True)
     parser.add_argument("--random", type=Path, help="default: <manifest-dir>/provenance/random5-outcomes.jsonl")
     parser.add_argument("--before-fix", action="append", type=Path, default=[])
+    parser.add_argument("--new-code-random", type=Path,
+                        help="folder of random_s<seed>/ rows saved on the rerun code (default: --results)")
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--plot", type=Path, help="also draw success vs simulator calls with seed bands (PNG)")
+    parser.add_argument("--runs-csv", type=Path, help="also write one line per run: HY5U, Random and before-fix rows")
     args = parser.parse_args()
 
     problems = {}
@@ -135,7 +138,7 @@ def main():
 
     new_random = {}
     for seed in RANDOM_SEEDS:
-        for path in sorted((args.results / f"random_s{seed}").glob("scene_*.json")):
+        for path in sorted(((args.new_code_random or args.results) / f"random_s{seed}").glob("scene_*.json")):
             row = json.loads(path.read_text())
             if not row["technical_error"] and row["runtime_fingerprints"]["source_sha256"] == args.expect_source_sha256:
                 new_random[row["problem_id"], seed] = row
@@ -148,8 +151,8 @@ def main():
             moved[f"{problems[pid]['difficulty']}->{tier_of(rows)}"] += 1
     report["tiers_from_new_code_random"] = dict(moved)
 
+    before = {}
     if args.before_fix:
-        before = {}
         for folder in args.before_fix:
             for path in folder.rglob("outcomes.jsonl"):
                 for row in read_jsonl(path):
@@ -169,6 +172,27 @@ def main():
     print_tables(report)
     if args.plot:
         plot_success_vs_calls(args.plot, hy5u, random, problems)
+    if args.runs_csv:
+        lines = [("HY5U", int(row["arm"].rsplit("_s", 1)[1]), "rerun", row) for rows in hy5u.values() for row in rows]
+        lines += [("Random", row["shuffle_seed"], "tri_an_frozen", row) for rows in random.values() for row in rows]
+        lines += [("HY5U_before_fix", 2, "tri_an_frozen", row) for row in before.values()]
+        write_runs_csv(args.runs_csv, lines, problems)
+
+
+def write_runs_csv(path, lines, problems):
+    """One line per run, sorted by model, seed and scene; the per-run JSON keeps everything else."""
+    import csv
+
+    lines.sort(key=lambda line: (line[0], line[1], problems[line[3]["problem_id"]]["index"]))
+    with path.open("w", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["model", "seed", "source", "scene_index", "difficulty", "template", "solved",
+                         "total_calls", "outcome", "binding_sha256"])
+        for model, seed, source, row in lines:
+            scene = problems[row["problem_id"]]
+            writer.writerow([model, seed, source, scene["index"], scene["difficulty"], scene["template"],
+                             int(row["solved"]), row["total_calls"], row.get("outcome"),
+                             (row.get("runtime_fingerprints") or {}).get("binding_sha256", "")[:8]])
 
 
 def plot_success_vs_calls(path, hy5u, random, problems):
