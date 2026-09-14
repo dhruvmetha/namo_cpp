@@ -93,6 +93,7 @@ def main():
     parser.add_argument("--random", type=Path, help="default: <manifest-dir>/provenance/random5-outcomes.jsonl")
     parser.add_argument("--before-fix", action="append", type=Path, default=[])
     parser.add_argument("--out", required=True, type=Path)
+    parser.add_argument("--plot", type=Path, help="also draw success vs simulator calls with seed bands (PNG)")
     args = parser.parse_args()
 
     problems = {}
@@ -166,6 +167,46 @@ def main():
 
     args.out.write_text(json.dumps(report, indent=1, sort_keys=True) + "\n")
     print_tables(report)
+    if args.plot:
+        plot_success_vs_calls(args.plot, hy5u, random, problems)
+
+
+def plot_success_vs_calls(path, hy5u, random, problems):
+    """Share of runs solved within k simulator calls, one panel per tier: mean over seeds ± 1 sample SD."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    budgets = np.unique(np.geomspace(1, 9000, 400).round().astype(int))
+    arms = (("HY5U search, 3 seeds", hy5u, "arm", dict(color="#C44E52", ls="-")),
+            ("Random ordering, 5 seeds", random, "shuffle_seed", dict(color="#666666", ls="--")))
+    fig, axes = plt.subplots(2, 3, figsize=(13, 8), sharex=True, sharey=True)
+    for ax, tier in zip(axes.flat, (*TIERS, "all")):
+        pids = [pid for pid in problems if tier == "all" or problems[pid]["difficulty"] == tier]
+        for label, rows_of_scene, seed_key, style in arms:
+            costs = defaultdict(list)
+            for pid in pids:
+                for row in rows_of_scene[pid]:
+                    costs[row[seed_key]].append(cost(row))
+            curves = np.array([100 * np.searchsorted(np.sort(c), budgets, side="right") / len(c)
+                               for c in costs.values()])
+            mean, sd = curves.mean(axis=0), curves.std(axis=0, ddof=1)
+            ax.plot(budgets, mean, lw=2, label=f"{label}, mean ± 1 SD", **style)
+            ax.fill_between(budgets, mean - sd, mean + sd, color=style["color"], alpha=0.2, lw=0)
+        ax.set_xscale("log")
+        ax.set_title(f"{tier.capitalize()} ({len(pids)} scenes)")
+        ax.grid(alpha=0.3)
+    for ax in axes[1]:
+        ax.set_xlabel("Simulator calls (log scale, cap 9000)")
+    for ax in axes[:, 0]:
+        ax.set_ylabel("Runs solved (%)")
+    axes[1, 2].axis("off")
+    axes[1, 2].legend(*axes[0, 0].get_legend_handles_labels(), loc="center", frameon=False, fontsize=11)
+    fig.suptitle("Full NAMO frozen400: share of runs solved within a simulator-call budget")
+    fig.tight_layout()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=150)
 
 
 def print_tables(report):
