@@ -20,6 +20,7 @@ config_for() {
     HY5U_global)   CFG_GLOBAL=1; CFG_LOCAL=1; CFG_EDGE_EMBED=1 ;;
     HY5U_no_local) CFG_GLOBAL=0; CFG_LOCAL=0; CFG_EDGE_EMBED=1 ;;
     HY5U_no_edge)  CFG_GLOBAL=0; CFG_LOCAL=1; CFG_EDGE_EMBED=0 ;;
+    HY5U_no_local_no_edge) CFG_GLOBAL=0; CFG_LOCAL=0; CFG_EDGE_EMBED=0 ;;
     *) echo "unknown arm: $1" >&2; return 1 ;;
   esac
 }

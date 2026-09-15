@@ -212,6 +212,22 @@ def test_training_builder_architecture_ablation_flags(monkeypatch):
     logits = global_model(torch.randn(2, 5, 64, 64), torch.rand(2, 60, 2) * 63.0)
     assert logits.shape == (2, 60, 5, 51)
 
+    # Both off: each contact token is its Fourier position alone, still attending to the scene.
+    monkeypatch.setenv("NAMO_GLOBAL_READOUT", "0")
+    monkeypatch.setenv("NAMO_USE_LOCAL", "0")
+    monkeypatch.setenv("NAMO_USE_EDGE_EMBED", "0")
+    position_only = _make_network(value_bins=51).eval()
+    assert not hasattr(position_only, "local_proj")
+    assert not hasattr(position_only, "edge_embed")
+    image, contacts = torch.randn(2, 5, 64, 64), torch.rand(2, 60, 2) * 63.0
+    with torch.no_grad():
+        logits = position_only(image, contacts)
+        reordered = position_only(image, contacts.flip(1))
+    assert logits.shape == (2, 60, 5, 51)
+    # No index identity is left: reordering the contacts only reorders the scores.
+    assert torch.allclose(reordered.flip(1), logits, atol=1e-5)
+    assert logits.std(dim=1).max() > 0
+
 
 def test_eval_loaders_detect_global_readout(tmp_path):
     from eval_auc import load_network
