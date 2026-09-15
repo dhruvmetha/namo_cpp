@@ -40,4 +40,37 @@ Timed no-family, Random and geometric: worktree `ktamp/namo-keyhole-timed-202609
 
 ## Result
 
-Pending.
+### Timed no-family, Random and geometric on the CS nodes (complete 09:03)
+
+All 5,355 timed rows saved: 595 problems for each of 9 arms. Problems 40, 277, 373, 463 and 504 refused to start on all three nodes, as on Amarel's build and rlab1, and no other unit failed. Tables from `scripts/pipeline/report_one_keyhole_timed.py`, saved to `$NAMO_SCRATCH/eval/keyhole600_timed_cs_20260915/report.{json,md}`. Ranges run over seeds: no-family 3, Random 5, geometric 1. A failed run counts as infinite time.
+
+Median seconds until solved:
+
+| | easy | medium | hard | all |
+|---|---:|---:|---:|---:|
+| 1-push, no-family | 0.55-0.57 | 0.75-0.77 | 0.84-0.96 | 0.71-0.73 |
+| 1-push, Random | 0.22-0.51 | 0.88-1.18 | 1.75-2.52 | 0.82-1.03 |
+| 1-push, geometric | 0.27 | 0.64 | 1.82 | 0.62 |
+| 2-push, no-family | 1.43-1.59 | 1.96-2.37 | 5.57-6.37 | 1.95-2.18 |
+| 2-push, Random | 2.12-3.16 | 6.05-11.60 | 64.04-108.17 | 5.93-11.93 |
+| 2-push, geometric | 3.63 | 17.15 | 83.08 | 18.21 |
+
+Solved within 1 and within 5 seconds, percent of runs:
+
+| | 1-push 1 s | 1-push 5 s | 2-push 1 s | 2-push 5 s | 2-push hard 5 s | 2-push hard 30 s |
+|---|---:|---:|---:|---:|---:|---:|
+| no-family | 76.5-82.6 | 97.3-98.0 | 9.8-12.5 | 68.0-70.7 | 45.5-47.5 | 70.7-73.7 |
+| Random | 48.7-58.7 | 85.9-93.3 | 4.7-8.1 | 35.0-46.1 | 6.1-11.1 | 21.2-31.3 |
+| geometric | 62.4 | 77.2 | 8.4 | 35.7 | 15.2 | 26.3 |
+
+Solved within 3000 calls: 1-push 100% for all three; 2-push no-family 98.7-99.0, Random 96.3-98.7, geometric 95.6.
+
+**No-family is the fastest on every 2-push tier by a wide margin.** Its median time on 2-push problems is 2 seconds against 6-12 for Random and 18 for geometric, and on hard 2-push problems 6 seconds against 64-108 and 83. Within 5 seconds it solves 46-48% of hard 2-push runs; the best Random seed solves 11%.
+
+**On 1-push problems the gap is small, and geometric's median is lowest.** Median times are 0.6-1.0 seconds for everyone, because most 1-push problems fall on the first or second push whatever the ordering. Running the network takes 33-34% of no-family's time on easy 1-push problems, against 2% for geometric's scoring, so geometric's median of 0.62 s edges out no-family's 0.71-0.73 s. On 2-push problems scoring falls to 3-4% of no-family's time. No-family still solves the most within 1 second (77-83% against 62% and 49-59%), and it is faster on hard 1-push problems (0.84-0.96 s against 1.82 and 1.75-2.52).
+
+Checks:
+
+- The three nodes ran at the same speed. Median seconds per simulator call, taken over runs with at least 20 calls, differ by under 5% across rlab3, rlab4 and ilab3 for every model (Random 0.237-0.250, geometric 0.281-0.294, no-family 0.342-0.354). ilab3 carried other users' load at times (load average up to 92 on 96 threads, median 17.5), rlab3 and rlab4 stayed near our own 16 processes.
+- Timed no-family rows match the untimed Amarel keyhole600 rows on 570-574 of 595 problems per seed. Per seed, 3 problems changed between solved and failed, and the other 18-22 differences are call counts split evenly between more and fewer (median difference 0 or -1). Random rows match Tri-An's untimed rows on 551-561 of 595, and geometric matches his timed rows on 532 of 595. The known cross-box difference in the state restore path (`reference_crossbox_physics_identical`) fits this pattern; I did not trace individual problems. The comparison between arms is unaffected, since every arm here ran on the same nodes and build.
+- 7 rows in rlab4's slots came from the 19-second duplicate job on ilab3 (same CPU model).
