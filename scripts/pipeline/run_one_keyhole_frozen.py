@@ -8,23 +8,30 @@ against the certificate problem_id, and the certificate-v1 restore for the probl
 file lists. One change: it keeps the frozen door objects when today's room finder sees
 different ones, and records both, instead of stopping. The search is scripts/sandbox/eval_bestfirst.py with his settings: up to 2
 pushes, 3000 simulator calls, mean5, raw q, discount off, no-op dedupe and jam pruning on,
-solved when 20% of the target points are reachable. Untimed; statistics on, as in his runs.
+solved when 20% of the target points are reachable. By default untimed with statistics on, as
+in his runs. --timed turns statistics off and timing on (the search's own t_wall, t_sim, t_score)
+and runs one unit at a time in this process, single-threaded, recording the host, CPU model,
+pinned CPUs and load average around each unit.
 
 Work units are (problem, arm) pairs dealt round-robin into --nshards shards, so every shard
-gets a mix of problems and arms. Each unit writes <out>/<arm>/problem_<index>.jsonl plus its
-statistics sidecar; an existing row is skipped, so a resubmitted shard only redoes what is
-missing.
+gets a mix of problems and arms when the shard count is not a multiple of the arm count;
+--shuffle-seed shuffles the units first, which mixes them for any shard count. Each unit writes
+<out>/<arm>/problem_<index>.jsonl plus its statistics sidecar; an existing row is skipped, so a
+resubmitted shard only redoes what is missing.
 
 Usage (one SLURM array task per shard):
   python scripts/pipeline/run_one_keyhole_frozen.py --problems <input/one_keyhole> \
       --config <namo_config.yaml> --arms arms.json --post-restore-ids ids.json --out <dir> \
       --shard 0 --nshards 480 --workers 14 [--only-index 3 --only-index 9] [--expect-source-sha256 <sha>]
+      [--timed --workers 1 --shuffle-seed <n>]
 """
 
 import argparse
 import json
 import multiprocessing
 import os
+import random
+import socket
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
@@ -34,7 +41,11 @@ REPO = Path(__file__).resolve().parents[2]
 PLANNERS = {}
 
 
-def evaluate(problems, row, arm, config, primitives, post_restore):
+def cpu_model():
+    return next(line.split(":", 1)[1].strip() for line in open("/proc/cpuinfo") if line.startswith("model name"))
+
+
+def evaluate(problems, row, arm, config, primitives, post_restore, timed=False):
     """Tri-An's evaluate_frozen_one for exec_mode=search, reading the problems from `problems`."""
     import namo_rl
     import eval_bestfirst as sandbox
@@ -105,7 +116,7 @@ def evaluate(problems, row, arm, config, primitives, post_restore):
         exec_mode="search", evaluation_adapter_sha256=file_digest(__file__))
     if restored_first:
         params["initial_state_convention"] = "certificate_v1_post_restore"
-    measurement = dict(schema_version=1, record_statistics=True, record_timing=False)
+    measurement = dict(schema_version=1, record_statistics=not timed, record_timing=timed)
     result, _ = sandbox._evaluate_pooled_task(options, planner, env, xml, goal, initial, snapshot,
                                               env.get_observation(), task, params, measurement, None, None, None)
     result.update(exec_mode="search", population="one_keyhole", horizon=row["horizon"],
@@ -117,10 +128,14 @@ def evaluate(problems, row, arm, config, primitives, post_restore):
     return result
 
 
-def run_unit(problems, row, arm, config, primitives, post_restore, destination, expect_source_sha256):
+def run_unit(problems, row, arm, config, primitives, post_restore, destination, expect_source_sha256, timed=False):
     from namo.planners.search_measurements import save_run_row
 
-    result = evaluate(problems, row, arm, config, primitives, post_restore)
+    load_before = os.getloadavg()
+    result = evaluate(problems, row, arm, config, primitives, post_restore, timed)
+    if timed:
+        result.update(host=socket.gethostname(), cpu_model=cpu_model(), cpu_affinity=sorted(os.sched_getaffinity(0)),
+                      load_average_before=load_before, load_average_after=os.getloadavg())
     source = (result.get("runtime_fingerprints") or {}).get("source_sha256")
     if result.get("technical_error") or (expect_source_sha256 and source != expect_source_sha256):
         destination.with_suffix(".rejected").write_text(json.dumps(result, sort_keys=True, default=str) + "\n")
@@ -146,7 +161,11 @@ def main():
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--only-index", type=int, action="append", help="restrict to these problem indices")
     parser.add_argument("--expect-source-sha256", help="reject rows whose code fingerprint differs")
+    parser.add_argument("--timed", action="store_true", help="timing on, statistics off, one unit at a time")
+    parser.add_argument("--shuffle-seed", type=int, help="shuffle the units with this seed before dealing shards")
     args = parser.parse_args()
+    if args.timed and args.workers != 1:
+        parser.error("--timed runs one unit at a time in this process; pass --workers 1")
 
     # The scorer picks its render config when it is built (scripts/sandbox/scorer_beam.py:55), so it
     # must see the same 1 mm config as the search.
@@ -159,7 +178,10 @@ def main():
     arms = json.loads(args.arms.read_text())
     post_restore = set(json.loads(args.post_restore_ids.read_text()))
     indices = args.only_index or range(len(rows))
-    units = [(rows[i], arm) for i in indices for arm in arms][args.shard::args.nshards]
+    units = [(rows[i], arm) for i in indices for arm in arms]
+    if args.shuffle_seed is not None:
+        random.Random(args.shuffle_seed).shuffle(units)
+    units = units[args.shard::args.nshards]
 
     pending = []
     for row, arm in units:
@@ -170,6 +192,21 @@ def main():
     print(json.dumps(dict(event="start", shard=args.shard, units=len(units), pending=len(pending))), flush=True)
 
     failures = 0
+    if args.timed:
+        import cv2
+        import torch
+        torch.set_num_threads(1)
+        torch.set_num_interop_threads(1)
+        cv2.setNumThreads(1)
+        for row, arm, destination in pending:
+            try:
+                name, index, solved, calls = run_unit(args.problems, row, arm, args.config, args.primitives,
+                                                      post_restore, destination, args.expect_source_sha256, timed=True)
+                print(json.dumps(dict(event="saved", arm=name, index=index, solved=solved, calls=calls)), flush=True)
+            except Exception as exc:
+                failures += 1
+                print(json.dumps(dict(event="failed", arm=arm["name"], index=row["index"], error=str(exc))), flush=True)
+        sys.exit(1 if failures else 0)
     context = multiprocessing.get_context("fork")
     with ProcessPoolExecutor(max_workers=max(1, min(args.workers, len(pending))), mp_context=context) as pool:
         futures = [pool.submit(run_unit, args.problems, row, arm, args.config, args.primitives, post_restore,
