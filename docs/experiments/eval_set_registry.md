@@ -280,6 +280,8 @@ CS copy: `/common/users/shared/robot_learning/dm1487/namo/full_namo_sim/untimed/
 
 ⚠ The Random baseline is the same set of runs that chose the tiers, so Random's per-tier numbers are not an independent sample. Horizon labels were never refreshed (`horizon_pattern: not_refreshed`), so no horizon split exists. `scripts/pipeline/report_full_namo_rerun.py` recomputes all 400 tiers from the Random rows and stops if any disagree. First model evaluation: `hy5u-full-namo-frozen400-goalfix-v1` in the [model registry](horizon_q_model_registry.md).
 
+⚠ Timed Random is Tri-An's five seeds at `/common/users/shared/robot_learning/dm1487/namo/full_namo_sim/timed/full_namo_frozen400_icelake_20260912_v1/timing/raw/random_s*`, run on his container build `7ff23f27`. On the same Platinum 8358 CPU our native Amarel build `cc2d2e9e` takes 0.867 of his time (0.836-0.901 per scene, 19 of 20 scenes with the same calls), so his Random seconds are not directly comparable with timed runs on our build. Calibration rows and ratio: `eval/full_namo_timed_20260914/report_timed.json`, card [EXP-2026-09-14-full-namo-timed-goalfix](log/EXP-2026-09-14-full-namo-timed-goalfix.md).
+
 ## One-keyhole frozen600 (Tri-An, frozen 2026-09-12)
 
 Tri-An's frozen one-keyhole test set: 600 problems, each one door between the robot's room and the goal room, margin `canonical_1mm`, manifest sha256 `bb01f360`. 300 need one push and 300 need two, and each horizon has 100 easy, 100 medium and 100 hard problems. Tiers come from an exhaustive certificate per problem, not from Random runs: expected trials E = (N+1)/(S+1), easy E <= 3, medium E <= 15, hard above.

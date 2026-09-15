@@ -825,6 +825,19 @@ HY5U needs 3 to 6.5 times fewer calls on every tier Random can solve, and no HY5
 
 The goal fix helped HY5U_s2 (same checkpoint and seed): solved scenes 257 to 264, hard median calls 339.5 to 148, fewer calls on 110 scenes and more on 71 (sign test p = 0.005). No horizon split exists for this set: every scene starts two hops out and the horizon labels were never refreshed. Success-vs-calls curves with seed bands: [plot](plots/full_namo_rerun_20260914/success_vs_sims.png). Seeds, caveats and artifact paths: [experiment card](log/EXP-2026-09-14-full-namo-goal-fix-rerun.md).
 
+## 2026-09-14: Timed Full NAMO after the goal-picture fix
+
+The same frozen400 runs as the untimed rerun, timed on whole Intel Xeon Platinum 8358 nodes with one thread. HY5U seeds 1-3 ran on our native Amarel build. The only timed Random is Tri-An's five seeds on his container build, which a 20-scene check found 13% slower than ours on the same CPU. Median seconds until solved, seed ranges; a failed run counts as infinite time.
+
+| Tier | HY5U, our build | Random, Tri-An's build | Random scaled x0.867 (estimate) | HY5U solved within 60 s | Random solved within 60 s |
+|---|---:|---:|---:|---:|---:|
+| easy | 1.0-1.1 | 1.5-2.6 | 1.3-2.2 | 91-95 | 92-97 |
+| medium | 2.4-3.8 | 10.5-15.0 | 9.1-13.0 | 86-90 | 81-89 |
+| hard | 40.2-92.0 | 175.6-464.0 | 152.2-402.2 | 48-53 | 13-34 |
+| unresolved | not reached | not reached | not reached | 0-1 | 0 |
+
+All 1,200 timed HY5U runs reached the same result in the same number of calls as the untimed rerun. HY5U is faster than Random in seconds on easy, medium and hard, and no seed ranges overlap, with or without the 13% build correction. Model scoring takes only 5.6-7.2% of HY5U's time, so the call savings carry into seconds. An exact comparison needs Random timed on our build, about 165 node-hours for five seeds; that is Dhruv's call. No horizon split exists for this set. Tables, calibration and caveats: [experiment card](log/EXP-2026-09-14-full-namo-timed-goalfix.md).
+
 ## 2026-09-14: HY5U ablations on the frozen one-keyhole 600 at 1 mm
 
 Tri-An's frozen one-keyhole 600 (300 one-push, 300 two-push, 100 per certificate tier each), best-first search, 3000 simulator calls, 3 seeds per model. Percent of runs solved within 1 or 5 calls, worst-to-best seed in brackets.
