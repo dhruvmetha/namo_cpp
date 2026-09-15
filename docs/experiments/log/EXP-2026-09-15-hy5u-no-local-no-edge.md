@@ -1,6 +1,6 @@
 ---
 type: experiment
-status: running
+status: idea
 created: 2026-09-15
 updated: 2026-09-15
 metric: "One-keyhole frozen600 at 1 mm, best-first search, 3000-call cap: simulator calls to success (untimed) and seconds to success on whole Platinum 8358 nodes (timed), split by 1-push/2-push and easy/medium/hard; HY5U with both the contact-index embedding and local feature sampling removed, seeds 1-3."
@@ -31,6 +31,8 @@ Timed test: whole exclusive Platinum 8358 nodes on Amarel, one thread, timing on
 Amarel maintenance runs from 2026-09-15 08:00 to 2026-09-16 23:59, so Amarel inference starts 2026-09-17.
 
 ## Run
+
+Stopped [USER 2026-09-15 05:47] before any model trained. The first launch at 05:44 put the smoke on arrakis GPU 0, which another user had just started using, so I stopped it and relaunched on GPUs 1-3 at 05:45; that smoke ran about 2 minutes before the stop. Both partial smoke folders are kept under `$NAMO_SCRATCH/aquaman/round0/architecture_no_local_no_edge_20260915/`, the first in `aborted_gpu0_shared/`. The pinned worktree `ktamp/namo-train-noloc-noedge` at `e8f2ac4d` stays for a relaunch; the second smoke folder must be moved aside first, since the launcher refuses to overwrite a run.
 
 ## Result
 
