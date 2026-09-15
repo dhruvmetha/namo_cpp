@@ -1,9 +1,9 @@
 ---
 type: experiment
-status: running
+status: complete
 created: 2026-09-15
 updated: 2026-09-15
-metric: "One-keyhole frozen600 at 1 mm, best-first search, 3000-call cap: simulator calls to success (untimed) and seconds to success on whole Platinum 8358 nodes (timed), split by 1-push/2-push and easy/medium/hard; HY5U with the family margin loss, local feature sampling and the contact-index embedding all removed, seeds 1-3."
+metric: "One-keyhole frozen600 at 1 mm, best-first search, 3000-call cap: simulator calls to success (untimed) and seconds to success on AMD EPYC 7352 CS nodes (timed, one pinned single-threaded process per cache group), split by 1-push/2-push and easy/medium/hard; HY5U with the family margin loss, local feature sampling and the contact-index embedding all removed, seeds 1-3."
 tags:
   - experiment
   - ablation
@@ -38,6 +38,8 @@ Training: worktree `ktamp/namo-train-ablation-20260915` pinned at `fc34b320`, ou
 
 Timed no-family, Random and geometric: worktree `ktamp/namo-keyhole-timed-20260915` pinned at `cf64a879` with its own copy of `build_python`, output `$NAMO_SCRATCH/eval/keyhole600_timed_cs_20260915/` (`arms.json`, `rows/`, `slot_logs/`, `logs/`), source fingerprint `ff07e56f`. That fingerprint differs from the untimed keyhole600 runs' `22577f4a` only through `scripts/pipeline/eval_full_namo_walltime.py`, which the keyhole search does not use. A 6-unit smoke on arrakis and a 27-unit smoke on rlab3 (job `328354`, problems 0, 40 and 450, all 9 arms) matched the untimed no-family call counts and Tri-An's Random call counts on every compared unit; geometric took 248 calls on problem 450 against Tri-An's 249, on both boxes. Problem 40 refused to start on rlab3, as on Amarel's build. On problem 450 rlab3 took 1.28 times Tri-An's Platinum time for Random. Full jobs started 07:03 and 07:04: `328359` rlab3 (slots 16-31), `328360` rlab4 (slots 32-47), `328362` ilab3 (slots 0-15). The remote shell on ilab2 is zsh, whose arrays start at 1, so the first submit loop failed for ilab3's slot range and shifted rlab3 and rlab4 up one range; a resubmit for ilab3 with slots 32-47 (`328361`) ran 19 seconds before I cancelled it. Units in slots 32-47 finished in those 19 seconds may have been written by ilab3 and then rewritten by rlab4, and the logs `slot_32.log` to `slot_47.log` were truncated once.
 
+Sim-count runs of the new model: seed 2 on rlab1 (`328517`, 09:04, 48 workers) saved all 595 problems; a first try on rlab7 (`328510`) sat pending because other jobs held rlab7's memory and was cancelled. Seeds 1 and 3 (`328531`, 09:17, 48 workers, two checkpoints per worker) stalled: OpenCV in each worker started one thread per CPU, the job hit the CS per-user limit of 2,000 processes and threads, and 575 units failed with `[Errno 11] Resource temporarily unavailable` and wrote `.rejected` files without rows. Seed 2's job logged the same thread warnings but no failed unit. The retry `328537` (09:32, 12 workers) redid only the missing units and finished at 09:56 with no thread errors. Problems 40, 277, 373, 463 and 504 ran directly on arrakis for all three seeds (`logs/arrakis_refused.log`, 15 rows). Output `$NAMO_SCRATCH/eval/keyhole600_no_family_local_edge_20260915/` (`arms.json`, `results_rlab1/`, `results_arrakis/`, `untimed_cs.sbatch`, `build_report.sh`).
+
 ## Result
 
 ### Simulator calls: the new model against HY5U and the single ablations (complete 09:56)
@@ -55,11 +57,16 @@ All 600 problems for all three seeds: 595 per seed on rlab1 (job `328517` for se
 | **no family, no local, no edge identity** | 76.7 [75.7-77.7] | 57.0 [55.7-59.0] | 32.3 [29.0-37.0] | 81.3 [80.0-82.7] | 4 / 14 | 99.4 |
 | Random, 5 seeds | 23.5 [15.0-28.7] | 11.7 [7.3-18.0] | 1.4 [0.0-4.0] | 46.9 [38.0-52.0] | 36 / 355 | 99.0 |
 
-**Removing all three is at least as good as removing any one, and better than HY5U on 2-push problems.** Within 5 calls it solves 57.0% of 2-push runs against HY5U's 51.7%, and its worst seed (55.7) beats HY5U's best (53.3). On hard 2-push problems within 5 calls it reaches 32.3% against 26.3%. Problem by problem, with each side's median over seeds, it needs fewer calls than HY5U on 132 of 300 2-push problems and more on 77 (sign test p = 0.0002; over all 600 problems, 176 fewer and 104 more, p < 0.0001). On 1-push problems it solves 76.7% on the first call against 74.4%, inside HY5U's seed range.
+**Against HY5U's registered rows it looks clearly better on 2-push problems.** Within 5 calls it solves 57.0% of 2-push runs against HY5U's 51.7%, and its worst seed (55.7) beats HY5U's best (53.3). On hard 2-push problems within 5 calls it reaches 32.3% against 26.3%. Problem by problem, with each side's median over seeds, it needs fewer calls than HY5U on 132 of 300 2-push problems and more on 77 (sign test p = 0.0002). On 1-push problems it solves 76.7% on the first call against 74.4%, inside HY5U's seed range.
 
-**It loses a little at the 3000-call ceiling.** 99.4% solved against 99.7% for HY5U: one 2-push easy problem fails on all three seeds, and one 2-push medium run fails.
+**That comparison crosses machines, and a same-machine check shrinks the gain.** The registered arms ran on Amarel's build, this model on rlab1. Problems 303 (2-push easy) and 599 (2-push hard) fail on every CS machine for every model: the new model, no-family, Random and geometric on the EPYC 7352 timing nodes, the new model on rlab1, and no-family seed 1 on arrakis (147 and 2,613 calls, identical to its EPYC 7352 rows). Every model seed solves both on Amarel. So the new model's 99.4% solved within 3000 calls against HY5U's 99.7% is the machine, and its early-call numbers are, if anything, understated. Its only other failures are problem 501 on all three seeds and problem 430 on seed 1. HY5U was not run on the CS machines [USER: no HY5U inference], but no-family was, in the timed run below, which records the same call counts. On those 595 problems, same machines:
 
-Caveat: the registered arms ran on Amarel's build and this model on rlab1, and the timed no-family check above shows Amarel and CS call counts differ on about 4% of problems per seed, in both directions.
+| | 1-push on call 1 | 2-push within 5 | hard 2-push within 5 | 2-push within 30 | solved within 3000 |
+|---|---:|---:|---:|---:|---:|
+| no family, no local, no edge identity | 76.5 [75.5-77.5] | 57.2 [55.9-59.3] | 32.7 [29.3-37.4] | 81.4 [80.1-82.5] | 99.4 [99.3-99.5] |
+| no family | 75.2 [73.5-77.9] | 54.7 [53.5-55.9] | 28.6 [26.3-30.3] | 79.2 [78.5-80.1] | 99.4 [99.3-99.5] |
+
+Per problem the new model needs fewer calls than no-family on 116 of 297 2-push problems and more on 97 (p = 0.22), and on 159 against 126 over all 595 (p = 0.06). **Removing local sampling and the index embedding on top of no-family keeps or slightly improves the ordering; it is not clearly better.** Most of the gap to HY5U's registered rows is the no-family change itself (54.4 against 51.7 on Amarel) plus a small further gain.
 
 ### Timed no-family, Random and geometric on the CS nodes (complete 09:03)
 
@@ -97,3 +104,26 @@ Checks:
 - The three nodes ran at the same speed. Median seconds per simulator call, taken over runs with at least 20 calls, differ by under 5% across rlab3, rlab4 and ilab3 for every model (Random 0.237-0.250, geometric 0.281-0.294, no-family 0.342-0.354). ilab3 carried other users' load at times (load average up to 92 on 96 threads, median 17.5), rlab3 and rlab4 stayed near our own 16 processes.
 - Timed no-family rows match the untimed Amarel keyhole600 rows on 570-574 of 595 problems per seed. Per seed, 3 problems changed between solved and failed, and the other 18-22 differences are call counts split evenly between more and fewer (median difference 0 or -1). Random rows match Tri-An's untimed rows on 551-561 of 595, and geometric matches his timed rows on 532 of 595. The known cross-box difference in the state restore path (`reference_crossbox_physics_identical`) fits this pattern; I did not trace individual problems. The comparison between arms is unaffected, since every arm here ran on the same nodes and build.
 - 7 rows in rlab4's slots came from the 19-second duplicate job on ilab3 (same CPU model).
+
+### Timed new model on the same CS nodes (complete 10:04)
+
+![Runs solved within t seconds per horizon and tier: the new model, no-family, geometric and Random on the same AMD EPYC 7352 nodes, median seed line with worst-to-best seed band](../plots/keyhole600_timed_cs_20260915/solved_within_seconds_with_new_model.png)
+
+Jobs `328532` ilab3, `328533` rlab3 and `328534` rlab4 ran 09:17 to 10:04 with the same worktree, node job, pinning and shuffle as the first timed run: the new model's three seeds plus a repeat of no-family seed 1 (`control_no_family_s1`, same checkpoint), 2,380 units, output `$NAMO_SCRATCH/eval/keyhole600_timed_cs_20260915/run2/`. All 2,380 saved; the only failures are the same 5 refused problems. The combined report is `report_with_new_model.{json,md}`.
+
+**The repeat reproduces the first timed run.** Control no-family seed 1 matched its first-run rows in result and calls on all 595 problems, and on the 539 runs over half a second it took 0.995 of its first time at the median (80% of problems between 0.965 and 1.018; total time 0.995). Times from the two runs compare directly. The new model's timed rows also match its untimed rlab1 rows on 595 of 595 problems per seed, so rlab1 (EPYC 7413) and the EPYC 7352 nodes give identical searches.
+
+Median seconds until solved, seed ranges:
+
+| | 1-push easy | 1-push medium | 1-push hard | 1-push all | 2-push easy | 2-push medium | 2-push hard | 2-push all |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| no family, no local, no edge identity | 0.56-0.60 | 0.77-0.78 | 0.81-0.86 | 0.73-0.74 | 1.40-1.44 | 1.76-1.84 | 4.18-5.82 | 1.82-2.04 |
+| no family | 0.55-0.57 | 0.75-0.77 | 0.84-0.96 | 0.71-0.73 | 1.43-1.59 | 1.96-2.37 | 5.57-6.37 | 1.95-2.18 |
+| Random, 5 seeds | 0.22-0.51 | 0.88-1.18 | 1.75-2.52 | 0.82-1.03 | 2.12-3.16 | 6.05-11.60 | 64.04-108.17 | 5.93-11.93 |
+| geometric | 0.27 | 0.64 | 1.82 | 0.62 | 3.63 | 17.15 | 83.08 | 18.21 |
+
+Solved within 1 second on 1-push: new model 78.9-80.2%, no-family 76.5-82.6%. Within 5 seconds on 2-push: 69.0-73.4% against 68.0-70.7%. Hard 2-push within 5 seconds: 47.5-52.5% against 45.5-47.5%.
+
+**In seconds the new model and no-family are within a few percent of each other.** The new model is slightly faster on 2-push medium and hard problems (median 1.76-1.84 s against 1.96-2.37 s, and 4.18-5.82 s against 5.57-6.37 s) and level on 1-push. Both are far ahead of Random and geometric on every 2-push tier.
+
+**Removing local sampling and the index embedding does not make scoring cheaper.** One network call takes 0.125 s at the median for the new model and 0.126 s for no-family, and scoring is 3-5% of total time for both over all problems. Whatever time the new model saves comes from needing fewer calls.

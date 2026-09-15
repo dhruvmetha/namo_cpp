@@ -856,3 +856,27 @@ Tri-An's frozen one-keyhole 600 (300 one-push, 300 two-push, 100 per certificate
 | Random, 5 seeds | 23.5 [15.0-28.7] | 11.7 [7.3-18.0] | 1.4 [0-4] | 355 |
 
 Every model solves 98.9-99.7% of runs within 3000 calls, so the ablations differ only in speed. No unreachable-cell rule, regression-only and global readout are clearly worse on two-push problems, and global readout and rank-only without the floor are also clearly worse on one-push problems. No-family, no-local and no-edge-identity match or slightly beat HY5U, so the v3 finding that edge identity helps does not reproduce at 1 mm on this set. Per-tier tables, plots and run details: [experiment card](log/EXP-2026-09-14-keyhole600-ablations.md).
+
+## 2026-09-15: HY5U without family loss, local sampling or index embedding; timed keyhole runs on CS
+
+A new model removes all three changes that each matched or beat HY5U on the frozen one-keyhole 600 at 1 mm: the family margin loss, local feature sampling and the contact-index embedding. Three seeds, same data and recipe as HY5U. Search at 3000 simulator calls per problem; percent of runs, worst-to-best seed in brackets.
+
+| | 1-push solved on call 1 | 2-push within 5 calls | hard 2-push within 5 | 2-push within 30 |
+|---|---:|---:|---:|---:|
+| HY5U (Amarel) | 74.4 [71.7-76.0] | 51.7 [50.3-53.3] | 26.3 [24.0-31.0] | 78.9 [78.0-79.7] |
+| no family (Amarel) | 75.1 [73.7-77.7] | 54.4 [53.7-55.0] | 27.7 [27.0-28.0] | 79.2 [78.3-80.3] |
+| new model (CS) | 76.7 [75.7-77.7] | 57.0 [55.7-59.0] | 32.3 [29.0-37.0] | 81.3 [80.0-82.7] |
+| Random, 5 seeds | 23.5 [15.0-28.7] | 11.7 [7.3-18.0] | 1.4 [0.0-4.0] | 46.9 [38.0-52.0] |
+
+Against HY5U's registered rows the new model is better on 2-push problems, with no overlap between seed ranges within 5 calls, but that comparison crosses machines: problems 303 and 599 fail on every CS machine for every model and are solved on Amarel. Against no-family on the same CS nodes the gain shrinks to 57.2 [55.9-59.3] against 54.7 [53.5-55.9] within 5 calls on 2-push, with fewer calls on 116 problems and more on 97 (p = 0.22). Removing local sampling and the index embedding on top of no-family keeps or slightly improves the ordering; most of the gap to HY5U is the no-family change.
+
+Timed on three AMD EPYC 7352 CS nodes (48 pinned single-threaded processes, units shuffled across nodes, 595 problems; five do not start on these builds), with Random and geometric timed again next to the models. Median seconds until solved:
+
+| | 1-push all | 2-push all | hard 2-push |
+|---|---:|---:|---:|
+| new model | 0.73-0.74 | 1.82-2.04 | 4.18-5.82 |
+| no family | 0.71-0.73 | 1.95-2.18 | 5.57-6.37 |
+| Random, 5 seeds | 0.82-1.03 | 5.93-11.93 | 64.04-108.17 |
+| geometric | 0.62 | 18.21 | 83.08 |
+
+Both models are 3 to 10 times faster than Random and geometric on 2-push problems at the median and 10 to 26 times faster on hard 2-push problems; on 1-push problems all four are within half a second, and geometric's cheaper scoring gives it the lowest median. The new model and no-family are within a few percent of each other in seconds, and a network call costs 0.125 s for both. A repeat of no-family seed 1 in the second timed run matched the first run's calls on all 595 problems and its time at a median ratio of 0.995. These seconds compare only within this campaign. Details, checks and paths: [experiment card](log/EXP-2026-09-15-hy5u-no-family-local-edge.md).
