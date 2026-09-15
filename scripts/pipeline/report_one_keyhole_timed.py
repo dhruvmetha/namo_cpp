@@ -15,9 +15,9 @@ for geometric.
 
 Usage:
   python scripts/pipeline/report_one_keyhole_timed.py --problems <input/one_keyhole> \
-      --rows <timed rows> [--rows <more timed rows>] --untimed <untimed results> \
+      --rows <timed rows> [--rows <more timed rows>] --untimed <untimed results> [--untimed <more>] \
       --references <Tri-An one_keyhole_frozen600 untimed root> --geometric-references <his timed geometric raw> \
-      --expect-source-sha256 <sha> --expect-cpu "AMD EPYC 7352 24-Core Processor" --out report.json
+      --expect-source-sha256 <sha> --expect-cpu "AMD EPYC 7352 24-Core Processor" --out report.json [--plot fig.png]
 """
 
 import argparse
@@ -28,7 +28,7 @@ import statistics
 from collections import defaultdict
 from pathlib import Path
 
-from report_one_keyhole_frozen import GROUPS, load_references
+from report_one_keyhole_frozen import GROUPS, LABEL, load_references
 
 REFUSED = {40, 277, 373, 463, 504}
 SECONDS = (1, 5, 30)
@@ -76,21 +76,26 @@ def reference_rows(arm, args, problems):
         return rows
     if arm.startswith("random_s"):
         return load_references(args.references, arm, problems)
-    return {json.loads(p.read_text().splitlines()[0])["certification_problem_id"]: json.loads(p.read_text().splitlines()[0])
-            for p in (args.untimed / arm).glob("problem_*.jsonl")}
+    rows = {}
+    for folder in args.untimed:
+        for path in (folder / arm).glob("problem_*.jsonl"):
+            row = json.loads(path.read_text().splitlines()[0])
+            rows[row["certification_problem_id"]] = row
+    return rows
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--problems", required=True, type=Path)
     parser.add_argument("--rows", required=True, type=Path, action="append")
-    parser.add_argument("--untimed", required=True, type=Path)
+    parser.add_argument("--untimed", required=True, type=Path, action="append", help="untimed results folders for model arms")
     parser.add_argument("--references", required=True, type=Path)
     parser.add_argument("--geometric-references", required=True, type=Path)
     parser.add_argument("--expect-source-sha256", required=True)
     parser.add_argument("--expect-cpu", required=True)
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--only-index", type=int, action="append", help="report only these problems (smoke checks)")
+    parser.add_argument("--plot", type=Path, help="also draw solved-within-seconds curves with seed bands (PNG)")
     args = parser.parse_args()
 
     manifest = [json.loads(line) for line in (args.problems / "manifest.jsonl").read_text().splitlines() if line]
@@ -129,6 +134,8 @@ def main():
     report = dict(problems=len(covered), excluded_indices=excluded, pairing=pairing, tables=tables,
                   median_seconds_by_host=nodes)
     args.out.write_text(json.dumps(report, indent=1) + "\n")
+    if args.plot:
+        plot(args.plot, {fam: {arm: by_arm[arm] for arm in arms} for fam, arms in families.items()}, members, problems)
 
     def span(values, fmt):
         finite = [v for v in values if v is not None]
@@ -152,6 +159,42 @@ def main():
                   f"| {span([c['median_seconds'] for c in cells], lambda v: f'{v:.2f}')} | "
                   + " | ".join(span([100 * c['solved_within_seconds'][s] for c in cells], lambda v: f"{v:.1f}") for s in SECONDS)
                   + f" | {span([c['median_calls'] for c in cells], lambda v: f'{v:g}')} |")
+
+
+def plot(path, families, members, problems):
+    """Runs solved within t seconds per horizon and tier: median seed line, worst-to-best seed band."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    seconds = np.geomspace(0.1, 1000, 300)
+    groups = [f"{h}push_{d}" for h, d in GROUPS]
+    fig, axes = plt.subplots(2, 3, figsize=(14, 8.5), sharex=True, sharey=True)
+    colors = iter(["#4C72B0", "#C44E52", "#55A868", "#8172B2", "#CCB974"])
+    for fam, runs in families.items():
+        style = dict(color="#666666", ls="--") if fam == "Random" else dict(color=next(colors))
+        for ax, group in zip(axes.flat, groups):
+            curves = np.array([100 * np.searchsorted(np.sort([rows[p]["t_wall"] if rows[p]["solved"] else np.inf
+                                                              for p in members[group]]), seconds, side="right")
+                               / len(members[group]) for rows in runs.values()])
+            ax.plot(seconds, np.median(curves, axis=0), lw=2, label=LABEL.get(fam, fam), **style)
+            ax.fill_between(seconds, curves.min(axis=0), curves.max(axis=0), color=style["color"], alpha=0.18, lw=0)
+    for ax, group in zip(axes.flat, groups):
+        h, d = group.split("push_")
+        ax.set_xscale("log")
+        ax.set_title(f"{h}-push {d} ({len(members[group])} problems)")
+        ax.grid(alpha=0.3)
+    for ax in axes[1]:
+        ax.set_xlabel("Seconds (log scale)")
+    for ax in axes[:, 0]:
+        ax.set_ylabel("Runs solved (%)")
+    fig.suptitle("Frozen one-keyhole 600, timed on AMD EPYC 7352: line = median seed, band = worst to best seed")
+    fig.legend(*axes[0, 0].get_legend_handles_labels(), loc="lower center", ncol=5, fontsize=11, frameon=False)
+    fig.tight_layout(rect=(0, 0.05, 1, 1))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
 
 
 if __name__ == "__main__":

@@ -42,6 +42,8 @@ Timed no-family, Random and geometric: worktree `ktamp/namo-keyhole-timed-202609
 
 ### Timed no-family, Random and geometric on the CS nodes (complete 09:03)
 
+![Runs solved within t seconds per horizon and tier, no-family 3 seeds vs Random 5 seeds vs geometric, median seed line with worst-to-best seed band](../plots/keyhole600_timed_cs_20260915/solved_within_seconds_no_family.png)
+
 All 5,355 timed rows saved: 595 problems for each of 9 arms. Problems 40, 277, 373, 463 and 504 refused to start on all three nodes, as on Amarel's build and rlab1, and no other unit failed. Tables from `scripts/pipeline/report_one_keyhole_timed.py`, saved to `$NAMO_SCRATCH/eval/keyhole600_timed_cs_20260915/report.{json,md}`. Ranges run over seeds: no-family 3, Random 5, geometric 1. A failed run counts as infinite time.
 
 Median seconds until solved:
