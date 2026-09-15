@@ -8,7 +8,7 @@ seeds; seed spreads come from per-seed values. Random is Tri-An's five uniform s
 same problems (references-v1, with references-identity-repair-v2 for the 11 problems he
 repaired).
 
-The report refuses to run unless every arm has all 600 problems from the expected code.
+The report refuses to run unless every arm has all 600 problems from an accepted code fingerprint.
 Rows can come from several --results folders (the Amarel run plus the CS run of problems
 whose starting state did not match their certificate on Amarel's build); one problem
 saved twice for one arm is an error.
@@ -39,6 +39,7 @@ LABEL = {
     "HY5U_global": "global readout",
     "HY5U_no_local": "no local",
     "HY5U_no_edge": "no edge identity",
+    "HY5U_no_family_local_edge": "no family, no local, no edge identity",
     "HY5U_rank_only_nofloor": "rank-only, no floor",
     "Random": "Random ordering",
 }
@@ -93,7 +94,7 @@ def load_ours(folders, arms, problems, expect_sha):
             for path in sorted((folder / arm["name"]).glob("problem_*.jsonl")):
                 row = json.loads(path.read_text().splitlines()[0])
                 source = row["runtime_fingerprints"]["source_sha256"]
-                if row["technical_error"] or source != expect_sha:
+                if row["technical_error"] or source not in expect_sha:
                     raise RuntimeError(f"{path}: technical_error={row['technical_error']} source_sha256={source}")
                 pid = row["certification_problem_id"]
                 if pid in by_arm[arm["name"]]:
@@ -125,7 +126,8 @@ def main():
     parser.add_argument("--results", required=True, type=Path, action="append")
     parser.add_argument("--arms", required=True, type=Path)
     parser.add_argument("--references", required=True, type=Path, help="Tri-An's one_keyhole_frozen600 campaign root")
-    parser.add_argument("--expect-source-sha256", required=True)
+    parser.add_argument("--expect-source-sha256", required=True, action="append",
+                        help="accepted code fingerprints; repeat when runs came from commits that differ only outside the search")
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--plot-dir", type=Path)
     parser.add_argument("--runs-csv", type=Path, help="also write one line per run: every model plus Tri-An's baselines")
