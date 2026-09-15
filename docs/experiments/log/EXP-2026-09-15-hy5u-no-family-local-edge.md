@@ -40,6 +40,27 @@ Timed no-family, Random and geometric: worktree `ktamp/namo-keyhole-timed-202609
 
 ## Result
 
+### Simulator calls: the new model against HY5U and the single ablations (complete 09:56)
+
+![Success vs simulator calls per horizon and tier: no family, no local, no edge identity vs HY5U and Random, median seed line with worst-to-best seed band](../plots/keyhole600_no_family_local_edge_20260915/HY5U_no_family_local_edge_vs_HY5U.png)
+
+All 600 problems for all three seeds: 595 per seed on rlab1 (job `328517` for seed 2, retry `328537` for seeds 1 and 3) and problems 40, 277, 373, 463 and 504 on arrakis. Built with `report_one_keyhole_frozen.py`, which accepts both code fingerprints (`22577f4a` for the registered ablations, `ff07e56f` here; rebuilding the registered report with the edited script reproduces every table), saved to `$NAMO_SCRATCH/eval/keyhole600_no_family_local_edge_20260915/report.{json,md}`, `runs.csv` and `plots/`. Pooled over seeds, with the worst-to-best seed range in brackets.
+
+| | 1-push solved on call 1 | 2-push within 5 calls | hard 2-push within 5 | 2-push within 30 | median calls, 2-push / hard 2-push | solved within 3000 |
+|---|---:|---:|---:|---:|---:|---:|
+| HY5U | 74.4 [71.7-76.0] | 51.7 [50.3-53.3] | 26.3 [24.0-31.0] | 78.9 [78.0-79.7] | 5 / 16.5 | 99.7 |
+| no family | 75.1 [73.7-77.7] | 54.4 [53.7-55.0] | 27.7 [27.0-28.0] | 79.2 [78.3-80.3] | 5 / 15 | 99.6 |
+| no local | 74.9 [74.0-76.3] | 55.4 [55.3-55.7] | 28.0 [26.0-29.0] | 81.7 [79.7-83.0] | 4 / 12 | 99.4 |
+| no edge identity | 73.1 [69.7-75.3] | 54.1 [52.7-56.0] | 27.7 [27.0-28.0] | 78.8 [77.7-79.7] | 5 / 18 | 99.5 |
+| **no family, no local, no edge identity** | 76.7 [75.7-77.7] | 57.0 [55.7-59.0] | 32.3 [29.0-37.0] | 81.3 [80.0-82.7] | 4 / 14 | 99.4 |
+| Random, 5 seeds | 23.5 [15.0-28.7] | 11.7 [7.3-18.0] | 1.4 [0.0-4.0] | 46.9 [38.0-52.0] | 36 / 355 | 99.0 |
+
+**Removing all three is at least as good as removing any one, and better than HY5U on 2-push problems.** Within 5 calls it solves 57.0% of 2-push runs against HY5U's 51.7%, and its worst seed (55.7) beats HY5U's best (53.3). On hard 2-push problems within 5 calls it reaches 32.3% against 26.3%. Problem by problem, with each side's median over seeds, it needs fewer calls than HY5U on 132 of 300 2-push problems and more on 77 (sign test p = 0.0002; over all 600 problems, 176 fewer and 104 more, p < 0.0001). On 1-push problems it solves 76.7% on the first call against 74.4%, inside HY5U's seed range.
+
+**It loses a little at the 3000-call ceiling.** 99.4% solved against 99.7% for HY5U: one 2-push easy problem fails on all three seeds, and one 2-push medium run fails.
+
+Caveat: the registered arms ran on Amarel's build and this model on rlab1, and the timed no-family check above shows Amarel and CS call counts differ on about 4% of problems per seed, in both directions.
+
 ### Timed no-family, Random and geometric on the CS nodes (complete 09:03)
 
 ![Runs solved within t seconds per horizon and tier, no-family 3 seeds vs Random 5 seeds vs geometric, median seed line with worst-to-best seed band](../plots/keyhole600_timed_cs_20260915/solved_within_seconds_no_family.png)

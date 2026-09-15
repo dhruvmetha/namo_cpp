@@ -253,7 +253,7 @@ def plot(plot_dir, families, problems):
         fig.suptitle(title)
         return fig, axes
 
-    colors = iter(["#1f77b4", "#ff7f0e", "#2ca02c", "#9467bd", "#8c564b", "#e377c2", "#bcbd22", "#17becf"])
+    colors = iter(["#1f77b4", "#ff7f0e", "#2ca02c", "#9467bd", "#8c564b", "#e377c2", "#bcbd22", "#17becf", "#d62728"])
     fig, axes = grid("Frozen one-keyhole 600: median seed of every model")
     for family, runs in families.items():
         style = (dict(color="black", lw=2.8, zorder=10) if family == "HY5U" else
