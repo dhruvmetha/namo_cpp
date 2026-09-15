@@ -17,10 +17,12 @@ SKIP_SMOKE=${SKIP_SMOKE:-0}
 
 config_for() {
   case "$1" in
-    HY5U_global)   CFG_GLOBAL=1; CFG_LOCAL=1; CFG_EDGE_EMBED=1 ;;
-    HY5U_no_local) CFG_GLOBAL=0; CFG_LOCAL=0; CFG_EDGE_EMBED=1 ;;
-    HY5U_no_edge)  CFG_GLOBAL=0; CFG_LOCAL=1; CFG_EDGE_EMBED=0 ;;
-    HY5U_no_local_no_edge) CFG_GLOBAL=0; CFG_LOCAL=0; CFG_EDGE_EMBED=0 ;;
+    HY5U_global)   CFG_GLOBAL=1; CFG_LOCAL=1; CFG_EDGE_EMBED=1; CFG_EGMM=0.1 ;;
+    HY5U_no_local) CFG_GLOBAL=0; CFG_LOCAL=0; CFG_EDGE_EMBED=1; CFG_EGMM=0.1 ;;
+    HY5U_no_edge)  CFG_GLOBAL=0; CFG_LOCAL=1; CFG_EDGE_EMBED=0; CFG_EGMM=0.1 ;;
+    HY5U_no_local_no_edge) CFG_GLOBAL=0; CFG_LOCAL=0; CFG_EDGE_EMBED=0; CFG_EGMM=0.1 ;;
+    # no-family as in run_hy5u_ablations_cs.sh: family margin loss off, same data and grouped batches
+    HY5U_no_family_local_edge) CFG_GLOBAL=0; CFG_LOCAL=0; CFG_EDGE_EMBED=0; CFG_EGMM=0 ;;
     *) echo "unknown arm: $1" >&2; return 1 ;;
   esac
 }
@@ -44,7 +46,7 @@ run_one() {
     TRAIN_SCRIPT=scripts/rl_loop/train_q2_round2.py \
     EPOCHS="$epochs" BATCH=256 WORKERS="$WORKERS" SEED="$seed" POSTCHECK_LIMIT=64 \
     NAMO_GAMMA=0.5 NAMO_UNREACH_W=0.1 NAMO_GROUP_EPISODES=1 \
-    EGMM_LAMBDA=0.1 RANK_LAMBDA=0.1 LOWER_RANK_LAMBDA=0.05 \
+    EGMM_LAMBDA="$CFG_EGMM" RANK_LAMBDA=0.1 LOWER_RANK_LAMBDA=0.05 \
     NAMO_EDGE_SELF_ATTN=1 NAMO_GLOBAL_READOUT="$CFG_GLOBAL" NAMO_USE_LOCAL="$CFG_LOCAL" \
     NAMO_USE_EDGE_EMBED="$CFG_EDGE_EMBED" \
     NAMO_ACTION_MOTION=0 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
