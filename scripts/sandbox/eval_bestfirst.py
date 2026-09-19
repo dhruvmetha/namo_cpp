@@ -107,6 +107,7 @@ from namo.planners.opening.best_first_search import (  # noqa: E402
     priority,
     solve_scene,
 )
+from namo.planners.opening.more_mcts import solve_scene_mcts  # noqa: E402
 
 
 def _make_planner(prior, ckpt, warmup_repeats):
@@ -203,14 +204,30 @@ def _evaluate_pooled_task(a, planner, env, xml, goal, s0, snapshot, initial_obse
         solution = {}
         is_open = ((lambda e: goal_open_pts(e, [point[:2] for point in gp])) if a.success == "region" else
                    (lambda e: e.is_robot_goal_reachable()))
-        solved, sims, plen, boards, end = solve_scene(
-            planner, env, goal, xml, s0, a.hmax, a.sim_budget, a.prior, a.agg, a.combine,
-            random.Random(a.seed_base), restrict_obj=tuple(rec["boundary_objects"]), is_open=is_open,
-            raw=a.raw, dive_bonus=a.dive_bonus, discount=a.discount, gamma=a.gamma, tau=a.tau,
-            g_table=g_table, eps=a.eps, w0_mode=a.w0_mode, free_strike_q=a.free_strike_q,
-            child_patience=a.child_patience, dedupe_noop=a.dedupe_noop, prune_jam_depth=a.prune_jam_depth,
-            trace_out=pops, capture=capture, timing=measured.local_timer, region_samples=gp,
-            measurements=measured, solution_out=solution)
+        more_rows = [] if (a.planner == "more" and a.more_records_out) else None
+        if a.planner == "more":
+            solved, sims, plen, boards, end = solve_scene_mcts(
+                planner, env, goal, xml, s0, a.hmax, a.sim_budget, a.prior, a.agg, a.combine,
+                random.Random(a.seed_base), restrict_obj=tuple(rec["boundary_objects"]),
+                is_open=is_open, raw=a.raw, region_samples=gp, dedupe_noop=a.dedupe_noop,
+                prune_jam_depth=a.prune_jam_depth, timing=measured.local_timer,
+                measurements=measured, solution_out=solution,
+                prior_scale=a.more_prior_scale, record_out=more_rows)
+            if more_rows is not None:
+                with open(a.more_records_out, "a") as fh:
+                    fh.write(json.dumps({"xml": xml, "region": rec["target_region"],
+                                         "objects": list(rec["boundary_objects"]),
+                                         "solved": solved, "sims": sims,
+                                         "rows": more_rows}) + "\n")
+        else:
+            solved, sims, plen, boards, end = solve_scene(
+                planner, env, goal, xml, s0, a.hmax, a.sim_budget, a.prior, a.agg, a.combine,
+                random.Random(a.seed_base), restrict_obj=tuple(rec["boundary_objects"]), is_open=is_open,
+                raw=a.raw, dive_bonus=a.dive_bonus, discount=a.discount, gamma=a.gamma, tau=a.tau,
+                g_table=g_table, eps=a.eps, w0_mode=a.w0_mode, free_strike_q=a.free_strike_q,
+                child_patience=a.child_patience, dedupe_noop=a.dedupe_noop, prune_jam_depth=a.prune_jam_depth,
+                trace_out=pops, capture=capture, timing=measured.local_timer, region_samples=gp,
+                measurements=measured, solution_out=solution)
         chain = [make_action(obj, push_goal) for obj, push_goal in solution.get("plan", [])]
         measured.end_attempt(end=end, success=solved, calls=sims, actions=chain)
         if solved:
@@ -252,6 +269,16 @@ def main():
                     help="optional scene-list override; default derives sorted scenes directly from --key")
     ap.add_argument("--start", type=int, default=0)
     ap.add_argument("--end", type=int, default=985)
+    ap.add_argument("--planner", default="bestfirst", choices=["bestfirst", "more"],
+                    help="bestfirst = the canonical queue; more = the MORE-inspired MCTS "
+                         "adaptation (Huang et al., ICRA 2022), same action library and verifier")
+    ap.add_argument("--more-prior-scale", default="minmax", choices=["minmax", "raw"],
+                    help="--planner more: how to map ranker scores into MORE's [0,1.2] prior "
+                         "range. minmax rescales per state and keeps the order; raw is correct "
+                         "only for a net trained MORE's way, whose outputs are already returns")
+    ap.add_argument("--more-records-out", default="",
+                    help="--planner more: per-episode MCTS training records (JSONL), the "
+                         "action/label/visit-count evidence MORE regresses on")
     ap.add_argument("--hmax", type=int, default=2, help="max pushes in the search chain")
     ap.add_argument("--sim-budget", type=int, default=3000, help="shared simulator-call cap for the pooled task")
     ap.add_argument(
