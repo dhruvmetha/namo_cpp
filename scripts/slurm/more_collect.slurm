@@ -11,13 +11,21 @@
 #
 # SCENES caps how much of the manifest the campaign covers, so a pilot and the full
 # run use the same script with one number changed.
+#
+# SIZING. An episode costs roughly 400 s on an Amarel core at budget 600 with
+# stop_on_open off, against 102 s measured on arrakis: the cores are slower and dense
+# scenes with many reachable contacts are far slower than the mean. A scene yields about
+# 1.35 episodes. So 20 scenes per shard is ~3 h and overruns a 3 h wall, which is exactly
+# what happened on 51 of 100 tasks in job 61727373. Calibrate on the box you will run on,
+# not the one you are typing on. Keep shards at 10 scenes or fewer and the wall at 8 h.
+# Partial shards are not lost: the collector flushes one JSON line per episode.
 #SBATCH --job-name=more-collect
 #SBATCH --partition=main
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=8G
-#SBATCH --time=03:00:00
+#SBATCH --time=08:00:00
 #SBATCH --output=logs/%x_%A_%a.out
 set -euo pipefail
 
