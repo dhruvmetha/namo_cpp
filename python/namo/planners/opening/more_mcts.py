@@ -57,9 +57,27 @@ from namo.planners.opening.best_first_search import (
 
 # constants.py of the audited revision
 MCTS_DISCOUNT = 0.5
-MCTS_TOP = 3                     # nodes.py best_child(top=3)
-PRIOR_CLAMP = 1.2                # nodes.py: max(0, min(c.nq, 1.2))
+MCTS_TOP = 3                     # mcts_network/nodes.py best_child(top=3)
+PRIOR_CLAMP = 1.2                # mcts_network/nodes.py: max(0, min(c.nq, 1.2))
 OPEN_FRAC = 0.2                  # our GRASP_Q_PUSH_THRESHOLD analogue
+MCTS_TOP_UCT = 10                # constants.py MCTS_TOP, used by the PLAIN mcts/
+MCTS_UCT_RATIO = math.sqrt(2)    # constants.py MCTS_UCT_RATIO
+
+# MORE ships TWO different searches and the paper uses both in sequence.
+#
+#   "uct"    = mcts/nodes.py. The COLLECTION search, System 2. No network at all:
+#              mcts_main.py:480 builds its root state without a push net. Real UCT,
+#              uniform-random rollouts, 300 iterations. This is what generates the
+#              training data, and it is why MORE needs no checkpoint to bootstrap.
+#   "guided" = mcts_network/nodes.py. The DEPLOY search, System 1 + 2. The learned
+#              prior replaces the UCB term, rollouts turn greedy, and the budget
+#              drops to 50 iterations. That 300 -> 50 drop is the paper's efficiency
+#              claim.
+#
+# Both modes share this module's simulate/cache/budget/record machinery on purpose:
+# the two phases must count simulator calls by the same rule or the learning-curve
+# comparison measures our bookkeeping instead of the method.
+MODES = ("uct", "guided")
 
 
 class _Solved(Exception):
@@ -115,7 +133,7 @@ class _Node:
     __slots__ = ("state", "obj", "goal", "prior", "parent", "children", "depth",
                  "uid", "n", "results", "frac", "pool", "board_id", "tries", "dead")
 
-    def __init__(self, state, obj, goal, prior, parent, depth, uid, frac=0.0):
+    def __init__(self, state, obj, goal, prior, parent, depth, uid, frac=0.0, mode="guided"):
         self.state = state
         self.obj = obj
         self.goal = goal
@@ -124,8 +142,12 @@ class _Node:
         self.children: List["_Node"] = []
         self.depth = depth
         self.uid = uid
-        self.n = 1                       # PushSearchNode starts at one visit
-        self.results = [0.0]             # ... and one zero result
+        # The two searches seed a node differently and it changes the first selection.
+        # mcts_network/nodes.py:18 starts at n=1, q=[0], so an unexpanded child scores
+        # exactly its prior. mcts/nodes.py:18 starts at n=0, q=[], which has no defined
+        # UCT score at all, which is why the plain search expands before it selects.
+        self.n = 1 if mode == "guided" else 0
+        self.results = [0.0] if mode == "guided" else []
         self.frac = frac
         self.pool = None
         self.board_id = None
@@ -149,17 +171,41 @@ class _Node:
         if self.parent is not None:
             self.parent.backpropagate(result * MCTS_DISCOUNT)
 
-    def best_child(self):
-        """nodes.py: (sum(sorted(c.q)[-top:]) + clamp(c.nq, 0, 1.2)) / c.n. No UCB term."""
+    def best_child(self, mode="guided"):
+        """The selection rule, which is a different formula in each of MORE's two searches.
+
+        guided (mcts_network/nodes.py:115):
+            (sum(sorted(c.q)[-3:]) + clamp(c.nq, 0, 1.2)) / c.n        no UCB term
+        uct (mcts/nodes.py:121):
+            sum(sorted(c.q)[-10:]) / min(c.n, 10) + sqrt(2)*sqrt(2*ln(self.n)/c.n)
+
+        Note the divisor differs: guided divides the summed returns by every visit,
+        uct takes a mean over at most its best ten. Not interchangeable.
+        """
         best, best_w = None, -math.inf
         for c in self.children:
             if c.dead:
                 continue
-            w = (sum(sorted(c.results)[-MCTS_TOP:])
-                 + max(0.0, min(c.prior, PRIOR_CLAMP))) / c.n
+            if mode == "uct":
+                if c.n == 0:                      # never backed up, so no UCT score yet
+                    continue
+                w = (sum(sorted(c.results)[-MCTS_TOP_UCT:]) / min(c.n, MCTS_TOP_UCT)
+                     + MCTS_UCT_RATIO * math.sqrt(2 * math.log(max(self.n, 1)) / c.n))
+            else:
+                w = (sum(sorted(c.results)[-MCTS_TOP:])
+                     + max(0.0, min(c.prior, PRIOR_CLAMP))) / c.n
             if w > best_w:
                 best, best_w = c, w
         return best
+
+    def untried(self):
+        """uct only: children whose move has not been simulated, popped from the END.
+
+        mcts/nodes.py:49 does `self.untried_actions.pop()`, so the plain search walks
+        the action list backwards. The guided search never uses this path; it
+        pre-expands every child and lets best_child pick among them by prior.
+        """
+        return [c for c in self.children if c.state is None and not c.dead]
 
     def plan(self):
         """The (obj, Goal) chain from the root down to this node."""
@@ -175,8 +221,12 @@ def solve_scene_mcts(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, 
                      restrict_obj=None, is_open=lambda e: e.is_robot_goal_reachable(),
                      raw=True, region_samples=None, dedupe_noop=True, prune_jam_depth=True,
                      timing=None, measurements=None, solution_out=None,
-                     prior_scale="minmax", record_out=None, **_ignored):
+                     prior_scale="minmax", record_out=None, mode="guided", **_ignored):
     """MORE-inspired MCTS on the labeled object. Same contract as solve_scene.
+
+    mode="guided" is the deploy search (mcts_network/), mode="uct" the collection
+    search (mcts/). See MODES above. Collection runs with prior="uniform" so no model
+    is loaded at all, which is what lets MORE bootstrap from nothing.
 
     Returns (solved, sims, plan_len|None, boards, end) with end in
     {solved, budget, exhausted}. `**_ignored` swallows the best-first-only knobs
@@ -196,13 +246,8 @@ def solve_scene_mcts(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, 
 
     pts = [tuple(p[:2]) for p in (region_samples or [])]
     budget = {"sims": 0}
-    # Children hung off an expanded pool that have not been simulated yet. MORE bounds
-    # its loop by an iteration count; we bound ours by the simulator budget, and once
-    # every action inside hmax has been tried the loop would otherwise spin forever
-    # descending to terminal nodes and bumping their visit counts without spending a
-    # sim. Zero pending is the exact statement that the tree holds nothing left to try.
-    pending = {"n": 0}
     cache: Dict[str, Any] = {}
+    pool_cache: Dict[str, Any] = {}   # MORE move_recorder: the action list per state uid
     jam_at: Dict[Tuple, int] = {}
     boards: List[Dict[str, Any]] = []
 
@@ -213,15 +258,33 @@ def solve_scene_mcts(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, 
         rc, _first = e.count_reachable_points(pts)
         return bool(is_open(e)), rc / float(len(pts))
 
-    def expand_pool(node):
-        """Score the state's reachable pushes and hang an unexpanded child off each."""
+    def score_pool(uid, state, depth):
+        """The reachable pushes at one state, scored. MORE's PushState.get_actions.
+
+        Used by expansion AND by rollouts. MORE's rollout calls get_actions too, so a
+        rollout legitimately costs a scoring pass; what it must NOT do is add anything
+        to the tree.
+
+        Cached on the state's path uid, which is MORE's `move_recorder` (push.py:136).
+        Without it a rollout and the later expansion of the same state each pay a model
+        pass, doubling n_score and charging MORE wall-clock its own implementation
+        never spends.
+        """
+        if uid in pool_cache:
+            return pool_cache[uid]
         _t = clock_start(tm)
-        pool, _V, _grid = candidates(planner, env, goal, xml, node.state, hmax - node.depth,
+        pool, _V, _grid = candidates(planner, env, goal, xml, state, hmax - depth,
                                      prior, agg, rng, restrict_obj=restrict_obj, raw=raw,
                                      region_samples=region_samples, timing=tm)
         clock_finish(tm, "t_score", _t)
         if tm is not None:
             tm["n_score"] += 1
+        pool_cache[uid] = pool
+        return pool
+
+    def expand_pool(node):
+        """Score the state's reachable pushes and hang an unexpanded child off each."""
+        pool = score_pool(node.uid, node.state, node.depth)
         node.pool = pool
         node.board_id = len(boards)
         boards.append({"board_id": node.board_id, "depth": node.depth, "n_candidates": len(pool),
@@ -236,18 +299,25 @@ def solve_scene_mcts(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, 
                                node.depth, pool)
         scaled = _scale_priors(pool, prior_scale)
         for i, (obj, g, _q) in enumerate(pool):
-            node.children.append(_Node(None, obj, g, scaled[i], node, node.depth + 1,
-                                       f"{node.uid}.{node.depth}-{obj}_{int(g.edge_idx)}_{int(g.depth)}"))
-        pending["n"] += len(pool)
+            node.children.append(_Node(
+                None, obj, g, scaled[i], node, node.depth + 1,
+                f"{node.uid}.{node.depth}-{obj}_{int(g.edge_idx)}_{int(g.depth)}", mode=mode))
 
-    def simulate(node, obj, g):
-        """One physics attempt from `node.state`, or a cache hit. push.py _move_result."""
-        key = f"{node.uid}|{obj}_{int(g.edge_idx)}_{int(g.depth)}"
+    def simulate(uid, state, depth, obj, g, plan, node=None):
+        """One physics attempt from `state`, or a cache hit. push.py _move_result.
+
+        `node` is the tree node when this is an expansion, and None during a rollout.
+        MORE's rollout moves through PushStates and never creates a PushSearchNode, so a
+        rollout step must leave the tree untouched. Letting it mark tree children as
+        expanded would, under `uct`, strand them at n=0 where best_child skips them
+        forever, quietly deleting candidates the search never actually ruled out.
+        """
+        key = f"{uid}|{obj}_{int(g.edge_idx)}_{int(g.depth)}"
         if key in cache:
             return cache[key]
         if budget["sims"] >= sim_budget:
             raise _Exhausted()
-        jk = (node.uid, obj, int(g.edge_idx))
+        jk = (uid, obj, int(g.edge_idx))
         jd = jam_at.get(jk)
         if prune_jam_depth and jd is not None and int(g.depth) >= jd:
             # The controller runs one continuous push, so a deeper push retraces the
@@ -255,7 +325,7 @@ def solve_scene_mcts(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, 
             # same call, and skipping it here costs no simulator attempt.
             cache[key] = None
             return None
-        env.set_full_state(node.state)
+        env.set_full_state(state)
         obs_before = env.get_observation() if dedupe_noop else None
         action = make_action(obj, g)
         _t = clock_start(tm)
@@ -267,26 +337,28 @@ def solve_scene_mcts(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, 
         clock_finish(tm, "t_local_verify", _t)
         info = step_res.info or {}
         if measurements is not None:
-            measurements.simulated(board_id=node.board_id,
-                                   parent_board_id=node.parent.board_id if node.parent is not None else None,
-                                   chain_depth=node.depth + 1, action=action, opened=opened, info=info)
+            measurements.simulated(
+                board_id=node.board_id if node is not None else None,
+                parent_board_id=(node.parent.board_id if node is not None and node.parent is not None
+                                 else None),
+                chain_depth=depth + 1, action=action, opened=opened, info=info)
         _record_jam_depth(jam_at, jk, int(g.depth), info)
-        node.tries.append((len(node.tries) + 1, float(frac), opened))
-        if node.board_id is not None and not opened:
-            boards[node.board_id]["k_failed"] += 1
+        if node is not None:
+            node.tries.append((len(node.tries) + 1, float(frac), opened))
+            if node.board_id is not None and not opened:
+                boards[node.board_id]["k_failed"] += 1
         s_after = env.get_full_state()
         if opened:
             # Bank the win BEFORE unwinding. MORE would back a push_result >= 1 up this
             # branch, and that is the single most informative label the episode produces.
             # Stopping the search first and recording nothing would hand the Stage-2
             # regression an episode whose solution is invisible.
-            win = _find_child(node, obj, g)
-            if win is not None:
-                if win.state is None:
-                    pending["n"] -= 1
-                win.state, win.frac = s_after, frac
-                win.backpropagate(_push_result(frac, True))
-            raise _Solved(node.plan() + [(obj, g)], s_after, budget["sims"])
+            if node is not None:
+                win = _find_child(node, obj, g)
+                if win is not None:
+                    win.state, win.frac = s_after, frac
+                    win.backpropagate(_push_result(frac, True))
+            raise _Solved(list(plan) + [(obj, g)], s_after, budget["sims"])
         if dedupe_noop and _unmoved(obs_before, env.get_observation(), obj):
             # Nothing moved, so the child would duplicate this state. MORE drops such
             # an action from the parent via remove_action; so does best-first.
@@ -303,32 +375,44 @@ def solve_scene_mcts(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, 
         return node.pool is not None and len(node.pool) == 0
 
     def rollout(node):
-        """nodes.py rollout: greedy on the net until terminal, return the best discounted reward."""
-        cur = node
+        """nodes.py rollout: walk to terminal, return the best discounted reward seen.
+
+        This walks STATES, not nodes, exactly as MORE does. Nothing here is added to
+        the tree. The transition cache still makes a re-walked branch free, so the
+        accounting is unaffected.
+        """
+        uid, state, depth, frac = node.uid, node.state, node.depth, node.frac
+        plan = node.plan()
+        pool = node.pool
         discount = 1.0
-        results = [_push_result(cur.frac, False)]
-        while not is_push_over(cur):
-            if cur.pool is None:
-                expand_pool(cur)
-            usable = cur.live_children
-            live = [(c.obj, c.goal, c.prior) for c in usable if c.state is None] or \
-                   [(c.obj, c.goal, c.prior) for c in usable]
+        results = [_push_result(frac, False)]
+        banned = set()
+        while not (depth >= hmax or frac > OPEN_FRAC):
+            if pool is None:
+                pool = score_pool(uid, state, depth)
+            live = [(o, g, p) for (o, g, p) in zip(
+                [x[0] for x in pool], [x[1] for x in pool], _scale_priors(pool, prior_scale))
+                if (o, int(g.edge_idx), int(g.depth)) not in banned]
             if not live:
                 break
-            obj, g, _p = max(live, key=lambda t: t[2])       # rollout_policy: highest predicted q
-            res = simulate(cur, obj, g)
+            # rollout_policy. mcts_network/nodes.py:145 takes the highest predicted q;
+            # mcts/nodes.py:134 takes `possible_moves[np.random.randint(len(...))]`,
+            # uniform random, because the plain search has no net to be greedy about.
+            if mode == "uct":
+                obj, g, _p = live[rng.randrange(len(live))]
+            else:
+                obj, g, _p = max(live, key=lambda t: t[2])
+            res = simulate(uid, state, depth, obj, g, plan)
             if res is None:
-                _remove_action(cur, obj, g)
+                banned.add((obj, int(g.edge_idx), int(g.depth)))   # push.py remove_action
                 continue
-            s_new, frac, _opened = res
+            state, frac, _opened = res
             discount *= MCTS_DISCOUNT
-            child = _find_child(cur, obj, g)
-            if child is None:
-                break
-            if child.state is None:                          # a re-walk of a cached branch settles nothing
-                pending["n"] -= 1
-            child.state, child.frac = s_new, frac
-            cur = child
+            uid = f"{uid}.{depth}-{obj}_{int(g.edge_idx)}_{int(g.depth)}"
+            plan = plan + [(obj, g)]
+            depth += 1
+            pool = None
+            banned.clear()
             results.append(_push_result(frac, False) * discount)
         return max(results)
 
@@ -337,23 +421,41 @@ def solve_scene_mcts(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, 
         cur = root
         while True:
             # Terminal FIRST, pool second. A node at hmax can never have a child
-            # simulated, so scoring its pool would both strand pending children the
-            # loop can never drain and bill MORE for a model pass it cannot use.
+            # simulated, so scoring its pool would strand children the loop can never
+            # reach and bill MORE for a model pass it cannot use.
             if is_push_over(cur):
                 return cur
             if cur.pool is None:
                 expand_pool(cur)
             if not cur.has_children:
                 return cur
-            child = cur.best_child()
+            if mode == "uct":
+                # mcts/search.py:_tree_policy expands BEFORE it selects: while any action
+                # is untried it pops one (from the end of the list) and simulates it,
+                # and only once the node is fully expanded does UCT choose among the
+                # children. The guided search cannot do this, because its children all
+                # exist from the start and carry a prior instead of a visit count.
+                waiting = cur.untried()
+                if waiting:
+                    child = waiting[-1]
+                    res = simulate(cur.uid, cur.state, cur.depth, child.obj, child.goal, cur.plan(), node=cur)
+                    if res is None:
+                        child.dead = True
+                        continue
+                    child.state, child.frac = res[0], res[1]
+                    return child
+                child = cur.best_child(mode)
+                if child is None:
+                    return cur
+                cur = child
+                continue
+            child = cur.best_child(mode)
             if child.state is None:
-                res = simulate(cur, child.obj, child.goal)
+                res = simulate(cur.uid, cur.state, cur.depth, child.obj, child.goal, cur.plan(), node=cur)
                 if res is None:
                     child.dead = True
-                    pending["n"] -= 1
                     continue
                 child.state, child.frac = res[0], res[1]
-                pending["n"] -= 1
                 return child
             cur = child
 
@@ -381,7 +483,7 @@ def solve_scene_mcts(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, 
         """
         cur = node
         while cur.parent is not None and _is_dead(cur):
-            cur.dead = True                 # always an expanded node, so pending is untouched
+            cur.dead = True
             cur = cur.parent
 
     def _remove_action(node, obj, g):
@@ -389,13 +491,17 @@ def solve_scene_mcts(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, 
         c = _find_child(node, obj, g)
         if c is not None and c.state is None and not c.dead:
             c.dead = True
-            pending["n"] -= 1
 
-    root = _Node(s0, None, None, 0.0, None, 0, "r")
+    root = _Node(s0, None, None, 0.0, None, 0, "r", mode=mode)
     solved, sims, plen, end = False, 0, None, "exhausted"
     try:
         expand_pool(root)
-        while root.has_children and budget["sims"] < sim_budget and pending["n"] > 0:
+        # Termination is _prune_exhausted marking spent subtrees dead until the root
+        # has no live child left. An earlier version also required a count of
+        # not-yet-simulated children to be positive, which silently broke `uct`: the
+        # lazy expansion drains that count across the root's own children before it
+        # ever descends, so the search stopped after one level.
+        while root.has_children and budget["sims"] < sim_budget:
             node = tree_policy(root)
             reward = rollout(node)
             node.backpropagate(reward)
