@@ -147,7 +147,15 @@ def build(shards, out_path, render_config, reach_negative=-1.0, limit=0):
     vlen = h5py.string_dtype("utf-8")
     with h5py.File(out_path, "w") as f:
         for k in ("ctx", "contact_px", "label", "weight", "reach_mask", "evidence"):
-            f.create_dataset(k, data=np.stack(acc[k]), compression="lzf")
+            arr = np.stack(acc[k])
+            # Chunk ONE STATE per chunk. Left to itself h5py auto-chunked ctx as
+            # (1221, 1, 7, 14), so every chunk spanned 1221 states and reading a single
+            # state touched thousands of chunks full of other states' pixels: 1.08 s per
+            # random read against the ~750/s a GPU wants, which starved a training run
+            # for eight hours at 0% utilisation. Training reads exactly one state at a
+            # time, so the chunk must be exactly one state.
+            f.create_dataset(k, data=arr, compression="lzf",
+                             chunks=(1,) + arr.shape[1:])
         for k in ("xml", "object_id"):
             f.create_dataset(k, data=np.array(acc[k], dtype=object), dtype=vlen)
         f.attrs["render_size"] = RENDER_SIZE

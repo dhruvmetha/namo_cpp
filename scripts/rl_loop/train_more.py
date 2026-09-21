@@ -173,10 +173,17 @@ def main():
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     history = []
+    import time
     for epoch in range(args.epochs):
         net.train()
         total, seen = 0.0, 0
-        for ctx, px, angle, label, weight, depth in loader:
+        t_epoch = time.time()
+        # Log INSIDE the epoch. An epoch here is millions of samples, so a run that
+        # only prints at epoch boundaries is silent for hours. A badly chunked H5 once
+        # starved the GPU to 0% for eight hours and nothing said so until I looked at
+        # nvidia-smi. Rate is the diagnostic: if it is far under what the model alone
+        # can do, the loader is the problem, not the model.
+        for step, (ctx, px, angle, label, weight, depth) in enumerate(loader):
             ctx, angle = ctx.to(dev), angle.to(dev)
             px, label, weight, depth = px.to(dev), label.to(dev), weight.to(dev), depth.to(dev)
             rot = rotate_batch(ctx, angle)
@@ -196,9 +203,15 @@ def main():
             opt.step()
             total += loss.item() * target.shape[0]
             seen += target.shape[0]
+            if step % 200 == 0:
+                rate = seen / max(time.time() - t_epoch, 1e-9)
+                print(f"  e{epoch} step {step}/{len(loader)} loss {total/max(seen,1):.5f} "
+                      f"{rate:.0f} samples/s", flush=True)
         mean = total / max(seen, 1)
-        history.append({"epoch": epoch, "loss": mean, "samples": seen})
-        print(f"epoch {epoch} loss {mean:.5f} over {seen} samples", flush=True)
+        rate = seen / max(time.time() - t_epoch, 1e-9)
+        history.append({"epoch": epoch, "loss": mean, "samples": seen,
+                        "samples_per_s": round(rate, 1)})
+        print(f"epoch {epoch} loss {mean:.5f} over {seen} samples at {rate:.0f}/s", flush=True)
         torch.save({"model": net.state_dict(), "epoch": epoch, "args": vars(args)},
                    out / f"more_epoch{epoch:03d}.pt")
     (out / "history.json").write_text(json.dumps(history, indent=1))
