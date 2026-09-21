@@ -58,6 +58,13 @@ HMAX = 2
 # "300 for collection data") against 50 at deploy. Our budget is in simulator calls,
 # not iterations, and one iteration costs an expansion plus a rollout, so this is a
 # per-episode call cap in the same units the evaluation reports.
+#
+# Collection runs with stop_on_open=False, because MORE's does: mcts_main.py:483 passes
+# argparse's `test`, which defaults to False, and search.py gates the entire early-stop
+# block on it. The first pilot stopped at the first opening and 84% of episodes solved
+# on a first push, so the tree never grew a second level and the corpus said almost
+# nothing about setup pushes. The budget has to be large enough to expand a root of
+# roughly 120 reachable actions AND descend, or depth 2 stays invisible.
 BUDGET = 600
 
 
@@ -144,7 +151,7 @@ def main():
                         restrict_obj=obj, is_open=is_open, raw=True, region_samples=gp,
                         dedupe_noop=True, prune_jam_depth=True, solution_out=solution,
                         record_out=rows, states_out=states, state_serializer=state_qpos,
-                        mode="uct")
+                        mode="uct", stop_on_open=False)
                     census["solved"] += int(solved)
                     census["kept"] += 1
                     census["rows"] += len(rows)

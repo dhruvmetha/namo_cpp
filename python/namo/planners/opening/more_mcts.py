@@ -222,7 +222,7 @@ def solve_scene_mcts(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, 
                      raw=True, region_samples=None, dedupe_noop=True, prune_jam_depth=True,
                      timing=None, measurements=None, solution_out=None,
                      prior_scale="minmax", record_out=None, states_out=None,
-                     state_serializer=None, mode="guided", **_ignored):
+                     state_serializer=None, mode="guided", stop_on_open=True, **_ignored):
     """MORE-inspired MCTS on the labeled object. Same contract as solve_scene.
 
     mode="guided" is the deploy search (mcts_network/), mode="uct" the collection
@@ -249,6 +249,7 @@ def solve_scene_mcts(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, 
     budget = {"sims": 0}
     cache: Dict[str, Any] = {}
     pool_cache: Dict[str, Any] = {}   # MORE move_recorder: the action list per state uid
+    first_open = {"sims": None, "plan": None, "state": None}   # for stop_on_open=False
     jam_at: Dict[Tuple, int] = {}
     boards: List[Dict[str, Any]] = []
 
@@ -359,7 +360,19 @@ def solve_scene_mcts(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, 
                 if win is not None:
                     win.state, win.frac = s_after, frac
                     win.backpropagate(_push_result(frac, True))
-            raise _Solved(list(plan) + [(obj, g)], s_after, budget["sims"])
+            if first_open["sims"] is None:
+                first_open.update(sims=budget["sims"], plan=list(plan) + [(obj, g)], state=s_after)
+            if stop_on_open:
+                raise _Solved(list(plan) + [(obj, g)], s_after, budget["sims"])
+            # Collection does NOT stop. mcts_main.py:483 passes `test`, which argparse
+            # defaults to False, and search.py gates the whole early-stop block on it, so
+            # MORE runs its full iteration count whether or not it has already succeeded.
+            # Stopping here is why an earlier pilot recorded only root states: 84% of
+            # episodes solved on a first push and the tree never grew a second level, so
+            # the corpus said almost nothing about setup pushes.
+            out = (s_after, frac, opened)
+            cache[key] = out
+            return out
         if dedupe_noop and _unmoved(obs_before, env.get_observation(), obj):
             # Nothing moved, so the child would duplicate this state. MORE drops such
             # an action from the parent via remove_action; so does best-first.
@@ -517,6 +530,16 @@ def solve_scene_mcts(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, 
             solution_out["state"] = hit.state
     except _Exhausted:
         sims, end = budget["sims"], "budget"
+    if not solved and first_open["sims"] is not None:
+        # stop_on_open=False: the search kept going past its first opening, so report
+        # the call count at that opening rather than the whole budget. The extra calls
+        # bought training evidence, not a solution, and charging them to solve cost
+        # would make collection look like a worse searcher than it is.
+        solved, sims, plen = True, first_open["sims"], len(first_open["plan"])
+        end = "solved"
+        if solution_out is not None:
+            solution_out["plan"] = list(first_open["plan"])
+            solution_out["state"] = first_open["state"]
     clock_finish(tm, "t_wall", _t_wall0)
 
     if record_out is not None:
