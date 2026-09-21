@@ -23,6 +23,7 @@ to theirs and the card should say so.
 import argparse
 import json
 import math
+from collections import deque
 from pathlib import Path
 
 import h5py
@@ -43,6 +44,7 @@ from namo.rl_loop.more_net import MorePushNet  # noqa: E402
 LOSS_BETA = 0.8        # lifelong_trainer.py:242 SmoothL1Loss(beta=...)
 PATCH = 1              # dataset.py paints best_loc-1 : best_loc+2, a 3x3 patch
 NUM_EDGES, NUM_DEPTHS = 60, 5
+WARMUP_ITERS = 1000    # lifelong_trainer.py:280
 
 
 class MoreActionDataset(Dataset):
@@ -148,6 +150,9 @@ def main():
     ap.add_argument("--lr", type=float, default=1e-4)
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--t0", type=int, default=2, help="CosineAnnealingWarmRestarts T_0")
+    ap.add_argument("--clip", type=float, default=10.0,
+                    help="gradient-norm clip; not in MORE, added after Adam diverged")
     ap.add_argument("--drop-unsampled", action="store_true",
                     help="exclude actions nobody tried; MORE keeps them at label 0 weight 1")
     ap.add_argument("--drop-unreachable", action="store_true",
@@ -166,7 +171,16 @@ def main():
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     net = MorePushNet(in_channels=in_ch, num_depths=NUM_DEPTHS).to(dev)
-    opt = torch.optim.Adam(net.parameters(), lr=args.lr)
+    # lifelong_trainer.py:243 is SGD(momentum=0.9, weight_decay=2e-5) with a 1000-step
+    # warmup at factor 0.001 and then CosineAnnealingWarmRestarts. Their Adam line sits
+    # commented out two lines below it, and Adam is exactly what blew my first run up:
+    # a sample's loss is summed over a 3x3 patch and scaled by a visit count up to 50,
+    # so the gradients are spiky enough that an unwarmed adaptive optimiser walked the
+    # whole output map to -8000 while the cumulative-mean log still read 1.82.
+    opt = torch.optim.SGD([q for q in net.parameters() if q.requires_grad],
+                          lr=args.lr, momentum=0.9, weight_decay=2e-5)
+    cosine = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        opt, T_0=args.t0, T_mult=1, eta_min=1e-6)
     loader = DataLoader(ds, batch_size=args.batch, shuffle=True, num_workers=args.workers,
                         drop_last=True, pin_memory=(dev == "cuda"))
 
@@ -177,6 +191,7 @@ def main():
     for epoch in range(args.epochs):
         net.train()
         total, seen = 0.0, 0
+        recent = deque(maxlen=200)
         t_epoch = time.time()
         # Log INSIDE the epoch. An epoch here is millions of samples, so a run that
         # only prints at epoch boundaries is silent for hours. A badly chunked H5 once
@@ -200,13 +215,27 @@ def main():
             loss = loss.sum() / target.shape[0]
             opt.zero_grad()
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(net.parameters(), args.clip)
             opt.step()
+            if epoch == 0 and step < WARMUP_ITERS:
+                a_w = step / WARMUP_ITERS          # torch_utils.warmup_lr_scheduler
+                for g in opt.param_groups:
+                    g["lr"] = args.lr * (0.001 * (1 - a_w) + a_w)
+            else:
+                cosine.step(epoch + step / max(len(loader), 1))
             total += loss.item() * target.shape[0]
             seen += target.shape[0]
+            recent.append(loss.item())
             if step % 200 == 0:
                 rate = seen / max(time.time() - t_epoch, 1e-9)
-                print(f"  e{epoch} step {step}/{len(loader)} loss {total/max(seen,1):.5f} "
+                # RECENT loss, not the running mean. The running mean hid a divergence
+                # for an entire epoch: it kept printing 1.8 while the model walked off.
+                win = sum(recent) / len(recent)
+                lr_now = opt.param_groups[0]["lr"]
+                print(f"  e{epoch} step {step}/{len(loader)} recent {win:.5f} "
+                      f"mean {total/max(seen,1):.5f} lr {lr_now:.2e} "
                       f"{rate:.0f} samples/s", flush=True)
+                recent.clear()
         mean = total / max(seen, 1)
         rate = seen / max(time.time() - t_epoch, 1e-9)
         history.append({"epoch": epoch, "loss": mean, "samples": seen,

@@ -116,6 +116,18 @@ def _make_planner(prior, ckpt, warmup_repeats):
         planner = BeamPlanner(ckpt=ckpt)
         planner.scorer.warmup(repeats=warmup_repeats)
         return planner, planner.scorer.device, warmup_repeats
+    if prior == "more":
+        # MORE's own network, trained on its own UCT returns. Same scorer interface, so
+        # rank_first_pushes_h2 cannot tell the difference and the arms differ only by the
+        # model behind it. Without this the guided search would read OUR ranker, which
+        # turns the external baseline into a search ablation wearing MORE's name.
+        from namo.rl_loop.more_scorer import MoreScorer
+        planner = SimpleNamespace(
+            prim=PrimitiveGoalStrategy(data_dir=DATA_DIR, primitive_prefix=PRIM_PREFIX),
+            scorer=MoreScorer(ckpt, CFG),
+        )
+        planner.scorer.warmup(repeats=warmup_repeats)
+        return planner, planner.scorer.device, warmup_repeats
     planner = SimpleNamespace(
         prim=PrimitiveGoalStrategy(data_dir=DATA_DIR, primitive_prefix=PRIM_PREFIX),
         scorer=None,
@@ -289,11 +301,12 @@ def main():
     ap.add_argument(
         "--prior",
         default="model",
-        choices=["model", "uniform", "geometric", "geometric_transport", "geometric_region"],
+        choices=["model", "more", "uniform", "geometric", "geometric_transport", "geometric_region"],
         help=(
             "score source: geometric is the corrected target-region score; "
             "geometric_transport is the legacy single-XML-goal path proxy; "
-            "geometric_region is a provenance alias for geometric"
+            "geometric_region is a provenance alias for geometric; "
+            "more is MORE's own network, which needs --more-prior-scale raw"
         ),
     )
     ap.add_argument("--agg", default="mean5", choices=["mean5", "max"], help="state-value aggregate (selection)")
