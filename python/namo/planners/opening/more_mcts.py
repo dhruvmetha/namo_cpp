@@ -221,7 +221,8 @@ def solve_scene_mcts(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, 
                      restrict_obj=None, is_open=lambda e: e.is_robot_goal_reachable(),
                      raw=True, region_samples=None, dedupe_noop=True, prune_jam_depth=True,
                      timing=None, measurements=None, solution_out=None,
-                     prior_scale="minmax", record_out=None, mode="guided", **_ignored):
+                     prior_scale="minmax", record_out=None, states_out=None,
+                     state_serializer=None, mode="guided", **_ignored):
     """MORE-inspired MCTS on the labeled object. Same contract as solve_scene.
 
     mode="guided" is the deploy search (mcts_network/), mode="uct" the collection
@@ -519,11 +520,11 @@ def solve_scene_mcts(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, 
     clock_finish(tm, "t_wall", _t_wall0)
 
     if record_out is not None:
-        _collect_records(root, record_out)
+        _collect_records(root, record_out, states_out, state_serializer)
     return solved, sims, plen, boards, end
 
 
-def _collect_records(root, out):
+def _collect_records(root, out, states_out=None, serialize=None):
     """mcts_main.py save_mcts_data: walk the tree, one row per child of an expanded node.
 
     label = max(child.q), weight = the child's visit count. lifelong_trainer multiplies
@@ -531,6 +532,12 @@ def _collect_records(root, out):
     moves the net. Cells with no sampled evidence get no row, and therefore no weight,
     which is how MORE keeps unexplored actions out of the regression instead of
     stamping them as failures.
+
+    states_out/serialize (optional): also record each expanded node's simulator state,
+    keyed by the same uid the rows carry. MORE's net reads a picture of the state a push
+    is taken FROM, and `render_ctx` can only draw that while the simulator is standing in
+    it. Storing the state here lets the rendering happen in a separate pass, which keeps
+    it out of the timed search, exactly as rollout.py's StepRecord does.
     """
     queue = [root]
     while queue:
@@ -538,6 +545,8 @@ def _collect_records(root, out):
         # `children`, not `live_children`: a spent action is still evidence, and its
         # visit count is exactly what tells the regression how much to trust its label.
         if node.children and node.state is not None:
+            if states_out is not None and serialize is not None:
+                states_out[node.uid] = serialize(node.state)
             for c in node.children:
                 # `evidence` is ours, not MORE's. MORE writes a row for every child of an
                 # expanded node, so an action the search never tried lands in the dataset
@@ -547,7 +556,11 @@ def _collect_records(root, out):
                 # lets the trainer drop them and lets the card report both ways.
                 out.append({"uid": node.uid, "depth": node.depth, "obj": c.obj,
                             "edge": int(c.goal.edge_idx), "push_depth": int(c.goal.depth),
-                            "label": float(max(c.results)), "num_visits": int(c.n),
+                            # uct nodes are born with an EMPTY result list (mcts/nodes.py:19), so a child
+                            # the search never backed up has no value at all. Guided nodes are
+                            # born with [0.0], which hid this until the first real collection run.
+                            "label": float(max(c.results)) if c.results else 0.0,
+                            "num_visits": int(c.n),
                             "expanded": c.state is not None,
                             "evidence": "sampled" if (c.state is not None or c.dead) else "unsampled"})
             queue.extend(c for c in node.children if c.state is not None)
