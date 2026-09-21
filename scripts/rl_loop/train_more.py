@@ -55,7 +55,8 @@ class MoreActionDataset(Dataset):
     and the flag exists so the card can report both rather than argue about it.
     """
 
-    def __init__(self, h5_path, include_unsampled=True, include_unreachable=True):
+    def __init__(self, h5_path, include_unsampled=True, include_unreachable=True,
+                 unreachable_cap=30, seed=0):
         self.path = h5_path
         self._f = None
         with h5py.File(h5_path, "r") as f:
@@ -68,7 +69,20 @@ class MoreActionDataset(Dataset):
         if include_unsampled:
             keep |= (reach > 0) & (evidence == 0)
         if include_unreachable:
-            keep |= (reach == 0) & (weight > 0)
+            # Cap the free geometric negatives per state. There are 233 of them against
+            # 16.5 cells backed by real physics, so uncapped they are 78% of the corpus.
+            # HY5U reads all 233 off one board for one forward pass; MORE pays a pass per
+            # sample, so leaving them uncapped spends its whole training budget relearning
+            # the same highly redundant geometry. The cap keeps the signal and the cost
+            # proportionate, and is a named deviation like the rest.
+            rng = np.random.default_rng(seed)
+            un = (reach == 0) & (weight > 0)
+            for s_i in range(un.shape[0]):
+                cells = np.argwhere(un[s_i])
+                if len(cells) > unreachable_cap:
+                    drop = rng.choice(len(cells), len(cells) - unreachable_cap, replace=False)
+                    un[s_i][tuple(cells[drop].T)] = False
+            keep |= un
         self.index = np.argwhere(keep).astype(np.int32)       # (n, 3) state, edge, depth
 
     def __len__(self):
@@ -138,11 +152,14 @@ def main():
                     help="exclude actions nobody tried; MORE keeps them at label 0 weight 1")
     ap.add_argument("--drop-unreachable", action="store_true",
                     help="exclude the free geometric negatives")
+    ap.add_argument("--unreachable-cap", type=int, default=30,
+                    help="free geometric negatives kept per state (233 exist); 0 keeps all")
     args = ap.parse_args()
 
     torch.manual_seed(args.seed)
     ds = MoreActionDataset(args.h5, include_unsampled=not args.drop_unsampled,
-                           include_unreachable=not args.drop_unreachable)
+                           include_unreachable=not args.drop_unreachable,
+                           unreachable_cap=(args.unreachable_cap or 10**9), seed=args.seed)
     with h5py.File(args.h5, "r") as f:
         in_ch, size = f["ctx"].shape[1], f["ctx"].shape[-1]
     print(f"states {ds.n_states}  samples {len(ds)}  ctx {in_ch}x{size}x{size}", flush=True)
