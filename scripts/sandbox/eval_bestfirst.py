@@ -204,17 +204,22 @@ def _evaluate_pooled_task(a, planner, env, xml, goal, s0, snapshot, initial_obse
         solution = {}
         is_open = ((lambda e: goal_open_pts(e, [point[:2] for point in gp])) if a.success == "region" else
                    (lambda e: e.is_robot_goal_reachable()))
-        more_rows = [] if (a.planner == "more" and a.more_records_out) else None
-        if a.planner == "more":
+        # getattr, not attribute access: callers that build their own options namespace
+        # (run_one_keyhole_frozen.py) must keep working untouched, so that a best-first arm
+        # runs and RECORDS exactly what the registered keyhole600 rows recorded.
+        _planner = getattr(a, "planner", "bestfirst")
+        _records_out = getattr(a, "more_records_out", "")
+        more_rows = [] if (_planner == "more" and _records_out) else None
+        if _planner == "more":
             solved, sims, plen, boards, end = solve_scene_mcts(
                 planner, env, goal, xml, s0, a.hmax, a.sim_budget, a.prior, a.agg, a.combine,
                 random.Random(a.seed_base), restrict_obj=tuple(rec["boundary_objects"]),
                 is_open=is_open, raw=a.raw, region_samples=gp, dedupe_noop=a.dedupe_noop,
                 prune_jam_depth=a.prune_jam_depth, timing=measured.local_timer,
                 measurements=measured, solution_out=solution,
-                prior_scale=a.more_prior_scale, record_out=more_rows)
+                prior_scale=getattr(a, "more_prior_scale", "minmax"), record_out=more_rows)
             if more_rows is not None:
-                with open(a.more_records_out, "a") as fh:
+                with open(_records_out, "a") as fh:
                     fh.write(json.dumps({"xml": xml, "region": rec["target_region"],
                                          "objects": list(rec["boundary_objects"]),
                                          "solved": solved, "sims": sims,

@@ -45,6 +45,28 @@ def cpu_model():
     return next(line.split(":", 1)[1].strip() for line in open("/proc/cpuinfo") if line.startswith("model name"))
 
 
+def search_options(arm, problems):
+    """The search settings for one arm, and the params dict recorded with every row.
+
+    An arm may name a `planner`. Those keys are set ONLY when it is not the default,
+    because the keyhole600 best-first rows are already registered and `params` goes into
+    every output row: adding a key unconditionally would change the recorded protocol of
+    arms whose search did not change at all. A best-first arm records the keys it always
+    did, so its rows stay comparable with the registered ones.
+    """
+    options = SimpleNamespace(key=str(problems / "manifest.jsonl"), prior=arm["prior"], ckpt=arm["checkpoint"] or "",
+        seed_base=arm["seed_base"], hmax=2, sim_budget=3000, agg="mean5", combine="q", raw=True, dive_bonus=0.0,
+        discount="off", gamma=0.65, tau=1.0, eps=0.001, w0_mode="one", free_strike_q=2.0, child_patience=1,
+        dedupe_noop=True, prune_jam_depth=True, success="region")
+    if arm.get("planner", "bestfirst") != "bestfirst":
+        options.planner = arm["planner"]
+        options.more_prior_scale = arm.get("more_prior_scale", "minmax")
+        options.more_records_out = arm.get("more_records_out", "")
+    params = {k: v for k, v in vars(options).items()
+              if k not in {"key", "ckpt", "seed_base", "success", "more_records_out"}}
+    return options, params
+
+
 def evaluate(problems, row, arm, config, primitives, post_restore, timed=False):
     """Tri-An's evaluate_frozen_one for exec_mode=search, reading the problems from `problems`."""
     import namo_rl
@@ -106,11 +128,7 @@ def evaluate(problems, row, arm, config, primitives, post_restore, timed=False):
     live_door_objects = sandbox.pooled_boundary_tasks(snapshot, [dict(region=task["target_region"],
                                                                       target_points=task["target_samples"])])[0]["boundary_objects"]
 
-    options = SimpleNamespace(key=str(problems / "manifest.jsonl"), prior=arm["prior"], ckpt=arm["checkpoint"] or "",
-        seed_base=arm["seed_base"], hmax=2, sim_budget=3000, agg="mean5", combine="q", raw=True, dive_bonus=0.0,
-        discount="off", gamma=0.65, tau=1.0, eps=0.001, w0_mode="one", free_strike_q=2.0, child_patience=1,
-        dedupe_noop=True, prune_jam_depth=True, success="region")
-    params = {k: v for k, v in vars(options).items() if k not in {"key", "ckpt", "seed_base", "success"}}
+    options, params = search_options(arm, problems)
     params.update(gtable=None, object_scope="boundary_pool", seed_semantics="explicit_per_problem_v1",
         success_predicate="region", target_fraction=0.2, snapshot_seed=42, model_warmup_repeats=3,
         exec_mode="search", evaluation_adapter_sha256=file_digest(__file__))
