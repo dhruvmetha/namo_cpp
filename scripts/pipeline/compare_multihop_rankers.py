@@ -57,6 +57,23 @@ def _budget_per_keyhole(*arms: Dict[str, Dict[str, Any]]) -> Any:
     return limits.pop() if len(limits) == 1 else sorted(limits)
 
 
+def _initial_path_length(*arms: Dict[str, Dict[str, Any]]) -> Any:
+    """Read the exact hop count off the rows, which already carry `path_length_n`.
+
+    It used to be hardcoded to 2, which mislabels any 3- or 4-hop pool. Returns a sorted
+    list if the arms disagree, so a mismatch is visible instead of silently averaged away.
+    """
+    lengths = {
+        item["row"]["path_length_n"]
+        for arm in arms
+        for item in arm.values()
+        if "path_length_n" in item["row"]
+    }
+    if not lengths:
+        return None
+    return lengths.pop() if len(lengths) == 1 else sorted(lengths)
+
+
 def compare(model_root: Path, random_root: Path, random_seed: Any = None) -> Dict[str, Any]:
     model = _load_arm(model_root)
     random = _load_arm(random_root)
@@ -107,7 +124,7 @@ def compare(model_root: Path, random_root: Path, random_seed: Any = None) -> Dic
     return {
         "population": n,
         "protocol": {
-            "initial_path_length": 2,
+            "initial_path_length": _initial_path_length(model, random),
             "hmax_per_keyhole": 2,
             "simulation_budget_per_keyhole": _budget_per_keyhole(model, random),
             "random_seed": random_seed,
@@ -154,13 +171,15 @@ def _markdown(result: Dict[str, Any]) -> str:
     headline = result["headline"]
     paired = result["paired_outcomes"]
     cost = result["both_solved_simulator_cost"]
+    protocol = result["protocol"]
+    seed_label = "" if protocol["random_seed"] is None else f" seed {protocol['random_seed']}"
     lines = [
-        "# HY5U vs random on exact-two-hop Full NAMO",
+        f"# HY5U vs random on exact-{protocol['initial_path_length']}-hop Full NAMO",
         "",
         "| arm | solved | solve rate |",
         "|---|---:|---:|",
         f"| HY5U | {headline['hy5u_solved']} | {100.0 * headline['hy5u_solve_rate']:.2f}% |",
-        f"| random seed 42 | {headline['random_solved']} | {100.0 * headline['random_solve_rate']:.2f}% |",
+        f"| random{seed_label} | {headline['random_solved']} | {100.0 * headline['random_solve_rate']:.2f}% |",
         "",
         f"HY5U leads by {headline['solve_rate_delta_points']:.2f} percentage points.",
         "",
