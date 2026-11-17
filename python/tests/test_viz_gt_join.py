@@ -31,8 +31,15 @@ def synthetic_h5(tmp_path):
     root_vt = np.zeros((60, 5), np.float32); root_vt[5, 0] = 1.0; root_vt[54, 2] = 0.9
     kid_vt = np.zeros((60, 5), np.float32); kid_vt[12, 1] = 1.0
     other_vt = np.zeros((60, 5), np.float32); other_vt[1, 1] = 1.0
+    # Reachable pushes per board, sized so the hardness ratios come out round:
+    # 100 at the root (edges 0-14 and 50-54, covering opener 5 and setup 54) and
+    # 50 on the finish board (edges 10-19, covering opener 12).
+    root_rm = np.zeros((60, 5), np.float32); root_rm[0:15] = 1.0; root_rm[50:55] = 1.0
+    kid_rm = np.zeros((60, 5), np.float32); kid_rm[10:20] = 1.0
+    other_rm = np.ones((60, 5), np.float32)
     with h5py.File(p, "w") as f:
         f.create_dataset("value_target", data=np.stack([root_vt, kid_vt, other_vt]))
+        f.create_dataset("r_mask", data=np.stack([root_rm, kid_rm, other_rm]))
         f.create_dataset("node_kind", data=np.array([b"root", b"depth2", b"root"]))
         f.create_dataset("xml", data=np.array([b"/x/a.xml", b"/x/a.xml", b"/x/b.xml"]))
         f.create_dataset("object_id", data=np.array([b"obj1", b"obj1", b"obj2"]))
@@ -47,6 +54,11 @@ def test_join_returns_root_and_finish_grids(synthetic_h5):
     assert gt["root"]["openers"] == [[5, 0]]
     assert gt["root"]["setups"] == [[54, 2]]
     assert gt["finish"]["54_2"]["openers"] == [[12, 1]]
+    # One setup among 100 reachable root pushes, one opener among 50 on its finish board.
+    assert gt["hardness"] == {
+        "setup_hardness_pct": 1.0, "n_setups": 1,
+        "finish_hardness_mean": 2.0, "finish_hardness_sd": 0.0, "n_finish_boards": 1,
+    }
 
 
 def test_missing_root_returns_none(synthetic_h5):
