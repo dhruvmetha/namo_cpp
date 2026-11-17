@@ -58,3 +58,6 @@ papers/**
 # highlights.json is PDF annotations made while reading, not a fetched/derived copy --
 # re-include it too, or a git clean -fdx / re-clone loses every highlight silently.
 !papers/*/highlights.json
+
+# SPAR video working files (renders, voice-over, exports); 3.6 GB, never commit
+video/
