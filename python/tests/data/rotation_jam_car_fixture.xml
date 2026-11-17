@@ -3,7 +3,10 @@
   <!-- Car version. Long bars held between pivot posts so they can turn but barely
        shift. obstacle_1_movable has 4 mm of clearance either side; obstacle_2_movable
        has 0.05 mm and cannot turn. Pushing one end swings the first bar until it binds,
-       which is the case a translation-only rule throws away. -->
+       which is the case a translation-only rule throws away.
+       wall_2 sits at x=0.55, 2 cm past obstacle_2's end at x=0.52. At x=0.50 the bar
+       started 2 cm inside the wall, and whether MuJoCo ejected it (3.2 cm slide) or left
+       it wedged depended on the -march of the build. Keep every object clear of the walls. -->
   <option timestep="0.002" integrator="implicitfast" cone="elliptic" iterations="100" gravity="0 0 -9.81"/>
   <default>
     <geom density="1"/>
@@ -13,9 +16,9 @@
     <geom condim="4" friction="0.5 0.005 0.001" name="floor" size="0 0 0.05" type="plane"/>
     <body name="walls">
       <geom name="wall_1" condim="4" type="box" pos="-0.01 0.39 0.08" size="0.01 0.40 0.08" rgba="0.8 0.8 0.8 1"/>
-      <geom name="wall_2" condim="4" type="box" pos="0.50 0.39 0.08" size="0.01 0.40 0.08" rgba="0.8 0.8 0.8 1"/>
-      <geom name="wall_3" condim="4" type="box" pos="0.245 -0.01 0.08" size="0.245 0.01 0.08" rgba="0.8 0.8 0.8 1"/>
-      <geom name="wall_4" condim="4" type="box" pos="0.245 0.79 0.08" size="0.245 0.01 0.08" rgba="0.8 0.8 0.8 1"/>
+      <geom name="wall_2" condim="4" type="box" pos="0.55 0.39 0.08" size="0.01 0.40 0.08" rgba="0.8 0.8 0.8 1"/>
+      <geom name="wall_3" condim="4" type="box" pos="0.27 -0.01 0.08" size="0.27 0.01 0.08" rgba="0.8 0.8 0.8 1"/>
+      <geom name="wall_4" condim="4" type="box" pos="0.27 0.79 0.08" size="0.27 0.01 0.08" rgba="0.8 0.8 0.8 1"/>
       <geom name="pivot_a_top" condim="4" type="box" pos="0.15 0.499 0.08" size="0.012 0.02 0.08" rgba="0.8 0.8 0.8 1"/>
       <geom name="pivot_a_bottom" condim="4" type="box" pos="0.15 0.381 0.08" size="0.012 0.02 0.08" rgba="0.8 0.8 0.8 1"/>
       <geom name="pivot_b_top" condim="4" type="box" pos="0.40 0.29505 0.08" size="0.012 0.02 0.08" rgba="0.8 0.8 0.8 1"/>

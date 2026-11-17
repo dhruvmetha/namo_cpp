@@ -18,8 +18,8 @@ configuration. The region graph is built from SE(2) pose + half-extents, so this
 change region identity — `verify_roundtrip` in scripts/pipeline/materialize_keyhole2.py checks that
 claim per scene rather than assuming it.
 
-The robot orientation is the piece that had no writer before this module: both existing writers
-(external_executor/xml_builder.py) set position only, so a naive round-trip silently dropped the
+The robot orientation is the piece that had no writer before this module: the earlier writers
+(external_executor/xml_builder.py, deleted in 68f444a2) set position only, so a naive round-trip dropped the
 car's yaw and produced a scene whose reachability differed from the state it was supposed to encode.
 Here the robot body gets an explicit `quat`, which is convention-independent (MuJoCo quaternions are
 always w x y z regardless of `<compiler angle=...>`).
