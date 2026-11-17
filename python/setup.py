@@ -45,7 +45,6 @@ setup(
     entry_points={
         "console_scripts": [
             "namo-collect=namo.data_collection.modular_parallel_collection:main",
-            "namo-visualize=namo.visualization.visual_test_single:main",
         ],
     },
     classifiers=[

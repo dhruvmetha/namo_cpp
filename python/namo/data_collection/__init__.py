@@ -5,5 +5,4 @@
 
 __all__ = [
     "modular_parallel_collection",
-    "sequential_ml_collection",
 ]
