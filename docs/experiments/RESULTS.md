@@ -880,3 +880,19 @@ Timed on three AMD EPYC 7352 CS nodes (48 pinned single-threaded processes, unit
 | geometric | 0.62 | 18.21 | 83.08 |
 
 Both models are 3 to 10 times faster than Random and geometric on 2-push problems at the median and 10 to 26 times faster on hard 2-push problems; on 1-push problems all four are within half a second, and geometric's cheaper scoring gives it the lowest median. The new model and no-family are within a few percent of each other in seconds, and a network call costs 0.125 s for both. A repeat of no-family seed 1 in the second timed run matched the first run's calls on all 595 problems and its time at a median ratio of 0.995. These seconds compare only within this campaign. Details, checks and paths: [experiment card](log/EXP-2026-09-15-hy5u-no-family-local-edge.md).
+
+## 2026-11-17: Keyhole600 two-push problems at search depth 2 to 5
+
+The no-family-local-edge model (seeds 1-3) and Random (seeds 7000/8000/9000) on the 300 two-push problems of the frozen one-keyhole 600 at 1 mm, with the most pushes per plan capped at 2, 3, 4 and 5. Every problem has a 2-push plan. Search at 3000 calls on Amarel (three problems on arrakis); percent of runs, three seeds pooled.
+
+| tier | arm | within 30 calls, depth 2 / 3 / 4 / 5 | by 3000 calls, depth 2 / 3 / 4 / 5 | median calls, depth 2 / 3 / 4 / 5 |
+|---|---|---|---|---|
+| easy | model | 94.0 / 94.3 / 94.3 / 94.3 | 100.0 / 100.0 / 100.0 / 100.0 | 2 / 2 / 2 / 2 |
+| easy | Random | 88.7 / 91.7 / 92.3 / 92.3 | 100.0 / 100.0 / 99.7 / 99.3 | 9 / 6 / 6 / 6 |
+| medium | model | 87.7 / 87.3 / 88.7 / 88.7 | 99.7 / 99.7 / 99.7 / 99.3 | 4 / 4 / 4 / 4 |
+| medium | Random | 48.0 / 61.7 / 63.7 / 67.7 | 100.0 / 99.7 / 97.0 / 93.3 | 33.5 / 18 / 15 / 13 |
+| hard | model | 62.0 / 72.3 / 73.0 / 73.3 | 98.0 / 96.0 / 93.7 / 91.7 | 14 / 10 / 8 / 8 |
+| hard | Random | 10.3 / 28.7 / 38.3 / 43.0 | 92.7 / 94.3 / 88.7 / 87.7 | 355 / 112 / 72 / 53.5 |
+
+A deeper cap makes the model faster on medium and hard problems and loses some hard problems at the call limit. Depth 3 takes nearly all of the early gain (hard within 30 calls, 62.0 to 72.3) for the smallest end loss (98.0 to 96.0). Every model run made faster by a deeper cap returned a plan longer than 2 pushes, so the gain is from accepting longer plans, not from finding the 2-push plan sooner. Random gains much more from depth, and the model still beats it at every depth and tier: hard median 14 against 355 calls at depth 2, 8 against 53.5 at depth 5. This population has no problem that needs 3 or more pushes. Details: [experiment card](log/EXP-2026-11-17-keyhole600-depth-sweep.md).
+
