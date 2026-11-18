@@ -52,10 +52,12 @@ def search_options(arm, problems):
     because the keyhole600 best-first rows are already registered and `params` goes into
     every output row: adding a key unconditionally would change the recorded protocol of
     arms whose search did not change at all. A best-first arm records the keys it always
-    did, so its rows stay comparable with the registered ones.
+    did, so its rows stay comparable with the registered ones. An arm may also set `hmax`,
+    the most pushes in one plan (default 2). `hmax` was always in `params`, so an arm that
+    leaves it out records exactly what it did before.
     """
     options = SimpleNamespace(key=str(problems / "manifest.jsonl"), prior=arm["prior"], ckpt=arm["checkpoint"] or "",
-        seed_base=arm["seed_base"], hmax=2, sim_budget=3000, agg="mean5", combine="q", raw=True, dive_bonus=0.0,
+        seed_base=arm["seed_base"], hmax=arm.get("hmax", 2), sim_budget=3000, agg="mean5", combine="q", raw=True, dive_bonus=0.0,
         discount="off", gamma=0.65, tau=1.0, eps=0.001, w0_mode="one", free_strike_q=2.0, child_patience=1,
         dedupe_noop=True, prune_jam_depth=True, success="region")
     if arm.get("planner", "bestfirst") != "bestfirst":
