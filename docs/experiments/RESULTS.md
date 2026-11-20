@@ -896,3 +896,30 @@ The no-family-local-edge model (seeds 1-3) and Random (seeds 7000/8000/9000) on 
 
 A deeper cap makes the model faster on medium and hard problems and loses some hard problems at the call limit. Depth 3 takes nearly all of the early gain (hard within 30 calls, 62.0 to 72.3) for the smallest end loss (98.0 to 96.0). Every model run made faster by a deeper cap returned a plan longer than 2 pushes, so the gain is from accepting longer plans, not from finding the 2-push plan sooner. Random gains much more from depth, and the model still beats it at every depth and tier: hard median 14 against 355 calls at depth 2, 8 against 53.5 at depth 5. This population has no problem that needs 3 or more pushes. Details: [experiment card](log/EXP-2026-11-17-keyhole600-depth-sweep.md).
 
+## 2026-11-20: MORE baseline on keyhole600, 39k-state pilot
+
+The MORE-inspired MCTS planner (ResNet-34 FPN prior trained on a 39k-state pilot corpus, about 33 times smaller than our training data), seeds 1-3, against the best model (no-family-local-edge, seeds 1-3) and Tri-An's Random (seeds 7000-11000) on the frozen one-keyhole 600 at 1 mm. Untimed search with a 3000-call cap. MORE ran on CS (ilab3, five problems on arrakis) with the same bindings (fe80fb00) as the best model's registered rows. Percent of runs solved, seeds pooled. Card: [EXP-2026-11-20-keyhole600-more](log/EXP-2026-11-20-keyhole600-more.md); registry row `more-pilot-keyhole600-1mm-v1`.
+
+| tier | arm | within 5 calls | within 30 calls | by 3000 calls | median calls |
+|---|---|---:|---:|---:|---:|
+| 1-push easy | best model | 100.0 | 100.0 | 100.0 | 1 |
+| 1-push easy | MORE | 92.3 | 98.7 | 100.0 | 1 |
+| 1-push easy | Random | 97.0 | 100.0 | 100.0 | 1 |
+| 1-push medium | best model | 92.0 | 97.7 | 100.0 | 1 |
+| 1-push medium | MORE | 67.7 | 87.3 | 99.7 | 2 |
+| 1-push medium | Random | 66.4 | 99.0 | 100.0 | 4 |
+| 1-push hard | best model | 86.0 | 95.7 | 100.0 | 2 |
+| 1-push hard | MORE | 43.0 | 74.3 | 99.3 | 7 |
+| 1-push hard | Random | 29.0 | 81.8 | 100.0 | 9 |
+| 2-push easy | best model | 84.0 | 93.3 | 99.0 | 2 |
+| 2-push easy | MORE | 40.0 | 72.0 | 99.0 | 8 |
+| 2-push easy | Random | 25.6 | 86.0 | 100.0 | 9.5 |
+| 2-push medium | best model | 54.7 | 87.7 | 99.7 | 4 |
+| 2-push medium | MORE | 17.0 | 46.7 | 97.3 | 38 |
+| 2-push medium | Random | 8.0 | 45.6 | 100.0 | 37 |
+| 2-push hard | best model | 32.3 | 63.0 | 98.0 | 14 |
+| 2-push hard | MORE | 1.3 | 13.3 | 87.3 | 448 |
+| 2-push hard | Random | 1.4 | 9.2 | 94.2 | 355 |
+
+MORE loses to the best model on every tier at every budget: per problem it needs more calls on 416 of 600 and fewer on 51 (sign test p=3e-72). Against Random it is ahead only at the very start. Within 1 call it solves 40.3% of 1-push runs against Random's 23.5%. By 30 calls Random leads on 4 of 6 tiers, and at the cap MORE solves 87.3% of hard 2-push runs against Random's 94.2%. Per problem against Random it is a wash (280 fewer, 249 more, p=0.19). This is one point on MORE's learning curve, not MORE at full scale. Why its curve flattens is an UNVERIFIED HYPOTHESIS: rollout pushes count as calls and the tree policy has no exploration term, so it may keep rolling out below the same few states. Problems 303 and 599 fail on every CS machine, which costs MORE and the best model about 1 point on 2-push easy and hard, well below the gaps.
+
