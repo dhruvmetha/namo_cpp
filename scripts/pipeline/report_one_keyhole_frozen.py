@@ -20,6 +20,7 @@ Usage:
 """
 
 import argparse
+import itertools
 import json
 import math
 import re
@@ -41,6 +42,7 @@ LABEL = {
     "HY5U_no_edge": "no edge identity",
     "HY5U_no_family_local_edge": "no family, no local, no edge identity",
     "HY5U_rank_only_nofloor": "rank-only, no floor",
+    "MORE": "MORE-inspired MCTS (39k-state pilot)",
     "Random": "Random ordering",
 }
 
@@ -131,6 +133,8 @@ def main():
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--plot-dir", type=Path)
     parser.add_argument("--runs-csv", type=Path, help="also write one line per run: every model plus Tri-An's baselines")
+    parser.add_argument("--versus", action="append", help="also pair every family against this family, problem by problem; "
+                        "the first one is the reference in the per-family plots (default HY5U)")
     args = parser.parse_args()
 
     problems = {row["problem_id"]: row for row in map(json.loads, (args.problems / "manifest.jsonl").read_text().splitlines())}
@@ -155,10 +159,13 @@ def main():
                       same_solved=sum(ours["HY5U_s2"][p]["solved"] == tri_an_s2[p]["solved"] for p in problems),
                       identical=sum((ours["HY5U_s2"][p]["solved"], ours["HY5U_s2"][p]["total_calls"]) ==
                                     (tri_an_s2[p]["solved"], tri_an_s2[p]["total_calls"]) for p in problems)))
+    if args.versus:
+        report["versus"] = {base: {f: compare(runs, families[base], problems) for f, runs in families.items() if f != base}
+                            for base in args.versus}
     args.out.write_text(json.dumps(report, indent=1, sort_keys=True) + "\n")
     print_tables(report)
     if args.plot_dir:
-        plot(args.plot_dir, families, problems)
+        plot(args.plot_dir, families, problems, (args.versus or ["HY5U"])[0])
     if args.runs_csv:
         lines = [(family, seed, "tri_an_frozen" if family == "Random" else "rerun", row)
                  for family, runs in families.items() for seed, rows in runs.items() for row in rows.values()]
@@ -209,12 +216,15 @@ def print_tables(report):
           lambda s: spread(s, lambda x: 100 * x["solved_within"][5]))
     block("Solved within 30 calls, % of runs [worst-best seed]",
           lambda s: spread(s, lambda x: 100 * x["solved_within"][30]))
+    block("Solved within 100 calls, % of runs [worst-best seed]",
+          lambda s: spread(s, lambda x: 100 * x["solved_within"][100]))
     block("Median calls until solved (a failed run counts as infinite)",
           lambda s: ">3000" if s["median_calls_until_success"] is None else f"{s['median_calls_until_success']:g}")
-    print(f"\nPer problem against HY5U (median over seeds): fewer / same / more calls\n{header}")
-    for family, counts in report["versus_hy5u"].items():
-        print(f"| {LABEL.get(family, family)} | " + " | ".join(
-            f"{counts[c]['fewer']} / {counts[c]['same']} / {counts[c]['more']}" for c in columns) + " |")
+    for base, versus in [("HY5U", report["versus_hy5u"])] + list(report.get("versus", {}).items()):
+        print(f"\nPer problem against {LABEL.get(base, base)} (median over seeds): fewer / same / more calls\n{header}")
+        for family, counts in versus.items():
+            print(f"| {LABEL.get(family, family)} | " + " | ".join(
+                f"{counts[c]['fewer']} / {counts[c]['same']} / {counts[c]['more']}" for c in columns) + " |")
     check = report["hy5u_s2_vs_tri_an"]
     print(f"\nHY5U_s2 against Tri-An's HY5U_s2 run: same solved {check['same_solved']}/{check['problems']}, "
           f"identical solved and calls {check['identical']}/{check['problems']}")
@@ -224,9 +234,9 @@ def print_tables(report):
         f"{100 * s['success_rate']:.1f}" for f, s in report["families_without_door_drift"].items()))
 
 
-def plot(plot_dir, families, problems):
+def plot(plot_dir, families, problems, reference="HY5U"):
     """Success vs simulator calls per horizon and tier: an overview of every family, then each
-    ablation against HY5U and Random with median lines and worst-to-best seed bands."""
+    family against `reference` and Random with median lines and worst-to-best seed bands."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -253,7 +263,7 @@ def plot(plot_dir, families, problems):
         fig.suptitle(title)
         return fig, axes
 
-    colors = iter(["#1f77b4", "#ff7f0e", "#2ca02c", "#9467bd", "#8c564b", "#e377c2", "#bcbd22", "#17becf", "#d62728"])
+    colors = itertools.cycle(["#1f77b4", "#ff7f0e", "#2ca02c", "#9467bd", "#8c564b", "#e377c2", "#bcbd22", "#17becf", "#d62728"])
     fig, axes = grid("Frozen one-keyhole 600: median seed of every model")
     for family, runs in families.items():
         style = (dict(color="black", lw=2.8, zorder=10) if family == "HY5U" else
@@ -266,11 +276,11 @@ def plot(plot_dir, families, problems):
     plt.close(fig)
 
     for family, runs in families.items():
-        if family in ("HY5U", "Random"):
+        if family in (reference, "Random"):
             continue
-        fig, axes = grid(f"Frozen one-keyhole 600: {LABEL.get(family, family)} vs HY5U and Random "
+        fig, axes = grid(f"Frozen one-keyhole 600: {LABEL.get(family, family)} vs {LABEL.get(reference, reference)} and Random "
                          "(line = median seed, band = worst to best seed)")
-        for name, style in ((family, dict(color="#4C72B0")), ("HY5U", dict(color="#C44E52")),
+        for name, style in ((family, dict(color="#4C72B0")), (reference, dict(color="#C44E52")),
                             ("Random", dict(color="#666666", ls="--"))):
             for ax, group in zip(axes.flat, GROUPS):
                 c = curves(families[name], group)
@@ -278,7 +288,7 @@ def plot(plot_dir, families, problems):
                 ax.fill_between(budgets, c.min(axis=0), c.max(axis=0), color=style["color"], alpha=0.18, lw=0)
         fig.legend(*axes[0, 0].get_legend_handles_labels(), loc="lower center", ncol=3, fontsize=11, frameon=False)
         fig.tight_layout(rect=(0, 0.05, 1, 1))
-        fig.savefig(plot_dir / f"{family}_vs_HY5U.png", dpi=150)
+        fig.savefig(plot_dir / f"{family}_vs_{reference}.png", dpi=150)
         plt.close(fig)
 
 
