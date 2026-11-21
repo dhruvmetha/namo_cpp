@@ -14,9 +14,13 @@ Every robot constant below carries its source:
 
 Switches, so each change can be measured alone and together (V1 and V2 below):
   body       "v1": v1's 0.5 kg car with 1.5 cm x 1 mm wheels on a 7.5 cm track.
-             "mvp": the published build, just under 100 g, 32 x 7 mm wheels. The 7 x 7 cm
-             chassis box stays (user decision 2026-11-21: planner geometry and robot repo
-             config/real.yaml both use 7 x 7), so only mass, wheels and track change.
+             "mvp": the published build, just under 100 g, 32 x 7 mm wheels, and the physical
+             6 x 6 cm collision box (robot repo real.yaml:28: "7x7 robot footprint (0.5 cm safety
+             buffer over physical 6x6 cm)"). The 7 x 7 footprint stays where the robot keeps it,
+             in the planner: the C++ wavefront, inflation, edge points and controllers take
+             planning.robot_size from the config, not from this box (user decision 2026-11-21,
+             keep the 7 x 7 footprint; 6 x 6 body requested by namo_main 2026-11-21 after the v2
+             car's 7 x 7 corners hit a wall turning in place).
   caster     "v1": two 2.5 mm spheres on ball joints, friction "0 0 0". MuJoCo uses the larger
              friction of two geoms, so they meet the floor at 0.5 and skid, dragging 1.34 N
              (27% of v1's weight). "one_frictionless" (M1): one caster, as the published build
@@ -42,14 +46,19 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
-# ---- chassis box (all bodies) ----
+# ---- chassis box ----
 SPAWN_Z = 0.01                          # v1: body origin starts 1 cm up and drops onto the wheels
-CHASSIS_HALF = (0.035, 0.035, 0.0325)   # v1 7 x 7 x 6.5 cm. Robot repo real.yaml: physical car 6 x 6 cm,
-                                        # 7 x 7 is the planner footprint with a 0.5 cm buffer; kept (user)
-CHASSIS_CENTER_Z = 0.0375               # v1: 5 mm ground clearance + 3.25 cm half height
+CHASSIS_CENTER_Z = 0.0375               # v1: 5 mm ground clearance + 3.25 cm half height (all bodies)
+
+
+def _box_inertia(m, hx, hy, hz):
+    return (m * (hy * hy + hz * hz) / 3, m * (hx * hx + hz * hz) / 3, m * (hx * hx + hy * hy) / 3)
+
 
 BODY = {
     "v1": dict(
+        chassis_half=(0.035, 0.035, 0.0325),            # v1: 7 x 7 x 6.5 cm
+        marker_pos="0.034 0 0.0505",                    # v1 (visual only)
         chassis_mass=0.35,                              # v1
         chassis_inertia=(0.000266, 0.000266, 0.000286), # v1
         wheel_radius=0.015,                             # v1
@@ -61,10 +70,14 @@ BODY = {
         caster_inertia=(0.000001, 0.000001, 0.000001),  # v1
     ),
     "mvp": dict(
+        chassis_half=(0.03, 0.03, 0.0325),              # robot repo real.yaml:28: physical body 6 x 6 cm;
+                                                        # height is v1's 6.5 cm (placeholder, not published)
+        marker_pos="0.029 0 0.0505",                    # v1's marker moved onto the 6 cm front face (visual only)
         # total 0.095 kg: published "just under 100 grams"; split below is a placeholder
         chassis_mass=0.087,                             # 0.095 - 2 wheels - caster
-        chassis_inertia=(0.000266 * 0.087 / 0.35, 0.000266 * 0.087 / 0.35, 0.000286 * 0.087 / 0.35),
-                                                        # v1's box inertia scaled to the mass (same box)
+        chassis_inertia=_box_inertia(0.087, 0.03, 0.03, 0.0325),
+                                                        # placeholder: uniform solid box of the 6 x 6 x 6.5 cm
+                                                        # chassis (was v1's 7 x 7 box scaled to the mass)
         wheel_radius=0.016,                             # published: Pololu 32 mm wheels
         wheel_half_width=0.0035,                        # published: 7 mm wide
         wheel_y=0.02,                                   # fitted: 4.0 cm track from the in-place rotation
@@ -117,7 +130,7 @@ def _f(*xs):
 def car_body_element(sx, sy, body="mvp", caster="one_frictionless", wheel="v2", actuator="pwm", **_) -> ET.Element:
     """The car <body>, built element for element in v1's order so all-v1 switches compile to v1."""
     B = BODY[body]
-    hx, hy, hz = CHASSIS_HALF
+    hx, hy, hz = B["chassis_half"]
     cz = CHASSIS_CENTER_Z
     com_x = ONE_CASTER_COM_X if caster == "one_frictionless" else 0.0
     car = ET.Element("body", {"name": "car", "pos": f"{sx} {sy} {SPAWN_Z!r}"})
@@ -127,7 +140,7 @@ def car_body_element(sx, sy, body="mvp", caster="one_frictionless", wheel="v2", 
     for side, x, rgba in (("front", hx / 2, "0.3 0.3 0.7 1"), ("rear", -hx / 2, "0.25 0.25 0.6 1")):
         ET.SubElement(car, "geom", {"name": f"{side}_chassis_collision", "type": "box", "pos": _f(x, 0, cz),
                                     "size": _f(hx / 2, hy, hz), "rgba": rgba})
-    ET.SubElement(car, "geom", {"name": "front_marker", "type": "box", "pos": "0.034 0 0.0505",
+    ET.SubElement(car, "geom", {"name": "front_marker", "type": "box", "pos": B["marker_pos"],
                                 "size": "0.002 0.015 0.01", "rgba": "1 0.2 0.2 1", "contype": "0", "conaffinity": "0"})
     casters = (("rear", -CASTER_X, "0.7 0.1 0.1 1"),) if caster == "one_frictionless" else \
         (("rear", -CASTER_X, "0.7 0.1 0.1 1"), ("front", CASTER_X, "0.1 0.7 0.1 1"))
