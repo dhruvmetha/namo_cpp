@@ -7,7 +7,10 @@ Every robot constant below carries its source:
                wheels https://www.pololu.com/product/1088), read 2026-11-21
   robot repo   ktamp/robot_control at c3f4820a (config/real.yaml, config/controller.yaml,
                src/robot_control/controller/navigation.py)
-  placeholder  not measured on our robot and not published; to be measured or fitted
+  fitted       fitted by fit_drivetrain.py to the robot's free driving in robot_control
+               push_calibration (33 real trials, approach and retreat, no block contact),
+               2026-11-21; numbers in $NAMO_SCRATCH/car_motion_probe_20261121/drivetrain_fit/
+  placeholder  not measured on our robot and not published
 
 Switches, so each change can be measured alone and together (V1 and V2 below):
   body       "v1": v1's 0.5 kg car with 1.5 cm x 1 mm wheels on a 7.5 cm track.
@@ -22,7 +25,10 @@ Switches, so each change can be measured alone and together (V1 and V2 below):
   wheel      "v1": hinge damping 0.01, 78% of v1's steady wheel torque. "v2" (M2): damping 0.
   actuator   "v1": velocity servo kv 0.75, +-0.5 N m. "pwm" (M3): a PWM-driven DC motor,
              torque = STALL_TORQUE*u - (STALL_TORQUE/NO_LOAD_SPEED)*omega within +-STALL_TORQUE,
-             plus wheel-joint frictionloss DEADBAND_PWM*STALL_TORQUE for gearbox stiction.
+             plus wheel-joint frictionloss GEARBOX_FRICTION_PWM*STALL_TORQUE (Coulomb gearbox
+             friction). Of three forms for the low-PWM loss (this; a driver dead zone; an affine
+             command remap) the logs reject the dead zone (31% vs 2.4% error on steady speeds)
+             and cannot separate the other two, so the XML-only form is used.
   ctrl_units "pwm": ctrl is the PWM in [-1, 1]. "omega": the v1 C++ controller writes wheel
              speeds in rad/s (cruise 0.05357/r) into ctrl, so the gain is scaled to make that
              number mean the PWM the real firmware sends at cruise (cruise -> CRUISE_PWM 0.4).
@@ -61,8 +67,9 @@ BODY = {
                                                         # v1's box inertia scaled to the mass (same box)
         wheel_radius=0.016,                             # published: Pololu 32 mm wheels
         wheel_half_width=0.0035,                        # published: 7 mm wide
-        wheel_y=0.0265,                                 # placeholder: track not published; wheel outer
-                                                        # faces at +-3.0 cm, the robot repo's 6 cm physical width
+        wheel_y=0.02,                                   # fitted: 4.0 cm track from the in-place rotation
+                                                        # rates (20.8 deg/s at PWM 0.15, 53.4 at 0.25); the
+                                                        # log analysis's own table fit gave 3.96 cm
         wheel_mass=0.003,                               # placeholder: not published
         wheel_inertia=(2.04e-7, 3.84e-7, 2.04e-7),      # solid 3 g disc, r 1.6 cm, 7 mm wide
         caster_mass=0.002,                              # placeholder: not published
@@ -81,14 +88,18 @@ V1_CASTER_DAMPING = 0.0001  # v1 ball-joint damping
 # ---- wheel joints and motor ----
 V1_WHEEL_DAMPING = 0.01     # v1
 STALL_TORQUE = 0.1765 * 3.7 / 4.5   # published Pololu 1512 (120:1): 1.8 kg cm stall at 4.5 V, scaled to the
-                                    # 1S LiPo's 3.7 V nominal = 0.145 N m. To be refitted from robot logs.
-NO_LOAD_SPEED = 150 * 2 * 3.141592653589793 / 60 * 3.7 / 4.5
-                                    # published: 150 rpm free run at 4.5 V, scaled to 3.7 V = 12.9 rad/s.
-                                    # To be refitted from robot logs.
-DEADBAND_PWM = 0.3          # robot repo navigation.py PHYSICAL_MOVE_COMMAND: "Nothing moves below it"
-FRICTION_SOLREF = (0.004, 1.0)          # stiff gearbox friction: default MuJoCo lets a wheel creep at
-FRICTION_SOLIMP = (0.999, 0.9999, 0.001, 0.5, 2.0)   # 0.3-0.4 rad/s below the deadband; this cuts it to 0.001
-CRUISE_PWM = 0.4            # robot repo controller.yaml push.max_speed; real cruise 5.125 cm/s
+                                    # 1S LiPo's 3.7 V nominal = 0.145 N m. The logs cannot see it (no stalls,
+                                    # 15 Hz camera), so it stays at the datasheet value.
+NO_LOAD_SPEED = 7.5         # fitted, rad/s at the wheel at PWM 1. The datasheet's 150 rpm at 4.5 V scales
+                            # to 12.9 rad/s at 3.7 V; the real car delivers 58% of that.
+GEARBOX_FRICTION_PWM = 0.06 # fitted. NOT the robot repo's 0.3 (navigation.py PHYSICAL_MOVE_COMMAND,
+                            # "Nothing moves below it"): the logs show the car moving steadily at
+                            # commanded 0.14-0.15 (22 reverses, 29 in-place rotations).
+FRICTION_SOLREF = (0.004, 1.0)          # stiff gearbox friction: MuJoCo's default lets a wheel creep at
+FRICTION_SOLIMP = (0.999, 0.9999, 0.001, 0.5, 2.0)   # 0.3-0.4 rad/s under the friction; this cuts it to 0.001
+CRUISE_PWM = 0.4            # robot repo controller.yaml push.max_speed. Free driving at 0.4 in the logs runs
+                            # 3.5-3.7 cm/s; the 5.125 cm/s in the namo config comes from a May 23 straight
+                            # pure-pursuit session whose data is not on this filesystem.
 CRUISE_MS = 0.05357         # v1 controller cruise (push_tracker_max_speed x kCarWheelMaxSpeedMs)
 # Not modelled: the firmware's RIGHT_GAIN 0.87 right-wheel trim (robot repo controller.yaml), which
 # offsets a motor mismatch on the real car; v2's two motors are identical, so it has nothing to cancel.
@@ -137,7 +148,7 @@ def car_body_element(sx, sy, body="mvp", caster="one_frictionless", wheel="v2", 
         j = {"name": f"{side}_wheel_joint", "type": "hinge", "axis": "0 1 0",
              "damping": repr(V1_WHEEL_DAMPING if wheel == "v1" else 0.0), "armature": repr(ARMATURE)}
         if actuator == "pwm":
-            j |= {"frictionloss": repr(DEADBAND_PWM * STALL_TORQUE),
+            j |= {"frictionloss": repr(GEARBOX_FRICTION_PWM * STALL_TORQUE),
                   "solreffriction": _f(*FRICTION_SOLREF), "solimpfriction": _f(*FRICTION_SOLIMP)}
         ET.SubElement(b, "joint", j)
         ET.SubElement(b, "geom", {"name": f"{side}_wheel_collision", "type": "cylinder",

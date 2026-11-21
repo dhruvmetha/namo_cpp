@@ -5,9 +5,10 @@ The car from a converted scene is fixed 10 cm above the floor (freejoint removed
 wheels spin free and only the motor, the wheel inertia and the gearbox frictionloss act.
 
 1. Torque law: actuator_force == clip(STALL*clip(u,-1,1) - STALL/NO_LOAD*omega, +-STALL) over a grid.
-2. ctrl_units="omega" gives the same torque for ctrl = u / (CRUISE_PWM / V1_CRUISE_OMEGA).
-3. Free wheel with gearbox stiction: steady speed NO_LOAD*(u - DEADBAND) above the deadband,
-   still below it.
+2. ctrl_units="omega" gives the same torque for ctrl = u / (CRUISE_PWM / cruise_omega), where
+   cruise_omega = CRUISE_MS / wheel_radius is what the v1 controller sends at cruise.
+3. Free wheel with gearbox friction: steady speed NO_LOAD*(u - FRICTION) above the friction
+   threshold, still below it.
 
   python check_motor_model.py --xml <v1 pool scene>
 """
@@ -29,6 +30,13 @@ def lifted(scene, **opts):
     root = C.convert_root(ET.parse(scene).getroot(), **(V.V2 | opts))
     car = root.find("worldbody/body[@name='car']")
     car.remove(car.find("freejoint"))
+    # Without its freejoint the car is welded to the world, and MuJoCo does not filter
+    # contacts with world-welded geoms, so v2's wheels (inside the 7 x 7 chassis box at a
+    # 4 cm track) would collide with the chassis here. In a scene the freejoint stays and
+    # the parent-child filter removes those pairs. Switch the chassis off for this rig only.
+    for g in car.findall("geom"):
+        g.set("contype", "0")
+        g.set("conaffinity", "0")
     x, y, _ = car.get("pos").split()
     car.set("pos", f"{x} {y} 0.1")
     m = mujoco.MjModel.from_xml_string(ET.tostring(root, encoding="unicode"))
@@ -40,16 +48,17 @@ def main():
     ap.add_argument("--xml", required=True)
     args = ap.parse_args()
     res = {"mujoco": mujoco.__version__}
-    S, W0, D = V.STALL_TORQUE, V.NO_LOAD_SPEED, V.DEADBAND_PWM
+    S, W0, D = V.STALL_TORQUE, V.NO_LOAD_SPEED, V.GEARBOX_FRICTION_PWM
 
     m, d = lifted(args.xml)
     mo, do = lifted(args.xml, ctrl_units="omega")
     jl = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, "left_wheel_joint")
     dof = m.jnt_dofadr[jl]
+    cruise_omega = V.CRUISE_MS / V.BODY[V.V2["body"]]["wheel_radius"]
     err, err_units = 0.0, 0.0
     for u in (-1.5, -1.0, -0.4, 0.0, 0.29, 0.4, 1.0, 1.5):
         for w in (-20.0, 0.0, 3.5, 13.84, 34.6, 45.0):
-            for mm, dd, c in ((m, d, u), (mo, do, u / (V.CRUISE_PWM / V.V1_CRUISE_OMEGA))):
+            for mm, dd, c in ((m, d, u), (mo, do, u / (V.CRUISE_PWM / cruise_omega))):
                 dd.qvel[:] = 0
                 dd.qvel[dof] = w
                 dd.ctrl[:] = c
@@ -64,7 +73,7 @@ def main():
     res["omega_units_max_abs_err_Nm"] = err_units
 
     spin = {}
-    for u in (0.2, 0.29, 0.31, 0.4, 0.7, 1.0):
+    for u in (0.03, 0.05, 0.07, 0.15, 0.4, 1.0):
         mujoco.mj_resetData(m, d)
         d.ctrl[:] = u
         speeds = []
