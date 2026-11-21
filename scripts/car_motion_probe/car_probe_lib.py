@@ -170,5 +170,18 @@ def run(m, d, car: Car, ctrl_fn, ticks, qpos_log=None):
     return {k: np.array([r.get(k, np.nan) for r in rows]) for k in keys}
 
 
+def body_com_xy(m, qpos_rows, body):
+    """World xy of a body's centre of mass for each qpos row. Use this, not the freejoint
+    qpos, for pool blocks: their body frame sits at the world origin with the box geom offset
+    0.5 m or so, so the qpos position swings whenever the block turns."""
+    d = mujoco.MjData(m)
+    out = np.empty((len(qpos_rows), 2))
+    for i, q in enumerate(qpos_rows):
+        d.qpos[:] = q
+        mujoco.mj_kinematics(m, d)
+        out[i] = d.xipos[body][:2]
+    return out
+
+
 def jerk(a):
     return np.diff(a) / DT

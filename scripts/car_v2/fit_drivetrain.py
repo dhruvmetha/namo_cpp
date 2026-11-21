@@ -160,31 +160,37 @@ def main():
         jobs = [(f, fit[f]["no_load_speed"], fit[f]["thr"], fit[f]["track"], k,
                  series[k]["t_s"], series[k]["left_cmd"], series[k]["right_cmd"]) for f in FORMS for k in keys]
         res = pool.map(replay, jobs)
-    # The camera sees motion some fixed time after the command; score each form at the
-    # latency that suits it best, on the same grid for all three.
-    score = {}
-    for f in FORMS:
-        best_f = None
-        for lag in (0.0, 0.05, 0.10, 0.15, 0.20, 0.25):
-            ev, ew = [], []
-            for (key, vs, ws), job in zip(res, jobs):
-                if job[0] != f:
-                    continue
-                S = series[key]
-                t = np.arange(len(vs)) * L.DT
-                v = np.interp(S["t_s"] - lag, t, vs, left=0.0)
-                w = np.interp(S["t_s"] - lag, t, ws, left=0.0)
-                mask = S["free_mask"].astype(bool) & np.isfinite(S["v_fwd_cm_s_5pt"]) & np.isfinite(S["yaw_deg_s_framediff"])
-                ev.append(v[mask] - S["v_fwd_cm_s_5pt"][mask])
-                ew.append(w[mask] - S["yaw_deg_s_framediff"][mask])
-            ev, ew = np.concatenate(ev), np.concatenate(ew)
-            r = dict(lag_s=lag, frames=int(len(ev)), v_rmse_cm_s=float(np.sqrt(np.mean(ev ** 2))),
-                     v_bias_cm_s=float(ev.mean()), yaw_rmse_deg_s=float(np.sqrt(np.mean(ew ** 2))))
-            if best_f is None or r["v_rmse_cm_s"] < best_f["v_rmse_cm_s"]:
-                best_f = r
-        score[f] = best_f
+    score = {f: lag_score([(key, vs, ws) for (key, vs, ws), job in zip(res, jobs) if job[0] == f], series)[0]
+             for f in FORMS}
     (out / "drivetrain_fit.json").write_text(json.dumps({"steady_fit": fit, "replay": score}, indent=1))
     print(json.dumps(score, indent=1))
+
+
+LAGS = (0.0, 0.05, 0.10, 0.15, 0.20, 0.25)
+
+
+def lag_score(replays, series, lags=LAGS):
+    """Score sim replays against the camera on the free frames.
+
+    replays: [(approach key, sim forward speed cm/s per tick, sim yaw rate deg/s per tick)].
+    The camera sees motion some fixed time after the command, so each model is scored at the
+    latency on `lags` that gives it the lowest speed RMSE. Returns (best, every lag)."""
+    rows = []
+    for lag in lags:
+        ev, ew = [], []
+        for key, vs, ws in replays:
+            S = series[key]
+            t = np.arange(len(vs)) * L.DT
+            v = np.interp(S["t_s"] - lag, t, vs, left=0.0)
+            w = np.interp(S["t_s"] - lag, t, ws, left=0.0)
+            mask = S["free_mask"].astype(bool) & np.isfinite(S["v_fwd_cm_s_5pt"]) & np.isfinite(S["yaw_deg_s_framediff"])
+            ev.append(v[mask] - S["v_fwd_cm_s_5pt"][mask])
+            ew.append(w[mask] - S["yaw_deg_s_framediff"][mask])
+        ev, ew = np.concatenate(ev), np.concatenate(ew)
+        rows.append(dict(lag_s=lag, frames=int(len(ev)), v_rmse_cm_s=float(np.sqrt(np.mean(ev ** 2))),
+                         v_bias_cm_s=float(ev.mean()), yaw_rmse_deg_s=float(np.sqrt(np.mean(ew ** 2))),
+                         yaw_bias_deg_s=float(ew.mean())))
+    return min(rows, key=lambda r: r["v_rmse_cm_s"]), rows
 
 
 def _init(xml):

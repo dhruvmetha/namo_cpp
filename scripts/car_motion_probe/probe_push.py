@@ -136,11 +136,11 @@ def main():
     cq = c["frames"][:len(rq)]
 
     bid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, c["obj"])
-    bq = m.jnt_qposadr[m.body_jntadr[bid]]
+    rcom, ccom = L.body_com_xy(m, rq, bid), L.body_com_xy(m, cq, bid)
     err = lambda a_, b_: np.hypot(a_[:, 0] - b_[:, 0], a_[:, 1] - b_[:, 1])
     pk = slice(S, S + n_push)
     car_err = err(rq[:, car.qadr:car.qadr + 2], cq[:, car.qadr:car.qadr + 2])
-    blk_err = err(rq[:, bq:bq + 2], cq[:, bq:bq + 2])
+    blk_err = err(rcom, ccom)
     yaw_err = np.degrees(np.abs(np.angle(np.exp(1j * (np.array([quat_yaw(r[car.qadr + 3:car.qadr + 7]) for r in rq]) -
                                                        np.array([quat_yaw(r[car.qadr + 3:car.qadr + 7]) for r in cq]))))))
     res["replay_vs_cpp"] = dict(car_xy_err_max_mm=1000 * float(car_err.max()), car_xy_err_end_push_mm=1000 * float(car_err[S + n_push - 1]),
@@ -157,7 +157,7 @@ def main():
     on = s["n_block"] > 0
     seg = segments(on)
     j = L.jerk(s["a_fwd"])
-    bx = rq[pk, bq:bq + 2]
+    bx = rcom[pk]
     bv = np.r_[0.0, np.hypot(*np.diff(bx, axis=0).T) / L.DT]
     cx = rq[pk, car.qadr:car.qadr + 2]
     res["push"] = dict(
@@ -202,7 +202,7 @@ def main():
     hd = np.c_[np.cos(yaw), np.sin(yaw)][W:-W]
     v_cpp = np.sum(vel * hd, axis=1)
     yr_cpp = (yaw[2 * W:] - yaw[:-2 * W]) / (2 * W * L.DT)
-    bxy = cq[pk, bq:bq + 2]
+    bxy = ccom[pk]
     bsp = np.hypot(*((bxy[2 * W:] - bxy[:-2 * W]) / (2 * W * L.DT)).T)
     p0, p2 = np.array(c["path"][0]), np.array(c["path"][-1])
     u = (p2 - p0) / np.linalg.norm(p2 - p0)
