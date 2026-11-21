@@ -196,6 +196,15 @@ void ConfigManager::load_skill_config() {
         {"skill.navigation.rotation_speed_max", &skill_.nav_rotation_speed_max},
         {"skill.navigation.rotation_speed_min", &skill_.nav_rotation_speed_min},
         {"skill.navigation.wheel_deadband", &skill_.nav_wheel_deadband},
+        {"skill.navigation.obstacle_proximity_distance_m", &skill_.nav_obstacle_proximity_distance_m},
+        {"skill.navigation.obstacle_proximity_weight", &skill_.nav_obstacle_proximity_weight},
+        {"skill.car_command_delay_s", &skill_.car_command_delay_s},
+        {"skill.push.retreat_speed", &skill_.push_retreat_speed},
+        {"skill.push.retreat_min_dist_m", &skill_.push_retreat_min_dist_m},
+        {"skill.push.retreat_max_dist_m", &skill_.push_retreat_max_dist_m},
+        {"skill.push.retreat_cone_angle", &skill_.push_retreat_cone_angle},
+        {"skill.push.retreat_tolerance_m", &skill_.push_retreat_tolerance_m},
+        {"skill.push.retreat_steer_gain", &skill_.push_retreat_steer_gain},
         {"skill.push.lookahead_ratio", &skill_.push_lookahead_ratio},
         {"skill.push.approach_skip_distance_m", &skill_.push_approach_skip_distance_m},
         {"skill.push.approach_skip_angle", &skill_.push_approach_skip_angle},
@@ -209,11 +218,18 @@ void ConfigManager::load_skill_config() {
         {"skill.car_nav_mode", &skill_.car_nav_mode},
         {"skill.car_actuation", &skill_.car_actuation},
         {"skill.car_push_follower", &skill_.car_push_follower},
+        {"skill.car_nav_path_planner", &skill_.car_nav_path_planner},
     };
     for (const auto& [key, field] : car_strings) {
         if (loader_->has_key(key)) {
             *field = loader_->get_string(key);
         }
+    }
+    if (loader_->has_key("skill.car_push_retreat")) {
+        skill_.car_push_retreat = loader_->get_bool("skill.car_push_retreat");
+    }
+    if (loader_->has_key("skill.push.retreat_steps")) {
+        skill_.push_retreat_steps = loader_->get_int("skill.push.retreat_steps");
     }
 }
 
@@ -444,6 +460,13 @@ void ConfigManager::validate_configuration() const {
     }
     if (skill_.car_controller_hz < 0.0) {
         throw ConfigSchemaError("skill.car_controller_hz must be >= 0");
+    }
+    if (skill_.car_nav_path_planner != "bfs" && skill_.car_nav_path_planner != "proximity_dijkstra") {
+        throw ConfigSchemaError(
+            "skill.car_nav_path_planner must be \"bfs\" or \"proximity_dijkstra\"");
+    }
+    if (skill_.car_command_delay_s < 0.0) {
+        throw ConfigSchemaError("skill.car_command_delay_s must be >= 0");
     }
 
     // Environment bounds validation removed - bounds now calculated dynamically

@@ -25,7 +25,8 @@
 #     here a failed drive fails the push;
 #   - push.push_steps x 30 Hz tick budget, the post-push 2 cm / 5 deg stuck rule and the safety
 #     filter; NAMO keeps control_steps_per_push and its own stuck detector and collision aborts;
-#   - RETREATING after the push (push.py:794-871). The next drive starts from the contact pose.
+#   - RETREATING after the push (push.py:794-871) is ported but off (car_push_retreat). Without
+#     it the next drive starts from the contact pose.
 #
 # The primitive table below is still car v1's. Its predicted displacements were generated under
 # v1's teleport + PushPathFollower, so regenerate it under this config before planning with it.
@@ -129,6 +130,12 @@ skill:
   car_push_follower: "follow_path" # follow_path.py FollowPathController, with ALIGN (v1: "v1").
   car_nav_max_time_s: 120.0        # sim-time cap per drive; navigation_baseline_sim.py:31
                                    # DEFAULT_MAX_SIM_TIME_S.
+  car_nav_path_planner: "proximity_dijkstra"  # controller.yaml:17 planner "wavefront" =
+                                   # wavefront_path_planner.py: proximity cost, Dijkstra, gradient
+                                   # descent, on NAMO's inflated grid (v1 / default: "bfs").
+  car_push_retreat: false          # push.py:794 RETREATING after each push. Off for now; the
+                                   # retreat values below are what it uses when on.
+  # car_command_delay_s (default 0): camera-to-motor lag; the replay fit is 0.15-0.2 s.
   navigation:
     max_speed: 0.4                 # controller.yaml:6
     pre_rotation_skip_angle: 45.0  # controller.yaml:7, degrees
@@ -138,10 +145,20 @@ skill:
     rotation_speed_max: 0.25       # controller.yaml:31
     rotation_speed_min: 0.15       # controller.yaml:32
     wheel_deadband: 0.05           # controller.yaml:33, nav rotation commands only
+    obstacle_proximity_distance_m: 0.02  # controller.yaml:19, 2.0 cm
+    obstacle_proximity_weight: 5.0       # controller.yaml:20
   push:
     lookahead_ratio: 1.0           # controller.yaml:51, x car_size
     approach_skip_distance_m: 0.01 # controller.yaml:59 approach_skip_distance 1.0 cm
     approach_skip_angle: 30.0      # controller.yaml:60, degrees
+    retreat_speed: 0.15            # controller.yaml:71
+    retreat_steps: 100             # controller.yaml:72, controller updates (blind reverse;
+                                   # twice this ends a targeted retreat)
+    retreat_min_dist_m: 0.05       # controller.yaml:73, 5.0 cm
+    retreat_max_dist_m: 0.15       # controller.yaml:74, 15.0 cm
+    retreat_cone_angle: 20.0       # not in controller.yaml: controller/config.py:64 fallback
+    retreat_tolerance_m: 0.02      # not in controller.yaml: config.py:67 fallback, 2.0 cm
+    retreat_steer_gain: 0.3        # not in controller.yaml: config.py:68 fallback
   # controller.yaml:56 push.dynamic_direction false is skill.dynamic_direction above.
   # controller.yaml:55 push.push_steps 30 (ticks per push step at 30 Hz = 1.0 s) is NOT used:
   # a push step stays control_steps_per_push 550 ticks = 1.1 s, NAMO's push-depth meaning.

@@ -105,6 +105,13 @@ public:
      */
     const std::vector<std::vector<int>>& get_distance_grid() const { return reachability_grid_; }
 
+    /**
+     * @brief Inflated occupancy grid from the last update_wavefront ([x][y], -1 = obstacle), with
+     * the start cell already cleared, and the world (x_min, x_max, y_min, y_max) it covers.
+     */
+    const std::vector<std::vector<int>>& get_dynamic_grid() const { return dynamic_grid_; }
+    const std::vector<double>& get_bounds() const { return bounds_; }
+
     // ========== Geometric Transport Heuristic Methods ==========
 
     /**

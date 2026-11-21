@@ -7,6 +7,7 @@
 #include "navigation/push_path_follower.hpp"
 #include "wavefront/wavefront_planner.hpp"
 #include <array>
+#include <deque>
 #include <memory>
 #include <unordered_set>
 
@@ -145,6 +146,8 @@ private:
     ConfigManager::SkillConfig car_cfg_;
     // Sim time the last drive-mode navigation took; 0 under teleport.
     double last_nav_time_s_ = 0.0;
+    // car_command_delay_s: normalized commands waiting for their release time {t, left, right}.
+    std::deque<std::array<double, 3>> command_delay_line_;
 
 public:
     /**
@@ -227,7 +230,8 @@ public:
      */
     /**
      * @brief Stop the wheels and let physics settle. One copy, shared by the
-     * normal end of a push and the early stop after useful motion.
+     * normal end of a push and the early stop after useful motion. With
+     * skill.car_push_retreat the car first backs away (retreat_after_push).
      */
     void settle_after_push(bool use_diff_drive_tracking, int settle_steps);
 
@@ -351,6 +355,14 @@ public:
         std::array<double, 3> final_pose = {0.0, 0.0, 0.0};     // where the robot ended up
         double nav_time_s = 0.0;                                // sim time spent driving
         std::string failure_reason;
+        // The path driven (the BFS path under teleport), its start and goal (the edge point),
+        // and the inflated grid it was planned on ([x][y], -1 = obstacle) with origin and cell.
+        std::vector<std::array<double, 2>> path;
+        std::array<double, 2> start_xy = {0.0, 0.0};
+        std::array<double, 2> goal_xy = {0.0, 0.0};
+        std::vector<std::vector<int>> grid;
+        std::array<double, 2> grid_origin = {0.0, 0.0};
+        double grid_resolution = 0.0;
     };
 
     /**
@@ -404,12 +416,24 @@ private:
     bool navigate_to_edge_point(const std::string& object_name,
                                 const std::array<double, 2>& edge_point,
                                 double push_theta,
-                                std::array<double, 3>* teleport_pose);
+                                NavigationReport* report);
     bool drive_to_edge_point(const std::string& object_name,
                              const std::vector<std::array<double, 2>>& path,
                              double push_theta);
+    // Path for a drive from start to goal under car_nav_path_planner, on the grid the last
+    // update_wavefront built.
+    std::vector<std::array<double, 2>> drive_path(const std::array<double, 2>& start,
+                                                  const std::array<double, 2>& goal);
+    CarNavigationController::Params make_nav_params() const;
+    // push.py RETREATING (car_push_retreat): back away from the pushed object.
+    void retreat_after_push();
     // Write a [-1, 1] wheel command through the configured actuation. Returns the ctrl values.
     std::array<double, 2> apply_car_command(double left, double right, double wheel_radius);
+    bool command_delay_active() const {
+        return car_cfg_.car_command_delay_s > 0.0 && car_cfg_.car_actuation == "normalized";
+    }
+    // Write every delayed command whose release time has come; call before each physics step.
+    void release_delayed_commands();
     std::vector<std::array<double, 2>> build_push_tracking_path(
         const PushState& state,
         const std::array<double, 2>& actual_pos) const;

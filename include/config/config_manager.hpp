@@ -125,6 +125,15 @@ public:
         std::string car_push_follower = "v1";
         // Drive mode: a drive still going after this much sim time fails.
         double car_nav_max_time_s = 120.0;
+        // Drive mode path source. "bfs" = the wavefront BFS path a teleport also uses.
+        // "proximity_dijkstra" = port of the real planner (wavefront_path_planner.py): Dijkstra
+        // with a wall-proximity cost, then gradient descent, on the same inflated grid.
+        std::string car_nav_path_planner = "bfs";
+        // Diff-drive only: after a push, back away from the object as push.py RETREATING does.
+        bool car_push_retreat = false;
+        // Normalized actuation only: each command reaches ctrl this much sim time after the
+        // controller issues it (FIFO), modelling the camera-to-motor loop lag.
+        double car_command_delay_s = 0.0;
         // robot_control config/controller.yaml navigation: block, same field names
         // (skill.navigation.<field>). Read only in drive mode.
         double nav_max_speed = 0.4;
@@ -135,6 +144,9 @@ public:
         double nav_rotation_speed_max = 0.25;
         double nav_rotation_speed_min = 0.15;
         double nav_wheel_deadband = 0.05;
+        // controller.yaml gives the distance in cm; this is metres.
+        double nav_obstacle_proximity_distance_m = 0.02;
+        double nav_obstacle_proximity_weight = 5.0;
         // controller.yaml push: block (skill.push.<field>). The push cap push.max_speed is the
         // existing skill.push_tracker_max_speed. lookahead_ratio 1.0 is v1's kPushLookaheadRatio.
         double push_lookahead_ratio = 1.0;
@@ -142,6 +154,14 @@ public:
         // (push.py:381-388). controller.yaml gives the distance in cm; this is metres.
         double push_approach_skip_distance_m = 0.01;
         double push_approach_skip_angle = 30.0;
+        // push.py RETREATING (car_push_retreat). Distances in metres; controller.yaml has cm.
+        double push_retreat_speed = 0.15;
+        int push_retreat_steps = 100;
+        double push_retreat_min_dist_m = 0.05;
+        double push_retreat_max_dist_m = 0.15;
+        double push_retreat_cone_angle = 20.0;
+        double push_retreat_tolerance_m = 0.02;
+        double push_retreat_steer_gain = 0.3;
     };
     
     struct EnvironmentConfig {

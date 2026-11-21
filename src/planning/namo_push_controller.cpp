@@ -1,11 +1,14 @@
 #include "planning/namo_push_controller.hpp"
 #include "core/mujoco_wrapper.hpp"
 #include "navigation/qpos_dump.hpp"
+#include "wavefront/proximity_path.hpp"
 #include "wavefront/goal_tolerance_utils.hpp"
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
 #include <iostream>
+#include <limits>
+#include <optional>
 
 namespace {
 
@@ -367,7 +370,12 @@ std::array<double, 2> NAMOPushController::apply_car_command(double left,
     if (car_cfg_.car_actuation == "normalized") {
         const double l = apply_command_deadzone(left, car_cfg_.car_command_deadzone);
         const double r = apply_command_deadzone(right, car_cfg_.car_command_deadzone);
-        env_.apply_normalized_wheel_control(l, r);
+        if (command_delay_active()) {
+            const double now = env_.get_mujoco_wrapper()->data()->time;
+            command_delay_line_.push_back({now + car_cfg_.car_command_delay_s, l, r});
+        } else {
+            env_.apply_normalized_wheel_control(l, r);
+        }
         return {l, r};
     }
     // Diff-drive: chassis m/s comes from car_wheel_max_speed_ms, NOT
@@ -381,10 +389,53 @@ std::array<double, 2> NAMOPushController::apply_car_command(double left,
     return {left_omega, right_omega};
 }
 
+void NAMOPushController::release_delayed_commands() {
+    // A command issued at t is due at t + delay. Sim time is a running sum of
+    // 2 ms steps, so allow a nanosecond of rounding or a 75-tick delay lands
+    // on tick 76.
+    const double now = env_.get_mujoco_wrapper()->data()->time + 1e-9;
+    while (!command_delay_line_.empty() && command_delay_line_.front()[0] <= now) {
+        env_.apply_normalized_wheel_control(command_delay_line_.front()[1],
+                                            command_delay_line_.front()[2]);
+        command_delay_line_.pop_front();
+    }
+}
+
+std::vector<std::array<double, 2>> NAMOPushController::drive_path(
+    const std::array<double, 2>& start, const std::array<double, 2>& goal) {
+    if (car_cfg_.car_nav_path_planner == "proximity_dijkstra") {
+        const auto& bounds = planner_.get_bounds();
+        return plan_proximity_path(planner_.get_dynamic_grid(), bounds[0], bounds[2],
+                                   planner_.get_resolution(), start, goal,
+                                   car_cfg_.nav_obstacle_proximity_distance_m,
+                                   car_cfg_.nav_obstacle_proximity_weight);
+    }
+    return planner_.extract_path(start, goal);
+}
+
+CarNavigationController::Params NAMOPushController::make_nav_params() const {
+    // Lengths in metres, so one centimetre is 0.01. wheel_base is the robot
+    // width, as on the real car (run_namo.py:517).
+    CarNavigationController::Params nav_params;
+    nav_params.car_width = 2.0 * std::abs(robot_size_[0]);
+    nav_params.car_height = 2.0 * std::abs(robot_size_[1]);
+    nav_params.wheel_base = nav_params.car_width;
+    nav_params.cm = 0.01;
+    nav_params.max_speed = car_cfg_.nav_max_speed;
+    nav_params.pre_rotation_skip_angle = car_cfg_.nav_pre_rotation_skip_angle;
+    nav_params.goal_tolerance_ratio = car_cfg_.nav_goal_tolerance_ratio;
+    nav_params.rotation_tolerance_deg = car_cfg_.nav_rotation_tolerance_deg;
+    nav_params.rotation_stable_time = car_cfg_.nav_rotation_stable_time;
+    nav_params.rotation_speed_max = car_cfg_.nav_rotation_speed_max;
+    nav_params.rotation_speed_min = car_cfg_.nav_rotation_speed_min;
+    nav_params.wheel_deadband = car_cfg_.nav_wheel_deadband;
+    return nav_params;
+}
+
 bool NAMOPushController::navigate_to_edge_point(const std::string& object_name,
                                                 const std::array<double, 2>& edge_point,
                                                 double push_theta,
-                                                std::array<double, 3>* teleport_pose) {
+                                                NavigationReport* report) {
     // Refresh the wavefront so path extraction has the current grid.
     auto robot_state_now = env_.get_robot_state();
     std::vector<double> start_pos = robot_state_now
@@ -416,12 +467,31 @@ bool NAMOPushController::navigate_to_edge_point(const std::string& object_name,
     }
 
     const auto& goal_pt = path.back();
-    if (teleport_pose) {
-        *teleport_pose = {goal_pt[0], goal_pt[1], push_theta};
+    if (report) {
+        const auto& bounds = planner_.get_bounds();
+        report->teleport_pose = {goal_pt[0], goal_pt[1], push_theta};
+        report->path = path;
+        report->start_xy = {start_pos[0], start_pos[1]};
+        report->goal_xy = edge_point;
+        report->grid = planner_.get_dynamic_grid();
+        report->grid_origin = {bounds[0], bounds[2]};
+        report->grid_resolution = planner_.get_resolution();
     }
     last_nav_time_s_ = 0.0;
     if (car_cfg_.car_nav_mode == "drive" && push_path_follower_) {
-        if (!drive_to_edge_point(object_name, path, push_theta)) {
+        // The BFS path above still decides reachability and the teleport pose.
+        // Only the path driven follows car_nav_path_planner.
+        const auto driven = (car_cfg_.car_nav_path_planner == "bfs")
+            ? path
+            : drive_path({start_pos[0], start_pos[1]}, edge_point);
+        if (report) {
+            report->path = driven;
+        }
+        if (driven.empty()) {
+            last_failure_reason_ = "No navigable path to edge point (proximity planner)";
+            return false;
+        }
+        if (!drive_to_edge_point(object_name, driven, push_theta)) {
             return false;
         }
     } else {
@@ -452,23 +522,7 @@ bool NAMOPushController::drive_to_edge_point(const std::string& object_name,
         return true;
     }
 
-    // Lengths in metres, so one centimetre is 0.01. wheel_base is the robot
-    // width, as on the real car (run_namo.py:517).
-    CarNavigationController::Params nav_params;
-    nav_params.car_width = 2.0 * std::abs(robot_size_[0]);
-    nav_params.car_height = 2.0 * std::abs(robot_size_[1]);
-    nav_params.wheel_base = nav_params.car_width;
-    nav_params.cm = 0.01;
-    nav_params.max_speed = car_cfg_.nav_max_speed;
-    nav_params.pre_rotation_skip_angle = car_cfg_.nav_pre_rotation_skip_angle;
-    nav_params.goal_tolerance_ratio = car_cfg_.nav_goal_tolerance_ratio;
-    nav_params.rotation_tolerance_deg = car_cfg_.nav_rotation_tolerance_deg;
-    nav_params.rotation_stable_time = car_cfg_.nav_rotation_stable_time;
-    nav_params.rotation_speed_max = car_cfg_.nav_rotation_speed_max;
-    nav_params.rotation_speed_min = car_cfg_.nav_rotation_speed_min;
-    nav_params.wheel_deadband = car_cfg_.nav_wheel_deadband;
-    CarNavigationController nav(nav_params);
-
+    CarNavigationController nav(make_nav_params());
     if (!nav.navigate_to(push_theta * (180.0 / M_PI), {pose0.x_m, pose0.y_m}, path)) {
         last_failure_reason_ = "Navigation failed: fewer than two distinct path waypoints";
         return false;
@@ -509,6 +563,7 @@ bool NAMOPushController::drive_to_edge_point(const std::string& object_name,
             break;
         }
 
+        release_delayed_commands();
         env_.step_simulation();
         env_.get_mujoco_wrapper()->notify_physics_step();
         dump_qpos(env_, /*phase=*/1);
@@ -519,7 +574,8 @@ bool NAMOPushController::drive_to_edge_point(const std::string& object_name,
             for (const auto& rb : robot_bodies) {
                 if (env_.bodies_in_collision(rb, static_objects[i].body_name)) {
                     last_failure_reason_ = "Robot collision during navigation with static object: " +
-                        static_objects[i].body_name + " (via " + rb + ")";
+                        static_objects[i].body_name + " (via " + rb + ") in " +
+                        CarNavigationController::state_name(nav.state());
                     last_collision_object_ = static_objects[i].body_name;
                     ok = false;
                     break;
@@ -531,7 +587,8 @@ bool NAMOPushController::drive_to_edge_point(const std::string& object_name,
             for (const auto& rb : robot_bodies) {
                 if (env_.bodies_in_collision(rb, movable_objects[i].body_name)) {
                     last_failure_reason_ = "Robot collision during navigation with movable object: " +
-                        movable_objects[i].body_name + " (via " + rb + ")";
+                        movable_objects[i].body_name + " (via " + rb + ") in " +
+                        CarNavigationController::state_name(nav.state());
                     last_collision_object_ = movable_objects[i].body_name;
                     ok = false;
                     break;
@@ -540,14 +597,147 @@ bool NAMOPushController::drive_to_edge_point(const std::string& object_name,
         }
     }
 
+    // FINISHED comes after rotation_stable_time of stop commands, so what is
+    // still in the delay line at that point is stops; drop it.
+    command_delay_line_.clear();
     env_.apply_wheel_control(0.0, 0.0);
     last_nav_time_s_ = data->time - t_start;
     return ok;
 }
 
+void NAMOPushController::retreat_after_push() {
+    // push.py:794-871 with find_retreat_target / reverse_toward / blind_reverse
+    // from controller/retreat.py. Free cells come from NAMO's inflated grid, which
+    // is 3 mm tighter than push.py's (it adds push_approach.additional_margin_m).
+    // No collision checks, as on the robot: the retreat never fails the push.
+    const mjData* data = env_.get_mujoco_wrapper()->data();
+    const auto* adapter = env_.get_robot_adapter();
+    const double wheel_radius =
+        (adapter->get_wheel_radius() > 0.0) ? adapter->get_wheel_radius() : 0.015;
+    const auto pose0 = get_current_robot_pose();
+    planner_.update_wavefront(env_, {pose0.x_m, pose0.y_m});
+    const auto& grid = planner_.get_dynamic_grid();
+    auto is_free = [&](double x, double y) {
+        const int gx = planner_.world_to_grid_x(x);
+        const int gy = planner_.world_to_grid_y(y);
+        return planner_.is_valid_grid_coord(gx, gy) && grid[gx][gy] != -1;
+    };
+
+    // retreat.py:31-77: rays every 5 deg across the cone, points every 1 cm from
+    // min to max distance; nearest free point over all rays. np.arange spacing.
+    const double cone_half = car_cfg_.push_retreat_cone_angle * (M_PI / 180.0);
+    const double angle_step = 5.0 * (M_PI / 180.0);
+    const double min_cm = car_cfg_.push_retreat_min_dist_m * 100.0;
+    const double max_cm = car_cfg_.push_retreat_max_dist_m * 100.0;
+    const int n_rays = static_cast<int>(std::ceil((2.0 * cone_half + 0.001) / angle_step));
+    const int n_dists = static_cast<int>(std::ceil((max_cm + 0.001 - min_cm) / 1.0));
+    auto search = [&](double base, std::array<double, 2>& out) {
+        double best = std::numeric_limits<double>::infinity();
+        for (int i = 0; i < n_rays; ++i) {
+            const double ray = base + (-cone_half + i * angle_step);
+            for (int j = 0; j < n_dists; ++j) {
+                const double dist = (min_cm + j * 1.0) / 100.0;
+                const double x = pose0.x_m + dist * std::cos(ray);
+                const double y = pose0.y_m + dist * std::sin(ray);
+                if (is_free(x, y)) {
+                    if (dist < best) {
+                        best = dist;
+                        out = {x, y};
+                    }
+                    break;
+                }
+            }
+        }
+        return std::isfinite(best);
+    };
+
+    std::array<double, 2> target = {0.0, 0.0};
+    enum class Mode { BLIND, BACKWARD, FORWARD } mode = Mode::BLIND;
+    std::optional<CarNavigationController> nav;
+    if (search(pose0.theta_rad + M_PI, target)) {
+        mode = Mode::BACKWARD;
+    } else if (search(pose0.theta_rad, target)) {
+        mode = Mode::FORWARD;
+        // push.py:822-838: navigate there keeping the current heading; if that
+        // cannot be planned, reverse toward it instead.
+        nav.emplace(make_nav_params());
+        if (!nav->navigate_to(pose0.theta_rad * (180.0 / M_PI), {pose0.x_m, pose0.y_m},
+                              drive_path({pose0.x_m, pose0.y_m}, target))) {
+            mode = Mode::BACKWARD;
+        }
+    }
+
+    const double speed = car_cfg_.push_retreat_speed;
+    const double update_period =
+        (car_cfg_.car_controller_hz > 0.0) ? 1.0 / car_cfg_.car_controller_hz : 0.0;
+    double next_update = data->time;
+    int steps = 0;
+    const char* outcome = "";
+    while (*outcome == '\0') {
+        if (update_period == 0.0 || data->time >= next_update) {
+            next_update += update_period;
+            const auto pose = get_current_robot_pose();
+            double left = 0.0;
+            double right = 0.0;
+            if (mode == Mode::BLIND) {
+                // push.py:716-733: straight back for retreat_steps updates.
+                if (steps >= car_cfg_.push_retreat_steps) {
+                    outcome = "blind reverse ended";
+                    break;
+                }
+                ++steps;
+                left = right = -std::abs(speed);
+            } else {
+                if (std::hypot(pose.x_m - target[0], pose.y_m - target[1]) <
+                    car_cfg_.push_retreat_tolerance_m) {
+                    outcome = "reached target";
+                    break;
+                }
+                if (++steps >= 2 * car_cfg_.push_retreat_steps) {
+                    outcome = "TIMEOUT";
+                    break;
+                }
+                if (mode == Mode::BACKWARD) {
+                    // retreat.py:80-101, reverse_toward: steering flips in reverse.
+                    const double error_raw =
+                        std::atan2(target[1] - pose.y_m, target[0] - pose.x_m) - (pose.theta_rad + M_PI);
+                    const double error = error_raw - 2.0 * M_PI * std::floor((error_raw + M_PI) / (2.0 * M_PI));
+                    const double steer = error * car_cfg_.push_retreat_steer_gain;
+                    left = std::clamp(-std::abs(speed) - steer, -1.0, 1.0);
+                    right = std::clamp(-std::abs(speed) + steer, -1.0, 1.0);
+                } else {
+                    if (nav->is_done()) {
+                        outcome = "navigation reported done";
+                        break;
+                    }
+                    const auto command = nav->step(
+                        {pose.x_m, pose.y_m, pose.theta_rad * (180.0 / M_PI)}, data->time);
+                    left = command.left_speed;
+                    right = command.right_speed;
+                }
+            }
+            apply_car_command(left, right, wheel_radius);
+        }
+        release_delayed_commands();
+        env_.step_simulation();
+        env_.get_mujoco_wrapper()->notify_physics_step();
+        dump_qpos(env_, /*phase=*/4);
+    }
+
+    if (std::getenv("NAMO_NAV_LOG")) {
+        const auto pose = get_current_robot_pose();
+        const char* mode_name =
+            (mode == Mode::BLIND) ? "blind" : (mode == Mode::BACKWARD ? "backward" : "forward");
+        std::cerr << "[RETREAT] " << mode_name << " " << outcome << " after " << steps
+                  << " updates, moved " << std::hypot(pose.x_m - pose0.x_m, pose.y_m - pose0.y_m)
+                  << " m, target " << target[0] << "," << target[1] << std::endl;
+    }
+}
+
 NAMOPushController::NavigationReport NAMOPushController::navigate_to_push_start(
     const std::string& object_name, int edge_idx) {
     NavigationReport report;
+    command_delay_line_.clear();
     edge_point_count_ = 0;
     mid_point_count_ = 0;
     if (generate_edge_points(object_name, edge_point_pool_, mid_point_pool_,
@@ -560,7 +750,7 @@ NAMOPushController::NavigationReport NAMOPushController::navigate_to_push_start(
     const auto mid_point = mid_point_pool_[edge_idx];
     const double push_theta = std::atan2(mid_point[1] - edge_point[1], mid_point[0] - edge_point[0]);
 
-    report.ok = navigate_to_edge_point(object_name, edge_point, push_theta, &report.teleport_pose);
+    report.ok = navigate_to_edge_point(object_name, edge_point, push_theta, &report);
     const auto pose = get_current_robot_pose();
     report.final_pose = {pose.x_m, pose.y_m, pose.theta_rad};
     report.nav_time_s = last_nav_time_s_;
@@ -625,15 +815,33 @@ void NAMOPushController::log_push_control(
 }
 
 void NAMOPushController::settle_after_push(bool use_diff_drive_tracking, int settle_steps) {
+    if (use_diff_drive_tracking && car_cfg_.car_push_retreat) {
+        retreat_after_push();
+    }
     if (use_diff_drive_tracking) {
-        env_.apply_wheel_control(0.0, 0.0);
+        if (command_delay_active()) {
+            // The stop reaches the motors after the same lag as every command
+            // before it, so the last push commands still play out.
+            command_delay_line_.push_back(
+                {env_.get_mujoco_wrapper()->data()->time + car_cfg_.car_command_delay_s, 0.0, 0.0});
+        } else {
+            env_.apply_wheel_control(0.0, 0.0);
+        }
     } else {
         env_.apply_robot_control(0.0, 0.0);
     }
     for (int i = 0; i < settle_steps; ++i) {
+        if (!command_delay_line_.empty()) {
+            release_delayed_commands();
+        }
         env_.step_simulation();
         env_.get_mujoco_wrapper()->notify_physics_step();
         dump_qpos(env_, /*phase=*/3);
+    }
+    // A delay longer than the settle leaves the stop in flight; deliver it now.
+    if (!command_delay_line_.empty()) {
+        env_.apply_wheel_control(0.0, 0.0);
+        command_delay_line_.clear();
     }
 }
 
@@ -643,6 +851,8 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
     // Reset controller-level stuck counter at the start of every primitive execution
     last_stuck_counter_ = 0;
     last_push_stopped_early_ = false;
+    // Delayed commands are keyed on sim time, which a state restore can rewind.
+    command_delay_line_.clear();
 
     // Reset collision tracking for this push
     clear_collision_tracking();
@@ -836,6 +1046,9 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
                 log_push_control(t, ctrl_left, ctrl_right, follower_step.mode);
             }
 
+            if (!command_delay_line_.empty()) {
+                release_delayed_commands();
+            }
             env_.step_simulation();
             env_.get_mujoco_wrapper()->notify_physics_step();
             dump_qpos(env_, /*phase=*/3);

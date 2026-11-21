@@ -178,6 +178,11 @@ if(BUILD_PYTHON_BINDINGS)
     )
     FetchContent_MakeAvailable(pybind11)
     
+    # The car v2 drive planner must round like the NumPy planner it ports (parity test in
+    # python/tests/test_car_v2_controller_parity.py), so no -ffast-math and no fused multiply-add.
+    set_source_files_properties(src/wavefront/proximity_path.cpp
+        PROPERTIES COMPILE_OPTIONS "-fno-fast-math;-ffp-contract=off")
+
     # Python RL environment sources
     set(PYTHON_RL_SOURCES
         python/namo/cpp_bindings/rl_env.cpp

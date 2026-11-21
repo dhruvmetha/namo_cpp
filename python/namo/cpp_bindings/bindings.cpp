@@ -4,6 +4,7 @@
 #include "python/namo/cpp_bindings/rl_env.hpp"
 #include "navigation/car_navigation_controller.hpp"
 #include "navigation/push_path_follower.hpp"
+#include "wavefront/proximity_path.hpp"
 
 namespace py = pybind11;
 
@@ -300,12 +301,27 @@ PYBIND11_MODULE(namo_rl, m) {
                out["final_pose"] = r.final_pose;
                out["nav_time_s"] = r.nav_time_s;
                out["failure_reason"] = r.failure_reason;
+               out["path"] = r.path;
+               out["start_xy"] = r.start_xy;
+               out["goal_xy"] = r.goal_xy;
+               out["grid"] = r.grid;
+               out["grid_origin"] = r.grid_origin;
+               out["grid_resolution"] = r.grid_resolution;
                return out;
            },
            py::arg("object_name"), py::arg("edge_idx"),
            "Move the robot to the push start of (object, edge) as a push would, without "
            "pushing. Returns ok, teleport_pose and final_pose (x, y, theta), nav_time_s (sim "
-           "time spent driving, 0 under teleport) and failure_reason.");
+           "time spent driving, 0 under teleport) and failure_reason. Also the path driven "
+           "(the BFS path under teleport), start_xy, goal_xy (the edge point) and the inflated "
+           "grid ([x][y], -1 = obstacle) with grid_origin and grid_resolution.");
+
+    m.def("plan_proximity_path", &namo::plan_proximity_path,
+          py::arg("grid"), py::arg("origin_x"), py::arg("origin_y"), py::arg("resolution"),
+          py::arg("start"), py::arg("goal"), py::arg("proximity_distance_m"),
+          py::arg("proximity_weight"),
+          "Car v2 drive path: port of robot_control's WavefrontPathPlanner (proximity cost, "
+          "Dijkstra, gradient descent) on an [x][y] grid with -1 = obstacle. Cell centres.");
 
     // Ported robot_control controllers, bound for the C++/Python parity test
     // (python/tests/test_car_v2_controller_parity.py).

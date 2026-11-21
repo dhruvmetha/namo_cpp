@@ -21,6 +21,7 @@ import sys
 import zlib
 from pathlib import Path
 
+import numpy as np
 import pytest
 import yaml
 
@@ -38,6 +39,7 @@ from robot_control.controller import navigation as nav_module  # noqa: E402
 from robot_control.controller.config import load_controller_configs  # noqa: E402
 from robot_control.controller.follow_path import FollowPathController  # noqa: E402
 from robot_control.core.types import Observation, WorkspaceConfig  # noqa: E402
+from robot_control.utils.wavefront import WavefrontConfig, WavefrontPlanner  # noqa: E402
 
 TOL = 1e-12
 CAR_CM = 7.0                      # real.yaml robot width_cm / height_cm
@@ -267,6 +269,60 @@ def test_navigation_controller_states_and_commands_match(monkeypatch, name, wayp
         assert states[:2] == ["PRE_ROTATING", "FOLLOWING"] and "POST_ROTATING" in states
 
 
+# Drive path planner (car_nav_path_planner "proximity_dijkstra") against robot_control's
+# WavefrontPlanner on the same inflated grid. The C++ takes NAMO's grid; the Python normally
+# rasterizes its own, so it is handed NAMO's grid here, and the paths must match cell for cell.
+PLANNER_SCENES = [
+    REPO_ROOT / "python" / "tests" / "data" / name
+    for name in ("best_first_car_1x_d5_fixture.xml", "stuck_after_motion_car_fixture.xml",
+                 "rotation_jam_car_fixture.xml", "two_movable_doorway_fixture.xml")
+]
+V1_CONFIG = REPO_ROOT / "config" / "namo_config_complete_skill15_car_1x.yaml"
+
+
+def _python_plan(grid, origin, res, start, goal):
+    nav = CONFIGS.navigation
+    planner = WavefrontPlanner(WavefrontConfig(
+        resolution=res,
+        obstacle_proximity_distance=nav.obstacle_proximity_distance_cm / 100.0,
+        obstacle_proximity_weight=nav.obstacle_proximity_weight,
+    ))
+    occupancy = np.array(grid, dtype=np.int64).T  # NAMO [x][y] -> Python [gj, gi]
+    planner._grid = np.where(occupancy == -1, planner.OBSTACLE, planner.FREE).astype(np.int8)
+    planner._width, planner._height = occupancy.shape[1], occupancy.shape[0]
+    planner._bounds = (origin[0], origin[0] + planner._width * res,
+                       origin[1], origin[1] + planner._height * res)
+    planner._build_cost_grid()
+    return [tuple(p) for p in planner.plan(tuple(start), tuple(goal))]
+
+
+@pytest.mark.parametrize("scene", PLANNER_SCENES, ids=[p.stem for p in PLANNER_SCENES])
+def test_proximity_planner_matches_python_on_scene_grids(scene):
+    env = namo_rl.RLEnvironment(str(scene), str(V1_CONFIG), False)
+    s0 = env.get_full_state()
+    obj = sorted(env.get_reachable_objects())[0]
+    reports = []
+    for edge in env.get_reachable_edges(obj)[:3]:
+        env.set_full_state(s0)
+        reports.append(env.navigate_to_push_start(obj, edge))
+    grid, origin, res = reports[0]["grid"], reports[0]["grid_origin"], reports[0]["grid_resolution"]
+    pairs = [(r["start_xy"], r["goal_xy"]) for r in reports]
+    free = [(x, y) for x in range(len(grid)) for y in range(len(grid[0])) if grid[x][y] != -1]
+    rng = random.Random(zlib.crc32(scene.name.encode()))
+    centre = lambda c: (origin[0] + (c[0] + 0.5) * res, origin[1] + (c[1] + 0.5) * res)  # noqa: E731
+    pairs += [(centre(a), centre(b)) for a, b in (rng.sample(free, 2) for _ in range(8))]
+    nav = CONFIGS.navigation
+    found = 0
+    for start, goal in pairs:
+        cpp = namo_rl.plan_proximity_path(grid, origin[0], origin[1], res, list(start), list(goal),
+                                          nav.obstacle_proximity_distance_cm / 100.0,
+                                          nav.obstacle_proximity_weight)
+        py = _python_plan(grid, origin, res, start, goal)
+        assert [tuple(p) for p in cpp] == py, f"{scene.name}: {start} -> {goal}"
+        found += bool(py)
+    assert found >= len(reports), f"{scene.name}: the push-start paths should exist"
+
+
 def test_v2_config_carries_controller_yaml_values():
     skill = yaml.safe_load(V2_CONFIG.read_text())["skill"]
     nav = CONFIGS.navigation
@@ -279,3 +335,14 @@ def test_v2_config_carries_controller_yaml_values():
     assert skill["push"]["approach_skip_distance_m"] * 100.0 == CONFIGS.push.approach_skip_distance
     assert skill["push"]["approach_skip_angle"] == CONFIGS.push.approach_skip_angle
     assert skill["dynamic_direction"] == CONFIGS.push.dynamic_direction
+    assert skill["navigation"]["obstacle_proximity_distance_m"] * 100.0 == \
+        nav.obstacle_proximity_distance_cm
+    assert skill["navigation"]["obstacle_proximity_weight"] == nav.obstacle_proximity_weight
+    push = CONFIGS.push
+    assert skill["push"]["retreat_speed"] == push.retreat_speed
+    assert skill["push"]["retreat_steps"] == push.retreat_steps
+    assert skill["push"]["retreat_min_dist_m"] * 100.0 == push.retreat_min_dist
+    assert skill["push"]["retreat_max_dist_m"] * 100.0 == push.retreat_max_dist
+    assert skill["push"]["retreat_cone_angle"] == push.retreat_cone_angle
+    assert skill["push"]["retreat_tolerance_m"] * 100.0 == push.retreat_tolerance
+    assert skill["push"]["retreat_steer_gain"] == push.retreat_steer_gain
