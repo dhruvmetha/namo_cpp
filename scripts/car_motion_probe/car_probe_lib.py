@@ -17,10 +17,7 @@ import mujoco
 import numpy as np
 
 DT = 0.002
-WHEEL_R = 0.015
-TRACK = 0.075                     # wheel body y offsets +-0.0375
 CRUISE_MS = 0.05357               # skill.push_tracker_max_speed x kCarWheelMaxSpeedMs (1.0)
-CRUISE_OMEGA = CRUISE_MS / WHEEL_R
 
 WHEELS = {"L": ("left_wheel", "left_wheel_joint", "left_wheel_collision", "left_wheel_drive"),
           "R": ("right_wheel", "right_wheel_joint", "right_wheel_collision", "right_wheel_drive")}
@@ -60,7 +57,12 @@ class Car:
         self.floor = n(G, "floor")
         self.wheel = {k: dict(body=n(B, b), dof=m.jnt_dofadr[n(J, j)], qpos=m.jnt_qposadr[n(J, j)],
                               geom=n(G, g), act=n(A, a)) for k, (b, j, g, a) in WHEELS.items()}
-        self.caster = {k: dict(body=n(B, b), geom=n(G, g)) for k, (b, g) in CASTERS.items()}
+        self.caster = {k: dict(body=n(B, b), geom=n(G, g)) for k, (b, g) in CASTERS.items() if n(B, b) >= 0}
+        # geometry read from the model, so v1 and v2 cars are measured by the same code
+        self.wheel_r = float(m.geom_size[self.wheel["L"]["geom"]][0])
+        self.track = float(abs(m.body_pos[self.wheel["L"]["body"]][1] - m.body_pos[self.wheel["R"]["body"]][1]))
+        self.cruise_omega = CRUISE_MS / self.wheel_r     # what the v1 controller sends at cruise
+        self.supports = [f"w{k}" for k in self.wheel] + [f"c{k}" for k in self.caster]
         self.chassis = {n(G, g) for g in CHASSIS_GEOMS}
         self.block = {n(G, g): g for g in block_geoms}
         self.robot_geoms = self.chassis | {w["geom"] for w in self.wheel.values()} | \
@@ -112,7 +114,7 @@ def record(m, d, car: Car):
         omega = d.qvel[wh["dof"]]
         wang, wlin = _body_vel(m, d, wh["body"])
         v_c = wlin @ hxy
-        rw = WHEEL_R * omega
+        rw = car.wheel_r * omega
         out[f"ctrl_{k}"] = d.ctrl[wh["act"]]
         out[f"omega_{k}"] = omega
         out[f"tau_{k}"] = d.actuator_force[wh["act"]]
@@ -120,7 +122,7 @@ def record(m, d, car: Car):
         out[f"vctr_{k}"] = v_c
     # contacts with the floor and with blocks
     groups = {f"w{k}": {wh["geom"]} for k, wh in car.wheel.items()}
-    groups.update({f"c{k}": {c["geom"]} for k, c in car.caster.items()})
+    groups.update({f"c{k}": {c["geom"]} for k, c in car.caster.items()})   # only casters the model has
     groups["chassis"] = car.chassis
     for g in groups:
         out[f"n_{g}"] = 0; out[f"fn_{g}"] = 0.0; out[f"ft_{g}"] = 0.0; out[f"mu_{g}"] = np.nan
@@ -164,8 +166,8 @@ def run(m, d, car: Car, ctrl_fn, ticks, qpos_log=None):
         rows.append(record(m, d, car))
         if qpos_log is not None:
             qpos_log.append(d.qpos.copy())
-    return {k: np.array([r.get(k, np.nan) for r in rows]) for k in rows[0]} | \
-        {k: np.array([r.get(k, np.nan) for r in rows]) for k in ("cslip_F", "cslip_B", "cspeed_F", "cspeed_B")}
+    keys = set(rows[0]) | {f"{a}_{k}" for a in ("cslip", "cspeed") for k in car.caster}
+    return {k: np.array([r.get(k, np.nan) for r in rows]) for k in keys}
 
 
 def jerk(a):

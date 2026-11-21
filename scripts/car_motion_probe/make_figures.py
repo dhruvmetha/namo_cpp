@@ -19,6 +19,8 @@ import car_probe_lib as L
 
 W, H, FPS = 1280, 720, 30
 REAL = int(round(1 / (FPS * L.DT)))          # ticks per frame at real time (17)
+V1_WHEEL_R = 0.015                            # these figures are of the v1 baseline
+V1_CRUISE_OMEGA = L.CRUISE_MS / V1_WHEEL_R
 
 
 def plots(out):
@@ -29,12 +31,12 @@ def plots(out):
                                        (s, "stop from cruise, wheels stepped to 0")]):
         k = slice(0, 60)
         tt = 1000 * L.DT * np.arange(60)
-        off = (tr["n_wL"] + tr["n_wR"] + tr["n_cF"] + tr["n_cB"])[k] == 0
+        off = sum(tr[f"n_{g}"] for g in ("wL", "wR", "cF", "cB"))[k] == 0
         for axx in ax[:, col]:
             axx.fill_between(tt, 0, 1, where=off, transform=axx.get_xaxis_transform(), color="0.85",
                              label="no support touching floor")
         ax[0, col].plot(tt, 100 * tr["v_fwd"][k], label="chassis speed")
-        ax[0, col].plot(tt, 100 * L.WHEEL_R * tr["omega_L"][k], "--", label="wheel surface speed r*omega")
+        ax[0, col].plot(tt, 100 * V1_WHEEL_R * tr["omega_L"][k], "--", label="wheel surface speed r*omega")
         ax[0, col].axhline(100 * L.CRUISE_MS, color="k", lw=0.6, ls=":", label="commanded 5.36 cm/s")
         ax[0, col].set_ylabel("cm/s"); ax[0, col].set_title(title); ax[0, col].legend(fontsize=7)
         for g, lab in [("wL", "left wheel"), ("cF", "front caster"), ("cB", "rear caster")]:
@@ -50,7 +52,7 @@ def plots(out):
     n = len(e["ctrl"]); t = L.DT * np.arange(n)
     fig, ax = plt.subplots(4, 1, figsize=(12, 10), sharex=True)
     ax[0].plot(t, e["ctrl"][:, 0], label="left wheel command"); ax[0].plot(t, e["ctrl"][:, 1], label="right wheel command")
-    ax[0].axhline(L.CRUISE_OMEGA, color="k", lw=0.6, ls=":"); ax[0].set_ylabel("rad/s"); ax[0].legend(fontsize=8)
+    ax[0].axhline(V1_CRUISE_OMEGA, color="k", lw=0.6, ls=":"); ax[0].set_ylabel("rad/s"); ax[0].legend(fontsize=8)
     ax[0].set_title("one v1 push (obstacle_1, edge 30, depth 4) through the C++ controller")
     ax[1].plot(t[5:-5], 100 * e["v_cpp"], label="chassis speed (C++ qpos, 10 ms difference)")
     ax[1].axhline(100 * L.CRUISE_MS, color="k", lw=0.6, ls=":", label="commanded"); ax[1].set_ylabel("cm/s"); ax[1].legend(fontsize=8)

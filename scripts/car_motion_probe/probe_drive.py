@@ -23,10 +23,10 @@ def steady(x, t, t0):
     return float(np.nanmean(x[sel])), float(np.nanstd(x[sel]))
 
 
-def contact_summary(s, t0=0.5):
+def contact_summary(s, car, t0=0.5):
     sel = s["t"] >= t0
     out = {}
-    for g in ("wL", "wR", "cF", "cB", "chassis"):
+    for g in car.supports + ["chassis"]:
         n = s[f"n_{g}"][sel]
         out[g] = dict(no_contact_frac=float(np.mean(n == 0)), fn_mean=float(np.mean(s[f"fn_{g}"][sel])),
                       fn_min=float(np.min(s[f"fn_{g}"][sel])), fn_max=float(np.max(s[f"fn_{g}"][sel])),
@@ -34,9 +34,9 @@ def contact_summary(s, t0=0.5):
     return out
 
 
-def airborne(s, z_ref):
+def airborne(s, car, z_ref):
     """Ticks with no wheel or caster touching the floor, and the peak hop height."""
-    off = (s["n_wL"] + s["n_wR"] + s["n_cF"] + s["n_cB"]) == 0
+    off = sum(s[f"n_{g}"] for g in car.supports) == 0
     return dict(airborne_ticks=int(off.sum()), airborne_ms=1000 * L.DT * int(off.sum()),
                 hop_mm=1000 * float(max(0.0, s["z"].max() - z_ref)))
 
@@ -47,15 +47,15 @@ def settle_time_ms(v, target, tol=0.05):
     return 1000 * L.DT * (int(bad[-1]) + 2) if len(bad) else 0.0
 
 
-def loads(s, t, t0):
+def loads(s, car, t, t0):
     sel = t >= t0
     return {g: dict(fn=float(np.mean(s[f"fn_{g}"][sel])),
                     ft_over_fn=float(np.mean(s[f"ft_{g}"][sel] / np.maximum(s[f"fn_{g}"][sel], 1e-9))))
-            for g in ("wL", "wR", "cF", "cB")}
+            for g in car.supports}
 
 
 def straight(m, d, car, qlog):
-    s = L.run(m, d, car, lambda i: (L.CRUISE_OMEGA, L.CRUISE_OMEGA), 1500, qlog)   # 3 s
+    s = L.run(m, d, car, lambda i: (car.cruise_omega, car.cruise_omega), 1500, qlog)   # 3 s
     t, v = s["t"] - s["t"][0] + L.DT, s["v_fwd"]
     v_ss, v_sd = steady(v, t, 1.5)
     i10 = int(np.argmax(v >= 0.1 * v_ss)); i90 = int(np.argmax(v >= 0.9 * v_ss))
@@ -72,11 +72,11 @@ def straight(m, d, car, qlog):
         pitch_peak_deg=float(np.max(np.abs(s["pitch"]))), pitch_steady_deg=steady(s["pitch"], t, 1.5),
         jerk_rms=float(np.sqrt(np.mean(j ** 2))), jerk_max=float(np.max(np.abs(j))),
         jerk_rms_after_1s=float(np.sqrt(np.mean(j[t[1:] >= 1] ** 2))),
-        contacts=contact_summary(s),
+        contacts=contact_summary(s, car),
         settle_to_5pct_ms=settle_time_ms(v, v_ss),
-        **airborne(s, float(np.median(s["z"][t >= 1.5]))),
-        caster_slip_over_speed_steady={k: float(np.nanmedian((s[f"cslip_{k}"] / s[f"cspeed_{k}"])[t >= 1.5])) for k in "FB"},
-        steady_loads=loads(s, t, 1.5),
+        **airborne(s, car, float(np.median(s["z"][t >= 1.5]))),
+        caster_slip_over_speed_steady={k: float(np.nanmedian((s[f"cslip_{k}"] / s[f"cspeed_{k}"])[t >= 1.5])) for k in car.caster},
+        steady_loads=loads(s, car, t, 1.5),
         wheel_torque_steady_Nm={k: steady(s[f"tau_{k}"], t, 1.5)[0] for k in "LR"},
         wheel_omega_steady=steady(s["omega_L"], t, 1.5)[0],
     )
@@ -85,14 +85,14 @@ def straight(m, d, car, qlog):
 def spin(m, d, car, omega, qlog, ticks=2250):
     s = L.run(m, d, car, lambda i: (-omega, omega), ticks, qlog)
     t = s["t"] - s["t"][0] + L.DT
-    cmd = 2 * L.WHEEL_R * omega / L.TRACK
+    cmd = 2 * car.wheel_r * omega / car.track
     yr, yr_sd = steady(s["yaw_rate"], t, 1.0)
     x0, y0 = s["x"][0], s["y"][0]
     drift = np.hypot(s["x"] - x0, s["y"] - y0)
     turns = float(np.sum(np.abs(np.diff(np.unwrap(s["yaw"])))) / (2 * np.pi))
     sel = t >= 1.0
     cs = {}
-    for k in "FB":
+    for k in car.caster:
         speed, slip = s[f"cspeed_{k}"][sel], s[f"cslip_{k}"][sel]
         ok = np.isfinite(slip) & (speed > 1e-4)
         cs[k] = dict(slip_over_speed_median=float(np.median(slip[ok] / speed[ok])) if ok.any() else None,
@@ -106,12 +106,12 @@ def spin(m, d, car, omega, qlog, ticks=2250):
 
 
 def arc(m, d, car, qlog):
-    wl, wr = 0.5 * L.CRUISE_OMEGA, L.CRUISE_OMEGA
+    wl, wr = 0.5 * car.cruise_omega, car.cruise_omega
     s = L.run(m, d, car, lambda i: (wl, wr), 2500, qlog)              # 5 s
     t = s["t"] - s["t"][0] + L.DT
-    vl, vr = L.WHEEL_R * wl, L.WHEEL_R * wr
-    cmd_R = (L.TRACK / 2) * (vr + vl) / (vr - vl)
-    cmd_w = (vr - vl) / L.TRACK
+    vl, vr = car.wheel_r * wl, car.wheel_r * wr
+    cmd_R = (car.track / 2) * (vr + vl) / (vr - vl)
+    cmd_w = (vr - vl) / car.track
     sel = t >= 1.0
     x, y = s["x"][sel], s["y"][sel]
     A = np.c_[2 * x, 2 * y, np.ones_like(x)]
@@ -125,7 +125,7 @@ def arc(m, d, car, qlog):
 
 
 def stop(m, d, car, qlog):
-    s1 = L.run(m, d, car, lambda i: (L.CRUISE_OMEGA, L.CRUISE_OMEGA), 1000, qlog)   # cruise 2 s
+    s1 = L.run(m, d, car, lambda i: (car.cruise_omega, car.cruise_omega), 1000, qlog)   # cruise 2 s
     s = L.run(m, d, car, lambda i: (0.0, 0.0), 500, qlog)                            # wheels to 0
     t = s["t"] - s["t"][0] + L.DT
     v = s["v_fwd"]
@@ -140,7 +140,7 @@ def stop(m, d, car, qlog):
                    peak_decel_ms2=float(-s["a_fwd"].min()), max_reverse_speed_mms=1000 * float(max(0.0, -v.min())),
                    pitch_peak_deg=float(np.max(np.abs(s["pitch"]))),
                    settle_to_1mms_ms=1000 * L.DT * (int(np.where(np.abs(v) > 1e-3)[0][-1]) + 2),
-                   **airborne(s, float(np.median(s1["z"][-200:]))),
+                   **airborne(s, car, float(np.median(s1["z"][-200:]))),
                    slip_peak={k: float(np.max(np.abs(s[f"slip_{k}"][:50]))) for k in "LR"},
                    jerk_max=float(np.max(np.abs(j))))
 
@@ -182,12 +182,11 @@ def main():
 
     d = fresh()
     res["friction_at_rest"] = friction_table(m, d, car)
-    res["weight_N"] = float(sum(m.body_mass[b] for b in range(m.nbody) if b and
-                                mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, "car") in
-                                (b, m.body_rootid[b])) * 9.81)
+    res["weight_N"] = float(sum(m.body_mass[b] for b in range(m.nbody) if b and m.body_rootid[b] == car.car) * 9.81)
+    res["geometry"] = dict(wheel_r=car.wheel_r, track=car.track, cruise_omega=car.cruise_omega, casters=list(car.caster))
     jobs = [("a_straight", lambda d, q: straight(m, d, car, q)),
-            ("b_spin_fast", lambda d, q: spin(m, d, car, L.CRUISE_OMEGA, q)),
-            ("b_spin_slow", lambda d, q: spin(m, d, car, 0.25 * L.CRUISE_OMEGA, q, ticks=4500)),
+            ("b_spin_fast", lambda d, q: spin(m, d, car, car.cruise_omega, q)),
+            ("b_spin_slow", lambda d, q: spin(m, d, car, 0.25 * car.cruise_omega, q, ticks=4500)),
             ("c_arc", lambda d, q: arc(m, d, car, q)),
             ("d_stop", lambda d, q: stop(m, d, car, q))]
     for name, fn in jobs:

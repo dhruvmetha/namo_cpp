@@ -152,7 +152,7 @@ def main():
     t = np.arange(n_push) * L.DT
     ctrl = c["ctrl"]
     dctrl = np.abs(np.diff(ctrl, axis=0))
-    wcr = L.CRUISE_OMEGA
+    wcr = car.cruise_omega
     v = s["v_fwd"]
     on = s["n_block"] > 0
     seg = segments(on)
@@ -176,7 +176,7 @@ def main():
         yaw_rate_rms_dps=float(np.degrees(np.sqrt(np.mean(s["yaw_rate"] ** 2)))),
         yaw_rate_max_dps=float(np.degrees(np.abs(s["yaw_rate"]).max())),
         pitch_max_deg=float(np.abs(s["pitch"]).max()),
-        airborne_ticks=int(((s["n_wL"] + s["n_wR"] + s["n_cF"] + s["n_cB"]) == 0).sum()),
+        airborne_ticks=int((sum(s[f"n_{g}"] for g in car.supports) == 0).sum()),
         block_contact_frac=float(on.mean()), block_contact_onsets=int(np.sum(on[1:] & ~on[:-1]) + on[0]),
         block_contact_on_ms_mean=1000 * L.DT * float(np.mean(seg[True])) if seg[True] else 0.0,
         block_contact_off_ms_mean=1000 * L.DT * float(np.mean(seg[False])) if seg[False] else 0.0,

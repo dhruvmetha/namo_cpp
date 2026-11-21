@@ -1,0 +1,178 @@
+"""The diff-drive car, v2: one file that the v1->v2 converter and future scene generators share.
+
+Every robot constant below carries its source:
+  v1           the v1 block, CAR_BODY / FOOTER in scripts/pipeline/gen_real_buildable_scenes.py
+  published    microMVP V3, https://people.cs.rutgers.edu/~jy512/mvp/ and /pna.html, and the
+               Pololu pages it links (gearmotor https://www.pololu.com/product/1512,
+               wheels https://www.pololu.com/product/1088), read 2026-11-21
+  robot repo   ktamp/robot_control at c3f4820a (config/real.yaml, config/controller.yaml,
+               src/robot_control/controller/navigation.py)
+  placeholder  not measured on our robot and not published; to be measured or fitted
+
+Switches, so each change can be measured alone and together (V1 and V2 below):
+  body       "v1": v1's 0.5 kg car with 1.5 cm x 1 mm wheels on a 7.5 cm track.
+             "mvp": the published build, just under 100 g, 32 x 7 mm wheels. The 7 x 7 cm
+             chassis box stays (user decision 2026-11-21: planner geometry and robot repo
+             config/real.yaml both use 7 x 7), so only mass, wheels and track change.
+  caster     "v1": two 2.5 mm spheres on ball joints, friction "0 0 0". MuJoCo uses the larger
+             friction of two geoms, so they meet the floor at 0.5 and skid, dragging 1.34 N
+             (27% of v1's weight). "one_frictionless" (M1): one caster, as the published build
+             has, with priority 1 and condim 1 so its floor contact has no friction, no joint,
+             and the chassis centre of mass moved toward it so the car rests on three points.
+  wheel      "v1": hinge damping 0.01, 78% of v1's steady wheel torque. "v2" (M2): damping 0.
+  actuator   "v1": velocity servo kv 0.75, +-0.5 N m. "pwm" (M3): a PWM-driven DC motor,
+             torque = STALL_TORQUE*u - (STALL_TORQUE/NO_LOAD_SPEED)*omega within +-STALL_TORQUE,
+             plus wheel-joint frictionloss DEADBAND_PWM*STALL_TORQUE for gearbox stiction.
+  ctrl_units "pwm": ctrl is the PWM in [-1, 1]. "omega": the v1 C++ controller writes wheel
+             speeds in rad/s (cruise 0.05357/r) into ctrl, so the gain is scaled to make that
+             number mean the PWM the real firmware sends at cruise (cruise -> CRUISE_PWM 0.4).
+             Same torque for the same physical PWM; only the meaning of ctrl differs.
+
+The names the C++ DiffDriveAdapter looks up are kept (car_freejoint, left/right_wheel_drive,
+left_wheel_collision, left/right_wheel); a single caster is named rear_support_body so the
+adapter's skip list still keeps it out of the object list.
+"""
+from __future__ import annotations
+
+import xml.etree.ElementTree as ET
+
+# ---- chassis box (all bodies) ----
+SPAWN_Z = 0.01                          # v1: body origin starts 1 cm up and drops onto the wheels
+CHASSIS_HALF = (0.035, 0.035, 0.0325)   # v1 7 x 7 x 6.5 cm. Robot repo real.yaml: physical car 6 x 6 cm,
+                                        # 7 x 7 is the planner footprint with a 0.5 cm buffer; kept (user)
+CHASSIS_CENTER_Z = 0.0375               # v1: 5 mm ground clearance + 3.25 cm half height
+
+BODY = {
+    "v1": dict(
+        chassis_mass=0.35,                              # v1
+        chassis_inertia=(0.000266, 0.000266, 0.000286), # v1
+        wheel_radius=0.015,                             # v1
+        wheel_half_width=0.0005,                        # v1: 1 mm wheels
+        wheel_y=0.0375,                                 # v1: 7.5 cm track
+        wheel_mass=0.05,                                # v1
+        wheel_inertia=(0.000003, 0.000006, 0.000003),   # v1
+        caster_mass=0.025,                              # v1
+        caster_inertia=(0.000001, 0.000001, 0.000001),  # v1
+    ),
+    "mvp": dict(
+        # total 0.095 kg: published "just under 100 grams"; split below is a placeholder
+        chassis_mass=0.087,                             # 0.095 - 2 wheels - caster
+        chassis_inertia=(0.000266 * 0.087 / 0.35, 0.000266 * 0.087 / 0.35, 0.000286 * 0.087 / 0.35),
+                                                        # v1's box inertia scaled to the mass (same box)
+        wheel_radius=0.016,                             # published: Pololu 32 mm wheels
+        wheel_half_width=0.0035,                        # published: 7 mm wide
+        wheel_y=0.0265,                                 # placeholder: track not published; wheel outer
+                                                        # faces at +-3.0 cm, the robot repo's 6 cm physical width
+        wheel_mass=0.003,                               # placeholder: not published
+        wheel_inertia=(2.04e-7, 3.84e-7, 2.04e-7),      # solid 3 g disc, r 1.6 cm, 7 mm wide
+        caster_mass=0.002,                              # placeholder: not published
+        caster_inertia=(1e-9, 1e-9, 1e-9),              # small ball; irrelevant without a joint
+    ),
+}
+ARMATURE = 0.0001       # v1 value, kept as a placeholder reflected rotor inertia (~1e-8 kg m^2 rotor x 120^2)
+
+# ---- casters ----
+CASTER_X = 0.03         # v1: 3 cm from the axle; v1 has one each side, the one-caster layout keeps the rear
+CASTER_RADIUS = 0.0025  # v1; the published metal ball's size is not stated
+ONE_CASTER_COM_X = -0.01    # placeholder: centre of mass 1 cm behind the axle, toward the single rear caster,
+                            # so the car rests on three points; published build does not say where it sits
+V1_CASTER_DAMPING = 0.0001  # v1 ball-joint damping
+
+# ---- wheel joints and motor ----
+V1_WHEEL_DAMPING = 0.01     # v1
+STALL_TORQUE = 0.1765 * 3.7 / 4.5   # published Pololu 1512 (120:1): 1.8 kg cm stall at 4.5 V, scaled to the
+                                    # 1S LiPo's 3.7 V nominal = 0.145 N m. To be refitted from robot logs.
+NO_LOAD_SPEED = 150 * 2 * 3.141592653589793 / 60 * 3.7 / 4.5
+                                    # published: 150 rpm free run at 4.5 V, scaled to 3.7 V = 12.9 rad/s.
+                                    # To be refitted from robot logs.
+DEADBAND_PWM = 0.3          # robot repo navigation.py PHYSICAL_MOVE_COMMAND: "Nothing moves below it"
+FRICTION_SOLREF = (0.004, 1.0)          # stiff gearbox friction: default MuJoCo lets a wheel creep at
+FRICTION_SOLIMP = (0.999, 0.9999, 0.001, 0.5, 2.0)   # 0.3-0.4 rad/s below the deadband; this cuts it to 0.001
+CRUISE_PWM = 0.4            # robot repo controller.yaml push.max_speed; real cruise 5.125 cm/s
+CRUISE_MS = 0.05357         # v1 controller cruise (push_tracker_max_speed x kCarWheelMaxSpeedMs)
+# Not modelled: the firmware's RIGHT_GAIN 0.87 right-wheel trim (robot repo controller.yaml), which
+# offsets a motor mismatch on the real car; v2's two motors are identical, so it has nothing to cancel.
+
+V1_KV, V1_FORCE, V1_CTRL = 0.75, 0.5, 25.0      # v1 velocity actuator
+
+V2 = dict(body="mvp", caster="one_frictionless", wheel="v2", actuator="pwm", ctrl_units="pwm")
+V1 = dict(body="v1", caster="v1", wheel="v1", actuator="v1", ctrl_units="pwm")
+
+
+def _f(*xs):
+    return " ".join(repr(float(x)) for x in xs)
+
+
+def car_body_element(sx, sy, body="mvp", caster="one_frictionless", wheel="v2", actuator="pwm", **_) -> ET.Element:
+    """The car <body>, built element for element in v1's order so all-v1 switches compile to v1."""
+    B = BODY[body]
+    hx, hy, hz = CHASSIS_HALF
+    cz = CHASSIS_CENTER_Z
+    com_x = ONE_CASTER_COM_X if caster == "one_frictionless" else 0.0
+    car = ET.Element("body", {"name": "car", "pos": f"{sx} {sy} {SPAWN_Z!r}"})
+    ET.SubElement(car, "freejoint", {"name": "car_freejoint"})
+    ET.SubElement(car, "inertial", {"pos": _f(com_x, 0, cz), "mass": repr(B["chassis_mass"]),
+                                    "diaginertia": _f(*B["chassis_inertia"])})
+    for side, x, rgba in (("front", hx / 2, "0.3 0.3 0.7 1"), ("rear", -hx / 2, "0.25 0.25 0.6 1")):
+        ET.SubElement(car, "geom", {"name": f"{side}_chassis_collision", "type": "box", "pos": _f(x, 0, cz),
+                                    "size": _f(hx / 2, hy, hz), "rgba": rgba})
+    ET.SubElement(car, "geom", {"name": "front_marker", "type": "box", "pos": "0.034 0 0.0505",
+                                "size": "0.002 0.015 0.01", "rgba": "1 0.2 0.2 1", "contype": "0", "conaffinity": "0"})
+    casters = (("rear", -CASTER_X, "0.7 0.1 0.1 1"),) if caster == "one_frictionless" else \
+        (("rear", -CASTER_X, "0.7 0.1 0.1 1"), ("front", CASTER_X, "0.1 0.7 0.1 1"))
+    for side, x, rgba in casters:
+        b = ET.SubElement(car, "body", {"name": f"{side}_support_body", "pos": _f(x, 0, CASTER_RADIUS)})
+        if caster == "v1":
+            ET.SubElement(b, "joint", {"name": f"{side}_caster_joint", "type": "ball", "damping": repr(V1_CASTER_DAMPING)})
+        ET.SubElement(b, "inertial", {"pos": "0 0 0", "mass": repr(B["caster_mass"]), "diaginertia": _f(*B["caster_inertia"])})
+        g = {"name": f"{side}_support", "type": "sphere", "pos": "0 0 0", "size": repr(CASTER_RADIUS),
+             "friction": "0 0 0", "rgba": rgba}
+        if caster != "v1":
+            g |= {"priority": "1", "condim": "1"}
+        ET.SubElement(b, "geom", g)
+    r = B["wheel_radius"]
+    for side, y in (("left", B["wheel_y"]), ("right", -B["wheel_y"])):
+        b = ET.SubElement(car, "body", {"name": f"{side}_wheel", "pos": _f(0, y, r)})
+        ET.SubElement(b, "inertial", {"pos": "0 0 0", "mass": repr(B["wheel_mass"]), "diaginertia": _f(*B["wheel_inertia"])})
+        j = {"name": f"{side}_wheel_joint", "type": "hinge", "axis": "0 1 0",
+             "damping": repr(V1_WHEEL_DAMPING if wheel == "v1" else 0.0), "armature": repr(ARMATURE)}
+        if actuator == "pwm":
+            j |= {"frictionloss": repr(DEADBAND_PWM * STALL_TORQUE),
+                  "solreffriction": _f(*FRICTION_SOLREF), "solimpfriction": _f(*FRICTION_SOLIMP)}
+        ET.SubElement(b, "joint", j)
+        ET.SubElement(b, "geom", {"name": f"{side}_wheel_collision", "type": "cylinder",
+                                  "size": _f(r, B["wheel_half_width"]), "euler": "90 0 0", "rgba": "0.1 0.1 0.1 1"})
+    return car
+
+
+def actuator_element(body="mvp", actuator="pwm", ctrl_units="pwm", **_) -> ET.Element:
+    act = ET.Element("actuator")
+    cruise_omega = CRUISE_MS / BODY[body]["wheel_radius"]
+    for side in ("left", "right"):
+        if actuator == "v1":
+            ET.SubElement(act, "velocity", {"name": f"{side}_wheel_drive", "joint": f"{side}_wheel_joint",
+                                            "ctrlrange": _f(-V1_CTRL, V1_CTRL), "kv": repr(V1_KV),
+                                            "forcerange": _f(-V1_FORCE, V1_FORCE)})
+            continue
+        pwm_per_ctrl = 1.0 if ctrl_units == "pwm" else CRUISE_PWM / cruise_omega
+        ET.SubElement(act, "general", {
+            "name": f"{side}_wheel_drive", "joint": f"{side}_wheel_joint",
+            "ctrllimited": "true", "ctrlrange": _f(-1 / pwm_per_ctrl, 1 / pwm_per_ctrl),
+            "forcelimited": "true", "forcerange": _f(-STALL_TORQUE, STALL_TORQUE),
+            "gaintype": "fixed", "gainprm": repr(STALL_TORQUE * pwm_per_ctrl),
+            "biastype": "affine", "biasprm": _f(0, 0, -STALL_TORQUE / NO_LOAD_SPEED),
+        })
+    return act
+
+
+def car_body_xml(sx, sy, **opts) -> str:
+    """Text form for generators that assemble scenes as strings (as CAR_BODY is used today)."""
+    car = car_body_element(sx, sy, **(V2 | opts))
+    ET.indent(car, space="  ", level=2)
+    return "    " + ET.tostring(car, encoding="unicode")
+
+
+def actuator_xml(**opts) -> str:
+    act = actuator_element(**(V2 | opts))
+    ET.indent(act, space="  ", level=1)
+    return "  " + ET.tostring(act, encoding="unicode")
