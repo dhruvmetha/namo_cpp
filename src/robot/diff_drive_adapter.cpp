@@ -142,6 +142,13 @@ void DiffDriveAdapter::apply_wheel_control(const mjModel* m, mjData* d,
     d->ctrl[right_actuator_idx_] = omega_right;
 }
 
+void DiffDriveAdapter::apply_normalized_wheel_control(const mjModel* m, mjData* d,
+                                                      double left, double right) const {
+    (void)m;
+    d->ctrl[left_actuator_idx_] = left;
+    d->ctrl[right_actuator_idx_] = right;
+}
+
 std::array<double, 4> DiffDriveAdapter::yaw_to_quat(double theta) {
     // Rotation around z-axis: q = (cos(θ/2), 0, 0, sin(θ/2))
     double half = theta * 0.5;

@@ -114,6 +114,14 @@ public:
      */
     void set_robot_trajectory_collision_checking(bool enabled);
 
+    /**
+     * @brief Move the robot to a push start without pushing (car v2 drive-mode checks).
+     */
+    NAMOPushController::NavigationReport navigate_to_push_start(const std::string& object_name,
+                                                                int edge_idx) {
+        return executor_->get_controller().navigate_to_push_start(object_name, edge_idx);
+    }
+
 private:
     /**
      * @brief Helper methods for skill implementation

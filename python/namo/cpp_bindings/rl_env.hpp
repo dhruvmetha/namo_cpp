@@ -151,6 +151,9 @@ public:
 
     // Collision checking control (for region opening planner)
     void set_robot_trajectory_collision_checking(bool enable);
+    // Drive (or teleport) the robot to the push start of (object, edge) without pushing.
+    NAMOPushController::NavigationReport navigate_to_push_start(const std::string& object_name,
+                                                                int edge_idx);
 
     // Video recording interface
     void start_recording(int width = 640, int height = 480,

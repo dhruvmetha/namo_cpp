@@ -1,7 +1,9 @@
 #pragma once
 
+#include "config/config_manager.hpp"
 #include "core/types.hpp"
 #include "environment/namo_environment.hpp"
+#include "navigation/car_navigation_controller.hpp"
 #include "navigation/push_path_follower.hpp"
 #include "wavefront/wavefront_planner.hpp"
 #include <array>
@@ -137,6 +139,12 @@ private:
     std::unordered_set<std::string> movable_collisions_during_push_;
 
     std::unique_ptr<PushPathFollower> push_path_follower_;
+
+    // Car v2 controller keys (skill.car_*, skill.navigation.*, skill.push.*). Default-constructed
+    // values are car v1.
+    ConfigManager::SkillConfig car_cfg_;
+    // Sim time the last drive-mode navigation took; 0 under teleport.
+    double last_nav_time_s_ = 0.0;
 
 public:
     /**
@@ -331,6 +339,26 @@ public:
         }
     }
 
+    /**
+     * @brief Apply the car v2 controller keys. Rebuilds the push follower (keeping its speed cap)
+     * because its lookahead and ALIGN mode are construction-time parameters.
+     */
+    void configure_car_controller(const ConfigManager::SkillConfig& skill);
+
+    struct NavigationReport {
+        bool ok = false;
+        std::array<double, 3> teleport_pose = {0.0, 0.0, 0.0};  // x, y, theta the teleport uses
+        std::array<double, 3> final_pose = {0.0, 0.0, 0.0};     // where the robot ended up
+        double nav_time_s = 0.0;                                // sim time spent driving
+        std::string failure_reason;
+    };
+
+    /**
+     * @brief Move the robot to the push start of (object, edge) the way execute_push_primitive
+     * does, without pushing or settling. For checking drive mode against teleport.
+     */
+    NavigationReport navigate_to_push_start(const std::string& object_name, int edge_idx);
+
 private:
     /**
      * @brief Generate edge points around a rectangular object
@@ -371,6 +399,17 @@ private:
                                              int ctrl_step);
 
     PushPathFollower::Pose get_current_robot_pose() const;
+    PushPathFollower::Params make_push_follower_params() const;
+    // Wavefront path to the edge point, then teleport or drive. Sets last_failure_reason_.
+    bool navigate_to_edge_point(const std::string& object_name,
+                                const std::array<double, 2>& edge_point,
+                                double push_theta,
+                                std::array<double, 3>* teleport_pose);
+    bool drive_to_edge_point(const std::string& object_name,
+                             const std::vector<std::array<double, 2>>& path,
+                             double push_theta);
+    // Write a [-1, 1] wheel command through the configured actuation. Returns the ctrl values.
+    std::array<double, 2> apply_car_command(double left, double right, double wheel_radius);
     std::vector<std::array<double, 2>> build_push_tracking_path(
         const PushState& state,
         const std::array<double, 2>& actual_pos) const;

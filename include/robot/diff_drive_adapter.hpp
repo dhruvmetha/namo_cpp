@@ -49,6 +49,8 @@ public:
     bool is_diff_drive() const override { return true; }
     void apply_wheel_control(const mjModel* m, mjData* d,
                              double omega_left, double omega_right) const override;
+    void apply_normalized_wheel_control(const mjModel* m, mjData* d,
+                                        double left, double right) const override;
     double get_wheelbase() const override { return wheelbase_; }
     double get_wheel_radius() const override { return wheel_radius_; }
 

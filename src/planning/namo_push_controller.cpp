@@ -9,21 +9,27 @@
 
 namespace {
 
-constexpr double kPushLookaheadRatio = 1.0;   // Was 0.3 — short lookahead amplifies heading
-                                                // noise into PP curvature corrections; 1.0
-                                                // matches robot_control's PushController/Nav
-                                                // and the Tier-1 PP calibration so sim PP has
-                                                // the same noise sensitivity as real PP.
+// The push lookahead ratio is skill.push.lookahead_ratio (default 1.0). It was 0.3: a short
+// lookahead amplifies heading noise into PP curvature corrections, and 1.0 matches
+// robot_control's PushController/Nav and the Tier-1 PP calibration so sim PP has the same noise
+// sensitivity as real PP.
 constexpr double kPushGoalToleranceRatio = 0.3;
 constexpr double kPushPathExtendDistanceM = 0.50;
 
-// Calibration constant: the chassis m/s the diff-drive wheels are commanded
-// to produce when the follower outputs a fraction of 1.0. Mirrors the role
-// of the real MicroMVP firmware's max-speed-at-PWM-1.0 mapping. With this at
-// 1.0, `push_tracker_max_speed` (the follower's fraction cap, set via the
-// skill config) reads directly as chassis m/s during a smooth straight push.
-// Recalibrate against real-robot measurements for sim-real parity.
-constexpr double kCarWheelMaxSpeedMs = 1.0;
+// The chassis m/s the diff-drive wheels are commanded to produce when the
+// follower outputs a fraction of 1.0 is skill.car_wheel_max_speed_ms (default
+// 1.0, the old kCarWheelMaxSpeedMs). It mirrors the role of the real MicroMVP
+// firmware's max-speed-at-PWM-1.0 mapping. At 1.0, `push_tracker_max_speed`
+// (the follower's fraction cap) reads directly as chassis m/s during a smooth
+// straight push. Used only under car_actuation "wheel_velocity".
+
+// Drivetrain dead zone for car_actuation "normalized": |u| < dz -> 0, else u.
+// The real car ignores small PWM, which looks like a driver or firmware dead
+// zone rather than friction. The form may change after the drivetrain fit, so
+// it lives in this one function, outside the parity-tested controllers.
+double apply_command_deadzone(double u, double dz) {
+    return (std::abs(u) < dz) ? 0.0 : u;
+}
 
 // A push that stops on stuck detection keeps its result once the object has
 // travelled at least this far from where the push started; below it the push is
@@ -80,25 +86,7 @@ NAMOPushController::NAMOPushController(NAMOEnvironment& env,
     auto adapter = env_.get_robot_adapter();
 
     if (adapter && adapter->is_diff_drive()) {
-        const double full_width = 2.0 * std::abs(robot_size_[0]);
-        const double full_height = 2.0 * std::abs(robot_size_[1]);
-        const double car_size = std::max(
-            std::max(full_width, full_height),
-            1e-6);
-
-        PushPathFollower::Params follower_params;
-        follower_params.robot_width_m = (full_width > 0.0) ? full_width : 0.07;
-        follower_params.robot_height_m = (full_height > 0.0) ? full_height : 0.07;
-        follower_params.wheel_base_m =
-            (adapter->get_wheelbase() > 0.0) ? adapter->get_wheelbase() : 0.075;
-        follower_params.lookahead_distance_m = kPushLookaheadRatio * car_size;
-        follower_params.goal_tolerance_m = kPushGoalToleranceRatio * car_size;
-        // max_speed left at its Params default (the single source of truth
-        // for the push tracking speed; see push_path_follower.hpp).
-        follower_params.max_point_gap_ratio = 0.01;
-        follower_params.no_skip_ratio = 0.5;
-        follower_params.wheel_deadband = 0.05;
-        push_path_follower_ = std::make_unique<PushPathFollower>(follower_params);
+        push_path_follower_ = std::make_unique<PushPathFollower>(make_push_follower_params());
     }
 
     // Pre-allocate memory pools (they're already initialized as empty)
@@ -336,6 +324,252 @@ PushPathFollower::Pose NAMOPushController::get_current_robot_pose() const {
     return pose;
 }
 
+PushPathFollower::Params NAMOPushController::make_push_follower_params() const {
+    const auto* adapter = env_.get_robot_adapter();
+    const double full_width = 2.0 * std::abs(robot_size_[0]);
+    const double full_height = 2.0 * std::abs(robot_size_[1]);
+    const double car_size = std::max(
+        std::max(full_width, full_height),
+        1e-6);
+    const bool follow_path = car_cfg_.car_push_follower == "follow_path";
+
+    PushPathFollower::Params follower_params;
+    follower_params.robot_width_m = (full_width > 0.0) ? full_width : 0.07;
+    follower_params.robot_height_m = (full_height > 0.0) ? full_height : 0.07;
+    // The real controller's wheel_base is the robot width (robot_control
+    // scripts/run_namo.py:517, wheel_base=car_width_cm); v1 uses the XML's.
+    follower_params.wheel_base_m = follow_path
+        ? follower_params.robot_width_m
+        : ((adapter->get_wheelbase() > 0.0) ? adapter->get_wheelbase() : 0.075);
+    follower_params.lookahead_distance_m = car_cfg_.push_lookahead_ratio * car_size;
+    follower_params.goal_tolerance_m = kPushGoalToleranceRatio * car_size;
+    // max_speed left at its Params default (the single source of truth
+    // for the push tracking speed; see push_path_follower.hpp).
+    follower_params.max_point_gap_ratio = 0.01;
+    follower_params.no_skip_ratio = 0.5;
+    follower_params.wheel_deadband = 0.05;
+    follower_params.align_mode = follow_path;
+    return follower_params;
+}
+
+void NAMOPushController::configure_car_controller(const ConfigManager::SkillConfig& skill) {
+    car_cfg_ = skill;
+    if (push_path_follower_) {
+        const double speed = push_path_follower_->max_speed();
+        push_path_follower_ = std::make_unique<PushPathFollower>(make_push_follower_params());
+        push_path_follower_->set_speed(speed);
+    }
+}
+
+std::array<double, 2> NAMOPushController::apply_car_command(double left,
+                                                            double right,
+                                                            double wheel_radius) {
+    if (car_cfg_.car_actuation == "normalized") {
+        const double l = apply_command_deadzone(left, car_cfg_.car_command_deadzone);
+        const double r = apply_command_deadzone(right, car_cfg_.car_command_deadzone);
+        env_.apply_normalized_wheel_control(l, r);
+        return {l, r};
+    }
+    // Diff-drive: chassis m/s comes from car_wheel_max_speed_ms, NOT
+    // push_velocity_ (which is only used by the holonomic robot). The
+    // follower's fraction x car_wheel_max_speed_ms is the chassis speed
+    // contribution from that wheel; divide by wheel radius to get the angular
+    // velocity the actuator wants.
+    const double left_omega = (left * car_cfg_.car_wheel_max_speed_ms) / wheel_radius;
+    const double right_omega = (right * car_cfg_.car_wheel_max_speed_ms) / wheel_radius;
+    env_.apply_wheel_control(left_omega, right_omega);
+    return {left_omega, right_omega};
+}
+
+bool NAMOPushController::navigate_to_edge_point(const std::string& object_name,
+                                                const std::array<double, 2>& edge_point,
+                                                double push_theta,
+                                                std::array<double, 3>* teleport_pose) {
+    // Refresh the wavefront so path extraction has the current grid.
+    auto robot_state_now = env_.get_robot_state();
+    std::vector<double> start_pos = robot_state_now
+        ? std::vector<double>{robot_state_now->position[0], robot_state_now->position[1]}
+        : std::vector<double>{0.0, 0.0};
+    planner_.update_wavefront(env_, start_pos);
+
+    auto path = planner_.extract_path(
+        {start_pos[0], start_pos[1]},
+        {edge_point[0], edge_point[1]}
+    );
+
+    if (path.empty()) {
+        last_failure_reason_ = "No navigable path to edge point";
+        return false;
+    }
+
+    // Teleport navigation snaps the robot to the final wavefront waypoint with
+    // the target heading. Drive navigation (diff-drive only) gets there under
+    // the ported NavigationController. The push controller does its own
+    // placement-collision check after either.
+    // Emit path for visualization tooling, before a drive so a failed one shows it too.
+    if (std::getenv("NAMO_NAV_LOG")) {
+        std::cerr << "[NAV_PATH]";
+        for (const auto& p : path) {
+            std::cerr << " " << p[0] << "," << p[1];
+        }
+        std::cerr << std::endl;
+    }
+
+    const auto& goal_pt = path.back();
+    if (teleport_pose) {
+        *teleport_pose = {goal_pt[0], goal_pt[1], push_theta};
+    }
+    last_nav_time_s_ = 0.0;
+    if (car_cfg_.car_nav_mode == "drive" && push_path_follower_) {
+        if (!drive_to_edge_point(object_name, path, push_theta)) {
+            return false;
+        }
+    } else {
+        env_.set_robot_se2(goal_pt[0], goal_pt[1], push_theta);
+    }
+
+    if (std::getenv("NAMO_NAV_LOG")) {
+        std::cerr << "[NAV_END]" << std::endl;
+    }
+    return true;
+}
+
+bool NAMOPushController::drive_to_edge_point(const std::string& object_name,
+                                             const std::vector<std::array<double, 2>>& path,
+                                             double push_theta) {
+    const auto* adapter = env_.get_robot_adapter();
+    const mjData* data = env_.get_mujoco_wrapper()->data();
+
+    const auto pose0 = get_current_robot_pose();
+    const auto& goal = path.back();
+
+    // push.py:375-388: already at the approach pose, so skip navigation.
+    const double dtheta = push_theta - pose0.theta_rad;
+    const double angle_error_deg =
+        std::abs(std::atan2(std::sin(dtheta), std::cos(dtheta))) * (180.0 / M_PI);
+    if (std::hypot(goal[0] - pose0.x_m, goal[1] - pose0.y_m) < car_cfg_.push_approach_skip_distance_m &&
+        angle_error_deg < car_cfg_.push_approach_skip_angle) {
+        return true;
+    }
+
+    // Lengths in metres, so one centimetre is 0.01. wheel_base is the robot
+    // width, as on the real car (run_namo.py:517).
+    CarNavigationController::Params nav_params;
+    nav_params.car_width = 2.0 * std::abs(robot_size_[0]);
+    nav_params.car_height = 2.0 * std::abs(robot_size_[1]);
+    nav_params.wheel_base = nav_params.car_width;
+    nav_params.cm = 0.01;
+    nav_params.max_speed = car_cfg_.nav_max_speed;
+    nav_params.pre_rotation_skip_angle = car_cfg_.nav_pre_rotation_skip_angle;
+    nav_params.goal_tolerance_ratio = car_cfg_.nav_goal_tolerance_ratio;
+    nav_params.rotation_tolerance_deg = car_cfg_.nav_rotation_tolerance_deg;
+    nav_params.rotation_stable_time = car_cfg_.nav_rotation_stable_time;
+    nav_params.rotation_speed_max = car_cfg_.nav_rotation_speed_max;
+    nav_params.rotation_speed_min = car_cfg_.nav_rotation_speed_min;
+    nav_params.wheel_deadband = car_cfg_.nav_wheel_deadband;
+    CarNavigationController nav(nav_params);
+
+    if (!nav.navigate_to(push_theta * (180.0 / M_PI), {pose0.x_m, pose0.y_m}, path)) {
+        last_failure_reason_ = "Navigation failed: fewer than two distinct path waypoints";
+        return false;
+    }
+
+    const double wheel_radius =
+        (adapter->get_wheel_radius() > 0.0) ? adapter->get_wheel_radius() : 0.015;
+    const auto robot_bodies = adapter->get_collision_body_names();
+    const auto& static_objects = env_.get_static_objects();
+    const size_t num_static = env_.get_num_static();
+    const auto& movable_objects = env_.get_movable_objects();
+    const size_t num_movable = env_.get_num_movable();
+    const double update_period =
+        (car_cfg_.car_controller_hz > 0.0) ? 1.0 / car_cfg_.car_controller_hz : 0.0;
+    const double t_start = data->time;
+    double next_update = t_start;
+    bool ok = true;
+
+    while (ok) {
+        if (update_period == 0.0 || data->time >= next_update) {
+            next_update += update_period;
+            const auto pose = get_current_robot_pose();
+            const auto command = nav.step(
+                {pose.x_m, pose.y_m, pose.theta_rad * (180.0 / M_PI)}, data->time);
+            if (nav.state() == CarNavigationController::State::FINISHED) {
+                break;
+            }
+            if (nav.state() == CarNavigationController::State::FAILED) {
+                last_failure_reason_ = "Navigation made no progress (" + nav.failure_cause() + ")";
+                ok = false;
+                break;
+            }
+            apply_car_command(command.left_speed, command.right_speed, wheel_radius);
+        }
+        if (data->time - t_start >= car_cfg_.car_nav_max_time_s) {
+            last_failure_reason_ = "Navigation timed out";
+            ok = false;
+            break;
+        }
+
+        env_.step_simulation();
+        env_.get_mujoco_wrapper()->notify_physics_step();
+        dump_qpos(env_, /*phase=*/1);
+
+        // The push loop's robot checks, every tick: walls, and every movable
+        // but the one about to be pushed.
+        for (size_t i = 0; i < num_static && ok; i++) {
+            for (const auto& rb : robot_bodies) {
+                if (env_.bodies_in_collision(rb, static_objects[i].body_name)) {
+                    last_failure_reason_ = "Robot collision during navigation with static object: " +
+                        static_objects[i].body_name + " (via " + rb + ")";
+                    last_collision_object_ = static_objects[i].body_name;
+                    ok = false;
+                    break;
+                }
+            }
+        }
+        for (size_t i = 0; i < num_movable && ok; i++) {
+            if (movable_objects[i].name == object_name) continue;
+            for (const auto& rb : robot_bodies) {
+                if (env_.bodies_in_collision(rb, movable_objects[i].body_name)) {
+                    last_failure_reason_ = "Robot collision during navigation with movable object: " +
+                        movable_objects[i].body_name + " (via " + rb + ")";
+                    last_collision_object_ = movable_objects[i].body_name;
+                    ok = false;
+                    break;
+                }
+            }
+        }
+    }
+
+    env_.apply_wheel_control(0.0, 0.0);
+    last_nav_time_s_ = data->time - t_start;
+    return ok;
+}
+
+NAMOPushController::NavigationReport NAMOPushController::navigate_to_push_start(
+    const std::string& object_name, int edge_idx) {
+    NavigationReport report;
+    edge_point_count_ = 0;
+    mid_point_count_ = 0;
+    if (generate_edge_points(object_name, edge_point_pool_, mid_point_pool_,
+                             edge_point_count_, mid_point_count_) == 0 ||
+        edge_idx >= static_cast<int>(edge_point_count_)) {
+        report.failure_reason = "No such edge point";
+        return report;
+    }
+    const auto edge_point = edge_point_pool_[edge_idx];
+    const auto mid_point = mid_point_pool_[edge_idx];
+    const double push_theta = std::atan2(mid_point[1] - edge_point[1], mid_point[0] - edge_point[0]);
+
+    report.ok = navigate_to_edge_point(object_name, edge_point, push_theta, &report.teleport_pose);
+    const auto pose = get_current_robot_pose();
+    report.final_pose = {pose.x_m, pose.y_m, pose.theta_rad};
+    report.nav_time_s = last_nav_time_s_;
+    if (!report.ok) {
+        report.failure_reason = last_failure_reason_;
+    }
+    return report;
+}
+
 std::vector<std::array<double, 2>> NAMOPushController::build_push_tracking_path(
     const PushState& state,
     const std::array<double, 2>& actual_pos) const {
@@ -442,44 +676,10 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
         push_state.initial_mid_point[0] - push_state.initial_edge_point[0]
     );
 
-    // Navigate from current robot position to the edge point.
-    // For the point robot, this is a teleport. For the car, it's
-    // rotate -> pure pursuit -> rotate.
-    {
-        // Refresh the wavefront so path extraction has the current grid.
-        auto robot_state_now = env_.get_robot_state();
-        std::vector<double> start_pos = robot_state_now
-            ? std::vector<double>{robot_state_now->position[0], robot_state_now->position[1]}
-            : std::vector<double>{0.0, 0.0};
-        planner_.update_wavefront(env_, start_pos);
-
-        auto path = planner_.extract_path(
-            {start_pos[0], start_pos[1]},
-            {push_state.initial_edge_point[0], push_state.initial_edge_point[1]}
-        );
-
-        if (path.empty()) {
-            last_failure_reason_ = "No navigable path to edge point";
-            return false;
-        }
-
-        // Teleport navigation: snap the robot to the final wavefront waypoint
-        // with the target heading. Path-emptiness is already handled above.
-        // The push controller does its own placement-collision check after this.
-        const auto& goal_pt = path.back();
-        env_.set_robot_se2(goal_pt[0], goal_pt[1], push_theta);
-        (void)object_name;  // unused: collisions handled by the placement check below
-
-        // Emit path for visualization tooling. Trajectory is empty under
-        // teleport nav so we just emit the waypoint list and the phase marker.
-        if (std::getenv("NAMO_NAV_LOG")) {
-            std::cerr << "[NAV_PATH]";
-            for (const auto& p : path) {
-                std::cerr << " " << p[0] << "," << p[1];
-            }
-            std::cerr << std::endl;
-            std::cerr << "[NAV_END]" << std::endl;
-        }
+    // Navigate from current robot position to the edge point: a teleport, or
+    // for the car in drive mode, the ported NavigationController.
+    if (!navigate_to_edge_point(object_name, push_state.initial_edge_point, push_theta, nullptr)) {
+        return false;
     }
     
     // Check for robot collision with static objects (walls) after positioning
@@ -583,8 +783,19 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
                 ? robot_adapter->get_wheel_radius()
                 : 0.015;
 
+        // skill.car_controller_hz > 0 recomputes the wheel command on sim time
+        // and holds it in ctrl between updates; 0 recomputes every tick (v1).
+        const double update_period =
+            (car_cfg_.car_controller_hz > 0.0) ? 1.0 / car_cfg_.car_controller_hz : 0.0;
+        double next_update = env_.get_mujoco_wrapper()->data()->time;
+        const bool normalized_actuation = car_cfg_.car_actuation == "normalized";
+
         for (int t = 0; t < total_sim_steps; ++t) {
-            if (use_diff_drive_tracking) {
+            if (use_diff_drive_tracking &&
+                (update_period == 0.0 ||
+                 env_.get_mujoco_wrapper()->data()->time >= next_update)) {
+                next_update += update_period;
+                // The first update is always at t == 0.
                 if (dynamic_direction_ || t == 0) {
                     auto obj_for_path = env_.get_object_state(object_name);
                     if (!obj_for_path) {
@@ -606,15 +817,23 @@ bool NAMOPushController::execute_push_primitive(const std::string& object_name,
                 const PushPathFollower::Pose robot_pose = get_current_robot_pose();
                 const double timestamp_s = env_.get_mujoco_wrapper()->data()->time;
                 const auto follower_step = push_path_follower_->step(robot_pose, timestamp_s);
-                // Diff-drive: chassis m/s comes from the calibration constant,
-                // NOT push_velocity_ (which is only used by the holonomic robot).
-                // The follower's fraction × kCarWheelMaxSpeedMs is the chassis
-                // speed contribution from that wheel; divide by wheel radius to
-                // get the angular velocity the actuator wants.
-                const double left_omega = (follower_step.left_speed * kCarWheelMaxSpeedMs) / wheel_radius;
-                const double right_omega = (follower_step.right_speed * kCarWheelMaxSpeedMs) / wheel_radius;
-                env_.apply_wheel_control(left_omega, right_omega);
-                log_push_control(t, left_omega, right_omega, follower_step.mode);
+                // The wheel_velocity branch repeats apply_car_command's formula on
+                // purpose: with the division inside the helper, the -ffast-math build
+                // rounded it differently and v1's final qpos moved ~1e-9 m on the
+                // 40-push identity check. Inline, v1 stays bit-identical.
+                double ctrl_left = 0.0;
+                double ctrl_right = 0.0;
+                if (normalized_actuation) {
+                    const auto ctrl = apply_car_command(
+                        follower_step.left_speed, follower_step.right_speed, wheel_radius);
+                    ctrl_left = ctrl[0];
+                    ctrl_right = ctrl[1];
+                } else {
+                    ctrl_left = (follower_step.left_speed * car_cfg_.car_wheel_max_speed_ms) / wheel_radius;
+                    ctrl_right = (follower_step.right_speed * car_cfg_.car_wheel_max_speed_ms) / wheel_radius;
+                    env_.apply_wheel_control(ctrl_left, ctrl_right);
+                }
+                log_push_control(t, ctrl_left, ctrl_right, follower_step.mode);
             }
 
             env_.step_simulation();

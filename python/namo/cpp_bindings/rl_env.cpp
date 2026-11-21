@@ -588,6 +588,11 @@ void RLEnvironment::set_robot_trajectory_collision_checking(bool enable) {
     }
 }
 
+NAMOPushController::NavigationReport RLEnvironment::navigate_to_push_start(
+    const std::string& object_name, int edge_idx) {
+    return skill_->navigate_to_push_start(object_name, edge_idx);
+}
+
 
 // Video recording interface
 void RLEnvironment::start_recording(int width, int height, int capture_frequency, size_t max_frames) {

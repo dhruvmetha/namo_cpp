@@ -82,6 +82,13 @@ public:
         (void)m; (void)d; (void)omega_left; (void)omega_right;
     }
 
+    /// Write normalized wheel commands in [-1, 1] straight into ctrl, for a PWM motor actuator
+    /// (car v2 XML). No-op for holonomic.
+    virtual void apply_normalized_wheel_control(const mjModel* m, mjData* d,
+                                                double left, double right) const {
+        (void)m; (void)d; (void)left; (void)right;
+    }
+
     /// Wheelbase (distance between wheels) [m]. Used by pure pursuit.
     virtual double get_wheelbase() const { return 0.0; }
 

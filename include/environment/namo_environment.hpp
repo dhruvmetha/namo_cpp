@@ -93,6 +93,7 @@ public:
     // Robot control
     void apply_robot_control(double control_x, double control_y);
     void apply_wheel_control(double omega_left, double omega_right);
+    void apply_normalized_wheel_control(double left, double right);
     void set_robot_control(double control_x, double control_y);
     void apply_control(double control_x, double control_y, double dt);
 

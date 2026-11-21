@@ -3,6 +3,7 @@
 #include <array>
 #include <limits>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace namo {
@@ -21,6 +22,9 @@ public:
         double max_point_gap_ratio = 0.01;
         double no_skip_ratio = 0.5;
         double wheel_deadband = 0.05;
+        // FollowPathController's ALIGN mode (robot_control follow_path.py:367-393): rotate in place
+        // once the heading error reaches 60 deg, until it falls to 45 deg. Off reproduces car v1.
+        bool align_mode = false;
     };
 
     struct Pose {
@@ -32,6 +36,7 @@ public:
     enum class Mode {
         IDLE,
         TRACK,
+        ALIGN,
         FINISHED,
     };
 
@@ -66,6 +71,11 @@ public:
     double max_speed() const { return max_speed_; }
 
     static const char* mode_name(Mode mode);
+    // follow_path.py:28-59 and navigation.py:56-87, _enforce_deadband_scale: lift a nonzero
+    // command whose larger wheel sits below the deadband up to it, keeping the wheel ratio.
+    static std::pair<double, double> deadband_scale(double left_speed, double right_speed,
+                                                    double deadband);
+    static double clamp(double value, double lo, double hi);
 
 private:
     struct ReferencePoint {
@@ -92,7 +102,6 @@ private:
         const Point& target) const;
     ReferencePoint find_closest_reference(const Point& position);
 
-    static double clamp(double value, double lo, double hi);
     static double wrap_to_pi(double angle_rad);
     static std::pair<Point, double> project_point_to_segment(
         const Point& p,
@@ -110,6 +119,10 @@ private:
 
     double cte_dot_alpha_ = 0.25;
     double min_turn_factor_ = 0.25;
+    // follow_path.py:106-107, class constants there too.
+    static constexpr double kAlignEnterDeg = 60.0;
+    static constexpr double kAlignExitDeg = 45.0;
+    bool align_active_ = false;
 
     std::vector<Point> path_raw_;
     std::vector<Point> path_;

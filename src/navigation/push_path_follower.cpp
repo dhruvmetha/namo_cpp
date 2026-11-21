@@ -32,6 +32,7 @@ void PushPathFollower::set_path(const std::vector<Point>& path) {
     prev_cte_ = 0.0;
     prev_cte_time_ = 0.0;
     cte_dot_filt_ = 0.0;
+    align_active_ = false;
 
     mode_ = path_.empty() ? Mode::IDLE : Mode::TRACK;
 }
@@ -45,6 +46,7 @@ void PushPathFollower::clear_path() {
     prev_cte_ = 0.0;
     prev_cte_time_ = 0.0;
     cte_dot_filt_ = 0.0;
+    align_active_ = false;
     mode_ = Mode::IDLE;
 }
 
@@ -91,6 +93,32 @@ PushPathFollower::StepOutput PushPathFollower::step(const Pose& pose, double tim
     output.path_index = path_index_;
     output.heading_error_rad = curvature_pp.heading_error_rad;
     output.cte = ref.cte;
+
+    if (params_.align_mode) {
+        // follow_path.py:365-393. Runs before the CTE-PD block, so ALIGN ticks leave the PD state
+        // untouched, as there. follow_path.py:461-476 (rotate in place past 110 deg when off the
+        // path) is not ported: ALIGN takes every heading error of 60 deg or more first, so that
+        // branch cannot run.
+        const double heading_deg = std::abs(curvature_pp.heading_error_rad * (180.0 / M_PI));
+        if (align_active_) {
+            if (heading_deg <= kAlignExitDeg) {
+                align_active_ = false;
+            }
+        } else if (heading_deg >= kAlignEnterDeg) {
+            align_active_ = true;
+        }
+        if (align_active_) {
+            const double w = 0.6 * max_speed_;
+            double left_speed = (curvature_pp.heading_error_rad > 0.0) ? -w : w;
+            double right_speed = (curvature_pp.heading_error_rad > 0.0) ? w : -w;
+            std::tie(left_speed, right_speed) = enforce_deadband_scale(left_speed, right_speed);
+            output.left_speed = clamp(left_speed, -1.0, 1.0);
+            output.right_speed = clamp(right_speed, -1.0, 1.0);
+            mode_ = Mode::ALIGN;
+            output.mode = mode_;
+            return output;
+        }
+    }
 
     const double dist_to_path = std::abs(ref.cte);
     const double cte_pd_enable_dist = 2.5 * car_size_m_;
@@ -175,6 +203,8 @@ const char* PushPathFollower::mode_name(Mode mode) {
         return "IDLE";
     case Mode::TRACK:
         return "TRACK";
+    case Mode::ALIGN:
+        return "ALIGN";
     case Mode::FINISHED:
         return "FINISHED";
     }
@@ -385,15 +415,22 @@ std::pair<PushPathFollower::Point, double> PushPathFollower::project_point_to_se
 std::pair<double, double> PushPathFollower::enforce_deadband_scale(
     double left_speed,
     double right_speed) const {
+    return deadband_scale(left_speed, right_speed, params_.wheel_deadband);
+}
+
+std::pair<double, double> PushPathFollower::deadband_scale(
+    double left_speed,
+    double right_speed,
+    double deadband) {
     const double max_abs = std::max(std::abs(left_speed), std::abs(right_speed));
     if (max_abs < 1e-6) {
         return {0.0, 0.0};
     }
-    if (max_abs >= params_.wheel_deadband) {
+    if (max_abs >= deadband) {
         return {left_speed, right_speed};
     }
 
-    const double scale = params_.wheel_deadband / max_abs;
+    const double scale = deadband / max_abs;
     double scaled_left = left_speed * scale;
     double scaled_right = right_speed * scale;
     const double max_scaled = std::max(std::abs(scaled_left), std::abs(scaled_right));

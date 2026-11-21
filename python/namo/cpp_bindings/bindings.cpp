@@ -2,6 +2,8 @@
 #include <pybind11/stl.h>
 #include <pybind11/numpy.h>
 #include "python/namo/cpp_bindings/rl_env.hpp"
+#include "navigation/car_navigation_controller.hpp"
+#include "navigation/push_path_follower.hpp"
 
 namespace py = pybind11;
 
@@ -288,5 +290,87 @@ PYBIND11_MODULE(namo_rl, m) {
            "Return the XML scene path used to create this environment.")
        .def("get_config_path", &namo::RLEnvironment::get_config_path,
            py::return_value_policy::reference_internal,
-           "Return the NAMO configuration path used to create this environment.");
+           "Return the NAMO configuration path used to create this environment.")
+       .def("navigate_to_push_start",
+           [](namo::RLEnvironment& env, const std::string& object_name, int edge_idx) {
+               const auto r = env.navigate_to_push_start(object_name, edge_idx);
+               py::dict out;
+               out["ok"] = r.ok;
+               out["teleport_pose"] = r.teleport_pose;
+               out["final_pose"] = r.final_pose;
+               out["nav_time_s"] = r.nav_time_s;
+               out["failure_reason"] = r.failure_reason;
+               return out;
+           },
+           py::arg("object_name"), py::arg("edge_idx"),
+           "Move the robot to the push start of (object, edge) as a push would, without "
+           "pushing. Returns ok, teleport_pose and final_pose (x, y, theta), nav_time_s (sim "
+           "time spent driving, 0 under teleport) and failure_reason.");
+
+    // Ported robot_control controllers, bound for the C++/Python parity test
+    // (python/tests/test_car_v2_controller_parity.py).
+    using Follower = namo::PushPathFollower;
+    py::class_<Follower::Params>(m, "PushPathFollowerParams")
+        .def(py::init<>())
+        .def_readwrite("robot_width_m", &Follower::Params::robot_width_m)
+        .def_readwrite("robot_height_m", &Follower::Params::robot_height_m)
+        .def_readwrite("wheel_base_m", &Follower::Params::wheel_base_m)
+        .def_readwrite("lookahead_distance_m", &Follower::Params::lookahead_distance_m)
+        .def_readwrite("goal_tolerance_m", &Follower::Params::goal_tolerance_m)
+        .def_readwrite("max_speed", &Follower::Params::max_speed)
+        .def_readwrite("max_point_gap_ratio", &Follower::Params::max_point_gap_ratio)
+        .def_readwrite("no_skip_ratio", &Follower::Params::no_skip_ratio)
+        .def_readwrite("wheel_deadband", &Follower::Params::wheel_deadband)
+        .def_readwrite("align_mode", &Follower::Params::align_mode);
+    py::class_<Follower>(m, "PushPathFollower")
+        .def(py::init<const Follower::Params&>())
+        .def("set_path", &Follower::set_path)
+        .def("set_speed", &Follower::set_speed)
+        .def("step", [](Follower& f, double x, double y, double theta_rad, double t) {
+                Follower::Pose pose;
+                pose.x_m = x;
+                pose.y_m = y;
+                pose.theta_rad = theta_rad;
+                const auto out = f.step(pose, t);
+                return py::make_tuple(out.left_speed, out.right_speed,
+                                      std::string(Follower::mode_name(out.mode)));
+            },
+            py::arg("x"), py::arg("y"), py::arg("theta_rad"), py::arg("timestamp_s"),
+            "Returns (left, right, mode).")
+        .def_property_readonly("path", &Follower::path, "The resampled path.")
+        .def_property_readonly("path_index", &Follower::path_index);
+
+    using Nav = namo::CarNavigationController;
+    py::class_<Nav::Params>(m, "CarNavigationParams")
+        .def(py::init<>())
+        .def_readwrite("car_width", &Nav::Params::car_width)
+        .def_readwrite("car_height", &Nav::Params::car_height)
+        .def_readwrite("wheel_base", &Nav::Params::wheel_base)
+        .def_readwrite("cm", &Nav::Params::cm)
+        .def_readwrite("max_speed", &Nav::Params::max_speed)
+        .def_readwrite("pre_rotation_skip_angle", &Nav::Params::pre_rotation_skip_angle)
+        .def_readwrite("goal_tolerance_ratio", &Nav::Params::goal_tolerance_ratio)
+        .def_readwrite("rotation_tolerance_deg", &Nav::Params::rotation_tolerance_deg)
+        .def_readwrite("rotation_stable_time", &Nav::Params::rotation_stable_time)
+        .def_readwrite("rotation_speed_max", &Nav::Params::rotation_speed_max)
+        .def_readwrite("rotation_speed_min", &Nav::Params::rotation_speed_min)
+        .def_readwrite("wheel_deadband", &Nav::Params::wheel_deadband);
+    py::class_<Nav>(m, "CarNavigationController")
+        .def(py::init<const Nav::Params&>())
+        .def("navigate_to", &Nav::navigate_to,
+             py::arg("goal_theta_deg"), py::arg("current_pos"), py::arg("path"))
+        .def("step", [](Nav& nav, double x, double y, double theta_deg, double t) {
+                Nav::Pose pose;
+                pose.x = x;
+                pose.y = y;
+                pose.theta_deg = theta_deg;
+                const auto out = nav.step(pose, t);
+                return py::make_tuple(out.left_speed, out.right_speed);
+            },
+            py::arg("x"), py::arg("y"), py::arg("theta_deg"), py::arg("timestamp_s"),
+            "Returns (left, right).")
+        .def_property_readonly("state", [](const Nav& nav) {
+            return std::string(Nav::state_name(nav.state()));
+        })
+        .def_property_readonly("failure_cause", &Nav::failure_cause);
 }

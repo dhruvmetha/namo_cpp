@@ -104,6 +104,44 @@ public:
         // Object interaction
         int points_per_face = 3;                // points per object face (4 faces total)
         int num_edge_points = 12;               // points around object perimeter (backward compatibility)
+
+        // Car v2 controller (diff-drive only). Every default reproduces car v1.
+        // Controller update rate in Hz on sim time; 0 updates on every physics tick (v1). With
+        // N > 0 the command is recomputed when sim time reaches the next update and held between.
+        double car_controller_hz = 0.0;
+        // "teleport" (v1) snaps the robot to the push start. "drive" runs the port of
+        // robot_control's NavigationController along the wavefront path to it.
+        std::string car_nav_mode = "teleport";
+        // "wheel_velocity" (v1): ctrl = command * car_wheel_max_speed_ms / wheel_radius, for a
+        // velocity actuator. "normalized": ctrl = the controller's [-1, 1] command, for a PWM motor.
+        std::string car_actuation = "wheel_velocity";
+        // Chassis m/s per unit command under wheel_velocity actuation. 1.0 is v1's
+        // kCarWheelMaxSpeedMs.
+        double car_wheel_max_speed_ms = 1.0;
+        // Normalized actuation only: |command| below this goes to 0 (drivetrain dead zone).
+        double car_command_deadzone = 0.0;
+        // "v1" = PushPathFollower as before. "follow_path" = the port of robot_control's
+        // FollowPathController, which adds its ALIGN rotate-in-place mode.
+        std::string car_push_follower = "v1";
+        // Drive mode: a drive still going after this much sim time fails.
+        double car_nav_max_time_s = 120.0;
+        // robot_control config/controller.yaml navigation: block, same field names
+        // (skill.navigation.<field>). Read only in drive mode.
+        double nav_max_speed = 0.4;
+        double nav_pre_rotation_skip_angle = 45.0;
+        double nav_goal_tolerance_ratio = 0.15;
+        double nav_rotation_tolerance_deg = 4.0;
+        double nav_rotation_stable_time = 0.5;
+        double nav_rotation_speed_max = 0.25;
+        double nav_rotation_speed_min = 0.15;
+        double nav_wheel_deadband = 0.05;
+        // controller.yaml push: block (skill.push.<field>). The push cap push.max_speed is the
+        // existing skill.push_tracker_max_speed. lookahead_ratio 1.0 is v1's kPushLookaheadRatio.
+        double push_lookahead_ratio = 1.0;
+        // Drive mode skips navigation when the robot already sits this close to the push start
+        // (push.py:381-388). controller.yaml gives the distance in cm; this is metres.
+        double push_approach_skip_distance_m = 0.01;
+        double push_approach_skip_angle = 30.0;
     };
     
     struct EnvironmentConfig {

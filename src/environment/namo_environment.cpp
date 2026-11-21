@@ -365,6 +365,10 @@ void NAMOEnvironment::apply_wheel_control(double omega_left, double omega_right)
     robot_adapter_->apply_wheel_control(sim_->model(), sim_->data(), omega_left, omega_right);
 }
 
+void NAMOEnvironment::apply_normalized_wheel_control(double left, double right) {
+    robot_adapter_->apply_normalized_wheel_control(sim_->model(), sim_->data(), left, right);
+}
+
 void NAMOEnvironment::set_robot_control(double control_x, double control_y) {
     robot_adapter_->apply_control(sim_->model(), sim_->data(), control_x, control_y);
 }

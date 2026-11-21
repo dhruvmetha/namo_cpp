@@ -181,6 +181,40 @@ void ConfigManager::load_skill_config() {
         skill_.num_edge_points = loader_->get_int("skill.num_edge_points");
         skill_.points_per_face = std::max(1, skill_.num_edge_points / 4); // Derive per-face
     }
+
+    // Car v2 controller
+    const std::pair<const char*, double*> car_doubles[] = {
+        {"skill.car_controller_hz", &skill_.car_controller_hz},
+        {"skill.car_wheel_max_speed_ms", &skill_.car_wheel_max_speed_ms},
+        {"skill.car_command_deadzone", &skill_.car_command_deadzone},
+        {"skill.car_nav_max_time_s", &skill_.car_nav_max_time_s},
+        {"skill.navigation.max_speed", &skill_.nav_max_speed},
+        {"skill.navigation.pre_rotation_skip_angle", &skill_.nav_pre_rotation_skip_angle},
+        {"skill.navigation.goal_tolerance_ratio", &skill_.nav_goal_tolerance_ratio},
+        {"skill.navigation.rotation_tolerance_deg", &skill_.nav_rotation_tolerance_deg},
+        {"skill.navigation.rotation_stable_time", &skill_.nav_rotation_stable_time},
+        {"skill.navigation.rotation_speed_max", &skill_.nav_rotation_speed_max},
+        {"skill.navigation.rotation_speed_min", &skill_.nav_rotation_speed_min},
+        {"skill.navigation.wheel_deadband", &skill_.nav_wheel_deadband},
+        {"skill.push.lookahead_ratio", &skill_.push_lookahead_ratio},
+        {"skill.push.approach_skip_distance_m", &skill_.push_approach_skip_distance_m},
+        {"skill.push.approach_skip_angle", &skill_.push_approach_skip_angle},
+    };
+    for (const auto& [key, field] : car_doubles) {
+        if (loader_->has_key(key)) {
+            *field = loader_->get_double(key);
+        }
+    }
+    const std::pair<const char*, std::string*> car_strings[] = {
+        {"skill.car_nav_mode", &skill_.car_nav_mode},
+        {"skill.car_actuation", &skill_.car_actuation},
+        {"skill.car_push_follower", &skill_.car_push_follower},
+    };
+    for (const auto& [key, field] : car_strings) {
+        if (loader_->has_key(key)) {
+            *field = loader_->get_string(key);
+        }
+    }
 }
 
 void ConfigManager::load_environment_config() {
@@ -395,6 +429,23 @@ void ConfigManager::validate_configuration() const {
             "must be >= sqrt(0.5) * skill_level_resolution");
     }
     
+    // ConfigSchemaError, not invalid_argument: the constructor swallows
+    // invalid_argument and falls back to an all-default config, which would
+    // turn a mistyped car key into a silent car v1 run.
+    if (skill_.car_nav_mode != "teleport" && skill_.car_nav_mode != "drive") {
+        throw ConfigSchemaError("skill.car_nav_mode must be \"teleport\" or \"drive\"");
+    }
+    if (skill_.car_actuation != "wheel_velocity" && skill_.car_actuation != "normalized") {
+        throw ConfigSchemaError(
+            "skill.car_actuation must be \"wheel_velocity\" or \"normalized\"");
+    }
+    if (skill_.car_push_follower != "v1" && skill_.car_push_follower != "follow_path") {
+        throw ConfigSchemaError("skill.car_push_follower must be \"v1\" or \"follow_path\"");
+    }
+    if (skill_.car_controller_hz < 0.0) {
+        throw ConfigSchemaError("skill.car_controller_hz must be >= 0");
+    }
+
     // Environment bounds validation removed - bounds now calculated dynamically
 }
 

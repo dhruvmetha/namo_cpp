@@ -39,6 +39,8 @@ void NAMOPushSkill::initialize_skill() {
         controller.set_min_angle_change(config_->skill().controller_min_angle_change);
         controller.set_push_offset_margin(config_->planning().wavefront_edge_offset_margin);
         controller.set_robot_trajectory_collision_checking(config_->skill().check_robot_trajectory_collision);
+        // Before the speed cap: this rebuilds the push follower.
+        controller.configure_car_controller(config_->skill());
         controller.set_push_tracker_max_speed(config_->skill().push_tracker_max_speed);
     } else {
         // Use legacy hardcoded values
