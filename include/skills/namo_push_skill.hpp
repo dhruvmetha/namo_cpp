@@ -122,6 +122,10 @@ public:
         return executor_->get_controller().navigate_to_push_start(object_name, edge_idx);
     }
 
+    NAMOPushController::NavigationReport navigate_to_pose(double x, double y, double theta) {
+        return executor_->get_controller().navigate_to_pose(x, y, theta);
+    }
+
 private:
     /**
      * @brief Helper methods for skill implementation

@@ -371,6 +371,12 @@ public:
      */
     NavigationReport navigate_to_push_start(const std::string& object_name, int edge_idx);
 
+    /**
+     * @brief Move the robot to (x, y) and turn it to theta (rad), as navigate_to_push_start
+     * does for a push start. Works in a scene with no movable objects.
+     */
+    NavigationReport navigate_to_pose(double x, double y, double theta);
+
 private:
     /**
      * @brief Generate edge points around a rectangular object
@@ -417,6 +423,8 @@ private:
                                 const std::array<double, 2>& edge_point,
                                 double push_theta,
                                 NavigationReport* report);
+    NavigationReport navigate_and_report(const std::string& object_name,
+                                         const std::array<double, 2>& goal, double theta);
     bool drive_to_edge_point(const std::string& object_name,
                              const std::vector<std::array<double, 2>>& path,
                              double push_theta);

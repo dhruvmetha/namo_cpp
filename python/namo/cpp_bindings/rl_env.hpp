@@ -154,6 +154,8 @@ public:
     // Drive (or teleport) the robot to the push start of (object, edge) without pushing.
     NAMOPushController::NavigationReport navigate_to_push_start(const std::string& object_name,
                                                                 int edge_idx);
+    // Drive (or teleport) the robot to (x, y, theta). Works with no movable objects.
+    NAMOPushController::NavigationReport navigate_to_pose(double x, double y, double theta);
 
     // Video recording interface
     void start_recording(int width = 640, int height = 480,

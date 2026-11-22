@@ -749,8 +749,19 @@ NAMOPushController::NavigationReport NAMOPushController::navigate_to_push_start(
     const auto edge_point = edge_point_pool_[edge_idx];
     const auto mid_point = mid_point_pool_[edge_idx];
     const double push_theta = std::atan2(mid_point[1] - edge_point[1], mid_point[0] - edge_point[0]);
+    return navigate_and_report(object_name, edge_point, push_theta);
+}
 
-    report.ok = navigate_to_edge_point(object_name, edge_point, push_theta, &report);
+NAMOPushController::NavigationReport NAMOPushController::navigate_to_pose(double x, double y,
+                                                                          double theta) {
+    command_delay_line_.clear();
+    return navigate_and_report("", {x, y}, theta);
+}
+
+NAMOPushController::NavigationReport NAMOPushController::navigate_and_report(
+    const std::string& object_name, const std::array<double, 2>& goal, double theta) {
+    NavigationReport report;
+    report.ok = navigate_to_edge_point(object_name, goal, theta, &report);
     const auto pose = get_current_robot_pose();
     report.final_pose = {pose.x_m, pose.y_m, pose.theta_rad};
     report.nav_time_s = last_nav_time_s_;

@@ -593,6 +593,11 @@ NAMOPushController::NavigationReport RLEnvironment::navigate_to_push_start(
     return skill_->navigate_to_push_start(object_name, edge_idx);
 }
 
+NAMOPushController::NavigationReport RLEnvironment::navigate_to_pose(double x, double y,
+                                                                     double theta) {
+    return skill_->navigate_to_pose(x, y, theta);
+}
+
 
 // Video recording interface
 void RLEnvironment::start_recording(int width, int height, int capture_frequency, size_t max_frames) {
