@@ -14,13 +14,15 @@ Every robot constant below carries its source:
 
 Switches, so each change can be measured alone and together (V1 and V2 below):
   body       "v1": v1's 0.5 kg car with 1.5 cm x 1 mm wheels on a 7.5 cm track.
-             "mvp": the published build, just under 100 g, 32 x 7 mm wheels, and the physical
-             6 x 6 cm collision box (robot repo real.yaml:28: "7x7 robot footprint (0.5 cm safety
-             buffer over physical 6x6 cm)"). The 7 x 7 footprint stays where the robot keeps it,
-             in the planner: the C++ wavefront, inflation, edge points and controllers take
-             planning.robot_size from the config, not from this box (user decision 2026-11-21,
-             keep the 7 x 7 footprint; 6 x 6 body requested by namo_main 2026-11-21 after the v2
-             car's 7 x 7 corners hit a wall turning in place).
+             "mvp": the published build, just under 100 g, 32 x 7 mm wheels, and a 7 x 7 cm
+             collision box (user 2026-11-22: true car size 7x7). It is the body e2e_5dd3a674's
+             v2_7x7 arm ran, element for element.
+             "mvp_6x6": the same build with a 6 x 6 cm collision box, from the robot repo
+             real.yaml:28 comment "7x7 robot footprint (0.5 cm safety buffer over physical 6x6 cm)".
+             No measurement backs that comment, and the user gives 7 x 7. namo_main asked for it
+             2026-11-21 after the v2 car's 7 x 7 corners hit a wall turning in place; kept as an option.
+             Either way the planner keeps 7 x 7: the C++ wavefront, inflation, edge points and
+             controllers take planning.robot_size from the config, not from this box.
   caster     "v1": two 2.5 mm spheres on ball joints, friction "0 0 0". MuJoCo uses the larger
              friction of two geoms, so they meet the floor at 0.5 and skid, dragging 1.34 N
              (27% of v1's weight). "one_frictionless" (M1): one caster, as the published build
@@ -70,14 +72,14 @@ BODY = {
         caster_inertia=(0.000001, 0.000001, 0.000001),  # v1
     ),
     "mvp": dict(
-        chassis_half=(0.03, 0.03, 0.0325),              # robot repo real.yaml:28: physical body 6 x 6 cm;
+        chassis_half=(0.035, 0.035, 0.0325),            # user 2026-11-22: true car size 7x7;
                                                         # height is v1's 6.5 cm (placeholder, not published)
-        marker_pos="0.029 0 0.0505",                    # v1's marker moved onto the 6 cm front face (visual only)
+        marker_pos="0.034 0 0.0505",                    # v1 (visual only)
         # total 0.095 kg: published "just under 100 grams"; split below is a placeholder
         chassis_mass=0.087,                             # 0.095 - 2 wheels - caster
-        chassis_inertia=_box_inertia(0.087, 0.03, 0.03, 0.0325),
-                                                        # placeholder: uniform solid box of the 6 x 6 x 6.5 cm
-                                                        # chassis (was v1's 7 x 7 box scaled to the mass)
+        chassis_inertia=(0.000266 * 0.087 / 0.35, 0.000266 * 0.087 / 0.35, 0.000286 * 0.087 / 0.35),
+                                                        # placeholder: v1's 7 x 7 x 6.5 cm box inertia (a uniform
+                                                        # box, rounded) scaled to the mass, as e2e_5dd3a674 ran it
         wheel_radius=0.016,                             # published: Pololu 32 mm wheels
         wheel_half_width=0.0035,                        # published: 7 mm wide
         wheel_y=0.02,                                   # fitted: 4.0 cm track from the in-place rotation
@@ -89,6 +91,13 @@ BODY = {
         caster_inertia=(1e-9, 1e-9, 1e-9),              # small ball; irrelevant without a joint
     ),
 }
+BODY["mvp_6x6"] = BODY["mvp"] | dict(
+    chassis_half=(0.03, 0.03, 0.0325),                  # robot repo real.yaml:28 comment "physical 6x6 cm";
+                                                        # height is v1's 6.5 cm (placeholder, not published)
+    marker_pos="0.029 0 0.0505",                        # v1's marker moved onto the 6 cm front face (visual only)
+    chassis_inertia=_box_inertia(0.087, 0.03, 0.03, 0.0325),
+                                                        # placeholder: uniform solid box of the 6 x 6 x 6.5 cm chassis
+)
 ARMATURE = 0.0001       # v1 value, kept as a placeholder reflected rotor inertia (~1e-8 kg m^2 rotor x 120^2)
 
 # ---- casters ----

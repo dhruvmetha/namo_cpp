@@ -114,6 +114,7 @@ def main():
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--overwrite", action="store_true")
     ap.add_argument("--check", action="store_true", help="compile every written scene")
+    ap.add_argument("--body", default=V.V2["body"], choices=sorted(V.BODY))
     ap.add_argument("--caster", default=V.V2["caster"])
     ap.add_argument("--wheel", default=V.V2["wheel"])
     ap.add_argument("--actuator", default=V.V2["actuator"])
@@ -126,7 +127,7 @@ def main():
     src, dst = Path(args.src_root).resolve(), Path(args.dst_root).resolve()
     if dst == src or src in dst.parents or dst in src.parents:
         sys.exit(f"refusing: destination {dst} overlaps source {src}")
-    opts = dict(caster=args.caster, wheel=args.wheel, actuator=args.actuator, ctrl_units=args.ctrl_units)
+    opts = dict(body=args.body, caster=args.caster, wheel=args.wheel, actuator=args.actuator, ctrl_units=args.ctrl_units)
     dst.mkdir(parents=True, exist_ok=True)
     counts = {}
     with open(dst / "conversion_manifest.jsonl", "a") as man:
