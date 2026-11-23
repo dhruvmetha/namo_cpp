@@ -19,7 +19,9 @@ jerk.
   python probe_e2e.py --build-python <checkout>/build_python --cwd <checkout> --out <dir> \
       --arm v2=<v2 scene>=<v2 config>=0.0406 --arm v1_teleport=<v1 scene>=<v1 config>=0.05357 ...
 The number after the config is the arm's free cruise speed at the push cap in m/s; stall is
-speed below half of it.
+speed below half of it. `--kinds push` skips the drive-only runs. Every push also leaves a
+per-tick trace in <out>/traces/ (car pose, block centre of mass and yaw, block contacts) for
+real_push_contact.py.
 """
 import argparse
 import json
@@ -119,10 +121,13 @@ def contacts_per_tick(m, d, car, Q, block_geoms, block_body):
     sup_geoms = {w["geom"] for w in car.wheel.values()} | {c["geom"] for c in car.caster.values()}
     sup, other, blk = (np.zeros(len(Q), int) for _ in range(3))
     com = np.zeros((len(Q), 2))
+    byaw = np.zeros(len(Q))
+    box = min(g for g in block_geoms if m.geom_type[g] == mujoco.mjtGeom.mjGEOM_BOX)
     for i, q in enumerate(Q):
         d.qpos[:] = q
         mujoco.mj_forward(m, d)
         com[i] = d.xipos[block_body][:2]
+        byaw[i] = math.atan2(d.geom_xmat[box][3], d.geom_xmat[box][0])
         for g1, g2 in zip(d.contact.geom1[:d.ncon], d.contact.geom2[:d.ncon]):
             pair = {int(g1), int(g2)}
             mine = pair & car.robot_geoms
@@ -135,7 +140,7 @@ def contacts_per_tick(m, d, car, Q, block_geoms, block_body):
                 blk[i] += 1
             elif rest:
                 other[i] += 1
-    return sup, other, blk, com
+    return sup, other, blk, com, byaw, m.geom_size[box][:2].copy()
 
 
 def job(spec):
@@ -160,7 +165,7 @@ def job(spec):
     block_geoms = {g for g in range(m.ngeom) if m.geom_bodyid[g] == bid}
     out = dict(arm=arm, kind=kind, object=obj, edge=edge, depth=depth, result=res, frames=len(rows))
     if len(rows):
-        *cont, com = contacts_per_tick(m, d, car, Q, block_geoms, bid)
+        *cont, com, byaw, half = contacts_per_tick(m, d, car, Q, block_geoms, bid)
         # A fresh scene spawns the car 1 cm up, and a drive starts at once, so the first ticks are
         # the car dropping onto its wheels. Drive metrics start 100 ms after it first lands.
         i1 = np.where(phase == 1)[0]
@@ -182,6 +187,12 @@ def job(spec):
                 out["push"] = motion(Q[pk], car, cruise, tuple(c[pk] for c in cont))
                 out["push"]["block_travel_mm"] = 1000 * float(np.hypot(*(com[pk[-1]] - com[pk[0]])))
                 out["push"]["car_travel_mm"] = 1000 * float(np.hypot(*(Q[pk[-1], car.qadr:car.qadr + 2] - Q[pk[0], car.qadr:car.qadr + 2])))
+                yaw, _ = quat_yaw_pitch(Q[pk, car.qadr + 3:car.qadr + 7])
+                (Path(a.out) / "traces").mkdir(parents=True, exist_ok=True)
+                np.savez_compressed(Path(a.out) / "traces" / f"{tag}.npz", dt=L.DT,
+                                    car_xy=Q[pk, car.qadr:car.qadr + 2], car_yaw=np.unwrap(yaw),
+                                    block_com=com[pk], block_yaw=np.unwrap(byaw[pk]), block_half=half,
+                                    block_contacts=cont[2][pk], support_contacts=cont[0][pk])
             ctrl = np.array([[float(x) for x in ln.split()[2:4]] for ln in open(navlog) if ln.startswith("[PUSH_CTRL]")])
             if len(ctrl) > 1:
                 dc = np.abs(np.diff(ctrl, axis=0)).max(axis=1)
@@ -205,6 +216,7 @@ def main():
     ap.add_argument("--result")
     ap.add_argument("--arm", action="append", help="name=scene=config=cruise_ms")
     ap.add_argument("--n", type=int, default=10)
+    ap.add_argument("--kinds", default="nav,push", help="comma list of nav, push")
     ap.add_argument("--build-python")
     ap.add_argument("--cwd", help="checkout the config's relative paths resolve against")
     ap.add_argument("--out")
@@ -227,7 +239,7 @@ def main():
         picks = pick_pushes(env, a.n)
         picks_by_arm[name] = picks
         for obj, edge, depth in picks + [BASELINE]:
-            for kind in ("nav", "push"):
+            for kind in a.kinds.split(","):
                 specs.append((name, kind, xml, config, float(cruise), obj, int(edge), int(depth), a))
         arms.append(dict(name=name, xml=xml, config=config, cruise_ms=float(cruise)))
     with ProcessPoolExecutor(a.procs) as ex:
