@@ -231,6 +231,29 @@ def test_native_stops_at_the_horizon(monkeypatch):
     assert not solved and end == "horizon" and plen is None and sims == env.steps
 
 
+def test_ppn_executes_the_top_prior_push_at_each_live_state(monkeypatch):
+    """No search: two executed pushes, two calls, each the highest prior (edge 0, depth 0)."""
+    env = FakeEnv(opens=[(("obj", 0, 0), ("obj", 0, 0))])
+    (solved, sims, plen, _b, end), sol = _deploy(env, monkeypatch, "ppn", depths=2)
+    assert solved and end == "solved" and sims == env.steps == 2 and plen == 2
+    assert [(o, g.edge_idx, g.depth) for o, g in sol["plan"]] == [("obj", 0, 0), ("obj", 0, 0)]
+
+
+def test_ppn_drops_a_failed_push_and_tries_the_next_best_from_the_same_state(monkeypatch):
+    """The top push is a no-op at the start: it is charged and uses a push; the next best,
+    edge 0 depth 1, then opens from the same state."""
+    env = FakeEnv(opens=[(("obj", 0, 1),)], noops=[((), ("obj", 0, 0))])
+    (solved, sims, plen, _b, end), sol = _deploy(env, monkeypatch, "ppn", depths=2)
+    assert solved and end == "solved" and sims == env.steps == 2 and plen == 2
+    assert env.log == [((), ("obj", 0, 0)), ((), ("obj", 0, 1))]
+
+
+def test_ppn_stops_at_the_horizon(monkeypatch):
+    env = FakeEnv()
+    (solved, sims, plen, _b, end), _s = _deploy(env, monkeypatch, "ppn", depths=1)
+    assert not solved and end == "horizon" and plen is None and sims == env.steps == 2
+
+
 def test_measurement_hooks_see_every_call(monkeypatch):
     class Meas:
         def __init__(self):

@@ -293,7 +293,7 @@ def main():
     ap.add_argument("--planner", default="bestfirst", choices=["bestfirst", "more"],
                     help="bestfirst = the canonical queue; more = MORE's own deploy search "
                          "(Huang et al., ICRA 2022, imported unmodified), same action library and verifier")
-    ap.add_argument("--more-stop-mode", default="protocol", choices=["protocol", "native"],
+    ap.add_argument("--more-stop-mode", default="protocol", choices=["protocol", "native", "ppn"],
                     help="--planner more: protocol = stop at the first verified opening anywhere "
                          "(rollouts included); native = MORE's stop rule plus execute-and-re-plan")
     ap.add_argument("--more-num-iter", type=int, default=50,

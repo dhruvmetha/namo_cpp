@@ -476,7 +476,7 @@ def collect_episode(env, s0, *, hmax, iterations, action_source, verifier, dedup
 # ------------------------------------------------------------------------------------------------
 # Deploy: MORE's System 1+2 (more_main.py) in two stopping modes
 # ------------------------------------------------------------------------------------------------
-STOP_MODES = ("protocol", "native")
+STOP_MODES = ("protocol", "native", "ppn")
 
 
 def _unexpanded_left(root) -> bool:
@@ -514,6 +514,14 @@ def solve_scene_more(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, 
       searches again from the new state; success is an executed push that opens. Every search's calls
       are charged, and so is executing a child the tree never simulated. Ends after hmax executed
       pushes ("horizon") or at the call cap ("budget").
+    stop_mode="ppn": MORE's network-only baseline, ppn_main.py:380-470. No search: each decision
+      executes the action with the highest network output at the live state
+      (sampled_prediction_precise, ppn_main.py:173-180, first maximum as np.argmax) and checks for the
+      opening. Every executed push is one call and one of the hmax pushes. A push that fails is
+      removed from that state's action list (PushState.remove_action) and the next best is tried
+      from the same state; ppn_main.py has no such guard, and without it a push that leaves the state
+      unchanged is re-picked until the pushes run out. A deeper push on a jammed edge is skipped
+      without a call (prune_jam_depth) and does not use up a push.
 
     Returns (solved, sims, plan_len|None, boards, end).
     """
@@ -552,6 +560,34 @@ def solve_scene_more(planner, env, goal, xml, s0, hmax, sim_budget, prior, agg, 
                     break
                 if done >= max_iters:
                     end = "iter_cap"
+                    break
+        elif stop_mode == "ppn":
+            state, executed, step, root_state = s0, [], 0, None
+            end = "horizon"
+            while step < hmax:
+                if root_state is None:                  # a new live state: fresh caches, as after a MORE push
+                    ctx.reset(step)
+                    root_state = _root_state(ctx, state, hmax - step, step, verifier, env)
+                    root_state.plan = tuple(executed)
+                moves = root_state.get_actions()
+                if not moves:
+                    end = "exhausted"
+                    break
+                best = max(moves, key=lambda m: m.q_value)  # the first maximum, as np.argmax
+                calls0 = ctx.calls
+                child = root_state.move(best)
+                if child is None:
+                    root_state.remove_action(best)
+                    if ctx.calls > calls0:              # executed and failed: it used up a push
+                        executed.append(best)
+                        step += 1
+                    continue
+                executed.append(best)
+                step += 1
+                child = child[0]
+                state, root_state = child.sim_state, None
+                if child.opened:
+                    solved, plan, final, end = True, list(executed), state, "solved"
                     break
         else:
             state, executed = s0, []
