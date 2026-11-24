@@ -46,6 +46,13 @@ All jobs on rlab1: the association allows one node at a time (`AssocGrpNodeLimit
 - `1422315` smoke, 2 epochs on the 3,084-board pair: one checkpoint per epoch, epoch 0 val loss 3.6457 (matches `1422188`).
 - `1422316` setup arm, `1422317` immediate arm: 12 epochs, RTX 4500 Ada, started 2026-11-24 00:07.
 - `1422319` eval smoke on 3 dev problems with the one-epoch checkpoints.
+- Dev sweep: one 6-shard job per epoch as each pair of checkpoints landed (`dev_driver.sh`, jobs in `job_ids.txt`), 2,088 rows, 0 technical errors. Training ran about 16 minutes per epoch.
+
+Dev two-push solved, of 41 (immediate / setup): e1 12/12, e2 11/11, e3 11/17, e4 17/13, e5 15/15, e6 15/14, e7 16/13, e8 13/15, e9 15/17, e10 12/17, e11 15/16, e12 15/17. The gap changes sign from epoch to epoch, so no single epoch is evidence. Per the rule, epochs 9 and 12 tie at a mean of 16.0 and the tie goes to fewer epochs: **9 epochs** (`epoch008`; setup sha256 `b950ec0f`, immediate `e10384b2`). Bar met (setup 17 ≥ 8).
+
+Test, launched with those two checkpoints on the 174 locked test problems:
+- search off, `credit_eval.py` mode `full`, 12 shards (`test/search_off/`);
+- search on [USER-approved 2026-11-24], the registered best-first protocol (`run_one_keyhole_frozen.py` at `13763e54`, prior model, mean5, raw q, discount off, dedupe and jam on, hmax 2, 3000 calls, seed base 7000) on the same 174 problems (`test/search_on/`).
 
 ## Result
 
