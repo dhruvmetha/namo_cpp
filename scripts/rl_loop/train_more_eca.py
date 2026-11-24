@@ -37,7 +37,7 @@ import h5py
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, RandomSampler
 
 REPO = Path(__file__).resolve().parents[2]
 for _p in (f"{REPO}/python",):
@@ -56,7 +56,7 @@ ECA_OURS = dict(epochs=40, batch=256, lr=3e-4, weight_decay=0.01, warmup=200, en
 class MoreBoardDataset(Dataset):
     """One item per saved tree state: its picture, contact pixels, and MORE's per-cell target."""
 
-    def __init__(self, h5_path, invalid="ours", invalid_cap=30, seed=0, exclude_rooms=()):
+    def __init__(self, h5_path, invalid="ours", invalid_cap=30, seed=0, exclude_rooms=(), n_states=None):
         if invalid not in INVALID_MODES:
             raise ValueError(f"invalid must be one of {INVALID_MODES}")
         self.path, self.invalid, self._f = h5_path, invalid, None
@@ -70,6 +70,8 @@ class MoreBoardDataset(Dataset):
         keep = rows.any(axis=(1, 2))
         if exclude_rooms:
             keep &= ~np.isin(xml, list(exclude_rooms))
+        if n_states is not None:                        # a budget cut: its states are a prefix
+            keep[n_states:] = False
         self.states = np.flatnonzero(keep).astype(np.int64)
         self.n_rows = int(rows[self.states].sum())
 
@@ -128,17 +130,25 @@ def _adamw(net, n_iters, cfg):
     return opt, torch.optim.lr_scheduler.LambdaLR(opt, lam)
 
 
+def _order(ds, args):
+    if args.epoch_samples:
+        return {"sampler": RandomSampler(ds, num_samples=args.epoch_samples)}
+    return {"shuffle": True}
+
+
 def run(net, ds, args, dev, out, history):
     if args.schedule == "ours":
         cfg = dict(ECA_OURS, **{k: v for k, v in (("epochs", args.epochs), ("batch", args.batch),
                                                     ("lr", args.lr)) if v is not None})
-        loader = DataLoader(ds, batch_size=cfg["batch"], shuffle=True, num_workers=args.workers, drop_last=False)
+        loader = DataLoader(ds, batch_size=cfg["batch"], num_workers=args.workers, drop_last=False,
+                                **_order(ds, args))
         opt, sched = _adamw(net, cfg["epochs"] * len(loader), cfg)
         plan = [("ours", cfg["epochs"], loader, opt, lambda e, s: sched.step(), lambda e: None)]
     else:
         plan = []
         for st in stages("more", args.epochs, args.batch, args.lr):
-            loader = DataLoader(ds, batch_size=st.batch, shuffle=True, num_workers=args.workers, drop_last=False)
+            loader = DataLoader(ds, batch_size=st.batch, num_workers=args.workers, drop_last=False,
+                                **_order(ds, args))
             opt, sched = make_optimizer(net.parameters(), st)
             stepper = Stepper(opt, sched, st, len(loader))
             plan.append((st.name, st.epochs, loader, opt, stepper.after_iteration, stepper.after_epoch))
@@ -177,6 +187,9 @@ def main():
     ap.add_argument("--batch", type=int, default=None)
     ap.add_argument("--lr", type=float, default=None)
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--cut", default="", help="train on the first cut_<CUT>_states states (more_merge_h5.py attrs; a collection-budget cut); held-out rooms still come from the whole file, so every cut validates on the same rooms")
+    ap.add_argument("--epoch-samples", type=int, default=0,
+                    help="items per epoch, drawn without replacement from a fresh permutation each epoch; 0 = a full pass. MORE's epochs were passes over its 65,384-sample dataset (paper IV-C), so 65384 keeps its optimizer steps and LR curve on a larger dataset" + " (an item here is a state, scored on all its actions at once)")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--holdout-frac", type=float, default=0.1)
     ap.add_argument("--holdout-seed", type=int, default=0)
@@ -186,11 +199,13 @@ def main():
     with h5py.File(args.h5, "r") as f:
         size = int(f["ctx"].shape[-1])
         held = heldout_rooms(decode(f["xml"][:]), args.holdout_frac, args.holdout_seed)
+        n_states = int(f.attrs[f"cut_{args.cut}_states"]) if args.cut else None
     if size != 64:
         raise SystemExit(f"EdgeCrossAttn reads 64 px crops; this H5 is {size} px (more_build_h5.py --render-size 64)")
-    ds = MoreBoardDataset(args.h5, args.invalid, args.invalid_cap, args.seed, exclude_rooms=held)
+    ds = MoreBoardDataset(args.h5, args.invalid, args.invalid_cap, args.seed, exclude_rooms=held,
+                          n_states=n_states)
     print(f"states {len(ds)}  rows {ds.n_rows}  held-out rooms {len(held)}  schedule {args.schedule}  "
-          f"invalid {args.invalid}", flush=True)
+          f"invalid {args.invalid}  cut {args.cut or 'all'}", flush=True)
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     net = make_net().to(dev)
     out = Path(args.out)

@@ -21,6 +21,11 @@ Schema (n states):
   evidence     (n, 60, 5)   i8    1 where a row exists (a simulated action)
   reach_mask   (n, 60, 5)   f32   1 where the action is legal at that state (the candidates() pool)
   xml, object_id (n,)       str   room id (for the room split) and pushed object
+  episode      (n,)         i64   the state's episode ordinal over the input shards in order, so a
+                                  budget cut is the prefix of states with episode < its episode count
+
+Big builds run as parallel parts over consecutive chunks of the ordered episodes (--episode-offset), joined by
+more_merge_h5.py; states are appended as rendered, so memory stays flat.
 """
 import argparse
 import json
@@ -62,70 +67,110 @@ def boards(rows, legal):
     return label, weight, evidence, reach
 
 
-def build(shards, out_path, render_config, render_size=224, limit=0):
+class _Writer:
+    """Appends one state at a time, so a build's memory does not grow with its size."""
+
+    def __init__(self, out_path, render_size):
+        Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+        self.f = h5py.File(out_path, "w")
+        self.n = 0
+        self.ds = {}
+        self.render_size = render_size
+
+    def _make(self, k, v):
+        if k in ("xml", "object_id"):
+            self.ds[k] = self.f.create_dataset(k, shape=(0,), maxshape=(None,), dtype=h5py.string_dtype("utf-8"),
+                                               chunks=(4096,))
+        elif k == "episode":
+            self.ds[k] = self.f.create_dataset(k, shape=(0,), maxshape=(None,), dtype=np.int64, chunks=(4096,))
+        else:
+            # One state per chunk: training reads one state at a time, and a chunk spanning
+            # thousands of states once starved a GPU for eight hours.
+            self.ds[k] = self.f.create_dataset(k, shape=(0,) + v.shape, maxshape=(None,) + v.shape, dtype=v.dtype,
+                                               compression="lzf", chunks=(1,) + v.shape)
+
+    def add(self, rec):
+        for k, v in rec.items():
+            if k not in self.ds:
+                self._make(k, v)
+            d = self.ds[k]
+            d.resize(self.n + 1, axis=0)
+            d[self.n] = v
+        self.n += 1
+
+    def close(self):
+        self.f.attrs["render_size"] = self.render_size
+        self.f.attrs["visit_cap"] = VISIT_CAP
+        self.f.attrs["schema"] = SCHEMA
+        self.f.close()
+
+
+def episodes(shards, offset):
+    """(episode ordinal, record) over the shards read in order; ordinals start at offset."""
+    n = offset
+    for shard in shards:
+        with open(shard) as fh:
+            for line in fh:
+                yield n, json.loads(line)
+                n += 1
+
+
+def build(shards, out_path, render_config, render_size=224, limit=0, offset=0):
+    """Render every saved state of the shards' episodes into out_path; episode ordinals start at offset."""
     live_scorer.OUT = render_size                       # before _Renderer reads it
     from namo.rl_loop.build_train_h5 import _Renderer, _rlstate
     from scorer_beam import make_env, FALLBACK_GOAL
     from namo.core.xml_goal_parser import extract_goal_with_fallback
 
     renderer = _Renderer(render_config)
-    acc = {k: [] for k in ("ctx", "contact_px", "label", "weight", "reach_mask", "evidence", "xml", "object_id")}
-    env_cache, skipped = {}, 0
-    for shard in shards:
-        for line in open(shard):
-            ep = json.loads(line)
-            if ep.get("schema") != SCHEMA:
-                raise SystemExit(f"{shard}: not a {SCHEMA} shard (re-collect with more_collect.py)")
-            xml, obj = ep["xml"], ep["object_id"]
-            by_key = {}
-            for r in ep["rows"]:
-                by_key.setdefault(r["key"], []).append(r)
-            for key, rows in by_key.items():
-                try:
-                    if xml not in env_cache:
-                        env = make_env(xml)
-                        goal = extract_goal_with_fallback(xml, FALLBACK_GOAL)
-                        env.set_robot_goal(*goal)
-                        env_cache[xml] = (env, goal)
-                    env, goal = env_cache[xml]
-                    qpos = ep["states"][key]
-                    env.set_full_state(_rlstate(qpos, [0.0] * len(qpos)))
-                    env.get_reachable_objects()
-                    ctx, _meta = renderer.render_ctx(env, obj, goal, xml)
-                    cpx = renderer.contact_px_live(env, obj)
-                except Exception as exc:                # noqa: BLE001  one bad state must not kill a build
-                    print(f"SKIP {xml} {key}: {type(exc).__name__} {exc}", flush=True)
-                    skipped += 1
-                    continue
-                label, weight, evidence, reach = boards(rows, ep["legal"].get(key, []))
-                for k, v in (("ctx", ctx.astype(np.float16)), ("contact_px", cpx.astype(np.float32)),
-                             ("label", label), ("weight", weight), ("reach_mask", reach),
-                             ("evidence", evidence), ("xml", xml), ("object_id", obj)):
-                    acc[k].append(v)
-                if limit and len(acc["ctx"]) >= limit:
-                    break
-            if limit and len(acc["ctx"]) >= limit:
+    writer = _Writer(out_path, render_size)
+    env_cache, skipped, n_eps = {}, 0, 0
+    for ordinal, ep in episodes(shards, offset):
+        if ep.get("schema") != SCHEMA:
+            raise SystemExit(f"episode {ordinal}: not a {SCHEMA} record (re-collect with more_collect.py)")
+        n_eps += 1
+        xml, obj = ep["xml"], ep["object_id"]
+        by_key = {}
+        for r in ep["rows"]:
+            by_key.setdefault(r["key"], []).append(r)
+        for key, rows in by_key.items():
+            try:
+                if xml not in env_cache:
+                    env_cache.clear()                   # episodes arrive grouped by room
+                    env = make_env(xml)
+                    goal = extract_goal_with_fallback(xml, FALLBACK_GOAL)
+                    env.set_robot_goal(*goal)
+                    env_cache[xml] = (env, goal)
+                env, goal = env_cache[xml]
+                qpos = ep["states"][key]
+                env.set_full_state(_rlstate(qpos, [0.0] * len(qpos)))
+                env.get_reachable_objects()
+                ctx, _meta = renderer.render_ctx(env, obj, goal, xml)
+                cpx = renderer.contact_px_live(env, obj)
+            except Exception as exc:                    # noqa: BLE001  one bad state must not kill a build
+                print(f"SKIP {xml} {key}: {type(exc).__name__} {exc}", flush=True)
+                skipped += 1
+                continue
+            label, weight, evidence, reach = boards(rows, ep["legal"].get(key, []))
+            writer.add({"ctx": ctx.astype(np.float16), "contact_px": cpx.astype(np.float32), "label": label,
+                        "weight": weight, "reach_mask": reach, "evidence": evidence, "xml": xml,
+                        "object_id": obj, "episode": ordinal})
+            if limit and writer.n >= limit:
                 break
-        if limit and len(acc["ctx"]) >= limit:
+        if limit and writer.n >= limit:
             break
+        if n_eps % 200 == 0:
+            print(f"episodes {n_eps} states {writer.n} skipped {skipped}", flush=True)
 
-    n = len(acc["ctx"])
-    print(f"states {n}  skipped {skipped}", flush=True)
+    n = writer.n
+    writer.f.attrs["episodes"] = n_eps
+    writer.f.attrs["episode_offset"] = offset
+    writer.f.attrs["skipped_states"] = skipped
+    writer.close()
+    print(f"episodes {n_eps} states {n}  skipped {skipped}", flush=True)
     if not n:
+        Path(out_path).unlink()
         raise SystemExit("nothing rendered")
-    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-    vlen = h5py.string_dtype("utf-8")
-    with h5py.File(out_path, "w") as f:
-        for k in ("ctx", "contact_px", "label", "weight", "reach_mask", "evidence"):
-            arr = np.stack(acc[k])
-            # One state per chunk: training reads one state at a time, and a chunk spanning
-            # thousands of states once starved a GPU for eight hours.
-            f.create_dataset(k, data=arr, compression="lzf", chunks=(1,) + arr.shape[1:])
-        for k in ("xml", "object_id"):
-            f.create_dataset(k, data=np.array(acc[k], dtype=object), dtype=vlen)
-        f.attrs["render_size"] = render_size
-        f.attrs["visit_cap"] = VISIT_CAP
-        f.attrs["schema"] = SCHEMA
     print(f"wrote {out_path}", flush=True)
 
 
@@ -137,12 +182,15 @@ def main():
                     help="224 for MORE's PushNet (constants.py IMAGE_SIZE), 64 for EdgeCrossAttn")
     ap.add_argument("--render-config", default="", help="defaults to the deploy scorer config")
     ap.add_argument("--limit", type=int, default=0, help="stop after N states (smoke runs)")
+    ap.add_argument("--episode-offset", type=int, default=0,
+                    help="ordinal of the first episode in --shards within the whole ordered collection")
     args = ap.parse_args()
     cfg = args.render_config
     if not cfg:
         from scorer_beam import CFG
         cfg = CFG
-    build(args.shards, args.out, cfg, render_size=args.render_size, limit=args.limit)
+    build(args.shards, args.out, cfg, render_size=args.render_size, limit=args.limit,
+          offset=args.episode_offset)
 
 
 if __name__ == "__main__":

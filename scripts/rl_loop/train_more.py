@@ -34,7 +34,7 @@ import h5py
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, RandomSampler
 
 REPO = Path(__file__).resolve().parents[2]
 for _p in (f"{REPO}/python",):
@@ -56,7 +56,7 @@ class MoreActionDataset(Dataset):
     (evidence 0) is never an item. `exclude_rooms` drops whole rooms (the verify split).
     """
 
-    def __init__(self, h5_path, invalid="ours", invalid_cap=30, seed=0, exclude_rooms=()):
+    def __init__(self, h5_path, invalid="ours", invalid_cap=30, seed=0, exclude_rooms=(), n_states=None):
         if invalid not in INVALID_MODES:
             raise ValueError(f"invalid must be one of {INVALID_MODES}")
         self.path, self.invalid = h5_path, invalid
@@ -73,6 +73,9 @@ class MoreActionDataset(Dataset):
             out = np.isin(xml, list(exclude_rooms))
             rows[out] = False
             neg[out] = False
+        if n_states is not None:                        # a budget cut: its states are a prefix
+            rows[n_states:] = False
+            neg[n_states:] = False
         self.index = np.concatenate([np.argwhere(rows), np.argwhere(neg)]).astype(np.int32)
         self.is_neg = np.concatenate([np.zeros(int(rows.sum()), bool), np.ones(int(neg.sum()), bool)])
 
@@ -148,8 +151,9 @@ def batch_loss(net, batch, dev, size):
 
 def train_stage(net, ds, stage, args, dev, size, out, history, tag):
     opt, sched = make_optimizer(net.parameters(), stage)
-    loader = DataLoader(ds, batch_size=stage.batch, shuffle=True, num_workers=args.workers,
-                        drop_last=True, pin_memory=(dev == "cuda"))
+    sampler = RandomSampler(ds, num_samples=args.epoch_samples) if args.epoch_samples else None
+    loader = DataLoader(ds, batch_size=stage.batch, shuffle=sampler is None, sampler=sampler,
+                        num_workers=args.workers, drop_last=True, pin_memory=(dev == "cuda"))
     stepper = Stepper(opt, sched, stage, len(loader))
     for epoch in range(stage.epochs):
         net.train()
@@ -191,6 +195,9 @@ def main():
     ap.add_argument("--batch", type=int, default=None, help="override the first stage's batch")
     ap.add_argument("--lr", type=float, default=None, help="override the first stage's learning rate")
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--cut", default="", help="train on the first cut_<CUT>_states states (more_merge_h5.py attrs; a collection-budget cut); held-out rooms still come from the whole file, so every cut validates on the same rooms")
+    ap.add_argument("--epoch-samples", type=int, default=0,
+                    help="items per epoch, drawn without replacement from a fresh permutation each epoch; 0 = a full pass. MORE's epochs were passes over its 65,384-sample dataset (paper IV-C), so 65384 keeps its optimizer steps and LR curve on a larger dataset")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--holdout-frac", type=float, default=0.1,
                     help="rooms withheld for verify_more_net.py (same rule, seed --holdout-seed)")
@@ -201,11 +208,12 @@ def main():
     with h5py.File(args.h5, "r") as f:
         held = heldout_rooms(decode(f["xml"][:]), args.holdout_frac, args.holdout_seed)
         in_ch, size = f["ctx"].shape[1], f["ctx"].shape[-1]
+        n_states = int(f.attrs[f"cut_{args.cut}_states"]) if args.cut else None
     ds = MoreActionDataset(args.h5, invalid=args.invalid, invalid_cap=args.invalid_cap,
-                           seed=args.seed, exclude_rooms=held)
+                           seed=args.seed, exclude_rooms=held, n_states=n_states)
     print(f"states {ds.n_states}  samples {len(ds)} (negatives {int(ds.is_neg.sum())})  "
           f"held-out rooms {len(held)}  ctx {in_ch}x{size}x{size}  schedule {args.schedule}  "
-          f"invalid {args.invalid}", flush=True)
+          f"invalid {args.invalid}  cut {args.cut or 'all'} ({n_states or ds.n_states} states)", flush=True)
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     net = MorePushNet(in_channels=in_ch, num_depths=NUM_DEPTHS).to(dev)
     out = Path(args.out)
