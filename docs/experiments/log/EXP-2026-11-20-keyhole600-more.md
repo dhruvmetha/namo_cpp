@@ -50,6 +50,8 @@ Row checks. 1,800 rows, one per seed and problem, no duplicates, no leftover `.t
 
 ## Result
 
+⚠ Flagged 2026-11-24, do not cite as MORE. The audit in `$NAMO_SCRATCH/more_audit_20261124/SPEC.md` checked every component against MORE's paper and code at `70402c0`. The deploy search used here is faithful (identical simulator calls on 400 toy scenes before and after the search fixes). The network it read is not: BUG-1 and BUG-2 corrupted the collected labels and weights, BUG-6 trained untried actions as failures, BUG-7 transposed the contact pixel, BUG-8 rotated by 2π·edge/60 although our edge order is not angular, and BUG-9 made the "usable" check score training rooms. The numbers below describe a mis-trained network inside a faithful MORE search.
+
 MORE's pilot corpus is 39k states, about 33x smaller than our training data, so this is one learning-curve point, not MORE at full scale.
 
 Verdict: the pilot MORE loses to the best model on every tier and does not beat Random. Its network does rank: the first push it tries opens a 1-push problem 40.3% of the time [39.0-42.7] against Random's 23.5% [15.0-28.7]. But by 30 calls Random has caught up, and on 2-push problems Random pulls ahead from there to the 3000-call cap. Paired problem by problem, MORE needs fewer calls than the best model on 51 problems and more on 416 (p = 3e-72). Against Random it is 280 fewer and 249 more (p = 0.19), significant only on 1-push (144 vs 95, p = 0.0018).

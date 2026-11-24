@@ -898,6 +898,8 @@ A deeper cap makes the model faster on medium and hard problems and loses some h
 
 ## 2026-11-20: MORE baseline on keyhole600, 39k-state pilot
 
+⚠ **Flagged 2026-11-24: do not cite as MORE.** A port audit against MORE's paper and code (`$NAMO_SCRATCH/more_audit_20261124/SPEC.md`) found the deploy search below faithful, but the network it read was trained on corrupted collection labels and weights (rollouts never credit an opening, openers backed up twice), with untried actions trained as failures, the contact pixel transposed and the wrong push rotation; its "usable" check scored training rooms. A re-collected, retrained MORE replaces this entry.
+
 The MORE-inspired MCTS planner (ResNet-34 FPN prior trained on a 39k-state pilot corpus, about 33 times smaller than our training data), seeds 1-3, against the best model (no-family-local-edge, seeds 1-3) and Tri-An's Random (seeds 7000-11000) on the frozen one-keyhole 600 at 1 mm. Untimed search with a 3000-call cap. MORE ran on CS (ilab3, five problems on arrakis) with the same bindings (fe80fb00) as the best model's registered rows. Percent of runs solved, seeds pooled. Card: [EXP-2026-11-20-keyhole600-more](log/EXP-2026-11-20-keyhole600-more.md); registry row `more-pilot-keyhole600-1mm-v1`.
 
 | tier | arm | within 5 calls | within 30 calls | by 3000 calls | median calls |
