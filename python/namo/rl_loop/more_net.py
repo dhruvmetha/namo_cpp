@@ -98,6 +98,21 @@ class MorePushNet(nn.Module):
         return self.conv3(x)
 
 
+def push_angles(contact_px: torch.Tensor) -> torch.Tensor:
+    """Image-frame angle of each edge's push, the rotation MORE applies so the push points right.
+
+    MORE rotates every sample by its own push angle (dataset.py:69-87). Our edges are 4 faces x 15
+    points, interleaved, and the push runs from the edge point toward the mid point of the edge and
+    its mate (namo_push_controller.cpp:178-210, :258-260), so edge e pushes toward edge e ^ 1.
+    contact_px is (column, row), so the angle is atan2(d_row, d_col).
+
+    contact_px (..., 60, 2) -> (..., 60)
+    """
+    mate = torch.arange(contact_px.shape[-2], device=contact_px.device) ^ 1
+    d = contact_px[..., mate, :] - contact_px
+    return torch.atan2(d[..., 1], d[..., 0])
+
+
 def read_contact_values(value_map: torch.Tensor, contact_px: torch.Tensor,
                         patch: int = 3) -> torch.Tensor:
     """Read one value per (contact, depth) out of a dense map.
@@ -107,13 +122,15 @@ def read_contact_values(value_map: torch.Tensor, contact_px: torch.Tensor,
     pixel is noisy. `patch` is the half-width, so the default 3 reproduces their 7x7.
 
     value_map  (B, D, H, W)
-    contact_px (B, E, 2) pixel coordinates of each contact edge, row then column
+    contact_px (B, E, 2) pixel coordinates of each contact edge, COLUMN then ROW: that is what
+               eval_scorer.contact_px returns (cx + wx/res, cx + wy/res) and how EdgeCrossAttn
+               reads it (grid_sample x, y)
     returns    (B, E, D)
     """
     b, d, h, w = value_map.shape
     e = contact_px.shape[1]
-    rows = contact_px[..., 0].round().long().clamp(0, h - 1)
-    cols = contact_px[..., 1].round().long().clamp(0, w - 1)
+    rows = contact_px[..., 1].round().long().clamp(0, h - 1)
+    cols = contact_px[..., 0].round().long().clamp(0, w - 1)
     out = value_map.new_empty((b, e, d))
     for i in range(e):
         r, c = rows[:, i], cols[:, i]

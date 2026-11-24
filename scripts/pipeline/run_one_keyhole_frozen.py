@@ -62,10 +62,10 @@ def search_options(arm, problems):
         dedupe_noop=True, prune_jam_depth=True, success="region")
     if arm.get("planner", "bestfirst") != "bestfirst":
         options.planner = arm["planner"]
-        options.more_prior_scale = arm.get("more_prior_scale", "minmax")
-        options.more_records_out = arm.get("more_records_out", "")
+        options.more_stop_mode = arm.get("more_stop_mode", "protocol")
+        options.more_num_iter = arm.get("more_num_iter", 50)
     params = {k: v for k, v in vars(options).items()
-              if k not in {"key", "ckpt", "seed_base", "success", "more_records_out"}}
+              if k not in {"key", "ckpt", "seed_base", "success"}}
     return options, params
 
 

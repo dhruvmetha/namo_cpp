@@ -1,9 +1,10 @@
 #!/bin/bash
 # MORE's self-supervised collection: one array task per shard of the training manifest.
 #
-# Plain UCT with no network (see scripts/rl_loop/more_collect.py), so there is no
-# checkpoint argument and nothing to warm up. Each shard writes its own JSONL and is
-# independent, so a failed task is just a resubmit of that index.
+# MORE's own plain-UCT search with no network (see scripts/rl_loop/more_collect.py), so there
+# is no checkpoint argument and nothing to warm up. It imports MORE's tree code from the pinned
+# clone at $MORE_REF (default $NAMO_SCRATCH/reference/arc-l_more, revision 70402c0), which must
+# exist on the box. Each shard writes its own JSONL and is independent.
 #
 # Usage (from the repo root on Amarel):
 #   ROOT=$NAMO_SCRATCH/more_collect_20260921 NSHARDS=40 SCENES=2000 \
@@ -12,13 +13,10 @@
 # SCENES caps how much of the manifest the campaign covers, so a pilot and the full
 # run use the same script with one number changed.
 #
-# SIZING. An episode costs roughly 400 s on an Amarel core at budget 600 with
-# stop_on_open off, against 102 s measured on arrakis: the cores are slower and dense
-# scenes with many reachable contacts are far slower than the mean. A scene yields about
-# 1.35 episodes. So 20 scenes per shard is ~3 h and overruns a 3 h wall, which is exactly
-# what happened on 51 of 100 tasks in job 61727373. Calibrate on the box you will run on,
-# not the one you are typing on. Keep shards at 10 scenes or fewer and the wall at 8 h.
-# Partial shards are not lost: the collector flushes one JSON line per episode.
+# SIZING. The numbers in this header predate the 2026-11-24 rewrite to MORE's own search
+# (300 iterations per search, re-search after every executed push) and must be re-measured
+# before a campaign. Calibrate on the box you will run on. Partial shards are not lost: the
+# collector flushes one JSON line per episode.
 #SBATCH --job-name=more-collect
 #SBATCH --partition=main
 #SBATCH --nodes=1
@@ -56,6 +54,6 @@ if [ "$S" -ge "$E" ]; then echo "empty shard, nothing to do"; exit 0; fi
 
 "$NAMO_PYTHON" scripts/rl_loop/more_collect.py \
   --manifest "$ROOT/manifest.txt" --start "$S" --end "$E" \
-  --budget "${BUDGET:-600}" --out "$ROOT/raw/shard_$(printf '%04d' "$I").jsonl"
+  --iterations "${ITERATIONS:-300}" --out "$ROOT/raw/shard_$(printf '%04d' "$I").jsonl"
 
 echo "MORE-COLLECT done $(date) shard=$I"

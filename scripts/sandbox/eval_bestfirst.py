@@ -107,7 +107,7 @@ from namo.planners.opening.best_first_search import (  # noqa: E402
     priority,
     solve_scene,
 )
-from namo.planners.opening.more_mcts import solve_scene_mcts  # noqa: E402
+from namo.planners.opening.more_vendor import solve_scene_more  # noqa: E402
 
 
 def _make_planner(prior, ckpt, warmup_repeats):
@@ -125,6 +125,16 @@ def _make_planner(prior, ckpt, warmup_repeats):
         planner = SimpleNamespace(
             prim=PrimitiveGoalStrategy(data_dir=DATA_DIR, primitive_prefix=PRIM_PREFIX),
             scorer=MoreScorer(ckpt, CFG),
+        )
+        planner.scorer.warmup(repeats=warmup_repeats)
+        return planner, planner.scorer.device, warmup_repeats
+    if prior == "more_eca":
+        # Our EdgeCrossAttn trained on MORE's own labels and loss (train_more_eca.py), so its raw
+        # output is in MORE's units. LiveScorer would squash a scalar head with a sigmoid.
+        from namo.rl_loop.more_scorer import MoreEcaScorer
+        planner = SimpleNamespace(
+            prim=PrimitiveGoalStrategy(data_dir=DATA_DIR, primitive_prefix=PRIM_PREFIX),
+            scorer=MoreEcaScorer(ckpt, CFG),
         )
         planner.scorer.warmup(repeats=warmup_repeats)
         return planner, planner.scorer.device, warmup_repeats
@@ -194,7 +204,7 @@ def _evaluate_pooled_task(a, planner, env, xml, goal, s0, snapshot, initial_obse
     boards = []
     try:
         runtime = runtime_fingerprints(str(CFG), str(DATA_DIR), PRIM_PREFIX, namo_rl.__file__,
-                                       a.ckpt if a.prior == "model" else None)
+                                       a.ckpt if a.prior in ("model", "more", "more_eca") else None)
         initial = state_record(s0)
         gp = rec["target_samples"]
         problem = dict(xml_sha256=file_digest(xml), initial_state=initial,
@@ -220,22 +230,16 @@ def _evaluate_pooled_task(a, planner, env, xml, goal, s0, snapshot, initial_obse
         # (run_one_keyhole_frozen.py) must keep working untouched, so that a best-first arm
         # runs and RECORDS exactly what the registered keyhole600 rows recorded.
         _planner = getattr(a, "planner", "bestfirst")
-        _records_out = getattr(a, "more_records_out", "")
-        more_rows = [] if (_planner == "more" and _records_out) else None
         if _planner == "more":
-            solved, sims, plen, boards, end = solve_scene_mcts(
+            # MORE's own deploy search (mcts_network/, imported unmodified), see more_vendor.py.
+            solved, sims, plen, boards, end = solve_scene_more(
                 planner, env, goal, xml, s0, a.hmax, a.sim_budget, a.prior, a.agg, a.combine,
                 random.Random(a.seed_base), restrict_obj=tuple(rec["boundary_objects"]),
                 is_open=is_open, raw=a.raw, region_samples=gp, dedupe_noop=a.dedupe_noop,
                 prune_jam_depth=a.prune_jam_depth, timing=measured.local_timer,
                 measurements=measured, solution_out=solution,
-                prior_scale=getattr(a, "more_prior_scale", "minmax"), record_out=more_rows)
-            if more_rows is not None:
-                with open(_records_out, "a") as fh:
-                    fh.write(json.dumps({"xml": xml, "region": rec["target_region"],
-                                         "objects": list(rec["boundary_objects"]),
-                                         "solved": solved, "sims": sims,
-                                         "rows": more_rows}) + "\n")
+                stop_mode=getattr(a, "more_stop_mode", "protocol"),
+                num_iter=getattr(a, "more_num_iter", 50))
         else:
             solved, sims, plen, boards, end = solve_scene(
                 planner, env, goal, xml, s0, a.hmax, a.sim_budget, a.prior, a.agg, a.combine,
@@ -287,26 +291,25 @@ def main():
     ap.add_argument("--start", type=int, default=0)
     ap.add_argument("--end", type=int, default=985)
     ap.add_argument("--planner", default="bestfirst", choices=["bestfirst", "more"],
-                    help="bestfirst = the canonical queue; more = the MORE-inspired MCTS "
-                         "adaptation (Huang et al., ICRA 2022), same action library and verifier")
-    ap.add_argument("--more-prior-scale", default="minmax", choices=["minmax", "raw"],
-                    help="--planner more: how to map ranker scores into MORE's [0,1.2] prior "
-                         "range. minmax rescales per state and keeps the order; raw is correct "
-                         "only for a net trained MORE's way, whose outputs are already returns")
-    ap.add_argument("--more-records-out", default="",
-                    help="--planner more: per-episode MCTS training records (JSONL), the "
-                         "action/label/visit-count evidence MORE regresses on")
+                    help="bestfirst = the canonical queue; more = MORE's own deploy search "
+                         "(Huang et al., ICRA 2022, imported unmodified), same action library and verifier")
+    ap.add_argument("--more-stop-mode", default="protocol", choices=["protocol", "native"],
+                    help="--planner more: protocol = stop at the first verified opening anywhere "
+                         "(rollouts included); native = MORE's stop rule plus execute-and-re-plan")
+    ap.add_argument("--more-num-iter", type=int, default=50,
+                    help="--planner more, native mode: iterations per decision (MORE-50)")
     ap.add_argument("--hmax", type=int, default=2, help="max pushes in the search chain")
     ap.add_argument("--sim-budget", type=int, default=3000, help="shared simulator-call cap for the pooled task")
     ap.add_argument(
         "--prior",
         default="model",
-        choices=["model", "more", "uniform", "geometric", "geometric_transport", "geometric_region"],
+        choices=["model", "more", "more_eca", "uniform", "geometric", "geometric_transport", "geometric_region"],
         help=(
             "score source: geometric is the corrected target-region score; "
             "geometric_transport is the legacy single-XML-goal path proxy; "
             "geometric_region is a provenance alias for geometric; "
-            "more is MORE's own network, which needs --more-prior-scale raw"
+            "more is MORE's PushNet and more_eca our EdgeCrossAttn, both trained on MORE's labels "
+            "so their raw outputs are MORE's prior"
         ),
     )
     ap.add_argument("--agg", default="mean5", choices=["mean5", "max"], help="state-value aggregate (selection)")

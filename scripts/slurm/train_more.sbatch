@@ -41,14 +41,14 @@ nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
 
 "$NAMO_PYTHON" scripts/rl_loop/train_more.py \
   --h5 "$H5" --out "$OUT/model_s$SEED" \
-  --epochs "${EPOCHS:-2}" --batch "${BATCH:-32}" --workers "$WORKERS" --seed "$SEED" \
-  ${UNREACHABLE_CAP:+--unreachable-cap "$UNREACHABLE_CAP"} \
-  ${DROP_UNSAMPLED:+--drop-unsampled}
+  ${EPOCHS:+--epochs "$EPOCHS"} ${BATCH:+--batch "$BATCH"} --workers "$WORKERS" --seed "$SEED" \
+  --schedule "${SCHEDULE:-ours}" --invalid "${INVALID:-ours}" \
+  ${INVALID_CAP:+--invalid-cap "$INVALID_CAP"}
 
 echo "MORE-TRAIN done $(date) seed=$SEED"
 
 # Held-out check immediately, so a diverged run is caught here rather than after an
 # evaluation is already queued behind it. A falling loss is not evidence of learning.
-LAST=$(ls "$OUT/model_s$SEED"/more_epoch*.pt | tail -1)
+LAST=$(ls "$OUT/model_s$SEED"/*_epoch*.pt | tail -1)
 "$NAMO_PYTHON" scripts/rl_loop/verify_more_net.py \
   --h5 "$H5" --ckpt "$LAST" --states 300 --seed 0

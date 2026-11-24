@@ -92,6 +92,15 @@ def test_contact_reader_takes_the_max_over_their_window():
     assert read_contact_values(vmap, contacts, patch=0)[0, 0, 0].item() == pytest.approx(0.0)
 
 
+def test_contact_reader_takes_column_then_row():
+    """contact_px is (column, row), as eval_scorer.contact_px writes it; a symmetric pixel cannot
+    tell the two orders apart, so this one is deliberately off the diagonal."""
+    vmap = torch.zeros(1, 1, 32, 32)
+    vmap[0, 0, 5, 20] = 3.0                      # row 5, column 20
+    assert read_contact_values(vmap, torch.tensor([[[20.0, 5.0]]]), patch=0)[0, 0, 0].item() == 3.0
+    assert read_contact_values(vmap, torch.tensor([[[5.0, 20.0]]]), patch=0)[0, 0, 0].item() == 0.0
+
+
 def test_contact_reader_clamps_pixels_at_the_border():
     """Contacts can sit on the crop edge, and an out-of-range index must not throw."""
     vmap = torch.zeros(1, 1, 16, 16)

@@ -58,8 +58,16 @@ def test_more_arm_selects_the_mcts_and_records_it():
     options, params = mod.search_options(MORE_ARM, Path("/problems"))
     assert options.planner == "more"
     assert params["planner"] == "more"
-    assert params["more_prior_scale"] == "minmax"      # default, stated in the row
-    assert "more_records_out" not in params, "a scratch path is not part of the protocol"
+    assert params["more_stop_mode"] == "protocol"      # default, stated in the row
+    assert params["more_num_iter"] == 50               # MORE-50, used by the native mode
+
+
+def test_more_arm_records_a_native_stop_mode():
+    mod = _load()
+    arm = dict(MORE_ARM, more_stop_mode="native", more_num_iter=20)
+    options, params = mod.search_options(arm, Path("/problems"))
+    assert options.more_stop_mode == params["more_stop_mode"] == "native"
+    assert options.more_num_iter == params["more_num_iter"] == 20
 
 
 def test_more_arm_keeps_every_shared_search_setting_identical():
@@ -67,7 +75,7 @@ def test_more_arm_keeps_every_shared_search_setting_identical():
     mod = _load()
     _o1, bf = mod.search_options(BESTFIRST_ARM, Path("/problems"))
     _o2, more = mod.search_options(MORE_ARM, Path("/problems"))
-    assert set(more) - set(bf) == {"planner", "more_prior_scale"}
+    assert set(more) - set(bf) == {"planner", "more_stop_mode", "more_num_iter"}
     for key in bf:
         assert bf[key] == more[key], f"{key} differs between the arms"
     assert bf["hmax"] == 2 and bf["sim_budget"] == 3000 and bf["discount"] == "off"

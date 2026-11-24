@@ -22,7 +22,6 @@ leak the same scene into both halves.
   python verify_more_net.py --h5 more_pilot_chunked.h5 --ckpt model_s1/more_epoch001.pt
 """
 import argparse
-import math
 import sys
 from pathlib import Path
 
@@ -35,25 +34,11 @@ for _p in (f"{REPO}/python",):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from namo.rl_loop.more_net import MorePushNet, read_contact_values  # noqa: E402
+from namo.rl_loop.more_net import MorePushNet, push_angles, read_contact_values  # noqa: E402
+from namo.rl_loop.more_training import heldout_rooms, rotate_batch, rotate_pixel  # noqa: E402
 
 NUM_EDGES, NUM_DEPTHS = 60, 5
 
-
-def _rotate(x, angle):
-    cos, sin = torch.cos(angle), torch.sin(angle)
-    theta = torch.zeros(x.shape[0], 2, 3, device=x.device, dtype=x.dtype)
-    theta[:, 0, 0], theta[:, 0, 1] = cos, -sin
-    theta[:, 1, 0], theta[:, 1, 1] = sin, cos
-    grid = torch.nn.functional.affine_grid(theta, x.shape, align_corners=True)
-    return torch.nn.functional.grid_sample(x, grid, mode="bilinear", align_corners=True)
-
-
-def _rotate_pixel(px, angle, size):
-    centre = (size - 1) / 2.0
-    y, x = px[:, 0] - centre, px[:, 1] - centre
-    cos, sin = torch.cos(angle), torch.sin(angle)
-    return torch.stack([y * cos - x * sin + centre, y * sin + x * cos + centre], dim=1)
 
 
 def main():
@@ -69,8 +54,8 @@ def main():
     f = h5py.File(args.h5, "r")
     xml = np.array([x.decode() if isinstance(x, bytes) else str(x) for x in f["xml"][:]])
     rooms = np.unique(xml)
-    rng = np.random.default_rng(args.seed)
-    held = set(rng.choice(rooms, max(1, int(len(rooms) * args.holdout_frac)), replace=False))
+    held = heldout_rooms(xml, args.holdout_frac, args.seed)
+    rng = np.random.default_rng(args.seed + 1)
     pool = np.flatnonzero(np.array([x in held for x in xml]))
     if len(pool) == 0:
         raise SystemExit("no held-out states; is the corpus one room?")
@@ -83,16 +68,15 @@ def main():
     net = MorePushNet(in_channels=weights["body.conv1.weight"].shape[1], num_depths=NUM_DEPTHS)
     net.load_state_dict(weights)
     net.to(dev).eval()
-    ang = torch.tensor(2 * math.pi * np.arange(NUM_EDGES) / NUM_EDGES,
-                       dtype=torch.float32, device=dev)
 
     P, L, E, R = [], [], [], []
     with torch.no_grad():
         for i in pick:
             ctx = torch.tensor(f["ctx"][int(i)].astype(np.float32), device=dev)
             cpx = torch.tensor(f["contact_px"][int(i)], device=dev)
-            pred = net(_rotate(ctx.unsqueeze(0).expand(NUM_EDGES, -1, -1, -1), ang))
-            rpx = _rotate_pixel(cpx, ang, ctx.shape[-1]).unsqueeze(1)
+            ang = push_angles(cpx)
+            pred = net(rotate_batch(ctx.unsqueeze(0).expand(NUM_EDGES, -1, -1, -1), ang))
+            rpx = rotate_pixel(cpx, ang, ctx.shape[-1]).unsqueeze(1)
             P.append(read_contact_values(pred, rpx, patch=3)[:, 0, :].cpu().numpy())
             L.append(f["label"][int(i)]); E.append(f["evidence"][int(i)]); R.append(f["reach_mask"][int(i)])
     P, L, E, R = (np.stack(v) for v in (P, L, E, R))

@@ -1,28 +1,32 @@
 #!/usr/bin/env python3
-"""Train MORE's push network on its own search returns.
+"""Train MORE's push network (PushNet, a dense ResNet-34 FPN) on MORE's own search trees.
 
-`lifelong_trainer.py` regresses a dense value map with SmoothL1(beta=0.8), multiplies
-the per-pixel loss by a weight map, sums it and divides by the batch. The weight is the
-action's visit count capped at 50 (`dataset.py:191`), so an action the search barely
-examined barely moves the network.
+Reference: lifelong_trainer.py and dataset.py at arc-l/more 70402c0; paper section IV-C.
 
-One sample is ONE action, as in their dataset. The image is rotated so that push points
-in a canonical direction and the label is painted into a 3x3 patch at the rotated
-contact pixel (`dataset.py:376`); everything else in the weight map is zero, so only
-that patch produces gradient. Rotating per action is how a position-only head encodes
-direction, and their deploy path does the same thing (`mcts_utils.py:911` rotates by
-each action's own angle and batches).
+One sample is ONE row of a MORE tree (dataset.py:150-193): a simulated action with its label
+max(child.q) and weight min(visits, 50). The state's picture is rotated so THAT push points right
+(dataset.py:69-87), the label is painted into a 3x3 patch at the rotated contact pixel, centre at
+full weight and the 8 neighbours at half (dataset.py:414-422), and the loss is SmoothL1(beta=0.8)
+times the weight map, summed and divided by the batch (lifelong_trainer.py:356-357). Pixels
+nobody labelled carry weight 0. Actions the tree never simulated have no row and no loss: MORE's
+collection tree has no such children (mcts/nodes.py:47-63).
 
-Scale note. MORE had 65,384 logged actions and trained ~50 epochs, so about 3.3M
-samples in total. Our action library is far wider, so one pass over a campaign's logged
-actions is already comparable to their entire run. Epoch counts here are not comparable
-to theirs and the card should say so.
+Coordinates. contact_px is (column, row), as eval_scorer.contact_px writes it and EdgeCrossAttn
+reads it. Our 60 edges are 4 faces x 15 points and push along the face normal toward the mate
+edge e ^ 1 (namo_push_controller.cpp:178-210, :258-260), which is the angle we rotate by.
 
-  python train_more.py --h5 more_train.h5 --out runs/more_s1 --epochs 4
+Validation. The rooms verify_more_net.py scores (heldout_rooms, 10% at seed 0) are excluded here.
+
+Open choices, PROVISIONAL defaults (python/namo/rl_loop/more_training.py):
+  --invalid ours|more     unreachable-cell negatives
+  --schedule ours|more    the pilot's recipe, or MORE's 51-epoch run plus the 21-epoch fine-tune
+
+  python train_more.py --h5 more_train.h5 --out runs/more_s1 [--schedule more] [--invalid more]
 """
 import argparse
 import json
-import math
+import sys
+import time
 from collections import deque
 from pathlib import Path
 
@@ -30,62 +34,47 @@ import h5py
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
-import sys
 REPO = Path(__file__).resolve().parents[2]
 for _p in (f"{REPO}/python",):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
 from namo.rl_loop.more_net import MorePushNet  # noqa: E402
+from namo.rl_loop.more_training import (  # noqa: E402
+    INVALID_MODES, LOSS_BETA, MORE_INVALID_WEIGHT, NUM_DEPTHS, SCHEDULES, Stepper, decode,
+    heldout_rooms, invalid_cells, make_optimizer, push_angle, rotate_batch, rotate_pixel, stages)
 
-LOSS_BETA = 0.8        # lifelong_trainer.py:242 SmoothL1Loss(beta=...)
-PATCH = 1              # dataset.py paints best_loc-1 : best_loc+2, a 3x3 patch
-NUM_EDGES, NUM_DEPTHS = 60, 5
-WARMUP_ITERS = 1000    # lifelong_trainer.py:280
+PATCH = 1              # dataset.py:414-418 paints best_loc-1 : best_loc+2, a 3x3 patch
 
 
 class MoreActionDataset(Dataset):
-    """One item per logged action, mirroring LifelongDataset.
+    """One item per tree row (dataset.py:150-193), plus "ours" negatives when asked for.
 
-    The index is built once over every cell carrying evidence. `include_unsampled`
-    decides whether actions nobody tried are part of it: MORE writes them with label 0
-    and weight 1, which reads as "this push fails" when it only means "nobody looked".
-    Keeping them is faithful, dropping them is what this project's own labelling does,
-    and the flag exists so the card can report both rather than argue about it.
+    Rows are the H5 cells with evidence 1 and weight > 0. A legal action the tree never simulated
+    (evidence 0) is never an item. `exclude_rooms` drops whole rooms (the verify split).
     """
 
-    def __init__(self, h5_path, include_unsampled=True, include_unreachable=True,
-                 unreachable_cap=30, seed=0):
-        self.path = h5_path
+    def __init__(self, h5_path, invalid="ours", invalid_cap=30, seed=0, exclude_rooms=()):
+        if invalid not in INVALID_MODES:
+            raise ValueError(f"invalid must be one of {INVALID_MODES}")
+        self.path, self.invalid = h5_path, invalid
         self._f = None
         with h5py.File(h5_path, "r") as f:
             evidence = f["evidence"][:]
             reach = f["reach_mask"][:]
             weight = f["weight"][:]
-            self.n_states = evidence.shape[0]
-        keep = np.zeros_like(weight, dtype=bool)
-        keep |= evidence == 1
-        if include_unsampled:
-            keep |= (reach > 0) & (evidence == 0)
-        if include_unreachable:
-            # Cap the free geometric negatives per state. There are 233 of them against
-            # 16.5 cells backed by real physics, so uncapped they are 78% of the corpus.
-            # HY5U reads all 233 off one board for one forward pass; MORE pays a pass per
-            # sample, so leaving them uncapped spends its whole training budget relearning
-            # the same highly redundant geometry. The cap keeps the signal and the cost
-            # proportionate, and is a named deviation like the rest.
-            rng = np.random.default_rng(seed)
-            un = (reach == 0) & (weight > 0)
-            for s_i in range(un.shape[0]):
-                cells = np.argwhere(un[s_i])
-                if len(cells) > unreachable_cap:
-                    drop = rng.choice(len(cells), len(cells) - unreachable_cap, replace=False)
-                    un[s_i][tuple(cells[drop].T)] = False
-            keep |= un
-        self.index = np.argwhere(keep).astype(np.int32)       # (n, 3) state, edge, depth
+            xml = decode(f["xml"][:])
+        self.n_states = evidence.shape[0]
+        rows = (evidence == 1) & (weight > 0)
+        neg = invalid_cells(reach, weight, invalid, invalid_cap, np.random.default_rng(seed))
+        if exclude_rooms:
+            out = np.isin(xml, list(exclude_rooms))
+            rows[out] = False
+            neg[out] = False
+        self.index = np.concatenate([np.argwhere(rows), np.argwhere(neg)]).astype(np.int32)
+        self.is_neg = np.concatenate([np.zeros(int(rows.sum()), bool), np.ones(int(neg.sum()), bool)])
 
     def __len__(self):
         return len(self.index)
@@ -98,152 +87,134 @@ class MoreActionDataset(Dataset):
     def __getitem__(self, i):
         s, e, d = (int(v) for v in self.index[i])
         f = self._file()
-        ctx = torch.from_numpy(f["ctx"][s].astype(np.float32))
-        px = f["contact_px"][s][e]
-        label = float(f["label"][s][e, d])
-        weight = float(f["weight"][s][e, d])
-        # The push direction is the contact's outward normal, which for our library is
-        # fixed by the edge index: 60 edges evenly around the object.
-        angle = 2.0 * math.pi * e / NUM_EDGES
-        return ctx, torch.tensor(px, dtype=torch.float32), torch.tensor(angle), \
-            torch.tensor(label), torch.tensor(weight), torch.tensor(d)
-
-
-def rotate_batch(ctx, angle):
-    """Rotate each image by its own angle, as utils.rotate does before the forward pass."""
-    b = ctx.shape[0]
-    cos, sin = torch.cos(angle), torch.sin(angle)
-    theta = torch.zeros(b, 2, 3, device=ctx.device, dtype=ctx.dtype)
-    theta[:, 0, 0], theta[:, 0, 1] = cos, -sin
-    theta[:, 1, 0], theta[:, 1, 1] = sin, cos
-    grid = F.affine_grid(theta, ctx.shape, align_corners=True)
-    return F.grid_sample(ctx, grid, mode="bilinear", align_corners=True)
-
-
-def rotate_pixel(px, angle, size):
-    """Where a pixel lands after the same rotation, so the patch is painted correctly."""
-    centre = (size - 1) / 2.0
-    y, x = px[:, 0] - centre, px[:, 1] - centre
-    cos, sin = torch.cos(angle), torch.sin(angle)
-    return torch.stack([y * cos - x * sin + centre, y * sin + x * cos + centre], dim=1)
+        board = f["contact_px"][s].astype(np.float32)
+        if self.is_neg[i]:
+            label, weight = -1.0, 1.0                         # "ours" negative (PROVISIONAL)
+        else:
+            label, weight = float(f["label"][s][e, d]), float(f["weight"][s][e, d])
+        unreachable = (f["reach_mask"][s] == 0).astype(np.float32) if self.invalid == "more" \
+            else np.zeros((60, NUM_DEPTHS), np.float32)
+        return (torch.from_numpy(f["ctx"][s].astype(np.float32)), torch.from_numpy(board),
+                torch.tensor(push_angle(board, e)), torch.tensor(e), torch.tensor(d),
+                torch.tensor(label), torch.tensor(weight), torch.from_numpy(unreachable))
 
 
 def paint(target, weight_map, rpx, depth, label, weight):
-    """Write the label into a 3x3 patch at the rotated pixel; zero weight elsewhere."""
+    """dataset.py:414-422: the label on a 3x3 patch, weight w at the centre and w/2 on the 8
+    neighbours. MORE paints `label if label > 0 else 0`; tree labels are max(child.q) >= 0, so
+    only an "ours" negative (-1, PROVISIONAL) is ever below zero, and it is kept."""
     b, _d, h, w = target.shape
-    rows = rpx[:, 0].round().long().clamp(PATCH, h - 1 - PATCH)
-    cols = rpx[:, 1].round().long().clamp(PATCH, w - 1 - PATCH)
+    rows = rpx[:, 1].round().long().clamp(PATCH, h - 1 - PATCH)     # rpx is (column, row)
+    cols = rpx[:, 0].round().long().clamp(PATCH, w - 1 - PATCH)
     for i in range(b):
-        r0, r1 = rows[i] - PATCH, rows[i] + PATCH + 1
-        c0, c1 = cols[i] - PATCH, cols[i] + PATCH + 1
-        target[i, depth[i], r0:r1, c0:c1] = label[i]
-        weight_map[i, depth[i], r0:r1, c0:c1] = weight[i]
+        r, c, d = rows[i], cols[i], depth[i]
+        target[i, d, r - PATCH:r + PATCH + 1, c - PATCH:c + PATCH + 1] = label[i]
+        weight_map[i, d, r - PATCH:r + PATCH + 1, c - PATCH:c + PATCH + 1] = weight[i] * 0.5
+        weight_map[i, d, r, c] = weight[i]
+
+
+def paint_invalid(target, weight_map, rboard, unreachable):
+    """dataset.py:423-430 for our library: every unreachable cell of the state -> label 0 at 0.001.
+
+    rboard (B, 60, 2) rotated contact pixels, unreachable (B, 60, D). MORE applies its invalid masks
+    after the action patch, so they win where they overlap; ours follows that order.
+    """
+    b, _d, h, w = target.shape
+    idx = unreachable.nonzero(as_tuple=False)                 # (n, 3): sample, edge, depth
+    if idx.numel() == 0:
+        return
+    px = rboard[idx[:, 0], idx[:, 1]]
+    rows = px[:, 1].round().long().clamp(PATCH, h - 1 - PATCH)
+    cols = px[:, 0].round().long().clamp(PATCH, w - 1 - PATCH)
+    for dr in range(-PATCH, PATCH + 1):
+        for dc in range(-PATCH, PATCH + 1):
+            target[idx[:, 0], idx[:, 2], rows + dr, cols + dc] = 0.0
+            weight_map[idx[:, 0], idx[:, 2], rows + dr, cols + dc] = MORE_INVALID_WEIGHT
+
+
+def batch_loss(net, batch, dev, size):
+    ctx, board, angle, edge, depth, label, weight, unreachable = (t.to(dev) for t in batch)
+    rot = rotate_batch(ctx, angle)
+    rboard = rotate_pixel(board, angle[:, None], size)                    # (B, 60, 2)
+    rpx = rboard[torch.arange(len(edge), device=dev), edge.long()]
+    target = torch.zeros(ctx.shape[0], NUM_DEPTHS, size, size, device=dev)
+    wmap = torch.zeros_like(target)
+    paint(target, wmap, rpx, depth.long(), label, weight)
+    paint_invalid(target, wmap, rboard, unreachable)
+    pred = net(rot)
+    loss = F.smooth_l1_loss(pred, target, beta=LOSS_BETA, reduction="none") * wmap
+    return loss.sum() / target.shape[0]                       # lifelong_trainer.py:356-357
+
+
+def train_stage(net, ds, stage, args, dev, size, out, history, tag):
+    opt, sched = make_optimizer(net.parameters(), stage)
+    loader = DataLoader(ds, batch_size=stage.batch, shuffle=True, num_workers=args.workers,
+                        drop_last=True, pin_memory=(dev == "cuda"))
+    stepper = Stepper(opt, sched, stage, len(loader))
+    for epoch in range(stage.epochs):
+        net.train()
+        total, seen, recent, t0 = 0.0, 0, deque(maxlen=200), time.time()
+        for step, batch in enumerate(loader):
+            loss = batch_loss(net, batch, dev, size)
+            opt.zero_grad()
+            loss.backward()
+            if stage.clip:
+                torch.nn.utils.clip_grad_norm_(net.parameters(), stage.clip)
+            opt.step()
+            stepper.after_iteration(epoch, step)
+            n = batch[0].shape[0]
+            total += loss.item() * n
+            seen += n
+            recent.append(loss.item())
+            if step % 200 == 0:
+                print(f"  {tag} e{epoch} step {step}/{len(loader)} recent {sum(recent)/len(recent):.5f} "
+                      f"lr {opt.param_groups[0]['lr']:.2e} {seen/max(time.time()-t0, 1e-9):.0f} samples/s",
+                      flush=True)
+                recent.clear()
+        stepper.after_epoch(epoch)
+        history.append({"stage": tag, "epoch": epoch, "loss": total / max(seen, 1), "samples": seen})
+        print(f"{tag} epoch {epoch} loss {total/max(seen, 1):.5f} over {seen} samples", flush=True)
+        torch.save({"model": net.state_dict(), "stage": tag, "epoch": epoch, "args": vars(args)},
+                   out / f"{tag}_epoch{epoch:03d}.pt")
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--h5", required=True)
     ap.add_argument("--out", required=True)
-    ap.add_argument("--epochs", type=int, default=4)
-    ap.add_argument("--batch", type=int, default=16)
-    ap.add_argument("--lr", type=float, default=1e-4)
+    ap.add_argument("--schedule", choices=sorted(SCHEDULES), default="ours",
+                    help="PROVISIONAL default 'ours' (the pilot's recipe); 'more' = lifelong_trainer.py + fine-tune")
+    ap.add_argument("--invalid", choices=["ours", "more"], default="ours",
+                    help="PROVISIONAL default 'ours' (label -1, weight 1, capped); 'more' = dataset.py:423-430")
+    ap.add_argument("--invalid-cap", type=int, default=30, help="'ours' negatives kept per state; 0 = all")
+    ap.add_argument("--epochs", type=int, default=None, help="override the first stage's epochs")
+    ap.add_argument("--batch", type=int, default=None, help="override the first stage's batch")
+    ap.add_argument("--lr", type=float, default=None, help="override the first stage's learning rate")
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--seed", type=int, default=1)
-    ap.add_argument("--t0", type=int, default=2, help="CosineAnnealingWarmRestarts T_0")
-    ap.add_argument("--clip", type=float, default=10.0,
-                    help="gradient-norm clip; not in MORE, added after Adam diverged")
-    ap.add_argument("--drop-unsampled", action="store_true",
-                    help="exclude actions nobody tried; MORE keeps them at label 0 weight 1")
-    ap.add_argument("--drop-unreachable", action="store_true",
-                    help="exclude the free geometric negatives")
-    ap.add_argument("--unreachable-cap", type=int, default=30,
-                    help="free geometric negatives kept per state (233 exist); 0 keeps all")
+    ap.add_argument("--holdout-frac", type=float, default=0.1,
+                    help="rooms withheld for verify_more_net.py (same rule, seed --holdout-seed)")
+    ap.add_argument("--holdout-seed", type=int, default=0)
     args = ap.parse_args()
 
     torch.manual_seed(args.seed)
-    ds = MoreActionDataset(args.h5, include_unsampled=not args.drop_unsampled,
-                           include_unreachable=not args.drop_unreachable,
-                           unreachable_cap=(args.unreachable_cap or 10**9), seed=args.seed)
     with h5py.File(args.h5, "r") as f:
+        held = heldout_rooms(decode(f["xml"][:]), args.holdout_frac, args.holdout_seed)
         in_ch, size = f["ctx"].shape[1], f["ctx"].shape[-1]
-    print(f"states {ds.n_states}  samples {len(ds)}  ctx {in_ch}x{size}x{size}", flush=True)
-
+    ds = MoreActionDataset(args.h5, invalid=args.invalid, invalid_cap=args.invalid_cap,
+                           seed=args.seed, exclude_rooms=held)
+    print(f"states {ds.n_states}  samples {len(ds)} (negatives {int(ds.is_neg.sum())})  "
+          f"held-out rooms {len(held)}  ctx {in_ch}x{size}x{size}  schedule {args.schedule}  "
+          f"invalid {args.invalid}", flush=True)
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     net = MorePushNet(in_channels=in_ch, num_depths=NUM_DEPTHS).to(dev)
-    # lifelong_trainer.py:243 is SGD(momentum=0.9, weight_decay=2e-5) with a 1000-step
-    # warmup at factor 0.001 and then CosineAnnealingWarmRestarts. Their Adam line sits
-    # commented out two lines below it, and Adam is exactly what blew my first run up:
-    # a sample's loss is summed over a 3x3 patch and scaled by a visit count up to 50,
-    # so the gradients are spiky enough that an unwarmed adaptive optimiser walked the
-    # whole output map to -8000 while the cumulative-mean log still read 1.82.
-    opt = torch.optim.SGD([q for q in net.parameters() if q.requires_grad],
-                          lr=args.lr, momentum=0.9, weight_decay=2e-5)
-    cosine = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-        opt, T_0=args.t0, T_mult=1, eta_min=1e-6)
-    loader = DataLoader(ds, batch_size=args.batch, shuffle=True, num_workers=args.workers,
-                        drop_last=True, pin_memory=(dev == "cuda"))
-
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     history = []
-    import time
-    for epoch in range(args.epochs):
-        net.train()
-        total, seen = 0.0, 0
-        recent = deque(maxlen=200)
-        t_epoch = time.time()
-        # Log INSIDE the epoch. An epoch here is millions of samples, so a run that
-        # only prints at epoch boundaries is silent for hours. A badly chunked H5 once
-        # starved the GPU to 0% for eight hours and nothing said so until I looked at
-        # nvidia-smi. Rate is the diagnostic: if it is far under what the model alone
-        # can do, the loader is the problem, not the model.
-        for step, (ctx, px, angle, label, weight, depth) in enumerate(loader):
-            ctx, angle = ctx.to(dev), angle.to(dev)
-            px, label, weight, depth = px.to(dev), label.to(dev), weight.to(dev), depth.to(dev)
-            rot = rotate_batch(ctx, angle)
-            rpx = rotate_pixel(px, angle, size)
-            target = torch.zeros(ctx.shape[0], NUM_DEPTHS, size, size, device=dev)
-            wmap = torch.zeros_like(target)
-            paint(target, wmap, rpx, depth, label, weight)
-
-            pred = net(rot)
-            # lifelong_trainer.py:356 -- elementwise SmoothL1 times the weight map,
-            # summed and divided by the batch, NOT averaged over pixels. Zero-weight
-            # pixels contribute nothing, which is how only the painted patch trains.
-            loss = F.smooth_l1_loss(pred, target, beta=LOSS_BETA, reduction="none") * wmap
-            loss = loss.sum() / target.shape[0]
-            opt.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(net.parameters(), args.clip)
-            opt.step()
-            if epoch == 0 and step < WARMUP_ITERS:
-                a_w = step / WARMUP_ITERS          # torch_utils.warmup_lr_scheduler
-                for g in opt.param_groups:
-                    g["lr"] = args.lr * (0.001 * (1 - a_w) + a_w)
-            else:
-                cosine.step(epoch + step / max(len(loader), 1))
-            total += loss.item() * target.shape[0]
-            seen += target.shape[0]
-            recent.append(loss.item())
-            if step % 200 == 0:
-                rate = seen / max(time.time() - t_epoch, 1e-9)
-                # RECENT loss, not the running mean. The running mean hid a divergence
-                # for an entire epoch: it kept printing 1.8 while the model walked off.
-                win = sum(recent) / len(recent)
-                lr_now = opt.param_groups[0]["lr"]
-                print(f"  e{epoch} step {step}/{len(loader)} recent {win:.5f} "
-                      f"mean {total/max(seen,1):.5f} lr {lr_now:.2e} "
-                      f"{rate:.0f} samples/s", flush=True)
-                recent.clear()
-        mean = total / max(seen, 1)
-        rate = seen / max(time.time() - t_epoch, 1e-9)
-        history.append({"epoch": epoch, "loss": mean, "samples": seen,
-                        "samples_per_s": round(rate, 1)})
-        print(f"epoch {epoch} loss {mean:.5f} over {seen} samples at {rate:.0f}/s", flush=True)
-        torch.save({"model": net.state_dict(), "epoch": epoch, "args": vars(args)},
-                   out / f"more_epoch{epoch:03d}.pt")
+    for stage in stages(args.schedule, args.epochs, args.batch, args.lr):
+        train_stage(net, ds, stage, args, dev, size, out, history, stage.name)
     (out / "history.json").write_text(json.dumps(history, indent=1))
+    (out / "heldout_rooms.json").write_text(json.dumps(sorted(held)))
     print("done", flush=True)
 
 
