@@ -1,6 +1,6 @@
 ---
 type: experiment
-status: running
+status: complete
 created: 2026-11-24
 updated: 2026-11-24
 metric: "No-search (two pushes, raw-q arg-max, zero simulator calls while choosing) on held-out frozen keyhole600 problems, per arm, split by horizon and certificate tier: two-push solved; whether the first push is a useful setup (certificate lookup, and our build's own one-push finisher check); finish after one fixed certified setup (top pick opens, rank of the first opener); one-push solved after the first push as a regression control."
@@ -56,4 +56,33 @@ Test, launched with those two checkpoints on the 174 locked test problems:
 
 ## Result
 
-Pending.
+**Verdict [CLAUDE, one seed]: rejected as stated.** Setup credit did not change what the model tries first. With search off, both arms push a real setup first on about half the two-push problems (immediate 41/83, setup 40/83 on our build). The plan's prediction was that setup credit would improve exactly that first choice. With search on there is a lean toward the setup arm on two-push calls-to-solve (fewer calls on 34 problems vs 21, p = 0.105), not significant at one seed. Search off: 431 rows, search on: 348 rows, 0 technical errors in either (jobs `1423215`, `1423216`).
+
+Search off, locked test (83 two-push, 91 one-push), epoch-9 checkpoints:
+
+| measure | immediate | setup | paired: only immediate / only setup | p |
+|---|---|---|---|---|
+| two-push solved within 2 pushes | 31/83 (37%) | 29/83 (35%) | 8 / 6 | 0.79 |
+| by tier easy / medium / hard | 12/23, 15/35, 4/25 | 13/23, 14/35, 2/25 | | |
+| first push a useful setup (our build) | 41/83 (49%) | 40/83 (48%) | 7 / 6 | 1.00 |
+| first push a certified setup (certificate) | 40/83 | 39/83 | | |
+| solved after its own useful setup | 31/41 (76%) | 29/40 (72%) | | |
+| same certified setup: top pick opens | 43/80 (54%) | 47/80 (59%) | 4 / 8 | 0.39 |
+| same certified setup: mean rank of first opener | 3.6 | 2.7 | | |
+| one-push solved by the first push (control) | 72/91 | 73/91 | 4 / 5 | 1.00 |
+
+The fixed-setup panel covers 80 of 83 two-push problems; on 3 the certified setup has no finisher on our build. Our build agrees with Tri-An's certificate on the first-push setup flag on all but one problem per arm.
+
+Search on (best-first, 3000-call cap), solved within 5 / 30 / 100 calls and median calls:
+
+| | immediate | setup |
+|---|---|---|
+| two-push all (83) | 45 / 61 / 69, median 4 | 46 / 65 / 71, median 4 |
+| two-push easy (23) | 17 / 22 / 22, median 2 | 18 / 21 / 22, median 2 |
+| two-push medium (35) | 21 / 27 / 31, median 4 | 23 / 30 / 32, median 4 |
+| two-push hard (25) | 7 / 12 / 16, median 31 | 5 / 14 / 17, median 18 |
+| one-push all (91), within 1 / 5 / 30 | 72 / 83 / 89 | 73 / 85 / 90 |
+
+Paired calls-to-solve: two-push setup fewer on 34, immediate fewer on 21, ties 28 (p = 0.105); one-push 13 vs 8 (p = 0.38). The setup arm failed one hard two-push problem at the cap; the immediate arm failed none.
+
+Reading. The immediate arm never saw a positive target on a setup cell, yet it picks setups as often. UNVERIFIED HYPOTHESIS: setup pushes resemble opening pushes geometrically, so a model trained only on openers ranks them high anyway; comparing the two arms' scores on held-out setup cells would test it. The search-on lean, if real, would come from somewhere other than the first push, for example ranking inside the queue after a first failure. Settling either needs seeds 2 and 3 of both arms (about 3.5 h of training per pair on rlab1) and the same two tests.

@@ -925,3 +925,18 @@ The MORE-inspired MCTS planner (ResNet-34 FPN prior trained on a 39k-state pilot
 
 MORE loses to the best model on every tier at every budget: per problem it needs more calls on 416 of 600 and fewer on 51 (sign test p=3e-72). Against Random it is ahead only at the very start. Within 1 call it solves 40.3% of 1-push runs against Random's 23.5%. By 30 calls Random leads on 4 of 6 tiers, and at the cap MORE solves 87.3% of hard 2-push runs against Random's 94.2%. Per problem against Random it is a wash (280 fewer, 249 more, p=0.19). This is one point on MORE's learning curve, not MORE at full scale. Why its curve flattens is an UNVERIFIED HYPOTHESIS: rollout pushes count as calls and the tree policy has no exploration term, so it may keep rolling out below the same few states. Problems 303 and 599 fail on every CS machine, which costs MORE and the best model about 1 point on 2-push easy and hard, well below the gaps.
 
+
+## 2026-11-24: SPAR setup credit, matched pair, one seed
+
+Two models identical in code, data, seed, split and settings (HY5U no-family-local-edge, `LOWER_RANK_LAMBDA=0`, full `hybrid_train_v1`, 9 epochs picked on a dev set before the test), differing only in the value target of the 5.59M exact setup cells: 0.9 (loader 0.5) in the setup arm, 0 in the immediate arm. Locked test of 83 two-push and 91 one-push frozen keyhole600 problems whose rooms are not in the training data. Card [EXP-2026-11-24](log/EXP-2026-11-24-spar-setup-credit.md).
+
+| measure | immediate | setup | paired p |
+|---|---|---|---|
+| search off: two-push solved in 2 pushes | 31/83 | 29/83 | 0.79 |
+| search off: first push a useful setup | 41/83 | 40/83 | 1.00 |
+| search off: top pick opens after the same certified setup | 43/80 | 47/80 | 0.39 |
+| search on: two-push solved within 5 / 30 / 100 calls | 45 / 61 / 69 | 46 / 65 / 71 | |
+| search on: two-push problems needing fewer calls | 21 | 34 | 0.105 |
+| search on: hard two-push median calls | 31 | 18 | |
+
+Setup credit does not change what the model tries first: the immediate arm, which never saw a positive target on a setup, picks a real setup first as often. With search on the setup arm leans ahead on two-push calls-to-solve but not significantly. One seed; seeds 2 and 3 would settle the search-on lean.
