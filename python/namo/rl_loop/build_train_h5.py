@@ -38,9 +38,11 @@ from .buffer import SolveBuffer
 
 class _Renderer(LiveScorer):
     """LiveScorer without the model — render_ctx/contact_px_live only need the visualizer."""
-    def __init__(self, render_config: str, crop_m: float = CROP_M, num_depths: int = NUM_DEPTHS):
+    def __init__(self, render_config: str, crop_m: float = CROP_M, num_depths: int = NUM_DEPTHS,
+                 out: int = OUT):
         self.device = "cpu"
         self.model = None
+        self.out = int(out)
         self.crop_m = crop_m
         self.num_depths = num_depths
         from sage_learning.visualizer import NAMODataVisualizer, NAMOXMLParser

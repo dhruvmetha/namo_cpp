@@ -63,10 +63,15 @@ SKILL15_CFG = f"{REPO}/config/namo_config_complete_skill15_car_1x.yaml"
 class LiveScorer:
     """Loads the scorer + renderer once; scores a live env state."""
 
+    # Render size of this instance. Each scorer keeps its own: when it lived in the module global
+    # OUT, the last MORE scorer built in a process set the size for every scorer in it.
+    out = OUT
+
     def __init__(self, ckpt=DEFAULT_CKPT, render_config=SKILL15_CFG, device=None,
-                 num_depths=5, crop_m=CROP_M, network="edge_crossattn"):
+                 num_depths=5, crop_m=CROP_M, network="edge_crossattn", out=OUT):
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.model = load_scorer(ckpt, num_depths, self.device, network)
+        self.out = int(out)
         self.crop_m = crop_m
         self.num_depths = num_depths
         from sage_learning.visualizer import NAMODataVisualizer, NAMOXMLParser
@@ -138,7 +143,7 @@ class LiveScorer:
         }
 
     def render_ctx(self, env, target_object, robot_goal, xml_file, region_samples=None):
-        """Return (ctx (5,64,64) float32, meta dict)."""
+        """Return (ctx (5,out,out) float32, meta dict); out is this scorer's render size (64 by default)."""
         ep = self._episode_data(env, target_object, robot_goal, xml_file, region_samples)
         import io
         import contextlib
@@ -165,18 +170,18 @@ class LiveScorer:
         if res is None or res.get("local_tight") is None:
             raise RuntimeError("renderer returned None (missing target/region_goals_sampled)")
         lt = res["local_tight"]
-        chans = [cv2.resize(lt[k].astype(np.float32), (OUT, OUT), interpolation=cv2.INTER_AREA)
+        chans = [cv2.resize(lt[k].astype(np.float32), (self.out, self.out), interpolation=cv2.INTER_AREA)
                  for k in TIGHT]
         return np.stack(chans).astype(np.float32), res.get("local_tight_metadata", {})
 
     def contact_px_live(self, env, target_object):
-        """(60,2) edge contact pixels in the 64-frame — pure geometry from live pose/size."""
+        """(60,2) edge contact pixels in the out-px frame — pure geometry from live pose/size."""
         obs = env.get_observation()
         oi = env.get_object_info()
         th = obs[f"{target_object}_pose"][2]
         hw = oi[target_object]["size_x"]
         hd = oi[target_object]["size_y"]
-        return np.array([contact_px_fn(e, hw, hd, th, self.crop_m, OUT) for e in range(60)],
+        return np.array([contact_px_fn(e, hw, hd, th, self.crop_m, self.out) for e in range(60)],
                         dtype=np.float32)
 
     # -- scoring -----------------------------------------------------------------------------------
@@ -207,7 +212,7 @@ class LiveScorer:
 
     def warmup(self, repeats=DEFAULT_WARMUP_REPEATS):
         """Initialize the configured model/device with synthetic ranker inputs."""
-        ctx = np.zeros((len(CHANS), OUT, OUT), dtype=np.float32)
+        ctx = np.zeros((len(CHANS), self.out, self.out), dtype=np.float32)
         contact_px = np.zeros((CONTACT_COUNT, 2), dtype=np.float32)
         for _ in range(repeats):
             self.score_ctx(

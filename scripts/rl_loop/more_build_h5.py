@@ -117,12 +117,11 @@ def episodes(shards, offset):
 
 def build(shards, out_path, render_config, render_size=224, limit=0, offset=0):
     """Render every saved state of the shards' episodes into out_path; episode ordinals start at offset."""
-    live_scorer.OUT = render_size                       # before _Renderer reads it
     from namo.rl_loop.build_train_h5 import _Renderer, _rlstate
     from scorer_beam import make_env, FALLBACK_GOAL
     from namo.core.xml_goal_parser import extract_goal_with_fallback
 
-    renderer = _Renderer(render_config)
+    renderer = _Renderer(render_config, out=render_size)
     writer = _Writer(out_path, render_size)
     env_cache, skipped, n_eps = {}, 0, 0
     for ordinal, ep in episodes(shards, offset):

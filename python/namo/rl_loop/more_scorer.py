@@ -30,7 +30,8 @@ from namo.rl_loop.more_net import MorePushNet, push_angles, read_contact_values
 from namo.rl_loop.more_training import rotate_batch, rotate_pixel
 
 NUM_EDGES, NUM_DEPTHS = 60, 5
-RENDER_SIZE = 224
+RENDER_SIZE = 224           # PushNet's input size; each scorer passes its own size to its renderer
+ECA_RENDER_SIZE = 64        # EdgeCrossAttn's input size
 PATCH = 3                    # mcts_utils.py:929 reads a 7x7 window, so a half-width of 3
 
 
@@ -38,8 +39,6 @@ class MoreScorer:
     """MORE's PushNet behind the scorer interface the search already speaks."""
 
     def __init__(self, ckpt, render_config, device=None, batch=60):
-        import live_scorer
-        live_scorer.OUT = RENDER_SIZE            # must be set before the renderer reads it
         from namo.rl_loop.build_train_h5 import _Renderer
 
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
@@ -49,7 +48,7 @@ class MoreScorer:
         self.net = MorePushNet(in_channels=in_ch, num_depths=NUM_DEPTHS)
         self.net.load_state_dict(weights)
         self.net.to(self.device).eval()
-        self.renderer = _Renderer(render_config)
+        self.renderer = _Renderer(render_config, out=RENDER_SIZE)
         self.batch = batch
 
     def warmup(self, repeats=1):
@@ -108,16 +107,16 @@ class MoreEcaScorer:
 
     def __init__(self, ckpt, render_config=None, device=None):
         import live_scorer
-        live_scorer.OUT = 64                     # EdgeCrossAttn's input size; set before rendering
-        kw = {"ckpt": ckpt, "device": device or ("cuda" if torch.cuda.is_available() else "cpu")}
+        kw = {"ckpt": ckpt, "device": device or ("cuda" if torch.cuda.is_available() else "cpu"),
+              "out": ECA_RENDER_SIZE}
         if render_config:
             kw["render_config"] = render_config
         self._live = live_scorer.LiveScorer(**kw)
         self.device = self._live.device
 
     def warmup(self, repeats=1):
-        ctx = np.zeros((5, 64, 64), np.float32)
-        cpx = np.full((NUM_EDGES, 2), 32.0, np.float32)
+        ctx = np.zeros((5, ECA_RENDER_SIZE, ECA_RENDER_SIZE), np.float32)
+        cpx = np.full((NUM_EDGES, 2), ECA_RENDER_SIZE / 2, np.float32)
         for _ in range(max(repeats, 1)):
             self.score_ctx(ctx, cpx)
 
