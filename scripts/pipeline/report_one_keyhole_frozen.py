@@ -3,8 +3,11 @@
 
 Every table splits by horizon (1-push, 2-push) and certificate tier (easy, medium, hard).
 Scoring matches report_full_namo_rerun.py: a failed run costs infinite simulator calls.
-Arms group into families by dropping the _sN seed suffix. Family numbers pool the three
-seeds; seed spreads come from per-seed values. Random is Tri-An's five uniform seeds on the
+Arms group into families by dropping the _sN seed tag, at the end of the name (HY5U_s1) or
+inside it (eca_s1_ppn -> eca_ppn). An arm's optional "label" names its family in the tables.
+Family numbers pool the seeds; seed spreads come from per-seed values. Per-problem pairings
+count fewer / same / more calls and give a two-sided exact sign test on fewer vs more (ties
+dropped). Random is Tri-An's five uniform seeds on the
 same problems (references-v1, with references-identity-repair-v2 for the 11 problems he
 repaired).
 
@@ -77,8 +80,17 @@ def table(runs_by_seed, problems, keep=None):
     return out
 
 
+def sign_test(fewer, more):
+    """Two-sided exact sign test (binomial, p = 1/2) on the untied pairs."""
+    n = fewer + more
+    if n == 0:
+        return 1.0
+    return min(1.0, 2.0 * sum(math.comb(n, i) for i in range(min(fewer, more) + 1)) / 2 ** n)
+
+
 def compare(first, second, problems):
-    """Per problem, the median cost over seeds of `first` against `second`: fewer, same or more calls."""
+    """Per problem, the median cost over seeds of `first` against `second`: fewer, same or more calls,
+    and the sign test's p on fewer vs more."""
     counts = defaultdict(lambda: dict(fewer=0, same=0, more=0))
     for pid, problem in problems.items():
         a = statistics.median(cost(rows[pid]) for rows in first.values())
@@ -86,7 +98,15 @@ def compare(first, second, problems):
         key = "fewer" if a < b else "more" if a > b else "same"
         for name in (f"{problem['horizon']}push_{problem['difficulty']}", f"{problem['horizon']}push_all", "all"):
             counts[name][key] += 1
+    for c in counts.values():
+        c["sign_test_p"] = sign_test(c["fewer"], c["more"])
     return dict(counts)
+
+
+def family_and_seed(name):
+    """HY5U_s1 -> (HY5U, 1); eca_s1_ppn -> (eca_ppn, 1)."""
+    head, seed, tail = re.fullmatch(r"(.+?)_s(\d+)(_.+)?", name).groups()
+    return head + (tail or ""), int(seed)
 
 
 def load_ours(folders, arms, problems, expect_sha):
@@ -142,8 +162,10 @@ def main():
     ours = load_ours(args.results, arms, problems, args.expect_source_sha256)
     families = defaultdict(dict)
     for arm in arms:
-        family, seed = re.fullmatch(r"(.+)_s(\d+)", arm["name"]).groups()
-        families[family][int(seed)] = ours[arm["name"]]
+        family, seed = family_and_seed(arm["name"])
+        families[family][seed] = ours[arm["name"]]
+        if "label" in arm:
+            LABEL[family] = arm["label"]
     families["Random"] = {seed: load_references(args.references, f"random_s{seed}", problems) for seed in RANDOM_SEEDS}
     tri_an_s2 = load_references(args.references, "HY5U_s2_search", problems)
 
@@ -221,10 +243,12 @@ def print_tables(report):
     block("Median calls until solved (a failed run counts as infinite)",
           lambda s: ">3000" if s["median_calls_until_success"] is None else f"{s['median_calls_until_success']:g}")
     for base, versus in [("HY5U", report["versus_hy5u"])] + list(report.get("versus", {}).items()):
-        print(f"\nPer problem against {LABEL.get(base, base)} (median over seeds): fewer / same / more calls\n{header}")
+        print(f"\nPer problem against {LABEL.get(base, base)} (median over seeds): fewer / same / more calls, "
+              f"two-sided sign test p on fewer vs more\n{header}")
         for family, counts in versus.items():
             print(f"| {LABEL.get(family, family)} | " + " | ".join(
-                f"{counts[c]['fewer']} / {counts[c]['same']} / {counts[c]['more']}" for c in columns) + " |")
+                f"{counts[c]['fewer']} / {counts[c]['same']} / {counts[c]['more']}, p={counts[c]['sign_test_p']:.2g}"
+                for c in columns) + " |")
     check = report["hy5u_s2_vs_tri_an"]
     print(f"\nHY5U_s2 against Tri-An's HY5U_s2 run: same solved {check['same_solved']}/{check['problems']}, "
           f"identical solved and calls {check['identical']}/{check['problems']}")
