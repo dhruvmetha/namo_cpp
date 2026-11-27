@@ -940,3 +940,20 @@ Two models identical in code, data, seed, split and settings (HY5U no-family-loc
 | search on: hard two-push median calls | 31 | 18 | |
 
 Setup credit does not change what the model tries first: the immediate arm, which never saw a positive target on a setup, picks a real setup first as often. With search on the setup arm leans ahead on two-push calls-to-solve but not significantly. One seed; seeds 2 and 3 would settle the search-on lean.
+
+## 2026-11-27: SPAR against MORE trained on the same states
+
+SPAR (registered recipe, best validation checkpoint) and MORE's PushNet (faithful port of arc-l/more `70402c0`, MORE's labels and recipe) each trained on 761,799 states from the same 53,364 rooms, with the same held-out rooms; 3 seeds each. Frozen one-keyhole 600 at 1 mm, 595 problems on CS (5 arrakis-only problems not run), 3000-call cap, 2 pushes. SPAR rows on CPU, MORE rows on GPU; only calls are compared. Percent of runs solved, seeds pooled; per problem, SPAR fewer / same / more calls against MORE's own search, two-sided sign test. Card [EXP-2026-11-27](log/EXP-2026-11-27-more-spar-equal-rooms.md); registry rows `spar-equal-states-keyhole600-1mm-v1`, `more-equal-states-keyhole600-1mm-gpu-v1`.
+
+| tier | SPAR within 5 / 30 / 100 | MORE search within 5 / 30 / 100 | MORE best-first within 5 / 30 / 100 | median calls SPAR / MORE search | SPAR vs MORE search |
+|---|---|---|---|---|---|
+| 1-push easy | 99.7 / 100 / 100 | 92.6 / 100 / 100 | 98.3 / 100 / 100 | 1 / 1 | 29 / 66 / 4, p = 1.1e-5 |
+| 1-push medium | 93.3 / 97.0 / 97.7 | 89.3 / 98.0 / 99.0 | 92.7 / 98.0 / 98.7 | 1 / 1 | 27 / 58 / 15, p = 0.088 |
+| 1-push hard | 81.8 / 92.3 / 97.6 | 63.0 / 89.6 / 92.3 | 65.3 / 93.6 / 94.9 | 2 / 3 | 56 / 22 / 21, p = 8.2e-5 |
+| 2-push easy | 77.4 / 91.9 / 96.3 | 62.6 / 88.9 / 93.9 | 58.9 / 87.9 / 94.3 | 3 / 4 | 49 / 24 / 26, p = 0.011 |
+| 2-push medium | 50.8 / 81.8 / 89.9 | 26.9 / 64.6 / 87.2 | 26.9 / 69.7 / 84.5 | 6 / 13 | 72 / 9 / 18, p = 8.1e-9 |
+| 2-push hard | 30.0 / 58.6 / 72.4 | 9.1 / 31.0 / 49.2 | 10.1 / 30.6 / 49.5 | 15 / 108 | 72 / 4 / 23, p = 4.8e-7 |
+
+No search (the network's top push, at most 2 pushes, MORE's `ppn_main.py` loop for both networks), solved within 2 calls, SPAR-Policy vs MORE's network: 1-push easy 97.0 vs 91.9 (p = 0.23), medium 89.0 vs 83.3 (p = 0.47), hard 62.3 vs 43.8 (p = 4.7e-4); 2-push easy 62.0 vs 36.4 (p = 1.2e-4), medium 35.0 vs 11.8 (p = 1.1e-5), hard 13.5 vs 3.4 (p = 0.0018).
+
+With equal training states SPAR still solves in fewer calls, with the widest gap on two-push problems. Against best-first with MORE's network the per-problem result is the same except 1-push easy and medium (p = 0.15, 0.38). MORE on these states is level with MORE trained on the 24.6M-call cut; SPAR on these states gives up a little against SPAR on all its data (1-push hard, 2-push easy and medium, p 0.011 to 0.029). MORE's states came from a larger collection budget (43.1M calls against part of SPAR's 24.6M).

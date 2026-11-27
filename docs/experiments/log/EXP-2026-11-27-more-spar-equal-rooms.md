@@ -1,6 +1,6 @@
 ---
 type: experiment
-status: running
+status: done
 created: 2026-11-27
 updated: 2026-11-27
 metric: "Frozen one-keyhole 600 at 1 mm, 3000-call cap: solved within 1, 5, 30, 100 and 3000 simulator calls and median calls, by horizon (1-push/2-push) and certificate tier (easy/medium/hard), for SPAR and MORE's PushNet trained on the same rooms with the same number of training states per room; per-problem paired fewer-vs-more call counts with a two-sided sign test."
@@ -54,3 +54,45 @@ MORE moved to GPU at 13:25 [USER 2026-11-27: "What if we dont care about timing.
 Network alone, no search [USER 2026-11-27, on MORE's native deploy loop: "Why do we need this? Our model has no physics change no, so the planner and the execution will be the same"; on MORE's network-only baseline: "Yes, this should be compared with SPAR-Policy". Then "Go"]. MORE's native loop (50 search iterations, execute the best push, search again) is not run here: the runner executes the state the search already simulated, so re-planning gains nothing and native only adds commitment. Both networks instead run alone through one loop, `more_stop_mode: "ppn"` in `more_vendor.py` (MORE's `ppn_main.py:380-470`): execute the network's top push at the live state, check the goal, at most 2 pushes, so at most 2 calls; a push that moves nothing is dropped and the next best is tried. SPAR-Policy (`eval/arms_spar_policy.json`, job `1450430`) feeds SPAR's ranker scores into that loop through `candidates()`, the pool best-first uses, on CPU like SPAR's other rows. MORE's (`eval/arms_more_ppn_gpu.json`, job `1450431`) runs on GPU like MORE's other rows. Check: on 1-push problems, SPAR-Policy solved at 1 call must equal SPAR best-first solved at 1 call, since both execute the same top push. Native and ppn arms queued at 14:36 were cancelled before they started.
 
 ## Result
+
+Trained on the same 761,799 states from the same 53,364 rooms, SPAR solves in fewer simulator calls than MORE. With search, it is ahead of MORE's own search per problem in five of six tiers, and the gap is largest on two-push problems (2-push hard median 15 calls against 108). With no search, SPAR's network alone solves more problems within its 2 pushes on every tier, significantly on 1-push hard and all three 2-push tiers. MORE's data advantage in the earlier comparison does not explain SPAR's lead.
+
+Population: 595 problems on CS (40, 277, 373, 463, 504 need arrakis, which is down), 3 seeds per method. SPAR's rows ran on CPU, MORE's on GPU (RTX A4000); only calls are compared. Percent of runs solved, seeds pooled; median = median over problems of the per-problem median calls; per problem, the median calls over 3 seeds, SPAR fewer / same / more, two-sided exact sign test (`eval/compare_equal_states.py`, outputs `eval/compare_search.txt`, `eval/compare_policy.txt`, `eval/compare_random_fulldata.txt`; plot `eval/plots/success_vs_sims_equal_states.png`).
+
+With search (3000-call cap, 2 pushes). SPAR is best-first; "MORE search" is MORE's own MCTS stopped at the first verified opening; "MORE best-first" is our search with MORE's network.
+
+| tier | arm | within 5 | within 30 | within 100 | by 3000 | median calls | SPAR vs this arm |
+|---|---|---:|---:|---:|---:|---:|---|
+| 1-push easy | SPAR | 99.7 | 100.0 | 100.0 | 100.0 | 1 | |
+| | MORE search | 92.6 | 100.0 | 100.0 | 100.0 | 1 | 29 / 66 / 4, p = 1.1e-5 |
+| | MORE best-first | 98.3 | 100.0 | 100.0 | 100.0 | 1 | 9 / 87 / 3, p = 0.15 |
+| 1-push medium | SPAR | 93.3 | 97.0 | 97.7 | 100.0 | 1 | |
+| | MORE search | 89.3 | 98.0 | 99.0 | 100.0 | 1 | 27 / 58 / 15, p = 0.088 |
+| | MORE best-first | 92.7 | 98.0 | 98.7 | 100.0 | 1 | 19 / 68 / 13, p = 0.38 |
+| 1-push hard | SPAR | 81.8 | 92.3 | 97.6 | 100.0 | 2 | |
+| | MORE search | 63.0 | 89.6 | 92.3 | 100.0 | 3 | 56 / 22 / 21, p = 8.2e-5 |
+| | MORE best-first | 65.3 | 93.6 | 94.9 | 100.0 | 3 | 55 / 22 / 22, p = 2.2e-4 |
+| 2-push easy | SPAR | 77.4 | 91.9 | 96.3 | 99.0 | 3 | |
+| | MORE search | 62.6 | 88.9 | 93.9 | 99.0 | 4 | 49 / 24 / 26, p = 0.011 |
+| | MORE best-first | 58.9 | 87.9 | 94.3 | 99.0 | 4 | 56 / 21 / 22, p = 1.5e-4 |
+| 2-push medium | SPAR | 50.8 | 81.8 | 89.9 | 100.0 | 6 | |
+| | MORE search | 26.9 | 64.6 | 87.2 | 99.7 | 13 | 72 / 9 / 18, p = 8.1e-9 |
+| | MORE best-first | 26.9 | 69.7 | 84.5 | 99.7 | 13 | 72 / 8 / 19, p = 2.0e-8 |
+| 2-push hard | SPAR | 30.0 | 58.6 | 72.4 | 97.0 | 15 | |
+| | MORE search | 9.1 | 31.0 | 49.2 | 94.3 | 108 | 72 / 4 / 23, p = 4.8e-7 |
+| | MORE best-first | 10.1 | 30.6 | 49.5 | 95.3 | 125 | 74 / 5 / 20, p = 1.8e-8 |
+
+No search: the network's top push at the live state, at most 2 pushes (MORE's `ppn_main.py` loop for both). SPAR-Policy solved at 1 call equals SPAR best-first solved at 1 call on all 894 one-push runs, as it must.
+
+| tier | SPAR-Policy within 1 / 2 | MORE network within 1 / 2 | SPAR vs MORE |
+|---|---|---|---|
+| 1-push easy | 93.6 / 97.0 | 83.8 / 91.9 | 8 / 88 / 3, p = 0.23 |
+| 1-push medium | 78.0 / 89.0 | 68.7 / 83.3 | 18 / 69 / 13, p = 0.47 |
+| 1-push hard | 41.1 / 62.3 | 24.2 / 43.8 | 37 / 50 / 12, p = 4.7e-4 |
+| 2-push easy | 0 / 62.0 | 0 / 36.4 | 31 / 61 / 7, p = 1.2e-4 |
+| 2-push medium | 0 / 35.0 | 0 / 11.8 | 29 / 66 / 4, p = 1.1e-5 |
+| 2-push hard | 0 / 13.5 | 0 / 3.4 | 13 / 85 / 1, p = 0.0018 |
+
+Against Random (594 problems; 539 lacks two faithful-card rows), SPAR on these states takes fewer calls on every tier (p ≤ 7.4e-12). MORE's search does too except 1-push easy (38 / 33 / 28, p = 0.27), and MORE best-first on every tier (p ≤ 2.2e-4). Against each method's full-data models: MORE on these states is level with MORE trained on the 24.6M-call cut on every tier with its own search (p ≥ 0.098), and with best-first only 1-push hard moves (22 / 37 / 40 against the 24.6M model, p = 0.03); SPAR on these states loses some ground to SPAR on all its data on 1-push hard (p = 0.029), 2-push easy (p = 0.011) and 2-push medium (p = 0.017), and is level on 2-push hard (p = 0.91). So the smaller dataset costs SPAR a little and MORE nothing, and SPAR still leads.
+
+Caveats. MORE's states came out of its 43.1M-call collection, SPAR's out of part of its 24.6M, so MORE had the larger collection budget. MORE's rows are GPU rows: a 26 Nov check found 2 of 4 GPU units one call off their CPU rows, which is noise at this scale but means the MORE rows are not bit-identical to a CPU run. MORE's native deploy loop (search, execute, search again) is not reported, by the user's call above.
