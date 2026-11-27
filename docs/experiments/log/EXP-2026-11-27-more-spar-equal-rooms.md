@@ -33,4 +33,10 @@ Evaluation. Same population, runner and protocol as the faithful card (`run_one_
 
 ## Run
 
+Rooms (`select_equal_room_states.py rooms`, `select/rooms.json`). MORE has at least one state in 59,220 rooms: 734 of the 59,954 rooms with an episode saved no state. All 59,220 are SPAR rooms, and SPAR has 846,420 of its 1,302,659 states on them (`spar_eqr.h5`, 2.75 GB, sha256 `48159e67`). MORE has 3,192,809 states on them. SPAR's trainer split on this file (`spar-split`, its own `Q2DataModule` from `fc34b320`): 761,799 training states in 53,364 rooms, 84,621 held out in 5,856 rooms. MORE gets the same 761,799 states from the same 53,364 rooms.
+
+Part 5 build on Amarel. The first smoke (`64509410`, 8 GB) was killed for memory while copying the 8.4 GB conda env into its tmpfs; at 20 GB (`64510601`) the env copy took 17 min and the chunk 12 min. The Amarel-built `p00_0000` equals CS `build224/p0000.h5` in every dataset, byte for byte (`compare_parts.py`). Full build: array `64512413`, 15 tasks × 10 CPUs on Gold 6230R, 148 chunks. `more_data_chain.sh` then copies the parts to CS, joins them (`more_merge_h5.py` at `2ed6206a`), checks the state total against the collection JSONL, draws MORE's states (`more-rows`) and writes `more_eqr_224.h5`.
+
+Training placement. arrakis stopped answering ping and ssh at about 03:55 on 2026-11-27, before any job started there. ilab3's 8 GPUs are all allocated and our CS association runs on one node at a time (`AssocGrpNodeLimit`), and Amarel's GPU partitions had 732 jobs waiting. So all six runs train on westeros RTX 2080 Ti cards, the last-resort box, one run per GPU (tmux `eqr_train`, `run_queue.sh` + `train_eqr.sh`): SPAR seeds 1-3 on GPUs 0-2 from 04:00 and 04:12 (fp16 mixed precision, as registered; epoch 0 took 11 min), MORE seeds 1-3 on GPUs 3-5 once `more_eqr_224.h5` exists. Both methods train on the same GPU type.
+
 ## Result
